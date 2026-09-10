@@ -4618,7 +4618,11 @@ _THEN = r"(?:then )?"
 _PREVIOUS_SUBJECT = r"(?:it|that creature|the chosen creature)"
 _FIGHT_TWO_TARGETS_RE = _c(rf"{TARGET} fights {_ANOTHER_B}{_TARGET_B}")
 _FIGHT_SELF_RE = _c(rf"(?:have )?{re.escape(SELF)} fights? {_ANOTHER}{TARGET}")
-_FIGHT_PRONOUN_RE = _c(rf"(?:have )?it fights? {_ANOTHER}{TARGET}")
+# "it" / a personified legendary's "he"/"she"/"they" — all name the source
+# creature (RULE 109.5), never a player (MTG writes "they" for players only
+# as a *subject of a player action*, never "they fight"). Wolverine, Fierce
+# Fighter: "When Wolverine enters, he fights up to one other target creature."
+_FIGHT_PRONOUN_RE = _c(rf"(?:have )?(?:it|he|she|they) fights? {_ANOTHER}{TARGET}")
 _FIGHT_ATTACHED_RE = _c(rf"(?:have )?{_ATTACHED_SUBJECT} fights? {_ANOTHER}{TARGET}")
 _FIGHT_PREVIOUS_RE = _c(
     rf"{_THEN}(?:have )?{_PREVIOUS_SUBJECT} fights? {_ANOTHER}{TARGET}"
@@ -6953,6 +6957,67 @@ def _lockdown(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     ]
 
 
+# "fateseal N" (RULE 701.29a) — scry on an *opponent's* library. `FateSeal
+# Effect` (registered `fateseal`) auto-picks the opponent (first living one,
+# a documented simplification like Clash's). The optional leading "you " is
+# the redundant subject a trigger body spells out; "you may fateseal N"
+# (Mesmeric Sliver's quoted grant) reaches this after `_peel_optional`
+# strips the "you may", the ability itself carrying `optional=True`.
+def _fateseal(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("fateseal", {"count": int(m.group("n"))})]
+
+
+# RULE 701.69a "heal all damage from <permanent>" / "damage … dealt to
+# <permanent> is healed" — remove all marked damage (`HealEffect` /
+# `RulesEngine.heal`). Only ever prints for "all" damage, never "heal N".
+# The Wolverine, Fierce Fighter "…is healed" *replacement* clause is a
+# separate recognizer (`replacements._HEAL_OTHERS_ON_DAMAGE_RE`).
+_HEAL_GROUP_SELECTOR = {
+    "each creature you control": "creatures_you_control",
+    "creatures you control": "creatures_you_control",
+    "each creature": "all_creatures",
+    "all creatures": "all_creatures",
+}
+_HEAL_RE = _c(
+    r"(?:heal all damage (?:from|dealt to|marked on)|(?:all )?damage (?:already )?dealt to) "
+    r"(?P<who>~|it|this creature|each creature you control|"
+    r"creatures you control|each creature|all creatures)"
+    r"(?: is healed)?"
+)
+
+
+def _heal(m: re.Match[str]) -> list[EffectSpec]:
+    # ~/it/this creature → self (no selector); group phrases → a
+    # `group_selector_objects` name. No "target creature" form: no card
+    # prints one, and emitting a target-less `heal` would silently claim
+    # nothing.
+    selector = _HEAL_GROUP_SELECTOR.get(m.group("who").lower())
+    return [EffectSpec("heal", {"selector": selector} if selector else {})]
+
+
+# RULE 701.42a "if you both own and control ~ and a[n] <type> named <X>,
+# exile them, then meld them into <Y>." — the body of a meld card's own
+# activated ability ({cost}: … , Hanweir Battlements / Urza, Lord Protector)
+# or a phase trigger (`segmenter._MELD_TRIGGER_RE` reaches the same builder).
+# The leading "if you both own and control" RULE 603.4 gate is dropped:
+# `MeldEffect` re-checks own+control of the named partner at resolution and
+# fails closed (nothing exiled) if it isn't there, so the outcome is
+# identical. Partner/result names carry commas ("Bruna, the Fading Light"),
+# so the two are pinned by the fixed ", exile them, then meld them into "
+# and end-of-clause anchors.
+_MELD_BODY_RE = _c(
+    r"if you both own and control ~ and (?:an?|the) [a-z ]*?named (?P<partner>.+?), "
+    r"exile them, then meld them into (?P<result>.+?)"
+)
+
+
+def _meld(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("meld", {
+        "partner_name": m.group("partner").strip(),
+        "result_name": m.group("result").strip(),
+    })]
+
+
 def _scry_or_surveil(m: re.Match[str]) -> list[EffectSpec]:
     # "[you] scry N" (RULE 701.18) / "[you] surveil N" (RULE 701.31) —
     # identical grammar and params, differing only in which verb was
@@ -7514,6 +7579,33 @@ def _incubate_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 # (Marvo, Deep Operative) with no branch at all is the whole clause.
 def _clash(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("clash", {})]
+
+
+# RULE 706.1: "Roll a d20." / "Roll a six-sided die." / "Roll two d6." —
+# `RulesEngine.roll_die` / `effects.RollDieEffect` (registered as
+# ``roll_die``) own the roll, the `EventType.DICE_ROLLED` firing and RULE
+# 706.3a's optional results table (attached by `gate._split_dice_table_
+# block`, never by this bare-clause handler). This handler is only the roll
+# itself — the whole clause for a card that rolls and then reads the result
+# in a *separate* sentence (Barbarian Class' "+2/+0" tail is its own
+# `whenever you roll` trigger), or as an activated/ETB body the ordinary
+# `<cost>:`/`when ~ enters,` wrappers pick up once the roll parses.
+_DICE_COUNT_WORDS = {"a": 1, "two": 2, "three": 3, "2": 2, "3": 3}
+_ROLL_DIE_RE = _c(
+    r"roll (?:a|(?P<c>two|three|\d+)) "
+    r"(?:d(?P<sides_d>\d+)|(?P<sides_s>\d+)-sided (?:die|dice))"
+)
+
+
+def _roll_die(m: re.Match[str]) -> list[EffectSpec]:
+    sides = int(m.group("sides_d") or m.group("sides_s"))
+    count = _DICE_COUNT_WORDS.get((m.group("c") or "a").lower())
+    if count is None:  # a spelled count outside the small known set — fail closed
+        return None
+    params: dict = {"sides": sides}
+    if count != 1:
+        params["count"] = count
+    return [EffectSpec("roll_die", params)]
 
 
 # --- MEC-50: Clash (RULE 701.30) win/otherwise-branch bodies. Each is the
@@ -11425,6 +11517,25 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"(?:you )?(?P<verb>scry|surveil) {NUMBER}"),
         _scry_or_surveil,
     ),
+    # "fateseal N" (RULE 701.29a) — scry aimed at an opponent's library.
+    EffectHandler(
+        "fateseal",
+        _c(rf"(?:you )?fateseal {NUMBER}"),
+        _fateseal,
+    ),
+    # "heal all damage from ~ / each creature you control" (RULE 701.69a).
+    EffectHandler(
+        "heal",
+        _HEAL_RE,
+        _heal,
+    ),
+    # "if you both own and control ~ and a … named X, exile them, then meld
+    # them into Y" (RULE 701.42a) — a meld card's activated-ability body.
+    EffectHandler(
+        "meld",
+        _MELD_BODY_RE,
+        _meld,
+    ),
     EffectHandler(
         "look_top_reorder",
         _LOOK_TOP_REORDER_RE,
@@ -11610,6 +11721,12 @@ HANDLERS: list[EffectHandler] = [
         "clash",
         _c(r"clash with (?:an opponent|defending player)"),
         _clash,
+    ),
+    # "roll a d20" / "roll a six-sided die" / "roll two d6" (RULE 706.1).
+    EffectHandler(
+        "roll_die",
+        _ROLL_DIE_RE,
+        _roll_die,
     ),
     # MEC-50: Clash win/otherwise-branch bodies (RULE 701.30d).
     EffectHandler(

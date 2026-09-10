@@ -183,6 +183,15 @@ class EventType:
     #: and ``chapter`` (the new level), the same convention as SAGA_CHAPTER,
     #: so a rare "when this Class becomes level N" trigger can scope by both.
     CLASS_LEVEL = "CLASS_LEVEL"
+    #: RULE 701.42a: two cards of a meld pair were melded — exiled and
+    #: returned to the battlefield as a *single* new permanent, back faces
+    #: combined. Carries ``instance_id``/``controller_id``/``object_types``
+    #: of the melded permanent and ``object`` (its name), so "when ~ melds"
+    #: could bind the same way as `MUTATES` (no cached card triggers on it
+    #: yet). Fired by `RulesEngine.meld` after the permanent enters. RULE
+    #: 712.19's separation when it later leaves is handled by
+    #: `RulesEngine._split_melded_after_move`, not an event.
+    MELDED = "MELDED"
     #: RULE 702.140b: a mutating creature merged onto a host — carries
     #: ``instance_id`` (the surviving merged permanent, which per RULE
     #: 702.140c is the *same* permanent, never a new object) and
@@ -197,6 +206,16 @@ class EventType:
     #: and put any number of them into their graveyard, the rest staying on
     #: top in any order (no bottoming option, unlike SCRY).
     SURVEIL = "SURVEIL"
+    #: A player fatesealed (RULE 701.29a): looked at the top N of an
+    #: *opponent's* library and put any number on the bottom, the rest back
+    #: on top in any order — scry aimed at someone else's deck. Carries
+    #: ``player_id`` (the fatesealer, the SCRY/SURVEIL player-subject
+    #: convention), ``count`` (how many were actually looked at) and
+    #: ``opponent_id`` (whose library it was). Fired by `RulesEngine.
+    #: fateseal` before the interactive decision, like SCRY/SURVEIL. No
+    #: cached card triggers on "whenever you fateseal" yet; the row keeps
+    #: the keyword-action family's fire-an-event convention ready for one.
+    FATESEALED = "FATESEALED"
     #: A permanent explored (RULE 701.44b) — fired after the whole process
     #: (reveal top card; land → hand, else +1/+1 counter + may bin the
     #: revealed card), even if some or all of it was impossible. Carries
@@ -536,6 +555,33 @@ class EventType:
     #: (no card in this set triggers off an individual reveal), but captured
     #: so the event log stays complete.
     REVEAL = "REVEAL"
+
+    #: RULE 706: a player is *about to* roll one or more dice — fired
+    #: pre-emptively by `RulesEngine.roll_die` before any die is rolled, so a
+    #: "if you would roll one or more dice, instead roll that many dice plus
+    #: N and ignore the lowest roll" replacement (RULE 706.3-adjacent
+    #: advantage/disadvantage — Pixie Guide, Barbarian Class, Wet Sock) can
+    #: rewrite ``count``/``ignore_lowest``/``ignore_highest`` before the roll
+    #: happens. Carries ``player_id``/``controller_id`` (the rolling player),
+    #: ``sides``, ``count``, ``ignore_lowest``, ``ignore_highest``. Distinct
+    #: from `DICE_ROLLED` below, which fires *after* the roll (a trigger
+    #: source, not a replaceable pre-event) — the same `LIFE_GAIN`/
+    #: `LIFE_GAINED` split every other replaceable keyword action uses.
+    ROLL_DICE = "ROLL_DICE"
+    #: RULE 706: a player has rolled one or more dice — fired once per roll
+    #: instruction by `RulesEngine.roll_die` after the results are settled
+    #: (RULE 706.3b: the whole instruction, its modifiers and its results
+    #: table are one ability, so one event, never one per die). Carries
+    #: ``player_id``/``controller_id`` (the roller, the SCRY/SURVEIL
+    #: player-subject convention `_GROUP_CONTROLLER_EVENT_KEYS` reads),
+    #: ``results`` (the kept natural results, list[int], after any
+    #: ignore-lowest/highest rider), ``natural_results`` (every die rolled,
+    #: pre-rider), ``total`` (their sum — RULE 706.3a's "the result" for a
+    #: results table), ``sides`` and ``doubles`` (RULE 706.5 — every kept
+    #: result equal, and more than one die). Powers "whenever you roll one or
+    #: more dice, …" (Farideh, Devil's Chosen / Vrondiss, Rage of Ancients /
+    #: Barbarian Class).
+    DICE_ROLLED = "DICE_ROLLED"
 
     # Win/loss (RULE 104, RULE 704).
     PLAYER_WOULD_LOSE = "PLAYER_WOULD_LOSE"

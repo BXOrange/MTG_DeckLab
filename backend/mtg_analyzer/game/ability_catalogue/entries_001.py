@@ -77,7 +77,7 @@ def _clever_impersonator() -> list[AbilitySpec]:
     nonland permanent on the battlefield, except it's an artifact in
     addition to its other types.
 
-    — Clever Impersonator (RULE 706/707 "become a copy" / RULE 614.1c/614.12
+    — Clever Impersonator (RULE 707 "become a copy" / RULE 614.1c/614.12
     "as ~ enters" replacement timing, `enter_as_copy` /
     `RulesEngine._offer_enter_as_copy`). The choice — copy target X, or
     decline — is offered and resolved *before* this object is ever added to
@@ -159,7 +159,7 @@ def _vesuvan_shapeshifter() -> list[AbilitySpec]:
     simplification tier as other documented ones in this file). Per the real
     Vesuvan Shapeshifter ruling, copying a creature with no similar ability
     *locks in* — the copied creature's own abilities replace this one's
-    `conditional_copy`/`set_copy_target` entirely (RULE 706.2), so there's
+    `conditional_copy`/`set_copy_target` entirely (RULE 707.2), so there's
     nothing left to revert or re-target with until something else grants an
     equivalent ability.
     """
@@ -190,7 +190,7 @@ def _sakashima_of_a_thousand_faces() -> list[AbilitySpec]:
 
     — MEC-12 (cEDH staples 2). Two specs: the ordinary `enter_as_copy`
     replacement (``target_kind="creature_you_control"``,
-    ``keep_own_abilities=True`` — RULE 706.2 would otherwise erase
+    ``keep_own_abilities=True`` — RULE 707.2 would otherwise erase
     Sakashima's own printed abilities entirely, but the "except" clause adds
     them back onto the copy, snapshotted before the copy runs and reattached
     after in `_resume_enter_as_copy`); and a standing
@@ -276,7 +276,7 @@ def _imposter_mech() -> list[AbilitySpec]:
 
     — MEC-12 (cEDH staples 2). The printed "Crew 3" (own copy, before any
     "enters as a copy" choice) is already parser-claimed for free; the
-    "except" clause needs `only_types` (RULE 706.2's copiable card types
+    "except" clause needs `only_types` (RULE 707.2's copiable card types
     replaced wholesale, not appended — `Card.as_copy` moves the copied
     creature's power/toughness to the vehicle-style slot since a
     non-creature can't carry plain `power`/`toughness`) plus `add_subtypes`

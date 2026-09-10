@@ -242,6 +242,15 @@ class GameObject:
         #: is turned face up — nothing keeps a card face down across a zone
         #: change (RULE 400.7).
         self.face_down_in_exile: bool = False
+        #: RULE 701.42a / 712: whether this permanent is a **melded**
+        #: permanent — a single object representing two cards, its
+        #: characteristics coming from the meld pair's back-face result card
+        #: (`RulesEngine.meld`). ``melded_components`` holds the two front-face
+        #: `GameObject`s in limbo (`zone` ``None``); RULE 712.19 —
+        #: `RulesEngine._split_melded_after_move` swaps this one permanent
+        #: back for those two the moment it leaves the battlefield.
+        self.is_melded: bool = False
+        self.melded_components: list["GameObject"] = []
         #: RULE 708.2: whether this object is **face down** — a 2/2 creature
         #: with no text, no name, no subtypes and no mana cost (morph/
         #: disguise cast face down, or a manifested/cloaked card put onto the
@@ -650,7 +659,7 @@ class GameObject:
         #: above, for the same resolution-gap problem when what needs
         #: remembering is a stack item rather than a `GameObject` — an
         #: ability `StackItem` has no `instance_id` of its own to stash
-        #: (`.obj` is `None`, RULE 706.10/ENG-26). `PayCostThenEffect`'s
+        #: (`.obj` is `None`, RULE 707.10/ENG-26). `PayCostThenEffect`'s
         #: ``remember_trigger_stack_id=True`` stamps it here at the first,
         #: still-live `apply()`; `CopyAbilityEffect` reads it back once the
         #: "if you do" branch actually runs (Rings of Brighthearth's "you

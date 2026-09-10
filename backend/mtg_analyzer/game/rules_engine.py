@@ -195,6 +195,13 @@ class RulesEngine(
         #: `effects.ClashEffect` reads it into `GameContext.clashed_opponent`
         #: for a "that player" referent in the win/otherwise branch.
         self._last_clash_opponent_id: Optional[str] = None
+        #: RULE 706: the kept natural results (and their sum) of the most
+        #: recent `roll_die` call — `effects.RollDieEffect` reads them into
+        #: `GameContext.die_results`/`die_result` for a results table or a
+        #: following "where X is the result" clause. Plain state, so it
+        #: survives a `GameState.clone()`/undo like `_last_clash_opponent_id`.
+        self._last_die_roll_results: list[int] = []
+        self._last_die_roll_total: int = 0
         #: The active player's triggers awaiting an interactive ordering choice
         #: (RULE 603.3b), and the non-active-player triggers to place after them.
         #: Populated only while `state.interactive_ordering` drives a choice.

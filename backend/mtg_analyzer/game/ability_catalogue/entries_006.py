@@ -739,9 +739,14 @@ def _vrondiss_rage_of_ancients() -> list[AbilitySpec]:
     damage" downside isn't modeled (no quoted-ability-grant support for a
     created token yet — every other quoted-grant primitive in this engine
     targets an *existing* permanent, not a token being created in the same
-    breath), so the token created here is strictly a 5/4 vanilla. The
-    dice-roll clause is skipped entirely — this engine has no dice-rolling
-    subsystem at all.
+    breath), so the token created here is strictly a 5/4 vanilla.
+
+    The dice trigger is real now (MEC-75 — `RulesEngine.roll_die` /
+    `EventType.DICE_ROLLED`): "whenever you roll one or more dice, you may
+    have Vrondiss deal 1 damage to itself" is a `DICE_ROLLED` triggered
+    ability, so a d20 rolled by any other permanent this player controls
+    (Barbarian Class, a die-rolling Equipment) both fires it and, via the
+    self-damage, re-arms the Enrage trigger above.
     """
     return [
         AbilitySpec(
@@ -751,6 +756,12 @@ def _vrondiss_rage_of_ancients() -> list[AbilitySpec]:
                 "colors": ["R", "G"], "subtypes": ["Dragon", "Spirit"],
             })],
             trigger={"event": "DAMAGE", "condition": {"subject": "self", "recipient": True}},
+            optional=True,
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("damage", {"amount": 1, "selector": "self"})],
+            trigger={"event": "DICE_ROLLED", "condition": {"subject": "you"}},
             optional=True,
         ),
     ]

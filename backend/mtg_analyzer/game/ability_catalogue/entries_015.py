@@ -1168,7 +1168,7 @@ def _mizzixs_mastery() -> list[AbilitySpec]:
     as `ExileTopFromEachPlayerCastFreeEffect`/`ReboundFreeCastWindowEffect`
     already do) rather than literally instantiating a second "copy"
     object — nothing this engine tracks distinguishes an uncast copy from
-    the real exiled card, and RULE 706.10a means an uncast copy simply
+    the real exiled card, and RULE 707.10a means an uncast copy simply
     ceases to exist either way if it isn't cast, so the two are
     behaviourally identical. The trailing self-exile is `ExileEffect`'s
     plain, untargeted self form (``target_kind=None`` — Mnemonic Betrayal-

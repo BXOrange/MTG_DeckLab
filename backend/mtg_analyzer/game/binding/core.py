@@ -274,6 +274,11 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # per-player, same ``player_id`` convention as every player-subject
     # event above.
     "BENT": "player_id",
+    # "Whenever you roll one or more dice, …" (RULE 706, Farideh, Devil's
+    # Chosen / Vrondiss, Rage of Ancients / Barbarian Class) —
+    # `RulesEngine.roll_die` fires `DICE_ROLLED` per roll instruction,
+    # keyed by ``player_id``, same convention as CLASHED/SCRY above.
+    "DICE_ROLLED": "player_id",
 }
 
 #: Which event-data key identifies *which object* an event is about — RULE

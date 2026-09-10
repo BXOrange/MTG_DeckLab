@@ -2681,7 +2681,39 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: emits no composition node yet, so no card's verdict can move — but the
 #: gate can reject a spec it used to accept, which is the same reasoning that
 #: moved the version at v299.
-PARSER_VERSION = "305"
+#: v309 — MEC-78: RULE 701.69a Heal. New ``heal`` effect handler
+#: (`handlers._HEAL_RE` — "heal all damage from ~ / each creature you
+#: control") and a replacement recognizer (`replacements._HEAL_OTHERS_ON_
+#: DAMAGE_RE` — Wolverine, Fierce Fighter's "if damage would be dealt to ~,
+#: instead that damage is dealt, but all other damage already dealt to him
+#: is healed"). `_FIGHT_PRONOUN_RE` widened to accept a personified
+#: legendary's "he/she/they fights" (Wolverine, Abomination — the only two
+#: cards; neither can mean a player). +1 (Wolverine, Fierce Fighter, now
+#: fully MODELED).
+#: v308 — MEC-77: RULE 701.42a Meld. New ``meld`` effect handler
+#: (`handlers._MELD_BODY_RE` — a meld card's `{cost}:` activated-ability
+#: body) and a phase-trigger whole-line recognizer
+#: (`segmenter._MELD_TRIGGER_RE` — "at the beginning of <phase>, if you both
+#: own and control ~ and a creature named X, exile them, then meld them into
+#: Y"), routing to `RulesEngine.meld` / `MeldEffect`. +3 (Gisela, the Broken
+#: Blade; Graf Rats; Hanweir Battlements).
+#: v307 — MEC-76: RULE 701.29a Fateseal. New ``fateseal`` effect handler
+#: (`handlers._fateseal` — "fateseal N" / "you fateseal N"), routing to the
+#: new `RollDie`-adjacent `FateSealEffect` / `RulesEngine.fateseal` (scry on
+#: an opponent's library, `_look_at_top` now threads a `library_owner`
+#: distinct from the chooser). +2 real cards (Spin into Myth, Mesmeric
+#: Sliver's quoted grant).
+#: v306 — MEC-75: RULE 706 rolling a die. New ``roll_die`` effect handler
+#: (`handlers._roll_die` — bare "roll a d20." / "roll a six-sided die." /
+#: "roll two d6."), a RULE 706.3a results-table block handler
+#: (`gate._split_dice_table_block` — "roll a d20." + "<range> | <effect>"
+#: rows, bare or trigger-wrapped, e.g. Contact Other Plane), a
+#: "whenever you roll one or more dice" trigger condition → `DICE_ROLLED`
+#: (`segmenter._PLAYER_TRIGGER_CONDITIONS`), and the advantage/disadvantage
+#: replacement line "if you would roll one or more dice, instead roll that
+#: many dice plus one and ignore the lowest/highest roll"
+#: (`replacements._ROLL_DICE_MODIFIER_RE` → ``roll_dice_modifier``).
+PARSER_VERSION = "309"
 
 
 def parser_source_hash() -> str:
@@ -2864,6 +2896,79 @@ def _split_triggered_modal_block(
 _REFLEXIVE_MODAL_RE = re.compile(
     r"^you may pay (?P<cost>[^.]+)\.\s*when you do,?\s*(?P<header>choose .+)$"
 )
+
+
+#: RULE 706.1 roll header, optionally wrapped in a RULE 603.1 trigger — the
+#: line that a RULE 706.3a results table hangs off. ``pre`` is the trigger
+#: wrapper ("when ~ enters, " / "whenever ~ attacks, "), lifted the same way
+#: `_split_triggered_modal_block` lifts a modal block's wrapper: segment
+#: "<pre>draw a card." and take its `trigger` dict.
+_DICE_TABLE_HEADER_RE = re.compile(
+    r"^(?P<pre>(?:when|whenever|at)\b[^,]*,\s*)?"
+    r"roll (?:a|(?P<count>two|three|\d+)) "
+    r"(?:d(?P<sides_d>\d+)|(?P<sides_s>\d+)-sided (?:die|dice))\.?$",
+    re.IGNORECASE,
+)
+#: One striation of a RULE 706.3a results table: "1—9 | <effect>",
+#: "20 | <effect>", "10+ | <effect>" (`N+` is the single-endpoint form).
+#: The `|` separator and em/en-dash range are exactly what `normalize`
+#: leaves (see `Contact Other Plane` / `Delina, Wild Mage`).
+_DICE_TABLE_ROW_RE = re.compile(
+    r"^(?P<lo>\d+)(?:\s*[—–-]\s*(?P<hi>\d+)|(?P<plus>\+))?\s*\|\s*(?P<body>.+?)\.?$",
+    re.IGNORECASE,
+)
+_DICE_TABLE_COUNT_WORDS = {"two": 2, "three": 3}
+
+
+def _split_dice_table_block(
+    lines: list[str], start: int, provenance: ParserProvenance
+) -> Optional[tuple[Optional[dict[str, Any]], int, int, list[tuple[int, Optional[int], str]], int]]:
+    """A RULE 706 "Roll a d20." instruction followed by one or more
+    "<range> | <effect>" results-table rows (RULE 706.3a/706.3b — the roll,
+    its table and its modifiers are one ability). Bare or trigger-wrapped;
+    the "<cost>: roll …" + table and the "you may roll again" recursion
+    (Delina) are deliberately out of scope, falling through to per-line
+    dispatch (and staying UNMODELED) rather than being half-claimed.
+
+    Returns ``(trigger, sides, count, rows, next_index)`` where ``rows`` is
+    a list of ``(lo, hi_or_None, body_text)`` — ``hi`` ``None`` is the
+    ``N+`` open-ended endpoint — or ``None`` if ``lines[start]`` isn't this
+    shape, its wrapper isn't a recognised trigger, or a row is malformed
+    (fail-closed).
+    """
+    head = _DICE_TABLE_HEADER_RE.match(lines[start].strip())
+    if head is None:
+        return None
+    # At least one table row must follow, or this is just a bare roll the
+    # ordinary effect handler already claims — nothing to do here.
+    rows: list[tuple[int, Optional[int], str]] = []
+    j = start + 1
+    while j < len(lines):
+        row = _DICE_TABLE_ROW_RE.match(lines[j].strip())
+        if row is None:
+            break
+        lo = int(row.group("lo"))
+        hi = None if row.group("plus") else int(row.group("hi") or lo)
+        rows.append((lo, hi, row.group("body").strip()))
+        j += 1
+    if not rows:
+        return None
+    trigger: Optional[dict[str, Any]] = None
+    pre = head.group("pre")
+    if pre:
+        probe = segment_line(pre + "draw a card.", allow_spell_effect=False, provenance=provenance)
+        if not probe.claimed or probe.spec is None or probe.spec.ability_kind != "triggered":
+            return None
+        trigger = probe.spec.trigger
+        if not trigger or trigger.get("event") is None:
+            return None
+    count_word = head.group("count")
+    count = (
+        _DICE_TABLE_COUNT_WORDS.get((count_word or "").lower(), int(count_word))
+        if count_word else 1
+    )
+    sides = int(head.group("sides_d") or head.group("sides_s"))
+    return (trigger, sides, count, rows, j)
 
 
 def _split_reflexive_modal_block(
@@ -3283,6 +3388,41 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             parser=provenance,
         ))
 
+    def _process_dice_table_block(
+        header: str,
+        trigger: Optional[dict[str, Any]],
+        sides: int,
+        count: int,
+        rows: list[tuple[int, Optional[int], str]],
+    ) -> None:
+        """Emit one ``roll_die`` spec carrying a RULE 706.3a ``outcomes``
+        table — as a triggered ability if ``trigger`` is set, else a bare
+        spell/ability effect. Every row body must parse (fail-closed: one
+        unclaimed row leaves the whole card UNMODELED)."""
+        nonlocal all_claimed
+        outcomes: list[dict[str, Any]] = []
+        for lo, hi, body in rows:
+            body_specs = parse_effect_body(body)
+            if body_specs is None:
+                all_claimed = False
+                unclaimed.append(header)
+                unclaimed.extend(f"{lo} | {b}" for _, _, b in rows)
+                return
+            row_out: dict[str, Any] = {"min": lo, "effects": [s.to_dict() for s in body_specs]}
+            if hi is not None:
+                row_out["max"] = hi
+            outcomes.append(row_out)
+        params: dict[str, Any] = {"sides": sides, "outcomes": outcomes}
+        if count != 1:
+            params["count"] = count
+        effect_specs.append(AbilitySpec(
+            "triggered" if trigger is not None else "spell_effect",
+            [EffectSpec("roll_die", params)],
+            trigger=trigger,
+            raw_text=header,
+            parser=provenance,
+        ))
+
     def _process_reflexive_modal_block(
         header: str, trigger: Optional[dict[str, Any]], cost: str, or_both: bool, or_more: bool,
         repeatable: bool, choose: int, mode_bodies: list[str],
@@ -3500,6 +3640,12 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 _process_triggered_modal_block(
                     lines[i], trigger, or_both, or_more, repeatable, exhausted, override, choose, mode_bodies
                 )
+                i = next_i
+                continue
+            dice_table = _split_dice_table_block(lines, i, provenance)
+            if dice_table is not None:
+                dt_trigger, dt_sides, dt_count, dt_rows, next_i = dice_table
+                _process_dice_table_block(lines[i], dt_trigger, dt_sides, dt_count, dt_rows)
                 i = next_i
                 continue
             _process_line(lines[i])

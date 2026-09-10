@@ -1945,7 +1945,7 @@ class CastingResolutionMixin:
             target = self._resolve_choice_option(choice["options"], str(answer))
             if target is not None and target is not obj:
                 # Snapshot ~'s own abilities *before* `become_copy` clears
-                # them (RULE 706.2) — Sakashima of a Thousand Faces' own
+                # them (RULE 707.2) — Sakashima of a Thousand Faces' own
                 # "except it has ~'s other abilities" clause adds them back
                 # once the copy's abilities are bound.
                 own_triggered = list(obj.triggered_abilities) if effect.keep_own_abilities else []

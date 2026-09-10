@@ -301,6 +301,95 @@ class ManaCountersMixin:
     def coin_flip(self) -> bool:
         """A reproducible coin flip (RULE 705) — ``True`` for "heads"."""
         return self.random_int(2) == 0
+    #: RULE 706.1a: a die must have at least two equally-likely faces; the
+    #: upper bound is a sanity ceiling on a hostile/garbled ``sides`` (no
+    #: printed die is bigger than a d20, `roll_die`'s own default), well
+    #: below `spec.MAX_EFFECT_MAGNITUDE` so a results-table row can't be made
+    #: unreachable either. ``count`` shares the ceiling — no card rolls more
+    #: than a handful, and a runaway count is the same denial-of-service risk
+    #: a runaway loop count is.
+    _MIN_DIE_SIDES = 2
+    _MAX_DIE_SIDES = 1000
+    _MAX_DICE_COUNT = 100
+    def roll_die(
+        self,
+        player: Optional[Player],
+        sides: int = 20,
+        count: int = 1,
+        ignore_lowest: int = 0,
+        ignore_highest: int = 0,
+    ) -> list[int]:
+        """RULE 706: ``player`` rolls ``count`` dice of ``sides`` faces each
+        and returns the **kept** natural results (RULE 706.2 — the number on
+        the top face, before any modifier), reproducibly off `random_int`'s
+        game-state RNG exactly like `coin_flip`.
+
+        Fires `EventType.ROLL_DICE` first (pre-roll, replaceable — RULE
+        706.3-adjacent advantage/disadvantage: "if you would roll one or
+        more dice, instead roll that many dice plus one and ignore the
+        lowest roll", Pixie Guide / Barbarian Class), so a replacement may
+        bump ``count`` and/or set ``ignore_lowest``/``ignore_highest`` before
+        anything is rolled. After the roll, the ``ignore_lowest`` smallest
+        and ``ignore_highest`` largest natural results are dropped (RULE
+        706.3's ignore rider), then `EventType.DICE_ROLLED` fires once for
+        the whole instruction (RULE 706.3b) carrying the kept results, every
+        rolled result, their total, and RULE 706.5's ``doubles`` flag.
+
+        **Documented simplifications**: RULE 706.2's *other* modifier sources
+        (a flat "+N to the result" from a separate effect, the RULE 706.2b
+        player-ordered stacking of several) and RULE 706.3c's "Roll again."
+        are not modeled here — no in-scope card needs a standing result
+        modifier, and "roll again" is a results-table recursion the parser
+        does not yet claim. The engine has no interactive reroll pause
+        either; a reroll effect would re-call this method.
+        """
+        if player is None:
+            return []
+        sides = max(self._MIN_DIE_SIDES, min(int(sides), self._MAX_DIE_SIDES))
+        count = max(1, min(int(count), self._MAX_DICE_COUNT))
+        ignore_lowest = max(0, int(ignore_lowest))
+        ignore_highest = max(0, int(ignore_highest))
+        pre = GameEvent(
+            EventType.ROLL_DICE,
+            player_id=player.id,
+            controller_id=player.id,
+            sides=sides,
+            count=count,
+            ignore_lowest=ignore_lowest,
+            ignore_highest=ignore_highest,
+        )
+        replaced = self.apply_replacements(pre)
+        if replaced is not None:
+            sides = max(self._MIN_DIE_SIDES, min(int(replaced.get("sides", sides)), self._MAX_DIE_SIDES))
+            count = max(1, min(int(replaced.get("count", count)), self._MAX_DICE_COUNT))
+            ignore_lowest = max(0, int(replaced.get("ignore_lowest", ignore_lowest)))
+            ignore_highest = max(0, int(replaced.get("ignore_highest", ignore_highest)))
+        natural = [self.random_int(sides) + 1 for _ in range(count)]
+        # RULE 706.3's "ignore the lowest/highest roll" rider: drop that many
+        # of each extreme from the *natural* results, keeping the rest in the
+        # order they were rolled (order only matters for a "first result"/
+        # "second result" reader, none of which combine with an ignore rider
+        # on any real card — but preserving it costs nothing).
+        kept = list(natural)
+        for _ in range(min(ignore_lowest, max(0, len(kept) - 1))):
+            kept.remove(min(kept))
+        for _ in range(min(ignore_highest, max(0, len(kept) - 1))):
+            kept.remove(max(kept))
+        total = sum(kept)
+        doubles = len(kept) > 1 and len(set(kept)) == 1  # RULE 706.5
+        self._last_die_roll_results = list(kept)
+        self._last_die_roll_total = total
+        self.state.fire_event(GameEvent(
+            EventType.DICE_ROLLED,
+            player_id=player.id,
+            controller_id=player.id,
+            results=list(kept),
+            natural_results=list(natural),
+            total=total,
+            sides=sides,
+            doubles=doubles,
+        ))
+        return kept
     def set_tapped(self, obj: GameObject, tapped: bool = True) -> None:
         """Tap or untap a permanent (RULE 701.21 / 701.22) — the choke point
         for a genuine tap/untap transition (attacking, a tap cost, a mana

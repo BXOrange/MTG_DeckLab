@@ -168,7 +168,7 @@ class CopiesMixin:
 
         ``add_types``/``add_subtypes``/``not_legendary`` are a copy effect's
         own "except it's a(n) X in addition to its other types"/"except it
-        isn't legendary" clause (RULE 706.10 — Copy Artifact/Rite of
+        isn't legendary" clause (RULE 707.10 — Copy Artifact/Rite of
         Replication/Multiversal Recruitment-shaped), the same `Card.as_copy`
         modifiers `copy_mechanics.become_copy` already applies for the
         enters-as-a-copy replacement shape.
@@ -313,21 +313,21 @@ class CopiesMixin:
         self, target: Any, controller_id: str, new_targets: Optional[list[Any]] = None,
     ) -> Optional[StackItem]:
         """Put a copy of the activated ability ``target`` onto the stack
-        (RULE 706.10 — Rings of Brighthearth's "copy that ability").
+        (RULE 707.10 — Rings of Brighthearth's "copy that ability").
 
         The ability-item sibling of `copy_spell` above. An ability
         `StackItem` has no `GameObject` of its own to clone (`.obj` is
-        ``None`` — RULE 706.10/ENG-26's `StackItem.stack_id` identity
+        ``None`` — RULE 707.10/ENG-26's `StackItem.stack_id` identity
         exists for exactly this), and its `ActivatedAbility` effect object
         (`.effects[0]`, bound once at bind-on-load to the permanent whose
         ability this is) is a stateless wrapper around its own ``effects``/
         ``source`` — nothing about it is per-activation, so the copy safely
         *reuses* the original's `effects` list rather than needing a fresh
         rebuild the way a spell copy's freshly-bound `spell_effects` does.
-        Controlled by ``controller_id`` (RULE 706.10, the copier — always
+        Controlled by ``controller_id`` (RULE 707.10, the copier — always
         this same player for Rings, since it only copies abilities *you*
         activate). Keeps the original's targets by default (RULE 707.10c,
-        extended to abilities by RULE 706.10); ``new_targets`` overrides
+        extended to abilities by RULE 707.10); ``new_targets`` overrides
         that for "you may choose new targets for the copy". Pushed above
         the original so it resolves first (RULE 608.2 — LIFO).
         """
@@ -416,7 +416,7 @@ class CopiesMixin:
         add_types: Optional[list[str]] = None,
         add_subtypes: Optional[list[str]] = None,
     ) -> None:
-        """``obj`` itself becomes a copy of ``target`` (RULE 706/707.2).
+        """``obj`` itself becomes a copy of ``target`` (RULE 707.2).
 
         Delegates to `copy_mechanics.become_copy` — moved there so
         `game/continuous.py`'s layer-1 conditional-copy pass can call the
@@ -522,6 +522,78 @@ class CopiesMixin:
                 )
             )
         return True
+    def meld(
+        self, obj_a: GameObject, obj_b: GameObject, result_name: str
+    ) -> Optional[GameObject]:
+        """RULE 701.42a: meld the two cards ``obj_a``/``obj_b`` — exile them
+        and return a *single* new permanent, the meld pair's back-face
+        ``result_name`` card, under ``obj_a``'s controller's control.
+
+        RULE 701.42b/701.42c: only two real meld cards can be melded — a
+        token, or a partner this engine can't resolve to a cached card, or
+        an already-melded object, aborts the whole thing with **nothing
+        exiled** (a deliberate strengthening of 701.42c's "they stay in
+        their current zone": since the only caller is a self-checking
+        trigger, refusing before the exile is simpler and reaches the same
+        board state). Returns the melded permanent, or ``None`` if it
+        couldn't happen.
+        """
+        from ...services.card_lookup import card_by_name  # function-scoped: cache access
+
+        if obj_a is None or obj_b is None or obj_a is obj_b:
+            return None
+        if any(getattr(o, "is_token", False) or getattr(o, "is_melded", False)
+               for o in (obj_a, obj_b)):
+            return None
+        result_card = card_by_name(result_name)
+        if result_card is None:
+            return None  # offline/empty cache — RULE 608.2b "do as much as possible"
+
+        controller = self.state.player_by_id(obj_a.controller_id)
+        # RULE 701.42a "exile them" — a real zone visit so LEAVES_BATTLEFIELD /
+        # EXILE fire for each front face, then lift both out of exile into the
+        # melded permanent's limbo (`zone = None`, held on `melded_components`).
+        components: list[GameObject] = []
+        for comp in (obj_a, obj_b):
+            self._detach_attachments_from(comp)
+            self.exile(comp)
+            owner = self.state.player_by_id(comp.owner_id)
+            owner.remove_from_zone(comp, Zone.EXILE)
+            comp.reset_as_new_object()
+            comp.zone = None
+            components.append(comp)
+
+        melded = GameObject(result_card, owner_id=controller.id, zone=Zone.BATTLEFIELD)
+        melded.controller_id = controller.id
+        melded.is_melded = True
+        melded.melded_components = components
+        self._put_searched_card(controller, melded, "battlefield")
+        self.state.fire_event(GameEvent(
+            EventType.MELDED,
+            object=melded.name,
+            instance_id=melded.instance_id,
+            controller_id=melded.controller_id,
+            object_types=sorted(melded.type_words),
+        ))
+        return melded
+    def _split_melded_after_move(self, obj: GameObject, zone: Zone) -> None:
+        """RULE 712.19: a melded permanent that has just left the battlefield
+        for ``zone`` separates back into its two component cards, which move
+        to that same zone. Called at the tail of every battlefield-exit
+        primitive (`_move_to_graveyard`/`exile`/`return_to_hand`/
+        `return_to_library`/`shuffle_into_library`) right after the melded
+        object was placed — a no-op for anything not `is_melded`.
+        """
+        if not getattr(obj, "is_melded", False) or not obj.melded_components:
+            return
+        components = obj.melded_components
+        obj.is_melded = False
+        obj.melded_components = []
+        owner = self.state.player_by_id(obj.owner_id)
+        owner.remove_from_zone(obj, zone)
+        for comp in components:
+            comp.reset_as_new_object()
+            self.state.player_by_id(comp.owner_id).add_to_zone(comp, zone)
     def turn_face_down(self, obj: GameObject, kind: str) -> None:
         """Turn ``obj`` face down as ``kind`` (RULE 708.2 — ``"morph"``/
         ``"disguise"``/``"manifest"``/``"cloak"``, see `game/face_down.py`).

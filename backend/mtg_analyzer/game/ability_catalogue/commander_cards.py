@@ -4375,7 +4375,7 @@ register("Surge to Victory", _surge_to_victory)
 # PAR-60
 # ===========================================================================
 # New `brudiclad_combat` + `brudiclad_become_copies` effects (reuse
-# `RulesEngine.become_copy`, RULE 706.2). The "creature tokens you control
+# `RulesEngine.become_copy`, RULE 707.2). The "creature tokens you control
 # have haste" static folds in from the parser (re-added here).
 
 

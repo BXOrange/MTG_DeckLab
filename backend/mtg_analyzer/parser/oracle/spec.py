@@ -54,6 +54,10 @@ MAX_EFFECT_MAGNITUDE: int = 10_000
 #: Vitality/Hardened Scales/Fiery Emancipation).
 _CLAMPED_PARAM_KEYS: tuple[str, ...] = (
     "amount", "count", "x", "n", "generic", "plus", "multiplier",
+    # RULE 706 dice: a die's face count and the ignore-lowest/highest rider
+    # (`RollDieEffect` / `roll_dice_modifier`) — a garbled "roll a d10^9"
+    # must not make a results-table row unreachable or wedge the roll loop.
+    "sides", "ignore_lowest", "ignore_highest",
 )
 
 #: `EffectSpec.condition`'s whitelisted keys — see that field's docstring.

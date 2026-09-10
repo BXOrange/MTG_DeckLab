@@ -1,4 +1,4 @@
-"""RULE 706/707 "becomes a copy of" — the shared mutate/snapshot/restore
+"""RULE 707 "becomes a copy of" — the shared mutate/snapshot/restore
 primitives used by all three copy mechanisms this engine models:
 
 * the one-shot eager `become_copy` (Clever Impersonator-style ETB copies,
@@ -34,7 +34,7 @@ from ..models.cards.card import Card
 from ..models.game.game_object import GameObject
 
 #: The catalogue-derived fields a copy (or a face switch) replaces wholesale
-#: — RULE 706.2's "loses its own, gains the copied object's" — captured by
+#: — RULE 707.2's "loses its own, gains the copied object's" — captured by
 #: `snapshot_face` and restored by `restore_face`.
 _FACE_ATTRS: tuple[str, ...] = (
     "spell_effects",
@@ -83,14 +83,14 @@ def become_copy(
     only_types: Optional[list[str]] = None,
     add_keywords: Optional[list[str]] = None,
 ) -> None:
-    """``obj`` itself becomes a copy of ``target`` (RULE 706/707.2).
+    """``obj`` itself becomes a copy of ``target`` (RULE 707.2).
 
     Mutates ``obj`` in place: its `Card` is replaced by ``target``'s copiable
-    values (RULE 706.2 — name, mana cost, colours, card type/subtypes, rules
+    values (RULE 707.2 — name, mana cost, colours, card type/subtypes, rules
     text, P/T, loyalty), and its own catalogue-derived abilities/keywords are
     cleared and rebound from that new card, since a copy gains the copied
-    object's abilities rather than keeping its own (RULE 706.2). Everything
-    RULE 706.2 *doesn't* cover — instance id, zone, owner, controller,
+    object's abilities rather than keeping its own (RULE 707.2). Everything
+    RULE 707.2 *doesn't* cover — instance id, zone, owner, controller,
     counters, tapped state, attachments, summoning sickness — is untouched,
     since none of that lives on `Card`.
 
@@ -121,7 +121,7 @@ def become_copy(
     # A copy replaces the object's own copiable-derived abilities/keywords
     # wholesale — static/triggered/activated/replacement effects granted
     # by *other* permanents (auras, anthems) live on those objects, not
-    # here, so clearing these is exactly RULE 706.2's "loses its own,
+    # here, so clearing these is exactly RULE 707.2's "loses its own,
     # gains the copied object's" without touching anything external.
     obj.static_effects = []
     obj.triggered_abilities = []

@@ -4606,6 +4606,303 @@ measurement of why is the useful half of this work.
   `scripts/commander_tail_report.py` (bucket-D signatures re-pointed at the
   ISA, so the report's routing and the diff are one ground truth)
 
+### MEC-75 — Rolling a die (RULE 706) [CLOSED, PARSER_VERSION 306]
+
+- **What:** The first of the ENG-34 CR-versus-engine diff MEC tickets closed
+  — a full RULE 706 dice subsystem, engine primitive + oracle handlers +
+  version bump in one batch, built as `flip_coin`'s (RULE 705) sibling as
+  the ticket asked.
+- **Engine:**
+  - `RulesEngine.roll_die(player, sides=20, count=1, ignore_lowest=0,
+    ignore_highest=0) -> list[int]` (`rules/mana_counters_mixin.py`, right
+    beside `coin_flip`/`random_int`) rolls off the same reproducible
+    `random_int` game-state RNG, so a seeded sequence survives a
+    `GameState.clone()`/undo. `_MIN_DIE_SIDES`/`_MAX_DIE_SIDES`/
+    `_MAX_DICE_COUNT` clamp a hostile/garbled `sides`/`count` (RULE
+    706.1a: a die has ≥2 equally-likely faces).
+  - `EventType.ROLL_DICE` fires **pre-roll** (replaceable — RULE 706.2/
+    706.3-adjacent advantage/disadvantage), then `EventType.DICE_ROLLED`
+    fires **once per instruction** (RULE 706.3b — the roll, its modifiers
+    and its results table are one ability, never one event per die),
+    carrying the kept results, every rolled result, their `total` (RULE
+    706.3a's "the result"), `sides` and RULE 706.5's `doubles`. Both are
+    `LIFE_GAIN`/`LIFE_GAINED`-style siblings; `_GROUP_CONTROLLER_EVENT_KEYS`
+    maps `DICE_ROLLED → player_id`.
+  - The RULE 706.3 **ignore-lowest/highest rider** drops that many extremes
+    from the *natural* results after the roll, never emptying it (a rider on
+    a real roll, not a no-roll).
+  - `effects.RollDieEffect` (registered `roll_die`, EffectRegistry +
+    `isa.py` INSTRUCTION classification) wraps the primitive, stashes the
+    outcome on `GameContext.die_result`/`die_results`/`rolled_doubles`
+    (same save/reset/restore in `_apply_effects_partitioned` as
+    `clash_won`), and applies a RULE 706.3a `outcomes` results table —
+    `{"min", "max"|None, "effects": [...]}` rows, the matching row's inner
+    effects built through the ordinary `build_effects` whitelist, the same
+    serialized-spec branch idiom `CoinFlipEffect` uses.
+  - `_roll_dice_modifier_replacement` (registered `roll_dice_modifier`)
+    rewrites the pre-roll `ROLL_DICE` event's `count`/`ignore_lowest`/
+    `ignore_highest` — Pixie Guide / Barbarian Class "roll that many dice
+    plus one and ignore the lowest roll" advantage and its "ignore the
+    highest" disadvantage mirror. Scoped to the rolling player being the
+    effect's own controller (RULE 706's "if **you** would roll"); RULE
+    614.5 one-application-per-event is the replacement loop's own identity
+    tracking, so two Pixie Guides stack.
+  - **Documented simplifications:** RULE 706.2's flat "+N to the result"
+    modifiers from other sources and 706.2b's player-ordered stacking, plus
+    706.3c's "Roll again." (a results-table recursion the parser doesn't
+    claim), are not modeled — no in-scope card needs a standing result
+    modifier, and there's no interactive reroll pause.
+  - `game/ability_catalogue/entries_006.py`'s **Vrondiss, Rage of Ancients**
+    entry gained its real `DICE_ROLLED` triggered ability ("you may have
+    Vrondiss deal 1 damage to itself"); the "this engine has no
+    dice-rolling subsystem at all" comment it carried is gone.
+- **Parser:**
+  - `handlers._roll_die` claims a bare "roll a d20." / "roll a six-sided
+    die." / "roll two d6." effect clause — which the ordinary `<cost>:` /
+    `when ~ enters,` / `whenever ~ attacks,` wrappers then pick up for free.
+  - `gate._split_dice_table_block` is a RULE 706.3a results-table block
+    handler (the `split_modal_block` idiom): a roll header line + one or
+    more `<range> | <effect>` striation rows (`N—M | …`, `N | …`, `N+ | …`),
+    bare or trigger-wrapped (the wrapper's trigger dict lifted via the
+    `<pre>draw a card.` probe, same as `_split_triggered_modal_block`). One
+    unparseable row leaves the whole card UNMODELED (fail-closed). The
+    "<cost>: roll … + table" and Delina's "you may roll again" recursion
+    are deliberately out of scope — they fall through to per-line dispatch
+    and stay UNMODELED rather than half-claimed.
+  - `segmenter._PLAYER_TRIGGER_CONDITIONS` recognises "whenever you roll one
+    or more dice" → `DICE_ROLLED`.
+  - `replacements._ROLL_DICE_MODIFIER_RE` claims the advantage/disadvantage
+    line, peeling the "Grant an Advantage —" / "Grant a Disadvantage —"
+    ability-word label (RULE 207.2c, no rules meaning).
+  - `spec._CLAMPED_PARAM_KEYS` gained `sides`/`ignore_lowest`/
+    `ignore_highest`.
+- **Yield:** 12 dice cards now parser-MODELED (the AFR d20 `roll a d20.` +
+  results-table cycle — Contact Other Plane, Recruitment Drive, Sylvan
+  Shepherd, Nothic, Djinni Windseer, … — plus the "whenever you roll"
+  payoffs Barbarian Class / Feywild Trickster / Wyll, Blade of Frontiers,
+  plus Pixie Guide's advantage), Vrondiss's dice trigger now real. The
+  reroll / flat-modifier / `<cost>:`-roll-with-table / `X`-many-dice
+  clusters stay UNMODELED on distinct grammar the primitive doesn't need.
+- **RULE 706→707 citation sweep:** copying is RULE **707** in the current
+  CR (706 is Rolling a Die). Every `RULE 706.2` / `RULE 706.10` /
+  `RULE 706/707` copy-context citation across `game/`
+  (`copy_mechanics.py`, `rules/copies_mixin.py`, `rules/casting_mixin.py`,
+  `engine/activation_mixin.py`, `effects/core.py`, `ability_catalogue/*`)
+  and one in `models/game/game_object.py` was corrected to `707.x`.
+  `models/cards/card.py`'s two `706.2` docstring citations were left as-is
+  on purpose — that file is in `card_database._SCHEMA_SOURCE_FILES`, so any
+  edit (comments included) invalidates the whole ~35k-row app cache. The
+  bare `RULE 706` "randomization" references in
+  `RandomGraveyardExileCopyLoopEffect` / `random_int` / `random_choice` are
+  about the *at-random* half, not copying, and match the pre-existing
+  convention.
+- **Files:** `models/game/events.py` (`ROLL_DICE`, `DICE_ROLLED`),
+  `game/rules/mana_counters_mixin.py` (`roll_die`), `game/rules_engine.py`
+  (`_last_die_roll_results`/`_total`), `game/effects/core.py`
+  (`RollDieEffect` + `EffectRegistry`, `_roll_dice_modifier_replacement` +
+  `ReplacementRegistry`, `GameContext.die_*` + `_apply_effects_partitioned`
+  save/restore), `game/binding/core.py` (`_GROUP_CONTROLLER_EVENT_KEYS`),
+  `game/isa.py` (`_INSTRUCTION_TYPES["roll_die"]`),
+  `game/ability_catalogue/entries_006.py` (Vrondiss),
+  `parser/oracle/segmenter.py`, `parser/oracle/gate.py`
+  (`_split_dice_table_block`, PARSER_VERSION 306),
+  `parser/oracle/catalogue/handlers.py` (`_roll_die`),
+  `parser/oracle/catalogue/replacements.py` (`_ROLL_DICE_MODIFIER_RE`),
+  `parser/oracle/spec.py`. **Tests:** `tests/test_mec75_dice_rolling.py`
+  (primitive range/reproducibility/ignore-rider/doubles, `DICE_ROLLED`
+  payload, results-table routing incl. `N+` open-ended, advantage bumps
+  count + is controller-scoped, parser end-to-end on Contact Other Plane /
+  Barbarian Class / Pixie Guide, fail-closed on an unparseable table row,
+  Vrondiss self-damage end-to-end).
+
+### MEC-76 — Fateseal (RULE 701.29a) [CLOSED, PARSER_VERSION 307]
+
+- **What:** The second ENG-34 CR-versus-engine diff MEC ticket closed —
+  Fateseal is scry aimed at an opponent's library, and the diff called it
+  out as exactly that: "the same shape with the agent and the patient's
+  owner split apart". Built by threading that one split through scry's
+  existing decision chain rather than duplicating it.
+- **Engine:**
+  - `RulesEngine.fateseal(player, count, opponent=None, source=None)`
+    (`rules/search_mixin.py`, beside `scry`/`surveil`) — `player` looks at
+    the top `count` of an opponent's library and puts any number on the
+    bottom, the rest back on top in any order (RULE 701.29a). ``opponent``
+    defaults to the first living opponent (documented simplification, the
+    `ClashEffect`/`GainControlBySourceEffect` convention); no opponent at
+    all is a no-op that still fires the event with ``count`` 0.
+  - The whole `_look_at_top` → `_look_top_choice` → `_resume_look_top` →
+    `_finish_look_top` machinery gained a **`library_owner`** distinct from
+    the choosing `player`: carried on the `pending_choice` as
+    ``library_owner_id`` **only when it differs** from ``player_id``, so
+    every existing scry/surveil call site and serialized choice is byte-for-
+    byte unchanged (the two are the same person there). `_resume_look_top`
+    resolves the owner from that key and reorders *its* library while
+    `player` stays the one answering; `_resume_look_top` is now registered
+    for the ``"fateseal"`` kind alongside scry/surveil/scroll_rack.
+  - `EventType.FATESEALED` fires before the decision (SCRY/SURVEIL
+    convention), carrying ``player_id`` (the fatesealer), ``count`` and
+    ``opponent_id``. No cached card triggers on "whenever you fateseal";
+    the row keeps the keyword-action fire-an-event convention.
+  - `effects.FateSealEffect` (registered `fateseal`, EffectRegistry +
+    `isa.py` INSTRUCTION classification against the existing `fateseal` ISA
+    op) + `GameContext.fateseal` delegate.
+- **Parser:** `handlers._fateseal` claims "fateseal N" / "you fateseal N"
+  (the redundant-subject and, after `_peel_optional`, the "you may
+  fateseal N" quoted-grant body). PARSER_VERSION 307.
+- **Yield:** +2 real cards — **Spin into Myth** ("put target creature on
+  top of its owner's library, then fateseal 2" — end-to-end verified) and
+  **Mesmeric Sliver** (its `All Slivers have "…you may fateseal 1"` quoted
+  grant now reaches MODELED because the inner body parses; the group
+  quoted-grant *execution* is separate `grant_triggered_ability` machinery).
+  **May of the Machine** stays UNMODELED on its genuinely-unparseable "if
+  today's date is May 7th" joke condition.
+- **Fallout in the parser test suite:** `tests/parser/oracle/
+  test_oracle_pipeline.py` used "fateseal 2" as its canonical *unmodeled*
+  clause in four places (the same role "proliferate" held pre-Batch-5) —
+  swapped to "heal 2" (RULE 701.69 / MEC-78, still unmodeled) and, in the
+  coverage-ranking test, "bamboozle target creature".
+- **Files:** `models/game/events.py` (`FATESEALED`),
+  `game/rules/search_mixin.py` (`fateseal`, `library_owner` thread through
+  `_look_at_top`/`_look_top_choice`/`_resume_look_top`/`_finish_look_top`,
+  `_LOOK_TOP_KINDS["fateseal"]`), `game/effects/core.py`
+  (`FateSealEffect` and its `EffectRegistry` row, `GameContext.fateseal`),
+  `game/isa.py` (`_INSTRUCTION_TYPES["fateseal"]`),
+  `parser/oracle/catalogue/handlers.py` (`_fateseal`),
+  `parser/oracle/gate.py` (PARSER_VERSION 307). **Tests:**
+  `tests/test_mec76_fateseal.py` (looks at the opponent's library not your
+  own, bottoms the chosen card on the opponent's library, `FATESEALED`
+  payload, empty/oversized-count edges, scry unchanged, effect+ISA
+  registration, clause parse, Spin into Myth + Mesmeric Sliver).
+
+### MEC-77 — Meld (RULE 701.42a) [CLOSED, PARSER_VERSION 308]
+
+- **What:** The third ENG-34 CR-versus-engine diff MEC ticket closed — a
+  full Meld subsystem (Eldritch Moon's Bruna/Gisela → Brisela cycle, the
+  Hanweir pair, Graf Rats/Midnight Scavengers). `meld` had existed only as
+  a `Card.layout` string.
+- **Engine:**
+  - `RulesEngine.meld(obj_a, obj_b, result_name)` (`rules/copies_mixin.py`,
+    beside `transform_permanent` — meld is a RULE 712 DFC operation):
+    RULE 701.42a exiles the two front-face cards (a real `exile()` visit
+    each — `LEAVES_BATTLEFIELD`/`EXILE` fire), lifts them out of exile into
+    limbo (`zone = None`, held on the melded permanent's
+    ``melded_components``), then puts a **single** new permanent — the
+    pair's back-face `result_name` card, resolved via `services.card_
+    lookup.card_by_name` — onto the battlefield under the controller's
+    control through `_put_searched_card` (so `ENTERS_BATTLEFIELD` fires
+    normally). Fires `EventType.MELDED`. RULE 701.42b/701.42c: a token, an
+    already-melded object, or a `result_name` the cache can't resolve
+    aborts with **nothing exiled** (a documented strengthening of "they
+    stay in their current zone" — the only caller is a self-checking
+    trigger, so refusing before the exile reaches the same board state).
+  - `GameObject.is_melded` / `melded_components` (two model fields).
+  - `RulesEngine._split_melded_after_move(obj, zone)` — RULE 712.19: when a
+    melded permanent leaves the battlefield it separates back into its two
+    component cards, which move to that same zone. Wired as a one-line call
+    at the tail of every battlefield-exit primitive in
+    `damage_death_mixin.py` (`_move_to_graveyard`, `exile`, `return_to_
+    hand`, `return_to_library`, `shuffle_into_library`), right after the
+    melded object was placed — a no-op for anything not `is_melded`. (A
+    melded permanent put on the *bottom* of a library reassembles on top
+    instead — an accepted edge.)
+  - `effects.MeldEffect` (registered `meld`, EffectRegistry + `isa.py`
+    INSTRUCTION classification against the existing `meld` ISA op): the
+    trigger/ability body "exile them, then meld them into `<result>`".
+    Resolves the partner as a non-token permanent named ``partner_name``
+    the source's controller both owns and controls (case-folded, since the
+    name comes from `normalize`d lower-cased text); RULE 603.4 intervening-
+    if is dropped — the effect re-checks at resolution and fails closed.
+  - `EventType.MELDED`.
+- **Parser:**
+  - `segmenter._MELD_TRIGGER_RE` — a whole-line recognizer (the
+    `_MAGECRAFT_RE` idiom) for the phase-trigger form: "at the beginning of
+    `<phase>`, if you both own and control ~ and a creature named X, exile
+    them, then meld them into Y." → a `STEP_BEGIN`/`phase_relation: you`
+    triggered `AbilitySpec` carrying a `MeldEffect`. Handles your end step
+    (Gisela), combat on your turn (Graf Rats), your upkeep/draw.
+  - `handlers._MELD_BODY_RE` — the `{cost}:` activated-ability body form
+    (Hanweir Battlements' `{3}{R}{R}, {T}: if you both own and control …`),
+    which the ordinary `<cost>: <effect>` + "activate only as a sorcery"
+    machinery then wraps.
+- **Yield:** +3 (Gisela, the Broken Blade; Graf Rats; Hanweir Battlements).
+  UNMODELED and out of scope: Urza, Lord Protector (its cost-reduction
+  static is a separate gap — the meld ability parses), Titania, Voice of
+  Gaea (an extra "if there are N land cards in your graveyard" condition),
+  Mishra/Vanille (bespoke attack-trigger / pay-a-cost meld shapes), and
+  the result cards' own statics (Brisela's "opponents can't cast spells
+  with mana value 3 or less").
+- **Files:** `models/game/events.py` (`MELDED`),
+  `models/game/game_object.py` (`is_melded`/`melded_components`),
+  `game/rules/copies_mixin.py` (`meld`, `_split_melded_after_move`),
+  `game/rules/damage_death_mixin.py` (five exit-primitive tails),
+  `game/effects/core.py` (`MeldEffect` and its `EffectRegistry` row),
+  `game/isa.py` (`_INSTRUCTION_TYPES["meld"]`),
+  `parser/oracle/segmenter.py` (`_MELD_TRIGGER_RE`),
+  `parser/oracle/catalogue/handlers.py` (`_MELD_BODY_RE`/`_meld`),
+  `parser/oracle/gate.py` (PARSER_VERSION 308). **Tests:**
+  `tests/test_mec77_meld.py` (exile-the-pair-return-one, un-meld on
+  death/exile/bounce, refuses a token / uncached result with nothing
+  exiled, effect+ISA registration, case-folded partner match + no-op
+  without the partner, clause parse, Gisela/Graf Rats/Hanweir MODELED,
+  Gisela's end-step meld trigger end to end).
+
+### MEC-78 — Heal (RULE 701.69a) [CLOSED, PARSER_VERSION 309]
+
+- **What:** The fourth ENG-34 CR-versus-engine diff MEC ticket closed —
+  deliberately small (RULE 701.69a is only "remove the marked damage"). The
+  ticket's "-1/-1 counters" aside is a conflation: the CR's Heal never
+  touches counters (infect/wither damage is counters, not marked damage,
+  and `remove_counters` already owns that half); it is purely "remove all
+  marked damage from a permanent".
+- **Engine:**
+  - `RulesEngine.heal(obj) -> int` (`damage_death_mixin.py`, beside the
+    damage code) — zeroes `damage_marked`, returns how much was removed. No
+    amount param: no card prints "heal N", every real use is "heal all" /
+    "…is healed".
+  - `effects.HealEffect` (registered `heal`, EffectRegistry + `isa.py`
+    INSTRUCTION classification against the existing `heal` ISA op) — the
+    resolve-time "heal all damage from `<permanent>`" clause, with an
+    optional `continuous.group_selector_objects` `selector`
+    ("creatures_you_control" / "all_creatures"); else the RULE 115 targets;
+    else `self.source`.
+  - `_heal_others_on_damage_replacement` (registered `heal_others_on_
+    damage`) — **Wolverine, Fierce Fighter**: "If damage would be dealt to
+    ~, instead that damage is dealt, but all other damage already dealt to
+    him is healed." A `DAMAGE` replacement scoped to the source as
+    recipient that returns the event unchanged and, as a side effect, calls
+    `heal(source)` — so `_finish` then marks only the new amount and the
+    permanent's effective toughness for lethality is the latest hit alone
+    (three 4-point hits don't kill a 5-toughness creature; one 6-point hit
+    does). RULE 614.5 one-application-per-event.
+- **Parser:**
+  - `handlers._HEAL_RE` — "heal all damage from ~ / it / this creature /
+    each creature you control / all creatures" (no "target creature" form —
+    no card prints one, and a target-less `heal` would silently claim
+    nothing).
+  - `replacements._HEAL_OTHERS_ON_DAMAGE_RE` — Wolverine's "…is healed"
+    replacement clause → `heal_others_on_damage`.
+  - `handlers._FIGHT_PRONOUN_RE` widened from "it fights" to
+    "(it|he|she|they) fights?" — a personified legendary's pronoun always
+    names the source creature (RULE 109.5), never a player; the only two
+    cache cards with "he/she/they fights" are Wolverine and Abomination,
+    Terrifying Titan, both meaning their own source.
+- **Yield:** +1 — **Wolverine, Fierce Fighter** now fully MODELED (Haste +
+  the ETB fight trigger, unblocked by the pronoun widening, + the heal
+  replacement). No other card's only gap is Heal.
+- **Files:** `game/rules/damage_death_mixin.py` (`heal`),
+  `game/effects/core.py` (`HealEffect` and its `EffectRegistry` row,
+  `_heal_others_on_damage_replacement` and its `ReplacementRegistry` row),
+  `game/isa.py` (`_INSTRUCTION_TYPES["heal"]`),
+  `parser/oracle/catalogue/handlers.py` (`_HEAL_RE`/`_heal`,
+  `_FIGHT_PRONOUN_RE`),
+  `parser/oracle/catalogue/replacements.py` (`_HEAL_OTHERS_ON_DAMAGE_RE`),
+  `parser/oracle/gate.py` (PARSER_VERSION 309). **Tests:**
+  `tests/test_mec78_heal.py` (heal removes all marked damage + reports the
+  amount, `HealEffect` self/target/group, the replacement never
+  accumulates but a single lethal hit still kills, it only heals its own
+  source, clause + replacement-clause parse, ISA/registry, Wolverine fully
+  MODELED, the personified-pronoun fight clause).
+
 ## Oracle-Text Parser Front-End
 
 ### PAR-61: grammar-restructure umbrella — porting the clause-tree-tier negative result

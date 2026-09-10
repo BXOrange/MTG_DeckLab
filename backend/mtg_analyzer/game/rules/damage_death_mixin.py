@@ -531,6 +531,24 @@ class DamageDeathMixin:
 
         effect.replacement_fn = _replace
         obj.replacement_effects.append(effect)
+    def heal(self, obj: GameObject) -> int:
+        """RULE 701.69a: heal the damage already dealt to ``obj`` — remove
+        all marked damage from it. Returns how much was removed (0 if there
+        was none, or ``obj`` isn't a permanent that marks damage).
+
+        The narrower "heal N damage" (701.69a's first sentence) isn't a
+        shape any card prints — every real use is "heal all damage" / "…is
+        healed", the second sentence — so this takes no amount. The
+        `-1/-1`-counter removal a caller might also want (regeneration's own
+        `_regenerate_replacement` above already does its own
+        ``damage_marked = 0``, and infect/wither damage is counters, not
+        marked damage, so "heal" per the CR never touches them) stays
+        `remove_counters`' job.
+        """
+        removed = int(getattr(obj, "damage_marked", 0) or 0)
+        if removed:
+            obj.damage_marked = 0
+        return removed
     def put_into_graveyard(self, obj: GameObject) -> None:
         """Move ``obj`` to its owner's graveyard *without* going through
         `destroy` (RULE 701.16c: sacrifice is not destruction and can't be
@@ -622,6 +640,7 @@ class DamageDeathMixin:
         obj.tapped = False
         obj.damage_marked = 0
         owner.add_to_zone(obj, Zone.EXILE)
+        self._split_melded_after_move(obj, Zone.EXILE)  # RULE 712.19
         self._flag_commander_zone_choice(obj)
         self.state.fire_event(
             GameEvent(
@@ -679,6 +698,7 @@ class DamageDeathMixin:
         obj.tapped = False
         obj.damage_marked = 0
         owner.add_to_zone(obj, Zone.HAND)
+        self._split_melded_after_move(obj, Zone.HAND)  # RULE 712.19
         if obj.is_commander:
             self.open_choice(self._commander_zone_choice(obj, Zone.HAND))
     def return_to_library(self, obj: GameObject, position: str = "top") -> None:
@@ -713,6 +733,7 @@ class DamageDeathMixin:
             owner.library.insert(0, obj)
         else:
             owner.add_to_zone(obj, Zone.LIBRARY)  # top (index -1)
+        self._split_melded_after_move(obj, Zone.LIBRARY)  # RULE 712.19
         if obj.is_commander:
             self.open_choice(self._commander_zone_choice(obj, Zone.LIBRARY))
     def shuffle_into_library(self, obj: GameObject) -> None:
@@ -747,6 +768,7 @@ class DamageDeathMixin:
         obj.tapped = False
         obj.damage_marked = 0
         owner.add_to_zone(obj, Zone.LIBRARY)
+        self._split_melded_after_move(obj, Zone.LIBRARY)  # RULE 712.19
         self.shuffle_library(owner)
     def blink(self, obj: GameObject, controller: Optional[Player] = None) -> None:
         """Exile ``obj``, then immediately return it to the battlefield under
@@ -1875,6 +1897,7 @@ class DamageDeathMixin:
         obj.tapped = False
         obj.damage_marked = 0
         owner.add_to_zone(obj, Zone.GRAVEYARD)
+        self._split_melded_after_move(obj, Zone.GRAVEYARD)  # RULE 712.19
         self._flag_commander_zone_choice(obj)
     def _flag_commander_zone_choice(self, obj: GameObject) -> None:
         """RULE 903.9a: a commander that just landed in a graveyard or exile

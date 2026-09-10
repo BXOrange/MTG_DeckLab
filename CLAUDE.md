@@ -480,11 +480,12 @@ its state from the code or duplicating detail here.
   energy, poison/infect/wither/toxic; controlling another player's
   turn/combat (RULE 720 — Mindslaver/Emrakul family; `GameState.
   TurnControl` + `GameSession` decision routing).
-- **Card-type structures** — DFC transform + day/night/daybound; modal-DFC/
-  Adventure/Split-Fuse/Prepared casting; Sagas, Class/Leveler/Station
-  level-ups; battles (RULE 310); face-down permanents (morph/manifest/
-  disguise/cloak); dungeons + venturing (RULE 309); the RULE 9 casual
-  variants (Planechase/Archenemy/Vanguard).
+- **Card-type structures** — DFC transform + day/night/daybound; meld
+  (RULE 701.42 — exile the pair, one melded permanent, un-melds on leave);
+  modal-DFC/Adventure/Split-Fuse/Prepared casting; Sagas, Class/Leveler/
+  Station level-ups; battles (RULE 310); face-down permanents (morph/
+  manifest/disguise/cloak); dungeons + venturing (RULE 309); the RULE 9
+  casual variants (Planechase/Archenemy/Vanguard).
 
 **The oracle-text parser is the main ongoing effort.** Pipeline:
 `normalize` → `segmenter` → `catalogue/handlers` → `gate.parse_oracle`,
@@ -500,15 +501,17 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 42.47% (14,784 / 34,811) as of 2026-09-10, measured at
-PARSER_VERSION 305** (whole cache re-parsed; 302–304 were PAR-62's +197-card,
-zero-regression connective increments, while the intervening +23 is ENG-37
-fusion-retirement work)
+**Coverage: 42.5% (14,802 / 34,811) as of 2026-09-10, measured at
+PARSER_VERSION 309** (v309 is MEC-78's RULE 701.69a Heal — remove marked
+damage + Wolverine's heal-on-damage replacement, +1; v308 was MEC-77's
+Meld, +3; v307 was MEC-76's Fateseal, +2; v306 was MEC-75's RULE 706 dice
+subsystem, +12; v305 was 42.47%/14,784, and 302–304 were PAR-62's
++197-card zero-regression connective increments)
 (parser-`MODELED` or hand-`AUTHORED`, measured against the full ~35k-card
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is ~43.8% (13,949 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is ~44.6% (14,191 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

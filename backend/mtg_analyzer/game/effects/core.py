@@ -181,6 +181,19 @@ class GameContext:
         #: ("creatures that player controls don't untap …"). Same
         #: save/reset/restore idiom as `clash_won`.
         self.clashed_opponent: Optional["Player"] = None
+        #: RULE 706.3a: the total of this resolution's most recent
+        #: `RollDieEffect` roll (the sum of the kept dice — "the result" a
+        #: results table is read against), or ``None`` if nothing has rolled
+        #: in it. ``die_results`` is every kept die individually (for a
+        #: "first result"/"second result" reader), and ``rolled_doubles`` is
+        #: RULE 706.5. Read by a following `ConditionalEffect(condition=
+        #: {"die_result_at_least": N})` and by the results-table branch
+        #: `RollDieEffect` applies itself. Same save/reset/restore idiom as
+        #: `clash_won` (reset per resolution, outer value restored after, so
+        #: a nested trigger resolution can't see a stale roll).
+        self.die_result: Optional[int] = None
+        self.die_results: list[int] = []
+        self.rolled_doubles: bool = False
 
     @property
     def players(self) -> list["Player"]:
@@ -329,6 +342,12 @@ class GameContext:
 
     def surveil(self, player: "Player", count: int = 1, source: Optional["GameObject"] = None) -> None:
         self.engine.surveil(player, count, source=source)
+
+    def fateseal(
+        self, player: "Player", count: int = 1,
+        opponent: Optional["Player"] = None, source: Optional["GameObject"] = None,
+    ) -> None:
+        self.engine.fateseal(player, count, opponent=opponent, source=source)
 
     def look_top_select(
         self,
@@ -1089,6 +1108,9 @@ def _apply_effects_partitioned(
     outer_previous_selector = getattr(context, "previous_selector", None)
     outer_clash_won = getattr(context, "clash_won", None)
     outer_clashed_opponent = getattr(context, "clashed_opponent", None)
+    outer_die_result = getattr(context, "die_result", None)
+    outer_die_results = getattr(context, "die_results", [])
+    outer_rolled_doubles = getattr(context, "rolled_doubles", False)
     context.previous_targets = list(previous_targets or [])
     context.created_objects = list(created_objects or [])
     context.life_lost_this_way = life_lost_this_way
@@ -1097,6 +1119,9 @@ def _apply_effects_partitioned(
     context.previous_selector = previous_selector
     context.clash_won = None
     context.clashed_opponent = None
+    context.die_result = None
+    context.die_results = []
+    context.rolled_doubles = False
     try:
         for position, effect in enumerate(effects):
             if source is not None and effect.source is None:
@@ -1163,6 +1188,9 @@ def _apply_effects_partitioned(
         context.previous_selector = outer_previous_selector
         context.clash_won = outer_clash_won
         context.clashed_opponent = outer_clashed_opponent
+        context.die_result = outer_die_result
+        context.die_results = outer_die_results
+        context.rolled_doubles = outer_rolled_doubles
 
 
 # ---------------------------------------------------------------------------
@@ -2664,6 +2692,79 @@ class ClashEffect(GameEffect):
         context.clashed_opponent = (
             context.state.player_by_id(opp_id) if opp_id is not None else None
         )
+
+
+class RollDieEffect(GameEffect):
+    """RULE 706: "Roll a d20." / "Roll a six-sided die." / "Roll two d6." —
+    this effect's controller rolls (`RulesEngine.roll_die`), stashing the
+    kept results on `GameContext.die_results`, their sum on ``die_result``
+    and RULE 706.5's ``rolled_doubles`` for a following clause ("if any of
+    those results was 10 or higher, …", "where X is the result").
+
+    ``outcomes`` is RULE 706.3a's results table: a list of
+    ``{"min": int, "max": int | None, "effects": [{"type","params"}, ...]}``
+    rows (``max`` ``None`` is the ``N+`` open-ended endpoint). After the
+    roll, every row whose range contains the *total* fires, its inner
+    effects built through the ordinary `build_effects` whitelist and applied
+    in printed order — the same serialized-spec branch idiom `CoinFlipEffect`
+    uses for its win/lose bodies. No matching row is legal (RULE 706.3a: "if
+    any") and simply does nothing.
+
+    ``ignore_lowest``/``ignore_highest`` are RULE 706.3's ignore rider,
+    passed straight through; an advantage/disadvantage replacement (Pixie
+    Guide, Barbarian Class) usually sets them on the `ROLL_DICE` event
+    instead, so a bare "roll a d20." spec carries 0/0 and still gets the
+    rider when one is on the battlefield.
+    """
+
+    def __init__(
+        self,
+        sides: int = 20,
+        count: int = 1,
+        ignore_lowest: int = 0,
+        ignore_highest: int = 0,
+        outcomes: Optional[list[dict[str, Any]]] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.sides = int(sides)
+        self.count = int(count)
+        self.ignore_lowest = int(ignore_lowest)
+        self.ignore_highest = int(ignore_highest)
+        self.outcomes = list(outcomes or [])
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
+        from ...parser.oracle.spec import EffectSpec
+
+        player = _controller_of(self.source, context)
+        results = context.engine.roll_die(
+            player,
+            sides=self.sides,
+            count=self.count,
+            ignore_lowest=self.ignore_lowest,
+            ignore_highest=self.ignore_highest,
+        )
+        context.die_results = list(results)
+        context.die_result = sum(results)
+        context.rolled_doubles = len(results) > 1 and len(set(results)) == 1
+        if not self.outcomes:
+            return
+        total = context.die_result
+        for row in self.outcomes:
+            lo = row.get("min")
+            hi = row.get("max")
+            if lo is not None and total < int(lo):
+                continue
+            if hi is not None and total > int(hi):
+                continue
+            specs = row.get("effects") or []
+            inner = build_effects(
+                [EffectSpec(type=d["type"], params=dict(d.get("params") or {})) for d in specs],
+                self.source,
+            )
+            for effect in inner:
+                effect.apply(context, targets)
 
 
 #: Termination cap for `RepeatProcessEffect` (Hoarder's Greed): a chain of
@@ -6202,7 +6303,7 @@ class BrudicladCombatEffect(GameEffect):
     Makes the Myr, then opens an optional pick among the tokens this
     ability's controller controls; `brudiclad_become_copies` (its
     ``then_specs`` tail) turns every *other* token into a copy of the pick
-    (RULE 706.2 permanent mutation via `RulesEngine.become_copy`).
+    (RULE 707.2 permanent mutation via `RulesEngine.become_copy`).
     """
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -6809,7 +6910,7 @@ class CopySpellEffect(GameEffect):
 
 
 class CopyAbilityEffect(GameEffect):
-    """Copy an activated ability on the stack (RULE 706.10 — Rings of
+    """Copy an activated ability on the stack (RULE 707.10 — Rings of
     Brighthearth's "you may pay {2}. If you do, copy that ability. You may
     choose new targets for the copy.").
 
@@ -7592,7 +7693,7 @@ class ExileEffect(GameEffect):
         #: Effect`/`ReboundFreeCastWindowEffect` already use), rather than
         #: literally instantiating a second "copy" object — nothing this
         #: engine tracks distinguishes an uncast copy from the real exiled
-        #: card, and RULE 706.10a means an uncast copy simply ceases to
+        #: card, and RULE 707.10a means an uncast copy simply ceases to
         #: exist either way, so the two are behaviourally identical.
         self.grant_free_cast_window = grant_free_cast_window
         self._trigger_subject_mode = target_kind == "trigger_subject"
@@ -8075,7 +8176,7 @@ class ImprintEffect(GameEffect):
 
 class CopyImprintedCardEffect(GameEffect):
     """"{cost}: You may copy the exiled card. If you do, you may cast the
-    copy without paying its mana cost." (RULE 706.10/601 — Isochron
+    copy without paying its mana cost." (RULE 707.10/601 — Isochron
     Scepter's repeatable payoff for `ImprintEffect`'s exiled card,
     `GameObject.linked_exile_id`).
 
@@ -15295,6 +15396,48 @@ class ExileReturnTransformedEffect(GameEffect):
             context.exile_return_transformed(self.source)
 
 
+class MeldEffect(GameEffect):
+    """RULE 701.42a: "exile them, then meld them into `<result>`." — the
+    body of a meld card's own trigger (Gisela, the Broken Blade / Graf Rats
+    / Midnight Scavengers). Untargeted: ``self.source`` is one half of the
+    pair, ``partner_name`` names the other. Resolves the partner as a
+    non-token permanent the source's controller **both owns and controls**
+    (RULE 701.42b) and hands both to `RulesEngine.meld`; a no-op (the
+    RULE 603.4 intervening-if failed by resolution) if the partner isn't
+    there — the engine also fails closed, so nothing is exiled.
+    """
+
+    def __init__(
+        self, partner_name: str = "", result_name: str = "",
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.partner_name = partner_name
+        self.result_name = result_name
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        src = self.source
+        if src is None or src.zone != Zone.BATTLEFIELD:
+            return
+        controller_id = src.controller_id
+        # `partner_name` comes from `normalize`d oracle text (lower-cased),
+        # while `GameObject.name` keeps its printed casing — compare folded.
+        want = self.partner_name.strip().lower()
+        partner = next(
+            (
+                o for o in context.state.permanents_controlled_by(controller_id)
+                if o is not src
+                and o.name.lower() == want
+                and o.owner_id == controller_id
+                and not getattr(o, "is_token", False)
+            ),
+            None,
+        )
+        if partner is None:
+            return  # RULE 701.42c / 603.4 — the pair isn't both here
+        context.engine.meld(src, partner, self.result_name)
+
+
 class SiegeDefeatedEffect(GameEffect):
     """A Siege's intrinsic defeat ability (RULE 310.11b): "exile it, then you
     may cast it transformed without paying its mana cost."
@@ -18025,6 +18168,60 @@ class SurveilEffect(GameEffect):
             context.surveil(player, self.count, source=self.source)
 
 
+class HealEffect(GameEffect):
+    """RULE 701.69a: "heal all damage from `<permanent>`" / "damage … is
+    healed" — remove all marked damage (`RulesEngine.heal`) from the chosen
+    permanent(s).
+
+    ``selector`` (a `continuous.group_selector_objects` name — "all_
+    creatures", "creatures_you_control", …) heals a group; otherwise the
+    RULE 115 ``targets``; otherwise, with neither, ``self.source`` (a bare
+    "heal all damage from ~"). No amount — see `RulesEngine.heal`.
+    """
+
+    def __init__(
+        self, selector: Optional[str] = None, source: Optional["GameObject"] = None
+    ) -> None:
+        super().__init__(source)
+        self.selector = selector
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.selector is not None:
+            from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
+
+            controller_id = getattr(self.source, "controller_id", None)
+            group = group_selector_objects(
+                context.state, controller_id, self.selector, src=self.source
+            )
+        elif targets:
+            # a permanent target has an `instance_id`; a player target doesn't
+            group = [t for t in targets if getattr(t, "instance_id", None) is not None]
+        elif self.source is not None:
+            group = [self.source]
+        else:
+            group = []
+        for obj in group:
+            context.engine.heal(obj)
+
+
+class FateSealEffect(GameEffect):
+    """Fateseal ``count`` (RULE 701.29a): the effect's controller looks at
+    the top ``count`` cards of an opponent's library and puts any number on
+    the bottom, the rest back on top in any order — scry aimed at someone
+    else's deck. The opponent is auto-picked (first living opponent) —
+    `RulesEngine.fateseal`'s documented simplification, same as `ClashEffect`
+    / `GainControlBySourceEffect`. No target."""
+
+    def __init__(self, count: int = 1, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.count = count
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.fateseal(player, self.count, source=self.source)
+
+
 class LookTopSelectEffect(GameEffect):
     """"Look at the top N cards of your library. Put M of them into your
     hand and the rest `<destination>`." (RULE 701.19-adjacent — Anticipate/
@@ -18916,7 +19113,7 @@ class EnterAsCopyReplacement(GameEffect):
         #: choice` before `become_copy` runs.
         self.add_keywords_if_target_lacks = list(add_keywords_if_target_lacks or [])
         #: "…except it has ~'s other abilities" (Sakashima of a Thousand
-        #: Faces) — RULE 706.2 would otherwise erase ~'s own printed
+        #: Faces) — RULE 707.2 would otherwise erase ~'s own printed
         #: abilities entirely; see `_resume_enter_as_copy`.
         self.keep_own_abilities = keep_own_abilities
         #: "…except it's an artifact and it has '{T}: Add {U}.'" (Machine
@@ -19079,7 +19276,7 @@ class BecomeCopyUntilEndOfTurnEffect(GameEffect):
     turn (Cursed Mirror-style: "{T}: ~ becomes a copy of target creature
     until end of turn.").
 
-    Unlike `RulesEngine.become_copy` (a permanent mutation, RULE 706.2), this
+    Unlike `RulesEngine.become_copy` (a permanent mutation, RULE 707.2), this
     reverts automatically at cleanup (RULE 514.2) — see `RulesEngine.
     become_copy_until_end_of_turn` and `GameEngine._step_cleanup`.
     """
@@ -19103,7 +19300,7 @@ class BecomeCopyUntilEndOfTurnEffect(GameEffect):
 
 class BecomeCopyPermanentEffect(GameEffect):
     """*This* permanent permanently becomes a copy of a target creature
-    (RULE 706/707.2 — Shameless Charlatan's "{2}{U}: ~ becomes a copy of
+    (RULE 707.2 — Shameless Charlatan's "{2}{U}: ~ becomes a copy of
     another target creature."). Unlike `BecomeCopyUntilEndOfTurnEffect`
     this does *not* revert at cleanup — `RulesEngine.become_copy`."""
 
@@ -23054,7 +23251,7 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    # "Copy that ability." (RULE 706.10 — Rings of Brighthearth) — the
+    # "Copy that ability." (RULE 707.10 — Rings of Brighthearth) — the
     # ability-item sibling of ``"copy_spell"``; ``"that ability"`` is read
     # off `GameObject.remembered_stack_id`, not a target.
     "copy_ability",
@@ -24969,6 +25166,14 @@ EffectRegistry.register(
     "surveil", lambda p: SurveilEffect(count=p.get("count", p.get("amount", 1)))
 )
 EffectRegistry.register(
+    # RULE 701.69a "heal all damage from <permanent>" / "… is healed" — see `HealEffect`.
+    "heal", lambda p: HealEffect(selector=p.get("selector"))
+)
+EffectRegistry.register(
+    # RULE 701.29a "fateseal N" — scry on an opponent's library. See `FateSealEffect`.
+    "fateseal", lambda p: FateSealEffect(count=p.get("count", p.get("amount", 1)))
+)
+EffectRegistry.register(
     "look_top_select",
     lambda p: LookTopSelectEffect(
         count=p.get("count", 1),
@@ -25200,6 +25405,13 @@ EffectRegistry.register(
     "transform", lambda p: TransformEffect(target_kind=p.get("target_kind"))
 )
 EffectRegistry.register(
+    # RULE 701.42a "exile them, then meld them into <result>." — see `MeldEffect`.
+    "meld",
+    lambda p: MeldEffect(
+        partner_name=p.get("partner_name", ""), result_name=p.get("result_name", ""),
+    ),
+)
+EffectRegistry.register(
     # "Look at the top card of your library. If it's a[n] <type> card,
     # transform ~." (Delver of Secrets-shaped).
     "reveal_top_then_transform",
@@ -25220,6 +25432,19 @@ EffectRegistry.register(
     # not params here.
     "clash",
     lambda p: ClashEffect(with_opponent=p.get("with_opponent", True)),
+)
+EffectRegistry.register(
+    # RULE 706 "roll a d20." / "roll two six-sided dice." — see `RollDieEffect`.
+    # ``outcomes`` is the RULE 706.3a results table (list of {min,max,effects});
+    # a bare roll with no table carries none.
+    "roll_die",
+    lambda p: RollDieEffect(
+        sides=p.get("sides", 20),
+        count=p.get("count", 1),
+        ignore_lowest=p.get("ignore_lowest", 0),
+        ignore_highest=p.get("ignore_highest", 0),
+        outcomes=p.get("outcomes"),
+    ),
 )
 EffectRegistry.register(
     # "`<process>`, then clash …. If you win, repeat this process." (Hoarder's Greed)
@@ -27489,6 +27714,83 @@ def _double_counters_replacement(params: dict[str, Any]) -> ReplacementEffect:
     return effect
 
 
+def _roll_dice_modifier_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """RULE 706.3-adjacent advantage / disadvantage: "If you would roll one
+    or more dice, instead roll that many dice plus one and ignore the lowest
+    roll." (Pixie Guide / Barbarian Class / Wilhelt-adjacent) and its
+    mirror "…plus one and ignore the highest roll." (Wet Sock / Grim
+    Wanderer-adjacent). Rewrites the pre-roll `EventType.ROLL_DICE` event
+    that `RulesEngine.roll_die` fires: bumps ``count`` by ``plus`` and adds
+    ``ignore_lowest``/``ignore_highest``. Scoped to the *rolling* player
+    being this effect's own controller — RULE 706's "if **you** would roll"
+    (no in-scope card grants the advantage to an opponent).
+
+    RULE 614.5 (one application per event) is enforced by the replacement
+    loop's identity tracking, so two Pixie Guides stack to "plus two, ignore
+    the two lowest" without either re-triggering on its own rewritten event.
+    """
+    plus = int(params.get("plus", 1))
+    ignore_lowest = int(params.get("ignore_lowest", 0))
+    ignore_highest = int(params.get("ignore_highest", 0))
+    effect = ReplacementEffect(
+        event_type=EventType.ROLL_DICE,
+        replacement_fn=lambda e, c: e,
+        description=str(params.get("description", "")),
+    )
+
+    def _applies(event: GameEvent, _context: GameContext) -> bool:
+        src = effect.source
+        return src is not None and event.get("player_id") == src.controller_id
+
+    def replace(event: GameEvent, _context: GameContext) -> Optional[GameEvent]:
+        return event.copy_with(
+            count=int(event.get("count", 1)) + plus,
+            ignore_lowest=int(event.get("ignore_lowest", 0)) + ignore_lowest,
+            ignore_highest=int(event.get("ignore_highest", 0)) + ignore_highest,
+        )
+
+    effect.replacement_fn = replace
+    effect.condition = _applies  # RULE 616.1e — see _prevent_damage_replacement
+    return effect
+
+
+def _heal_others_on_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """RULE 701.69a + Wolverine, Fierce Fighter: "If damage would be dealt
+    to ~, instead that damage is dealt, but all other damage already dealt
+    to him is healed." The damage itself is unchanged (returned as-is); the
+    *side effect* is that every point of damage already marked on the source
+    is removed the instant before this new hit lands (`_finish` then marks
+    only the new amount, so the permanent's effective toughness for
+    lethality is measured against the latest hit alone).
+
+    Scoped to damage whose recipient is this effect's own source, and RULE
+    614.5 one-application-per-event so a multi-source damage step heals
+    once per hit, not in a loop.
+    """
+    effect = ReplacementEffect(
+        event_type=EventType.DAMAGE,
+        replacement_fn=lambda e, c: e,
+        description=str(params.get("description", "")),
+    )
+
+    def _applies(event: GameEvent, _context: GameContext) -> bool:
+        src = effect.source
+        return (
+            src is not None
+            and not event.get("is_player")
+            and event.get("target_id") == src.instance_id
+        )
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        if effect.source is not None:
+            context.engine.heal(effect.source)  # "all other damage … is healed"
+        return event  # "that damage is dealt" — unchanged
+
+    effect.replacement_fn = replace
+    effect.condition = _applies  # RULE 616.1e — see _prevent_damage_replacement
+    return effect
+
+
 def _draw_exile_face_up_replacement(params: dict[str, Any]) -> ReplacementEffect:
     """"If a player would draw a card, that player exiles that card face up
     instead. Each player may play lands and cast spells from among cards
@@ -28022,6 +28324,8 @@ ReplacementRegistry.register("double_damage", _double_damage_replacement)
 ReplacementRegistry.register("additional_damage", _additional_damage_replacement)
 ReplacementRegistry.register("damage_floor_from_source_power", _damage_floor_from_source_power_replacement)
 ReplacementRegistry.register("double_counters", _double_counters_replacement)
+ReplacementRegistry.register("roll_dice_modifier", _roll_dice_modifier_replacement)
+ReplacementRegistry.register("heal_others_on_damage", _heal_others_on_damage_replacement)
 ReplacementRegistry.register("gain_life_replacement", _gain_life_replacement)
 ReplacementRegistry.register("die_to_exile", _die_to_exile_replacement)
 ReplacementRegistry.register("draw_exile_face_up", _draw_exile_face_up_replacement)

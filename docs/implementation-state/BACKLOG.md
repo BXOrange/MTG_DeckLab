@@ -258,7 +258,9 @@ its block back into the matching section here.
   is in
   [13_ORACLE_PARSER_GRAMMAR_REVIEW.md](../concepts/13_ORACLE_PARSER_GRAMMAR_REVIEW.md)
   §5.3. Every ticket shall be completed end to end without leaving residue
-  before moving to the next ticket.
+  before moving to the next ticket. A fresh PARSER_VERSION 308 re-measure
+  retired **PAR-37** and **PAR-48**: their modal-header and ordinal-draw
+  shapes are now parser-MODELED, so neither remains backlog work.
 
   Bucket B (recurring effect-body / static templates, `extend-parser` loop):
 
@@ -293,10 +295,6 @@ its block back into the matching section here.
     `…discards **that many** cards` reading the DAMAGE amount (Dreamstealer
     / Needle Specter — a `DiscardEffect.count_from_trigger_event`),
     `whenever you cast a spell that targets ~` (~#8).
-  - **PAR-37** — modal `choose <n>. if you control a commander … choose
-    both instead` + `choose <n>. you may choose the same mode more than
-    once` (~#12+12; both currently reach Bucket A/B as wrapper headers —
-    confirm they are genuinely unrecognised first).
   - **PAR-38** — residue only. The bare `skip your draw step` static and
     the bare `~ deals <n> damage to you` body both shipped at
     PARSER_VERSION 229 (`skip_step` oracle route; `damage_selector`'s
@@ -361,9 +359,6 @@ its block back into the matching section here.
     (#9) and the Party count-selector (see PAR-50).
   - **PAR-47** — `<cost>,<cost>: put a charge counter on ~` + its
     remove-a-charge-counter spend clause (#14).
-  - **PAR-48** — `whenever you draw your second card each turn, put a
-    +N/+N counter on ~` (#12; Marvel/Ravnica "second card" trigger — folds
-    into PAR-36's vocabulary work if taken together).
   - **PAR-49** — `<cost>: ~ becomes the creature type of your choice until
     end of turn` (#8).
   - **PAR-50** — combat-damage-assignment statics (`you may have ~ assign
@@ -444,34 +439,6 @@ its block back into the matching section here.
 > Not filed, on purpose: the Attractions family (RULE 701.45 Assemble,
 > 701.51 Open an Attraction, 701.52 Roll to Visit Your Attractions) is a
 > permanent non-goal in `DEFERRED.md`.
-
-- **MEC-75 · Rolling a die (RULE 706).** No dice subsystem exists at all —
-  `game/ability_catalogue/entries_006.py`'s Vrondiss entry says so in as many
-  words ("the dice-roll clause is skipped entirely — this engine has no
-  dice-rolling subsystem at all") and creates a vanilla token instead. Needs
-  a `roll_die` primitive (agent, amount), a `DICE_ROLLED` event for the
-  "whenever you roll one or more dice" trigger family, and the RULE 706.3
-  ignore-lowest/highest riders. Sibling of `flip_coin` (RULE 705), which is
-  already a primitive — copy its shape.
-  > While here: several catalogue comments cite **`RULE 706` for copying**
-  > (Clever Impersonator, `commander_cards.py`'s become-copy note). Copying
-  > is RULE **707** in the current CR; 706 is Rolling a Die. Those citations
-  > are stale, not wrong-in-spirit — fix them in the same pass so the new
-  > `roll_die` work does not collide with them.
-
-- **MEC-76 · Fateseal (RULE 701.29).** Absent. Scry's opponent-facing twin
-  (look at the top N of *target opponent's* library, put any number on the
-  bottom) — `scry`/`surveil` are both primitives, so this is the same shape
-  with the agent and the patient's owner split apart, which is precisely the
-  ISA's `agent`/`patient` frame distinction.
-
-- **MEC-77 · Meld (RULE 701.42).** Absent as a primitive; `meld` exists only
-  as a `Card.layout` string. Needs the pair-exile-and-return-as-one-permanent
-  zone change plus the melded permanent's own back-face identity.
-
-- **MEC-78 · Heal (RULE 701.69).** Absent. A recent keyword action (remove N
-  damage / -1/-1 counters) with no engine realisation; the counter half is
-  `remove_counter`, so scope is the damage-marking half plus the keyword.
 
 - **MEC-79 · Harness (RULE 701.64).** Absent. (Grep hits on "harness" are the
   card *Fractal Harness*, not the keyword action.)

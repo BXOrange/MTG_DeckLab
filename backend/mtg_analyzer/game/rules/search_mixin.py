@@ -209,6 +209,18 @@ class SearchMixin:
             "away": ("Überwachen: welche Karte kommt auf den Friedhof?", "Rest oben lassen"),
             "order": ("Überwachen: welche Karte kommt zuoberst?", "Reihenfolge behalten"),
         },
+        # RULE 701.29a Fateseal — scry on an *opponent's* library: the
+        # looked-at cards' "away" pile goes to the bottom exactly like scry,
+        # the only difference is *whose* library is reordered (`library_
+        # owner`, threaded through the whole `_look_top` chain) versus who
+        # makes the decision (`player`, the fatesealer). `event` fires
+        # `FATESEALED` for convention parity with the other keyword actions
+        # (no cached card triggers on it yet). MEC-76.
+        "fateseal": {
+            "event": EventType.FATESEALED,
+            "away": ("Schicksalszeichnung: welche Karte kommt unter die Bibliothek?", "Rest oben lassen"),
+            "order": ("Schicksalszeichnung: welche Karte kommt zuoberst?", "Reihenfolge behalten"),
+        },
         # MEC-43 round 4F (Scroll Rack): "look at the exiled cards and put
         # them on top of your library in any order" — the order-only
         # sibling of scry/surveil's own ordering phase (`open_scroll_rack_
@@ -245,23 +257,62 @@ class SearchMixin:
         so no `MILL`/`MILL_CARD` event fires here.
         """
         self._look_at_top(player, count, "surveil", source=source)
-    def _look_at_top(
-        self, player: Player, count: int, kind: str, source: Optional["GameObject"] = None
+    def fateseal(
+        self,
+        player: Player,
+        count: int,
+        opponent: Optional[Player] = None,
+        source: Optional["GameObject"] = None,
     ) -> None:
-        """The shared body of `scry`/`surveil`: fire the keyword's event, then
-        open its decision.
+        """Fateseal ``count`` (RULE 701.29a): ``player`` looks at the top
+        ``count`` cards of an **opponent's** library, then puts any number on
+        the bottom of that library and the rest back on top in any order —
+        scry, pointed at someone else's deck.
+
+        **Documented simplification**: ``opponent`` defaults to the first
+        living opponent of ``player`` (auto-picked, not an interactive
+        "choose an opponent" — unambiguous in 1v1 goldfish/Replay, the same
+        convention `GainControlBySourceEffect`/`RulesEngine.clash` use for
+        their own "an opponent"). With no opponent at all, nothing happens
+        but the `FATESEALED` event still fires with ``count`` 0.
+        """
+        if opponent is None:
+            opponent = next(
+                (p for p in self.state.living_players() if p.id != player.id), None
+            )
+        self._look_at_top(
+            player, count, "fateseal", source=source, library_owner=opponent
+        )
+    def _look_at_top(
+        self,
+        player: Player,
+        count: int,
+        kind: str,
+        source: Optional["GameObject"] = None,
+        library_owner: Optional[Player] = None,
+    ) -> None:
+        """The shared body of `scry`/`surveil`/`fateseal`: fire the keyword's
+        event, then open its decision.
 
         The event fires *before* the decision, so "whenever you scry/surveil"
         triggers see it at the moment the player looks — the same point the
         old non-interactive stubs fired it, and the point RULE 603.2 means.
-        An empty library is still a scry/surveil of 0: the event fires (with
-        ``count`` 0) and nothing is asked.
+        An empty library is still a scry/surveil/fateseal of 0: the event
+        fires (with ``count`` 0) and nothing is asked.
+
+        ``library_owner`` is whose library is looked at and reordered — the
+        same as ``player`` for scry/surveil (a player looks at their own
+        top), but a *different* player for fateseal (`player` decides,
+        ``library_owner`` is the opponent). ``None`` means "same as
+        ``player``", so scry/surveil callers are unchanged.
         """
-        looked = player.library[-count:] if count > 0 else []
+        owner = library_owner if library_owner is not None else player
+        looked = owner.library[-count:] if (count > 0 and owner is not None) else []
+        event_data: dict[str, Any] = {"player_id": player.id, "count": len(looked)}
+        if owner is not None and owner.id != player.id:
+            event_data["opponent_id"] = owner.id
         self.state.fire_event(
-            GameEvent(
-                self._LOOK_TOP_KINDS[kind]["event"], player_id=player.id, count=len(looked)
-            )
+            GameEvent(self._LOOK_TOP_KINDS[kind]["event"], **event_data)
         )
         if not looked:
             return
@@ -269,7 +320,8 @@ class SearchMixin:
         remaining = [obj.instance_id for obj in reversed(looked)]
         source_name = source.name if source is not None else None
         self.open_choice(self._look_top_choice(
-            player, kind, "away", remaining, [], [], source_name
+            player, kind, "away", remaining, [], [], source_name,
+            library_owner=owner,
         ))
     def explore(self, permanent: GameObject, player: Optional[Player] = None) -> None:
         """RULE 701.44a: ``permanent``'s controller reveals the top card of
@@ -437,6 +489,7 @@ class SearchMixin:
         away: list[int],
         top: list[int],
         source_name: Optional[str] = None,
+        library_owner: Optional[Player] = None,
     ) -> dict[str, Any]:
         """Build one step of the serializable `scry`/`surveil` decision.
 
@@ -457,7 +510,7 @@ class SearchMixin:
             if obj is not None
         ]
         options.append({"id": "decline", "label": decline_label})
-        return {
+        choice: dict[str, Any] = {
             "kind": kind,
             "player_id": player.id,
             "phase": phase,
@@ -468,8 +521,14 @@ class SearchMixin:
             "options": options,
             "source_name": source_name,
         }
+        # Only set for fateseal (RULE 701.29a) — scry/surveil look at the
+        # *chooser's* own library, so its absence means "same as player_id"
+        # and every existing caller/serialized choice is unchanged.
+        if library_owner is not None and library_owner.id != player.id:
+            choice["library_owner_id"] = library_owner.id
+        return choice
     @continuations.choice(
-        "scry", "surveil", "scroll_rack",
+        "scry", "surveil", "scroll_rack", "fateseal",
         answer=continuations.ANSWER_INT,
         rule="701.22",
     )
@@ -498,6 +557,11 @@ class SearchMixin:
         """
         kind = choice["kind"]
         player = self.state.player_by_id(choice["player_id"])
+        # Fateseal (RULE 701.29a) reorders the *opponent's* library while
+        # ``player`` stays the decision-maker; absent for scry/surveil, where
+        # the two are the same person.
+        owner_id = choice.get("library_owner_id", choice["player_id"])
+        owner = self.state.player_by_id(owner_id)
         remaining: list[int] = list(choice["remaining"])
         away: list[int] = list(choice["away"])
         top: list[int] = list(choice["top"])
@@ -506,7 +570,7 @@ class SearchMixin:
 
         if instance_id is None:
             if phase == "order":
-                self._finish_look_top(player, kind, away, top + remaining)
+                self._finish_look_top(owner, kind, away, top + remaining)
                 return
             phase = "order"  # declined: what's left stays on top
         elif instance_id in remaining:
@@ -518,15 +582,19 @@ class SearchMixin:
         # One card left needs no ordering, and no cards left needs nothing at
         # all — either way the decision is over.
         if not remaining or (phase == "order" and len(remaining) == 1):
-            self._finish_look_top(player, kind, away, top + remaining)
+            self._finish_look_top(owner, kind, away, top + remaining)
             return
         self.open_choice(self._look_top_choice(
-            player, kind, phase, remaining, away, top, source_name
+            player, kind, phase, remaining, away, top, source_name,
+            library_owner=owner,
         ))
     def _finish_look_top(
         self, player: Player, kind: str, away: list[int], top: list[int]
     ) -> None:
-        """Put the looked-at cards where they were sent.
+        """Put the looked-at cards where they were sent. ``player`` is the
+        owner of the library being reordered — the same person who scried
+        for scry/surveil, but the *opponent* for fateseal (RULE 701.29a),
+        since `_resume_look_top` resolves it from ``library_owner_id``.
 
         ``top`` goes back on top with its first entry topmost (`Player.
         library` is ordered bottom-first, so the kept pile goes back

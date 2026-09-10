@@ -254,6 +254,33 @@ _STANDING_PREVENT_COUNT_RE = re.compile(
 #: with the new ``remove_self_counter`` kind (`RulesEngine.
 #: apply_prevent_rider`); these creatures are printed 0/0, so once the last
 #: counter goes the RULE 704.5g SBA finishes them.
+#: RULE 706.3-adjacent advantage / disadvantage — "If you would roll one or
+#: more dice, instead roll that many dice plus one and ignore the lowest
+#: roll." (Pixie Guide, Barbarian Class level 1, Wilhelt-adjacent) and its
+#: "ignore the highest roll" disadvantage mirror. The "Grant an Advantage —"
+#: / "Grant a Disadvantage —" ability-word label (RULE 207.2c, no rules
+#: meaning) is stripped here since the segmenter's permanent-static fallback
+#: doesn't peel it. Engine side: `_roll_dice_modifier_replacement` rewrites
+#: the pre-roll `ROLL_DICE` event's ``count``/``ignore_lowest``/
+#: ``ignore_highest``.
+_ROLL_DICE_MODIFIER_RE = re.compile(
+    r"(?:grant (?:an advantage|a disadvantage) [—–-] )?"
+    r"if you would roll 1 or more dice, instead roll that many dice "
+    r"plus (?P<plus>1|one|\d+) and ignore the (?P<extreme>lowest|highest) roll",
+    re.IGNORECASE,
+)
+
+#: RULE 701.69a + Wolverine, Fierce Fighter: "If damage would be dealt to ~,
+#: instead that damage is dealt, but all other damage already dealt to
+#: (it|him|her|them) is healed." A replacement that leaves the damage
+#: unchanged and, as a side effect, heals ~'s previously-marked damage —
+#: `_heal_others_on_damage_replacement` (`heal_others_on_damage`).
+_HEAL_OTHERS_ON_DAMAGE_RE = re.compile(
+    r"if damage would be dealt to ~, instead that damage is dealt, "
+    r"but all other damage already dealt to (?:it|him|her|them) is healed",
+    re.IGNORECASE,
+)
+
 _PHANTOM_PREVENT_RE = re.compile(
     r"if damage would be dealt to ~, prevent that damage\.\s*"
     r"remove a (?P<counter>\+1/\+1|-1/-1) counter from ~\.?",
@@ -384,6 +411,16 @@ def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
     m = _DIE_TO_EXILE_RE.fullmatch(text)
     if m is not None:
         return [EffectSpec("die_to_exile", {"subject": _DIE_SUBJECT_MAP[m.group("subject").lower()]})]
+
+    if _HEAL_OTHERS_ON_DAMAGE_RE.fullmatch(text):
+        return [EffectSpec("heal_others_on_damage", {})]
+
+    m = _ROLL_DICE_MODIFIER_RE.fullmatch(text)
+    if m is not None:
+        plus_raw = m.group("plus").lower()
+        plus = 1 if plus_raw == "one" else int(plus_raw)
+        extreme = "ignore_lowest" if m.group("extreme").lower() == "lowest" else "ignore_highest"
+        return [EffectSpec("roll_dice_modifier", {"plus": plus, extreme: 1})]
 
     m = _PHANTOM_PREVENT_RE.fullmatch(text)
     if m is not None:

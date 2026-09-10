@@ -781,7 +781,7 @@ def _rings_of_brighthearth() -> list[AbilitySpec]:
     separate check — the same fact `Flamescroll Celebrant`/`Runic Armasaur`
     already document), and `pay_cost_then` (RULE 118.3) already handles the
     optional {2}. The genuinely new part is copying an ability that's
-    already on the stack (RULE 706.10): `CopyAbilityEffect`/`RulesEngine.
+    already on the stack (RULE 707.10): `CopyAbilityEffect`/`RulesEngine.
     copy_ability` are the ability-item siblings of the existing spell-copy
     machinery (`CopySpellEffect`/`copy_spell`), identifying "that ability"
     by `StackItem.stack_id` (ENG-26) instead of a `GameObject.instance_id`

@@ -325,6 +325,15 @@ _PLAYER_TRIGGER_CONDITIONS: tuple[tuple[re.Pattern[str], Any], ...] = (
     # triggers on beholding, but the row keeps the keyword-action family's
     # per-player `player_id` convention ready for one that does.
     (re.compile(r"^you behold(?: an?\s+\w+)?$"), "BEHELD"),
+    # RULE 706: "Whenever you roll one or more dice, …" (Farideh, Devil's
+    # Chosen / Vrondiss, Rage of Ancients / Barbarian Class level 2) —
+    # `RulesEngine.roll_die` fires `EventType.DICE_ROLLED` once per roll
+    # instruction (RULE 706.3b), keyed by ``player_id``, the same
+    # per-player convention as SCRY/SURVEIL/CLASHED above. "one or more"
+    # has already been normalised to "1 or more"; the bare "roll a die"
+    # spelling is folded in for completeness though no cached card prints
+    # a trigger on exactly one die yet.
+    (re.compile(r"^you roll (?:a die|1 or more dice)$"), "DICE_ROLLED"),
 )
 
 #: A triggered-ability wrapper: "When/Whenever/At <condition>, <body>".
@@ -377,6 +386,25 @@ def _strip_trigger_once_per_turn_marker(effects: list[EffectSpec]) -> tuple[list
 #: printed type line) narrows the cast spell to instant/sorcery.
 _MAGECRAFT_RE = re.compile(
     r"^magecraft\s*—\s*whenever you cast or copy an instant or sorcery spell,\s*(?P<body>.+)$",
+    re.IGNORECASE,
+)
+
+#: RULE 701.42a Meld, phase-trigger form: "At the beginning of <phase>, if
+#: you both own and control ~ and a[n] <type> named <X>, exile them, then
+#: meld them into <Y>." (Gisela, the Broken Blade — your end step; Graf Rats
+#: — combat on your turn). A dedicated whole-line recognizer, like
+#: `_MAGECRAFT_RE`, because the "if you both own and control … and a
+#: creature named …" gate is meld-specific and the partner/result names
+#: carry commas. The RULE 603.4 intervening-if is dropped: `MeldEffect`
+#: re-checks own+control of the named partner at resolution and fails
+#: closed, so the board outcome is identical. Titania's own extra
+#: "if there are N land cards in your graveyard and …" prefix deliberately
+#: doesn't match here (a compound condition of its own).
+_MELD_TRIGGER_RE = re.compile(
+    r"^at the beginning of (?:your )?(?P<step>upkeep|draw|end|combat)"
+    r"(?: step| on your turn)?, if you both own and control ~ and "
+    r"(?:an?|the) (?:creature|land|artifact|permanent) named (?P<partner>.+?), "
+    r"exile them, then meld them into (?P<result>.+?)\.?$",
     re.IGNORECASE,
 )
 
@@ -4045,6 +4073,21 @@ def segment_line(
 
     if _PLAY_WITH_TOP_REVEALED_RE.match(raw):
         return Segment(raw=raw, claimed=True)  # informational-only, no spec (see docstring)
+
+    meld_trig = _MELD_TRIGGER_RE.match(raw)
+    if meld_trig is not None:
+        step = _PHASE_STEP_WORDS.get(meld_trig.group("step").lower(), meld_trig.group("step").lower())
+        spec = AbilitySpec(
+            "triggered",
+            effects=[EffectSpec("meld", {
+                "partner_name": meld_trig.group("partner").strip(),
+                "result_name": meld_trig.group("result").strip(),
+            })],
+            trigger={"event": "STEP_BEGIN", "filter": {"step": step}, "phase_relation": "you"},
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
 
     magecraft = _MAGECRAFT_RE.match(raw)
     if magecraft is not None:
