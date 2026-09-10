@@ -494,6 +494,17 @@ _ALIAS_TYPES: dict[str, str] = {
     "exile_target_graveyard": "exile",
     "exile_top_of_library": "exile",
     "exile_trigger_damaged_creature": "exile",
+    # ENG-37 re-derivation: exile with a "you may play/cast the exiled
+    # card" rider is *one* atomic operation, not an `exile` +
+    # `create_continuous_effect` weld — `RulesEngine.exile_with_play_
+    # permission` (`impulsive_draw`, Light Up the Stage) does the whole
+    # thing in one call, and `exile_triggering_discard_may_play_this_turn`
+    # (Containment Construct) is the same move-to-exile-with-a-play-flag
+    # for the discard trigger's own card. The play window is a
+    # `GameState.temp_play_permissions` stamp read by `can_cast`, not a
+    # RULE 611 continuous effect in the instruction stream.
+    "impulsive_draw": "exile",
+    "exile_triggering_discard_may_play_this_turn": "exile",
     "exile_until_duplicate_name": "exile",
     "free_cast_from_hand": "cast",
     "gain_control_attached": "gain_control",
@@ -650,16 +661,13 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
     "exchange_control_then_energy_sacrifice": (("exchange", "pay_cost", "sacrifice"), OP_SEQ),
     "exile_cast_spell_into_imprint_pool": (("exile", "imprint"), OP_SEQ),
     "exile_controller_searches_basic_land": (("exile", "search"), OP_SEQ),
-    "exile_discount_cost": (("exile", "create_continuous_effect"), OP_SEQ),
     "exile_graveyard_card_counter_if_permanent": (("exile", "put_counter"), OP_IF_ELSE),
     "exile_hand_then_draw_that_many": (("exile", "draw"), OP_BIND),
     "exile_opponents_graveyards_impulsive_cast": (("exile", "cast"), OP_SEQ),
     "exile_top_from_each_player_cast_free": (("exile", "cast"), OP_FOR_EACH),
     "exile_top_then_damage_by_mv": (("exile", "deal_damage"), OP_BIND),
     "exile_top_then_grant_conditional_cast": (("exile", "create_continuous_effect"), OP_SEQ),
-    "exile_triggering_discard_may_play_this_turn": (("exile", "create_continuous_effect"), OP_SEQ),
     "haunt": (("exile", "create_delayed_trigger"), OP_SEQ),
-    "impulsive_draw": (("exile", "create_continuous_effect"), OP_SEQ),
     "mill_then_damage_each_opponent_by_mv": (("mill", "deal_damage"), OP_BIND),
     "owner_draw_others_lose_per_dying_counter": (("draw", "lose_life"), OP_FOR_EACH),
     "pay_life_equal_to_opponents_combat_damaged_draw_that_many": (("pay_cost", "draw"), OP_BIND),
@@ -755,6 +763,14 @@ _STATIC_TYPES: frozenset[str] = frozenset({
     "cant_be_countered", "cast_limit", "cast_prohibition", "color_change",
     "combat_restriction", "cost_reduction", "cost_restriction",
     "damage_cant_be_prevented", "disable_damage_prevention", "draw_limit",
+    # ENG-37 re-derivation: not an `exile`+`create_continuous_effect` weld.
+    # It resolves nothing — it is a RULE 613 static cost-reduction read off
+    # the spell's own `static_effects` while still in hand ("this spell
+    # costs {2} less for each blue card exiled to its additional cost",
+    # March of Swirling Mist), the same shape as Delve/Affinity's
+    # `self_cost_reduction_for`. `EffectRegistry.register` builds a
+    # `StaticAbility` for it.
+    "exile_discount_cost",
     "extra_land_drop", "extra_land_play", "flash_permission",
     "free_cast_permission", "goaded", "grant_any_color_for_activation",
     "grant_protection_static", "grant_search_limited_to_top_n",

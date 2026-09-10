@@ -4158,7 +4158,36 @@ evidence is
 
 ### Fusion retirement — parser-side batches (ENG-37, `14_` S3)
 
-Running total: **81 → 56**.
+Running total: **81 → 53**.
+
+- **Batch 15 (plan row B6, exile-with-play-window slice — `56 → 53`,
+  reclassify-only, no code).** The B6 `exile_*` rows turned out mostly
+  misclassified, the same way batches 2–3 found for the shuffle/transform
+  families:
+  - **`exile_discount_cost`** → **STATIC**, not `exile`+`create_continuous_
+    effect`. It resolves *nothing* — `EffectRegistry.register` builds a
+    `StaticAbility` for it, a RULE 613 cost-reduction read off the spell's
+    own `static_effects` while still in hand ("this spell costs {2} less for
+    each blue card exiled to its additional cost", March of Swirling Mist),
+    the same shape as Delve/Affinity's `self_cost_reduction_for`.
+  - **`impulsive_draw`** → **ALIAS of `exile`**. `apply` is one call to
+    `RulesEngine.exile_with_play_permission`; the ~11 catalogue call sites'
+    params (`count_if_additional_cost_paid`, `count_from_trigger_event`,
+    `permission_player`, `same_turn_only`) are exactly what an ALIAS
+    carries. The "you may play the exiled cards" window is a
+    `GameState.temp_play_permissions` stamp read by `can_cast`, not a
+    RULE 611 continuous effect in the instruction stream.
+  - **`exile_triggering_discard_may_play_this_turn`** → **ALIAS of
+    `exile`**. Same move-to-exile-with-a-play-flag as `impulsive_draw`, for
+    the discard trigger's own card (Containment Construct / Conspiracy
+    Theorist).
+  Verified by `test_isa_inventory` (pure data — no behaviour). **Still on
+  B6:** `exile_top_then_grant_conditional_cast` (Lukka +1 — genuinely
+  grants a *conditional standing* cast-from-exile ability via
+  `GameState.exile_cast_condition` + a `static_conditions` check, closer to
+  a real `create_continuous_effect`), `unattach_tap_indestructible` (Akiri
+  — "that creature" is the *host of* the unattached Equipment, a referent
+  no axis has), `return_top_graveyard_creature_with_haste` (Corpse Dance).
 
 - **Batch 14 (plan row B6, "if you do it gains X" slice — `57 → 56`).**
   `return_creature_grant_indestructible` (Temur Sabertooth — "{1}{G}: You
