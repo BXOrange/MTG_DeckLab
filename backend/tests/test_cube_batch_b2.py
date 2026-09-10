@@ -124,7 +124,29 @@ def test_temur_sabertooth_returns_a_creature_and_gains_indestructible():
     eng.resolve_until_stable()
 
     assert bear_obj in p1.hand
-    assert "indestructible" in saber_obj.temp_keywords
+    # ENG-37 B6: the grant is now a real RULE 613 floating static
+    # (`grant_until` self_subject), not a `temp_keywords` shortcut.
+    from mtg_analyzer.game import combat
+
+    eng.recompute_continuous_effects()
+    assert combat.has(saber_obj, "indestructible")
+
+
+def test_temur_sabertooth_no_return_no_indestructible():
+    # "If you do" — declining the up-to-one return leaves the source plain.
+    eng = _engine()
+    state = eng.state
+    p1 = state.active_player
+    saber_obj = _battlefield(state, _card("Temur Sabertooth"), controller="p1")
+    p1.mana_pool.add_many({"G": 1, "C": 1})
+
+    eng.activate_ability(p1, saber_obj, 0, targets=[])
+    eng.resolve_until_stable()
+
+    from mtg_analyzer.game import combat
+
+    eng.recompute_continuous_effects()
+    assert not combat.has(saber_obj, "indestructible")
 
 
 # ---------------------------------------------------------------------------

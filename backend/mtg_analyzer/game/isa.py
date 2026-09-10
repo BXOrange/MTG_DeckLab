@@ -665,7 +665,6 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
     "pay_life_equal_to_opponents_combat_damaged_draw_that_many": (("pay_cost", "draw"), OP_BIND),
     "put_hand_card_on_bottom_then_draw": (("move_object", "draw"), OP_SEQ),
     "remove_counters_from_among_then_draw_lose_life": (("remove_counter", "draw", "lose_life"), OP_SEQ),
-    "return_creature_grant_indestructible": (("move_object", "create_continuous_effect"), OP_SEQ),
     "return_dies_as_new_permanent": (("create_delayed_trigger", "move_object"), OP_SEQ),
     "return_to_hand_draw_if_controlled": (("move_object", "draw"), OP_IF_ELSE),
     "return_to_library_then_dig_shared_type": (("move_object", "search"), OP_SEQ),

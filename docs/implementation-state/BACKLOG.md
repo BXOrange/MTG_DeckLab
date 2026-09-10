@@ -82,7 +82,7 @@ its block back into the matching section here.
   amounts.py` is `bind`'s measured-quantity vocabulary, and
   `isa.Classification.COMPOSITION` records axis 3 as existing. Frodo, Sauron's
   Bane is the first card on it (its complementary-conditional pair is now one
-  `if_else`). **Fusion count: 57** (down from the first-pass 84; migrations to
+  `if_else`). **Fusion count: 56** (down from the first-pass 84; migrations to
   the operand/`bind`/`seq` axes and misclassification fixes are catalogued in
   `Done_Backend.md`'s "Fusion retirement" section). What remains is retiring
   the rest, and the reason that is a separate piece of work is measured
@@ -122,17 +122,18 @@ its block back into the matching section here.
     shape"*). Each batch **builds one mechanism and sweeps every `_FUSION_
     TYPES` row it clears in the same pass** — grep the table before starting
     and again when the primitive lands (CLAUDE.md "No half-implementations").
-    The rows are a menu, not a strict order. **B4 and B8 are fully retired**;
-    so are the `*_create_token` and Crypt Incursion parts of B3. What is left
-    needs genuine new vocabulary: the remaining B3 rows a sum-over-a-list
-    amount kind + a previous-moved-object referent; B5 the revealed-card
-    referent; B6 depends on B3+B4; B9 needs ENG-35 coordination.
+    The rows are a menu, not a strict order. **B4, B5 (bar one CONTINUATION
+    row) and B8 are retired**; so are the `*_create_token` and Crypt
+    Incursion parts of B3, and B6's first row. What is left needs genuine
+    new vocabulary: the remaining B3 rows a sum-over-a-list amount kind + a
+    previous-moved-object referent; B6's remaining rows each their own
+    referent (below); B9 needs ENG-35 coordination.
 
     | # | Mechanism to build | Clears (approx) | Notes |
     | --- | --- | --- | --- |
     | **B3** | recipient/amount referent operands. The `*_create_token` slice and Crypt Incursion (`exile_graveyard_creatures_gain_life`) are retired (needed ~no engine code — see `Done_Backend.md`). **Remaining:** a **sum-over-a-list** `effect_amounts` kind (`exile_top_then_damage_by_mv`/`mill_..._by_mv` deal *summed* MV of N moved cards) and a **"the object(s) the previous instruction moved"** referent, plus `copy_object`/`attach` operand wiring. | `create_attached_aura_token`, `create_token_copy_of_linked_exile`, `copy_self_controlled_by_previous_target`, `copy_attachments_onto_last_created`, `exile_top_then_damage_by_mv`, `mill_then_damage_each_opponent_by_mv` (~6) | genuine new vocabulary |
     | **B5** | **all but one row retired** (batches 9–13): `GameContext.revealed_card`, `reveal_top`/`put_revealed_card`/`cast_revealed_free`, `of: "revealed"`; the `any` combinator, `amount_compare` predicate, `effect_amounts` `trigger_event` kind; `revealed_card` through `composite_optional`; `bind` over `dig_until` (Lukka −2). Retired: Dark Confidant, Thrasios, Goblin Guide (v315), Nissa (v316), Counterbalance + Powerbalance (v317), Lukka −2. **One row left:** `reveal_top_then_creature_and_or_land_battlefield` + its `ojer_kaslem_land_pick` continuation (reveal N, then *two chained* interactive "up to one" picks — a creature and a land — over the same revealed batch). Genuinely CONTINUATION/ENG-35-shaped: needs a plural `revealed_batch` referent that survives a `composite_optional` pause, and two chained `optional`+`choose_objects` bodies. Fold into **B9**'s ENG-35 coordination, or keep as SPECIAL. | `reveal_top_then_creature_and_or_land_battlefield` (1) | `reveal_top_then_transform` folds in (acts on self) |
-    | **B6** | depends on B3: `optional`/`seq` body of `[<verb>, grant_keyword/grant_until on previous_target|source]` — the "if you do, it gains …" shape | `return_creature_grant_indestructible`, `unattach_tap_indestructible`, `return_top_graveyard_creature_with_haste`, `exile_discount_cost`, `exile_top_then_grant_conditional_cast`, `exile_triggering_discard_may_play_this_turn`, `impulsive_draw` (~7) | `impulsive_draw`'s ~11 call sites + `count_if_additional_cost_paid` param are the real cost here |
+    | **B6** | `seq`/`optional` body of `[<verb>, grant_keyword/grant_until on previous_target\|source]` — "if you do, it gains …". **Started (batch 14):** `return_creature_grant_indestructible` (Temur Sabertooth) retired via `seq(return_to_hand{optional}, if_else(is_card_type of previous_target, [grant_until{self_subject}]))` — no new code. **Remaining rows each need their own referent:** `unattach_tap_indestructible` (Akiri — "that creature" = the *host of* the unattached Equipment); `return_top_graveyard_creature_with_haste` (Corpse Dance — positional graveyard-top return + a delayed exile trigger on the returned object); `exile_discount_cost` / `exile_top_then_grant_conditional_cast` / `exile_triggering_discard_may_play_this_turn` / `impulsive_draw` (exile + a cast-permission grant — `impulsive_draw`'s ~11 call sites + `count_if_additional_cost_paid` param are the real cost) | `unattach_tap_indestructible`, `return_top_graveyard_creature_with_haste`, `exile_discount_cost`, `exile_top_then_grant_conditional_cast`, `exile_triggering_discard_may_play_this_turn`, `impulsive_draw` (~6) | |
     | **B7** | `bind` over `hand_size` / a new `cards_discarded_this_way` `THIS_WAY_TALLIES` entry; `wheel`/`windfall` are `for_each`-over-players wrapping that `bind` | `exile_hand_then_draw_that_many`, `discard_up_to_then_draw_that_many`, `windfall`, `wheel`, `wheel_of_fortune` (~5) | `DiscardCardsDiscardedDeltaDrawEffect` already reads the delta — half-built |
     | **B9** | coordinate with **ENG-35** + bump `test_isa_inventory`'s `CONTINUATION ≤ 59` / `SPECIAL ≤ 42` pins in the same commit | `taxed_draw`, `exchange_control_then_energy_sacrifice`, `pay_life_equal_to_opponents_combat_damaged_draw_that_many`, `destroy_controller_may_search_basic_land`, `exile_controller_searches_basic_land`, `shuffle_target_graveyard_cards_into_library`, `draw_reveal_cast_one_free`, `remove_counters_from_among_then_draw_lose_life` (~8); plus `haunt` → INSTRUCTION, and the bespoke one-card residue → SPECIAL | these open a `pending_choice`, so they are ENG-35-shaped, not axis-3; the two pins being *exact* is the coordination point |
 

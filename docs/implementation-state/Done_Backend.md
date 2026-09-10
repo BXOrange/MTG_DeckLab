@@ -4158,7 +4158,32 @@ evidence is
 
 ### Fusion retirement — parser-side batches (ENG-37, `14_` S3)
 
-Running total: **81 → 57**.
+Running total: **81 → 56**.
+
+- **Batch 14 (plan row B6, "if you do it gains X" slice — `57 → 56`).**
+  `return_creature_grant_indestructible` (Temur Sabertooth — "{1}{G}: You
+  may return another creature you control to its owner's hand. If you do,
+  this creature gains indestructible until end of turn") retired to
+  `seq([return_to_hand{creature_you_control, optional: True},
+  if_else(is_card_type(creature, of: "previous_target"),
+  then=[grant_until{self_subject, grant_keyword: indestructible}],
+  else=[])])`. **No new engine code** — "if you do" is "a creature was
+  returned", read as `is_card_type` of the `previous_target` (None, so
+  neither branch, when the up-to-one return was declined); the grant is a
+  self-targeted `grant_until` (a real RULE 613 floating static, replacing
+  the fused class's `temp_keywords` shortcut). Keeping the return "up to
+  one" rather than wrapping the whole body in an `optional` node preserves
+  the activation being legal with no other creature on board (RULE 601.2c).
+  `ReturnCreatureGrantIndestructibleEffect` + registration + `_FUSION_
+  TYPES` row deleted; not parser-emitted, no `PARSER_VERSION` change.
+  Tests: `test_cube_batch_b2` (the return→indestructible test updated to
+  check the derived keyword, + a new declined→no-grant case). Full suite
+  green incl. `--full-cache`. **Still on B6** (each needs its own
+  referent): `unattach_tap_indestructible` (Akiri — "that creature" is the
+  *host of* the unattached Equipment, a new referent),
+  `return_top_graveyard_creature_with_haste` (Corpse Dance — positional
+  graveyard-top return + a delayed exile trigger on the returned object),
+  and the `exile_*` cast-permission family incl. `impulsive_draw`.
 
 - **Batch 13 (plan row B5, dig-floor slice — `58 → 57`).**
   `exile_then_reveal_greater_mana_value` (Lukka, Coppercoat Outcast's −2 —

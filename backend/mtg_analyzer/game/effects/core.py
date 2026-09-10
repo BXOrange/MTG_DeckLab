@@ -15272,35 +15272,6 @@ class UnattachTapIndestructibleEffect(GameEffect):
             host.temp_keywords.add("indestructible")
 
 
-class ReturnCreatureGrantIndestructibleEffect(GameEffect):
-    """Temur Sabertooth's own "{1}{G}: You may return another creature you
-    control to its owner's hand. If you do, this creature gains
-    indestructible until end of turn." — the same "if you do" shape
-    `UnattachTapIndestructibleEffect` (Akiri) uses, just returning a target
-    to hand instead of unattaching one, and granting indestructible to the
-    effect's own *source* instead of the targeted object's host.
-    """
-
-    def __init__(
-        self,
-        target: Any = None,
-        source: Optional["GameObject"] = None,
-        target_kind: str = "creature_you_control",
-        optional: bool = True,
-    ) -> None:
-        super().__init__(source)
-        self.target = target
-        self.target_spec = TargetSpec(kind=target_kind, optional=optional)
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        target = (targets[0] if targets else None) or self.target
-        if target is None:
-            return
-        context.return_to_hand(target)
-        if self.source is not None:
-            self.source.temp_keywords.add("indestructible")
-
-
 class TransformEffect(GameEffect):
     """Flip a double-faced permanent to its other face (RULE 712.8/712.9).
 
@@ -20415,9 +20386,10 @@ class ExchangeControlThenEnergySacrificeEffect(GameEffect):
     covers and `_apply_effects_partitioned` has no channel to signal
     between separate effect instances — the same reason a genuine "action,
     if you do, consequence" card gets one bespoke composite effect rather
-    than two effects and a cross-effect flag (see Temur Sabertooth's
-    `ReturnCreatureGrantIndestructibleEffect`/Akiri's own analogous
-    effect). "that creature" is the one just exchanged in — now under this
+    than two effects and a cross-effect flag (or, where the "if you do" is
+    just "a target was chosen", an ENG-37 `seq` of an optional verb + an
+    `if_else` on `previous_target`, as Temur Sabertooth now uses). "that
+    creature" is the one just exchanged in — now under this
     ability's controller, who must pay {E} equal to *its* mana value
     (read live, post-exchange) or lose it.
 
@@ -24779,14 +24751,6 @@ EffectRegistry.register(
     lambda p: UnattachTapIndestructibleEffect(
         target=p.get("target"),
         target_kind=p.get("target_kind", "attached_equipment_you_control"),
-        optional=bool(p.get("optional", True)),
-    ),
-)
-EffectRegistry.register(
-    "return_creature_grant_indestructible",  # Temur Sabertooth
-    lambda p: ReturnCreatureGrantIndestructibleEffect(
-        target=p.get("target"),
-        target_kind=p.get("target_kind", "creature_you_control"),
         optional=bool(p.get("optional", True)),
     ),
 )
