@@ -682,15 +682,30 @@ def _counterbalance() -> list[AbilitySpec]:
     your library. If you do, counter that spell if it has the same mana
     value as the revealed card.
 
-    — MEC-41. New `reveal_top_then_counter_if_mv_match` — the counter-
-    target sibling of Powerbalance's own `reveal_top_then_free_cast_if_
-    mv_match` (Vivi B4 batch); see that effect's docstring for the shared
-    "reveal is informational" simplification.
+    — MEC-41. ENG-37 B5: `reveal_top` stashes the top card as the
+    `revealed` referent, then `if_else` gates on `amount_compare`
+    (revealed card's mana value == the firing `SPELL_CAST` event's own
+    ``mana_value`` — the new `trigger_event` `effect_amounts` kind) and,
+    when it matches, `counter` the triggering spell
+    (``target_from_trigger_event="instance_id"``) so RULE 118 "can't be
+    countered" is still honoured. "You may reveal" is a documented
+    simplification to unconditional, as in the retired fused effect.
     """
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("reveal_top_then_counter_if_mv_match", {})],
+            [EffectSpec("seq", {"effects": [
+                {"type": "reveal_top", "params": {"whose": "you"}},
+                {"type": "if_else", "params": {
+                    "condition": {"kind": "amount_compare", "op": "eq",
+                                  "left": {"kind": "characteristic",
+                                           "characteristic": "mana_value", "of": "revealed"},
+                                  "right": {"kind": "trigger_event", "field": "mana_value"}},
+                    "then": [{"type": "counter",
+                              "params": {"target_from_trigger_event": "instance_id"}}],
+                    "else": [],
+                }},
+            ]})],
             trigger={
                 "event": "SPELL_CAST",
                 "condition": {"subject": "group", "controller": "not_you"},

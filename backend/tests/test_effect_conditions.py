@@ -532,3 +532,28 @@ class TestAnyCombinatorAndAmountCompare:
              "right": {"kind": "fixed", "amount": 2}},
             context, source, None,
         ) is None
+
+    def test_amount_compare_reads_a_trigger_event_field(self) -> None:
+        # Counterbalance: "if it has the same mana value as the revealed
+        # card" — right-hand side is the firing SPELL_CAST event's own
+        # `mana_value`.
+        from mtg_analyzer.models.game.events import EventType, GameEvent
+
+        context, source = _context()
+        creature = GameObject(
+            Card(id="c2", name="Two", type_line="Creature — Elf", is_creature=True,
+                 converted_mana_cost=2, power=1, toughness=1),
+            owner_id="p1", zone=Zone.LIBRARY,
+        )
+        context.state.player_by_id("p1").library.append(creature)
+        context.revealed_card = creature
+        context.trigger_event = GameEvent(EventType.SPELL_CAST, mana_value=2)
+
+        match = {"kind": "amount_compare", "op": "eq",
+                 "left": {"kind": "characteristic", "characteristic": "mana_value",
+                          "of": "revealed"},
+                 "right": {"kind": "trigger_event", "field": "mana_value"}}
+        assert ec.condition_holds(match, context, source) is True
+
+        context.trigger_event = GameEvent(EventType.SPELL_CAST, mana_value=5)
+        assert ec.condition_holds(match, context, source) is False

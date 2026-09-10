@@ -3827,6 +3827,33 @@ class PutRevealedCardEffect(GameEffect):
             player.add_to_zone(card, Zone.HAND)
 
 
+class CastRevealedCardFreeEffect(GameEffect):
+    """"You may cast that card without paying its mana cost." acting on
+    `GameContext.revealed_card` (a `RevealTopEffect` clause set it) —
+    Powerbalance's own "if you do, you may cast that card … if the two
+    spells have the same mana value" (the mana-value gate is a sibling
+    `if_else` clause). Opens `_request_choose_objects`' existing
+    ``"cast_free"`` action over the one revealed card, ``optional`` so the
+    player may decline (RULE 601.2b). A no-op if nothing was revealed.
+    ENG-37 B5.
+    """
+
+    def __init__(self, whose: str = "you", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.whose = str(whose or "you")
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        card = getattr(context, "revealed_card", None)
+        if card is None:
+            return
+        player = _reveal_whose_player(self.whose, self.source, context)
+        if player is None:
+            return
+        context.choose_objects(
+            player, [card], "cast_free", count=1, optional=True, source=self.source,
+        )
+
+
 class DiscardEffect(GameEffect):
     """Make a player discard ``count`` cards — an interactive choice (RULE
     701.8: the discarding player, not this effect's controller, picks which
@@ -19756,65 +19783,6 @@ class DrawRevealCastOneFreeEffect(GameEffect):
             )
 
 
-class RevealTopThenFreeCastIfMVMatchEffect(GameEffect):
-    """"Whenever an opponent casts a spell, you may reveal the top card of
-    your library. If you do, you may cast that card without paying its
-    mana cost if the two spells have the same mana value." (Powerbalance)
-
-    Reveal is purely informational (see `DrawRevealCastOneFreeEffect`'s
-    own docstring for why this engine has no separate reveal state);
-    "you may reveal" is a **documented simplification** to unconditional
-    (the same idiom `CoinFlipEffect`'s own "you may" branch uses — a
-    real but vanishingly rare decline), so this always looks. The mana-
-    value match is checked against `GameContext.trigger_event`'s own
-    ``mana_value`` (`SPELL_CAST`'s stamped field, RULE 601.2b), and only
-    when it holds does this offer `_request_choose_objects`'s existing
-    ``"cast_free"`` action over the top card — a genuine interactive "you
-    may cast", unlike the reveal half.
-    """
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = _controller_of(self.source, context)
-        if player is None or not player.library:
-            return
-        top = player.library[-1]
-        event = context.trigger_event or {}
-        cast_mv = event.get("mana_value")
-        if cast_mv is None or top.card.converted_mana_cost != cast_mv:
-            return
-        context.choose_objects(player, [top], "cast_free", count=1, optional=True, source=self.source)
-
-
-class RevealTopThenCounterIfMVMatchEffect(GameEffect):
-    """"Whenever an opponent casts a spell, you may reveal the top card of
-    your library. If you do, counter that spell if it has the same mana
-    value as the revealed card." (Counterbalance, MEC-41)
-
-    The counter-target sibling of `RevealTopThenFreeCastIfMVMatchEffect`
-    (Powerbalance) just above — same reveal-is-informational/"you may"
-    simplification and the same `GameContext.trigger_event`-sourced mana
-    value, but resolving into `CounterSpellEffect`'s own
-    ``target_from_trigger_event="instance_id"`` idiom (the firing
-    SPELL_CAST event's own spell) through `context.counter` rather than a
-    free cast, so RULE 118 "can't be countered" is still honoured
-    (`RulesEngine.counter_unless_pays`).
-    """
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = _controller_of(self.source, context)
-        if player is None or not player.library:
-            return
-        top = player.library[-1]
-        event = context.trigger_event or {}
-        cast_mv = event.get("mana_value")
-        instance_id = event.get("instance_id")
-        if cast_mv is None or instance_id is None or top.card.converted_mana_cost != cast_mv:
-            return
-        target = context.state.find_object(instance_id)
-        if target is not None:
-            context.counter(target, source=self.source)
-
-
 class ReturnRemainingExiledEffect(GameEffect):
     """RULE 603.7 delayed cleanup: whichever of ``instance_ids`` are still
     sitting in exile move to their owner's graveyard — Mnemonic Betrayal's
@@ -22872,6 +22840,11 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # "You may cast that card without paying its mana cost." (ENG-37 B5).
+    "cast_revealed_free",
+    lambda p: CastRevealedCardFreeEffect(whose=p.get("whose", "you")),
+)
+EffectRegistry.register(
     "destroy",
     lambda p: DestroyEffect(
         target=p.get("target"),
@@ -25236,14 +25209,6 @@ EffectRegistry.register(
 EffectRegistry.register(
     "draw_reveal_cast_one_free",
     lambda p: DrawRevealCastOneFreeEffect(count=p.get("count", 1)),
-)
-EffectRegistry.register(
-    "reveal_top_then_free_cast_if_mv_match",
-    lambda p: RevealTopThenFreeCastIfMVMatchEffect(),
-)
-EffectRegistry.register(
-    "reveal_top_then_counter_if_mv_match",
-    lambda p: RevealTopThenCounterIfMVMatchEffect(),
 )
 EffectRegistry.register(
     "exile_opponents_graveyards_impulsive_cast",  # Mnemonic Betrayal

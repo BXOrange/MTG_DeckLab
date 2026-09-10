@@ -502,7 +502,11 @@ proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
 **Coverage: 42.7% (14,860 / 34,811) as of 2026-09-10, measured at
-PARSER_VERSION 316** (v316 is ENG-37 B5's `effect_conditions` widening —
+PARSER_VERSION 317** (v317 is ENG-37 B5's `effect_amounts` `trigger_event`
+kind — read a numeric field off `GameContext.trigger_event` (Counterbalance's
+"same mana value as the revealed card" vs the SPELL_CAST event);
+vocabulary-only, no verdict change, +0; v316 is ENG-37 B5's
+`effect_conditions` widening —
 an `any` (OR) combinator + an `amount_compare` predicate (number-vs-number
 over two `effect_amounts` measurements), plus `spec.py`'s amount-spec
 shape-check; vocabulary-only, no verdict change, +0; v315 is ENG-37 B5's

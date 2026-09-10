@@ -1401,14 +1401,27 @@ def _powerbalance() -> list[AbilitySpec]:
     your library. If you do, you may cast that card without paying its
     mana cost if the two spells have the same mana value.
 
-    — Powerbalance. New `reveal_top_then_free_cast_if_mv_match`; see the
-    effect's own docstring for its two "you may" simplifications (the
-    reveal is unconditional, the cast stays a genuine choice).
+    — Powerbalance. ENG-37 B5, the free-cast sibling of Counterbalance:
+    `seq([reveal_top, if_else(amount_compare(revealed mana value ==
+    SPELL_CAST event's ``mana_value``), then=[cast_revealed_free],
+    else=[])])`. The reveal is a documented simplification to
+    unconditional; `cast_revealed_free` keeps the cast a genuine "you may"
+    (`_request_choose_objects`' ``"cast_free"`` action, optional).
     """
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("reveal_top_then_free_cast_if_mv_match", {})],
+            [EffectSpec("seq", {"effects": [
+                {"type": "reveal_top", "params": {"whose": "you"}},
+                {"type": "if_else", "params": {
+                    "condition": {"kind": "amount_compare", "op": "eq",
+                                  "left": {"kind": "characteristic",
+                                           "characteristic": "mana_value", "of": "revealed"},
+                                  "right": {"kind": "trigger_event", "field": "mana_value"}},
+                    "then": [{"type": "cast_revealed_free", "params": {}}],
+                    "else": [],
+                }},
+            ]})],
             trigger={
                 "event": "SPELL_CAST",
                 "condition": {"subject": "group", "controller": "not_you"},

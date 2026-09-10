@@ -207,6 +207,49 @@ def test_counterbalance_does_not_counter_mismatched_mana_value():
 
 
 # ---------------------------------------------------------------------------
+# Powerbalance — Counterbalance's free-cast sibling (ENG-37 B5)
+# ---------------------------------------------------------------------------
+
+
+def test_powerbalance_offers_a_free_cast_on_matching_mana_value():
+    eng = make_engine([_named("Powerbalance")], [_named("Lightning Bolt")], hand=1)
+    p1 = eng.state.player_by_id("p1")
+    p2 = eng.state.player_by_id("p2")
+    _put(eng.state, _named("Powerbalance"), controller="p1")
+    top = _to_library(eng.state, _named("Llanowar Elves"))  # mana value 1 — matches Bolt
+
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    bolt = p2.hand[0]
+    bind_from_catalogue(bolt)
+    p2.mana_pool.add_many({"R": 1})
+    eng.cast_spell(p2, bolt)
+    eng.resolve_until_stable()
+
+    choice = eng.state.pending_choice
+    assert choice is not None and choice["action"] == "cast_free"
+    assert top in p1.library  # the reveal itself never moves the card
+
+
+def test_powerbalance_no_free_cast_on_mismatched_mana_value():
+    eng = make_engine([_named("Powerbalance")], [_named("Lightning Bolt")], hand=1)
+    p1 = eng.state.player_by_id("p1")
+    p2 = eng.state.player_by_id("p2")
+    _put(eng.state, _named("Powerbalance"), controller="p1")
+    _to_library(eng.state, _named("Rampant Growth"))  # mana value 2, doesn't match Bolt's 1
+
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    bolt = p2.hand[0]
+    bind_from_catalogue(bolt)
+    p2.mana_pool.add_many({"R": 1})
+    eng.cast_spell(p2, bolt)
+    eng.resolve_until_stable()
+
+    assert eng.state.pending_choice is None
+
+
+# ---------------------------------------------------------------------------
 # Lazotep Quarry
 # ---------------------------------------------------------------------------
 

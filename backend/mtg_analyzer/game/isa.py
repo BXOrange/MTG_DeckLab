@@ -463,11 +463,13 @@ _ALIAS_TYPES: dict[str, str] = {
     "destroy_specific": "destroy",
     "dig_until": "reveal",
     # ENG-37 B5: reveal a library top card + stash it as the `revealed`
-    # referent; move that stashed card. Each is one atomic RULE 701.20 /
-    # RULE 400 action — the branching that used to weld them into
-    # `reveal_top_*` fusions is now an `if_else`/`bind` node between them.
+    # referent; move that stashed card; cast it for free. Each is one
+    # atomic RULE 701.20 / RULE 400 / RULE 601 action — the branching that
+    # used to weld them into `reveal_top_*` fusions is now an `if_else`/
+    # `bind` node between them.
     "reveal_top": "reveal",
     "put_revealed_card": "move_object",
+    "cast_revealed_free": "cast",
     "double_counters_on_target": "double",
     "draw_cards_discarded_delta": "draw",
     "draw_controlled_chosen_creature_type": "draw",
@@ -669,9 +671,7 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
     "return_to_hand_draw_if_controlled": (("move_object", "draw"), OP_IF_ELSE),
     "return_to_library_then_dig_shared_type": (("move_object", "search"), OP_SEQ),
     "return_top_graveyard_creature_with_haste": (("move_object", "create_continuous_effect"), OP_SEQ),
-    "reveal_top_then_counter_if_mv_match": (("reveal", "counter"), OP_IF_ELSE),
     "reveal_top_then_creature_and_or_land_battlefield": (("reveal", "move_object"), OP_SEQ),
-    "reveal_top_then_free_cast_if_mv_match": (("reveal", "cast"), OP_IF_ELSE),
     "sacrifice_any_number_draw_lose_scaled": (("sacrifice", "draw", "lose_life"), OP_BIND),
     "sacrifice_count_draw_lose": (("sacrifice", "draw", "lose_life"), OP_BIND),
     "shuffle_target_graveyard_cards_into_library": (("move_object", "shuffle"), OP_SEQ),

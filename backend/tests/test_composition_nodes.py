@@ -924,6 +924,8 @@ class TestB5RevealReferent:
             "reveal_top_then_land_battlefield_or_draw",
             "reveal_top_conditional_to_hand",
             "reveal_top_then_maybe_battlefield_if_land_or_cheap_creature",
+            "reveal_top_then_counter_if_mv_match",
+            "reveal_top_then_free_cast_if_mv_match",
         ):
             assert not EffectRegistry.is_registered(name)
             assert name not in isa.EFFECT_TYPES

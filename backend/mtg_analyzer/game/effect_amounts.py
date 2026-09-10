@@ -105,6 +105,11 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         # 115.4's fourth "any target") has no cap the printed card names, so
         # it reads 0.
         "target_defense",  # + ``of`` (an object/player referent)
+        # A numeric field of the firing trigger's own event
+        # (`GameContext.trigger_event`) — "…if it has the same mana value as
+        # the revealed card" (Counterbalance) reads ``mana_value`` off the
+        # `SPELL_CAST` event. Non-numeric / absent field → 0.
+        "trigger_event",  # + ``field`` (the event key to read)
     }
 )
 
@@ -167,6 +172,15 @@ def _base(
         if tally not in THIS_WAY_TALLIES:
             return 0
         return int(getattr(context, tally, 0) or 0)
+
+    if kind == "trigger_event":
+        field = str(amount.get("field", ""))
+        if not field:
+            return 0
+        raw = (getattr(context, "trigger_event", None) or {}).get(field)
+        if isinstance(raw, bool) or not isinstance(raw, int):
+            return 0
+        return int(raw)
 
     subject = effect_conditions.subject_of(
         str(amount.get("of") or "source"), context, source, targets

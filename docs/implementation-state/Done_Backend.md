@@ -4158,7 +4158,36 @@ evidence is
 
 ### Fusion retirement — parser-side batches (ENG-37, `14_` S3)
 
-Running total: **81 → 60**.
+Running total: **81 → 58**.
+
+- **Batch 12 (plan row B5, mana-value-match slice — `60 → 58`,
+  PARSER_VERSION 317).** Counterbalance and Powerbalance — "whenever an
+  opponent casts a spell, you may reveal the top card of your library. If
+  you do, [counter that spell / cast that card free] if it has the same
+  mana value as the revealed card":
+  - **`reveal_top_then_counter_if_mv_match`** (Counterbalance) →
+    `seq([reveal_top, if_else(amount_compare(characteristic(mana_value, of:
+    revealed) eq trigger_event(mana_value)), then=[counter{target_from_
+    trigger_event: instance_id}], else=[])])`.
+  - **`reveal_top_then_free_cast_if_mv_match`** (Powerbalance) → the same
+    `seq`/`if_else`, `then=[cast_revealed_free]`.
+  Two general additions:
+  - **`effect_amounts` `trigger_event` kind** — `{kind: "trigger_event",
+    field: "<event key>"}` reads a numeric field off
+    `GameContext.trigger_event` (non-numeric/absent → 0). The
+    `amount_compare` right-hand side for "same mana value as the spell
+    being cast".
+  - **`cast_revealed_free` effect** — opens `_request_choose_objects`'
+    existing `"cast_free"` action over `GameContext.revealed_card`,
+    `optional` (RULE 601.2b). `isa` ALIAS of `cast`, sibling to
+    `put_revealed_card`.
+  Two fused classes + registrations + `_FUSION_TYPES` rows deleted;
+  `spec.py`'s `_AMOUNT_SPEC_FIELDS` gained `field`. Vocabulary-only (no
+  card verdict moves), coverage still 42.7% / 14,860 — the PARSER_VERSION
+  bump is only the parser source hash. Tests: `test_mec41_family`
+  (Counterbalance unchanged + new Powerbalance offered/not-offered) +
+  `test_effect_conditions.test_amount_compare_reads_a_trigger_event_field`.
+  Full suite green incl. `--full-cache`.
 
 - **Batch 11 (plan row B5, dynamic-predicate slice — `61 → 60`,
   PARSER_VERSION 316).** The fused

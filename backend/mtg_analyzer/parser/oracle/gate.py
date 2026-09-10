@@ -2726,7 +2726,12 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `left`/`right` amount specs (`_validate_amount_spec`). No card's verdict
 #: moves - this only widens the accepted structured-condition vocabulary -
 #: but the parser source hash does, so the version follows.
-PARSER_VERSION = "316"
+#: v317 - ENG-37 B5: `effect_amounts` gained a `trigger_event` kind (read a
+#: numeric field off `GameContext.trigger_event`, e.g. Counterbalance's
+#: "same mana value as the revealed card" vs the SPELL_CAST event), and
+#: `spec.py`'s `_AMOUNT_SPEC_FIELDS` learned its `field` key. Vocabulary
+#: only - no card's verdict moves - but the parser source hash follows.
+PARSER_VERSION = "317"
 
 
 def parser_source_hash() -> str:
