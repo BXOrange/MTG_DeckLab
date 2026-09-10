@@ -488,6 +488,11 @@ _ALIAS_TYPES: dict[str, str] = {
     "exchange_life_totals": "exchange",
     "exile_all_graveyards": "exile",
     "exile_any_number_you_control": "exile",
+    # ENG-37 B7: "exile all the cards from your hand" — one atomic move of a
+    # hidden zone, the sibling of `exile_library`. The fused
+    # `exile_hand_then_draw_that_many` it replaced is retired (`bind` over
+    # `resource: hand_size` around this + `draw`).
+    "exile_hand": "exile",
     "exile_library": "exile",
     "exile_own_graveyard_card_mana_value_x": "exile",
     "exile_specific": "exile",
@@ -668,7 +673,6 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
     "exile_cast_spell_into_imprint_pool": (("exile", "imprint"), OP_SEQ),
     "exile_controller_searches_basic_land": (("exile", "search"), OP_SEQ),
     "exile_graveyard_card_counter_if_permanent": (("exile", "put_counter"), OP_IF_ELSE),
-    "exile_hand_then_draw_that_many": (("exile", "draw"), OP_BIND),
     "exile_opponents_graveyards_impulsive_cast": (("exile", "cast"), OP_SEQ),
     "exile_top_from_each_player_cast_free": (("exile", "cast"), OP_FOR_EACH),
     "exile_top_then_damage_by_mv": (("exile", "deal_damage"), OP_BIND),

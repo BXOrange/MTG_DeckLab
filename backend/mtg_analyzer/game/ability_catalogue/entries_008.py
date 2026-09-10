@@ -1561,14 +1561,24 @@ def _invasion_of_kaldheim() -> list[AbilitySpec]:
 
     — Imodane deck batch. The RULE 310 battle mechanics (protector
     choice, attackability, defeat/transform cycle) are all engine-level
-    and need no hand-authoring. The ETB is the new
-    `exile_hand_then_draw_that_many` — see its docstring for the
-    documented simplification.
+    and need no hand-authoring. ENG-37 B7 retired the fused
+    `exile_hand_then_draw_that_many` type: the ETB is a `bind` whose
+    ``amount`` measures ``resource: hand_size`` (the controller's, before
+    the body runs — the spell is on the stack, not in hand), body
+    `[exile_hand, draw $n]`. See `ExileHandEffect` for the documented
+    "you may play cards exiled this way" simplification.
     """
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("exile_hand_then_draw_that_many", {})],
+            [EffectSpec("bind", {
+                "name": "n",
+                "amount": {"kind": "resource", "resource": "hand_size"},
+                "effects": [
+                    {"type": "exile_hand", "params": {}},
+                    {"type": "draw", "params": {"count": "$n"}},
+                ],
+            })],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
         ),
     ]

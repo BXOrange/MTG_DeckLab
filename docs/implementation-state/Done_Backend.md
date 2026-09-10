@@ -4158,7 +4158,25 @@ evidence is
 
 ### Fusion retirement — parser-side batches (ENG-37, `14_` S3)
 
-Running total: **81 → 50**.
+Running total: **81 → 49**.
+
+- **Batch 17 (plan row B7, `exile_hand_then_draw_that_many` — `50 → 49`, no
+  parser change).** Invasion of Kaldheim's "exile all the cards from your
+  hand, then draw that many cards" retired to `bind` whose `amount` is
+  `{kind: "resource", resource: "hand_size"}` (the controller's, measured
+  once before the body — the Siege is on the battlefield, its hand still
+  full), body `[exile_hand, draw "$n"]`. New `ExileHandEffect` /
+  `exile_hand` is the untargeted hidden-zone sibling of `exile_library`
+  (a hand's contents are never RULE 115 targets); ALIAS of `exile` in
+  `isa`. The fused `ExileHandThenDrawThatManyEffect` + registration +
+  `_FUSION_TYPES` row deleted. Hand-authored catalogue entry, not
+  parser-emitted — no `PARSER_VERSION` bump. The "until end of your next
+  turn you may play cards exiled this way" simplification carries over
+  unchanged (documented on `ExileHandEffect`). Tests:
+  `test_composition_nodes` (`TestB7ExileHandRetirement`). **B7 remaining:**
+  `discard_up_to_then_draw_that_many` (interactive "up to N" — needs a
+  `cards_discarded_this_way` `THIS_WAY_TALLIES` entry that survives the
+  `pending_choice` pause, distinct from the pre-measured `bind` shape).
 
 - **Batch 16 (plan row B7, wheel family — `53 → 50`, PARSER_VERSION 318).**
   The fused `wheel` (Timetwister / Time Reversal / Echo of Eons / Day's

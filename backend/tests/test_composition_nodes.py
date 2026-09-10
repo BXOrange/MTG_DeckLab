@@ -1109,3 +1109,84 @@ class TestB7WheelFamilyRetirements:
             assert specs, name
             for spec in specs:
                 build_effects(list(spec.effects), None)  # no BindError / KeyError
+
+
+class TestB7ExileHandRetirement:
+    """ENG-37 B7: `exile_hand_then_draw_that_many` (Invasion of Kaldheim)
+    retired to a `bind` over ``resource: hand_size`` (the controller's,
+    measured before the body) around a new `exile_hand` instruction and a
+    `draw`. `exile_hand` is the hidden-zone sibling of `exile_library`.
+    """
+
+    def test_exile_the_whole_hand_then_draw_that_many(self) -> None:
+        eng = _engine()
+        p1 = eng.state.player_by_id("p1")
+        for i in range(4):
+            p1.hand.append(GameObject(
+                Card(id=f"H{i}", name=f"H{i}", type_line="Land", is_land=True),
+                owner_id="p1", zone=Zone.HAND,
+            ))
+        for i in range(10):
+            p1.library.append(GameObject(
+                Card(id=f"L{i}", name=f"L{i}", type_line="Creature", is_creature=True),
+                owner_id="p1", zone=Zone.LIBRARY,
+            ))
+        src = _creature(eng.state, name="Siege", power=0, toughness=1)
+        exiled_ids = {o.instance_id for o in p1.hand}
+        lib_before = len(p1.library)
+
+        _apply_effects_partitioned(
+            build_effects([EffectSpec("bind", {
+                "name": "n",
+                "amount": {"kind": "resource", "resource": "hand_size"},
+                "effects": [
+                    {"type": "exile_hand", "params": {}},
+                    {"type": "draw", "params": {"count": "$n"}},
+                ],
+            })], src),
+            GameContext(eng.state, eng.rules), None, None, source=src,
+        )
+
+        assert len(p1.hand) == 4                     # drew back exactly what left
+        assert lib_before - len(p1.library) == 4
+        assert not p1.graveyard                      # exiled, not discarded
+        assert exiled_ids.issubset({o.instance_id for o in p1.exile})
+
+    def test_an_empty_hand_draws_nothing(self) -> None:
+        eng = _engine()
+        p1 = eng.state.player_by_id("p1")
+        for i in range(5):
+            p1.library.append(GameObject(
+                Card(id=f"L{i}", name=f"L{i}", type_line="Creature", is_creature=True),
+                owner_id="p1", zone=Zone.LIBRARY,
+            ))
+        src = _creature(eng.state, name="Siege", power=0, toughness=1)
+
+        _apply_effects_partitioned(
+            build_effects([EffectSpec("bind", {
+                "name": "n",
+                "amount": {"kind": "resource", "resource": "hand_size"},
+                "effects": [
+                    {"type": "exile_hand", "params": {}},
+                    {"type": "draw", "params": {"count": "$n"}},
+                ],
+            })], src),
+            GameContext(eng.state, eng.rules), None, None, source=src,
+        )
+        assert len(p1.hand) == 0
+        assert len(p1.library) == 5
+
+    def test_the_fused_type_is_gone(self) -> None:
+        assert not EffectRegistry.is_registered("exile_hand_then_draw_that_many")
+        assert "exile_hand_then_draw_that_many" not in isa.EFFECT_TYPES
+        assert EffectRegistry.is_registered("exile_hand")
+
+    def test_the_catalogue_entry_still_binds(self) -> None:
+        from mtg_analyzer.game import ability_catalogue as ac
+
+        card = Card(id="IoK", name="Invasion of Kaldheim",
+                    type_line="Battle — Siege")
+        specs = ac.specs_for(card)
+        assert specs
+        for spec in specs:
+            build_effects(list(spec.effects), None)

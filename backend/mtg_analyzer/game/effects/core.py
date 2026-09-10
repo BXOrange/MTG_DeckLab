@@ -9759,25 +9759,27 @@ class ArmSpellWatcherEffect(GameEffect):
         )
 
 
-class ExileHandThenDrawThatManyEffect(GameEffect):
-    """"Exile all cards from your hand, then draw that many cards."
-    (Invasion of Kaldheim) — a plain hand refill/filter. **Documented
-    simplification**: the trailing "until the end of your next turn, you
-    may play cards exiled this way" isn't modeled — no primitive grants a
-    *set* of specific exiled cards a multi-turn play window the way
-    `ImpulsiveDrawEffect` does for a *library* exile; the cards are simply
-    gone.
+class ExileHandEffect(GameEffect):
+    """"Exile all the cards from your hand." — an untargeted, hidden-zone
+    mass move (a hand's contents are never legal RULE 115 targets), the
+    exact sibling of `ExileLibraryEffect`. The "…, then draw that many
+    cards" tail (Invasion of Kaldheim) is a `bind` over ``resource:
+    hand_size`` around this + a `draw` (ENG-37 B7 retired the fused
+    `exile_hand_then_draw_that_many` type).
+
+    **Documented simplification** (carried over from the fused class): the
+    trailing "until the end of your next turn, you may play cards exiled
+    this way" isn't modeled — no primitive grants a *set* of specific
+    exiled cards a multi-turn play window the way `ImpulsiveDrawEffect`
+    does for a *library* exile; the cards are simply gone.
     """
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is None:
             return
-        count = len(player.hand)
         for card in list(player.hand):
             context.exile(card)
-        if count:
-            context.draw(player, count)
 
 
 class ExileTopFromEachPlayerCastFreeEffect(GameEffect):
@@ -23554,8 +23556,11 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    "exile_hand_then_draw_that_many",  # Invasion of Kaldheim
-    lambda p: ExileHandThenDrawThatManyEffect(),
+    # "Exile all the cards from your hand." — the untargeted hidden-zone
+    # sibling of `exile_library`. "…then draw that many" (Invasion of
+    # Kaldheim) is a `bind` over `resource: hand_size` around this.
+    "exile_hand",
+    lambda p: ExileHandEffect(),
 )
 EffectRegistry.register(
     # Etali, Primal Storm (top card only); Etali, Primal Conqueror's ETB
