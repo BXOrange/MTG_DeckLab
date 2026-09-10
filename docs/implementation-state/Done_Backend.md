@@ -4158,7 +4158,28 @@ evidence is
 
 ### Fusion retirement — parser-side batches (ENG-37, `14_` S3)
 
-Running total: **81 → 49**.
+Running total: **81 → 48**.
+
+- **Batch 18 (plan row B7 — `discard_up_to_then_draw_that_many`, `49 → 48`,
+  no parser change; B7 now fully retired).** Cathartic Pyre mode 2 / Kinetic
+  Augur / Daretti +2's "discard up to N cards, then draw that many cards"
+  folded into `DiscardEffect` params rather than a composition node: the
+  interactive "up to N" *is* `discard`'s own RULE 701.8 prompt (every
+  non-random discard already opens a chooser — `discard` is the canonical
+  instruction that happens to prompt), and the draw is that choice's own
+  `then_specs` tail, exactly the `DiscardEffect.draw_per_discard` (Syphon
+  Mind) idiom. New params: `count_max` (the cap makes each pick a RULE
+  601.2b "you may" — `discard_choice`/`_request_choose_objects` gained an
+  `optional` pass-through) and `then_draw_discarded` (queues
+  `draw_cards_discarded_delta`, which reads the `GameState.cards_discarded_
+  this_turn` delta — a state counter, so it survives the `pending_choice`
+  pause with no new `THIS_WAY_TALLIES` entry needed). `DiscardUpToThenDraw
+  ThatManyEffect` + registration + `_FUSION_TYPES` row deleted; the type
+  string is gone entirely (not aliased). One hand-authored catalogue call
+  site (Cathartic Pyre), no parser emission → no `PARSER_VERSION` bump.
+  Tests: `test_blight_curse_c5_wave12` (spec + all three interaction
+  paths + the gone-check). **B7 is done** — its remaining table row is
+  removed from `BACKLOG.md`.
 
 - **Batch 17 (plan row B7, `exile_hand_then_draw_that_many` — `50 → 49`, no
   parser change).** Invasion of Kaldheim's "exile all the cards from your

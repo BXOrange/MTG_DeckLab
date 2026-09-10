@@ -489,6 +489,7 @@ class DrawDiscardMixin:
         count: int,
         source: Optional[GameObject] = None,
         then_specs: Optional[list[dict]] = None,
+        optional: bool = False,
     ) -> None:
         """Interactive discard (RULE 701.8): ``player`` — the one discarding,
         not necessarily an effect's controller (Mind Rot targets an
@@ -501,6 +502,10 @@ class DrawDiscardMixin:
         cost payment still uses the plain, non-interactive `discard` (see
         its own docstring) since a cost is paid in one synchronous call.
 
+        ``optional`` makes ``count`` a ceiling rather than a quota — "discard
+        **up to** N cards" (Cathartic Pyre / Kinetic Augur / Daretti +2),
+        the RULE 601.2b "you may" over each pick.
+
         ``then_specs`` (MEC-43 round 4C, Syphon Mind's "You draw a card for
         each card discarded this way") are serialized `EffectSpec` dicts
         applied once ``player`` actually discards — `request_choose_
@@ -510,7 +515,7 @@ class DrawDiscardMixin:
         count `DiscardEffect`'s own ``count`` already asks for.
         """
         self._request_choose_objects(
-            player, list(player.hand), "discard", count=count,
+            player, list(player.hand), "discard", count=count, optional=optional,
             prompt="Wähle eine Karte zum Abwerfen", source=source, then_specs=then_specs,
         )
     def put_hand_cards_on_top(self, player: Player, count: int) -> None:

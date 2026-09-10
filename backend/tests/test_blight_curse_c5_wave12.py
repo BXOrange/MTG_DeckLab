@@ -3,11 +3,11 @@
 
 Modal instant, "choose one —":
 * mode 1 — ``damage`` 3 to ``creature_or_planeswalker`` (ordinary).
-* mode 2 — new `DiscardUpToThenDrawThatManyEffect`
-  ("discard_up_to_then_draw_that_many"): an ``optional`` capped-at-N
-  interactive discard, then draw exactly the number actually discarded
-  (via `DiscardCardsDiscardedDeltaDrawEffect` reading the
-  `cards_discarded_this_turn` delta).
+* mode 2 — `discard` with ``count_max=2`` + ``then_draw_discarded`` (ENG-37
+  B7 retired the fused `discard_up_to_then_draw_that_many` type): an
+  ``optional`` capped-at-N interactive discard, then draw exactly the
+  number actually discarded (via `DiscardCardsDiscardedDeltaDrawEffect`
+  reading the `cards_discarded_this_turn` delta).
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ def test_cathartic_pyre_authored_modal():
     specs = specs_for(CATHARTIC_PYRE)
     assert len(specs) == 1 and specs[0].modes["choose"] == 1
     opt_types = [e.type for opt in specs[0].modes["options"] for e in opt]
-    assert opt_types == ["damage", "discard_up_to_then_draw_that_many"]
+    assert opt_types == ["damage", "discard"]
 
 
 def test_mode2_discard_two_then_draw_two():
@@ -66,10 +66,10 @@ def test_mode2_discard_two_then_draw_two():
     src = _source(eng)
     eng.begin_turn()
 
-    eff = build_effects([EffectSpec("discard_up_to_then_draw_that_many", {"count": 2})], src)[0]
+    eff = build_effects([EffectSpec("discard", {"count_max": 2, "then_draw_discarded": True})], src)[0]
     eff.apply(GameContext(eng.state, eng.rules), targets=None)
 
-    # two forced picks (count == 2), then the then_specs draw fires
+    # pick two of the three (count_max == 2), then the then_specs draw fires
     for _ in range(2):
         pc = eng.state.pending_choice
         assert pc and pc["kind"] == "choose_objects"
@@ -87,7 +87,7 @@ def test_mode2_decline_after_one_draws_one():
     src = _source(eng)
     eng.begin_turn()
 
-    eff = build_effects([EffectSpec("discard_up_to_then_draw_that_many", {"count": 2})], src)[0]
+    eff = build_effects([EffectSpec("discard", {"count_max": 2, "then_draw_discarded": True})], src)[0]
     eff.apply(GameContext(eng.state, eng.rules), targets=None)
 
     pc = eng.state.pending_choice
@@ -106,11 +106,24 @@ def test_mode2_empty_hand_is_a_noop():
     src = _source(eng)
     eng.begin_turn()
 
-    eff = build_effects([EffectSpec("discard_up_to_then_draw_that_many", {"count": 2})], src)[0]
+    eff = build_effects([EffectSpec("discard", {"count_max": 2, "then_draw_discarded": True})], src)[0]
     eff.apply(GameContext(eng.state, eng.rules), targets=None)
 
     assert eng.state.pending_choice is None
     assert len(p1.library) == 5 and not p1.hand
+
+
+def test_the_fused_type_is_retired():
+    from mtg_analyzer.game import isa
+    from mtg_analyzer.game.effects import EffectRegistry
+
+    assert not EffectRegistry.is_registered("discard_up_to_then_draw_that_many")
+    assert "discard_up_to_then_draw_that_many" not in isa.EFFECT_TYPES
+    # folded into `discard` params
+    eff = build_effects(
+        [EffectSpec("discard", {"count_max": 2, "then_draw_discarded": True})], None
+    )[0]
+    assert eff.count_max == 2 and eff.then_draw_discarded is True
 
 
 def test_mode1_damage_targets_creature_or_planeswalker():

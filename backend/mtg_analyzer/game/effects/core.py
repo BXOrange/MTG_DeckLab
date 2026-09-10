@@ -256,8 +256,11 @@ class GameContext:
         count: int = 1,
         source: Optional["GameObject"] = None,
         then_specs: Optional[list[dict]] = None,
+        optional: bool = False,
     ) -> None:
-        self.engine.discard_choice(player, count, source=source, then_specs=then_specs)
+        self.engine.discard_choice(
+            player, count, source=source, then_specs=then_specs, optional=optional
+        )
 
     def put_hand_cards_on_top(self, player: "Player", count: int = 1) -> None:
         self.engine.put_hand_cards_on_top(player, count)
@@ -3897,10 +3900,23 @@ class DiscardEffect(GameEffect):
         previous_subject: bool = False,
         random: bool = False,
         whole_hand: bool = False,
+        count_max: Optional[int] = None,
+        then_draw_discarded: bool = False,
     ) -> None:
         super().__init__(source)
         self.count = count
         self.player = player
+        #: "Discard **up to** N cards[, then draw that many]." (Cathartic
+        #: Pyre mode 2, Kinetic Augur, Daretti +2 — ENG-37 B7 retired the
+        #: fused `discard_up_to_then_draw_that_many` type here.) ``count_max``
+        #: makes the interactive discard a ceiling, not a quota (RULE 601.2b
+        #: over each pick); ``then_draw_discarded`` queues
+        #: `draw_cards_discarded_delta` as the choice's own ``then_specs``,
+        #: so the draw is exactly the number *actually* discarded (the
+        #: `GameState.cards_discarded_this_turn` delta, which survives the
+        #: `pending_choice` pause because it lives on the state).
+        self.count_max = int(count_max) if count_max is not None else None
+        self.then_draw_discarded = bool(then_draw_discarded)
         #: "…discards their hand…" (RULE 701.8f — the wheel family: Wheel of
         #: Fortune, Windfall, Timetwister). ``count`` is then whatever that
         #: player is holding when this effect reaches them, so a `scope`
@@ -3949,6 +3965,23 @@ class DiscardEffect(GameEffect):
     def _discard_from(self, context: GameContext, player: Any) -> None:
         if self.whole_hand:
             context.discard(player, len(player.hand))
+            return
+        if self.count_max is not None:
+            if not player.hand:
+                return  # nothing to discard, so nothing to draw
+            then = list(self._then_specs() or [])
+            if self.then_draw_discarded:
+                before = int(
+                    (context.state.cards_discarded_this_turn or {}).get(player.id, 0) or 0
+                )
+                then.append({
+                    "type": "draw_cards_discarded_delta",
+                    "params": {"player_id": player.id, "before": before},
+                })
+            context.discard_choice(
+                player, self.count_max, source=self.source,
+                then_specs=then or None, optional=True,
+            )
             return
         if self.random:
             context.discard_random(player, self.count)
@@ -4002,11 +4035,12 @@ class DiscardCardsDiscardedDeltaDrawEffect(GameEffect):
     """Draw for a player the number of cards they've discarded *since a
     snapshot* — the "then draw that many cards" tail of "discard up to N
     cards, then draw that many cards" (Cathartic Pyre / Kinetic Augur /
-    Daretti). Queued as `_request_choose_objects`' ``then_specs`` by
-    `DiscardUpToThenDrawThatManyEffect`, which records ``before`` (the
-    player's `GameState.cards_discarded_this_turn` count) right before
-    opening the interactive discard; the delta is exactly how many were
-    actually discarded this way.
+    Daretti). Queued as the discard choice's ``then_specs`` by
+    `DiscardEffect` when ``count_max`` + ``then_draw_discarded`` are set
+    (ENG-37 B7), which records ``before`` (the player's
+    `GameState.cards_discarded_this_turn` count) right before opening the
+    interactive discard; the delta is exactly how many were actually
+    discarded this way.
     """
 
     def __init__(
@@ -4028,42 +4062,12 @@ class DiscardCardsDiscardedDeltaDrawEffect(GameEffect):
             context.draw(player, n)
 
 
-class DiscardUpToThenDrawThatManyEffect(GameEffect):
-    """"Discard up to N cards, then draw that many cards." (Cathartic Pyre
-    mode 2, Kinetic Augur, Daretti +2, Jaya Ballard +1 — RULE 701.8 loot
-    with a chosen quantity.) Opens an ``optional`` `_request_choose_objects`
-    discard capped at ``count`` (so the player may stop after 0/1/…/N), then
-    draws exactly the number actually discarded via
-    `DiscardCardsDiscardedDeltaDrawEffect`.
-    """
-
-    def __init__(self, count: int = 2, source: Optional["GameObject"] = None) -> None:
-        super().__init__(source)
-        self.count = int(count)
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = _controller_of(self.source, context)
-        if player is None:
-            return
-        before = int((context.state.cards_discarded_this_turn or {}).get(player.id, 0) or 0)
-        if not player.hand:
-            return  # nothing to discard, so nothing to draw
-        context.engine._request_choose_objects(
-            player, list(player.hand), "discard", count=self.count, optional=True,
-            source=self.source,
-            prompt="Wirf bis zu {} Karten ab".format(self.count),
-            then_specs=[{
-                "type": "draw_cards_discarded_delta",
-                "params": {"player_id": player.id, "before": before},
-            }],
-        )
-
-
 class MayDiscardThenDrawMillEffect(GameEffect):
     """"You may discard a card. If you do, draw N cards, then mill M."
     (Quintorius, History Chaser's +1, PAR-60.) A loot with a *fixed* upside
-    — the sibling of `DiscardUpToThenDrawThatManyEffect` (there the payoff
-    equals the number discarded); here the discard is a single optional
+    — the sibling of `discard` with ``count_max`` + ``then_draw_discarded``
+    (there the payoff equals the number discarded); here the discard is a
+    single optional
     card and the payoff (``draw``/``mill``) is constant, but only if the
     player actually discarded. Snapshots `GameState.cards_discarded_this_
     turn` before opening the chooser so the tail (`DrawMillIfDiscardedEffect`)
@@ -22684,13 +22688,9 @@ EffectRegistry.register(
         previous_subject=bool(p.get("previous_subject", False)),
         random=bool(p.get("random", False)),
         whole_hand=bool(p.get("whole_hand", False)),
+        count_max=p.get("count_max"),
+        then_draw_discarded=bool(p.get("then_draw_discarded", False)),
     ),
-)
-EffectRegistry.register(
-    # "Discard up to N cards, then draw that many cards." (Cathartic Pyre
-    # mode 2, Kinetic Augur, Daretti +2) — see `DiscardUpToThenDrawThatManyEffect`.
-    "discard_up_to_then_draw_that_many",
-    lambda p: DiscardUpToThenDrawThatManyEffect(count=int(p.get("count", 2) or 2)),
 )
 EffectRegistry.register(
     # The "then draw that many" tail of the above — queued as ``then_specs``,

@@ -662,7 +662,6 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
     "destroy_controller_may_search_basic_land": (("destroy", "search"), OP_OPTIONAL),
     "destroy_exile_then_controller_reveal_creature": (("destroy", "exile", "reveal"), OP_SEQ),
     "dies_return_as_enchantment": (("create_delayed_trigger", "move_object"), OP_SEQ),
-    "discard_up_to_then_draw_that_many": (("discard", "draw"), OP_BIND),
     "draw_lose_life_counter_removed_delta": (("draw", "lose_life"), OP_BIND),
     "draw_mill_if_discarded": (("draw", "mill"), OP_IF_ELSE),
     "draw_reveal_cast_one_free": (("draw", "reveal", "cast"), OP_SEQ),
