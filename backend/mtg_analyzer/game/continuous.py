@@ -925,6 +925,15 @@ def count_selector(
             return 0
         entered = getattr(state, "nontoken_creatures_entered_this_turn", None) or {}
         return int(entered.get(controller_id, 0) or 0)
+    if selector == "creatures_that_left_battlefield_this_turn":
+        # MEC-84 — "…for each creature that left the battlefield under your
+        # control this turn." (Kutzil's Flanker). `GameState.creatures_left_
+        # battlefield_this_turn`, incremented at the `remove_from_battlefield`
+        # chokepoint, reset per turn.
+        if controller_id is None:
+            return 0
+        left = getattr(state, "creatures_left_battlefield_this_turn", None) or {}
+        return int(left.get(controller_id, 0) or 0)
     if selector == "life_gained_this_turn":
         # "…where X is the amount of life you gained this turn." (Defiling
         # Daemogoth, Blossoming Bogbeast, PAR-60) — `GameState.

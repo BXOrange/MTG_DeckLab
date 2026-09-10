@@ -2549,6 +2549,16 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # "if a creature died this turn" (62 occurrences).
     (re.compile(r"(?:a|another) creature died this turn", re.I),
      lambda m: {"kind": "creatures_died_this_turn", "min": 1}),
+    # MEC-84 (Revolt / Disappear ability words, already stripped by
+    # `normalize`): "if a permanent left the battlefield under your control
+    # this turn" (~25). The `creature` variant is the RULE 700.4-narrowed
+    # sibling (Tale of Momo, That's Rough Buddy). Both feed the shared
+    # whitelist, so the RULE 603.4 effect gate and any "as long as" static
+    # (Aether Revolt) pick them up at once.
+    (re.compile(r"an? permanent left the battlefield under your control this turn", re.I),
+     lambda m: {"kind": "permanent_left_battlefield_this_turn", "min": 1}),
+    (re.compile(r"an? creature left the battlefield under your control this turn", re.I),
+     lambda m: {"kind": "creature_left_battlefield_this_turn", "min": 1}),
     # "if you gained life this turn" (31).
     (re.compile(r"you(?:'ve| have)? gained life this turn", re.I),
      lambda m: {"kind": "gained_life_this_turn"}),

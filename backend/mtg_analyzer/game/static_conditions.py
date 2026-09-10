@@ -240,6 +240,11 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "graveyard_count",  # + ``min``/``max`` — raw card count, RULE 702.19
         "ring_tempted",  # + ``min``/``max`` — RULE 701.51b `Player.ring_level`
         "creatures_died_this_turn",  # + ``min``/``max``
+        # MEC-84 (Revolt / Disappear): "a permanent left the battlefield under
+        # your control this turn" — a controller-scoped turn history, ``min``
+        # 1 by default. ``creature_…`` is the RULE 700.4-narrowed sibling.
+        "permanent_left_battlefield_this_turn",  # + ``min``/``max``
+        "creature_left_battlefield_this_turn",  # + ``min``/``max``
         # "if an opponent lost N or more life this turn" — any one opponent,
         # the same "an opponent" reading as ``opponent_count`` above.
         "opponent_lost_life_this_turn",  # + ``min``/``max``
@@ -839,6 +844,12 @@ def condition_holds(
         # `RulesEngine._move_to_graveyard`'s own DIES handling.
         died = getattr(state, "creatures_died_this_turn", None) or {}
         return _within(int(died.get(controller_id, 0) or 0), condition)
+    if kind == "permanent_left_battlefield_this_turn":  # MEC-84 — Revolt
+        left = getattr(state, "permanents_left_battlefield_this_turn", None) or {}
+        return _within(int(left.get(controller_id, 0) or 0), condition, default_min=1)
+    if kind == "creature_left_battlefield_this_turn":  # MEC-84
+        left = getattr(state, "creatures_left_battlefield_this_turn", None) or {}
+        return _within(int(left.get(controller_id, 0) or 0), condition, default_min=1)
     if kind == "opponent_lost_life_this_turn":
         # True when *any one* opponent is inside the bounds — the same "an
         # opponent" reading as ``opponent_count``/``opponent_life_at_most``.
@@ -982,6 +993,10 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
         return f"solange ≥{condition.get('min', 1)} {condition.get('subtype', '')}-Karte im Friedhof"
     if kind == "another_subtype_entered_this_turn":
         return f"falls diesen Zug ein weiterer {condition.get('subtype', '')} ins Spiel kam"
+    if kind == "permanent_left_battlefield_this_turn":
+        return "Revolt (ein bleibende Karte hat diesen Zug unter deiner Kontrolle das Schlachtfeld verlassen)"
+    if kind == "creature_left_battlefield_this_turn":
+        return "falls diesen Zug eine Kreatur unter deiner Kontrolle das Schlachtfeld verlassen hat"
     if kind.startswith("life_"):
         return f"solange Leben {'≥' if kind.endswith('least') else '≤'}{condition.get('amount', 0)}"
     if kind.startswith("cards_in_hand_"):

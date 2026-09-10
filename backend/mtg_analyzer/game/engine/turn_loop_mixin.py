@@ -294,6 +294,8 @@ class TurnLoopMixin:
         # "if you put a counter on a creature this turn" (Lasting Tarfire) —
         # game-wide, same reason as the rows around it.
         self.state.counter_placed_on_creature_this_turn.clear()
+        self.state.permanents_left_battlefield_this_turn.clear()  # MEC-84
+        self.state.creatures_left_battlefield_this_turn.clear()
         # Mana-potential tracking (`game/mana_potential.py`) — game-wide,
         # not `active.id`-only like `spells_cast_this_turn` above: a
         # non-active player can still tap mana at instant speed under

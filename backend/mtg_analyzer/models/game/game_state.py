@@ -1180,6 +1180,20 @@ class GameState:
         #: history-question shape `bends_this_turn` / `creatures_died_this_turn`
         #: use above.
         self.counter_placed_on_creature_this_turn: set[str] = set()
+        #: MEC-84 (Revolt / Disappear ability words): how many permanents left
+        #: the battlefield **under each player's control** this turn —
+        #: ``{controller_id: count}``, keyed by the object's ``controller_id``
+        #: as it left (RULE: "under your control", the controller at the
+        #: moment of leaving, not the owner). Incremented at the single
+        #: `remove_from_battlefield` chokepoint every departure passes through
+        #: (sacrifice, destroy, exile, bounce, mill from battlefield, token
+        #: ceasing to exist — but *not* phasing out, which never calls it),
+        #: cleared wholesale in `GameEngine.begin_turn`. A history question no
+        #: live board scan can answer — the permanent is gone. `creatures_…`
+        #: is the RULE 700.4-narrowed sibling for "a **creature** left …"
+        #: (Tale of Momo, That's Rough Buddy, Kutzil's Flanker).
+        self.permanents_left_battlefield_this_turn: dict[str, int] = {}
+        self.creatures_left_battlefield_this_turn: dict[str, int] = {}
 
         #: Chronological log of everything fired; also the record the
         #: WebSocket layer can diff to build ``game_state_update``s.
@@ -1487,6 +1501,18 @@ class GameState:
     def remove_from_battlefield(self, obj: GameObject) -> None:
         if obj in self.battlefield:
             self.battlefield.remove(obj)
+            # MEC-84: Revolt/Disappear history. Only a permanent that was
+            # actually on the battlefield "leaves" it; read the controller
+            # before any caller resets it with the destination zone.
+            cid = getattr(obj, "controller_id", None)
+            if cid is not None:
+                self.permanents_left_battlefield_this_turn[cid] = (
+                    self.permanents_left_battlefield_this_turn.get(cid, 0) + 1
+                )
+                if getattr(obj, "is_creature", False):
+                    self.creatures_left_battlefield_this_turn[cid] = (
+                        self.creatures_left_battlefield_this_turn.get(cid, 0) + 1
+                    )
         # RULE 708.9: "if a face-down permanent moves from the battlefield to
         # any other zone, its owner must reveal it to all players as they
         # move it" — so no object ever leaves the battlefield still wearing

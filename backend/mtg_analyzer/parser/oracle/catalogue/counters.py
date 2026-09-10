@@ -99,6 +99,18 @@ _KICKED_SCALED_ENTRY_COUNTERS_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: MEC-84 (Revolt): "~ enters with N `<T>` counters on it **if a permanent
+#: left the battlefield under your control this turn**." (Narnam Renegade /
+#: Greenwheel Liberator / Lifecraft Cavalry / Night Market Aeronaut / Putrid
+#: Pals). The suffix sibling of `_KICKED_ENTRY_COUNTERS_RE`, gated on
+#: `GameState.permanents_left_battlefield_this_turn` at resolution (0 unless
+#: something left) instead of `kicker_count`.
+_REVOLT_ENTRY_COUNTERS_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} with {_FIXED_AMOUNT} {_COUNTER_TYPE} counters? on it "
+    rf"if an? permanent left the battlefield under your control this turn\.?$",
+    re.IGNORECASE,
+)
+
 #: RULE 702.43a **Sunburst**: "~ enters with a +1/+1 counter on it for each
 #: **color of mana spent to cast it**." (Chamber Sentry / Crystalline
 #: Crawler / Rancorous Archaic / Skyrider Elf / Etched Oracle). Scaled by
@@ -177,6 +189,12 @@ def entry_counters_condition(line: str) -> Optional[dict[str, Any]]:
             "is_x": False, "count": _fixed_count(match.group(1)),
             "counter_type": match.group(2).lower(), "colors_spent_scale": True,
         }
+    match = _REVOLT_ENTRY_COUNTERS_RE.match(line)  # MEC-84
+    if match is not None:
+        return {
+            "is_x": False, "count": _fixed_count(match.group(1)),
+            "counter_type": match.group(2).lower(), "revolt_gate": True,
+        }
     match = _ENTRY_COUNTERS_RE.match(line)
     if not match:
         return None
@@ -199,7 +217,12 @@ def entry_counters(card: Any) -> Optional[dict[str, Any]]:
     drift from the shapes the coverage gate (`gate.py`) claims.
     """
     text = getattr(card, "oracle_text", "") or ""
-    normalized = normalize(text, getattr(card, "name", None))
+    # Pass ``keywords`` so an unregistered ability-word label ("Revolt —",
+    # "Disappear —") is stripped exactly as the front-end pipeline strips it
+    # (MEC-84 — the first entry-counter shape gated behind an ability word).
+    normalized = normalize(
+        text, getattr(card, "name", None), getattr(card, "keywords", None)
+    )
     for line in normalized.split("\n"):
         line = line.strip()
         if not line:
