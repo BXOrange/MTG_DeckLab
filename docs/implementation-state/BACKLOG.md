@@ -273,9 +273,6 @@ its block back into the matching section here.
     (Force of Nature / Minion of Tevesh Szat — a self-scoped `unless you
     pay` branch); plus `skip your draw step this turn` as a conditional "if
     you do" tail (Elfhame Sanctuary).
-  - **PAR-39** — old two-sentence O-Ring templating (`when ~ leaves the
-    battlefield, return the exiled card to the battlefield under its
-    owner's control`) (#12) — **reuse the PAR-30 Threaten/O-Ring cluster**.
   - **PAR-41** — additional cost `{X}` / from graveyard. Left: `discard
     x cards` and `exile x [creature] cards from your graveyard` — both need
     an **X-scaled additional cost** (the `additional_cost` fields carry a
@@ -299,7 +296,7 @@ its block back into the matching section here.
   - **PAR-45** — ETB compound utility. Left: `as ~ enters, choose an
     opponent` (#10).
   - **PAR-46** — cost reduction `for each creature card in your graveyard`
-    (#9) and the Party count-selector (see PAR-50).
+    (#9).
   - **PAR-47** — `<cost>,<cost>: put a charge counter on ~` + its
     remove-a-charge-counter spend clause (#14).
   - **PAR-49** — `<cost>: ~ becomes the creature type of your choice until
@@ -317,8 +314,7 @@ its block back into the matching section here.
   - **PAR-52** — Ki counters / "Spirit or Arcane spell" cast trigger
     (Kamigawa) (#51).
   - **PAR-53** — Party (Zendikar Rising): `creatures in your party` /
-    `full party` count-selector + its cost-reduction form (#39; shares the
-    count-selector with PAR-46).
+    `full party` count-selector + its cost-reduction form (#39).
   - Doctor's companion (Doctor Who) (#28), Rebel/Mercenary recruiter
     tutor chains (Mercadian Masques) (#21), `enters prepared` (#23) —
     file from the next free id (see the ticket-id note above) when their
