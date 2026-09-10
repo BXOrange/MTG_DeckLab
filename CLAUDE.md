@@ -502,7 +502,11 @@ proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
 **Coverage: 42.7% (14,860 / 34,811) as of 2026-09-10, measured at
-PARSER_VERSION 314** (v314 is MEC-84's controller-scoped
+PARSER_VERSION 315** (v315 is ENG-37 B5's reveal-referent respelling —
+`handlers._reveal_top_conditional` (Goblin Guide) now emits `seq(reveal_top,
+if_else(is_card_type of "revealed"))` instead of the retired
+`reveal_top_conditional_to_hand` fusion; no verdict change, +0; v314 is
+MEC-84's controller-scoped
 permanent-left-battlefield history — the Revolt / Disappear "if a permanent
 left the battlefield under your control this turn" gate, +18; v313 is
 MEC-83's `effect_amounts` `counters` + `domain` kinds — ENG-37's `bind`

@@ -2713,7 +2713,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: replacement line "if you would roll one or more dice, instead roll that
 #: many dice plus one and ignore the lowest/highest roll"
 #: (`replacements._ROLL_DICE_MODIFIER_RE` → ``roll_dice_modifier``).
-PARSER_VERSION = "314"
+#: v315 - ENG-37 B5: `handlers._reveal_top_conditional` (Goblin Guide's
+#: "defending player reveals the top card ... if it's a land card, puts it
+#: into their hand") now emits a `seq` of `reveal_top` + an `if_else` on
+#: ``{"kind": "is_card_type", "of": "revealed"}`` instead of the retired
+#: `reveal_top_conditional_to_hand` fused effect. **No verdict change** -
+#: same one card, different spec shape; the version moves because the
+#: emitted spec content differs, which is what this hash exists to notice.
+PARSER_VERSION = "315"
 
 
 def parser_source_hash() -> str:

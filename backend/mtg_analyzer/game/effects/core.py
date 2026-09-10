@@ -3827,54 +3827,6 @@ class PutRevealedCardEffect(GameEffect):
             player.add_to_zone(card, Zone.HAND)
 
 
-class RevealTopConditionalToHandEffect(GameEffect):
-    """RULE 701.28's reveal, with a card-type-conditional move to hand
-    (Goblin Guide-shaped): a player reveals the top card of their library;
-    if it matches ``card_type``, that same player puts it into their hand
-    — otherwise it's simply left on top (RULE 701.28's reveal has no
-    mechanical weight of its own beyond the visibility, so "no match" does
-    nothing rather than needing an explicit "leave it there" clause).
-
-    ``whose="defending_player"`` (this card's only real use so far) reads
-    RULE 506.4's per-firing attack defender via `_defending_player_of` —
-    who's defending is only known once combat is declared, so it can't be
-    a fixed target chosen at cast/trigger time the way an ordinary "target
-    player" clause would be.
-    """
-
-    def __init__(
-        self,
-        whose: str = "defending_player",
-        card_type: str = "land",
-        source: Optional["GameObject"] = None,
-    ) -> None:
-        super().__init__(source)
-        self.whose = whose
-        self.card_type = card_type
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.whose == "defending_player":
-            player = _defending_player_of(self.source, context)
-        else:
-            player = _controller_of(self.source, context)
-        if player is None or not player.library:
-            return
-        top = player.library[-1]
-        checks = {
-            "land": top.is_land,
-            "creature": top.is_creature,
-            "artifact": bool(top.card.is_artifact),
-            "permanent": bool(
-                top.is_land or top.is_creature or top.card.is_artifact
-                or top.card.is_enchantment or top.is_planeswalker
-            ),
-        }
-        if not checks.get(self.card_type, False):
-            return
-        player.library.pop()
-        player.add_to_zone(top, Zone.HAND)
-
-
 class DiscardEffect(GameEffect):
     """Make a player discard ``count`` cards — an interactive choice (RULE
     701.8: the discarding player, not this effect's controller, picks which
@@ -22943,13 +22895,6 @@ EffectRegistry.register(
     "put_revealed_card",
     lambda p: PutRevealedCardEffect(
         destination=p.get("destination", "hand"), whose=p.get("whose", "you"),
-    ),
-)
-EffectRegistry.register(
-    "reveal_top_conditional_to_hand",  # Goblin Guide-shaped
-    lambda p: RevealTopConditionalToHandEffect(
-        whose=p.get("whose", "defending_player"),
-        card_type=p.get("card_type", "land"),
     ),
 )
 EffectRegistry.register(

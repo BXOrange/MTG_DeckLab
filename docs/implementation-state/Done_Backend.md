@@ -4158,7 +4158,18 @@ evidence is
 
 ### Fusion retirement — parser-side batches (ENG-37, `14_` S3)
 
-Running total: **81 → 62**.
+Running total: **81 → 61**.
+
+- **Batch 10 (plan row B5, parser-side — `62 → 61`, PARSER_VERSION 315).**
+  `reveal_top_conditional_to_hand` (Goblin Guide) was the one `reveal_top_*`
+  row emitted by `parser/oracle/` rather than the catalogue.
+  `handlers._reveal_top_conditional` now emits the batch-9 `seq(reveal_top,
+  if_else(is_card_type of "revealed", [put_revealed_card{hand}]))` form; the
+  fused class + registration + `_FUSION_TYPES` row are deleted. **No verdict
+  change** — one card, `+0/-0` on `parser_probe diff`, coverage still
+  42.7% / 14,860 — the `PARSER_VERSION` bump is only because the emitted spec
+  content differs (the content-hash ledger keys on it). Covered by the
+  pre-existing `test_engine.test_goblin_guide_*` (unchanged).
 
 - **Batch 9 (plan row B5, reveal-referent foundation — `64 → 62`).** The
   `reveal_top_*` fusion family exists because a "reveal the top card … if
@@ -4194,12 +4205,11 @@ Running total: **81 → 62**.
   ALIAS(`move_object`). Tests: `test_composition_nodes.TestB5RevealReferent`
   plus the pre-existing `test_dark_confidant_family` (unchanged, now
   exercises the composition form). Full suite green incl. `--full-cache`.
-  **Still on B5** (each needs more than the referent): the parser-emitted
-  `reveal_top_conditional_to_hand` (Goblin Guide — its handler
-  `_reveal_top_conditional` must re-emit the `seq` form + a `PARSER_VERSION`
-  bump), plus the "free cast the revealed card", "counter if MV matches",
-  "you may battlefield if land/cheap creature", and "creature and/or land
-  from N revealed" rows (casting-from-library / interactive-choice wiring).
+  **Still on B5** (each needs more than the referent — see batch 10 for the
+  Goblin Guide parser row, now also done): "free cast the revealed card",
+  "counter if MV matches", "you may battlefield if land/cheap creature", and
+  "creature and/or land from N revealed" (casting-from-library /
+  interactive-choice wiring).
 
 - **Batch 8 (plan row B4, capped-drain slice — `65 → 64`; B4's shared-target
   family now fully retired).** `damage_and_drain_capped` (Drain Life — "~

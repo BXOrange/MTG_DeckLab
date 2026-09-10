@@ -1397,7 +1397,7 @@ def _hand_disruption_discard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return specs
 
 
-#: RULE 701.28's "defending player reveals the top card of their library.
+#: RULE 701.20's "defending player reveals the top card of their library.
 #: If it's a land card, that player puts it into their hand." (Goblin
 #: Guide-shaped) — a triggered-ability body (the "whenever ~ attacks,"
 #: prefix that opens it is recognized separately, by the segmenter's own
@@ -1410,9 +1410,23 @@ _REVEAL_TOP_CONDITIONAL_RE = _c(
 
 
 def _reveal_top_conditional(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("reveal_top_conditional_to_hand", {
-        "whose": "defending_player", "card_type": m.group("type"),
-    })]
+    # ENG-37 B5: a `seq` of `reveal_top` (stash the top card as the
+    # `revealed` referent) then an `if_else` on its card type — the engine-
+    # side `reveal_top_conditional_to_hand` fusion is retired.
+    return [EffectSpec("seq", {"effects": [
+        {"type": "reveal_top", "params": {"whose": "defending_player"}},
+        {"type": "if_else", "params": {
+            "condition": {
+                "kind": "is_card_type", "of": "revealed",
+                "card_type": m.group("type"),
+            },
+            "then": [{
+                "type": "put_revealed_card",
+                "params": {"destination": "hand", "whose": "defending_player"},
+            }],
+            "else": [],
+        }},
+    ]})]
 
 
 def _split_token_mid_words(mid: str) -> tuple[list[str], list[str], bool]:
