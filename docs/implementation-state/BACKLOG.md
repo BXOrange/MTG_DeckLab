@@ -204,9 +204,8 @@ its block back into the matching section here.
   retirement remains). The grammar and slot-grammar stages that followed are
   complete; this umbrella now waits only on fusion retirement.
 
-  The `81c3320` port is **done** (`SELF_SUBJECT_PREFIX` + the 09_ clause-tree
-  negative result on the mainline; `Done_Backend.md`). This ticket now holds
-  only its two standing guardrails, live until ENG-37 closes:
+  This ticket now holds only its two standing guardrails, live until ENG-37
+  closes:
 
   - **Do not displace the per-template track.** `PAR-12` / `PAR-31…PAR-53`
     remain where the near-term coverage is; `13_` section 5.6 confirms it. Note
@@ -258,103 +257,58 @@ its block back into the matching section here.
   is in
   [13_ORACLE_PARSER_GRAMMAR_REVIEW.md](../concepts/13_ORACLE_PARSER_GRAMMAR_REVIEW.md)
   §5.3. Every ticket shall be completed end to end without leaving residue
-  before moving to the next ticket. A fresh PARSER_VERSION 308 re-measure
-  retired **PAR-37** and **PAR-48**: their modal-header and ordinal-draw
-  shapes are now parser-MODELED, so neither remains backlog work.
+  before moving to the next ticket.
 
   Bucket B (recurring effect-body / static templates, `extend-parser` loop):
 
   - **PAR-33** — Aura/Equipment grants a *quoted* ability
     (`enchanted/equipped creature has "…"`, `… gets +N/+N and has "…"`,
-    `enchanted land has "…"`) (~#21+9+9). The `<cost>: regenerate
-    enchanted creature` shape shipped at PARSER_VERSION 236
-    (`_REGENERATE_ATTACHED_RE` → `RegenerateEffect`'s existing
-    `attached_permanent` mode, +14 — Regeneration / Gaea's Embrace / Dark
-    Privilege / Serpent Skin).
-  - **PAR-34** — tribal / state lord. Done: `each creature you control
-    with a +1/+1 counter on it has <keyword>` (`_GROUP_COUNTER_GRANT_RE` +
-    `has_counter_kind` in `_SELECTOR_KEYS`, PARSER_VERSION 237, +18 — the
-    Abzan outlast cycle); the Odyssey **Threshold** phrasing ("Threshold —
-    As long as N or more cards **are in** your graveyard, …") now
-    normalises + parses (+1 real card so far — the rest of that cluster is
-    blocked on **quoted-ability** conditional bodies). Left: `all slivers
-    have "…"` (~#13 — a group-scoped **quoted-ability** grant, recursively
-    parsed) and the Threshold quoted-ability bodies (~#25 — same
+    `enchanted land has "…"`) (~#21+9+9).
+  - **PAR-34** — tribal / state lord. Left: `all slivers have "…"` (~#13 —
+    a group-scoped **quoted-ability** grant, recursively parsed) and the
+    Odyssey **Threshold** quoted-ability bodies (~#25 — the same
     quoted-ability-grant machinery, wrapped in the `active_if` gate).
   - **PAR-35** — casting-timing restriction (`cast this spell only during
     the declare attackers step and only if you've been attacked`,
     conditional flash `as though it had flash if you pay <cost> more`, the
     `… flash. if you cast it any time a sorcery couldn't …` templating)
     (~#14+9+9).
-  - **PAR-36** — trigger-condition vocabulary. Done: `whenever ~ deals
-    damage, you gain that much life` (`gain_life_from_trigger_amount` +
-    `GainLifeEffect.amount_from_trigger_event`, PARSER_VERSION 231, +17);
-    `…discards a card at random` (`RulesEngine.discard_random` +
-    `DiscardEffect.random`, PARSER_VERSION 233, +23). Left: `whenever you
-    draw your second card each turn` (~#12 — shares with PAR-48),
-    `…discards **that many** cards` reading the DAMAGE amount (Dreamstealer
-    / Needle Specter — a `DiscardEffect.count_from_trigger_event`),
-    `whenever you cast a spell that targets ~` (~#8).
-  - **PAR-38** — residue only. The bare `skip your draw step` static and
-    the bare `~ deals <n> damage to you` body both shipped at
-    PARSER_VERSION 229 (`skip_step` oracle route; `damage_selector`'s
-    `"you" → "controller"`; +22 — `Done_Backend.md`). What's left: the
-    upkeep-damage **riders** — `~ deals <n> damage to you for each <X>`
-    (Black Market Tycoon — needs a count-selector) and `~ deals <n> damage
-    to you unless you pay <cost>` (Force of Nature / Minion of Tevesh Szat
-    — a self-scoped `unless you pay` branch); plus `skip your draw step
-    this turn` as a conditional "if you do" tail (Elfhame Sanctuary).
+  - **PAR-36** — trigger-condition vocabulary. Left: `whenever you
+    draw your second card each turn` (~#12), `…discards **that many** cards`
+    reading the DAMAGE amount (Dreamstealer / Needle Specter — a
+    `DiscardEffect.count_from_trigger_event`), `whenever you cast a spell
+    that targets ~` (~#8).
+  - **PAR-38** — residue only. The upkeep-damage **riders** — `~ deals <n>
+    damage to you for each <X>` (Black Market Tycoon — needs a
+    count-selector) and `~ deals <n> damage to you unless you pay <cost>`
+    (Force of Nature / Minion of Tevesh Szat — a self-scoped `unless you
+    pay` branch); plus `skip your draw step this turn` as a conditional "if
+    you do" tail (Elfhame Sanctuary).
   - **PAR-39** — old two-sentence O-Ring templating (`when ~ leaves the
     battlefield, return the exiled card to the battlefield under its
     owner's control`) (#12) — **reuse the PAR-30 Threaten/O-Ring cluster**.
-  - **PAR-41** — additional cost `{X}` / from graveyard. Done: `exile N
-    [<type>] cards from your graveyard` (`ActivationCost.exile_from_
-    graveyard_filter` + `_can_pay_/_pay_additional_cast_cost` wiring,
-    PARSER_VERSION 234, +9 — Cobbled Lancer / Skaab family). Left: `discard
+  - **PAR-41** — additional cost `{X}` / from graveyard. Left: `discard
     x cards` and `exile x [creature] cards from your graveyard` — both need
     an **X-scaled additional cost** (the `additional_cost` fields carry a
     fixed int / the `pay_life` `"x"` sentinel, no general X-scaled
     non-mana-cost path yet).
   - **PAR-42** — conditional / dynamic enters-tapped & entry counters.
-    Done: `enters tapped unless a player has <n> or less life` (the
-    Innistrad slow-land life cycle — `lands.py`'s `unless_life` kind,
-    PARSER_VERSION 230, +10); `~ enters with a +1/+1 counter on it for
-    each color of mana spent to cast it` = **Sunburst** (`counters.py`'s
-    `_SUNBURST_ENTRY_COUNTERS_RE` + `colors_spent_scale` in
-    `_apply_entry_counters`, reading `GameObject.colors_spent_to_cast`,
-    PARSER_VERSION 238, +9); `enters tapped. as it enters, choose a color`
-    (the Thriving lands — PARSER_VERSION 267, +16 including the Gate cycle).
     Left: `if it's neither day nor night, it becomes day as ~ enters` (#10).
-  - **PAR-43** — self CDA / `for each` P/T. The **single-characteristic
-    CDA** — `~'s power is equal to the number of <X>` — shipped at
-    PARSER_VERSION 235 (`_PT_CDA_SINGLE_RE` → a `pt_cda` spec with only
-    `power_count` / `toughness_count`; the layer-7a pass already applied
-    them independently; +12), for the same `_PT_CDA_SELECTORS` whitelist as
-    the "power and toughness" form. The `~ gets +N/+N for each <X>`
+  - **PAR-43** — self CDA / `for each` P/T. The `~ gets +N/+N for each <X>`
     standing self-anthem form has its general handler
-    (`_SELF_ANTHEM_FOR_EACH_RE`, PARSER_VERSION 228, +14) but only for the
-    "for each <X>" quantities that already have a
-    `continuous.count_selector`; the remaining tail (~120 SOLO, ~40
-    distinct selectors — "Equipment you control" board-wide, "oil counter
-    on it", "aura attached to it", "experience counter you have",
-    per-subtype "other <type> you control", …) is one new
-    `count_selector` per phrase in `continuous.py`, plus the **Aura** form
-    (`enchanted creature gets +N/+N for each <X>` — `affects=
-    "attached_permanent"` instead of `"self"`). See `Done_Backend.md`.
-  - **PAR-44** — static permission / prohibition. The graveyard-land side is
-    now closed for the Muldrotha-shaped permanent-type permission: the shared
-    graveyard grant tracks one use for each permanent type, including a land
-    play, and resets at untap. The remaining `a deck can have any number of
-    cards named ~` #10 is a deckbuilding clause, claim-without-spec.
+    (`_SELF_ANTHEM_FOR_EACH_RE`) but only for the "for each <X>" quantities
+    that already have a `continuous.count_selector`; the remaining tail
+    (~120 SOLO, ~40 distinct selectors — "Equipment you control"
+    board-wide, "oil counter on it", "aura attached to it", "experience
+    counter you have", per-subtype "other <type> you control", …) is one
+    new `count_selector` per phrase in `continuous.py`, plus the **Aura**
+    form (`enchanted creature gets +N/+N for each <X>` — `affects=
+    "attached_permanent"` instead of `"self"`).
+  - **PAR-44** — static permission / prohibition. Left: `a deck can have any
+    number of cards named ~` (#10) — a deckbuilding clause,
+    claim-without-spec.
   - **PAR-45** — ETB compound utility. Left: `as ~ enters, choose an
-    opponent` (#10). Closed: `target opponent loses <n> life and you gain
-    <n> life` (the Blood Artist / Zulaport drain family — `lose_life`'s
-    `who` alternation gained `target opponent` → `target_kind: "opponent"`,
-    PARSER_VERSION 232, +34; the "and you gain" clause rides the existing
-    `gain_life` row via the connector split). The `tap target creature and
-    put a stun counter on it` half closed at PARSER_VERSION 213
-    (`handlers.tap_and_stun` + RULE 122.1c stun-counter skip-untap in
-    `RulesEngine.set_tapped`; see `Done_Backend.md`.)
+    opponent` (#10).
   - **PAR-46** — cost reduction `for each creature card in your graveyard`
     (#9) and the Party count-selector (see PAR-50).
   - **PAR-47** — `<cost>,<cost>: put a charge counter on ~` + its
@@ -387,11 +341,8 @@ its block back into the matching section here.
     out of the denominator with the sticker cards.
 
   **Bucket A residue — modal *header* shapes** (bodies all claim; only the
-  header/engine support is missing). The triggered-modal wrapper half is
-  done — `_split_triggered_modal_block` recognises its trigger via
-  `segment_line` as of PARSER_VERSION 187 (Elder Gargaroth / Ojutai
-  Exemplars / Etherwrought Page / Cosmogrand Zenith / Ferocification / Appa,
-  +8 cache). What is left, ~26 Commander-legal cards in five shapes:
+  header/engine support is missing). What is left, ~26 Commander-legal cards
+  in five shapes:
 
   - **PAR-56 · Teamwork modal and rider grammar (RULE 702.194).** Route
     `if this spell was cast using teamwork` modal overrides and ordinary
@@ -424,16 +375,11 @@ its block back into the matching section here.
 
 ## MEC — Game mechanics
 
-> No open tickets. ENG-34's **CR-versus-engine diff** (`scripts/isa_report.py`
-> — ISA instructions the Comprehensive Rules define that the engine had no
-> realisation of) was worked through as **MEC-75…MEC-84** (`Done_Backend.md`);
-> `14_` §7's prediction held — most were small composition gaps wearing a
-> mechanic's name, and one (MEC-80 Triple) was already shipped.
+> No open tickets.
 >
 > New MEC tickets come from `scripts/commander_tail_report.py`'s bucket D
 > (~132 Commander-legal cards; its signature labels name the *missing
-> primitive*, ENG-34 re-pointed the missing-**instruction** ones at
-> `game/isa.py`). Not filed, on purpose: the Attractions family (RULE 701.45
+> primitive*). Not filed, on purpose: the Attractions family (RULE 701.45
 > Assemble, 701.51 Open an Attraction, 701.52 Roll to Visit Your Attractions)
 > is a permanent non-goal in `DEFERRED.md`.
 
