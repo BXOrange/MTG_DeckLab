@@ -16439,41 +16439,41 @@ class EndTheTurnEffect(GameEffect):
         context.end_the_turn()
 
 
-class ExileTopThenGrantConditionalCastEffect(GameEffect):
-    """"Exile the top N cards of your library. Creature cards exiled this
-    way gain 'You may cast this card from exile as long as `<condition>`.'"
-    (Lukka, Coppercoat Outcast's own +1) — unlike every other exile-then-
-    maybe-cast grant in this engine (`temp_play_permissions`, all turn-
-    windowed), this one never expires on a clock; it holds for as long as
-    `GameState.exile_cast_condition`'s `static_conditions` check keeps
-    answering yes, which can also mean *starting* to hold again later if
-    the board condition returns. No player choice at all — every creature
-    card exiled this way gets the grant, unconditionally.
+class GrantConditionalCastFromExileEffect(GameEffect):
+    """"Creature cards exiled this way gain 'You may cast this card from
+    exile as long as `<condition>`.'" (Lukka, Coppercoat Outcast's +1) —
+    reads the batch a preceding `exile_top_of_library` clause surfaced onto
+    `GameContext.created_objects` and, for each creature card among them,
+    registers a **standing** (never turn-swept) `GameState.exile_cast_
+    condition` entry gated on ``condition`` (a `static_conditions` check
+    that can also start holding *again* later if the board state returns).
+    Unlike every other exile-then-maybe-cast grant in this engine
+    (`temp_play_permissions`, all turn-windowed), this one never expires on
+    a clock. No player choice — every creature card exiled this way gets it.
+
+    ENG-37 B6 split the fused `exile_top_then_grant_conditional_cast` into
+    this + `exile_top_of_library` under a `seq`: the exile is a plain
+    positional library move, and "exiled **this way**" is exactly the
+    `created_objects` referent the exile clause already populates.
     """
 
     def __init__(
-        self, count: int = 1, condition: Optional[dict[str, Any]] = None,
+        self, condition: Optional[dict[str, Any]] = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
-        self.count = count
         self.condition = dict(condition or {})
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is None:
             return
-        for _ in range(max(0, self.count)):
-            if not player.library:
-                break
-            obj = player.library.pop()
-            obj.zone = Zone.EXILE
-            player.exile.append(obj)
-            context.state.fire_event(
-                GameEvent(EventType.EXILE, player_id=player.id, object=obj.name, from_zone="library")
-            )
-            if obj.card.is_creature:
-                context.state.exile_cast_condition[obj.instance_id] = (player.id, dict(self.condition))
+        for obj in list(getattr(context, "created_objects", []) or []):
+            card = getattr(obj, "card", None)
+            if getattr(card, "is_creature", False):
+                context.state.exile_cast_condition[obj.instance_id] = (
+                    player.id, dict(self.condition)
+                )
 
 
 class MutualRevealCompareManaValueEffect(GameEffect):
@@ -23149,13 +23149,12 @@ EffectRegistry.register(
     lambda p: SubjectDamagesEachOpponentEqualToPowerEffect(),
 )
 EffectRegistry.register(
-    # "Exile the top N cards of your library. Creature cards exiled this
-    # way gain 'You may cast this card from exile as long as `<condition>`.'"
-    # (Lukka, Coppercoat Outcast)
-    "exile_top_then_grant_conditional_cast",
-    lambda p: ExileTopThenGrantConditionalCastEffect(
-        count=int(p.get("count", 1) or 1), condition=p.get("condition"),
-    ),
+    # "Creature cards exiled this way gain 'You may cast this card from
+    # exile as long as `<condition>`.'" (Lukka, Coppercoat Outcast's +1) —
+    # the grant half of the retired `exile_top_then_grant_conditional_cast`
+    # fusion; reads the just-exiled batch off `GameContext.created_objects`.
+    "grant_conditional_cast_from_exile",
+    lambda p: GrantConditionalCastFromExileEffect(condition=p.get("condition")),
 )
 EffectRegistry.register(
     # "You and target opponent each reveal the top card of your library.

@@ -563,12 +563,13 @@ def _lukka_coppercoat_outcast() -> list[AbilitySpec]:
     −7: Each creature you control deals damage equal to its power to
     each opponent.
 
-    — MEC-12 (cEDH M-K). The +1 is the new `exile_top_then_grant_
-    conditional_cast`/`GameState.exile_cast_condition` — a genuinely
-    standing (never turn-swept) exile cast permission, unlike every other
-    "exile, may cast later" grant in this engine, gated on the new
-    ``planeswalkers_you_control_of_type_`` count selector via the
-    already-general `control_count` static condition. The −2 is an ENG-37
+    — MEC-12 (cEDH M-K). ENG-37 B6 split the +1 into a `seq` of
+    `exile_top_of_library` (count 3, positional) and the new
+    `grant_conditional_cast_from_exile`, which reads the just-exiled batch
+    off `GameContext.created_objects` and registers a genuinely standing
+    (never turn-swept) `GameState.exile_cast_condition` per creature card,
+    gated on the ``planeswalkers_you_control_of_type_`` count selector via
+    the already-general `control_count` static condition. The −2 is an ENG-37
     B5 `bind`: it measures the target creature's mana value + 1 (the dig's
     floor, RULE 608.2 "measured between the two halves"), then the body
     `exile`s the target and runs `dig_until` over the substituted
@@ -579,14 +580,16 @@ def _lukka_coppercoat_outcast() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "activated",
-            [EffectSpec("exile_top_then_grant_conditional_cast", {
-                "count": 3,
-                "condition": {
-                    "kind": "control_count",
-                    "selector": "planeswalkers_you_control_of_type_lukka",
-                    "min": 1,
-                },
-            })],
+            [EffectSpec("seq", {"effects": [
+                {"type": "exile_top_of_library", "params": {"count": 3}},
+                {"type": "grant_conditional_cast_from_exile", "params": {
+                    "condition": {
+                        "kind": "control_count",
+                        "selector": "planeswalkers_you_control_of_type_lukka",
+                        "min": 1,
+                    },
+                }},
+            ]})],
             cost={"loyalty": 1},
         ),
         AbilitySpec(

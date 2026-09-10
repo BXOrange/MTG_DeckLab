@@ -4158,7 +4158,31 @@ evidence is
 
 ### Fusion retirement — parser-side batches (ENG-37, `14_` S3)
 
-Running total: **81 → 48**.
+Running total: **81 → 47**.
+
+- **Batch 19 (plan row B6 — `exile_top_then_grant_conditional_cast`, `48 →
+  47`, no parser change).** Lukka, Coppercoat Outcast's +1 ("Exile the top
+  three cards of your library. Creature cards exiled this way gain 'You may
+  cast this card from exile as long as you control a Lukka planeswalker.'")
+  split into `seq([exile_top_of_library{count: 3}, grant_conditional_cast_
+  from_exile{condition}])`. The exile is a plain positional library move
+  (`ExileTopOfLibraryEffect` already appends each exiled card to
+  `GameContext.created_objects`), and "exiled **this way**" is exactly that
+  referent: the new one-line `GrantConditionalCastFromExileEffect` walks
+  `created_objects`, and for each creature card stamps a standing (never
+  turn-swept) `GameState.exile_cast_condition` entry gated on ``condition``
+  (a `static_conditions` check). `grant_conditional_cast_from_exile` is an
+  ALIAS of `create_continuous_effect` in `isa`. `ExileTopThenGrant
+  ConditionalCastEffect` + registration + `_FUSION_TYPES` row deleted; the
+  old class also did its own raw `library.pop()` / manual `EXILE` event —
+  the split routes through `context.exile` instead, so RULE 400.7 / leave-
+  the-battlefield triggers now fire properly. Hand-authored catalogue entry
+  (MEC-12), no parser emission → no `PARSER_VERSION` bump. Tests:
+  `test_composition_nodes` (`TestB6ConditionalCastFromExile`). **B6
+  remaining:** `unattach_tap_indestructible` (Akiri — "host of the previous
+  target" referent) and `return_top_graveyard_creature_with_haste` (Corpse
+  Dance — positional graveyard return + a delayed-trigger `capture` of the
+  returned object).
 
 - **Batch 18 (plan row B7 — `discard_up_to_then_draw_that_many`, `49 → 48`,
   no parser change; B7 now fully retired).** Cathartic Pyre mode 2 / Kinetic

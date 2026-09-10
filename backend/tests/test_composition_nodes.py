@@ -985,6 +985,79 @@ class TestB5BindOverDigUntil:
         assert "exile_then_reveal_greater_mana_value" not in isa.EFFECT_TYPES
 
 
+class TestB6ConditionalCastFromExile:
+    """ENG-37 B6: `exile_top_then_grant_conditional_cast` (Lukka, Coppercoat
+    Outcast's +1) retired to `seq([exile_top_of_library, grant_conditional_
+    cast_from_exile])` — the grant half reads the just-exiled batch off
+    `GameContext.created_objects` (the "exiled this way" referent the exile
+    clause already populates) and stamps a standing `exile_cast_condition`
+    per creature card.
+    """
+
+    _COND = {
+        "kind": "control_count",
+        "selector": "planeswalkers_you_control_of_type_lukka",
+        "min": 1,
+    }
+
+    def _specs(self, count: int = 3):
+        return [EffectSpec("seq", {"effects": [
+            {"type": "exile_top_of_library", "params": {"count": count}},
+            {"type": "grant_conditional_cast_from_exile",
+             "params": {"condition": self._COND}},
+        ]})]
+
+    def test_only_creature_cards_among_the_exiled_batch_get_the_grant(self) -> None:
+        eng = _engine()
+        p1 = eng.state.player_by_id("p1")
+        creo1 = GameObject(Card(id="Creo1", name="Creo1", type_line="Creature",
+                                is_creature=True), owner_id="p1", zone=Zone.LIBRARY)
+        creo2 = GameObject(Card(id="Creo2", name="Creo2", type_line="Creature",
+                                is_creature=True), owner_id="p1", zone=Zone.LIBRARY)
+        sorc = GameObject(Card(id="Sorc1", name="Sorc1", type_line="Sorcery",
+                               is_sorcery=True), owner_id="p1", zone=Zone.LIBRARY)
+        for o in (creo1, creo2, sorc):   # sorc ends up on top (list end)
+            p1.library.append(o)
+        src = _creature(eng.state, name="Lukka", power=0, toughness=1)
+
+        _run(eng, self._specs(3), source=src)
+
+        assert {creo1, creo2, sorc}.issubset(set(p1.exile))
+        cond = eng.state.exile_cast_condition
+        assert cond.get(creo1.instance_id) == ("p1", self._COND)
+        assert cond.get(creo2.instance_id) == ("p1", self._COND)
+        assert sorc.instance_id not in cond          # noncreature: no grant
+
+    def test_no_creatures_exiled_is_a_clean_no_op(self) -> None:
+        eng = _engine()
+        p1 = eng.state.player_by_id("p1")
+        for i in range(3):
+            p1.library.append(GameObject(
+                Card(id=f"S{i}", name=f"S{i}", type_line="Sorcery", is_sorcery=True),
+                owner_id="p1", zone=Zone.LIBRARY,
+            ))
+        src = _creature(eng.state, name="Lukka", power=0, toughness=1)
+
+        _run(eng, self._specs(3), source=src)
+        assert eng.state.exile_cast_condition == {}
+        assert len(p1.exile) == 3
+
+    def test_the_fused_type_is_gone(self) -> None:
+        assert not EffectRegistry.is_registered("exile_top_then_grant_conditional_cast")
+        assert "exile_top_then_grant_conditional_cast" not in isa.EFFECT_TYPES
+        assert EffectRegistry.is_registered("grant_conditional_cast_from_exile")
+
+    def test_the_catalogue_entry_still_binds(self) -> None:
+        from mtg_analyzer.game import ability_catalogue as ac
+
+        card = Card(id="LK", name="Lukka, Coppercoat Outcast",
+                    type_line="Legendary Planeswalker — Lukka")
+        specs = ac.specs_for(card)
+        assert specs
+        for spec in specs:
+            build_effects(list(spec.effects), None)
+
+
 class TestB7WheelFamilyRetirements:
     """ENG-37 B7: the fused `wheel` / `wheel_of_fortune` / `windfall` types
     retired. Each printed line is now `seq`/`bind` over a mass
