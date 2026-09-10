@@ -2720,7 +2720,13 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `reveal_top_conditional_to_hand` fused effect. **No verdict change** -
 #: same one card, different spec shape; the version moves because the
 #: emitted spec content differs, which is what this hash exists to notice.
-PARSER_VERSION = "315"
+#: v316 - ENG-37 B5: `game/effect_conditions.py` gained an `any` combinator
+#: (OR) and an `amount_compare` predicate (two `effect_amounts` measurements
+#: + an op), and `spec.py` learned to shape-check an `amount_compare`'s
+#: `left`/`right` amount specs (`_validate_amount_spec`). No card's verdict
+#: moves - this only widens the accepted structured-condition vocabulary -
+#: but the parser source hash does, so the version follows.
+PARSER_VERSION = "316"
 
 
 def parser_source_hash() -> str:

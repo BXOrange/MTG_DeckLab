@@ -752,9 +752,14 @@ def _nissa_steward_of_elements() -> list[AbilitySpec]:
     Elemental creatures with flying and haste until end of turn. They're
     still lands.
 
-    — MEC-41. +2 is the already-shipped plain ``scry`` effect. New
-    `reveal_top_then_maybe_battlefield_if_land_or_cheap_creature` for the
-    0 ability (`GameObject.loyalty`'s live count). The −6 reuses Kamahl,
+    — MEC-41. +2 is the already-shipped plain ``scry`` effect. The 0
+    ability is an ENG-37 B5 `seq`: `reveal_top` stashes the top card as
+    the `revealed` referent, an `if_else` gates on "land **or** (creature
+    **and** its mana value ≤ this planeswalker's loyalty)" (`any`/`all`
+    combinators + an `amount_compare` of `characteristic(mana_value, of:
+    revealed)` against `counters(loyalty, of: source)`), and its `then` is
+    an `optional` (RULE 601.2b "you may") wrapping `put_revealed_card`
+    onto the battlefield. The −6 reuses Kamahl,
     Heart of Krosa's own "target land becomes a creature until end of
     turn, still a land" `grant_until`/`type_change`+`grant_keyword` chain
     (MEC-12) verbatim, just widened to "up to two" targets — `TapEffect`'s
@@ -769,7 +774,28 @@ def _nissa_steward_of_elements() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "activated",
-            [EffectSpec("reveal_top_then_maybe_battlefield_if_land_or_cheap_creature", {})],
+            [EffectSpec("seq", {"effects": [
+                {"type": "reveal_top", "params": {"whose": "you"}},
+                {"type": "if_else", "params": {
+                    "condition": {"kind": "any", "conditions": [
+                        {"kind": "is_card_type", "of": "revealed", "card_type": "land"},
+                        {"kind": "all", "conditions": [
+                            {"kind": "is_card_type", "of": "revealed", "card_type": "creature"},
+                            {"kind": "amount_compare", "op": "le",
+                             "left": {"kind": "characteristic",
+                                      "characteristic": "mana_value", "of": "revealed"},
+                             "right": {"kind": "counters",
+                                       "counter": "loyalty", "of": "source"}},
+                        ]},
+                    ]},
+                    "then": [{"type": "optional", "params": {
+                        "effects": [{"type": "put_revealed_card",
+                                     "params": {"destination": "battlefield"}}],
+                        "prompt": "Karte ins Spiel bringen?",
+                    }}],
+                    "else": [],
+                }},
+            ]})],
             cost={"loyalty": 0},
         ),
         AbilitySpec(

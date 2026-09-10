@@ -150,12 +150,21 @@ CONTEXT_CONDITION_KINDS: frozenset[str] = frozenset(
         # `GameState.bends_this_turn`. Needs `RulesEngine.BEND_KINDS`, which
         # is why it reads the context's engine rather than just the state.
         "did_all_bends_this_turn",
+        # ENG-37 B5 — compare two `effect_amounts` measurements: ``left`` and
+        # ``right`` amount specs + ``op`` ("lt"/"le"/"gt"/"ge"/"eq"/"ne").
+        # "if it's a creature card with mana value less than or equal to the
+        # number of loyalty counters on ~" (Nissa, Steward of Elements). The
+        # only predicate here that reads a *number* off two referents rather
+        # than asking a yes/no about one.
+        "amount_compare",
     }
 )
 
 #: Combinators, handled here rather than delegated: their sub-conditions may
 #: name an effect-only referent, so the recursion has to stay in this module.
-COMBINATOR_KINDS: frozenset[str] = frozenset({"all", "not"})
+#: ``any`` is OR to ``all``'s AND, three-valued the same way (True if any sub
+#: is True; None if none is True but any is unanswerable; else False).
+COMBINATOR_KINDS: frozenset[str] = frozenset({"all", "any", "not"})
 
 #: Every ``kind`` an effect condition may name.
 EFFECT_CONDITION_KINDS: frozenset[str] = (
@@ -241,6 +250,17 @@ def _context_holds(
                 outcome = event.get("won")
         return None if outcome is None else bool(outcome)
 
+    if kind == "amount_compare":
+        from . import effect_amounts  # function-scoped: effect_amounts imports this module
+
+        left = effect_amounts.amount_of(condition.get("left"), context, source, targets)
+        right = effect_amounts.amount_of(condition.get("right"), context, source, targets)
+        return {
+            "lt": left < right, "le": left <= right,
+            "gt": left > right, "ge": left >= right,
+            "eq": left == right, "ne": left != right,
+        }.get(str(condition.get("op", "eq")))  # unknown op → None (fail-closed)
+
     if kind == "already_exerted":
         event = getattr(context, "trigger_event", None) or {}
         return bool(event.get("already_exerted"))
@@ -314,6 +334,14 @@ def _evaluate(
         if any(result is False for result in results):
             return False
         return None if any(result is None for result in results) else True
+    if kind == "any":
+        results = [
+            _evaluate(sub, context, source, targets)
+            for sub in (condition.get("conditions") or [])
+        ]
+        if any(result is True for result in results):
+            return True
+        return None if any(result is None for result in results) else False
     if kind == "not":
         inner = condition.get("condition")
         if not inner:

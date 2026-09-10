@@ -672,7 +672,6 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
     "reveal_top_then_counter_if_mv_match": (("reveal", "counter"), OP_IF_ELSE),
     "reveal_top_then_creature_and_or_land_battlefield": (("reveal", "move_object"), OP_SEQ),
     "reveal_top_then_free_cast_if_mv_match": (("reveal", "cast"), OP_IF_ELSE),
-    "reveal_top_then_maybe_battlefield_if_land_or_cheap_creature": (("reveal", "move_object"), OP_IF_ELSE),
     "sacrifice_any_number_draw_lose_scaled": (("sacrifice", "draw", "lose_life"), OP_BIND),
     "sacrifice_count_draw_lose": (("sacrifice", "draw", "lose_life"), OP_BIND),
     "shuffle_target_graveyard_cards_into_library": (("move_object", "shuffle"), OP_SEQ),

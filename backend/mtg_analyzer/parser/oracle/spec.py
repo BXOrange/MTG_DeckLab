@@ -192,8 +192,20 @@ _COMPOSITION_EFFECT_TYPES: frozenset[str] = frozenset(
 _STRUCTURED_CONDITION_FIELDS: dict[str, type] = {
     "of": str, "flag": str, "subtype": str, "card_type": str, "color": str,
     "counter": str, "selector": str, "name": str, "keyword": str,
+    "op": str,
     "min": int, "max": int, "amount": int, "min_power": int,
     "colors": list, "types": list,
+}
+
+#: Non-``kind`` keys an `effect_amounts` measurement spec may carry (the
+#: operands of an ENG-37 B5 `amount_compare`), and the type each must have.
+#: The ``kind`` vocabulary itself is `game/effect_amounts.py`'s (not
+#: importable here, docs/09); ``str`` fields are further shape-checked there.
+_AMOUNT_SPEC_FIELDS: dict[str, type] = {
+    "of": str, "characteristic": str, "counter": str, "selector": str,
+    "tally": str, "scope": str, "resource": str,
+    "amount": int, "multiply": int, "divide": int, "plus": int, "minus": int,
+    "minimum": int, "maximum": int, "round_up": bool,
 }
 
 #: `AbilitySpec.conditional_flash`'s whitelisted keys — see that field's
@@ -1251,6 +1263,15 @@ class AbilitySpec:
                         raise SpecValidationError(f"malformed {key!r} in condition {condition!r}")
                     AbilitySpec._validate_structured_condition(sub, _depth + 1)
                 continue
+            if key in ("left", "right"):
+                # ENG-37 B5 `amount_compare` — an `effect_amounts` measurement
+                # spec, not a condition field. Same posture as ``condition``:
+                # the shape is checked here, the ``kind`` vocabulary lives in
+                # `game/effect_amounts.py` (which this package must not import).
+                if not isinstance(value, dict):
+                    raise SpecValidationError(f"{key!r} in an effect condition must be a dict")
+                AbilitySpec._validate_amount_spec(value, _depth + 1)
+                continue
             expected = _STRUCTURED_CONDITION_FIELDS.get(key)
             if expected is None:
                 raise SpecValidationError(f"unknown effect condition field {key!r}")
@@ -1262,6 +1283,32 @@ class AbilitySpec:
                 raise SpecValidationError(
                     f"{key!r} in an effect condition must be a {expected.__name__}"
                 )
+
+    @staticmethod
+    def _validate_amount_spec(spec: dict[str, Any], _depth: int = 0) -> None:
+        """Shape-check an `effect_amounts` measurement spec (an `amount_compare`
+        operand). Clamps its own magnitude fields the same way
+        `_clamp_params` clamps an effect's — a hostile ``multiply`` must not
+        reach the engine unbounded."""
+        if _depth > AbilitySpec.MAX_SPEC_DEPTH:
+            raise SpecValidationError("amount spec nested too deeply")
+        kind = spec.get("kind")
+        if not isinstance(kind, str) or not kind.strip():
+            raise SpecValidationError(f"amount spec needs a 'kind': {spec!r}")
+        for key, value in spec.items():
+            if key == "kind":
+                continue
+            expected = _AMOUNT_SPEC_FIELDS.get(key)
+            if expected is None:
+                raise SpecValidationError(f"unknown amount spec field {key!r}")
+            if expected is bool and not isinstance(value, bool):
+                raise SpecValidationError(f"{key!r} in an amount spec must be a bool")
+            if expected is int and (isinstance(value, bool) or not isinstance(value, int)):
+                raise SpecValidationError(f"{key!r} in an amount spec must be an int")
+            if expected is str and not isinstance(value, str):
+                raise SpecValidationError(f"{key!r} in an amount spec must be a str")
+            if expected is int:
+                spec[key] = max(-MAX_EFFECT_MAGNITUDE, min(int(value), MAX_EFFECT_MAGNITUDE))
 
     @staticmethod
     def _clamp_params(

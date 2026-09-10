@@ -863,10 +863,67 @@ class TestB5RevealReferent:
         _run(eng2, specs)
         assert len(p2.hand) - h0 == 1
 
+    def test_reveal_then_maybe_battlefield_gates_on_land_or_cheap_creature(self) -> None:
+        # Nissa's 0: `any(land, all(creature, mv <= source loyalty))` then an
+        # `optional` put_revealed_card. The `revealed` referent must survive
+        # the `composite_optional` pause.
+        specs = [EffectSpec("seq", {"effects": [
+            {"type": "reveal_top", "params": {"whose": "you"}},
+            {"type": "if_else", "params": {
+                "condition": {"kind": "any", "conditions": [
+                    {"kind": "is_card_type", "of": "revealed", "card_type": "land"},
+                    {"kind": "all", "conditions": [
+                        {"kind": "is_card_type", "of": "revealed", "card_type": "creature"},
+                        {"kind": "amount_compare", "op": "le",
+                         "left": {"kind": "characteristic", "characteristic": "mana_value",
+                                  "of": "revealed"},
+                         "right": {"kind": "counters", "counter": "loyalty", "of": "source"}},
+                    ]},
+                ]},
+                "then": [{"type": "optional", "params": {
+                    "effects": [{"type": "put_revealed_card",
+                                 "params": {"destination": "battlefield"}}],
+                }}],
+                "else": [],
+            }},
+        ]})]
+
+        # a cheap creature (mv 2) with source loyalty 3 -> offered, accept
+        eng = _engine()
+        src = _creature(eng.state, name="Nissa", power=0, toughness=1)
+        src.counters["loyalty"] = 3
+        p1 = eng.state.player_by_id("p1")
+        cheap = GameObject(
+            Card(id="c2", name="Elf", type_line="Creature — Elf", is_creature=True,
+                 converted_mana_cost=2, power=1, toughness=1),
+            owner_id="p1", zone=Zone.LIBRARY,
+        )
+        p1.library.append(cheap)
+        _run(eng, specs, source=src)
+        assert eng.state.pending_choice["kind"] == "composite_optional"
+        eng.rules.resolve_choice("yes")
+        assert cheap in eng.state.battlefield
+
+        # an expensive creature (mv 6) with source loyalty 3 -> not offered
+        eng2 = _engine()
+        src2 = _creature(eng2.state, name="Nissa", power=0, toughness=1)
+        src2.counters["loyalty"] = 3
+        big = GameObject(
+            Card(id="c6", name="Titan", type_line="Creature — Giant", is_creature=True,
+                 converted_mana_cost=6, power=6, toughness=6),
+            owner_id="p1", zone=Zone.LIBRARY,
+        )
+        eng2.state.player_by_id("p1").library.append(big)
+        _run(eng2, specs, source=src2)
+        assert eng2.state.pending_choice is None
+        assert big in eng2.state.player_by_id("p1").library
+
     def test_the_reveal_fusions_are_gone(self) -> None:
         for name in (
             "reveal_top_then_take_and_lose_life",
             "reveal_top_then_land_battlefield_or_draw",
+            "reveal_top_conditional_to_hand",
+            "reveal_top_then_maybe_battlefield_if_land_or_cheap_creature",
         ):
             assert not EffectRegistry.is_registered(name)
             assert name not in isa.EFFECT_TYPES

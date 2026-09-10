@@ -16703,32 +16703,6 @@ class ReturnSelfToBattlefieldEffect(GameEffect):
             context.add_counters(self.source, count, kind, source=self.source)
 
 
-class RevealTopThenMaybeBattlefieldIfLandOrCheapCreatureEffect(GameEffect):
-    """"Look at the top card of your library. If it's a land card or a
-    creature card with mana value less than or equal to the number of
-    loyalty counters on ~, you may put that card onto the battlefield."
-    (Nissa, Steward of Elements' 0 ability, MEC-41) — a genuine "you may"
-    (unlike `RevealTopThenLandBattlefieldOrDrawEffect`'s deterministic
-    land-or-draw branch just above), offered only when the top card
-    actually qualifies; `GameObject.loyalty` is the live loyalty-counter
-    count (RULE 606.5b).
-    """
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = _controller_of(self.source, context)
-        if player is None or not player.library or self.source is None:
-            return
-        top = player.library[-1]
-        qualifies = top.card.is_land or (
-            top.is_creature and top.card.converted_mana_cost <= self.source.loyalty
-        )
-        if not qualifies:
-            return
-        context.choose_objects(
-            player, [top], "library_to_battlefield", count=1, optional=True, source=self.source,
-        )
-
-
 class RevealTopThenCreatureAndOrLandBattlefieldEffect(GameEffect):
     """"Reveal that many cards from the top of your library. You may put a
     creature card and/or a land card from among them onto the battlefield.
@@ -23248,14 +23222,6 @@ EffectRegistry.register(
         under_your_control=bool(p.get("under_your_control", False)),
         extra_counters=p.get("extra_counters"),
     ),
-)
-EffectRegistry.register(
-    # "Look at the top card of your library. If it's a land card or a
-    # creature card with mana value less than or equal to the number of
-    # loyalty counters on ~, you may put that card onto the battlefield."
-    # (Nissa, Steward of Elements, MEC-41)
-    "reveal_top_then_maybe_battlefield_if_land_or_cheap_creature",
-    lambda p: RevealTopThenMaybeBattlefieldIfLandOrCheapCreatureEffect(),
 )
 EffectRegistry.register(
     # "Whenever ~ deals combat damage to a player, reveal that many cards

@@ -338,6 +338,11 @@ class OptionalEffect(_CompositeEffect):
                 for obj in (getattr(context, "previous_targets", []) or [])
                 if getattr(obj, "instance_id", None) is not None
             ],
+            # Same, for a `reveal_top` clause's stashed card — "you may put
+            # **that card** onto the battlefield" (Nissa) is the body here.
+            "revealed_card_id": getattr(
+                getattr(context, "revealed_card", None), "instance_id", None
+            ),
         })
 
 

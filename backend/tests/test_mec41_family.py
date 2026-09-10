@@ -273,10 +273,12 @@ def test_nissa_zero_ability_offers_land_for_battlefield():
     eng.state.current_step = "main1"
     eng.activate_ability(p1, pw, ability_index=1)
     eng.resolve_until_stable()
+    # ENG-37 B5: the 0 ability is now `seq(reveal_top, if_else(... then
+    # optional(put_revealed_card{battlefield})))` — a "you may" yes/no.
     choice = eng.state.pending_choice
-    assert choice is not None and choice["kind"] == "choose_objects"
-    assert choice["action"] == "library_to_battlefield"
-    eng.resolve_pending_choice(str(forest.instance_id))
+    assert choice is not None and choice["kind"] == "composite_optional"
+    eng.rules.resolve_choice("yes")
+    eng.resolve_until_stable()
     assert forest.zone == Zone.BATTLEFIELD
 
 

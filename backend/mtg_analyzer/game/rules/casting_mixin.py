@@ -1370,9 +1370,11 @@ class CastingResolutionMixin:
                 for instance_id in (choice.get("target_ids") or [])
             ) if obj is not None
         ]
+        revealed_id = choice.get("revealed_card_id")
+        revealed = self.state.find_object(revealed_id) if revealed_id is not None else None
         _apply_effects_partitioned(
             built, self.context, announced or None, None, source=source,
-            previous_targets=previous,
+            previous_targets=previous, revealed_card=revealed,
         )
 
     def _resume_iteration(self, frame: dict[str, Any]) -> None:

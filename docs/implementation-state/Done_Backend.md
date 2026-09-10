@@ -4158,7 +4158,44 @@ evidence is
 
 ### Fusion retirement — parser-side batches (ENG-37, `14_` S3)
 
-Running total: **81 → 61**.
+Running total: **81 → 60**.
+
+- **Batch 11 (plan row B5, dynamic-predicate slice — `61 → 60`,
+  PARSER_VERSION 316).** The fused
+  `reveal_top_then_maybe_battlefield_if_land_or_cheap_creature`
+  (Nissa, Steward of Elements' 0 — "Look at the top card … if it's a land
+  **or** a creature with mana value ≤ the loyalty counters on ~, you
+  **may** put it onto the battlefield") retired to
+  `seq([reveal_top, if_else(<gate>, then=[optional([put_revealed_card{battlefield}])], else=[])])`.
+  Three general additions:
+  - **`any` combinator** in `effect_conditions` — OR to `all`'s AND,
+    three-valued the same way (True if any sub is True; None if none True
+    but any unanswerable; else False). The `<gate>` is
+    `any(is_card_type(land), all(is_card_type(creature), <mv compare>))`.
+  - **`amount_compare` predicate** (`CONTEXT_CONDITION_KINDS`) — the first
+    condition that reads *numbers* off two referents: `left`/`right` are
+    `effect_amounts` specs, `op` is `lt`/`le`/`gt`/`ge`/`eq`/`ne` (unknown
+    op → unanswerable). Nissa's is `characteristic(mana_value, of:
+    "revealed")` vs `counters(loyalty, of: "source")`.
+  - **`revealed_card` through the `composite_optional` pause** —
+    `OptionalEffect` now stashes `revealed_card_id` in its choice payload
+    and `_resume_composite_optional` re-finds it (via `state.find_object`,
+    which searches the library too) and threads it back into
+    `_apply_effects_partitioned`, so the body's `put_revealed_card` still
+    sees the card after the "you may" question is answered.
+  - **`spec.py`** learned to shape-check + clamp an `amount_compare`'s
+    `left`/`right` amount specs (a new `_validate_amount_spec` over
+    `_AMOUNT_SPEC_FIELDS`); `op` added to `_STRUCTURED_CONDITION_FIELDS`.
+    No card verdict moves (vocabulary-only), but the parser source hash
+    does — hence the PARSER_VERSION bump.
+
+  `RevealTopThenMaybeBattlefieldIfLandOrCheapCreatureEffect` + registration +
+  `_FUSION_TYPES` row deleted. Tests: `test_composition_nodes`
+  (`TestB5RevealReferent` — cheap-creature-offered / expensive-not-offered,
+  `revealed` surviving the pause; `TestAnyCombinatorAndAmountCompare` in
+  `test_effect_conditions`) + the rewritten `test_mec41_family` Nissa 0-ability
+  test (now a `composite_optional` yes/no). Full suite green incl.
+  `--full-cache`.
 
 - **Batch 10 (plan row B5, parser-side — `62 → 61`, PARSER_VERSION 315).**
   `reveal_top_conditional_to_hand` (Goblin Guide) was the one `reveal_top_*`

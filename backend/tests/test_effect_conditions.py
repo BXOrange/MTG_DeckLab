@@ -483,3 +483,52 @@ class TestStructuredConditionValidation:
                                 condition={"kind": "kicked", "min": 1})],
         )
         spec.validate()
+
+
+class TestAnyCombinatorAndAmountCompare:
+    """ENG-37 B5 — `any` (OR to `all`'s AND) and `amount_compare` (a
+    number-vs-number gate over two `effect_amounts` measurements)."""
+
+    def test_any_is_three_valued_or(self) -> None:
+        context, source = _context()
+        true = {"kind": "your_turn"}   # p1 is active in a fresh game
+        false = {"kind": "not_your_turn"}
+        unknown = {"kind": "is_subtype", "of": "previous_target", "subtype": "goat"}
+
+        assert ec.condition_holds({"kind": "any", "conditions": [false, true]}, context, source) is True
+        assert ec.condition_holds({"kind": "any", "conditions": [false, false]}, context, source) is False
+        # none true, one unanswerable -> unanswerable (not False)
+        assert ec._evaluate(
+            {"kind": "any", "conditions": [false, unknown]}, context, source, None
+        ) is None
+
+    def test_amount_compare_reads_two_referents(self) -> None:
+        context, source = _context()
+        source.counters["loyalty"] = 3
+        creature = GameObject(
+            Card(id="c3", name="Three", type_line="Creature — Elf", is_creature=True,
+                 converted_mana_cost=3, power=1, toughness=1),
+            owner_id="p1", zone=Zone.LIBRARY,
+        )
+        context.state.player_by_id("p1").library.append(creature)
+        context.revealed_card = creature
+
+        le = {"kind": "amount_compare", "op": "le",
+              "left": {"kind": "characteristic", "characteristic": "mana_value", "of": "revealed"},
+              "right": {"kind": "counters", "counter": "loyalty", "of": "source"}}
+        assert ec.condition_holds(le, context, source) is True   # 3 <= 3
+
+        source.counters["loyalty"] = 2
+        assert ec.condition_holds(le, context, source) is False  # 3 <= 2
+
+        gt = {**le, "op": "gt"}
+        assert ec.condition_holds(gt, context, source) is True   # 3 > 2
+
+    def test_amount_compare_unknown_op_is_unanswerable(self) -> None:
+        context, source = _context()
+        assert ec._evaluate(
+            {"kind": "amount_compare", "op": "spaceship",
+             "left": {"kind": "fixed", "amount": 1},
+             "right": {"kind": "fixed", "amount": 2}},
+            context, source, None,
+        ) is None
