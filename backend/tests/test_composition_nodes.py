@@ -510,3 +510,117 @@ class TestValidation:
         ])
         with pytest.raises(SpecValidationError):
             spec.validate()
+
+
+class TestB4SharedTargetRetirements:
+    """ENG-37 B4: the fused effect types whose only reason to exist was
+    docs/11 §5's "at most one targeting effect per ability" — a `seq` shares
+    one resolved target across its whole body (the first clause carries the
+    RULE 115 requirement; the rest read `GameContext.previous_targets` via
+    their own ``previous_subject`` pronoun), so no welded type is needed.
+    """
+
+    def test_target_player_draw_lose_life_is_one_announced_target(self) -> None:
+        # Retires ``target_player_draw_lose_life`` (Sign in Blood).
+        eng = _engine()
+        p2 = eng.state.player_by_id("p2")
+        for _ in range(3):
+            p2.library.append(GameObject(
+                Card(id="f", name="Filler", type_line="Creature", is_creature=True,
+                     power=1, toughness=1),
+                owner_id="p2", zone=Zone.LIBRARY,
+            ))
+        hand0, life0 = len(p2.hand), p2.life
+
+        effects = build_effects([EffectSpec("seq", {"effects": [
+            {"type": "draw", "params": {"count": 2, "target_kind": "player"}},
+            {"type": "lose_life", "params": {"amount": 2, "previous_subject": True}},
+        ]})], None)
+        assert [ts.kind for e in effects for ts in e.target_specs] == ["player"]
+
+        context = GameContext(eng.state, eng.rules)
+        _apply_effects_partitioned(effects, context, [p2], None)
+        assert len(p2.hand) - hand0 == 2
+        assert p2.life - life0 == -2
+
+    def test_add_counter_first_strike_shares_the_creature(self) -> None:
+        # Retires ``add_counter_first_strike`` (The Wandering Emperor +1).
+        from mtg_analyzer.game import combat
+
+        eng = _engine()
+        bear = _creature(eng.state)
+        effects = build_effects([
+            EffectSpec("add_counters", {
+                "kind": "+1/+1", "amount": 1, "target_kind": "creature", "optional": True,
+            }),
+            EffectSpec("grant_until", {
+                "duration": "end_of_turn", "previous_subject": True,
+                "static": {"type": "grant_keyword", "params": {"keywords": ["first_strike"]}},
+            }),
+        ], bear)
+        assert [ts.kind for e in effects for ts in e.target_specs] == ["creature"]
+        assert [ts.optional for e in effects for ts in e.target_specs] == [True]
+
+        context = GameContext(eng.state, eng.rules)
+        _apply_effects_partitioned(effects, context, [bear], None)
+        eng.rules.check_state_based_actions()
+        assert bear.counters.get("+1/+1") == 1
+        assert bear.power == bear.card.power + 1
+        assert combat.has(bear, "first_strike")
+
+    def test_counter_untap_grant_keyword_shares_the_creature(self) -> None:
+        # Retires ``counter_untap_grant_keyword`` (Tyvar Kell +1): counter,
+        # untap "it", "it" gains deathtouch — all one chosen creature.
+        from mtg_analyzer.game import combat
+
+        eng = _engine()
+        elf = _creature(eng.state, name="Elf", power=1, toughness=1)
+        elf.card.type_line = "Creature — Elf"
+        eng.rules.set_tapped(elf, tapped=True)
+
+        effects = build_effects([
+            EffectSpec("add_counters", {
+                "kind": "+1/+1", "amount": 1, "target_kind": "creature",
+                "optional": True, "creature_filter": {"subtype": "Elf"},
+            }),
+            EffectSpec("tap", {"untap": True, "previous_subject": True}),
+            EffectSpec("grant_until", {
+                "duration": "end_of_turn", "previous_subject": True,
+                "static": {"type": "grant_keyword", "params": {"keywords": ["deathtouch"]}},
+            }),
+        ], elf)
+        assert [ts.kind for e in effects for ts in e.target_specs] == ["creature"]
+
+        context = GameContext(eng.state, eng.rules)
+        _apply_effects_partitioned(effects, context, [elf], None)
+        eng.rules.check_state_based_actions()
+        assert elf.counters.get("+1/+1") == 1
+        assert elf.tapped is False
+        assert combat.has(elf, "deathtouch")
+
+    def test_a_declined_optional_target_no_ops_the_whole_body(self) -> None:
+        # "up to one target" declined → nothing to carry forward; the
+        # untap/grant clauses must quietly do nothing, not raise.
+        eng = _engine()
+        effects = build_effects([
+            EffectSpec("add_counters", {
+                "kind": "+1/+1", "amount": 1, "target_kind": "creature", "optional": True,
+            }),
+            EffectSpec("tap", {"untap": True, "previous_subject": True}),
+            EffectSpec("grant_until", {
+                "duration": "end_of_turn", "previous_subject": True,
+                "static": {"type": "grant_keyword", "params": {"keywords": ["deathtouch"]}},
+            }),
+        ], None)
+        context = GameContext(eng.state, eng.rules)
+        _apply_effects_partitioned(effects, context, [], None)
+        assert eng.state.floating_statics == []
+
+    def test_the_three_fused_types_are_gone_from_the_registry(self) -> None:
+        for name in (
+            "target_player_draw_lose_life",
+            "add_counter_first_strike",
+            "counter_untap_grant_keyword",
+        ):
+            assert not EffectRegistry.is_registered(name)
+            assert name not in isa.EFFECT_TYPES

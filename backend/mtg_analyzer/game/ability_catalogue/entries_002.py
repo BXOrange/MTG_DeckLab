@@ -870,11 +870,21 @@ register("Crypt Incursion", _crypt_incursion)
 
 
 def _sign_in_blood() -> list[AbilitySpec]:
-    """Target player draws two cards and loses 2 life."""
+    """Target player draws two cards and loses 2 life.
+
+    — ENG-37 B4: a `seq` whose first clause (`draw`) carries the sole RULE 115
+    player target and whose second (`lose_life` with ``previous_subject``)
+    acts on that same player via `GameContext.previous_targets`, retiring the
+    fused ``target_player_draw_lose_life``. One announced target, as before —
+    `lose_life` declares none of its own.
+    """
     return [
         AbilitySpec(
             "spell_effect",
-            [EffectSpec("target_player_draw_lose_life", {"draw_count": 2, "life_loss": 2})],
+            [EffectSpec("seq", {"effects": [
+                {"type": "draw", "params": {"count": 2, "target_kind": "player"}},
+                {"type": "lose_life", "params": {"amount": 2, "previous_subject": True}},
+            ]})],
         )
     ]
 
@@ -963,7 +973,20 @@ def _the_wandering_emperor() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "activated",
-            [EffectSpec("add_counter_first_strike", {"target_kind": "creature", "optional": True})],
+            [
+                # ENG-37 B4: one "up to one target creature" (the counter
+                # clause), reused by `grant_until`'s ``previous_subject``
+                # pronoun for "It gains first strike until end of turn."
+                # instead of the fused ``add_counter_first_strike``.
+                EffectSpec("add_counters", {
+                    "kind": "+1/+1", "amount": 1,
+                    "target_kind": "creature", "optional": True,
+                }),
+                EffectSpec("grant_until", {
+                    "duration": "end_of_turn", "previous_subject": True,
+                    "static": {"type": "grant_keyword", "params": {"keywords": ["first_strike"]}},
+                }),
+            ],
             cost={"loyalty": 1},
             conditional_flash={"entered_this_turn": True},
         ),

@@ -839,9 +839,23 @@ def _tyvar_kell() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "activated",
-            [EffectSpec("counter_untap_grant_keyword", {
-                "creature_filter": {"subtype": "Elf"}, "keyword": "deathtouch",
-            })],
+            [
+                # ENG-37 B4: "Put a +1/+1 counter on up to one target Elf.
+                # Untap it. It gains deathtouch until end of turn." — one
+                # announced (optional) target on the counter clause; `tap`
+                # and `grant_until` reach the same creature through their
+                # ``previous_subject`` pronoun, retiring the fused
+                # ``counter_untap_grant_keyword``.
+                EffectSpec("add_counters", {
+                    "kind": "+1/+1", "amount": 1, "target_kind": "creature",
+                    "optional": True, "creature_filter": {"subtype": "Elf"},
+                }),
+                EffectSpec("tap", {"untap": True, "previous_subject": True}),
+                EffectSpec("grant_until", {
+                    "duration": "end_of_turn", "previous_subject": True,
+                    "static": {"type": "grant_keyword", "params": {"keywords": ["deathtouch"]}},
+                }),
+            ],
             cost={"loyalty": 1},
         ),
         AbilitySpec(

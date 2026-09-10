@@ -13,12 +13,13 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
 from mtg_analyzer.game.effects.core import (
     DestroyEffect,
-    TargetPlayerDrawLoseLifeEffect,
     UnattachTapIndestructibleEffect,
+    _apply_effects_partitioned,
 )
+from mtg_analyzer.parser.oracle.spec import EffectSpec
 from mtg_analyzer.game import continuous
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.events import EventType, GameEvent
@@ -194,6 +195,9 @@ def test_wrath_of_god_destroys_every_creature_and_ignores_regeneration():
 
 
 def test_sign_in_blood_draws_and_loses_life_on_the_same_target():
+    # ENG-37 B4: the fused ``target_player_draw_lose_life`` retired to a
+    # `seq` of `draw` (carries the sole player target) + `lose_life`
+    # (``previous_subject`` — same player, no target of its own).
     eng = _engine()
     state = eng.state
     opponent = state.player_by_id("p2")
@@ -201,7 +205,15 @@ def test_sign_in_blood_draws_and_loses_life_on_the_same_target():
         opponent.library.append(GameObject(_card("Sun Titan"), owner_id="p2", zone=Zone.LIBRARY))
     before_hand, before_life = len(opponent.hand), opponent.life
 
-    TargetPlayerDrawLoseLifeEffect(draw_count=2, life_loss=2, target=opponent).apply(eng.rules.context)
+    effects = build_effects(
+        [EffectSpec("seq", {"effects": [
+            {"type": "draw", "params": {"count": 2, "target_kind": "player"}},
+            {"type": "lose_life", "params": {"amount": 2, "previous_subject": True}},
+        ]})],
+        None,
+    )
+    assert [ts.kind for e in effects for ts in e.target_specs] == ["player"]
+    _apply_effects_partitioned(effects, eng.rules.context, [opponent], None)
 
     assert len(opponent.hand) - before_hand == 2
     assert opponent.life == before_life - 2

@@ -10146,41 +10146,14 @@ class ReturnTopGraveyardCreatureWithHasteEffect(GameEffect):
         context.recompute()
 
 
-class TargetPlayerDrawLoseLifeEffect(GameEffect):
-    """"Target player draws N cards and loses M life." (Sign in Blood-shaped)
-    — a single atomic effect over one shared target, since two independent
-    `DrawCardEffect`/`LoseLifeEffect` objects each carrying their own
-    ``target_kind`` would offer *two* separate target choices instead of
-    one (docs/11 §5's "at most one targeting effect per ability" limit)."""
-
-    def __init__(
-        self,
-        draw_count: int = 1,
-        life_loss: int = 0,
-        target: Any = None,
-        source: Optional["GameObject"] = None,
-        target_kind: str = "player",
-    ) -> None:
-        super().__init__(source)
-        self.draw_count = draw_count
-        self.life_loss = life_loss
-        self.target = target
-        self.target_spec = TargetSpec(kind=target_kind)
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = (targets[0] if targets else None) or self.target
-        if player is None:
-            return
-        context.draw(player, self.draw_count)
-        context.lose_life(player, self.life_loss)
-
-
 class TargetPlayerCounterEachCreatureEffect(GameEffect):
     """"Target player puts a `<kind>` counter on each creature they control."
     (Shadrix Silverquill's third mode, PAR-60.) A real RULE 115 player
     target whose creatures — not this ability's controller's — get the
-    counters, the `TargetPlayerDrawLoseLifeEffect` "one shared player
-    target" shape applied to a mass-counter body.
+    counters: "one shared player target, mass-counter body". (The
+    Sign-in-Blood-shaped "target player draws N and loses M" sibling this
+    used to cite is now an ENG-37 B4 `seq` of `draw` + `lose_life`
+    (``previous_subject``), not a fused type.)
     """
 
     def __init__(
@@ -10200,67 +10173,6 @@ class TargetPlayerCounterEachCreatureEffect(GameEffect):
         for obj in list(context.state.permanents_controlled_by(player.id)):
             if obj.is_creature:
                 context.add_counters(obj, self.amount, self.kind, source=self.source)
-        context.recompute()
-
-
-class CounterAndFirstStrikeEffect(GameEffect):
-    """"Put a +1/+1 counter on up to one target creature. It gains first
-    strike until end of turn." (The Wandering Emperor's +1) — a single
-    atomic effect over one shared target, the same "two targeting effects
-    would double-prompt" reason `TargetPlayerDrawLoseLifeEffect` exists."""
-
-    def __init__(
-        self,
-        target: Any = None,
-        source: Optional["GameObject"] = None,
-        target_kind: str = "creature",
-        optional: bool = True,
-    ) -> None:
-        super().__init__(source)
-        self.target = target
-        self.target_spec = TargetSpec(kind=target_kind, optional=optional)
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        target = (targets[0] if targets else None) or self.target
-        if target is None:
-            return
-        context.add_counters(target, 1, "+1/+1", source=self.source)
-        target.temp_keywords.add("first_strike")
-        context.recompute()
-
-
-class CounterUntapGrantKeywordEffect(GameEffect):
-    """"Put a +1/+1 counter on up to one target Elf. Untap it. It gains
-    deathtouch until end of turn." (Tyvar Kell's +1) — a single atomic
-    effect over one shared target, the same "two targeting effects would
-    double-prompt" reason `CounterAndFirstStrikeEffect` exists; generalizes
-    it with an untap step and a caller-chosen keyword instead of a fixed
-    first-strike grant.
-    """
-
-    def __init__(
-        self,
-        target: Any = None,
-        source: Optional["GameObject"] = None,
-        target_kind: str = "creature",
-        optional: bool = True,
-        creature_filter: Optional[dict[str, Any]] = None,
-        keyword: str = "deathtouch",
-    ) -> None:
-        super().__init__(source)
-        self.target = target
-        self.keyword = keyword
-        self.target_spec = TargetSpec(
-            kind=target_kind, optional=optional, creature_filter=creature_filter,
-        )
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        target = (targets[0] if targets else None) or self.target
-        if target is None:
-            return
-        context.add_counters(target, 1, "+1/+1", source=self.source)
-        context.set_tapped(target, tapped=False)
-        target.temp_keywords.add(self.keyword)
         context.recompute()
 
 
@@ -23979,16 +23891,6 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    "counter_untap_grant_keyword",  # Tyvar Kell's +1
-    lambda p: CounterUntapGrantKeywordEffect(
-        target=p.get("target"),
-        target_kind=p.get("target_kind", "creature"),
-        optional=bool(p.get("optional", True)),
-        creature_filter=p.get("creature_filter"),
-        keyword=p.get("keyword", "deathtouch"),
-    ),
-)
-EffectRegistry.register(
     # "each player exiles a card from their graveyard. When one or more
     # nonland cards are exiled this way, put that many +1/+1 counters on
     # target attacking creature." (Augusta, Order Returned, PAR-60)
@@ -24014,13 +23916,6 @@ EffectRegistry.register(
 EffectRegistry.register("peek_top_land_battlefield_tapped", lambda p: PeekTopLandBattlefieldTappedEffect())
 EffectRegistry.register("peek_top_land_or_hand", lambda p: PeekTopLandOrHandEffect())
 EffectRegistry.register(
-    "target_player_draw_lose_life",  # Sign in Blood
-    lambda p: TargetPlayerDrawLoseLifeEffect(
-        draw_count=p.get("draw_count", 1), life_loss=p.get("life_loss", 0),
-        target=p.get("target"), target_kind=p.get("target_kind", "player"),
-    ),
-)
-EffectRegistry.register(
     # "Target player puts a +1/+1 counter on each creature they control."
     # (Shadrix Silverquill's third mode, PAR-60)
     "target_player_counter_each_creature",
@@ -24028,13 +23923,6 @@ EffectRegistry.register(
         amount=int(p.get("amount", p.get("count", 1)) or 1),
         kind=str(p.get("kind", "+1/+1")),
         target=p.get("target"), target_kind=str(p.get("target_kind", "player")),
-    ),
-)
-EffectRegistry.register(
-    "add_counter_first_strike",  # The Wandering Emperor +1
-    lambda p: CounterAndFirstStrikeEffect(
-        target=p.get("target"), target_kind=p.get("target_kind", "creature"),
-        optional=bool(p.get("optional", True)),
     ),
 )
 EffectRegistry.register(

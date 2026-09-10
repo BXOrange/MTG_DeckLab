@@ -4158,7 +4158,45 @@ evidence is
 
 ### Fusion retirement — parser-side batches (ENG-37, `14_` S3)
 
-Running total: **81 → 69**.
+Running total: **81 → 66**.
+
+- **Batch 6 (plan row B4, shared-target slice — `69 → 66`).** The fused types
+  that existed only because docs/11 §5 allows "at most one targeting effect
+  per ability" — a second clause that acts on *the same* chosen permanent/
+  player could not carry its own `target_kind`, so its verb was welded into
+  the first clause's type. Retired with **no new engine code**: the first body
+  clause carries the RULE 115 requirement, every later clause reads
+  `GameContext.previous_targets` through its own already-existing
+  ``previous_subject`` pronoun (`DrawCardEffect`/`LoseLifeEffect`'s Peer into
+  the Abyss flag, `AddCountersEffect`/`TapEffect`/`GrantUntilEffect`'s
+  PAR-15/PAR-30 "put a counter on target creature. It gains …" flag), and
+  `_apply_effects_partitioned` already threads `previous_targets` to a body
+  effect's resolved targets.
+  - **`target_player_draw_lose_life`** (Sign in Blood, Shadrix Silverquill
+    mode 2) → `seq([draw{target_kind: "player"}, lose_life{previous_subject}])`.
+  - **`add_counter_first_strike`** (The Wandering Emperor +1) →
+    `[add_counters{+1/+1, target_kind: "creature", optional},
+    grant_until{previous_subject, grant_keyword: first_strike}]` — the grant
+    is now a real RULE 613 floating static, not the fused class's
+    `temp_keywords.add()` shortcut.
+  - **`counter_untap_grant_keyword`** (Tyvar Kell +1) →
+    `[add_counters{+1/+1, target_kind: "creature", optional, creature_filter:
+    {subtype: "Elf"}}, tap{untap, previous_subject},
+    grant_until{previous_subject, grant_keyword: deathtouch}]`.
+  Three fused classes + registrations + `_FUSION_TYPES` rows deleted;
+  `TargetPlayerCounterEachCreatureEffect`'s docstring reference updated. A
+  declined "up to one" target leaves `previous_targets` empty and every later
+  clause no-ops (verified). Tests: `test_composition_nodes.py`
+  (`TestB4SharedTargetRetirements` — one announced target each, shared
+  subject reaches every clause, declined-target no-op, types gone from the
+  registry) + the rewritten `test_wyleth_equip_deck.test_sign_in_blood_*`.
+  **Still on B4** (need vocabulary beyond a shared target, so mis-slotted
+  here — really B3/B5-shaped): `counter_then_fightlike_damage` (reads the
+  first target's power *after* a `recompute` the plain effect list doesn't
+  force), `remove_counters_from_among_then_draw_lose_life` (retires with its
+  `draw_lose_life_counter_removed_delta` CONTINUATION parent in B9),
+  `damage_and_drain_capped` (needs a "target's pre-damage life/loyalty/
+  toughness" `effect_amounts` measurement + a clamp).
 
 - **Batch 5 (plan row B3, `bind` slice — Crypt Incursion).**
   `exile_graveyard_creatures_gain_life` retired to

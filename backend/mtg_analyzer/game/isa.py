@@ -615,7 +615,6 @@ _ALIAS_TYPES: dict[str, str] = {
 #: closing ENG-37 means deleting these registry rows, not reimplementing
 #: them.
 _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
-    "add_counter_first_strike": (("put_counter", "create_continuous_effect"), OP_SEQ),
     "blink": (("exile", "move_object"), OP_SEQ),
     "cast_graveyard_instant_sorcery_free_exile": (("cast", "exile"), OP_SEQ),
     "collect_evidence_x_then_board_damage": (("collect_evidence", "deal_damage"), OP_SEQ),
@@ -625,7 +624,6 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
     "copy_self_if_cast_from_graveyard": (("copy_object", "copy_object"), OP_IF_ELSE),
     "copy_spell_and_bounce": (("copy_object", "move_object"), OP_SEQ),
     "counter_then_fightlike_damage": (("counter", "deal_damage"), OP_SEQ),
-    "counter_untap_grant_keyword": (("counter", "untap", "create_continuous_effect"), OP_SEQ),
     "create_attached_aura_token": (("create", "attach"), OP_SEQ),
     "create_token_copy_of_linked_exile": (("create", "copy_object"), OP_BIND),
     "create_token_may_attach_equipment": (("create", "attach"), OP_OPTIONAL),
@@ -678,7 +676,6 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
     "sacrifice_count_draw_lose": (("sacrifice", "draw", "lose_life"), OP_BIND),
     "shuffle_target_graveyard_cards_into_library": (("move_object", "shuffle"), OP_SEQ),
     "shuffle_target_into_library_reveal_top": (("move_object", "shuffle", "reveal"), OP_SEQ),
-    "target_player_draw_lose_life": (("draw", "lose_life"), OP_SEQ),
     "taxed_draw": (("pay_cost", "draw"), OP_SEQ),
     "unattach_tap_indestructible": (("attach", "tap", "create_continuous_effect"), OP_SEQ),
     "wheel": (("discard", "draw"), OP_BIND),

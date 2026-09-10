@@ -4100,8 +4100,10 @@ register("Scriv, the Obligator", _scriv_the_obligator)
 # PAR-60
 # ===========================================================================
 # Reuse of the modal ``modes={"choose": 2, "options": [...]}`` triggered-
-# ability shape (Titan of Industry) + `target_player_draw_lose_life`. New
-# small `target_player_counter_each_creature` effect for mode 3.
+# ability shape (Titan of Industry). Mode 2 ("draws a card and loses 1
+# life") is an ENG-37 B4 `seq` sharing one player target across `draw` +
+# `lose_life`(``previous_subject``). New small
+# `target_player_counter_each_creature` effect for mode 3.
 # Documented simplification: "Each mode must target a different player" is
 # dropped (the engine has no cross-mode target-distinctness constraint) —
 # the modal choice + per-mode player target is preserved.
@@ -4125,7 +4127,10 @@ def _shadrix_silverquill() -> list[AbilitySpec]:
                     "colors": ["W", "B"], "subtypes": ["Inkling"], "keywords": ["flying"],
                     "target_kind": "player", "creators": "target",
                 })],
-                [EffectSpec("target_player_draw_lose_life", {"draw_count": 1, "life_loss": 1})],
+                [EffectSpec("seq", {"effects": [
+                    {"type": "draw", "params": {"count": 1, "target_kind": "player"}},
+                    {"type": "lose_life", "params": {"amount": 1, "previous_subject": True}},
+                ]})],
                 [EffectSpec("target_player_counter_each_creature", {"amount": 1, "kind": "+1/+1"})],
             ]},
         ),
