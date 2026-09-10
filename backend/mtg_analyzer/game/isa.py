@@ -623,7 +623,6 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
     "copy_self_controlled_by_previous_target": (("copy_object", "gain_control"), OP_BIND),
     "copy_self_if_cast_from_graveyard": (("copy_object", "copy_object"), OP_IF_ELSE),
     "copy_spell_and_bounce": (("copy_object", "move_object"), OP_SEQ),
-    "counter_then_fightlike_damage": (("counter", "deal_damage"), OP_SEQ),
     "create_attached_aura_token": (("create", "attach"), OP_SEQ),
     "create_token_copy_of_linked_exile": (("create", "copy_object"), OP_BIND),
     "create_token_may_attach_equipment": (("create", "attach"), OP_OPTIONAL),

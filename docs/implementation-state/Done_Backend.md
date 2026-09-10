@@ -4158,7 +4158,35 @@ evidence is
 
 ### Fusion retirement — parser-side batches (ENG-37, `14_` S3)
 
-Running total: **81 → 66**.
+Running total: **81 → 65**.
+
+- **Batch 7 (plan row B4, boosted-power slice — `66 → 65`).**
+  `counter_then_fightlike_damage` (Archdruid's Charm mode 2 — "Put a +1/+1
+  counter on target creature you control. It deals damage equal to its power
+  to target creature you don't control.") retired to a plain two-clause list
+  `[add_counters{target_kind: "creature_you_control"},
+  damage_equal_to_power{dealer_kind: "previous_target", target_kind:
+  "creature_you_dont_control"}]` — two independently announced targets (the
+  modal/spell resolution partitions them into `target_groups`), the dealer
+  read off `GameContext.previous_targets` the same way Epic Confrontation's
+  `pump` + `fight{previous_target}` already works.
+  - **The one engine change:** `AddCountersEffect.apply` now calls
+    `context.recompute()` after placing counters (split into a
+    `_place_counters` helper so every early-return path is covered), matching
+    `PumpEffect`/`GrantUntilEffect`/`TargetPlayerCounterEachCreatureEffect`,
+    which have always recomputed at the end of their own `apply` (RULE
+    613.1 — derived P/T updates continuously, so a *later* clause of the same
+    resolution must read the boosted value now, not at the next SBA). This
+    was the sole reason `counter_then_fightlike_damage` was a fused type; the
+    fused class's own `context.recompute()  # so the damage reads the boosted
+    power` comment said as much.
+  - `CounterThenFightlikeDamageEffect` + registration + `_FUSION_TYPES` row
+    deleted. Tests: `test_composition_nodes.TestB4BoostedPowerRetirement`
+    (boosted-power damage through `target_groups`; `add_counters` recompute
+    visible to a later clause with no SBA pass between; type gone) + the
+    pre-existing `test_cedh_cube_bespoke_tail.test_archdruids_charm_counters_
+    first_then_damages_with_the_boosted_power`. Full suite green — the
+    recompute change touches a heavily-used effect.
 
 - **Batch 6 (plan row B4, shared-target slice — `69 → 66`).** The fused types
   that existed only because docs/11 §5 allows "at most one targeting effect
@@ -4191,12 +4219,11 @@ Running total: **81 → 66**.
   subject reaches every clause, declined-target no-op, types gone from the
   registry) + the rewritten `test_wyleth_equip_deck.test_sign_in_blood_*`.
   **Still on B4** (need vocabulary beyond a shared target, so mis-slotted
-  here — really B3/B5-shaped): `counter_then_fightlike_damage` (reads the
-  first target's power *after* a `recompute` the plain effect list doesn't
-  force), `remove_counters_from_among_then_draw_lose_life` (retires with its
-  `draw_lose_life_counter_removed_delta` CONTINUATION parent in B9),
-  `damage_and_drain_capped` (needs a "target's pre-damage life/loyalty/
-  toughness" `effect_amounts` measurement + a clamp).
+  here — really B3/B9-shaped): `remove_counters_from_among_then_draw_lose_life`
+  (retires with its `draw_lose_life_counter_removed_delta` CONTINUATION
+  parent in B9), `damage_and_drain_capped` (needs a "target's pre-damage
+  life/loyalty/toughness" `effect_amounts` measurement + a clamp).
+  (`counter_then_fightlike_damage` retired in batch 7.)
 
 - **Batch 5 (plan row B3, `bind` slice — Crypt Incursion).**
   `exile_graveyard_creatures_gain_life` retired to

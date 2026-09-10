@@ -624,3 +624,58 @@ class TestB4SharedTargetRetirements:
         ):
             assert not EffectRegistry.is_registered(name)
             assert name not in isa.EFFECT_TYPES
+
+
+class TestB4BoostedPowerRetirement:
+    """ENG-37 batch 7: `counter_then_fightlike_damage` (Archdruid's Charm
+    mode 2) retired to `[add_counters, damage_equal_to_power{previous_target}]`
+    once `AddCountersEffect.apply` started recomputing (RULE 613.1) like every
+    other P/T one-shot — so the damage clause reads the *boosted* power.
+    """
+
+    def test_damage_reads_the_boosted_power_after_the_counter(self) -> None:
+        eng = _engine()
+        mine = _creature(eng.state, owner="p1", name="Mine", power=1, toughness=1)
+        theirs = _creature(eng.state, owner="p2", name="Theirs", power=3, toughness=3)
+        eng.rules.check_state_based_actions()
+
+        effects = build_effects([
+            EffectSpec("add_counters", {
+                "kind": "+1/+1", "amount": 1, "target_kind": "creature_you_control",
+            }),
+            EffectSpec("damage_equal_to_power", {
+                "dealer_kind": "previous_target",
+                "target_kind": "creature_you_dont_control",
+            }),
+        ], mine)
+        assert [ts.kind for e in effects for ts in e.target_specs] == [
+            "creature_you_control", "creature_you_dont_control",
+        ]
+
+        context = GameContext(eng.state, eng.rules)
+        # The modal / spell resolution partitions the two requirements — a
+        # flat list would hand the recipient iterator `mine` first.
+        _apply_effects_partitioned(effects, context, [mine, theirs], [[mine], [theirs]])
+
+        assert mine.counters.get("+1/+1") == 1
+        assert theirs.damage_marked == 2  # 1 printed + 1 counter, not 1
+
+    def test_add_counters_recomputes_so_a_later_clause_sees_it(self) -> None:
+        eng = _engine()
+        bear = _creature(eng.state, power=2, toughness=2)
+        eng.rules.check_state_based_actions()
+        assert bear.power == 2
+
+        context = GameContext(eng.state, eng.rules)
+        _apply_effects_partitioned(
+            build_effects([EffectSpec("add_counters", {
+                "kind": "+1/+1", "amount": 3, "target_kind": "creature",
+            })], bear),
+            context, [bear], None,
+        )
+        # No SBA pass in between — the effect recomputed on its own.
+        assert bear.power == 5
+
+    def test_counter_then_fightlike_damage_is_gone(self) -> None:
+        assert not EffectRegistry.is_registered("counter_then_fightlike_damage")
+        assert "counter_then_fightlike_damage" not in isa.EFFECT_TYPES

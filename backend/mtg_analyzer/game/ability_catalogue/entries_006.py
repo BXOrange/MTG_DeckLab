@@ -87,12 +87,13 @@ def _archdruids_charm() -> list[AbilitySpec]:
       equal to its power to target creature you don't control.
     • Exile target artifact or enchantment.
 
-    — Archdruid's Charm. The second mode is the third user of
-    `extra_target_specs`, and has to be one atomic effect for a reason the
-    other two don't: the damage is read off the *first* target **after** the
-    counter lands (RULE 613's layer pass runs in between — putting the
-    counter on first is the entire point), so no separate `DealDamageEffect`
-    could ever see the boosted power.
+    — Archdruid's Charm. The second mode announces two independent targets
+    (`add_counters`'s ``creature_you_control`` + `damage_equal_to_power`'s
+    ``creature_you_dont_control``). ENG-37 B4: it is now a plain two-clause
+    list, not the fused ``counter_then_fightlike_damage`` — `AddCountersEffect`
+    recomputes at the end of its own `apply` (RULE 613.1, like every other
+    P/T one-shot), so the `damage_equal_to_power` clause reads the boosted
+    power off `GameContext.previous_targets` (``dealer_kind="previous_target"``).
 
     The first mode's *conditional* destination is `SearchLibraryEffect`'s
     ``destination_if``: unlike the positional ``destinations`` list (which
@@ -116,7 +117,16 @@ def _archdruids_charm() -> list[AbilitySpec]:
                         ],
                         "count": 1,
                     })],
-                    [EffectSpec("counter_then_fightlike_damage", {"counters": 1})],
+                    [
+                        EffectSpec("add_counters", {
+                            "kind": "+1/+1", "amount": 1,
+                            "target_kind": "creature_you_control",
+                        }),
+                        EffectSpec("damage_equal_to_power", {
+                            "dealer_kind": "previous_target",
+                            "target_kind": "creature_you_dont_control",
+                        }),
+                    ],
                     [EffectSpec("exile", {"target_kind": "artifact_or_enchantment"})],
                 ],
                 "descriptions": [

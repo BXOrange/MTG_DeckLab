@@ -16018,6 +16018,18 @@ class AddCountersEffect(GameEffect):
         return "harmful" if self.kind in ("-1/-1", "stun") else "beneficial"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        self._place_counters(context, targets)
+        # RULE 613.1: derived P/T updates continuously, so a *later* clause of
+        # the same resolution ("Put a +1/+1 counter on target creature you
+        # control. It deals damage equal to its power …" — Archdruid's Charm)
+        # must read the boosted value now, not at the next SBA. Every other
+        # P/T-modifying one-shot (`PumpEffect`, `GrantUntilEffect`) already
+        # recomputes at the end of its own `apply` for the same reason;
+        # `AddCountersEffect` was the gap that kept `counter_then_fightlike_
+        # damage` a fused type (ENG-37 B4).
+        context.recompute()
+
+    def _place_counters(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.x_multiplier is not None:
             x_paid = getattr(self.source, "x_paid", 0) or 0
             self.amount = self.x_multiplier * x_paid
@@ -21984,44 +21996,6 @@ class AttachChosenEffect(GameEffect):
         context.attach_to_target(what, host)
 
 
-class CounterThenFightlikeDamageEffect(GameEffect):
-    """"Put a +1/+1 counter on target creature you control. It deals damage
-    equal to its power to target creature you don't control." (Archdruid's
-    Charm's second mode) — a fight-adjacent clause with two independently
-    chosen targets, the same `extra_target_specs` shape `AttachChosenEffect`
-    uses.
-
-    One atomic effect rather than a composition, because the damage amount
-    is read off the *first* target **after** the counter lands (RULE 613's
-    layer pass runs in between, which is exactly why the counter is worth
-    putting on first) — no separate `DealDamageEffect` could see it.
-    """
-
-    def __init__(
-        self,
-        counters: int = 1,
-        kind: str = "+1/+1",
-        source: Optional["GameObject"] = None,
-    ) -> None:
-        super().__init__(source)
-        self.counters = counters
-        self.kind = kind
-        self.target_spec = TargetSpec(kind="creature_you_control")
-        self.extra_target_specs = (TargetSpec(kind="creature_you_dont_control"),)
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        picks = list(targets or [])
-        if len(picks) < 2:
-            return
-        mine, theirs = picks[0], picks[1]
-        if mine is None:
-            return
-        context.add_counters(mine, self.counters, self.kind, source=self.source)
-        context.recompute()  # so the damage reads the *boosted* power
-        if theirs is not None:
-            context.deal_damage(theirs, mine.power or 0, mine)
-
-
 #: Subject names that are *not* a RULE 115 target choice — the four ways a
 #: fight/one-sided-damage clause can name a creature without announcing a
 #: requirement for it. Shared by `FightEffect` and
@@ -24180,14 +24154,6 @@ EffectRegistry.register(
     lambda p: AttachChosenEffect(
         what_kind=p.get("what_kind", "equipment_you_control"),
         to_kind=p.get("to_kind", "creature_you_control"),
-    ),
-)
-EffectRegistry.register(
-    # Archdruid's Charm's second mode — counter first, then damage equal to
-    # the *boosted* power.
-    "counter_then_fightlike_damage",
-    lambda p: CounterThenFightlikeDamageEffect(
-        counters=int(p.get("counters", 1) or 1), kind=p.get("kind", "+1/+1"),
     ),
 )
 EffectRegistry.register(
