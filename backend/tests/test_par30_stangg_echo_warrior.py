@@ -5,8 +5,7 @@ Closes the last item of `BACKLOG.md`'s "`create a token that's a copy of
 …` body singletons" bullet. Hand-authored (not parsed) because `normalize`
 folds the token name "Stangg Twin" → "~ Twin", and "for each Aura and
 Equipment attached to X, create a token that's a copy of it **attached to
-Stangg Twin**" is a bespoke copy-and-reattach shape with no other consumer
-(`effects.CopyAttachmentsOntoLastCreatedEffect`).
+Stangg Twin**" uses the generic attachment-list copy and attach operands.
 """
 
 from __future__ import annotations
@@ -41,7 +40,15 @@ def test_stangg_is_hand_authored():
     assert len(specs) == 1
     assert specs[0].ability_kind == "triggered"
     assert [e.type for e in specs[0].effects] == [
-        "create_token", "copy_attachments_onto_last_created", "create_delayed_trigger",
+        "create_token", "seq", "create_delayed_trigger",
+    ]
+    assert specs[0].effects[1].params["effects"] == [
+        {"type": "copy_permanent", "params": {
+            "target_kind": None, "referent": "attachments_each",
+        }},
+        {"type": "attach", "params": {
+            "mover": "created_after_first", "target_kind": "first_created",
+        }},
     ]
     assert specs[0].effects[2].params["capture"] == "created_objects"
 

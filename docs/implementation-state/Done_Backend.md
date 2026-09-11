@@ -8567,3 +8567,14 @@ table, re-measured after each batch.
   composition directly.
 - **Verification:** `tests/game/catalogue/cards/test_scriv_the_obligator.py`
   and `tests/test_isa_inventory.py`.
+
+### ENG-37 B3 — Attachment-copy fusion retired; B3 complete
+
+- **What:** Retired Stangg's `copy_attachments_onto_last_created` fusion.
+  `copy_permanent.referent="attachments_each"` copies every Aura and
+  Equipment on its source, and a following `attach` uses
+  `mover="created_after_first"` / `target_kind="first_created"` to place
+  those copies on the preceding token. This completes B3's remaining
+  attachment wiring and removes its final backlog element.
+- **Verification:** `tests/test_par30_stangg_echo_warrior.py`,
+  `tests/test_isa_inventory.py`, and `tests/test_composition_nodes.py`.

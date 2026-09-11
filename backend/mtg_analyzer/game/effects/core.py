@@ -15192,8 +15192,9 @@ class AttachEffect(GameEffect):
         #: this ability's source: "create an Aura token … attached to target
         #: creature" (Scriv, the Obligator).  This is deliberately a narrow
         #: RULE 608.2 pronoun, matching `target_kind="created"` above.
-        self.mover = mover if mover == "created" else None
-        self._created_mode = target_kind == "created"
+        self.mover = mover if mover in {"created", "created_after_first"} else None
+        self._created_mode = target_kind in {"created", "first_created"}
+        self._first_created_mode = target_kind == "first_created"
         if not self._created_mode:
             # "Equip commander {N}" (RULE 702.6e, Commander's Plate,
             # MEC-43) — a *second*, cheaper Equip ability restricted to
@@ -15206,16 +15207,23 @@ class AttachEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self._created_mode:
             created = getattr(context, "created_objects", None)
-            target = created[-1] if created else None
+            target = (created[0] if self._first_created_mode else created[-1]) if created else None
         else:
             target = (targets[0] if targets else None) or self.target
         mover = self.source
         if self.mover == "created":
             created = getattr(context, "created_objects", None)
             mover = created[-1] if created else None
+        elif self.mover == "created_after_first":
+            created = list(getattr(context, "created_objects", None) or [])
+            mover = created[1:]
         if target is None or mover is None:
             return
-        context.engine.attach_to_target(mover, target)
+        if isinstance(mover, list):
+            for obj in mover:
+                context.engine.attach_to_target(obj, target)
+        else:
+            context.engine.attach_to_target(mover, target)
 
 
 class AttachTriggeringPermanentEffect(GameEffect):
@@ -17200,42 +17208,6 @@ class CreateAttachedAuraTokenEffect(GameEffect):
             context.engine.attach_to_target(tok, target)
 
 
-class CopyAttachmentsOntoLastCreatedEffect(GameEffect):
-    """"For each Aura and Equipment attached to ~, create a token that's a
-    copy of it attached to `<the token this ability just created>`."
-    (Stangg, Echo Warrior — the copies go onto the "Stangg Twin" token the
-    preceding `create_token` clause made.)
-
-    The host is `GameContext.created_objects[-1]` — the most recently
-    created object this resolution, the same "whatever the previous effect
-    just made" referent `LivingWeaponEffect` reaches for. Each copy is
-    itself appended to `created_objects`, so a following "sacrifice all
-    tokens created this way" delayed trigger catches them too."""
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        src = self.source
-        if src is None:
-            return
-        made_so_far = list(getattr(context, "created_objects", []) or [])
-        host = made_so_far[-1] if made_so_far else None
-        if host is None:
-            return
-        attachments = [
-            o for o in list(context.state.battlefield)
-            if getattr(o, "attached_to", None) == src.instance_id
-            and (
-                "aura" in str(getattr(o.card, "type_line", "")).lower()
-                or "equipment" in str(getattr(o.card, "type_line", "")).lower()
-            )
-        ]
-        controller_id = getattr(src, "controller_id", None) or context.active_player.id
-        for att in attachments:
-            copies = context.engine.create_token(controller_id, att.card, 1) or []
-            for copy in copies:
-                context.engine.attach_to_target(copy, host)
-            context.created_objects.extend(copies)
-
-
 class ClassLevelEffect(GameEffect):
     """Set a Class's class level (RULE 716.2c) — the effect of activating one
     of its "Level N: <cost>" abilities, not the cost itself (mirrors how
@@ -18788,7 +18760,10 @@ class CopyPermanentEffect(GameEffect):
         #: resolves.
         self.referent = (
             referent
-            if referent in ("source", "previous", "previous_each", "trigger_event", "linked_exile")
+            if referent in (
+                "source", "previous", "previous_each", "trigger_event", "linked_exile",
+                "attachments_each",
+            )
             else "source"
         )
         #: "…except it has haste." (Kiki-Jiki, Mirror Breaker-shaped) — a
@@ -18907,6 +18882,44 @@ class CopyPermanentEffect(GameEffect):
                     continue
                 made = context.copy_permanent(
                     controller_id, one, n,
+                    add_types=self.add_types, add_subtypes=self.add_subtypes,
+                    not_legendary=self.not_legendary,
+                    set_power=self.set_power, set_toughness=self.set_toughness,
+                    set_colors=self.set_colors,
+                )
+                context.created_objects.extend(made)
+                if self.haste:
+                    for obj in made:
+                        obj.temp_keywords.add("haste")
+                for kw in self.extra_temp_keywords:
+                    for obj in made:
+                        obj.temp_keywords.add(kw)
+                self._apply_enter_state(context, made)
+            return
+        if self.referent == "attachments_each" and self.target_spec is None:
+            # "For each Aura and Equipment attached to ~, create a token
+            # that's a copy of it…" (Stangg, Echo Warrior).  This is the
+            # live attachment-list sibling of ``previous_each``: all copies
+            # remain in `created_objects` for a following `attach` node.
+            controller_id = (
+                self.source.controller_id if self.source is not None
+                else context.active_player.id
+            )
+            count = self.count
+            if self.count_selector:
+                from .. import continuous
+
+                count = continuous.count_selector(
+                    context.state, controller_id, self.count_selector, source=self.source
+                )
+            for one in [
+                obj for obj in context.state.permanents()
+                if getattr(obj, "attached_to", None) == getattr(self.source, "instance_id", None)
+                and ("aura" in str(getattr(obj.card, "type_line", "")).lower()
+                     or "equipment" in str(getattr(obj.card, "type_line", "")).lower())
+            ]:
+                made = context.copy_permanent(
+                    controller_id, one, count,
                     add_types=self.add_types, add_subtypes=self.add_subtypes,
                     not_legendary=self.not_legendary,
                     set_power=self.set_power, set_toughness=self.set_toughness,
@@ -24983,12 +24996,6 @@ EffectRegistry.register(
         x_multiplier=p.get("x_multiplier"),
         oracle_text=str(p.get("oracle_text", "")),
     ),
-)
-EffectRegistry.register(
-    # "For each Aura and Equipment attached to ~, create a token that's a
-    # copy of it attached to <the token just created>." (Stangg, Echo Warrior)
-    "copy_attachments_onto_last_created",
-    lambda p: CopyAttachmentsOntoLastCreatedEffect(),
 )
 EffectRegistry.register(
     # "Create a token that's a copy of <a specific named real card>"

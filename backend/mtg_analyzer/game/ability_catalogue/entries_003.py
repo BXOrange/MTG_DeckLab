@@ -1457,13 +1457,10 @@ def _stangg_echo_warrior() -> list[AbilitySpec]:
     -- Stangg, Echo Warrior. Hand-authored rather than parsed: (1)
     `normalize` folds the token name "Stangg Twin" -> "~ Twin" (it contains
     the card's own given name), which no `create_token` handler can read;
-    (2) "for each Aura and Equipment attached to X, create a token that's a
-    copy of it **attached to Stangg Twin**" is a copy-each-attachment-and-
-    reattach-elsewhere shape with no other card in the pool needing it, so
-    it stays a bespoke effect (`effects.CopyAttachmentsOntoLastCreatedEffect`,
-    reaching for `GameContext.created_objects[-1]` -- the token the first
-    clause just made -- the same "whatever the previous effect made"
-    referent `LivingWeaponEffect` uses). The delayed "sacrifice all tokens
+    (2) the attachment copies use generic `copy_permanent` and `attach`
+    operands: the copy reads each attachment on the source and the attach
+    node links those copies to the first token this resolution made. The
+    delayed "sacrifice all tokens
     created this way" is `create_delayed_trigger`'s existing
     ``capture="created_objects"`` (Kiki-Jiki's template), which grabs the
     whole `created_objects` list -- Stangg Twin plus every attachment copy.
@@ -1482,7 +1479,14 @@ def _stangg_echo_warrior() -> list[AbilitySpec]:
                     "tapped": True,
                     "attacking": True,
                 }),
-                EffectSpec("copy_attachments_onto_last_created", {}),
+                EffectSpec("seq", {"effects": [
+                    {"type": "copy_permanent", "params": {
+                        "target_kind": None, "referent": "attachments_each",
+                    }},
+                    {"type": "attach", "params": {
+                        "mover": "created_after_first", "target_kind": "first_created",
+                    }},
+                ]}),
                 EffectSpec("create_delayed_trigger", {
                     "step": "end",
                     "scope": "any",
