@@ -20588,39 +20588,6 @@ class EachPlayerMayCounterThenProtectionEffect(GameEffect):
             ))
 
 
-class CopySpellAndBounceEffect(GameEffect):
-    """"Copy target instant or sorcery spell, then return it to its owner's
-    hand." (Narset's Reversal) — RULE 707.10 + RULE 400.
-
-    A single atomic effect rather than a `CopySpellEffect` plus a bounce,
-    for the reason `GainControlUntilEndOfTurnEffect`'s docstring already
-    gives about paired clauses: both halves act on the *same* chosen spell,
-    and no shipped bounce effect can reach a `StackItem` (they all move a
-    battlefield permanent). Order matters and is the card's whole trick —
-    the copy is made **first**, so it still resolves after the original has
-    been picked up, and the copy's targets are already locked in.
-    """
-
-    def __init__(
-        self,
-        card_types: Optional[list[str]] = None,
-        source: Optional["GameObject"] = None,
-    ) -> None:
-        super().__init__(source)
-        spell_filter: dict[str, Any] = {}
-        if card_types:
-            spell_filter["card_types"] = list(card_types)
-        self.target_spec = TargetSpec(kind="spell", spell_filter=spell_filter or None)
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        target = targets[0] if targets else None
-        controller_id = getattr(self.source, "controller_id", None)
-        if target is None or controller_id is None:
-            return
-        context.copy_spell(target, controller_id, 1)
-        context.engine.return_spell_to_hand(target)
-
-
 class ReturnSharedTypePermanentEffect(GameEffect):
     """"You may return another permanent you control that shares a permanent
     type with it to its owner's hand." (Cloudstone Curio) — the bounce half
@@ -24210,12 +24177,6 @@ EffectRegistry.register(
     # the life lock and protection from everything (Teferi's Protection).
     "phase_out_all_you_control",
     lambda p: PhaseOutAllYouControlEffect(),
-)
-EffectRegistry.register(
-    # RULE 707.10 + 400.1: "copy target instant or sorcery spell, then
-    # return it to its owner's hand" (Narset's Reversal).
-    "copy_spell_and_bounce",
-    lambda p: CopySpellAndBounceEffect(card_types=p.get("card_types")),
 )
 EffectRegistry.register(
     # "return another permanent you control that shares a permanent type

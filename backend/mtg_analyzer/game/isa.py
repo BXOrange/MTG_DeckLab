@@ -654,7 +654,6 @@ _ALIAS_TYPES: dict[str, str] = {
 _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
     "cast_graveyard_instant_sorcery_free_exile": (("cast", "exile"), OP_SEQ),
     "collect_evidence_x_then_board_damage": (("collect_evidence", "deal_damage"), OP_SEQ),
-    "copy_spell_and_bounce": (("copy_object", "move_object"), OP_SEQ),
     "damage_then_investigate_if_excess": (("deal_damage", "investigate"), OP_IF_ELSE),
     "destroy_artifacts_enchantments_then_counters": (("destroy", "put_counter"), OP_SEQ),
     "destroy_controller_may_search_basic_land": (("destroy", "search"), OP_OPTIONAL),

@@ -696,7 +696,12 @@ def _narsets_reversal() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "spell_effect",
-            [EffectSpec("copy_spell_and_bounce", {"card_types": ["instant", "sorcery"]})],
+            [
+                EffectSpec("copy_spell", {"card_types": ["instant", "sorcery"]}),
+                EffectSpec("return_to_hand", {
+                    "previous_subject": True, "spell_or_permanent": True,
+                }),
+            ],
         ),
     ]
 
@@ -1446,5 +1451,4 @@ register("Pact of Negation", _pact_of_negation)
 # Charm, which were the whole "two independent targeting effects on one
 # ability" entry on the blocker list.
 # ---------------------------------------------------------------------------
-
 
