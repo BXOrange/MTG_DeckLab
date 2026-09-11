@@ -108,6 +108,24 @@ def test_ajani_etb_creates_cat_warrior_token():
     assert any(o.card.name == "Cat Warrior" for o in eng.state.battlefield)
 
 
+def test_ajanis_chosen_only_triggers_for_enchantments_not_its_cat_token():
+    """Its Cat is a creature, so its own ETB cannot recursively trigger it."""
+    eng = make_engine([], hand=0)
+    chosen = _put(eng.state, _named("Ajani's Chosen"), controller="p1")
+    enchantment = _put(
+        eng.state,
+        Card(id="test-enchantment", name="Test Enchantment", type_line="Enchantment"),
+        controller="p1",
+    )
+
+    eng.state.fire_event(_etb_event(enchantment))
+    eng.resolve_until_stable()
+
+    cats = [obj for obj in eng.state.battlefield if obj.card.name == "Cat"]
+    assert len(cats) == 1
+    assert chosen in eng.state.battlefield
+
+
 def test_ajani_exiles_self_when_another_cat_dies():
     eng = make_engine([_named("Ajani, Nacatl Pariah")], hand=1)
     ajani = _put(eng.state, _named("Ajani, Nacatl Pariah"), controller="p1")

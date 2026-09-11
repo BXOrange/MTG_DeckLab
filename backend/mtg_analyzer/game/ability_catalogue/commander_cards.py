@@ -351,7 +351,7 @@ def _ajanis_chosen() -> list[AbilitySpec]:
             })],
             trigger={
                 "event": EventType.ENTERS_BATTLEFIELD,
-                "condition": {"subject": "group", "object_types": ["enchantment"], "controller": "you"},
+                "condition": {"subject": "group", "type": "enchantment", "controller": "you"},
             },
         ),
     ]
