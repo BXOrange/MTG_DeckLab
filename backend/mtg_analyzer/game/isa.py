@@ -616,6 +616,7 @@ _ALIAS_TYPES: dict[str, str] = {
     # RULE 613 layer-1 continuous copy, conditionally active; its condition
     # is an operand of one static instruction, not an if/else composition.
     "conditional_copy": "create_continuous_effect",
+    "blink": "move_object",
     "set_forced_voter": "vote",
     # ENG-37 re-derivation: RULE 701.24 shuffle already subsumes moving the
     # cards in — "shuffle <X> into <a> library" is one atomic action, not a
@@ -651,7 +652,6 @@ _ALIAS_TYPES: dict[str, str] = {
 #: closing ENG-37 means deleting these registry rows, not reimplementing
 #: them.
 _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
-    "blink": (("exile", "move_object"), OP_SEQ),
     "cast_graveyard_instant_sorcery_free_exile": (("cast", "exile"), OP_SEQ),
     "collect_evidence_x_then_board_damage": (("collect_evidence", "deal_damage"), OP_SEQ),
     "copy_spell_and_bounce": (("copy_object", "move_object"), OP_SEQ),
