@@ -249,10 +249,18 @@ def _nahiri_heir_of_the_ancients() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "activated",
-            [EffectSpec("create_token_may_attach_equipment", {
-                "token_name": "Kor Warrior", "power": 1, "toughness": 1,
-                "colors": ["W"], "subtypes": ["Kor", "Warrior"],
-            })],
+            [EffectSpec("seq", {"effects": [
+                {"type": "create_token", "params": {
+                    "token_name": "Kor Warrior", "power": 1, "toughness": 1,
+                    "colors": ["W"], "subtypes": ["Kor", "Warrior"],
+                }},
+                {"type": "optional", "params": {"effects": [
+                    {"type": "attach", "params": {
+                        "target_kind": "created", "mover": "target",
+                        "mover_kind": "equipment_you_control", "mover_optional": True,
+                    }},
+                ]}},
+            ]})],
             cost={"loyalty": 1},
         )
     ]

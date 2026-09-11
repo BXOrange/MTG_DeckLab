@@ -10249,53 +10249,6 @@ class PeekTopLandOrHandEffect(GameEffect):
             )
 
 
-class CreateTokenMayAttachEquipmentEffect(GameEffect):
-    """Create a token, then optionally attach a *targeted* Equipment you
-    control to it (Nahiri, Heir of the Ancients' +1) — the attach target is
-    a real RULE 115 choice (unlike Living Weapon's own token, which always
-    self-attaches), so this carries a `target_spec` the way `AttachEffect`
-    does, just resolving onto the token this same effect just created
-    rather than the effect's own source.
-    """
-
-    def __init__(
-        self,
-        target: Any = None,
-        source: Optional["GameObject"] = None,
-        target_kind: str = "equipment_you_control",
-        optional: bool = True,
-        token_name: str = "token",
-        power: int = 1,
-        toughness: int = 1,
-        colors: Optional[list[str]] = None,
-        subtypes: Optional[list[str]] = None,
-    ) -> None:
-        super().__init__(source)
-        self.target = target
-        self.target_spec = TargetSpec(kind=target_kind, optional=optional)
-        self.token_name = token_name
-        self.power = power
-        self.toughness = toughness
-        self.colors = colors or []
-        self.subtypes = subtypes or []
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.source is None:
-            return
-        from ...services.token_database import synthesize_token_card
-
-        card = synthesize_token_card(
-            self.token_name, power=self.power, toughness=self.toughness,
-            colors=self.colors, subtypes=self.subtypes,
-        )
-        tokens = context.engine.create_token(self.source.controller_id, card)
-        if not tokens:
-            return
-        equipment = targets[0] if targets else self.target
-        if equipment is not None:
-            context.engine.attach_to_target(equipment, tokens[0])
-
-
 class ReturnCreaturesByPowerParityEffect(GameEffect):
     """"Return each creature with power of the chosen quality to its owner's
     hand. (Zero is even.)" (Zimone's Hypothesis, PAR-60.)
@@ -15185,6 +15138,8 @@ class AttachEffect(GameEffect):
         target_kind: str = "permanent",
         creature_filter: Optional[dict[str, Any]] = None,
         mover: Optional[str] = None,
+        mover_kind: Optional[str] = None,
+        mover_optional: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -15192,10 +15147,12 @@ class AttachEffect(GameEffect):
         #: this ability's source: "create an Aura token … attached to target
         #: creature" (Scriv, the Obligator).  This is deliberately a narrow
         #: RULE 608.2 pronoun, matching `target_kind="created"` above.
-        self.mover = mover if mover in {"created", "created_after_first"} else None
+        self.mover = mover if mover in {"created", "created_after_first", "target"} else None
         self._created_mode = target_kind in {"created", "first_created"}
         self._first_created_mode = target_kind == "first_created"
-        if not self._created_mode:
+        if self._created_mode and self.mover == "target" and mover_kind is not None:
+            self.target_spec = TargetSpec(kind=mover_kind, optional=mover_optional)
+        elif not self._created_mode:
             # "Equip commander {N}" (RULE 702.6e, Commander's Plate,
             # MEC-43) — a *second*, cheaper Equip ability restricted to
             # only ever attach to a commander (`creature_filter={
@@ -15217,6 +15174,8 @@ class AttachEffect(GameEffect):
         elif self.mover == "created_after_first":
             created = list(getattr(context, "created_objects", None) or [])
             mover = created[1:]
+        elif self.mover == "target":
+            mover = (targets[0] if targets else None) or self.target
         if target is None or mover is None:
             return
         if isinstance(mover, list):
@@ -23690,19 +23649,6 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    "create_token_may_attach_equipment",  # Nahiri, Heir of the Ancients
-    lambda p: CreateTokenMayAttachEquipmentEffect(
-        target=p.get("target"),
-        target_kind=p.get("target_kind", "equipment_you_control"),
-        optional=bool(p.get("optional", True)),
-        token_name=p.get("token_name", "token"),
-        power=p.get("power", 1),
-        toughness=p.get("toughness", 1),
-        colors=p.get("colors"),
-        subtypes=p.get("subtypes"),
-    ),
-)
-EffectRegistry.register(
     "return_to_hand",  # "return target X to its owner's hand" (RULE 701.3)
     lambda p: ReturnToHandEffect(
         target=p.get("target"),
@@ -24707,6 +24653,8 @@ EffectRegistry.register(
         target_kind=p.get("target_kind", "permanent"),
         creature_filter=p.get("creature_filter"),
         mover=p.get("mover"),
+        mover_kind=p.get("mover_kind"),
+        mover_optional=bool(p.get("mover_optional", False)),
     ),
 )
 EffectRegistry.register(

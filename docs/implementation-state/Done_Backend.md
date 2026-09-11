@@ -8578,3 +8578,12 @@ table, re-measured after each batch.
   attachment wiring and removes its final backlog element.
 - **Verification:** `tests/test_par30_stangg_echo_warrior.py`,
   `tests/test_isa_inventory.py`, and `tests/test_composition_nodes.py`.
+
+### ENG-37 — Optional Equipment attachment fusion retired
+
+- **What:** Retired Nahiri's `create_token_may_attach_equipment`. The
+  composed `create_token` + `optional(attach)` path uses the generic
+  `AttachEffect.mover="target"` operand: its selected Equipment is the
+  mover and `target_kind="created"` is the newly made Kor token.
+- **Verification:** `tests/test_isa_inventory.py` and
+  `tests/test_composition_nodes.py`.
