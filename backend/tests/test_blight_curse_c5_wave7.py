@@ -1,5 +1,5 @@
 """Blight Curse batch C5 wave 7 — Tree of Perdition
-(hand-authored, `ability_catalogue/entries_017.py`).
+(hand-authored, `ability_catalogue/blight_curse.py`).
 
 * Tree of Perdition — "{T}: Exchange target opponent's life total with this
   creature's toughness." New bespoke

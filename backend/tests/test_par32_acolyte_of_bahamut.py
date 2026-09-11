@@ -4,7 +4,7 @@ reduction:
     Commander creatures you own have "The first Dragon spell you cast
     each turn costs {2} less to cast."
 
-Hand-authored (`ability_catalogue.entries_016._acolyte_of_bahamut`): a
+Hand-authored (`ability_catalogue.special_mechanics._acolyte_of_bahamut`): a
 granted `cost_reduction` static (MEC-55's `grant_static_ability`
 `static_specs`, already-existing `spell_subtype`/`active_if` params) gated
 by a new `static_conditions` kind `first_subtype_spell_this_turn`, reading

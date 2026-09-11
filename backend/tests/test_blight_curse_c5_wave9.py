@@ -1,5 +1,5 @@
 """Blight Curse batch C5 wave 9 — Oft-Nabbed Goat
-(hand-authored, `ability_catalogue/entries_017.py`).
+(hand-authored, `ability_catalogue/blight_curse.py`).
 
 * Activated ability — new `ActivationCost.only_opponents_may_activate` (the
   inverse of Mercenaries' `any_player_may_activate`: every player *except*

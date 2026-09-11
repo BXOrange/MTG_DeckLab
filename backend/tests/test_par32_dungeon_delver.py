@@ -4,7 +4,7 @@ narrowed to dungeon room abilities:
     Commander creatures you own have "Room abilities of dungeons you own
     trigger an additional time."
 
-Hand-authored (`ability_catalogue.entries_016._dungeon_delver`): a bare
+Hand-authored (`ability_catalogue.special_mechanics._dungeon_delver`): a bare
 ``dungeon_room_trigger_doubler`` marker static (the `grant_escape`/
 `grant_retrace`/`extra_etb_counter` out-of-band convention), consulted by
 `continuous.dungeon_room_trigger_doubler_bonus` from `RulesEngine._collect_

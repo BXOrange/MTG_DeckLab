@@ -13,7 +13,7 @@ Engine infrastructure added this batch:
 * `EffectSpec.condition` key `did_all_bends_this_turn` (Avatar Aang's
   reflexive "then if you've done all four this turn, transform ~").
 
-Avatar Aang itself is hand-authored (`game/ability_catalogue/entries_008.py`)
+Avatar Aang itself is hand-authored (`game/ability_catalogue/red_spells.py`)
 — a strict singleton whose reflexive transform clause the parser can't
 express.
 """

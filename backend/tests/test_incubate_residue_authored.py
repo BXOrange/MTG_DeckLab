@@ -1,5 +1,5 @@
 """Incubate (RULE 701.53) residue — the three cache singletons the PAR-30
-parser trail left, now hand-authored in `ability_catalogue/entries_016.py`
+parser trail left, now hand-authored in `ability_catalogue/special_mechanics.py`
 (docs/Reference/11 escape valve). Each was blocked on its own bespoke
 shape, not on incubate grammar (v160/v162 shipped that):
 

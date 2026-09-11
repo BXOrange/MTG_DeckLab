@@ -1,4 +1,9 @@
-"""Hand-authored card ability specifications and their registry."""
+"""Hand-authored card ability specifications, grouped by purpose.
+
+Each imported module owns a cohesive family of cards (for example damage
+prevention, competitive interaction, or a deck-specific mechanic).  Modules
+are imported solely to register their pure card factories with ``core``.
+"""
 
 from .core import (
     _REGISTRY,
@@ -14,24 +19,27 @@ from .core import (
     specs_for,
 )
 
-# Import catalogue modules so they register their card factories.
-from . import entries_001  # noqa: F401
-from . import entries_002  # noqa: F401
-from . import entries_003  # noqa: F401
-from . import entries_004  # noqa: F401
-from . import entries_005  # noqa: F401
-from . import entries_006  # noqa: F401
-from . import entries_007  # noqa: F401
-from . import entries_008  # noqa: F401
-from . import entries_009  # noqa: F401
-from . import entries_010  # noqa: F401
-from . import entries_011  # noqa: F401
-from . import entries_012  # noqa: F401
-from . import entries_013  # noqa: F401
-from . import entries_014  # noqa: F401
-from . import entries_015  # noqa: F401
-from . import entries_016  # noqa: F401
-from . import entries_017  # noqa: F401
+# Import catalogue modules so they register their card factories.  This keeps
+# the former load order stable for deterministic duplicate-registration
+# diagnostics while the names now express each module's responsibility.
+from . import copying  # noqa: F401
+from . import removal  # noqa: F401
+from . import graveyard  # noqa: F401
+from . import interaction  # noqa: F401
+from . import fallout  # noqa: F401
+from . import fast_mana  # noqa: F401
+from . import enrage  # noqa: F401
+from . import tribal  # noqa: F401
+from . import red_spells  # noqa: F401
+from . import competitive_interaction  # noqa: F401
+from . import punishers  # noqa: F401
+from . import damage_prevention  # noqa: F401
+from . import denial  # noqa: F401
+from . import value  # noqa: F401
+from . import stax  # noqa: F401
+from . import black  # noqa: F401
+from . import special_mechanics  # noqa: F401
+from . import blight_curse  # noqa: F401
 from . import strixhaven_commander  # noqa: F401
 from . import commander_cards  # noqa: F401
 

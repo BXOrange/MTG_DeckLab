@@ -6,7 +6,7 @@
 
 A twin-quoted body `"A" and "B"` — outside `_quoted_ability_grant_effects_
 list`'s single-inner-body recursion — so this is hand-authored
-(`ability_catalogue.entries_016._master_chef`) rather than a new parser
+(`ability_catalogue.special_mechanics._master_chef`) rather than a new parser
 grammar for a shape only this card uses. Both clauses reduce to a new
 ``extra_etb_counter`` static (RULE 614.1 entry-counter replacement,
 `continuous.extra_etb_counters_for`, consulted from `RulesEngine._apply_

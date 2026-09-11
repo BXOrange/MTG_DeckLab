@@ -1,5 +1,5 @@
 """Blight Curse batch C4 — Auntie Ool, Cursewretch (the deck's commander;
-hand-authored, `ability_catalogue/entries_017.py`).
+hand-authored, `ability_catalogue/blight_curse.py`).
 
 - **Ward—Blight 2** folds in from the RULE 702 keyword catalogue (the cost
   "Blight 2" is already understood by `game/costs.parse_activation_cost`).

@@ -2013,7 +2013,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: predicate) — Tiller of Flesh. +4, 0 regressed. The three remaining
 #: singletons (Phyrexian Incubator's "that many times", Progenitor
 #: Exarch's "X times", Traumatic Revelation's "if you don't" else-branch)
-#: are hand-authored in `ability_catalogue/entries_016.py`, not parsed.
+#: are hand-authored in `ability_catalogue/special_mechanics.py`, not parsed.
 #: "206": PAR-30 (Collect Evidence / Forage / Blight residue, sub-cluster a)
 #: — reflexive "**When you do**, `<targeted payoff>`." after an optional
 #: keyword-action cost (RULE 603.11). `_pay_cost_then_general` no longer
@@ -2105,7 +2105,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: target permanent" bonus), 0 regressed.
 #: "212": PAR-30 — RULE 701.10 exchange-control residue, closed. The
 #: twelve remaining bespoke singletons, all hand-authored
-#: (`ability_catalogue/entries_016.py`) — no new parser recognition, each
+#: (`ability_catalogue/special_mechanics.py`) — no new parser recognition, each
 #: shape appears on exactly one card. New engine primitives: `TriggeredAbility.
 #: controller_from_trigger_event` (RULE 603.1's chooser can differ from the
 #: ability's own source's controller — Confusion in the Ranks) +

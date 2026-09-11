@@ -2605,7 +2605,8 @@ class MiscSystemsMixin:
         **Documented simplification:** the "Lesson from outside the game"
         branch is dropped. This engine has no sideboard / outside-the-game
         zone with any Commander-legal use (the same call the `ability_
-        catalogue` already makes for Karn's -2, `entries_010.py`), so Learn
+        catalogue` already makes for Karn's -2,
+        `punishers.py`), so Learn
         collapses to its other, fully-modelable half: an optional
         discard-a-card-then-draw-a-card, driven straight through
         `_request_choose_objects`'s existing ``optional`` + ``then_specs``

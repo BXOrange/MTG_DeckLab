@@ -851,7 +851,7 @@ class TriggerCollectionMixin:
         synthesized at bind time in `effect_binder._KEYWORD_TRIGGERED_
         BUILDERS`, specifically so a *granted* undying/persist works too
         (Mikaeus, the Unhallowed; the hand-authored undying grant in
-        `ability_catalogue/entries_003.py`) — the ticket's own headline gap
+        `ability_catalogue/graveyard.py`) — the ticket's own headline gap
         was that a granted "undying" did nothing, since a layer-6 grant
         lands in `granted_keywords`, never on the keyword-spec list the bind
         pass reads. A `loses_all_abilities` creature reports no keywords at

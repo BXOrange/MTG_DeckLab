@@ -1,5 +1,5 @@
 """Blight Curse batch C5 wave 6 — Kulrath Knight
-(hand-authored, `ability_catalogue/entries_017.py`).
+(hand-authored, `ability_catalogue/blight_curse.py`).
 
 * Kulrath Knight — "Creatures your opponents control with counters on them
   can't attack or block." A layer-6 ``grant_keyword`` static handing the

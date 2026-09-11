@@ -1,5 +1,5 @@
 """Blight Curse batch C5 wave 11 — Everlasting Torment
-(hand-authored, `ability_catalogue/entries_017.py`).
+(hand-authored, `ability_catalogue/blight_curse.py`).
 
 Three standing battlefield statics:
 * ``prevent_all_life_gain`` — "Players can't gain life." (already parser-claimed)

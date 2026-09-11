@@ -9,7 +9,7 @@ marker flags for Necroskitter / The Reaper, King No More:
 * ``optional`` — "you may".
 * ``once_per_turn`` — RULE 603.2 (The Reaper).
 
-Both cards are hand-authored (`ability_catalogue/entries_017.py`).
+Both cards are hand-authored (`ability_catalogue/blight_curse.py`).
 """
 
 from __future__ import annotations

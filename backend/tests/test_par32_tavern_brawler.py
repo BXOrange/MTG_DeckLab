@@ -5,7 +5,7 @@
     end of turn, where X is that card's mana value. You may play that
     card this turn."
 
-Hand-authored (`ability_catalogue.entries_016._tavern_brawler`): a
+Hand-authored (`ability_catalogue.special_mechanics._tavern_brawler`): a
 `grant_triggered_ability` (STEP_BEGIN/upkeep) whose `grant_effects` chain
 two existing primitives — `impulsive_draw` (now also seeding
 `GameContext.created_objects` with the exiled card) and `pump`'s new

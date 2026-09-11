@@ -1,5 +1,5 @@
 """Blight Curse batch C5 wave 4 — Ifnir Deadlands / Archfiend of Ifnir
-(hand-authored, `ability_catalogue/entries_017.py`).
+(hand-authored, `ability_catalogue/blight_curse.py`).
 
 * Ifnir Deadlands — sorcery-speed sacrifice ability; the cost's
   ``Sacrifice a Desert`` subtype filter is already parsed by

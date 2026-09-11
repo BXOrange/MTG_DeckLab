@@ -5,7 +5,7 @@
     of them into your graveyard and the other back on top of your library.
     Then draw a card."
 
-Hand-authored (`ability_catalogue.entries_016._scion_of_halaster`): a
+Hand-authored (`ability_catalogue.special_mechanics._scion_of_halaster`): a
 granted `ReplacementEffect` (`effects._first_draw_look_two_replacement`),
 which the existing `grant_static_ability` ``static_specs`` plumbing now
 also recognises alongside a granted `StaticAbility`

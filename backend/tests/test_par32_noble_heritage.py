@@ -6,7 +6,7 @@ counters + protection:
     on a creature they control. For each opponent who does, you gain
     protection from that player until your next turn."
 
-Hand-authored (`ability_catalogue.entries_016._noble_heritage`): a
+Hand-authored (`ability_catalogue.special_mechanics._noble_heritage`): a
 compound ENTERS_BATTLEFIELD + STEP_BEGIN/upkeep grant sharing one
 `each_player_counter_then_protection` effect body
 (`EachPlayerMayCounterThenProtectionEffect`). The ETB half is subject to

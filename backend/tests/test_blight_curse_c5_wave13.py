@@ -1,5 +1,5 @@
 """Blight Curse batch C5 wave 13 — Eventide's Shadow
-(hand-authored, `ability_catalogue/entries_017.py`).
+(hand-authored, `ability_catalogue/blight_curse.py`).
 
 New bespoke `RemoveCountersFromAmongThenDrawLoseLifeEffect`
 ("remove_counters_from_among_then_draw_lose_life"): an ``optional``

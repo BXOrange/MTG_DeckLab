@@ -2,7 +2,7 @@
 
 "Incubate N" creates an Incubator token — a power/toughness-less colourless
 artifact token — with N +1/+1 counters on it. No new engine primitive: the
-`Incubator` catalogue entry (`ability_catalogue/entries_008.py`) binds
+`Incubator` catalogue entry (`ability_catalogue/red_spells.py`) binds
 "{2}: Transform this token" (→ a 0/0 Phyrexian artifact creature, whose
 counters then make it N/N) onto every token so named, and `create_token`'s
 `extra_counters` places the counters. The parser handler `incubate` emits
@@ -10,7 +10,7 @@ the same `create_token` spec Glissa, Herald of Predation's hand-authored
 entry already uses.
 
 Reference: parser/oracle/catalogue/handlers.py (`_incubate`),
-game/ability_catalogue/entries_008.py (`_incubator_token`),
+game/ability_catalogue/red_spells.py (`_incubator_token`),
 game/effects/core.py (`CreateTokenEffect.extra_counters`).
 """
 

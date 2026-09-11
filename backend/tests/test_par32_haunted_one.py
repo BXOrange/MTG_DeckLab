@@ -4,7 +4,7 @@
     tapped, it and other creatures you control that share a creature
     type with it each get +2/+0 and gain undying until end of turn."
 
-Hand-authored (`ability_catalogue.entries_016._haunted_one`): a granted
+Hand-authored (`ability_catalogue.special_mechanics._haunted_one`): a granted
 `TAPPED` trigger (already grantable-shaped, self-subject) whose
 `grant_effects` pump uses the new `PumpEffect` selector
 `self_and_shared_creature_type_you_control` — self plus every other

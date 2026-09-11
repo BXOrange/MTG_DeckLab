@@ -1,5 +1,5 @@
 """Blight Curse batch C4 — Hapatra, Vizier of Poisons (hand-authored,
-`ability_catalogue/entries_017.py`).
+`ability_catalogue/blight_curse.py`).
 
 Second clause: "Whenever **you** put one or more -1/-1 counters on a
 creature, create a 1/1 green Snake creature token with deathtouch." — the

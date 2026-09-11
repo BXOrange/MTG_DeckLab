@@ -1,6 +1,6 @@
 """MEC-52 — the last three cards of PAR-29's keyword trail (PAR-30
 close-out), each blocking on a distinct engine primitive rather than oracle
-grammar, so hand-authored in `game/ability_catalogue/entries_016.py`.
+grammar, so hand-authored in `game/ability_catalogue/special_mechanics.py`.
 
 - **Hunted by The Family** — `FaceVillainousChoiceEffect`
   ``subject="previous_target_controller"``: the RULE 115 targets are the

@@ -1,11 +1,4 @@
-"""Card -> AbilitySpec catalogue entries, part 009 of 016.
-
-Mechanically split, in original file order, from the single flat
-`ability_catalogue.py` module (now `core.py` for the shared registry
-infrastructure + this package's `entries_NNN.py` files for the actual
-per-card factories). Boundaries are purely positional -- not organized
-by mechanic or card type -- see `__init__.py` for the full picture.
-"""
+"""Competitive interaction, free spells, tutors, and disruption entries."""
 
 from __future__ import annotations
 
@@ -1420,5 +1413,4 @@ def _polymorph() -> list[AbilitySpec]:
 
 
 register("Polymorph", _polymorph)
-
 

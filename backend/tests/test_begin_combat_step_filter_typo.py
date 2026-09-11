@@ -6,7 +6,7 @@ entries filtered a `STEP_BEGIN` event on ``{"step": "combat"}`` — but
 `GameEngine._step_body`/`turn_loop_mixin.py` stamps onto the event's own
 ``step`` field — so the filter could never match at all, silently.
 
-Reference: `game/ability_catalogue/entries_006.py` (Sam), `entries_007.py`
+Reference: `game/ability_catalogue/enrage.py` (Sam), `tribal.py`
 (Ardenn), `game/phases.py`.
 """
 
@@ -100,5 +100,3 @@ def test_ardenn_trigger_places_at_the_beginning_of_combat():
     eng.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="begin_combat", phase="combat"))
     placed = eng.rules.put_triggers_on_stack()
     assert placed == 1
-
-

@@ -1,5 +1,5 @@
 """Blight Curse batch C4 — Wickersmith's Tools (hand-authored,
-`ability_catalogue/entries_017.py`).
+`ability_catalogue/blight_curse.py`).
 
 * "{T}: Add one mana of any color." folds in from `mana_abilities_for`
   (independent of catalogue registration).

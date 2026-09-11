@@ -1,5 +1,5 @@
 """Blight Curse batch C5 wave 12 — Cathartic Pyre
-(hand-authored, `ability_catalogue/entries_017.py`).
+(hand-authored, `ability_catalogue/blight_curse.py`).
 
 Modal instant, "choose one —":
 * mode 1 — ``damage`` 3 to ``creature_or_planeswalker`` (ordinary).

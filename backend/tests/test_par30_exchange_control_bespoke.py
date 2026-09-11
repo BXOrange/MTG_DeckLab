@@ -1,6 +1,6 @@
 """PAR-30 — RULE 701.10 exchange-control residue closed: the twelve
 bespoke singletons the shared cross-target predicates (PARSER_VERSION 211)
-didn't reach, each hand-authored in `ability_catalogue/entries_016.py`.
+didn't reach, each hand-authored in `ability_catalogue/special_mechanics.py`.
 """
 
 from __future__ import annotations

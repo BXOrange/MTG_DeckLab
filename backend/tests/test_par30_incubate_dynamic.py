@@ -34,7 +34,7 @@ The parser still (by design) can't claim two shapes — "incubate N **that
 many times**" (Phyrexian Incubator) and "incubate N **X times**"
 (Progenitor Exarch) — but both cards, plus Traumatic Revelation's
 "if you don't, incubate 3" else-branch, are now **hand-authored** in
-`ability_catalogue/entries_016.py`; see
+`ability_catalogue/special_mechanics.py`; see
 `tests/test_incubate_residue_authored.py` for their end-to-end coverage.
 """
 

@@ -1,5 +1,5 @@
 """Blight Curse batch C5 wave 15 — Burning Curiosity
-(hand-authored, `ability_catalogue/entries_017.py`).
+(hand-authored, `ability_catalogue/blight_curse.py`).
 
 * Optional ``blight 1`` additional cost (`additional_cost={"blight": 1}` +
   ``additional_cost_optional``).

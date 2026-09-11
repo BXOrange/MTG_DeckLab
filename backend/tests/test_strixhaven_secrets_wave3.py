@@ -5,7 +5,7 @@ Wave 3: the Silverquill **Impetus** Aura cycle.
   attacks or blocks, …" (two-verb attached-subject trigger).
 - `LoseLifeEffect.selector="attached_permanent_controller"` — "its
   controller" on an Aura = the enchanted creature's controller.
-- Parasitic / Martial / Ghoulish Impetus hand-authored in entries_018.
+- Parasitic / Martial / Ghoulish Impetus hand-authored in strixhaven_commander.
 """
 
 from __future__ import annotations

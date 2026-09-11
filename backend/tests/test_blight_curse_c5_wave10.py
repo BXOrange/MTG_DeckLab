@@ -1,5 +1,5 @@
 """Blight Curse batch C5 wave 10 — Ferrafor, Young Yew
-(hand-authored, `ability_catalogue/entries_017.py`).
+(hand-authored, `ability_catalogue/blight_curse.py`).
 
 * ETB — new `CreateTokensPerCounterAmongTargetPlayerCreaturesEffect`: create
   N 1/1 green Saproling tokens, N = every counter on every creature the

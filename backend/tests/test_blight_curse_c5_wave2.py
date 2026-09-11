@@ -1,5 +1,5 @@
 """Blight Curse batch C5 wave 2 — Midnight Banshee / Blowfly Infestation
-(hand-authored, `ability_catalogue/entries_017.py`).
+(hand-authored, `ability_catalogue/blight_curse.py`).
 
 * Midnight Banshee: upkeep ``add_counters`` mass selector
   (``"each_creature"``) narrowed by ``creature_filter={"without_color":

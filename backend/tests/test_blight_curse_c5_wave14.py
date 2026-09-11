@@ -1,5 +1,5 @@
 """Blight Curse batch C5 wave 14 — Puca's Covenant
-(hand-authored, `ability_catalogue/entries_017.py`).
+(hand-authored, `ability_catalogue/blight_curse.py`).
 
 DIES trigger over the C3a "creature you control with a counter on it" group
 subject, ``limit`` (RULE 603.2 once each turn). The graveyard return targets

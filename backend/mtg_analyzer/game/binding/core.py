@@ -2637,7 +2637,7 @@ def _station_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
 
     The effect reuses the plain, already-registered ``"add_counters"``
     type (``kind="charge"``, RULE 702.184a's own counter kind — see
-    `game/ability_catalogue/entries_015.py` for another card that already
+    `game/ability_catalogue/black.py` for another card that already
     puts charge counters on itself the same way) with
     ``amount_from_count_selector="station_tapped_power"`` — the amount is
     read fresh off `GameObject.station_tapped_power`, stamped by the cost

@@ -1,5 +1,5 @@
 """Blight Curse batch C5 wave 3 — Painful Truths / Grave Venerations
-(hand-authored, `ability_catalogue/entries_017.py`).
+(hand-authored, `ability_catalogue/blight_curse.py`).
 
 * Painful Truths — RULE 702.108a Converge: ``draw`` + ``lose_life`` with
   ``amount_from_count_selector="converge"`` (new `continuous.count_selector`

@@ -7503,7 +7503,7 @@ def _take_extra_turn(m: re.Match[str]) -> list[EffectSpec]:
 # "Incubate N." (RULE 701.53, PAR-29) — create an Incubator token (a
 # power/toughness-less colourless artifact token) with N +1/+1 counters on
 # it. No new engine primitive: the `Incubator` catalogue entry
-# (`ability_catalogue/entries_008.py`) already binds "{2}: Transform this
+# (`ability_catalogue/red_spells.py`) already binds "{2}: Transform this
 # token" (→ a 0/0 Phyrexian artifact creature) onto every token so named,
 # and `create_token`'s `extra_counters` places the counters — the exact
 # spec shape Glissa, Herald of Predation's hand-authored entry already
@@ -9288,7 +9288,7 @@ def _attacks_turn_if_able(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 #: RULE 701.47/48 Amass "<Type> N" ("amass Orcs 1"/"amass Zombies 2" — this
 #: repo's existing `game/effects/core.py` `AmassEffect` and its one proven
-#: consumer, Orcish Bowmasters (`ability_catalogue/entries_013.py`), both
+#: consumer, Orcish Bowmasters (`ability_catalogue/value.py`), both
 #: cite it as 701.48; the current `docs/Reference/rules_wiki` text has it
 #: renumbered to 701.47 since Learn moved to take 701.48 — same mechanic
 #: either way). The printed type word is always a regular "+s" plural in
