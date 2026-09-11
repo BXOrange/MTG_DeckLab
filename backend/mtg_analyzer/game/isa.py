@@ -655,7 +655,6 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
     "cast_graveyard_instant_sorcery_free_exile": (("cast", "exile"), OP_SEQ),
     "collect_evidence_x_then_board_damage": (("collect_evidence", "deal_damage"), OP_SEQ),
     "damage_then_investigate_if_excess": (("deal_damage", "investigate"), OP_IF_ELSE),
-    "destroy_artifacts_enchantments_then_counters": (("destroy", "put_counter"), OP_SEQ),
     "destroy_controller_may_search_basic_land": (("destroy", "search"), OP_OPTIONAL),
     "destroy_exile_then_controller_reveal_creature": (("destroy", "exile", "reveal"), OP_SEQ),
     "dies_return_as_enchantment": (("create_delayed_trigger", "move_object"), OP_SEQ),

@@ -4272,7 +4272,7 @@ class PutHandCardOnBottomThenDrawEffect(GameEffect):
 #: entirely when one of these is set, mirroring `DealDamageEffect.selector`.
 _MASS_DESTROY_SELECTORS: frozenset[str] = frozenset(
     {
-        "all_creatures", "all_artifacts", "all_enchantments", "all_permanents",
+        "all_creatures", "all_artifacts", "all_enchantments", "all_artifacts_and_enchantments", "all_permanents",
         "all_planeswalkers", "all_lands",
         # "destroy all Equipment attached to that creature." (Awaken the
         # Sleeper's after-tail — "that creature" is the threaten clause's
@@ -4339,6 +4339,8 @@ def _mass_selector_objects(
         result = [o for o in battlefield if o.card.is_artifact]
     elif selector == "all_enchantments":
         result = [o for o in battlefield if o.card.is_enchantment]
+    elif selector == "all_artifacts_and_enchantments":
+        result = [o for o in battlefield if o.card.is_artifact or o.card.is_enchantment]
     elif selector == "all_planeswalkers":
         result = [o for o in battlefield if getattr(o, "is_planeswalker", False)]
     elif selector == "all_permanents":
@@ -22059,23 +22061,6 @@ class ChooseTargetsEffect(GameEffect):
         return
 
 
-class DestroyArtifactsEnchantmentsThenCountersEffect(GameEffect):
-    """Destroy every artifact and enchantment, then grow the source by the
-    number actually destroyed (Bane of Progress)."""
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        destroyed = 0
-        for obj in list(context.state.battlefield):
-            if not (obj.card.is_artifact or obj.card.is_enchantment):
-                continue
-            was_present = obj in context.state.battlefield
-            context.destroy(obj)
-            if was_present and obj not in context.state.battlefield:
-                destroyed += 1
-        if destroyed and self.source is not None and self.source in context.state.battlefield:
-            context.add_counters(self.source, destroyed, "+1/+1", source=self.source)
-
-
 class DestroyEachWithManaValueEffect(GameEffect):
     """"Destroy each artifact with mana value X." (Dauntless Dismantler's
     ``{X}{X}{W}`` ability) — a mass destroy whose *filter* is the ability's
@@ -23858,10 +23843,6 @@ EffectRegistry.register(
         distinct_controllers=bool(p.get("distinct_controllers", False)),
         optional=bool(p.get("optional", False)),
     ),
-)
-EffectRegistry.register(
-    "destroy_artifacts_enchantments_then_counters",
-    lambda p: DestroyArtifactsEnchantmentsThenCountersEffect(),
 )
 EffectRegistry.register(
     # "Destroy each artifact with mana value X." (Dauntless Dismantler)

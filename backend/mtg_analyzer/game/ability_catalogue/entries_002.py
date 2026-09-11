@@ -1760,8 +1760,15 @@ register("Distant Melody", _distant_melody)
 
 
 def _bane_of_progress() -> list[AbilitySpec]:
-    return [AbilitySpec("triggered", [EffectSpec("destroy_artifacts_enchantments_then_counters", {})],
-                        trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}})]
+    return [AbilitySpec("triggered", [
+        EffectSpec("destroy", {"selector": "all_artifacts_and_enchantments"}),
+        EffectSpec("bind", {
+            "amount": {"kind": "this_way", "tally": "permanents_destroyed_this_way"},
+            "effects": [{"type": "put_counter", "params": {
+                "amount": "$n", "kind": "+1/+1",
+            }}],
+        }),
+    ], trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}})]
 
 
 register("Bane of Progress", _bane_of_progress)
