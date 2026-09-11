@@ -506,8 +506,17 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 42.7% (14,860 / 34,811) as of 2026-09-10, measured at
-PARSER_VERSION 318** (v318 is ENG-37 B7's `effect_amounts` `resource`
+**Coverage: 42.8% (14,914 / 34,811) as of 2026-09-11, measured at
+PARSER_VERSION 328** (v328 models Blinding Powder's quoted unattach cost and combat shield;
+v327 recognizes quoted damage abilities targeting a blocker;
+v326 recognizes quoted "destroy target Equipment" abilities;
+v325 recognizes quoted untap triggers on attached abilities;
+v323 recognizes "sacrifice ~ unless it attacked this turn"; v322 reads "pay
+its mana cost" live from the granted-to permanent; v321 recognizes the
+controller-scoped untargeted "sacrifice a <permanent>" effect body; v320
+recognizes Dual Casting's quoted spell-copy ability; v319 recognizes the
+quoted-grant inner clause "tap or untap target permanent"; v318 is ENG-37
+B7's `effect_amounts` `resource`
 `aggregate` — "max"/"min"/"sum" over a `scope`-worth of players, so a `bind`
 can measure "the greatest number of cards a player discarded this way"
 (Windfall); plus `spec.py`'s `aggregate` amount-spec key; vocabulary-only,
@@ -548,7 +557,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is ~44.8% (14,249 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is ~44.9% (14,295 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

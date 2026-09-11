@@ -539,6 +539,11 @@ class ActivationCost:
     #: Reconfigure's own "or unattach" *effect* (an alternative the Equip-
     #: like activated ability itself offers, not a cost paid to reach it).
     unattach_self: bool = False
+    #: A quoted ability granted by an attached Aura/Equipment can name the
+    #: granting permanent in its cost ("Unattach Blinding Powder"), rather
+    #: than the creature that currently has the ability.  The id is stamped
+    #: at layer-6 grant time and charged by `ActivationMixin`.
+    unattach_grant_source_id: Optional[int] = None
     #: RULE 702.21b: a ward cost's own "where X is …" definition for an
     #: unresolved ``{X}`` in ``mana`` — one of `_WARD_X_SELECTOR_PHRASES`'
     #: values, resolved at the *ward ability's* resolution time (not when it
@@ -941,6 +946,8 @@ def parse_activation_cost(
         parsed.activation_condition = dict(cost["activation_condition"])
     if "unattach_self" in cost:
         parsed.unattach_self = bool(cost["unattach_self"])
+    if cost.get("unattach_grant_source_id") is not None:
+        parsed.unattach_grant_source_id = int(cost["unattach_grant_source_id"])
     if cost.get("dynamic_reduction"):
         parsed.dynamic_reduction = dict(cost["dynamic_reduction"])
     if "waterbend" in cost:

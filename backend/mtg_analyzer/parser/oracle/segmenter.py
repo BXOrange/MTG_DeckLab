@@ -1396,6 +1396,10 @@ _COST_LOOKS_REAL = re.compile(
     r"tap .+ untapped .+ you control|remove .+ counters?|"
     r"return an? [a-z]+ you control to (?:its|your) owner'?s?\s*hand|"
     r"exile (?:this \w+|~) from (?:your|their) hand|"
+    # An attached Aura/Equipment can be named in a quoted granted ability's
+    # cost (Blinding Powder). The nested grant parser supplies the precise
+    # granting-object reference after this lexical cost check.
+    r"unattach (?:this \w+|~|[a-z][a-z' -]+)|"
     # "Exile a creature you control: …" (Food Chain, MEC-40) — a RULE
     # 605.1a mana-ability cost component (`costs._EXILE_CREATURE_RE`),
     # the battlefield-zone sibling of the hand-zone exile cost just above.

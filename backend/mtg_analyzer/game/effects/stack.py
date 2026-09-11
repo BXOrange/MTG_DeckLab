@@ -139,6 +139,7 @@ class CopySpellEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_count: int = 1,
         optional: bool = False,
+        target_kind: str = "spell",
         spell_from_trigger_event: Optional[str] = None,
         controller_from_trigger_event: Optional[str] = None,
         count_selector: Optional[str] = None,
@@ -170,7 +171,7 @@ class CopySpellEffect(GameEffect):
         # already established.
         if spell_from_trigger_event is None:
             self.target_spec = TargetSpec(
-                kind="spell", spell_filter=spell_filter or None, count=target_count, optional=optional,
+                kind=target_kind, spell_filter=spell_filter or None, count=target_count, optional=optional,
             )
         else:
             self.target_spec = None

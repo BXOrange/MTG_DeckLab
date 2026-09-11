@@ -516,6 +516,10 @@ class ActivationMixin:
             return False
         if cost.unattach_self and source.attached_to is None:
             return False
+        if cost.unattach_grant_source_id is not None:
+            grant_source = self.state.find_object(cost.unattach_grant_source_id)
+            if grant_source is None or getattr(grant_source, "attached_to", None) is None:
+                return False
         if cost.remove_counters:
             kind, count = cost.remove_counters
             if count in (REMOVE_COUNTERS_X, REMOVE_COUNTERS_ANY):
@@ -1096,6 +1100,11 @@ class ActivationMixin:
         if cost.unattach_self:
             source.last_unattached_from_id = source.attached_to
             source.attached_to = None
+        if cost.unattach_grant_source_id is not None:
+            grant_source = self.state.find_object(cost.unattach_grant_source_id)
+            if grant_source is not None:
+                grant_source.last_unattached_from_id = grant_source.attached_to
+                grant_source.attached_to = None
         if cost.exile_top_of_library:
             for _ in range(cost.exile_top_of_library):
                 if not player.library:

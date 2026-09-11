@@ -600,6 +600,7 @@ EffectRegistry.register(
         count=p.get("count", 1),
         target_count=int(p.get("target_count", 1) or 1),
         optional=bool(p.get("optional", False)),
+        target_kind=p.get("target_kind", "spell"),
         spell_from_trigger_event=p.get("spell_from_trigger_event"),
         controller_from_trigger_event=p.get("controller_from_trigger_event"),
         count_selector=p.get("count_selector"),
@@ -749,6 +750,10 @@ EffectRegistry.register(
 EffectRegistry.register(
     "sacrifice_self",  # "Sacrifice ~." (Dress Down/Underworld Breach-shaped)
     lambda p: SacrificeSelfEffect(),
+)
+EffectRegistry.register(
+    "sacrifice_unless_attacked",
+    lambda p: SacrificeUnlessAttackedEffect(),
 )
 EffectRegistry.register(
     # "Sacrifice ~ unless you pay <cost>." (Arcades Sabboth/Breeding Pit/

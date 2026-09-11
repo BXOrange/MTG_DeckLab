@@ -2731,13 +2731,43 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: "same mana value as the revealed card" vs the SPELL_CAST event), and
 #: `spec.py`'s `_AMOUNT_SPEC_FIELDS` learned its `field` key. Vocabulary
 #: only - no card's verdict moves - but the parser source hash follows.
+#: v329 - PAR-33: quoted triggered abilities can fire when their grantee
+#: attacks alone (Voltaic Whip).
+#: v328 - PAR-33: quoted abilities can prevent combat damage to their
+#: grantee (Blinding Powder).
+#: v327 - PAR-33: quoted activated damage abilities can target the creature
+#: blocking their grantee (Arc Spitter).
+#: v326 - PAR-33: quoted activated abilities can destroy target Equipment;
+#: the target is constrained through the existing Equipment subtype target
+#: predicate (Manriki-Gusari).
+#: v325 - PAR-33: `UNTAPPED` joins the identity-scoped events that a quoted
+#: Aura/Equipment ability can safely regrant (Well Rested).
+#: v324 - PAR-33: the pre-keyword fight wording (Predatory Urge's two
+#: simultaneous power-damage sentences) emits one atomic `fight` effect.
+#: v323 - PAR-33: `sacrifice_unless_attacked` recognizes Instill Furor's
+#: objective end-step rider against GameObject.attacked_this_turn.
+#: v322 - PAR-33: `sacrifice_unless_pay` recognizes "pay its mana cost" as
+#: a live cost of the affected permanent (Pendrell Flux's quoted Aura grant),
+#: never the granting Aura's cost.
+#: v321 - PAR-33: `handlers.sacrifice_controller` recognizes an ability
+#: controller's untargeted "sacrifice a <permanent>" effect body (including
+#: Inevitable End's quoted Aura grant) over `SacrificeEffect`'s new
+#: controller selector.
+#: v320 - PAR-33: `handlers.copy_your_instant_or_sorcery` recognizes Dual
+#: Casting's quoted activated ability, including the `spell_you_control`
+#: target-legality restriction on the existing `copy_spell` effect.
+#: v319 - PAR-33: `handlers.tap_or_untap` recognizes the real one-target,
+#: resolution-choice clause "[you may] tap or untap target permanent".  It
+#: emits the existing `TapEffect.choose_tap_or_untap` primitive, so quoted
+#: Aura/Equipment grants (Ghostly Touch) recurse through the ordinary grant
+#: path instead of fail-closing at their inner triggered ability.
 #: v318 - ENG-37 B7: `effect_amounts`' `resource` kind gained an `aggregate`
 #: ("max"/"min"/"sum" over a `scope`-worth of players) so a `bind` can
 #: measure "the greatest number of cards a player discarded this way"
 #: (Windfall), and `spec.py`'s `_AMOUNT_SPEC_FIELDS` learned the `aggregate`
 #: key. Vocabulary only - no parser handler emits it yet, no card's verdict
 #: moves - but the parser source hash follows.
-PARSER_VERSION = "318"
+PARSER_VERSION = "329"
 
 
 def parser_source_hash() -> str:

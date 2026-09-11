@@ -2227,7 +2227,12 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                 live_grant_keys.add(key)
                 granted_activated = state._granted_ability_cache.get(key)
                 if granted_activated is None:
-                    cost = parse_activation_cost(dict(activated_cost))
+                    cost_dict = dict(activated_cost)
+                    if cost_dict.pop("unattach_grant_source", False):
+                        grant_source = getattr(ability, "source", None)
+                        if grant_source is not None:
+                            cost_dict["unattach_grant_source_id"] = grant_source.instance_id
+                    cost = parse_activation_cost(cost_dict)
                     cost.sorcery_speed_only = bool(ability.params.get("sorcery_speed_only", False))
                     granted_activated = ActivatedAbility(
                         effects=[

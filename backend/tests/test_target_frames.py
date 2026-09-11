@@ -41,10 +41,11 @@ IRREDUCIBLE_KINDS = frozenset({
     # RULE 115.6 self-exclusion variants that interact with the attachment
     # branch above
     "creature", "creature_including_self",
-    # reads `source.blocking` / `source.additional_blocking`
-    "creature_source_is_blocking",
+    # reads combat assignments (`source.blocking` / `source.additional_blocking`
+    # or, conversely, blockers that name the source)
+    "creature_source_is_blocking", "creature_blocking_source",
     # the stack, not the battlefield
-    "spell", "spell_you_dont_control", "ability", "spell_or_ability",
+    "spell", "spell_you_control", "spell_you_dont_control", "ability", "spell_or_ability",
     "spell_or_creature", "spell_or_nonland_permanent_you_dont_control",
 })
 

@@ -116,7 +116,7 @@ _ENCHANT_QUALITY_PREDICATES: dict[str, Any] = {
 
 ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
     {
-        "any", "creature", "permanent", "player", "spell",
+        "any", "creature", "creature_blocking_source", "permanent", "player", "spell",
         # RULE 702.165a Backup — "target creature" that explicitly includes
         # the source itself (PAR-26); the plain `creature` branch minus its
         # RULE 115.6-style self-exclusion.
@@ -208,7 +208,7 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         "spell_or_creature",
         # "target spell you don't control" (Hullbreaker Horror) — the
         # controller-scoped mirror of the plain ``"spell"`` kind.
-        "spell_you_dont_control",
+        "spell_you_control", "spell_you_dont_control",
         # RULE 702.140a's "target **non-Human** creature you own" — mutate's
         # own target line. Note *own*, not control (RULE 108.3): a creature
         # you own but an opponent controls is still a legal mutate host, and
@@ -1446,6 +1446,16 @@ def legal_targets(
             if o.instance_id in attacker_ids
             and _targetable_by(o, source)
         ]
+    if kind == "creature_blocking_source":
+        # "target creature that's blocking it" (Arc Spitter): the granted
+        # ability's source is the attacker, so select only creatures whose
+        # combat assignment names that attacker.
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if o.is_creature and o.blocking == source.instance_id
+            and _targetable_by(o, source)
+        ]
     if kind == "spell_or_nonland_permanent_you_dont_control":
         # "Return target spell or nonland permanent an opponent controls to
         # its owner's hand." (Sink into Stupor) — the union of the plain
@@ -1532,21 +1542,23 @@ def legal_targets(
             and _color_ok(spec, o.colors)
             and o is not source
         ]
-    if kind in ("spell", "spell_you_dont_control"):
+    if kind in ("spell", "spell_you_control", "spell_you_dont_control"):
         items = [
             item
             for item in state.stack
             if item.kind == "spell" and item.obj is not None and item.obj is not source
         ]
-        if kind == "spell_you_dont_control":
-            # "Return target spell you don't control…" (Hullbreaker
-            # Horror) — the controller-scoped sibling of the plain
-            # ``"spell"`` kind, keyed by `StackItem.controller_id` (RULE
-            # 115.4a: whoever put it on the stack), not the underlying
-            # object's own `controller_id` — the two agree for a spell
-            # (it has no controller of its own until it resolves), but
-            # ``item.controller_id`` is the one RULE 115 actually means.
-            items = [item for item in items if item.controller_id != controller_id]
+        # "Copy target instant or sorcery spell you control" (Dual Casting)
+        # and "Return target spell you don't control" (Hullbreaker Horror)
+        # are keyed by `StackItem.controller_id` (RULE 115.4a: whoever put
+        # it on the stack), not the underlying object's controller.  Keep
+        # the two controller-scoped spell kinds in this one structural stack
+        # branch rather than growing a name-dispatch branch for each.
+        items = [
+            item for item in items
+            if (kind != "spell_you_control" or item.controller_id == controller_id)
+            and (kind != "spell_you_dont_control" or item.controller_id != controller_id)
+        ]
         if spec.spell_filter:
             card_filter = dict(spec.spell_filter)
             if card_filter.pop("single_target", False):

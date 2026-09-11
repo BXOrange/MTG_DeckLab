@@ -1802,6 +1802,9 @@ class SacrificeEffect(GameEffect):
             self._sacrifice_each_in_order(context, list(context.state.living_players()))
             return
         player = self.player or (targets[0] if targets else None)
+        if player is None and self.selector == "controller":
+            controller_id = getattr(self.source, "controller_id", None)
+            player = context.state.player_by_id(controller_id) if controller_id is not None else None
         if player is None and self.selector == "defending_player":
             player = _defending_player_of(self.source, context)
         if player is None:
@@ -1875,6 +1878,19 @@ class SacrificeSelfEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is not None:
+            context.put_into_graveyard(self.source)
+
+
+class SacrificeUnlessAttackedEffect(GameEffect):
+    """"Sacrifice ~ unless it attacked this turn." (Instill Furor).
+
+    This is an objective conditional consequence, not a payment choice:
+    RULE 508's declaration path already records ``attacked_this_turn`` on
+    the permanent, and that marker survives combat until cleanup.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is not None and not getattr(self.source, "attacked_this_turn", False):
             context.put_into_graveyard(self.source)
 
 
@@ -2141,7 +2157,15 @@ class SacrificeUnlessPayEffect(GameEffect):
         player = _controller_of(subject, context)
         if player is None:
             return
-        cost = parse_activation_cost(self.cost_text)
+        # "Sacrifice this creature unless you pay its mana cost" (Pendrell
+        # Flux) prices the payment from the permanent currently bearing the
+        # ability, not the Aura that granted it.  The source is exactly that
+        # grantee after layer-6 regranting; `target` remains the explicit
+        # delayed-trigger override, so prefer it when present.
+        cost_text = self.cost_text
+        if cost_text == "source_mana_cost":
+            cost_text = getattr(subject.card, "mana_cost_string", "")
+        cost = parse_activation_cost(cost_text)
         if cost.is_free:
             # `parse_activation_cost` returns a *free* cost for text it
             # doesn't recognize rather than raising. Honouring that here

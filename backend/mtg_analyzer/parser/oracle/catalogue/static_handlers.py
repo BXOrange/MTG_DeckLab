@@ -93,7 +93,7 @@ from .subgrammars import (
 #: permanent's own controller" way `game/continuous.py`'s
 #: `_PLAYER_SUBJECT_GRANTED_EVENTS` documents.
 _GRANTABLE_TRIGGER_EVENTS = frozenset(
-    {"ENTERS_BATTLEFIELD", "LEAVES_BATTLEFIELD", "DIES", "ATTACKS", "BLOCKS", "DAMAGE",
+    {"ENTERS_BATTLEFIELD", "LEAVES_BATTLEFIELD", "DIES", "ATTACKS", "ATTACKS_ALONE", "BLOCKS", "UNTAPPED", "DAMAGE",
      "STEP_BEGIN", "LIFE_GAINED", "SPELL_CAST", "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"}
 )
 #: PAR-32: trigger-dict gate keys that survive re-granting unchanged — a
@@ -1916,8 +1916,14 @@ def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]
             e for e in effect_specs
             if e.type not in (ONCE_PER_TURN_MARKER, SORCERY_SPEED_MARKER)
         ]
+        cost = dict(spec.cost or {})
+        if re.match(r"\s*unattach\b", inner, re.IGNORECASE):
+            # The printed name refers to the Aura/Equipment providing this
+            # ability, not to its host (RULE 113.7a). Layer 6 stamps that
+            # object's identity onto the activated cost.
+            cost["unattach_grant_source"] = True
         return [EffectSpec("grant_activated_ability", {
-            "cost": dict(spec.cost or {}),
+            "cost": cost,
             "grant_effects": [{"type": e.type, "params": e.params} for e in effect_specs],
             "once_per_turn": once_per_turn,
             "sorcery_speed_only": sorcery_speed_only,

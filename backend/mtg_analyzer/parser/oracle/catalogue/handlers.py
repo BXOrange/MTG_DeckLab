@@ -810,6 +810,21 @@ def _prevent_all_combat_damage(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("prevent_all_combat_damage", {})]
 
 
+#: "Prevent all combat damage that would be dealt to this creature this turn"
+#: (Blinding Powder).  This is a personal, one-turn shield, not the global
+#: Fog form above; `PreventDamageEffect.self_only` already supplies its
+#: replacement-effect semantics.
+_PREVENT_ALL_COMBAT_DAMAGE_TO_SELF_RE = _c(
+    r"prevent all combat damage that would be dealt to (?:this creature|this permanent|~) this turn"
+)
+
+
+def _prevent_all_combat_damage_to_self(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("prevent_damage_shield", {
+        "amount": "all", "self_only": True, "combat_only": True,
+    })]
+
+
 #: RULE 601.2c's mass/untargeted-selector vocabulary — shared by the
 #: damage/lose_life/player-counter "each creature/player/opponent" families
 #: below, not RULE 115 targeting (see `subgrammars._TARGET_ROWS`'s note on
@@ -1661,6 +1676,23 @@ def _target_player_edict(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("sacrifice", {"target_kind": "player", "what": what, "count": count})]
 
 
+#: "Sacrifice a creature." (Inevitable End's quoted upkeep ability) — an
+#: untargeted RULE 701.17 choice made by the ability's controller.  This is
+#: an effect body, not the superficially identical activated/casting *cost*;
+#: those are peeled by the segmenter before this catalogue is consulted.
+_SACRIFICE_CONTROLLER_RE = _c(
+    r"sacrifice (?P<count>a|an|\d+) (?P<what>creature|artifact|land|permanent)s?"
+)
+
+
+def _sacrifice_controller(m: re.Match[str]) -> list[EffectSpec]:
+    count_word = m.group("count")
+    return [EffectSpec("sacrifice", {
+        "selector": "controller", "what": m.group("what"),
+        "count": 1 if count_word in ("a", "an") else int(count_word),
+    })]
+
+
 #: "Each player loses N life unless they discard a card."/"...unless they
 #: sacrifice a creature, artifact, or land of their choice." (PAR-13, Tomb
 #: of Annihilation's "Veils of Fear"/"Sandfall Cell" dungeon rooms) — RULE
@@ -2162,6 +2194,17 @@ _DESTROY_EQUIPMENT_ATTACHED_TO_IT_RE = _c(
 
 def _destroy_equipment_attached_to_it(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("destroy", {"target_kind": "equipment_attached_to_source"})]
+
+
+#: "destroy target Equipment" (Manriki-Gusari).  Equipment is an artifact
+#: subtype rather than a card type, so it deliberately is not part of the
+#: broad ``TARGET`` grammar used by the ordinary destroy row.  The targeting
+#: layer already has the precise subtype predicate.
+_DESTROY_EQUIPMENT_RE = _c(r"destroy target equipment")
+
+
+def _destroy_equipment(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("destroy", {"target_kind": "equipment"})]
 
 
 #: "exile target `<c1>` or `<c2>` creature/permanent[ you don't control]"
@@ -2961,12 +3004,21 @@ _UNLESS_COST = (
     r"|sacrifice (?:a|another) (?:creature|permanent|artifact|enchantment|land))"
 )
 _SACRIFICE_UNLESS_PAY_RE = _c(
-    rf"sacrifice {_SELF_SUBJECT} unless you (?P<cost>{_UNLESS_COST})"
+    rf"sacrifice {_SELF_SUBJECT} unless you (?P<cost>{_UNLESS_COST}|pay its mana cost)"
+)
+
+#: "Sacrifice this creature unless it attacked this turn." (Instill Furor)
+#: is a noninteractive condition, unlike the similarly worded payment form.
+_SACRIFICE_UNLESS_ATTACKED_RE = _c(
+    rf"sacrifice {_SELF_SUBJECT} unless it attacked this turn"
 )
 
 
 def _sacrifice_unless_pay(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("sacrifice_unless_pay", {"cost": m.group("cost")})]
+    cost = m.group("cost")
+    return [EffectSpec("sacrifice_unless_pay", {
+        "cost": "source_mana_cost" if cost == "pay its mana cost" else cost,
+    })]
 
 
 #: "Destroy ~ unless you pay `<cost>`." (RULE 701.16 + an "unless" payment)
@@ -4245,6 +4297,22 @@ _TRIGGER_COPY_SPELL_RE = _c(
     r"that player copies it and may choose new targets for the copy(?: until end of turn)?"
 )
 
+#: "Copy target instant or sorcery spell you control. You may choose new
+#: targets for the copy." (Dual Casting).  The controller qualifier is a
+#: target-legality restriction, not merely a note about who controls the
+#: resulting copy, so it uses the dedicated ``spell_you_control`` target
+#: kind rather than the broader `copy_spell` default.
+_COPY_YOUR_INSTANT_OR_SORCERY_RE = _c(
+    r"copy target instant or sorcery spell you control\.?"
+    r"(?:\s*you may choose new targets for the copy\.?)?"
+)
+
+
+def _copy_your_instant_or_sorcery(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("copy_spell", {
+        "card_types": ["instant", "sorcery"], "target_kind": "spell_you_control",
+    })]
+
 
 #: "Each instant and sorcery card in your graveyard gains flashback until
 #: end of turn. The flashback cost is equal to its mana cost." (Past in
@@ -4645,6 +4713,14 @@ _FIGHT_PREVIOUS_RE = _c(
     rf"{_THEN}(?:have )?{_PREVIOUS_SUBJECT} fights? {_ANOTHER}{TARGET}"
 )
 
+#: Predatory Urge's pre-keyword-action wording for a fight.  The two damage
+#: sentences have RULE 701.14a's exact simultaneous semantics, so they must
+#: become one atomic `fight`, not two `damage_equal_to_power` effects.
+_FIGHT_DAMAGE_EQUIVALENT_RE = _c(
+    rf"(?:{re.escape(SELF)}|this creature|it) deals? damage equal to its power to target creature\.\s*"
+    rf"that creature deals? damage equal to its power to (?:{re.escape(SELF)}|this creature|it)"
+)
+
 #: RULE 701.14 fight, in its four printed subjects: two chosen creatures
 #: ("target creature you control fights target creature you don't
 #: control"), the source itself written as ``~`` or as "it", and an Aura's
@@ -4658,6 +4734,11 @@ _FIGHT_PREVIOUS_RE = _c(
 #: only the repetitive `EffectHandler(...)` registration itself is factored
 #: into this row table, not the regexes/builders behind it.
 _FIGHT_ROW_SPECS: list[tuple[str, "re.Pattern[str]", Any, dict]] = [
+    (
+        "fight_damage_equivalent", _FIGHT_DAMAGE_EQUIVALENT_RE,
+        lambda m: [EffectSpec("fight", {"other_kind": "creature"})],
+        {},
+    ),
     ("fight", _FIGHT_TWO_TARGETS_RE, _fight, {}),
     ("fight_self", _FIGHT_SELF_RE, _fight_implicit(None), {}),
     ("fight_pronoun", _FIGHT_PRONOUN_RE, _fight_implicit(None), {"self_subject_only": True}),
@@ -9433,6 +9514,16 @@ HANDLERS: list[EffectHandler] = [
         _DAMAGE_CREATURE_FILTER_RE,
         _damage_creature_filter,
     ),
+    # "This creature deals N damage to target creature that's blocking it"
+    # (Arc Spitter). The qualifier is a combat-assignment target restriction,
+    # not a generic creature quality filter.
+    EffectHandler(
+        "damage_creature_blocking_source",
+        _c(rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+) damage to target creature that'?s blocking (?:it|~)"),
+        lambda m: [EffectSpec("damage", {
+            "amount": int(m.group("n")), "target_kind": "creature_blocking_source",
+        })],
+    ),
     # "~ deals 3 damage to any target" / "deal 2 damage to target creature" /
     # "it deals 2 damage to target opponent" (a triggered-ability body's own
     # "it"/"this creature"/"this land"/"this permanent" subject — cosmetic,
@@ -9544,6 +9635,11 @@ HANDLERS: list[EffectHandler] = [
         "prevent_all_combat_damage",
         _PREVENT_ALL_COMBAT_DAMAGE_RE,
         _prevent_all_combat_damage,
+    ),
+    EffectHandler(
+        "prevent_all_combat_damage_to_self",
+        _PREVENT_ALL_COMBAT_DAMAGE_TO_SELF_RE,
+        _prevent_all_combat_damage_to_self,
     ),
     EffectHandler(
         "damage_per_noncreature_spell_cast_this_turn",
@@ -9792,6 +9888,11 @@ HANDLERS: list[EffectHandler] = [
         _TARGET_PLAYER_EDICT_RE,
         _target_player_edict,
     ),
+    EffectHandler(
+        "sacrifice_controller",
+        _SACRIFICE_CONTROLLER_RE,
+        _sacrifice_controller,
+    ),
     # PAR-13: "discard a card and sacrifice a creature, an artifact, and a
     # land." — Oubliette's own compound mandatory punishment.
     EffectHandler(
@@ -9984,6 +10085,11 @@ HANDLERS: list[EffectHandler] = [
         "destroy_equipment_attached_to_it",
         _DESTROY_EQUIPMENT_ATTACHED_TO_IT_RE,
         _destroy_equipment_attached_to_it,
+    ),
+    EffectHandler(
+        "destroy_equipment",
+        _DESTROY_EQUIPMENT_RE,
+        _destroy_equipment,
     ),
     # "destroy two target creatures" / "destroy up to two target artifacts
     # and/or enchantments" (RULE 115.1a generalized to N>=2 — Curtains'
@@ -10213,6 +10319,11 @@ HANDLERS: list[EffectHandler] = [
         _SACRIFICE_UNLESS_PAY_RE,
         _sacrifice_unless_pay,
     ),
+    EffectHandler(
+        "sacrifice_unless_attacked",
+        _SACRIFICE_UNLESS_ATTACKED_RE,
+        lambda m: [EffectSpec("sacrifice_unless_attacked", {})],
+    ),
     # "destroy ~ unless you pay <cost>" — the real-destruction sibling
     # (RULE 701.16) of `sacrifice_unless_pay` above (The Tabernacle at
     # Pendrell Vale's granted upkeep trigger).
@@ -10235,6 +10346,19 @@ HANDLERS: list[EffectHandler] = [
         "tap_two_color",
         _TAP_TWO_COLOR_RE,
         _tap_two_color,
+    ),
+    # "you may tap or untap target permanent" (Derevi, Empyrial Tactician;
+    # Ghostly Touch's quoted attached-creature grant).  This is one target
+    # chosen under RULE 115, followed by the resolution-time tap/untap
+    # choice represented by TapEffect.choose_tap_or_untap -- not two
+    # independently optional effects.
+    EffectHandler(
+        "tap_or_untap",
+        _c(r"(?:you may )?tap or untap target permanent"),
+        lambda m: [EffectSpec("tap", {
+            "target_kind": "permanent",
+            "choose_tap_or_untap": True,
+        })],
     ),
     # "tap [up to one] target creature[ an opponent controls] and put a stun
     # counter on it." (Champions of the Shoal, Alchemax Slayer-Bots,
@@ -10672,6 +10796,11 @@ HANDLERS: list[EffectHandler] = [
         "trigger_copy_spell",
         _TRIGGER_COPY_SPELL_RE,
         _trigger_copy_spell,
+    ),
+    EffectHandler(
+        "copy_your_instant_or_sorcery",
+        _COPY_YOUR_INSTANT_OR_SORCERY_RE,
+        _copy_your_instant_or_sorcery,
     ),
     # "Each instant and sorcery card in your graveyard gains flashback until
     # end of turn. The flashback cost is equal to its mana cost." (Past in
