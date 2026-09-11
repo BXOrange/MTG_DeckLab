@@ -991,7 +991,9 @@ def _chain_of_smog() -> list[AbilitySpec]:
             "spell_effect",
             [
                 EffectSpec("discard", {"count": 2, "target_kind": "player"}),
-                EffectSpec("copy_self_controlled_by_previous_target", {}),
+                EffectSpec("copy_self_spell", {
+                    "controller": {"of": "target", "as": "self"},
+                }),
             ],
         ),
     ]
@@ -1427,4 +1429,3 @@ def _tenacious_dead() -> list[AbilitySpec]:
 
 
 register("Tenacious Dead", _tenacious_dead)
-

@@ -448,6 +448,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "copy_imprinted_card": "copy_object",
     "copy_permanent": "copy_object",
     "copy_spell": "copy_object",
+    "copy_self_spell": "copy_object",
     "create_emblem": "create",
     "create_token_for_linked_exile": "create",
     # ENG-37 re-derivation: not a `create`+`copy_object` weld. The "copy" is
@@ -652,7 +653,6 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
     "collect_evidence_x_then_board_damage": (("collect_evidence", "deal_damage"), OP_SEQ),
     "conditional_copy": (("copy_object", "copy_object"), OP_IF_ELSE),
     "copy_attachments_onto_last_created": (("copy_object", "attach"), OP_BIND),
-    "copy_self_controlled_by_previous_target": (("copy_object", "gain_control"), OP_BIND),
     "copy_self_if_cast_from_graveyard": (("copy_object", "copy_object"), OP_IF_ELSE),
     "copy_spell_and_bounce": (("copy_object", "move_object"), OP_SEQ),
     "create_attached_aura_token": (("create", "attach"), OP_SEQ),

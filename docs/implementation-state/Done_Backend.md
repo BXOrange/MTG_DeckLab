@@ -4158,7 +4158,11 @@ evidence is
 
 ### Fusion retirement — parser-side batches (ENG-37, `14_` S3)
 
-Running total: **81 → 43**.
+Running total: **81 → 42**.
+
+- **Batch 23 (B3 copy controller operand, `43 → 42`).** Chain of Smog uses
+  the generic `copy_self_spell` instruction with its copier resolved from
+  the original target, retiring `copy_self_controlled_by_previous_target`.
 
 - **Batch 22 (B3 summed moved-card amounts, `45 → 43`).** `GameContext`
   now tracks the exact cards a `mill` or `exile_top_of_library` instruction

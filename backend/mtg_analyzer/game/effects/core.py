@@ -7023,7 +7023,7 @@ class CopyAbilityEffect(GameEffect):
         context.copy_ability(item, controller_id)
 
 
-class CopySelfControlledByPreviousTargetEffect(GameEffect):
+class CopySelfSpellEffect(GameEffect):
     """"Target player discards two cards. That player may copy this spell
     and may choose a new target for that copy." (Chain of Smog, MEC-43) —
     the copier is whoever the *preceding* clause of this same spell
@@ -7037,13 +7037,17 @@ class CopySelfControlledByPreviousTargetEffect(GameEffect):
     original target instead of opening a fresh interactive pick.
     """
 
+    def __init__(self, controller: Any = None, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.controller = controller
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None:
             return
-        previous = list(getattr(context, "previous_targets", []) or [])
-        if not previous:
-            return
-        controller_id = getattr(previous[0], "id", None)
+        from ..effect_operands import player_for
+
+        controller = player_for(self.controller, context, self.source, targets)
+        controller_id = getattr(controller, "id", None)
         if controller_id is None:
             return
         context.copy_self_spell(self.source, controller_id, targets=None)
@@ -23061,10 +23065,8 @@ EffectRegistry.register(
     lambda p: CopySelfIfCastFromGraveyardEffect(),
 )
 EffectRegistry.register(
-    # "That player may copy this spell…" (Chain of Smog, MEC-43) — see
-    # `CopySelfControlledByPreviousTargetEffect`.
-    "copy_self_controlled_by_previous_target",
-    lambda p: CopySelfControlledByPreviousTargetEffect(),
+    "copy_self_spell",
+    lambda p: CopySelfSpellEffect(controller=p.get("controller")),
 )
 EffectRegistry.register(
     "change_target",
