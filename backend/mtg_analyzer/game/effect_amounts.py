@@ -117,6 +117,9 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         # the revealed card" (Counterbalance) reads ``mana_value`` off the
         # `SPELL_CAST` event. Non-numeric / absent field → 0.
         "trigger_event",  # + ``field`` (the event key to read)
+        # The total characteristic of cards a preceding zone-change moved:
+        # "the total mana value of cards milled/exiled this way".
+        "moved_sum",  # + ``characteristic`` (usually mana_value)
     }
 )
 
@@ -203,6 +206,18 @@ def _base(
         if isinstance(raw, bool) or not isinstance(raw, int):
             return 0
         return int(raw)
+
+    if kind == "moved_sum":
+        characteristic = str(amount.get("characteristic", "mana_value"))
+        if characteristic not in CHARACTERISTICS:
+            return 0
+        total = 0
+        for obj in getattr(context, "moved_objects", []) or []:
+            if characteristic == "mana_value":
+                total += int(getattr(getattr(obj, "card", None), "converted_mana_cost", 0) or 0)
+            else:
+                total += int(getattr(obj, characteristic, 0) or 0)
+        return total
 
     subject = effect_conditions.subject_of(
         str(amount.get("of") or "source"), context, source, targets

@@ -188,7 +188,7 @@ def test_ensnared_registered_shape():
     assert p["option_a"][0]["type"] == "dig_until"
     assert p["option_a"][0]["params"]["digger"] == "facing"
     assert p["option_a"][0]["params"]["caster"] == "controller"
-    assert p["option_b"][0]["type"] == "exile_top_then_damage_by_mv"
+    assert p["option_b"][0]["type"] == "seq"
 
 
 def _ensnared_effect(src):

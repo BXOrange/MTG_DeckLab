@@ -32,7 +32,7 @@ def test_registered_and_binds():
     spec.validate()
     assert spec.effects[0].type == "vote"
     pv = spec.effects[0].params["per_vote_specs"]
-    assert pv[0]["effects"][0]["type"] == "mill_then_damage_each_opponent_by_mv"
+    assert pv[0]["effects"][0]["type"] == "seq"
     assert pv[1]["effects"][0]["type"] == "impulsive_draw"
     src = GameObject(_tempest_card(), owner_id="p1", zone=Zone.STACK)
     src.controller_id = "p1"

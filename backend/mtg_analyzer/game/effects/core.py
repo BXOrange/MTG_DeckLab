@@ -110,6 +110,9 @@ class GameContext:
         #: referent is the last thing actually chosen, not the last thing that
         #: happened.
         self.previous_targets: list[Any] = []
+        #: Objects a preceding zone-changing instruction moved during this
+        #: resolution (the exact "this way" batch for a later measurement).
+        self.moved_objects: list[Any] = []
         #: MEC-28: the `continuous.group_selector_objects` name the last
         #: mass-*selector* effect of this same resolution acted on (RULE
         #: 601.2c, untargeted — "untap all attacking creatures. **They**
@@ -1145,6 +1148,7 @@ def _apply_effects_partitioned(
     state = getattr(context, "state", None)
     already_pending = getattr(state, "pending_choice", None) if state is not None else None
     outer_previous = getattr(context, "previous_targets", [])
+    outer_moved = getattr(context, "moved_objects", [])
     outer_attachment_hosts = getattr(context, "attachment_hosts", {})
     outer_created = getattr(context, "created_objects", [])
     outer_life_lost = getattr(context, "life_lost_this_way", 0)
@@ -1159,6 +1163,7 @@ def _apply_effects_partitioned(
     outer_die_results = getattr(context, "die_results", [])
     outer_rolled_doubles = getattr(context, "rolled_doubles", False)
     context.previous_targets = list(previous_targets or [])
+    context.moved_objects = list(outer_moved or [])
     context.attachment_hosts = dict(outer_attachment_hosts or {})
     context.created_objects = list(created_objects or [])
     context.life_lost_this_way = life_lost_this_way
@@ -1233,6 +1238,7 @@ def _apply_effects_partitioned(
         return False
     finally:
         context.previous_targets = outer_previous
+        context.moved_objects = outer_moved
         context.attachment_hosts = outer_attachment_hosts
         context.created_objects = outer_created
         context.life_lost_this_way = outer_life_lost
@@ -7646,7 +7652,9 @@ class MillEffect(GameEffect):
             count = continuous.count_selector(
                 context.state, controller_id, self.count_selector, source=self.source
             )
+        before = len(player.graveyard)
         context.mill(player, count)
+        context.moved_objects.extend(player.graveyard[before:])
 
 
 class ExileEffect(GameEffect):
@@ -8009,7 +8017,9 @@ class ExileTopOfLibraryEffect(GameEffect):
         self.track_exiled_with = track_exiled_with
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.player_selector == "active_player":
+        if self.player_selector == "target":
+            players = [targets[0]] if targets and hasattr(targets[0], "library") else []
+        elif self.player_selector == "active_player":
             players = [context.state.active_player]
         elif self.player_selector == "each_player":
             players = list(context.state.living_players())
@@ -8027,6 +8037,7 @@ class ExileTopOfLibraryEffect(GameEffect):
                     break
                 top = player.library[-1]
                 context.exile(top)
+                context.moved_objects.append(top)
                 if self.face_down:
                     # Set *after* the move: `RulesEngine._remove_from_
                     # current_zone` (which `exile()` calls to pull the card
@@ -23186,12 +23197,6 @@ EffectRegistry.register(
     )
 )
 EffectRegistry.register(
-    # "You mill a card, then ~ deals damage to each opponent equal to the
-    # total mana value of cards milled this way." (Fateful Tempest, PAR-60)
-    "mill_then_damage_each_opponent_by_mv",
-    lambda p: MillThenDamageEachOpponentByMvEffect(count=int(p.get("count", 1) or 1)),
-)
-EffectRegistry.register(
     "sacrifice_self",  # "Sacrifice ~." (Dress Down/Underworld Breach-shaped)
     lambda p: SacrificeSelfEffect(),
 )
@@ -23877,13 +23882,6 @@ EffectRegistry.register(
     # `BackFromTheBrinkEffect` as a `then_specs` entry.
     "pay_cost_then_previous_mv",
     lambda p: PayCostThenPreviousMvEffect(),
-)
-EffectRegistry.register(
-    # MEC-52 — Ensnared by the Mara, villainous option B: "that player
-    # exiles the top four cards of their library and ~ deals damage equal
-    # to the total mana value of those exiled cards to that player."
-    "exile_top_then_damage_by_mv",
-    lambda p: ExileTopThenDamageByMvEffect(count=int(p.get("count", 4) or 4)),
 )
 EffectRegistry.register(
     # MEC-19: "counter it/that spell[or ability] unless that player/its

@@ -879,13 +879,18 @@ class MiscSystemsMixin:
             scale = int(entry.get("scale", 1) or 1) * int(tally.get(opt, 0))
             if scale <= 0:
                 continue
-            scaled: list[dict] = []
-            for spec in entry.get("effects", []):
+            def scale_spec(spec: dict) -> dict:
+                """Scale quantitative leaves through a composite body."""
                 params = dict(spec.get("params") or {})
                 for key in ("count", "amount"):
                     if isinstance(params.get(key), int):
-                        params[key] = params[key] * scale
-                scaled.append({"type": spec["type"], "params": params})
+                        params[key] *= scale
+                for key in ("effects", "then", "else"):
+                    if isinstance(params.get(key), list):
+                        params[key] = [scale_spec(dict(child)) for child in params[key]]
+                return {"type": spec["type"], "params": params}
+
+            scaled = [scale_spec(dict(spec)) for spec in entry.get("effects", [])]
             self._apply_effect_specs(scaled, source, targets)
     def _advance_expropriate_gain_control(
         self, source: Optional[GameObject], controller_id: str, voter_ids: list[str]

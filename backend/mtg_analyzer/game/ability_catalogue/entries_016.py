@@ -2162,7 +2162,7 @@ def _ensnared_by_the_mara() -> list[AbilitySpec]:
     (RULE 601.3e — *you* become the free-cast card's controller) and
     ``hit_destination="cast_free_window"`` (a genuine "you may", with the
     RULE-shaped "return it if uncast" delayed half); option B is the new
-    `exile_top_then_damage_by_mv` summed-mana-value damage source.
+    a composed exile plus summed-mana-value damage source.
     """
     return [
         AbilitySpec(
@@ -2180,8 +2180,18 @@ def _ensnared_by_the_mara() -> list[AbilitySpec]:
                     },
                 }],
                 "option_b": [{
-                    "type": "exile_top_then_damage_by_mv",
-                    "params": {"count": 4},
+                    "type": "seq", "params": {"effects": [
+                        {"type": "exile_top_of_library", "params": {
+                            "count": 4, "player_selector": "target",
+                        }},
+                        {"type": "bind", "params": {
+                            "name": "mv",
+                            "amount": {"kind": "moved_sum", "characteristic": "mana_value"},
+                            "effects": [{"type": "damage", "params": {
+                                "amount": "$mv", "target_kind": "any",
+                            }}],
+                        }},
+                    ]},
                 }],
             })],
         ),

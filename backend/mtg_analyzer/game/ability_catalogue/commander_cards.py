@@ -3852,10 +3852,8 @@ register("Currency Converter", _currency_converter)
 # Fateful Tempest (council's dilemma) — PAR-60
 # ===========================================================================
 # Reuse of the PAR-29 vote subsystem (`VoteEffect` / `_request_vote` with
-# ``per_vote_specs``). New primitive: `mill_then_damage_each_opponent_by_mv`
-# folds the "mill, then deal damage = total MV milled" pair into one atomic
-# effect (a per-vote-scaled ``count``), avoiding a milled-MV context
-# accumulator for the one card that wants it. The present branch reuses
+# ``per_vote_specs``). The past branch is an ordinary composed mill + bind
+# over the resolution's moved-card batch. The present branch reuses
 # `impulsive_draw`, whose default window is exactly "until the end of your
 # next turn".
 
@@ -3873,8 +3871,16 @@ def _fateful_tempest() -> list[AbilitySpec]:
                 "options": ["past", "present"],
                 "per_vote_specs": [
                     {"option": 0,
-                     "effects": [{"type": "mill_then_damage_each_opponent_by_mv",
-                                  "params": {"count": 1}}],
+                     "effects": [{"type": "seq", "params": {"effects": [
+                         {"type": "mill", "params": {"count": 1}},
+                         {"type": "bind", "params": {
+                             "name": "mv",
+                             "amount": {"kind": "moved_sum", "characteristic": "mana_value"},
+                             "effects": [{"type": "damage", "params": {
+                                 "amount": "$mv", "selector": "each_opponent",
+                             }}],
+                         }},
+                     ]}}],
                      "scale": 1},
                     {"option": 1,
                      "effects": [{"type": "impulsive_draw", "params": {"count": 1}}],

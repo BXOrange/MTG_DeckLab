@@ -82,7 +82,7 @@ its block back into the matching section here.
   amounts.py` is `bind`'s measured-quantity vocabulary, and
   `isa.Classification.COMPOSITION` records axis 3 as existing. Frodo, Sauron's
   Bane is the first card on it (its complementary-conditional pair is now one
-  `if_else`). **Fusion count: 45** (down from the first-pass 84; migrations to
+  `if_else`). **Fusion count: 43** (down from the first-pass 84; migrations to
   the operand/`bind`/`seq` axes and misclassification fixes are catalogued in
   `Done_Backend.md`'s "Fusion retirement" section). What remains is retiring
   the rest, and the reason that is a separate piece of work is measured
@@ -130,9 +130,8 @@ its block back into the matching section here.
 
     | # | Mechanism to build | Clears (approx) | Notes |
     | --- | --- | --- | --- |
-    | **B3** | recipient/amount referent operands. The `*_create_token` slice and Crypt Incursion (`exile_graveyard_creatures_gain_life`) are retired (needed ~no engine code — see `Done_Backend.md`). **Remaining:** a **sum-over-a-list** `effect_amounts` kind (`exile_top_then_damage_by_mv`/`mill_..._by_mv` deal *summed* MV of N moved cards) and a **"the object(s) the previous instruction moved"** referent, plus `copy_object`/`attach` operand wiring. | `create_attached_aura_token`, `create_token_copy_of_linked_exile`, `copy_self_controlled_by_previous_target`, `copy_attachments_onto_last_created`, `exile_top_then_damage_by_mv`, `mill_then_damage_each_opponent_by_mv` (~6) | genuine new vocabulary |
+    | **B3** | recipient/amount referent operands. The `*_create_token` slice, Crypt Incursion (`exile_graveyard_creatures_gain_life`), and the summed-MV exile/mill slice are retired (see `Done_Backend.md`). **Remaining:** previous-moved-object referents plus `copy_object`/`attach` operand wiring. | `create_attached_aura_token`, `create_token_copy_of_linked_exile`, `copy_self_controlled_by_previous_target`, `copy_attachments_onto_last_created` (~4) | genuine new vocabulary |
     | **B5** | **all but one row retired** (batches 9–13): `GameContext.revealed_card`, `reveal_top`/`put_revealed_card`/`cast_revealed_free`, `of: "revealed"`; the `any` combinator, `amount_compare` predicate, `effect_amounts` `trigger_event` kind; `revealed_card` through `composite_optional`; `bind` over `dig_until` (Lukka −2). Retired: Dark Confidant, Thrasios, Goblin Guide (v315), Nissa (v316), Counterbalance + Powerbalance (v317), Lukka −2. **One row left:** `reveal_top_then_creature_and_or_land_battlefield` + its `ojer_kaslem_land_pick` continuation (reveal N, then *two chained* interactive "up to one" picks — a creature and a land — over the same revealed batch). Genuinely CONTINUATION/ENG-35-shaped: needs a plural `revealed_batch` referent that survives a `composite_optional` pause, and two chained `optional`+`choose_objects` bodies. Fold into **B9**'s ENG-35 coordination, or keep as SPECIAL. | `reveal_top_then_creature_and_or_land_battlefield` (1) | `reveal_top_then_transform` folds in (acts on self) |
-    | ~~**B7**~~ | **Retired.** batch 16 `wheel`/`wheel_of_fortune`/`windfall` (`seq`/`bind` over a mass `discard`/`shuffle_hand_and_graveyard_into_library` `scope="each_player"` + a mass `draw` `selector="each_player"`; `DiscardEffect.whole_hand`, `effect_amounts` `resource` `aggregate`, v318); batch 17 `exile_hand_then_draw_that_many` (`bind` over `resource: hand_size` around a new `exile_hand` + `draw`); batch 18 `discard_up_to_then_draw_that_many` (folded into `DiscardEffect`'s `count_max` + `then_draw_discarded` — the interactive "up to N" is `discard`'s own RULE 701.8 prompt, the draw its `then_specs` delta; no new tally needed). `Done_Backend.md`. | — | — |
     | **B9** | coordinate with **ENG-35** + bump `test_isa_inventory`'s `CONTINUATION ≤ 59` / `SPECIAL ≤ 42` pins in the same commit | `taxed_draw`, `exchange_control_then_energy_sacrifice`, `pay_life_equal_to_opponents_combat_damaged_draw_that_many`, `destroy_controller_may_search_basic_land`, `exile_controller_searches_basic_land`, `shuffle_target_graveyard_cards_into_library`, `draw_reveal_cast_one_free`, `remove_counters_from_among_then_draw_lose_life` (~8); plus `haunt` → INSTRUCTION, and the bespoke one-card residue → SPECIAL | these open a `pending_choice`, so they are ENG-35-shaped, not axis-3; the two pins being *exact* is the coordination point |
 
     Internal plumbing (`draw_mill_if_discarded`, `draw_lose_life_counter_
@@ -147,11 +146,11 @@ its block back into the matching section here.
     `create_tokens_per_counter_among_target_player_creatures` — plus
     `<verb>+create_token`/`<verb>+reveal`/`copy`-variant `seq`/`if_else` rows)
     fold into whichever batch's pre-start grep claims them: the `for_each`
-    ones are B7 bodies (or a retired-B4 pronoun body) wrapped in the existing
-    `for_each` node, the rest are B3 (referent) or B5 (revealed-card) once
-    those mechanisms exist. Any
-    row still standing after B3→B9 is a genuine one-card SPECIAL — hand-author
-    and bump the `≤42` pin.
+    ones wrap directly onto the existing `for_each` node (the retired B7/B4
+    wheel/pronoun bodies' own shape), the rest are B3 (referent) or B5
+    (revealed-card) once those mechanisms exist. Any row still standing
+    after B3→B9 is a genuine one-card SPECIAL — hand-author and bump the
+    `≤42` pin.
 
   - **Re-derive before using the count as a target.** Inspection keeps finding
     the classification over-states: `wheel`/`wheel_of_fortune` are `for_each`

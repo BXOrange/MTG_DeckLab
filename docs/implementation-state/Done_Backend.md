@@ -4158,7 +4158,16 @@ evidence is
 
 ### Fusion retirement — parser-side batches (ENG-37, `14_` S3)
 
-Running total: **81 → 45**.
+Running total: **81 → 43**.
+
+- **Batch 22 (B3 summed moved-card amounts, `45 → 43`).** `GameContext`
+  now tracks the exact cards a `mill` or `exile_top_of_library` instruction
+  moved in its current resolution. `effect_amounts`' `moved_sum` measures a
+  characteristic over that batch, so Ensnared by the Mara and Fateful
+  Tempest are ordinary `seq` + `bind` bodies rather than fused effects.
+  Per-vote scaling now recursively reaches composition-node bodies, retaining
+  Fateful Tempest's "for each past vote" count. Retired
+  `exile_top_then_damage_by_mv` and `mill_then_damage_each_opponent_by_mv`.
 
 - **Batch 21 (plan row B6 — `unattach_tap_indestructible`, `46 → 45`, no
   parser change).** Akiri, Fearless Voyager now reads as its actual composed
