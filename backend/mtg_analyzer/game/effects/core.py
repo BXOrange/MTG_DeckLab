@@ -9553,39 +9553,6 @@ class GraveyardToLibraryBottomRandomEffect(GameEffect):
             obj.zone = Zone.LIBRARY
 
 
-class ReturnToHandDrawIfControlledEffect(GameEffect):
-    """"Return target nonland permanent to its owner's hand. If you
-    controlled that permanent, draw a card." (Geistwave-shaped) — a single
-    atomic effect: the draw is conditioned on the target's own controller,
-    read *before* it leaves the battlefield, mirroring
-    Swords to Plowshares' composition (`exile` + `bind`, ENG-37)'s "read something off the target,
-    then act" shape (composing two separate `EffectSpec`s here couldn't
-    check the target's controller after `ReturnToHandEffect` already moved
-    it, the same reason that effect's docstring gives for not splitting its
-    own life-gain out).
-    """
-
-    def __init__(
-        self,
-        target: Any = None,
-        source: Optional["GameObject"] = None,
-        target_kind: str = "nonland_permanent",
-    ) -> None:
-        super().__init__(source)
-        self.target = target
-        self.target_spec = TargetSpec(kind=target_kind)
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        target = (targets[0] if targets else None) or self.target
-        if target is None:
-            return
-        controller = _controller_of(self.source, context)
-        you_controlled_it = controller is not None and target.controller_id == controller.id
-        context.return_to_hand(target)
-        if you_controlled_it and controller is not None:
-            context.draw(controller, 1)
-
-
 class TopUpPlayerCounterToThresholdEffect(GameEffect):
     """"If target player has fewer than N [kind] counters, they get a
     number of [kind] counters equal to the difference." (Vraska,
@@ -23473,12 +23440,6 @@ EffectRegistry.register(
     lambda p: GraveyardToLibraryBottomRandomEffect(
         target=p.get("target"), target_kind=p.get("target_kind", "player"),
         optional=bool(p.get("optional", True)),
-    ),
-)
-EffectRegistry.register(
-    "return_to_hand_draw_if_controlled",  # Geistwave
-    lambda p: ReturnToHandDrawIfControlledEffect(
-        target=p.get("target"), target_kind=p.get("target_kind", "nonland_permanent"),
     ),
 )
 EffectRegistry.register(
