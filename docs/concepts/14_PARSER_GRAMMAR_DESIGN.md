@@ -1,8 +1,8 @@
 # 14 — The atom/composition design: oracle text as a program
 
 **Status:** design, 2026-09-08. **S0, S1 and S2 are implemented** (ENG-34,
-ENG-35, ENG-36, all closed) and **S3's composition axis is shipped** (ENG-37,
-partly — the nodes exist; retiring the fused types is what remains):
+ENG-35, ENG-36, all closed) and **S3 is closed** (ENG-37 — composition nodes
+and fusion retirement):
 `game/isa.py`, `scripts/isa_report.py`, `game/targeting.py`'s
 `TARGET_FRAMES`, `game/continuations.py`, `game/effect_conditions.py`,
 `game/effects/composition.py`, `game/effect_amounts.py`. S4–S5 are still
@@ -310,7 +310,7 @@ earned, recorded so the next stage doesn't inherit them:
   (what this section proposed) is not a sufficient combinator basis for this
   vocabulary.
 
-### S3 — Composite IR nodes — **axis shipped** (ENG-37), retirement remains
+### S3 — Composite IR nodes — **closed** (ENG-37)
 
 `seq` / `if-else` / `optional` / `for_each` / `bind` on `EffectSpec`, with
 `validate()` recursing. Binds onto the nested-spec machinery the engine already
@@ -384,7 +384,7 @@ there. S0 and S1 should move it by **zero** — they are substrate.
 | S0 | every top-50 operation classified + framed; fusion backlog enumerated |
 | S1 | `RulesEngine` method count (254 → target ≤170); suite green |
 | S2 | condition-key count (44 flat → 5 context predicates over 65 shared state ones); peeler cascade removed (15 → 1); `_condition_holds` 554 → 16 lines ✓ |
-| S3 | the five nodes exist and are used ✓; fusion effect types retired, named individually (blocked on axis 4 — see above) |
+| S3 | the five nodes exist and are used ✓; fusion effect types retired ✓ |
 | S4 | Commander-legal coverage; templates-per-blocked-card (**1.12 today**) |
 | S5 | enumerated row count (394 `HANDLERS` + 949 catalogue entries) |
 
