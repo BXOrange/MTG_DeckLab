@@ -8595,3 +8595,11 @@ table, re-measured after each batch.
   passes that total to `create_token`.
 - **Verification:** `tests/test_blight_curse_c5_wave10.py` and
   `tests/test_isa_inventory.py`.
+
+### ENG-37 — Conditional copy reclassified
+
+- **What:** Reclassified `conditional_copy` as the atomic layer-1
+  `create_continuous_effect` alias. Its untapped predicate controls a single
+  continuous-copy instruction; it does not weld two copies or branches.
+- **Verification:** `tests/game/effects/test_continuous_effects.py` and
+  `tests/test_isa_inventory.py`.
