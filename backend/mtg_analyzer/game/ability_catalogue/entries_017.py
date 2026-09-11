@@ -630,10 +630,12 @@ def _ferrafor_young_yew() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("create_tokens_per_counter_among_target_player_creatures", {
-                "power": 1, "toughness": 1, "colors": ["G"], "subtypes": ["Saproling"],
-                "token_name": "Saproling",
-            })],
+            [EffectSpec("bind", {"name": "n", "amount": {
+                "kind": "counters_among_creatures", "of": "target",
+            }, "effects": [{"type": "create_token", "params": {
+                "count": "$n", "power": 1, "toughness": 1, "colors": ["G"],
+                "subtypes": ["Saproling"], "token_name": "Saproling",
+            }}]})],
             trigger={"event": "ENTERS_BATTLEFIELD", "condition": {"subject": "self"}},
         ),
         AbilitySpec(

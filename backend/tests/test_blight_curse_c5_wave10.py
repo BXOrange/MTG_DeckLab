@@ -98,9 +98,11 @@ def test_etb_creates_saprolings_equal_to_counters_among_target_players_creatures
 
     p2 = eng.state.players[1]
     eff = build_effects([EffectSpec(
-        "create_tokens_per_counter_among_target_player_creatures",
-        {"power": 1, "toughness": 1, "colors": ["G"], "subtypes": ["Saproling"],
-         "token_name": "Saproling"},
+        "bind", {"name": "n", "amount": {"kind": "counters_among_creatures", "of": "target"},
+                 "effects": [{"type": "create_token", "params": {
+                     "count": "$n", "power": 1, "toughness": 1, "colors": ["G"],
+                     "subtypes": ["Saproling"], "token_name": "Saproling",
+                 }}]},
     )], ferra)[0]
     before = sum(1 for o in eng.state.battlefield
                  if getattr(o.card, "name", "") == "Saproling")
@@ -120,7 +122,8 @@ def test_etb_creates_nothing_when_target_player_has_no_counters():
                   power=1, toughness=1), "p2")
     p2 = eng.state.players[1]
     eff = build_effects([EffectSpec(
-        "create_tokens_per_counter_among_target_player_creatures", {},
+        "bind", {"name": "n", "amount": {"kind": "counters_among_creatures", "of": "target"},
+                 "effects": [{"type": "create_token", "params": {"count": "$n"}}]},
     )], ferra)[0]
     eff.apply(GameContext(eng.state, eng.rules), targets=[p2])
     saprolings = [o for o in eng.state.battlefield

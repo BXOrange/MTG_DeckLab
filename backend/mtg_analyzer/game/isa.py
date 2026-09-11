@@ -654,7 +654,6 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
     "conditional_copy": (("copy_object", "copy_object"), OP_IF_ELSE),
     "copy_self_if_cast_from_graveyard": (("copy_object", "copy_object"), OP_IF_ELSE),
     "copy_spell_and_bounce": (("copy_object", "move_object"), OP_SEQ),
-    "create_tokens_per_counter_among_target_player_creatures": (("create",), OP_FOR_EACH),
     "damage_then_investigate_if_excess": (("deal_damage", "investigate"), OP_IF_ELSE),
     "destroy_artifacts_enchantments_then_counters": (("destroy", "put_counter"), OP_SEQ),
     "destroy_controller_may_search_basic_land": (("destroy", "search"), OP_OPTIONAL),

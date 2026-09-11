@@ -101,6 +101,8 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         # it", "…for each charge counter on ~". Reads `GameObject.counters`
         # directly (counters aren't a continuous effect), scoped by ``of``.
         "counters",  # + ``counter`` (the counter's name), ``of``
+        # Every kind of counter among creatures controlled by a player.
+        "counters_among_creatures",  # + ``of`` (a player referent)
         # MEC-83 / RULE 702.42a Domain — "for each basic land type among lands
         # you control". Distinct basic land types (RULE 305.6's five) among
         # the ``of`` player's lands; defers to the one selector that already
@@ -228,6 +230,16 @@ def _base(
         if not counter or subject is None:
             return 0
         return int((getattr(subject, "counters", None) or {}).get(counter, 0) or 0)
+
+    if kind == "counters_among_creatures":
+        player_id = getattr(subject, "id", None)
+        if player_id is None:
+            return 0
+        return sum(
+            sum(v for v in (getattr(obj, "counters", None) or {}).values() if v and v > 0)
+            for obj in context.state.battlefield
+            if getattr(obj, "is_creature", False) and obj.controller_id == player_id
+        )
 
     if kind == "domain":  # MEC-83 / RULE 702.42a — distinct basic land types
         from .continuous import count_selector  # function-scoped: import cycle

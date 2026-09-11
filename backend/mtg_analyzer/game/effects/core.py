@@ -25251,17 +25251,6 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    # "Create a number of 1/1 green Saproling creature tokens equal to the
-    # number of counters among creatures target player controls." (Ferrafor
-    # ETB) — see `CreateTokensPerCounterAmongTargetPlayerCreaturesEffect`.
-    "create_tokens_per_counter_among_target_player_creatures",
-    lambda p: CreateTokensPerCounterAmongTargetPlayerCreaturesEffect(
-        power=int(p.get("power", 1)), toughness=int(p.get("toughness", 1)),
-        colors=list(p.get("colors", ["G"])), subtypes=list(p.get("subtypes", ["Saproling"])),
-        token_name=str(p.get("token_name", "Saproling")),
-    ),
-)
-EffectRegistry.register(
     "discover",
     lambda p: DiscoverEffect(mana_value=p.get("mana_value", p.get("amount", 0))),
 )

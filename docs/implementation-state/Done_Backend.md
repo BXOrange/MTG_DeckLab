@@ -8587,3 +8587,11 @@ table, re-measured after each batch.
   mover and `target_kind="created"` is the newly made Kor token.
 - **Verification:** `tests/test_isa_inventory.py` and
   `tests/test_composition_nodes.py`.
+
+### ENG-37 — Counter-total token fusion retired
+
+- **What:** Retired Ferrafor's token-count fusion. `effect_amounts` now
+  measures `counters_among_creatures` for a player referent, and `bind`
+  passes that total to `create_token`.
+- **Verification:** `tests/test_blight_curse_c5_wave10.py` and
+  `tests/test_isa_inventory.py`.
