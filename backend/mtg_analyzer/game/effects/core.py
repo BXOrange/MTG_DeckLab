@@ -23055,10 +23055,6 @@ EffectRegistry.register(
     lambda p: CopyAbilityEffect(),
 )
 EffectRegistry.register(
-    "copy_self_if_cast_from_graveyard",
-    lambda p: CopySelfIfCastFromGraveyardEffect(),
-)
-EffectRegistry.register(
     "copy_self_spell",
     lambda p: CopySelfSpellEffect(controller=p.get("controller")),
 )

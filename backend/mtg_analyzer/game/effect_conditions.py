@@ -138,6 +138,7 @@ CONTEXT_CONDITION_KINDS: frozenset[str] = frozenset(
         # already `True` by the time the trigger resolves; only the event's
         # pre-set value still distinguishes a first exert from a repeat.
         "already_exerted",
+        "source_cast_via_flashback",
         # Cemetery Gatekeeper — the played land/cast spell the firing event
         # names, against the card this source remembered exiling
         # (`GameObject.linked_exile_id`), sharing a RULE 205.2a card type.
@@ -264,6 +265,9 @@ def _context_holds(
     if kind == "already_exerted":
         event = getattr(context, "trigger_event", None) or {}
         return bool(event.get("already_exerted"))
+
+    if kind == "source_cast_via_flashback":
+        return None if source is None else bool(getattr(source, "cast_via_flashback", False))
 
     if kind == "shares_type_with_linked_exile":
         event = getattr(context, "trigger_event", None) or {}

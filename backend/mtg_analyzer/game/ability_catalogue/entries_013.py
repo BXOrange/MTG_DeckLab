@@ -1292,7 +1292,8 @@ def _sevinnes_reclamation() -> list[AbilitySpec]:
                     "target_kind": "graveyard_permanent", "max_mana_value": 3,
                     "destination": "battlefield",
                 }),
-                EffectSpec("copy_self_if_cast_from_graveyard", {}),
+                EffectSpec("if_else", {"condition": {"kind": "source_cast_via_flashback"},
+                            "then": [{"type": "copy_self_spell", "params": {}}], "else": []}),
             ],
         ),
     ]

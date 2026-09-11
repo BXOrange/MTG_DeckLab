@@ -654,7 +654,6 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
     "blink": (("exile", "move_object"), OP_SEQ),
     "cast_graveyard_instant_sorcery_free_exile": (("cast", "exile"), OP_SEQ),
     "collect_evidence_x_then_board_damage": (("collect_evidence", "deal_damage"), OP_SEQ),
-    "copy_self_if_cast_from_graveyard": (("copy_object", "copy_object"), OP_IF_ELSE),
     "copy_spell_and_bounce": (("copy_object", "move_object"), OP_SEQ),
     "damage_then_investigate_if_excess": (("deal_damage", "investigate"), OP_IF_ELSE),
     "destroy_artifacts_enchantments_then_counters": (("destroy", "put_counter"), OP_SEQ),
