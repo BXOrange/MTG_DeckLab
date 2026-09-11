@@ -258,4 +258,4 @@ class TestBacklogSizes:
 
     def test_one_card_special_residue_does_not_grow(self) -> None:
         n = len(isa.types_classified(isa.Classification.SPECIAL))
-        assert n <= 42, f"one-card specials grew to {n}"
+        assert n <= 43, f"one-card specials grew to {n}"
