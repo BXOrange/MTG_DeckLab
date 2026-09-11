@@ -4160,6 +4160,14 @@ evidence is
 
 Running total: **81 → 41**.
 
+- **ENG-37 closed (41 → 0).** The remaining inventory was resolved against
+  the existing primitives rather than retained as synthetic verb pairs:
+  ordinary composed card entries replaced the Geistwave, Narset's Reversal,
+  and Bane of Progress fusions; Haunt is a RULE 702.55 instruction; effects
+  which actually suspend are CONTINUATION rows; and the irreducible
+  card-specific behaviours are honest SPECIAL rows. `_FUSION_TYPES` is now
+  empty and `test_isa_inventory` asserts that as the exit criterion.
+
 - **Batch 24 (B3 linked-exile copy referent, `42 → 41`).** `copy_permanent`
   gained a `linked_exile` referent, consuming the one-shot link after reading
   the still-exiled card. Lazotep Quarry now uses that ordinary copy instruction;
