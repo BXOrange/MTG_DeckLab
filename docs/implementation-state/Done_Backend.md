@@ -4158,7 +4158,12 @@ evidence is
 
 ### Fusion retirement — parser-side batches (ENG-37, `14_` S3)
 
-Running total: **81 → 42**.
+Running total: **81 → 41**.
+
+- **Batch 24 (B3 linked-exile copy referent, `42 → 41`).** `copy_permanent`
+  gained a `linked_exile` referent, consuming the one-shot link after reading
+  the still-exiled card. Lazotep Quarry now uses that ordinary copy instruction;
+  `create_token_copy_of_linked_exile` is retired.
 
 - **Batch 23 (B3 copy controller operand, `43 → 42`).** Chain of Smog uses
   the generic `copy_self_spell` instruction with its copier resolved from

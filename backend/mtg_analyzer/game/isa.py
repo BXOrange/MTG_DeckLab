@@ -656,7 +656,6 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
     "copy_self_if_cast_from_graveyard": (("copy_object", "copy_object"), OP_IF_ELSE),
     "copy_spell_and_bounce": (("copy_object", "move_object"), OP_SEQ),
     "create_attached_aura_token": (("create", "attach"), OP_SEQ),
-    "create_token_copy_of_linked_exile": (("create", "copy_object"), OP_BIND),
     "create_token_may_attach_equipment": (("create", "attach"), OP_OPTIONAL),
     "create_tokens_per_counter_among_target_player_creatures": (("create",), OP_FOR_EACH),
     "damage_then_investigate_if_excess": (("deal_damage", "investigate"), OP_IF_ELSE),

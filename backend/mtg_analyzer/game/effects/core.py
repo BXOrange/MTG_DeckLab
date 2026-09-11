@@ -18771,7 +18771,7 @@ class CopyPermanentEffect(GameEffect):
         #: resolves.
         self.referent = (
             referent
-            if referent in ("source", "previous", "previous_each", "trigger_event")
+            if referent in ("source", "previous", "previous_each", "trigger_event", "linked_exile")
             else "source"
         )
         #: "…except it has haste." (Kiki-Jiki, Mirror Breaker-shaped) — a
@@ -18924,6 +18924,11 @@ class CopyPermanentEffect(GameEffect):
             elif self.referent == "trigger_event":
                 event = context.trigger_event
                 iid = (event or {}).get("instance_id")
+                target = context.state.find_object(iid) if iid is not None else None
+            elif self.referent == "linked_exile":
+                iid = getattr(self.source, "linked_exile_id", None)
+                if self.source is not None:
+                    self.source.linked_exile_id = None
                 target = context.state.find_object(iid) if iid is not None else None
             else:
                 target = self.source
@@ -23451,13 +23456,6 @@ EffectRegistry.register(
     "exile_own_graveyard_card_mana_value_x",
     lambda p: ExileOwnGraveyardCardManaValueXEffect(
         creature_only=bool(p.get("creature_only", True)), then_specs=p.get("then_specs"),
-    ),
-)
-EffectRegistry.register(
-    "create_token_copy_of_linked_exile",
-    lambda p: CreateTokenCopyOfLinkedExileEffect(
-        set_power=p.get("set_power"), set_toughness=p.get("set_toughness"),
-        add_subtypes=p.get("add_subtypes"),
     ),
 )
 EffectRegistry.register(

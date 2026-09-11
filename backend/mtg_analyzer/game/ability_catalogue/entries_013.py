@@ -744,7 +744,8 @@ def _lazotep_quarry() -> list[AbilitySpec]:
             "activated",
             [EffectSpec("exile_own_graveyard_card_mana_value_x", {
                 "then_specs": [
-                    {"type": "create_token_copy_of_linked_exile", "params": {
+                    {"type": "copy_permanent", "params": {
+                        "target_kind": None, "referent": "linked_exile",
                         "set_power": 4, "set_toughness": 4, "add_subtypes": ["Zombie"],
                     }},
                 ],
@@ -1440,4 +1441,3 @@ register("Tymna the Weaver", _tymna_the_weaver)
 # MEC-43: `cEDH staples 2`'s undiagnosed remainder — first batch, near-free
 # reuses of primitives shipped for entirely different cards.
 # ---------------------------------------------------------------------------
-
