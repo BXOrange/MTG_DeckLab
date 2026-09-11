@@ -431,6 +431,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "add_counters_to_trigger_damaged_player": "put_counter",
     "add_player_counters": "put_counter",
     "attach_triggering_permanent": "attach",
+    "unattach": "attach",
     "attacker_creates_attacking_token": "create",
     "become_copy_until_eot": "copy_object",
     "become_prepared": "set_status",
@@ -691,7 +692,6 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
     "shuffle_target_graveyard_cards_into_library": (("move_object", "shuffle"), OP_SEQ),
     "shuffle_target_into_library_reveal_top": (("move_object", "shuffle", "reveal"), OP_SEQ),
     "taxed_draw": (("pay_cost", "draw"), OP_SEQ),
-    "unattach_tap_indestructible": (("attach", "tap", "create_continuous_effect"), OP_SEQ),
 }
 
 #: CONTINUATION — every type that suspends on a player answer. **ENG-35's

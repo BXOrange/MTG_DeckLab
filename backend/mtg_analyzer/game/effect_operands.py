@@ -77,7 +77,9 @@ PLAYER_SCOPES: frozenset[str] = frozenset(
 
 #: Derivations an operand may apply to a resolved referent. Anything else
 #: resolves to nobody.
-REFERENT_DERIVATIONS: frozenset[str] = frozenset({"self", "controller", "owner"})
+REFERENT_DERIVATIONS: frozenset[str] = frozenset(
+    {"self", "controller", "owner", "host"}
+)
 
 
 def _player_by_id(context: "GameContext", player_id: Optional[str]) -> Any:
@@ -101,6 +103,17 @@ def _derive(context: "GameContext", subject: Any, derivation: str) -> Any:
         return None
     if derivation == "self":
         return subject
+    if derivation == "host":
+        # The permanent an Aura/Equipment/Fortification was attached to. A
+        # preceding unattach instruction snapshots this relation because the
+        # live ``attached_to`` link is necessarily gone by the time a rider
+        # says "that creature" (RULE 608.2c).
+        host_id = getattr(subject, "attached_to", None)
+        if host_id is None:
+            host_id = (getattr(context, "attachment_hosts", {}) or {}).get(
+                getattr(subject, "instance_id", None)
+            )
+        return context.state.find_object(host_id) if host_id is not None else None
     if _is_player(subject):
         # "Its controller", asked of a player, is that player: the printed
         # text never says this, but a referent that resolved to a player

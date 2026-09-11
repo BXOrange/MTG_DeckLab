@@ -14,11 +14,7 @@ from __future__ import annotations
 import pytest
 
 from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
-from mtg_analyzer.game.effects.core import (
-    DestroyEffect,
-    UnattachTapIndestructibleEffect,
-    _apply_effects_partitioned,
-)
+from mtg_analyzer.game.effects.core import DestroyEffect, _apply_effects_partitioned
 from mtg_analyzer.parser.oracle.spec import EffectSpec
 from mtg_analyzer.game import continuous
 from mtg_analyzer.models.cards.card import Card
@@ -93,7 +89,15 @@ def test_akiri_second_ability_unattaches_taps_and_grants_indestructible():
     equip = _bound_battlefield_obj(state, _card("Colossus Hammer"))
     equip.attached_to = host.instance_id
 
-    UnattachTapIndestructibleEffect(target=equip).apply(eng.rules.context)
+    effect = build_effects([EffectSpec("optional", {"effects": [
+        {"type": "unattach", "params": {"target_kind": "attached_equipment_you_control"}},
+        {"type": "tap", "params": {"target_kind": None,
+         "target_operand": {"of": "previous_target", "as": "host"}}},
+        {"type": "pump", "params": {"keywords": ["indestructible"], "target_kind": None,
+         "target_operand": {"of": "previous_target", "as": "host"}}},
+    ]})], None)[0]
+    effect.apply(eng.rules.context, [equip])
+    eng.rules.resolve_choice("yes")
 
     assert equip.attached_to is None
     assert host.tapped is True

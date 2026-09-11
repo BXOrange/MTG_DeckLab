@@ -4158,7 +4158,19 @@ evidence is
 
 ### Fusion retirement — parser-side batches (ENG-37, `14_` S3)
 
-Running total: **81 → 46**.
+Running total: **81 → 45**.
+
+- **Batch 21 (plan row B6 — `unattach_tap_indestructible`, `46 → 45`, no
+  parser change).** Akiri, Fearless Voyager now reads as its actual composed
+  ability: `optional([unattach, tap, pump{keywords:[indestructible]}])`.
+  `UnattachEffect` snapshots an attachment's former host for the current
+  resolution, and the operand vocabulary gained `{"of": "previous_target",
+  "as": "host"}`; `TapEffect` and `PumpEffect` consume that non-targeted
+  object operand. This keeps the rider on the creature the chosen Equipment
+  had been attached to after the attachment link is necessarily cleared.
+  `unattach_tap_indestructible` is gone, B6 is fully retired. Tests:
+  `test_composition_nodes.TestOptional.test_unattach_rider_acts_on_the_former_host`
+  and the real-cache Akiri integration test.
 
 - **Batch 20 (plan row B6 — `return_top_graveyard_creature_with_haste`, `47
   → 46`, no parser change).** Corpse Dance ("Return the top creature card of

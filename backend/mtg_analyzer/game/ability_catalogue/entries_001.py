@@ -1214,9 +1214,8 @@ def _akiri_fearless_voyager() -> list[AbilitySpec]:
     once-per-combat one (attacking with 2+ equipped creatures in the same
     combat draws more than the printed one card; see `effect_binder.
     _trigger_condition`'s ``requires_equipped`` for the equipped check).
-    The second ability is `UnattachTapIndestructibleEffect`
-    (`targeting.py`'s ``attached_equipment_you_control`` only offers an
-    Equipment that's actually attached, so there's always a host to act on).
+    The second ability is composition: the optional unattach snapshots the
+    selected Equipment's host as an operand referent for the tap/pump rider.
     """
     return [
         AbilitySpec(
@@ -1227,7 +1226,20 @@ def _akiri_fearless_voyager() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "activated",
-            [EffectSpec("unattach_tap_indestructible", {})],
+            [EffectSpec("optional", {"effects": [
+                {"type": "unattach", "params": {
+                    "target_kind": "attached_equipment_you_control",
+                }},
+                {"type": "tap", "params": {
+                    "target_kind": None,
+                    "target_operand": {"of": "previous_target", "as": "host"},
+                }},
+                {"type": "pump", "params": {
+                    "keywords": ["indestructible"],
+                    "target_kind": None,
+                    "target_operand": {"of": "previous_target", "as": "host"},
+                }},
+            ]})],
             cost={"mana": "{W}"},
         ),
     ]
@@ -1468,4 +1480,3 @@ def _embercleave() -> list[AbilitySpec]:
 
 
 register("Embercleave", _embercleave)
-

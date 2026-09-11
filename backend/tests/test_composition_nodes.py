@@ -234,6 +234,37 @@ class TestOptional:
 
         assert composition.OptionalEffect.CHOICE_KIND in continuations.CHOICE_HANDLERS
 
+    def test_unattach_rider_acts_on_the_former_host(self) -> None:
+        """ENG-37 B6: an operand can follow an attachment relation across a
+        mutation, so Akiri is composition rather than a welded effect."""
+        eng = _engine()
+        host = _creature(eng.state, name="Host")
+        equipment = GameObject(
+            Card(id="equip", name="Equipment", type_line="Artifact — Equipment"),
+            owner_id="p1", zone=Zone.BATTLEFIELD,
+        )
+        equipment.attached_to = host.instance_id
+        eng.state.add_to_battlefield(equipment)
+
+        _run(eng, [EffectSpec("optional", {"effects": [
+            {"type": "unattach", "params": {
+                "target_kind": "attached_equipment_you_control",
+            }},
+            {"type": "tap", "params": {
+                "target_kind": None,
+                "target_operand": {"of": "previous_target", "as": "host"},
+            }},
+            {"type": "pump", "params": {
+                "keywords": ["indestructible"], "target_kind": None,
+                "target_operand": {"of": "previous_target", "as": "host"},
+            }},
+        ]})], targets=[equipment])
+        eng.rules.resolve_choice("yes")
+
+        assert equipment.attached_to is None
+        assert host.tapped is True
+        assert "indestructible" in host.temp_keywords
+
 
 class TestForEach:
     def test_it_runs_once_per_player_in_apnap_order(self) -> None:

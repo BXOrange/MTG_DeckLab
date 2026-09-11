@@ -1145,6 +1145,7 @@ def _apply_effects_partitioned(
     state = getattr(context, "state", None)
     already_pending = getattr(state, "pending_choice", None) if state is not None else None
     outer_previous = getattr(context, "previous_targets", [])
+    outer_attachment_hosts = getattr(context, "attachment_hosts", {})
     outer_created = getattr(context, "created_objects", [])
     outer_life_lost = getattr(context, "life_lost_this_way", 0)
     outer_permanents_destroyed = getattr(context, "permanents_destroyed_this_way", 0)
@@ -1158,6 +1159,7 @@ def _apply_effects_partitioned(
     outer_die_results = getattr(context, "die_results", [])
     outer_rolled_doubles = getattr(context, "rolled_doubles", False)
     context.previous_targets = list(previous_targets or [])
+    context.attachment_hosts = dict(outer_attachment_hosts or {})
     context.created_objects = list(created_objects or [])
     context.life_lost_this_way = life_lost_this_way
     context.permanents_destroyed_this_way = permanents_destroyed_this_way
@@ -1231,6 +1233,7 @@ def _apply_effects_partitioned(
         return False
     finally:
         context.previous_targets = outer_previous
+        context.attachment_hosts = outer_attachment_hosts
         context.created_objects = outer_created
         context.life_lost_this_way = outer_life_lost
         context.permanents_destroyed_this_way = outer_permanents_destroyed
@@ -14646,6 +14649,7 @@ class TapEffect(GameEffect):
         choose_tap_or_untap: bool = False,
         colors: Optional[list[str]] = None,
         count_selector: Optional[str] = None,
+        target_operand: Any = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -14657,6 +14661,10 @@ class TapEffect(GameEffect):
         #: (Tidebinder Mage) — `TargetSpec.colors`' OR narrowing.
         self.colors = tuple(colors) if colors else None
         self.untap = untap
+        #: An object referent rather than a RULE 115 target.  This lets a
+        #: composed rider act on a relation of an earlier choice, e.g. the
+        #: host of the Equipment just unattached by Akiri.
+        self.target_operand = target_operand
         #: "You may tap **or untap** target permanent." (Derevi, Empyrial
         #: Tactician, MEC-42) — a real choice at resolution, layered on top
         #: of RULE 115's own "up to one" target optionality (``optional``
@@ -14701,7 +14709,7 @@ class TapEffect(GameEffect):
             )
             if target_kind is not None and not self._attached_mode
             and not self._trigger_subject_mode and not self._source_mode
-            and self.selector is None and not previous_subject
+            and self.selector is None and not previous_subject and target_operand is None
             else None
         )
 
@@ -14712,6 +14720,13 @@ class TapEffect(GameEffect):
         return "beneficial" if self.untap else "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.target_operand is not None:
+            from ..effect_operands import object_for
+
+            target = object_for(self.target_operand, context, self.source, targets)
+            if target is not None:
+                context.set_tapped(target, tapped=not self.untap)
+            return
         if self.previous_subject:
             for one in list(context.previous_targets):
                 context.set_tapped(one, tapped=not self.untap)
@@ -15219,17 +15234,8 @@ class AttachTriggeringPermanentEffect(GameEffect):
         context.engine.attach_to_target(mover, target)
 
 
-class UnattachTapIndestructibleEffect(GameEffect):
-    """Akiri, Fearless Voyager's own "{W}: You may unattach an Equipment
-    from a creature you control. If you do, tap that creature and it gains
-    indestructible until end of turn."
-
-    ``target_kind="attached_equipment_you_control"`` (`game/targeting.py`)
-    only offers an Equipment that's actually attached, so there's always a
-    host to act on once one is chosen — unlike `AttachEffect`, the effect's
-    own source (Akiri) is neither unattached nor the one gaining
-    indestructible; both happen to the *targeted Equipment*'s host.
-    """
+class UnattachEffect(GameEffect):
+    """Unattach a target Aura, Equipment, or Fortification from its host."""
 
     def __init__(
         self,
@@ -15244,16 +15250,13 @@ class UnattachTapIndestructibleEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         equipment = (targets[0] if targets else None) or self.target
-        if equipment is None:
+        if equipment is None or getattr(equipment, "attached_to", None) is None:
             return
-        host_id = getattr(equipment, "attached_to", None)
-        if host_id is None:
-            return
-        host = context.state.find_object(host_id)
+        # A following composed rider can derive the *former* host from the
+        # selected attachment. The map is scoped to this resolution by
+        # `_apply_effects_partitioned` just like previous_targets.
+        context.attachment_hosts[equipment.instance_id] = equipment.attached_to
         equipment.attached_to = None
-        if host is not None:
-            context.set_tapped(host, True)
-            host.temp_keywords.add("indestructible")
 
 
 class TransformEffect(GameEffect):
@@ -17671,6 +17674,7 @@ class PumpEffect(GameEffect):
         toughness_if_kicked: Optional[int] = None,
         power_if_bargained: Optional[int] = None,
         toughness_if_bargained: Optional[int] = None,
+        target_operand: Any = None,
     ) -> None:
         super().__init__(source)
         #: "target `<c1>` or `<c2>` creature gets/gains … until end of
@@ -17790,7 +17794,8 @@ class PumpEffect(GameEffect):
         self.power_if_bargained = power_if_bargained
         self.toughness_if_bargained = toughness_if_bargained
         self._attached_mode = target_kind == "attached_permanent"
-        if target_kind is not None and not self._attached_mode and not previous_subject:
+        self.target_operand = target_operand
+        if target_kind is not None and not self._attached_mode and not previous_subject and target_operand is None:
             # PAR-15: "any number of target creatures each get +N/+N [and
             # gain `<keyword>`] until end of turn" (Aerial Formation/Ajani's
             # Presence/Colossal Heroics-shaped) — ``count`` > 1 is the same
@@ -17881,6 +17886,14 @@ class PumpEffect(GameEffect):
             )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.target_operand is not None:
+            from ..effect_operands import object_for
+
+            target = object_for(self.target_operand, context, self.source, targets)
+            if target is not None:
+                self._pump_one(target)
+                context.recompute()
+            return
         if self.previous_subject:
             # "it gains haste until end of turn" (PAR-30) — "it" is whatever
             # the *preceding* clause of this resolution chose (RULE 601.2c,
@@ -24606,6 +24619,7 @@ EffectRegistry.register(
         subtypes=p.get("subtypes"),
         choose_tap_or_untap=bool(p.get("choose_tap_or_untap", False)),
         colors=p.get("colors"),
+        target_operand=p.get("target_operand"),
     ),
 )
 EffectRegistry.register(
@@ -24694,8 +24708,8 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    "unattach_tap_indestructible",  # Akiri, Fearless Voyager
-    lambda p: UnattachTapIndestructibleEffect(
+    "unattach",
+    lambda p: UnattachEffect(
         target=p.get("target"),
         target_kind=p.get("target_kind", "attached_equipment_you_control"),
         optional=bool(p.get("optional", True)),
@@ -24854,6 +24868,7 @@ EffectRegistry.register(
         toughness_if_kicked=p.get("toughness_if_kicked"),
         power_if_bargained=p.get("power_if_bargained"),
         toughness_if_bargained=p.get("toughness_if_bargained"),
+        target_operand=p.get("target_operand"),
     ),
 )
 EffectRegistry.register(
