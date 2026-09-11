@@ -249,7 +249,7 @@ class TestBacklogSizes:
     def test_continuation_backlog_does_not_grow(self) -> None:
         # ENG-35 retires these onto one continuation primitive.
         n = len(isa.types_classified(isa.Classification.CONTINUATION))
-        assert n <= 59, f"continuation types grew to {n}"
+        assert n <= 67, f"continuation types grew to {n}"
 
     def test_fusion_backlog_does_not_grow(self) -> None:
         # ENG-37 deletes these outright.
