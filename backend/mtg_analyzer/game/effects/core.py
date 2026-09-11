@@ -15184,9 +15184,15 @@ class AttachEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_kind: str = "permanent",
         creature_filter: Optional[dict[str, Any]] = None,
+        mover: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: A following clause can attach the token it just made rather than
+        #: this ability's source: "create an Aura token … attached to target
+        #: creature" (Scriv, the Obligator).  This is deliberately a narrow
+        #: RULE 608.2 pronoun, matching `target_kind="created"` above.
+        self.mover = mover if mover == "created" else None
         self._created_mode = target_kind == "created"
         if not self._created_mode:
             # "Equip commander {N}" (RULE 702.6e, Commander's Plate,
@@ -15203,9 +15209,13 @@ class AttachEffect(GameEffect):
             target = created[-1] if created else None
         else:
             target = (targets[0] if targets else None) or self.target
-        if target is None or self.source is None:
+        mover = self.source
+        if self.mover == "created":
+            created = getattr(context, "created_objects", None)
+            mover = created[-1] if created else None
+        if target is None or mover is None:
             return
-        context.engine.attach_to_target(self.source, target)
+        context.engine.attach_to_target(mover, target)
 
 
 class AttachTriggeringPermanentEffect(GameEffect):
@@ -18366,6 +18376,7 @@ class CreateTokenEffect(GameEffect):
         per_opponent: bool = False,
         token_dies_gain_life: Optional[int] = None,
         x_multiplier: Optional[int] = None,
+        oracle_text: str = "",
     ) -> None:
         super().__init__(source)
         #: "Create **twice X** … tokens" (Pest Infestation, PAR-60) — the
@@ -18403,6 +18414,11 @@ class CreateTokenEffect(GameEffect):
         self.grant_self_anthem = dict(grant_self_anthem) if grant_self_anthem else None
         self.count = count
         self.token_name = token_name
+        #: Inline rules text makes this a specifically-authored token rather
+        #: than a lookup of a same-named curated token.  In particular, an
+        #: Aura token needs its printed "Enchant creature" text to bind its
+        #: attachment keyword before a following `attach` clause resolves.
+        self.oracle_text = oracle_text
         self.power = power
         self.toughness = toughness
         self.colors = colors or []
@@ -18554,7 +18570,7 @@ class CreateTokenEffect(GameEffect):
         card = None
         # A bare named token (no inline stats) → the curated catalogue, so it
         # keeps its printed abilities. Inline stats always synthesize.
-        if self.token_name and power is None and toughness is None:
+        if self.token_name and power is None and toughness is None and not self.oracle_text:
             card = default_token_database().get_token(self.token_name)
         if card is None:
             card = synthesize_token_card(
@@ -18564,6 +18580,7 @@ class CreateTokenEffect(GameEffect):
                 colors=self.colors,
                 subtypes=self.subtypes,
                 keywords=self.keywords,
+                oracle_text=self.oracle_text,
                 legendary=self.legendary,
                 is_artifact=self.is_artifact,
             )
@@ -24676,6 +24693,7 @@ EffectRegistry.register(
         target=p.get("target"),
         target_kind=p.get("target_kind", "permanent"),
         creature_filter=p.get("creature_filter"),
+        mover=p.get("mover"),
     ),
 )
 EffectRegistry.register(
@@ -24963,6 +24981,7 @@ EffectRegistry.register(
         per_opponent=bool(p.get("per_opponent", False)),
         token_dies_gain_life=p.get("token_dies_gain_life"),
         x_multiplier=p.get("x_multiplier"),
+        oracle_text=str(p.get("oracle_text", "")),
     ),
 )
 EffectRegistry.register(
@@ -24970,16 +24989,6 @@ EffectRegistry.register(
     # copy of it attached to <the token just created>." (Stangg, Echo Warrior)
     "copy_attachments_onto_last_created",
     lambda p: CopyAttachmentsOntoLastCreatedEffect(),
-)
-EffectRegistry.register(
-    # "Create a <colors> Aura enchantment token named <name> attached to
-    # target creature <...>." (Scriv, the Obligator's "Contract", PAR-60)
-    "create_attached_aura_token",
-    lambda p: CreateAttachedAuraTokenEffect(
-        token_name=str(p.get("token_name", "Aura")),
-        colors=list(p.get("colors", [])),
-        target_kind=str(p.get("target_kind", "creature_you_dont_control")),
-    ),
 )
 EffectRegistry.register(
     # "Create a token that's a copy of <a specific named real card>"

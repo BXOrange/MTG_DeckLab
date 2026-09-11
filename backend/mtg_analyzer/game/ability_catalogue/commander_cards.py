@@ -4052,7 +4052,7 @@ register("Gift of Immortality", _gift_of_immortality)
 # ===========================================================================
 # Scriv, the Obligator (Aura token with a quoted ability) — PAR-60
 # ===========================================================================
-# New `create_attached_aura_token` effect (create + RULE 115 attach); the
+# Composed `create_token` + `attach` effects (RULE 115); the
 # token's quoted ability is authored under its token name ("Contract"),
 # picked up by the `bind_from_catalogue` `create_token` already runs. The
 # quoted ability reuses `LoseLifeEffect` ``selector="attached_permanent_
@@ -4082,10 +4082,15 @@ def _scriv_the_obligator() -> list[AbilitySpec]:
     """Flying, deathtouch (fold in).
     Whenever Scriv enters or attacks, create a white Aura enchantment token
     named Contract attached to target creature an opponent controls."""
-    make = EffectSpec("create_attached_aura_token", {
-        "token_name": "Contract", "colors": ["W"],
-        "target_kind": "creature_you_dont_control",
-    })
+    make = EffectSpec("seq", {"effects": [
+        {"type": "create_token", "params": {
+            "token_name": "Contract", "colors": ["W"], "subtypes": ["Aura"],
+            "oracle_text": "Enchant creature",
+        }},
+        {"type": "attach", "params": {
+            "mover": "created", "target_kind": "creature_you_dont_control",
+        }},
+    ]})
     return [
         AbilitySpec(
             "triggered", [make],

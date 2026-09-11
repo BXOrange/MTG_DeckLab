@@ -8557,3 +8557,13 @@ table, re-measured after each batch.
 - **Verification:** `tests/test_mec67_teamwork.py`, modal-choice regressions,
   and a live Go Nuts! legal-action inspection pass. PAR-56 remains open for
   the unrelated unmodelled Teamwork card-body/rider grammar.
+### ENG-37 B3 — Attached Aura-token fusion retired
+
+- **What:** Retired `create_attached_aura_token` by composing `create_token`
+  and `attach`. `CreateTokenEffect.oracle_text` preserves the authored
+  token's `Enchant creature` text (and therefore its bound Aura attachment
+  keyword), while `AttachEffect.mover="created"` resolves RULE 608.2's
+  immediately-created-token referent. Scriv's Contract now uses that
+  composition directly.
+- **Verification:** `tests/game/catalogue/cards/test_scriv_the_obligator.py`
+  and `tests/test_isa_inventory.py`.
