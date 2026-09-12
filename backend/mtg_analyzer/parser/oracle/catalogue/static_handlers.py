@@ -103,7 +103,7 @@ _GRANTABLE_TRIGGER_EVENTS = frozenset(
 #: composes onto the re-granted trigger's condition.
 _REGRANT_PASSTHROUGH_TRIGGER_KEYS = frozenset(
     {"attacked_player_has_lowest_life", "spell_from_exile",
-     "spell_shares_creature_type_with_source"}
+     "spell_shares_creature_type_with_source", "spell_exclude_card_types"}
 )
 
 #: MEC-55: inner-static `affects` scopes that can't be re-granted to a
@@ -1763,12 +1763,32 @@ _ATTACHED_QUOTED_ANTHEM_GRANT_RE = re.compile(
     r'and has "(?P<inner>.+)"',
     re.IGNORECASE | re.DOTALL,
 )
+_ATTACHED_QUOTED_ANTHEM_GRANT_AND_TYPE_RE = re.compile(
+    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+),? '
+    r'has "(?P<inner>.+)"(?:,)? and is an? (?P<subtype>[a-z-]+) '
+    r'in addition to its other types\.?',
+    re.IGNORECASE | re.DOTALL,
+)
+_ATTACHED_ANTHEM_KEYWORD_AND_QUOTED_GRANT_RE = re.compile(
+    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+)(?:,| and) '
+    r'has (?P<keywords>[a-z, ]+?) and "(?P<inner>.+)"',
+    re.IGNORECASE | re.DOTALL,
+)
+_ATTACHED_KEYWORD_AND_QUOTED_GRANT_RE = re.compile(
+    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has (?P<keywords>[a-z, ]+?) and "(?P<inner>.+)"',
+    re.IGNORECASE | re.DOTALL,
+)
 _ATTACHED_QUOTED_GRANT_RE = re.compile(
     rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has "(?P<inner>.+)"',
     re.IGNORECASE | re.DOTALL,
 )
 _ATTACHED_DOUBLE_QUOTED_GRANT_RE = re.compile(
     rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has "(?P<first>.+)" and "(?P<second>.+)"',
+    re.IGNORECASE | re.DOTALL,
+)
+_ATTACHED_QUOTED_GRANT_AND_TYPE_RE = re.compile(
+    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has "(?P<inner>.+)" '
+    r'and is an? (?P<subtype>[a-z-]+) in addition to its other types',
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -1902,6 +1922,26 @@ def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]
     ability, or a bare `{T}: Add <mana>` mana ability (see the module
     comment above `_ATTACHED_QUOTED_GRANT_RE`)."""
     from ..segmenter import segment_line  # lazy: segmenter imports this module
+
+    # A quotation embedded before a following static clause is commonly
+    # written as `has "…," and is …` (Black Mage's Rod).  That comma belongs
+    # to the outer English list, not the granted ability, and would otherwise
+    # make the recursive effect-body parse fail closed.
+    inner = inner.rstrip(" ,.;")
+
+    # RULE 702.24: this is a cost-bearing keyword, not a numeric parametric
+    # keyword, so it cannot use the ordinary `parametric_keywords` grant
+    # path.  Layer 6 rebuilds its existing keyword trigger per host.
+    cumulative = re.fullmatch(
+        r"cumulative upkeep(?:—|\s+)(?P<cost>.+?)\.?", inner.strip(), re.IGNORECASE
+    )
+    if cumulative is not None:
+        cost = cumulative.group("cost").strip()
+        if cost:
+            return [EffectSpec("grant_keyword", {
+                "cumulative_upkeep_cost": cost,
+                "affects": "attached_permanent",
+            })]
 
     mana = _granted_mana_options(inner)
     if mana is not None:
@@ -3911,6 +3951,45 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             *grants,
         ]
 
+    m = _ATTACHED_QUOTED_ANTHEM_GRANT_AND_TYPE_RE.fullmatch(text)
+    if m is not None:
+        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        if grants is None:
+            return None
+        return [
+            EffectSpec("anthem", {"power": int(m.group("p")), "toughness": int(m.group("t")),
+                                   "affects": "attached_permanent"}),
+            EffectSpec("type_change", {
+                "affects": "attached_permanent",
+                "add_subtypes": [m.group("subtype").capitalize()],
+            }),
+            *grants,
+        ]
+
+    m = _ATTACHED_ANTHEM_KEYWORD_AND_QUOTED_GRANT_RE.fullmatch(text)
+    if m is not None:
+        keywords = _flag_keywords(m.group("keywords"))
+        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        if keywords is None or grants is None:
+            return None
+        return [
+            EffectSpec("anthem", {"power": int(m.group("p")), "toughness": int(m.group("t")),
+                                   "affects": "attached_permanent"}),
+            EffectSpec("grant_keyword", {"keywords": keywords, "affects": "attached_permanent"}),
+            *grants,
+        ]
+
+    m = _ATTACHED_KEYWORD_AND_QUOTED_GRANT_RE.fullmatch(text)
+    if m is not None:
+        keywords = _flag_keywords(m.group("keywords"))
+        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        if keywords is None or grants is None:
+            return None
+        return [
+            EffectSpec("grant_keyword", {"keywords": keywords, "affects": "attached_permanent"}),
+            *grants,
+        ]
+
     m = _ATTACHED_DOUBLE_QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
         first = _quoted_ability_grant_effects_list(m.group("first"))
@@ -3918,6 +3997,19 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         if first is None or second is None:
             return None
         return [*first, *second]
+
+    m = _ATTACHED_QUOTED_GRANT_AND_TYPE_RE.fullmatch(text)
+    if m is not None:
+        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        if grants is None:
+            return None
+        return [
+            EffectSpec("type_change", {
+                "affects": "attached_permanent",
+                "add_subtypes": [m.group("subtype").capitalize()],
+            }),
+            *grants,
+        ]
 
     m = _ATTACHED_QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:

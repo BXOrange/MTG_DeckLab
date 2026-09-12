@@ -309,6 +309,9 @@ class GameObject:
         #: back by `continuous.count_selector`'s ``"sacrificed_cost_power"``
         #: entry.
         self.sacrificed_cost_power: Optional[int] = None
+        #: The toughness sibling, retained as last-known information for an
+        #: activated ability whose sacrifice cost names it (Animal Boneyard).
+        self.sacrificed_cost_toughness: Optional[int] = None
         #: RULE 702.184a/721 Station: the power of the single other creature
         #: tapped to pay this permanent's own Station cost — the exact-one-
         #: creature sibling of `sacrificed_cost_power` above, stamped fresh

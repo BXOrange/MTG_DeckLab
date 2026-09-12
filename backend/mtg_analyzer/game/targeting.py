@@ -49,6 +49,9 @@ _GRAVEYARD_SCOPE_PREFIXES: dict[str, str] = {
 _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     "card": lambda o: True,
     "creature": lambda o: o.is_creature,
+    "attacking_or_blocking_creature": lambda o: (
+        o.is_creature and (o.attacking or o.blocking is not None)
+    ),
     "land": lambda o: o.is_land,
     "artifact": lambda o: bool(o.card.is_artifact),
     "enchantment": lambda o: bool(o.card.is_enchantment),
@@ -116,7 +119,7 @@ _ENCHANT_QUALITY_PREDICATES: dict[str, Any] = {
 
 ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
     {
-        "any", "creature", "creature_blocking_source", "permanent", "player", "spell",
+        "any", "creature", "attacking_or_blocking_creature", "creature_blocking_source", "permanent", "player", "spell",
         # RULE 702.165a Backup — "target creature" that explicitly includes
         # the source itself (PAR-26); the plain `creature` branch minus its
         # RULE 115.6-style self-exclusion.
@@ -161,6 +164,7 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # "target creature you **don't** control" (Archdruid's Charm's second
         # mode) — the mirror image of `creature_you_control`.
         "creature_you_dont_control",
+        "werewolf_creature",
         "creature_defending_player_controls",
         # "target artifact you don't control" (Vandalblast) — the same
         # mirror-image shape as `creature_you_dont_control`, for artifacts.
@@ -876,6 +880,10 @@ def _fp_subtype(o: "GameObject", word: str) -> bool:
 _FRAME_TYPE_PREDICATES: dict[str, Any] = {
     "permanent": lambda o: True,
     "creature": lambda o: o.is_creature,
+    "attacking_or_blocking_creature": lambda o: (
+        o.is_creature and (o.attacking or o.blocking is not None)
+    ),
+    "werewolf_creature": lambda o: o.is_creature and _fp_subtype(o, "werewolf"),
     "land": lambda o: o.is_land,
     "artifact": lambda o: bool(o.card.is_artifact),
     "enchantment": lambda o: bool(o.card.is_enchantment),
@@ -994,6 +1002,8 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     "creature_you_dont_control": TargetFrame(
         "creature", SCOPE_NOT_YOU, exclude_source=False,
         apply_creature_filter=True),
+    "werewolf_creature": TargetFrame("werewolf_creature", apply_creature_filter=True),
+    "attacking_or_blocking_creature": TargetFrame("attacking_or_blocking_creature"),
     "artifact_you_dont_control": TargetFrame(
         "artifact", SCOPE_NOT_YOU, exclude_source=False),
     "land_you_dont_control": TargetFrame(
@@ -1415,7 +1425,7 @@ def legal_targets(
         ]
         players = [{"player_id": p.id, "name": p.name} for p in state.living_players()]
         return objs + other_permanents + (players if not (spec.color or spec.colors) else [])
-    if kind in ("creature", "permanent", "creature_including_self"):
+    if kind in ("creature", "permanent", "creature_including_self", "attacking_or_blocking_creature"):
         # RULE 702.165a Backup — "put N +1/+1 counters on target creature"
         # explicitly *may* target the source itself (the common line: it
         # enters alone). `"creature_including_self"` is the plain `creature`
@@ -1429,6 +1439,7 @@ def legal_targets(
             {"instance_id": o.instance_id, "name": o.name, "controller_id": o.controller_id}
             for o in state.permanents()
             if (not want_creature or o.is_creature)
+            and (kind != "attacking_or_blocking_creature" or o.attacking or o.blocking is not None)
             and (allow_self or o is not source)
             and _targetable_by(o, source)
             and _color_ok(spec, o.colors)

@@ -334,6 +334,12 @@ def regrant_trigger_gate_predicate(
         return attacked_player_lowest_life_predicate(controller_id)
     if key == "spell_from_exile":
         return lambda event, context: bool((event or {}).get("from_exile"))
+    if key == "spell_exclude_card_types":
+        def _not_creature_spell(event: Any, context: Any) -> bool:
+            state = getattr(context, "state", None)
+            spell = state.find_object((event or {}).get("instance_id")) if state is not None else None
+            return spell is not None and not bool(getattr(spell, "is_creature", False))
+        return _not_creature_spell
     if key == "spell_shares_creature_type_with_source":
         def _shares(event: Any, context: Any, src=source) -> bool:
             state = getattr(context, "state", None)

@@ -633,6 +633,106 @@ def test_grasp_of_the_hieromancer_quoted_attack_tap_uses_defending_player_scope(
     }]
 
 
+def test_elemental_mastery_quoted_x_tokens_use_the_hosts_live_power():
+    card = Card(
+        id="elemental-mastery", name="Elemental Mastery", type_line="Enchantment — Aura",
+        oracle_text='Enchant creature\nEnchanted creature has "{T}: Create X 1/1 red Elemental creature tokens with haste, where X is this creature\'s power. Exile them at the beginning of the next end step."',
+    )
+    assert parse_oracle(card).coverage != UNMODELED
+    specs = static_effect_specs(
+        'enchanted creature has "{t}: create x 1/1 red elemental creature tokens with haste, where x is ~\'s power. exile them at the beginning of the next end step."'
+    )
+    assert specs is not None
+    assert specs[0].params["grant_effects"][0] == {
+        "type": "create_token", "params": {
+            "token_name": "Elemental", "power": 1, "toughness": 1, "colors": ["R"], "subtypes": ["Elemental"],
+            "keywords": ["haste"], "count_selector": "source_power",
+        },
+    }
+
+
+def test_animal_boneyard_quoted_sacrifice_uses_sacrificed_toughness():
+    card = Card(
+        id="animal-boneyard", name="Animal Boneyard", type_line="Enchantment — Aura",
+        oracle_text='Enchant land\nEnchanted land has "{T}, Sacrifice a creature: You gain life equal to the sacrificed creature\'s toughness."',
+    )
+    assert parse_oracle(card).coverage != UNMODELED
+    specs = static_effect_specs(
+        'enchanted land has "{t}, sacrifice a creature: you gain life equal to the sacrificed creature\'s toughness."'
+    )
+    assert specs is not None
+    assert specs[0].params["grant_effects"] == [{
+        "type": "gain_life", "params": {"count_selector": "sacrificed_cost_toughness"},
+    }]
+
+
+def test_mana_chains_quoted_cumulative_upkeep_is_granted_as_a_live_keyword():
+    card = Card(
+        id="mana-chains", name="Mana Chains", type_line="Enchantment — Aura",
+        oracle_text='Enchant creature\nEnchanted creature has "Cumulative upkeep {1}."',
+    )
+    assert parse_oracle(card).coverage != UNMODELED
+    specs = static_effect_specs('enchanted creature has "cumulative upkeep {1}."')
+    assert specs is not None
+    assert specs[0].params == {
+        "cumulative_upkeep_cost": "{1}", "affects": "attached_permanent",
+    }
+
+    _, state, _ = _rules()
+    host = _bf(state, Card(id="host", name="Host", type_line="Creature", is_creature=True))
+    aura = _bf(state, card)
+    bind_from_catalogue(aura)
+    aura.attached_to = host.instance_id
+    continuous.recompute(state)
+    assert any("cumulative upkeep" in (a.description or "").lower()
+               for a in host.granted_triggered_abilities)
+
+
+def test_wolfhunters_quiver_quoted_werewolf_damage_uses_a_subtype_target():
+    card = Card(
+        id="quiver", name="Wolfhunter's Quiver", type_line="Artifact — Equipment",
+        oracle_text='Equipped creature has "{T}: This creature deals 1 damage to any target" and "{T}: This creature deals 3 damage to target Werewolf creature."\nEquip {5}',
+    )
+    assert parse_oracle(card).coverage != UNMODELED
+    specs = static_effect_specs(
+        'equipped creature has "{t}: ~ deals 1 damage to any target" and "{t}: ~ deals 3 damage to target werewolf creature."'
+    )
+    assert specs is not None
+    assert specs[1].params["grant_effects"] == [{
+        "type": "damage", "params": {"amount": 3, "target_kind": "werewolf_creature"},
+    }]
+
+
+def test_red_mages_rapier_quoted_trigger_and_wizard_type_are_both_granted():
+    card = Card(
+        id="rapier", name="Red Mage's Rapier", type_line="Artifact — Equipment",
+        oracle_text='Equipped creature has "Whenever you cast a noncreature spell, this creature gets +2/+0 until end of turn" and is a Wizard in addition to its other types.\nEquip {3}',
+    )
+    assert parse_oracle(card).coverage != UNMODELED
+    specs = static_effect_specs(
+        'equipped creature has "whenever you cast a noncreature spell, ~ gets +2/+0 until end of turn" and is a wizard in addition to its other types'
+    )
+    assert specs is not None
+    assert specs[0].params == {"affects": "attached_permanent", "add_subtypes": ["Wizard"]}
+    assert specs[1].params["spell_exclude_card_types"] == ["creature"]
+
+
+def test_idolized_quoted_attack_alone_pump_counts_nonland_permanents():
+    card = Card(
+        id="idolized", name="Idolized", type_line="Enchantment — Aura",
+        oracle_text='Enchant creature\nEnchanted creature has "Whenever this creature attacks alone, it gets +X/+X until end of turn, where X is the number of nonland permanents you control."',
+    )
+    assert parse_oracle(card).coverage != UNMODELED
+    specs = static_effect_specs(
+        'enchanted creature has "whenever ~ attacks alone, it gets +x/+x until end of turn, where x is the number of nonland permanents you control."'
+    )
+    assert specs is not None
+    assert specs[0].params["grant_effects"] == [{
+        "type": "pump", "params": {"power": 0, "toughness": 0,
+        "amount_from_count_selector": "nonland_permanents_you_control"},
+    }]
+
+
 def test_well_rested_quoted_untapped_trigger_is_regranted_once_per_turn():
     card = Card(
         id="well-rested", name="Well Rested", type_line="Enchantment — Aura",
@@ -651,6 +751,135 @@ def test_well_rested_quoted_untapped_trigger_is_regranted_once_per_turn():
     assert specs is not None
     assert specs[0].params["trigger_event"] == "UNTAPPED"
     assert specs[0].params["once_per_turn"] is True
+
+
+def test_bear_umbra_quoted_attack_trigger_untaps_all_of_its_controllers_lands():
+    card = Card(
+        id="bear-umbra", name="Bear Umbra", type_line="Enchantment — Aura",
+        oracle_text='Enchant creature\nEnchanted creature gets +2/+2 and has "Whenever this creature attacks, untap all lands you control."',
+    )
+    assert parse_oracle(card).coverage != UNMODELED
+    specs = static_effect_specs(
+        'enchanted creature gets +2/+2 and has "whenever ~ attacks, untap all lands you control."'
+    )
+    assert specs is not None
+    assert specs[1].params["grant_effects"] == [{
+        "type": "tap", "params": {"selector": "lands_you_control", "untap": True},
+    }]
+
+    engine, state, _ = _rules()
+    host = _bf(state, Card(id="host", name="Host", type_line="Creature", is_creature=True))
+    mine = _bf(state, Card(id="mine", name="Mine", type_line="Land", is_land=True))
+    theirs = _bf(state, Card(id="theirs", name="Theirs", type_line="Land", is_land=True), controller="p2")
+    mine.tapped = theirs.tapped = True
+    from mtg_analyzer.game.effects.registry import EffectRegistry
+    effect = EffectRegistry.create("tap", {"selector": "lands_you_control", "untap": True})
+    effect.source = host
+    effect.apply(GameContext(state, engine))
+    assert mine.tapped is False
+    assert theirs.tapped is True
+
+
+def test_black_mages_rod_combines_anthem_quoted_trigger_and_subtype_grant():
+    card = Card(
+        id="black-mages-rod", name="Black Mage's Rod", type_line="Artifact — Equipment",
+        oracle_text=(
+            'Equipped creature gets +1/+0, has "Whenever you cast a noncreature spell, '
+            'this creature deals 1 damage to each opponent," and is a Wizard in addition to its other types.\nEquip {3}'
+        ),
+    )
+    assert parse_oracle(card).coverage != UNMODELED
+    specs = static_effect_specs(
+        'equipped creature gets +1/+0, has "whenever you cast a noncreature spell, '
+        '~ deals 1 damage to each opponent," and is a wizard in addition to its other types'
+    )
+    assert specs is not None
+    assert [spec.type for spec in specs] == ["anthem", "type_change", "grant_triggered_ability"]
+    assert specs[2].params["spell_exclude_card_types"] == ["creature"]
+
+
+def test_avarice_amulet_combines_anthem_keyword_and_quoted_upkeep_trigger():
+    card = Card(
+        id="avarice-amulet", name="Avarice Amulet", type_line="Artifact — Equipment",
+        oracle_text='Equipped creature gets +2/+0 and has vigilance and "At the beginning of your upkeep, draw a card."\nEquip {2}',
+    )
+    assert parse_oracle(card).coverage != UNMODELED
+    specs = static_effect_specs(
+        'equipped creature gets +2/+0 and has vigilance and "at the beginning of your upkeep, draw a card."'
+    )
+    assert specs is not None
+    assert [spec.type for spec in specs] == ["anthem", "grant_keyword", "grant_triggered_ability"]
+    assert specs[2].params["trigger_event"] == "STEP_BEGIN"
+
+
+def test_cathars_call_combines_keyword_and_quoted_end_step_trigger():
+    card = Card(
+        id="cathars-call", name="Cathar's Call", type_line="Enchantment — Aura",
+        oracle_text='Enchant creature\nEnchanted creature has vigilance and "At the beginning of your end step, create a 1/1 white Human creature token."',
+    )
+    assert parse_oracle(card).coverage != UNMODELED
+    specs = static_effect_specs(
+        'enchanted creature has vigilance and "at the beginning of your end step, create a 1/1 white human creature token."'
+    )
+    assert specs is not None
+    assert [spec.type for spec in specs] == ["grant_keyword", "grant_triggered_ability"]
+    assert specs[1].params["trigger_event"] == "STEP_BEGIN"
+
+
+def test_archery_training_quoted_damage_reads_its_arrow_counters_and_combat_target():
+    card = Card(
+        id="archery-training", name="Archery Training", type_line="Enchantment — Aura",
+        oracle_text=(
+            'Enchant creature\nAt the beginning of your upkeep, you may put an arrow counter on this Aura.\n'
+            'Enchanted creature has "{T}: This creature deals X damage to target attacking or blocking creature, '
+            'where X is the number of arrow counters on Archery Training."'
+        ),
+    )
+    assert parse_oracle(card).coverage != UNMODELED
+    specs = static_effect_specs(
+        'enchanted creature has "{t}: ~ deals x damage to target attacking or blocking creature, '
+        'where x is the number of arrow counters on ~."'
+    )
+    assert specs is not None
+    damage = specs[0].params["grant_effects"][0]
+    assert damage == {"type": "damage", "params": {
+        "target_kind": "attacking_or_blocking_creature", "amount_from_count_selector": "source_arrow_counters",
+    }}
+
+    engine, state, _ = _rules()
+    source = _bf(state, Card(id="source", name="Source", type_line="Creature", is_creature=True))
+    attacker = _bf(state, Card(id="attacker", name="Attacker", type_line="Creature", is_creature=True), controller="p2")
+    idle = _bf(state, Card(id="idle", name="Idle", type_line="Creature", is_creature=True), controller="p2")
+    attacker.attacking = True
+    source.counters["arrow"] = 3
+    options = legal_targets(state, "p1", TargetSpec(kind="attacking_or_blocking_creature"), source=source)
+    assert [option["instance_id"] for option in options] == [attacker.instance_id]
+    from mtg_analyzer.game.effects.registry import EffectRegistry
+    effect = EffectRegistry.create("damage", damage["params"])
+    effect.source = source
+    effect.apply(GameContext(state, engine), [attacker])
+    assert attacker.damage_marked == 3 and idle.damage_marked == 0
+
+
+def test_combat_target_vocabulary_is_reusable_by_destroy_effects():
+    assert parse_effect_body("destroy target attacking or blocking creature") == [
+        EffectSpec("destroy", {"target_kind": "attacking_or_blocking_creature"})
+    ]
+
+
+def test_lotus_ring_quoted_mana_ability_keeps_its_three_mana_choice():
+    card = Card(
+        id="lotus-ring", name="Lotus Ring", type_line="Artifact — Equipment",
+        oracle_text='Equipped creature gets +3/+3 and has vigilance and "{T}, Sacrifice Lotus Ring: Add 3 mana of any one color."',
+    )
+    assert parse_oracle(card).coverage != UNMODELED
+    specs = static_effect_specs(
+        'equipped creature gets +3/+3 and has vigilance and "{t}, sacrifice ~: add 3 mana of any one color."'
+    )
+    assert specs is not None
+    assert specs[2].params["grant_effects"] == [{
+        "type": "add_mana", "params": {"colors": ["any"], "amount": 3},
+    }]
 
 
 def test_real_cards_modeled():

@@ -2731,6 +2731,18 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: "same mana value as the revealed card" vs the SPELL_CAST event), and
 #: `spec.py`'s `_AMOUNT_SPEC_FIELDS` learned its `field` key. Vocabulary
 #: only - no card's verdict moves - but the parser source hash follows.
+#: v354 - PAR-33: attacking-or-blocking creature targets work across effects.
+#: v353 - PAR-33: quoted grants support counter-scaled combat damage.
+#: v352 - PAR-33: quoted grants can follow attached-permanent keywords.
+#: v351 - PAR-33: quoted anthem grants can combine a keyword and trigger.
+#: v350 - PAR-33: quoted anthem grants can also add a subtype.
+#: v349 - PAR-33: quoted grants can untap all lands their controller controls.
+#: v348 - PAR-33: quoted attack-alone pumps can count nonland permanents.
+#: v347 - PAR-33: quoted grants can add a subtype alongside a spell-cast trigger.
+#: v346 - PAR-33: quoted grants can target a Werewolf creature.
+#: v345 - PAR-33: quoted cumulative upkeep grants synthesize a live upkeep trigger.
+#: v344 - PAR-33: quoted sacrifice grants can use sacrificed toughness.
+#: v343 - PAR-33: quoted grants can create X hasty tokens from the host's power.
 #: v342 - PAR-33: quoted attack grants can target a defending player's creature.
 #: v341 - PAR-33: an attached object can grant two separately quoted abilities.
 #: v340 - PAR-33: quoted grants can create hasty self-copy tokens and exile them.
@@ -2789,7 +2801,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (Windfall), and `spec.py`'s `_AMOUNT_SPEC_FIELDS` learned the `aggregate`
 #: key. Vocabulary only - no parser handler emits it yet, no card's verdict
 #: moves - but the parser source hash follows.
-PARSER_VERSION = "342"
+PARSER_VERSION = "354"
 
 
 def parser_source_hash() -> str:

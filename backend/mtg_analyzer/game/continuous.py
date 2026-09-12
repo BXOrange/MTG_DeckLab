@@ -873,6 +873,8 @@ def count_selector(
     if selector == "sacrificed_cost_power":
         # The power sibling (Altar of Dementia) of the entry just above.
         return int(getattr(source, "sacrificed_cost_power", None) or 0)
+    if selector == "sacrificed_cost_toughness":
+        return int(getattr(source, "sacrificed_cost_toughness", None) or 0)
     if selector == "station_tapped_power":
         # RULE 702.184a Station: "Put a number of charge counters on this
         # permanent equal to the tapped creature's power." — reads
@@ -1194,6 +1196,14 @@ def count_selector(
         )
     if selector == "permanents_you_control":
         return sum(1 for o in bf if o.controller_id == controller_id)
+    if selector == "nonland_permanents_you_control":
+        return sum(1 for o in bf if o.controller_id == controller_id and not o.is_land)
+    if selector.startswith("source_") and selector.endswith("_counters") and source is not None:
+        # "X is the number of arrow counters on this creature." (Archery
+        # Training) — a live count on the effect source, rather than a board
+        # count owned by its controller.
+        kind = selector[len("source_"):-len("_counters")]
+        return int((getattr(source, "counters", None) or {}).get(kind, 0) or 0)
     if selector == "legendary_creatures_you_control":
         # "for each legendary creature you control" (Eiganjo, Seat of the
         # Empire's Channel cost reduction) — RULE 205.4a's supertype, read
@@ -2093,6 +2103,7 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
         #: express as a bare keyword slug, it rides `grant_keyword`'s own
         #: ``ward_cost`` param instead of a separate static kind.
         ward_cost = ability.params.get("ward_cost")
+        cumulative_upkeep_cost = ability.params.get("cumulative_upkeep_cost")
         if protections and ability.params.get("exempt_own_attachment"):
             # RULE 702.16n/p — a per-*source* flag (the Aura, not its host),
             # since the exemption is about this specific grant not causing
@@ -2137,6 +2148,22 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
             if ward_cost:
                 obj.granted_ward_cost = ward_cost
                 _trace(obj, 6, _source_name(ability), f"gains Ward—{ward_cost}")
+            if cumulative_upkeep_cost:
+                key = (id(ability), obj.instance_id, "cumulative_upkeep", str(cumulative_upkeep_cost))
+                live_grant_keys.add(key)
+                built = state._granted_ability_cache.get(key)
+                if built is None:
+                    from ..parser.oracle.spec import AbilitySpec
+                    from .binding.core import _kw_cumulative_upkeep
+
+                    spec = AbilitySpec(
+                        "keyword",
+                        keyword={"name": "cumulative_upkeep", "cost": str(cumulative_upkeep_cost)},
+                    )
+                    built = _kw_cumulative_upkeep(obj, spec, None)
+                    state._granted_ability_cache[key] = built
+                obj._granted_triggered_abilities.extend(built)
+                _trace(obj, 6, _source_name(ability), "gains cumulative upkeep")
             if mana and mana_ability_cost:
                 # MEC-25 upgrade shape — not a bare ``{T}``, so it replaces a
                 # matching printed ability instead of stacking a second one
@@ -2185,7 +2212,7 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                     _gates = [
                         regrant_trigger_gate_predicate(_k, obj.controller_id, obj)
                         for _k in ("attacked_player_has_lowest_life", "spell_from_exile",
-                                   "spell_shares_creature_type_with_source")
+                                   "spell_shares_creature_type_with_source", "spell_exclude_card_types")
                         if ability.params.get(_k)
                     ]
                     if isinstance(ability.params.get("active_if"), dict):

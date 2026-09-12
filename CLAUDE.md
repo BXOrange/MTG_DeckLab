@@ -506,8 +506,20 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 43.0% (14,976 / 34,811) as of 2026-09-12, measured at
-PARSER_VERSION 342** (v342 recognizes defending-player-scoped quoted attack grants;
+**Coverage: 43.1% (15,007 / 34,811) as of 2026-09-12, measured at
+PARSER_VERSION 354** (v354 recognizes attacking-or-blocking creature targets;
+v353 recognizes quoted counter-scaled combat damage;
+v352 recognizes quoted grants after attached keywords;
+v351 recognizes quoted anthem-keyword-trigger grants;
+v350 recognizes quoted anthem-plus-subtype grants;
+v349 recognizes quoted all-lands untaps;
+v348 recognizes quoted nonland-permanent-count pumps;
+v347 recognizes quoted subtype-plus-trigger grants;
+v346 recognizes quoted Werewolf-target grants;
+v345 recognizes quoted cumulative-upkeep grants;
+v344 recognizes sacrificed-toughness quoted grants;
+v343 recognizes host-power-scaled quoted token grants;
+v342 recognizes defending-player-scoped quoted attack grants;
 v341 recognizes two independently quoted attached grants;
 v340 recognizes quoted hasty self-copy grants with their delayed exile;
 v339 recognizes unscoped each-upkeep quoted grants;
@@ -571,7 +583,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 45.1% (14,365 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 45.2% (14,396 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

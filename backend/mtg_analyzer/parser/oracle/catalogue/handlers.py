@@ -297,6 +297,19 @@ def _damage_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("damage", {"amount": "x", "target_kind": kind, **_optional_param(m)})]
 
 
+_DAMAGE_X_SOURCE_COUNTERS_RE = _c(
+    rf"{SELF_SUBJECT_PREFIX}deals? x damage to (?P<target>target attacking or blocking creature), "
+    r"where x is the number of (?P<counter>[a-z+-]+) counters on ~"
+)
+
+
+def _damage_x_source_counters(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("damage", {
+        "target_kind": "attacking_or_blocking_creature",
+        "amount_from_count_selector": f"source_{m.group('counter').lower()}_counters",
+    })]
+
+
 def _damage_spell_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if kind is None:
@@ -1807,6 +1820,15 @@ def _gain_life_lost_this_way(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("gain_life", {"count_selector": "life_lost_this_way"})]
 
 
+_GAIN_LIFE_SACRIFICED_TOUGHNESS_RE = _c(
+    r"you gain life equal to the sacrificed creature'?s toughness"
+)
+
+
+def _gain_life_sacrificed_toughness(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("gain_life", {"count_selector": "sacrificed_cost_toughness"})]
+
+
 #: "You gain life equal to `<its / that creature's>` `<power / toughness>`."
 #: (~36 SOLO — Bottle Golems / Angelic Chorus / Weed Strangle [a clash
 #: card] / Brightmare / …). The creature isn't a RULE 115 target of the
@@ -2201,7 +2223,7 @@ _SINGLE_TYPE_PERMANENT_KINDS: tuple[str, ...] = (
 def _destroy(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if kind is None or kind not in (
-        "creature", "permanent", "permanent_you_dont_control",
+        "creature", "attacking_or_blocking_creature", "permanent", "permanent_you_dont_control",
         # "destroy target nonland permanent [an opponent controls]"
         # (Binding the Old Gods' chapter I, Assassin's Trophy-adjacent) —
         # `targeting.legal_targets` has all three branches (RULE 115.1c).
@@ -2853,6 +2875,7 @@ _exile_multi_target = _multi_target_builder("exile", allow_spell=True)
 _TAP_TARGET_KINDS = (
     "creature", "permanent", "legendary_permanent", "forest",
     "creature_you_control", "creature_you_dont_control", "other_creature_you_control",
+    "werewolf_creature",
     "creature_defending_player_controls",
     "permanent_you_control", "permanent_you_dont_control",
     *_SINGLE_TYPE_PERMANENT_KINDS,
@@ -5071,6 +5094,7 @@ _ADD_MANA_RE = _c(rf"add (?P<syms>(?:{_MANA_SYMBOL}){{1,20}})")
 #: *one* color" instead, a different, not-yet-modeled shape — guessing it
 #: means the same thing here would be wrong).
 _ADD_MANA_ANY_COLOR_RE = _c(r"add 1 mana of any colou?r")
+_ADD_MANA_N_ANY_COLOR_RE = _c(r"add (?P<n>[2-9]\d*) mana of any (?:(?:one|1) )?colou?r")
 
 
 def _add_mana(m: re.Match[str]) -> list[EffectSpec]:
@@ -5080,6 +5104,10 @@ def _add_mana(m: re.Match[str]) -> list[EffectSpec]:
 
 def _add_mana_any_color(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("add_mana", {"colors": ["any"]})]
+
+
+def _add_mana_n_any_color(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("add_mana", {"colors": ["any"], "amount": int(m.group("n"))})]
 
 
 #: "you may pay {E}{E}. If/When you do, <effect>." (RULE 122, Aether Chaser/
@@ -6275,7 +6303,7 @@ _NAMED_COUNTER_KINDS: frozenset[str] = frozenset({
     "charge", "oil", "storage", "verse", "ki", "page", "plan", "soul",
     "fuse", "depletion", "flood", "bounty", "brick", "study", "plague",
     "doom", "growth", "point", "infection", "hatchling", "pressure",
-    "slime", "tide", "ice", "flame", "hour", "hoofprint",
+    "slime", "tide", "ice", "flame", "hour", "hoofprint", "arrow",
 })
 _ADD_NAMED_COUNTER_RE = _c(
     rf"put {COUNT} (?P<ckind>{'|'.join(_NAMED_COUNTER_KINDS)}) counters? on "
@@ -6548,6 +6576,18 @@ def _pump_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if selector:
         params["selector"] = selector
     return [EffectSpec("pump", params)]
+
+
+_PUMP_X_NONLAND_PERMANENTS_RE = _c(
+    r"(?:~|it|this creature) gets? \+x/\+x until end of turn, where x is the number of nonland permanents you control"
+)
+
+
+def _pump_x_nonland_permanents(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("pump", {
+        "power": 0, "toughness": 0,
+        "amount_from_count_selector": "nonland_permanents_you_control",
+    })]
 
 
 def _pump_keywords(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -9660,6 +9700,11 @@ HANDLERS: list[EffectHandler] = [
     # sentinel `RulesEngine._substitute_x` rewrites off the spell/ability's
     # announced {X}. Digit-free, so no overlap with the `NUMBER` row above.
     EffectHandler(
+        "damage_x_source_counters",
+        _DAMAGE_X_SOURCE_COUNTERS_RE,
+        _damage_x_source_counters,
+    ),
+    EffectHandler(
         "damage_x",
         _c(rf"{SELF_SUBJECT_PREFIX}deals? x damage to {TARGET}"),
         _damage_x,
@@ -10037,6 +10082,10 @@ HANDLERS: list[EffectHandler] = [
     # RULE 119's "drain" idiom trailing sentence — "You gain life equal to
     # the life lost this way." (Gray Merchant of Asphodel-shaped).
     EffectHandler("gain_life_lost_this_way", _GAIN_LIFE_LOST_THIS_WAY_RE, _gain_life_lost_this_way),
+    EffectHandler(
+        "gain_life_sacrificed_toughness", _GAIN_LIFE_SACRIFICED_TOUGHNESS_RE,
+        _gain_life_sacrificed_toughness,
+    ),
     # "You gain life equal to <its / that creature's> <power / toughness>"
     # (~36 SOLO — Bottle Golems / Angelic Chorus / Weed Strangle [clash] / …).
     EffectHandler(
@@ -10551,6 +10600,18 @@ HANDLERS: list[EffectHandler] = [
                 "forests": "forest", "mountains": "mountain", "islands": "island",
                 "swamps": "swamp", "plains": "plains",
             }[m.group("sub").lower()],
+            "untap": m.group("verb").lower() == "untap",
+        })],
+    ),
+    # "Untap all lands you control." (Bear Umbra) — the unqualified sibling
+    # of the basic-land subtype row above.  It is a non-targeting selector,
+    # so it also works when the ability was quoted and regranted to an Aura's
+    # enchanted creature.
+    EffectHandler(
+        "tap_lands_you_control",
+        _c(r"(?P<verb>tap|untap) all lands you control"),
+        lambda m: [EffectSpec("tap", {
+            "selector": "lands_you_control",
             "untap": m.group("verb").lower() == "untap",
         })],
     ),
@@ -11102,6 +11163,11 @@ HANDLERS: list[EffectHandler] = [
     # tried before the fixed-pip pattern below since it has no {…} symbols
     # for that one to (fail to) match anyway.
     EffectHandler(
+        "add_mana_n_any_color",
+        _ADD_MANA_N_ANY_COLOR_RE,
+        _add_mana_n_any_color,
+    ),
+    EffectHandler(
         "add_mana_any_color",
         _ADD_MANA_ANY_COLOR_RE,
         _add_mana_any_color,
@@ -11438,6 +11504,11 @@ HANDLERS: list[EffectHandler] = [
     # "<subject> gets +x/+x [and gains <kw>] until end of turn" — the
     # {X}-cost-spell pump (Tyvar's Stand, Untamed Might). Tried before the
     # plain `pump` row below, whose `_PT_DELTA` only matches digits anyway.
+    EffectHandler(
+        "pump_x_nonland_permanents",
+        _PUMP_X_NONLAND_PERMANENTS_RE,
+        _pump_x_nonland_permanents,
+    ),
     EffectHandler(
         "pump_x",
         _c(
@@ -12453,6 +12524,11 @@ HANDLERS: list[EffectHandler] = [
     ),
     # "Create X 1/1 green Elf Warrior creature tokens, where X is the
     # number of attacking creatures." (Galadhrim Ambush-shaped).
+    EffectHandler(
+        "create_token_xx_source_power",
+        _CREATE_TOKEN_XX_SOURCE_POWER_RE,
+        _create_token_xx_source_power,
+    ),
     EffectHandler(
         "create_token_xx_where",
         _CREATE_TOKEN_XX_WHERE_RE,

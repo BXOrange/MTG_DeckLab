@@ -2933,6 +2933,8 @@ EffectRegistry.register(
             # `ward_cost` consumer for why this rides `grant_keyword`
             # rather than a dedicated static kind.
             **({"ward_cost": p["ward_cost"]} if p.get("ward_cost") else {}),
+            **({"cumulative_upkeep_cost": p["cumulative_upkeep_cost"]}
+               if p.get("cumulative_upkeep_cost") else {}),
             **_selectors(p),
         },
     ),

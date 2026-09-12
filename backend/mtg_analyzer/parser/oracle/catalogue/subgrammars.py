@@ -115,8 +115,9 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     (r"target creature or planeswalker (?:an opponent controls|you don't control)",
      "creature_you_dont_control"),
     (r"target creature or planeswalker", "creature"),
-    (r"target attacking or blocking creature", "creature"),
+    (r"target attacking or blocking creature", "attacking_or_blocking_creature"),
     (r"target (?:attacking|blocking|tapped|untapped) creature", "creature"),
+    (r"target werewolf creature", "werewolf_creature"),
     # An ATTACKS trigger's defending player is carried on the event; this is
     # narrower than an arbitrary opponent-controlled creature.
     (r"target creature defending player controls", "creature_defending_player_controls"),

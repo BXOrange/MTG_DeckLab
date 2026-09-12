@@ -975,6 +975,7 @@ class ActivationMixin:
         # one that didn't sacrifice anything (or sacrificed nothing found).
         source.sacrificed_cost_mana_value = None
         source.sacrificed_cost_power = None
+        source.sacrificed_cost_toughness = None
         source.station_tapped_power = None
         if cost.taps_self:
             self.rules.set_tapped(source, True)
@@ -1080,6 +1081,7 @@ class ActivationMixin:
                 # sacrificed creature's power may have been modified by the
                 # layer engine before it left the battlefield.
                 source.sacrificed_cost_power = victim.power
+                source.sacrificed_cost_toughness = victim.toughness
         if cost.exile_creature:
             exiled = self._exile_creature_candidate(player, chosen_id=sacrifice_choice)
             if exiled is not None:
