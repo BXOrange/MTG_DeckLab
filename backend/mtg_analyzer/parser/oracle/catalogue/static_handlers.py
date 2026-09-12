@@ -93,8 +93,8 @@ from .subgrammars import (
 #: permanent's own controller" way `game/continuous.py`'s
 #: `_PLAYER_SUBJECT_GRANTED_EVENTS` documents.
 _GRANTABLE_TRIGGER_EVENTS = frozenset(
-    {"ENTERS_BATTLEFIELD", "LEAVES_BATTLEFIELD", "DIES", "ATTACKS", "ATTACKS_ALONE", "BLOCKS", "UNTAPPED", "DAMAGE",
-     "STEP_BEGIN", "LIFE_GAINED", "SPELL_CAST", "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"}
+    {"ENTERS_BATTLEFIELD", "LEAVES_BATTLEFIELD", "DIES", "ATTACKS", "ATTACKS_ALONE", "BLOCKS", "UNTAPPED", "DAMAGE", "BECOMES_TARGET",
+     "STEP_BEGIN", "LIFE_GAINED", "DRAW", "SPELL_CAST", "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"}
 )
 #: PAR-32: trigger-dict gate keys that survive re-granting unchanged — a
 #: filter on the firing event, not on any host-relative state. Passed
@@ -1767,6 +1767,30 @@ _ATTACHED_QUOTED_GRANT_RE = re.compile(
     rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has "(?P<inner>.+)"',
     re.IGNORECASE | re.DOTALL,
 )
+_ATTACHED_DOUBLE_QUOTED_GRANT_RE = re.compile(
+    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has "(?P<first>.+)" and "(?P<second>.+)"',
+    re.IGNORECASE | re.DOTALL,
+)
+
+#: "Enchanted land has 'Untap this land during each other player's untap
+#: step.'" (Urban Burgeoning). This imperative-duration wording is a
+#: triggered ability in rules terms, but not a regular "when/whenever"
+#: sentence for `segment_line` to unwrap.
+_ATTACHED_UNTAP_OTHER_PLAYERS_RE = re.compile(
+    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has "untap (?:this land|~) '
+    r"during each other player'?s untap step\.?\"",
+    re.IGNORECASE,
+)
+
+
+def _attached_untap_other_players(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("grant_triggered_ability", {
+        "trigger_event": "STEP_BEGIN",
+        "phase_relation": "not_you",
+        "grant_effects": [{"type": "tap", "params": {"target_kind": None, "untap": True}}],
+        "optional": False,
+        "affects": "attached_permanent",
+    })]
 
 # RULE 702.94b soulbond: "As long as ~ is paired with another creature,
 # **each of those creatures** has …" — the third grant scope, alongside a
@@ -1938,7 +1962,11 @@ def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]
         # `attached_permanent` inner scope would be meaningless once
         # regranted, so fail closed.
         inner_scopes = {e.params.get("affects") for e in spec.effects}
-        if not spec.effects or inner_scopes & _REGRANT_UNSUPPORTED_AFFECTS:
+        # ``self`` is meaningful here: layer 6 re-sources the nested static
+        # on each granted-to object, so "this creature has hexproof while
+        # untapped" (Giant's Amulet) refers to that host.  Only
+        # ``attached_permanent`` remains ambiguous after re-granting.
+        if not spec.effects or "attached_permanent" in inner_scopes:
             return None
         if any(e.params.get("affects") is None for e in spec.effects):
             return None
@@ -1970,14 +1998,13 @@ def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]
     group_condition: Optional[dict] = None
     if event == "STEP_BEGIN":
         # A RULE 500.7 phase trigger carries no object subject to re-scope
-        # (see `_GRANTABLE_TRIGGER_EVENTS`) — only a `phase_relation`, which
-        # must resolve against the granted-to permanent's controller. An
-        # un-scoped "at the beginning of *each* upkeep" one would fire once
-        # per affected permanent per upkeep with no way to tell whose it is,
-        # so only the two scoped forms are claimed (fail-closed).
-        if trigger.get("phase_relation") not in ("you", "not_you"):
+        # (see `_GRANTABLE_TRIGGER_EVENTS`).  An unscoped "each upkeep"
+        # trigger is still well-defined: every permanent with the granted
+        # ability fires once at every matching upkeep.  Scoped forms add the
+        # host-controller-relative `phase_relation` filter below.
+        if trigger.get("phase_relation") not in (None, "you", "not_you"):
             return None
-    elif event in ("LIFE_GAINED", "SPELL_CAST", "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"):
+    elif event in ("LIFE_GAINED", "DRAW", "SPELL_CAST", "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"):
         # A player-subject condition (`{"subject": "you"}`) rather than the
         # object-subject the `elif` below requires — "Whenever **you** gain
         # life …" / "Whenever **you** cast a spell …" (Passionate
@@ -3869,6 +3896,10 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             return None
         return [EffectSpec("grant_keyword", {"keywords": keywords, "affects": "soulbond_pair"})]
 
+    m = _ATTACHED_UNTAP_OTHER_PLAYERS_RE.fullmatch(text)
+    if m is not None:
+        return _attached_untap_other_players(m)
+
     m = _ATTACHED_QUOTED_ANTHEM_GRANT_RE.fullmatch(text)
     if m is not None:
         grants = _quoted_ability_grant_effects_list(m.group("inner"))
@@ -3879,6 +3910,14 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
                                    "affects": "attached_permanent"}),
             *grants,
         ]
+
+    m = _ATTACHED_DOUBLE_QUOTED_GRANT_RE.fullmatch(text)
+    if m is not None:
+        first = _quoted_ability_grant_effects_list(m.group("first"))
+        second = _quoted_ability_grant_effects_list(m.group("second"))
+        if first is None or second is None:
+            return None
+        return [*first, *second]
 
     m = _ATTACHED_QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:

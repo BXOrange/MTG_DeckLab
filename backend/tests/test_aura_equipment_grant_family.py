@@ -308,17 +308,18 @@ def test_quoted_phase_trigger_grant_is_modeled():
     assert result.unclaimed == []
 
 
-def test_quoted_unscoped_phase_trigger_grant_stays_unclaimed():
-    # Fail-closed: "at the beginning of *each* upkeep" carries no
-    # `phase_relation`, so a regranted copy would have no way to say whose
-    # upkeep it means — only the "your"/"each opponent's" forms are claimed.
+def test_quoted_unscoped_phase_trigger_grant_is_modeled():
+    # Each-end-step has no controller relation, but it is still a valid
+    # subject-less STEP_BEGIN trigger: every granted host fires once.
     card = _aura(
         "Cement Boots",
         'Equipped creature gets +3/+3 and has "at the beginning of each end '
         'step, tap ~."\nEquip {2}',
         type_line="Artifact — Equipment",
     )
-    assert parse_oracle(card).coverage == UNMODELED
+    result = parse_oracle(card)
+    assert result.coverage != UNMODELED
+    assert result.unclaimed == []
 
 
 # -- execute-side (bind → engine) --------------------------------------------
@@ -572,3 +573,24 @@ def test_granted_upkeep_trigger_fires_once_per_affected_permanent():
 
     state.active_player_index = 0
     assert _upkeep(state, engine) == 2
+
+
+def test_verdant_embrace_unscoped_upkeep_grant_fires_on_each_upkeep():
+    engine, state, _, _ = _rules()
+    host = _bf(state, _creature("Bear"), controller="p1")
+    aura = _bf(
+        state,
+        _aura(
+            "Verdant Embrace",
+            'Enchant creature\nEnchanted creature gets +3/+3 and has '
+            '"At the beginning of each upkeep, create a 1/1 green Saproling creature token."',
+        ),
+        controller="p1",
+    )
+    aura.attached_to = host.instance_id
+    continuous.recompute(state)
+
+    # Unlike "your upkeep", each-upkeep has no controller relation, but the
+    # granted ability still belongs to this one host and fires exactly once.
+    assert len(host._granted_triggered_abilities) == 1
+    assert _upkeep(state, engine) == 1

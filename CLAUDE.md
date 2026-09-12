@@ -506,8 +506,22 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 42.8% (14,914 / 34,811) as of 2026-09-11, measured at
-PARSER_VERSION 328** (v328 models Blinding Powder's quoted unattach cost and combat shield;
+**Coverage: 43.0% (14,976 / 34,811) as of 2026-09-12, measured at
+PARSER_VERSION 342** (v342 recognizes defending-player-scoped quoted attack grants;
+v341 recognizes two independently quoted attached grants;
+v340 recognizes quoted hasty self-copy grants with their delayed exile;
+v339 recognizes unscoped each-upkeep quoted grants;
+v338 recognizes quoted damage abilities that tap a colorless damaged target;
+v337 recognizes source-subtype damage overrides;
+v336 adds complete Blood tokens and their named-token grammar;
+v335 recognizes target pumps scaled by your creatures;
+v334 recognizes one-shot damage shields for you;
+v333 regrants other-players' untap-step land abilities;
+v332 recognizes quoted attacks that target another attacker;
+v331 regrants quoted spell-target triggers;
+v330 regrants quoted conditional self-statics;
+v329 regrants quoted attacks-alone triggers;
+v328 models Blinding Powder's quoted unattach cost and combat shield;
 v327 recognizes quoted damage abilities targeting a blocker;
 v326 recognizes quoted "destroy target Equipment" abilities;
 v325 recognizes quoted untap triggers on attached abilities;
@@ -557,7 +571,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is ~44.9% (14,295 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 45.1% (14,365 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

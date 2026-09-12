@@ -30,6 +30,11 @@ EffectRegistry.register(
             if p.get("amount_if_target_color") else None
         ),
         amount_if_cast_from_exile=p.get("amount_if_cast_from_exile"),
+        amount_if_source_subtype=(
+            (str(p["amount_if_source_subtype"]["subtype"]), int(p["amount_if_source_subtype"]["amount"]))
+            if p.get("amount_if_source_subtype") else None
+        ),
+        tap_target_if_colorless=bool(p.get("tap_target_if_colorless", False)),
         x_multiplier=p.get("x_multiplier"),
         amount_from_noncreature_spells_cast_this_turn=bool(
             p.get("amount_from_noncreature_spells_cast_this_turn", False)

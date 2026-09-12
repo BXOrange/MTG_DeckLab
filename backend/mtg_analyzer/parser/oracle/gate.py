@@ -2731,6 +2731,28 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: "same mana value as the revealed card" vs the SPELL_CAST event), and
 #: `spec.py`'s `_AMOUNT_SPEC_FIELDS` learned its `field` key. Vocabulary
 #: only - no card's verdict moves - but the parser source hash follows.
+#: v342 - PAR-33: quoted attack grants can target a defending player's creature.
+#: v341 - PAR-33: an attached object can grant two separately quoted abilities.
+#: v340 - PAR-33: quoted grants can create hasty self-copy tokens and exile them.
+#: v339 - PAR-33: quoted grants now admit unscoped each-upkeep triggers.
+#: v338 - PAR-33: quoted damage abilities can tap a colorless damaged target
+#: (Pathway Arrows).
+#: v337 - PAR-33: quoted damage abilities can have a source-subtype amount
+#: override (Sorcerer's Wand).
+#: v336 - PAR-33: named Blood tokens are complete token objects and can be
+#: created from quoted abilities (Ceremonial Knife).
+#: v335 - PAR-33: quoted land abilities can target-pump for each creature
+#: their controller has (Friendly Neighborhood).
+#: v334 - PAR-33: quoted land abilities can grant their controller a
+#: one-shot damage shield (Security Blockade).
+#: v333 - PAR-33: quoted land abilities can untap their host during other
+#: players' untap steps (Urban Burgeoning).
+#: v332 - PAR-33: quoted attack triggers can target another attacking
+#: creature (Iconic Shield).
+#: v331 - PAR-33: quoted triggered abilities can observe their grantee
+#: becoming a spell target (Livewire Lash).
+#: v330 - PAR-33: quoted self-scoped static abilities are regranted to their
+#: host (Giant's Amulet).
 #: v329 - PAR-33: quoted triggered abilities can fire when their grantee
 #: attacks alone (Voltaic Whip).
 #: v328 - PAR-33: quoted abilities can prevent combat damage to their
@@ -2767,7 +2789,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (Windfall), and `spec.py`'s `_AMOUNT_SPEC_FIELDS` learned the `aggregate`
 #: key. Vocabulary only - no parser handler emits it yet, no card's verdict
 #: moves - but the parser source hash follows.
-PARSER_VERSION = "329"
+PARSER_VERSION = "342"
 
 
 def parser_source_hash() -> str:

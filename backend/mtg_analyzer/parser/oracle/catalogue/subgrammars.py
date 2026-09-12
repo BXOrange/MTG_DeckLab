@@ -117,6 +117,9 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     (r"target creature or planeswalker", "creature"),
     (r"target attacking or blocking creature", "creature"),
     (r"target (?:attacking|blocking|tapped|untapped) creature", "creature"),
+    # An ATTACKS trigger's defending player is carried on the event; this is
+    # narrower than an arbitrary opponent-controlled creature.
+    (r"target creature defending player controls", "creature_defending_player_controls"),
     # "another target creature you control" (RULE 109.5 — the ability's own
     # source is excluded; Duke Ulder Ravengard, Blooming Stinger, Heavenly
     # Qilin). The engine's `other_creature_you_control` kind (targeting.py)

@@ -1563,7 +1563,7 @@ _GRANTED_EVENT_KEYS: dict[str, str] = {"DAMAGE": "source_id", "COUNTER": "target
 #: `target`, not the granting source's controller" rule `phase_relation`
 #: documents below).
 _PLAYER_SUBJECT_GRANTED_EVENTS = frozenset(
-    {"LIFE_GAINED", "SPELL_CAST", "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"}
+    {"LIFE_GAINED", "DRAW", "SPELL_CAST", "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"}
 )
 
 
@@ -1619,7 +1619,12 @@ def _granted_trigger_condition(
     """
     key = _GRANTED_EVENT_KEYS.get(trigger_event or "", "instance_id")
     filt = dict(event_filter) if event_filter else None
-    no_object_subject = phase_relation in ("you", "not_you")
+    # STEP_BEGIN is intrinsically subject-less.  An unscoped "at the
+    # beginning of each upkeep" ability therefore fires once for every
+    # permanent that has received the grant; a phase relation, when present,
+    # merely narrows that already-valid event stream to its controller's (or
+    # opponents') turn.
+    no_object_subject = trigger_event == "STEP_BEGIN"
     player_subject = trigger_event in _PLAYER_SUBJECT_GRANTED_EVENTS
 
     def condition(event: Any, context: Any) -> bool:
@@ -2767,6 +2772,18 @@ def recompute(state: "GameState") -> None:
     # on the next recompute (always ≤1 SBA-loop lag).
     if any(getattr(o, "_granted_static_abilities", None) for o in state.battlefield):
         abilities = [ab for ab in _battlefield_static_abilities(state) if ab.layer != "cost"]
+        # A nested static can itself live in layer 6 (for example Giant's
+        # Amulet grants its host the self-scoped static "has hexproof while
+        # untapped"). Apply that newly materialized level once in the same
+        # recompute, without replaying the outer grants and duplicating their
+        # triggered/activated ability objects.
+        nested_ability_statics = [
+            ab for obj in state.battlefield
+            for ab in getattr(obj, "_granted_static_abilities", ())
+            if isinstance(ab, StaticAbility) and ab.layer == "ability"
+        ]
+        if nested_ability_statics:
+            _apply_layer_6_ability(state, nested_ability_statics)
     _apply_layer_7_pt(state, abilities, animation_pt)
     _apply_post_layer_combat_restrictions_and_goad(state, abilities)
 

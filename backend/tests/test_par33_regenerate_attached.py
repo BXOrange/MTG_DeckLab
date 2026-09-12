@@ -13,6 +13,7 @@ from __future__ import annotations
 from mtg_analyzer.game.effects.core import GameContext, RegenerateEffect
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game import continuous
+from mtg_analyzer.game import combat
 from mtg_analyzer.game.rules_engine import RulesEngine
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
@@ -356,6 +357,280 @@ def test_voltaic_whip_quoted_attacks_alone_trigger_is_regranted():
         {"type": "draw", "params": {"count": 1}},
         {"type": "lose_life", "params": {"amount": 1}},
     ]
+
+
+def test_giants_amulet_quoted_self_static_is_regranted_to_its_host():
+    card = Card(
+        id="giants-amulet", name="Giant's Amulet", type_line="Artifact — Equipment",
+        oracle_text=(
+            'Equipped creature gets +0/+1 and has "This creature has hexproof as long as it\'s untapped."\nEquip {2}'
+        ),
+    )
+    assert parse_oracle(card).coverage != UNMODELED
+    specs = static_effect_specs(
+        'equipped creature gets +0/+1 and has "~ has hexproof as long as it\'s untapped."'
+    )
+    assert specs is not None
+    assert specs[1].params["static_specs"] == [{
+        "type": "grant_keyword",
+        "params": {"affects": "self", "keywords": ["hexproof"], "active_if": {"kind": "source_untapped"}},
+    }]
+
+    engine = GameEngine.new_game(
+        [("p1", "Alice", []), ("p2", "Bob", [])], starting_life=20, starting_hand=0
+    )
+    state = engine.state
+    host = _bf(state, Card(id="host", name="Host", type_line="Creature", is_creature=True))
+    amulet = _bf(state, card)
+    bind_from_catalogue(amulet)
+    amulet.attached_to = host.instance_id
+    continuous.recompute(state)
+    assert combat.has_hexproof(host) is True
+    host.tapped = True
+    continuous.recompute(state)
+    assert combat.has_hexproof(host) is False
+
+
+def test_livewire_lash_quoted_becomes_target_trigger_is_regranted():
+    card = Card(
+        id="livewire-lash", name="Livewire Lash", type_line="Artifact — Equipment",
+        oracle_text=(
+            'Equipped creature gets +2/+0 and has "Whenever this creature becomes the target '
+            'of a spell, this creature deals 2 damage to any target."\nEquip {2}'
+        ),
+    )
+    assert parse_oracle(card).coverage != UNMODELED
+    specs = static_effect_specs(
+        'equipped creature gets +2/+0 and has "whenever ~ becomes the target of a spell, '
+        '~ deals 2 damage to any target."'
+    )
+    assert specs is not None
+    assert specs[1].params["trigger_event"] == "BECOMES_TARGET"
+    assert specs[1].params["grant_effects"] == [{
+        "type": "damage", "params": {"amount": 2, "target_kind": "any"},
+    }]
+
+
+def test_iconic_shield_quoted_trigger_targets_another_attacking_creature():
+    card = Card(
+        id="iconic-shield", name="Iconic Shield", type_line="Artifact — Equipment",
+        oracle_text=(
+            'Equipped creature gets +1/+2 and has "Whenever this creature attacks, another target '
+            'attacking creature gains indestructible until end of turn."\nEquip {3}'
+        ),
+    )
+    assert parse_oracle(card).coverage != UNMODELED
+    specs = static_effect_specs(
+        'equipped creature gets +1/+2 and has "whenever ~ attacks, another target attacking '
+        'creature gains indestructible until end of turn."'
+    )
+    assert specs is not None
+    assert specs[1].params["grant_effects"] == [{
+        "type": "pump", "params": {"target_kind": "creature", "creature_filter": {"attacking": True}, "keywords": ["indestructible"]},
+    }]
+
+    _, state, _ = _rules()
+    source = _bf(state, Card(id="source", name="Source", type_line="Creature", is_creature=True))
+    fellow = _bf(state, Card(id="fellow", name="Fellow", type_line="Creature", is_creature=True))
+    bystander = _bf(state, Card(id="bystander", name="Bystander", type_line="Creature", is_creature=True))
+    source.attacking = fellow.attacking = True
+    options = legal_targets(state, "p1", TargetSpec(kind="creature", creature_filter={"attacking": True}), source=source)
+    assert [option["instance_id"] for option in options] == [fellow.instance_id]
+    assert bystander.instance_id not in [option["instance_id"] for option in options]
+
+
+def test_urban_burgeoning_quoted_other_players_untap_step_trigger_is_regranted():
+    card = Card(
+        id="urban-burgeoning", name="Urban Burgeoning", type_line="Enchantment — Aura",
+        oracle_text='Enchant land\nEnchanted land has "Untap this land during each other player\'s untap step."',
+    )
+    assert parse_oracle(card).coverage != UNMODELED
+    specs = static_effect_specs(
+        'enchanted land has "untap this land during each other player\'s untap step."'
+    )
+    assert specs is not None
+    assert specs[0].params == {
+        "trigger_event": "STEP_BEGIN", "phase_relation": "not_you",
+        "grant_effects": [{"type": "tap", "params": {"target_kind": None, "untap": True}}],
+        "optional": False, "affects": "attached_permanent",
+    }
+
+
+def test_security_blockade_quoted_damage_shield_ability_is_regranted():
+    card = Card(
+        id="security-blockade", name="Security Blockade", type_line="Enchantment — Aura",
+        oracle_text='Enchant land\nEnchanted land has "{T}: Prevent the next 1 damage that would be dealt to you this turn."',
+    )
+    assert parse_oracle(card).coverage != UNMODELED
+    specs = static_effect_specs(
+        'enchanted land has "{t}: prevent the next 1 damage that would be dealt to you this turn."'
+    )
+    assert specs is not None
+    assert specs[0].params["grant_effects"] == [{
+        "type": "prevent_damage_shield", "params": {"amount": 1},
+    }]
+
+
+def test_friendly_neighborhood_quoted_dynamic_target_pump_is_regranted():
+    card = Card(
+        id="friendly-neighborhood", name="Friendly Neighborhood", type_line="Enchantment — Aura",
+        oracle_text=(
+            'Enchant land\nEnchanted land has "{1}, {T}: Target creature gets +1/+1 until end of turn '
+            'for each creature you control. Activate only as a sorcery."'
+        ),
+    )
+    assert parse_oracle(card).coverage != UNMODELED
+    specs = static_effect_specs(
+        'enchanted land has "{1}, {t}: target creature gets +1/+1 until end of turn '
+        'for each creature you control. activate only as a sorcery."'
+    )
+    assert specs is not None
+    assert specs[0].params["grant_effects"] == [{
+        "type": "pump", "params": {"target_kind": "creature", "amount_from_count_selector": "creatures_you_control"},
+    }]
+    assert specs[0].params["sorcery_speed_only"] is True
+
+
+def test_ceremonial_knife_quoted_combat_damage_trigger_creates_a_blood_token():
+    card = Card(
+        id="ceremonial-knife", name="Ceremonial Knife", type_line="Artifact — Equipment",
+        oracle_text=(
+            'Equipped creature gets +1/+0 and has "Whenever this creature deals combat damage, '
+            'create a Blood token."\nEquip {2}'
+        ),
+    )
+    assert parse_oracle(card).coverage != UNMODELED
+    specs = static_effect_specs(
+        'equipped creature gets +1/+0 and has "whenever ~ deals combat damage, create a blood token."'
+    )
+    assert specs is not None
+    assert specs[1].params["trigger_event"] == "DAMAGE"
+    assert specs[1].params["filter"] == {"combat": True}
+    assert specs[1].params["grant_effects"] == [{
+        "type": "create_token", "params": {"count": 1, "token_name": "Blood"},
+    }]
+
+
+def test_sorcerers_wand_quoted_damage_uses_the_hosts_live_wizard_type():
+    card = Card(
+        id="sorcerers-wand", name="Sorcerer's Wand", type_line="Artifact — Equipment",
+        oracle_text=(
+            'Equipped creature has "{T}: This creature deals 1 damage to target player or planeswalker. '
+            'If this creature is a Wizard, it deals 2 damage instead."\nEquip {3}'
+        ),
+    )
+    assert parse_oracle(card).coverage != UNMODELED
+    specs = static_effect_specs(
+        'equipped creature has "{t}: ~ deals 1 damage to target player or planeswalker. '
+        'if ~ is a wizard, it deals 2 damage instead."'
+    )
+    assert specs is not None
+    assert specs[0].params["grant_effects"] == [{
+        "type": "damage",
+        "params": {"amount": 1, "target_kind": "player", "amount_if_source_subtype": {"subtype": "wizard", "amount": 2}},
+    }]
+
+    engine, state, p1 = _rules()
+    target = state.player_by_id("p2")
+    from mtg_analyzer.game.effects.registry import EffectRegistry
+    effect = EffectRegistry.create("damage", {
+        "amount": 1, "target_kind": "player",
+        "amount_if_source_subtype": {"subtype": "wizard", "amount": 2},
+    })
+    effect.source = _bf(state, Card(id="wizard", name="Wizard", type_line="Creature — Wizard", is_creature=True))
+    effect.apply(GameContext(state, engine), [target])
+    assert target.life == 18
+    effect.source.card.type_line = "Creature"
+    effect.apply(GameContext(state, engine), [target])
+    assert target.life == 17
+
+
+def test_pathway_arrows_quoted_damage_taps_only_a_colorless_creature():
+    card = Card(
+        id="pathway-arrows", name="Pathway Arrows", type_line="Artifact — Equipment",
+        oracle_text=(
+            'Equipped creature has "{2}, {T}: This creature deals 1 damage to target creature. '
+            'If a colorless creature is dealt damage this way, tap it."\nEquip {2}'
+        ),
+    )
+    assert parse_oracle(card).coverage != UNMODELED
+    specs = static_effect_specs(
+        'equipped creature has "{2}, {t}: ~ deals 1 damage to target creature. '
+        'if a colorless creature is dealt damage this way, tap it."'
+    )
+    assert specs is not None
+    assert specs[0].params["grant_effects"] == [{
+        "type": "damage", "params": {"amount": 1, "target_kind": "creature", "tap_target_if_colorless": True},
+    }]
+
+    engine, state, _ = _rules()
+    source = _bf(state, Card(id="source", name="Source", type_line="Creature", is_creature=True))
+    colorless = _bf(state, Card(id="colorless", name="Colorless", type_line="Artifact Creature", is_creature=True), controller="p2")
+    colored = _bf(state, Card(id="colored", name="Colored", type_line="Creature", is_creature=True, color_identity=["R"]), controller="p2")
+    from mtg_analyzer.game.effects.registry import EffectRegistry
+    effect = EffectRegistry.create("damage", {"amount": 1, "target_kind": "creature", "tap_target_if_colorless": True})
+    effect.source = source
+    effect.apply(GameContext(state, engine), [colorless])
+    assert colorless.tapped is True and colorless.damage_marked == 1
+    effect.apply(GameContext(state, engine), [colored])
+    assert colored.tapped is False and colored.damage_marked == 1
+
+
+def test_splinter_twin_quoted_self_copy_grant_is_parsed_with_its_delayed_exile():
+    card = Card(
+        id="splinter-twin", name="Splinter Twin", type_line="Enchantment — Aura",
+        oracle_text=(
+            'Enchant creature\nEnchanted creature has "{T}: Create a token that\'s a copy '
+            'of this creature, except it has haste. Exile that token at the beginning of the next end step."'
+        ),
+    )
+    assert parse_oracle(card).coverage != UNMODELED
+    specs = static_effect_specs(
+        'enchanted creature has "{t}: create a token that\'s a copy of ~, except it has haste. '
+        'exile that token at the beginning of the next end step."'
+    )
+    assert specs is not None
+    assert specs[0].params["grant_effects"] == [
+        {"type": "copy_permanent", "params": {"target_kind": None, "referent": "source", "haste": True}},
+        {"type": "create_delayed_trigger", "params": {
+            "step": "end", "scope": "any", "capture": "created_objects",
+            "effects": [{"type": "exile_specific", "params": {}}],
+        }},
+    ]
+
+
+def test_diviners_wand_two_quoted_grants_are_regranted_independently():
+    card = Card(
+        id="diviners-wand", name="Diviner's Wand", type_line="Artifact — Equipment",
+        oracle_text=(
+            'Equipped creature has "Whenever you draw a card, this creature gets +1/+1 and gains flying until end of turn" '
+            'and "{4}: Draw a card."\nEquip {3}'
+        ),
+    )
+    assert parse_oracle(card).coverage != UNMODELED
+    specs = static_effect_specs(
+        'equipped creature has "whenever you draw a card, ~ gets +1/+1 and gains flying until end of turn" '
+        'and "{4}: draw a card."'
+    )
+    assert specs is not None
+    assert [spec.type for spec in specs] == ["grant_triggered_ability", "grant_activated_ability"]
+    assert specs[0].params["trigger_event"] == "DRAW"
+    assert specs[1].params["grant_effects"] == [{"type": "draw", "params": {"count": 1}}]
+
+
+def test_grasp_of_the_hieromancer_quoted_attack_tap_uses_defending_player_scope():
+    card = Card(
+        id="grasp", name="Grasp of the Hieromancer", type_line="Enchantment — Aura",
+        oracle_text='Enchant creature\nEnchanted creature gets +1/+1 and has "Whenever this creature attacks, tap target creature defending player controls."',
+    )
+    assert parse_oracle(card).coverage != UNMODELED
+    specs = static_effect_specs(
+        'enchanted creature gets +1/+1 and has "whenever ~ attacks, tap target creature defending player controls."'
+    )
+    assert specs is not None
+    assert specs[1].params["grant_effects"] == [{
+        "type": "tap", "params": {"target_kind": "creature_defending_player_controls", "untap": False},
+    }]
 
 
 def test_well_rested_quoted_untapped_trigger_is_regranted_once_per_turn():

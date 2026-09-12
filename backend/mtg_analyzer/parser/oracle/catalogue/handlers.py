@@ -407,6 +407,8 @@ _COPY_EXCEPT_PT_RE = re.compile(
 
 def _copy_except_modifier(piece: str) -> Optional[dict]:
     piece = piece.strip()
+    if piece == "it has haste":
+        return {"haste": True}
     if re.fullmatch(r"it isn'?t legendary|it'?s not legendary", piece):
         return {"not_legendary": True}
     m = re.fullmatch(r"it'?s an? (?P<mid>[a-z ]+?) in addition to its other types", piece)
@@ -508,6 +510,26 @@ def _copy_permanent(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if kind is None:
         return None
     params: dict = {"target_kind": kind, **_optional_param(m)}
+    tail = m.groupdict().get("except_tail")
+    if tail:
+        extra = _parse_copy_except_tail(tail)
+        if extra is None:
+            return None
+        params.update(extra)
+    return [EffectSpec("copy_permanent", params)]
+
+
+#: "Create a token that's a copy of ~, except it has haste." (Splinter
+#: Twin/Kiki-Jiki-shaped).  This is intentionally separate from TARGET:
+#: ``~`` is not a RULE 115 target, so the copied permanent is the ability's
+#: source and must remain stable when the ability was granted by an Aura.
+_COPY_SELF_RE = _c(
+    r"create a token that'?s a copy of ~(?:, except (?P<except_tail>[^.]+))?"
+)
+
+
+def _copy_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params: dict = {"target_kind": None, "referent": "source"}
     tail = m.groupdict().get("except_tail")
     if tail:
         extra = _parse_copy_except_tail(tail)
@@ -791,6 +813,18 @@ _PREVENT_DAMAGE_SINGLE_TARGET_RE = _c(
 
 def _prevent_damage_single_target(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("prevent_damage_shield", {"amount": int(m.group("n")), "target_kind": "any"})]
+
+
+#: "Prevent the next N damage that would be dealt to you this turn"
+#: (Security Blockade). The existing shield effect defaults to the ability's
+#: controller; unlike the adjacent any-target row, this has no target choice.
+_PREVENT_NEXT_DAMAGE_TO_YOU_RE = _c(
+    r"prevent the next (?P<n>\d+) damage that would be dealt to you this turn"
+)
+
+
+def _prevent_next_damage_to_you(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("prevent_damage_shield", {"amount": int(m.group("n"))})]
 
 
 #: RULE 615's unscoped Fog-shaped form — "Prevent all combat damage that
@@ -2819,6 +2853,7 @@ _exile_multi_target = _multi_target_builder("exile", allow_spell=True)
 _TAP_TARGET_KINDS = (
     "creature", "permanent", "legendary_permanent", "forest",
     "creature_you_control", "creature_you_dont_control", "other_creature_you_control",
+    "creature_defending_player_controls",
     "permanent_you_control", "permanent_you_dont_control",
     *_SINGLE_TYPE_PERMANENT_KINDS,
 )
@@ -5812,6 +5847,24 @@ _CREATE_TOKEN_XX_WHERE_RE = _c(
     rf"(?: with (?P<kw>[a-z, ]+))?" + _TOKEN_TAPPED_ATTACKING + rf", where x is {DEVOTION}"
 )
 
+#: "Create X 1/1 red Elemental creature tokens with haste, where X is ~'s
+#: power." (Elemental Mastery) — source power is a live selector, so a pump
+#: before resolution changes how many tokens are made.
+_CREATE_TOKEN_XX_SOURCE_POWER_RE = _c(
+    r"create x (?P<p>\d+)/(?P<t>\d+) (?P<mid>[a-z ]*?)creature tokens?"
+    r" with (?P<kw>[a-z, ]+), where x is ~'?s power"
+)
+
+
+def _create_token_xx_source_power(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _xx_token_mid_params(m.group("mid"), m.group("kw"))
+    if params is None:
+        return None
+    return [EffectSpec("create_token", {
+        **params, "power": int(m.group("p")), "toughness": int(m.group("t")),
+        "count_selector": "source_power",
+    })]
+
 
 def _create_token_xx_where(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params = _xx_token_mid_params(m.group("mid"), m.groupdict().get("kw"))
@@ -5928,14 +5981,14 @@ def _create_named_legendary_token(m: re.Match[str]) -> Optional[list[EffectSpec]
 #: (no inline P/T, no "creature" word — Treasure/Clue/Food-shaped) that
 #: `services/token_database.py`'s `data/tokens.json` actually defines with
 #: their own real abilities (a Treasure's mana ability, a Clue's sacrifice-
-#: to-draw, a Food's sacrifice-to-gain-life). Deliberately **not** every
-#: name real cards print (Blood/Map/Gold/Incubator/Powerstone aren't in
-#: that JSON yet) — claiming one of those here would silently synthesize a
+#: to-draw, a Food's sacrifice-to-gain-life, a Blood's discard-and-draw).
+#: Deliberately **not** every name real cards print (Map/Gold/Incubator/
+#: Powerstone aren't in that JSON yet) — claiming one of those here would silently synthesize a
 #: blank token missing its real ability (`CreateTokenEffect.apply`'s
 #: fallback), the exact half-resolved outcome docs/09's fail-closed
 #: discipline forbids. Keep this dict in sync with `data/tokens.json`
 #: whenever a new named token is added there.
-_NAMED_TOKEN_WORDS: dict[str, str] = {"treasure": "Treasure", "clue": "Clue", "food": "Food"}
+_NAMED_TOKEN_WORDS: dict[str, str] = {"treasure": "Treasure", "clue": "Clue", "food": "Food", "blood": "Blood"}
 
 
 #: "create a Treasure token" / "create two Clue tokens" — the named-token
@@ -6520,6 +6573,23 @@ def _pump_keywords(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("pump", params)]
 
 
+#: "Another target attacking creature gains indestructible until end of
+#: turn" (Iconic Shield). This is a combat-state target restriction, not a
+#: subtype quality the ordinary `_SUBJECT` grammar can represent.
+_PUMP_OTHER_ATTACKING_CREATURE_RE = _c(
+    r"another target attacking creature gains? (?P<kw>[a-z, ]+?) until end of turn"
+)
+
+
+def _pump_other_attacking_creature(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    keywords = _token_keywords(m.group("kw"))
+    if keywords is None:
+        return None
+    return [EffectSpec("pump", {
+        "target_kind": "creature", "creature_filter": {"attacking": True}, "keywords": keywords,
+    })]
+
+
 #: "target `<c1>` or `<c2>` creature gets +N/+M [and gains `<kw>`] / gains
 #: `<kw>` until end of turn" — the Weaver cycle (Hate/Rage/Sky/Might/
 #: Spirit Weaver, Sootstoke Kindler, Wilderness Hypnotist). `TargetSpec.
@@ -6752,6 +6822,20 @@ def _group_pump_count_selector(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("pump", {
         "keywords": keywords, "selector": "creatures_you_control",
         "amount_from_count_selector": "creatures_you_control",
+    })]
+
+
+#: "Target creature gets +1/+1 until end of turn for each creature you
+#: control" (Friendly Neighborhood). The target and the count source are
+#: independent: the selected creature need not be controlled by the player.
+_PUMP_TARGET_PER_CREATURE_YOU_CONTROL_RE = _c(
+    r"target creature gets? \+1/\+1 until end of turn for each creature you control"
+)
+
+
+def _pump_target_per_creature_you_control(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("pump", {
+        "target_kind": "creature", "amount_from_count_selector": "creatures_you_control",
     })]
 
 
@@ -8908,7 +8992,7 @@ def _reveal_until_type(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 _DELAYED_SAC_EXILE_TAIL_RE = _c(
     r"(?:then )?(?:"
     r"(?P<verb>sacrifice|exile|destroy) "
-    r"(?:it|that creature|that token|the tokens?|that permanent|that artifact|those tokens|them|all tokens created this way)"
+    r"(?P<obj>it|that creature|that token|the tokens?|that permanent|that artifact|those tokens|them|all tokens created this way)"
     # "Return that creature to its owner's hand" (Ilharg, Zara, Alora) — a
     # loan bounced end of turn; the object is the same `previous_or_self`
     # referent the sacrifice/exile forms use.
@@ -8934,7 +9018,11 @@ def _delayed_sac_exile_tail(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("create_delayed_trigger", {
         "step": step,
         "scope": "any",
-        "capture": "previous_or_self",
+        "capture": (
+            "created_objects"
+            if (m.groupdict().get("obj") or "").lower() in _DELAYED_TAIL_TOKEN_SUBJECTS
+            else "previous_or_self"
+        ),
         "effects": [{"type": inner, "params": {}}],
     })]
 
@@ -8963,7 +9051,7 @@ _DELAYED_SAC_EXILE_WHEN_FIRST_RE = _c(
 #: objects` directly; "it"/"that creature"/"that permanent" stay on
 #: `previous_or_self` (target first, then created, then the source).
 _DELAYED_TAIL_TOKEN_SUBJECTS: frozenset[str] = frozenset(
-    {"that token", "those tokens", "the token", "the tokens"}
+    {"that token", "those tokens", "the token", "the tokens", "all tokens created this way"}
 )
 
 
@@ -9462,6 +9550,11 @@ HANDLERS: list[EffectHandler] = [
         _COPY_PERMANENT_RE,
         _copy_permanent,
     ),
+    EffectHandler(
+        "copy_self",
+        _COPY_SELF_RE,
+        _copy_self,
+    ),
     # PAR-18: "exile up to 1 target creature card from a graveyard. Create a
     # token that's a copy of it/that card[, except <modifier(s)>]." — the
     # pronoun sibling of the row above, offered only once an earlier clause
@@ -9513,6 +9606,34 @@ HANDLERS: list[EffectHandler] = [
         "damage_creature_filter",
         _DAMAGE_CREATURE_FILTER_RE,
         _damage_creature_filter,
+    ),
+    # "This creature deals 1 damage to target player or planeswalker. If
+    # this creature is a Wizard, it deals 2 damage instead." (Sorcerer's
+    # Wand) — type-sensitive amount override, before plain damage whose
+    # fullmatch deliberately rejects the conditional tail.
+    EffectHandler(
+        "damage_if_source_subtype",
+        _c(
+            rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+) damage to target player or planeswalker\. "
+            rf"if (?:~|this creature) is an? (?P<subtype>[a-z]+), it deals? (?P<n2>\d+) damage instead"
+        ),
+        lambda m: [EffectSpec("damage", {
+            "amount": int(m.group("n")), "target_kind": "player",
+            "amount_if_source_subtype": {"subtype": m.group("subtype"), "amount": int(m.group("n2"))},
+        })],
+    ),
+    # "This creature deals 1 damage to target creature. If a colorless
+    # creature is dealt damage this way, tap it." (Pathway Arrows) — a
+    # rider on the same target, before the plain-damage fallback.
+    EffectHandler(
+        "damage_tap_target_if_colorless",
+        _c(
+            rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+) damage to target creature\. "
+            r"if a colorless creature is dealt damage this way, tap it"
+        ),
+        lambda m: [EffectSpec("damage", {
+            "amount": int(m.group("n")), "target_kind": "creature", "tap_target_if_colorless": True,
+        })],
     ),
     # "This creature deals N damage to target creature that's blocking it"
     # (Arc Spitter). The qualifier is a combat-assignment target restriction,
@@ -9629,6 +9750,11 @@ HANDLERS: list[EffectHandler] = [
         "prevent_damage_single_target",
         _PREVENT_DAMAGE_SINGLE_TARGET_RE,
         _prevent_damage_single_target,
+    ),
+    EffectHandler(
+        "prevent_next_damage_to_you",
+        _PREVENT_NEXT_DAMAGE_TO_YOU_RE,
+        _prevent_next_damage_to_you,
     ),
     # RULE 615's unscoped Fog-shaped form — no recipient at all.
     EffectHandler(
@@ -11518,6 +11644,11 @@ HANDLERS: list[EffectHandler] = [
         _PUMP_ATTACKING_SUBTYPE_TARGET_RE,
         _pump_attacking_subtype_target,
     ),
+    EffectHandler(
+        "pump_other_attacking_creature",
+        _PUMP_OTHER_ATTACKING_CREATURE_RE,
+        _pump_other_attacking_creature,
+    ),
     # "target creature gains flying until end of turn" (keyword-only pump) /
     # "creatures you control gain flying until end of turn".
     EffectHandler(
@@ -11567,6 +11698,11 @@ HANDLERS: list[EffectHandler] = [
         "group_pump_count_selector",
         _GROUP_PUMP_COUNT_SELECTOR_RE,
         _group_pump_count_selector,
+    ),
+    EffectHandler(
+        "pump_target_per_creature_you_control",
+        _PUMP_TARGET_PER_CREATURE_YOU_CONTROL_RE,
+        _pump_target_per_creature_you_control,
     ),
     # RULE 202.2f/700.6 "target creature gets +X/+X until end of turn, where
     # X is your devotion to <colour(s)/wedge>." (Aspect of Hydra/Devoted

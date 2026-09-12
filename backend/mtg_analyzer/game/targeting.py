@@ -161,6 +161,7 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # "target creature you **don't** control" (Archdruid's Charm's second
         # mode) — the mirror image of `creature_you_control`.
         "creature_you_dont_control",
+        "creature_defending_player_controls",
         # "target artifact you don't control" (Vandalblast) — the same
         # mirror-image shape as `creature_you_dont_control`, for artifacts.
         "artifact_you_dont_control",
@@ -711,7 +712,14 @@ def _creature_matches_filter(
     the ``creature`` branch, ``None`` elsewhere (no `TargetSpec` outside
     that branch sets a relative key).
     """
-    return combat.matches_object_filter(obj, filt, reference=reference, state=state)
+    # A current-combat role is orthogonal to `combat.matches_object_filter`'s
+    # printed-characteristic vocabulary. Keep it structural so callers can
+    # use the ordinary ``creature`` target frame (Iconic Shield's "another
+    # target attacking creature") rather than adding a name branch.
+    if filt.get("attacking") and not obj.attacking:
+        return False
+    combat_filter = {key: value for key, value in filt.items() if key != "attacking"}
+    return combat.matches_object_filter(obj, combat_filter, reference=reference, state=state)
 
 
 def _spell_matches_filter(obj: GameObject, spell_filter: dict[str, Any]) -> bool:
@@ -1018,6 +1026,7 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     # --- trigger-event-scoped -------------------------------------------
     "artifact_or_enchantment_defending_player_controls": TargetFrame(
         "artifact_or_enchantment", SCOPE_DEFENDING),
+    "creature_defending_player_controls": TargetFrame("creature", SCOPE_DEFENDING),
     "creature_that_player_controls": TargetFrame("creature", SCOPE_THAT_PLAYER),
     "creature_or_planeswalker_that_player_controls": TargetFrame(
         "creature_or_planeswalker", SCOPE_THAT_PLAYER),

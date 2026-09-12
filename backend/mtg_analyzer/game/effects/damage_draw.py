@@ -34,6 +34,8 @@ class DealDamageEffect(GameEffect):
         double_if_bargained: bool = False,
         amount_if_target_color: Optional[tuple[Union[int, str], list[str]]] = None,
         amount_if_cast_from_exile: Optional[int] = None,
+        amount_if_source_subtype: Optional[tuple[str, int]] = None,
+        tap_target_if_colorless: bool = False,
         x_multiplier: Optional[int] = None,
         amount_from_noncreature_spells_cast_this_turn: bool = False,
         amount_from_count_selector: Optional[str] = None,
@@ -114,6 +116,14 @@ class DealDamageEffect(GameEffect):
         #: same override-not-additive shape `amount_if_kicked`/
         #: `amount_if_bargained` use.
         self.amount_if_cast_from_exile = amount_if_cast_from_exile
+        #: "If this creature is a Wizard, it deals 2 damage instead."
+        #: (Sorcerer's Wand) — an activated ability's source can change type
+        #: between activation and resolution, so inspect its live type line
+        #: when resolving the override.
+        self.amount_if_source_subtype = amount_if_source_subtype
+        #: "If a colorless creature is dealt damage this way, tap it."
+        #: (Pathway Arrows) — a rider on this damage event's chosen target.
+        self.tap_target_if_colorless = bool(tap_target_if_colorless)
         #: "When ~ enters, it deals X damage to each creature." (Spiteful
         #: Banditry-shaped ETB) — `AddCountersEffect.x_multiplier`'s own
         #: sibling: a self-only ETB trigger reading the source's own
@@ -173,6 +183,11 @@ class DealDamageEffect(GameEffect):
     def amount(self) -> Union[int, str]:
         kicker_count = getattr(self.source, "kicker_count", 0) or 0
         bargained = getattr(self.source, "bargained", False)
+        source_subtype_match = False
+        if self.amount_if_source_subtype is not None and self.source is not None:
+            subtype, _ = self.amount_if_source_subtype
+            words = self.source.card.type_line.partition("—")[2].strip().lower().split()
+            source_subtype_match = subtype.lower() in words
 
         def _bargained_amount() -> Union[int, str]:
             if self.double_if_bargained:
@@ -195,6 +210,10 @@ class DealDamageEffect(GameEffect):
                 (
                     bargained and (self.double_if_bargained or self.amount_if_bargained is not None),
                     _bargained_amount,
+                ),
+                (
+                    source_subtype_match,
+                    lambda: self.amount_if_source_subtype[1],
                 ),
             ],
             stop_at_first=True,
@@ -316,6 +335,13 @@ class DealDamageEffect(GameEffect):
                 target, self._amount_for(target, context), self.source,
                 single_target_hint=single_target_hint,
             )
+            if self.tap_target_if_colorless and getattr(target, "is_creature", False):
+                colors = {str(c).upper() for c in (getattr(target, "colors", None) or set())}
+                if not colors.intersection({"W", "U", "B", "R", "G"}):
+                    # Reuse TapEffect so the normal TAPPED event and trigger
+                    # path are preserved rather than directly flipping a flag.
+                    from .attachments_transforms import TapEffect
+                    TapEffect(source=self.source, target_kind="creature").apply(context, [target])
 
     def _apply_divided(self, context: GameContext, targets: list[Any]) -> None:
         """Split the pool across ``targets`` (RULE 601.2d) — see ``divided``."""
