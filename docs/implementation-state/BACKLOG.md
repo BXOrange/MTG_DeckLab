@@ -106,8 +106,6 @@ its block back into the matching section here.
 
   Bucket C (set-specific mechanics, deck-first):
 
-  - **PAR-52** — Ki counters / "Spirit or Arcane spell" cast trigger
-    (Kamigawa) (#51).
   - **PAR-53** — Party (Zendikar Rising): `creatures in your party` /
     `full party` count-selector + its cost-reduction form (#39).
   - Doctor's companion (Doctor Who) (#28), Rebel/Mercenary recruiter
@@ -130,20 +128,6 @@ its block back into the matching section here.
     (MEC-67, optional tapping cost + cast-state marker) is **done**, so this
     is parser-only. Seed cards: Go Nuts!, Widow's Bite, HULK SMASH!,
     Atlantis Attacks, Murdock's Crusade.
-  - **PAR-58 · Reflexive modal trigger wrapper.** Parse `you may pay <cost>.
-    When you do, choose N —` as a `pay_cost_then` continuation whose payoff
-    is a modal triggered ability, retaining RULE 603.11 stack/target order.
-    The continuation plumbing (MEC-69, `enqueue_reflexive_trigger` +
-    `then_trigger_modes`) is **done**, so this is parser-only. Seed cards:
-    Voltstorm Angel,
-    Hylda of the Icy Crown, Gorbag of Minas Morgul, Vision Synthezoid
-    Avenger.
-- **PAR-59 · Haunt-trigger modal wrapper (RULE 702.55).** Parse `when ~
-  enters or the creature it haunts dies, choose N —` and the standalone
-  `when the creature this card haunts dies` form. The haunt link/exile
-  mechanic and event (MEC-70) are **done**, so this is parser-only. Seed
-  cards: Orzhov Pontiff, Absolver
-  Thrull, Belfry Spirit, Blind Hunter, Exhumer Thrull, Graven Dominator.
 
 ## MEC — Game mechanics
 

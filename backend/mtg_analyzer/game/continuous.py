@@ -815,6 +815,34 @@ def count_selector(
     """
     bf = state.battlefield
     _source_card_name = getattr(source, "name", None)
+    if selector == "creatures_in_your_party":
+        # RULE 700.8: a party has at most one Cleric, Rogue, Warrior and
+        # Wizard. A creature with several of those subtypes can fill only one
+        # role, so this is a small bipartite matching rather than four
+        # independent presence tests.
+        if controller_id is None:
+            return 0
+        roles = ("cleric", "rogue", "warrior", "wizard")
+        candidates = [
+            {role for role in roles if _has_subtype(obj, role)}
+            for obj in bf if obj.is_creature and obj.controller_id == controller_id
+        ]
+        assigned: dict[str, int] = {}
+        def _assign(index: int, seen: set[str]) -> bool:
+            for role in candidates[index]:
+                if role in seen:
+                    continue
+                seen.add(role)
+                previous = assigned.get(role)
+                if previous is None or _assign(previous, seen):
+                    assigned[role] = index
+                    return True
+            return False
+        # At four roles, trying each creature against the currently free
+        # roles is sufficient for the bounded quantity this selector returns.
+        for index in range(len(candidates)):
+            _assign(index, set())
+        return len(assigned)
     if selector == "all_creatures":
         # Chain Reaction — an unscoped count, unlike the controller-relative
         # creature selectors below (RULE 107.3 / 608.2h).

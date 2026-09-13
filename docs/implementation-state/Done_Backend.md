@@ -5734,6 +5734,37 @@ measurement of why is the useful half of this work.
 - **Verification:** `tests/test_par50_combat_damage_assignment.py` covers
   parser coverage, blocked-attacker redirection, and toughness-based damage.
 
+### PAR-52: Spirit-or-Arcane cast triggers (PARSER_VERSION 376)
+
+- **What:** Extended the existing spell-subtype cast-trigger grammar from a
+  single subtype to the printed `Spirit or Arcane` alternative. It reuses the
+  established `spell_subtype_any` predicate and the generic named-counter
+  effect, so the Kamigawa Ki-counter triggers bind without a card-specific
+  execution path.
+- **Verification:** `parser_probe.py blocked 'put a ki counter on'` reports
+  zero unclaimed clauses; `tests/test_par52_spirit_arcane_trigger.py` covers
+  the emitted two-subtype predicate, alongside the existing subtype-trigger
+  end-to-end suite.
+
+### PAR-58: Reflexive modal wrapper — stale backlog reconciliation
+
+- **What:** Verified the existing gate-level `you may pay <cost>. When you
+  do, choose N —` wrapper. It emits `pay_cost_then.then_trigger_modes`, so
+  the mode/target decisions happen on the fresh RULE 603.11 reflexive trigger
+  rather than while the optional payment is being chosen.
+- **Verification:** `tests/test_mec69_reflexive_modal.py` covers Voltstorm
+  Angel's deferred modal payoff and the declined-payment path.
+
+### PAR-59: Haunt payoff trigger wrappers (PARSER_VERSION 378)
+
+- **What:** Added both printed Haunt payoff forms: combined ETB/haunted-
+  creature death text emits a normal ETB trigger plus a `haunt_linked_death`
+  wrapper; the standalone form emits the linked-death trigger alone. The
+  existing MEC-70 exile-zone scanner restricts it to the currently haunted
+  creature.
+- **Verification:** `tests/test_par59_haunt_trigger_parser.py` and
+  `tests/test_mec70_haunt.py` pass.
+
 ### PAR-45: Choose an opponent as this enters (PARSER_VERSION 372)
 
 - **What:** Added the pre-entry `ChooseOpponentReplacement`, wired through

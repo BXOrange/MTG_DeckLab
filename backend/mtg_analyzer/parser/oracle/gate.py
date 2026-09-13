@@ -2818,7 +2818,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (Windfall), and `spec.py`'s `_AMOUNT_SPEC_FIELDS` learned the `aggregate`
 #: key. Vocabulary only - no parser handler emits it yet, no card's verdict
 #: moves - but the parser source hash follows.
-PARSER_VERSION = "375"
+PARSER_VERSION = "378"
 
 
 def parser_source_hash() -> str:
@@ -3256,6 +3256,42 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
 
     def _process_line(line: str) -> None:
         nonlocal all_claimed
+        # PAR-59 / RULE 702.55: Haunt cards print either the combined ETB +
+        # linked-creature-death trigger or the latter alone.  The ordinary
+        # ETB half stays a normal battlefield trigger; the death half is a
+        # DIES trigger whose wrapper makes `triggers_mixin` scan the exiled
+        # haunter linked to that exact dying creature.
+        haunt = re.fullmatch(
+            r"when ~ enters or the creature it haunts dies,\s*(?P<body>.+)", line, re.I
+        )
+        haunt_only = re.fullmatch(
+            r"when the creature this card haunts dies,\s*(?P<body>.+)", line, re.I
+        )
+        if haunt is not None or haunt_only is not None:
+            body = (haunt or haunt_only).group("body")
+            effects = parse_effect_body(body)
+            if effects is None:
+                all_claimed = False
+                unclaimed.append(line)
+                return
+            if haunt is not None:
+                enter = segment_line(
+                    "when ~ enters, " + body, allow_spell_effect=allow_spell_effect,
+                    provenance=provenance, is_saga=is_saga,
+                )
+                if not enter.claimed or enter.spec is None:
+                    all_claimed = False
+                    unclaimed.append(line)
+                    return
+                effect_specs.append(enter.spec)
+            effect_specs.append(AbilitySpec(
+                "triggered",
+                [EffectSpec("haunt_linked_death", {
+                    "effects": [effect.to_dict() for effect in effects],
+                })],
+                trigger={"event": "DIES"}, raw_text=line, parser=provenance,
+            ))
+            return
         # PAR-45: an opponent choice and its entry-counter consequence are
         # two independent pre-entry replacements printed on one line.  Split
         # only this fully-known composition; a generic sentence split would

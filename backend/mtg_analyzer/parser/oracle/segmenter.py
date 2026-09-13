@@ -1532,6 +1532,13 @@ _ADDITIONAL_COST_PAID_CONDITION_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: PAR-56 / RULE 702.194: Teamwork is an optional additional cost with its
+#: own cast-state marker, so ordinary "if this spell was cast using
+#: teamwork" riders use the same additive conditional-effect path as Kicker.
+_TEAMWORK_PAID_CONDITION_RE = re.compile(
+    r"^if this spell was cast using teamwork,\s*(?P<rest>.+)$", re.IGNORECASE,
+)
+
 #: PAR-30 / RULE 601.2b: the *negative, suffix* sibling — "`<effect>` unless
 #: `<its>` additional cost was paid." (Katara, Seeking Revenge — "draw a
 #: card, then discard a card **unless her additional cost was paid**."):
@@ -3155,6 +3162,10 @@ _CONDITION_PREFIXES: tuple[_ConditionPrefix, ...] = (
         _ADDITIONAL_COST_PAID_CONDITION_RE,
         lambda m: {"kind": "flag", "flag": "additional_cost_paid"},
     ),
+    _ConditionPrefix(
+        _TEAMWORK_PAID_CONDITION_RE,
+        lambda m: {"kind": "flag", "flag": "teamwork_paid"},
+    ),
     # "If that player is[n't] you, `<effect>`." (The Ghoul, Gunslinger) — the
     # negative polarity is the ``not`` combinator, not a second predicate.
     _ConditionPrefix(
@@ -4604,7 +4615,14 @@ def segment_line(
                 parser=provenance,
             )
             return Segment(raw=raw, spec=spec, claimed=True)
-        if types is None and single_word in _CAST_SPELL_SUBTYPE_WORDS:
+        subtype_words = [
+            word for word in re.split(r"[,\s]+", raw_types.strip().lower())
+            if word and word != "or"
+        ]
+        if types is None and subtype_words and all(
+            word in _CAST_SPELL_SUBTYPE_WORDS or word == "arcane"
+            for word in subtype_words
+        ):
             body, optional = _peel_optional(cast_spell_trig.group("body"))
             effects = parse_effect_body(body)
             if effects is None:
@@ -4615,7 +4633,7 @@ def segment_line(
                 trigger={
                     "event": "SPELL_CAST",
                     "condition": _cast_spell_trigger_condition(pos_subj),
-                    "spell_subtype_any": [single_word],
+                    "spell_subtype_any": subtype_words,
                 },
                 optional=optional,
                 raw_text=raw,
