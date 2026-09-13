@@ -154,8 +154,13 @@ def _strip_unregistered_keyword_labels(text: str, keywords: Optional[list[str]])
         slug = kw.lower().replace(" ", "_").replace("-", "_")
         if slug in KEYWORDS:
             continue
+        # A plain hyphen is only an ability-word separator when separated
+        # from its label by whitespace.  Scryfall also reports the spurious
+        # prefix ``Jump`` alongside the real ``Jump-start`` keyword; allowing
+        # ``Jump-`` here used to strip that prefix and leave a phantom
+        # unclaimed ``start`` line behind.
         pattern = re.compile(
-            r"^" + re.escape(kw.lower()) + r"\s*[—–-]\s*", re.MULTILINE
+            r"^" + re.escape(kw.lower()) + r"(?:\s+[—–-]|[—–])\s*", re.MULTILINE
         )
         text = pattern.sub("", text)
     return text
