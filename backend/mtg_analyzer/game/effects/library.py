@@ -135,6 +135,7 @@ class SearchLibraryEffect(GameEffect):
         share_land_type: bool = False,
         track_exiled_with: bool = False,
         untap_if_lands_at_least: Optional[int] = None,
+        then_specs: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         super().__init__(source)
         #: "…put it onto the battlefield tapped, then shuffle. Then if you
@@ -216,6 +217,7 @@ class SearchLibraryEffect(GameEffect):
         #: control**" (Stonehewer Giant/Quest for the Holy Relic) — see
         #: `RulesEngine._finish_search`'s own docstring for the auto-pick.
         self.attach_to_creature_you_control = attach_to_creature_you_control
+        self.then_specs = list(then_specs or [])
 
     def _resolved_criteria(self, context: Optional[GameContext] = None) -> Any:
         """``criteria`` with any `mana_value_from` bound to a real number."""
@@ -287,6 +289,7 @@ class SearchLibraryEffect(GameEffect):
             source=self.source,
             track_exiled_with=self.track_exiled_with,
             untap_if_lands_at_least=self.untap_if_lands_at_least,
+            then_specs=self.then_specs or None,
         )
 
 

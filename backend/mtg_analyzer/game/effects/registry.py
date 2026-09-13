@@ -41,12 +41,21 @@ EffectRegistry.register(
         ),
         amount_from_count_selector=p.get("amount_from_count_selector"),
         amount_plus_count_selector=int(p.get("amount_plus_count_selector", 0) or 0),
+        amount_multiplier=int(p.get("amount_multiplier", 1) or 1),
         amount_from_trigger_event=p.get("amount_from_trigger_event"),
         amount_from_defending_player_hand_size=bool(p.get("amount_from_defending_player_hand_size", False)),
         recipient_subject=p.get("recipient_subject"),
         unpreventable=bool(p.get("unpreventable", False)),
     ),
 )
+EffectRegistry.register(
+    # "If you do, you skip your draw step this turn." (Elfhame Sanctuary)
+    # is a resolving, one-shot skip, unlike the standing ``skip_step``
+    # StaticAbility used by Necropotence.
+    "skip_next_step",
+    lambda p: SkipNextStepEffect(step=p.get("step", "draw")),
+)
+EffectRegistry.register("establish_day_on_entry", lambda p: EstablishDayOnEntryEffect())
 EffectRegistry.register(
     # "…its controller may draw a card if its power is greater than each
     # other creature's power." (Selvala, Heart of the Wilds, MEC-43) — see
@@ -244,6 +253,7 @@ EffectRegistry.register(
         whole_hand=bool(p.get("whole_hand", False)),
         count_max=p.get("count_max"),
         then_draw_discarded=bool(p.get("then_draw_discarded", False)),
+        count_from_trigger_event=p.get("count_from_trigger_event"),
     ),
 )
 EffectRegistry.register(
@@ -2591,6 +2601,7 @@ EffectRegistry.register(
         share_land_type=bool(p.get("share_land_type", False)),
         track_exiled_with=bool(p.get("track_exiled_with", False)),
         untap_if_lands_at_least=p.get("untap_if_lands_at_least"),
+        then_specs=p.get("then_specs"),
     ),
 )
 EffectRegistry.register(

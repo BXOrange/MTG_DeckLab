@@ -637,6 +637,8 @@ _ALIAS_TYPES: dict[str, str] = {
     "shuffle_hand_and_graveyard_into_library": "shuffle",
     "shuffle_self_into_library": "shuffle",
     "skip_next_untap": "skip_step",
+    "skip_next_step": "skip_step",
+    "establish_day_on_entry": "skip_step",
     "skip_untap_step": "skip_step",
     "subject_damages_each_opponent_equal_to_power": "deal_damage",
     "tap_matching_lands": "tap",

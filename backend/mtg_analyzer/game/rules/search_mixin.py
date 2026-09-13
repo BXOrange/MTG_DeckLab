@@ -937,6 +937,7 @@ class SearchMixin:
         source: Optional[GameObject] = None,
         track_exiled_with: bool = False,
         untap_if_lands_at_least: Optional[int] = None,
+        then_specs: Optional[list[dict]] = None,
     ) -> None:
         """Open a "search your library" choice on the game state (a tutor).
 
@@ -1069,6 +1070,7 @@ class SearchMixin:
             share_land_type=share_land_type,
             untap_if_lands_at_least=untap_if_lands_at_least,
             then_specs_if_none=then_specs_if_none,
+            then_specs=then_specs,
             then_source_id=getattr(source, "instance_id", None),
             track_exiled_with=track_exiled_with,
         ))
@@ -1337,6 +1339,7 @@ class SearchMixin:
                 share_land_type=share_land_type,
                 untap_if_lands_at_least=choice.get("untap_if_lands_at_least"),
                 then_specs_if_none=choice.get("then_specs_if_none"),
+                then_specs=choice.get("then_specs"),
                 then_source_id=choice.get("then_source_id"),
                 track_exiled_with=choice.get("track_exiled_with", False),
             ))
@@ -1363,6 +1366,11 @@ class SearchMixin:
                 list(choice["then_specs_if_none"]),
                 self._object_by_instance_id(choice.get("then_source_id")),
             )
+        elif not declined and choice.get("then_specs"):
+            self._apply_effect_specs(
+                list(choice["then_specs"]),
+                self._object_by_instance_id(choice.get("then_source_id")),
+            )
     def _search_choice(
         self,
         player: Player,
@@ -1384,6 +1392,7 @@ class SearchMixin:
         share_land_type: bool = False,
         untap_if_lands_at_least: Optional[int] = None,
         then_specs_if_none: Optional[list[dict]] = None,
+        then_specs: Optional[list[dict]] = None,
         then_source_id: Optional[int] = None,
         track_exiled_with: bool = False,
     ) -> dict[str, Any]:
@@ -1455,6 +1464,7 @@ class SearchMixin:
             # "…if you don't put a card … this way, <body>." (The Vast
             # Scrier) — run once the search finishes with nothing picked.
             "then_specs_if_none": [dict(d) for d in (then_specs_if_none or [])],
+            "then_specs": [dict(d) for d in (then_specs or [])],
             "then_source_id": then_source_id,
             # "…exile them, then incubate 2 **that many times**." (Phyrexian
             # Incubator) — every card sent to exile by this search is

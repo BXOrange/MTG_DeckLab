@@ -506,8 +506,13 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 43.5% (15,151 / 34,811) as of 2026-09-13, measured at
-PARSER_VERSION 363** (v363 closes generic group/state quoted-ability grants,
+**Coverage: 43.6% (15,183 / 34,811) as of 2026-09-13, measured at
+PARSER_VERSION 367** (v367 closes PAR-41's X-scaled discard and graveyard-exile additional costs;
+v366 closes PAR-38's remaining upkeep-damage riders
+and Elfhame Sanctuary's conditional draw-step skip; v365 closes PAR-36's combat-damage-scaled discard;
+v364 closes PAR-35's combat-only casting restriction,
+paid conditional Flash, and the generic Flash/next-cleanup-sacrifice rider;
+v363 closes generic group/state quoted-ability grants,
 including Threshold bodies; v362 recognizes Unquenchable Fury's quoted attack
 trigger with damage equal to the defending player's hand size; v361 recognizes Glowcap Lantern's attached
 top-library permission plus quoted explore grant; v360 recognizes Leyline Immersion's restricted
@@ -592,7 +597,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 45.7% (14,539 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 45.8% (14,571 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

@@ -2043,17 +2043,14 @@ _ADDITIONAL_COST_SACRIFICE_RE = re.compile(
 _ADDITIONAL_COST_SACRIFICE_ARTIFACT_OR_CREATURE_RE = re.compile(
     r"^sacrifice an? (?:artifact or creature|creature or artifact)$", re.IGNORECASE
 )
-_ADDITIONAL_COST_DISCARD_RE = re.compile(r"^discard an?\s+card$", re.IGNORECASE)
+_ADDITIONAL_COST_DISCARD_RE = re.compile(r"^discard\s+(?P<n>an?|x)\s+cards?$", re.IGNORECASE)
 #: RULE 601.2b: "exile N [<type>] cards from your graveyard" as an
 #: additional cast cost (Cobbled Lancer / Headless Skaab / Makeshift Mauler
 #: — "exile a creature card …"; Abhorrent Oculus — "exile 6 cards …"). A
-#: hard gate, no "or pay {N}" alternative here. Only the fixed-digit /
-#: "a"/"an" count is recognised (the "exile **x** cards" variant — Harvest
-#: Pyre / Haunting Misery — needs an X-scaled additional cost this field
-#: doesn't carry yet, so it stays UNMODELED). ``type`` is a single main-
+#: hard gate, no "or pay {N}" alternative here. ``type`` is a single main-
 #: type word ("creature" is the only one real cards print in this shape).
 _ADDITIONAL_COST_EXILE_GRAVEYARD_RE = re.compile(
-    r"^exile\s+(?P<n>an?|\d+)\s+(?P<type>creature\s+)?cards?\s+from your graveyard$",
+    r"^exile\s+(?P<n>an?|x|\d+)\s+(?P<type>creature\s+)?cards?\s+from your graveyard$",
     re.IGNORECASE,
 )
 _ADDITIONAL_COST_PAY_LIFE_RE = re.compile(r"^pay\s+(x|\d+)\s+life$", re.IGNORECASE)
@@ -2182,6 +2179,24 @@ _CONDITIONAL_FLASH_IF_BEHOLD_RE = re.compile(
     r"^you may cast this spell as though it had flash if you behold an?\s+"
     r"(?P<q>[a-z][a-z'-]*) as an additional cost to cast it\.?\s*$",
     re.IGNORECASE,
+)
+#: PAR-35's deliberately narrow Mercadian-Masques combat window.
+_DECLARE_ATTACKERS_IF_ATTACKED_RE = re.compile(
+    r"^cast this spell only during the declare attackers step and only if you've been "
+    r"attacked this step\.?$", re.IGNORECASE,
+)
+#: PAR-35: paid Flash, where the mana applies only outside a normal sorcery
+#: window (enforced by ``GameEngine.effective_cast_cost``).
+_CONDITIONAL_FLASH_FOR_EXTRA_MANA_RE = re.compile(
+    r"^you may cast this spell as though it had flash if you pay (?P<cost>(?:\{[^{}]+\})+) "
+    r"more to cast it\.?$", re.IGNORECASE,
+)
+#: PAR-35's common Necromancy-style rider.  The delayed trigger primitives
+#: already exist; this gives their exact recurring wording a parser route.
+_FLASH_THEN_CLEANUP_SAC_RE = re.compile(
+    r"^you may cast this spell as though it had flash\. if you cast it any time a sorcery "
+    r"couldn't have been cast, the controller of the permanent it becomes sacrifices it at "
+    r"the beginning of the next cleanup step\.?$", re.IGNORECASE,
 )
 
 #: "Strive — This spell costs `<cost>` more to cast for each target beyond
@@ -2415,8 +2430,7 @@ def _additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
     """One additional-cost clause's closed vocabulary → its dict, or ``None``.
 
     Matches `AbilitySpec.additional_cost`'s shape exactly: ``{"sacrifice":
-    "creature"|"artifact"|"land"|"artifact_or_creature"}``, ``{"discard": 1}``
-    ("discard a card" is the only printed count in the pool), or
+    "creature"|"artifact"|"land"|"artifact_or_creature"}``, ``{"discard": 1|"x"}``, or
     ``{"pay_life": N|"x"}``.
     """
     text = text.strip().lower()
@@ -2425,14 +2439,15 @@ def _additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
     sac = _ADDITIONAL_COST_SACRIFICE_RE.match(text)
     if sac is not None:
         return {"sacrifice": sac.group(1)}
-    if _ADDITIONAL_COST_DISCARD_RE.match(text):
-        return {"discard": 1}
+    discard = _ADDITIONAL_COST_DISCARD_RE.match(text)
+    if discard:
+        return {"discard": "x" if discard.group("n").lower() == "x" else 1}
     exile_gy = _ADDITIONAL_COST_EXILE_GRAVEYARD_RE.match(text)
     if exile_gy is not None:
         n = exile_gy.group("n").lower()
         # Single-key dict (RULE 601.2b `AbilitySpec.additional_cost` shape),
         # value structured as ``{"count", "type"?}``.
-        value: dict[str, Any] = {"count": 1 if n in ("a", "an") else int(n)}
+        value: dict[str, Any] = {"count": "x" if n == "x" else 1 if n in ("a", "an") else int(n)}
         if exile_gy.group("type"):
             value["type"] = "creature"
         return {"exile_from_graveyard": value}
@@ -4176,6 +4191,19 @@ def segment_line(
     raw = line.strip()
     if not raw:
         return Segment(raw=raw, claimed=True)  # blank lines are trivially covered
+    if re.fullmatch(
+        r"if it'?s neither day nor night, it becomes day as (?:~|this (?:creature|artifact|enchantment)|[a-z][a-z' -]+) enters\.?",
+        raw,
+        re.I,
+    ):
+        return Segment(
+            raw=raw,
+            spec=AbilitySpec(
+                "enter_replacement", [EffectSpec("establish_day_on_entry", {})],
+                raw_text=raw, parser=provenance,
+            ),
+            claimed=True,
+        )
 
     # PAR-28: "Boast/Exhaust/Forecast/Power-up/Solved/Max speed — [ability]".
     # Checked *before* `is_keyword_line`, since `_KEYWORD_TOKEN_RE`'s greedy
@@ -5165,6 +5193,36 @@ def segment_line(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+
+    # PAR-35's casting clauses are unambiguous spell metadata, so like an
+    # additional cost they apply to permanent spells too (Harbinger of the
+    # Tides / Armor of Thorns), not only bare instant/sorcery effects.
+    if _DECLARE_ATTACKERS_IF_ATTACKED_RE.match(raw):
+        return Segment(raw=raw, spec=AbilitySpec(
+            "spell_effect", effects=[],
+            cast_timing_restriction={"step": "declare_attackers", "controller_attacked": True},
+            raw_text=raw, parser=provenance,
+        ), claimed=True)
+
+    flash_for_mana = _CONDITIONAL_FLASH_FOR_EXTRA_MANA_RE.match(raw)
+    if flash_for_mana is not None:
+        return Segment(raw=raw, spec=AbilitySpec(
+            "spell_effect", effects=[], conditional_flash={"unconditional": True},
+            flash_extra_cost=re.sub(r"\s+", "", flash_for_mana.group("cost")),
+            raw_text=raw, parser=provenance,
+        ), claimed=True)
+
+    if _FLASH_THEN_CLEANUP_SAC_RE.match(raw):
+        return Segment(raw=raw, spec=AbilitySpec(
+            "triggered",
+            [EffectSpec("create_delayed_trigger", {
+                "step": "cleanup", "scope": "controller",
+                "effects": [{"type": "sacrifice_self", "params": {}}],
+                "description": "Instant-speed cast: sacrifice at next cleanup",
+            }, condition={"cast_outside_sorcery_speed": True})],
+            trigger={"event": "ENTERS_BATTLEFIELD", "condition": {"subject": "self"}},
+            conditional_flash={"unconditional": True}, raw_text=raw, parser=provenance,
+        ), claimed=True)
 
     if allow_spell_effect:
         # RULE 601.2f-adjacent condition-gated free-cast alternative cost —

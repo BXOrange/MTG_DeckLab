@@ -3312,6 +3312,12 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
         if spec.conditional_flash:
             spec.validate()
             obj.conditional_flash = spec.conditional_flash
+        if spec.cast_timing_restriction:
+            spec.validate()
+            obj.cast_timing_restriction = spec.cast_timing_restriction
+        if spec.flash_extra_cost:
+            spec.validate()
+            obj.flash_extra_cost = spec.flash_extra_cost
         if spec.free_cast_condition:
             spec.validate()
             obj.free_cast_condition = spec.free_cast_condition
@@ -3468,6 +3474,9 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
             # on `enter_choice_effects` instead — `RulesEngine._resolve_
             # permanent_spell` offers both in turn before battlefield entry.
             for effect in bound:
+                if effect.__class__.__name__ == "EstablishDayOnEntryEffect":
+                    obj.establishes_day_on_entry = True
+                    continue
                 if isinstance(
                     effect,
                     (

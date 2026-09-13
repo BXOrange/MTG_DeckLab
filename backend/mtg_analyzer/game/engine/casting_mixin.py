@@ -32,6 +32,8 @@ from ...models.decks import formats as game_format
 from ...models.decks.formats import GameFormat, get_format
 from ..costs import (
     DISCARD_HAND,
+    DISCARD_X,
+    EXILE_FROM_GRAVEYARD_X,
     PAY_LIFE_X,
     REMOVE_COUNTERS_ANY,
     REMOVE_COUNTERS_X,
@@ -601,6 +603,16 @@ class CastingMixin:
             for e in player.player_effects
         ):
             return False
+        restriction = getattr(obj, "cast_timing_restriction", None)
+        if restriction is not None:
+            if self.state.current_step != restriction.get("step"):
+                return False
+            if restriction.get("controller_attacked") and not any(
+                self._defending_player(attacker.combat_defender) is player
+                for attacker in self.state.battlefield
+                if getattr(attacker, "attacking", False)
+            ):
+                return False
         # Timing (RULE 601.3a): sorcery-speed spells need an empty stack,
         # the player's own main phase, and their priority. RULE 702.8b:
         # Flash lets an otherwise-sorcery-speed card (Embercleave, The
@@ -616,6 +628,11 @@ class CastingMixin:
             conditional_flash is not None
             and condition_query.conditional_flash_holds(conditional_flash, obj, self.state, targets=targets)
         )
+        normal_sorcery_window = (
+            player is self.state.active_player and self._in_main_phase() and not self.state.stack
+        )
+        flash_extra_cost = getattr(obj, "flash_extra_cost", None)
+        has_paid_conditional_flash = bool(flash_extra_cost) and not normal_sorcery_window
         # "You may cast spells this turn as though they had flash." (Borne
         # Upon a Wind-shaped) — a temporary, player-scoped blanket flash
         # grant (`GameState.temp_flash_until_turn`, `GrantFlashUntilEndOf
@@ -650,7 +667,7 @@ class CastingMixin:
         # doesn't leak into anything that reads the object's own keywords.
         has_free_cast_timing_override = obj.instance_id in self.state.free_cast_ignore_timing_instance_ids
         sorcery_speed = not (
-            card.is_instant or combat.has(obj, "flash") or has_conditional_flash or has_temp_flash
+            card.is_instant or combat.has(obj, "flash") or has_conditional_flash or has_paid_conditional_flash or has_temp_flash
             or has_top_library_flash
             or continuous.has_standing_flash_permission(self.state, player, card)
             or has_aluren_free_cast_flash
@@ -1070,6 +1087,12 @@ class CastingMixin:
             buyback_cost = self._buyback_cost(obj)
             if buyback_cost is not None:
                 cost = cost.add(buyback_cost)
+        flash_extra_cost = getattr(obj, "flash_extra_cost", None)
+        normal_sorcery_window = (
+            player is self.state.active_player and self._in_main_phase() and not self.state.stack
+        )
+        if flash_extra_cost and not normal_sorcery_window:
+            cost = cost.add(ManaCost.parse(flash_extra_cost))
         # ENG-32 (RULE 601.2b/701.67): "as an additional cost to cast this
         # spell, waterbend {N}." — a {N}/{X} generic mana cost folded into
         # the spell's total here (not paid separately in
@@ -2037,9 +2060,10 @@ class CastingMixin:
             player, obj, cost.sacrifice, chosen_id=sacrifice_choice
         ) is None:
             return False
-        if cost.discard and cost.discard != DISCARD_HAND:
+        discard_count = x if cost.discard == DISCARD_X else cost.discard
+        if discard_count and cost.discard != DISCARD_HAND:
             if self._resolve_discard_cost(
-                player, cost.discard, discard_choices, exclude=obj
+                player, discard_count, discard_choices, exclude=obj
             ) is None:
                 return False
         if cost.pay_life:
@@ -2064,11 +2088,12 @@ class CastingMixin:
         # the caster's graveyard must hold at least N matching cards. The
         # spell itself is still in hand at check time, so it's never one of
         # them anyway.
-        if cost.exile_from_graveyard and len(
+        exile_count = x if cost.exile_from_graveyard == EXILE_FROM_GRAVEYARD_X else cost.exile_from_graveyard
+        if exile_count and len(
             self._graveyard_exile_cost_candidates(
-                player, cost.exile_from_graveyard, cost.exile_from_graveyard_filter
+                player, exile_count, cost.exile_from_graveyard_filter
             )
-        ) < cost.exile_from_graveyard:
+        ) < exile_count:
             return False
         # RULE 701.4a (PAR-30, Celestial Reunion): "you may choose a creature
         # type and behold two creatures of that type." — an *optional*
@@ -2196,23 +2221,25 @@ class CastingMixin:
                 # can't save it — so this bypasses `destroy` and its
                 # regeneration-shield check.
                 self.rules.put_into_graveyard(victim)
-        if cost.discard:
+        discard_count = x if cost.discard == DISCARD_X else cost.discard
+        if discard_count:
             if cost.discard == DISCARD_HAND:
                 self.rules.discard(player, len(player.hand))
             else:
                 chosen = self._resolve_discard_cost(
-                    player, cost.discard, discard_choices, exclude=obj
+                    player, discard_count, discard_choices, exclude=obj
                 )
                 for card in chosen or []:
                     self.rules.discard_specific(card)
         if cost.pay_life:
             amount = x if cost.pay_life == PAY_LIFE_X else cost.pay_life
             self.rules.lose_life(player, amount, cause="cost")
-        if cost.exile_from_graveyard:
+        exile_count = x if cost.exile_from_graveyard == EXILE_FROM_GRAVEYARD_X else cost.exile_from_graveyard
+        if exile_count:
             # RULE 601.2b (PAR-41): `_can_pay_additional_cast_cost` already
             # confirmed enough matching cards are there.
             for victim in self._graveyard_exile_cost_candidates(
-                player, cost.exile_from_graveyard, cost.exile_from_graveyard_filter
+                player, exile_count, cost.exile_from_graveyard_filter
             ):
                 self.rules.exile(victim)
         if cost.behold:

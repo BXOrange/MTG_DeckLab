@@ -182,10 +182,18 @@ _WARD_X_SELECTOR_PHRASES: dict[str, str] = {
 #: Sentinel for "discard your hand" — count isn't known until pay time.
 DISCARD_HAND = -1
 
+#: RULE 601.2b's "discard X cards" additional cost.  Kept distinct from
+#: ``DISCARD_HAND`` because X is announced while casting, not inferred from
+#: the hand size at payment time.
+DISCARD_X = -2
+
 #: Sentinel for "pay X life" (RULE 601.2b's ~ additional-cost template) — the
 #: amount isn't known until pay time, since it's tied to the spell's own
 #: announced X, not a printed number.
 PAY_LIFE_X = -1
+
+#: RULE 601.2b's "exile X cards from your graveyard" additional cost.
+EXILE_FROM_GRAVEYARD_X = -1
 
 #: Sentinels for `ActivationCost.remove_counters`'s ``count`` half, mirroring
 #: `PAY_LIFE_X`'s idiom — the actual amount isn't a printed number, it's
@@ -702,6 +710,7 @@ class ActivationCost:
             parts.append(f"Pay {'{E}' * self.pay_energy}")
         if self.discard:
             parts.append("Discard your hand" if self.discard == DISCARD_HAND
+                         else "Discard X cards" if self.discard == DISCARD_X
                          else f"Discard {self.discard} card(s)")
         if self.discard_self:
             parts.append("Discard this card")
@@ -714,7 +723,8 @@ class ActivationCost:
             else:
                 parts.append(f"Remove {count} {kind} counter(s)")
         if self.exile_from_graveyard:
-            parts.append(f"Exile {self.exile_from_graveyard} other card(s) from your graveyard")
+            count = "X" if self.exile_from_graveyard == EXILE_FROM_GRAVEYARD_X else self.exile_from_graveyard
+            parts.append(f"Exile {count} other card(s) from your graveyard")
         if self.collect_evidence:
             parts.append(f"Collect evidence {self.collect_evidence}")
         if self.forage:
@@ -842,7 +852,7 @@ def parse_activation_cost(
     if "note_spent_color" in cost:
         parsed.note_spent_color = bool(cost["note_spent_color"])
     if "discard" in cost:
-        parsed.discard = int(cost["discard"])
+        parsed.discard = DISCARD_X if cost["discard"] == "x" else int(cost["discard"])
     if "discard_self" in cost:
         parsed.discard_self = bool(cost["discard_self"])
     if "is_cycling" in cost:
@@ -860,7 +870,10 @@ def parse_activation_cost(
         raw = cost["exile_from_graveyard"]
         if isinstance(raw, dict):
             # RULE 601.2b additional-cost shape (PAR-41): {"count", "type"?}.
-            parsed.exile_from_graveyard = int(raw.get("count", 0))
+            count = raw.get("count", 0)
+            parsed.exile_from_graveyard = (
+                EXILE_FROM_GRAVEYARD_X if count == "x" else int(count)
+            )
             if raw.get("type"):
                 parsed.exile_from_graveyard_filter = str(raw["type"])
         else:

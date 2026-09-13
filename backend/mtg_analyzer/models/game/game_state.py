@@ -1427,6 +1427,10 @@ class GameState:
         is skipped for good, not merely delayed, so this must never fire the
         default chapter-1 event and then "catch up" separately.
         """
+        # RULE 731.1: this entry replacement establishes day only while
+        # neither designation exists, before the entrant is on the field.
+        if getattr(obj, "establishes_day_on_entry", False) and self.day_night is None:
+            self.day_night = "day"
         obj.zone = Zone.BATTLEFIELD
         # RULE 613.7b: stamp a timestamp on entry so the layer engine can order
         # multiple effects within the same layer (newest applies last).

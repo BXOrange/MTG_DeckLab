@@ -42,6 +42,7 @@ class DealDamageEffect(GameEffect):
         amount_from_noncreature_spells_cast_this_turn: bool = False,
         amount_from_count_selector: Optional[str] = None,
         amount_plus_count_selector: int = 0,
+        amount_multiplier: int = 1,
         amount_from_trigger_event: Optional[str] = None,
         amount_from_defending_player_hand_size: bool = False,
         recipient_subject: Optional[str] = None,
@@ -89,6 +90,10 @@ class DealDamageEffect(GameEffect):
         #: ``amount_plus_count_selector`` is the flat addend ("2 plus …").
         self.amount_from_count_selector = amount_from_count_selector
         self.amount_plus_count_selector = amount_plus_count_selector
+        #: "~ deals 2 damage to you for each Treasure you control."
+        #: (Black Market Tycoon) — unlike the existing ``plus`` form, the
+        #: printed numeral multiplies the live count.
+        self.amount_multiplier = max(0, int(amount_multiplier))
         #: "If this spell was bargained, it deals twice X damage to that
         #: permanent instead." (Stonesplitter Bolt) / "…instead it deals 3
         #: damage…" (Torch the Tower) — RULE 702.157's own `GameObject.
@@ -235,7 +240,7 @@ class DealDamageEffect(GameEffect):
             from .. import continuous  # avoid the continuous↔effects import cycle
 
             controller_id = getattr(self.source, "controller_id", None)
-            return self.amount_plus_count_selector + continuous.count_selector(
+            return self.amount_plus_count_selector + self.amount_multiplier * continuous.count_selector(
                 context.state, controller_id, self.amount_from_count_selector, source=self.source,
             )
 
@@ -386,7 +391,7 @@ class DealDamageEffect(GameEffect):
             from .. import continuous  # avoid the continuous↔effects import cycle
 
             controller_id_for_amount = getattr(self.source, "controller_id", None)
-            amount = self.amount_plus_count_selector + continuous.count_selector(
+            amount = self.amount_plus_count_selector + self.amount_multiplier * continuous.count_selector(
                 context.state, controller_id_for_amount, self.amount_from_count_selector, source=self.source,
             )
         if self.amount_from_noncreature_spells_cast_this_turn:
@@ -1045,6 +1050,7 @@ class DiscardEffect(GameEffect):
         whole_hand: bool = False,
         count_max: Optional[int] = None,
         then_draw_discarded: bool = False,
+        count_from_trigger_event: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.count = count
@@ -1060,6 +1066,7 @@ class DiscardEffect(GameEffect):
         #: `pending_choice` pause because it lives on the state).
         self.count_max = int(count_max) if count_max is not None else None
         self.then_draw_discarded = bool(then_draw_discarded)
+        self.count_from_trigger_event = count_from_trigger_event
         #: "…discards their hand…" (RULE 701.8f — the wheel family: Wheel of
         #: Fortune, Windfall, Timetwister). ``count`` is then whatever that
         #: player is holding when this effect reaches them, so a `scope`
@@ -1106,6 +1113,11 @@ class DiscardEffect(GameEffect):
         return [{"type": "draw", "params": {"count": self.count}}]
 
     def _discard_from(self, context: GameContext, player: Any) -> None:
+        count = self.count
+        if self.count_from_trigger_event:
+            count = int((context.trigger_event or {}).get(self.count_from_trigger_event) or 0)
+        if count <= 0:
+            return
         if self.whole_hand:
             context.discard(player, len(player.hand))
             return
@@ -1127,10 +1139,10 @@ class DiscardEffect(GameEffect):
             )
             return
         if self.random:
-            context.discard_random(player, self.count)
+            context.discard_random(player, count)
         else:
             context.discard_choice(
-                player, self.count, source=self.source, then_specs=self._then_specs()
+                player, count, source=self.source, then_specs=self._then_specs()
             )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:

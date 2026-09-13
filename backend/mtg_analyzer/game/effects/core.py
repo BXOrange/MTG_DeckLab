@@ -1299,6 +1299,38 @@ class StaticEffect(GameEffect):
         return None
 
 
+class SkipNextStepEffect(GameEffect):
+    """One resolving instruction to skip the controller's next named step.
+
+    This is a player-scoped ``StaticEffect`` with a ``once`` duration: the
+    skip survives after its source goes away, but consumes itself when the
+    turn loop reaches that step (RULE 500.8).
+    """
+
+    def __init__(self, step: str = "draw", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.step = step
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None or self.source.controller_id is None:
+            return
+        player = context.state.player_by_id(self.source.controller_id)
+        player.player_effects.append(
+            StaticEffect("skip_phase", {"phase": self.step}, duration="once", source=self.source)
+        )
+
+
+class EstablishDayOnEntryEffect(GameEffect):
+    """Marker for "it becomes day as this enters" (RULE 731.1)."""
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.description = ""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        return None
+
+
 class StaticAbility(GameEffect):
     """A continuous static ability applied through the layer system (RULE 613).
 

@@ -88,29 +88,6 @@ its block back into the matching section here.
 
   Bucket B (recurring effect-body / static templates, `extend-parser` loop):
 
-  - **PAR-35** — casting-timing restriction (`cast this spell only during
-    the declare attackers step and only if you've been attacked`,
-    conditional flash `as though it had flash if you pay <cost> more`, the
-    `… flash. if you cast it any time a sorcery couldn't …` templating)
-    (~#14+9+9).
-  - **PAR-36** — trigger-condition vocabulary. Left: `whenever you
-    draw your second card each turn` (~#12), `…discards **that many** cards`
-    reading the DAMAGE amount (Dreamstealer / Needle Specter — a
-    `DiscardEffect.count_from_trigger_event`), `whenever you cast a spell
-    that targets ~` (~#8).
-  - **PAR-38** — residue only. The upkeep-damage **riders** — `~ deals <n>
-    damage to you for each <X>` (Black Market Tycoon — needs a
-    count-selector) and `~ deals <n> damage to you unless you pay <cost>`
-    (Force of Nature / Minion of Tevesh Szat — a self-scoped `unless you
-    pay` branch); plus `skip your draw step this turn` as a conditional "if
-    you do" tail (Elfhame Sanctuary).
-  - **PAR-41** — additional cost `{X}` / from graveyard. Left: `discard
-    x cards` and `exile x [creature] cards from your graveyard` — both need
-    an **X-scaled additional cost** (the `additional_cost` fields carry a
-    fixed int / the `pay_life` `"x"` sentinel, no general X-scaled
-    non-mana-cost path yet).
-  - **PAR-42** — conditional / dynamic enters-tapped & entry counters.
-    Left: `if it's neither day nor night, it becomes day as ~ enters` (#10).
   - **PAR-43** — self CDA / `for each` P/T. The `~ gets +N/+N for each <X>`
     standing self-anthem form has its general handler
     (`_SELF_ANTHEM_FOR_EACH_RE`) but only for the "for each <X>" quantities

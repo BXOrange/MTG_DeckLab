@@ -30,6 +30,8 @@ from ...models.decks import formats as game_format
 from ...models.decks.formats import GameFormat, get_format
 from ..costs import (
     DISCARD_HAND,
+    DISCARD_X,
+    EXILE_FROM_GRAVEYARD_X,
     PAY_LIFE_X,
     REMOVE_COUNTERS_ANY,
     REMOVE_COUNTERS_X,
@@ -370,9 +372,13 @@ class LegalActionsMixin:
             # is correct for it — this is purely the missing offer-time flag.
             _add = getattr(obj, "additional_cast_cost", None)
             _add_has_x = (
-                _add is not None and getattr(_add, "mana", None) is not None
-                and _add.mana.has_variable
-                and not getattr(obj, "additional_cast_cost_optional", False)
+                _add is not None and not getattr(obj, "additional_cast_cost_optional", False)
+                and (
+                    (getattr(_add, "mana", None) is not None and _add.mana.has_variable)
+                    or getattr(_add, "pay_life", 0) == PAY_LIFE_X
+                    or getattr(_add, "discard", 0) == DISCARD_X
+                    or getattr(_add, "exile_from_graveyard", 0) == EXILE_FROM_GRAVEYARD_X
+                )
             )
             if cost.has_variable or _add_has_x:
                 action["has_x"] = True
@@ -485,6 +491,11 @@ class LegalActionsMixin:
                 # a choice, so it's excluded.
                 paying_additional = (not add_optional) or pay_additional
                 discard_n = getattr(additional_cost, "discard", 0)
+                if discard_n == DISCARD_X:
+                    # The client supplies the announced X alongside the cast;
+                    # the pool is still useful, while its final count is
+                    # validated by `cast_spell`.
+                    discard_n = 0
                 if paying_additional and discard_n and discard_n != DISCARD_HAND:
                     pool = self._discard_cost_pool(player, exclude=obj)
                     action["discard_cost"] = {

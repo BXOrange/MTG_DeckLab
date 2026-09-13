@@ -517,6 +517,12 @@ class AbilitySpec:
     #: object regardless of which one carries the real effects" idiom
     #: `additional_cost` uses (`game/binding/core.py`'s `attach_to_object`).
     conditional_flash: Optional[dict[str, Any]] = None
+    #: PAR-35: a narrow spell-local casting window restriction. Unlike
+    #: ``conditional_flash`` this removes otherwise legal windows.
+    cast_timing_restriction: Optional[dict[str, Any]] = None
+    #: PAR-35: mana surcharge paid only when this spell uses its own
+    #: conditional Flash permission outside a sorcery window.
+    flash_extra_cost: Optional[str] = None
     #: RULE 601.2f-adjacent: "If you control a commander, you may cast this
     #: spell without paying its mana cost." — a single-key dict from
     #: `ALLOWED_FREE_CAST_CONDITION_KEYS` (today just ``{"control_commander":
@@ -706,6 +712,8 @@ class AbilitySpec:
             and not self.free_cast_condition
             and not self.alt_cost
             and not self.conditional_flash
+            and not self.cast_timing_restriction
+            and not self.flash_extra_cost
             and not self.strive_cost
             and not self.cast_mana_source_restriction
             and not self.cast_x_color_restriction
@@ -722,6 +730,13 @@ class AbilitySpec:
 
         if self.conditional_flash is not None:
             self._validate_conditional_flash()
+
+        if self.cast_timing_restriction is not None:
+            self._validate_cast_timing_restriction()
+
+        if self.flash_extra_cost is not None:
+            if not isinstance(self.flash_extra_cost, str) or not _STRIVE_COST_RE.fullmatch(self.flash_extra_cost):
+                raise SpecValidationError("'flash_extra_cost' must be a mana-symbol run")
 
         if self.free_cast_condition is not None:
             self._validate_free_cast_condition()
@@ -892,8 +907,9 @@ class AbilitySpec:
                     f"unsupported additional_cost sacrifice type {value!r}"
                 )
         elif key == "discard":
-            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-                raise SpecValidationError("'additional_cost' discard count must be a positive int")
+            valid_int = isinstance(value, int) and not isinstance(value, bool) and value > 0
+            if value != "x" and not valid_int:
+                raise SpecValidationError("'additional_cost' discard count must be a positive int or 'x'")
         elif key == "pay_life":
             valid_int = isinstance(value, int) and not isinstance(value, bool) and value > 0
             if value != "x" and not valid_int:
@@ -909,9 +925,10 @@ class AbilitySpec:
                     "'additional_cost' exile_from_graveyard must be a {count, type?} dict"
                 )
             cnt = value.get("count")
-            if isinstance(cnt, bool) or not isinstance(cnt, int) or cnt <= 0:
+            valid_int = isinstance(cnt, int) and not isinstance(cnt, bool) and cnt > 0
+            if cnt != "x" and not valid_int:
                 raise SpecValidationError(
-                    "'additional_cost' exile_from_graveyard count must be a positive int"
+                    "'additional_cost' exile_from_graveyard count must be a positive int or 'x'"
                 )
             gy_type = value.get("type")
             if gy_type is not None and (not isinstance(gy_type, str) or not gy_type.strip()):
@@ -987,6 +1004,13 @@ class AbilitySpec:
             raise SpecValidationError(
                 "'controller_beholds_subtype' condition must be a non-empty string"
             )
+
+    def _validate_cast_timing_restriction(self) -> None:
+        """Validate PAR-35's deliberately closed combat-window restriction."""
+        if self.cast_timing_restriction != {
+            "step": "declare_attackers", "controller_attacked": True
+        }:
+            raise SpecValidationError("unknown cast_timing_restriction")
 
     def _validate_impulsive_draw_on_combat_damage(self) -> None:
         """Structural check for an ``impulsive_draw_on_combat_damage`` marker."""
@@ -1423,6 +1447,8 @@ class AbilitySpec:
             "additional_cost": self.additional_cost,
             "additional_cost_optional": self.additional_cost_optional,
             "conditional_flash": self.conditional_flash,
+            "cast_timing_restriction": self.cast_timing_restriction,
+            "flash_extra_cost": self.flash_extra_cost,
             "free_cast_condition": self.free_cast_condition,
             "optional": self.optional,
             "raw_text": self.raw_text,
@@ -1473,6 +1499,8 @@ class AbilitySpec:
             additional_cost=data.get("additional_cost"),
             additional_cost_optional=bool(data.get("additional_cost_optional", False)),
             conditional_flash=data.get("conditional_flash"),
+            cast_timing_restriction=data.get("cast_timing_restriction"),
+            flash_extra_cost=data.get("flash_extra_cost"),
             free_cast_condition=data.get("free_cast_condition"),
             optional=bool(data.get("optional", False)),
             raw_text=str(data.get("raw_text", "")),

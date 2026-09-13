@@ -2818,7 +2818,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (Windfall), and `spec.py`'s `_AMOUNT_SPEC_FIELDS` learned the `aggregate`
 #: key. Vocabulary only - no parser handler emits it yet, no card's verdict
 #: moves - but the parser source hash follows.
-PARSER_VERSION = "363"
+PARSER_VERSION = "368"
 
 
 def parser_source_hash() -> str:

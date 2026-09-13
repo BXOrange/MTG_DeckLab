@@ -1195,6 +1195,11 @@ def count_selector(
             1 for o in bf
             if o.controller_id == controller_id and _has_subtype(o, "food")
         )
+    if selector == "treasures_you_control":
+        return sum(
+            1 for o in bf
+            if o.controller_id == controller_id and _has_subtype(o, "treasure")
+        )
     if selector.startswith("lands_you_control_of_type_"):
         # "the number of Islands you control" (Kraken of the Straits'
         # `combat.matches_object_filter`'s ``power_lt_count_selector`` —

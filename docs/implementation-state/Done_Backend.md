@@ -690,7 +690,11 @@ is in the rules-engine categories below them.
 
 ### Additional cast cost: "exile N [<type>] cards from your graveyard" (PAR-41, PARSER_VERSION 234)
 
-- **What:** RULE 601.2b's "As an additional cost to cast this spell, exile N [creature] cards from your graveyard." — the Innistrad Skaab family (Cobbled Lancer / Headless Skaab / Makeshift Mauler / Stitched Drake / Skaab Goliath) and Abhorrent Oculus's untyped "exile 6 cards". `ActivationCost.exile_from_graveyard` (a flat card count that had been **Escape-only** — never reached from an `additional_cast_cost`) gained a sibling `exile_from_graveyard_filter` (a main-type word, "creature", or `None`). `segmenter._ADDITIONAL_COST_EXILE_GRAVEYARD_RE` + `_additional_cost_dict` emit a **single-key** `{"exile_from_graveyard": {"count": N, "type"?}}` (structured value so `spec.py`'s "single-key dict" `_validate_additional_cost` rule still holds — new `elif key == "exile_from_graveyard"` branch validates it); `costs.py`'s dict path accepts either that dict or Escape's own bare int. `GameEngine._can_pay_additional_cast_cost` refuses the cast when the graveyard holds fewer than N matching cards (a hard gate, no "or pay {N}" alternative); `_pay_additional_cast_cost` exiles them via a new `_graveyard_exile_cost_candidates` auto-picker (first matches, no chooser — the same MVP simplification `_pay_escape_graveyard_cost` / `collect_evidence` make). **+9, 0 regressed.** The "exile **x** [creature] cards" variant (Harvest Pyre / Haunting Misery) stays UNMODELED — no X-scaled non-mana additional-cost path exists yet (filed under PAR-41). `tests/test_par41_exile_graveyard_cast_cost.py`.
+- **What:** RULE 601.2b's "As an additional cost to cast this spell, exile N [creature] cards from your graveyard." — the Innistrad Skaab family (Cobbled Lancer / Headless Skaab / Makeshift Mauler / Stitched Drake / Skaab Goliath) and Abhorrent Oculus's untyped "exile 6 cards". `ActivationCost.exile_from_graveyard` (a flat card count that had been **Escape-only** — never reached from an `additional_cast_cost`) gained a sibling `exile_from_graveyard_filter` (a main-type word, "creature", or `None`). `segmenter._ADDITIONAL_COST_EXILE_GRAVEYARD_RE` + `_additional_cost_dict` emit a **single-key** `{"exile_from_graveyard": {"count": N, "type"?}}` (structured value so `spec.py`'s "single-key dict" `_validate_additional_cost` rule still holds — new `elif key == "exile_from_graveyard"` branch validates it); `costs.py`'s dict path accepts either that dict or Escape's own bare int. `GameEngine._can_pay_additional_cast_cost` refuses the cast when the graveyard holds fewer than N matching cards (a hard gate, no "or pay {N}" alternative); `_pay_additional_cast_cost` exiles them via a new `_graveyard_exile_cost_candidates` auto-picker (first matches, no chooser — the same MVP simplification `_pay_escape_graveyard_cost` / `collect_evidence` make). **+9, 0 regressed.** `tests/test_par41_exile_graveyard_cast_cost.py`.
+
+### PAR-41 residue: X-scaled non-mana additional costs (v367)
+
+- **What:** `discard X cards` and `exile X [creature] cards from your graveyard` now share the announced spell X with mana and pay-X-life costs. The cast offer exposes X, `can_cast` rechecks the exact X-sized hand/graveyard requirement, and payment discards or exiles exactly that many cards. Coverage: **15,183 / 34,811** overall and **14,571 / 31,830** Commander-legal.
 - **Files:** `game/costs.py` (`exile_from_graveyard_filter` field, dict-path branch, `to_dict`), `game/engine/casting_mixin.py` (`_graveyard_exile_cost_candidates`, `_can_pay_/_pay_additional_cast_cost` branches), `parser/oracle/segmenter.py` (`_ADDITIONAL_COST_EXILE_GRAVEYARD_RE`, `_additional_cost_dict`), `parser/oracle/spec.py` (`_validate_additional_cost` `exile_from_graveyard` key), `parser/oracle/gate.py` (PARSER_VERSION 234).
 
 ### Collect Evidence (RULE 701.59) (PAR-29, PARSER_VERSION 118)
@@ -991,7 +995,11 @@ is in the rules-engine categories below them.
 
 ### "~ deals N damage to you" self-damage (PAR-38, v229)
 
-- **What:** `_SELECTOR_WORD_MAP` and the `damage_selector` handler's regex alternation gained `"you" → "controller"`, routing to `DealDamageEffect`'s pre-existing `"controller"` selector (the source's own controller, and only them — Mana Vault's shape, previously reachable only via a hand-authored entry). Covers the upkeep-bleed creatures (Fledgling Djinn / Juzám Djinn / Serendib Efreet / Plague Sliver — the phase-trigger wrapper was already recognised, only the body was blocked), the ETB self-damage ones (Blade Juggler / Ravenous Giant / Midnight Reaper) and the spell riders (Aftershock / Dark Bargain / Notion Rain). **+19.** `tests/test_par38_damage_to_you.py`. PAR-38's `for each <X>` / `unless you pay <cost>` upkeep-damage riders stay open.
+- **What:** `_SELECTOR_WORD_MAP` and the `damage_selector` handler's regex alternation gained `"you" → "controller"`, routing to `DealDamageEffect`'s pre-existing `"controller"` selector (the source's own controller, and only them — Mana Vault's shape, previously reachable only via a hand-authored entry). Covers the upkeep-bleed creatures (Fledgling Djinn / Juzám Djinn / Serendib Efreet / Plague Sliver — the phase-trigger wrapper was already recognised, only the body was blocked), the ETB self-damage ones (Blade Juggler / Ravenous Giant / Midnight Reaper) and the spell riders (Aftershock / Dark Bargain / Notion Rain). **+19.** `tests/test_par38_damage_to_you.py`.
+
+### PAR-38 residue: scaled upkeep damage and conditional draw-step skip (v366)
+
+- **What:** `DealDamageEffect` now multiplies a live `count_selector`, with a `treasures_you_control` selector for Black Market Tycoon; the self-scoped `unless you pay` template routes Force of Nature / Minion of Tevesh Szat through the existing interactive `pay_cost_then` branch. Elfhame Sanctuary's asynchronous optional search gained a completion tail, so accepting it installs a one-shot draw-step skip. Coverage: **15,178 / 34,811** overall and **14,566 / 31,830** Commander-legal. `tests/test_par38_residue.py`.
 - **Files:** `parser/oracle/catalogue/handlers.py`.
 
 ### "Skip your draw step." oracle-text route (PAR-38, v229)
@@ -2411,6 +2419,27 @@ is in the rules-engine categories below them.
 
 - **What:** `AbilitySpec.conditional_flash` plus a new `game/condition_query.py` let a card gain Flash, or a planeswalker activate at instant speed, only while a board condition holds.
 - **Files:** `game/condition_query.py`, `parser/oracle/spec.py`
+- **PAR-35 (PARSER_VERSION 364):** The parser now closes the three recurring
+  spell-timing shapes: the Mercadian Masques declare-attackers response
+  restriction is enforced against the defending player actually attacked;
+  "as though it had flash if you pay {N} more" grants Flash only outside a
+  normal sorcery window and charges its extra mana there; and the generic
+  Necromancy rider emits the existing ETB delayed cleanup-sacrifice trigger
+  gated by `cast_outside_sorcery_speed`. The latter reuses the existing
+  delayed-trigger primitive rather than creating a second timing mechanism.
+- **Files:** `parser/oracle/{segmenter,spec}.py`, `game/{binding/core.py,engine/casting_mixin.py}`, `tests/test_par35_casting_timing.py`, `parser/oracle/PARSER_VERSION.lock`.
+- **Verification:** focused PAR-35/conditional-Flash tests: 11 passed;
+  coverage remeasured at **15,172 / 34,811 (43.6%)** overall and **14,560 /
+  31,830 (45.7%)** Commander-legal, +21 cards in each slice.
+- **PAR-36 (PARSER_VERSION 365):** `DiscardEffect` now accepts
+  `count_from_trigger_event`, allowing the combat-damage event's `amount` to
+  drive "that player discards that many cards" (Dreamstealer and Needle
+  Specter). The second-draw and spell-target trigger vocabulary named by the
+  ticket was already present; the full cards still retain unrelated effect
+  body residue where applicable.
+- **Verification:** +2 cards in both slices: **15,174 / 34,811** overall and
+  **14,562 / 31,830** Commander-legal. `test_par35_casting_timing.py` and
+  the existing second-draw regressions passed.
 
 ### Impulsive look and impulsive draw
 

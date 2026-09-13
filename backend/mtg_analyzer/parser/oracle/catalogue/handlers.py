@@ -978,6 +978,23 @@ def _damage_selector(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("damage", {"amount": int(m.group("n")), "selector": selector})]
 
 
+#: "This creature deals 2 damage to you for each Treasure you control."
+#: (Black Market Tycoon) — the exact self-damage/count template; ``for each``
+#: is a multiplier, not the existing additive count-selector form.
+_DAMAGE_TO_YOU_PER_TREASURE_RE = _c(
+    rf"{SELF_SUBJECT_PREFIX}deals? {NUMBER} damage to you for each treasure you control"
+)
+
+
+def _damage_to_you_per_treasure(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("damage", {
+        "amount": 0,
+        "selector": "controller",
+        "amount_from_count_selector": "treasures_you_control",
+        "amount_multiplier": int(m.group("n")),
+    })]
+
+
 #: "~ deals N damage to each creature without flying [and each player]."
 #: (RULE 601.2c — Earthquake / Fault Line / Pyroclasm-with-a-filter, ~30
 #: SOLO). The `each_creature` mass selector narrowed by a
@@ -1698,6 +1715,11 @@ def _discard(m: re.Match[str]) -> list[EffectSpec]:
     if m.groupdict().get("at_random"):
         params["random"] = True
     return [EffectSpec("discard", params)]
+
+
+def _that_many_player_discards(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("discard", {"count": 0, "previous_subject": True,
+                                    "count_from_trigger_event": "amount"})]
 
 
 #: RULE 601.2c mass edict — "each player sacrifices a nontoken creature of
@@ -3144,6 +3166,33 @@ _DESTROY_UNLESS_PAY_RE = _c(
     rf"destroy {_SELF_SUBJECT} unless you (?P<cost>{_UNLESS_COST})"
 )
 
+#: "This creature deals 8 damage to you unless you pay {G}{G}{G}{G}."
+#: (Force of Nature / Minion of Tevesh Szat) — payment is optional at
+#: resolution; declining is what performs the self-damage.
+_DAMAGE_TO_YOU_UNLESS_PAY_RE = _c(
+    rf"{SELF_SUBJECT_PREFIX}deals? {NUMBER} damage to you unless you (?P<cost>{_UNLESS_COST})"
+)
+
+
+def _damage_to_you_unless_pay(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("pay_cost_then", {
+        "cost": m.group("cost"),
+        "effects": [],
+        "else_effects": [{"type": "damage", "params": {
+            "amount": int(m.group("n")), "selector": "controller",
+        }}],
+    })]
+
+
+#: "you skip your draw step this turn" (Elfhame Sanctuary) is an instruction
+#: that installs a one-shot player rule override, not the standing static
+#: "Skip your draw step." parsed by ``static_handlers``.
+_SKIP_YOUR_DRAW_STEP_THIS_TURN_RE = _c(r"you skip your draw step this turn")
+
+
+def _skip_your_draw_step_this_turn(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("skip_next_step", {"step": "draw"})]
+
 
 def _destroy_unless_pay(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("destroy_unless_pay", {"cost": m.group("cost")})]
@@ -3949,6 +3998,24 @@ def _search_put_then_shuffle(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if count is not None:
         params["count"] = count
     return [EffectSpec("search", params)]
+
+
+#: Elfhame Sanctuary's optional basic-land search has a reflexive "If you
+#: do" tail.  Keep the tail on the asynchronous search itself so it resolves
+#: after the player accepts the search, rather than immediately beside the
+#: choice-opening effect.
+_ELFHAME_SANCTUARY_RE = _c(
+    r"(?:you may )?search your library for a basic land card, reveal it, put it into your hand, "
+    r"then shuffle\. if you do, you skip your draw step this turn\.?"
+)
+
+
+def _elfhame_sanctuary(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("search", {
+        "criteria": {"basic": True, "types": ["land"]},
+        "destination": "hand",
+        "then_specs": [{"type": "skip_next_step", "params": {"step": "draw"}}],
+    })]
 
 
 def _search_put_then_shuffle_share_type(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -10045,6 +10112,21 @@ HANDLERS: list[EffectHandler] = [
         _damage_each_nonflyer,
     ),
     EffectHandler(
+        "damage_to_you_per_treasure",
+        _DAMAGE_TO_YOU_PER_TREASURE_RE,
+        _damage_to_you_per_treasure,
+    ),
+    EffectHandler(
+        "damage_to_you_unless_pay",
+        _DAMAGE_TO_YOU_UNLESS_PAY_RE,
+        _damage_to_you_unless_pay,
+    ),
+    EffectHandler(
+        "skip_your_draw_step_this_turn",
+        _SKIP_YOUR_DRAW_STEP_THIS_TURN_RE,
+        _skip_your_draw_step_this_turn,
+    ),
+    EffectHandler(
         "damage_selector",
         _c(
             rf"{SELF_SUBJECT_PREFIX}deals? {NUMBER} damage to "
@@ -10224,6 +10306,11 @@ HANDLERS: list[EffectHandler] = [
     # card" / "…discards a card at random" (RULE 701.8d — Black Cat /
     # Hypnotic Specter / Bottomless Pit's "that player" via the
     # `that_player_discards` row).
+    EffectHandler(
+        "that_player_discards_that_many",
+        _c(r"that player discards that many cards?"),
+        _that_many_player_discards,
+    ),
     EffectHandler(
         "discard",
         _c(
@@ -11061,6 +11148,7 @@ HANDLERS: list[EffectHandler] = [
         _SEARCH_PUT_THEN_SHUFFLE_SHARE_TYPE_RE,
         _search_put_then_shuffle_share_type,
     ),
+    EffectHandler("elfhame_sanctuary", _ELFHAME_SANCTUARY_RE, _elfhame_sanctuary),
     EffectHandler(
         "search_put_then_shuffle",
         _SEARCH_PUT_THEN_SHUFFLE_RE,
