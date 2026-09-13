@@ -48,6 +48,7 @@ from ..effects.core import (
     ChooseCreatureTypeReplacement,
     ChooseNamedModeReplacement,
     ChooseNumberReplacement,
+    ChooseOpponentReplacement,
     ConditionalEffect,
     EffectRegistry,
     EmbalmEternalizeEffect,
@@ -3486,6 +3487,7 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
                         ChooseBasicLandTypeReplacement,
                         ChooseCardNameReplacement,
                         ChooseNumberReplacement,
+                        ChooseOpponentReplacement,
                     ),
                 ):
                     obj.enter_choice_effects.append(effect)

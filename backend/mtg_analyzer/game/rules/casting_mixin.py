@@ -51,6 +51,7 @@ from ..effects.core import (
     ChooseCreatureTypeReplacement,
     ChooseNamedModeReplacement,
     ChooseNumberReplacement,
+    ChooseOpponentReplacement,
     DiscardEffect,
     DrawCardEffect,
     LoseLifeEffect,
@@ -251,6 +252,12 @@ class CastingResolutionMixin:
             # the kicked gate above.
             left = getattr(self.state, "permanents_left_battlefield_this_turn", None) or {}
             amount = condition["count"] if left.get(getattr(obj, "controller_id", None), 0) > 0 else 0
+        elif condition.get("raid_gate"):
+            # PAR-64 / Raid: the controller must have actually declared an
+            # attacker this turn (RULE 508.1a), not merely put one attacking
+            # onto the battlefield later.
+            attacked = getattr(self.state, "players_attacked_this_turn", None) or set()
+            amount = condition["count"] if getattr(obj, "controller_id", None) in attacked else 0
         elif condition.get("colors_spent_scale"):
             # RULE 702.43a Sunburst: ``count`` per distinct colour of mana
             # actually spent to cast ``obj`` (`GameObject.colors_spent_to_
@@ -2076,6 +2083,13 @@ class CastingResolutionMixin:
             # enumerable" shape `choose_card_name` uses — any non-negative
             # integer is a legal choice, not just a small fixed set.
             options = []
+        elif isinstance(effect, ChooseOpponentReplacement):
+            kind = "choose_opponent_on_enter"
+            prompt = "Gegner wählen"
+            options = [
+                {"id": p.id, "label": p.name}
+                for p in self.state.living_players() if p.id != obj.controller_id
+            ]
         else:
             kind = "choose_color"
             prompt = "Farbe wählen"
@@ -2106,7 +2120,7 @@ class CastingResolutionMixin:
         })
     @continuations.choice(
         "choose_creature_type", "choose_color", "choose_named_mode",
-        "choose_basic_land_type", "choose_card_name", "choose_number",
+        "choose_basic_land_type", "choose_card_name", "choose_number", "choose_opponent_on_enter",
         answer=continuations.ANSWER_STR,
         rule="601.2b",
     )
@@ -2160,6 +2174,8 @@ class CastingResolutionMixin:
                 obj.chosen_card_name = chosen
             elif choice["kind"] == "choose_number":
                 obj.chosen_number = int(chosen)
+            elif choice["kind"] == "choose_opponent_on_enter":
+                obj.chosen_player_id = chosen
             else:
                 obj.chosen_color = chosen
         if continuation is not None:

@@ -98,9 +98,6 @@ its block back into the matching section here.
     new `count_selector` per phrase in `continuous.py`, plus the **Aura**
     form (`enchanted creature gets +N/+N for each <X>` — `affects=
     "attached_permanent"` instead of `"self"`).
-  - **PAR-44** — static permission / prohibition. Left: `a deck can have any
-    number of cards named ~` (#10) — a deckbuilding clause,
-    claim-without-spec.
   - **PAR-45** — ETB compound utility. Left: `as ~ enters, choose an
     opponent` (#10).
   - **PAR-46** — cost reduction `for each creature card in your graveyard`
@@ -157,14 +154,6 @@ its block back into the matching section here.
   mechanic and event (MEC-70) are **done**, so this is parser-only. Seed
   cards: Orzhov Pontiff, Absolver
   Thrull, Belfry Spirit, Blind Hunter, Exhumer Thrull, Graven Dominator.
-
-- **PAR-64 · Raid condition positional forms.** `you_attacked_this_turn` is
-  now a real shared engine predicate, but the live probe still finds
-  20 SOLO cards whose condition sits in an entry replacement, trigger wrapper,
-  activation restriction, or `instead` override rather than the ordinary
-  `if <cond>, <body>` gate. Measure each wrapper before widening it; the
-  condition vocabulary is no longer the blocker. Seed cards: Rigging Runner,
-  Bloodsoaked Champion, Alesha, Who Laughs at Fate, and Arrow Storm.
 
 ## MEC — Game mechanics
 

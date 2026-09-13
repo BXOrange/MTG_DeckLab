@@ -111,6 +111,16 @@ _REVOLT_ENTRY_COUNTERS_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: PAR-64 / Raid: "~ enters with N counters on it if you attacked this
+#: turn."  This is the player-scoped RULE 508.1a declaration history (not
+#: Boast's source-only ``attacked_this_turn`` flag), read when the permanent
+#: enters just like the Revolt sibling above.
+_RAID_ENTRY_COUNTERS_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} with {_FIXED_AMOUNT} {_COUNTER_TYPE} counters? on it "
+    r"if you attacked this turn\.?$",
+    re.IGNORECASE,
+)
+
 #: RULE 702.43a **Sunburst**: "~ enters with a +1/+1 counter on it for each
 #: **color of mana spent to cast it**." (Chamber Sentry / Crystalline
 #: Crawler / Rancorous Archaic / Skyrider Elf / Etched Oracle). Scaled by
@@ -194,6 +204,12 @@ def entry_counters_condition(line: str) -> Optional[dict[str, Any]]:
         return {
             "is_x": False, "count": _fixed_count(match.group(1)),
             "counter_type": match.group(2).lower(), "revolt_gate": True,
+        }
+    match = _RAID_ENTRY_COUNTERS_RE.match(line)  # PAR-64 / Raid
+    if match is not None:
+        return {
+            "is_x": False, "count": _fixed_count(match.group(1)),
+            "counter_type": match.group(2).lower(), "raid_gate": True,
         }
     match = _ENTRY_COUNTERS_RE.match(line)
     if not match:

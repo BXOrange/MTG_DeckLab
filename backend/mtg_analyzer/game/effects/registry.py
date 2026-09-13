@@ -23,6 +23,7 @@ EffectRegistry.register(
         divided=bool(p.get("divided", False)),
         double_at=p.get("double_at"),
         amount_if_kicked=p.get("amount_if_kicked"),
+        amount_if_raid=p.get("amount_if_raid"),
         amount_if_bargained=p.get("amount_if_bargained"),
         double_if_bargained=bool(p.get("double_if_bargained", False)),
         amount_if_target_color=(
@@ -2311,6 +2312,9 @@ EffectRegistry.register(
     # Purity-shaped) — hand-authored only, no oracle-text grammar yet.
     "choose_named_mode",
     lambda p: ChooseNamedModeReplacement(options=list(p.get("options", []))),
+)
+EffectRegistry.register(
+    "choose_opponent_on_enter", lambda p: ChooseOpponentReplacement()
 )
 EffectRegistry.register(
     # "As this creature enters, choose a number." (Sanctum Prelate, MEC-43)

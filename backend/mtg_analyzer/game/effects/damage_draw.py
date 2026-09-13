@@ -32,6 +32,7 @@ class DealDamageEffect(GameEffect):
         divided: bool = False,
         double_at: Optional[int] = None,
         amount_if_kicked: Optional[int] = None,
+        amount_if_raid: Optional[int] = None,
         amount_if_bargained: Optional[Union[int, str]] = None,
         double_if_bargained: bool = False,
         amount_if_target_color: Optional[tuple[Union[int, str], list[str]]] = None,
@@ -123,6 +124,10 @@ class DealDamageEffect(GameEffect):
         # `kicker_count` is only known once ``source`` is fully bound onto
         # the battlefield object, not necessarily yet at construction time.
         self.amount_if_kicked = amount_if_kicked
+        #: PAR-64: Raid's two-line "deals N damage instead if you attacked
+        #: this turn" replacement. Like Kicker, this replaces this damage
+        #: event's magnitude rather than adding a second damage effect.
+        self.amount_if_raid = amount_if_raid
         #: "If this spell was cast from exile, it deals 5 damage … instead."
         #: (Delayed Blast Fireball) — `GameObject.cast_from_exile`, the
         #: same override-not-additive shape `amount_if_kicked`/
@@ -194,6 +199,11 @@ class DealDamageEffect(GameEffect):
     @property
     def amount(self) -> Union[int, str]:
         kicker_count = getattr(self.source, "kicker_count", 0) or 0
+        raid = bool(
+            self.source is not None
+            and getattr(self.source, "controller_id", None)
+            in (getattr(getattr(self, "_state", None), "players_attacked_this_turn", None) or set())
+        )
         bargained = getattr(self.source, "bargained", False)
         source_subtype_match = False
         if self.amount_if_source_subtype is not None and self.source is not None:
@@ -215,6 +225,7 @@ class DealDamageEffect(GameEffect):
                     lambda: self.x_multiplier * (getattr(self.source, "x_paid", 0) or 0),
                 ),
                 (self.amount_if_kicked is not None and kicker_count > 0, lambda: self.amount_if_kicked),
+                (self.amount_if_raid is not None and raid, lambda: self.amount_if_raid),
                 (
                     self.amount_if_cast_from_exile is not None and getattr(self.source, "cast_from_exile", False),
                     lambda: self.amount_if_cast_from_exile,
@@ -279,6 +290,9 @@ class DealDamageEffect(GameEffect):
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        # Amount overrides are resolve-time questions; Raid reads the same
+        # player declaration history as every other controller-scoped gate.
+        self._state = context.state
         if not self.unpreventable:
             self._apply_impl(context, targets)
             return

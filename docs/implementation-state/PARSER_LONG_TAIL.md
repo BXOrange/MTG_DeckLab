@@ -25,7 +25,7 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**43.6% covered — 15,183 / 34,811 — as of 2026-09-13, PARSER_VERSION 367.**
+**43.6% covered — 15,195 / 34,811 — as of 2026-09-14, PARSER_VERSION 371.**
 Commander-legal slice (the one the product actually plays): **45.7% —
 14,571 / 31,830** (measure with `--commander-legal-only`).
 

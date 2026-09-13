@@ -960,6 +960,7 @@ _LOOK_AT_TOP_ANY_TIME_RE = re.compile(
 # match (``~``, folded from the card's own name by `normalize`), not
 # hardcoded to any one card name.
 _COMMANDER_ELIGIBLE_RE = re.compile(r"~ can be your commander", re.IGNORECASE)
+_ANY_NUMBER_IN_DECK_RE = re.compile(r"a deck can have any number of cards named ~", re.IGNORECASE)
 
 
 def commander_eligibility_line(line: str) -> bool:
@@ -968,6 +969,11 @@ def commander_eligibility_line(line: str) -> bool:
     (before this module's `static_effect_specs` even runs), not through an
     `EffectSpec`, since it carries no behaviour to bind."""
     return bool(_COMMANDER_ELIGIBLE_RE.fullmatch(line.strip().rstrip(".").strip()))
+
+
+def deck_any_number_line(line: str) -> bool:
+    """Whether ``line`` is RULE 100.2a's inert deck-construction exception."""
+    return bool(_ANY_NUMBER_IN_DECK_RE.fullmatch(line.strip().rstrip(".").strip()))
 
 
 #: The subject phrases an Aura/Equipment/Fortification's own buff clause is
@@ -1663,6 +1669,7 @@ _CHOOSE_COLOR_ON_ENTER_RE = re.compile(
 _CHOOSE_BASIC_LAND_TYPE_ON_ENTER_RE = re.compile(
     r"as ~ enters, choose a basic land type", re.IGNORECASE
 )
+_CHOOSE_OPPONENT_ON_ENTER_RE = re.compile(r"as ~ enters, choose an opponent", re.IGNORECASE)
 
 
 def enter_choice_specs(clause: str) -> Optional[list[EffectSpec]]:
@@ -1680,6 +1687,8 @@ def enter_choice_specs(clause: str) -> Optional[list[EffectSpec]]:
         return [EffectSpec("choose_color_on_enter", {})]
     if _CHOOSE_BASIC_LAND_TYPE_ON_ENTER_RE.fullmatch(text):
         return [EffectSpec("choose_basic_land_type_on_enter", {})]
+    if _CHOOSE_OPPONENT_ON_ENTER_RE.fullmatch(text):
+        return [EffectSpec("choose_opponent_on_enter", {})]
     return None
 
 
@@ -2800,6 +2809,11 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # attacker; it is deliberately not the source-only Boast condition.
     (re.compile(r"you attacked this turn", re.I),
      lambda m: {"kind": "you_attacked_this_turn"}),
+    # PAR-64: "~ has indestructible as long as it attacked this turn." uses
+    # the object's own declaration flag (Boast's existing engine predicate),
+    # not Raid's controller-scoped history.
+    (re.compile(r"(?:~|it) attacked this turn", re.I),
+     lambda m: {"kind": "source_attacked_this_turn"}),
     # -- The source's own state. "it"/"~" both appear; after `normalize` the
     # card's own name is already `~`, and a leading "it" in this position can
     # only mean the source (the condition precedes any target).

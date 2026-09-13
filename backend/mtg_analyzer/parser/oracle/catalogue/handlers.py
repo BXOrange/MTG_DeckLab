@@ -5737,6 +5737,10 @@ FROM_HAND_MARKER = "from_hand_marker"
 # work, not part of this ticket — fail-closed here, same as everywhere else.
 ACTIVATION_CONDITION_MARKER = "activation_condition_marker"
 _ACTIVATION_CONDITION_RES: list[tuple[re.Pattern[str], Callable[[re.Match[str]], dict]]] = [
+    # PAR-64 / Raid: player-scoped declaration history, deliberately unlike
+    # Boast's source_attacked_this_turn condition.
+    (re.compile(r"you attacked this turn", re.I),
+     lambda m: {"kind": "you_attacked_this_turn"}),
     (re.compile(r"you have (?P<n>\d+) or more cards in hand", re.I),
      lambda m: {"kind": "cards_in_hand_at_least", "amount": int(m.group("n"))}),
     (re.compile(r"you have (?P<n>\d+) or fewer cards in hand", re.I),

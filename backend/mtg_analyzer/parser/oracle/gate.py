@@ -47,7 +47,7 @@ from .catalogue.opening_hand import (
     opening_hand_graveyard_permission_line,
 )
 from .catalogue.station import split_station_blocks, station_creature_threshold
-from .catalogue.static_handlers import commander_eligibility_line
+from .catalogue.static_handlers import commander_eligibility_line, deck_any_number_line
 from .normalize import normalize
 from .segmenter import (
     Segment,
@@ -2818,7 +2818,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (Windfall), and `spec.py`'s `_AMOUNT_SPEC_FIELDS` learned the `aggregate`
 #: key. Vocabulary only - no parser handler emits it yet, no card's verdict
 #: moves - but the parser source hash follows.
-PARSER_VERSION = "368"
+PARSER_VERSION = "371"
 
 
 def parser_source_hash() -> str:
@@ -3256,6 +3256,25 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
 
     def _process_line(line: str) -> None:
         nonlocal all_claimed
+        # PAR-64 / Raid: these are amount replacements for the immediately
+        # preceding damage instruction, not independent damage effects. Both
+        # printed orders exist (Firecannon Blast / Arrow Storm). Keep the
+        # prior target and attach the override to that same effect.
+        raid_override = re.fullmatch(
+            r"(?:if you attacked this turn, instead )?~ deals (?P<n>\d+) damage"
+            r"(?: to that (?:permanent|player)(?: or player)?)?(?P<unpreventable> and the damage can'?t be prevented)?"
+            r"(?: instead if you attacked this turn)?\.?",
+            line,
+            re.I,
+        )
+        if raid_override is not None and effect_specs:
+            previous = effect_specs[-1]
+            damages = [effect for effect in previous.effects if effect.type == "damage"]
+            if previous.ability_kind == "spell_effect" and len(previous.effects) == len(damages) == 1:
+                damages[0].params["amount_if_raid"] = int(raid_override.group("n"))
+                if raid_override.group("unpreventable"):
+                    damages[0].params["unpreventable"] = True
+                return
         # RULE 614.1 "enters tapped" clauses are covered by the engine's own
         # tapped-entry machinery (`game/ability_catalogue.land_tap_condition`,
         # resolved by `RulesEngine.enter_land_tapped`), not through an effect
@@ -3289,6 +3308,8 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         # docstring): claim the line, contribute nothing, same split as the
         # two tapped-entry/counter checks above.
         if commander_eligibility_line(line):
+            return
+        if deck_any_number_line(line):
             return
         # RULE 103.6a "If this card is in your opening hand, you may begin
         # the game with it on the battlefield." (the Leyline cycle) — a

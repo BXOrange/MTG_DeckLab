@@ -3309,6 +3309,22 @@ class ChooseCreatureTypeReplacement(GameEffect):
         return None  # consulted by RulesEngine._offer_enter_choices, not applied
 
 
+class ChooseOpponentReplacement(GameEffect):
+    """"As ~ enters, choose an opponent." (RULE 601.2b / PAR-45).
+
+    A pre-entry choice holder, parallel to the colour/type choices.  The
+    engine stamps the selected opponent id on ``chosen_player_id`` before
+    the permanent enters, so a later ability can safely refer to it.
+    """
+
+    def __init__(self, description: str = "") -> None:
+        super().__init__(None)
+        self.description = description
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        return None
+
+
 class ChooseBasicLandTypeReplacement(GameEffect):
     """"As ~ enters, choose a basic land type." (RULE 601.2b, PAR-4 —
     Realmwright/A-Thran Portal-shaped) — the basic-land-type sibling of

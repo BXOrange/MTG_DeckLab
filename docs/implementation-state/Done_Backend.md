@@ -5714,6 +5714,32 @@ measurement of why is the useful half of this work.
 
 ## Oracle-Text Parser Front-End
 
+### PAR-44: Any-number deck-construction exception (PARSER_VERSION 371)
+
+- **What:** RULE 100.2a's `A deck can have any number of cards named ~.` is
+  now an explicitly claimed, no-spec oracle clause, parallel to the existing
+  commander-eligibility sentence. It changes deck construction, not runtime
+  game state; singleton enforcement remains the deck validator's concern.
+- **Verification:** exact full-match guard rejects appended runtime text;
+  Relentless Rats-shaped card is MODELED. +1 cache card, no behaviour guessed.
+
+### PAR-64: Raid condition positional forms (PARSER_VERSION 369)
+
+- **What:** Closed the positions that do not use PAR-62's ordinary leading
+  `if <condition>, <body>` gate. RULE 614.1 entry-counter clauses now carry a
+  `raid_gate` read at entry from the controller's actual RULE 508.1a attack
+  declaration; `activate only if you attacked this turn` folds into the
+  existing live `ActivationCost.activation_condition`; and `~ has … as long
+  as it attacked this turn` uses Boast's source-local history rather than the
+  player-scoped Raid predicate. The two printed damage override orders
+  (Firecannon Blast / Arrow Storm) mutate the preceding `damage` spec's new
+  `amount_if_raid` parameter, preserving the already-selected target and the
+  unpreventable rider. `DealDamageEffect` reads the source controller's
+  declaration history at resolution.
+- **Yield / verification:** +11 MODELED cards, probe diff 0 regressions;
+  `tests/test_par64_raid_positions.py` covers parsing, entry, activation,
+  static and live damage-resolution behaviour.
+
 ### PAR-61: grammar-restructure umbrella — porting the clause-tree-tier negative result
 
 - **What:** PAR-61 is the umbrella over the ENG-34→37 / PAR-62 / PAR-63 chain;
