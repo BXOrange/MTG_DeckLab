@@ -320,10 +320,14 @@ class CombatMixin:
         for attacker in self.attackers:
             if not self._deals_in_step(attacker, first_strike_step):
                 continue
-            power = attacker.power or 0
+            power = (
+                attacker.toughness or 0
+                if combat.combat_restrictions(attacker, "damage_uses_toughness")
+                else attacker.power or 0
+            )
             if power <= 0:
                 continue
-            if attacker.blocked_by:
+            if attacker.blocked_by and not combat.combat_restrictions(attacker, "damage_as_unblocked"):
                 # Blocked (RULE 509.1h: it stays blocked even if every blocker
                 # has left) — damage goes to whatever blockers remain, with
                 # trample overflow to the defender.
@@ -343,7 +347,11 @@ class CombatMixin:
             attacker_ids = combat.blocking_attacker_ids(blocker)
             if not attacker_ids or not self._deals_in_step(blocker, first_strike_step):
                 continue
-            power = blocker.power or 0
+            power = (
+                blocker.toughness or 0
+                if combat.combat_restrictions(blocker, "damage_uses_toughness")
+                else blocker.power or 0
+            )
             if power <= 0:
                 continue
             blocked_attackers = [

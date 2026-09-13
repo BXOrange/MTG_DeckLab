@@ -98,18 +98,8 @@ its block back into the matching section here.
     new `count_selector` per phrase in `continuous.py`, plus the **Aura**
     form (`enchanted creature gets +N/+N for each <X>` — `affects=
     "attached_permanent"` instead of `"self"`).
-  - **PAR-45** — ETB compound utility. Left: `as ~ enters, choose an
-    opponent` (#10).
-  - **PAR-46** — cost reduction `for each creature card in your graveyard`
-    (#9).
   - **PAR-47** — `<cost>,<cost>: put a charge counter on ~` + its
     remove-a-charge-counter spend clause (#14).
-  - **PAR-49** — `<cost>: ~ becomes the creature type of your choice until
-    end of turn` (#8).
-  - **PAR-50** — combat-damage-assignment statics (`you may have ~ assign
-    its combat damage as though it weren't blocked` #9, `each creature you
-    control assigns combat damage equal to its toughness rather than its
-    power` #6).
   - **PAR-51** — `start` (#12) and `storied` (#9) — parse traces first;
     `start` looks like a Jump-start/Aftermath split artefact, `storied`
     like a LOTR one-off. Investigate before sizing.

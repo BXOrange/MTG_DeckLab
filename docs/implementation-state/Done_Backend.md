@@ -5714,6 +5714,43 @@ measurement of why is the useful half of this work.
 
 ## Oracle-Text Parser Front-End
 
+### PAR-49: Mistform chosen creature-type activation (PARSER_VERSION 373)
+
+- **What:** Added the exact `{cost}: ~ becomes the creature type of your
+  choice until end of turn` activation grammar. It opens the existing
+  resolve-time type chooser, then creates a bounded layer-4 subtype
+  overwrite; this correctly replaces the source's former creature subtypes
+  rather than treating the wording as an additive "in addition" effect.
+- **Verification:** `tests/test_par49_mistform_type_choice.py` covers parse
+  coverage, choice resolution, subtype replacement, and cleanup expiry.
+
+### PAR-50: Combat-damage assignment statics (PARSER_VERSION 374)
+
+- **What:** Parsed the unblocked-assignment and toughness-instead-of-power
+  combat statics into the existing combat metadata channel. The combat damage
+  step now reads those flags when selecting its damage basis and destination;
+  the optional unblocked assignment follows the available option in the
+  non-interactive engine.
+- **Verification:** `tests/test_par50_combat_damage_assignment.py` covers
+  parser coverage, blocked-attacker redirection, and toughness-based damage.
+
+### PAR-45: Choose an opponent as this enters (PARSER_VERSION 372)
+
+- **What:** Added the pre-entry `ChooseOpponentReplacement`, wired through
+  parser, binding and the entry-choice continuation before battlefield entry.
+  Canker Abomination's same-line opponent choice plus per-chosen-opponent
+  creature counter replacement is composed safely and evaluated at entry.
+- **Verification:** parser and end-to-end entry tests cover the choice and
+  counter result; the probe leaves no SOLO blocker for this grammar.
+
+### PAR-46: Graveyard creature-card cost reduction — stale backlog reconciliation
+
+- **What:** Closed as already delivered by the general `this spell costs
+  {N} less to cast for each <type> card in your graveyard` grammar and its
+  `continuous.count_selector` consumers (PARSER_VERSION 292). The live
+  parser probe reports zero unclaimed clauses for the named creature-card
+  form, so no duplicate selector or handler was added.
+
 ### PAR-44: Any-number deck-construction exception (PARSER_VERSION 371)
 
 - **What:** RULE 100.2a's `A deck can have any number of cards named ~.` is

@@ -3346,6 +3346,27 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     # +1/+1" is simply another ordinary anthem.
     text = re.sub(r"\b(gets?) an additional\s+", r"\1 ", text, flags=re.IGNORECASE)
 
+    # PAR-50 / RULE 510.1c: combat-damage *assignment* replacements are not
+    # characteristics, so they ride the existing combat-restriction metadata
+    # bucket.  The engine consumes these two kinds at the assignment point,
+    # where blockers and the defending player are actually known.
+    if re.fullmatch(
+        r"you may have ~ assign its combat damage as though it weren'?t blocked",
+        text, re.IGNORECASE,
+    ):
+        return [EffectSpec("combat_restriction", {
+            "kind": "damage_as_unblocked", "affects": "self",
+        })]
+    toughness_damage = re.fullmatch(
+        r"(?P<scope>each creature you control|each creature) assigns combat damage equal to its toughness rather than its power",
+        text, re.IGNORECASE,
+    )
+    if toughness_damage is not None:
+        return [EffectSpec("combat_restriction", {
+            "kind": "damage_uses_toughness",
+            "affects": "creatures_you_control" if toughness_damage.group("scope").lower() == "each creature you control" else "creatures",
+        })]
+
     # A compositional self-lord: reuse the normal parser for the tail rather
     # than maintaining an ever-growing list of ``+N/+N and <thing>``
     # combinations.  Besides keywords this admits independently modelled

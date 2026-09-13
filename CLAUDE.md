@@ -506,8 +506,8 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 43.6% (15,195 / 34,811) as of 2026-09-14, measured at
-PARSER_VERSION 371** (v371 closes PAR-44's deck-construction exception; v370 closes PAR-64's Raid positional forms; v367 closes PAR-41's X-scaled discard and graveyard-exile additional costs;
+**Coverage: 43.7% (15,211 / 34,811) as of 2026-09-14, measured at
+PARSER_VERSION 374** (v374 closes PAR-50's combat-damage assignment statics; v373 closes PAR-49's Mistform creature-type overwrite; v372 closes PAR-45's opponent-choice entry replacement; v371 closes PAR-44's deck-construction exception; v370 closes PAR-64's Raid positional forms; v367 closes PAR-41's X-scaled discard and graveyard-exile additional costs;
 v366 closes PAR-38's remaining upkeep-damage riders
 and Elfhame Sanctuary's conditional draw-step skip; v365 closes PAR-36's combat-damage-scaled discard;
 v364 closes PAR-35's combat-only casting restriction,

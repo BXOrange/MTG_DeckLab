@@ -121,6 +121,16 @@ _RAID_ENTRY_COUNTERS_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: PAR-45: Canker Abomination's compound entry instruction, after the
+#: preceding "as ~ enters, choose an opponent" replacement has stamped
+#: ``chosen_player_id``.  The counter count is fixed at the same pre-entry
+#: moment, hence it belongs beside the other entry-counter conditions.
+_CHOSEN_OPPONENT_CREATURES_ENTRY_COUNTERS_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} with {_FIXED_AMOUNT} {_COUNTER_TYPE} counters? on it "
+    r"for each creature that player controls\.?$",
+    re.IGNORECASE,
+)
+
 #: RULE 702.43a **Sunburst**: "~ enters with a +1/+1 counter on it for each
 #: **color of mana spent to cast it**." (Chamber Sentry / Crystalline
 #: Crawler / Rancorous Archaic / Skyrider Elf / Etched Oracle). Scaled by
@@ -211,6 +221,12 @@ def entry_counters_condition(line: str) -> Optional[dict[str, Any]]:
             "is_x": False, "count": _fixed_count(match.group(1)),
             "counter_type": match.group(2).lower(), "raid_gate": True,
         }
+    match = _CHOSEN_OPPONENT_CREATURES_ENTRY_COUNTERS_RE.match(line)  # PAR-45
+    if match is not None:
+        return {
+            "is_x": False, "count": _fixed_count(match.group(1)),
+            "counter_type": match.group(2).lower(), "chosen_opponent_creatures_scale": True,
+        }
     match = _ENTRY_COUNTERS_RE.match(line)
     if not match:
         return None
@@ -243,6 +259,13 @@ def entry_counters(card: Any) -> Optional[dict[str, Any]]:
         line = line.strip()
         if not line:
             continue
+        # PAR-45: the opponent pick and this entry-counter replacement share
+        # one printed line (Canker Abomination).  The gate performs the same
+        # narrow split before binding the choice; expose the counter tail to
+        # this engine-facing recognizer too so the two paths cannot drift.
+        compound = re.fullmatch(r"as ~ enters, choose an opponent\.\s*(?P<tail>.+)", line, re.I)
+        if compound is not None:
+            line = compound.group("tail")
         condition = entry_counters_condition(line)
         if condition is not None:
             return condition

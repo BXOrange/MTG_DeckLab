@@ -2818,7 +2818,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (Windfall), and `spec.py`'s `_AMOUNT_SPEC_FIELDS` learned the `aggregate`
 #: key. Vocabulary only - no parser handler emits it yet, no card's verdict
 #: moves - but the parser source hash follows.
-PARSER_VERSION = "371"
+PARSER_VERSION = "374"
 
 
 def parser_source_hash() -> str:
@@ -3256,6 +3256,24 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
 
     def _process_line(line: str) -> None:
         nonlocal all_claimed
+        # PAR-45: an opponent choice and its entry-counter consequence are
+        # two independent pre-entry replacements printed on one line.  Split
+        # only this fully-known composition; a generic sentence split would
+        # incorrectly claim arbitrary unresolved tails.
+        opponent_entry = re.fullmatch(
+            r"(?P<choice>as ~ enters, choose an opponent)\.\s*(?P<tail>.+)", line, re.I
+        )
+        if opponent_entry is not None:
+            choice_seg = segment_line(
+                opponent_entry.group("choice"), allow_spell_effect=allow_spell_effect,
+                provenance=provenance, is_saga=is_saga,
+            )
+            if not choice_seg.claimed or choice_seg.spec is None:
+                all_claimed = False
+                unclaimed.append(line)
+                return
+            effect_specs.append(choice_seg.spec)
+            line = opponent_entry.group("tail")
         # PAR-64 / Raid: these are amount replacements for the immediately
         # preceding damage instruction, not independent damage effects. Both
         # printed orders exist (Firecannon Blast / Arrow Storm). Keep the

@@ -1937,6 +1937,13 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
         # RULE 702.151b's Reconfigure-while-attached case.
         removed = ability.params.get("remove_types", [])
         set_subtypes = ability.params.get("set_subtypes")
+        # A resolution-time sibling of the standing "is the chosen type in
+        # addition" effect: Mistform's "becomes the creature type of your
+        # choice" overwrites, rather than adds to, its creature subtypes.
+        if ability.params.get("set_subtypes_from_source"):
+            chosen = getattr(ability.source, "chosen_type", None)
+            if chosen:
+                set_subtypes = [chosen]
         # "~ is the chosen type in addition to its other types" (RULE
         # 601.2b/613.4a, Adaptive Automaton/A-Thran Portal-shaped) — reads
         # the ability's own source's `chosen_type` fresh every recompute,

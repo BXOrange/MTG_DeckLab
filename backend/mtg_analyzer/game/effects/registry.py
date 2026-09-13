@@ -3433,6 +3433,9 @@ EffectRegistry.register(
             # object's printed subtypes, unlike `set_subtypes` below.
             "add_subtypes": list(p.get("add_subtypes", [])),
             "add_subtypes_from_source": bool(p.get("add_subtypes_from_source", False)),
+            # PAR-49: Mistform's chosen creature type replaces (rather than
+            # supplements) the affected object's creature subtypes.
+            "set_subtypes_from_source": bool(p.get("set_subtypes_from_source", False)),
             # RULE 205.4a: "it becomes a **legendary** creature…" (Tenth
             # District Hero) — sets `GameObject._granted_legendary` in the
             # layer-4 pass so the legend rule (RULE 704.5j) applies.

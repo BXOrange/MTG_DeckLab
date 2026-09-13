@@ -489,6 +489,10 @@ COMBAT_RESTRICTIONS: frozenset[str] = frozenset(
         # checked by `GameEngine._enforce_block_requirements`, not by anything
         # in this module (it needs the whole board, not just two creatures).
         "must_block_target",
+        # PAR-50 / RULE 510.1c: these alter damage *assignment*, after the
+        # combatants and their blockers are known, rather than declaration.
+        "damage_as_unblocked",
+        "damage_uses_toughness",
     }
 )
 

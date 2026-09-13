@@ -258,6 +258,13 @@ class CastingResolutionMixin:
             # onto the battlefield later.
             attacked = getattr(self.state, "players_attacked_this_turn", None) or set()
             amount = condition["count"] if getattr(obj, "controller_id", None) in attacked else 0
+        elif condition.get("chosen_opponent_creatures_scale"):
+            chosen_id = getattr(obj, "chosen_player_id", None)
+            amount = condition["count"] * sum(
+                1
+                for permanent in self.state.battlefield
+                if permanent.controller_id == chosen_id and permanent.is_creature
+            )
         elif condition.get("colors_spent_scale"):
             # RULE 702.43a Sunburst: ``count`` per distinct colour of mana
             # actually spent to cast ``obj`` (`GameObject.colors_spent_to_

@@ -6570,6 +6570,30 @@ def _base_pt_until_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     })]
 
 
+#: PAR-49 / RULE 205.3d + 613.4a: Mistform Dreamer's ``{1}: ~ becomes
+#: the creature type of your choice until end of turn.`` This *replaces*
+#: the source's existing creature subtypes, unlike "in addition" forms.
+_CHOOSE_CREATURE_TYPE_UNTIL_EOT_RE = _c(
+    rf"{_SELF_SUBJECT} becomes the creature type of your choice until end of turn"
+)
+
+
+def _choose_creature_type_until_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return [EffectSpec("_request_choose_creature_type_grant", {
+        "then_specs": [{
+            "type": "grant_until",
+            "params": {
+                "static": {"type": "type_change", "params": {
+                    "set_subtypes_from_source": True,
+                }},
+                "duration": "end_of_turn",
+                "target_kind": None,
+                "self_subject": True,
+            },
+        }],
+    })]
+
+
 #: "put a +1/+1 counter on each of up to two target creatures" (RULE 115.1a
 #: generalized to N>=2 — the Support-keyword-shaped family; a live query
 #: against the cached Oracle DB found 100+ real cards spelling this out,
@@ -11690,6 +11714,11 @@ HANDLERS: list[EffectHandler] = [
         "base_pt_until_eot",
         _BASE_PT_UNTIL_EOT_RE,
         _base_pt_until_eot,
+    ),
+    EffectHandler(
+        "choose_creature_type_until_eot",
+        _CHOOSE_CREATURE_TYPE_UNTIL_EOT_RE,
+        _choose_creature_type_until_eot,
     ),
     # "put a +1/+1 counter on each of up to two target creatures" (RULE
     # 115.1a generalized to N>=2 — the Support-keyword-shaped family).
