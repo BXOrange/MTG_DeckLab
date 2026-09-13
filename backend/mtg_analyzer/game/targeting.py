@@ -1195,6 +1195,17 @@ def legal_targets(
     omits it.
     """
     kind = spec.kind
+    if kind == "player_or_planeswalker_or_creature_subtype":
+        from . import continuous
+        subtype = str((spec.creature_filter or {}).get("subtype", ""))
+        players = [{"player_id": p.id, "name": p.name} for p in state.players]
+        objects = [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if o is not source and _targetable_by(o, source)
+            and (o.is_planeswalker or (o.is_creature and continuous.has_subtype(o, subtype)))
+        ]
+        return players + objects
     # "…with mana value X or less." as a genuine RULE 115 target bound
     # (March of Otherworldly Light, MEC-43) — unlike `_substitute_x`'s
     # resolve-time-only substitution (a search/mass-effect criteria dict,

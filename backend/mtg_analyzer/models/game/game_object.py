@@ -1002,6 +1002,9 @@ class GameObject:
         #: …'" static ability (Tyvar Kell) — folded onto the printed ones by
         #: `mana_abilities.mana_options_for`. Reset each recompute.
         self._granted_mana: list[dict[str, int]] = []
+        #: Full layer-6 mana grants whose restriction or colour-split mode
+        #: cannot be represented by the legacy options-only list above.
+        self._granted_mana_abilities: list[dict[str, Any]] = []
         #: MEC-25 sibling of `_granted_mana` above for a granted mana
         #: ability whose cost isn't a bare ``{T}`` — see
         #: `granted_mana_ability_upgrades`. Reset each recompute.
@@ -1034,6 +1037,10 @@ class GameObject:
         #: `continuous.recompute`, read by `RulesEngine._all_replacement_
         #: effects` alongside a permanent's own printed ones.
         self._granted_replacement_effects: list[Any] = []
+        #: A layer-6 self-only zone-change replacement.  Any quoted or
+        #: unquoted ability may grant it to an ordinary affected-object group;
+        #: the zone mover never needs a card-name or subtype branch.
+        self._graveyard_to_library_replacement: bool = False
         self._added_types: set[str] = set()
         #: Creature *subtypes* a layer-4 "~ is the chosen type in addition to
         #: its other types"/"… of the chosen type …" static ability adds
@@ -1203,11 +1210,13 @@ class GameObject:
         self._granted_legendary = False
         self._loses_all_abilities = False
         self._granted_mana = []
+        self._granted_mana_abilities = []
         self._granted_mana_upgrades = []
         self._granted_triggered_abilities = []
         self._granted_activated_abilities = []
         self._granted_static_abilities = []
         self._granted_replacement_effects = []
+        self._graveyard_to_library_replacement = False
         self._added_types = set()
         self._added_subtypes = set()
         self._removed_types = set()

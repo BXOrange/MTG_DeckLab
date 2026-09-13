@@ -2689,6 +2689,25 @@ class GrantProtectionEffect(GameEffect):
                 context.engine.grant_protection_choice(target, controller, self.allow_colorless)
 
 
+class GrantFixedProtectionGroupEffect(GameEffect):
+    """Give each selected creature protection from one fixed colour this turn."""
+
+    def __init__(
+        self, color: str, selector: str = "creatures_you_control",
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.color = str(color).upper()
+        self.selector = selector
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..continuous import group_selector_objects
+
+        controller_id = getattr(self.source, "controller_id", None)
+        for obj in group_selector_objects(context.state, controller_id, self.selector, src=self.source):
+            obj.temp_protections.add(self.color)
+
+
 class GrantCantBeTargetOfSpellColorEffect(GameEffect):
     """"Creatures you control can't be the targets of blue or black spells
     this turn." (Autumn's Veil, MEC-41) — an untargeted, group-scoped RULE

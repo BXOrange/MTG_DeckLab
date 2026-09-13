@@ -42,6 +42,7 @@ EffectRegistry.register(
         amount_from_count_selector=p.get("amount_from_count_selector"),
         amount_plus_count_selector=int(p.get("amount_plus_count_selector", 0) or 0),
         amount_from_trigger_event=p.get("amount_from_trigger_event"),
+        amount_from_defending_player_hand_size=bool(p.get("amount_from_defending_player_hand_size", False)),
         recipient_subject=p.get("recipient_subject"),
         unpreventable=bool(p.get("unpreventable", False)),
     ),
@@ -295,6 +296,13 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    "reveal_random_hand_card_if_named",
+    lambda p: RevealRandomHandCardIfNamedEffect(
+        named_card=p.get("named_card", ""), target_kind=p.get("target_kind", "opponent"),
+        target=p.get("target"),
+    ),
+)
+EffectRegistry.register(
     # RULE 701.20 — reveal a library's top card, stash it as
     # `GameContext.revealed_card` (ENG-37 B5). The `of: "revealed"` referent.
     "reveal_top",
@@ -381,6 +389,7 @@ EffectRegistry.register(
     lambda p: PreventDamageEffect(
         amount=p.get("amount", "all"),
         target_kind=p.get("target_kind"),
+        creature_filter=p.get("creature_filter"),
         target=p.get("target"),
         count=p.get("count", 1),
         optional=bool(p.get("optional", False)),
@@ -823,6 +832,10 @@ EffectRegistry.register(
         bend_kind=p.get("bend_kind"),
         count_selector=p.get("count_selector"),
     ),
+)
+EffectRegistry.register(
+    "exile_own_graveyard_cards",
+    lambda p: ExileOwnGraveyardCardsEffect(count=int(p.get("count", 1) or 1)),
 )
 EffectRegistry.register(
     # "Exile the top card of your library[, face down]." (MEC-38,
@@ -2093,6 +2106,12 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    "grant_fixed_protection_group",
+    lambda p: GrantFixedProtectionGroupEffect(
+        color=str(p.get("color", "W")), selector=str(p.get("selector", "creatures_you_control")),
+    ),
+)
+EffectRegistry.register(
     "grant_cant_be_target_of_spell_color",
     lambda p: GrantCantBeTargetOfSpellColorEffect(
         colors=p.get("colors"), selector=p.get("selector", "creatures_you_control"),
@@ -3042,9 +3061,25 @@ EffectRegistry.register(
         affects=p.get("affects", "creatures_you_control"),
         params={
             "mana": list(p.get("mana", [])),
+            **({"mana_restriction": dict(p["mana_restriction"])} if p.get("mana_restriction") else {}),
+            **({"mana_any_combination": True} if p.get("mana_any_combination") else {}),
+            **({"granted_mana_cost": str(p["granted_mana_cost"])} if p.get("granted_mana_cost") else {}),
             **({"mana_ability_cost": dict(p["cost"])} if p.get("cost") else {}),
             **_selectors(p),
         },
+    ),
+)
+EffectRegistry.register(
+    # A quoted layer-6 replacement, for example "Creatures of type X have
+    # 'If this permanent would be put into a graveyard, you may put it on top
+    # of its owner's library instead.'"  The concrete group is carried by
+    # the ordinary selectors, so this is not tied to either a creature type
+    # or a card.
+    "grant_graveyard_to_library_replacement",
+    lambda p: StaticAbility(
+        "ability",
+        affects=p.get("affects", "self"),
+        params={"graveyard_to_library_replacement": True, **_selectors(p)},
     ),
 )
 EffectRegistry.register(

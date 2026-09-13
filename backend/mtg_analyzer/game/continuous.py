@@ -1069,6 +1069,17 @@ def count_selector(
             1 for o in bf
             if o.is_land and o.tapped and o.controller_id is not None and o.controller_id != controller_id
         )
+    if selector.startswith("permanents_opponents_control_of_color_"):
+        # "for each black permanent your opponents control" — a general
+        # colour-filtered opponent count, evaluated from final layer-5
+        # colours so colour-changing effects are respected.
+        color = selector.removeprefix("permanents_opponents_control_of_color_").upper()
+        if color not in {"W", "U", "B", "R", "G"}:
+            return 0
+        return sum(
+            1 for o in bf
+            if o.controller_id not in (None, controller_id) and color in (o.colors or set())
+        )
     if selector == "tapped_creatures_you_control":
         # "…each opponent loses life equal to the number of tapped
         # creatures you control." (Throne of the God-Pharaoh) — a plain
@@ -2086,6 +2097,8 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
         remove_keywords = ability.params.get("remove_keywords", [])
         lose_all = bool(ability.params.get("lose_all_abilities", False))
         mana = ability.params.get("mana", [])
+        mana_restriction = ability.params.get("mana_restriction")
+        mana_any_combination = bool(ability.params.get("mana_any_combination", False))
         mana_ability_cost = ability.params.get("mana_ability_cost")
         trigger_event = ability.params.get("trigger_event")
         activated_cost = ability.params.get("activated_cost")
@@ -2104,6 +2117,9 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
         #: ``ward_cost`` param instead of a separate static kind.
         ward_cost = ability.params.get("ward_cost")
         cumulative_upkeep_cost = ability.params.get("cumulative_upkeep_cost")
+        graveyard_to_library_replacement = bool(
+            ability.params.get("graveyard_to_library_replacement", False)
+        )
         if protections and ability.params.get("exempt_own_attachment"):
             # RULE 702.16n/p — a per-*source* flag (the Aura, not its host),
             # since the exemption is about this specific grant not causing
@@ -2164,6 +2180,9 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                     state._granted_ability_cache[key] = built
                 obj._granted_triggered_abilities.extend(built)
                 _trace(obj, 6, _source_name(ability), "gains cumulative upkeep")
+            if graveyard_to_library_replacement:
+                obj._graveyard_to_library_replacement = True
+                _trace(obj, 6, _source_name(ability), "replaces graveyard move with library top")
             if mana and mana_ability_cost:
                 # MEC-25 upgrade shape — not a bare ``{T}``, so it replaces a
                 # matching printed ability instead of stacking a second one
@@ -2173,7 +2192,16 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                 )
                 _trace(obj, 6, _source_name(ability), "gains an upgraded mana ability")
             elif mana:
-                obj._granted_mana.extend(mana)
+                granted_mana_cost = ability.params.get("granted_mana_cost")
+                if mana_restriction or mana_any_combination or granted_mana_cost:
+                    obj._granted_mana_abilities.append({
+                        "options": [dict(option) for option in mana],
+                        "restriction": dict(mana_restriction) if mana_restriction else None,
+                        "any_combination": mana_any_combination,
+                        "cost": granted_mana_cost,
+                    })
+                else:
+                    obj._granted_mana.extend(mana)
                 _trace(obj, 6, _source_name(ability), "gains a mana ability")
             if trigger_event:
                 key = (id(ability), obj.instance_id)

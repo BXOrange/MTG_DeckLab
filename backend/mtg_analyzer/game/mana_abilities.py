@@ -670,6 +670,8 @@ def _parse_restriction(effect_text: str) -> Optional[dict[str, Any]]:
 
 def _restriction_allows_cast(restriction: dict[str, Any], obj: Any, has_x: bool) -> bool:
     kind = restriction.get("kind")
+    if kind == "spell":
+        return True
     if kind == "contains_x":
         return has_x
     card = getattr(obj, "card", obj)
@@ -1130,6 +1132,15 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
         ManaAbility(cost=ActivationCost(taps_self=True), options=[dict(opt)])
         for opt in getattr(obj, "granted_mana_options", [])
     ]
+    granted.extend(
+        ManaAbility(
+            cost=parse_activation_cost(entry["cost"]) if entry.get("cost") else ActivationCost(taps_self=True),
+            options=[dict(option) for option in entry.get("options", [])],
+            restriction=entry.get("restriction"),
+            any_combination=bool(entry.get("any_combination", False)),
+        )
+        for entry in getattr(obj, "_granted_mana_abilities", [])
+    )
     upgrades = getattr(obj, "granted_mana_ability_upgrades", [])
     if upgrades:
         # MEC-25: an upgraded grant *replaces* a printed ability of the same

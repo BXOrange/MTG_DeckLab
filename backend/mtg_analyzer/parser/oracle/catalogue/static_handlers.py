@@ -121,7 +121,7 @@ _REGRANT_UNSUPPORTED_AFFECTS = frozenset({"self", "attached_permanent"})
 #: `damaged_by_source_this_turn`, …) fails closed for the whole body.
 _REGRANT_SAFE_GROUP_KEYS = frozenset(
     {"subject", "type", "subtypes", "excluded_subtypes", "nontoken", "nonland",
-     "nonbasic", "controller", "other", "goaded", "in_combat", "is_player", "combat"}
+     "nonbasic", "controller", "owner", "other", "goaded", "in_combat", "is_player", "combat"}
 )
 
 #: Type words that are *not* creature subtypes — a scope built on one of these
@@ -173,6 +173,18 @@ _ANTHEM_RE = re.compile(
     rf"{_CHOSEN_TAIL} "
     r"get (?P<p>[+-]\d+)/(?P<t>[+-]\d+)"
     r"(?: and have (?P<kw>[a-z][a-z, ]*))?",
+    re.IGNORECASE,
+)
+# The controller-opposite sibling of the ordinary group anthem.  It has its
+# own selector because "your opponents control" is not an adjective inside a
+# creature subtype; `continuous.group_selector_objects` already supplies the
+# matching live group.
+_OPPONENT_CREATURE_ANTHEM_RE = re.compile(
+    r"creatures your opponents control get (?P<p>[+-]\d+)/(?P<t>[+-]\d+)",
+    re.IGNORECASE,
+)
+_SELF_ANTHEM_PER_OPPONENT_COLOR_PERMANENT_RE = re.compile(
+    r"~ gets \+(?P<p>\d+)/\+(?P<t>\d+) for each (?P<color>white|blue|black|red|green) permanent your opponents control",
     re.IGNORECASE,
 )
 # "[Other] <scope> [you control] [of the chosen type/color] have <keywords>"
@@ -1778,12 +1790,21 @@ _ATTACHED_KEYWORD_AND_QUOTED_GRANT_RE = re.compile(
     rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has (?P<keywords>[a-z, ]+?) and "(?P<inner>.+)"',
     re.IGNORECASE | re.DOTALL,
 )
+_ATTACHED_WARD_AND_QUOTED_GRANT_RE = re.compile(
+    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has ward (?P<cost>.+?) and "(?P<inner>.+)"',
+    re.IGNORECASE | re.DOTALL,
+)
 _ATTACHED_QUOTED_GRANT_RE = re.compile(
     rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has "(?P<inner>.+)"',
     re.IGNORECASE | re.DOTALL,
 )
 _ATTACHED_DOUBLE_QUOTED_GRANT_RE = re.compile(
     rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has "(?P<first>.+)" and "(?P<second>.+)"',
+    re.IGNORECASE | re.DOTALL,
+)
+_ATTACHED_LOOK_TOP_AND_QUOTED_GRANT_RE = re.compile(
+    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has '
+    r'"you may look at the top card of your library any time" and "(?P<inner>.+)"',
     re.IGNORECASE | re.DOTALL,
 )
 _ATTACHED_QUOTED_GRANT_AND_TYPE_RE = re.compile(
@@ -1867,19 +1888,21 @@ _ALL_COLORS = ("W", "U", "B", "R", "G")
 #: (`game/effects/core.py`, layer 6/RULE 613.7f) is the existing engine primitive
 #: — only this front end was missing.
 #:
-#: `{T}`-only by design: a mana ability with any *other* cost component
-#: ("{T}, Sacrifice a creature: …", Animal Boneyard) isn't expressible as a
-#: bare `mana` production list, so it stays unclaimed (fail-closed).
 _GRANTED_MANA_ABILITY_RE = re.compile(
-    r"\{t\}:\s*add\s+(?:"
+    r"(?P<cost>\{t\}|sacrifice (?:this permanent|~)):\s*add\s+(?:"
     r"(?P<syms>(?:\{[wubrgc]\})+)"
     r"|(?P<n>\d+) mana of any (?:1 )?colou?r"
     r")\.?",
     re.IGNORECASE,
 )
+_GRANTED_MANA_COMBINATION_RE = re.compile(
+    r"\{t\}:\s*add\s+(?P<n>\d+) mana in any combination of colou?rs\.\s*"
+    r"spend this mana only to cast spells\.?",
+    re.IGNORECASE,
+)
 
 
-def _granted_mana_options(inner: str) -> Optional[list[dict[str, int]]]:
+def _granted_mana_options(inner: str) -> Optional[tuple[list[dict[str, int]], str]]:
     """A quoted mana ability's ``mana`` production options, or ``None``.
 
     Returns the same "list of ``{colour: amount}`` options, payer picks one"
@@ -1895,11 +1918,11 @@ def _granted_mana_options(inner: str) -> Optional[list[dict[str, int]]]:
         option: dict[str, int] = {}
         for sym in re.findall(r"\{([wubrgc])\}", syms, re.IGNORECASE):
             option[sym.upper()] = option.get(sym.upper(), 0) + 1
-        return [option]
+        return [option], m.group("cost")
     amount = int(m.group("n"))
     if amount < 1:
         return None
-    return [{color: amount} for color in _ALL_COLORS]
+    return [{color: amount} for color in _ALL_COLORS], m.group("cost")
 
 
 def _quoted_ability_grant_effects(inner: str) -> Optional[EffectSpec]:
@@ -1921,13 +1944,22 @@ def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]
     a controller-scoped phase trigger, a plain `<cost>: <effect>` activated
     ability, or a bare `{T}: Add <mana>` mana ability (see the module
     comment above `_ATTACHED_QUOTED_GRANT_RE`)."""
+    from ..normalize import normalize
     from ..segmenter import segment_line  # lazy: segmenter imports this module
 
     # A quotation embedded before a following static clause is commonly
     # written as `has "…," and is …` (Black Mage's Rod).  That comma belongs
     # to the outer English list, not the granted ability, and would otherwise
     # make the recursive effect-body parse fail closed.
-    inner = inner.rstrip(" ,.;")
+    inner = normalize(inner).rstrip(" ,.;")
+    # "another +1/+1 counter" is one additional counter instruction, not a
+    # distinct counter kind.  Canonicalise the tightly-scoped printed form so
+    # the ordinary counter body can be recursively parsed in any granted
+    # ability (rather than teaching every outer lord/state template about it).
+    inner = re.sub(
+        r"\bput another (?P<counter>[+-]\d+/[+-]\d+ counter)\b",
+        r"put a \g<counter>", inner, flags=re.IGNORECASE,
+    )
 
     # RULE 702.24: this is a cost-bearing keyword, not a numeric parametric
     # keyword, so it cannot use the ordinary `parametric_keywords` grant
@@ -1943,16 +1975,117 @@ def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]
                 "affects": "attached_permanent",
             })]
 
-    mana = _granted_mana_options(inner)
-    if mana is not None:
+    combination_mana = _GRANTED_MANA_COMBINATION_RE.fullmatch(inner.strip())
+    if combination_mana is not None:
+        amount = int(combination_mana.group("n"))
+        if amount < 1:
+            return None
         return [EffectSpec("grant_mana_ability", {
-            "mana": mana, "affects": "attached_permanent",
+            "mana": [{color: amount} for color in _ALL_COLORS],
+            "mana_any_combination": True,
+            "mana_restriction": {"kind": "spell"},
+            "affects": "attached_permanent",
+        })]
+
+    mana_grant = _granted_mana_options(inner)
+    if mana_grant is not None:
+        mana, mana_cost = mana_grant
+        return [EffectSpec("grant_mana_ability", {
+            "mana": mana, "granted_mana_cost": mana_cost, "affects": "attached_permanent",
         })]
 
     ward = _GRANTED_WARD_RE.fullmatch(inner.strip().rstrip("."))
     if ward is not None:
         return [EffectSpec("grant_keyword", {
             "ward_cost": ward.group("cost").strip(), "affects": "attached_permanent",
+        })]
+
+    # A self-scoped replacement body.  Keeping it in the recursive quote
+    # parser lets the outer static provide its normal generic group selector
+    # (subtype, controller, attachment, and so on).
+    if re.fullmatch(
+        r"if (?:this permanent|~) would be put into a graveyard, you may put it on top of its owner(?:'|’)?s library instead",
+        inner.strip().rstrip("."), re.IGNORECASE,
+    ):
+        return [EffectSpec("grant_graveyard_to_library_replacement", {
+            "affects": "attached_permanent",
+        })]
+
+    # "This permanent becomes the creature type of your choice in addition
+    # to its other types until end of turn."  The choice and the temporary
+    # layer-4 type addition are pre-existing generic building blocks; this
+    # only composes them for a quoted activated ability of any cost/group.
+    chosen_type = re.fullmatch(
+        r"(?P<cost>.+?):\s*(?:this permanent|~) becomes the creature type of your choice in addition to its other types until end of turn",
+        inner.strip().rstrip("."), re.IGNORECASE,
+    )
+    if chosen_type is not None:
+        return [EffectSpec("grant_activated_ability", {
+            "cost": {"text": chosen_type.group("cost").strip()},
+            "grant_effects": [{
+                "type": "_request_choose_creature_type_grant",
+                "params": {"then_specs": [{
+                    "type": "grant_until",
+                    "params": {
+                        "duration": "end_of_turn", "self_subject": True,
+                        "static": {"type": "type_change", "params": {
+                            "add_subtypes_from_source": True,
+                        }},
+                    },
+                }]},
+            }],
+            "affects": "attached_permanent",
+        })]
+
+    # Generic activation composition: a coin flip chooses between a self
+    # exile plus an already-supported delayed self-return, and self
+    # sacrifice.  No named card or creature type belongs to this shape.
+    flicker_coin = re.fullmatch(
+        r"(?P<cost>.+?):\s*if (?:this permanent|~) is on the battlefield, flip a coin\.\s*"
+        r"if you win the flip, exile (?:this permanent|~) and return (?:it|this permanent|~) to the battlefield under its owner's control at the beginning of the next end step\.\s*"
+        r"if you lose the flip, sacrifice (?:it|this permanent|~)",
+        inner.strip().rstrip("."), re.IGNORECASE,
+    )
+    if flicker_coin is not None:
+        return [EffectSpec("grant_activated_ability", {
+            "cost": {"text": flicker_coin.group("cost").strip()},
+            "grant_effects": [{
+                "type": "coin_flip",
+                "params": {
+                    "win_effects": [
+                        {"type": "exile", "params": {"target_kind": None}},
+                        {"type": "create_delayed_trigger", "params": {
+                            "step": "end", "scope": "any",
+                            "effects": [{"type": "return_self_to_battlefield", "params": {}}],
+                        }},
+                    ],
+                    "lose_effects": [{"type": "sacrifice_self", "params": {}}],
+                },
+            }],
+            "affects": "attached_permanent",
+        })]
+
+    # Name a card, reveal one random opposing hand card, then conditionally
+    # discard it.  Naming substitution and the random-reveal/name-comparison
+    # operation are generic catalog entries; this only maps their printed
+    # sequence into a quoted activated ability.
+    named_random_discard = re.fullmatch(
+        r"(?P<cost>.+?):\s*choose a card name\.\s*target opponent reveals a card at random from their hand\.\s*"
+        r"if that card has the chosen name, that player discards it\.\s*activate only during your turn",
+        inner.strip().rstrip("."), re.IGNORECASE,
+    )
+    if named_random_discard is not None:
+        return [EffectSpec("grant_activated_ability", {
+            "cost": {"text": named_random_discard.group("cost").strip()},
+            "grant_effects": [{
+                "type": "name_card_then",
+                "params": {"effects": [{
+                    "type": "reveal_random_hand_card_if_named",
+                    "params": {"named_card": "named_card", "target_kind": "opponent"},
+                }]},
+            }],
+            "sorcery_speed_only": True,
+            "affects": "attached_permanent",
         })]
 
     segment = segment_line(
@@ -2053,7 +2186,15 @@ def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]
         # continuous.py`'s `_granted_trigger_condition` resolves "you"
         # against the granted-to permanent's own controller once regranted
         # (`_PLAYER_SUBJECT_GRANTED_EVENTS`).
-        if trigger.get("condition") != {"subject": "you"}:
+        condition = trigger.get("condition") or {}
+        if condition == {"subject": "you"}:
+            pass
+        elif condition.get("subject") == "group" and set(condition) <= _REGRANT_SAFE_GROUP_KEYS:
+            # "Whenever an opponent casts a spell" is just as host-relative
+            # as the other safe group filters: the regranted ability's host
+            # supplies the meaning of "you" for ``not_you``.
+            group_condition = dict(condition)
+        else:
             return None
     elif len(events) == 1 and trigger.get("condition") != {"subject": "self"}:
         cond = trigger.get("condition") or {}
@@ -2614,6 +2755,13 @@ def _vehicle_scope_params(m: "re.Match[str]") -> dict:
 #: whole clause unclaimed (fail-closed), which is why this list is ordered
 #: most-specific-first.
 _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
+    # "as long as you control a Swamp" (Sedge Sliver) — a live basic-land
+    # subtype count, using the same selector vocabulary the layer engine
+    # already consults for land-count thresholds.
+    (
+        re.compile(r"you control an? (?P<land>island|swamp|mountain|forest|plains)", re.I),
+        lambda m: {"kind": "control_count", "selector": f"lands_you_control_of_type_{m.group('land').lower()}", "min": 1},
+    ),
     # -- PAR-62: the four highest-frequency `if <cond>` phrases whose engine
     # kind already existed but had no parser-side row. Measured over every
     # unclaimed clause in the cache; adding them here widens the RULE 603.4
@@ -3179,6 +3327,116 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     `_ATTACHED_SUBJECTS` above.
     """
     text = clause.strip().rstrip(".").strip()
+    # ``additional`` is semantic emphasis for an additive P/T modifier, not
+    # a different layer operation: "White creatures get an additional
+    # +1/+1" is simply another ordinary anthem.
+    text = re.sub(r"\b(gets?) an additional\s+", r"\1 ", text, flags=re.IGNORECASE)
+
+    # A compositional self-lord: reuse the normal parser for the tail rather
+    # than maintaining an ever-growing list of ``+N/+N and <thing>``
+    # combinations.  Besides keywords this admits independently modelled
+    # self statics such as protection or combat restrictions, and the outer
+    # conditional wrapper below applies one live gate to every emitted spec.
+    compound_self = re.fullmatch(
+        r"~ gets \+(?P<p>\d+)/\+(?P<t>\d+) and (?P<tail>.+)", text, re.IGNORECASE
+    )
+    if compound_self is not None:
+        tail_specs = static_effect_specs("~ " + compound_self.group("tail"))
+        if tail_specs:
+            return [EffectSpec("anthem", {
+                "power": int(compound_self.group("p")),
+                "toughness": int(compound_self.group("t")),
+                "affects": "self",
+            }), *tail_specs]
+
+    # The quoted-ability sibling of the preceding composition.  The nested
+    # helper already validates and builds triggers/activated abilities; only
+    # its temporary attachment-relative scope changes to the receiving
+    # permanent's self scope here.  An optional colour clause is the same
+    # ordinary layer-5 static, not a threshold- or tribe-specific effect.
+    quoted_tail = re.fullmatch(
+        r"~ gets \+(?P<p>\d+)/\+(?P<t>\d+)(?:, is (?P<color>white|blue|black|red|green))?"
+        r",? and has \"(?P<inner>.+)\"", text, re.IGNORECASE,
+    )
+    if quoted_tail is not None:
+        grants = _quoted_ability_grant_effects_list(quoted_tail.group("inner"))
+        if grants:
+            specs = [EffectSpec("anthem", {
+                "power": int(quoted_tail.group("p")),
+                "toughness": int(quoted_tail.group("t")), "affects": "self",
+            })]
+            if quoted_tail.group("color"):
+                specs.append(EffectSpec("color_change", {
+                    "colors": [quoted_tail.group("color")], "affects": "self",
+                }))
+            for grant in grants:
+                params = dict(grant.params)
+                params["affects"] = "self"
+                specs.append(EffectSpec(grant.type, params, condition=grant.condition))
+            return specs
+
+    # The same layer composition with a keyword between the colour and quote
+    # is common in ordinary continuous effects too.  Each component remains a
+    # normal generic EffectSpec, so condition wrappers and group scopes keep
+    # working without a bespoke combined ability.
+    colored_keyword_quoted_tail = re.fullmatch(
+        r"~ gets \+(?P<p>\d+)/\+(?P<t>\d+), is (?P<color>white|blue|black|red|green), "
+        r"has (?P<keywords>.+?), and has \"(?P<inner>.+)\"", text, re.IGNORECASE,
+    )
+    if colored_keyword_quoted_tail is not None:
+        keywords = _flag_keywords(colored_keyword_quoted_tail.group("keywords"))
+        grants = _quoted_ability_grant_effects_list(colored_keyword_quoted_tail.group("inner"))
+        if keywords and grants:
+            specs = [
+                EffectSpec("anthem", {
+                    "power": int(colored_keyword_quoted_tail.group("p")),
+                    "toughness": int(colored_keyword_quoted_tail.group("t")), "affects": "self",
+                }),
+                EffectSpec("color_change", {
+                    "colors": [colored_keyword_quoted_tail.group("color")], "affects": "self",
+                }),
+                EffectSpec("grant_keyword", {"keywords": keywords, "affects": "self"}),
+            ]
+            for grant in grants:
+                params = dict(grant.params)
+                params["affects"] = "self"
+                specs.append(EffectSpec(grant.type, params, condition=grant.condition))
+            return specs
+
+    # Colour-setting and an acquired quoted ability are independent layer-5
+    # and layer-6 operations.  Keep this compositional for any permanent,
+    # rather than baking a card's particular threshold wording into the
+    # catalogue.
+    colored_quoted_self = re.fullmatch(
+        r'~ is (?P<color>white|blue|black|red|green),? and has "(?P<inner>.+)"',
+        text, re.IGNORECASE,
+    )
+    if colored_quoted_self is not None:
+        grants = _quoted_ability_grant_effects_list(colored_quoted_self.group("inner"))
+        if grants:
+            specs = [EffectSpec("color_change", {
+                "colors": [colored_quoted_self.group("color")], "affects": "self",
+            })]
+            for grant in grants:
+                params = dict(grant.params)
+                params["affects"] = "self"
+                specs.append(EffectSpec(grant.type, params, condition=grant.condition))
+            return specs
+
+    # The no-P/T sibling: a conditional/static source may itself acquire one
+    # quoted trigger or activation.  This uses precisely the same recursive
+    # quoted-ability catalog as group grants; the sole difference is that the
+    # recipient is the source permanent.
+    quoted_self = re.fullmatch(r'~ has "(?P<inner>.+)"', text, re.IGNORECASE)
+    if quoted_self is not None:
+        grants = _quoted_ability_grant_effects_list(quoted_self.group("inner"))
+        if grants:
+            specs = []
+            for grant in grants:
+                params = dict(grant.params)
+                params["affects"] = "self"
+                specs.append(EffectSpec(grant.type, params, condition=grant.condition))
+            return specs
 
     # RULE 613.6: "as long as <condition>, <static>" (either printed order) —
     # parse the gate, then re-enter with the bare static and hand every spec
@@ -3990,13 +4248,53 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             *grants,
         ]
 
+    m = _ATTACHED_WARD_AND_QUOTED_GRANT_RE.fullmatch(text)
+    if m is not None:
+        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        if grants is None:
+            return None
+        return [
+            EffectSpec("grant_keyword", {
+                "ward_cost": m.group("cost").strip(),
+                "affects": "attached_permanent",
+            }),
+            *grants,
+        ]
+
     m = _ATTACHED_DOUBLE_QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
         first = _quoted_ability_grant_effects_list(m.group("first"))
         second = _quoted_ability_grant_effects_list(m.group("second"))
+        if (
+            m.group("first").strip().lower()
+            == "you may look at the top card of your library any time"
+            and second is not None
+        ):
+            return [
+                EffectSpec("top_library_permission", {
+                    "look": True, "requires_attached": True,
+                }),
+                *second,
+            ]
         if first is None or second is None:
             return None
         return [*first, *second]
+
+    m = _ATTACHED_LOOK_TOP_AND_QUOTED_GRANT_RE.fullmatch(text)
+    if m is not None:
+        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        if grants is None:
+            return None
+        # The permission belongs to the Equipment's controller, while its
+        # quote grants an ability to the host.  requires_attached keeps the
+        # former active only while the Equipment is attached (RULE 301.5),
+        # without incorrectly re-sourcing it onto the creature.
+        return [
+            EffectSpec("top_library_permission", {
+                "look": True, "requires_attached": True,
+            }),
+            *grants,
+        ]
 
     m = _ATTACHED_QUOTED_GRANT_AND_TYPE_RE.fullmatch(text)
     if m is not None:
@@ -4017,6 +4315,22 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         if grants is None:
             return None
         return grants
+
+    m = _OPPONENT_CREATURE_ANTHEM_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("anthem", {
+            "power": int(m.group("p")), "toughness": int(m.group("t")),
+            "affects": "creatures_opponents_control",
+        })]
+
+    m = _SELF_ANTHEM_PER_OPPONENT_COLOR_PERMANENT_RE.fullmatch(text)
+    if m is not None:
+        selector = "permanents_opponents_control_of_color_" + COLOR_LETTERS[m.group("color").lower()]
+        return [EffectSpec("anthem", {
+            "power": int(m.group("p")), "toughness": int(m.group("t")),
+            "power_count": selector, "toughness_count": selector,
+            "affects": "self",
+        })]
 
     m = _ANTHEM_RE.fullmatch(text)
     if m is not None:

@@ -1749,6 +1749,14 @@ class DamageDeathMixin:
         if continuous.graveyard_redirect_active(self.state, obj):
             self.exile(obj)
             return
+        # A self-only replacement granted through layer 6.  This common
+        # choke point covers destruction, sacrifice and non-damage moves;
+        # the derived flag means the granting static can use any ordinary
+        # affected-object group.  Beneficial optional replacements follow
+        # the engine's established default and are taken.
+        if getattr(obj, "_graveyard_to_library_replacement", False):
+            self.return_to_library(obj, "top")
+            return
         was_on_battlefield = obj in self.state.battlefield
         was_creature = obj.is_creature
 

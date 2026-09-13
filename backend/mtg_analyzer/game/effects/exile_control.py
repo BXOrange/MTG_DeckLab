@@ -131,7 +131,7 @@ class ExileEffect(GameEffect):
         #: self-acting mode `TapEffect`/`PumpEffect`/
         #: `ShuffleSelfIntoLibraryEffect` already have.
         self._attached_mode = target_kind == "attached_permanent"
-        self.trigger_event_key = trigger_event_key or "instance_id"
+        self.trigger_event_key = trigger_event_key
         #: "For as long as that card remains exiled, its owner may play
         #: it." (MEC-12, Soul Partition/Praetor's Grasp-shaped) — the
         #: standing, unconditional sibling of Lukka's own board-gated
@@ -196,7 +196,15 @@ class ExileEffect(GameEffect):
             return
         if self._trigger_subject_mode:
             event = context.trigger_event
-            obj_id = (event or {}).get(self.trigger_event_key)
+            # A DAMAGE event records the dealt-to object as ``target_id``;
+            # ordinary object-subject events use ``instance_id``.  The
+            # parser's "exile that creature" referent is valid for both
+            # forms, so an omitted explicit key chooses the former only
+            # where it exists and otherwise keeps the long-standing latter.
+            key = self.trigger_event_key or (
+                "target_id" if (event or {}).get("target_id") is not None else "instance_id"
+            )
+            obj_id = (event or {}).get(key)
             target = context.state.find_object(obj_id) if obj_id is not None else None
             if target is not None:
                 context.exile(target)
@@ -1786,6 +1794,27 @@ class ExileLibraryEffect(GameEffect):
             return
         for obj in list(player.library):
             context.exile(obj)
+
+
+class ExileOwnGraveyardCardsEffect(GameEffect):
+    """Exile N cards from your graveyard (RULE 701.5a)."""
+
+    def __init__(self, count: int = 1, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.count = max(1, int(count))
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        controller = _controller_of(self.source, context)
+        if controller is None:
+            return
+        candidates = list(controller.graveyard)
+        if not candidates:
+            return
+        context.engine._request_choose_objects(
+            controller, candidates, action="exile", count=self.count,
+            source=self.source,
+            prompt=f"{self.count} Karten aus deinem Friedhof ins Exil schicken",
+        )
 
 
 class ShuffleGraveyardIntoLibraryEffect(GameEffect):

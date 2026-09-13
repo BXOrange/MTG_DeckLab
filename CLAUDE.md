@@ -506,8 +506,17 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 43.1% (15,007 / 34,811) as of 2026-09-12, measured at
-PARSER_VERSION 354** (v354 recognizes attacking-or-blocking creature targets;
+**Coverage: 43.5% (15,151 / 34,811) as of 2026-09-13, measured at
+PARSER_VERSION 363** (v363 closes generic group/state quoted-ability grants,
+including Threshold bodies; v362 recognizes Unquenchable Fury's quoted attack
+trigger with damage equal to the defending player's hand size; v361 recognizes Glowcap Lantern's attached
+top-library permission plus quoted explore grant; v360 recognizes Leyline Immersion's restricted
+any-combination mana grant; v359 recognizes player-or-planeswalker combat damage
+that creates that-many named tokens; v358 recognizes Kaldra Compleat's quoted
+combat-damage exile; v357 recognizes Sinstriker's Will's quoted
+combat-targeted power damage; v356 recognizes Dragon Throne of Tarkir's quoted
+other-creature, source-power group pump; v355 recognizes combat targets for exile effects;
+v354 recognizes attacking-or-blocking creature targets;
 v353 recognizes quoted counter-scaled combat damage;
 v352 recognizes quoted grants after attached keywords;
 v351 recognizes quoted anthem-keyword-trigger grants;
@@ -583,7 +592,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 45.2% (14,396 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 45.7% (14,539 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

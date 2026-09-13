@@ -589,6 +589,7 @@ def _build_group_ok(
     # mirror image of ``"you"``: the event's player must be someone
     # *besides* this ability's own controller.
     wants_not_you = condition.get("controller") == "not_you"
+    wants_owner_you = condition.get("owner") == "you"
     other_only = bool(condition.get("other"))
     # RULE 603.1 recipient-scoped "you control" (Rite of Passage's "a
     # creature you control is dealt damage") needs `target_controller_id`
@@ -673,6 +674,7 @@ def _build_group_ok(
         want_token=want_token,
         you=wants_you,
         not_you=wants_not_you,
+        owner_you=wants_owner_you,
         other=other_only,
         ckey=controller_key,
         skey=subject_key,
@@ -695,6 +697,8 @@ def _build_group_ok(
         if you and event.get(ckey) != cid:
             return False
         if not_you and event.get(ckey) == cid:
+            return False
+        if owner_you and event.get("owner_id") != cid:
             return False
         if want_recipient_you and not (event.get("is_player") and event.get("target_id") == cid):
             return False
@@ -992,11 +996,23 @@ def _trigger_condition(
         # ``source_controller_id``). Popped out so it isn't fed to the
         # exact-match loop below.
         by_you = bool(filt.get("by_you"))
-        exact = {k: v for k, v in dict(filt).items() if k != "by_you"}
+        player_or_planeswalker = bool(filt.get("player_or_planeswalker"))
+        exact = {
+            k: v for k, v in dict(filt).items()
+            if k not in ("by_you", "player_or_planeswalker")
+        }
 
-        def _filter_ok(event: Any, context: Any, f=exact, want_by_you=by_you) -> bool:
+        def _filter_ok(
+            event: Any, context: Any, f=exact, want_by_you=by_you,
+            want_player_or_planeswalker=player_or_planeswalker,
+        ) -> bool:
             if not all(event.get(k) == v for k, v in f.items()):
                 return False
+            if want_player_or_planeswalker and not event.get("is_player"):
+                target_id = event.get("target_id")
+                target = context.state.find_object(target_id) if target_id is not None else None
+                if target is None or not getattr(target, "is_planeswalker", False):
+                    return False
             if want_by_you and event.get("source_controller_id") != getattr(source, "controller_id", None):
                 return False
             return True

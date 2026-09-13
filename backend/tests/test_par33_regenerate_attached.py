@@ -491,6 +491,231 @@ def test_friendly_neighborhood_quoted_dynamic_target_pump_is_regranted():
     assert specs[0].params["sorcery_speed_only"] is True
 
 
+def test_dragon_throne_quoted_other_creature_source_power_pump_is_regranted():
+    """PAR-33: the quoted activated ability excludes its equipped host."""
+    card = Card(
+        id="dragon-throne", name="Dragon Throne of Tarkir", type_line="Artifact — Equipment",
+        oracle_text=(
+            'Equipped creature has defender and "{2}, {T}: Other creatures you control gain trample '
+            'and get +X/+X until end of turn, where X is this creature\'s power."\nEquip {3}'
+        ),
+    )
+    result = parse_oracle(card)
+    assert result.coverage != UNMODELED, result.unclaimed
+    specs = static_effect_specs(
+        'equipped creature has defender and "{2}, {t}: other creatures you control gain trample '
+        'and get +x/+x until end of turn, where x is ~\'s power."'
+    )
+    assert specs is not None
+    assert [spec.type for spec in specs] == ["grant_keyword", "grant_activated_ability"]
+    assert specs[1].params["grant_effects"] == [{
+        "type": "pump",
+        "params": {
+            "keywords": ["trample"],
+            "selector": "other_creatures_you_control",
+            "amount_from_count_selector": "source_power",
+        },
+    }]
+
+    engine, state, _ = _rules()
+    host = _bf(state, Card(
+        id="host", name="Host", type_line="Creature", is_creature=True, power=4, toughness=4,
+    ))
+    ally = _bf(state, Card(
+        id="ally", name="Ally", type_line="Creature", is_creature=True, power=2, toughness=2,
+    ))
+    opponent = _bf(state, Card(
+        id="opponent", name="Opponent", type_line="Creature", is_creature=True, power=2, toughness=2,
+    ), controller="p2")
+    from mtg_analyzer.game.effects.registry import EffectRegistry
+    effect = EffectRegistry.create("pump", specs[1].params["grant_effects"][0]["params"])
+    effect.source = host
+    effect.apply(GameContext(state, engine))
+    continuous.recompute(state)
+    assert host.power == 4
+    assert ally.power == 6
+    assert "trample" in ally.temp_keywords
+    assert opponent.power == 2
+
+
+def test_sinstrikers_will_quoted_power_damage_targets_combat_creatures():
+    """PAR-33: a regranted power-damage activation keeps combat targeting."""
+    card = Card(
+        id="sinstrikers-will", name="Sinstriker's Will", type_line="Enchantment — Aura",
+        oracle_text=(
+            'Enchant creature\nEnchanted creature has "{T}: This creature deals damage equal to its '
+            'power to target attacking or blocking creature."'
+        ),
+    )
+    result = parse_oracle(card)
+    assert result.coverage != UNMODELED, result.unclaimed
+    specs = static_effect_specs(
+        'enchanted creature has "{t}: ~ deals damage equal to its power to target attacking or blocking creature."'
+    )
+    assert specs is not None
+    assert specs[0].params["grant_effects"] == [{
+        "type": "damage_equal_to_power",
+        "params": {"target_kind": "attacking_or_blocking_creature"},
+    }]
+
+
+def test_kaldra_compleat_quoted_combat_damage_exiles_the_damage_recipient():
+    """PAR-33: ``that creature`` is the DAMAGE event's recipient, not host."""
+    card = Card(
+        id="kaldra-compleat", name="Kaldra Compleat", type_line="Artifact — Equipment",
+        oracle_text=(
+            'Equipped creature gets +5/+5 and has first strike, trample, indestructible, haste, '
+            'and "Whenever this creature deals combat damage to a creature, exile that creature."\nEquip {7}'
+        ),
+    )
+    result = parse_oracle(card)
+    assert result.coverage != UNMODELED, result.unclaimed
+    specs = static_effect_specs(
+        'equipped creature gets +5/+5 and has first strike, trample, indestructible, haste, '
+        'and "whenever ~ deals combat damage to a creature, exile that creature."'
+    )
+    assert specs is not None
+    grant = specs[-1]
+    assert grant.type == "grant_triggered_ability"
+    assert grant.params["filter"] == {"is_player": False, "combat": True}
+    assert grant.params["grant_effects"] == [{
+        "type": "exile", "params": {"target_kind": "trigger_subject"},
+    }]
+
+    engine, state, p1 = _rules()
+    host = _bf(state, Card(id="host", name="Host", type_line="Creature", is_creature=True))
+    victim = _bf(state, Card(id="victim", name="Victim", type_line="Creature", is_creature=True), controller="p2")
+    from mtg_analyzer.game.effects.registry import EffectRegistry
+    effect = EffectRegistry.create("exile", {"target_kind": "trigger_subject"})
+    effect.source = host
+    context = GameContext(state, engine)
+    context.trigger_event = {"source_id": host.instance_id, "target_id": victim.instance_id}
+    effect.apply(context)
+    assert victim not in state.battlefield
+    assert victim in state.player_by_id("p2").exile
+
+
+def test_reaver_cleaver_quoted_combat_damage_creates_that_many_treasures():
+    """PAR-33: player-or-planeswalker damage keeps its exact target union."""
+    card = Card(
+        id="reaver-cleaver", name="The Reaver Cleaver", type_line="Artifact — Equipment",
+        oracle_text=(
+            'Equipped creature gets +1/+1 and has trample and "Whenever this creature deals combat damage '
+            'to a player or planeswalker, create that many Treasure tokens."\nEquip {2}'
+        ),
+    )
+    result = parse_oracle(card)
+    assert result.coverage != UNMODELED, result.unclaimed
+    specs = static_effect_specs(
+        'equipped creature gets +1/+1 and has trample and "whenever ~ deals combat damage '
+        'to a player or planeswalker, create that many treasure tokens."'
+    )
+    assert specs is not None
+    grant = specs[-1]
+    assert grant.params["filter"] == {"player_or_planeswalker": True, "combat": True}
+    assert grant.params["grant_effects"] == [{
+        "type": "create_token",
+        "params": {"token_name": "Treasure", "count_from_trigger_event": "amount"},
+    }]
+
+    engine, state, p1 = _rules()
+    host = _bf(state, Card(id="host", name="Host", type_line="Creature", is_creature=True))
+    from mtg_analyzer.game.effects.registry import EffectRegistry
+    effect = EffectRegistry.create("create_token", grant.params["grant_effects"][0]["params"])
+    effect.source = host
+    context = GameContext(state, engine)
+    context.trigger_event = {"amount": 3}
+    effect.apply(context)
+    assert len([obj for obj in state.battlefield if obj.card.name == "Treasure"]) == 3
+    assert all(obj.controller_id == p1.id for obj in state.battlefield if obj.card.name == "Treasure")
+
+
+def test_leyline_immersion_preserves_quoted_mana_split_and_spell_restriction():
+    """PAR-33: a granted mana ability retains RULE 605.3a metadata."""
+    card = Card(
+        id="leyline-immersion", name="Leyline Immersion", type_line="Enchantment — Aura",
+        oracle_text=(
+            'Enchant legendary creature\nEnchanted creature has ward {2} and '
+            '"{T}: Add 5 mana in any combination of colors. Spend this mana only to cast spells."'
+        ),
+    )
+    result = parse_oracle(card)
+    assert result.coverage != UNMODELED, result.unclaimed
+    specs = static_effect_specs(
+        'enchanted creature has ward {2} and '
+        '"{t}: add 5 mana in any combination of colors. spend this mana only to cast spells."'
+    )
+    assert specs is not None
+    assert specs[1].params == {
+        "mana": [{"W": 5}, {"U": 5}, {"B": 5}, {"R": 5}, {"G": 5}],
+        "mana_any_combination": True,
+        "mana_restriction": {"kind": "spell"},
+        "affects": "attached_permanent",
+    }
+
+    engine, state, _ = _rules()
+    host = _bf(state, Card(id="host", name="Host", type_line="Legendary Creature", is_creature=True))
+    aura = _bf(state, card)
+    aura.attached_to = host.instance_id
+    bind_from_catalogue(aura)
+    from mtg_analyzer.game import mana_abilities
+    continuous.recompute(state)
+    abilities = mana_abilities.mana_abilities_for(host, state)
+    granted = next(ability for ability in abilities if ability.any_combination)
+    assert granted.options == [{"W": 5}, {"U": 5}, {"B": 5}, {"R": 5}, {"G": 5}]
+    assert granted.restriction == {"kind": "spell"}
+
+
+def test_glowcap_lantern_keeps_its_attached_top_library_permission():
+    """PAR-33: the Equipment's own permission ends when it is unattached."""
+    card = Card(
+        id="glowcap-lantern", name="Glowcap Lantern", type_line="Artifact — Equipment",
+        oracle_text=(
+            'Equipped creature has "You may look at the top card of your library any time" '
+            'and "Whenever this creature attacks, it explores."\nEquip {2}'
+        ),
+    )
+    result = parse_oracle(card)
+    assert result.coverage != UNMODELED, result.unclaimed
+    specs = static_effect_specs(
+        'equipped creature has "you may look at the top card of your library any time" '
+        'and "whenever ~ attacks, it explores."'
+    )
+    assert specs is not None
+    assert specs[0] == EffectSpec("top_library_permission", {
+        "look": True, "requires_attached": True,
+    })
+    assert specs[1].type == "grant_triggered_ability"
+
+    engine, state, p1 = _rules()
+    host = _bf(state, Card(id="host", name="Host", type_line="Creature", is_creature=True))
+    equipment = _bf(state, card)
+    equipment.attached_to = host.instance_id
+    bind_from_catalogue(equipment)
+    from mtg_analyzer.game.top_library import may_look_at_top_of_library
+    assert may_look_at_top_of_library(p1, state) is True
+    equipment.attached_to = None
+    assert may_look_at_top_of_library(p1, state) is False
+
+
+def test_player_or_planeswalker_damage_filter_excludes_creature_damage():
+    """The Reaver Cleaver's union is checked when the trigger fires."""
+    from mtg_analyzer.game.binding.core import _trigger_condition
+
+    engine, state, _ = _rules()
+    source = _bf(state, Card(id="source", name="Source", type_line="Creature", is_creature=True))
+    creature = _bf(state, Card(id="creature", name="Creature", type_line="Creature", is_creature=True), controller="p2")
+    walker = _bf(state, Card(id="walker", name="Walker", type_line="Planeswalker"), controller="p2")
+    context = GameContext(state, engine)
+    predicate = _trigger_condition({
+        "filter": {"combat": True, "player_or_planeswalker": True},
+    }, source)
+    assert predicate is not None
+    assert predicate({"combat": True, "is_player": True, "target_id": "p2"}, context) is True
+    assert predicate({"combat": True, "is_player": False, "target_id": walker.instance_id}, context) is True
+    assert predicate({"combat": True, "is_player": False, "target_id": creature.instance_id}, context) is False
+
+
 def test_ceremonial_knife_quoted_combat_damage_trigger_creates_a_blood_token():
     card = Card(
         id="ceremonial-knife", name="Ceremonial Knife", type_line="Artifact — Equipment",
@@ -861,25 +1086,48 @@ def test_archery_training_quoted_damage_reads_its_arrow_counters_and_combat_targ
     assert attacker.damage_marked == 3 and idle.damage_marked == 0
 
 
+def test_unquenchable_fury_quoted_attack_damage_reads_defenders_live_hand():
+    card = Card(
+        id="unquenchable-fury", name="Unquenchable Fury", type_line="Enchantment — Aura",
+        oracle_text=(
+            'Enchant creature\nEnchanted creature has "Whenever this creature attacks, it deals X damage '
+            'to defending player, where X is the number of cards in their hand."'
+        ),
+    )
+    assert parse_oracle(card).coverage != UNMODELED
+    specs = static_effect_specs(
+        'enchanted creature has "whenever ~ attacks, it deals x damage to defending player, '
+        'where x is the number of cards in their hand."'
+    )
+    assert specs is not None
+    damage = specs[0].params["grant_effects"][0]
+    assert damage == {"type": "damage", "params": {
+        "selector": "defending_player", "amount_from_defending_player_hand_size": True,
+    }}
+
+    engine, state, _ = _rules()
+    attacker = _bf(state, Card(id="attacker", name="Attacker", type_line="Creature", is_creature=True))
+    aura = _bf(state, Card(id="aura", name="Unquenchable Fury", type_line="Enchantment — Aura"))
+    aura.attached_to = attacker.instance_id
+    attacker.combat_defender = {"kind": "player", "id": "p2"}
+    defender = state.player_by_id("p2")
+    defender.hand.extend([object(), object(), object()])
+    from mtg_analyzer.game.effects.registry import EffectRegistry
+    effect = EffectRegistry.create("damage", damage["params"])
+    effect.source = aura
+    effect.apply(GameContext(state, engine))
+    assert defender.life == 17
+
+
 def test_combat_target_vocabulary_is_reusable_by_destroy_effects():
     assert parse_effect_body("destroy target attacking or blocking creature") == [
         EffectSpec("destroy", {"target_kind": "attacking_or_blocking_creature"})
     ]
+    assert parse_effect_body("exile target attacking or blocking creature") == [
+        EffectSpec("exile", {"target_kind": "attacking_or_blocking_creature"})
+    ]
 
 
-def test_lotus_ring_quoted_mana_ability_keeps_its_three_mana_choice():
-    card = Card(
-        id="lotus-ring", name="Lotus Ring", type_line="Artifact — Equipment",
-        oracle_text='Equipped creature gets +3/+3 and has vigilance and "{T}, Sacrifice Lotus Ring: Add 3 mana of any one color."',
-    )
-    assert parse_oracle(card).coverage != UNMODELED
-    specs = static_effect_specs(
-        'equipped creature gets +3/+3 and has vigilance and "{t}, sacrifice ~: add 3 mana of any one color."'
-    )
-    assert specs is not None
-    assert specs[2].params["grant_effects"] == [{
-        "type": "add_mana", "params": {"colors": ["any"], "amount": 3},
-    }]
 
 
 def test_real_cards_modeled():

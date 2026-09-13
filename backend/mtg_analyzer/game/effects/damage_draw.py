@@ -1,6 +1,8 @@
 """Damage, card draw, reveal, discard, and shared target helpers."""
 from __future__ import annotations
 
+import random
+
 from .core import GameEffect
 from ._runtime import install, register
 
@@ -41,6 +43,7 @@ class DealDamageEffect(GameEffect):
         amount_from_count_selector: Optional[str] = None,
         amount_plus_count_selector: int = 0,
         amount_from_trigger_event: Optional[str] = None,
+        amount_from_defending_player_hand_size: bool = False,
         recipient_subject: Optional[str] = None,
         unpreventable: bool = False,
     ) -> None:
@@ -72,6 +75,10 @@ class DealDamageEffect(GameEffect):
         #: resolution, the same idiom `LoseLifeEffect.amount_from_trigger_
         #: event` already uses. Overrides everything else when set.
         self.amount_from_trigger_event = amount_from_trigger_event
+        #: "…deals X damage to defending player, where X is the number of
+        #: cards in their hand." (Unquenchable Fury) — read the combat
+        #: defender's live hand at resolution.
+        self.amount_from_defending_player_hand_size = bool(amount_from_defending_player_hand_size)
         #: "X is 2 plus the number of cards in your graveyard that are
         #: instant cards, sorcery cards, and/or have an Adventure."
         #: (Frantic Firebolt) — a live `continuous.count_selector` read,
@@ -392,6 +399,8 @@ class DealDamageEffect(GameEffect):
             # dealing damage instead of a direct life loss.
             player = _defending_player_of(self.source, context)
             if player is not None:
+                if self.amount_from_defending_player_hand_size:
+                    amount = len(player.hand)
                 context.deal_damage(player, amount, self.source)
             return
         if self.selector in ("each_creature", "each_creature_and_player", "each_creature_and_planeswalker"):
@@ -1356,6 +1365,40 @@ class RevealHandChooseDiscardEffect(GameEffect):
             optional=self.optional,
             else_specs=self.else_specs or None,
         )
+
+
+class RevealRandomHandCardIfNamedEffect(GameEffect):
+    """Reveal one random card from an opponent's hand and discard it iff
+    its name equals an earlier card-name choice.
+
+    This is a standalone RULE 701.14/701.8 operation: ``named_card`` is a
+    plain comparison value supplied by any naming effect, rather than a
+    reference to one particular card or a tribal ability.  Revealing itself
+    has no mutable state in this engine's non-hidden-information model.
+    """
+
+    def __init__(
+        self, named_card: str = "", target_kind: str = "opponent",
+        target: Any = None, source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.named_card = str(named_card)
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        chosen = _chosen_targets(targets, 1, self.target)
+        if not chosen:
+            return
+        player = chosen[0]
+        if not player.hand:
+            return
+        revealed = random.choice(player.hand)
+        if revealed.name.casefold() == self.named_card.casefold():
+            context.discard_specific(revealed)
 
 
 class PutHandCardsOnTopEffect(GameEffect):

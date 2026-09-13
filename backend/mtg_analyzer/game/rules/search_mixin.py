@@ -2265,17 +2265,23 @@ class SearchMixin:
         self._apply_effect_specs(specs, pending["source"])
     @staticmethod
     def _substitute_named_card(params: dict[str, Any], name: str) -> dict[str, Any]:
-        """Replace the ``"named_card"`` sentinel in a criteria dict with the
-        actually-chosen name — the naming counterpart of `_substitute_x`'s
-        ``"x"`` sentinel, and equally unable to misfire (a real criteria
-        value is a card name, never the literal string ``"named_card"``)."""
-        criteria = params.get("criteria")
-        if not isinstance(criteria, dict):
-            return params
-        rewritten = {
-            k: (name if v == "named_card" else v) for k, v in criteria.items()
-        }
-        return {**params, "criteria": rewritten}
+        """Replace the ``"named_card"`` sentinel anywhere in an effect's
+        parameter tree with the answered name.
+
+        The original user was a card-query criterion; later operations can
+        compare a revealed card's name directly, so keeping the substitution
+        generic avoids a one-off naming continuation for each such effect.
+        """
+        def replace(value: Any) -> Any:
+            if value == "named_card":
+                return name
+            if isinstance(value, dict):
+                return {k: replace(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [replace(v) for v in value]
+            return value
+
+        return replace(params)
     def _request_look_top_pay_life_loop(
         self, player: Player, count: int = 5, life_cost: int = 1
     ) -> None:

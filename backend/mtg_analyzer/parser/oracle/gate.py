@@ -2731,6 +2731,23 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: "same mana value as the revealed card" vs the SPELL_CAST event), and
 #: `spec.py`'s `_AMOUNT_SPEC_FIELDS` learned its `field` key. Vocabulary
 #: only - no card's verdict moves - but the parser source hash follows.
+#: v355 - PAR-33: attacking-or-blocking targets support exile effects.
+#: v356 - PAR-33: Dragon Throne of Tarkir's quoted activated ability grants
+#: trample/+X/+X to other creatures, with X read from the host's live power.
+#: v357 - PAR-33: combat-qualified creature targets support power-equal
+#: damage from quoted activated abilities (Sinstriker's Will).
+#: v358 - PAR-33: Kaldra Compleat's quoted combat-damage trigger exiles the
+#: damage recipient, including the DAMAGE-event referent resolution.
+#: v359 - PAR-33: The Reaver Cleaver's quoted player-or-planeswalker combat
+#: damage trigger creates Treasure tokens equal to the damage dealt.
+#: v360 - PAR-33: Leyline Immersion's quoted mana grant preserves its
+#: any-combination production and spend-only-to-cast-spells restriction.
+#: v361 - PAR-33: Glowcap Lantern's attached top-library permission combines
+#: with its separately quoted explore-on-attack grant.
+#: v363 - PAR-34: generic recursively quoted group/state abilities now cover
+#: Sliver grants and Threshold bodies, including owner-relative DIES triggers.
+#: v362 - PAR-33: Unquenchable Fury's quoted attack trigger reads the
+#: defending player's live hand size for its damage amount.
 #: v354 - PAR-33: attacking-or-blocking creature targets work across effects.
 #: v353 - PAR-33: quoted grants support counter-scaled combat damage.
 #: v352 - PAR-33: quoted grants can follow attached-permanent keywords.
@@ -2801,7 +2818,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (Windfall), and `spec.py`'s `_AMOUNT_SPEC_FIELDS` learned the `aggregate`
 #: key. Vocabulary only - no parser handler emits it yet, no card's verdict
 #: moves - but the parser source hash follows.
-PARSER_VERSION = "354"
+PARSER_VERSION = "363"
 
 
 def parser_source_hash() -> str:

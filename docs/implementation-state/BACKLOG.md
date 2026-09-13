@@ -88,13 +88,6 @@ its block back into the matching section here.
 
   Bucket B (recurring effect-body / static templates, `extend-parser` loop):
 
-  - **PAR-33** — Aura/Equipment grants a *quoted* ability
-    (`enchanted/equipped creature has "…"`, `… gets +N/+N and has "…"`,
-    `enchanted land has "…"`) (~#21+9+9).
-  - **PAR-34** — tribal / state lord. Left: `all slivers have "…"` (~#13 —
-    a group-scoped **quoted-ability** grant, recursively parsed) and the
-    Odyssey **Threshold** quoted-ability bodies (~#25 — the same
-    quoted-ability-grant machinery, wrapped in the `active_if` gate).
   - **PAR-35** — casting-timing restriction (`cast this spell only during
     the declare attackers step and only if you've been attacked`,
     conditional flash `as though it had flash if you pay <cost> more`, the

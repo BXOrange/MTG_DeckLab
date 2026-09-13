@@ -108,6 +108,10 @@ _TRIGGER_VERBS: tuple[tuple[str, str], ...] = (
     # the from-zone), so the shorter "specializes" row claims them too.
     ("specializes", "SPECIALIZED"),
     ("enters", "ENTERS_BATTLEFIELD"),
+    # RULE 700.4's expanded spelling of "dies".  The condition grammar
+    # below additionally verifies the owner-relative "your graveyard"
+    # scope, so this event recognition cannot over-claim a generic zone move.
+    ("is put into your graveyard from the battlefield", "DIES"),
     ("dies", "DIES"),
     ("attacks", "ATTACKS"),
     ("blocks", "BLOCKS"),
@@ -875,7 +879,8 @@ _DAMAGE_TRIGGER_RE = re.compile(
     # Treachery's granted trigger) matches *any* damage instance, so the
     # dispatch below omits the ``is_player`` key entirely in that case.
     r") deals (?P<combat>combat )?damage"
-    r"(?: to (?:an?|1 of your) (?P<recipient>player|opponent|creature)s?(?: or battle)?)?,"
+    r"(?: to (?:an?|1 of your) (?P<recipient>player|opponent|creature)s?"
+    r"(?P<or_planeswalker> or planeswalker)?(?: or battle)?)?,"
     r"\s*(?P<body>.+)$",
     re.IGNORECASE,
 )
@@ -1293,6 +1298,13 @@ _GOADED_SUBJECT_RE = re.compile(
     rf"(?:{_VERB_ALT})(?:\s+the\s+battlefield)?(?:\s+alone)?$"
 )
 
+#: RULE 700.4's fully-spelled-out dies wording, with an owner-relative
+#: graveyard rather than a controller-relative "you control" qualifier.
+_OWN_GRAVEYARD_DIES_SUBJECT_RE = re.compile(
+    r"^(?P<article>an|a)\s+(?P<nontoken>nontoken\s+)?(?P<type>creature) "
+    r"is put into your graveyard from the battlefield$"
+)
+
 #: MEC-49: RULE 603.1's condition subject scoped by *damage history* — "a
 #: creature **dealt damage by ~ this turn** dies" (Baron Sengir, Abattoir
 #: Ghoul, Blood Cultist &c.). Not a type/subtype/controller/designation, so
@@ -1369,6 +1381,16 @@ _ACTIVATED_RE = re.compile(r'^(?P<cost>[^:"]+):\s*(?P<effect>.+)$', re.S)
 #: peeled off the effect body and recorded as an `ActivationCost` flag.
 _SPEND_ONLY_CHOSEN_COLOR_RE = re.compile(
     r"\s*\.?\s*spend only mana of the chosen colou?r to activate this ability\.?",
+    re.IGNORECASE,
+)
+
+# An activated ability may end with its RULE 602 legality sentence rather
+# than making it a separate oracle line: "{1}: Draw a card. Activate only if
+# <condition> [and only once]."  Peel only this closed tail before parsing
+# the actual body; the existing handler catalogue supplies the condition
+# marker and the existing binder owns both activation limits.
+_ACTIVATE_ONLY_IF_TRAILING_RE = re.compile(
+    r"\.\s*activate (?:this ability )?only if (?P<cond>.+?)(?P<once> and only once)?\.?$",
     re.IGNORECASE,
 )
 
@@ -2700,6 +2722,12 @@ def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
         return {"subject": "self"}
     if _ATTACHED_SUBJECT_RE.match(cond):
         return {"subject": "attached_permanent"}
+    m = _OWN_GRAVEYARD_DIES_SUBJECT_RE.match(cond)
+    if m is not None:
+        return {
+            "subject": "group", "type": m.group("type"), "nontoken": bool(m.group("nontoken")),
+            "controller": "any", "owner": "you", "other": False,
+        }
     m = _SELF_OR_GROUP_SUBJECT_RE.match(cond)
     if m is not None:
         return {
@@ -4702,6 +4730,12 @@ def segment_line(
             damage_filter["is_player"] = (
                 damage_trig.group("recipient") in ("player", "opponent")
             )
+        if damage_trig.group("or_planeswalker"):
+            # ``is_player`` alone cannot express this union: planeswalker
+            # damage uses the same False value as creature damage.  Binding
+            # resolves the target's live type for this narrow printed form.
+            damage_filter.pop("is_player", None)
+            damage_filter["player_or_planeswalker"] = True
         if damage_trig.group("combat"):
             damage_filter["combat"] = True
         if damage_trig.group("self"):
@@ -5275,6 +5309,17 @@ def segment_line(
         if _SPEND_ONLY_CHOSEN_COLOR_RE.search(effect_text):
             effect_text = _SPEND_ONLY_CHOSEN_COLOR_RE.sub("", effect_text).strip()
             cost_dict["spend_only_chosen_color"] = True
+        tail_markers: list[EffectSpec] = []
+        activation_tail = _ACTIVATE_ONLY_IF_TRAILING_RE.search(effect_text)
+        if activation_tail is not None:
+            tail = "activate only if " + activation_tail.group("cond").strip()
+            parsed_tail = parse_effect_body(tail)
+            if parsed_tail is None:
+                return Segment(raw=raw)
+            tail_markers.extend(parsed_tail)
+            if activation_tail.group("once"):
+                tail_markers.append(EffectSpec(ACTIVATE_ONLY_ONCE_MARKER, {}))
+            effect_text = effect_text[:activation_tail.start()].strip()
         body, optional = _peel_optional(effect_text)
         effects = parse_effect_body(body)
         if effects is None:
@@ -5303,6 +5348,7 @@ def segment_line(
             return Segment(
                 raw=raw, spec=specs[0], extra_specs=specs[1:], claimed=True
             )
+        effects.extend(tail_markers)
         spec = AbilitySpec(
             "activated",
             effects=effects,

@@ -6088,6 +6088,20 @@ measurement of why is the useful half of this work.
 - **Files:** `parser/oracle/catalogue/static_handlers.py`, `parser/oracle/catalogue/handlers.py`, `parser/oracle/segmenter.py`, `game/effects/core.py` (`CreateEmblemEffect.abilities`), `game/rules/misc_mixin.py` (`create_emblem` list branch), `game/ability_catalogue/entries_016.py`, `tests/test_par31_emblem_multi_type_grant.py`, `tests/test_par31_ob_nixilis_emblem.py`, `tests/test_mec54_max_life_and_you_compleat_me.py`
 - **Yield:** +8 parser-MODELED cache cards across v244–246, zero regressions, plus You Compleat Me AUTHORED.
 
+### PAR-33 — Aura/Equipment quoted-ability grants
+
+- **What:** Closed the `enchanted/equipped <permanent> has "…"` family, including combined `gets +N/+N and has "…"` and attached-land forms. `static_handlers._quoted_ability_grant_effects_list` recursively parses quoted activated, triggered, mana, keyword and static bodies and emits layer-6 grants; `continuous` materializes them on the current attached permanent, so controller, target and combat-relative values are resolved from the live host rather than the granting Aura/Equipment.
+- **Reusable behavior delivered:** attached-permanent regeneration; quoted tap/untap, spell-copy, sacrifice, counter and token triggers; combat-qualified targets and damage; counter- and power-scaled amounts; separate multi-quoted abilities; triggered exile of the damage recipient; player-or-planeswalker combat-damage Treasure creation; restricted any-combination mana production; attached top-library permission; and Unquenchable Fury's live defending-player hand-size damage. Rich granted-mana metadata is retained through the layer system and `mana_abilities_for`, rather than collapsing restricted mana into an unrestricted legacy value.
+- **Files:** `parser/oracle/catalogue/{handlers,static_handlers}.py`, `parser/oracle/segmenter.py`, `parser/oracle/gate.py` (PARSER_VERSION 236–362), `game/{binding/core,continuous,mana_abilities}.py`, `game/effects/{damage_draw,exile_control,registry}.py`, `models/game/game_object.py`, `tests/test_par33_regenerate_attached.py`.
+- **Verification:** 574 targeted parser/ticket regressions passed; full-cache and Commander-legal coverage remeasured at **15,022 / 34,811 (43.2%)** and **14,410 / 31,830 (45.3%)**, respectively, under PARSER_VERSION 362.
+
+### PAR-34 — generic group/state quoted-ability grants
+
+- **What:** Closed group-scoped quoted grants and Threshold's conditional self grants without card-name or tribe-specific behaviour. Quoted bodies now normalize recursively, preserve live `active_if` conditions, compose colour/P/T/keyword/static grants, and safely regrant player- and group-scoped triggers. The catalogue adds generic own-graveyard multi-exile, fixed-colour temporary group protection, colour-filtered group pumps, combat-qualified pump targets, and owner-relative DIES trigger references through optional-payment continuations.
+- **Boundary:** Cache-wide sibling sweep leaves zero unmodeled `All Slivers have "…"` cards. The only unmodeled Threshold card still containing a quote (Treacherous Vampire) is blocked by its separate non-Threshold attack/block sacrifice clause; its quoted death trigger parses. Remaining Threshold `instead` spell variants belong to their independent effect families, not this grant machinery.
+- **Files:** `parser/oracle/catalogue/{handlers,static_handlers}.py`, `parser/oracle/{segmenter,gate}.py` (PARSER_VERSION 363), `game/{binding/core,targeting}.py`, `game/effects/{choices_actions,exile_control,life_sacrifice,registry}.py`, `tests/test_par34_counter_lord_and_threshold.py`.
+- **Verification:** 71 combined PAR-33/PAR-34 regressions passed; full-cache and Commander-legal coverage remeasured at **15,151 / 34,811 (43.5%)** and **14,539 / 31,830 (45.7%)**, respectively, under PARSER_VERSION 363.
+
 ## Deck/Cube Playability Batches
 
 ### cEDH staples cube (Batches 13, 14, 25 and 26)

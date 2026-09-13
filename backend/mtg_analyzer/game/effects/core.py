@@ -253,6 +253,10 @@ class GameContext:
     def discard_random(self, player: "Player", count: int = 1) -> None:
         self.engine.discard_random(player, count)
 
+    def discard_specific(self, target: "GameObject") -> None:
+        """Discard one already-identified hand card (RULE 701.8)."""
+        self.engine.discard_specific(target)
+
     def discard_choice(
         self,
         player: "Player",

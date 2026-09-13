@@ -310,6 +310,21 @@ def _damage_x_source_counters(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+#: "Whenever enchanted creature attacks, it deals X damage to defending
+#: player, where X is the number of cards in their hand." (Unquenchable
+#: Fury) — this has no announced-X value: it reads that combat's defender
+#: at resolution, like the existing ``selector=defending_player`` route.
+_DAMAGE_X_DEFENDING_PLAYER_HAND_RE = _c(
+    r"(?:it|~|this creature) deals? x damage to defending player, where x is the number of cards in their hand"
+)
+
+
+def _damage_x_defending_player_hand(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("damage", {
+        "selector": "defending_player", "amount_from_defending_player_hand_size": True,
+    })]
+
+
 def _damage_spell_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if kind is None:
@@ -826,6 +841,20 @@ _PREVENT_DAMAGE_SINGLE_TARGET_RE = _c(
 
 def _prevent_damage_single_target(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("prevent_damage_shield", {"amount": int(m.group("n")), "target_kind": "any"})]
+
+
+_PREVENT_DAMAGE_PLAYER_PLANESWALKER_OR_SUBTYPE_RE = _c(
+    r"prevent the next (?P<n>\d+) damage that would be dealt to target player, planeswalker, or "
+    r"(?P<subtype>[a-z]+) creature this turn"
+)
+
+
+def _prevent_damage_player_planeswalker_or_subtype(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("prevent_damage_shield", {
+        "amount": int(m.group("n")),
+        "target_kind": "player_or_planeswalker_or_creature_subtype",
+        "creature_filter": {"subtype": m.group("subtype").capitalize()},
+    })]
 
 
 #: "Prevent the next N damage that would be dealt to you this turn"
@@ -2743,12 +2772,26 @@ def _regenerate_attached(m: re.Match[str]) -> list[EffectSpec]:
 #: target) — the same reason a bare "target creature" ability doesn't need
 #: an explicit "other" qualifier to stay off itself in this engine.
 _REGENERATE_ANOTHER_TARGET_RE = _c(r"regenerate another target (?P<subtype>[a-z]+)")
+_REGENERATE_TARGET_SUBTYPE_RE = _c(r"regenerate target (?P<subtype>[a-z]+)")
 
 
 def _regenerate_another_target(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("regenerate", {
         "target_kind": "creature",
         "creature_filter": {"subtype": m.group("subtype").capitalize()},
+    })]
+
+
+def _regenerate_target_subtype(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    subtype = m.group("subtype").lower()
+    # The broader subtype grammar is tried before the ordinary target row;
+    # main type nouns must fall through to that row, never become a fictional
+    # creature subtype such as "Creature".
+    if subtype in {"creature", "permanent"}:
+        return None
+    return [EffectSpec("regenerate", {
+        "target_kind": "creature",
+        "creature_filter": {"subtype": subtype.capitalize()},
     })]
 
 
@@ -2847,7 +2890,7 @@ def _change_target(m: re.Match[str]) -> list[EffectSpec]:
 def _mill(m: re.Match[str]) -> list[EffectSpec]:
     # "you mill N" / bare "mill N" → self; "target player/opponent mills N" → targeted.
     who = (m.groupdict().get("who") or "").strip()
-    params: dict = {"count": int(m.group("n"))}
+    params: dict = {"count": 1 if m.group("n").lower() == "a" else int(m.group("n"))}
     if who in ("target player", "target opponent"):
         params["target_kind"] = "player"
     return [EffectSpec("mill", params)]
@@ -2859,10 +2902,22 @@ def _exile(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     # Imperfect) is a real `targeting.legal_targets` kind (RULE 115.1c),
     # just never previously reachable from the plain exile handler.
     if kind is None or kind not in (
-        "creature", "permanent", "nonland_permanent", *_SINGLE_TYPE_PERMANENT_KINDS
+        "creature", "attacking_or_blocking_creature", "permanent", "nonland_permanent", *_SINGLE_TYPE_PERMANENT_KINDS
     ):
         return None
     return [EffectSpec("exile", {"target_kind": kind, **_optional_param(m)})]
+
+
+#: "Whenever this creature deals combat damage to a creature, exile that
+#: creature." (Kaldra Compleat) — this is not a second RULE 115 target:
+#: ``that creature`` is the recipient recorded on the firing DAMAGE event.
+#: `ExileEffect`'s trigger-subject mode reads ``target_id`` for such an
+#: event and falls back to ``instance_id`` for object-subject triggers.
+_EXILE_TRIGGER_REFERENT_RE = _c(r"exile that creature")
+
+
+def _exile_trigger_referent(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("exile", {"target_kind": "trigger_subject"})]
 
 
 _exile_multi_target = _multi_target_builder("exile", allow_spell=True)
@@ -3611,6 +3666,18 @@ def _exile_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     elif m.groupdict().get("colors"):
         return None  # a colour list we couldn't resolve — fail closed
     return [EffectSpec("exile", params)]
+
+
+#: "Exile N cards from your graveyard." is a mandatory resolve-time choice,
+#: distinct from the targeted one-card grammar above. Number words have
+#: already been converted to digits by oracle normalization.
+_EXILE_OWN_GRAVEYARD_CARDS_RE = _c(
+    r"exile (?P<count>\d+) cards? from your graveyard"
+)
+
+
+def _exile_own_graveyard_cards(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("exile_own_graveyard_cards", {"count": int(m.group("count"))})]
 
 
 #: "exile target player's graveyard." (Bojuka Bog) / "exile all cards from
@@ -4908,7 +4975,12 @@ _CHOOSE_TARGETS_GROUP_RE = _c(
 #: damage recipient would be a mis-model, since damage means nothing to a
 #: land or an enchantment in this engine.
 _DAMAGE_RECIPIENT_KINDS: frozenset[str] = frozenset(
-    {"any", "creature", "creature_you_control", "creature_you_dont_control", "player"}
+    {
+        "any", "creature", "creature_you_control", "creature_you_dont_control", "player",
+        # Sinstriker's Will: the combat-qualified creature is still a
+        # creature recipient, with its legality supplied by TargetFrame.
+        "attacking_or_blocking_creature",
+    }
 )
 _DEALS_POWER = r"deals? damage equal to its power to"
 
@@ -5094,7 +5166,6 @@ _ADD_MANA_RE = _c(rf"add (?P<syms>(?:{_MANA_SYMBOL}){{1,20}})")
 #: *one* color" instead, a different, not-yet-modeled shape — guessing it
 #: means the same thing here would be wrong).
 _ADD_MANA_ANY_COLOR_RE = _c(r"add 1 mana of any colou?r")
-_ADD_MANA_N_ANY_COLOR_RE = _c(r"add (?P<n>[2-9]\d*) mana of any (?:(?:one|1) )?colou?r")
 
 
 def _add_mana(m: re.Match[str]) -> list[EffectSpec]:
@@ -5104,10 +5175,6 @@ def _add_mana(m: re.Match[str]) -> list[EffectSpec]:
 
 def _add_mana_any_color(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("add_mana", {"colors": ["any"]})]
-
-
-def _add_mana_n_any_color(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("add_mana", {"colors": ["any"], "amount": int(m.group("n"))})]
 
 
 #: "you may pay {E}{E}. If/When you do, <effect>." (RULE 122, Aether Chaser/
@@ -5232,10 +5299,10 @@ def _pay_cost_then_general(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             "cost": m.group("cost"),
             "then_trigger": [s.to_dict() for s in sub],
         })]
-    return [EffectSpec("pay_cost_then", {
-        "cost": m.group("cost"),
-        "effects": [s.to_dict() for s in sub],
-    })]
+    params: dict = {"cost": m.group("cost"), "effects": [s.to_dict() for s in sub]}
+    if any(s.params.get("trigger_subject_key") == "remembered" for s in sub):
+        params["remember_trigger_subject"] = True
+    return [EffectSpec("pay_cost_then", params)]
 
 
 def _pay_cost_then_or_else(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -5441,7 +5508,7 @@ def _return_self_from_graveyard(m: re.Match[str]) -> list[EffectSpec]:
 #: "it" the same ungated way `_tap_self` reads it — this row only ever
 #: fires when the clause literally opens "return it/~/this creature …".
 _RETURN_SELF_TO_BATTLEFIELD_RE = _c(
-    rf"return {_SELF_SUBJECT} to the battlefield(?P<tapped> tapped)? under "
+    rf"return (?:{_SELF_SUBJECT}|this card) to the battlefield(?P<tapped> tapped)? under "
     r"(?P<whose>its owner'?s|your) control"
     r"(?: with an? \+(?P<cn>\d+)/\+(?P<cn2>\d+) counter on it)?"
 )
@@ -5456,6 +5523,15 @@ def _return_self_to_battlefield(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             return None  # not a real +N/+N counter kind — fail closed
         params["extra_counters"] = {"kind": f"+{m.group('cn')}/+{m.group('cn2')}", "count": 1}
     return [EffectSpec("return_self_to_battlefield", params)]
+
+
+_RETURN_TRIGGER_CARD_TO_HAND_RE = _c(r"return that card to your hand")
+
+
+def _return_trigger_card_to_hand(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("return_from_graveyard", {
+        "destination": "hand", "trigger_subject_key": "remembered",
+    })]
 
 
 def _become_prepared(m: re.Match[str]) -> list[EffectSpec]:
@@ -6050,6 +6126,22 @@ def _create_named_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("create_token", params)]
 
 
+#: "Whenever this creature deals combat damage to a player or planeswalker,
+#: create that many Treasure tokens." (The Reaver Cleaver) — RULE 603.1's
+#: event amount, using the same runtime counter as the creature-token sibling
+#: below but for a named noncreature token.
+_CREATE_NAMED_TOKEN_THAT_MANY_RE = _c(
+    rf"creates? that many (?P<name>{'|'.join(_NAMED_TOKEN_WORDS)}) tokens?"
+)
+
+
+def _create_named_token_that_many(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("create_token", {
+        "token_name": _NAMED_TOKEN_WORDS[m.group("name")],
+        "count_from_trigger_event": "amount",
+    })]
+
+
 #: "When ~ dies, create a number of tapped Treasure tokens equal to its
 #: power." (Goldvein Hydra) — the named-token count-from-power sibling;
 #: `CreateTokenEffect.count_from_subject` reads the DIES event's RULE 400.7
@@ -6525,7 +6617,7 @@ def _pump_target(m: re.Match[str]) -> Optional[tuple[Optional[str], Optional[str
     # it stays fail-closed.
     if kind not in (
         "creature", "permanent", "creature_you_control", "creature_you_dont_control",
-        "other_creature_you_control",
+        "other_creature_you_control", "attacking_or_blocking_creature",
     ):
         return None
     return (kind, None)
@@ -6550,6 +6642,44 @@ def _pump(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if selector:
         params["selector"] = selector
     return [EffectSpec("pump", params)]
+
+
+#: "Target Sliver creature gets +2/+2 until end of turn." (Firewake
+#: Sliver) — a subtype-filtered creature target, using the same target
+#: filter that regenerate/destroy/exile already carry.
+_PUMP_SUBTYPE_TARGET_RE = _c(
+    r"target (?P<subtype>[a-z]+) creature gets? (?P<p>[+\-−]\d+)/(?P<t>[+\-−]\d+) until end of turn"
+)
+
+
+def _pump_subtype_target(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("pump", {
+        "power": _signed_int(m.group("p")),
+        "toughness": _signed_int(m.group("t")),
+        "target_kind": "creature",
+        "creature_filter": {"subtype": m.group("subtype").capitalize()},
+    })]
+
+
+#: "Target Sliver creature gets +X/+0 …, where X is the number of Slivers
+#: on the battlefield." (Magma Sliver) — an unscoped subtype count, distinct
+#: from the controller-relative tribal selectors.
+_PUMP_SUBTYPE_TARGET_GLOBAL_COUNT_RE = _c(
+    r"target (?P<subtype>[a-z]+) creature gets? \+x/\+0 until end of turn, "
+    r"where x is the number of (?P<count_subtype>[a-z]+)s on the battlefield"
+)
+
+
+def _pump_subtype_target_global_count(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    subtype = m.group("subtype").lower()
+    count_subtype = m.group("count_subtype").lower()
+    if subtype != count_subtype:
+        return None
+    return [EffectSpec("pump", {
+        "target_kind": "creature", "creature_filter": {"subtype": subtype.capitalize()},
+        "amount_from_count_selector": f"creatures_of_type_{count_subtype}",
+        "amount_from_count_selector_axis": "power",
+    })]
 
 
 def _pump_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -6862,6 +6992,28 @@ def _group_pump_count_selector(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("pump", {
         "keywords": keywords, "selector": "creatures_you_control",
         "amount_from_count_selector": "creatures_you_control",
+    })]
+
+
+#: "Other creatures you control gain trample and get +X/+X until end of
+#: turn, where X is this creature's power." (Dragon Throne of Tarkir) — the
+#: source-power sibling of the ordinary group pump.  ``other`` is important:
+#: the granted ability lives on the equipped creature and must not buff that
+#: creature itself (RULE 109.5).
+_GROUP_PUMP_OTHER_SOURCE_POWER_RE = _c(
+    r"other creatures you control gain (?P<kw>[a-z, ]+?) and get \+x/\+x until end of turn, "
+    r"where x is ~'?s power"
+)
+
+
+def _group_pump_other_source_power(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    keywords = _token_keywords(m.group("kw"))
+    if keywords is None:
+        return None
+    return [EffectSpec("pump", {
+        "keywords": keywords,
+        "selector": "other_creatures_you_control",
+        "amount_from_count_selector": "source_power",
     })]
 
 
@@ -8843,6 +8995,21 @@ _GROUP_SELECTORS: dict[str, str] = {
 #: A signed P/T delta, "+3/+3" / "-2/-2" / "+0/-1" (ASCII or unicode minus).
 _PT_DELTA = r"(?P<p>[+\-−]\d+)/(?P<t>[+\-−]\d+)"
 
+#: "Nonblack creatures get -2/-2 until end of turn." — a normal
+#: untargeted group pump with the existing negated-colour object filter.
+#: Keep the colour captured so the same catalogue row covers every colour.
+_NONCOLOR_CREATURES_PUMP_RE = _c(
+    rf"non(?P<color>white|blue|black|red|green) creatures gets? {_PT_DELTA} until end of turn"
+)
+
+
+def _noncolor_creatures_pump(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("pump", {
+        "power": _signed_int(m.group("p")), "toughness": _signed_int(m.group("t")),
+        "selector": "all_creatures",
+        "creature_filter": {"without_color": _COLOR_WORDS[m.group("color").lower()]},
+    })]
+
 #: PAR-15's "any number of target creatures each get +N/+N [and gain
 #: `<keyword>`] until end of turn" (Aerial Formation/Ajani's Presence/Cruel
 #: Feeding/Desperate Stand/Rouse the Mob-shaped) — the pump-family sibling of
@@ -8953,6 +9120,24 @@ def _grant_prot_choice_self(m: re.Match[str]) -> list[EffectSpec]:
 
 def _grant_prot_choice_prev(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("grant_protection", {"previous_subject": True})]
+
+
+_GROUP_FIXED_PROTECTION_RE = _c(
+    r"(?P<group>creatures you control|all creatures|creatures your opponents control) "
+    r"gain protection from (?P<color>white|blue|black|red|green) until end of turn"
+)
+_GROUP_FIXED_PROTECTION_SELECTORS = {
+    "creatures you control": "creatures_you_control",
+    "all creatures": "all_creatures",
+    "creatures your opponents control": "creatures_opponents_control",
+}
+
+
+def _group_fixed_protection(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("grant_fixed_protection_group", {
+        "selector": _GROUP_FIXED_PROTECTION_SELECTORS[m.group("group")],
+        "color": _COLOR_WORDS[m.group("color")],
+    })]
 
 
 #: "Reveal cards from the top of your library until you reveal a `<land /
@@ -9705,6 +9890,12 @@ HANDLERS: list[EffectHandler] = [
         _damage_x_source_counters,
     ),
     EffectHandler(
+        "damage_x_defending_player_hand",
+        _DAMAGE_X_DEFENDING_PLAYER_HAND_RE,
+        _damage_x_defending_player_hand,
+        self_subject_only=True,
+    ),
+    EffectHandler(
         "damage_x",
         _c(rf"{SELF_SUBJECT_PREFIX}deals? x damage to {TARGET}"),
         _damage_x,
@@ -9795,6 +9986,11 @@ HANDLERS: list[EffectHandler] = [
         "prevent_damage_single_target",
         _PREVENT_DAMAGE_SINGLE_TARGET_RE,
         _prevent_damage_single_target,
+    ),
+    EffectHandler(
+        "prevent_damage_player_planeswalker_or_subtype",
+        _PREVENT_DAMAGE_PLAYER_PLANESWALKER_OR_SUBTYPE_RE,
+        _prevent_damage_player_planeswalker_or_subtype,
     ),
     EffectHandler(
         "prevent_next_damage_to_you",
@@ -10313,6 +10509,13 @@ HANDLERS: list[EffectHandler] = [
         _REGENERATE_ANOTHER_TARGET_RE,
         _regenerate_another_target,
     ),
+    # "Regenerate target Sliver." (Crypt Sliver / Poultice Sliver) — the
+    # same subtype-filtered target primitive as the "another target" form.
+    EffectHandler(
+        "regenerate_target_subtype",
+        _REGENERATE_TARGET_SUBTYPE_RE,
+        _regenerate_target_subtype,
+    ),
     # "regenerate enchanted/equipped creature" — an Aura/Equipment's own
     # activated ability on its host (RULE 303), tried before the plain
     # `regenerate` row (whose `TARGET` grammar has no "enchanted creature"
@@ -10387,10 +10590,10 @@ HANDLERS: list[EffectHandler] = [
         _c(r"change the target of target (?P<kind>spell or ability|spell) with a single target"),
         _change_target,
     ),
-    # "mill 3 cards" / "you mill 3 cards" / "target player mills 3 cards"
+    # "mill 3 cards" / "you mill 3 cards" / "target player mills a card"
     EffectHandler(
         "mill",
-        _c(rf"(?:(?P<who>you|target player|target opponent) )?mills? {NUMBER} cards?"),
+        _c(r"(?:(?P<who>you|target player|target opponent) )?mills? (?P<n>\d+|a) cards?"),
         _mill,
     ),
     # "exile target creature with power 4 or greater" / "…with flying" —
@@ -10561,6 +10764,12 @@ HANDLERS: list[EffectHandler] = [
                 "kind": "stun", "amount": 1, "previous_subject": True,
             }),
         ],
+    ),
+    EffectHandler(
+        "exile_trigger_referent",
+        _EXILE_TRIGGER_REFERENT_RE,
+        _exile_trigger_referent,
+        self_subject_only=True,
     ),
     # "tap target creature" / "untap target permanent"
     EffectHandler(
@@ -10817,6 +11026,11 @@ HANDLERS: list[EffectHandler] = [
         "exile_from_graveyard",
         _EXILE_FROM_GRAVEYARD_RE,
         _exile_from_graveyard,
+    ),
+    EffectHandler(
+        "exile_own_graveyard_cards",
+        _EXILE_OWN_GRAVEYARD_CARDS_RE,
+        _exile_own_graveyard_cards,
     ),
     # "exile target player's graveyard."/"exile all cards from target
     # player's graveyard." (Bojuka Bog/Tormod's Crypt-shaped whole-graveyard
@@ -11163,11 +11377,6 @@ HANDLERS: list[EffectHandler] = [
     # tried before the fixed-pip pattern below since it has no {…} symbols
     # for that one to (fail to) match anyway.
     EffectHandler(
-        "add_mana_n_any_color",
-        _ADD_MANA_N_ANY_COLOR_RE,
-        _add_mana_n_any_color,
-    ),
-    EffectHandler(
         "add_mana_any_color",
         _ADD_MANA_ANY_COLOR_RE,
         _add_mana_any_color,
@@ -11227,6 +11436,11 @@ HANDLERS: list[EffectHandler] = [
         "return_self_to_battlefield",
         _RETURN_SELF_TO_BATTLEFIELD_RE,
         _return_self_to_battlefield,
+    ),
+    EffectHandler(
+        "return_trigger_card_to_hand",
+        _RETURN_TRIGGER_CARD_TO_HAND_RE,
+        _return_trigger_card_to_hand,
     ),
     # "~ becomes prepared" / "it becomes prepared" / "this permanent"/
     # "this creature becomes prepared" (RULE 722.3a) — a preparation card's
@@ -11517,9 +11731,24 @@ HANDLERS: list[EffectHandler] = [
         ),
         _pump_x,
     ),
+    EffectHandler(
+        "pump_subtype_target",
+        _PUMP_SUBTYPE_TARGET_RE,
+        _pump_subtype_target,
+    ),
+    EffectHandler(
+        "pump_subtype_target_global_count",
+        _PUMP_SUBTYPE_TARGET_GLOBAL_COUNT_RE,
+        _pump_subtype_target_global_count,
+    ),
     # "target creature gets +3/+3 until end of turn" / "gets -2/-2 …" /
     # "gets +1/+1 and gains trample until end of turn" / "~ gets +1/+0 …" /
     # "creatures you control get +2/+1 until end of turn" (plural "get").
+    EffectHandler(
+        "noncolor_creatures_pump",
+        _NONCOLOR_CREATURES_PUMP_RE,
+        _noncolor_creatures_pump,
+    ),
     EffectHandler(
         "pump",
         _c(
@@ -11615,6 +11844,9 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "grant_prot_choice_prev", _GRANT_PROT_CHOICE_PREV_RE, _grant_prot_choice_prev,
         previous_subject_only=True,
+    ),
+    EffectHandler(
+        "group_fixed_protection", _GROUP_FIXED_PROTECTION_RE, _group_fixed_protection,
     ),
     # "Reveal cards from the top of your library until you reveal a <type>
     # card. Put that card <onto the battlefield / into your hand> and the
@@ -11769,6 +12001,11 @@ HANDLERS: list[EffectHandler] = [
         "group_pump_count_selector",
         _GROUP_PUMP_COUNT_SELECTOR_RE,
         _group_pump_count_selector,
+    ),
+    EffectHandler(
+        "group_pump_other_source_power",
+        _GROUP_PUMP_OTHER_SOURCE_POWER_RE,
+        _group_pump_other_source_power,
     ),
     EffectHandler(
         "pump_target_per_creature_you_control",
@@ -12590,6 +12827,11 @@ HANDLERS: list[EffectHandler] = [
     # "create a Treasure token" / "create two Clue tokens" — named,
     # non-creature artifact tokens (`_NAMED_TOKEN_WORDS`, kept in sync with
     # `data/tokens.json`).
+    EffectHandler(
+        "create_named_token_that_many",
+        _CREATE_NAMED_TOKEN_THAT_MANY_RE,
+        _create_named_token_that_many,
+    ),
     EffectHandler(
         "create_named_token",
         _c(rf"(?P<who>you |target player |each opponent |each player )?"

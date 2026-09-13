@@ -168,6 +168,7 @@ class GainLifeEffect(GameEffect):
         player: Any = None,
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = None,
+        creature_filter: Optional[dict] = None,
         count_selector: Optional[str] = None,
         amount_from_target_power: bool = False,
         recipient: Optional[str] = None,
@@ -397,6 +398,7 @@ class PreventDamageEffect(GameEffect):
         target: Any = None,
         count: int = 1,
         optional: bool = False,
+        creature_filter: Optional[dict] = None,
         divided: bool = False,
         amount_if_kicked: Optional[Union[int, str]] = None,
         self_only: bool = False,
@@ -438,7 +440,7 @@ class PreventDamageEffect(GameEffect):
         #: call outside real stack resolution — tests, a fixture).
         self.recipient_is_activator = recipient_is_activator
         self.target_spec = (
-            TargetSpec(kind=target_kind, optional=optional, count=count)
+            TargetSpec(kind=target_kind, optional=optional, count=count, creature_filter=creature_filter)
             if target_kind is not None
             else None
         )
