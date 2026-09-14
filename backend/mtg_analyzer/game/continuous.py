@@ -1319,6 +1319,172 @@ def count_selector(
             if (o.card.is_artifact or o.card.is_enchantment)
             and o.controller_id not in (None, controller_id)
         )
+    if selector == "equipment_you_control":
+        # "~ gets +1/+1 for each Equipment you control." (Adelbert Steiner,
+        # PAR-43) — the board-wide sibling of `_pt_mod_count`'s own
+        # ``"equipment_attached_to_self"`` (that one counts what's attached
+        # to *this* creature; this one counts every Equipment permanent the
+        # controller owns, attached or not).
+        return sum(
+            1 for o in bf if o.controller_id == controller_id and _has_subtype(o, "equipment")
+        )
+    if selector == "auras_on_the_battlefield":
+        # "~ gets +1/+1 for each Aura on the battlefield." (Aura Gnarlid,
+        # PAR-43) — unscoped, the `auras_you_control`/`all_creatures` shape.
+        return sum(1 for o in bf if "aura" in (o.card.type_line or "").lower())
+    if selector == "enchantments_on_the_battlefield":
+        # "~ gets +1/+1 for each enchantment on the battlefield." (Yavimaya
+        # Enchantress, PAR-43) — the unscoped sibling of
+        # `enchantments_you_control`.
+        return sum(1 for o in bf if o.card.is_enchantment)
+    if selector == "other_enchantments_on_the_battlefield":
+        # "enchanted creature gets +2/+2 for each other enchantment on the
+        # battlefield." (Ancestral Mask, PAR-43) — `enchantments_on_the_
+        # battlefield` minus the Aura bearing this ability itself.
+        source_id = getattr(source, "instance_id", None)
+        return sum(1 for o in bf if o.card.is_enchantment and o.instance_id != source_id)
+    if selector == "other_creatures_you_control":
+        # "~ gets +1/+0 for each other creature you control." (Leonardo, Big
+        # Brother, PAR-43) — `creatures_you_control` minus the source itself
+        # (RULE 109.5's "other" excludes the object bearing the ability).
+        source_id = getattr(source, "instance_id", None)
+        return sum(
+            1 for o in bf
+            if o.is_creature and o.controller_id == controller_id and o.instance_id != source_id
+        )
+    if selector == "other_artifacts_you_control":
+        # "for each other artifact you control" (Iron Man, Master of
+        # Machines; Krang, Master Mind, PAR-43) — the artifact sibling of
+        # `other_creatures_you_control` just above.
+        source_id = getattr(source, "instance_id", None)
+        return sum(
+            1 for o in bf
+            if o.card.is_artifact and o.controller_id == controller_id and o.instance_id != source_id
+        )
+    if selector.startswith("other_creatures_you_control_of_type_"):
+        # "~ gets +2/+0 for each other Goblin you control." (Boneclub
+        # Berserker, PAR-43) — `creatures_you_control_of_type_` narrowed by
+        # the same self-exclusion `other_creatures_you_control` uses.
+        creature_type = selector[len("other_creatures_you_control_of_type_"):]
+        source_id = getattr(source, "instance_id", None)
+        return sum(
+            1 for o in bf
+            if o.is_creature and o.controller_id == controller_id and o.instance_id != source_id
+            and _has_subtype(o, creature_type)
+        )
+    if selector.startswith("other_creatures_of_type_"):
+        # "~ gets +1/+1 for each other Squirrel on the battlefield." (Squirrel
+        # Mob, PAR-43) — unscoped by controller, unlike the "you control"
+        # entry just above.
+        creature_type = selector[len("other_creatures_of_type_"):]
+        source_id = getattr(source, "instance_id", None)
+        return sum(
+            1 for o in bf
+            if o.is_creature and o.instance_id != source_id and _has_subtype(o, creature_type)
+        )
+    if selector == "untapped_permanents_opponents_control":
+        # "~ gets +1/+1 for each untapped permanent your opponents control."
+        # (Copperhoof Vorrac, PAR-43).
+        return sum(
+            1 for o in bf
+            if o.controller_id not in (None, controller_id) and not o.tapped
+        )
+    if selector.startswith("lands_opponents_control_of_type_"):
+        # "~ gets +1/+1 for each Swamp your opponents control." (Crusading
+        # Knight; Marauding Knight's Plains sibling, PAR-43) — the
+        # "opponents control" mirror of `lands_you_control_of_type_`.
+        land_type = selector[len("lands_opponents_control_of_type_"):]
+        return sum(
+            1 for o in bf
+            if o.is_land and o.controller_id not in (None, controller_id) and _has_subtype(o, land_type)
+        )
+    if selector == "transformed_permanents_you_control":
+        # "~ gets +1/+0 for each transformed permanent you control."
+        # (Mutagen Connoisseur, PAR-43) — `GameObject.transformed` (RULE 712).
+        return sum(1 for o in bf if o.controller_id == controller_id and o.transformed)
+    if selector == "poison_counters_opponents_have":
+        # "~ gets +1/+1 for each poison counter your opponents have."
+        # (Mycosynth Fiend, PAR-43) — summed across every opponent, the
+        # player-counter sibling of `creatures_opponents_control`.
+        if controller_id is None:
+            return 0
+        return sum(
+            p.poison for p in state.living_players() if p.id != controller_id
+        )
+    if selector == "experience_counters_you_have":
+        # "~ gets +1/+1 for each experience counter you have." (Kalemne,
+        # Disciple of Iroas; Kelsien, the Plague; Azula, Ruthless Firebender,
+        # PAR-43) — RULE 122's free-form player counters.
+        if controller_id is None:
+            return 0
+        try:
+            player = state.player_by_id(controller_id)
+        except (KeyError, ValueError):
+            return 0
+        return int(player.counters.get("experience", 0))
+    if selector == "total_counters_on_source":
+        # "equipped creature gets +1/+1 for each counter on it." (Gavel of
+        # the Righteous, Luxior, Giada's Gift, PAR-43) — every counter kind
+        # on ``source``, unlike ``source_<kind>_counters``'s single-kind read.
+        if source is None:
+            return 0
+        counters = getattr(source, "counters", None) or {}
+        return int(getattr(source, "plus_one_counters", 0) or 0) + sum(
+            int(v or 0) for v in counters.values()
+        )
+    if selector == "source_colors_count":
+        # "equipped creature gets +1/+0 for each of its colors." (Civic
+        # Saber; Blessing of the Nephilim, PAR-43) — the source's own
+        # layer-5 derived colour set (RULE 105.2a).
+        return len(getattr(source, "colors", None) or ()) if source is not None else 0
+    if selector == "permanent_cards_in_your_graveyard":
+        # "~ gets +1/+1 for each permanent card in your graveyard." (Gran
+        # Pulse Ochu, PAR-43) — "permanent card" (RULE 109.2) has no literal
+        # type-line word, unlike every ``_cards_in_your_graveyard`` suffix
+        # entry above, so it needs its own main-type check rather than the
+        # generic substring scan.
+        try:
+            player = state.player_by_id(controller_id) if controller_id else None
+        except KeyError:
+            player = None
+        if player is None:
+            return 0
+        return sum(
+            1 for c in player.graveyard
+            if not (c.card.is_instant or c.card.is_sorcery)
+        )
+    if selector == "artifact_and_or_enchantment_cards_in_your_graveyard":
+        # "~ gets +1/+0 for each artifact and/or enchantment card in your
+        # graveyard." (Runaway Trash-Bot, PAR-43) — the graveyard sibling of
+        # ``artifacts_and_or_enchantments_you_control``.
+        try:
+            player = state.player_by_id(controller_id) if controller_id else None
+        except KeyError:
+            player = None
+        if player is None:
+            return 0
+        return sum(1 for c in player.graveyard if c.card.is_artifact or c.card.is_enchantment)
+    if selector == "noncreature_nonland_cards_in_your_graveyard":
+        # "~ gets +1/+1 for each noncreature, nonland card in your
+        # graveyard." (Xande, Dark Mage, PAR-43).
+        try:
+            player = state.player_by_id(controller_id) if controller_id else None
+        except KeyError:
+            player = None
+        if player is None:
+            return 0
+        return sum(1 for c in player.graveyard if not c.card.is_creature and not c.card.is_land)
+    if selector == "creature_cards_in_your_opponents_graveyards":
+        # "~ gets +1/+1 for each creature card in your opponents' graveyards."
+        # (Wight of Precinct Six, PAR-43) — the opponents-aggregate sibling
+        # of `creature_cards_in_your_graveyard`.
+        if controller_id is None:
+            return 0
+        return sum(
+            1
+            for p in state.living_players() if p.id != controller_id
+            for c in p.graveyard if c.card.is_creature
+        )
     if selector == "cards_in_your_graveyard":
         try:
             player = state.player_by_id(controller_id) if controller_id else None
@@ -1505,6 +1671,11 @@ def _pt_mod_count(state: "GameState", ability: StaticAbility, obj: "GameObject",
         # "gets +2/+2 for each Aura attached to it" (Kor Spiritdancer) — the
         # Aura sibling of ``equipment_attached_to_self``.
         return _attached_subtype_count(state, obj, "aura")
+    if selector == "equipment_and_auras_attached_to_self":
+        # "~ gets +2/+2 for each Aura and Equipment attached to it."
+        # (Champion of the Flame; Mantle of the Ancients, PAR-43) — the sum
+        # of the two single-subtype counts above.
+        return _equipment_attached_count(state, obj) + _attached_subtype_count(state, obj, "aura")
     if selector == "plus_one_counters_on_self":
         return getattr(ability.source, "plus_one_counters", 0)
     if selector == "counters_on_self":

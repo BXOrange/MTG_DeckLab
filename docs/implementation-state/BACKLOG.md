@@ -88,16 +88,6 @@ its block back into the matching section here.
 
   Bucket B (recurring effect-body / static templates, `extend-parser` loop):
 
-  - **PAR-43** — self CDA / `for each` P/T. The `~ gets +N/+N for each <X>`
-    standing self-anthem form has its general handler
-    (`_SELF_ANTHEM_FOR_EACH_RE`) but only for the "for each <X>" quantities
-    that already have a `continuous.count_selector`; the remaining tail
-    (~120 SOLO, ~40 distinct selectors — "Equipment you control"
-    board-wide, "oil counter on it", "aura attached to it", "experience
-    counter you have", per-subtype "other <type> you control", …) is one
-    new `count_selector` per phrase in `continuous.py`, plus the **Aura**
-    form (`enchanted creature gets +N/+N for each <X>` — `affects=
-    "attached_permanent"` instead of `"self"`).
   - **PAR-47** — `<cost>,<cost>: put a charge counter on ~` + its
     remove-a-charge-counter spend clause (#14).
   - **PAR-51** — `start` (#12) and `storied` (#9) — parse traces first;

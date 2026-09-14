@@ -2354,7 +2354,18 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: fails closed (an anthem reading an unmodeled count would silently apply
 #: +0). +14 — Akiri Line-Slinger / Goblin Gaveleer / the Nim cycle / Earth
 #: Servant / Deadeye Plunderers. The Aura form ("enchanted creature gets
-#: +P/+T for each …") and the long selector tail stay open in PAR-43.
+#: +P/+T for each …") and the long selector tail stayed open in PAR-43
+#: until v379 (below) closed both.
+#: v379 — PAR-43 closed: the Aura/Equipment form
+#: (`_ATTACHED_ANTHEM_FOR_EACH_RE`, `affects="attached_permanent"` — RULE
+#: 613.7c/604.3 already scopes every count to the *affected* creature, so
+#: it needed no new engine support) + ~25 new `continuous.count_selector`
+#: entries shared by both forms via `_for_each_count_selector` (board-wide
+#: Equipment/unscoped Aura/enchantment counts, "other `<X>` you control"
+#: self-exclusion incl. per-subtype, opponent-scoped land/untapped/creature/
+#: poison counts, a generic "`<kind>` counter on ~" → `source_<kind>_
+#: counters` reader, "of its colors", transformed permanents, experience
+#: counters, and a few graveyard-filter siblings). +70, zero regressions.
 #: v229 — PAR-38 — two self-scoped drawback shapes. (1) "~ deals N damage
 #: to **you**" (RULE 109.5): `_SELECTOR_WORD_MAP` + the `damage_selector`
 #: regex alternation gain `"you" -> "controller"`, routing to
@@ -2818,7 +2829,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (Windfall), and `spec.py`'s `_AMOUNT_SPEC_FIELDS` learned the `aggregate`
 #: key. Vocabulary only - no parser handler emits it yet, no card's verdict
 #: moves - but the parser source hash follows.
-PARSER_VERSION = "378"
+PARSER_VERSION = "379"
 
 
 def parser_source_hash() -> str:

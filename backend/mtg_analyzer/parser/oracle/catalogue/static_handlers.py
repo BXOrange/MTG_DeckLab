@@ -3214,22 +3214,122 @@ _SELF_ANTHEM_FOR_EACH_RE = re.compile(
     r"~ gets \+(?P<p>\d+)/\+(?P<t>\d+) for each (?P<what>.+?)\.?",
     re.IGNORECASE,
 )
+#: PAR-43: the attached-permanent sibling of `_SELF_ANTHEM_FOR_EACH_RE`
+#: ("equipped/enchanted `<subject>` gets +N/+N for each `<X>` [and has
+#: `<keywords>`]" — All That Glitters, Cranial Plating, Blanchwood Armor
+#: &c.). Shares `_SELF_ANTHEM_FOR_EACH_SELECTORS`/`_for_each_count_selector`
+#: with the self-scoped row: `affects="attached_permanent"` already makes
+#: `continuous._pt_mod_count` evaluate every count against the *affected*
+#: creature (RULE 613.7c/604.3's per-object scoping already handles
+#: "Equipment/Aura attached to it" correctly for both forms — "it" there is
+#: always the creature the anthem currently affects), so only the subject
+#: line and the optional keyword tail differ from `_ATTACHED_ANTHEM_RE`.
+#: Tried before `_ATTACHED_ANTHEM_RE` for the same reason
+#: `_SELF_ANTHEM_FOR_EACH_RE` is tried before `_SELF_ANTHEM_RE` — its
+#: fixed-digit pattern would otherwise claim the "+1/+1" prefix and drop the
+#: "for each …" scaling.
+_ATTACHED_ANTHEM_FOR_EACH_RE = re.compile(
+    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) gets \+(?P<p>\d+)/\+(?P<t>\d+) for each (?P<what>.+?)"
+    r"(?: and has (?P<kw>[a-z][a-z, ]*?))?\.?",
+    re.IGNORECASE,
+)
 _SELF_ANTHEM_FOR_EACH_SELECTORS: dict[str, str] = {
     "artifact you control": "artifacts_you_control",
-    # "for each Equipment attached to it" — the source's *own* attachments
-    # (Nemata-adjacent), not a board-wide "Equipment you control" count
-    # (which has no `count_selector` yet — that phrase stays unclaimed).
+    # "for each Equipment attached to it" / "for each Aura attached to it" /
+    # both at once — the affected creature's *own* attachments (Nemata/Kor
+    # Spiritdancer-adjacent), unlike the board-wide "Equipment you control"
+    # entry below.
     "equipment attached to it": "equipment_attached_to_self",
+    "aura attached to it": "auras_attached_to_self",
+    "aura and equipment attached to it": "equipment_and_auras_attached_to_self",
     "creature you control": "creatures_you_control",
     "legendary creature you control": "legendary_creatures_you_control",
     "land you control": "lands_you_control",
     "permanent you control": "permanents_you_control",
     "card in your hand": "cards_in_your_hand",
     "artifact and/or enchantment you control": "artifacts_and_or_enchantments_you_control",
+    # PAR-43 additions below — one `count_selector` phrase per row, per the
+    # ticket's own "one new count_selector per phrase" scope.
+    "equipment you control": "equipment_you_control",
+    "aura on the battlefield": "auras_on_the_battlefield",
+    "enchantment on the battlefield": "enchantments_on_the_battlefield",
+    "other enchantment on the battlefield": "other_enchantments_on_the_battlefield",
+    "other creature you control": "other_creatures_you_control",
+    "other artifact you control": "other_artifacts_you_control",
+    "creature your opponents control": "creatures_opponents_control",
+    "untapped permanent your opponents control": "untapped_permanents_opponents_control",
+    "transformed permanent you control": "transformed_permanents_you_control",
+    "poison counter your opponents have": "poison_counters_opponents_have",
+    "experience counter you have": "experience_counters_you_have",
+    "basic land type among lands you control": "basic_land_types_among_lands_you_control",
+    "permanent card in your graveyard": "permanent_cards_in_your_graveyard",
+    "artifact and/or enchantment card in your graveyard": "artifact_and_or_enchantment_cards_in_your_graveyard",
+    "noncreature, nonland card in your graveyard": "noncreature_nonland_cards_in_your_graveyard",
+    "creature card in your opponents' graveyards": "creature_cards_in_your_opponents_graveyards",
+    "of its colors": "source_colors_count",
+    # Land subtypes that aren't one of RULE 305.6's five basic types (so
+    # `_for_each_count_selector`'s basic-land-type fallback below can't
+    # derive them) but still have a `lands_you_control_of_type_` count.
+    "gate you control": "lands_you_control_of_type_gate",
+    # Creature subtypes named often enough in this cluster to enumerate
+    # directly rather than guess at from an unrecognised bare word (a wrong
+    # guess here — e.g. treating "gate"/"aura" as a *creature* subtype —
+    # would silently count zero forever rather than failing closed).
+    "elf you control": "creatures_you_control_of_type_elf",
 }
 _BASIC_LAND_TYPES: frozenset[str] = frozenset(
     {"plains", "island", "swamp", "mountain", "forest"}
 )
+
+
+def _for_each_count_selector(what: str, *, self_form: bool) -> Optional[str]:
+    """Resolve a "for each `<X>`" quantity to a `continuous.count_selector`
+    name, shared by `_SELF_ANTHEM_FOR_EACH_RE` and
+    `_ATTACHED_ANTHEM_FOR_EACH_RE`.
+
+    ``self_form`` gates the bare "on it" counter phrasing: in a self-scoped
+    clause "it" can only mean ``~`` (the only noun in the sentence,
+    Necrosquito's "oil counter on it"), but in an Aura/Equipment's own
+    clause "it" is the *equipped/enchanted permanent* — the closer noun —
+    not the Aura/Equipment itself (Luxior, Giada's Gift's loyalty-counter
+    "for each counter on it" counts counters on the creature it turns into
+    a planeswalker, not on Luxior). Only the unambiguous "on ~" is
+    recognised for the attached form; "on it" there fails closed rather
+    than risk reading the wrong object's counters.
+    """
+    selector = _SELF_ANTHEM_FOR_EACH_SELECTORS.get(what)
+    if selector is not None:
+        return selector
+    if what.endswith(" you control"):
+        land_type = what[: -len(" you control")]
+        if land_type.startswith("basic "):
+            land_type = land_type[len("basic "):]
+        if land_type in _BASIC_LAND_TYPES:
+            return f"lands_you_control_of_type_{land_type}"
+    if what.endswith(" your opponents control"):
+        land_type = what[: -len(" your opponents control")]
+        if land_type in _BASIC_LAND_TYPES:
+            return f"lands_opponents_control_of_type_{land_type}"
+    if what.startswith("other ") and what.endswith(" you control"):
+        inner = what[len("other "): -len(" you control")]
+        if inner and " " not in inner and inner.isalpha():
+            return f"other_creatures_you_control_of_type_{inner}"
+    if what.startswith("other ") and what.endswith(" on the battlefield"):
+        inner = what[len("other "): -len(" on the battlefield")]
+        if inner and " " not in inner and inner.isalpha():
+            return f"other_creatures_of_type_{inner}"
+    m = re.fullmatch(r"([a-z][a-z]*) counters? on ~", what)
+    if m:
+        return f"source_{m.group(1)}_counters"
+    if what == "counter on ~":
+        return "total_counters_on_source"
+    if self_form:
+        m = re.fullmatch(r"([a-z][a-z]*) counters? on it", what)
+        if m:
+            return f"source_{m.group(1)}_counters"
+        if what == "counter on it":
+            return "total_counters_on_source"
+    return None
 _SELF_GRANT_RE = re.compile(
     # ``0-9`` in the keyword capture is ENG-31's parametric self-grant ("~
     # has firebending 2 as long as there's a lesson card in your graveyard"
@@ -3923,6 +4023,32 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             return None
         return [EffectSpec("grant_protection_static", {**_scope_params(scope, m), **params})]
 
+    # PAR-43: "equipped/enchanted <subject> gets +N/+N for each <X> [and has
+    # <keywords>]" — the attached-permanent sibling of the self-scoped
+    # `_SELF_ANTHEM_FOR_EACH_RE` row below, tried first for the same reason
+    # that row precedes `_SELF_ANTHEM_RE`: `_ATTACHED_ANTHEM_RE`'s
+    # fixed-digit pattern would otherwise claim the "+1/+1" prefix and drop
+    # the "for each …" scaling.
+    m = _ATTACHED_ANTHEM_FOR_EACH_RE.fullmatch(text)
+    if m is not None:
+        what = m.group("what").strip().lower()
+        selector = _for_each_count_selector(what, self_form=False)
+        if selector is not None:
+            specs = [EffectSpec("anthem", {
+                "affects": "attached_permanent",
+                "power": int(m.group("p")), "toughness": int(m.group("t")),
+                "power_count": selector, "toughness_count": selector,
+            })]
+            if m.group("kw"):  # "… and has <keywords>" tail
+                keywords = _flag_keywords(m.group("kw"))
+                if keywords is None:
+                    return None  # fail-closed, whole clause
+                specs.append(EffectSpec("grant_keyword", {"keywords": keywords,
+                                                            "affects": "attached_permanent"}))
+            return specs
+        # A "for each …" quantity with no wired selector — fail closed, same
+        # as the self-scoped row (never silently apply +0).
+
     # Attached-permanent shape first ("equipped creature gets +2/+2 [and has
     # <keywords>]") — a closed subject list, so this never competes with the
     # "you control" scopes below (singular "gets"/"has" vs. their plural
@@ -3986,11 +4112,7 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     m = _SELF_ANTHEM_FOR_EACH_RE.fullmatch(text)
     if m is not None:
         what = m.group("what").strip().lower()
-        selector = _SELF_ANTHEM_FOR_EACH_SELECTORS.get(what)
-        if selector is None and what.endswith(" you control"):
-            land_type = what[: -len(" you control")]
-            if land_type in _BASIC_LAND_TYPES:
-                selector = f"lands_you_control_of_type_{land_type}"
+        selector = _for_each_count_selector(what, self_form=True)
         if selector is not None:
             return [EffectSpec("anthem", {
                 "affects": "self",

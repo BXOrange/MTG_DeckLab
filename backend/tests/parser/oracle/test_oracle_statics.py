@@ -95,11 +95,25 @@ def test_enchanted_land_keyword_grant():
 # -- Fail-closed cases ---------------------------------------------------------
 
 
-def test_for_each_tail_stays_unclaimed():
-    # A dynamic anthem the current `anthem` EffectSpec can't express (no CDA
-    # count) — the fullmatch requirement makes this fall out for free.
+def test_for_each_artifact_you_control_is_claimed():
+    # PAR-43: the attached-permanent sibling of the self-scoped "~ gets
+    # +N/+N for each <X>" anthem (Cranial Plating) — `_ATTACHED_ANTHEM_FOR_
+    # EACH_RE` claims any "for each …" quantity with a wired
+    # `continuous.count_selector`.
     assert static_effect_specs(
         "Equipped creature gets +1/+1 for each artifact you control."
+    ) == [EffectSpec("anthem", {
+        "affects": "attached_permanent", "power": 1, "toughness": 1,
+        "power_count": "artifacts_you_control", "toughness_count": "artifacts_you_control",
+    })]
+
+
+def test_for_each_tail_with_unwired_quantity_stays_unclaimed():
+    # A dynamic anthem quantity with no wired `count_selector` — the
+    # fullmatch requirement makes this fall out for free rather than
+    # silently applying +0.
+    assert static_effect_specs(
+        "Equipped creature gets +1/+1 for each opponent you have."
     ) is None
 
 

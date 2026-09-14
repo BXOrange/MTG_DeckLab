@@ -25,9 +25,9 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**43.8% covered — 15,253 / 34,811 — as of 2026-09-14, PARSER_VERSION 378.**
-Commander-legal slice (the one the product actually plays): **45.7% —
-14,571 / 31,830** (measure with `--commander-legal-only`).
+**44.0% covered — 15,323 / 34,811 — as of 2026-09-14, PARSER_VERSION 379.**
+Commander-legal slice (the one the product actually plays): **46.2% —
+14,709 / 31,830** (measure with `--commander-legal-only`).
 
 Measure with `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe;
@@ -204,7 +204,6 @@ document's own standing rule, and it has now caught itself.
 | Saddle referent | "whenever ~ attacks **while saddled**, choose a nonlegendary creature that saddled it this turn" | Calamity, Galloping Inferno |
 | Compound attack-trigger conditions | "whenever ~ attacks, **if** a nonland permanent left the battlefield this turn **or** a spell was warped this turn, …" | Alpharael, Stonechosen |
 | Misc singletons | "another target creature" (the `other_creature` kind is not engine-wired); "**if it was a Gideon planeswalker**" conditional tail | Arwen, Mortal Queen · Gideon's Defeat |
-
 
 ## Lessons that keep recurring
 
