@@ -105,7 +105,14 @@ _ABILITY_WORD_RE = re.compile(
     # (Odyssey block) — the label carries no rules meaning of its own
     # (RULE 207.2c); the "as long as …" body it precedes is an ordinary
     # RULE 613.6 conditional static once the label is gone.
-    r"|threshold)\s*—\s*",
+    r"|threshold"
+    # RULE 702.194c: "Teamwork — `<ability>`." (Sol, Advocate Eternal) —
+    # same reasoning as every other row: the label is decorative (RULE
+    # 207.2c), the body behind it is an ordinary trigger/static once it's
+    # gone. Confirmed safe for this one row too (PAR-68): every cached
+    # "Teamwork —" line's body is a plain trigger the ability-word strip
+    # alone doesn't need to interpret.
+    r"|teamwork)\s*—\s*",
     re.MULTILINE,
 )
 

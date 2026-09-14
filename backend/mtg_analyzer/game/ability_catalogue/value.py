@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ...models.game.events import EventType
 from ...parser.oracle.spec import AbilitySpec, EffectSpec
+from ..costs import REMOVE_COUNTERS_ALL
 
 from .core import register
 
@@ -1429,6 +1430,259 @@ def _tymna_the_weaver() -> list[AbilitySpec]:
 
 
 register("Tymna the Weaver", _tymna_the_weaver)
+
+
+def _garnet_princess_of_alexandria() -> list[AbilitySpec]:
+    """Lifelink
+    Whenever Garnet attacks, you may remove a lore counter from each of any
+    number of Sagas you control. Put a +1/+1 counter on Garnet for each
+    lore counter removed this way.
+
+    — PAR-67. Lifelink is a plain printed keyword. The attack trigger's
+    body is a genuinely new shape (SOLO-blocked, no cluster elsewhere in
+    the cache): a *chosen set* of the controller's own Sagas, each losing
+    one lore counter, then a payoff scaled by how many were actually
+    removed. `RemoveLoreCounterFromChosenSagasThenAddCountersEffect`
+    reuses the existing `_request_choose_objects` "strip_all_counters"
+    action (every printed Saga carries only lore counters, so stripping
+    "all" of a chosen Saga's counters is the same RULE 122 precision
+    simplification `RemoveCountersFromAmongThenDrawLoseLifeEffect`,
+    Eventide's Shadow, already accepts) restricted to the controller's own
+    Sagas, and queues the +1/+1 payoff as a before/after lore-counter-total
+    delta the same way that card's own draw/life-loss tail does.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("remove_lore_counter_from_chosen_sagas_then_add_counters", {})],
+            trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
+        ),
+    ]
+
+
+register("Garnet, Princess of Alexandria", _garnet_princess_of_alexandria)
+
+
+def _lily_bowen_raging_grandma() -> list[AbilitySpec]:
+    """Vigilance
+    Lily Bowen enters with two +1/+1 counters on it.
+    At the beginning of your upkeep, double the number of +1/+1 counters on
+    Lily Bowen if its power is 16 or less. Otherwise, remove all but one
+    +1/+1 counter from it, then you gain 1 life for each +1/+1 counter
+    removed this way.
+
+    — PAR-67. Vigilance is a plain printed keyword; the ETB counters are
+    already RULE 614.1-derived (`ability_catalogue.entry_counters`, read
+    straight off the card's oracle text regardless of registration — no
+    spec needed here). The upkeep trigger is the new shape: an `if_else`
+    (RULE 603.4) gated on the source's own derived power, whose "then"
+    branch reuses `double_counters_on_target(mode="self")` (Primordial
+    Hydra-shaped) unchanged, and whose "else" branch pairs a genuinely new
+    `RemoveCountersEffect.keep` partial-removal count ("remove all but N",
+    distinct from that effect's existing all-or-chosen-amount shapes) with
+    `GainLifeEffect`'s pre-existing ``count_selector="counters_removed_
+    this_way"`` reader (PAR-66) — no new life-gain wiring needed, only the
+    partial removal that feeds it.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("if_else", {
+                "condition": {"kind": "power", "max": 16},
+                "then": [
+                    {"type": "double_counters_on_target",
+                     "params": {"mode": "self", "kind": "+1/+1"}},
+                ],
+                "else": [
+                    {"type": "remove_counters",
+                     "params": {"self_only": True, "kind": "+1/+1", "keep": 1}},
+                    {"type": "gain_life",
+                     "params": {"amount": 1, "count_selector": "counters_removed_this_way"}},
+                ],
+            })],
+            trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "upkeep"}, "phase_relation": "you"},
+        ),
+    ]
+
+
+register("Lily Bowen, Raging Grandma", _lily_bowen_raging_grandma)
+
+
+def _sage_of_hours() -> list[AbilitySpec]:
+    """Heroic — Whenever you cast a spell that targets this creature, put a
+    +1/+1 counter on it.
+    Remove all +1/+1 counters from this creature: For each five counters
+    removed this way, take an extra turn after this one.
+
+    — PAR-67. Heroic's own trigger is the parser's ordinary "whenever you
+    cast a spell that targets ~" shape (`requires_spell_targets_source`) —
+    reproduced here rather than left to the fallback, since registering a
+    card replaces its *entire* parser reading, not just the clause that
+    failed. The activated ability is the new shape: a mandatory "remove
+    all `<kind>` counters" **cost** (`costs.REMOVE_COUNTERS_ALL` — distinct
+    from `REMOVE_COUNTERS_ANY`, which is the payer's own free choice of
+    amount), stamping how many it actually removed onto the source
+    (`GameObject.counters_removed_as_cost`, the cost-paid sibling of
+    `x_paid` — a cost has no resolving `GameContext` for the ordinary
+    "counters removed this way" tally to land in). The effect reads that
+    stamp back through a `bind` (RULE 608.2) with a ``divide=5`` amount,
+    scaling `TakeExtraTurnEffect`'s own ``count``.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_counters", {"count": 1, "kind": "+1/+1"})],
+            trigger={
+                "event": "SPELL_CAST", "condition": {"subject": "you"},
+                "requires_spell_targets_source": True,
+            },
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("bind", {
+                "name": "n",
+                "amount": {"kind": "counters_removed_as_cost", "divide": 5},
+                "effects": [{"type": "take_extra_turn", "params": {"count": "$n"}}],
+            })],
+            cost={"remove_counters": ("+1/+1", REMOVE_COUNTERS_ALL)},
+        ),
+    ]
+
+
+register("Sage of Hours", _sage_of_hours)
+
+
+# ---------------------------------------------------------------------------
+# PAR-68: Teamwork (RULE 702.194)-adjacent one-offs beyond the rider
+# condition PAR-56 already closed. "Teamwork N" itself is a plain printed
+# parametric keyword (`GameObject.parametric_keywords`, bound from the raw
+# card text independent of catalogue registration — the same "bound once,
+# regardless of registration" mechanism `entry_counters`/`enters_tapped`
+# use), so none of these four entries need to reproduce it.
+# ---------------------------------------------------------------------------
+
+
+def _agent_maria_hill() -> list[AbilitySpec]:
+    """Whenever Agent Maria Hill becomes tapped to pay a teamwork cost, put
+    a +1/+1 counter on her and draw a card.
+
+    — PAR-68. `TAPPED` already fires generically for every genuine tap
+    transition; the new `reason="teamwork"` tag on Teamwork's own tap-to-pay
+    loop (`casting_mixin`) plus the new `requires_tap_reason` trigger
+    predicate (`binding/core.py`) are what let this trigger tell that apart
+    from an ordinary attack/tap-ability transition, which fires the same
+    event with no reason at all.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_counters", {"count": 1, "kind": "+1/+1"}),
+             EffectSpec("draw", {"count": 1})],
+            trigger={
+                "event": EventType.TAPPED, "condition": {"subject": "self"},
+                "requires_tap_reason": "teamwork",
+            },
+        ),
+    ]
+
+
+register("Agent Maria Hill", _agent_maria_hill)
+
+
+def _virtual_assistant() -> list[AbilitySpec]:
+    """Defender
+    Whenever you cast a spell using teamwork, create a 1/1 colorless Robot
+    Hero artifact creature token with flying.
+
+    — PAR-68. Defender is a plain printed keyword. The trigger is the new
+    `requires_spell_cast_via_teamwork` predicate — the ordinary "whenever
+    you cast a spell" `SPELL_CAST` shape, narrowed by reading the just-cast
+    spell's own `GameObject.teamwork_paid` flag straight off the event's
+    `instance_id` (no new event field needed, unlike Agent Maria Hill's own
+    TAPPED-event case).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {
+                "token_name": "Robot Hero", "power": 1, "toughness": 1,
+                "colors": [], "is_artifact": True,
+                "subtypes": ["Robot", "Hero"], "keywords": ["Flying"],
+            })],
+            trigger={
+                "event": "SPELL_CAST", "condition": {"subject": "you"},
+                "requires_spell_cast_via_teamwork": True,
+            },
+        ),
+    ]
+
+
+register("Virtual Assistant", _virtual_assistant)
+
+
+def _helicarrier_strike() -> list[AbilitySpec]:
+    """Teamwork 2 (As an additional cost to cast this spell, you may tap
+    any number of creatures you control with total power 2 or more.)
+    Helicarrier Strike deals 2 damage to target attacking or blocking
+    creature. If this spell was cast using teamwork, it deals 4 damage to
+    that creature instead.
+
+    — PAR-68. A magnitude-only override (same target either way) — the
+    RULE 702.194b sibling of `DealDamageEffect.amount_if_kicked`/
+    `amount_if_bargained`'s existing "instead" overrides, new
+    `amount_if_teamwork` param. Unlike Cruel Alliance/Too Evil to Stay
+    Dead/Earth's Mightiest Heroes (still open, MEC-85), this card's
+    "instead" clause never changes *which* targets are legal or *how many*
+    get chosen, so no new targeting primitive was needed.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("damage", {
+                "amount": 2, "amount_if_teamwork": 4,
+                "target_kind": "attacking_or_blocking_creature",
+            })],
+        ),
+    ]
+
+
+register("Helicarrier Strike", _helicarrier_strike)
+
+
+def _beast_mode() -> list[AbilitySpec]:
+    """Teamwork 1 (As an additional cost to cast this spell, you may tap
+    any number of creatures you control with total power 1 or more.)
+    Target creature gets +2/+2 and gains trample until end of turn. Also
+    put a +1/+1 counter on that creature if this spell was cast using
+    teamwork.
+
+    — PAR-68. The trailing "if this spell was cast using teamwork" gate is
+    a plain `EffectSpec.condition={"teamwork_paid": True}` (PAR-56's own
+    condition key) on the counter clause; "that creature" is the pump
+    clause's own RULE 115 target read back via `AddCountersEffect.
+    previous_subject` (`GameContext.previous_targets`, the same "preceding
+    clause's own target" pronoun idiom already used for "tap target
+    creature and put a stun counter on it"-shaped bodies) rather than a
+    second, independent target of its own.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("pump", {
+                    "power": 2, "toughness": 2, "keywords": ["Trample"],
+                    "target_kind": "creature",
+                }),
+                EffectSpec(
+                    "add_counters", {"count": 1, "kind": "+1/+1", "previous_subject": True},
+                    condition={"teamwork_paid": True},
+                ),
+            ],
+        ),
+    ]
+
+
+register("Beast Mode", _beast_mode)
 
 
 # ---------------------------------------------------------------------------

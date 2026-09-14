@@ -92,6 +92,10 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         "resource",  # + ``resource``, ``of``
         # RULE 107.3c — the {X} this spell/ability was announced for.
         "x_paid",  # + ``of``
+        # PAR-67: how many counters this activated ability's own cost just
+        # removed (`costs.REMOVE_COUNTERS_ALL`/X/ANY) — the cost-paid
+        # sibling of ``this_way``'s resolve-time tallies.
+        "counters_removed_as_cost",  # + ``of``
         # "…this way" (see `THIS_WAY_TALLIES`).
         "this_way",  # + ``tally``
         # The number of players a `for_each`-style player scope covers, which
@@ -285,6 +289,17 @@ def _base(
 
     if kind == "x_paid":
         return int(getattr(subject, "x_paid", 0) or 0)
+
+    if kind == "counters_removed_as_cost":
+        # PAR-67 (Sage of Hours): "Remove all +1/+1 counters from this
+        # creature: for each five counters removed this way, take an extra
+        # turn after this one." — the removal happened as this ability's own
+        # *cost*, not a resolving effect, so it has no `GameContext`
+        # accumulator to read the way `this_way`'s tallies do; the amount is
+        # stamped on the source directly at payment time instead (see
+        # `activation_mixin._pay_activation_cost`), the `x_paid` sibling of
+        # "remember what this activation just paid".
+        return int(getattr(subject, "counters_removed_as_cost", 0) or 0)
 
     if kind == "resource":
         resource = str(amount.get("resource", ""))

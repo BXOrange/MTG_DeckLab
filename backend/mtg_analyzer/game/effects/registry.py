@@ -23,6 +23,7 @@ EffectRegistry.register(
         divided=bool(p.get("divided", False)),
         double_at=p.get("double_at"),
         amount_if_kicked=p.get("amount_if_kicked"),
+        amount_if_teamwork=p.get("amount_if_teamwork"),
         amount_if_raid=p.get("amount_if_raid"),
         amount_if_bargained=p.get("amount_if_bargained"),
         double_if_bargained=bool(p.get("double_if_bargained", False)),
@@ -1871,7 +1872,11 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "take_extra_turn",
-    lambda p: TakeExtraTurnEffect(count=int(p.get("count", 1) or 1)),
+    # ``count`` is coerced lazily by `TakeExtraTurnEffect` itself, not here —
+    # see its own docstring (PAR-67: a `bind`-measured count reads as an
+    # uncoerced ``"$n"`` sentinel the one time `target_specs` builds this
+    # effect before substitution runs).
+    lambda p: TakeExtraTurnEffect(count=p.get("count", 1)),
 )
 EffectRegistry.register(
     "extra_combat_phase",
@@ -2790,6 +2795,7 @@ EffectRegistry.register(
         target_kind=p.get("target_kind"), max_count=p.get("max_count"),
         draw_per_removed=bool(p.get("draw_per_removed", False)),
         self_only=bool(p.get("self_only", False)), kind=p.get("kind"),
+        keep=int(p.get("keep", 0) or 0),
     ),
 )
 EffectRegistry.register(
@@ -2822,6 +2828,22 @@ EffectRegistry.register(
     "draw_lose_life_counter_removed_delta",
     lambda p: DrawLoseLifeCounterRemovedDeltaEffect(
         player_id=p.get("player_id"), before=int(p.get("before", 0) or 0),
+    ),
+)
+EffectRegistry.register(
+    # "You may remove a lore counter from each of any number of Sagas you
+    # control. Put a +1/+1 counter on ~ for each lore counter removed this
+    # way." (Garnet, Princess of Alexandria, PAR-67) — see
+    # `RemoveLoreCounterFromChosenSagasThenAddCountersEffect`.
+    "remove_lore_counter_from_chosen_sagas_then_add_counters",
+    lambda p: RemoveLoreCounterFromChosenSagasThenAddCountersEffect(),
+)
+EffectRegistry.register(
+    # The +1/+1 tail of the above — queued as ``then_specs``.
+    "add_counters_from_saga_lore_removed_delta",
+    lambda p: AddCountersFromSagaLoreRemovedDeltaEffect(
+        source_id=p.get("source_id"), player_id=p.get("player_id"),
+        before=int(p.get("before", 0) or 0),
     ),
 )
 EffectRegistry.register(

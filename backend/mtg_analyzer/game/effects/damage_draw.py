@@ -32,6 +32,7 @@ class DealDamageEffect(GameEffect):
         divided: bool = False,
         double_at: Optional[int] = None,
         amount_if_kicked: Optional[int] = None,
+        amount_if_teamwork: Optional[int] = None,
         amount_if_raid: Optional[int] = None,
         amount_if_bargained: Optional[Union[int, str]] = None,
         double_if_bargained: bool = False,
@@ -124,6 +125,17 @@ class DealDamageEffect(GameEffect):
         # `kicker_count` is only known once ``source`` is fully bound onto
         # the battlefield object, not necessarily yet at construction time.
         self.amount_if_kicked = amount_if_kicked
+        #: RULE 702.194b (PAR-68): "~ deals 2 damage to target attacking or
+        #: blocking creature. If this spell was cast using teamwork, it
+        #: deals 4 damage to that creature instead." (Helicarrier Strike) —
+        #: `GameObject.teamwork_paid`, the same override-not-additive shape
+        #: `amount_if_kicked`/`amount_if_bargained` use; same "recipient
+        #: unchanged, only the magnitude does" scope (unlike Cruel Alliance/
+        #: Too Evil to Stay Dead/Earth's Mightiest Heroes' own teamwork
+        #: "instead" clauses, which change *target legality* or *selection
+        #: count* rather than a flat magnitude — a still-open engine gap,
+        #: `MEC-85`).
+        self.amount_if_teamwork = amount_if_teamwork
         #: PAR-64: Raid's two-line "deals N damage instead if you attacked
         #: this turn" replacement. Like Kicker, this replaces this damage
         #: event's magnitude rather than adding a second damage effect.
@@ -225,6 +237,10 @@ class DealDamageEffect(GameEffect):
                     lambda: self.x_multiplier * (getattr(self.source, "x_paid", 0) or 0),
                 ),
                 (self.amount_if_kicked is not None and kicker_count > 0, lambda: self.amount_if_kicked),
+                (
+                    self.amount_if_teamwork is not None and bool(getattr(self.source, "teamwork_paid", False)),
+                    lambda: self.amount_if_teamwork,
+                ),
                 (self.amount_if_raid is not None and raid, lambda: self.amount_if_raid),
                 (
                     self.amount_if_cast_from_exile is not None and getattr(self.source, "cast_from_exile", False),

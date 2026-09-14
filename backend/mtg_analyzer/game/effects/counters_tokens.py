@@ -1490,6 +1490,7 @@ class RemoveCountersEffect(GameEffect):
         draw_per_removed: bool = False,
         self_only: bool = False,
         kind: Optional[str] = None,
+        keep: int = 0,
     ) -> None:
         super().__init__(source)
         self.max_count = max_count
@@ -1508,6 +1509,13 @@ class RemoveCountersEffect(GameEffect):
         #: those too. ``None`` keeps every other mode's original "strip
         #: everything" behaviour unchanged.
         self.kind = kind
+        #: "Remove all but one +1/+1 counter from it." (Lily Bowen, Raging
+        #: Grandma, PAR-67) — a *partial*-removal count, unlike this
+        #: effect's other "strip everything of the kind" modes. Only
+        #: meaningful alongside ``kind`` (which counter type to leave a
+        #: remainder of); ``0`` keeps every other mode's original
+        #: "strip everything" behaviour unchanged.
+        self.keep = max(0, int(keep))
 
     def _strip(self, context: GameContext, obj: "GameObject") -> int:
         removed = 0
@@ -1515,10 +1523,16 @@ class RemoveCountersEffect(GameEffect):
             if self.kind is not None and kind != self.kind:
                 continue
             amount = obj.counters.get(kind, 0)
-            if amount:
-                if amount > 0:
-                    removed += amount
-                context.add_counters(obj, -amount, kind)
+            if not amount:
+                continue
+            to_remove = amount
+            if self.keep and amount > 0:
+                to_remove = amount - self.keep
+                if to_remove <= 0:
+                    continue
+            if to_remove > 0:
+                removed += to_remove
+            context.add_counters(obj, -to_remove, kind)
         return removed
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -1620,6 +1634,88 @@ class DrawLoseLifeCounterRemovedDeltaEffect(GameEffect):
         if n > 0:
             context.draw(player, n)
             context.lose_life(player, n)
+
+
+def _your_saga_lore_total(state: Any, player_id: Optional[str]) -> int:
+    """Total RULE 714.2b lore counters on Sagas ``player_id`` controls —
+    Garnet, Princess of Alexandria's own before/after scope, the delta
+    idiom `RemoveCountersFromAmongThenDrawLoseLifeEffect` uses over the
+    whole battlefield, narrowed to one player's Sagas."""
+    from .. import continuous  # avoid the continuous<->effects import cycle
+
+    return sum(
+        (o.counters.get("lore", 0) or 0)
+        for o in state.battlefield
+        if o.controller_id == player_id and continuous.has_subtype(o, "saga")
+    )
+
+
+class RemoveLoreCounterFromChosenSagasThenAddCountersEffect(GameEffect):
+    """"You may remove a lore counter from each of any number of Sagas you
+    control. Put a +1/+1 counter on Garnet for each lore counter removed
+    this way." (Garnet, Princess of Alexandria, PAR-67.)
+
+    Reuses the ``strip_all_counters`` `_request_choose_objects` action —
+    every printed Saga carries only lore counters (RULE 714.2b), so
+    stripping "all" of a chosen Saga's counters is the same as removing
+    its lore counter(s), the same RULE 122 precision simplification
+    `RemoveCountersFromAmongThenDrawLoseLifeEffect` (Eventide's Shadow)
+    already accepts — just scoped to the controller's own Sagas instead of
+    the whole battlefield. The +1/+1 payoff reads a before/after lore-
+    counter total over that same scope, queued as ``then_specs`` exactly
+    like Eventide's Shadow's own draw/life-loss tail.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from .. import continuous  # avoid the continuous<->effects import cycle
+
+        controller = _controller_of(self.source, context)
+        if controller is None or self.source is None:
+            return
+        candidates = [
+            o for o in context.state.battlefield
+            if o.controller_id == controller.id
+            and continuous.has_subtype(o, "saga")
+            and (o.counters.get("lore", 0) or 0) > 0
+        ]
+        if not candidates:
+            return
+        before = _your_saga_lore_total(context.state, controller.id)
+        context.engine._request_choose_objects(
+            controller, candidates, "strip_all_counters",
+            count=len(candidates), optional=True, source=self.source,
+            prompt="Entferne einen Kapitelmarker von ausgewählten Sagas",
+            then_specs=[{
+                "type": "add_counters_from_saga_lore_removed_delta",
+                "params": {
+                    "source_id": self.source.instance_id,
+                    "player_id": controller.id, "before": before,
+                },
+            }],
+        )
+
+
+class AddCountersFromSagaLoreRemovedDeltaEffect(GameEffect):
+    """Garnet, Princess of Alexandria's own +1/+1 payoff tail — see
+    `RemoveLoreCounterFromChosenSagasThenAddCountersEffect`. Not for direct
+    card use."""
+
+    def __init__(
+        self, source_id: Optional[int] = None, player_id: Optional[str] = None,
+        before: int = 0, source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.source_id = source_id
+        self.player_id = player_id
+        self.before = int(before)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        obj = context.state.find_object(self.source_id)
+        if obj is None:
+            return
+        n = self.before - _your_saga_lore_total(context.state, self.player_id)
+        if n > 0:
+            context.add_counters(obj, n, "+1/+1")
 
 
 class MoveCountersEffect(GameEffect):

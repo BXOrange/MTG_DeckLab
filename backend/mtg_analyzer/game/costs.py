@@ -209,6 +209,13 @@ EXILE_FROM_GRAVEYARD_X = -1
 #: `activate_ability` already threads through for mana `{X}`.
 REMOVE_COUNTERS_X = -1
 REMOVE_COUNTERS_ANY = -2
+#: "Remove all `<kind>` counters from `<this/~>`" as a *cost* (PAR-67, Sage
+#: of Hours) — unlike `REMOVE_COUNTERS_ANY`, this is not the payer's choice
+#: of amount: the cost is always exactly however many of that kind currently
+#: sit on the source (0 is a legal, empty payment — RULE 602.1's "sacrifice
+#: all `<x>`" cost family is payable the same way with nothing to give up),
+#: so it is never exposed as an announced ``x`` the way X/ANY are.
+REMOVE_COUNTERS_ALL = -3
 
 #: MEC-43 round 4 (Grim Hireling): the `ActivationCost.sacrifice_count`
 #: sibling of `REMOVE_COUNTERS_X` — "Sacrifice X Treasures" isn't a printed
@@ -720,6 +727,8 @@ class ActivationCost:
                 parts.append(f"Remove X {kind} counter(s)")
             elif count == REMOVE_COUNTERS_ANY:
                 parts.append(f"Remove any number of {kind} counters")
+            elif count == REMOVE_COUNTERS_ALL:
+                parts.append(f"Remove all {kind} counters")
             else:
                 parts.append(f"Remove {count} {kind} counter(s)")
         if self.exile_from_graveyard:

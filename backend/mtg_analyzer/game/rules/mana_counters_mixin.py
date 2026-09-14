@@ -390,7 +390,7 @@ class ManaCountersMixin:
             doubles=doubles,
         ))
         return kept
-    def set_tapped(self, obj: GameObject, tapped: bool = True) -> None:
+    def set_tapped(self, obj: GameObject, tapped: bool = True, reason: Optional[str] = None) -> None:
         """Tap or untap a permanent (RULE 701.21 / 701.22) — the choke point
         for a genuine tap/untap transition (attacking, a tap cost, a mana
         ability), so it's also where a "becomes tapped" trigger (RULE 603.2,
@@ -408,6 +408,15 @@ class ManaCountersMixin:
         A zone-change reset (a fresh battlefield arrival, `reset_as_new_
         object`) still sets `tapped` directly and correctly fires neither
         event — RULE 400.7's new object was never tapped/untapped "before".
+
+        ``reason`` (PAR-68, RULE 702.194a) tags *why* this tap happened —
+        currently only ``"teamwork"`` (Teamwork's own tap-to-pay cost
+        component, `casting_mixin._pay_teamwork_cost`-adjacent call site) —
+        so a "whenever ~ becomes tapped **to pay a teamwork cost**" trigger
+        (Agent Maria Hill) can tell that apart from an ordinary attack/tap-
+        ability transition, which fires this same event with no reason at
+        all. Carried on the `TAPPED` event only; every other tap source
+        passes ``None`` and behaves exactly as before.
         """
         was_tapped = obj.tapped
         # RULE 122.1c: "If a permanent with a stun counter on it would become
@@ -431,6 +440,7 @@ class ManaCountersMixin:
                     object=obj.name,
                     controller_id=obj.controller_id,
                     instance_id=obj.instance_id,
+                    reason=reason,
                 )
             )
         elif not tapped and was_tapped:

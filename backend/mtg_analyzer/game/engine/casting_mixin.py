@@ -1797,6 +1797,28 @@ class CastingMixin:
             obj.cast_outside_sorcery_speed = not (
                 player is self.state.active_player and self._in_main_phase() and not self.state.stack
             )
+            # RULE 601.2h/702.194a: Teamwork's tap cost is paid here, ahead
+            # of every cast-path branch below (rather than alongside the
+            # other additional-cost bookkeeping further down, after `self.
+            # rules.cast_spell`/`cast_without_paying` has already fired
+            # `SPELL_CAST`) — PAR-68's "whenever you cast a spell using
+            # teamwork" trigger (Virtual Assistant) reads `GameObject.
+            # teamwork_paid` straight off that very event's own spell, so
+            # the flag must already be true by the time it fires. Every
+            # other additional-cost flag (kicker_count, buyback_paid,
+            # bargained, …) stays where it is — nothing reads *those*
+            # before resolution, so there's no ordering bug to fix there.
+            obj.teamwork_paid = False
+            if teamwork:
+                selected = self._teamwork_selection(player, obj, teamwork_choices)
+                if selected is None:
+                    raise ValueError(f"{obj.name}: illegal Teamwork payment")
+                for creature in selected:
+                    # PAR-68: tag this tap so a "becomes tapped to pay a
+                    # teamwork cost" trigger (Agent Maria Hill) can tell it
+                    # apart from an ordinary attack/tap-ability transition.
+                    self.rules.set_tapped(creature, True, reason="teamwork")
+                obj.teamwork_paid = True
             if free:
                 result = self.rules.cast_without_paying(player, obj, targets, target_groups)
             elif bestow:
@@ -1923,14 +1945,6 @@ class CastingMixin:
             # `RulesEngine.resolve_top_of_stack` to route the spell back to
             # hand instead of the graveyard.
             obj.buyback_paid = buyback
-            obj.teamwork_paid = False
-            if teamwork:
-                selected = self._teamwork_selection(player, obj, teamwork_choices)
-                if selected is None:
-                    raise ValueError(f"{obj.name}: illegal Teamwork payment")
-                for creature in selected:
-                    self.rules.set_tapped(creature, True)
-                obj.teamwork_paid = True
             if mutate:
                 # RULE 702.140a/601.2c: the host must be a legal mutate
                 # target — checked here rather than by the ordinary

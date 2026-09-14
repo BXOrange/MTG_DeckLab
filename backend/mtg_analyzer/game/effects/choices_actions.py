@@ -2531,15 +2531,26 @@ class TakeExtraTurnEffect(GameEffect):
     the number of "time" votes.
     """
 
-    def __init__(self, count: int = 1, source: Optional["GameObject"] = None) -> None:
+    def __init__(self, count: Any = 1, source: Optional["GameObject"] = None) -> None:
         super().__init__(source)
-        self.count = max(0, int(count))
+        # Not cast to ``int`` here (PAR-67, Sage of Hours): a `bind`
+        # (RULE 608.2) node substitutes its sentinel only at `apply()` time,
+        # so a `bind`-measured ``count`` still reads as ``"$n"`` while
+        # `target_specs` builds every composed effect once, uncoerced, just
+        # to enumerate targeting requirements — the same "store raw, coerce
+        # lazily" idiom `AddCountersEffect.amount` and friends already use.
+        self.count = count
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
-        if player is not None:
-            for _ in range(self.count):
-                context.take_extra_turn(player)
+        if player is None:
+            return
+        try:
+            count = max(0, int(self.count))
+        except (TypeError, ValueError):
+            return
+        for _ in range(count):
+            context.take_extra_turn(player)
 
 
 class ControlPlayerEffect(GameEffect):

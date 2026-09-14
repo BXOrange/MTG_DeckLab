@@ -506,8 +506,32 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 44.2% (15,388 / 34,811) as of 2026-09-14, measured at
-PARSER_VERSION 381** (v381 closes PAR-53 — Party (RULE 700.8/702.129), wiring the already-built `creatures_in_your_party` count selector to its cost-reduction form and a `"full party"` condition — PAR-56 — Teamwork (RULE 702.194) rider grammar, which also found and fixed a dormant bug where `"teamwork_paid"` was missing from `SUBJECT_FLAGS`, so an earlier-shipped rider condition silently never fired despite parsing fine — PAR-65 — parametric-keyword static grants, starting with Ward `<cost>` (RULE 702.21b; the engine's `ward_cost` grant loop was already fully generic, only the parser's keyword-list regexes couldn't capture the cost) — and PAR-66 — "counters removed this way" as a resolve-time amount, a new `GameContext.counters_removed_this_way` accumulator mirroring `objects_exiled_this_way`; +65 total, zero regressed; v380 closes PAR-47 — the charge-counter add/spend cluster's residual gaps (`_add_named_counter` gains `COUNT_X`, `_pump_x` gains the "-x/-x" polarity, `_gain_life` accepts "x") — and PAR-51 — Storied (RULE 702.195, the Hobbit-Dwarves cluster) as a plain Ascend/city's-blessing-shaped designation, plus `normalize`'s comma-less "`<Name>` the `<Epithet>`" self-reference fold, +35; v379 closes PAR-43 — the Aura/Equipment "for each `<X>`" anthem form plus ~25 new `count_selector` entries shared with the self-scoped form, +70; v378 closes PAR-59's Haunt payoff wrappers; v377 adds PAR-56's additive Teamwork rider condition; v376 closes PAR-52's Spirit-or-Arcane cast triggers; v375 fixes the spurious `Jump`/`Jump-start` label split from PAR-51's trace; v374 closes PAR-50's combat-damage assignment statics; v373 closes PAR-49's Mistform creature-type overwrite; v372 closes PAR-45's opponent-choice entry replacement; v371 closes PAR-44's deck-construction exception; v370 closes PAR-64's Raid positional forms; v367 closes PAR-41's X-scaled discard and graveyard-exile additional costs;
+**Coverage: 44.2% (15,395 / 34,811) as of 2026-09-14, measured at
+PARSER_VERSION 382** (v382's only genuine parser-classification change is
+PAR-68's "teamwork" ability-word strip, +0 on its own — see the ledger
+entry below; PAR-68 otherwise, like PAR-67 right before it, is hand-
+authored: Agent Maria Hill's "becomes tapped to pay a teamwork cost"
+trigger (new `GameEngine.set_tapped(reason=...)` tag + `requires_tap_
+reason` predicate), Virtual Assistant's "whenever you cast a spell using
+teamwork" trigger (new `requires_spell_cast_via_teamwork` predicate — this
+one needed a genuine cast-pipeline ordering fix, Teamwork's own tap
+payment moved ahead of `self.rules.cast_spell` so `GameObject.
+teamwork_paid` is already true by the time `SPELL_CAST` fires), Helicarrier
+Strike's magnitude-only "instead" override (new `DealDamageEffect.
+amount_if_teamwork`, mirroring `amount_if_kicked`), and Beast Mode's
+trailing `condition={"teamwork_paid": True}` gate reading "that creature"
+via `AddCountersEffect.previous_subject` — all four confirmed singleton via
+`parser_probe.py blocked`, +4. Cruel Alliance/Too Evil to Stay Dead/Earth's
+Mightiest Heroes stay open (`MEC-85`) — their own teamwork "instead"
+clauses change *target legality*/*selection count*, not a flat magnitude,
+which needs a real new targeting primitive. PAR-67 (v381, no bump) — the
+counter-removal-followup residue beyond PAR-66's plain accumulator (Garnet,
+Princess of Alexandria's chosen-Saga lore-counter removal; Lily Bowen,
+Raging Grandma's "remove all but N" partial-removal count; Sage of Hours'
+cost-paid "counters removed this way" reading `GameObject.
+counters_removed_as_cost`, the `x_paid` sibling a cost payment — rather
+than a resolving effect — needs) — same hand-authored treatment, all three
+confirmed singleton, +3; v381 closes PAR-53 — Party (RULE 700.8/702.129), wiring the already-built `creatures_in_your_party` count selector to its cost-reduction form and a `"full party"` condition — PAR-56 — Teamwork (RULE 702.194) rider grammar, which also found and fixed a dormant bug where `"teamwork_paid"` was missing from `SUBJECT_FLAGS`, so an earlier-shipped rider condition silently never fired despite parsing fine — PAR-65 — parametric-keyword static grants, starting with Ward `<cost>` (RULE 702.21b; the engine's `ward_cost` grant loop was already fully generic, only the parser's keyword-list regexes couldn't capture the cost) — and PAR-66 — "counters removed this way" as a resolve-time amount, a new `GameContext.counters_removed_this_way` accumulator mirroring `objects_exiled_this_way`; +65 total, zero regressed; v380 closes PAR-47 — the charge-counter add/spend cluster's residual gaps (`_add_named_counter` gains `COUNT_X`, `_pump_x` gains the "-x/-x" polarity, `_gain_life` accepts "x") — and PAR-51 — Storied (RULE 702.195, the Hobbit-Dwarves cluster) as a plain Ascend/city's-blessing-shaped designation, plus `normalize`'s comma-less "`<Name>` the `<Epithet>`" self-reference fold, +35; v379 closes PAR-43 — the Aura/Equipment "for each `<X>`" anthem form plus ~25 new `count_selector` entries shared with the self-scoped form, +70; v378 closes PAR-59's Haunt payoff wrappers; v377 adds PAR-56's additive Teamwork rider condition; v376 closes PAR-52's Spirit-or-Arcane cast triggers; v375 fixes the spurious `Jump`/`Jump-start` label split from PAR-51's trace; v374 closes PAR-50's combat-damage assignment statics; v373 closes PAR-49's Mistform creature-type overwrite; v372 closes PAR-45's opponent-choice entry replacement; v371 closes PAR-44's deck-construction exception; v370 closes PAR-64's Raid positional forms; v367 closes PAR-41's X-scaled discard and graveyard-exile additional costs;
 v366 closes PAR-38's remaining upkeep-damage riders
 and Elfhame Sanctuary's conditional draw-step skip; v365 closes PAR-36's combat-damage-scaled discard;
 v364 closes PAR-35's combat-only casting restriction,
@@ -597,7 +621,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 46.4% (14,769 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 46.4% (14,776 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

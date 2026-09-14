@@ -2900,7 +2900,22 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: hand-authored Culling Ritual, now reachable from oracle text too) plus
 #: `GainLifeEffect.count_selector="counters_removed_this_way"`. +65 total
 #: across this batch, zero regressed.
-PARSER_VERSION = "381"
+#: v382 — PAR-68's only genuine parser-classification change: "teamwork"
+#: joins `normalize._ABILITY_WORD_RE` (RULE 702.194c's "Teamwork —
+#: `<ability>`." label, same reasoning as every other ability-word row —
+#: the label carries no rules meaning of its own, RULE 207.2c). Doesn't
+#: move any card to MODELED on its own (Sol, Advocate Eternal stays
+#: blocked on an unrelated Partner gap), but is a real classification
+#: change (one fewer UNCLAIMED clause on that card), so the version still
+#: bumps per the ledger's own "reused vs parsed" keying. PAR-68's other
+#: four cards (Agent Maria Hill, Virtual Assistant, Helicarrier Strike,
+#: Beast Mode) are hand-authored (`game/ability_catalogue/value.py`) —
+#: +0 by design, no parser handler was written for any of them (each
+#: confirmed a genuine singleton via `parser_probe.py blocked`, no nearby
+#: cluster). +0 parser-modeled, +4 hand-authored this batch alongside
+#: PAR-67's own +3, zero regressed (`python -m pytest -q`, 100
+#: pre-existing unrelated failures unchanged before/after).
+PARSER_VERSION = "382"
 
 
 def parser_source_hash() -> str:

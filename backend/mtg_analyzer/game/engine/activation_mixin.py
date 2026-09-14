@@ -32,6 +32,7 @@ from ...models.decks.formats import GameFormat, get_format
 from ..costs import (
     DISCARD_HAND,
     PAY_LIFE_X,
+    REMOVE_COUNTERS_ALL,
     REMOVE_COUNTERS_ANY,
     REMOVE_COUNTERS_X,
     SACRIFICE_COUNT_X,
@@ -528,6 +529,11 @@ class ActivationMixin:
                 # many of the counter actually sit on the source.
                 if x < 0 or source.counters.get(kind, 0) < x:
                     return False
+            elif count == REMOVE_COUNTERS_ALL:
+                # Always payable — "remove all" of zero is a legal, empty
+                # payment (the RULE 602.1 "sacrifice all <x>" cost family's
+                # own precedent), not a threshold to clear.
+                pass
             elif source.counters.get(kind, 0) < count:
                 return False
         if cost.tap_others:
@@ -1156,8 +1162,19 @@ class ActivationMixin:
                 )
         if cost.remove_counters:
             kind, count = cost.remove_counters
-            amount = x if count in (REMOVE_COUNTERS_X, REMOVE_COUNTERS_ANY) else count
+            if count == REMOVE_COUNTERS_ALL:
+                amount = source.counters.get(kind, 0)
+            else:
+                amount = x if count in (REMOVE_COUNTERS_X, REMOVE_COUNTERS_ANY) else count
             source.add_counters(kind, -amount)
+            # PAR-67 (Sage of Hours): "for each five counters removed this
+            # way, take an extra turn" reads this amount back at *resolve*
+            # time — a cost-paid removal has no `GameContext` of its own for
+            # `RemoveCountersEffect`'s `counters_removed_this_way` tally to
+            # land in, so it's stamped on the source directly instead,
+            # mirroring `x_paid`'s own "remember what this activation just
+            # announced/paid" idiom.
+            source.counters_removed_as_cost = amount
         if cost.add_counters_cost:
             kind, count = cost.add_counters_cost
             source.add_counters(kind, count)

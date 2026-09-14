@@ -1451,6 +1451,35 @@ def _trigger_condition(
 
         predicates.append(_spell_targets_source_ok)
 
+    # "Whenever you cast a spell using teamwork, `<effect>`." (Virtual
+    # Assistant, PAR-68, RULE 702.194b) — the SPELL_CAST event's own
+    # ``instance_id`` still resolves to the spell on the stack (the same
+    # lookup `spell_shares_creature_type_with_source` makes just below), so
+    # its live `GameObject.teamwork_paid` flag (stamped at cast time,
+    # `casting_mixin.cast_spell`) is readable straight off it — no new event
+    # field needed, unlike `requires_tap_reason`'s own TAPPED-event case.
+    if trigger.get("requires_spell_cast_via_teamwork"):
+        def _spell_cast_via_teamwork_ok(event: Any, context: Any) -> bool:
+            state = getattr(context, "state", None)
+            spell = state.find_object(event.get("instance_id")) if state is not None else None
+            return bool(spell is not None and getattr(spell, "teamwork_paid", False))
+
+        predicates.append(_spell_cast_via_teamwork_ok)
+
+    # "Whenever ~ becomes tapped to pay a teamwork cost, `<effect>`." (Agent
+    # Maria Hill, PAR-68, RULE 702.194a) — `TAPPED` already fires generically
+    # for every genuine tap transition (`set_tapped`'s own docstring); this
+    # narrows to the one `reason` Teamwork's own tap-to-pay loop stamps onto
+    # that event, so an ordinary attack/tap-ability transition (``reason``
+    # unset) correctly doesn't also fire this trigger.
+    if trigger.get("requires_tap_reason"):
+        wanted_reason = trigger["requires_tap_reason"]
+
+        def _tap_reason_ok(event: Any, context: Any, wanted=wanted_reason) -> bool:
+            return event.get("reason") == wanted
+
+        predicates.append(_tap_reason_ok)
+
     # "Whenever you cast a spell that shares a creature type with ~, …"
     # (Folk Hero's granted trigger, PAR-32) — the spell is still on the
     # stack (`event["instance_id"]`); compare its creature subtypes with

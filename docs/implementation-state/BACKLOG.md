@@ -56,95 +56,79 @@ its block back into the matching section here.
   here too (triggers already recognized, ~13/309 bodies done) — not a
   separate ticket.
 
-  > **Ticket-id note:** every number from `PAR-1` through `PAR-30` is
+  > **Ticket-id note:** every number from `PAR-1` through `PAR-68` is
   > already a real, shipped, cross-referenced ticket elsewhere in this
-  > codebase (grep before reusing one — `PAR-14`, for one, is RULE 603.2's
-  > once-per-turn trigger limiter, `Done_Backend.md`, nothing to do with
-  > keywords; `PAR-30` was `PAR-29`'s parser trail, closed PARSER_VERSION
-  > 216 — all 24 RULE 701 keyword actions have recognition + an engine
-  > primitive, and its last residue moved to `MEC-52`, closed). The first free
-  > parser ticket id is **`PAR-69`** (checked 2026-09-14 — `PAR-47`/`PAR-51`
-  > closed an earlier pass this session, `PAR-65`/`PAR-66` filed from their
-  > residue then closed *this* pass along with `PAR-53`/`PAR-56`, and
-  > `PAR-67`/`PAR-68` filed from their own residue below): `PAR-31…PAR-53` are
-  > the Commander-legal tail clusters below, `PAR-54`/`PAR-55`/`PAR-57`/`PAR-60`
-  > `PAR-58`/`PAR-59`/`PAR-64` are open below, and `PAR-61` is the
-  > grammar-restructure umbrella above.
+  > codebase, and **every one of them is closed** — grep `Done_Backend.md`
+  > before reusing one (`PAR-14`, for one, is RULE 603.2's once-per-turn
+  > trigger limiter, nothing to do with keywords). The first free parser
+  > ticket id is **`PAR-69`** (checked 2026-09-14). `PAR-31…PAR-53` names
+  > the Commander-legal tail cluster below; every other id up to `PAR-68`
+  > is closed narrative only, not a live pointer — don't read a stale
+  > "open below" claim from an earlier revision of this note as still true
+  > without checking `Done_Backend.md` first.
 
 - **PAR-31…PAR-53 · Commander-legal tail — one PAR per recurring template
   cluster.** Seeded from `scripts/commander_tail_report.py` (read-only,
   segments every still-UNMODELED **Commander-legal** card by *cause* into
   buckets A–F; A = wrapper/segmenter re-measure, B = recurring template, C =
   set-specific mechanic, D = missing primitive → `MEC-*`, E = bespoke
-  hand-authoring tail → PAR-12). The `#` below is the tool's
-  Commander-legal SOLO upper bound at the run cited — **re-run the tool and
-  `parser_probe.py blocked '<regex>'` before starting a batch**, the real
-  SOLO count is always lower. Close each the normal way (delete the line,
-  narrate in `Done_Backend.md`, bump `PARSER_VERSION`, sync the three
-  coverage figures, sweep for siblings). Full method:
-  [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Counts below are from a
-  PARSER_VERSION 186 run (2026-09-01) and are stale; a fresh v298 segmentation
-  is in
+  hand-authoring tail → PAR-12). **Re-run the tool and `parser_probe.py
+  blocked '<regex>'` before starting a batch** — any `#` count quoted in a
+  past entry here was already stale by the time it was read; the tool's own
+  live output is the only trustworthy count. Close each the normal way
+  (delete the line, narrate in `Done_Backend.md`, bump `PARSER_VERSION` —
+  unless the batch turned out fully hand-authored, which needs none — sync
+  the three coverage figures, sweep for siblings; a genuinely singleton
+  card with no nearby cluster goes to `game/ability_catalogue/` instead of
+  new parser grammar, per the extend-parser skill's own rule). Full method:
+  [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md); a v298 bucket segmentation is
+  in
   [13_ORACLE_PARSER_GRAMMAR_REVIEW.md](../concepts/13_ORACLE_PARSER_GRAMMAR_REVIEW.md)
-  §5.3. Every ticket shall be completed end to end without leaving residue
-  before moving to the next ticket.
+  §5.3 (stale — re-run the tool rather than trusting it). Every ticket
+  shall be completed end to end without leaving residue before moving to
+  the next ticket.
 
-  Bucket B (recurring effect-body / static templates, `extend-parser` loop):
-
-  - **PAR-67 · Counter-removal follow-ups beyond the plain accumulator.**
-    `GameContext.counters_removed_this_way` + `RemoveCountersEffect.
-    self_only`/`kind` (PAR-66, closed) already closed Coalition Relic/
-    Ventifact Bottle outright; three more cards each need a *further*,
-    distinct shape on top of that same primitive: **Garnet, Princess of
-    Alexandria** ("remove a lore counter from **each of any number of**
-    Sagas you control" — a multi-object removal across a player's own
-    *choice* of permanents, not one target/self source, plus `"lore"`
-    joining `_NAMED_COUNTER_KINDS`); **Lily Bowen, Raging Grandma** ("remove
-    **all but one** +1/+1 counter" — a partial-removal count, not
-    `RemoveCountersEffect`'s existing all-or-chosen-amount shapes); **Sage
-    of Hours** ("for each **5** counters removed this way, take an extra
-    turn" — a division-scaled repeat-action, not a plain 1:1 amount read).
-  - **PAR-68 · Teamwork-adjacent one-offs beyond the rider condition.**
-    PAR-56 (closed) already routes "if this spell was cast using teamwork"
-    riders to a `teamwork_paid` condition, both the modal override and the
-    leading/trailing additive shapes. What's left on real cards is each its
-    own different template, not more "teamwork" grammar: a
-    damage/exile/choose **magnitude override** family parallel to the
-    existing kicked/bargained "instead" overrides (Helicarrier Strike,
-    Cruel Alliance, Too Evil to Stay Dead, Earth's Mightiest Heroes); a
-    trailing "also `<effect>` if teamwork" additive that also needs a "that
-    creature" previous-target pronoun `add_counters` doesn't resolve yet
-    (Beast Mode); the `Teamwork — <ability>` ability-word keyword line; two
-    new trigger conditions ("whenever `<name>` becomes tapped to pay a
-    teamwork cost", "whenever you cast a spell using teamwork"); and "you
-    may cast this spell as though it had flash if it's cast using teamwork"
-    (a cast-permission condition). HULK SMASH!/Atlantis Attacks/Murdock's
-    Crusade (PAR-56's old seed cards) are each blocked by unrelated,
-    generic gaps instead (a "target player creates a token" recipient, a
-    `<Name> — <effect>` flavor-label-prefixed mode body, "destroy target
-    noncreature artifact") — real but nothing to do with Teamwork.
+  No open Bucket B (recurring effect-body / static template) items right
+  now — PAR-67/PAR-68 (the last two) both closed 2026-09-14.
 
   Bucket C (set-specific mechanics, deck-first):
 
-  - Doctor's companion (Doctor Who) (#28), Rebel/Mercenary recruiter
-    tutor chains (Mercadian Masques) (#21), `enters prepared` (#23) —
-    file from the next free id (see the ticket-id note above) when their
-    batch comes up; not enumerated further here to keep the list to the
-    first wave.
-  - **Non-goal / lowest priority, no ticket:** Attractions (RULE 717,
-    #19 — permanent non-goal), Conspiracy draft-matters (#13), Banding
-    (#13), Horsemanship (#8) — dead pools / non-goals, documented, kept
-    out of the denominator with the sticker cards.
+  - Doctor's companion (Doctor Who), Rebel/Mercenary recruiter tutor
+    chains (Mercadian Masques), `enters prepared` — file from the next
+    free id (see the ticket-id note above) when their batch comes up; not
+    sized further here since the counts above are already known-stale.
+  - **Non-goal / lowest priority, no ticket:** Attractions (RULE 717 —
+    permanent non-goal), Conspiracy draft-matters, Banding, Horsemanship —
+    dead pools / non-goals, documented, kept out of the denominator with
+    the sticker cards.
 
 ## MEC — Game mechanics
 
-> No open tickets.
->
-> New MEC tickets come from `scripts/commander_tail_report.py`'s bucket D
-> (~132 Commander-legal cards; its signature labels name the *missing
-> primitive*). Not filed, on purpose: the Attractions family (RULE 701.45
-> Assemble, 701.51 Open an Attraction, 701.52 Roll to Visit Your Attractions)
-> is a permanent non-goal in `DEFERRED.md`.
+- **MEC-85 · Cast-time-conditional target legality/selection count
+  ("instead" overrides beyond a flat magnitude).** RULE 702.194b's
+  Teamwork "instead" clauses come in two shapes: PAR-68 (closed) built
+  `DealDamageEffect.amount_if_teamwork` for the flat-magnitude one
+  (Helicarrier Strike — same target either way, mirrors the existing
+  `amount_if_kicked`/`amount_if_bargained` family). Three more cards need
+  the *other* shape, which has no primitive yet: **Cruel Alliance**
+  ("exile target creature with mana value 3 or less. If this spell was
+  cast using teamwork, instead exile target creature…" — the mana-value
+  cap on the RULE 115 target itself is conditional, not just the effect);
+  **Too Evil to Stay Dead** (same shape, a graveyard target's mana-value
+  cap); **Earth's Mightiest Heroes** ("you may put a creature card from
+  among them onto the battlefield. If this spell was cast using teamwork,
+  put **any number** of creature cards… instead" — a selection-count
+  override, "up to one" vs "any number", not a magnitude). `TargetSpec`
+  carries no condition of its own today (checked — no such field exists),
+  so a target-gathering pass can't yet ask "which filter applies" against
+  a cast-time flag like `teamwork_paid`; RULE 601.2b/c already make this
+  answerable in principle (additional costs, including Teamwork, are
+  chosen and paid before targets are chosen), so the fix is a genuine new
+  targeting primitive, not a resolve-time trick like `amount_if_teamwork`.
+  Not the same gap as Colossal Growth's own excluded scope
+  (`Done_Backend.md`'s MEC-82 entry — a magnitude override that *also*
+  grants a keyword, no target-legality question at all); don't conflate
+  the two when picking this up.
 
 ## PLR — Player management
 
