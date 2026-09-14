@@ -72,12 +72,9 @@ sys.path.insert(0, str(BACKEND))
 from mtg_analyzer.game import combat as combat_mod  # noqa: E402
 from mtg_analyzer.game import continuous, mana_abilities  # noqa: E402
 from mtg_analyzer.game.ability_catalogue import is_registered  # noqa: E402
-from mtg_analyzer.game.effect_binder import bind_from_catalogue  # noqa: E402
+from mtg_analyzer.game.binding.core import bind_from_catalogue  # noqa: E402
 from mtg_analyzer.game.game_engine import GameEngine  # noqa: E402
-from mtg_analyzer.models.card import Card  # noqa: E402
-from mtg_analyzer.models.events import EventType  # noqa: E402
-from mtg_analyzer.models.game_object import GameObject, Zone  # noqa: E402
-from mtg_analyzer.models.mana_cost import ManaCost  # noqa: E402
+from mtg_analyzer.models import Card, EventType, GameObject, ManaCost, Zone  # noqa: E402
 from mtg_analyzer.parser.oracle.gate import parse_oracle  # noqa: E402
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH  # noqa: E402
 
@@ -279,7 +276,7 @@ def cmd_inspect(args):
         print("  a mana ability (see below — RULE 605 abilities are parsed by")
         print("  `mana_abilities_for`, not bound) or a pure keyword. Otherwise it means")
         print("  the card is UNMODELED above, or its spec `type` string is missing from")
-        print("  `EffectRegistry` in game/effects.py — the silent-no-op failure mode.")
+        print("  `EffectRegistry` in game/effects/ — the silent-no-op failure mode.")
 
     print("\n--- layer engine (RULE 613, continuous.recompute) ---")
     print(f"  derived: {board_line(obj)}")
@@ -509,7 +506,7 @@ def cmd_events(args):
     for name in sorted(names):
         print(f"  {name:28s} = {getattr(EventType, name)!r}")
     print("\nWho fires each one: grep for `EventType.<NAME>` in game/rules_engine.py")
-    print("and game/game_engine.py. Who listens: game/effect_binder.py.")
+    print("and game/game_engine.py. Who listens: game/binding/core.py.")
 
 
 # --- where ------------------------------------------------------------------
@@ -527,26 +524,28 @@ _WHERE = {
     "statics": "game/continuous.py; per-player permission helpers "
                "(extra_land_plays_for/has_no_maximum_hand_size) are NOT the layer "
                "engine — they're consulted directly",
-    "triggers": "game/effects.py TriggeredAbility + game/effect_binder.py "
+    "triggers": "game/effects/core.py TriggeredAbility + game/binding/core.py "
                 "_trigger_condition/_build_group_ok; RULE 603",
-    "replacement": "game/effects.py ReplacementEffect + RulesEngine's pre-emptive "
-                   "WOULD_DIE/DESTROY/LIFE_GAIN events; RULE 614/616",
+    "replacement": "game/effects/replacements.py ReplacementEffect + RulesEngine's "
+                   "pre-emptive WOULD_DIE/DESTROY/LIFE_GAIN events; RULE 614/616",
     "sba": "game/rules_engine.py check_state_based_actions; RULE 704",
     "targeting": "game/targeting.py legal_targets/partition_targets; RULE 115/601.2c",
-    "mana": "game/mana_abilities.py + models/mana_cost.py + models/mana_pool.py "
+    "mana": "game/mana_abilities.py + models/mana/mana_cost.py + models/mana/mana_pool.py "
             "(RULE 605.3a restrictions are tagged lots in the pool); RULE 106/605",
     "costs": "game/costs.py — activated-ability cost parsing; RULE 118/602",
-    "effects": "game/effects.py — the effect hierarchy + EffectRegistry "
-               "(whitelisted type -> factory). 9k lines: grep the type string",
-    "binding": "game/effect_binder.py attach_to_object/bind_from_catalogue; "
-               "game/ability_catalogue.py specs_for is the source of specs",
-    "authoring": "game/ability_catalogue.py + "
+    "effects": "game/effects/ — the effect hierarchy + EffectRegistry (whitelisted "
+               "type -> factory), split ~15 modules by family (core.py has the "
+               "hierarchy + registry; registry.py has the concrete registrations); "
+               "grep the type string across game/effects/*.py",
+    "binding": "game/binding/core.py attach_to_object/bind_from_catalogue; "
+               "game/ability_catalogue/ specs_for (in core.py) is the source of specs",
+    "authoring": "game/ability_catalogue/ (one module per card family) + "
                  "docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md",
     "session": "services/game_session.py — snapshots/undo/take_back/view redaction",
-    "facedown": "game/face_down.py; models/game_object.py turn_face_down/turn_face_up; "
+    "facedown": "game/face_down.py; models/game/game_object.py turn_face_down/turn_face_up; "
                 "RULE 708",
-    "dungeons": "models/dungeon.py + game/dungeons.py; RULE 309/701.49",
-    "variants": "models/game_format.py + game/variants.py; RULE 901/902/904",
+    "dungeons": "models/game/dungeon.py + game/dungeons.py; RULE 309/701.49",
+    "variants": "models/decks/formats.py + game/variants.py; RULE 901/902/904",
 }
 
 
@@ -624,25 +623,29 @@ def _register_calls(text: str, call: str):
 
 
 def _effect_types():
-    """Registered effect types + the params their factory actually reads."""
-    text = _src("game/effects.py")
+    """Registered effect types + the params their factory actually reads.
+
+    `game/effects.py` is now the package `game/effects/` (~15 focused modules,
+    ENG-20/21-style split) — scan every module in it, not one file.
+    """
     rows = []
-    for name, body, line in _register_calls(text, "EffectRegistry.register"):
-        cls = re.search(r"lambda p:\s*([A-Za-z_]+)", body)
-        params = sorted(set(re.findall(r"p\.get\(\s*[\"']([a-z0-9_]+)[\"']", body)))
-        rows.append((name, (cls.group(1) if cls else "?") + "(" + ", ".join(params) + ")",
-                     f"game/effects.py:{line}"))
+    for rel, text in _src_many(["game/effects/*.py"]):
+        for name, body, line in _register_calls(text, "EffectRegistry.register"):
+            cls = re.search(r"lambda p:\s*([A-Za-z_]+)", body)
+            params = sorted(set(re.findall(r"p\.get\(\s*[\"']([a-z0-9_]+)[\"']", body)))
+            rows.append((name, (cls.group(1) if cls else "?") + "(" + ", ".join(params) + ")",
+                         f"{rel}:{line}"))
     return rows
 
 
 def _replacement_types():
-    text = _src("game/effects.py")
-    return [
-        (m.group(1), m.group(2), f"game/effects.py:{_lineno(text, m.start())}")
+    rows = []
+    for rel, text in _src_many(["game/effects/*.py"]):
         for m in re.finditer(
             r"ReplacementRegistry\.register\(\s*[\"']([a-z0-9_]+)[\"']\s*,\s*(\w+)", text
-        )
-    ]
+        ):
+            rows.append((m.group(1), m.group(2), f"{rel}:{_lineno(text, m.start())}"))
+    return rows
 
 
 def _choice_kinds() -> dict:
@@ -713,12 +716,12 @@ def _methods(rels: list[str], label: str):
 
 def _object_state():
     """`GameObject`'s per-instance state — where a new mechanic's flag goes."""
-    text = _src("models/game_object.py")
+    text = _src("models/game/game_object.py")
     seen, rows = set(), []
     for m in re.finditer(r"^        self\.([a-z][a-z0-9_]*)\s*[:=]", text, re.M):
         if m.group(1) not in seen:
             seen.add(m.group(1))
-            rows.append((m.group(1), "GameObject", f"models/game_object.py:{_lineno(text, m.start())}"))
+            rows.append((m.group(1), "GameObject", f"models/game/game_object.py:{_lineno(text, m.start())}"))
     return rows
 
 
@@ -729,13 +732,19 @@ def _keyword_rows():
 
 
 def _authored_rows():
+    """Hand-authored cards — `game/ability_catalogue.py` is now the package
+    `game/ability_catalogue/` (one module per card family); search all of it."""
     from mtg_analyzer.game import ability_catalogue as ac
 
-    text = _src("game/ability_catalogue.py")
+    files = _src_many(["game/ability_catalogue/*.py"])
     rows = []
     for name in sorted(ac._REGISTRY):
-        m = re.search(rf"register\(\s*[\"']{re.escape(name)}[\"']", text, re.I)
-        where = f"game/ability_catalogue.py:{_lineno(text, m.start())}" if m else "game/ability_catalogue.py"
+        where = "game/ability_catalogue/"
+        for rel, text in files:
+            m = re.search(rf"register\(\s*[\"']{re.escape(name)}[\"']", text, re.I)
+            if m:
+                where = f"{rel}:{_lineno(text, m.start())}"
+                break
         rows.append((name, "hand-authored card", where))
     return rows
 
@@ -747,8 +756,8 @@ def cmd_primitives(args):
         ("effect types (EffectRegistry)", _effect_types()),
         ("replacement types (ReplacementRegistry)", _replacement_types()),
         ("events (EventType)", [
-            (m.group(1), "EventType", f"models/events.py:{_lineno(_src('models/events.py'), m.start())}")
-            for m in re.finditer(r"^\s{4}([A-Z][A-Z_0-9]*)\s*=\s*[\"']", _src("models/events.py"), re.M)
+            (m.group(1), "EventType", f"models/game/events.py:{_lineno(_src('models/game/events.py'), m.start())}")
+            for m in re.finditer(r"^\s{4}([A-Z][A-Z_0-9]*)\s*=\s*[\"']", _src("models/game/events.py"), re.M)
         ]),
         ("interactive choices (pending_choice)",
          [(k, "choice kind", str(v["line"])) for k, v in sorted(choices.items())]),

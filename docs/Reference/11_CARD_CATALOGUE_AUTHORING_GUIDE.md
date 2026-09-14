@@ -4,8 +4,14 @@ Status: **current — describes the pipeline as implemented today**, not a
 design proposal. Read [09_ORACLE_EFFECT_PARSER.md](../concepts/09_ORACLE_EFFECT_PARSER.md)
 first for the IR/binder architecture this guide operates; this document is
 the practical "how do I add card X" companion to it, scoped to
-[`backend/mtg_analyzer/game/ability_catalogue.py`](../../backend/mtg_analyzer/game/ability_catalogue.py)
+[`backend/mtg_analyzer/game/ability_catalogue/`](../../backend/mtg_analyzer/game/ability_catalogue/)
 (the **hand-authored** registry, not the oracle-text parser).
+
+Claude Code users: this guide is the field reference the
+**`hand-author-card`** skill leans on for the mechanical steps (finding the
+card's text, checking parser coverage, finding a template entry to adapt,
+assembling the scaffold) — read this document for *what the fields mean*,
+reach for that skill to avoid doing the lookups by hand.
 
 ---
 
@@ -21,7 +27,21 @@ The engine has two independent sources of a card's behaviour, and
    function per card name, returning the same `AbilitySpec` IR directly.
 
 **Check the parser first.** Before hand-authoring, find out whether the card
-already resolves on its own:
+already resolves on its own, and — just as important — *why not* in rules
+terms, not just which clause string got rejected.
+
+The **`understand-card`** skill's `understand_card.py` is the fast path for
+this: `card "<name>"` prints the parser's per-clause verdict alongside the
+governing Comprehensive Rules for every keyword and clause (so you know which
+CR sections a hand-written `AbilitySpec` has to respect before you write one),
+and `check "<name>"` goes one step further — it also binds the card and flags
+whether a `MODELED` card's specs actually produced a bound ability, which is
+exactly the "is this genuinely a parser gap, or something else" question this
+section is about. Reach for one of those before reaching for the raw
+`parse_oracle` call below; they're the same information, already resolved
+against the rules and the binder.
+
+The equivalent by hand:
 
 ```python
 from mtg_analyzer.parser.oracle.gate import parse_oracle
@@ -498,8 +518,15 @@ def _my_lord() -> list[AbilitySpec]:
 
 ## 13. Testing checklist
 
-Follow the pattern in `backend/tests/test_ability_catalogue.py` and
-`test_binding/core.py`:
+Before writing a single test, run `understand_card.py check "<name>"`
+(**understand-card** skill) — it binds the card the same way a test would and
+prints a `PASS`/`GAP` verdict for exactly the failure modes items 1-3 below
+test for (specs not produced, binder populated nothing, a broken factory).
+Fixing what it flags first means the test you then write is confirming
+correct behaviour, not discovering the entry doesn't bind at all.
+
+Follow the pattern in `backend/tests/game/catalogue/test_catalogue.py` and
+`backend/tests/game/binding/test_binding.py`:
 
 1. `ability_catalogue.specs_for(card)` returns the specs you expect (right
    `ability_kind`, right count).
@@ -509,11 +536,13 @@ Follow the pattern in `backend/tests/test_ability_catalogue.py` and
 3. `bind_from_catalogue(obj)` populates the right `GameObject` list
    (`obj.triggered_abilities`, `obj.activated_abilities`, …).
 4. An end-to-end test through a real `GameEngine`/`RulesEngine` (see
-   `TestLightningBoltEndToEnd` in `test_binding/core.py`, or
-   `test_build_engine_binds_library_and_command` in
-   `test_ability_catalogue.py`) that actually plays the ability and asserts
-   the resulting game state (card drawn, life changed, token created, …) —
-   don't stop at "an object of the right class was constructed."
+   `TestLightningBoltEndToEnd` in `test_binding.py`, or
+   `test_build_engine_binds_library_and_command` in `test_catalogue.py`) that
+   actually plays the ability and asserts the resulting game state (card
+   drawn, life changed, token created, …) — don't stop at "an object of the
+   right class was constructed." The **game-engine** skill's `engine_bench.py
+   play "<name>"` is the fast way to see this happen before committing to the
+   test's assertions.
 5. Run `cd backend && python -m pytest -q` — keep the whole suite green,
    not just your new tests (per CLAUDE.md).
 

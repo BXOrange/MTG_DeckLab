@@ -14,10 +14,10 @@ Read the CR passage with `understand_card.py term "<word>"` or
 | Idiom | Rule | Modeled in |
 | --- | --- | --- |
 | "When/Whenever/At …" (recognising the condition) | 603.1–603.2 | `parser/oracle/segmenter.py` (`_TRIGGER_RE`, `_trigger_condition`) |
-| "When ~ enters" / "dies" / "attacks" / "blocks" | 603.2, 603.3 | segmenter trigger conditions → `game/effect_binder.py` `_trigger_condition` |
+| "When ~ enters" / "dies" / "attacks" / "blocks" | 603.2, 603.3 | segmenter trigger conditions → `game/binding/core.py` `_trigger_condition` |
 | "Whenever you gain life / cast / draw" (player events) | 603.2 | segmenter `_PLAYER_TRIGGER_CONDITIONS`; engine `EventType.*` in `game/rules_engine.py` |
 | "At the beginning of the next …, …" (delayed) | 603.7 | `effects.CreateDelayedTriggerEffect`, `GameState.delayed_triggers` |
-| "When you do, …" (reflexive) | 603.2e | `pay_cost_then` spec / `effects.py` |
+| "When you do, …" (reflexive) | 603.2e | `pay_cost_then` spec / `game/effects/` |
 | Intervening "if" clause | 603.4 | trigger `condition` param |
 
 ## Static abilities & continuous effects (RULE 604, 611, 613)
@@ -28,16 +28,16 @@ Read the CR passage with `understand_card.py term "<word>"` or
 | "~ can't be blocked …" / "attacks each combat if able" | 509, 508.1 | `game/combat.py` restriction/requirement family |
 | "As long as …, …" (conditional static) | 613.6 | `game/static_conditions.py`, static `active_if` param |
 | "Until end of turn" / "until your next turn" | 611 | `game/durations.py` (`temp_*` path for EOT), `effects.GrantUntilEffect` |
-| "has \"<ability>\"" (granted ability) | 613 layer 6 | catalogue quoted-ability grants; `game/ability_catalogue.py` for singletons |
-| type-/color-changing ("is a 1/1 Insect in addition") | 613 layers 4, 7b | `game/continuous.py`; often UNCLAIMED → `ability_catalogue.py` |
+| "has \"<ability>\"" (granted ability) | 613 layer 6 | catalogue quoted-ability grants; `game/ability_catalogue/` for singletons |
+| type-/color-changing ("is a 1/1 Insect in addition") | 613 layers 4, 7b | `game/continuous.py`; often UNCLAIMED → `game/ability_catalogue/` |
 
 ## Replacement & prevention (RULE 614, 615, 616)
 
 | Idiom | Rule | Modeled in |
 | --- | --- | --- |
-| "If ~ would die, exile it instead" | 614 | `effects.ReplacementEffect`; **no parser grammar** → `game/ability_catalogue.py` |
+| "If ~ would die, exile it instead" | 614 | `ReplacementEffect` (`game/effects/replacements.py`); **no parser grammar** → `game/ability_catalogue/` |
 | "enters with N +1/+1 counters" / "enters tapped" | 614.1 | catalogue `enters_tapped` / enters-with-counters (oracle-derived) |
-| "Prevent all damage that would be dealt to …" | 615 | `effects.py` prevention shields |
+| "Prevent all damage that would be dealt to …" | 615 | `game/effects/` prevention shields |
 | "If you would draw … instead …" | 614 | replacement — hand-author |
 
 ## Activated abilities & costs (RULE 602, 118, 606)
@@ -54,7 +54,7 @@ Read the CR passage with `understand_card.py term "<word>"` or
 Common: Destroy 701.8, Exile 701.20, Sacrifice 701.21, Tap/Untap 701.22,
 Counter 701.6, Create 701.7, Draw 701.24, Discard 701.9, Mill 701.17,
 Search 701.19, Scry 701.20, Fight 701.14, Proliferate 701.29,
-Cascade 702.85, Explore 701.44. Primitive: `game/effects.py` (grep the
+Cascade 702.85, Explore 701.44. Primitive: `game/effects/` (grep the
 effect-type string); parser bodies: `parser/oracle/catalogue/handlers.py`.
 
 ## Combat (RULE 506–511, 702)
@@ -73,7 +73,7 @@ effect-type string); parser bodies: `parser/oracle/catalogue/handlers.py`.
 | "target creature you don't control" (legal-target computation) | 115, 601.2c | `game/targeting.py` |
 | "N or more" / "up to N" / "each" target counts | 115.1, 601.2c | `game/targeting.py` `TargetSpec.count*` |
 | "return ~ from your graveyard to the battlefield" | 404, 400.7 | `game/rules/*_mixin.py`; `GameObject.reset_as_new_object` (RULE 400.7) |
-| "the number of X in your graveyard" (dynamic count) | 107.3 | count selectors in `effects.py` / `targeting.py`; often UNCLAIMED |
+| "the number of X in your graveyard" (dynamic count) | 107.3 | count selectors in `game/effects/` / `targeting.py`; often UNCLAIMED |
 | state-based: 0 toughness, lethal damage, legend rule | 704 | `game/rules_engine.py` `check_state_based_actions` |
 
 ## When a clause comes back UNCLAIMED

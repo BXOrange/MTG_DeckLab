@@ -154,19 +154,25 @@ Rules specific to this pattern (each paid for by a real near-miss):
 
 ## A new effect *type* needs three registrations
 
-1. `game/effects.py` — a `GameEffect` subclass **and**
+`game/effects.py` is now the package `game/effects/` — a `GameEffect`
+hierarchy plus ~15 focused modules by effect family (`core.py` has the
+hierarchy + `EffectRegistry`; `registry.py` has the concrete registrations
+and `_SELECTOR_KEYS`; `composition.py` has `seq`/`if_else`/`for_each`/`bind`).
+
+1. `game/effects/registry.py` — a `GameEffect` subclass **and**
    `EffectRegistry.register("your_type", lambda p: ...)`. The registry is the
    security boundary: an unregistered type binds to nothing, silently.
-2. `game/effects.py`'s `_SELECTOR_KEYS` — any **new selector param** you pass
-   through, or it is silently dropped at bind time.
+2. `game/effects/registry.py`'s `_SELECTOR_KEYS` — any **new selector param**
+   you pass through, or it is silently dropped at bind time.
 3. `parser/oracle/spec.py` — `ALLOWED_ABILITY_KINDS` if the *ability kind* is
    new (rarely; effect types are not listed there). Magnitudes are clamped by
    `_clamp_params`; the sentinel string `"x"` passes through untouched.
 
-Before writing "needs a new primitive" anywhere, grep `game/effects.py`,
-`game/rules_engine.py` and `docs/implementation-state/Done_Backend.md` for an
-equivalently-shaped primitive built for a different card. Cite it or rule it
-out explicitly. `request_pay_cost_then`, `CreateDelayedTriggerEffect`,
+Before writing "needs a new primitive" anywhere, grep `game/effects/*.py`,
+`game/rules_engine.py`, `game/rules/*_mixin.py` and
+`docs/implementation-state/Done_Backend.md` for an equivalently-shaped
+primitive built for a different card. Cite it or rule it out explicitly.
+`request_pay_cost_then`, `CreateDelayedTriggerEffect`,
 `request_choose_objects`, `dig_until`, `request_name_card`,
 `GameState.deferred_effects` and `GameEffect.extra_target_specs` all already
 exist and are all general.

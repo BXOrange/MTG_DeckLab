@@ -86,7 +86,7 @@ def scan(cards):
 
     A row is (name, covered, unclaimed_clauses). "Covered" matches
     `scripts/coverage_report.py`: parser-MODELED **or** hand-AUTHORED in
-    `game/ability_catalogue.py`, so a probe never credits a handler for a card
+    `game/ability_catalogue/`, so a probe never credits a handler for a card
     that was already behaving via the hand-authored escape valve.
     """
     rows = []

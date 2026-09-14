@@ -27,13 +27,17 @@ rest of the output is unaffected.
 Subcommands
   card    full reading: identity, raw vs normalized text, per-clause parser
           verdict, every keyword + the CR passage that defines it, and a
-          governing-rules roll-up (glossary terms -> rule + line). --rulings
-          folds in the cached/fetched rulings + the rules they cite
+          governing-rules roll-up (glossary terms -> rule + line, common/
+          structural terms sorted to the bottom). --rulings folds in the
+          cached/fetched rulings + the rules they cite. Takes multiple names
+          (scan a whole parser_probe.py list in one call); --brief prints one
+          triage line per card instead of the full reading
   clause  the same rules/glossary mapping for an arbitrary template string,
           for planning a parser handler before a card exists to test against
   check   validation triage: one table of clause -> governing RULE -> parser
           claimed? -> binder produced an effect? -> PASS/GAP, and any rulings
-          that mention timing/layer subtleties worth verifying at runtime
+          that mention timing/layer subtleties worth verifying at runtime.
+          Also takes multiple names
   term    two-hop glossary lookup done in one shot (term -> line -> passage)
   rulings Scryfall's rulings for the card, each with the CR rules + glossary
           terms it cites resolved to passages; flags rulings that look like
@@ -43,6 +47,7 @@ Usage (from backend/, venv active):
   UC=../.claude/skills/understand-card/scripts/understand_card.py
   python $UC card "Questing Beast" --rulings
   python $UC card "Wrenn and Six" --rules        # inline every CR passage
+  python $UC card --brief "Card A" "Card B" "Card C"   # skim a batch fast
   python $UC clause "Whenever a creature you control dies, draw a card."
   python $UC check "Grist, the Hunger Tide"
   python $UC term "Deathtouch"
@@ -53,6 +58,7 @@ Usage (from backend/, venv active):
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import os
 import re
@@ -79,10 +85,10 @@ BACKEND = _find_backend()
 REPO = BACKEND.parent if BACKEND.name == "backend" else BACKEND
 sys.path.insert(0, str(BACKEND))
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue  # noqa: E402
+from mtg_analyzer.game.binding.core import bind_from_catalogue  # noqa: E402
 from mtg_analyzer.game.ability_catalogue import is_registered  # noqa: E402
-from mtg_analyzer.models.card import Card  # noqa: E402
-from mtg_analyzer.models.game_object import GameObject, Zone  # noqa: E402
+from mtg_analyzer.game.mana_abilities import parse_mana_abilities  # noqa: E402
+from mtg_analyzer.models import Card, GameObject, Zone  # noqa: E402
 from mtg_analyzer.parser.oracle.catalogue.keywords import (  # noqa: E402
     keyword_slug,
     resolve_keyword,
@@ -329,6 +335,34 @@ def _clause_verdicts(result) -> list[tuple[str, str]]:
     return rows
 
 
+#: Glossary terms that show up on almost every card regardless of what it
+#: actually does — structural vocabulary (zones, the cast/damage/control
+#: verbs), not usually the load-bearing rule for *this* card. Not hidden,
+#: just sorted to the bottom of `governing rules` so the 2-4 terms that
+#: actually matter aren't buried under `Card`/`Damage`/`Hand` on every card.
+_COMMON_TERMS = frozenset({
+    "Card", "Player", "Permanent", "Spell", "Ability", "Land", "Creature",
+    "Hand", "Graveyard", "Battlefield", "Library", "Zone", "Cost", "Mana",
+    "Cast", "Control", "Turn", "Phase", "Step", "Game", "Object", "Source",
+    "Owner", "Damage", "Target", "Life", "Play", "Exile", "Stack", "Token",
+})
+
+
+def _split_gov(gov: list[tuple[str, str]]) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """Partition `_governing_rules` output into (notable, common).
+
+    A row is "common" only when it's purely a generic glossary hit (`why`
+    starts with "term:") for a name in `_COMMON_TERMS` — a keyword-driven row
+    (`why` starts with "keyword:") is always notable, even for a common-named
+    keyword, since that's the card's own printed ability, not scan noise.
+    """
+    notable, common = [], []
+    for rule, why in gov:
+        term = why.split(": ", 1)[1] if why.startswith("term: ") else None
+        (common if term in _COMMON_TERMS else notable).append((rule, why))
+    return notable, common
+
+
 def _governing_rules(wiki: Wiki, card_or_text) -> list[tuple[str, str]]:
     """Merged, de-duped (RULE, why) list from keywords + glossary xrefs."""
     pairs: dict[str, str] = {}
@@ -403,69 +437,105 @@ def _render_rulings(
 # --- commands --------------------------------------------------------
 
 
+def _card_brief(wiki: Wiki, card: Card, result) -> None:
+    """One-screen triage line per card — for skimming a whole SOLO/blocked
+    list from `parser_probe.py` without paging through the full reading."""
+    rows = _clause_verdicts(result)
+    unclaimed = [c for v, c in rows if v == "UNCLAIMED"]
+    kw_rows = _keyword_rows(card)
+    gov = _governing_rules(wiki, card)
+    notable, common = _split_gov(gov)
+
+    print(f"{card.name}  [{card.type_line}]  {card.mana_cost_string or ''}")
+    print(f"  coverage={result.coverage}  registered={is_registered(card.name)}  "
+          f"clauses={len(rows)} ({len(unclaimed)} unclaimed)")
+    if kw_rows:
+        print(f"  keywords: {', '.join(lbl for lbl, _, _ in kw_rows)}")
+    if notable:
+        print(f"  notable rules: {', '.join(r for r, _ in notable)}"
+              + (f"  (+{len(common)} common)" if common else ""))
+    elif common:
+        print(f"  rules: only common/structural terms ({len(common)}) — nothing card-specific found")
+    for line in unclaimed:
+        print(f"  ! UNCLAIMED  {line}")
+
+
 def cmd_card(args) -> None:
     wiki = Wiki()
     db = CardDatabase(args.card_db)
-    card = load_card(db, args.name)
-    result = parse_oracle(card)
-    raw = card.oracle_text or ""
-    norm = normalize(raw, name=card.name, keywords=list(getattr(card, "keywords", None) or []))
+    names = args.names
+    for i, name in enumerate(names):
+        if len(names) > 1:
+            if i:
+                print("\n" + "=" * 70 + "\n")
+            print(f"=== {name} ===")
+        card = load_card(db, name)
+        result = parse_oracle(card)
+        if args.brief:
+            _card_brief(wiki, card, result)
+            continue
+        raw = card.oracle_text or ""
+        norm = normalize(raw, name=card.name, keywords=list(getattr(card, "keywords", None) or []))
 
-    print(f"{card.name}")
-    print(f"  {card.type_line}   {card.mana_cost_string or ''}  cmc={card.converted_mana_cost}")
-    print(f"  registered in ability_catalogue.py: {is_registered(card.name)}")
-    print(f"  parser coverage: {result.coverage}")
+        print(f"{card.name}")
+        print(f"  {card.type_line}   {card.mana_cost_string or ''}  cmc={card.converted_mana_cost}")
+        print(f"  registered in ability_catalogue.py: {is_registered(card.name)}")
+        print(f"  parser coverage: {result.coverage}")
 
-    print("\n--- oracle text (raw) ---")
-    print(raw or "(vanilla)")
-    print("\n--- normalized (what the segmenter/handlers actually see) ---")
-    print(norm or "(empty)")
+        print("\n--- oracle text (raw) ---")
+        print(raw or "(vanilla)")
+        print("\n--- normalized (what the segmenter/handlers actually see) ---")
+        print(norm or "(empty)")
 
-    rows = _clause_verdicts(result)
-    print(f"\n--- clauses ({len(rows)}) ---")
-    for verdict, clause in rows:
-        mark = " " if verdict.startswith("CLAIMED") else "!"
-        print(f"  {mark} [{verdict}]  {clause}")
+        rows = _clause_verdicts(result)
+        print(f"\n--- clauses ({len(rows)}) ---")
+        for verdict, clause in rows:
+            mark = " " if verdict.startswith("CLAIMED") else "!"
+            print(f"  {mark} [{verdict}]  {clause}")
 
-    kw_rows = _keyword_rows(card)
-    if kw_rows:
-        print(f"\n--- keywords ({len(kw_rows)}) ---")
-        for label, rule, shape in kw_rows:
-            print(f"  {label}  —  RULE {rule}  ({shape})")
+        kw_rows = _keyword_rows(card)
+        if kw_rows:
+            print(f"\n--- keywords ({len(kw_rows)}) ---")
+            for label, rule, shape in kw_rows:
+                print(f"  {label}  —  RULE {rule}  ({shape})")
+                if args.rules:
+                    print(wiki.passage(rule, n=args.lines))
+                    print()
+
+        gov = _governing_rules(wiki, card)
+        notable, common = _split_gov(gov)
+        print(f"\n--- governing rules ({len(gov)}) — keywords + every defined term in the text ---")
+        for rule, why in notable:
+            line = wiki.rule_line(rule)
+            loc = f"L{line}" if line else "not indexed"
+            print(f"  RULE {rule:<9} {loc:<12} {why}")
             if args.rules:
                 print(wiki.passage(rule, n=args.lines))
                 print()
+        if common:
+            print(f"  ({len(common)} more common/structural term(s), usually not load-bearing: "
+                  + ", ".join(why.split(": ", 1)[1] for _, why in common) + ")")
+        if not args.rules:
+            print("  (add --rules to inline each passage; `term \"<name>\"` for one definition)")
 
-    gov = _governing_rules(wiki, card)
-    print(f"\n--- governing rules ({len(gov)}) — keywords + every defined term in the text ---")
-    for rule, why in gov:
-        line = wiki.rule_line(rule)
-        loc = f"L{line}" if line else "not indexed"
-        print(f"  RULE {rule:<9} {loc:<12} {why}")
-        if args.rules:
-            print(wiki.passage(rule, n=args.lines))
-            print()
-    if not args.rules:
-        print("  (add --rules to inline each passage; `term \"<name>\"` for one definition)")
+        rulings, note = get_rulings(card, allow_fetch=args.rulings)
+        if rulings is not None:
+            print(f"\n--- rulings / \"Notes and Rules Information\" ({len(rulings)}, {note}) ---")
+            _render_rulings(
+                wiki, rulings, unclaimed=result.unclaimed,
+                inline_rules=args.rules, lines=args.lines,
+            )
+        elif args.rulings:
+            print(f"\n--- rulings ---\n  unavailable: {note}")
+        else:
+            print("\n  (no rulings cached — add --rulings to fetch them once from Scryfall)")
 
-    rulings, note = get_rulings(card, allow_fetch=args.rulings)
-    if rulings is not None:
-        print(f"\n--- rulings / \"Notes and Rules Information\" ({len(rulings)}, {note}) ---")
-        _render_rulings(
-            wiki, rulings, unclaimed=result.unclaimed,
-            inline_rules=args.rules, lines=args.lines,
-        )
-    elif args.rulings:
-        print(f"\n--- rulings ---\n  unavailable: {note}")
-    else:
-        print("\n  (no rulings cached — add --rulings to fetch them once from Scryfall)")
-
-    print("\n--- where this gets modeled ---")
-    print("  parser handler   backend/mtg_analyzer/parser/oracle/catalogue/handlers.py")
-    print("                   (static clauses -> static_handlers.py, trigger conditions -> segmenter.py)")
-    print("  hand-authored    backend/mtg_analyzer/game/ability_catalogue.py  (singletons / replacement effects)")
-    print("  engine primitive backend/mtg_analyzer/game/effects.py + game/rules/*_mixin.py")
-    print("  runtime check    game-engine skill: engine_bench.py inspect/play \"" + card.name + "\"")
+        print("\n--- where this gets modeled ---")
+        print("  parser handler   backend/mtg_analyzer/parser/oracle/catalogue/handlers.py")
+        print("                   (static clauses -> static_handlers.py, trigger conditions -> segmenter.py)")
+        print("  hand-authored    backend/mtg_analyzer/game/ability_catalogue/  (singletons / replacement effects)")
+        print("  engine primitive backend/mtg_analyzer/game/effects/ + game/rules/*_mixin.py")
+        print("  runtime check    game-engine skill: engine_bench.py inspect/play \"" + card.name + "\"")
 
 
 def cmd_clause(args) -> None:
@@ -497,7 +567,17 @@ def cmd_clause(args) -> None:
 def cmd_check(args) -> None:
     wiki = Wiki()
     db = CardDatabase(args.card_db)
-    card = load_card(db, args.name)
+    names = args.names
+    for i, name in enumerate(names):
+        if len(names) > 1:
+            if i:
+                print("\n" + "=" * 70 + "\n")
+            print(f"=== {name} ===")
+        _run_check(wiki, db, name, args)
+
+
+def _run_check(wiki: Wiki, db: CardDatabase, name: str, args) -> None:
+    card = load_card(db, name)
     result = parse_oracle(card)
 
     tl = (card.type_line or "").lower()
@@ -523,13 +603,20 @@ def cmd_check(args) -> None:
         claimed = verdict.startswith("CLAIMED")
         print(f"  [{'parser OK ' if claimed else 'parser GAP'}]  {clause[:100]}")
     gov = _governing_rules(wiki, card)
-    gov_str = ", ".join(r for r, _ in gov) or "(none mapped)"
+    notable, common = _split_gov(gov)
+    gov_str = ", ".join(r for r, _ in notable) or "(none mapped)"
+    if common:
+        gov_str += f"  (+{len(common)} common)"
     print(f"\n  governing rules across the card: {gov_str}")
     print("  (understand_card.py card <name> --rules  prints each passage)")
 
     print("\n--- verdict ---")
     gaps: list[str] = []
-    if result.coverage == "MODELED" and bound_total == 0 and not is_registered(card.name):
+    is_mana_only = bound_total == 0 and bool(parse_mana_abilities(card)) and not result.effect_specs
+    if (
+        result.coverage == "MODELED" and bound_total == 0
+        and not is_registered(card.name) and not is_mana_only
+    ):
         gaps.append("parser says MODELED but the binder produced no effects — "
                     "an EffectSpec.type is likely missing from EffectRegistry, or "
                     "the specs are keyword-only. Confirm with engine_bench.py inspect.")
@@ -544,7 +631,10 @@ def cmd_check(args) -> None:
         print(f"  keywords on card: {', '.join(lbl for lbl, _, _ in kw_rows)}  "
               f"(runtime keyword state needs a continuous.recompute — check engine_bench.py inspect)")
     if not gaps:
-        print("  PASS — parser + binder are internally consistent. "
+        note = " (mana ability only — RULE 605 abilities are parsed by " \
+               "mana_abilities_for, not bound; nothing bound is expected here)" \
+               if is_mana_only else ""
+        print(f"  PASS — parser + binder are internally consistent.{note} "
               "Runtime behaviour still needs engine_bench.py play + a real test.")
     else:
         for g in gaps:
@@ -575,10 +665,18 @@ def cmd_term(args) -> None:
     wiki = Wiki()
     hit = wiki.term(args.name)
     if hit is None:
-        # loose contains-match fallback
         low = args.name.strip().lower()
-        near = [t for t in wiki._glossary if low in t]
-        sys.exit(f"{args.name!r} not a glossary term. near: {near[:12]}")
+        # substring hits first (a real prefix/typo is usually one of these),
+        # then the rest ranked by closeness — a plain alphabetical/contains
+        # dump buries the actual near-miss in ~740 terms.
+        contains = sorted(t for t in wiki._glossary if low in t)
+        scored = sorted(
+            (t for t in wiki._glossary if t not in contains),
+            key=lambda t: difflib.SequenceMatcher(None, low, t).ratio(),
+            reverse=True,
+        )
+        near = (contains + scored)[:12]
+        sys.exit(f"{args.name!r} not a glossary term. near: {near}")
     line, xref = hit
     print(f"{args.name}  —  defined at L{line}" + (f", see RULE {xref}" if xref else ""))
     print()
@@ -627,7 +725,13 @@ def main() -> None:
     sub = p.add_subparsers(dest="command", required=True)
 
     pc = sub.add_parser("card", help="full rules reading of a cached card")
-    pc.add_argument("name")
+    pc.add_argument("names", nargs="+", metavar="name",
+                     help="one or more cached card names — scan a whole "
+                          "parser_probe.py SOLO/blocked list in one call")
+    pc.add_argument("--brief", "-b", action="store_true",
+                     help="one-screen triage line instead of the full reading "
+                          "(coverage, unclaimed clauses, notable rules) — pairs "
+                          "with multiple names to skim a batch fast")
     pc.add_argument("--rules", action="store_true", help="inline every CR passage")
     pc.add_argument("--rulings", action="store_true",
                     help="also fetch Scryfall rulings (cached rulings show without it)")
@@ -640,7 +744,8 @@ def main() -> None:
     pl.add_argument("--lines", type=int, default=8)
 
     pk = sub.add_parser("check", help="validation triage: parser vs binder vs rules")
-    pk.add_argument("name")
+    pk.add_argument("names", nargs="+", metavar="name",
+                     help="one or more cached card names")
     pk.add_argument("--rulings", action="store_true",
                     help="fetch Scryfall rulings and flag timing/layer subtleties")
     pk.add_argument("--card-db", type=Path, default=DEFAULT_DB_PATH)

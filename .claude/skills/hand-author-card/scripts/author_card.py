@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""Speed up hand-authoring a card into `game/ability_catalogue.py`.
+"""Speed up hand-authoring a card into `game/ability_catalogue/`.
 
 The slow parts of hand-authoring aren't the rules — they're mechanical:
 finding the card's real oracle text with real line breaks, checking whether
 it's already registered, discovering that the parser already claims half the
 card's clauses (so that half needs no hand-authoring at all, just copying),
 and finding an existing catalogue entry with the same shape to adapt instead
-of starting from a blank function. This script does all four in one command
-each, then a `scaffold` that assembles the result into a paste-ready factory
+of starting from a blank function (searched across every module in the
+package, not just one file). This script does all four in one command each,
+then a `scaffold` that assembles the result into a paste-ready factory
 function + register() call + test skeleton.
 
 It does NOT decide what a card's abilities mean, and it does not touch
-ability_catalogue.py — every command only reads and prints. You still write
+ability_catalogue/ — every command only reads and prints. You still write
 (or fix) the EffectSpec for whatever the parser didn't already claim; see
 docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md for the field reference.
 
@@ -70,8 +71,7 @@ BACKEND = _find_backend()
 sys.path.insert(0, str(BACKEND))
 
 from mtg_analyzer.game import ability_catalogue as catalogue  # noqa: E402
-from mtg_analyzer.models.card import Card  # noqa: E402
-from mtg_analyzer.models.events import EventType  # noqa: E402
+from mtg_analyzer.models import Card, EventType  # noqa: E402
 from mtg_analyzer.parser.oracle.gate import parse_oracle  # noqa: E402
 from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec  # noqa: E402
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH  # noqa: E402
@@ -283,7 +283,7 @@ def cmd_scaffold(args) -> None:
     print()
     print(f"register({card.name!r}, {fname})")
     print()
-    print("# --- test skeleton (paste into backend/tests/test_ability_catalogue.py,")
+    print("# --- test skeleton (paste into backend/tests/game/catalogue/test_catalogue.py,")
     print("#     match its existing _card()/_object() fixture helpers) ---")
     kinds = [s.ability_kind for s in result.effect_specs]
     print(_test_skeleton(card.name, fname, kinds))
@@ -361,27 +361,32 @@ def cmd_similar(args) -> None:
         query_text = card.oracle_text
         print(f"# matching against {card.name}'s real oracle text")
 
-    src_path = Path(catalogue.__file__)
-    tree = ast.parse(src_path.read_text(encoding="utf-8"))
+    # `ability_catalogue` is a package (one module per card family, e.g.
+    # black.py/commander_cards.py/...) — scan every module in it, not just
+    # __init__.py, or almost every real factory function is invisible here.
+    pkg_dir = Path(catalogue.__file__).parent
 
     docstrings: dict[str, str] = {}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name.startswith("_"):
-            doc = ast.get_docstring(node)
-            if doc:
-                docstrings[node.name] = doc
-
+    file_by_fn: dict[str, str] = {}
     names_by_fn: dict[str, list[str]] = {}
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == "register"
-            and len(node.args) >= 2
-            and isinstance(node.args[0], ast.Constant)
-            and isinstance(node.args[1], ast.Name)
-        ):
-            names_by_fn.setdefault(node.args[1].id, []).append(node.args[0].value)
+    for src_path in sorted(pkg_dir.glob("*.py")):
+        tree = ast.parse(src_path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name.startswith("_"):
+                doc = ast.get_docstring(node)
+                if doc:
+                    docstrings[node.name] = doc
+                    file_by_fn[node.name] = src_path.name
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "register"
+                and len(node.args) >= 2
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[1], ast.Name)
+            ):
+                names_by_fn.setdefault(node.args[1].id, []).append(node.args[0].value)
 
     # Docstring convention here is "<quoted oracle text>\n\n— Card Name. <design
     # commentary>" (see any entry `check` prints) — score against the oracle-text
@@ -399,7 +404,7 @@ def cmd_similar(args) -> None:
         names = names_by_fn.get(fn, [])
         label = ", ".join(names) if names else "(unregistered helper)"
         snippet = " ".join(preview.split())[:100]
-        print(f"  {ratio:.2f}  {fn}  [{label}]")
+        print(f"  {ratio:.2f}  {fn}  [{label}]  {file_by_fn.get(fn, '?')}")
         print(f"        {snippet}")
     print()
     print("run `check \"<one of the names above>\"` to see the full source and adapt it.")

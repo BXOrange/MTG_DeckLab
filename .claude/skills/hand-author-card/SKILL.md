@@ -1,12 +1,14 @@
 ---
 name: hand-author-card
-description: Hand-author a card's abilities into backend/mtg_analyzer/game/ability_catalogue.py — fast. Use when a card needs a catalogue entry (a replacement effect, a triggered ability with a real conditional predicate, or any card the oracle-text parser can't fully claim) rather than a parser handler. Ships author_card.py, which pulls the card's real oracle text, shows what the parser already claims (copy that part instead of re-deriving it), finds an existing catalogue entry with the closest shape to adapt, and assembles a paste-ready factory function + register() call + test skeleton in one command.
+description: Hand-author a card's abilities into backend/mtg_analyzer/game/ability_catalogue/ — fast. Use when a card needs a catalogue entry (a replacement effect, a triggered ability with a real conditional predicate, or any card the oracle-text parser can't fully claim) rather than a parser handler. Ships author_card.py, which pulls the card's real oracle text, shows what the parser already claims (copy that part instead of re-deriving it), finds an existing catalogue entry with the closest shape to adapt (searched across every module in the package), and assembles a paste-ready factory function + register() call + test skeleton in one command.
 ---
 
 # Hand-authoring a card, fast
 
-`game/ability_catalogue.py` is ~12k lines, one factory function per card. The
-full field reference is
+`game/ability_catalogue/` is a package (~32k lines across ~19 modules, one
+per card family/theme — e.g. `black.py`, `graveyard.py`, `damage_prevention.py`,
+`special_mechanics.py` for entries that don't fit any other theme), one
+factory function per card. The full field reference is
 [docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](../../../docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md)
 — read it once for the `AbilitySpec`/`EffectSpec` whitelist (§4-§10); this
 skill doesn't repeat that table, it exists to cut the *mechanical* cost
@@ -79,16 +81,21 @@ One paste-ready block: the factory function (docstring = real oracle text,
 parser-claimed clauses pre-filled via the same rendering as `reuse`, a
 `# TODO` + a stub `AbilitySpec("???", ...)` per unclaimed clause naming the
 exact raw text you still need to model), the `register(...)` call, and a
-matching test skeleton for `backend/tests/test_ability_catalogue.py` — the
-`ability_kind` assertion and the `obj.<list>` bind-check are filled in from
-the kinds actually detected, not left as a guess. Refuses to run (and prints
-the existing entry instead) if the card is already registered.
+matching test skeleton for `backend/tests/game/catalogue/test_catalogue.py`
+(bind-on-load pipeline tests; shared board-building helpers live in
+`backend/tests/support/catalogue.py`) — the `ability_kind` assertion and the
+`obj.<list>` bind-check are filled in from the kinds actually detected, not
+left as a guess. Refuses to run (and prints the existing entry instead) if
+the card is already registered.
 
 Fill in the TODOs using the guide's §5 (`EffectSpec` whitelist), §6 (static/
 layers), §7 (replacement), §8 (triggers, incl. the conditional-predicate
-escape hatch), §9 (costs) — then paste the whole block into
-`ability_catalogue.py` at a reasonable spot (alphabetical isn't enforced,
-just don't split a card's own entry from its `register()` call).
+escape hatch), §9 (costs) — then paste the whole block into whichever
+`game/ability_catalogue/*.py` module matches the card's theme (`similar`'s
+output already names it — the closest match's file is the right one to
+extend; when nothing fits, `special_mechanics.py` is the loosest-themed
+module). Ordering within a module isn't enforced, just don't split a card's
+own entry from its `register()` call.
 
 ## 4. Validate against the real engine
 
@@ -137,7 +144,7 @@ python -m pytest -q
   that, don't retype the text by hand.
 - **Nothing derived from card text becomes code.** `EffectSpec.type` must
   already exist in `EffectRegistry`/`ReplacementRegistry` — the catalogue is
-  trusted *content*, never trusted *code*. A new type is a `game/effects.py`
+  trusted *content*, never trusted *code*. A new type is a `game/effects/`
   change (guide §15), not something a catalogue entry can freehand.
 - **A registered card gets the parser turned off entirely for it** — once
   you register a name, `specs_for` never falls back to `parse_oracle` for
