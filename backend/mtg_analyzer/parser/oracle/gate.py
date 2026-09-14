@@ -2829,7 +2829,36 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (Windfall), and `spec.py`'s `_AMOUNT_SPEC_FIELDS` learned the `aggregate`
 #: key. Vocabulary only - no parser handler emits it yet, no card's verdict
 #: moves - but the parser source hash follows.
-PARSER_VERSION = "379"
+#: v380 — PAR-47 closed: the charge-counter add/spend cluster's residual
+#: gaps. `handlers._add_named_counter` (RULE 122.1's named counters) now
+#: accepts `COUNT_X` instead of the plain `COUNT`, so an {X}-cost
+#: activated ability's own "put X charge counters on ~" (Blast Zone,
+#: Ventifact Bottle) is recognized the same way `+1/+1`/`-1/-1` counters
+#: already are. `handlers._pump_x` gains the "-x/-x" polarity alongside
+#: its existing "+x/+x" — Infused Arrows' "remove X charge counters from
+#: ~: target creature gets -X/-X" spend clause, plus the wider {X}-cost
+#: removal family it shares no counter connection with at all (Death
+#: Wind, Chill Haunting, Slice from the Shadows, Bane of the Living,
+#: Necropolis Fiend, Retribution of the Ancients, Skullmane Baku, Taigam,
+#: Sidisi's Hand). `handlers._gain_life` now accepts "x" alongside a
+#: literal digit ("you gain X life" — Sphinx's Revelation, Death Grasp,
+#: Alquist Proft, Overrule, Stream of Life, Swallowing Plague, Vigil for
+#: the Lost, Energy Bolt, Oracle of Nectars, Who//What//When//Where//Why),
+#: unblocking Battle at the Bridge's own trailing sentence too. Also
+#: PAR-51 closed: `Storied` (RULE 702.195, +the Hobbit-Dwarves cluster —
+#: Balin/Bifur/Bombur/Dáin/Fíli/Kíli/Ori/Thorin/Óin) recognized as a flag
+#: keyword (`keywords.py`) plus its "as long as you have an enduring
+#: story" condition (`static_conditions.has_enduring_story`,
+#: `Player.has_enduring_story`, `RulesEngine._sba_check_storied`/
+#: `get_enduring_story` — the exact Ascend/city's-blessing shape, RULE
+#: 702.131). `normalize._fold_given_name_prefix` widened to fold a
+#: comma-less legendary's given name before " the " (Kaalia-of-the-Vast's
+#: existing " of " sibling), now matched case-sensitively so a common word
+#: sharing a name's spelling ("turn" in "until end of turn" for "Turn the
+#: Tide", "start" in "Jump-start" for "Start the TARDIS") is never folded
+#: — a real self-reference is always printed capitalized. +35, zero
+#: regressions (verified via `parser_probe.py diff`).
+PARSER_VERSION = "380"
 
 
 def parser_source_hash() -> str:

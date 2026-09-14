@@ -195,6 +195,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "is_monarch",  # "as long as you're the monarch"
         "has_initiative",  # "as long as you have the initiative"
         "has_city_blessing",  # "as long as you have the city's blessing"
+        "has_enduring_story",  # "as long as you have an enduring story" (RULE 702.195b, PAR-51)
         # -- Subject-scoped predicates over an arbitrary object (ENG-36).
         # These carry no subject of their own: whichever object ``of`` names
         # (or, from `effect_conditions`, an effect-only referent such as the
@@ -573,6 +574,9 @@ def condition_holds(
     if kind == "has_city_blessing":
         player = _controller(state, controller_id)
         return bool(player is not None and player.has_city_blessing)
+    if kind == "has_enduring_story":
+        player = _controller(state, controller_id)
+        return bool(player is not None and player.has_enduring_story)
 
     if kind == "control_count":
         selector = condition.get("selector")
@@ -969,6 +973,8 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
         return "solange Initiative"
     if kind == "has_city_blessing":
         return "solange Segen der Stadt"
+    if kind == "has_enduring_story":
+        return "solange andauernde Geschichte"
     if kind == "source_on_battlefield":
         return prefix + "im Spiel"
     if kind == "is_card_type":

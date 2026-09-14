@@ -63,7 +63,9 @@ its block back into the matching section here.
   > keywords; `PAR-30` was `PAR-29`'s parser trail, closed PARSER_VERSION
   > 216 — all 24 RULE 701 keyword actions have recognition + an engine
   > primitive, and its last residue moved to `MEC-52`, closed). The first free
-  > parser ticket id is **`PAR-65`** (checked 2026-09-10): `PAR-31…PAR-53` are
+  > parser ticket id is **`PAR-67`** (checked 2026-09-14 — `PAR-47`/`PAR-51`
+  > closed this pass, `PAR-65`/`PAR-66` filed from their residue below):
+  > `PAR-31…PAR-53` are
   > the Commander-legal tail clusters below, `PAR-54`/`PAR-55`/`PAR-57`/`PAR-60`
   > `PAR-56`/`PAR-58`/`PAR-59`/`PAR-64` are open below, and `PAR-61` is the
   > grammar-restructure umbrella above.
@@ -88,11 +90,30 @@ its block back into the matching section here.
 
   Bucket B (recurring effect-body / static templates, `extend-parser` loop):
 
-  - **PAR-47** — `<cost>,<cost>: put a charge counter on ~` + its
-    remove-a-charge-counter spend clause (#14).
-  - **PAR-51** — `start` (#12) and `storied` (#9) — parse traces first;
-    `start` looks like a Jump-start/Aftermath split artefact, `storied`
-    like a LOTR one-off. Investigate before sizing.
+  - **PAR-65 · Parametric-keyword static grants — "ward `<cost>`" first.**
+    `static_handlers._flag_keywords` fail-closes on any granted keyword that
+    needs a parameter carried along (its own docstring already says so —
+    "most other granted parametric keywords, e.g. 'ward {2}', need
+    behaviour the grant can't express yet"). `grant_keyword`'s
+    `AddCountersEffect`-style params dict would need a per-keyword payload
+    (`ward_cost`) threaded through the layer-6 static the same way
+    `_ATTACHED_GRANT_RE`'s own `ward_cost` param already reaches an
+    *attached*-permanent grant (`static_handlers.py:2006`) — this ticket is
+    the *group*/self-scoped sibling of that already-working attached form.
+    Seed cards (20 Commander-legal SOLO at v380): A-Kargan Warleader,
+    A-Plate Armor, Armguard Familiar, Combat Research, Coppercoat Vanguard.
+  - **PAR-66 · "counters removed this way" as a resolve-time amount.** A
+    `remove_counters`-shaped effect followed by a second effect scaled by
+    how many it actually removed ("remove all charge counters from ~. Add 1
+    mana of any color for each charge counter removed this way." —
+    Coalition Relic; "…for each 5 counters removed this way, take an extra
+    turn" — Sage of Hours) has no read-back today — `RemoveCountersEffect`
+    doesn't stamp a `GameContext` counter the next effect in the same
+    resolution can read, the same shape `objects_exiled_this_way`/
+    `permanents_destroyed_this_way` already give exile/destroy. Seed cards
+    (5 Commander-legal SOLO at v380): Coalition Relic, Garnet, Princess of
+    Alexandria, Lily Bowen, Raging Grandma, Sage of Hours, Ventifact
+    Bottle.
 
   Bucket C (set-specific mechanics, deck-first):
 

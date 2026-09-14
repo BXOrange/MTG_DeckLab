@@ -179,6 +179,13 @@ class Player:
         #: `RulesEngine.get_city_blessing`.
         self.has_city_blessing: bool = False
 
+        #: RULE 702.195b: "the enduring story" designation — Storied's own
+        #: onetime per-player flag (PAR-51), the exact same shape as
+        #: `has_city_blessing` just above (any number of players may have
+        #: it at once, never cleared once granted). Set by
+        #: `RulesEngine.get_enduring_story`.
+        self.has_enduring_story: bool = False
+
         #: PAR-28 / RULE 702.179 "Start your engines!": this player's speed.
         #: ``0`` means "no speed" (RULE 702.179b/f — a player has no speed
         #: until a rule or effect sets it). Raised to 1 by the Start Your
@@ -313,6 +320,8 @@ class Player:
             "ring_bearer_id": self.ring_bearer_id,
             # RULE 702.131c: the city's blessing designation (Ascend).
             "has_city_blessing": self.has_city_blessing,
+            # RULE 702.195b: the enduring story designation (Storied).
+            "has_enduring_story": self.has_enduring_story,
             # PAR-28 / RULE 702.179: this player's speed (0 = no speed, 4 =
             # max speed), for the board to show a speedometer badge.
             "speed": self.speed,

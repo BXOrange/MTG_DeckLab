@@ -3057,6 +3057,15 @@ class MiscSystemsMixin:
         if player.has_city_blessing:
             return
         player.has_city_blessing = True
+    def get_enduring_story(self, player: Player) -> None:
+        """RULE 702.195a-b: ``player`` gets the enduring story designation —
+        Storied's own onetime per-player flag (PAR-51), the exact same
+        idempotent shape as `get_city_blessing` above (any number of
+        players may have it at once, and it lasts for the rest of the
+        game once granted)."""
+        if player.has_enduring_story:
+            return
+        player.has_enduring_story = True
     def take_initiative(self, player: Player) -> None:
         """RULE 726.3: ``player`` takes the initiative; whoever held it
         (possibly ``player`` themself) ceases to.

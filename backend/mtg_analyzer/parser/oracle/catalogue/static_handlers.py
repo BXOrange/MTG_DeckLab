@@ -2864,6 +2864,9 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     (re.compile(r"you'?re the monarch", re.I), lambda m: {"kind": "is_monarch"}),
     (re.compile(r"you have the initiative", re.I), lambda m: {"kind": "has_initiative"}),
     (re.compile(r"you have the city'?s blessing", re.I), lambda m: {"kind": "has_city_blessing"}),
+    # RULE 702.195b (PAR-51) — Storied's own designation, same shape as the
+    # city's blessing row just above.
+    (re.compile(r"you have an enduring story", re.I), lambda m: {"kind": "has_enduring_story"}),
     # -- Board counts, over `continuous.count_selector`'s own vocabulary.
     (re.compile(r"you control (?P<n>\d+) or more (?P<what>[a-z ]+)", re.I),
      lambda m: _control_count_condition(m.group("what"), int(m.group("n")))),

@@ -193,6 +193,12 @@ class StateBasedActionsMixin:
         if self._sba_check_ascend():
             return True
 
+        # RULE 702.195a: Storied is the same live-board-count shape as
+        # Ascend just above, gated on a three-way type/subtype/supertype
+        # OR instead of a flat permanent tally (PAR-51).
+        if self._sba_check_storied():
+            return True
+
         # PAR-28 / RULE 702.179a: Start Your Engines! is a state-based action
         # — a permanent's controller with no speed gets speed 1.
         if self._sba_check_start_your_engines():
@@ -280,6 +286,34 @@ class StateBasedActionsMixin:
                 continue
             if continuous.count_selector(self.state, controller.id, "permanents_you_control") >= 10:
                 self.get_city_blessing(controller)
+                return True
+        return False
+
+    def _sba_check_storied(self) -> bool:
+        """RULE 702.195a: a permanent with storied grants its controller an
+        enduring story designation the moment they control three or more
+        permanents that are artifacts, Sagas, and/or legendary — the exact
+        same shape as `_sba_check_ascend` above, just a three-way OR'd
+        type/subtype/supertype count instead of a flat permanent tally.
+        ``card.is_artifact``/the Saga subtype read the object's printed
+        characteristics, the same simplification `continuous.py`'s other
+        artifact/Saga tallies already make; ``is_legendary`` is the one
+        derived property of the three, already covering a granted legendary
+        (`GameObject._granted_legendary`)."""
+        for obj in self.state.permanents():
+            if not combat.has(obj, "storied"):
+                continue
+            controller = self.state.player_by_id(obj.controller_id)
+            if controller is None or controller.has_enduring_story:
+                continue
+            count = sum(
+                1
+                for o in self.state.permanents()
+                if o.controller_id == controller.id
+                and (o.card.is_artifact or o.is_legendary or continuous.has_subtype(o, "Saga"))
+            )
+            if count >= 3:
+                self.get_enduring_story(controller)
                 return True
         return False
 

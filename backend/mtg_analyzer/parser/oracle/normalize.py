@@ -294,25 +294,45 @@ _PREFIX_TYPE_BEFORE = re.compile(
     re.IGNORECASE,
 )
 _PREFIX_TYPE_AFTER = re.compile(
-    r"^\s+(?:creature|you control|token|cards?\b|spells?\b|until end of turn)",
+    r"^\s+(?:creature|you control|token|cards?\b|spells?\b|until end of turn|"
+    # A *different* comma-less "<word> the/of <rest>" title continuing right
+    # after the match (Tuktuk the Explorer creating "Tuktuk the **Returned**",
+    # a differently-named token) — by the time this runs, the card's own
+    # complete name was already folded to ``~`` by `_fold_self_name`'s main
+    # pass, so any surviving "<prefix> the/of …" here is always someone
+    # *else's* title, never a second mention of this card's own.
+    r"the \S|of \S)",
     re.IGNORECASE,
 )
 
 
 def _fold_given_name_prefix(text: str, name: str) -> str:
     """Fold a comma-less legendary's **given name** — the single word before
-    " of " in "Kaalia of the Vast" — to ``~`` where it's a genuine
-    self-reference. Context-gated (`_PREFIX_TYPE_BEFORE`/`_PREFIX_TYPE_AFTER`)
-    so a name that doubles as a creature type ("Cleric of Life's Bond" →
-    "another **Cleric** you control", "Knight of the New Coalition" → "a …
-    **Knight** creature token") keeps its type reading."""
+    " of " in "Kaalia of the Vast", or before " the " in "Fíli the
+    Pathfinder"/"Óin the Brave" (PAR-51's Hobbit-Dwarves cluster, self-
+    referring by first name same as any other comma-less title) — to ``~``
+    where it's a genuine self-reference. Context-gated
+    (`_PREFIX_TYPE_BEFORE`/`_PREFIX_TYPE_AFTER`) so a name that doubles as a
+    creature type ("Cleric of Life's Bond" → "another **Cleric** you
+    control", "Knight of the New Coalition" → "a … **Knight** creature
+    token") keeps its type reading, and matched **case-sensitively** against
+    the not-yet-lowercased text (unlike every other fold in this module) so
+    a common word that happens to share a name's spelling — "turn" inside
+    "until end of turn" for "Turn the Tide", "start" inside "Jump-start" for
+    "Start the TARDIS" — is left alone: a genuine self-reference is always
+    printed capitalized, a mid-sentence common word never is. " of " is
+    tried first (unchanged behaviour when a name has both, though no real
+    card does)."""
     first = name.split(",")[0].strip()
-    if " of " not in first:
+    if " of " in first:
+        prefix = first.split(" of ")[0].strip()
+    elif " the " in first:
+        prefix = first.split(" the ")[0].strip()
+    else:
         return text
-    prefix = first.split(" of ")[0].strip()
     if not prefix or " " in prefix:
         return text
-    pat = re.compile(r"\b" + re.escape(prefix) + r"\b", re.IGNORECASE)
+    pat = re.compile(r"\b" + re.escape(prefix) + r"\b")
 
     def _sub(m: "re.Match[str]") -> str:
         if _PREFIX_TYPE_BEFORE.search(text[: m.start()]):
@@ -321,8 +341,9 @@ def _fold_given_name_prefix(text: str, name: str) -> str:
             return m.group(0)
         return SELF
 
-    # Runs inside `_fold_self_name`, before `normalize` lowercases — so match
-    # case-insensitively against the printed-case text.
+    # Runs inside `_fold_self_name`, before `normalize` lowercases — `pat`
+    # relies on that printed case to stay case-sensitive (see the
+    # docstring's "turn"/"start" collision note).
     return pat.sub(_sub, text)
 
 

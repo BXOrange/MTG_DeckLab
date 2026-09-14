@@ -323,6 +323,7 @@ is in the rules-engine categories below them.
 - **What:** `GainLifeEffect` and `CounterSpellEffect` (removes a spell from the stack to its owner's graveyard, RULE 701.5) registered alongside damage/draw/discard/destroy/search.
 - **Files:** `game/effects/core.py`
 - **Follow-up (PAR-36, v231) — "you gain that much life":** `GainLifeEffect` gained an `amount_from_trigger_event` param (the gain sibling of `LoseLifeEffect`/`DealDamageEffect`'s identically-named field, threaded first into `_resolve_amount_override`'s chain), reading the firing event's own `amount` off `GameContext.trigger_event`. New parser handler `gain_life_from_trigger_amount` (`you gain that much life` → `EffectSpec("gain_life", {"amount_from_trigger_event": "amount"})`), registered before the plain `gain_life` row so "that much" wins over its literal `NUMBER`. Closes the pre-lifelink "Whenever ~ deals damage, you gain that much life." template — `_DAMAGE_TRIGGER_RE` already parsed the (combat-or-not, any-instance) condition; only the body was blocked. **+17** — El-Hajjâj / Exalted Angel / Horned Cheetah / Warrior Angel / Wall of Hope (creatures), Spirit Link / Vampiric Link / Spirit Loop / Noble Purpose (the Aura/enchantment grant forms). `tests/test_par36_gain_that_much_life.py`.
+- **Follow-up (PAR-47, v380) — "you gain X life":** `handlers._gain_life`'s count group widened from a literal digit (`NUMBER`) to accept the bare sentinel `"x"` too (`count_or_x_of`), emitting `EffectSpec("gain_life", {"amount": "x"})` — `RulesEngine._substitute_x` already rewrites that sentinel against the resolving spell/ability's actually-announced `{X}` (`GainLifeEffect.amount` is one of the generic per-attr substitution targets), so no engine change was needed. Unblocked Sphinx's Revelation/Death Grasp/Overrule/Alquist Proft, Master Sleuth outright, and closed Battle at the Bridge's trailing "You gain X life." sentence once the leading "-X/-X" clause was also claimed (see the `pump` "-x/-x" follow-up under Combat/pump, PAR-47). `tests/test_par47_pump_negative_x_and_charge_counters.py`.
 
 ### Maximum life total — MEC-54
 
@@ -2155,6 +2156,7 @@ is in the rules-engine categories below them.
 
 - **What:** `PumpEffect.amount_from_count_selector` ("+X/+X where X is the number of creatures you control", Craterhoof Behemoth) and `PumpEffect.per_recipient_controller_counter` ("-1/-1 for each poison counter its controller has", Phyresis Outbreak — the one shape where each recipient in a group scales independently by its own controller's count).
 - **Files:** `game/effects/core.py`
+- **Follow-up (PAR-47, v380) — the "-x/-x" polarity:** `handlers._pump_x` (Strixhaven Secrets wave 15's "`<subject>` gets +x/+x … until end of turn", emitting the bare `"x"` power/toughness sentinel `RulesEngine._substitute_x` rewrites against the resolving spell/ability's announced `{X}` regardless of whether that X paid a mana cost or a non-mana one) only ever matched the symmetric `+x/+x` form. Widened the registration regex to `(?P<sign>[+\-−])x/(?P=sign)x` (a backreference, so a nonsensical "+x/-x" split still fails closed) and the builder to emit `"-x"` on that branch — `_substitute_x` already resolves a literal `"-x"` on `power`/`toughness` (Toxic Deluge's own "-X/-X" needed it first, so this was a pure widening, not a new primitive). Closes Infused Arrows' "`{t}`, remove X charge counters from ~: target creature gets -X/-X" (PAR-47's own remove-a-charge-counter spend clause) plus the wider plain {X}-cost removal family it shares no counter connection with at all (Death Wind, Chill Haunting, Slice from the Shadows, Bane of the Living, Necropolis Fiend, Retribution of the Ancients, Skullmane Baku, Taigam, Sidisi's Hand). **+35 total across this batch** (0 regressed) — see the `add_named_counter`/`gain_life` follow-ups under Counters/Casting & Costs for the other two rows in the same batch. `tests/test_par47_pump_negative_x_and_charge_counters.py`.
 
 ### Selector/filter reach widenings (Keywords Showcase batch)
 
@@ -2859,6 +2861,7 @@ is in the rules-engine categories below them.
 - **Files:** `parser/oracle/catalogue/handlers.py`
 - **Bug fixed:** The refactor that split this handler out initially dropped the original P/T handler's `_optional_param` call, silently breaking "put a +1/+1 counter on **up to one** target creature" — caught by the full pytest suite, not by coverage measurement, which only tracks MODELED/UNMODELED status, not emitted-param correctness.
 - **v186 — widened to 29 kinds (+53 cards):** `_NAMED_COUNTER_KINDS` gained charge, oil, storage, verse, ki, page, plan, soul, fuse, depletion, flood, bounty, brick, study, plague, doom, growth, point, infection, hatchling, pressure, slime, tide, ice, flame, hour. Selection rule: each kind was grepped across `game/` + `models/` and confirmed to have **no reader** — it's a pure card-text-driven count tracker (the card's own "remove N `<kind>` counters: …" ability does all the consuming), so the generic `AddCountersEffect.kind` free-string models it with nothing missing. Kept a fail-closed frozenset rather than a bare `[a-z-]+` because three families would half-model if they slipped through: RULE 122.1e **keyword counters** (`flying`/`indestructible`/`menace`/… — the layer engine has no keyword-counter reader), **subsystem** counters the engine keys off by name (`age` cumulative-upkeep, `time` vanishing/fading, `level` leveler, `loyalty` planeswalker, `lore` Saga, `rad`, `energy`), and **replacement-carrying** ones (`stun` skip-untap, `shield`). Closes the counter-body gap that ITER 24's "you attack a player" trigger recognition left on Long-Range Sensor; also the mana-battery cycle, Coretapper, Firemind's Research, the storage-land cycle. `tests/test_par30_named_counter_kinds_widened.py`.
+- **Follow-up (PAR-47, v380) — X-scaled count:** `_ADD_NAMED_COUNTER_RE`'s count group widened from `COUNT` (digit or "a"/"an") to `COUNT_X` — the exact macro the `+1/+1`/`-1/-1` counter row already uses for "put X `<±1/±1>` counters on ~" — so an {X}-cost activated ability's own "put X charge counters on ~" (Blast Zone, Ventifact Bottle) is recognized: `count_or_x_of` emits the bare `"x"` sentinel `RulesEngine._substitute_x` already resolves on `AddCountersEffect.amount` (the spec's `count` param maps onto that attribute in `EffectRegistry`'s `add_counters` factory), so no engine change was needed, only the parser widening. Neither seed card reaches `MODELED` end-to-end yet — each has one more, unrelated unclaimed clause (a counter-scaled sacrifice-destroy on Blast Zone, a "counters removed this way" mana rider on Ventifact Bottle — see `BACKLOG.md`'s `PAR-66`) — but the add-clause itself is now claimed on both. `tests/test_par47_pump_negative_x_and_charge_counters.py`.
 
 ### Counter/Token-Creation Count-Amount Resolver Wiring (MEC-27)
 
@@ -3171,6 +3174,11 @@ is in the rules-engine categories below them.
 
 - **What:** Previously a bare recognized keyword with zero bound behaviour. `Player.has_city_blessing` is a plain idempotent per-player flag, never cleared once granted; the permanent form (10+ permanents) is checked at SBA cadence, the instant/sorcery form is a one-shot `GetCityBlessingEffect` appended to `spell_effects`.
 - **Files:** `game/rules_engine.py`, `game/effects/core.py`, `game/continuous.py`
+
+### Storied / the enduring story (RULE 702.195, PAR-51)
+
+- **What:** The exact same idempotent-per-player-flag shape as Ascend above (`Player.has_enduring_story`, never cleared), granted at SBA cadence once its controller controls three or more permanents that are artifacts, Sagas, and/or legendary — a three-way type/subtype/supertype OR rather than Ascend's flat permanent tally. Full writeup (incl. the comma-less "`<Name>` the `<Epithet>`" self-reference fold this cluster also needed) under "Oracle-Text Parser Front-End" → PAR-51.
+- **Files:** `game/rules_engine.py`, `game/rules/sba_mixin.py`, `models/game/player.py`, `game/static_conditions.py`, `parser/oracle/catalogue/keywords.py`, `parser/oracle/catalogue/static_handlers.py`
 
 ### Hexproof-from-quality keyword shape (PAR-5)
 
@@ -5746,6 +5754,54 @@ measurement of why is the useful half of this work.
   zero unclaimed clauses; `tests/test_par52_spirit_arcane_trigger.py` covers
   the emitted two-subtype predicate, alongside the existing subtype-trigger
   end-to-end suite.
+
+### PAR-51: `start` investigated (no cluster) / Storied + comma-less title self-reference (PARSER_VERSION 380)
+
+- **What:** BACKLOG's `PAR-51` bundled two unrelated leads from a stale v186
+  ranking: `start` (#12) and `storied` (#9). A fresh
+  `commander_tail_report.py` run found `start` doesn't survive as a
+  recurring template at all — its only real find had already shipped as
+  `test_par51_keyword_prefix_normalization.py` (the spurious `Jump`/
+  `Jump-start` label split, v375), and every remaining "start" hit today is
+  a one-off (bidding-game life-bid sequences, "start your engines" — its
+  own SBA already exists — "start a `<n>`-minute timer", "start a brawl"),
+  none sharing a body. Investigated and closed with no handler needed.
+  `storied` (RULE 702.195, the Hobbit-Dwarves cluster — Balin, Bifur,
+  Bombur, Dáin, Fíli, Kíli, Ori, Thorin Oakenshield, Óin) is a real,
+  current keyword — mechanically identical to Ascend/the city's blessing
+  (see "Ascend / the city's blessing" above): a plain, idempotent,
+  never-cleared per-player flag (`Player.has_enduring_story`, RULE
+  702.195b) granted by a live SBA-cadence board check
+  (`RulesEngine._sba_check_storied`/`get_enduring_story`) the moment a
+  permanent with storied's controller controls three or more permanents
+  that are artifacts, Sagas, and/or legendary (RULE 702.195a) — a
+  three-way type/subtype/supertype OR instead of Ascend's flat
+  ten-permanent tally. `keywords.py` gained `("Storied", _F, "702.195")`;
+  `static_conditions.py`/`static_handlers.py` gained
+  `has_enduring_story`/"you have an enduring story" alongside
+  `has_city_blessing`. Recognizing the cluster also needed
+  `normalize._fold_given_name_prefix` (previously only "Kaalia**-of**-the
+  Vast"-shaped) widened to fold a comma-less legendary's given name before
+  " the " too (Fíli/Óin/Kíli self-refer by first name in a "`<Name>` the
+  `<Epithet>`" title with no comma at all) — matched **case-sensitively**,
+  unlike every other fold in the module, specifically because a common
+  word can share a name's spelling ("turn" inside "until end of turn" for
+  the real card *Turn the Tide*, "start" inside "Jump-start" for *Start
+  the TARDIS*): a genuine self-reference is always printed capitalized, a
+  mid-sentence common word never is; a second guard skips a fold
+  immediately followed by " the "/" of " (always someone *else's* title by
+  the time this runs — Tuktuk the Explorer's own "create Tuktuk the
+  Returned" token). **+35 across the whole PAR-47+PAR-51 batch, 0
+  regressed** (`parser_probe.py diff`), including 6 unrelated legendaries
+  this fold alone unblocked (Arcanis the Omnipotent, Eron the Relentless,
+  Gollum the Abandoned, Hazoret the Fervent, Kaervek the Merciless, Krond
+  the Dawn-Clad, Mageta the Lion, Mirri the Cursed, Sharuum the Hegemon,
+  Vela the Night-Clad, Zur the Enchanter).
+- **Files:** `parser/oracle/catalogue/keywords.py`,
+  `game/static_conditions.py`,
+  `parser/oracle/catalogue/static_handlers.py`, `models/game/player.py`,
+  `game/rules/sba_mixin.py`, `game/rules/misc_mixin.py`,
+  `parser/oracle/normalize.py`. `tests/test_par51_storied.py`.
 
 ### PAR-58: Reflexive modal wrapper — stale backlog reconciliation
 

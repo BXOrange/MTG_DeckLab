@@ -438,6 +438,10 @@ _TABLE: list[tuple[str, KeywordShape, str]] = [
     ("Paradigm", _F, "702.192"),
     ("Power-up", _F, "702.193"),
     ("Teamwork", _N, "702.194"),
+    # PAR-51: a plain flag static ability, the same "grants a designation
+    # once a board-state threshold is crossed" shape Ascend (702.131) above
+    # already has — see `game/rules/sba_mixin.py`'s `_sba_check_storied`.
+    ("Storied", _F, "702.195"),
     # Specialize (Alchemy Horizons: Baldur's Gate) is an Arena-only digital
     # keyword with no paper CR entry — a COST-shape activated ability,
     # "Specialize {cost}" = "{cost}, Discard a card: This permanent

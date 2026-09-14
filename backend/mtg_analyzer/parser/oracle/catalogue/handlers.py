@@ -1850,8 +1850,11 @@ def _discard_and_sacrifice_triple(m: re.Match[str]) -> list[EffectSpec]:
 
 def _gain_life(m: re.Match[str]) -> list[EffectSpec]:
     # "you gain N life" / "target player gains N life" (Abuna's Chant-shaped)
-    # — a real RULE 115 target only for the latter phrasing.
-    params: dict = {"amount": int(m.group("n"))}
+    # / "you gain X life" (Battle at the Bridge's trailing sentence, PAR-47's
+    # widening sweep — the ``"x"`` sentinel `RulesEngine._substitute_x`
+    # already resolves on `GainLifeEffect.amount`) — a real RULE 115 target
+    # only for the "target player" phrasing.
+    params: dict = {"amount": count_or_x_of(m.group("n"))}
     if (m.groupdict().get("who") or "").strip() == "target player":
         params["target_kind"] = "player"
     return [EffectSpec("gain_life", params)]
@@ -6468,14 +6471,21 @@ _NAMED_COUNTER_KINDS: frozenset[str] = frozenset({
     "doom", "growth", "point", "infection", "hatchling", "pressure",
     "slime", "tide", "ice", "flame", "hour", "hoofprint", "arrow",
 })
+#: `COUNT_X` (not the plain `COUNT`) so an {X}-costed activated ability's
+#: own "put X charge counters on ~" (Blast Zone, Ventifact Bottle — PAR-47)
+#: is recognized too: the "x" token becomes `EffectSpec`'s literal ``"x"``
+#: sentinel via `count_or_x_of`, which `AddCountersEffect.amount` carries
+#: unresolved until `RulesEngine._substitute_x` rewrites it against the
+#: ability's actually-announced {X} at resolve time — the exact mechanism
+#: `_pump_x` already relies on for "gets +x/+x", not a new one.
 _ADD_NAMED_COUNTER_RE = _c(
-    rf"put {COUNT} (?P<ckind>{'|'.join(_NAMED_COUNTER_KINDS)}) counters? on "
+    rf"put {COUNT_X} (?P<ckind>{'|'.join(_NAMED_COUNTER_KINDS)}) counters? on "
     rf"(?:{TARGET}|(?P<selfref>{_SELF_SUBJECT}))"
 )
 
 
 def _add_named_counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    params: dict = {"count": count_of(m.group("n")), "kind": m.group("ckind")}
+    params: dict = {"count": count_or_x_of(m.group("n")), "kind": m.group("ckind")}
     return _add_counters_target_params(m, params)
 
 
@@ -6784,13 +6794,23 @@ def _pump_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     power/toughness sentinel that `RulesEngine._substitute_x` already
     rewrites to `GameObject.x_paid` at resolution; `PumpEffect.
     target_polarity` already tolerates the bare string. Only the symmetric
-    "+x/+x" form (no "where X is …" tail — that's a *dynamic board count*,
-    a different family)."""
+    "+x/+x"/"-x/-x" forms (no "where X is …" tail — that's a *dynamic board
+    count*, a different family). "-x/-x" (Death Wind/Chill Haunting-shaped
+    X-cost removal, and PAR-47's "remove X `<kind>` counters from ~: target
+    creature gets -x/-x" spend clause — Infused Arrows) reuses the exact
+    same ``x_paid``/`StackItem.x` mechanism regardless of whether the
+    announced X paid a mana cost or a non-mana one like counters removed
+    (`ActivationMixin._pay_activation_cost` stamps ``source.x_paid`` either
+    way); `_substitute_x` already resolves the literal ``"-x"`` sentinel on
+    a ``power``/``toughness`` attribute (Toxic Deluge's own "-X/-X" needed
+    it first)."""
     subject = _pump_target(m)
     if subject is None:
         return None
     target_kind, selector = subject
-    params: dict = {"power": "x", "toughness": "x"}
+    sign = m.group("sign")
+    magnitude = "-x" if sign in ("-", "−") else "x"
+    params: dict = {"power": magnitude, "toughness": magnitude}
     if m.groupdict().get("kw"):
         keywords = _token_keywords(m.group("kw"))
         if keywords is None:
@@ -10382,10 +10402,11 @@ HANDLERS: list[EffectHandler] = [
         _DISCARD_AND_SACRIFICE_TRIPLE_RE,
         _discard_and_sacrifice_triple,
     ),
-    # "you gain 3 life" / "gain 5 life" / "target player gains 3 life"
+    # "you gain 3 life" / "gain 5 life" / "target player gains 3 life" /
+    # "you gain x life" (an {X}-cost spell/ability's own announced X).
     EffectHandler(
         "gain_life",
-        _c(rf"(?P<who>you |target player )?gains? {NUMBER} life"),
+        _c(rf"(?P<who>you |target player )?gains? (?P<n>x|\d+) life"),
         _gain_life,
     ),
     # Elemental Spectacle / Luminollusk-shaped count-based life gain.
@@ -11844,10 +11865,14 @@ HANDLERS: list[EffectHandler] = [
         _PUMP_X_NONLAND_PERMANENTS_RE,
         _pump_x_nonland_permanents,
     ),
+    # "<subject> gets +x/+x …" / "<subject> gets -x/-x …" — same X-scaled
+    # pump, either polarity. A backreference on `sign` (not a bare `[+\-−]`
+    # each side) keeps a nonsensical "+x/-x" split unclaimed rather than
+    # silently accepted — no real card mixes the sign within one X-pump.
     EffectHandler(
         "pump_x",
         _c(
-            rf"{_SUBJECT} gets? \+x/\+x"
+            rf"{_SUBJECT} gets? (?P<sign>[+\-−])x/(?P=sign)x"
             rf"(?: and gains? (?P<kw>[a-z, ]+?))? until end of turn"
         ),
         _pump_x,
