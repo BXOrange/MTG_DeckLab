@@ -42,6 +42,7 @@ class AddManaEffect(GameEffect):
         color_from_source_noted_color: bool = False,
         any_color_choices: Optional[list[str]] = None,
         any_amount_from_context: Optional[str] = None,
+        amount_from_context: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         #: "Add X mana in any combination of {B} and/or {G}." (Culling
@@ -139,6 +140,14 @@ class AddManaEffect(GameEffect):
         #: one effect rather than two: ``colors=["R","R"]`` plus this.
         #: Distinct from ``amount`` (a value the *caller* already resolved).
         self.amount_selector = amount_selector
+        #: "Add {C} for each charge counter removed this way." (Ventifact
+        #: Bottle, PAR-66) — ``amount_selector``'s same-resolution-
+        #: accumulator sibling: a `GameContext` attribute name
+        #: (`counters_removed_this_way`) instead of a board-wide
+        #: `continuous.count_selector`, the fixed-colour counterpart of
+        #: ``any_amount_from_context`` (which only ever scales the
+        #: ``colors=["ANY"]`` branch).
+        self.amount_from_context = amount_from_context
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.recipient == "event_controller":
@@ -212,6 +221,10 @@ class AddManaEffect(GameEffect):
                 context.add_mana(player, self.color, extra)
         if self.amount_from_target_hand_size and targets:
             extra = len(getattr(targets[0], "hand", []) or [])
+            if extra > 0:
+                context.add_mana(player, self.color, extra)
+        if self.amount_from_context:
+            extra = int(getattr(context, self.amount_from_context, 0) or 0)
             if extra > 0:
                 context.add_mana(player, self.color, extra)
 

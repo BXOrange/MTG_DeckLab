@@ -1490,6 +1490,7 @@ class CastingResolutionMixin:
             life_lost_this_way=resumed.get("life_lost_this_way", 0),
             permanents_destroyed_this_way=resumed.get("permanents_destroyed_this_way", 0),
             objects_exiled_this_way=resumed.get("objects_exiled_this_way", 0),
+            counters_removed_this_way=resumed.get("counters_removed_this_way", 0),
             damaged_this_way=resumed.get("damaged_this_way"),
             previous_selector=resumed.get("previous_selector"),
             revealed_card=resumed.get("revealed_card"),

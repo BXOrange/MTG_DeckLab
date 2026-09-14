@@ -157,6 +157,7 @@ class _CompositeEffect(GameEffect):
                 context, "permanents_destroyed_this_way", 0
             ),
             objects_exiled_this_way=getattr(context, "objects_exiled_this_way", 0),
+            counters_removed_this_way=getattr(context, "counters_removed_this_way", 0),
             damaged_this_way=list(getattr(context, "damaged_this_way", []) or []),
             previous_selector=getattr(context, "previous_selector", None),
             revealed_card=getattr(context, "revealed_card", None),

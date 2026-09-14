@@ -63,11 +63,12 @@ its block back into the matching section here.
   > keywords; `PAR-30` was `PAR-29`'s parser trail, closed PARSER_VERSION
   > 216 — all 24 RULE 701 keyword actions have recognition + an engine
   > primitive, and its last residue moved to `MEC-52`, closed). The first free
-  > parser ticket id is **`PAR-67`** (checked 2026-09-14 — `PAR-47`/`PAR-51`
-  > closed this pass, `PAR-65`/`PAR-66` filed from their residue below):
-  > `PAR-31…PAR-53` are
+  > parser ticket id is **`PAR-69`** (checked 2026-09-14 — `PAR-47`/`PAR-51`
+  > closed an earlier pass this session, `PAR-65`/`PAR-66` filed from their
+  > residue then closed *this* pass along with `PAR-53`/`PAR-56`, and
+  > `PAR-67`/`PAR-68` filed from their own residue below): `PAR-31…PAR-53` are
   > the Commander-legal tail clusters below, `PAR-54`/`PAR-55`/`PAR-57`/`PAR-60`
-  > `PAR-56`/`PAR-58`/`PAR-59`/`PAR-64` are open below, and `PAR-61` is the
+  > `PAR-58`/`PAR-59`/`PAR-64` are open below, and `PAR-61` is the
   > grammar-restructure umbrella above.
 
 - **PAR-31…PAR-53 · Commander-legal tail — one PAR per recurring template
@@ -90,35 +91,41 @@ its block back into the matching section here.
 
   Bucket B (recurring effect-body / static templates, `extend-parser` loop):
 
-  - **PAR-65 · Parametric-keyword static grants — "ward `<cost>`" first.**
-    `static_handlers._flag_keywords` fail-closes on any granted keyword that
-    needs a parameter carried along (its own docstring already says so —
-    "most other granted parametric keywords, e.g. 'ward {2}', need
-    behaviour the grant can't express yet"). `grant_keyword`'s
-    `AddCountersEffect`-style params dict would need a per-keyword payload
-    (`ward_cost`) threaded through the layer-6 static the same way
-    `_ATTACHED_GRANT_RE`'s own `ward_cost` param already reaches an
-    *attached*-permanent grant (`static_handlers.py:2006`) — this ticket is
-    the *group*/self-scoped sibling of that already-working attached form.
-    Seed cards (20 Commander-legal SOLO at v380): A-Kargan Warleader,
-    A-Plate Armor, Armguard Familiar, Combat Research, Coppercoat Vanguard.
-  - **PAR-66 · "counters removed this way" as a resolve-time amount.** A
-    `remove_counters`-shaped effect followed by a second effect scaled by
-    how many it actually removed ("remove all charge counters from ~. Add 1
-    mana of any color for each charge counter removed this way." —
-    Coalition Relic; "…for each 5 counters removed this way, take an extra
-    turn" — Sage of Hours) has no read-back today — `RemoveCountersEffect`
-    doesn't stamp a `GameContext` counter the next effect in the same
-    resolution can read, the same shape `objects_exiled_this_way`/
-    `permanents_destroyed_this_way` already give exile/destroy. Seed cards
-    (5 Commander-legal SOLO at v380): Coalition Relic, Garnet, Princess of
-    Alexandria, Lily Bowen, Raging Grandma, Sage of Hours, Ventifact
-    Bottle.
+  - **PAR-67 · Counter-removal follow-ups beyond the plain accumulator.**
+    `GameContext.counters_removed_this_way` + `RemoveCountersEffect.
+    self_only`/`kind` (PAR-66, closed) already closed Coalition Relic/
+    Ventifact Bottle outright; three more cards each need a *further*,
+    distinct shape on top of that same primitive: **Garnet, Princess of
+    Alexandria** ("remove a lore counter from **each of any number of**
+    Sagas you control" — a multi-object removal across a player's own
+    *choice* of permanents, not one target/self source, plus `"lore"`
+    joining `_NAMED_COUNTER_KINDS`); **Lily Bowen, Raging Grandma** ("remove
+    **all but one** +1/+1 counter" — a partial-removal count, not
+    `RemoveCountersEffect`'s existing all-or-chosen-amount shapes); **Sage
+    of Hours** ("for each **5** counters removed this way, take an extra
+    turn" — a division-scaled repeat-action, not a plain 1:1 amount read).
+  - **PAR-68 · Teamwork-adjacent one-offs beyond the rider condition.**
+    PAR-56 (closed) already routes "if this spell was cast using teamwork"
+    riders to a `teamwork_paid` condition, both the modal override and the
+    leading/trailing additive shapes. What's left on real cards is each its
+    own different template, not more "teamwork" grammar: a
+    damage/exile/choose **magnitude override** family parallel to the
+    existing kicked/bargained "instead" overrides (Helicarrier Strike,
+    Cruel Alliance, Too Evil to Stay Dead, Earth's Mightiest Heroes); a
+    trailing "also `<effect>` if teamwork" additive that also needs a "that
+    creature" previous-target pronoun `add_counters` doesn't resolve yet
+    (Beast Mode); the `Teamwork — <ability>` ability-word keyword line; two
+    new trigger conditions ("whenever `<name>` becomes tapped to pay a
+    teamwork cost", "whenever you cast a spell using teamwork"); and "you
+    may cast this spell as though it had flash if it's cast using teamwork"
+    (a cast-permission condition). HULK SMASH!/Atlantis Attacks/Murdock's
+    Crusade (PAR-56's old seed cards) are each blocked by unrelated,
+    generic gaps instead (a "target player creates a token" recipient, a
+    `<Name> — <effect>` flavor-label-prefixed mode body, "destroy target
+    noncreature artifact") — real but nothing to do with Teamwork.
 
   Bucket C (set-specific mechanics, deck-first):
 
-  - **PAR-53** — Party (Zendikar Rising): `creatures in your party` /
-    `full party` count-selector + its cost-reduction form (#39).
   - Doctor's companion (Doctor Who) (#28), Rebel/Mercenary recruiter
     tutor chains (Mercadian Masques) (#21), `enters prepared` (#23) —
     file from the next free id (see the ticket-id note above) when their
@@ -128,17 +135,6 @@ its block back into the matching section here.
     #19 — permanent non-goal), Conspiracy draft-matters (#13), Banding
     (#13), Horsemanship (#8) — dead pools / non-goals, documented, kept
     out of the denominator with the sticker cards.
-
-  **Bucket A residue — modal *header* shapes** (bodies all claim; only the
-  header/engine support is missing). What is left, ~26 Commander-legal cards
-  in five shapes:
-
-  - **PAR-56 · Teamwork modal and rider grammar (RULE 702.194).** Route
-    `if this spell was cast using teamwork` modal overrides and ordinary
-    conditional riders to a `teamwork_paid` condition. The engine half
-    (MEC-67, optional tapping cost + cast-state marker) is **done**, so this
-    is parser-only. Seed cards: Go Nuts!, Widow's Bite, HULK SMASH!,
-    Atlantis Attacks, Murdock's Crusade.
 
 ## MEC — Game mechanics
 

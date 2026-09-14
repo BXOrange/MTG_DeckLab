@@ -299,6 +299,15 @@ class GainLifeEffect(GameEffect):
                     self.count_selector == "life_lost_this_way",
                     lambda: context.life_lost_this_way,
                 ),
+                (
+                    # "…gain 1 life for each `<kind>` counter removed this
+                    # way." (Lily Bowen/Essence Bottle, PAR-66) —
+                    # `GameContext.counters_removed_this_way`'s own
+                    # per-resolution accumulator, the counter-removal
+                    # sibling of ``life_lost_this_way`` just above.
+                    self.count_selector == "counters_removed_this_way",
+                    lambda: context.counters_removed_this_way,
+                ),
                 (bool(self.count_selector) and player is not None, _from_count_selector),
             ],
             stop_at_first=True,

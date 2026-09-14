@@ -2806,6 +2806,8 @@ is in the rules-engine categories below them.
 
 - **What:** `RemoveCountersEffect` (untargeted board-wide or `target_kind="permanent"`) strips every counter of every kind via `context.add_counters` with a negative amount per kind, so a counter-removed trigger still fires correctly (Vampire Hexmage/Oblivion Stone/Aether Snap-shaped).
 - **Files:** `game/effects/core.py`
+- **Follow-up (PAR-66, v381) — "counters removed this way" as a resolve-time amount, plus a self-only/named-kind removal shape:** `RemoveCountersEffect` previously stripped counters (via `context.add_counters`, so a counter-removed trigger still fires) but never told anything *how many* it actually removed — a following effect scaled by "for each counter removed this way" (Coalition Relic/Ventifact Bottle's own mana rider) had nothing to read. New `GameContext.counters_removed_this_way` int accumulator — `objects_exiled_this_way`/`permanents_destroyed_this_way`'s counter-removal sibling, same save/reset/restore idiom threaded through `_apply_effects_partitioned`/`composition.py`'s nested-resolution passthrough and the deferred-effects resume path — bumped by every `RemoveCountersEffect._strip` call site (targeted, self-only, and the untargeted board-wide loop alike). Also added `RemoveCountersEffect.self_only`/`kind`: "Remove all `<kind>` counters from ~." (a permanent naming its own source — RULE 115 never applies, so this needed a *fourth* mode alongside the existing max_count/target_spec/board-wide-all three) restricted to one named counter kind, so an unrelated counter type on the same permanent survives the strip; new parser handler `_remove_all_named_counters_self` (`_NAMED_COUNTER_KINDS` + the `+1/+1`/`-1/-1` P/T shape). Wired the accumulator into the two effect classes that actually needed it for real cards: `GainLifeEffect.count_selector="counters_removed_this_way"` (mirroring the pre-existing `"life_lost_this_way"` special case exactly) and two new `AddManaEffect` params — `amount_from_context` (the fixed-colour sibling of the pre-existing `any_amount_from_context`, itself previously reachable only from hand-authored Culling Ritual, RULE 122 — now reachable from oracle text too via reused `any_amount_from_context` for the "any color" branch) — new parser handler `_add_mana_per_counter_removed`. Closed Coalition Relic and Ventifact Bottle outright; Garnet/Lily Bowen/Sage of Hours each need a further, distinct shape on top of this primitive (multi-object removal, partial-count removal, division-scaled repeat-action respectively) and stayed open as PAR-67.
+- **Files:** `game/effects/core.py` (`GameContext.counters_removed_this_way`, `_apply_effects_partitioned`), `game/effects/counters_tokens.py` (`RemoveCountersEffect.self_only`/`kind`), `game/effects/choices_actions.py` (`AddManaEffect.amount_from_context`), `game/effects/life_sacrifice.py` (`GainLifeEffect`'s new count_selector branch), `game/effects/composition.py`, `game/rules/casting_mixin.py`, `game/effects/registry.py`, `parser/oracle/catalogue/handlers.py`. `tests/test_par66_counters_removed_this_way.py`.
 
 ### "Proliferate Twice / N Times"
 
@@ -3179,6 +3181,16 @@ is in the rules-engine categories below them.
 
 - **What:** The exact same idempotent-per-player-flag shape as Ascend above (`Player.has_enduring_story`, never cleared), granted at SBA cadence once its controller controls three or more permanents that are artifacts, Sagas, and/or legendary — a three-way type/subtype/supertype OR rather than Ascend's flat permanent tally. Full writeup (incl. the comma-less "`<Name>` the `<Epithet>`" self-reference fold this cluster also needed) under "Oracle-Text Parser Front-End" → PAR-51.
 - **Files:** `game/rules_engine.py`, `game/rules/sba_mixin.py`, `models/game/player.py`, `game/static_conditions.py`, `parser/oracle/catalogue/keywords.py`, `parser/oracle/catalogue/static_handlers.py`
+
+### Party (RULE 700.8/702.129, PAR-53)
+
+- **What:** `continuous.count_selector`'s `"creatures_in_your_party"` branch (a RULE 700.8 bipartite Cleric/Rogue/Warrior/Wizard matcher — a creature with several of those subtypes can only fill one role) already existed but was never wired to a parser row. Closed its two named gaps: `static_handlers._SELF_COST_REDUCTION_PARTY_RE` ("This spell costs `<N>` less to cast for each creature in your party.") mirrors the existing attacking-count/graveyard `per`-scaled `cost_reduction` siblings exactly, just a new selector name; `"you have a full party"` needed no new condition *kind* at all — "full" is exactly 4 (the cap `creatures_in_your_party` can ever return), so it's just the ordinary `control_count` predicate at `min=4`, reusing the ``static_condition``/`_GENERIC_IF_*` machinery that already threads a "full party" gate through both `as long as` statics and a resolve-time "if you have a full party, `<rider>`" clause for free.
+- **Files:** `parser/oracle/catalogue/static_handlers.py`. `tests/test_par53_party.py`.
+
+### Ward `<cost>` static grants (RULE 702.21b, PAR-65)
+
+- **What:** `continuous.py`'s `grant_keyword` loop already applied a granted `ward_cost` generically to *any* `affected_objects(state, ability)` result (Hexing Squelcher's group-scoped "Other creatures you control have 'Ward—Pay 2 life.'\"" was already working, hand-authored) — the real gap was entirely parser-side: every keyword-list regex in this family (`_ATTACHED_ANTHEM_RE`/`_ATTACHED_GRANT_RE`/`_ANTHEM_RE`/`_GRANT_RE`/`_MULTI_PERMANENT_TYPE_GRANT_RE`) used a bare-word character class that couldn't even capture "ward {2}"'s braces/digits, and `_flag_keywords` itself fails closed on any parametric keyword by design (its own docstring named Ward as the standing example). Widened each regex's keyword-list capture and added `_flag_keywords_and_ward`, a sibling that peels "ward `<cost>`" entries out of the list first — so a list mixing Ward with an ordinary flag keyword (Brotherhood Regalia) still works — and hands the rest to the unmodified `_flag_keywords`. **+19 cards** beyond the originally-scoped 20-card SOLO estimate (the regex widening is generic, so it also caught cards never specifically diagnosed for this ticket — Super Strength, Winged Boots, Hunter's Bow, Giant Ankheg, Lavaspur Boots, Falcon's Wing Harness among them).
+- **Files:** `parser/oracle/catalogue/static_handlers.py`. `tests/test_par65_ward_grants.py`.
 
 ### Hexproof-from-quality keyword shape (PAR-5)
 
@@ -5802,6 +5814,47 @@ measurement of why is the useful half of this work.
   `parser/oracle/catalogue/static_handlers.py`, `models/game/player.py`,
   `game/rules/sba_mixin.py`, `game/rules/misc_mixin.py`,
   `parser/oracle/normalize.py`. `tests/test_par51_storied.py`.
+
+### PAR-56: Teamwork (RULE 702.194) rider grammar + a dormant-bug fix (PARSER_VERSION 381)
+
+- **What:** A prior batch (v377) had already wired the modal "choose N.
+  If this spell was cast using teamwork, choose both instead." override
+  (`modal.py`) and a leading-additive "if this spell was cast using
+  teamwork, `<extra effect>`" prefix row
+  (`segmenter._TEAMWORK_PAID_CONDITION_RE`), both emitting `{"kind":
+  "flag", "flag": "teamwork_paid"}` — **but never added `"teamwork_paid"`
+  to `static_conditions.SUBJECT_FLAGS`**, so `condition_holds`'s "flag"
+  branch (`name not in SUBJECT_FLAGS` → fail closed) silently evaluated
+  it to `False` forever. Every card carrying that row already counted as
+  `MODELED` (the row *parsed* fine) but its rider would never actually
+  fire in a real game — a "parses but is rules-wrong" gap the coverage
+  gate itself can't see, caught only by an execute-level test. Fixed by
+  adding the flag (+ its `_FROM_LEGACY`/`_ALLOWED_CONDITION_KEYS` mirrors,
+  completing the same trio every other cast-time flag in that whitelist
+  already has). Also added "this spell"/"it was cast using teamwork" to
+  `static_handlers.static_condition`'s shared vocabulary, so the
+  **generic** trailing "`<effect>`, if/unless `<cond>`" gates
+  (`segmenter._GENERIC_IF_SUFFIX_RE`/`_GENERIC_UNLESS_SUFFIX_RE`) recognize
+  it too — a different grammatical shape than the pre-existing leading-
+  prefix row, closing Timeline Inquiry's "discard a card **unless** this
+  spell was cast using teamwork." A `_KICKED_CONDITION_RE` widening
+  attempt to also cover "cast using teamwork" turned out fully redundant
+  with the pre-existing dedicated row and was reverted once it started
+  shadowing that row in `test_effect_conditions.py`'s own table-coverage
+  check (ordering: the "first row that matches" idiom means two rows
+  matching the same phrase makes the second unreachable, unnoticed until
+  a completeness test catches it) — also fixed that check's own missing
+  body sample for the pre-existing row while here, another latent gap.
+  Residue beyond this ticket's own scope (a magnitude-override family,
+  a previous-target pronoun gap, an ability-word keyword line, two
+  trigger conditions, a cast-permission condition) filed as PAR-68.
+- **Files:** `game/static_conditions.py`, `game/effect_conditions.py`,
+  `parser/oracle/spec.py`,
+  `parser/oracle/catalogue/static_handlers.py`.
+  `tests/test_par56_teamwork.py`.
+- **Bug fixed:** see "What" — `"teamwork_paid"` missing from
+  `SUBJECT_FLAGS` since v377, silently no-opping every teamwork rider
+  card shipped since.
 
 ### PAR-58: Reflexive modal wrapper — stale backlog reconciliation
 

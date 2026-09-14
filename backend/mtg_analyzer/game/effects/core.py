@@ -174,6 +174,18 @@ class GameContext:
         #: Read by `CreateTokenEffect.extra_counters`' ``count_from_context``
         #: key. Same save/reset/restore idiom in `_apply_effects_partitioned`.
         self.objects_exiled_this_way: int = 0
+        #: "Remove all charge counters from ~. Add 1 mana of any color for
+        #: each charge counter removed this way." (Coalition Relic/Ventifact
+        #: Bottle) — `permanents_destroyed_this_way`'s counter sibling
+        #: (PAR-66), bumped by `RemoveCountersEffect` for every counter
+        #: actually stripped this resolution (an empty target has nothing to
+        #: remove and contributes 0, same as a hexproof/indestructible no-op
+        #: elsewhere). Read by a following effect's own
+        #: ``count_selector="counters_removed_this_way"`` (`GainLifeEffect`)
+        #: or ``amount_from_context="counters_removed_this_way"``
+        #: (`AddManaEffect`/`AddCountersEffect`). Same save/reset/restore
+        #: idiom as `objects_exiled_this_way`.
+        self.counters_removed_this_way: int = 0
         #: MEC-81: the permanents an earlier `deal_damage` clause of this same
         #: resolution **actually dealt damage to** (RULE 616 — "If a creature
         #: dealt damage this way would die this turn, exile it instead."; Anger
@@ -1078,6 +1090,7 @@ def _apply_effects_partitioned(
     life_lost_this_way: int = 0,
     permanents_destroyed_this_way: int = 0,
     objects_exiled_this_way: int = 0,
+    counters_removed_this_way: int = 0,
     damaged_this_way: Optional[list[Any]] = None,
     previous_selector: Optional[str] = None,
     revealed_card: Optional[Any] = None,
@@ -1158,6 +1171,7 @@ def _apply_effects_partitioned(
     outer_life_lost = getattr(context, "life_lost_this_way", 0)
     outer_permanents_destroyed = getattr(context, "permanents_destroyed_this_way", 0)
     outer_objects_exiled = getattr(context, "objects_exiled_this_way", 0)
+    outer_counters_removed = getattr(context, "counters_removed_this_way", 0)
     outer_damaged_this_way = getattr(context, "damaged_this_way", [])
     outer_previous_selector = getattr(context, "previous_selector", None)
     outer_revealed_card = getattr(context, "revealed_card", None)
@@ -1173,6 +1187,7 @@ def _apply_effects_partitioned(
     context.life_lost_this_way = life_lost_this_way
     context.permanents_destroyed_this_way = permanents_destroyed_this_way
     context.objects_exiled_this_way = objects_exiled_this_way
+    context.counters_removed_this_way = counters_removed_this_way
     context.damaged_this_way = list(damaged_this_way or [])
     context.previous_selector = previous_selector
     context.revealed_card = revealed_card
@@ -1232,6 +1247,7 @@ def _apply_effects_partitioned(
                         "life_lost_this_way": context.life_lost_this_way,
                         "permanents_destroyed_this_way": context.permanents_destroyed_this_way,
                         "objects_exiled_this_way": context.objects_exiled_this_way,
+                        "counters_removed_this_way": context.counters_removed_this_way,
                         "damaged_this_way": list(context.damaged_this_way),
                         "previous_selector": context.previous_selector,
                         "revealed_card": context.revealed_card,
@@ -1248,6 +1264,7 @@ def _apply_effects_partitioned(
         context.life_lost_this_way = outer_life_lost
         context.permanents_destroyed_this_way = outer_permanents_destroyed
         context.objects_exiled_this_way = outer_objects_exiled
+        context.counters_removed_this_way = outer_counters_removed
         context.damaged_this_way = outer_damaged_this_way
         context.previous_selector = outer_previous_selector
         context.revealed_card = outer_revealed_card

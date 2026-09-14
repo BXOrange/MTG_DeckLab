@@ -294,6 +294,12 @@ SUBJECT_FLAGS: frozenset[str] = frozenset(
         "cast_outside_sorcery_speed",
         "renowned",  # RULE 702.111b — was ``source_is_renowned``
         "is_suspected",  # RULE 701.60c — was ``previous_target_is_suspected``
+        # RULE 702.194b (PAR-56) — Teamwork's own cast-time record
+        # (`GameObject.teamwork_paid`, stamped by `GameEngine.cast_spell`
+        # exactly like `bargained`/`additional_cost_paid` above), for
+        # resolve-time riders beyond the modal "choose both instead"
+        # shape `_modal_override_active` already special-cases.
+        "teamwork_paid",
     }
 )
 

@@ -1345,6 +1345,7 @@ EffectRegistry.register(
         color_from_source_noted_color=bool(p.get("color_from_source_noted_color", False)),
         any_color_choices=p.get("any_color_choices"),
         any_amount_from_context=p.get("any_amount_from_context"),
+        amount_from_context=p.get("amount_from_context"),
     ),
 )
 EffectRegistry.register(
@@ -2788,6 +2789,7 @@ EffectRegistry.register(
     lambda p: RemoveCountersEffect(
         target_kind=p.get("target_kind"), max_count=p.get("max_count"),
         draw_per_removed=bool(p.get("draw_per_removed", False)),
+        self_only=bool(p.get("self_only", False)), kind=p.get("kind"),
     ),
 )
 EffectRegistry.register(

@@ -5247,6 +5247,33 @@ def _add_mana_any_color(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("add_mana", {"colors": ["any"]})]
 
 
+#: "Add `<sym>` / 1 mana of any color for each `<kind>` counter removed this
+#: way." (Coalition Relic/Ventifact Bottle, PAR-66) — `GameContext.
+#: counters_removed_this_way`'s own accumulator (bumped by a preceding
+#: `remove_counters` clause in the same resolution), read through
+#: `AddManaEffect.amount_from_context`/``any_amount_from_context`` exactly
+#: like `permanents_destroyed_this_way` already feeds Culling Ritual's
+#: hand-authored entry — this is the oracle-text route to the same
+#: primitive. The counter *kind* word itself isn't re-checked here (a
+#: single `remove_counters` clause only ever strips one named kind per
+#: card today), so any kind word claims.
+_ADD_MANA_PER_COUNTER_REMOVED_RE = _c(
+    r"add (?:(?P<any>1 mana of any colou?r)|(?P<sym>\{[wubrgc]\}))"
+    r" for each [a-z]+ counters? removed this way"
+)
+
+
+def _add_mana_per_counter_removed(m: re.Match[str]) -> list[EffectSpec]:
+    if m.group("any"):
+        return [EffectSpec("add_mana", {
+            "colors": ["any"], "any_amount_from_context": "counters_removed_this_way",
+        })]
+    color = m.group("sym").strip("{}").upper()
+    return [EffectSpec("add_mana", {
+        "color": color, "amount_from_context": "counters_removed_this_way",
+    })]
+
+
 #: "you may pay {E}{E}. If/When you do, <effect>." (RULE 122, Aether Chaser/
 #: Herder/Inspector/Swooper) — a resolve-time optional energy payment gating
 #: a follow-up. The follow-up is recursively parsed; a follow-up the parser
@@ -7608,6 +7635,24 @@ def _remove_counters_all_permanents(m: re.Match[str]) -> list[EffectSpec]:
 #: "remove all counters from target permanent" (Vampire Hexmage-shaped).
 def _remove_counters_target(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("remove_counters", {"target_kind": "permanent"})]
+
+
+#: "Remove all `<kind>` counters from ~." (Coalition Relic/Ventifact
+#: Bottle, PAR-66) — untargeted (the ability names its own source, RULE
+#: 115 never applies), and restricted to one named counter kind so an
+#: unrelated counter type on the same permanent survives. Reuses
+#: `_NAMED_COUNTER_KINDS` (the same fail-closed whitelist `_add_named_
+#: counter` uses) plus the `+1/+1`/`-1/-1` P/T shape.
+_REMOVE_ALL_NAMED_COUNTERS_SELF_RE = _c(
+    rf"remove all (?P<ckind>{'|'.join(_NAMED_COUNTER_KINDS)}|[+\-−]1/[+\-−]1) "
+    rf"counters? from {_SELF_SUBJECT}"
+)
+
+
+def _remove_all_named_counters_self(m: re.Match[str]) -> list[EffectSpec]:
+    ckind = m.group("ckind")
+    kind = "+1/+1" if ckind[0] in "+" else ("-1/-1" if ckind[0] in "-−" else ckind)
+    return [EffectSpec("remove_counters", {"self_only": True, "kind": kind})]
 
 
 #: "remove up to N counters from target permanent/creature/…" (Glissa
@@ -11510,6 +11555,14 @@ HANDLERS: list[EffectHandler] = [
         _GET_ENERGY_RE,
         _get_energy,
     ),
+    # "add `<sym>`/1 mana of any color for each `<kind>` counter removed
+    # this way" — tried before both rows below since either would otherwise
+    # (fail to) match only the leading "add …" fragment.
+    EffectHandler(
+        "add_mana_per_counter_removed",
+        _ADD_MANA_PER_COUNTER_REMOVED_RE,
+        _add_mana_per_counter_removed,
+    ),
     # "add 1 mana of any color" — a genuine resolve-time colour choice,
     # tried before the fixed-pip pattern below since it has no {…} symbols
     # for that one to (fail to) match anyway.
@@ -12848,6 +12901,13 @@ HANDLERS: list[EffectHandler] = [
         "remove_counters_target",
         _c(r"remove all counters from target permanent"),
         _remove_counters_target,
+    ),
+    # "remove all `<kind>` counters from ~." (Coalition Relic/Ventifact
+    # Bottle) — see `_REMOVE_ALL_NAMED_COUNTERS_SELF_RE`.
+    EffectHandler(
+        "remove_all_named_counters_self",
+        _REMOVE_ALL_NAMED_COUNTERS_SELF_RE,
+        _remove_all_named_counters_self,
     ),
     # "remove up to N counters from target permanent/creature" (Glissa
     # Sunslayer/Heartless Act/Render Inert-shaped) — see

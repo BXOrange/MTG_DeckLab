@@ -172,7 +172,9 @@ _ANTHEM_RE = re.compile(
     r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?"
     rf"{_CHOSEN_TAIL} "
     r"get (?P<p>[+-]\d+)/(?P<t>[+-]\d+)"
-    r"(?: and have (?P<kw>[a-z][a-z, ]*))?",
+    # PAR-65: braces/digits alongside the ordinary bare-word list admit
+    # Ward's own "{cost}" (`_flag_keywords_and_ward`, not `_flag_keywords`).
+    r"(?: and have (?P<kw>[a-z0-9][a-z0-9,{}— ]*))?",
     re.IGNORECASE,
 )
 # The controller-opposite sibling of the ordinary group anthem.  It has its
@@ -192,7 +194,8 @@ _SELF_ANTHEM_PER_OPPONENT_COLOR_PERMANENT_RE = re.compile(
 _GRANT_RE = re.compile(
     r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?"
     rf"{_CHOSEN_TAIL} "
-    r"have (?P<kw>[a-z][a-z, ]*)",
+    # PAR-65: admits Ward's own "{cost}" — see `_flag_keywords_and_ward`.
+    r"have (?P<kw>[a-z0-9][a-z0-9,{}— ]*)",
     re.IGNORECASE,
 )
 # PAR-31: "Artifacts, creatures, enchantments, and lands you control have
@@ -207,7 +210,8 @@ _GRANT_RE = re.compile(
 _MULTI_PERMANENT_TYPE_GRANT_RE = re.compile(
     r"(?P<body>(?:artifacts|creatures|enchantments|lands|planeswalkers)"
     r"(?:,? (?:and )?(?:artifacts|creatures|enchantments|lands|planeswalkers))+)"
-    r" you control have (?P<kw>[a-z][a-z, ]*)",
+    # PAR-65: admits Ward's own "{cost}" — see `_flag_keywords_and_ward`.
+    r" you control have (?P<kw>[a-z0-9][a-z0-9,{}— ]*)",
     re.IGNORECASE,
 )
 # "Each creature you control with a +1/+1 counter on it has <keywords>."
@@ -489,6 +493,17 @@ _ACTIVATION_COST_REDUCTION_TYPE_RE = re.compile(
 _SELF_COST_REDUCTION_ATTACKING_RE = re.compile(
     r"this spell costs \{(?P<n>\d+)\} less to cast for each attacking creature"
     r"(?P<yours> you control)?",
+    re.IGNORECASE,
+)
+
+# "This spell costs {N} less to cast for each creature in your party."
+# (RULE 700.8/702.129, Zendikar Rising's Party mechanic, PAR-53) — the exact
+# same `per`-scaled self cost-reduction shape as the attacking-count row
+# above; only the selector (`creatures_in_your_party`, `continuous.
+# count_selector`'s existing RULE 700.8 bipartite Cleric/Rogue/Warrior/
+# Wizard matcher — built but never wired to any parser row until now) is new.
+_SELF_COST_REDUCTION_PARTY_RE = re.compile(
+    r"this spell costs \{(?P<n>\d+)\} less to cast for each creature in your party",
     re.IGNORECASE,
 )
 
@@ -2394,10 +2409,14 @@ _GRAVEYARD_RETRACE_GRANT_RE = re.compile(
 # (attached-permanent anthem, +grant) — singular "gets"/"has", unlike the
 # plural "get"/"have" of `_ANTHEM_RE`/`_GRANT_RE` above (those two families
 # never collide on the same clause text).
+#: The keyword-list character class widened to admit Ward's "{cost}" (PAR-65
+#: — braces/digits alongside the ordinary bare-word list), consumed via
+#: `_flag_keywords_and_ward` rather than the plain `_flag_keywords`.
+_KW_WITH_WARD = r"[a-z0-9][a-z0-9,{}— ]*?"
 _ATTACHED_ANTHEM_RE = re.compile(
     rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) "
     r"gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+)"
-    r"(?: and has (?P<kw>[a-z][a-z, ]*?))?"
+    rf"(?: and has (?P<kw>{_KW_WITH_WARD}))?"
     # RULE 701.15b: "…and is goaded" (Acquired Mutation and 7 siblings — the
     # single most common goad phrasing on a card). A tail rather than its own
     # row because it only ever appears *after* the P/T (and optionally the
@@ -2407,7 +2426,7 @@ _ATTACHED_ANTHEM_RE = re.compile(
 )
 # "<equipped/enchanted/fortified subject> has <keywords>"  (keyword-only grant)
 _ATTACHED_GRANT_RE = re.compile(
-    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has (?P<kw>[a-z][a-z, ]*?)"
+    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has (?P<kw>{_KW_WITH_WARD})"
     r"(?P<goaded> and is goaded)?",
     re.IGNORECASE,
 )
@@ -2867,6 +2886,20 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # RULE 702.195b (PAR-51) — Storied's own designation, same shape as the
     # city's blessing row just above.
     (re.compile(r"you have an enduring story", re.I), lambda m: {"kind": "has_enduring_story"}),
+    # RULE 702.194b (PAR-56) — "this spell"/"it was cast using teamwork" as a
+    # generic resolve-time condition (the trailing "…if/unless `<cond>`"
+    # gates in `segmenter._GENERIC_IF_SUFFIX_RE`/`_GENERIC_UNLESS_SUFFIX_RE`
+    # already route any whitelisted phrase here) — `GameObject.
+    # teamwork_paid`, the same cast-time flag `_KICKED_CONDITION_RE`'s
+    # leading-"if" sibling reads via `SUBJECT_FLAGS`.
+    (re.compile(r"(?:this spell|it) was cast using teamwork", re.I),
+     lambda m: {"kind": "flag", "flag": "teamwork_paid"}),
+    # RULE 700.8/702.129 (PAR-53) — "full party" is exactly 4 (one each of
+    # Cleric/Rogue/Warrior/Wizard), the cap `creatures_in_your_party`'s own
+    # RULE 700.8 bipartite matcher can ever return — so this is the ordinary
+    # `control_count` predicate at that literal threshold, not a new kind.
+    (re.compile(r"you have a full party", re.I),
+     lambda m: {"kind": "control_count", "selector": "creatures_in_your_party", "min": 4}),
     # -- Board counts, over `continuous.count_selector`'s own vocabulary.
     (re.compile(r"you control (?P<n>\d+) or more (?P<what>[a-z ]+)", re.I),
      lambda m: _control_count_condition(m.group("what"), int(m.group("n")))),
@@ -3151,6 +3184,44 @@ def _flag_keywords(text: str) -> Optional[list[str]]:
             continue
         return None
     return slugs or None
+
+
+def _flag_keywords_and_ward(text: str) -> Optional[tuple[list[str], Optional[str]]]:
+    """`_flag_keywords`'s sibling for callers whose own outer regex has
+    widened its keyword-list character class to admit Ward's ``{cost}``
+    (RULE 702.21b, PAR-65) — a keyword `_flag_keywords` itself must keep
+    rejecting, since a plain flag slug has nowhere to carry a cost param.
+    Peels any "ward `<cost>`" entries out of the comma/and-joined list
+    first (`_GRANTED_WARD_RE`, the same pattern the quoted-ability-grant
+    path already uses) and hands the rest to `_flag_keywords` unchanged, so
+    a list mixing Ward with ordinary flag keywords (Brotherhood Regalia's
+    own "has ward {2}, is an assassin ..., and can't be blocked") still
+    works. Two Wards in one list isn't a real card — fails closed rather
+    than picking one. Returns ``(keywords, ward_cost)``; either half may be
+    empty/``None`` but never both (an all-empty list is a caller error, not
+    a "no grant" answer)."""
+    ward_cost: Optional[str] = None
+    plain_parts: list[str] = []
+    for part in re.split(r",|\band\b", text):
+        part = part.strip()
+        if not part:
+            continue
+        ward = _GRANTED_WARD_RE.fullmatch(part)
+        if ward is not None:
+            if ward_cost is not None:
+                return None  # two Wards in one grant — not a real card
+            ward_cost = ward.group("cost").strip()
+            continue
+        plain_parts.append(part)
+    keywords: list[str] = []
+    if plain_parts:
+        resolved = _flag_keywords(" and ".join(plain_parts))
+        if resolved is None:
+            return None
+        keywords = resolved
+    if not keywords and ward_cost is None:
+        return None
+    return (keywords, ward_cost)
 
 
 #: "~ gets +N/+N [and has <keywords>]" / "~ has <keywords>" — the **self**
@@ -3779,6 +3850,15 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             )
         ]
 
+    m = _SELF_COST_REDUCTION_PARTY_RE.fullmatch(text)
+    if m is not None:
+        return [
+            EffectSpec(
+                "cost_reduction",
+                {"affects": "self", "generic": int(m.group("n")), "per": "creatures_in_your_party"},
+            )
+        ]
+
     m = _SELF_COST_REDUCTION_GY_RE.fullmatch(text)
     if m is not None:
         selector = _GY_COST_COUNT_SELECTORS.get(m.group("word").lower())
@@ -4064,24 +4144,34 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
                                    "affects": "attached_permanent"})
         ]
         if m.group("kw"):  # "… and has <keywords>" tail
-            keywords = _flag_keywords(m.group("kw"))
-            if keywords is None:
+            resolved = _flag_keywords_and_ward(m.group("kw"))
+            if resolved is None:
                 return None  # e.g. a granted landwalk — fail-closed, whole clause
-            specs.append(EffectSpec("grant_keyword", {"keywords": keywords,
-                                                        "affects": "attached_permanent"}))
+            keywords, ward_cost = resolved
+            params: dict = {"affects": "attached_permanent"}
+            if keywords:
+                params["keywords"] = keywords
+            if ward_cost:
+                params["ward_cost"] = ward_cost
+            specs.append(EffectSpec("grant_keyword", params))
         if m.group("goaded"):  # "… and is goaded" tail (RULE 701.15b)
             specs.append(EffectSpec("goaded", {"affects": "attached_permanent"}))
         return specs
 
     # Attached-permanent keyword-only grant ("equipped creature has trample",
-    # "enchanted creature has indestructible and is goaded").
+    # "enchanted creature has indestructible and is goaded", "… has ward {2}").
     m = _ATTACHED_GRANT_RE.fullmatch(text)
     if m is not None:
-        keywords = _flag_keywords(m.group("kw"))
-        if keywords is None:
+        resolved = _flag_keywords_and_ward(m.group("kw"))
+        if resolved is None:
             return None
-        specs = [EffectSpec("grant_keyword", {"keywords": keywords,
-                                              "affects": "attached_permanent"})]
+        keywords, ward_cost = resolved
+        params = {"affects": "attached_permanent"}
+        if keywords:
+            params["keywords"] = keywords
+        if ward_cost:
+            params["ward_cost"] = ward_cost
+        specs = [EffectSpec("grant_keyword", params)]
         if m.group("goaded"):
             specs.append(EffectSpec("goaded", {"affects": "attached_permanent"}))
         return specs
@@ -4513,10 +4603,16 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
                        {"power": int(m.group("p")), "toughness": int(m.group("t")), **params})
         ]
         if m.group("kw"):  # "… and have <keywords>" tail
-            keywords = _flag_keywords(m.group("kw"))
-            if keywords is None:
+            resolved = _flag_keywords_and_ward(m.group("kw"))
+            if resolved is None:
                 return None  # e.g. a granted landwalk — fail-closed, whole clause
-            specs.append(EffectSpec("grant_keyword", {"keywords": keywords, **params}))
+            keywords, ward_cost = resolved
+            grant_params = dict(params)
+            if keywords:
+                grant_params["keywords"] = keywords
+            if ward_cost:
+                grant_params["ward_cost"] = ward_cost
+            specs.append(EffectSpec("grant_keyword", grant_params))
         return specs
 
     m = _COMMANDER_CREATURES_QUOTED_GRANT_RE.fullmatch(text)
@@ -4571,14 +4667,16 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         card_types = _multi_permanent_type_list(m.group("body"))
         if card_types is None:
             return None
-        keywords = _flag_keywords(m.group("kw"))
-        if keywords is None:
+        resolved = _flag_keywords_and_ward(m.group("kw"))
+        if resolved is None:
             return None
-        return [EffectSpec("grant_keyword", {
-            "keywords": keywords,
-            "affects": "permanents_you_control",
-            "card_type": card_types,
-        })]
+        keywords, ward_cost = resolved
+        params: dict = {"affects": "permanents_you_control", "card_type": card_types}
+        if keywords:
+            params["keywords"] = keywords
+        if ward_cost:
+            params["ward_cost"] = ward_cost
+        return [EffectSpec("grant_keyword", params)]
 
     m = _GRANT_RE.fullmatch(text)
     if m is not None:
@@ -4594,10 +4692,16 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             if word is None:
                 return None
             scope_params = _permanent_scope_params(word, m)
-        keywords = _flag_keywords(m.group("kw"))
-        if keywords is None:
+        resolved = _flag_keywords_and_ward(m.group("kw"))
+        if resolved is None:
             return None
-        return [EffectSpec("grant_keyword", {"keywords": keywords, **scope_params})]
+        keywords, ward_cost = resolved
+        grant_params = dict(scope_params)
+        if keywords:
+            grant_params["keywords"] = keywords
+        if ward_cost:
+            grant_params["ward_cost"] = ward_cost
+        return [EffectSpec("grant_keyword", grant_params)]
 
     m = _HAND_CYCLING_GRANT_RE.fullmatch(text)
     if m is not None:

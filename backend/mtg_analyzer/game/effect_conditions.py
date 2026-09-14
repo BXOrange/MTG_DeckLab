@@ -443,6 +443,7 @@ _FROM_LEGACY: dict[str, Callable[[Any], Optional[dict[str, Any]]]] = {
     "kicked": lambda v: {"kind": "kicked", "min": 1} if v else {"kind": "kicked", "max": 0},
     "kicked_at_least": lambda v: {"kind": "kicked", "min": int(v)},
     "bargained": _flag("bargained"),
+    "teamwork_paid": _flag("teamwork_paid"),  # RULE 702.194b (PAR-56)
     "additional_cost_paid": _flag("additional_cost_paid"),
     "source_was_cast": _flag("was_cast"),
     "source_was_foretold": _flag("foretold"),

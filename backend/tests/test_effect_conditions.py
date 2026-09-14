@@ -58,6 +58,7 @@ _LEGACY_SAMPLES: dict[str, list[object]] = {
     "kicked": [True, False],
     "kicked_at_least": [2],
     "bargained": [True],
+    "teamwork_paid": [True],
     "additional_cost_paid": [True, False],
     "source_was_cast": [True, False],
     "source_was_foretold": [True],
@@ -218,7 +219,7 @@ class TestTheCollapseIsReal:
         assert target["kind"] == recipient["kind"] == "is_you"
         assert {target["of"], recipient["of"]} == {"target", "counter_recipient"}
 
-    def test_eight_flat_keys_were_one_attribute_read(self) -> None:
+    def test_nine_flat_keys_were_one_attribute_read(self) -> None:
         flags = {
             key for key, _, condition in _translated()
             if condition.get("kind") == "flag"
@@ -228,7 +229,7 @@ class TestTheCollapseIsReal:
             "bargained", "additional_cost_paid", "source_was_cast",
             "source_was_foretold", "cast_via_escape",
             "cast_outside_sorcery_speed", "source_is_renowned",
-            "previous_target_is_suspected",
+            "previous_target_is_suspected", "teamwork_paid",
         }
 
     def test_a_negative_boolean_is_the_not_combinator(self) -> None:
@@ -399,6 +400,7 @@ class TestOnePeelerRule:
         "if it was kicked twice, draw a card",
         "if this spell was bargained, draw a card",
         "if this spell's additional cost was paid, draw a card",
+        "if this spell was cast using teamwork, draw a card",
         "if that player is you, draw a card",
         "if that player isn't you, draw a card",
         "if you win, draw a card",

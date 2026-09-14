@@ -2858,7 +2858,49 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: Tide", "start" in "Jump-start" for "Start the TARDIS") is never folded
 #: — a real self-reference is always printed capitalized. +35, zero
 #: regressions (verified via `parser_probe.py diff`).
-PARSER_VERSION = "380"
+#: v381 — PAR-53 closed: Party (RULE 700.8/702.129, Zendikar Rising).
+#: `continuous.count_selector`'s `"creatures_in_your_party"` branch (the
+#: RULE 700.8 bipartite Cleric/Rogue/Warrior/Wizard matcher) existed but
+#: was never wired to a parser row — new `_SELF_COST_REDUCTION_PARTY_RE`
+#: ("this spell costs `<N>` less to cast for each creature in your
+#: party") and `"you have a full party"` → the ordinary `control_count`
+#: predicate at `min=4` (no new condition kind: "full" is exactly the cap
+#: `creatures_in_your_party` can ever return). Also PAR-56 closed:
+#: Teamwork (RULE 702.194) rider grammar beyond the already-shipped modal
+#: "choose both instead" override — found and fixed a **dormant bug** in
+#: that earlier work: `"teamwork_paid"` was never added to
+#: `static_conditions.SUBJECT_FLAGS`, so every "if this spell was cast
+#: using teamwork, `<rider>`" card already counted as `MODELED` while its
+#: rider silently never fired (`condition_holds`'s fail-closed "flag" gate
+#: read as `False` forever) — caught only by an execute-level test, not
+#: coverage measurement. Also widened `static_condition`'s shared
+#: vocabulary with "this/it was cast using teamwork" so the **generic**
+#: trailing "`<effect>`, if/unless `<cond>`" gates recognize it too (a
+#: different grammatical shape than the pre-existing leading-prefix row),
+#: closing Timeline Inquiry. Also PAR-65 closed: parametric-keyword static
+#: grants, starting with Ward `<cost>` (RULE 702.21b) — `continuous.py`'s
+#: grant loop already applied `ward_cost` generically to *any*
+#: `affected_objects` result; the real gap was every keyword-list regex in
+#: this family (`_ATTACHED_ANTHEM_RE`/`_ATTACHED_GRANT_RE`/`_ANTHEM_RE`/
+#: `_GRANT_RE`/`_MULTI_PERMANENT_TYPE_GRANT_RE`) using a bare-word
+#: character class that couldn't even capture "ward {2}"'s braces/digits,
+#: and `_flag_keywords` itself fails closed on any parametric keyword by
+#: design. New `_flag_keywords_and_ward` sibling peels "ward `<cost>`" out
+#: of a keyword list first (so a list mixing Ward with an ordinary flag
+#: keyword still works) and hands the rest to the unmodified
+#: `_flag_keywords`. Also PAR-66 closed: "counters removed this way" as a
+#: resolve-time amount — new `GameContext.counters_removed_this_way`
+#: accumulator (`objects_exiled_this_way`'s counter-removal sibling,
+#: bumped by `RemoveCountersEffect`), a new `RemoveCountersEffect.
+#: self_only`/`kind` shape ("remove all `<kind>` counters from ~" — no
+#: RULE 115 target, one named counter kind so a permanent's *other*
+#: counter kinds survive), and two new `AddManaEffect` params
+#: (`amount_from_context`, the fixed-colour sibling of the existing
+#: `any_amount_from_context` — itself previously reachable only from
+#: hand-authored Culling Ritual, now reachable from oracle text too) plus
+#: `GainLifeEffect.count_selector="counters_removed_this_way"`. +65 total
+#: across this batch, zero regressed.
+PARSER_VERSION = "381"
 
 
 def parser_source_hash() -> str:

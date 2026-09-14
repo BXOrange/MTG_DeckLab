@@ -1488,6 +1488,8 @@ class RemoveCountersEffect(GameEffect):
         source: Optional["GameObject"] = None,
         max_count: Optional[int] = None,
         draw_per_removed: bool = False,
+        self_only: bool = False,
+        kind: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.max_count = max_count
@@ -1496,10 +1498,22 @@ class RemoveCountersEffect(GameEffect):
         #: draws N, where N is the positive-counter total actually stripped.
         self.draw_per_removed = bool(draw_per_removed)
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+        #: "Remove all charge counters from ~." (Coalition Relic/Ventifact
+        #: Bottle, PAR-66) — untargeted (RULE 115 never applies to an
+        #: ability naming its own source), unlike ``target_spec`` above.
+        self.self_only = bool(self_only)
+        #: Restrict the strip to one named counter kind (RULE 122.1a) rather
+        #: than every kind the object happens to carry — without this, a
+        #: permanent that also carries an unrelated counter type would lose
+        #: those too. ``None`` keeps every other mode's original "strip
+        #: everything" behaviour unchanged.
+        self.kind = kind
 
     def _strip(self, context: GameContext, obj: "GameObject") -> int:
         removed = 0
         for kind in list(obj.counters.keys()):
+            if self.kind is not None and kind != self.kind:
+                continue
             amount = obj.counters.get(kind, 0)
             if amount:
                 if amount > 0:
@@ -1515,17 +1529,25 @@ class RemoveCountersEffect(GameEffect):
                     target, self.max_count, _controller_of(self.source, context)
                 )
             return
+        if self.self_only:
+            if self.source is not None:
+                context.counters_removed_this_way += self._strip(context, self.source)
+            return
         if self.target_spec is not None:
             target = targets[0] if targets else None
             if target is not None:
                 removed = self._strip(context, target)
+                # PAR-66: `GameContext.counters_removed_this_way` — a
+                # following effect's own "for each counter removed this
+                # way" (Coalition Relic/Ventifact Bottle/Lily Bowen/Garnet).
+                context.counters_removed_this_way += removed
                 if self.draw_per_removed and removed > 0:
                     caster = _controller_of(self.source, context)
                     if caster is not None:
                         context.draw(caster, removed)
             return
         for obj in list(context.state.battlefield):
-            self._strip(context, obj)
+            context.counters_removed_this_way += self._strip(context, obj)
 
 
 def _battlefield_counter_total(state: Any) -> int:
