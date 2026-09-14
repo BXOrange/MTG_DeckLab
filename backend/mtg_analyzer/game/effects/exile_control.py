@@ -81,6 +81,7 @@ class ExileEffect(GameEffect):
         colors: Optional[list[str]] = None,
         bend_kind: Optional[str] = None,
         count_selector: Optional[str] = None,
+        unless_flag: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -167,6 +168,10 @@ class ExileEffect(GameEffect):
                 # Apparition) — the same target-offer-time cap `DestroyEffect`
                 # already threads (`targeting.TargetSpec.max_mana_value`).
                 max_mana_value=max_mana_value,
+                # "…with mana value 3 or less. If this spell was cast using
+                # teamwork, instead exile target creature[.]" (MEC-85, Cruel
+                # Alliance) — see `targeting.TargetSpec.unless_flag`.
+                unless_flag=unless_flag,
             )
 
     def target_polarity(self) -> Optional[str]:

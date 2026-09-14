@@ -76,6 +76,24 @@ Never to be built — not gaps.
 - **Stickers (RULE 123) and Attractions (RULE 717).** `gate.parse_oracle`
   classifies mentions of the former `NEVER_SUPPORTED`, a verdict kept out
   of both the coverage count and the backlog ranking.
+- **Conspiracy draft-matters.** Moved out of `BACKLOG.md`'s Bucket C
+  2026-09-14 once traced card-by-card (`scripts/commander_tail_report.py`
+  tags it 13 Commander-legal cards): every unclaimed clause is literally
+  draft-mechanic text — `"draft this card face up"`, passing the last card
+  of a booster pack, "secretly" numbering a pick — with no function outside
+  a physical/digital draft, confirmed by sampling `Agent of Acquisitions`
+  and `Canal Dredger`'s full unclaimed clause sets. Unlike Stickers, this
+  doesn't carry a `NEVER_SUPPORTED` gate verdict — it stays UNMODELED and
+  counted in the raw coverage percentage — this is a backlog-ranking
+  decision, not a `parser/oracle/gate.py` classification: no ticket will
+  ever be filed to close it.
+  (Banding and Horsemanship, tagged alongside Conspiracy by the same
+  Bucket C pass, were reconsidered the same day and moved to `BACKLOG.md`
+  instead — see `MEC-87`/`MEC-88` — once combat.py turned out to have zero
+  engine support for either, and both keywords are demonstrably live on
+  legal Commander cards, e.g. `Riding the Dilu Horse` granting Horsemanship
+  and `Cathedral of Serra` granting Banding to creatures that don't
+  natively have it: real, functional gaps, not dead print-only text.)
 - **Vanguard (RULE 902) beyond its already-shipped hand-size/life-total
   modifiers.** Its ~107 avatars are a small, long-retired
   supplemental-product pool (not a real deck, no set is designed around it

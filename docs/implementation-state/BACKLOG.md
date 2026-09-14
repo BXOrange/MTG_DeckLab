@@ -65,7 +65,11 @@ its block back into the matching section here.
   > the Commander-legal tail cluster below; every other id up to `PAR-68`
   > is closed narrative only, not a live pointer — don't read a stale
   > "open below" claim from an earlier revision of this note as still true
-  > without checking `Done_Backend.md` first.
+  > without checking `Done_Backend.md` first. Bucket C's three-line
+  > placeholder ("file from the next free id … when their batch comes up")
+  > is now resolved into real tickets — `PAR-69` through `PAR-72` and
+  > `MEC-86`, filed 2026-09-14 (see below) — so the next free parser id
+  > after this batch closes is `PAR-73`.
 
 - **PAR-31…PAR-53 · Commander-legal tail — one PAR per recurring template
   cluster.** Seeded from `scripts/commander_tail_report.py` (read-only,
@@ -91,44 +95,132 @@ its block back into the matching section here.
   No open Bucket B (recurring effect-body / static template) items right
   now — PAR-67/PAR-68 (the last two) both closed 2026-09-14.
 
-  Bucket C (set-specific mechanics, deck-first):
+  Bucket C (set-specific mechanics, deck-first) resolved into five tickets
+  2026-09-14, traced card-by-card with `commander_tail_report.py` +
+  `parser_probe.py card`/`blocked` rather than taken at the report's loose
+  keyword-match counts — two of the report's five raw clusters turned out to
+  be residue from *already-closed* tickets (Party, Ki-counter/
+  Spirit-or-Arcane) whose real remaining gap is a generic primitive, not the
+  named set mechanic:
 
-  - Doctor's companion (Doctor Who), Rebel/Mercenary recruiter tutor
-    chains (Mercadian Masques), `enters prepared` — file from the next
-    free id (see the ticket-id note above) when their batch comes up; not
-    sized further here since the counts above are already known-stale.
-  - **Non-goal / lowest priority, no ticket:** Attractions (RULE 717 —
-    permanent non-goal), Conspiracy draft-matters, Banding, Horsemanship —
-    dead pools / non-goals, documented, kept out of the denominator with
-    the sticker cards.
+  - **PAR-69 · Doctor's companion static keyword.** `commander_tail_report`
+    tags 28 Commander-legal cards, but only 5 are solo-blocked by the
+    `"doctor's companion"` keyword-grant clause itself (`Barbara Wright`,
+    `Nardole, Resourceful Cyborg`, `Yasmin Khan`, `Rose Noble`, `An Unearthly
+    Child`) — the other 23 also carry an unrelated bespoke ability body
+    (fight triggers, ability-copying, Saga chapters, suspend interaction)
+    that this clause won't unlock. Scope this ticket to the keyword clause
+    only; the 23 stay [PAR-12] bespoke tail, same pattern Party/Ki already
+    went through — don't let that residue block closing this one.
+  - **PAR-70 · Rebel/Mercenary recruiter tutor chain (Mercadian Masques).**
+    One uniform template: `"<cost>: search your library for a rebel/
+    mercenary permanent card with mana value N or less, put it onto the
+    battlefield, then shuffle."` 20 tagged, 17 solo-blocked. Reuses the
+    existing tutor/search-onto-battlefield one-shot primitive — parser
+    recognition only, no new engine work expected.
+  - **PAR-71 · "that spell's `<field>`" trigger-event amount referent.**
+    Traced from the report's "Ki counter / Spirit-or-Arcane" residue: the
+    `"whenever you cast a spirit or arcane spell"` trigger is already
+    recognized (closed), and every residue card's actual blocker is
+    `"that spell's mana value"` as an amount referent on a cast-trigger.
+    That phrasing spans 53 cards across the whole cache (`Aetherflux Car`,
+    `Manaplasm`, `Breeches, the Blastmaker`, MV-scaled counterspell riders,
+    …), 43 solo-blocked — almost none of them Kamigawa cards. Likely
+    extends the already-shipped `effect_amounts` `trigger_event` kind
+    (v317) to read the triggering spell's mana value rather than needing a
+    new primitive. Closing this retires the "Ki-counter residue" framing;
+    the Kirin cluster (`Bounteous Kirin`, `Celestial Kirin`, `Cloudhoof
+    Kirin`, `Infernal Kirin`, …) is a strict subset of this, not a separate
+    ticket.
+  - **PAR-72 · Generalize the party count into `effect_amounts`.** Traced
+    from the report's "Party" residue: `creatures_in_your_party` already
+    exists as a count selector but is wired only for cost-reduction and the
+    "full party" boolean condition (the ticket that shipped it). ~10-11
+    cards (`Acquisitions Expert`, `Allied Assault`, `Archpriest of Iona`,
+    `Ardent Electromancer`, …) are solo-blocked wanting that same count as a
+    general numeric amount (P/T equal-to, mana-add-equal-to, life-loss-
+    equal-to). Replaces the "Party residue" framing — the mechanic itself
+    already works, this is a widening.
+  - **Non-goal / lowest priority, no ticket:** Attractions (RULE 717),
+    Conspiracy draft-matters — moved to [DEFERRED.md](DEFERRED.md)'s
+    "Permanent non-goals" section 2026-09-14; see that file for the traced
+    reasoning. (Banding and Horsemanship were tagged alongside these by the
+    same report pass but are **not** non-goals — both are live on real
+    Commander-legal cards with zero engine support; see `MEC-87`/`MEC-88`
+    below.)
+
+  `MEC-86` (Prepared mechanic, the report's third named item), `MEC-87`
+  (Horsemanship), and `MEC-88` (Banding) all need a new engine primitive
+  rather than just a parser handler, so they're filed under `## MEC` below
+  instead of here.
 
 ## MEC — Game mechanics
 
-- **MEC-85 · Cast-time-conditional target legality/selection count
-  ("instead" overrides beyond a flat magnitude).** RULE 702.194b's
-  Teamwork "instead" clauses come in two shapes: PAR-68 (closed) built
-  `DealDamageEffect.amount_if_teamwork` for the flat-magnitude one
-  (Helicarrier Strike — same target either way, mirrors the existing
-  `amount_if_kicked`/`amount_if_bargained` family). Three more cards need
-  the *other* shape, which has no primitive yet: **Cruel Alliance**
-  ("exile target creature with mana value 3 or less. If this spell was
-  cast using teamwork, instead exile target creature…" — the mana-value
-  cap on the RULE 115 target itself is conditional, not just the effect);
-  **Too Evil to Stay Dead** (same shape, a graveyard target's mana-value
-  cap); **Earth's Mightiest Heroes** ("you may put a creature card from
-  among them onto the battlefield. If this spell was cast using teamwork,
-  put **any number** of creature cards… instead" — a selection-count
-  override, "up to one" vs "any number", not a magnitude). `TargetSpec`
-  carries no condition of its own today (checked — no such field exists),
-  so a target-gathering pass can't yet ask "which filter applies" against
-  a cast-time flag like `teamwork_paid`; RULE 601.2b/c already make this
-  answerable in principle (additional costs, including Teamwork, are
-  chosen and paid before targets are chosen), so the fix is a genuine new
-  targeting primitive, not a resolve-time trick like `amount_if_teamwork`.
-  Not the same gap as Colossal Growth's own excluded scope
-  (`Done_Backend.md`'s MEC-82 entry — a magnitude override that *also*
-  grants a keyword, no target-legality question at all); don't conflate
-  the two when picking this up.
+- **MEC-86 · Prepared (the "sos" set's DFC-adjacent mechanic).** Oracle
+  text: *"This creature enters prepared. (While it's prepared, you may
+  cast a copy of its spell. Doing so unprepares it.)"* — a real Scryfall
+  keyword (`keywords: ['Prepared']`), traced from
+  `commander_tail_report.py`'s Bucket C "enters prepared" cluster (26
+  tagged Commander-legal cards, 22 solo-blocked, e.g. `Adventurous Eater //
+  Have a Bite`, `Blazing Firesinger // Seething Song`, `Campus Composer //
+  Aqueous Aria`, `Cheerful Osteomancer // Raise Dead`). Grepping
+  `backend/mtg_analyzer` for "prepare" (any case) returns zero hits
+  anywhere — no state flag, no granted-permission handling exists yet,
+  despite CLAUDE.md's architecture summary listing "Prepared casting"
+  among already-shipped casting mechanics (that line covers only the
+  layout-level DFC parsing, not this battlefield permission — fix it when
+  this closes). Needs a genuine new primitive: a "prepared" state flag on
+  the permanent set by its ETB, plus a granted "cast a copy of the linked
+  face's spell, then clear the flag" permission — closest existing
+  precedent to adapt from is the granted "cast from an unusual zone/state"
+  shape in `game/top_library.py`, though this is permanent-scoped and
+  flag-gated rather than zone-scoped. Ship the parser handler for `"~
+  enters prepared"` in the same batch — one MEC ticket is the engine
+  primitive, its oracle handler(s), and a `PARSER_VERSION` bump, together.
+
+- **MEC-87 · Horsemanship (RULE 702.31).** A plain evasion keyword — "can't
+  be blocked except by creatures with horsemanship" — structurally
+  identical to Flying/Reach's block restriction, just under a different
+  name; `parser/oracle/catalogue/keywords.py` already recognizes the bare
+  word (row 266), but `game/combat.py`'s evasion family (`has_fear`,
+  `has_intimidate`, `has_skulk`, …, `can_block`) has no Horsemanship check
+  at all — confirmed by grep, zero hits for "horsemanship" anywhere outside
+  the keyword catalogue. Real, live cards need it both ways: `Taoist
+  Mystic` grants itself evasion ("can't be blocked by creatures with
+  horsemanship" — trivially true today since nothing has it, but wrong the
+  moment the keyword exists) and `Riding the Dilu Horse` grants it to
+  another creature ("target creature gets +2/+2 and gains horsemanship").
+  Traced from `commander_tail_report.py`'s Bucket C "Horsemanship" cluster:
+  10 tagged Commander-legal cards, 8 solo-blocked (`Borrowing the East
+  Wind`, `Broken Dam`, `Riding the Dilu Horse`, `Rolling Earthquake`,
+  `Taoist Mystic`, …) — all either a "with/without horsemanship" creature
+  filter (damage/tap effects) or a "gains horsemanship" pump-grant, no
+  clause is the bare block-restriction itself (those cards are already
+  MODELED via the keyword catalogue, just not functionally enforced —
+  don't ship this as parser-only the way PAR-30's caveat about the
+  keyword catalogue warns against). Scope: wire a `has_horsemanship`
+  check into `can_block` alongside the other evasion keywords, add it to
+  `display_keywords`' label table, and the parser handlers for the two
+  clause shapes above, in one batch.
+- **MEC-88 · Banding (RULE 702.22 / 509–510).** Far more involved than
+  Horsemanship: banding creatures attack/block as a group, and whichever
+  player controls a banding creature in that group chooses how combat
+  damage from a blocked/blocking creature is assigned among the group,
+  overriding the normal attacker-assigns-own-damage rule. `game/combat.py`
+  has zero banding logic today (confirmed by grep) — this needs real
+  combat-system work: recognizing a band (RULE 509.2/510.1c), and routing
+  damage-assignment-order choice to the banding player's controller
+  instead of the attacker's during the damage step. Traced from
+  `commander_tail_report.py`'s Bucket C "Banding" cluster: 15 tagged
+  Commander-legal cards, 13 solo-blocked — mostly quoted grants ("white
+  legendary creatures you control have 'bands with other legendary
+  creatures'" — `Cathedral of Serra`, `Mountain Stronghold`; a named-token
+  variant on `Master of the Hunt`) plus a modal "creature gains banding,
+  first strike, or trample" on `Nature's Blessing`. The quoted-grant shape
+  itself likely reuses the existing generic quoted-ability-grant family
+  (v363), but — same caveat as MEC-87 — don't ship the grant recognition
+  without the damage-assignment behavior it's supposed to produce; bundle
+  primitive + parser handlers in one batch.
 
 ## PLR — Player management
 

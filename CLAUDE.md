@@ -506,8 +506,18 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 44.2% (15,395 / 34,811) as of 2026-09-14, measured at
-PARSER_VERSION 382** (v382's only genuine parser-classification change is
+**Coverage: 44.2% (15,398 / 34,811) as of 2026-09-14, measured at
+PARSER_VERSION 382** (MEC-85, no bump — hand-authored, like PAR-67 below:
+Cruel Alliance/Too Evil to Stay Dead's own RULE 702.194b Teamwork "instead"
+clause changes a RULE 115 target's *legality* (the mana-value cap drops
+entirely rather than a magnitude changing), newly answerable at target-offer
+time via new `targeting.TargetSpec.unless_flag`; Earth's Mightiest Heroes'
+own "instead" clause changes a *selection count* ("up to one" vs "any
+number" of a library-zone pick, no RULE 115 target at all), via new
+`InspectTopChooseEffect.max_picks_if_teamwork` generalizing MEC-72's
+`inspect_top_n_choose`. All three confirmed singleton via `parser_probe.py
+blocked`, +3.
+v382's only genuine parser-classification change is
 PAR-68's "teamwork" ability-word strip, +0 on its own — see the ledger
 entry below; PAR-68 otherwise, like PAR-67 right before it, is hand-
 authored: Agent Maria Hill's "becomes tapped to pay a teamwork cost"
@@ -521,10 +531,7 @@ Strike's magnitude-only "instead" override (new `DealDamageEffect.
 amount_if_teamwork`, mirroring `amount_if_kicked`), and Beast Mode's
 trailing `condition={"teamwork_paid": True}` gate reading "that creature"
 via `AddCountersEffect.previous_subject` — all four confirmed singleton via
-`parser_probe.py blocked`, +4. Cruel Alliance/Too Evil to Stay Dead/Earth's
-Mightiest Heroes stay open (`MEC-85`) — their own teamwork "instead"
-clauses change *target legality*/*selection count*, not a flat magnitude,
-which needs a real new targeting primitive. PAR-67 (v381, no bump) — the
+`parser_probe.py blocked`, +4. PAR-67 (v381, no bump) — the
 counter-removal-followup residue beyond PAR-66's plain accumulator (Garnet,
 Princess of Alexandria's chosen-Saga lore-counter removal; Lily Bowen,
 Raging Grandma's "remove all but N" partial-removal count; Sage of Hours'
@@ -621,7 +628,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 46.4% (14,776 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 46.4% (14,779 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

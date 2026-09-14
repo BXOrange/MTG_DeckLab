@@ -153,18 +153,26 @@ _PRIMITIVE_GAP_SIGNATURES: dict[str, re.Pattern[str]] = {
 
 #: Set-specific keyword mechanics the PARSER_LONG_TAIL.md "Two tracks" table
 #: lists as Not done -> Bucket C (PAR-*, deck-first). Value is (label, regex).
+#: NOTE: labels deliberately carry no ticket-id guess. A card landing in one
+#: of these buckets does not mean the named mechanic is unshipped — Party and
+#: Ki-counter/Spirit-or-Arcane both already have closed tickets, and the
+#: residue tagged here is a *different*, more general gap that happens to
+#: co-occur with the keyword. Ticket ids are assigned live in BACKLOG.md when
+#: a cluster's real cause is actually traced (`parser_probe.py card`); do not
+#: hardcode one here, it will drift the moment BACKLOG.md's numbering moves on
+#: (see BACKLOG.md's PAR-31…53 ticket-id note for the drift this caused once).
 _SET_SPECIFIC_SIGNATURES: dict[str, re.Pattern[str]] = {
-    "Doctor's companion (Doctor Who) (PAR-49)":
+    "Doctor's companion (Doctor Who)":
         re.compile(r"doctor's companion", re.I),
-    "Party (Zendikar Rising) (PAR-50)":
+    "Party (Zendikar Rising)":
         re.compile(r"\b(?:creature|creatures) in your party\b|\bfull party\b", re.I),
-    "Rebel / Mercenary recruiters (Mercadian Masques) (PAR-51)":
+    "Rebel / Mercenary recruiters (Mercadian Masques)":
         re.compile(r"\b(?:rebel|mercenary) permanent card\b", re.I),
-    "Ki counter / Spirit-or-Arcane (Kamigawa) (PAR-52)":
+    "Ki counter / Spirit-or-Arcane (Kamigawa)":
         re.compile(r"\bki counter\b|\bspirit or arcane spell\b", re.I),
-    "Prepared / 'enters prepared' (PAR-53)":
+    "Prepared / 'enters prepared'":
         re.compile(r"\benters prepared\b", re.I),
-    "'storied' (PAR-53 — investigate)":
+    "'storied' — investigate":
         re.compile(r"^storied\b|\bstoried\b", re.I),
     "Conspiracy draft-matters (non-goal candidate)":
         re.compile(r"draft this card face up|reveal the top card of your draft", re.I),

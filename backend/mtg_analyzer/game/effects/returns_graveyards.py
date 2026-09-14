@@ -335,6 +335,7 @@ class ReturnFromGraveyardEffect(GameEffect):
         extra_counters: Optional[dict[str, Any]] = None,
         exclude_legendary: bool = False,
         positional_top_creature: bool = False,
+        unless_flag: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -421,6 +422,11 @@ class ReturnFromGraveyardEffect(GameEffect):
                 subtype=subtype, max_mana_value=max_mana_value,
                 count_selector=count_selector, colors=self.colors,
                 exclude_legendary=self.exclude_legendary,
+                # "…with mana value 4 or less. If this spell was cast using
+                # teamwork, instead choose target creature card in your
+                # graveyard[.]" (MEC-85, Too Evil to Stay Dead) — see
+                # `targeting.TargetSpec.unless_flag`.
+                unless_flag=unless_flag,
             )
             if not self._self_enchant_mode and not self.trigger_subject_key
             and not self.positional_top_creature
@@ -1434,6 +1440,21 @@ class InspectTopChooseEffect(GameEffect):
     Inspects top N cards of the library, offers a filtered choice, and puts
     the rest to rest_destination (Eclipsed Flamekin, Cream of the Crop,
     Cavalier of Thorns).
+
+    ``max_picks_if_teamwork`` (MEC-85, Earth's Mightiest Heroes — "You may
+    put a creature card from among them onto the battlefield. If this
+    spell was cast using teamwork, put any number of creature cards from
+    among them onto the battlefield instead.") overrides ``max_picks``
+    (the printed cap, 1) the same override-not-additive way `DealDamage
+    Effect.amount_if_teamwork` overrides its own ``amount`` — read here,
+    not in `RulesEngine.inspect_top_n_choose` itself, so that method stays
+    a plain "how many" knob with no Teamwork knowledge of its own. Unlike
+    `TargetSpec.unless_flag` (Cruel Alliance/Too Evil to Stay Dead's own
+    RULE 115 target-filter gate), there's no target here to offer early —
+    "a creature card from among them" is a library-zone pick made after
+    the spell has already fully resolved onto the stack, so reading the
+    real, final `GameObject.teamwork_paid` at `apply()` time (like
+    `amount_if_teamwork`) is correct, not just convenient.
     """
 
     def __init__(
@@ -1445,6 +1466,8 @@ class InspectTopChooseEffect(GameEffect):
         optional: bool = False,
         prompt: str = "Wähle eine Karte",
         decline_leaves_untouched: bool = False,
+        max_picks: int = 1,
+        max_picks_if_teamwork: Optional[int] = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
@@ -1455,11 +1478,16 @@ class InspectTopChooseEffect(GameEffect):
         self.optional = optional
         self.prompt = prompt
         self.decline_leaves_untouched = decline_leaves_untouched
+        self.max_picks = max_picks
+        self.max_picks_if_teamwork = max_picks_if_teamwork
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is None:
             return
+        max_picks = self.max_picks
+        if self.max_picks_if_teamwork is not None and bool(getattr(self.source, "teamwork_paid", False)):
+            max_picks = self.max_picks_if_teamwork
         context.engine.inspect_top_n_choose(
             player,
             count=self.count,
@@ -1470,6 +1498,7 @@ class InspectTopChooseEffect(GameEffect):
             prompt=self.prompt,
             source=self.source,
             decline_leaves_untouched=self.decline_leaves_untouched,
+            max_picks=max_picks,
         )
 
 

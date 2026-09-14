@@ -1686,6 +1686,127 @@ register("Beast Mode", _beast_mode)
 
 
 # ---------------------------------------------------------------------------
+# MEC-85: RULE 702.194b Teamwork's *other* "instead" shape — a
+# cast-time-conditional change to target legality or selection count, not a
+# flat magnitude (PAR-68's `amount_if_teamwork` closed that half already:
+# Helicarrier Strike, above). All three confirmed singleton via
+# `parser_probe.py blocked`.
+# ---------------------------------------------------------------------------
+
+
+def _cruel_alliance() -> list[AbilitySpec]:
+    """Teamwork 2 (As an additional cost to cast this spell, you may tap
+    any number of creatures you control with total power 2 or more.)
+    Exile target creature with mana value 3 or less. If this spell was
+    cast using teamwork, instead exile target creature and you gain 3
+    life.
+
+    — MEC-85. The mana-value cap sits on the RULE 115 target itself, not
+    the effect's magnitude — "instead exile target creature" drops the
+    cap entirely rather than changing a number — so this needs `targeting.
+    TargetSpec.unless_flag` (new), which clears `max_mana_value` for this
+    one requirement when `teamwork_paid` reads true at target-offer time
+    (RULE 601.2b: Teamwork's tap cost is chosen and paid before targets
+    are chosen, RULE 601.2c). The life gain is an ordinary resolve-time
+    `EffectSpec.condition={"teamwork_paid": True}` gate — PAR-56's own
+    condition key, the same idiom Beast Mode's trailing counter clause
+    above already uses.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("exile", {
+                    "target_kind": "creature", "max_mana_value": 3,
+                    "unless_flag": "teamwork_paid",
+                }),
+                EffectSpec(
+                    "gain_life", {"amount": 3},
+                    condition={"teamwork_paid": True},
+                ),
+            ],
+        ),
+    ]
+
+
+register("Cruel Alliance", _cruel_alliance)
+
+
+def _too_evil_to_stay_dead() -> list[AbilitySpec]:
+    """Teamwork 4 (As an additional cost to cast this spell, you may tap
+    any number of creatures you control with total power 4 or more.)
+    Choose target creature card in your graveyard with mana value 4 or
+    less. If this spell was cast using teamwork, instead choose target
+    creature card in your graveyard. Return the chosen card to the
+    battlefield.
+
+    — MEC-85. Cruel Alliance's own graveyard-target sibling: the same
+    `unless_flag="teamwork_paid"` cap-drop, just on `ReturnFromGraveyard
+    Effect`'s ``graveyard_creature`` target (own graveyard, RULE
+    701.3) instead of `ExileEffect`'s battlefield one — `targeting.
+    legal_targets`'s `_GRAVEYARD_TARGET_KINDS` branch reads the very same
+    `TargetSpec.max_mana_value` field, so no separate wiring was needed
+    there.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("return_from_graveyard", {
+                    "target_kind": "graveyard_creature", "destination": "battlefield",
+                    "max_mana_value": 4, "unless_flag": "teamwork_paid",
+                }),
+            ],
+        ),
+    ]
+
+
+register("Too Evil to Stay Dead", _too_evil_to_stay_dead)
+
+
+def _earths_mightiest_heroes() -> list[AbilitySpec]:
+    """Teamwork 5 (As an additional cost to cast this spell, you may tap
+    any number of creatures you control with total power 5 or more.)
+    Reveal the top eight cards of your library. You may put a creature
+    card from among them onto the battlefield. If this spell was cast
+    using teamwork, put any number of creature cards from among them onto
+    the battlefield instead. Put the rest into your graveyard.
+
+    — MEC-85. The third RULE 702.194b "instead" shape: a *selection-count*
+    override ("up to one" vs "any number"), neither a magnitude
+    (`amount_if_teamwork`) nor a RULE 115 target-legality filter
+    (`unless_flag` above) — "a creature card from among them" is a
+    library-zone pick, not a target. `InspectTopChooseEffect.max_picks_
+    if_teamwork` (new) generalizes MEC-72's own single-pick `inspect_top_
+    n_choose` (Eclipsed Flamekin/Cream of the Crop/Cavalier of Thorns) to
+    a cast-time-conditional cap, read off the real `GameObject.
+    teamwork_paid` at resolve time (like `amount_if_teamwork` — there's no
+    early-offer question here the way a real target has). 8 here already
+    equals the reveal count, so it *is* "any number": a reveal-8 batch can
+    never yield more than 8 creature hits, no separate "unlimited"
+    sentinel needed.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("inspect_top_choose", {
+                    "count": 8, "action": "library_to_battlefield",
+                    "filter": {"is_creature": True},
+                    "rest_destination": "graveyard",
+                    "optional": True,
+                    "max_picks": 1, "max_picks_if_teamwork": 8,
+                    "prompt": "Kreaturenkarte auf das Schlachtfeld legen",
+                }),
+            ],
+        ),
+    ]
+
+
+register("Earth's Mightiest Heroes", _earths_mightiest_heroes)
+
+
+# ---------------------------------------------------------------------------
 # MEC-43: `cEDH staples 2`'s undiagnosed remainder — first batch, near-free
 # reuses of primitives shipped for entirely different cards.
 # ---------------------------------------------------------------------------

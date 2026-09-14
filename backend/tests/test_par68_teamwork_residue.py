@@ -19,10 +19,11 @@ condition PAR-56 already closed. Four cards, hand-authored/wired:
   second effect reading "that creature" via `AddCountersEffect.
   previous_subject`.
 
-Cruel Alliance / Too Evil to Stay Dead / Earth's Mightiest Heroes stay open
-under a new ticket (MEC-85) — their own "instead" clauses change *target
-legality*/*selection count*, not a flat magnitude, which needs a real new
-targeting primitive this batch didn't build.
+Cruel Alliance / Too Evil to Stay Dead / Earth's Mightiest Heroes — whose own
+"instead" clauses change *target legality*/*selection count* rather than a
+flat magnitude — were closed separately under MEC-85 (`targeting.TargetSpec.
+unless_flag` + `InspectTopChooseEffect.max_picks_if_teamwork`); see
+`test_mec85_teamwork_targeting.py`.
 """
 
 from __future__ import annotations

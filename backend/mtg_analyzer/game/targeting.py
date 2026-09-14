@@ -500,6 +500,24 @@ class TargetSpec:
     #: `requirements_with_targets`/`gameBoardView.js` (how many rounds to
     #: offer, and where the "stop early" boundary sits).
     count_max: Optional[int] = None
+    #: RULE 601.2b/c (MEC-85): the name of a cast-time-conditional flag
+    #: (see `_cast_time_flag` just below) that, when true for this
+    #: requirement's own spell/ability ``source``, drops every narrowing
+    #: filter above (`max_mana_value`, `creature_filter`, `color`,
+    #: `colors`) back to unfiltered for this one requirement — "Exile
+    #: target creature **with mana value 3 or less**. If this spell was
+    #: cast using teamwork, instead exile target creature[.]" (Cruel
+    #: Alliance) / "Choose target creature card in your graveyard **with
+    #: mana value 4 or less**. If this spell was cast using teamwork,
+    #: instead choose target creature card in your graveyard[.]" (Too Evil
+    #: to Stay Dead). An additional cost like Teamwork is chosen and paid
+    #: (RULE 601.2b) before targets are chosen (RULE 601.2c), so *which*
+    #: filter applies is already decided by the time targets are offered —
+    #: answerable here at offer time, unlike a flat-magnitude "instead"
+    #: override (`DealDamageEffect.amount_if_teamwork`), which has no
+    #: target-legality question to resolve and stays a resolve-time trick.
+    #: ``None`` (the default) means the filters above always apply.
+    unless_flag: Optional[str] = None
 
     @property
     def effective_count(self) -> int:
@@ -1165,6 +1183,28 @@ def _legal_from_frame(
     return players + objects if frame.players_first else objects + players
 
 
+def _cast_time_flag(source: Optional[GameObject], flag: str) -> bool:
+    """Resolve a `TargetSpec.unless_flag` name against ``source`` (MEC-85).
+
+    Mirrors the two-phase reading `GameEngine._modal_override_active` (game/
+    engine/casting_mixin.py) already does for its own conditional-modal
+    vocabulary: while a cast's targets are still being offered (`_cast_
+    action`'s preview) or checked (`_cast_current_face`'s real window), only
+    the *announced* value is known yet (`GameObject._modal_announced_
+    teamwork`/``_modal_announced_kicked``); once casting is complete, the
+    flag actually stamped for real (``teamwork_paid``/``kicker_count``)
+    takes over. Falls back to a plain attribute read for any other flag
+    name, so this isn't wired to Teamwork specifically.
+    """
+    if source is None:
+        return False
+    if flag == "teamwork_paid":
+        return bool(getattr(source, "_modal_announced_teamwork", getattr(source, "teamwork_paid", False)))
+    if flag == "kicked":
+        return bool(getattr(source, "_modal_announced_kicked", getattr(source, "kicker_count", 0)))
+    return bool(getattr(source, flag, False))
+
+
 def legal_targets(
     state: GameState,
     controller_id: str,
@@ -1195,6 +1235,16 @@ def legal_targets(
     omits it.
     """
     kind = spec.kind
+    if spec.unless_flag and _cast_time_flag(source, spec.unless_flag):
+        # MEC-85: `spec.unless_flag` names a cast-time-conditional flag
+        # (Teamwork's `teamwork_paid`) that already decided, before targets
+        # are chosen (RULE 601.2b precedes 601.2c), that this requirement's
+        # own narrowing filters don't apply this cast — see `TargetSpec.
+        # unless_flag`'s own docstring for the exact card shapes.
+        spec = replace(
+            spec, max_mana_value=None, creature_filter=None, color=None,
+            colors=None, unless_flag=None,
+        )
     if kind == "player_or_planeswalker_or_creature_subtype":
         from . import continuous
         subtype = str((spec.creature_filter or {}).get("subtype", ""))

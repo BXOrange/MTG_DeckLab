@@ -2922,12 +2922,23 @@ class SearchMixin:
         prompt: str = "Wähle eine Karte",
         source: Optional[GameObject] = None,
         decline_leaves_untouched: bool = False,
+        max_picks: int = 1,
     ) -> None:
         """Inspect a bounded top-N group from ``player``'s library, offer a
         filtered choice among them, and route the rest to ``rest_destination``
         (MEC-72 — Eclipsed Flamekin, Cream of the Crop, Cavalier of Thorns).
 
         Preserves cards' actual zones and choices without auto-picking.
+
+        ``max_picks`` (MEC-85, Earth's Mightiest Heroes — "You may put a
+        creature card from among them onto the battlefield. If this spell
+        was cast using teamwork, put any number of creature cards from
+        among them onto the battlefield instead.") generalizes the single
+        pick MEC-72's own cards needed to `_request_choose_objects`'s own
+        ``count``: the caller resolves any cast-time-conditional cap
+        (`InspectTopChooseEffect.max_picks_if_teamwork`) before this method
+        ever sees it, so this stays a plain, teamwork-agnostic "how many"
+        knob any future "reveal N, choose up to K" card can reuse.
         """
         if isinstance(count, str) and count == "trigger_power":
             trigger_event = getattr(self.context, "trigger_event", None)
@@ -2946,6 +2957,9 @@ class SearchMixin:
                 return True
             if filter_criteria.get("is_land"):
                 if not obj.card.is_land:
+                    return False
+            if filter_criteria.get("is_creature"):
+                if not obj.card.is_creature:
                     return False
             subtypes = filter_criteria.get("subtypes")
             if subtypes:
@@ -2970,7 +2984,7 @@ class SearchMixin:
             player,
             candidates,
             action,
-            count=1,
+            count=max(1, int(max_picks)),
             optional=optional,
             prompt=prompt,
             source=source,

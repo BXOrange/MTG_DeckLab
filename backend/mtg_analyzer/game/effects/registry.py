@@ -241,6 +241,8 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)),
         prompt=p.get("prompt", "Wähle eine Karte"),
         decline_leaves_untouched=bool(p.get("decline_leaves_untouched", False)),
+        max_picks=int(p.get("max_picks", 1) or 1),
+        max_picks_if_teamwork=p.get("max_picks_if_teamwork"),
     ),
 )
 EffectRegistry.register(
@@ -843,6 +845,7 @@ EffectRegistry.register(
         colors=p.get("colors"),
         bend_kind=p.get("bend_kind"),
         count_selector=p.get("count_selector"),
+        unless_flag=p.get("unless_flag"),
     ),
 )
 EffectRegistry.register(
@@ -1327,6 +1330,7 @@ EffectRegistry.register(
         extra_counters=p.get("extra_counters"),
         exclude_legendary=bool(p.get("exclude_legendary", False)),
         positional_top_creature=bool(p.get("positional_top_creature", False)),
+        unless_flag=p.get("unless_flag"),
     ),
 )
 EffectRegistry.register(
