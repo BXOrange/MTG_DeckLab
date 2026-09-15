@@ -25,9 +25,9 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**44.89% covered — 15,628 / 34,811 — as of 2026-09-15, PARSER_VERSION 390.**
+**44.90% covered — 15,629 / 34,811 — as of 2026-09-15, PARSER_VERSION 391.**
 Commander-legal slice (the one the product actually plays): **47.15% —
-15,007 / 31,830** (measure with `--commander-legal-only`).
+15,008 / 31,830** (measure with `--commander-legal-only`).
 
 Measure with `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe;

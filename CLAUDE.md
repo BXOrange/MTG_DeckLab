@@ -506,8 +506,22 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 44.89% (15,628 / 34,811) as of 2026-09-15, measured at
-PARSER_VERSION 390** (closes PAR-76 — "Full party" (RULE 700.8/702.129) as
+**Coverage: 44.90% (15,629 / 34,811) as of 2026-09-15, measured at
+PARSER_VERSION 391** (closes PAR-77 — the Rebel/Mercenary graveyard-return
+filter. PAR-70 built the "`<subtype>` permanent card" qualifier for library
+search; this extends the identical qualifier to `return_from_graveyard`'s
+target family — `_GRAVEYARD_TYPE_WORD`/`_graveyard_target_kind` gained
+"rebel permanent"/"mercenary permanent" alongside the existing
+"nonland permanent"/"non-aura enchantment" two-word phrases, and
+`targeting._GRAVEYARD_TYPE_FILTERS` gained the matching `rebel_permanent`/
+`mercenary_permanent` predicates (a type-line substring check, same
+reasoning PAR-70 already established: both subtypes are exclusively
+creature subtypes in paper Magic, so no separate creature-subtype
+vocabulary is needed). +1 — Ramosian Revivalist ("{6}, {T}: Return target
+Rebel permanent card with mana value 5 or less from your graveyard to the
+battlefield.") — zero regressed (`pytest -q`). See `docs/implementation-
+state/Done_Backend.md`'s "Oracle-Text Parser Front-End" PAR-77 entry.)
+v390 closes PAR-76 — "Full party" (RULE 700.8/702.129) as
 a conditional-magnitude override, generalizing the already-shipped
 `DealDamageEffect.amount_if_kicked`/`amount_if_raid` family with a new
 `amount_if_full_party` field, also added to `AddCountersEffect`, both
@@ -821,7 +835,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 47.15% (15,007 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 47.15% (15,008 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

@@ -5996,6 +5996,48 @@ measurement of why is the useful half of this work.
 
 ## Oracle-Text Parser Front-End
 
+### PAR-77: Rebel/Mercenary Graveyard-Return Filter (PARSER_VERSION 391)
+
+- **What:** PAR-70 built the "`<subtype>` permanent card" qualifier
+  (`handlers._SEARCH_SUBTYPE_WORD`, a fixed `rebel|mercenary` enum — both
+  are exclusively creature subtypes in paper Magic, so `crit["type"] =
+  "<word>"` alone already narrows correctly with no separate "permanent"
+  key) for the library-search family. This extends the identical qualifier
+  to the *return-from-graveyard* target family: `_GRAVEYARD_TYPE_WORD`
+  gained "rebel permanent"/"mercenary permanent" as two more two-word
+  phrases alongside the pre-existing "nonland permanent"/"non-aura
+  enchantment" ones (ordered before the bare "permanent" alternative so it
+  isn't swallowed), `_graveyard_target_kind`'s `type_key` map gained the
+  matching `"rebel permanent" → "rebel_permanent"`/`"mercenary permanent" →
+  "mercenary_permanent"` entries, and `targeting._GRAVEYARD_TYPE_FILTERS`
+  gained the two new predicates themselves — a type-line substring check,
+  same reasoning as PAR-70's own. Every `{prefix}_{suffix}` combination in
+  `_GRAVEYARD_TARGET_KINDS` is generated automatically from that filter
+  dict, so `graveyard_rebel_permanent`/`any_graveyard_rebel_permanent`/
+  `opponent_graveyard_rebel_permanent` (and the mercenary siblings) all
+  became legal `TargetSpec.kind` values in one change, not just the one
+  scope the real card needs. German UI labels
+  (`targeting._GRAVEYARD_TYPE_LABELS`) added alongside for parity with the
+  filter's other siblings.
+  - **Ramosian Revivalist**: "{6}, {T}: Return target Rebel permanent card
+    with mana value 5 or less from your graveyard to the battlefield." —
+    the one real card on this shape; the existing `_RETURN_FROM_
+    GRAVEYARD_RE` handler and `return_from_graveyard`/`ReturnFromGraveyard
+    Effect` primitive needed no changes at all, since `target_kind` was
+    already a free-form string threaded straight through to `targeting.
+    legal_targets`.
+- **Verification:** `+1, 0 regressed` (`parser_probe.py diff`); Ramosian
+  Revivalist confirmed `MODELED`. `tests/
+  test_par77_rebel_mercenary_graveyard_return.py` — parse-level assertions
+  for both the Rebel and Mercenary phrasings, an `ALLOWED_TARGET_KINDS`
+  membership check, a `legal_targets` unit test proving the filter admits a
+  Rebel graveyard card and excludes a non-Rebel one sharing the same zone,
+  and a full execute test returning a Rebel creature card from the
+  graveyard to the battlefield via a real activated ability.
+- **Files:** `parser/oracle/catalogue/handlers.py`
+  (`_GRAVEYARD_TYPE_WORD`/`_graveyard_target_kind`), `game/targeting.py`
+  (`_GRAVEYARD_TYPE_FILTERS`/`_GRAVEYARD_TYPE_LABELS`).
+
 ### PAR-76: "Full Party" as a Conditional-Magnitude Override (PARSER_VERSION 390)
 
 - **What:** RULE 700.8/702.129's Party mechanic (PAR-53/72) already had a

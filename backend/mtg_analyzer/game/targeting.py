@@ -76,6 +76,13 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     # hand" (Takenuma, Abandoned Mire's Channel ability) — the union of the
     # two single-type filters, same idiom as `instant_or_sorcery` above.
     "creature_or_planeswalker": lambda o: o.is_creature or o.is_planeswalker,
+    # "return target rebel/mercenary permanent card … from your graveyard
+    # to the battlefield." (PAR-77, Ramosian Revivalist) — Rebel/Mercenary
+    # are exclusively creature subtypes in paper Magic, so a type-line
+    # substring check alone already narrows correctly (mirrors PAR-70's
+    # identical reasoning for the search-criteria sibling of this filter).
+    "rebel_permanent": lambda o: "rebel" in o.card.type_line.lower(),
+    "mercenary_permanent": lambda o: "mercenary" in o.card.type_line.lower(),
 }
 #: Every ``{prefix}_{suffix}`` combination — the full graveyard-target kind
 #: vocabulary (docs/09's Regrowth/Reanimate/Deathrite Shaman/Virtue of
@@ -331,6 +338,8 @@ _GRAVEYARD_TYPE_LABELS: dict[str, str] = {
     "instant_or_sorcery": "Spontanzauber- oder Hexereikarte",
     "permanent": "Karte eines bleibenden Kartentyps",
     "nonland_permanent": "Karte eines nichtländlichen bleibenden Kartentyps",
+    "rebel_permanent": "Rebellenkarte",
+    "mercenary_permanent": "Söldnerkarte",
 }
 #: German "whose graveyard" phrase per `_GRAVEYARD_SCOPE_PREFIXES` scope.
 _GRAVEYARD_SCOPE_LABELS: dict[str, str] = {

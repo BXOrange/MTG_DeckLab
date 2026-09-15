@@ -3427,8 +3427,15 @@ def _return_previous_group(m: re.Match[str]) -> list[EffectSpec]:
 #: "permanent"; ``sorcery`` alone — MEC-24, Recoup's own "target **sorcery**
 #: card" — doesn't need the same ordering care since it starts on a
 #: different word than "instant or sorcery").
+#: PAR-77: "target **rebel/mercenary permanent** card" (Ramosian
+#: Revivalist) — the graveyard-return sibling of PAR-70's own "`<subtype>`
+#: permanent card" search qualifier; same fixed enum (Rebel/Mercenary are
+#: exclusively creature subtypes in paper Magic, so no separate creature-
+#: subtype vocabulary is needed here either). Tried before the bare
+#: "permanent" alternative so it isn't swallowed by it.
 _GRAVEYARD_TYPE_WORD = (
-    r"instant or sorcery|sorcery|nonland permanent|creature|artifact|"
+    r"instant or sorcery|sorcery|nonland permanent|rebel permanent|"
+    r"mercenary permanent|creature|artifact|"
     r"non-aura enchantment|enchantment|land|permanent"
 )
 #: A graveyard clause's *scope* — whose graveyard — "your"/"a" (any single
@@ -3451,6 +3458,8 @@ def _graveyard_target_kind(type_word: Optional[str], scope_word: str) -> Optiona
         "": "card", "instant or sorcery": "instant_or_sorcery",
         "nonland permanent": "nonland_permanent",
         "non-aura enchantment": "non_aura_enchantment",
+        "rebel permanent": "rebel_permanent",
+        "mercenary permanent": "mercenary_permanent",
     }.get((type_word or "").strip().lower(), (type_word or "").strip().lower() or "card")
     return f"{scope_key}_{type_key}"
 

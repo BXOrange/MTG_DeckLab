@@ -83,20 +83,6 @@ its block back into the matching section here.
   > the sweep stays in this file, since a primitive is schedulable work
   > with an end state, unlike the sweep itself.
 
-### 2026-09-15 Commander-legal tail sweep — Bucket C (set-specific, deck-first)
-
-Traced card-by-card with `commander_tail_report.py --min-cluster 5` +
-`parser_probe.py blocked`/`card` rather than taken at the report's own
-loose keyword-match counts (same discipline PAR-69…72 used). This one is a
-*generic* residual gap that happens to co-occur with a set-specific keyword
-whose own ticket already closed — not the named mechanic itself reopening.
-
-- **PAR-77 · Rebel/Mercenary graveyard-return filter.** PAR-70 built the
-  subtype qualifier for search effects; extend the same qualifier to a
-  return-from-graveyard-to-battlefield target filter. Confirmed via
-  `parser_probe.py blocked "\b(?:rebel|mercenary) permanent card\b"`
-  (2026-09-15): 1 SOLO, 0 also-blocked — Ramosian Revivalist.
-
 ### 2026-09-15 Commander-legal tail sweep — Bucket B (recurring templates)
 
 Every count below is `parser_probe.py blocked` SOLO-blocker output against
