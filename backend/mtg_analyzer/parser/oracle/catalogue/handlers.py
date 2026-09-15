@@ -10474,6 +10474,49 @@ def _cant_be_blocked_turn_other_attacker(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("unblockable", {"target_kind": "creature", "creature_filter": {"attacking": True}})]
 
 
+#: PAR-79: "another target legendary creature can't be blocked this turn."
+#: (Bessie, the Doctor's Roadster) — the supertype sibling of
+#: `_CANT_BE_BLOCKED_TURN_OTHER_ATTACKER_RE` just above: `creature_filter`'s
+#: ``"legendary"`` key (added alongside the pre-existing negative
+#: ``"nonlegendary"`` during PAR-78) is exactly what this needs.
+_CANT_BE_BLOCKED_TURN_LEGENDARY_RE = _c(
+    r"another target legendary creature can'?t be blocked this turn"
+)
+
+
+def _cant_be_blocked_turn_legendary(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("unblockable", {"target_kind": "creature", "creature_filter": {"legendary": True}})]
+
+
+#: PAR-79: "target `<subtype>`[, `<subtype>`[, or `<subtype>`]] can't be
+#: blocked this turn." (Aquatic Incursion/Daughter of the Deep's "target
+#: merfolk"; Corsairs of Umbar's "target goblin, orc, or pirate") — Magic's
+#: own grammar treats a creature subtype as a noun on its own here (no
+#: "creature" word), unlike every other `TARGET`-macro row, which always
+#: pairs a qualifier with the literal word "creature". A closed word list
+#: (this project's own convention — see `_PREVENT_TARGET_SUBTYPE_WORDS`'s
+#: docstring, PAR-78) rather than an open vocabulary, so an unrelated
+#: multi-word qualifier (e.g. "target attacking creature", already claimed
+#: by `_CANT_BE_BLOCKED_TURN_RE` above and tried first regardless) can never
+#: be mis-parsed as a subtype list.
+_CANT_BLOCKED_TARGET_SUBTYPE_WORDS: frozenset[str] = frozenset(
+    {"merfolk", "goblin", "orc", "pirate"}
+)
+_CANT_BE_BLOCKED_TURN_SUBTYPE_RE = _c(
+    r"target (?P<subtypes>[a-z]+(?:, [a-z]+)*(?:,? or [a-z]+)?) can'?t be blocked this turn"
+)
+
+
+def _cant_be_blocked_turn_subtype(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    words = [w for w in re.split(r",\s*|\s+or\s+", m.group("subtypes")) if w]
+    if not words or not all(w in _CANT_BLOCKED_TARGET_SUBTYPE_WORDS for w in words):
+        return None
+    filt = {"subtype": words[0].title()} if len(words) == 1 else {
+        "subtype_any": [w.title() for w in words]
+    }
+    return [EffectSpec("unblockable", {"target_kind": "creature", "creature_filter": filt})]
+
+
 #: "Target creature can't block this turn" (Falter/Ahn-Crop Crasher/Abandon
 #: the Post) — the *resolve-time* half of the combat-restriction family, and
 #: by far its largest: an ordinary one-shot effect (`game/effects/core.py`'s
@@ -13203,6 +13246,24 @@ HANDLERS: list[EffectHandler] = [
         "cant_be_blocked_this_turn_other_attacker",
         _CANT_BE_BLOCKED_TURN_OTHER_ATTACKER_RE,
         _cant_be_blocked_turn_other_attacker,
+    ),
+    # PAR-79: "another target legendary creature can't be blocked this
+    # turn" (Bessie, the Doctor's Roadster) — same ordering reason as the
+    # "other attacker" row just above.
+    EffectHandler(
+        "cant_be_blocked_this_turn_legendary",
+        _CANT_BE_BLOCKED_TURN_LEGENDARY_RE,
+        _cant_be_blocked_turn_legendary,
+    ),
+    # PAR-79: "target merfolk"/"target goblin, orc, or pirate can't be
+    # blocked this turn" — tried after `cant_be_blocked_this_turn` (a couple
+    # rows up) so the plain "target creature" phrasing is always claimed by
+    # that row first; see this handler's own docstring for why that
+    # ordering makes the shared-prefix risk safe either way.
+    EffectHandler(
+        "cant_be_blocked_this_turn_subtype",
+        _CANT_BE_BLOCKED_TURN_SUBTYPE_RE,
+        _cant_be_blocked_turn_subtype,
     ),
     # "Up to two target creatures can't block this turn" / "target creature
     # can't block this turn" / "creatures without flying can't block this

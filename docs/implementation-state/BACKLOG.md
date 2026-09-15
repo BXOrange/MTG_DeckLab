@@ -94,49 +94,6 @@ read. Several of these were flagged by `commander_tail_report.py` as
 "all"-amount `prevent_damage_shield`) — filed as `PAR-*` parser gaps, not
 `MEC-*`, for exactly that reason. Ordered by verified SOLO count.
 
-- **PAR-79 · "`<Name>`/target creature can't be blocked this turn" — broad
-  recognition (residue after a first increment).** `temp_unblockable`/the
-  `"unblockable"` effect key already exist end to end
-  (`game/effects/attachments_transforms.py`, `registry.py`) for the
-  Rogue's Passage shape. **First increment shipped** (PARSER_VERSION 387,
-  +24, zero regressed — see `Done_Backend.md`'s "Combat" section): a
-  keyword-grant-plus-unblockable sentence, "another target attacking
-  creature can't be blocked this turn", and an optional "with power N or
-  less/greater" target-power suffix on both the new and the pre-existing
-  bare handler. **Confirmed ~81 SOLO cards still remain** (re-run
-  `parser_probe.py blocked "can't be blocked this turn"` before starting —
-  the count moves every batch), now fragmented across several distinct
-  smaller shapes rather than one dominant template:
-  - a delayed-trigger "…at the beginning of the next end step, return that
-    creature to its owner's hand[, `<tail>`]" compound — the six-card
-    Alora cycle (Alora, Cheerful Assassin/Mastermind/Scout/Swashbuckler/
-    Thief; Alora, Rogue Companion).
-  - an activation-cost-reduction rider on the same ability that grants
-    unblockable (A-Sewer Crocodile's "this ability costs `<cost>` less to
-    activate if…"; Basim Ibn Ishaq's "this ability triggers only once each
-    turn").
-  - a qualified "…except by creatures with `<keyword>`" evasion form
-    (Agility Bobblehead, Departed Deckhand) — likely the existing
-    qualified-can't-be-blocked-by-filter family (see
-    `handlers.py:10132`'s own "~ can't be blocked by creatures with power
-    2 or less this turn" comment) rather than plain `unblockable`; verify
-    before building a third shape.
-  - a bare-subtype-without-"creature" target: "target merfolk can't be
-    blocked this turn" (Aquatic Incursion, Daughter of the Deep), "target
-    goblin, orc, or pirate can't be blocked this turn" (Corsairs of
-    Umbar).
-  - "another target legendary creature can't be blocked this turn"
-    (Bessie, the Doctor's Roadster) — needs a `creature_filter`
-    `"legendary"` key; `creature_filter`'s existing `"subtype"` key only
-    matches real creature types; `TargetSpec.exclude_legendary` is the
-    inverse (excludes, doesn't require) and isn't reusable as-is.
-  - at least one card (Brotherhood Spy, and likely Cunning
-    Survivor/Devourer of Memory, all already-working `_pump_unblockable`
-    effect bodies) whose real blocker is an unrelated conditional
-    phase-trigger gap ("at the beginning of combat on your turn, **if you
-    control a legendary Assassin**, …") that only incidentally shares this
-    search phrase — don't spend this ticket's effort here, it belongs to
-    a separate conditional-trigger ticket if pursued.
 - **PAR-80 · X-spell "target creature gets +X/+`<N>` until end of turn."**
   The variable-power/fixed-toughness pump family (an X spell whose
   caster-chosen X sets one axis of the buff). Confirmed: 33 SOLO (39

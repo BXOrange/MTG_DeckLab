@@ -5,7 +5,7 @@ The single, dependency-ordered plan for finishing the implementation. It
 here is a ticket id in [`BACKLOG.md`](BACKLOG.md) — read that file for what
 the work actually is.
 
-Last re-evaluated against the code: **2026-07-27**.
+Last re-evaluated against the code: **2026-09-15**.
 
 ## Live sources this reconciles
 
@@ -23,7 +23,7 @@ Last re-evaluated against the code: **2026-07-27**.
 
 ## Where we are
 
-The **rules engine is built and green** (2472 backend tests, 238 skipped):
+The **rules engine is built and green** (>8000 backend tests):
 the full turn/stack/priority/SBA loop, London mulligan, targeting, the whole
 mana model (including RULE 605.3a spend restrictions and triggered mana
 abilities), the RULE 613 layer system, the complete RULE 508/509 combat
@@ -45,9 +45,9 @@ seat-filling bots that act only through the client surface.
 yet fully become behaviour.** A spell or ability does something only if its
 card is hand-authored in `game/ability_catalogue.py` **or** the oracle-text
 parser recognizes every one of its clauses as `MODELED` (fail-closed —
-never half-resolved). That is **26.6% of the Oracle universe — 9,092 of
-34,208 cards, PARSER_VERSION 34**. Re-measure with
-`scripts/coverage_report.py` before trusting the figure.
+never half-resolved). That is **45.03% of the Oracle universe — 15,675 of
+34,811 cards, PARSER_VERSION 393** (Commander-legal: 15,056 / 31,830 = 47.3%).
+Re-measure with `scripts/coverage_report.py` before trusting the figure.
 
 Everything else open is narrow, additive, and independent of that: two card
 types, a set of named mechanics with no primitive yet, engine rough edges,
