@@ -593,6 +593,20 @@ def matches_object_filter(
     """
     if not filt:
         return True
+    # "except by artifact creatures and/or red creatures" (PAR-79, Firefright
+    # Mage) — a union across two *different* filter dimensions (card type vs
+    # colour), which every other key here (a flat AND) can't express;
+    # `color_any`/`subtype_any`/`keyword_any` are each single-dimension ORs.
+    # A general combinator instead of a bespoke "type_or_color" key: each
+    # entry is itself a full filter dict, matched recursively, so any future
+    # dimension pairing composes for free.
+    any_of = filt.get("any_of")
+    if any_of is not None:
+        if not any(
+            matches_object_filter(obj, sub, reference=reference, state=state)
+            for sub in any_of
+        ):
+            return False
     min_power = filt.get("min_power")
     if min_power is not None and (obj.power or 0) < min_power:
         return False

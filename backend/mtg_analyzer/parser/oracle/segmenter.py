@@ -517,6 +517,32 @@ _CAST_SPELL_TRIGGER_NEG_RE = re.compile(
     re.IGNORECASE | re.S,
 )
 
+#: PAR-79 sixth increment: "…, if at least N mana was spent to cast
+#: it/that spell, `<effect>`" (Sahagin) — a RULE 603.4 intervening-if on a
+#: cast trigger's own body, reading `effect_binder`'s new
+#: `spell_mana_spent_at_least` predicate (the *spent*-mana sibling of
+#: `spell_mana_value_at_least`, `game/binding/core.py`). A shared peel
+#: function rather than a dedicated whole-line regex per cast-trigger
+#: filter combination (`_COUNTER_FREE_SPELL_RE`'s own "no mana spent"
+#: shape is exactly the one-regex-per-combination pattern
+#: handler-recipe.md's decomposition rule warns against) — wired into
+#: whichever cast-trigger dispatch a real card needs it on, same
+#: "extend as a real card needs it" convention as `_FILTER_KEYWORD_WORDS`.
+_SPELL_MANA_SPENT_AT_LEAST_IF_RE = re.compile(
+    r"^if at least (?P<n>\d+) mana was spent to cast (?:it|that spell),\s*(?P<rest>.+)$",
+    re.IGNORECASE | re.S,
+)
+
+
+def _peel_spell_mana_spent_at_least(body: str) -> tuple[str, Optional[int]]:
+    """Strip a leading "if at least N mana was spent to cast it/that spell,"
+    off ``body``, returning ``(remaining_body, threshold)`` — or
+    ``(body, None)`` unchanged if the prefix isn't present."""
+    m = _SPELL_MANA_SPENT_AT_LEAST_IF_RE.match(body.strip())
+    if m is None:
+        return body, None
+    return m.group("rest"), int(m.group("n"))
+
 #: PAR-75: "Whenever you cast a Doctor spell or creature spell with
 #: doctor's companion, `<effect>`." (Rose Noble) — an OR of two structurally
 #: different cast-trigger filters (a creature-subtype match vs. a card-type
@@ -4876,7 +4902,8 @@ def segment_line(
             return Segment(raw=raw)
         neg_subj = cast_spell_trig_neg.group("subj")
         body, optional = _peel_optional(cast_spell_trig_neg.group("body"))
-        effects = parse_effect_body(body)
+        body, mana_spent_at_least = _peel_spell_mana_spent_at_least(body)
+        effects = parse_effect_body(body, self_subject=True)
         if effects is None:
             return Segment(raw=raw)
         spec = AbilitySpec(
@@ -4886,6 +4913,8 @@ def segment_line(
                 "event": "SPELL_CAST",
                 "condition": _cast_spell_trigger_condition(neg_subj),
                 "spell_exclude_card_types": [excluded],
+                **({"spell_mana_spent_at_least": mana_spent_at_least}
+                   if mana_spent_at_least is not None else {}),
             },
             optional=optional,
             raw_text=raw,

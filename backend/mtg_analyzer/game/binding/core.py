@@ -1173,6 +1173,25 @@ def _trigger_condition(
 
         predicates.append(_spell_is_historic_ok)
 
+    # "…if at least N mana was spent to cast it/that spell, …" (PAR-79
+    # sixth increment, Sahagin) — a RULE 603.4 intervening-if reading the
+    # *actual* mana paid (`GameObject.mana_spent_to_cast`, already
+    # X-resolved and reduction-adjusted, `SPELL_CAST`'s own ``mana_spent``
+    # key — see `spell_no_mana_spent` above), not the printed mana value
+    # `spell_mana_value_at_least` reads. Deliberately just the plain total-
+    # spent threshold; RULE 702.140 Adamant's *per-colour* spent-mana
+    # variant needs a new per-colour breakdown the event doesn't carry
+    # today and is out of scope here (BACKLOG.md's PAR-79 entry).
+    spell_mana_spent_at_least = trigger.get("spell_mana_spent_at_least")
+    if spell_mana_spent_at_least is not None:
+        threshold = int(spell_mana_spent_at_least)
+
+        def _spell_mana_spent_ok(event: Any, context: Any, n=threshold) -> bool:
+            spent = event.get("mana_spent")
+            return spent is not None and spent >= n
+
+        predicates.append(_spell_mana_spent_ok)
+
     # "Whenever you cast your first spell with {X} in its mana cost each
     # turn, …" (Zimone Infinite Analyst, Owlin Spiralmancer, Nev, Lattice
     # Library, PAR-60) — `SPELL_CAST`'s ``first_x_spell`` bool, computed in

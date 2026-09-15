@@ -95,118 +95,129 @@ read. Several of these were flagged by `commander_tail_report.py` as
 `MEC-*`, for exactly that reason. Ordered by verified SOLO count.
 
 - **PAR-79 · "`<Name>`/target creature can't be blocked this turn" — broad
-  recognition (residue after five increments).** `temp_unblockable`/the
+  recognition (residue after six increments).** `temp_unblockable`/the
   `"unblockable"` effect key already exist end to end
-  (`game/effects/attachments_transforms.py`, `registry.py`). **Five
-  increments shipped** (PARSER_VERSION 387/394/401/402/403+404,
-  +24/+4/+15/+25/+32, zero regressed each — see `Done_Backend.md`'s
-  "Combat" section for exactly what each closed). The fifth increment is a
-  different *kind* of fix from the first four: diagnosing individual SOLO
-  cards (`parser_probe.py card`) showed most of the residue's real blocker
-  wasn't the `unblockable` effect at all — an unrecognized cast/attack
-  *trigger condition* sat in front of an already-parseable clause
-  (Hraesvelgr of the First Brood/Matterbending Mage/Undercover
-  Butler/Basim Ibn Ishaq, all now closed) — so it worked the
-  trigger-condition layer instead, applying the extend-parser skill's
-  newly-documented "decompose into atomic grammar units" rule
-  (`reference/handler-recipe.md`) there: four of the five new recognizers
-  (mana-value-at-least/{X}-in-cost/first-{X}-spell/historic-spell cast
-  triggers) turned out to be reaching an `effect_binder` predicate PAR-60
-  had *already built and wired up*, with zero segmenter regex ever
-  reaching any of them — a dead primitive, not a missing engine feature,
-  found by checking rather than assuming. **57 SOLO cards confirmed still
-  open at PARSER_VERSION 404** (re-run `parser_probe.py blocked "can't be
-  blocked this turn"` before starting — the count moves every batch). This
-  ticket bundles roughly a hundred independently-shaped small gaps under
-  one search phrase by design (see the "2026-09-15 Commander-legal tail
-  sweep" preamble above — an *indefinite sweep*, not a batch with an end
-  date); closing it to zero SOLO is not one sitting's work. Categorized
-  residue, none of it attempted yet:
-  - a delayed-trigger "…at the beginning of the next end step, return
-    that creature to its owner's hand[, `<tail>`]" compound — the
-    six-card Alora cycle (Alora, Cheerful Assassin/Mastermind/Scout/
-    Swashbuckler/Thief; Alora, Rogue Companion), each with its own
-    distinct conditional tail (life loss/token/perpetual buff/Treasure/
-    perpetual debuff) — likely `create_delayed_trigger` plus a
-    per-card "if you do, `<effect>`" composition, not one shared row.
-    Wings of Hubris/Goblin Sappers print the identical "…at/at end of
-    combat, sacrifice/destroy `<permanent>`" delayed-sacrifice shape on an
-    activated (not triggered) ability — likely the same underlying
-    primitive, worth building together rather than twice.
-  - a family of "you may `<effect>`. if you do, `<payoff>`" triggers
-    (Biblioplex Kraken/Gravelgill Scoundrel/Tidal Terror/Saprazzan
-    Breaker/Shrouded Serpent/Smart Ass/Gollum, Scheming Guide) whose
-    antecedent is itself a resolving effect ("return another creature you
-    control to its owner's hand", "tap another untapped creature you
-    control", "mill a card") rather than a cost payment —
-    `_PAY_COST_THEN_GENERAL_RE`'s existing "you may `<cost>`. if you do,
-    `<effect>`" machinery is cost-shaped only (`_MAY_COST_THEN_CLAUSE`'s
-    closed vocabulary: mana/sacrifice/discard/life/evidence/forage/
-    blight), so even the simplest possible pairing ("you may return a
-    creature. if you do, draw a card.") fails closed today — confirmed
-    directly, not assumed. A genuinely new "optional effect, then a
-    conditional follow-up keyed on whether it happened" composition, not
-    a parser-only widening.
+  (`game/effects/attachments_transforms.py`, `registry.py`). **Six
+  increments shipped** (PARSER_VERSION 387/394/401/402/403+404/405+406+407,
+  +24/+4/+15/+25/+32/+90, zero regressed each — see `Done_Backend.md`'s
+  "Combat" section for exactly what each closed). The fifth and sixth
+  increments are a different *kind* of fix from the first four: diagnosing
+  individual SOLO cards (`parser_probe.py card`) showed most of the
+  residue's real blocker wasn't the `unblockable` effect at all — an
+  unrecognized trigger *condition*, filter, or composition shape sat in
+  front of an already-parseable clause — so they worked those layers
+  instead, applying the extend-parser skill's newly-documented "decompose
+  into atomic grammar units" rule (`reference/handler-recipe.md`). The
+  sixth increment also found and fixed a genuine **dormant engine bug**:
+  RULE 613.4b's layer-5 colour-changing static existed with zero
+  `EffectRegistry` factory ever reaching it (nothing in the codebase could
+  construct one) — every affected card would have parsed `MODELED` while
+  silently never changing colour at runtime, caught by an execute test,
+  not the parse-level ones. **53 SOLO cards confirmed still open at
+  PARSER_VERSION 407** (re-run `parser_probe.py blocked "can't be blocked
+  this turn"` before starting — the count moves every batch). This ticket
+  bundles roughly a hundred independently-shaped small gaps under one
+  search phrase by design (see the "2026-09-15 Commander-legal tail sweep"
+  preamble above — an *indefinite sweep*, not a batch with an end date);
+  closing it to zero SOLO is not one sitting's work. Categorized residue,
+  grouped by what it actually needs:
+  - **Needs a new composition primitive at real cluster size:**
+    - a delayed-trigger "…at the beginning of the next end step, return
+      that creature to its owner's hand[, `<tail>`]" compound — the
+      six-card Alora cycle (Alora, Cheerful Assassin/Mastermind/Scout/
+      Swashbuckler/Thief; Alora, Rogue Companion), each with its own
+      distinct conditional tail (life loss/token/perpetual buff/Treasure/
+      perpetual debuff) — `create_delayed_trigger` already exists (RULE
+      603.7) but has no "if you do, `<effect>`" conditioned-on-success
+      follow-up; the antecedent's own target ("up to 1 target attacking
+      creature") already parses fine via the existing `unblockable`
+      handler, confirmed via `parser_probe.py clause`. Wings of Hubris/
+      Goblin Sappers print the identical "…at/at end of combat, sacrifice/
+      destroy `<permanent>`" delayed-sacrifice shape on an activated (not
+      triggered) ability — likely the same underlying primitive, worth
+      building together rather than twice.
+    - a genuinely separate "you may return/tap another `<X>` you control"
+      **untargeted mandatory choice** family — 17 SOLO cards on its own
+      (`parser_probe.py blocked "you may (return|tap) (another|2 other|
+      two other) .*you control"`), including this ticket's Biblioplex
+      Kraken/Gravelgill Scoundrel/Tidal Terror. The sixth increment's new
+      `_MAY_EFFECT_THEN_RE`/`"optional"`-wraps-`seq` composition (below)
+      handles the "if you do" pairing once the antecedent itself parses —
+      but "another creature you control" (no "target") isn't RULE 115
+      targeting at all (RULE 608.2c resolve-time choice instead), and this
+      engine's `TargetSpec`/`resolve_target_kind` has no untargeted-choice
+      kind to route it through. Don't rush this: a RULE 115 target and a
+      resolve-time choice differ in exactly the ways that matter for
+      hexproof/protection/fizzling, so modeling one as the other risks a
+      real rules bug, not just a missing feature.
+  - **Needs an interactive mechanic this engine doesn't model at all** —
+    Blufferfish's true/false bluffing guess, Smart Ass's hidden-information
+    reveal-or-not, Gollum's card-guessing minigame. Out of a parser
+    ticket's scope; each would need its own new `RulesEngine`/
+    `continuations` primitive first.
   - an activation-cost-reduction/frequency rider on the ability that
     grants unblockable (A-Sewer Crocodile/Sewer Crocodile's "this ability
     costs `<cost>` less to activate if there are 5 or more mana values
     among cards in your graveyard" — a *conditional flat* discount,
     unlike `ActivationCost.dynamic_reduction`'s existing per-unit-count
     shape, so it needs a new cost-reduction field, not just a parser row).
+    Separately, `ActivationCost.dynamic_reduction`'s existing "for each
+    `<count_selector>`" shape has **zero oracle-text recognizer at all**
+    despite being fully engine-ready — a real 37-SOLO-card cluster found
+    while investigating this (`parser_probe.py blocked "this ability
+    costs \{"`), worth its own ticket.
   - a much larger, separate "mana **spent** to cast (not printed mana
-    value)" threshold family — 35 SOLO cards on its own
-    (`parser_probe.py blocked "mana was spent to cast"`), of which only
-    Sahagin ("whenever you cast a noncreature spell, if at least 4 mana
-    was spent to cast it, `<effect>`") sits on this ticket's own search
-    phrase. Roughly half is RULE 702.140 **Adamant** ("if at least three
-    `<color>` mana was spent to cast this spell, `<bonus>`" — Ardenvale/
-    Embereth/Garenbrig/Locthwain Paladin, Foreboding Fruit, Outmuscle),
-    completely unbuilt (`grep -ri adamant` finds nothing) and needing
-    *per-colour* spent-mana tracking the `SPELL_CAST` event doesn't carry
-    today (only a single total `mana_spent`, `GameObject.
-    mana_spent_to_cast` — proven readable via this ticket's own new
-    `spell_mana_value_at_least`-shaped predicates, but colour-blind); the
-    other half is a themed "cast an instant/sorcery, get a small bonus; if
-    5+ mana was spent, upgrade it" cycle (Colorstorm Stallion/Deluge
-    Virtuoso/Elemental Mascot/Exhibition Tidecaller/Expressive Firedancer/
-    Molten-Core Maestro/Muse Seeker/Phoenix of Iteration) needing only the
-    plain total-threshold predicate plus an "if `<condition>`, `<effect>`
-    instead/also" intervening-if-on-a-trigger-body composition this
-    codebase has so far only built as one-off whole-line regexes per
-    exact combination (`_COUNTER_FREE_SPELL_RE`) rather than a reusable
-    peel step — worth its own ticket rather than folding into this one.
-  - a qualified "…except by `<filter>`" evasion form combined with a
-    multi-word type/color union filter `object_filter` doesn't support
-    yet (Firefright Mage's "except by artifact creatures and/or red
-    creatures" — a type-OR-color union, not a single subtype/colour/
-    keyword `object_filter` already handles) or a count-based exception
-    (Unquenchable Fury's "except by 2 or more creatures" — a blocker
-    *count* requirement, not a characteristic filter at all; `object_
-    filter` currently mis-parses this as a bogus subtype rather than
-    failing closed — a latent bug worth fixing independently of this
-    ticket even though nothing routes real text through it yet).
-  - a "becomes a N/M [color] [type] creature until end of turn" compound
-    (Dimir Keyrune/Creeping Tar Pit/Chromium, the Mutable) — confirmed the
-    *base* animation shape (no unblockable tail at all) doesn't parse
-    standalone either; re-diagnose the exact gap (likely a two-card-type
-    "artifact creature"/color+type combination the existing animation row
-    doesn't cover) before assuming this is a one-line widening. Riverfall
+    value)" threshold family — the plain total-threshold half (Colorstorm
+    Stallion/Deluge Virtuoso/Elemental Mascot/Exhibition Tidecaller/
+    Expressive Firedancer/Molten-Core Maestro/Muse Seeker/Phoenix of
+    Iteration, "cast an instant/sorcery, get a bonus; if 5+ mana was
+    spent, upgrade it") now has its engine predicate
+    (`spell_mana_spent_at_least`, sixth increment) but still needs a
+    reusable "if `<condition>`, `<effect>` instead/also" intervening-if
+    peel on a trigger body (today only built as one-off whole-line regexes
+    per exact combination, `_COUNTER_FREE_SPELL_RE`). RULE 702.140
+    **Adamant** ("if at least three `<color>` mana was spent to cast this
+    spell, `<bonus>`" — Ardenvale/Embereth/Garenbrig/Locthwain Paladin,
+    Foreboding Fruit, Outmuscle) is completely unbuilt (`grep -ri adamant`
+    finds nothing) and needs *per-colour* spent-mana tracking the
+    `SPELL_CAST` event doesn't carry (only the total `mana_spent` the
+    sixth increment's predicate reads). Worth its own ticket.
+  - a qualified "…except by `<filter>`" evasion form on the **mass/
+    subtype-scoped** unblockable ("each minotaur can't be blocked this
+    turn except by 2 or more creatures", Unquenchable Fury) — the sixth
+    increment's `any_of`/`min_blockers` widenings both landed on the
+    *targeted* form (`_cant_be_blocked_turn`); the mass form
+    (`_cant_be_blocked_turn_mass`) has no subtype scope or except-by tail
+    at all, and `UnblockableEffect.selector` is a closed name enum
+    (`continuous.group_selector_objects`), not a filterable selector —
+    confirmed a true singleton via `parser_probe.py blocked
+    "^each [a-z]+ can't be blocked this turn"`.
+  - a "becomes a N/M creature until end of turn" compound with **no
+    colour word at all** (Creeping Tar Pit's "becomes a 3/2 blue and black
+    elemental creature. it's still a land. it can't be blocked this
+    turn." — actually needs the *leading* "until end of turn," word order
+    plus a separate-sentence unblockable tail, not just colours; Chromium,
+    the Mutable's "becomes a human with base power and toughness 1/1,
+    loses all abilities, and gains hexproof" is a wholly different
+    template, `_BASE_PT`-shaped not `_ANIMATE_SELF`-shaped) — the sixth
+    increment's colour/subtype widening closed every *same-template* card
+    (Dimir Keyrune, the whole Keyrune/Monument cycles, +57 total); these
+    two are separately-shaped residue, not more of the same gap. Riverfall
     Mimic's own sibling ("whenever you cast a spell that's both blue and
-    red, …") additionally needs a two-colour AND cast-trigger filter —
+    red, …") needs a two-colour AND cast-trigger filter —
     `_CAST_SPELL_TRIGGER_RE`'s `types`/`cast_of_color` slots are single-
-    colour only today.
-  - a self-plus-up-to-one-other-target compound subject
-    `UnblockableEffect` has no shape for (Martha Jones's "~ and up to 1
-    other target creature can't be blocked this turn" — confirmed via
-    `parser_probe.py clause` as a genuinely new family, not a widening of
-    an existing handler).
+    colour only.
   - "target creature **you cast a spell that targets** a creature" (Snooping
     Page — a cast-trigger filter reading whether the cast spell had a
     creature among its targets; `SPELL_CAST`'s existing `targets_a_
     permanent`/`target_instance_ids` fields, built for Tiller of Flesh,
-    are close but permanent-typed, not creature-typed) and a dynamic
+    are close but permanent-typed, not creature-typed), a dynamic
     "power X or less" target filter tied to an activation's own paid X
-    (Minamo Sightbender/Runed Arch) are each their own separate small
+    (Minamo Sightbender/Runed Arch), and an intervening-if on an
+    *attached-subject* ATTACKS trigger reading the attacker's **own**
+    power ("if its power is 2 or less", Writ of Passage — the existing
+    `attacked_player_has_most/lowest_life` gates read the *defender's*
+    life, a different subject entirely) are each their own separate small
     parser-recognition gaps, not yet attempted.
   - at least two cards (Brotherhood Spy, Devourer of Memory, both
     already-working `_pump_unblockable` effect bodies) whose real blocker
@@ -214,7 +225,29 @@ read. Several of these were flagged by `commander_tail_report.py` as
     search phrase — a conditional phase trigger ("if you control a
     legendary Assassin") for Brotherhood Spy, and "whenever 1 or more
     cards are put into your graveyard from your library" (a library-to-
-    graveyard mill-adjacent event, not a discard) for Devourer of Memory.
+    graveyard batch event distinct from `EventType.MILL_CARD`'s existing
+    per-card firing, RULE 603.3f — over-fires if modeled naively off the
+    per-card event) for Devourer of Memory.
+  - a genuinely large, separate, tournament-legal RULE 715 mechanic with
+    zero recognition today: "whenever you crank this Contraption" — 45
+    SOLO cards on its own (Top-Secret Tunnel's own trigger). Unfinity's
+    Contraptions are *not* the silver-border non-goal (Wizards ships them
+    tournament-legal); this is a whole unbuilt sub-mechanic (the crank
+    event, sprocket/target-number resolution), not a one-line widening —
+    its own ticket.
+  - assorted true one-off bodies better suited to
+    `game/ability_catalogue.py` hand-authoring than more parser grammar
+    (Kamiz, Obscura Oculus's connive-then-choose-lesser-power compound;
+    Sewers of Estark's attacking-or-blocking branch; Wedding Invitation's
+    target-subtype-conditional lifelink tail; Long River Lurker's ETB-
+    target-then-delayed-exile-and-return; Atomic Microsizer's equip-
+    trigger choose-then-animate compound; Zhuge Jin's "before attackers
+    are declared" activation-timing restriction; Dreadlight Monstrosity's
+    "activate only if you own a card in exile" activation condition;
+    Secret Tunnel's "share a creature type" multi-target filter; Open into
+    Wonder's X-count multi-target plus a quoted-grant tail on "those
+    creatures"; Trygon Prime's "counter on it AND on target X" compound
+    dual-counter body — none yet attempted).
 - **PAR-80 · X-spell "target creature gets +X/+`<N>` until end of turn."**
   (residue after one increment). The variable-power/fixed-toughness pump
   family — turned out to need no new primitive at all:

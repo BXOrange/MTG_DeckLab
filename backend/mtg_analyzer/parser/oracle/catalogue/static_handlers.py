@@ -1285,6 +1285,21 @@ def object_filter(text: str) -> Optional[dict]:
     text = text.strip().rstrip(".").strip()
     if not text:
         return None
+    if " and/or " in text:
+        # "artifact creatures and/or red creatures" (PAR-79, Firefright
+        # Mage) — a union across *different* filter dimensions (card type,
+        # colour, subtype, …), unlike the same-dimension " or "/Oxford-comma
+        # union below (subtype-only). Each side is independently parsed
+        # through this same function — recursive, so any pairing of
+        # already-supported single-phrase filters composes for free — and
+        # combined via `matches_object_filter`'s new `any_of` combinator.
+        parts = [p.strip() for p in text.split(" and/or ") if p.strip()]
+        if len(parts) < 2:
+            return None
+        sub_filters = [object_filter(p) for p in parts]
+        if any(f is None for f in sub_filters):
+            return None
+        return {"any_of": sub_filters}
     if text in ("creatures", "creature"):
         # No narrowing beyond the type itself — which still matters for the
         # "unless you control another creature" counting half, where a land

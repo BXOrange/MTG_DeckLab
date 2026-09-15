@@ -356,6 +356,7 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     "class_level": "level_up",
     "coin_flip": "flip_coin",
     "collect_evidence": "collect_evidence",
+    "color": "create_continuous_effect",
     "connive": "connive",
     "control_change": "gain_control",
     "control_player": "control_player",

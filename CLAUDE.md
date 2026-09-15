@@ -506,8 +506,40 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 45.37% (15,795 / 34,811) as of 2026-09-15, measured at
-PARSER_VERSION 404** (v404/v403 are PAR-79's fifth increment, and the first
+**Coverage: 45.46% (15,824 / 34,811) as of 2026-09-15, measured at
+PARSER_VERSION 407** (v407/v406/v405 are PAR-79's sixth increment, closing
+several more shared-grammar axes found while sweeping the trigger-condition
+residue the fifth increment surfaced — `object_filter` gained an `any_of`
+union combinator ("except by artifact creatures and/or red creatures",
+Firefright Mage — a union across *different* filter dimensions, unlike
+`color_any`/`subtype_any`'s same-dimension ORs) and a "N or more creatures"
+blocker-*count* route (`combat.min_blockers`, distinct from a characteristic
+filter); `animate_self`/`animate_target` (RULE 613.4d's "becomes a `<colors>`
+`<subtype>` creature" family) gained colour-word recognition and a widened
+real-creature-type whitelist (the Ravnica guild Keyrune/Monument cycles
+alone print ten different types the old 7-word list never covered) — which
+uncovered a genuine dormant engine bug: layer 5's colour-changing static
+(`continuous._apply_layer_5_color`) had **no `EffectRegistry` factory
+reaching it at all**, so nothing in the whole codebase could actually create
+one; a card using this shape would have parsed `MODELED` while silently
+never changing colour, caught by the execute test (not the parse-level one)
+before it shipped; a "mana **spent** (not mana value)" trigger threshold
+(Sahagin) reusing the already-stamped `GameObject.mana_spent_to_cast`;
+`UnblockableEffect` gained `previous_subject` ("…target creature you
+control. **That creature** can't be blocked this turn.", mirroring
+`GrantUntilEffect`'s own previous-subject reference); and a new general
+`"optional"`-wrapping-a-`seq` composition for "You may `<effect>`. If you
+do, `<effect2>`." antecedents that are an ordinary resolving effect rather
+than a cost (`OptionalEffect`'s own docstring had already spelled out this
+exact composition — no new primitive, just the missing recognizer).
++90 total across both sub-increments (`parser_probe.py diff`, 0 regressed).
+53 SOLO cards remain on PAR-79's own search phrase — mostly the six-card
+Alora delayed-trigger-with-payoff cycle, a handful of cards needing new
+interactive mechanics (a bluffing guess, a hidden-information reveal) this
+project doesn't model yet, and true one-off bodies better suited to
+`game/ability_catalogue.py` hand-authoring than more parser grammar — see
+`BACKLOG.md`'s PAR-79 entry for the categorized residue.
+v404/v403 are PAR-79's fifth increment, and the first
 one aimed at the trigger-*condition* layer rather than the unblockable
 effect body itself: `parser_probe.py card` on individual SOLO cards showed
 most of the residue's real blocker was an unrecognized cast/attack trigger
@@ -1047,7 +1079,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 47.67% (15,172 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 47.76% (15,201 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

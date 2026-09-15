@@ -340,15 +340,23 @@ class UnblockableEffect(GameEffect):
         count: int = 1,
         count_max: Optional[int] = None,
         optional: bool = False,
+        previous_subject: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.selector = selector
+        #: PAR-79 sixth increment: "put 2 +1/+1 counters on target creature
+        #: you control. **That creature** can't be blocked this turn."
+        #: (Stealth Mission/Trygon Prime-shaped) — the previous clause's own
+        #: target, not a fresh RULE 115 target of this effect's own
+        #: (`GameContext.previous_targets`, the same referent
+        #: `GrantUntilEffect.previous_subject` already reads).
+        self.previous_subject = previous_subject
         #: ``target_kind=None`` — "~ can't be blocked this turn" from the
         #: creature's own activated ability (Giant Koi, ENG-32): no RULE 115
         #: target, acts on this effect's own source.
         self.target_spec = (
-            None if selector else (
+            None if selector or previous_subject else (
                 TargetSpec(
                     kind=target_kind, creature_filter=creature_filter,
                     count=count, count_max=count_max, optional=optional,
@@ -366,6 +374,11 @@ class UnblockableEffect(GameEffect):
                 context.state, controller_id, self.selector, src=self.source
             ):
                 obj.temp_unblockable = True
+            return
+        if self.previous_subject:
+            for obj in context.previous_targets:
+                if obj is not None:
+                    obj.temp_unblockable = True
             return
         if self.target_spec is not None and self.target_spec.effective_count != 1:
             for obj in (targets or []):

@@ -5803,6 +5803,50 @@ def _pay_cost_then_or_else(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     })]
 
 
+#: PAR-79 sixth increment: "You may `<effect>`. If you do, `<effect2>`."
+#: (Biblioplex Kraken/Gravelgill Scoundrel/Tidal Terror/Saprazzan Breaker-
+#: shaped) — `_PAY_COST_THEN_GENERAL_RE`'s antecedent is cost-shaped only
+#: (`_MAY_COST_THEN_CLAUSE`'s closed vocabulary); these cards' antecedent is
+#: itself an ordinary *resolving effect* ("return another creature you
+#: control to its owner's hand", "tap another untapped creature you
+#: control", "mill a card"), not a cost payment at all — a genuinely
+#: different shape, not a wider cost vocabulary. No new engine primitive,
+#: though: `OptionalEffect`'s own docstring already spells out exactly this
+#: composition — "'You may sacrifice a creature. If you do, draw two
+#: cards.' is this node around a seq, not a new fused type" — RULE 603.5's
+#: "if you do" is automatically satisfied by sequencing both effects inside
+#: one `optional` wrapper, since the whole body (including the "if you do"
+#: half) simply never runs at all when the player declines. Tried *after*
+#: `pay_cost_then_general`/`pay_cost_then_or_else` (first-match-wins) so a
+#: genuinely cost-shaped antecedent still gets the more faithful
+#: interactive-affordability handling those give it, not this cruder wrap.
+_MAY_EFFECT_THEN_RE = _c(
+    r"you may (?P<effect1>.+?)\.\s*if you do,\s*(?P<effect2>.+)"
+)
+
+
+def _may_effect_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
+
+    first = parse_effect_body(m.group("effect1").strip(), self_subject=True)
+    if not first:
+        return None
+    # A *targeted* (RULE 115) antecedent needs its own announced-target
+    # step this off-stack wrapper has no way to give it (same reasoning
+    # `_pay_cost_then_general`/`_pay_cost_then_or_else` already apply to a
+    # targeted follow-up) — fail closed rather than silently drop the target.
+    if any(s.params.get("target_kind") for s in first):
+        return None
+    second = parse_effect_body(m.group("effect2").strip(), self_subject=True)
+    if not second:
+        return None
+    if any(s.params.get("target_kind") for s in second):
+        return None
+    return [EffectSpec("optional", {
+        "effects": [s.to_dict() for s in first] + [s.to_dict() for s in second],
+    })]
+
+
 #: MEC-19's "counter it/that spell[or ability] unless that player/its
 #: controller pays `<cost>`." — a `_BECOMES_TARGET_TRIGGER_RE`-anchored
 #: triggered ability's own resolution body, the un-keyworded-Ward-shaped
@@ -10576,6 +10620,19 @@ _CANT_BE_BLOCKED_TURN_RE = _c(
     r"(?: except by (?P<filter>.+))?"
 )
 
+#: PAR-79 sixth increment: "…except by N or more creatures" (Unquenchable
+#: Fury) — a blocker-*count* requirement (RULE 509.1c), not a characteristic
+#: filter, so it routes to `combat.min_blockers` (the same ``"min_blockers"``
+#: restriction kind `static_handlers._TAIL_RES` already uses for the
+#: standing-static "can't be blocked except by N or more creatures" form)
+#: rather than through `object_filter` — which would otherwise mis-read "2"
+#: as a bogus subtype word before `_scope`'s own digit guard (PAR-79 third
+#: increment) correctly failed it closed. Checked before the general filter
+#: route in `_cant_be_blocked_turn` below.
+_CANT_BE_BLOCKED_TURN_MIN_BLOCKERS_RE = re.compile(
+    r"^(?P<n>\d+) or more creatures\.?$", re.IGNORECASE
+)
+
 
 def _cant_be_blocked_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params: dict = {}
@@ -10597,12 +10654,19 @@ def _cant_be_blocked_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.groupdict().get("filter"):
         if m.group("pn"):
             return None  # no real card combines both qualifiers; fail closed rather than dropping one
-        from .static_handlers import object_filter
+        restriction_params: dict = {}
+        min_blockers = _CANT_BE_BLOCKED_TURN_MIN_BLOCKERS_RE.fullmatch(m.group("filter").strip())
+        if min_blockers is not None:
+            restriction_params["restriction"] = {
+                "kind": "min_blockers", "count": int(min_blockers.group("n")),
+            }
+        else:
+            from .static_handlers import object_filter
 
-        filt = object_filter(m.group("filter"))
-        if filt is None:
-            return None
-        restriction_params: dict = {"restriction": {"kind": "only_blocked_by", "filter": filt}}
+            filt = object_filter(m.group("filter"))
+            if filt is None:
+                return None
+            restriction_params["restriction"] = {"kind": "only_blocked_by", "filter": filt}
         if params["target_kind"] is not None:
             restriction_params["target_kind"] = params["target_kind"]
         return [EffectSpec("combat_restriction_this_turn", restriction_params)]
@@ -10612,6 +10676,18 @@ def _cant_be_blocked_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         key = "max_power" if m.group("pcmp") == "less" else "min_power"
         params["creature_filter"] = {key: int(m.group("pn"))}
     return [EffectSpec("unblockable", params)]
+
+
+#: PAR-79 sixth increment: "Put 2 +1/+1 counters on target creature you
+#: control. **That creature** can't be blocked this turn." (Stealth
+#: Mission/Trygon Prime-shaped) — the same previous-clause pronoun idiom
+#: `_PHASE_OUT_PREVIOUS_RE`/`_FIGHT_PREVIOUS_RE` already use, for
+#: `UnblockableEffect.previous_subject` instead.
+_CANT_BE_BLOCKED_TURN_PREVIOUS_RE = _c(rf"{_THEN}{_PREVIOUS_SUBJECT} can'?t be blocked this turn")
+
+
+def _cant_be_blocked_turn_previous(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("unblockable", {"previous_subject": True})]
 
 
 #: PAR-79: the multi-target form — "up to 2 target creatures can't be
@@ -11313,15 +11389,55 @@ def _burakos_attack_party(m: re.Match[str]) -> list[EffectSpec]:
 #: extend it the day one does, don't guess a `colors`-setting layer-5
 #: param this primitive doesn't carry.
 _ANIMATE_QUALIFIER_TYPES: frozenset[str] = frozenset({"artifact", "enchantment", "land", "planeswalker"})
+#: PAR-79 sixth increment widened this from a 7-word set (spirit/elemental/
+#: plant/horror/shade/boar/wall) that only covered the one card this row was
+#: first written against — the Ravnica guild Keyrune cycle alone prints ten
+#: different creature types ("2/2 `<colors>` Bird artifact creature",
+#: "1/1 `<colors>` Soldier artifact creature", …). Union with `segmenter.
+#: _CAST_SPELL_SUBTYPE_WORDS`'s own curated real-creature-type vocabulary
+#: rather than guessing a fresh list — same words, duplicated here rather
+#: than imported, since `segmenter.py` imports *from* this module (a
+#: reverse import would close a cycle).
 _ANIMATE_QUALIFIER_SUBTYPES: frozenset[str] = frozenset({
     "spirit", "elemental", "plant", "horror", "shade", "boar", "wall",
+    "elf", "goblin", "zombie", "human", "wizard", "merfolk", "vampire",
+    "dragon", "angel", "demon", "soldier", "knight", "warrior", "giant",
+    "dwarf", "faerie", "sliver", "rogue", "cleric", "shaman", "druid",
+    "beast", "bird", "cat", "dog", "insect", "snake", "treefolk", "wolf",
 })
+#: PAR-79 sixth increment: "~ becomes a 2/2 **blue and black** horror
+#: artifact creature …" (Dimir/Azorius/Boros/… Keyrune, Atarka/Dromoka
+#: Monument-shaped — the single biggest blocker on this whole animation
+#: shape, 44 SOLO cache cards on the raw "becomes a N/M `<color>` creature"
+#: phrase, PAR-79's own share being Dimir Keyrune). `continuous.
+#: _apply_layer_5_color`'s ``"color"``-kind static already exists and is
+#: already reachable through `extra_statics` (the exact mechanism the
+#: keyword-grant branch just below already uses) — only the colour-word
+#: recognition itself was missing, the same "primitive already exists, only
+#: the parser row doesn't reach it" shape this whole increment keeps
+#: finding. A leading, "and"-joined run of colour words right before the
+#: type/subtype qualifiers — real cards print one or two, never more.
+_ANIMATE_COLOR_WORDS: dict[str, str] = {
+    "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G",
+}
+_ANIMATE_COLOR_PREFIX_RE = re.compile(
+    r"^(?P<colors>(?:white|blue|black|red|green)"
+    r"(?:\s+and\s+(?:white|blue|black|red|green))*)\s+", re.IGNORECASE,
+)
 
 
-def _split_animate_qualifiers(text: str) -> Optional[tuple[list[str], list[str]]]:
-    """A "`<word>` `<word>` …" blob right before "creature" → ``(add_types,
-    add_subtypes)``, or ``None`` if any word isn't in the curated whitelist
-    above (fail-closed)."""
+def _split_animate_qualifiers(text: str) -> Optional[tuple[list[str], list[str], list[str]]]:
+    """A "[`<colors>`] `<word>` `<word>` …" blob right before "creature" →
+    ``(colors, add_types, add_subtypes)``, or ``None`` if any non-colour
+    word isn't in the curated whitelist above (fail-closed)."""
+    colors: list[str] = []
+    color_m = _ANIMATE_COLOR_PREFIX_RE.match(text)
+    if color_m is not None:
+        colors = [
+            _ANIMATE_COLOR_WORDS[w.lower()]
+            for w in re.split(r"\s+and\s+", color_m.group("colors"))
+        ]
+        text = text[color_m.end():]
     add_types: list[str] = []
     add_subtypes: list[str] = []
     for word in text.split():
@@ -11334,12 +11450,17 @@ def _split_animate_qualifiers(text: str) -> Optional[tuple[list[str], list[str]]
             add_subtypes.append(word.capitalize())
         else:
             return None
-    return add_types, add_subtypes
+    return colors, add_types, add_subtypes
 
 
 _ANIMATE_SELF_RE = _c(
     r"~ becomes an? (?P<p>\d+)/(?P<t>\d+) (?P<quals>(?:[a-z]+ )*?)creature"
     r"(?: with (?P<kw>[a-z, ]+?))? until end of turn"
+    # PAR-79 sixth increment: "… until end of turn and can't be blocked
+    # this turn." (Dimir Keyrune-shaped) — the same one-sentence pump-and-
+    # unblockable tail `_pump_unblockable`/`_pump_keyword_unblockable`
+    # already accept, on this animation primitive's own bare-self form.
+    r"(?P<unblockable> and can'?t be blocked this turn)?"
 )
 
 
@@ -11347,7 +11468,7 @@ def _animate_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     quals = _split_animate_qualifiers(m.group("quals"))
     if quals is None:
         return None
-    add_types, add_subtypes = quals
+    colors, add_types, add_subtypes = quals
     static: dict[str, Any] = {
         "type": "type_change",
         "params": {
@@ -11357,16 +11478,21 @@ def _animate_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         },
     }
     extra_statics = []
+    if colors:
+        extra_statics.append({"type": "color", "params": {"colors": colors, "set": True}})
     kw = m.groupdict().get("kw")
     if kw:
         keywords = _token_keywords(kw)
         if keywords is None:
             return None
         extra_statics.append({"type": "grant_keyword", "params": {"keywords": keywords}})
-    return [EffectSpec("grant_until", {
+    specs = [EffectSpec("grant_until", {
         "duration": "end_of_turn", "target_kind": None, "static": static,
         **({"extra_statics": extra_statics} if extra_statics else {}),
     })]
+    if m.groupdict().get("unblockable"):
+        specs.append(EffectSpec("unblockable", {"target_kind": None}))
+    return specs
 
 
 #: The TARGET sibling — "target land becomes a 3/3 creature until end of
@@ -11377,11 +11503,16 @@ def _animate_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: backreference keeps that discard honest (never swallows a mismatched
 #: reminder sentence). Optional because not every real card bothers to
 #: print the reminder.
+#: PAR-79 sixth increment: ``snow `` before the target kind ("target snow
+#: land becomes a 2/2 blue elemental creature…", Balduvian Frostwaker) and
+#: the same colour-word qualifier support `_animate_self` gained just
+#: above — reusing the identical `_split_animate_qualifiers`/`extra_statics`
+#: machinery rather than a second copy.
 _ANIMATE_TARGET_RE = _c(
-    r"target (?P<kind>land|artifact|creature|enchantment) becomes "
+    r"target (?:snow )?(?P<kind>land|artifact|creature|enchantment) becomes "
     r"an? (?P<p>\d+)/(?P<t>\d+) (?P<quals>(?:[a-z]+ )*?)creature"
     r"(?: with (?P<kw>[a-z, ]+?))? until end of turn"
-    r"(?:\. it'?s still an? (?P=kind))?"
+    r"(?:\. it'?s still an? (?:snow )?(?P=kind))?"
 )
 
 
@@ -11389,7 +11520,7 @@ def _animate_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     quals = _split_animate_qualifiers(m.group("quals"))
     if quals is None:
         return None
-    add_types, add_subtypes = quals
+    colors, add_types, add_subtypes = quals
     kind = resolve_target_kind("target " + m.group("kind"))
     if kind is None:
         return None
@@ -11402,6 +11533,8 @@ def _animate_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         },
     }
     extra_statics = []
+    if colors:
+        extra_statics.append({"type": "color", "params": {"colors": colors, "set": True}})
     kw = m.groupdict().get("kw")
     if kw:
         keywords = _token_keywords(kw)
@@ -13065,6 +13198,12 @@ HANDLERS: list[EffectHandler] = [
         "phase_out_previous", _PHASE_OUT_PREVIOUS_RE, _phase_out_previous,
         previous_subject_only=True,
     ),
+    # PAR-79 sixth increment: "…target creature… **that creature** can't be
+    # blocked this turn." (Stealth Mission/Trygon Prime-shaped).
+    EffectHandler(
+        "cant_be_blocked_turn_previous", _CANT_BE_BLOCKED_TURN_PREVIOUS_RE,
+        _cant_be_blocked_turn_previous, previous_subject_only=True,
+    ),
     # RULE 702.26 "~ phases out." (Blink Dog/Vaporous Djinn-shaped) / the
     # attached-permanent sibling "enchanted/equipped creature phases out."
     # (Vanishing) / a genuine RULE 115 target (Reality Ripple/Divine Smite,
@@ -13162,6 +13301,15 @@ HANDLERS: list[EffectHandler] = [
         "pay_cost_then_or_else",
         _PAY_COST_THEN_OR_ELSE_RE,
         _pay_cost_then_or_else,
+    ),
+    # PAR-79 sixth increment: "You may <effect>. If you do, <effect2>." with
+    # a resolving-effect antecedent rather than a cost — tried after both
+    # cost-shaped rows above so a genuine cost antecedent keeps the more
+    # faithful `pay_cost_then` handling.
+    EffectHandler(
+        "may_effect_then",
+        _MAY_EFFECT_THEN_RE,
+        _may_effect_then,
     ),
     # MEC-19: "counter it unless that player pays <cost>" — the
     # un-keyworded-Ward-shaped `BECOMES_TARGET` trigger's own resolution.

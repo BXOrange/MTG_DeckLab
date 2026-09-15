@@ -443,3 +443,52 @@ def test_most_life_predicate_false_when_defender_trails():
     ev = GameEvent(EventType.ATTACKS, player_id="p1",
                    instance_id=src.instance_id, defending_player_id="p2")
     assert ab.condition(ev, _Ctx(st)) is False
+
+
+# ---------------------------------------------------------------------------
+# parse + execute: "if at least N mana was spent to cast it" (Sahagin)
+# ---------------------------------------------------------------------------
+
+
+def test_mana_spent_at_least_intervening_if_parses():
+    seg = _segment(
+        "whenever you cast a noncreature spell, if at least 4 mana was "
+        "spent to cast it, put a +1/+1 counter on ~ and it can't be "
+        "blocked this turn"
+    )
+    assert seg.claimed
+    assert seg.spec.trigger["spell_exclude_card_types"] == ["creature"]
+    assert seg.spec.trigger["spell_mana_spent_at_least"] == 4
+
+
+def test_plain_noncreature_trigger_has_no_mana_spent_key():
+    seg = _segment("whenever you cast a noncreature spell, draw a card")
+    assert "spell_mana_spent_at_least" not in seg.spec.trigger
+
+
+def test_sahagin_is_now_modeled():
+    card = _named("Sahagin")
+    assert card is not None
+    res = parse_oracle(card)
+    assert res.modeled, res.unclaimed
+
+
+def test_sahagin_only_gets_the_bonus_off_an_expensive_noncreature_spell():
+    engine = _engine()
+    sahagin = _bf(engine, _named("Sahagin"), controller="p1")
+    _reach_main(engine)
+    p1 = engine.state.player_by_id("p1")
+
+    cheap = _to_hand(engine, _instant("Cheap", "{U}", 1), controller="p1")
+    p1.mana_pool.add("U", 1)
+    engine.cast_spell(p1, cheap, targets=None)
+    engine.resolve_until_stable()
+    assert not getattr(sahagin, "temp_unblockable", False)
+    assert sahagin.counters.get("+1/+1", 0) == 0
+
+    big = _to_hand(engine, _instant("Big", "{4}", 4), controller="p1")
+    p1.mana_pool.add("C", 4)
+    engine.cast_spell(p1, big, targets=None)
+    engine.resolve_until_stable()
+    assert sahagin.temp_unblockable is True
+    assert sahagin.counters.get("+1/+1", 0) == 1

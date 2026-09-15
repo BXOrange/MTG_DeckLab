@@ -2472,37 +2472,142 @@ is in the rules-engine categories below them.
       three direct `TriggeredAbility.condition` checks (leader/tie/trailing)
       for the most-life predicate mirroring `test_par30_attacks_defender_
       lands_trigger.py`'s own pattern.
-  - **Real residue remains — 57 SOLO cards confirmed at PARSER_VERSION
-    404** — see `BACKLOG.md`'s PAR-79 entry for the full, categorized
-    breakdown (the six-card Alora cycle's delayed-return compound; an
-    activation-cost-reduction/frequency rider on Sewer Crocodile — a
-    conditional flat cost-discount shape `ActivationCost.dynamic_
-    reduction` doesn't cover; a family of "you may `<effect>`. if you do,
-    `<payoff>`" triggers whose antecedent is itself a resolving effect
-    rather than a cost payment (`_PAY_COST_THEN_GENERAL_RE`'s own
-    `_MAY_COST_THEN_CLAUSE` is cost-shaped only); a type-change-plus-
-    unblockable compound whose base "becomes a N/M creature until end of
-    turn" form doesn't parse standalone even without the unblockable tail;
-    a self-plus-up-to-one-other-target compound subject `UnblockableEffect`
-    doesn't have a shape for yet (Martha Jones); and Brotherhood Spy/
-    Devourer of Memory's real blockers being unrelated trigger-condition
-    gaps). A separate, much larger "mana **spent** (not mana value)
+  - **Sixth increment** (PARSER_VERSION 405/406/407, +37/+57/+61 running
+    total off the fifth increment's own baseline, zero regressed at each
+    step) — a second pass over the fifth increment's own residue, this
+    time widening shared *filter*/*composition* primitives rather than
+    trigger conditions:
+    - `combat.matches_object_filter` gained an `any_of` combinator —
+      "except by artifact creatures **and/or** red creatures" (Firefright
+      Mage) is a union across two *different* filter dimensions (card type,
+      colour), which `color_any`/`subtype_any`/`keyword_any` can't express
+      (each is a same-dimension OR). `static_handlers.object_filter` splits
+      on " and/or " and recurses into itself for each side, so any pairing
+      of already-supported single-phrase filters composes automatically —
+      no new vocabulary needed for the sides themselves. Also closed the
+      *standing*-static form of the identical phrase (Amrou Seekers/Elven
+      Riders/Seeker/Skirk Shaman), since both routes share this one
+      function.
+    - "…except by N or more creatures" (Firefright Mage's cousin
+      Unquenchable Fury doesn't close — see residue below — but the
+      *targeted* single-creature form does) is a blocker-*count*
+      requirement (RULE 509.1c, `combat.min_blockers`), not a
+      characteristic filter at all — routed there directly
+      (`_CANT_BE_BLOCKED_TURN_MIN_BLOCKERS_RE`) instead of through
+      `object_filter`, which would otherwise mis-guess the digit as a
+      bogus subtype.
+    - `animate_self`/`animate_target` (RULE 613.4d's "becomes a `<N>`/`<M>`
+      `<qualifiers>` creature" family, PAR-74-adjacent) gained colour-word
+      recognition (`_ANIMATE_COLOR_PREFIX_RE`) and a widened real-creature-
+      type whitelist — the original 7-word `_ANIMATE_QUALIFIER_SUBTYPES`
+      only covered the one card it was first written against, while the
+      Ravnica guild Keyrune cycle alone prints ten distinct creature types.
+      Closed the whole Keyrune (Azorius/Boros/Dimir/Golgari/Gruul/Selesnya)
+      and Monument (Atarka/Dromoka/Kolaghan/Ojutai/Silumgar) cycles plus
+      Darksteel Brute/Foriysian Totem/Thunder Totem/Balduvian Conjurer/
+      Dimir Keyrune's own unblockable tail (`_ANIMATE_SELF_RE` gained the
+      same "and can't be blocked this turn" suffix `_pump_unblockable`
+      already has) — **+57 cards from this one widening alone**, the
+      largest single item in this increment.
+    - **Found and fixed a genuine dormant engine bug along the way**: RULE
+      613.4b's layer-5 colour-changing static (`continuous.
+      _apply_layer_5_color`) existed with **zero `EffectRegistry` factory
+      ever reaching it** — nothing anywhere in this codebase could actually
+      construct one, unlike its layer-4 `"type_change"` sibling right next
+      to it in `registry.py`. Every card this increment's colour widening
+      touches would have come back `MODELED` (the clause parses) while the
+      colour change silently never applied at runtime — caught by the
+      execute test (`test_animate_self_color_static_executes`), not the
+      parse-level ones, exactly the "coverage ≠ correctness" trap this
+      project's own lessons warn about. Fixed with a real registration
+      (`EffectRegistry.register("color", lambda p: StaticAbility("color",
+      ...))`) plus an `isa.py` classification entry.
+    - `spell_mana_spent_at_least` (`game/binding/core.py`) — the *spent*-
+      mana sibling of the fifth increment's `spell_mana_value_at_least`,
+      reading `GameObject.mana_spent_to_cast`/`SPELL_CAST`'s `mana_spent`
+      key instead of the printed mana value — closes Sahagin's "if at
+      least 4 mana was spent to cast it" intervening-if, via a shared
+      `_peel_spell_mana_spent_at_least` helper wired into the negated
+      cast-trigger dispatch (which also picked up a latent `self_subject`
+      gap on that same dispatch path — Pristine Skywise/Ultros, Obnoxious
+      Octopus/Prompto Argentum's own bare pronoun bodies had silently
+      failed for the same reason PAR-74 fixed on the *typed* row but never
+      on this *negated* one).
+    - `UnblockableEffect` gained a `previous_subject` param ("Put 2 +1/+1
+      counters on target creature you control. **That creature** can't be
+      blocked this turn." — Stealth Mission), mirroring `GrantUntilEffect.
+      previous_subject`'s existing "apply to what the previous clause
+      targeted" idiom, plus `_CANT_BE_BLOCKED_TURN_PREVIOUS_RE`
+      (`previous_subject_only`, the same registration shape as
+      `_PHASE_OUT_PREVIOUS_RE`/`_FIGHT_PREVIOUS_RE`).
+    - A new general `"optional"`-wrapping-a-`seq` parser composition (
+      `_MAY_EFFECT_THEN_RE`/`_may_effect_then`) for "You may `<effect>`. If
+      you do, `<effect2>`." whose antecedent is an ordinary *resolving
+      effect*, not `_PAY_COST_THEN_GENERAL_RE`'s closed cost vocabulary.
+      No new engine primitive — `OptionalEffect`'s own docstring had
+      already spelled out this exact shape ("is this node around a `seq`,
+      not a new fused type"): RULE 603.5's "if you do" is automatically
+      satisfied once both effects are sequenced inside one `optional`
+      wrapper, since the whole body (the "if you do" half included) simply
+      never runs when the player declines. Closes Shipwreck Looter
+      ("you may draw a card. if you do, discard a card.") cache-wide;
+      does **not** close this ticket's own Biblioplex Kraken/Gravelgill
+      Scoundrel/Tidal Terror, whose antecedents ("return **another**
+      creature you control…", "tap **another untapped** creature you
+      control…") have no "target" word at all — a mandatory resolve-time
+      *choice* (RULE 608.2c), not a RULE 115 target, and this engine's
+      `TargetSpec`/`resolve_target_kind` machinery has no untargeted-choice
+      kind to route it through yet (confirmed via `parser_probe.py
+      blocked`: a real 17-card cluster on its own — "you may
+      return/tap another `<X>` you control" — sized but not built this
+      pass; needs a genuinely new grammar, not a widening, and risks a
+      RULES-incorrect simplification if rushed, since a RULE 115 target and
+      a resolve-time choice differ in exactly the ways that matter for
+      hexproof/protection/fizzling).
+    - Tried after `pay_cost_then_general`/`pay_cost_then_or_else`
+      (first-match-wins) so a genuinely cost-shaped antecedent keeps the
+      more faithful `pay_cost_then` interactive-affordability handling.
+    - +90 cards total across the increment (`parser_probe.py diff`, 0
+      regressed at every step) — four of them (Firefright Mage, Dimir
+      Keyrune, Sahagin, Stealth Mission) are this ticket's own SOLO cards;
+      the rest are the "widened shared primitive reaches cards outside
+      your own ticket" signal the handler-recipe.md decomposition rule
+      calls out as evidence the fix belongs at the axis.
+  - **Real residue remains — 53 SOLO cards confirmed at PARSER_VERSION
+    407** — see `BACKLOG.md`'s PAR-79 entry for the full, categorized
+    breakdown. Three kinds, not one: (1) shapes needing a genuinely new
+    composition primitive at real cluster size — the six-card Alora
+    delayed-trigger-with-payoff cycle, and the 17-card "you may
+    return/tap another `<X>` you control" untargeted-choice family just
+    found; (2) cards needing an interactive mechanic this engine doesn't
+    model at all yet (Blufferfish's true/false bluffing guess, Smart Ass's
+    hidden-information reveal-or-not, Gollum's card-guessing minigame) —
+    out of a parser ticket's scope entirely; (3) true one-off bodies
+    (Kamiz's connive-then-choose compound, Sewers of Estark's attacking-
+    or-blocking branch, Wedding Invitation's target-subtype-conditional
+    tail, …) better suited to `game/ability_catalogue.py` hand-authoring
+    than more parser grammar, per this ticket's own "when to stop parsing"
+    rule. A separate, much larger "mana **spent** (not mana value)
     threshold" family was found and deliberately **not** built this pass —
-    it only intersects this ticket on one card (Sahagin) but is a real
+    it only intersects this ticket on Sahagin (now closed) but is a real
     35-SOLO-card cluster on its own, half of it RULE 702.140 Adamant (a
-    wholly unbuilt keyword needing *per-colour* spent-mana tracking, not
-    just the single `GameObject.mana_spent_to_cast` total this pass's
-    `spell_mana_value_at_least`-style predicates read) — sized but held
-    for its own ticket rather than folded in here. This ticket bundles
-    roughly a hundred independently-shaped small gaps under one search
-    phrase by design (the 2026-09-15 Commander-legal tail sweep's own
-    preamble calls this an *indefinite sweep*, not a batch with an end
-    date) — closing it to zero SOLO is not one sitting's work, and each
-    further increment should keep citing the real, re-verified count
-    rather than a stale one.
-- **Verification:** `tests/test_par79_unblockable_family.py` (27 tests),
+    wholly unbuilt keyword needing *per-colour* spent-mana tracking the new
+    `spell_mana_spent_at_least` predicate doesn't carry) — sized but held
+    for its own ticket. Also found a separate 45-card cluster on "whenever
+    you crank this Contraption" (Top-Secret Tunnel's own trigger, RULE 715
+    — Unfinity's Contraptions are tournament-legal, not a silver-border
+    non-goal) with zero recognition today; a whole unbuilt sub-mechanic
+    (the crank event, the sprocket/hit-a-number-then-shift resolution),
+    not a one-line widening — its own ticket, not folded in here. This
+    ticket bundles roughly a
+    hundred independently-shaped small gaps under one search phrase by
+    design (the 2026-09-15 Commander-legal tail sweep's own preamble calls
+    this an *indefinite sweep*, not a batch with an end date) — closing it
+    to zero SOLO is not one sitting's work, and each further increment
+    should keep citing the real, re-verified count rather than a stale one.
+- **Verification:** `tests/test_par79_unblockable_family.py` (49 tests),
   `tests/test_par79_discard_cycle_triggers.py` (10 tests), and
-  `tests/test_par79_trigger_conditions.py` (20 tests, new), all
+  `tests/test_par79_trigger_conditions.py` (24 tests), all
   passing — parse-level coverage of every increment's shapes including
   several adversarial cases (an unrecognized subtype word, the "1/1
   creature" digit-guard regression itself, the self-scoped "when you
@@ -2513,7 +2618,15 @@ is in the rules-engine categories below them.
   affected), and both new trigger events actually firing off a real
   `RulesEngine.discard_specific`/Cycling activation (not just a parse
   verdict), and an end-to-end `parse_oracle` check against real card
-  text for all increments.
+  text for all increments. The sixth increment's own execute coverage is
+  what caught the dormant `"color"` registration gap: `matches_object_
+  filter`'s `any_of` against real creatures of each dimension,
+  `combat.min_blockers` after a real `combat_restriction_this_turn`
+  apply, the animate-colour static actually recomputing `GameObject.
+  colors`/power/toughness (not just parsing), a real `engine.cast_spell`
+  proving the mana-spent/historic-spell thresholds gate on the *below*-
+  threshold case too, and the `optional`/`previous_subject` compositions
+  driven through `engine.resolve_choice`, not just inspected as specs.
 
 
 ### MEC-78 — Graveyard-exit batch triggers (RULE 603.3f)

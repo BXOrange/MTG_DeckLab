@@ -2243,6 +2243,7 @@ EffectRegistry.register(
         count=int(p.get("count", 1) or 1),
         count_max=p.get("count_max"),
         optional=bool(p.get("optional", False)),
+        previous_subject=bool(p.get("previous_subject", False)),
     ),
 )
 EffectRegistry.register(
@@ -3540,6 +3541,29 @@ EffectRegistry.register(
             # this. See `continuous._apply_off_battlefield_types`.
             **({"off_battlefield": str(p["off_battlefield"])} if p.get("off_battlefield") else {}),
             **_selectors(p),
+        },
+    ),
+)
+EffectRegistry.register(
+    # PAR-79 sixth increment: "~ becomes a `<N>`/`<M>` **blue and black**
+    # `<subtype>` creature …" (Dimir Keyrune-shaped) — RULE 613.4b's layer-5
+    # colour-changing engine (`continuous._apply_layer_5_color`, reading a
+    # `StaticAbility(layer="color", ...)`) already existed with **no
+    # `EffectRegistry` factory reaching it at all** — the "type_change"
+    # (layer 4) row immediately above this one is the sibling that *does*
+    # have one; colour never got its own. ``colors`` is a list of WUBRG
+    # letters; ``set`` (default True, mirroring `_apply_layer_5_color`'s own
+    # default) replaces the affected object's existing colours rather than
+    # adding to them, matching how every printed "becomes a `<colors>`
+    # creature" card means "is now exactly these colours", not "is now also
+    # these colours".
+    "color",
+    lambda p: StaticAbility(
+        "color",
+        affects=p.get("affects", "self"),
+        params={
+            "colors": [str(c).upper() for c in p.get("colors", [])],
+            "set": bool(p.get("set", True)),
         },
     ),
 )
