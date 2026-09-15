@@ -506,8 +506,22 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 45.04% (15,679 / 34,811) as of 2026-09-15, measured at
-PARSER_VERSION 394** (v394 closes PAR-79's second increment — "another
+**Coverage: 45.10% (15,699 / 34,811) as of 2026-09-15, measured at
+PARSER_VERSION 395** (v395 closes the first increment of PAR-80 — X-spell
+"target creature gets +X/+`<N>` until end of turn." Needed no new engine
+primitive: `RulesEngine._substitute_x` already walks any bound effect's own
+`power`/`toughness` for the literal `"x"`/`"-x"` sentinel, and `PumpEffect.
+amount_from_count_selector`/`_axis` already read a live board count on one
+or both axes — pure parser recognition of the bare X-spell/X-ability form
+(`_pump_target_x`, with an optional "and gains `<keyword>`" tail) plus a
+closed "where X is `<phrase>`" table (`_pump_target_x_selector`:
+`creatures_you_control`, `creature_cards_in_your_graveyard`,
+`cards_in_your_hand`, `life_gained_this_turn`, the five basic-land-type
+counts). +20, zero regressed. 19 SOLO cards remain, each a distinct new
+amount referent ("greatest `<X>` among…", a die roll, "cards revealed this
+way", the target's own current power, a just-revealed card's mana value) —
+see `BACKLOG.md`'s PAR-80 entry, kept open rather than closed.
+v394 closes PAR-79's second increment — "another
 target legendary creature can't be blocked this turn" (Bessie, the
 Doctor's Roadster, `creature_filter`'s `"legendary"` key) and a bare-
 subtype-as-noun target, "target `<subtype>`[, `<subtype>`, or `<subtype>`]
@@ -920,7 +934,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 47.30% (15,057 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 47.36% (15,076 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

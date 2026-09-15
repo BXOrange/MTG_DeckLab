@@ -7706,6 +7706,90 @@ def _pump_mana_value(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("pump", params)]
 
 
+#: PAR-80: "target creature gets +X/+0[/+X] until end of turn." — the
+#: base X-spell/X-ability pump, no "where X is…" tail at all (Bloodcurdling
+#: Scream/Enrage/Hatred/Howl from Beyond, all bare instants with an
+#: announced ``{X}`` cost; Cackling Witch/Kessig Wolf Run/Secluded
+#: Starforge, the identical body on an ``{X}…`` activated ability instead).
+#: X here is simply RULE 107.3c's announced {X} — `RulesEngine._substitute_x`
+#: already walks any bound effect's own ``power``/``toughness`` for the
+#: literal ``"x"``/``"-x"`` sentinel (Bring to Light/Toxic Deluge's own
+#: precedent, `game/ability_catalogue/competitive_interaction.py`'s "x"/"x"
+#: pump), so this is pure recognition — no new engine primitive.
+#: An optional trailing "and gains `<keyword list>`" (Kessig Wolf Run's
+#: "…and gains trample"; Pedal to the Metal's "…and gains first strike") —
+#: `_pump`'s own tail grammar, mirrored here since this row's magnitude
+#: (``"x"``) is what keeps it from just widening that row directly.
+_PUMP_TARGET_X_RE = _c(
+    rf"{TARGET} gets? \+x/(?P<taxis>\+x|\+0)"
+    r"(?: and gains? (?P<kw>[a-z, ]+?))? until end of turn"
+)
+
+
+def _pump_target_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    subject = _pump_target(m)
+    if subject is None:
+        return None
+    target_kind, selector = subject
+    params: dict = {"power": "x", "toughness": "x" if m.group("taxis") == "+x" else 0}
+    if m.groupdict().get("kw"):
+        keywords = _token_keywords(m.group("kw"))
+        if keywords is None:
+            return None
+        params["keywords"] = keywords
+    if target_kind:
+        params["target_kind"] = target_kind
+    if selector:
+        params["selector"] = selector
+    return [EffectSpec("pump", params)]
+
+
+#: PAR-80: "target creature gets +X/+0[/+X] until end of turn, where X is
+#: `<board-state count>`." — the sibling of `_PUMP_MANA_VALUE_RE` above for
+#: a plain `continuous.count_selector` referent instead of a trigger
+#: event's mana value; every phrase here already has a real selector
+#: (`PAR-78`'s `lands_you_control_of_type_<land>`, MEC-27's
+#: `creature_cards_in_your_graveyard`/`cards_in_your_hand`, the mass-pump
+#: family's own `creatures_you_control`, and `life_gained_this_turn`
+#: — `GameState.life_gained_this_turn`, bumped by `RulesEngine.gain_life`,
+#: already read by `LoseLifeEffect.amount_from_life_gained_this_turn`),
+#: so this is a closed phrase table rather than a new amount kind.
+_PUMP_X_SELECTOR_PHRASES: dict[str, str] = {
+    "the number of creatures you control": "creatures_you_control",
+    "the number of creature cards in your graveyard": "creature_cards_in_your_graveyard",
+    "the number of cards in your hand": "cards_in_your_hand",
+    "the amount of life you gained this turn": "life_gained_this_turn",
+    "the number of mountains you control": "lands_you_control_of_type_mountain",
+    "the number of islands you control": "lands_you_control_of_type_island",
+    "the number of swamps you control": "lands_you_control_of_type_swamp",
+    "the number of forests you control": "lands_you_control_of_type_forest",
+    "the number of plains you control": "lands_you_control_of_type_plains",
+}
+_PUMP_X_SELECTOR_ALT = "|".join(re.escape(p) for p in _PUMP_X_SELECTOR_PHRASES)
+_PUMP_TARGET_X_SELECTOR_RE = _c(
+    rf"{TARGET} gets? \+x/(?P<taxis>\+x|\+0) until end of turn, "
+    rf"where x is (?P<phrase>{_PUMP_X_SELECTOR_ALT})"
+)
+
+
+def _pump_target_x_selector(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    subject = _pump_target(m)
+    if subject is None:
+        return None
+    target_kind, selector = subject
+    count_selector = _PUMP_X_SELECTOR_PHRASES.get(m.group("phrase"))
+    if count_selector is None:
+        return None
+    params: dict = {"amount_from_count_selector": count_selector}
+    if m.group("taxis") == "+0":
+        params["amount_from_count_selector_axis"] = "power"
+    if target_kind:
+        params["target_kind"] = target_kind
+    if selector:
+        params["selector"] = selector
+    return [EffectSpec("pump", params)]
+
+
 def _pump_devotion_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     subject = _pump_target(m)
     if subject is None:
@@ -13658,6 +13742,19 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "pump_target_source_power", _PUMP_TARGET_SOURCE_POWER_RE, _pump_target_source_power
     ),
+    # PAR-80: "target creature gets +X/+0[/+X] until end of turn, where X
+    # is <board-state count>." — tried before the bare `pump_target_x` row
+    # below so the longer "where x is…" phrasing wins (the bare row's own
+    # regex requires "until end of turn" to be the whole clause's end, so
+    # it can never match this row's text anyway, but keeping the more
+    # specific row first matches this file's own convention).
+    EffectHandler(
+        "pump_target_x_selector", _PUMP_TARGET_X_SELECTOR_RE, _pump_target_x_selector
+    ),
+    # PAR-80: the base X-spell/X-ability pump, no "where X is…" tail —
+    # RULE 107.3c's announced {X}, substituted generically at resolve time
+    # by `RulesEngine._substitute_x` (no new primitive).
+    EffectHandler("pump_target_x", _PUMP_TARGET_X_RE, _pump_target_x),
     EffectHandler(
         "pump_devotion_negative_target", _PUMP_DEVOTION_NEGATIVE_TARGET_RE, _pump_devotion_negative_target
     ),

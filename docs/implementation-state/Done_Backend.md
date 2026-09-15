@@ -6010,6 +6010,54 @@ measurement of why is the useful half of this work.
 
 ## Oracle-Text Parser Front-End
 
+### PAR-80: X-Spell "Target Creature Gets +X/+`<N>` Until End of Turn" (in progress, PARSER_VERSION 395)
+
+- **What:** The variable-power/fixed-toughness pump family (an X spell/
+  ability whose caster-chosen X sets one or both axes of the buff, or a
+  "where X is `<board-state count>`" tail instead) — turned out to need no
+  new engine primitive at all. `RulesEngine._substitute_x` already walks
+  any bound effect's own `power`/`toughness` fields for the literal
+  `"x"`/`"-x"` sentinel (the same choke point Bring to Light/Toxic
+  Deluge/`game/ability_catalogue/competitive_interaction.py`'s own "x"/"x"
+  pump already use), so a bare "gets +X/+0 until end of turn" spell is
+  pure parser recognition: `EffectSpec("pump", {"power": "x", "toughness":
+  0, "target_kind": "creature"})`, resolved by RULE 107.3c's announced
+  `{X}` the instant the spell/ability goes on the stack. `PumpEffect.
+  amount_from_count_selector`/`amount_from_count_selector_axis` (already
+  shipped for the devotion/mana-value pump rows) cover the "where X is
+  `<count>`" tail the same way, on a closed phrase table of referents that
+  already have a `continuous.count_selector` name.
+  - `_PUMP_TARGET_X_RE`/`_pump_target_x` — the bare form, with an optional
+    "and gains `<keyword list>`" tail mirroring `_pump`'s own grammar
+    (Kessig Wolf Run/Pedal to the Metal).
+  - `_PUMP_TARGET_X_SELECTOR_RE`/`_pump_target_x_selector` — the "where X
+    is `<phrase>`" tail against `_PUMP_X_SELECTOR_PHRASES`:
+    `creatures_you_control`, `creature_cards_in_your_graveyard`,
+    `cards_in_your_hand`, `life_gained_this_turn` (`GameState.
+    life_gained_this_turn`, bumped by `RulesEngine.gain_life` — already
+    read by `LoseLifeEffect.amount_from_life_gained_this_turn`), and the
+    five basic-land-type counts (`lands_you_control_of_type_<land>`,
+    PAR-78's own selector family).
+  - A real residue stays open (19 SOLO cards) — each its own distinct
+    amount referent this phrase table doesn't cover: two "greatest `<X>`
+    among" board reads with no `count_selector` entry yet (mana value,
+    power); a counters-on-permanents count; a resolve-time "cards revealed
+    this way" count (not a board state); a named-card graveyard tally; two
+    random-number shapes (a d6 roll, "a number from 0 to 6"); the pumped
+    *target's own* current power (`amount_from_count_selector="source_
+    power"` reads the wrong object — the ability's source, not the RULE
+    115 target); a just-revealed card's mana value; and two cards
+    (Accessories to Murder, Oaken Power Suit) whose real blocker is an
+    unrelated "whenever you crank this contraption" trigger-recognition
+    gap that only incidentally shares this search phrase.
+- **Verification:** `tests/test_par80_x_pump_family.py` (11 tests) —
+  parse-level coverage of both shapes plus an adversarial unrecognized-
+  phrase case, an end-to-end `parse_oracle` check against six real cards,
+  and two execute-level tests proving `_substitute_x` and
+  `amount_from_count_selector` both actually resolve through a real
+  `GameEngine.cast_spell`, not just a parse verdict. +20 cards, zero
+  regressed (`parser_probe.py diff`, `pytest -q`).
+
 ### PAR-78: "Prevent All Damage That Would Be Dealt To `<target>`" — Broad Recognition (PARSER_VERSION 393)
 
 - **What:** The largest verified win in the 2026-09-15 Commander-legal tail
