@@ -95,21 +95,26 @@ read. Several of these were flagged by `commander_tail_report.py` as
 `MEC-*`, for exactly that reason. Ordered by verified SOLO count.
 
 - **PAR-79 · "`<Name>`/target creature can't be blocked this turn" — broad
-  recognition (residue after three increments).** `temp_unblockable`/the
+  recognition (residue after four increments).** `temp_unblockable`/the
   `"unblockable"` effect key already exist end to end
-  (`game/effects/attachments_transforms.py`, `registry.py`). **Three
-  increments shipped** (PARSER_VERSION 387/394/401, +24/+4/+15, zero
-  regressed each — see `Done_Backend.md`'s "Combat" section for exactly
-  what each closed, incl. the third increment's own mid-batch correction:
-  a first cut of the subtype-target widening was a closed, per-phrase
-  word list — replaced with a fix to the *shared* `static_handlers.
-  object_filter` instead, which also caught and fixed a real latent bug
-  it exposed, a filter that could never match named `"1/1"`; a stray edit
-  had also briefly mis-marked this ticket "closed" with a false "0
-  UNMODELED remaining" claim on 2026-09-15 — corrected after
-  `parser_probe.py` disproved it). **63 SOLO cards confirmed still open at
-  PARSER_VERSION 401** (re-run `parser_probe.py blocked "can't be blocked
-  this turn"` before starting — the count moves every batch). This ticket
+  (`game/effects/attachments_transforms.py`, `registry.py`). **Four
+  increments shipped** (PARSER_VERSION 387/394/401/402, +24/+4/+15/+25,
+  zero regressed each — see `Done_Backend.md`'s "Combat" section for
+  exactly what each closed, incl. the third increment's own mid-batch
+  correction: a first cut of the subtype-target widening was a closed,
+  per-phrase word list — replaced with a fix to the *shared*
+  `static_handlers.object_filter` instead, which also caught and fixed a
+  real latent bug it exposed, a filter that could never match named
+  `"1/1"`; and the fourth increment's own discovery, mid-diagnosis, that
+  a *whole trigger-condition category* — "whenever you discard/cycle a
+  card" — was missing despite both underlying events being fully
+  engine-ready, only 1 of its +25 cards actually counted in this ticket's
+  own search phrase; a stray edit had also briefly mis-marked this ticket
+  "closed" with a false "0 UNMODELED remaining" claim on 2026-09-15 —
+  corrected after `parser_probe.py` disproved it). **61 SOLO cards
+  confirmed still open at PARSER_VERSION 402** (re-run `parser_probe.py
+  blocked "can't be blocked this turn"` before starting — the count moves
+  every batch). This ticket
   bundles roughly a hundred independently-shaped small gaps under one
   search phrase by design (see the "2026-09-15 Commander-legal tail
   sweep" preamble above — an *indefinite sweep*, not a batch with an end
@@ -169,18 +174,19 @@ read. Several of these were flagged by `commander_tail_report.py` as
     filter` currently mis-parses this as a bogus subtype rather than
     failing closed — a latent bug worth fixing independently of this
     ticket even though nothing routes real text through it yet).
-  - at least three cards (Brotherhood Spy, Cunning Survivor, Devourer of
-    Memory, all already-working `_pump_unblockable`/`_pump_keyword_
-    unblockable` effect bodies) whose real blocker is an unrelated
-    trigger-condition gap incidentally sharing this search phrase — a
-    conditional phase trigger ("if you control a legendary Assassin") for
-    Brotherhood Spy, and "whenever you discard a card"/"whenever you
-    cycle a card" not being a recognized trigger event *at all* (confirmed
-    directly — even the simplest possible pairing, "whenever you discard
-    a card, draw a card.", fails closed) for Cunning Survivor/Devourer of
-    Memory — a real, broader gap (a whole player-discards-a-card trigger
-    category) likely worth its own ticket rather than folding into this
-    one.
+  - at least two cards (Brotherhood Spy, Devourer of Memory, both
+    already-working `_pump_unblockable` effect bodies) whose real blocker
+    is an unrelated trigger-condition gap incidentally sharing this
+    search phrase — a conditional phase trigger ("if you control a
+    legendary Assassin") for Brotherhood Spy, and "whenever 1 or more
+    cards are put into your graveyard from your library" (a library-to-
+    graveyard mill-adjacent event, not a discard) for Devourer of Memory.
+    (Cunning Survivor, which used to sit in this same bucket on "whenever
+    you cycle or discard a card," is now closed — that whole trigger-
+    condition category, `EventType.DISCARD_CARD`/`CYCLED` via
+    `segmenter._PLAYER_TRIGGER_CONDITIONS`, shipped PARSER_VERSION 402,
+    +25 cards, only one of them actually counted in this ticket's own
+    search phrase — see `Done_Backend.md`'s PAR-79 entry.)
 - **PAR-80 · X-spell "target creature gets +X/+`<N>` until end of turn."**
   (residue after one increment). The variable-power/fixed-toughness pump
   family — turned out to need no new primitive at all:

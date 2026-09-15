@@ -506,8 +506,25 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 45.21% (15,738 / 34,811) as of 2026-09-15, measured at
-PARSER_VERSION 401** (v401 is PAR-79's third increment: the qualified
+**Coverage: 45.28% (15,763 / 34,811) as of 2026-09-15, measured at
+PARSER_VERSION 402** (v402 is PAR-79's fourth increment: a whole missing
+trigger-*condition* category, found mid-diagnosis of why Cunning
+Survivor/Devourer of Memory stayed unclaimed despite their own
+`unblockable` clause already parsing fine. Both `EventType.DISCARD_CARD`
+and `EventType.CYCLED` were already fully engine-ready (correct payload,
+already-registered `_GROUP_CONTROLLER_EVENT_KEYS` entries) — the entire
+gap was that `segmenter._PLAYER_TRIGGER_CONDITIONS` (the same table
+SCRY/SURVEIL/LIFE_GAINED already use) had no row for the *unscoped*
+"whenever you discard/cycle a card" shape, only the pre-existing
+self-scoped "when you cycle THIS card,". Four new rows, mirroring that
+table's own "you scry or surveil"/"you surveil or scry" two-event-list
+precedent for the "cycle or discard"/"discard or cycle" compound pair.
++25, zero regressed — only 1 of the 25 was actually counted in PAR-79's
+own search phrase; the other 24 use the identical trigger for an
+unrelated payoff, closed as a side effect of fixing the shared condition
+table. 61 SOLO cards remain on "can't be blocked this turn" itself — see
+`BACKLOG.md`'s PAR-79 entry for the categorized residue.
+v401 is PAR-79's third increment: the qualified
 "except by `<filter>`" family (RULE 509.1b's *permitted*-set restriction,
 `combat.blocker_allowed`'s existing `"only_blocked_by"` arm — already
 shipped for the standing static, just needed a resolve-time "this turn"
@@ -991,7 +1008,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 47.49% (15,115 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 47.57% (15,140 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

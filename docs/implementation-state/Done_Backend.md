@@ -2364,8 +2364,38 @@ is in the rules-engine categories below them.
       section (a stray `+15/-9` before the fix), not by a parse-level
       test. Fixed at the source: `_scope` now fails closed on any
       candidate subtype containing a digit.
-  - **Real residue remains — 63 SOLO cards confirmed at PARSER_VERSION
-    400** — see `BACKLOG.md`'s PAR-79 entry for the full, categorized
+  - **Fourth increment** (PARSER_VERSION 402, +25, zero regressed) — a
+    whole missing trigger-*condition* category, found while diagnosing
+    why Cunning Survivor/Devourer of Memory stayed unclaimed despite their
+    own `unblockable` clause already parsing fine (the exact "SOLO
+    blocker names the unclaimed clause, not the right layer" lesson the
+    third increment's own residue write-up had just flagged). Both
+    `EventType.DISCARD_CARD` (fires once per discarded card, already
+    carrying `player_id` — its own docstring cites MEC-38/Necropotence as
+    the reason it exists, and `binding/core.py`'s
+    `_GROUP_CONTROLLER_EVENT_KEYS` already had a `"DISCARD_CARD":
+    "player_id"` entry) and `EventType.CYCLED` (already backing
+    `_CYCLE_TRIGGER_RE`'s self-scoped "When you cycle this card,") were
+    **fully engine-ready** — the entire gap was that `segmenter.
+    _PLAYER_TRIGGER_CONDITIONS` (the same table SCRY/SURVEIL/LIFE_GAINED
+    already use for "whenever you `<verb>`" player-subject triggers) had
+    no row for the *unscoped* "whenever you discard/cycle a card" shape
+    at all — pure recognition, four new rows (bare discard, bare cycle,
+    and the "cycle or discard"/"discard or cycle" compound pair, mirroring
+    the table's own pre-existing "you scry or surveil"/"you surveil or
+    scry" two-event-list precedent exactly). "another card" collapses to
+    the identical row as "a card" in every case — a battlefield
+    permanent's own ability can never itself be the card being
+    discarded/cycled, so RULE 109.5's usual self-exclusion reading is
+    moot here. Only Cunning Survivor was actually counted in this
+    ticket's own "can't be blocked this turn" search phrase — the other
+    24 of the +25 are cards using the identical "cycle or discard"
+    trigger for an unrelated payoff, closed as a side effect of fixing
+    the *shared* condition table rather than this ticket's own scope; the
+    atomic-parts principle paying off exactly as the third increment's
+    own write-up predicted.
+  - **Real residue remains — 61 SOLO cards confirmed at PARSER_VERSION
+    402** — see `BACKLOG.md`'s PAR-79 entry for the full, categorized
     breakdown (the six-card Alora cycle's delayed-return compound; an
     activation-cost-reduction/frequency rider; two *further* unrelated
     gaps found on Sewer Crocodile/Basim Ibn Ishaq specifically — a
@@ -2378,24 +2408,26 @@ is in the rules-engine categories below them.
     (`_PAY_COST_THEN_GENERAL_RE`'s own `_MAY_COST_THEN_CLAUSE` is
     cost-shaped only); a type-change-plus-unblockable compound whose base
     "becomes a N/M creature until end of turn" form doesn't parse standalone
-    even without the unblockable tail; and Brotherhood Spy/Cunning
-    Survivor/Devourer of Memory's real blocker being conditional-
-    trigger/discard-trigger gaps unrelated to `unblockable` at all). This
-    ticket bundles roughly a hundred independently-shaped small gaps under
-    one search phrase by design (the 2026-09-15 Commander-legal tail
-    sweep's own preamble calls this an *indefinite sweep*, not a batch
-    with an end date) — closing it to zero SOLO is not one sitting's work,
-    and each further increment should keep citing the real, re-verified
-    count rather than a stale one.
-- **Verification:** `tests/test_par79_unblockable_family.py` (27 tests,
-  all passing) — parse-level coverage of all three increments' shapes
-  including several adversarial cases (an unrecognized subtype word, the
-  "1/1 creature" digit-guard regression itself, a plain keyword grant
-  with no unblockable tail must not be stolen), execute-level tests for
-  the "except by" restriction (a real `combat.
+    even without the unblockable tail; and Brotherhood Spy's real blocker
+    being an unrelated conditional phase-trigger gap). This ticket bundles
+    roughly a hundred independently-shaped small gaps under one search
+    phrase by design (the 2026-09-15 Commander-legal tail sweep's own
+    preamble calls this an *indefinite sweep*, not a batch with an end
+    date) — closing it to zero SOLO is not one sitting's work, and each
+    further increment should keep citing the real, re-verified count
+    rather than a stale one.
+- **Verification:** `tests/test_par79_unblockable_family.py` (27 tests)
+  plus `tests/test_par79_discard_cycle_triggers.py` (10 tests, new), all
+  passing — parse-level coverage of every increment's shapes including
+  several adversarial cases (an unrecognized subtype word, the "1/1
+  creature" digit-guard regression itself, the self-scoped "when you
+  cycle this card" row staying unaffected by the new unscoped rows),
+  execute-level tests for the "except by" restriction (a real `combat.
   blocker_allowed` check distinguishing a hasty blocker from a non-hasty
-  one) and the mass form (only the controller's own creatures are
-  affected), and an end-to-end `parse_oracle` check against real card
+  one), the mass form (only the controller's own creatures are
+  affected), and both new trigger events actually firing off a real
+  `RulesEngine.discard_specific`/Cycling activation (not just a parse
+  verdict), and an end-to-end `parse_oracle` check against real card
   text for all three increments.
 
 

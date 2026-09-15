@@ -338,6 +338,31 @@ _PLAYER_TRIGGER_CONDITIONS: tuple[tuple[re.Pattern[str], Any], ...] = (
     # spelling is folded in for completeness though no cached card prints
     # a trigger on exactly one die yet.
     (re.compile(r"^you roll (?:a die|1 or more dice)$"), "DICE_ROLLED"),
+    # PAR-79 residue: RULE 701.8's "Whenever you discard a card, …"
+    # (All-Seeing Arbiter/Hobgoblin, Mantled Marauder-shaped) —
+    # `EventType.DISCARD_CARD` already exists and already fires once per
+    # discarded card, carrying `player_id` (its own docstring names this
+    # exact trigger shape as the reason it's a per-card sibling of the
+    # aggregate `DISCARD`); only the oracle-text recognition was missing.
+    # "another" (Curator of Mysteries) is the identical event for a
+    # battlefield permanent's own ability — it can never itself be the
+    # discarded card — so both spellings collapse to one row.
+    (re.compile(r"^you discard (?:a|another) card$"), "DISCARD_CARD"),
+    # RULE 702.28c's *unscoped* form — "Whenever you cycle a card, …"
+    # (Jo Grant/Crystalline Resonance) or "…another card" (Drannith
+    # Healer/Benalish Partisan) — the sibling of `_CYCLE_TRIGGER_RE`
+    # above, which only ever claims the *self*-scoped "When you cycle
+    # this card,". `EventType.CYCLED` already fires with `controller_id`
+    # for exactly this; same "another can't be this ability's own card"
+    # collapse as the discard row just above.
+    (re.compile(r"^you cycle (?:a|another) card$"), "CYCLED"),
+    # The compound "Whenever you cycle or discard a[nother] card, …"
+    # (Cunning Survivor/Flameblade Adept/Drake Haven-shaped — the single
+    # highest-yield row in this whole addition) and its reverse ordering,
+    # mirroring the "you scry or surveil"/"you surveil or scry" pair
+    # above: one `AbilitySpec` per event, both already-shipped.
+    (re.compile(r"^you cycle or discard (?:a|another) card$"), ["CYCLED", "DISCARD_CARD"]),
+    (re.compile(r"^you discard or cycle (?:a|another) card$"), ["DISCARD_CARD", "CYCLED"]),
 )
 
 #: A triggered-ability wrapper: "When/Whenever/At <condition>, <body>".
