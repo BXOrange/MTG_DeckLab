@@ -573,6 +573,7 @@ class GameContext:
         source: Optional["GameObject"] = None,
         track_exiled_with: bool = False,
         untap_if_lands_at_least: Optional[int] = None,
+        then_specs: Optional[list[dict]] = None,
     ) -> None:
         self.engine._request_search(
             player, criteria, destination, count, optional,
@@ -587,6 +588,7 @@ class GameContext:
             source=source,
             track_exiled_with=track_exiled_with,
             untap_if_lands_at_least=untap_if_lands_at_least,
+            then_specs=then_specs,
         )
 
     def _request_intuition(
@@ -845,6 +847,16 @@ def _characteristic_of_subject(
         obj = context.state.find_object(event.get("instance_id"))
     if obj is None:
         return 0
+    # PAR-71: "counter target spell. …, where X is that spell's mana
+    # value." (Hurl into History) — a "spell" `TargetSpec.kind` resolves to
+    # the `StackItem` itself (`targeting.legal_targets`'s own ``"spell"``
+    # branch), not a `GameObject` — unwrap to the spell's underlying object
+    # for ``.card``/``power``/``toughness`` the same way every other
+    # ``who`` above already reads a plain permanent.
+    if getattr(obj, "kind", None) == "spell":
+        obj = getattr(obj, "obj", None)
+        if obj is None:
+            return 0
     if char == "mana_value":
         return int(getattr(getattr(obj, "card", None), "converted_mana_cost", 0) or 0)
     return int(getattr(obj, char, 0) or 0)

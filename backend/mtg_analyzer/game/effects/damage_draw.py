@@ -349,7 +349,7 @@ class DealDamageEffect(GameEffect):
                     except (KeyError, ValueError):
                         player = None
                     if player is not None:
-                        context.deal_damage(player, int(self.amount), self.source)
+                        context.deal_damage(player, self._amount_for(None, context), self.source)
                     return
             controller_id = getattr(obj, "controller_id", None)
             if controller_id is not None:
@@ -358,7 +358,7 @@ class DealDamageEffect(GameEffect):
                 except (KeyError, ValueError):
                     player = None
                 if player is not None:
-                    context.deal_damage(player, int(self.amount), self.source)
+                    context.deal_damage(player, self._amount_for(obj, context), self.source)
             return
         chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
         if self.divided:

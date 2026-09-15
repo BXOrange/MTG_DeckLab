@@ -56,20 +56,20 @@ its block back into the matching section here.
   here too (triggers already recognized, ~13/309 bodies done) — not a
   separate ticket.
 
-  > **Ticket-id note:** every number from `PAR-1` through `PAR-68` is
+  > **Ticket-id note:** every number from `PAR-1` through `PAR-72` is
   > already a real, shipped, cross-referenced ticket elsewhere in this
   > codebase, and **every one of them is closed** — grep `Done_Backend.md`
   > before reusing one (`PAR-14`, for one, is RULE 603.2's once-per-turn
   > trigger limiter, nothing to do with keywords). The first free parser
-  > ticket id is **`PAR-69`** (checked 2026-09-14). `PAR-31…PAR-53` names
-  > the Commander-legal tail cluster below; every other id up to `PAR-68`
+  > ticket id is **`PAR-73`** (checked 2026-09-14). `PAR-31…PAR-53` names
+  > the Commander-legal tail cluster below; every other id up to `PAR-72`
   > is closed narrative only, not a live pointer — don't read a stale
   > "open below" claim from an earlier revision of this note as still true
   > without checking `Done_Backend.md` first. Bucket C's three-line
   > placeholder ("file from the next free id … when their batch comes up")
-  > is now resolved into real tickets — `PAR-69` through `PAR-72` and
-  > `MEC-86`, filed 2026-09-14 (see below) — so the next free parser id
-  > after this batch closes is `PAR-73`.
+  > was resolved into real tickets — `PAR-69` through `PAR-72` and
+  > `MEC-86`, filed 2026-09-14 (see below); `PAR-69`/`PAR-70`/`PAR-71`/
+  > `PAR-72` all closed the same day.
 
 - **PAR-31…PAR-53 · Commander-legal tail — one PAR per recurring template
   cluster.** Seeded from `scripts/commander_tail_report.py` (read-only,
@@ -101,46 +101,21 @@ its block back into the matching section here.
   keyword-match counts — two of the report's five raw clusters turned out to
   be residue from *already-closed* tickets (Party, Ki-counter/
   Spirit-or-Arcane) whose real remaining gap is a generic primitive, not the
-  named set mechanic:
-
-  - **PAR-69 · Doctor's companion static keyword.** `commander_tail_report`
-    tags 28 Commander-legal cards, but only 5 are solo-blocked by the
-    `"doctor's companion"` keyword-grant clause itself (`Barbara Wright`,
-    `Nardole, Resourceful Cyborg`, `Yasmin Khan`, `Rose Noble`, `An Unearthly
-    Child`) — the other 23 also carry an unrelated bespoke ability body
-    (fight triggers, ability-copying, Saga chapters, suspend interaction)
-    that this clause won't unlock. Scope this ticket to the keyword clause
-    only; the 23 stay [PAR-12] bespoke tail, same pattern Party/Ki already
-    went through — don't let that residue block closing this one.
-  - **PAR-70 · Rebel/Mercenary recruiter tutor chain (Mercadian Masques).**
-    One uniform template: `"<cost>: search your library for a rebel/
-    mercenary permanent card with mana value N or less, put it onto the
-    battlefield, then shuffle."` 20 tagged, 17 solo-blocked. Reuses the
-    existing tutor/search-onto-battlefield one-shot primitive — parser
-    recognition only, no new engine work expected.
-  - **PAR-71 · "that spell's `<field>`" trigger-event amount referent.**
-    Traced from the report's "Ki counter / Spirit-or-Arcane" residue: the
-    `"whenever you cast a spirit or arcane spell"` trigger is already
-    recognized (closed), and every residue card's actual blocker is
-    `"that spell's mana value"` as an amount referent on a cast-trigger.
-    That phrasing spans 53 cards across the whole cache (`Aetherflux Car`,
-    `Manaplasm`, `Breeches, the Blastmaker`, MV-scaled counterspell riders,
-    …), 43 solo-blocked — almost none of them Kamigawa cards. Likely
-    extends the already-shipped `effect_amounts` `trigger_event` kind
-    (v317) to read the triggering spell's mana value rather than needing a
-    new primitive. Closing this retires the "Ki-counter residue" framing;
-    the Kirin cluster (`Bounteous Kirin`, `Celestial Kirin`, `Cloudhoof
-    Kirin`, `Infernal Kirin`, …) is a strict subset of this, not a separate
-    ticket.
-  - **PAR-72 · Generalize the party count into `effect_amounts`.** Traced
-    from the report's "Party" residue: `creatures_in_your_party` already
-    exists as a count selector but is wired only for cost-reduction and the
-    "full party" boolean condition (the ticket that shipped it). ~10-11
-    cards (`Acquisitions Expert`, `Allied Assault`, `Archpriest of Iona`,
-    `Ardent Electromancer`, …) are solo-blocked wanting that same count as a
-    general numeric amount (P/T equal-to, mana-add-equal-to, life-loss-
-    equal-to). Replaces the "Party residue" framing — the mechanic itself
-    already works, this is a widening.
+  named set mechanic. PAR-69 through PAR-72 all closed 2026-09-14 — see
+  `Done_Backend.md`'s "Keyword Catalogue" (PAR-69) and "Oracle-Text Parser
+  Front-End" (PAR-70/PAR-71/PAR-72) entries. PAR-71's own residue — Imp's
+  Mischief ("You lose life equal to that spell's mana value.") and
+  Draining Whelk ("Put X +1/+1 counters on this creature, where X is that
+  spell's mana value.") — print the *countered-target* referent on
+  `lose_life`/`add_counters`, the one pairing that batch didn't build
+  (no card needed it); stays [PAR-12] bespoke tail rather than a new
+  ticket, same as PAR-69's own Rose Noble/An Unearthly Child residue.
+  PAR-72's own residue — Acquisitions Expert's "target opponent reveals a
+  number of cards from their hand equal to the number of creatures in your
+  party. You choose one of those cards..." — needs the *hand's owner*
+  (not the caster) to pick which cards get revealed, a genuinely different
+  two-step interactive primitive from `RevealHandChooseDiscardEffect`'s
+  "reveal the whole hand" template; also stays [PAR-12] bespoke tail.
   - **Non-goal / lowest priority, no ticket:** Attractions (RULE 717),
     Conspiracy draft-matters — moved to [DEFERRED.md](DEFERRED.md)'s
     "Permanent non-goals" section 2026-09-14; see that file for the traced

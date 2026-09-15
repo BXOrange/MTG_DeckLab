@@ -2834,6 +2834,13 @@ def _counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params: dict = dict(filt)
     if m.groupdict().get("cost"):
         params["unless_pays"] = m.group("cost")
+        # "…pays {1} plus an additional {1} for each creature in your
+        # party." (Concerted Defense, PAR-72) — `CounterSpellEffect.
+        # unless_pays_extra_selector` adds one more generic to the fixed
+        # base cost per point of `creatures_in_your_party` at resolution
+        # time, read for the counter spell's own caster.
+        if m.groupdict().get("party_tax"):
+            params["unless_pays_extra_selector"] = "creatures_in_your_party"
     cond_color = resolve_color_word(m.groupdict().get("cond_color"))
     if cond_color:
         params["color"] = cond_color
@@ -2910,6 +2917,23 @@ def _change_target(m: re.Match[str]) -> list[EffectSpec]:
     if m.group("kind") == "spell or ability":
         return [EffectSpec("change_target", {"spell_or_ability": True})]
     return [EffectSpec("change_target", {"single_target": True})]
+
+
+#: PAR-71: "[you may ][have ]target player mill X cards, where X is that
+#: spell's mana value." (Cloudhoof Kirin's spirit-or-arcane cast trigger) —
+#: `MillEffect.count_from_trigger_event`'s ``mana_value`` reading, the same
+#: `SPELL_CAST` event field `_pump_mana_value`/`_add_counters_spell_mv`
+#: already use. RULE 601.2c's "have [player] mill" phrasing (rather than
+#: bare "target player mills") doesn't change who does the milling —
+#: `MillEffect` already only tracks the milled player, not who "had" it
+#: happen — so the leading "have " is just consumed and dropped.
+_MILL_SPELL_MV_RE = _c(
+    r"(?:have )?target (?P<who>player|opponent) mills? x cards?, where x is that spell'?s mana value"
+)
+
+
+def _mill_spell_mv(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("mill", {"target_kind": "player", "count_from_trigger_event": "mana_value"})]
 
 
 def _mill(m: re.Match[str]) -> list[EffectSpec]:
@@ -3826,21 +3850,41 @@ _SEARCH_COLOR_WORD = r"white|blue|black|red|green|colorless"
 _SEARCH_MV_QUALIFIER = (
     r"(?: with mana value (?P<mv>\d+|x) or (?P<mv_cmp>greater|less))?"
 )
+#: PAR-70: "a **rebel**/**mercenary** permanent card" (Mercadian Masques'
+#: recruiter cycle — Ramosian Sergeant/Captain/Commander/Sky Marshal,
+#: Cateran Persuader/Brute/Kidnappers/Enforcer/Slaver/Overlord, Amrou Scout/
+#: Blightspeaker/Defiant Falcon, Bog Glider, Rathi Fiend/Intimidator). Unlike
+#: `_SEARCH_TYPE_WORD` (card *types*, OR-combined in a comma list),
+#: "permanent" here isn't itself a type-line word — no real card's type line
+#: ever literally reads "Permanent" — it's the block's own way of saying
+#: "any card type", so the pair is really one compound qualifier: "a card of
+#: subtype `<word>`, no card-type restriction beyond being a permanent".
+#: Rebel/Mercenary are exclusively creature subtypes in paper Magic, so
+#: `crit["type"] = "<word>"` alone (a type-line substring match) already
+#: narrows correctly without a separate "permanent" key. Kept as a small
+#: fixed enum rather than a full creature-subtype vocabulary — this
+#: codebase has no such list (`_SEARCH_COLOR_WORD` is the same shape) — and
+#: extending it to a new subtype is a one-word change if another "<subtype>
+#: permanent card" tutor cycle turns up.
+_SEARCH_SUBTYPE_WORD = r"rebel|mercenary"
 #: The noun phrase after "search your library for": a determiner ("a"/"an"/
-#: "up to N"), an optional "basic" qualifier (sets `basic`), then either a
-#: `_SEARCH_TYPE_LIST` (sets `types` — "land" is itself one of that list's
-#: words, so bare "basic land" still resolves to ``{"basic": True}`` with no
-#: separate case) or neither (a bare "a card"), then "card(s)", then an
-#: optional trailing mana-value qualifier. "Basic" and a type list combine
-#: freely — "a basic Forest, Plains, or Island card" (the Panorama/Landscape/
-#: Monument tri-land fetch cycles, Bant Panorama-shaped: ~40 real cards on
-#: this exact combined shape) narrows the search to *basic* lands of *those*
-#: named types, not "basic land" (any basic) or a bare type list (any card of
-#: that type, not necessarily basic) alone.
+#: "up to N"), an optional "basic" qualifier (sets `basic`), an optional
+#: "<subtype> permanent" qualifier (sets `subtype` — see
+#: `_SEARCH_SUBTYPE_WORD` above), then either a `_SEARCH_TYPE_LIST` (sets
+#: `types` — "land" is itself one of that list's words, so bare "basic land"
+#: still resolves to ``{"basic": True}`` with no separate case) or neither
+#: (a bare "a card"), then "card(s)", then an optional trailing mana-value
+#: qualifier. "Basic" and a type list combine freely — "a basic Forest,
+#: Plains, or Island card" (the Panorama/Landscape/Monument tri-land fetch
+#: cycles, Bant Panorama-shaped: ~40 real cards on this exact combined
+#: shape) narrows the search to *basic* lands of *those* named types, not
+#: "basic land" (any basic) or a bare type list (any card of that type, not
+#: necessarily basic) alone.
 _SEARCH_CRITERIA = (
     r"(?:up to (?P<count>\d+)|an?)\s+"
     rf"(?:(?P<color>{_SEARCH_COLOR_WORD})\s+)?"
     r"(?:(?P<basic>basic)\s+)?"
+    rf"(?:(?P<subtype>{_SEARCH_SUBTYPE_WORD})\s+permanent\s+)?"
     rf"(?P<types>{_SEARCH_TYPE_LIST})?\s*"
     r"cards?"
     + _SEARCH_MV_QUALIFIER
@@ -3969,6 +4013,9 @@ def _search_criteria_from_match(m: re.Match[str]) -> dict:
     basic = bool(m.groupdict().get("basic"))
     if basic:
         crit["basic"] = True
+    subtype = m.groupdict().get("subtype")
+    if subtype:
+        crit["type"] = subtype.strip().lower()
     types = m.groupdict().get("types")
     if types:
         words = [t.strip() for t in re.split(r",\s*or\s+|,\s*|\s+or\s+", types) if t.strip()]
@@ -6381,6 +6428,31 @@ def _add_counters_target_params(
     return [EffectSpec("add_counters", params)]
 
 
+#: PAR-71: "put X +1/+1 counters on target creature [you control], where X is
+#: that spell's mana value." (Dancing from Dark to Dawn's cast trigger) — the
+#: ``mana_value`` sibling of `_add_counters_from_trigger_amount`'s ``"amount"``
+#: field. Deliberately **target-only**, no self ("~") alternative: Draining
+#: Whelk prints the identical "put X +1/+1 counters on ~, where X is that
+#: spell's mana value" tail after "counter target spell" rather than a cast
+#: trigger, where "that spell" is the *countered* target
+#: (`GameContext.previous_targets`), not a `SPELL_CAST` event — reading
+#: `context.trigger_event` there would silently measure 0 (see
+#: `_lose_life_spell_mv_that_player`'s docstring for the same trap); it's
+#: handled by its own dedicated two-clause row instead.
+_ADD_COUNTERS_SPELL_MV_RE = _c(
+    rf"put x \+1/\+1 counters? on {TARGET}, where x is that spell'?s mana value"
+)
+
+
+def _add_counters_spell_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind not in ("creature", "permanent", "creature_you_control", *_SINGLE_TYPE_PERMANENT_KINDS):
+        return None
+    return [EffectSpec("add_counters", {
+        "kind": "+1/+1", "target_kind": kind, "amount_from_trigger_event": "mana_value",
+    })]
+
+
 def _add_counters(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind, mag = _counter_kind_and_multiplier(m.group("ckind"))
     params: dict = {"count": count_of(m.group("n")) * mag, "kind": kind}
@@ -6546,6 +6618,37 @@ def _lose_life_from_trigger_amount(m: re.Match[str]) -> Optional[list[EffectSpec
 #: the ability's controller, no RULE 115 target.
 def _gain_life_from_trigger_amount(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("gain_life", {"amount_from_trigger_event": "amount"})]
+
+
+#: PAR-71: "[you may] gain life equal to that spell's mana value." (Bounteous
+#: Kirin's spirit-or-arcane cast trigger) — the ``mana_value`` sibling of
+#: `_gain_life_from_trigger_amount`'s ``"amount"`` field, same firing
+#: `SPELL_CAST` event `_damage_spell_mv`/`_pump_mana_value` already read.
+#: Untargeted (gaining life is never a RULE 115 target); the segmenter peels
+#: a triggered ability's own leading "you may" before this ever runs.
+def _gain_life_spell_mv(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("gain_life", {"amount_from_trigger_event": "mana_value"})]
+
+
+#: The lose-life sibling — "that player loses life equal to that spell's
+#: mana value." (The Frightful Four) — "that player" is whoever the firing
+#: SPELL_CAST event names as the caster, `LoseLifeEffect.
+#: selector="event_player"`, the same "that player" idiom `MillEffect.
+#: selector="event_controller"` already uses for an analogous event-named
+#: subject. Deliberately no bare self-referential "you lose life equal to
+#: that spell's mana value" sibling: the only real card on that exact
+#: wording is Imp's Mischief ("Change the target of target spell with a
+#: single target. You lose life equal to that spell's mana value.") —
+#: there "that spell" is the *targeted* spell (`GameContext.
+#: previous_targets`), not a `SPELL_CAST` trigger event (this ability has
+#: no cast trigger at all — `context.trigger_event` is `None` here, so an
+#: `amount_from_trigger_event` read would silently resolve to 0 life lost,
+#: exactly the "half-modeled" failure mode the coverage gate exists to
+#: prevent). Left unclaimed rather than guessed.
+def _lose_life_spell_mv_that_player(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("lose_life", {
+        "selector": "event_player", "amount_from_trigger_event": "mana_value",
+    })]
 
 
 def _add_counters_from_trigger_amount(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -7212,6 +7315,35 @@ def _pump_target_source_power(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["target_kind"] = target_kind
     if selector_subject is not None:
         params["selector"] = selector_subject
+    return [EffectSpec("pump", params)]
+
+
+#: PAR-71: "<subject> gets +X/+X [or +X/+0] until end of turn, where X is
+#: that spell's mana value." (Manaplasm/Jamie McCrimmon's symmetric form;
+#: Erratic Cyclops/Livaan's power-only form) — the `PumpEffect.
+#: amount_from_trigger_event` sibling of the `DEVOTION`-scaled pump rows
+#: above, reading the firing `SPELL_CAST` event's own ``mana_value`` field
+#: (already stamped on every such event by `casting_mixin.cast_spell` —
+#: see its own "Shark Typhoon-shaped spell-cast payoffs" comment — so this
+#: is pure recognition, no new engine work).
+_PUMP_MANA_VALUE_RE = _c(
+    rf"(?:{TARGET}|(?P<selfref>{re.escape(SELF)})) gets? \+x/\+(?P<taxis>x|0) until end of turn, "
+    r"where x is that spell'?s mana value"
+)
+
+
+def _pump_mana_value(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    subject = _pump_target(m)
+    if subject is None:
+        return None
+    target_kind, selector = subject
+    params: dict = {"amount_from_trigger_event": "mana_value"}
+    if m.group("taxis") == "0":
+        params["amount_from_count_selector_axis"] = "power"
+    if target_kind:
+        params["target_kind"] = target_kind
+    if selector:
+        params["selector"] = selector
     return [EffectSpec("pump", params)]
 
 
@@ -7895,6 +8027,86 @@ def _forage(m: re.Match[str]) -> list[EffectSpec]:
 # it stays UNMODELED (fail-closed) rather than discovering 0.
 def _discover(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("discover", {"mana_value": int(m.group("n"))})]
+
+
+#: PAR-71: "discover X, where X is that spell's mana value." (Monstrous
+#: Vortex's cast trigger) — `DiscoverEffect.mana_value_from_trigger_event`,
+#: the discover-cap sibling of `_pump_mana_value`/`_mill_spell_mv`. "Counter
+#: target artifact or creature spell. Discover X, where X is that spell's
+#: mana value." (Hurl into History) prints the identical tail but "that
+#: spell" there is the *countered* target, not a cast-trigger event —
+#: `context.trigger_event` is `None` for a plain resolving spell, so this
+#: row alone would silently discover 0; its own `previous_subject_only`
+#: sibling right below (offered only when `segmenter.
+#: _announces_creature_target` sees a preceding ``counter`` spec, widened
+#: for exactly this shape) claims that case correctly instead.
+def _discover_spell_mv(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("discover", {"mana_value_from_trigger_event": "mana_value"})]
+
+
+#: The "counter target spell. `<effect>`, where X is that spell's mana
+#: value" cluster's shapes (Hurl into History/Access Denied/Spell Swindle/
+#: Overwhelming Intellect) — "that spell" is the countered RULE 115 target,
+#: read via `GameContext.previous_targets`/`_characteristic_of_subject`'s
+#: ``"previous_subject_mana_value"`` (RULE 608.2h last-known information:
+#: the countered spell is in a graveyard, with no controller, by the time
+#: this clause resolves) rather than a `SPELL_CAST` trigger event, since
+#: there isn't one. Each row below is ``previous_subject_only`` for exactly
+#: the reason `_discover_spell_mv`'s own docstring documents: the identical
+#: printed tail also appears after a genuine cast trigger, where this
+#: referent would be wrong.
+def _discover_spell_mv_previous_target(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("discover", {"mana_value_from_subject": "previous_subject_mana_value"})]
+
+
+#: "Draw cards equal to that spell's mana value." (Overwhelming Intellect) —
+#: the `draw`-spec sibling, `DrawCardEffect.amount_from_subject` (the same
+#: field `_draw_eq_its_self` already reads for other referents).
+def _draw_spell_mv_previous_target(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("draw", {"amount_from_subject": "previous_subject_mana_value"})]
+
+
+#: "Create X 1/1 colorless Thopter artifact creature tokens with flying,
+#: where X is that spell's mana value." (Access Denied) — the inline-stats
+#: token count, `CreateTokenEffect.count_from_subject` (the same field
+#: `AddCountersEffect`/`CreateTokenEffect` already read for other
+#: ``"<who>_<char>"`` referents), reusing `_xx_token_mid_params`'s shared
+#: colour/subtype/keyword-word splitting.
+_CREATE_TOKEN_XX_SPELL_MV_PREVIOUS_TARGET_RE = _c(
+    r"create x (?P<tapped>tapped )?(?P<legendary>legendary )?(?P<p>\d+)/(?P<t>\d+) "
+    r"(?P<mid>[a-z ]*?)creature tokens?"
+    r"(?: with (?P<kw>[a-z, ]+))?, where x is that spell'?s mana value"
+)
+
+
+def _create_token_xx_spell_mv_previous_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _xx_token_mid_params(m.group("mid"), m.groupdict().get("kw"))
+    if params is None:
+        return None
+    params.update({
+        "power": int(m.group("p")), "toughness": int(m.group("t")),
+        "count_from_subject": "previous_subject_mana_value",
+    })
+    if m.groupdict().get("tapped"):
+        params["tapped"] = True
+    if m.groupdict().get("legendary"):
+        params["legendary"] = True
+    return [EffectSpec("create_token", params)]
+
+
+#: "Create X Treasure tokens, where X is that spell's mana value." (Spell
+#: Swindle) — the named-token sibling of the row just above.
+_CREATE_NAMED_TOKEN_XX_SPELL_MV_PREVIOUS_TARGET_RE = _c(
+    rf"create x (?P<name>{'|'.join(_NAMED_TOKEN_WORDS)}) tokens?, "
+    r"where x is that spell'?s mana value"
+)
+
+
+def _create_named_token_xx_spell_mv_previous_target(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("create_token", {
+        "token_name": _NAMED_TOKEN_WORDS[m.group("name")],
+        "count_from_subject": "previous_subject_mana_value",
+    })]
 
 
 # "<permanent> explores." (RULE 701.44) — `RulesEngine.explore` owns the
@@ -9648,22 +9860,30 @@ def _pump_previous_selector(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: turn" (You Come to a River-shaped) — the P/T-then-unblockable ordering
 #: (unlike `_pump`'s "and gains <kw> until end of turn", the keyword clause
 #: sits *before* "until end of turn"; here "can't be blocked this turn"
-#: trails it instead) — a targeted-only shape (real cards always name a
-#: single "target creature", never a self/group subject for this combo), so
-#: it uses `TARGET` directly rather than the broader `_SUBJECT`.
+#: trails it instead). Widened to the broader `_SUBJECT` (PAR-72, Seafloor
+#: Stalker's own activated-ability self-pump "~ gets +1/+0 … and can't be
+#: blocked this turn") rather than `TARGET` alone.
 _PUMP_UNBLOCKABLE_RE = _c(
-    rf"{TARGET} gets? {_PT_DELTA} until end of turn and can'?t be blocked this turn"
+    rf"{_SUBJECT} gets? {_PT_DELTA} until end of turn and can'?t be blocked this turn"
 )
 
 
 def _pump_unblockable(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    kind = resolve_target_kind(m.group("target"))
-    if kind not in ("creature", "permanent"):
+    subject = _pump_target(m)
+    if subject is None:
         return None
-    return [EffectSpec("pump", {
+    target_kind, selector = subject
+    if target_kind is not None and target_kind not in ("creature", "permanent"):
+        return None
+    params: dict = {
         "power": _signed_int(m.group("p")), "toughness": _signed_int(m.group("t")),
-        "target_kind": kind, "unblockable": True,
-    })]
+        "unblockable": True,
+    }
+    if target_kind:
+        params["target_kind"] = target_kind
+    if selector:
+        params["selector"] = selector
+    return [EffectSpec("pump", params)]
 
 
 #: ENG-32: a bare "~ / target creature can't be blocked this turn" (Giant
@@ -9891,6 +10111,303 @@ def _amass_untyped(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 
 _AMASS_UNTYPED_RE = _c(rf"amass {NUMBER}")
+
+
+# --- PAR-72: Party (RULE 700.8) generalized into a resolve-time amount -----
+# `continuous.count_selector`'s ``"creatures_in_your_party"`` branch (PAR-53)
+# was previously wired only into the cost-reduction/"full party" static
+# forms. This section widens the already-generic `amount_from_count_
+# selector`/`count_selector` family (PAR-32/36/43 &c.) to also recognize the
+# fixed phrase "for each creature in your party"/"the number of creatures
+# in your party" across the one-shot effect verbs real cards print it on —
+# one handler per distinct verb/template, this codebase's established
+# convention (no single "for each X" grammar spans every effect type).
+
+#: "Add `<sym>` for each creature in your party." (Ardent Electromancer) —
+#: `AddManaEffect.amount_selector` (Burnt Offering's own hand-authored
+#: field, MEC-43) is the oracle-text route: additive with ``colors``, so
+#: this sets only ``color``, leaving ``colors`` empty (no unconditional
+#: pip of its own — the whole amount comes from the party count).
+_ADD_MANA_PARTY_RE = _c(r"add (?P<sym>\{[wubrgc]\}) for each creature in your party")
+
+
+def _add_mana_party(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("add_mana", {
+        "color": m.group("sym").strip("{}").upper(),
+        "amount_selector": "creatures_in_your_party",
+    })]
+
+
+#: "When ~ enters, put a +1/+1 counter on it for each creature in your
+#: party." (Emeria Captain) — the self-ETB sibling of
+#: `_choose_target_add_counters_party` below, both reusing `AddCountersEffect.
+#: amount_from_count_selector`.
+_ADD_COUNTERS_SELF_PARTY_RE = _c(
+    r"put a \+1/\+1 counter on it for each creature in your party"
+)
+
+
+def _add_counters_self_party(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("add_counters", {"amount_from_count_selector": "creatures_in_your_party"})]
+
+
+#: "Choose target creature you control. Put a +1/+1 counter on it for each
+#: creature in your party." (Strength of Solidarity) — a sorcery with no
+#: trigger wrapper, so the whole two-sentence body is one clause; modeled
+#: directly as a single targeted `add_counters` rather than a separate
+#: "choose"/previous-subject pair (the target IS the thing counters land on,
+#: nothing else in the body reads it).
+_CHOOSE_TARGET_ADD_COUNTERS_PARTY_RE = _c(
+    r"choose target creature you control\. put a \+1/\+1 counter on it for each creature in your party"
+)
+
+
+def _choose_target_add_counters_party(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("add_counters", {
+        "target_kind": "creature_you_control",
+        "amount_from_count_selector": "creatures_in_your_party",
+    })]
+
+
+#: "Whenever ~ attacks, it gets +1/+0 until end of turn for each creature in
+#: your party." (Grotag Bug-Catcher) — a self, power-only
+#: `PumpEffect.amount_from_count_selector` (the count *is* the pump amount;
+#: no separate per-unit multiplier, matching every "+1/+X for each" shape
+#: in this family — the printed magnitude is always exactly 1 per unit).
+_PUMP_SELF_POWER_PARTY_RE = _c(r"it gets \+1/\+0 until end of turn for each creature in your party")
+
+
+def _pump_self_power_party(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("pump", {
+        "amount_from_count_selector": "creatures_in_your_party",
+        "amount_from_count_selector_axis": "power",
+    })]
+
+
+#: "When ~ enters, target creature gets +1/+1 until end of turn for each
+#: creature in your party." (Kabira Outrider) — the targeted, both-axis
+#: sibling of `_pump_self_power_party` above.
+_PUMP_TARGET_BOTH_PARTY_RE = _c(
+    r"target creature gets \+1/\+1 until end of turn for each creature in your party"
+)
+
+
+def _pump_target_both_party(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("pump", {
+        "target_kind": "creature", "amount_from_count_selector": "creatures_in_your_party",
+    })]
+
+
+#: "Up to two target creatures each get +X/+X until end of turn, where X is
+#: the number of creatures in your party." (Allied Assault) — the multi-
+#: target sibling of `_pump_up_to_two`, scaled instead of a fixed digit.
+_PUMP_UP_TO_TWO_PARTY_RE = _c(
+    r"up to 2 target creatures each get \+x/\+x until end of turn, "
+    r"where x is the number of creatures in your party"
+)
+
+
+def _pump_up_to_two_party(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("pump", {
+        "target_kind": "creature", "target_count": 2, "optional": True,
+        "amount_from_count_selector": "creatures_in_your_party",
+    })]
+
+
+#: "When ~ enters, target creature an opponent controls gets -X/-X until
+#: end of turn, where X is the number of creatures in your party." (Drana's
+#: Silencer) — the negative-both-axis sibling, `amount_from_count_selector_
+#: negative` flips the sign the same way every other "-X/-X, where X is …"
+#: row in this file does.
+_PUMP_TARGET_OPPONENT_NEGATIVE_PARTY_RE = _c(
+    r"target creature an opponent controls gets -x/-x until end of turn, "
+    r"where x is the number of creatures in your party"
+)
+
+
+def _pump_target_opponent_negative_party(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("pump", {
+        "target_kind": "creature_you_dont_control",
+        "amount_from_count_selector": "creatures_in_your_party",
+        "amount_from_count_selector_negative": True,
+    })]
+
+
+#: "You gain 2 life for each creature in your party." (Shepherd of Heroes)
+#: — the 2-life-per-unit sibling of every other 1-per-unit ``count_
+#: selector`` gain_life row, using `GainLifeEffect.count_selector_
+#: multiplier` (PAR-72's own new field — every existing ``count_selector``
+#: gain_life shape prints exactly 1 life per unit, so no prior card needed
+#: a multiplier).
+_GAIN_LIFE_PARTY_RE = _c(r"you gains? 2 life for each creature in your party")
+
+
+def _gain_life_party(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("gain_life", {
+        "count_selector": "creatures_in_your_party", "count_selector_multiplier": 2,
+    })]
+
+
+#: "Create a 1/1 white Kor Warrior creature token for each creature in your
+#: party." (Squad Commander) — `CreateTokenEffect.count_selector` directly
+#: (the count *is* the token count, no multiplier); ``<mid>`` (colors +
+#: subtypes) reuses `_split_token_mid_words`, the same word-splitter every
+#: other inline-stat token handler in this file shares.
+_CREATE_TOKEN_PARTY_RE = _c(
+    r"create a (?P<p>\d+)/(?P<t>\d+) (?P<mid>[a-z ]+) creature tokens? "
+    r"for each creature in your party"
+)
+
+
+def _create_token_party(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    colors, subtypes, is_artifact = _split_token_mid_words(m.group("mid"))
+    if not subtypes:
+        return None
+    params: dict = {
+        "power": int(m.group("p")), "toughness": int(m.group("t")),
+        "colors": colors, "subtypes": subtypes,
+        "count_selector": "creatures_in_your_party",
+    }
+    if is_artifact:
+        params["is_artifact"] = True
+    return [EffectSpec("create_token", params)]
+
+
+#: "Scry X, where X is the number of creatures in your party." (Cascade
+#: Seer) — `ScryEffect.count_from_count_selector` (PAR-72's own new field).
+_SCRY_PARTY_RE = _c(r"scry x, where x is the number of creatures in your party")
+
+
+def _scry_party(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("scry", {"count_from_count_selector": "creatures_in_your_party"})]
+
+
+#: "Each opponent loses X life and you gain X life, where X is the number
+#: of creatures in your party." (Malakir Blood-Priest) — the party-count
+#: sibling of `_lose_life_and_gain_life_devotion`; must stay one clause for
+#: the same reason that row does (the generic " and " connector split would
+#: otherwise hand the first half's bare "x" to `_lose_life_selector`'s
+#: RULE-107.3c announced-X reading, which crashes with no X to substitute).
+_LOSE_LIFE_AND_GAIN_LIFE_PARTY_RE = _c(
+    r"each opponent loses x life and you gains? x life, where x is the number of creatures in your party"
+)
+
+
+def _lose_life_and_gain_life_party(m: re.Match[str]) -> list[EffectSpec]:
+    return [
+        EffectSpec("lose_life", {
+            "amount_from_count_selector": "creatures_in_your_party", "selector": "each_opponent",
+        }),
+        EffectSpec("gain_life", {"count_selector": "creatures_in_your_party"}),
+    ]
+
+
+#: "Choose target attacking or blocking creature. ~ deals damage to that
+#: creature equal to twice the number of creatures in your party."
+#: (Practiced Tactics) — folded into one targeted `damage` effect
+#: (`DealDamageEffect.amount_multiplier`, "twice" = 2) the same way
+#: `_choose_target_add_counters_party` folds its own "choose … put …" body.
+_DAMAGE_ATTACKING_OR_BLOCKING_TWICE_PARTY_RE = _c(
+    r"choose target attacking or blocking creature\. ~ deals damage to that creature "
+    r"equal to twice the number of creatures in your party"
+)
+
+
+def _damage_attacking_or_blocking_twice_party(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("damage", {
+        "target_kind": "attacking_or_blocking_creature",
+        "amount_from_count_selector": "creatures_in_your_party", "amount_multiplier": 2,
+    })]
+
+
+#: "Look at the top X cards of your library, where X is 3 plus the number
+#: of creatures in your party. Put 3 of those cards into your hand and the
+#: rest on the bottom of your library in a random order." (Skyclave
+#: Plunder) — `InspectTopChooseEffect.count_from_count_selector`/
+#: ``count_plus`` (PAR-72's own new fields); ``max_picks=3`` is a forced
+#: (not "up to") pick since the party-scaled X is always >= 3.
+_LOOK_TOP_PUT_THREE_PARTY_RE = _c(
+    r"look at the top x cards of your library, where x is 3 plus the number of creatures in your party\. "
+    r"put 3 of those cards into your hand and the rest on the bottom of your library in a random order"
+)
+
+
+def _look_top_put_three_party(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("inspect_top_choose", {
+        "count_from_count_selector": "creatures_in_your_party", "count_plus": 3,
+        "action": "library_to_hand", "max_picks": 3, "rest_destination": "library_bottom_random",
+    })]
+
+
+#: "~ deals 4 damage to target creature and X damage to that creature's
+#: controller, where X is the number of creatures in your party."
+#: (Synchronized Spellcraft) — two `damage` effects sharing one RULE 115
+#: target: the first's own target (`_apply_effects_partitioned` records it
+#: into `GameContext.previous_targets`), the second reads its controller via
+#: `DealDamageEffect.recipient_subject="previous_subject_controller"`
+#: (`_DAMAGE_TO_SUBJECT_CONTROLLER_RE`'s own idiom) — found and fixed a
+#: latent gap while building this: that recipient path read raw
+#: `self.amount` instead of `_amount_for`, so `amount_from_count_selector`/
+#: `amount_from_trigger_event` were silently dropped whenever combined with
+#: `recipient_subject` (no shipped card had combined them before now).
+_DAMAGE_TARGET_AND_CONTROLLER_PARTY_RE = _c(
+    rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+) damage to target creature and x damage to "
+    r"that creature'?s controller, where x is the number of creatures in your party"
+)
+
+
+def _damage_target_and_controller_party(m: re.Match[str]) -> list[EffectSpec]:
+    return [
+        EffectSpec("damage", {"amount": int(m.group("n")), "target_kind": "creature"}),
+        EffectSpec("damage", {
+            "recipient_subject": "previous_subject_controller",
+            "amount_from_count_selector": "creatures_in_your_party",
+        }),
+    ]
+
+
+#: "When ~ enters, it deals X damage to target creature or planeswalker,
+#: where X is the number of creatures in your party." (Thundering
+#: Sparkmage) — `resolve_target_kind`'s existing "target creature or
+#: planeswalker" → ``"creature"`` row (a project-wide documented
+#: simplification — this engine's ``creature`` kinds are creature-only) is
+#: reused as-is, unchanged by this ticket.
+_DAMAGE_TARGET_PARTY_RE = _c(
+    rf"it deals x damage to {TARGET}, where x is the number of creatures in your party"
+)
+
+
+def _damage_target_party(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind is None:
+        return None
+    return [EffectSpec("damage", {
+        "target_kind": kind, "amount_from_count_selector": "creatures_in_your_party",
+    })]
+
+
+#: "Whenever ~ attacks, defending player loses X life and you create X
+#: Treasure tokens, where X is the number of creatures in your party."
+#: (Burakos, Party Leader's attack trigger — the card's own static "~ is
+#: also a Cleric, Rogue, Warrior, and Wizard" makes it count toward its own
+#: party) — `LoseLifeEffect.selector="defending_player"` (afflict's own
+#: idiom) combined with `amount_from_count_selector`, plus a plain
+#: `CreateTokenEffect.count_selector` Treasure.
+_BURAKOS_ATTACK_PARTY_RE = _c(
+    r"defending player loses x life and you create x treasure tokens, "
+    r"where x is the number of creatures in your party"
+)
+
+
+def _burakos_attack_party(m: re.Match[str]) -> list[EffectSpec]:
+    return [
+        EffectSpec("lose_life", {
+            "selector": "defending_player", "amount_from_count_selector": "creatures_in_your_party",
+        }),
+        EffectSpec("create_token", {
+            "token_name": "Treasure", "count_selector": "creatures_in_your_party",
+        }),
+    ]
 
 
 # --- The table --------------------------------------------------------------
@@ -10549,6 +11066,16 @@ HANDLERS: list[EffectHandler] = [
         _c(r"you gain that much life"),
         _gain_life_from_trigger_amount,
     ),
+    EffectHandler(
+        "gain_life_spell_mv",
+        _c(r"gains? life equal to that spell'?s mana value"),
+        _gain_life_spell_mv,
+    ),
+    EffectHandler(
+        "lose_life_spell_mv_that_player",
+        _c(r"that player loses life equal to that spell'?s mana value"),
+        _lose_life_spell_mv_that_player,
+    ),
     # "you get half X rad counters, rounded up/down" (Contaminated Drink) —
     # tried before the plain shape below since its own ``n`` group would
     # otherwise never match "half x" anyway (no overlap risk either way).
@@ -10733,7 +11260,8 @@ HANDLERS: list[EffectHandler] = [
         "counter",
         _c(
             rf"counter {SPELL_TARGET}"
-            + r"(?: unless its controller pays (?P<cost>\{[^}]+\}))?"
+            + r"(?: unless its controller pays (?P<cost>\{[^}]+\})"
+            + r"(?P<party_tax> plus an additional \{1\} for each creature in your party)?)?"
             + r"(?:\. if they do, (?P<reflexive>.+?))?\.?"
             + IF_COLOR_SUFFIX
         ),
@@ -10777,6 +11305,7 @@ HANDLERS: list[EffectHandler] = [
         _c(r"(?:(?P<who>you|target player|target opponent) )?mills? (?P<n>\d+|a) cards?"),
         _mill,
     ),
+    EffectHandler("mill_spell_mv", _MILL_SPELL_MV_RE, _mill_spell_mv),
     # "exile target creature with power 4 or greater" / "…with flying" —
     # tried before the plain `exile` handler below, same reasoning as
     # `destroy_creature_filter`.
@@ -11772,6 +12301,9 @@ HANDLERS: list[EffectHandler] = [
         _add_counters_from_trigger_amount,
         self_subject_only=True,
     ),
+    EffectHandler(
+        "add_counters_spell_mv", _ADD_COUNTERS_SPELL_MV_RE, _add_counters_spell_mv,
+    ),
     # "~ gets +x/+x until end of turn, where x is the amount of life you
     # gained." (Field-Tested Frying Pan's granted ability) — same pronoun-
     # ambiguity gate as the row above.
@@ -12218,6 +12750,7 @@ HANDLERS: list[EffectHandler] = [
     # (Klothys's Design) — tried before the plain digit-amount `pump` row
     # below since "x" would otherwise never match that row's `\d+`.
     EffectHandler("pump_devotion_target", _PUMP_DEVOTION_TARGET_RE, _pump_devotion_target),
+    EffectHandler("pump_mana_value", _PUMP_MANA_VALUE_RE, _pump_mana_value),
     EffectHandler(
         "pump_target_source_power", _PUMP_TARGET_SOURCE_POWER_RE, _pump_target_source_power
     ),
@@ -12442,6 +12975,38 @@ HANDLERS: list[EffectHandler] = [
         "discover",
         _c(r"discover (?P<n>\d+)"),
         _discover,
+    ),
+    # Tried before `discover_spell_mv` below: when the preceding clause
+    # countered a spell, this reads the right referent; when it didn't
+    # (a genuine cast trigger), the gate skips this row and falls through.
+    EffectHandler(
+        "discover_spell_mv_previous_target",
+        _c(r"discover x, where x is that spell'?s mana value"),
+        _discover_spell_mv_previous_target,
+        previous_subject_only=True,
+    ),
+    EffectHandler(
+        "discover_spell_mv",
+        _c(r"discover x, where x is that spell'?s mana value"),
+        _discover_spell_mv,
+    ),
+    EffectHandler(
+        "draw_spell_mv_previous_target",
+        _c(r"draws? cards? equal to that spell'?s mana value"),
+        _draw_spell_mv_previous_target,
+        previous_subject_only=True,
+    ),
+    EffectHandler(
+        "create_token_xx_spell_mv_previous_target",
+        _CREATE_TOKEN_XX_SPELL_MV_PREVIOUS_TARGET_RE,
+        _create_token_xx_spell_mv_previous_target,
+        previous_subject_only=True,
+    ),
+    EffectHandler(
+        "create_named_token_xx_spell_mv_previous_target",
+        _CREATE_NAMED_TOKEN_XX_SPELL_MV_PREVIOUS_TARGET_RE,
+        _create_named_token_xx_spell_mv_previous_target,
+        previous_subject_only=True,
     ),
     # "target creature [you control] explores" (RULE 701.44) — before the
     # bare/pronoun rows so its TARGET isn't stolen by a looser match.
@@ -13080,6 +13645,41 @@ HANDLERS: list[EffectHandler] = [
         _c(r"cast spells this turn as though they had flash"),
         lambda m: [EffectSpec("grant_flash_until_eot", {})],
     ),
+    # PAR-72: Party generalized into a resolve-time amount (see the
+    # dedicated section above `HANDLERS`) — one row per distinct verb the
+    # fixed "for each creature in your party"/"the number of creatures in
+    # your party" phrase appears on.
+    EffectHandler("add_mana_party", _ADD_MANA_PARTY_RE, _add_mana_party),
+    EffectHandler("add_counters_self_party", _ADD_COUNTERS_SELF_PARTY_RE, _add_counters_self_party),
+    EffectHandler(
+        "choose_target_add_counters_party",
+        _CHOOSE_TARGET_ADD_COUNTERS_PARTY_RE, _choose_target_add_counters_party,
+    ),
+    EffectHandler("pump_self_power_party", _PUMP_SELF_POWER_PARTY_RE, _pump_self_power_party),
+    EffectHandler("pump_target_both_party", _PUMP_TARGET_BOTH_PARTY_RE, _pump_target_both_party),
+    EffectHandler("pump_up_to_two_party", _PUMP_UP_TO_TWO_PARTY_RE, _pump_up_to_two_party),
+    EffectHandler(
+        "pump_target_opponent_negative_party",
+        _PUMP_TARGET_OPPONENT_NEGATIVE_PARTY_RE, _pump_target_opponent_negative_party,
+    ),
+    EffectHandler("gain_life_party", _GAIN_LIFE_PARTY_RE, _gain_life_party),
+    EffectHandler("create_token_party", _CREATE_TOKEN_PARTY_RE, _create_token_party),
+    EffectHandler("scry_party", _SCRY_PARTY_RE, _scry_party),
+    EffectHandler(
+        "lose_life_and_gain_life_party",
+        _LOSE_LIFE_AND_GAIN_LIFE_PARTY_RE, _lose_life_and_gain_life_party,
+    ),
+    EffectHandler(
+        "damage_attacking_or_blocking_twice_party",
+        _DAMAGE_ATTACKING_OR_BLOCKING_TWICE_PARTY_RE, _damage_attacking_or_blocking_twice_party,
+    ),
+    EffectHandler("look_top_put_three_party", _LOOK_TOP_PUT_THREE_PARTY_RE, _look_top_put_three_party),
+    EffectHandler(
+        "damage_target_and_controller_party",
+        _DAMAGE_TARGET_AND_CONTROLLER_PARTY_RE, _damage_target_and_controller_party,
+    ),
+    EffectHandler("damage_target_party", _DAMAGE_TARGET_PARTY_RE, _damage_target_party),
+    EffectHandler("burakos_attack_party", _BURAKOS_ATTACK_PARTY_RE, _burakos_attack_party),
 ]
 
 

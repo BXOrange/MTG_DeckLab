@@ -506,8 +506,77 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 44.2% (15,398 / 34,811) as of 2026-09-14, measured at
-PARSER_VERSION 382** (MEC-85, no bump — hand-authored, like PAR-67 below:
+**Coverage: 44.4% (15,458 / 34,811) as of 2026-09-14, measured at
+PARSER_VERSION 385** (closes PAR-72 — Party (RULE 700.8/702.129) generalized
+from a cost-reduction "per"/"full party" boolean condition (PAR-53) into the
+general resolve-time `amount_from_count_selector`/`count_selector` family:
+`continuous.count_selector`'s existing `"creatures_in_your_party"` branch is
+now read by ten distinct effect-verb templates (mana, counter-tax, +1/+1
+counters self/target, pump self/target/multi-target/negative, gain life,
+token creation, scry, a combined life-drain, damage single/twice/split-to-
+controller, an inspect-top library dig, and a CDA/anthem pair on the static
+side). Three primitives gained a param, all pure widening: `GainLifeEffect.
+count_selector_multiplier`, `ScryEffect.count_from_count_selector`,
+`InspectTopChooseEffect.count_from_count_selector`/`count_plus`; plus
+`CounterSpellEffect.unless_pays_extra_selector` and a `segmenter.py`
+trailing-sentence peel folding "This ability costs {N} less to activate for
+each…" into the already-existing, previously hand-authored-only
+`ActivationCost.dynamic_reduction`. +20 solo cards from the ten handler
+families plus 10 bonus closures — 2 from Burakos's own self-type-grant line
+(Stonework Packbeast/Veteran Adventurer print the identical sentence) and 8
+from widening `_pump_unblockable` (Seafloor Stalker's own effect body)
+from target-only to the general self/target/group `_SUBJECT` macro, which
+turned out to unlock a whole unrelated self-pump-and-unblockable cluster —
++30 total, zero regressed. Acquisitions Expert was
+deliberately left UNCLAIMED — its "reveal a number of cards… you choose
+one" shape needs the *hand's owner*, not the caster, to pick which cards
+get revealed, a genuinely different two-step interactive primitive out of
+this ticket's scope. Execute-testing caught one real, previously-latent
+bug: `DealDamageEffect.recipient_subject`'s resolution path read raw
+`self.amount` instead of `_amount_for`, silently dropping `amount_from_
+count_selector`/`amount_from_trigger_event`/`amount_if_target_color`
+whenever combined with `recipient_subject` — no shipped card had combined
+them before now, fixed alongside this ticket's own use. See
+`docs/implementation-state/Done_Backend.md`'s "Oracle-Text Parser
+Front-End" PAR-72 entry.
+v384 closed PAR-71 — "that spell's mana value" as a
+resolve-time amount referent, extending the shipped `amount_from_trigger_
+event`/`count_from_trigger_event`/`pt_from_trigger_event` family (every
+`SPELL_CAST` event already carries `mana_value`) to `PumpEffect`/
+`GainLifeEffect`/`LoseLifeEffect`/`AddCountersEffect` plus two new fields —
+`MillEffect.count_from_trigger_event`, `DiscoverEffect.mana_value_from_
+trigger_event`; +10. A second referent was needed for "Counter target
+spell. `<effect>`, where X is that spell's mana value." (Hurl into
+History/Access Denied/Overwhelming Intellect/Spell Swindle), where "that
+spell" is the *countered* RULE 115 target, not a trigger event —
+`segmenter._announces_creature_target` gained a `counter`-spec case,
+backed by `DiscoverEffect.mana_value_from_subject` (`DrawCardEffect.
+amount_from_subject`/`CreateTokenEffect.count_from_subject` already had
+it) reading the existing `"previous_subject_mana_value"` referent; +4, +14
+total, zero regressed. Imp's Mischief/Draining Whelk print the identical
+trap on `lose_life`/`add_counters` and were deliberately left unclaimed
+rather than guessed (no card needed that pairing built this batch).
+Execute-testing (not just parse verdicts) caught three real bugs en route,
+all fixed: `_characteristic_of_subject` never unwrapped a "spell"-kind
+target's `StackItem` to its `GameObject` before reading `.card` (silently
+reading 0 for *any* `"previous_subject_mana_value"`/`"…_power"` measurement
+of a targeted spell, not just this batch's new use); and the `"discover"`/
+`"mill"` `EffectRegistry` factory lambdas were never updated to forward
+this same batch's own new constructor params, silently dropping them at
+bind time despite correct parsing.)
+v383 closes PAR-69 (Doctor's companion, RULE 702.124m,
+the third partner-ability FLAG-keyword variant alongside Partner/Choose a
+Background) and PAR-70 (the Mercadian Masques Rebel/Mercenary recruiter
+tutor chain, `_SEARCH_CRITERIA`'s new `subtype` qualifier onto the existing
+`"search"` `EffectSpec`, no new primitive). +3 and +17, +20 total, zero
+regressed. Also fixed a pre-existing, unrelated bug found while proving
+PAR-70 end-to-end: `GameContext._request_search` (`game/effects/core.py`)
+was missing the `then_specs` param `RulesEngine._request_search`/
+`SearchLibraryEffect` already had (a gap left by PAR-35..42's `then_specs`
+plumbing), which raised `TypeError` on *any* search effect resolving
+through an activated/triggered ability or a cast spell — 16
+previously-broken tests now pass.
+v382 (MEC-85, no bump — hand-authored, like PAR-67 below:
 Cruel Alliance/Too Evil to Stay Dead's own RULE 702.194b Teamwork "instead"
 clause changes a RULE 115 target's *legality* (the mana-value cap drops
 entirely rather than a magnitude changing), newly answerable at target-offer
@@ -628,7 +697,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 46.4% (14,779 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 46.6% (14,839 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

@@ -1468,6 +1468,8 @@ class InspectTopChooseEffect(GameEffect):
         decline_leaves_untouched: bool = False,
         max_picks: int = 1,
         max_picks_if_teamwork: Optional[int] = None,
+        count_from_count_selector: Optional[str] = None,
+        count_plus: int = 0,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
@@ -1480,6 +1482,14 @@ class InspectTopChooseEffect(GameEffect):
         self.decline_leaves_untouched = decline_leaves_untouched
         self.max_picks = max_picks
         self.max_picks_if_teamwork = max_picks_if_teamwork
+        #: "Look at the top X cards of your library, where X is 3 plus the
+        #: number of creatures in your party." (Skyclave Plunder, PAR-72) —
+        #: a `continuous.count_selector` read live at resolution, added to
+        #: ``count_plus`` (the fixed "3 plus …" addend); overrides ``count``
+        #: when set, the same "plus a board count" idiom `DealDamageEffect.
+        #: amount_plus_count_selector` already establishes.
+        self.count_from_count_selector = count_from_count_selector
+        self.count_plus = count_plus
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
@@ -1488,9 +1498,16 @@ class InspectTopChooseEffect(GameEffect):
         max_picks = self.max_picks
         if self.max_picks_if_teamwork is not None and bool(getattr(self.source, "teamwork_paid", False)):
             max_picks = self.max_picks_if_teamwork
+        count = self.count
+        if self.count_from_count_selector:
+            from .. import continuous  # avoid the continuous↔effects import cycle
+
+            count = self.count_plus + continuous.count_selector(
+                context.state, player.id, self.count_from_count_selector, source=self.source
+            )
         context.engine.inspect_top_n_choose(
             player,
-            count=self.count,
+            count=count,
             action=self.action,
             filter_criteria=self.filter,
             rest_destination=self.rest_destination,

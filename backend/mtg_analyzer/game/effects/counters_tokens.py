@@ -2349,14 +2349,31 @@ class PumpEffect(GameEffect):
 class ScryEffect(GameEffect):
     """Scry ``count`` for the effect's controller (RULE 701.18)."""
 
-    def __init__(self, count: int = 1, source: Optional["GameObject"] = None) -> None:
+    def __init__(
+        self,
+        count: int = 1,
+        source: Optional["GameObject"] = None,
+        count_from_count_selector: Optional[str] = None,
+    ) -> None:
         super().__init__(source)
         self.count = count
+        #: "Scry X, where X is the number of creatures in your party."
+        #: (Cascade Seer, PAR-72) — a `continuous.count_selector` read live
+        #: at resolution, overriding ``count`` when set.
+        self.count_from_count_selector = count_from_count_selector
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
-        if player is not None:
-            context.scry(player, self.count, source=self.source)
+        if player is None:
+            return
+        count = self.count
+        if self.count_from_count_selector:
+            from .. import continuous  # avoid the continuous↔effects import cycle
+
+            count = continuous.count_selector(
+                context.state, player.id, self.count_from_count_selector, source=self.source
+            )
+        context.scry(player, count, source=self.source)
 
 
 class SurveilEffect(GameEffect):

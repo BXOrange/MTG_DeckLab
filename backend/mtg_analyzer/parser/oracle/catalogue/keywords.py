@@ -367,6 +367,15 @@ _TABLE: list[tuple[str, KeywordShape, str]] = [
     # card whose only ability is this reach `MODELED` instead of parking on
     # an otherwise-fully-modeled card forever, exactly like bare `Partner`.
     ("Choose a Background", _F, "702.124"),
+    # PAR-69: "Doctor's companion" (Doctor Who, RULE 702.124m) — the third
+    # partner-ability variant alongside Partner/Choose a Background above,
+    # and just as inert in-game (RULE 702.124a: it "modifies the rules for
+    # deck construction … and functions before the game begins"). Pairing a
+    # Doctor's-companion card with a legendary Time Lord Doctor creature is
+    # `services/commander_legality.py`'s job (BACKLOG.md's DB-3), not the
+    # engine's — recognizing it here just lets a card whose only ability is
+    # this reach `MODELED` instead of parking forever, same as its siblings.
+    ("Doctor's Companion", _F, "702.124"),
     ("Undaunted", _F, "702.125"),
     ("Improvise", _F, "702.126"),
     ("Aftermath", _F, "702.127"),

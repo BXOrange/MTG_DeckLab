@@ -31,10 +31,19 @@ class CounterSpellEffect(GameEffect):
         target_from_trigger_event: Optional[str] = None,
         suspend_instead: Optional[int] = None,
         on_pay_effect_specs: Optional[list[dict]] = None,
+        unless_pays_extra_selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.unless_pays = unless_pays
+        #: "…unless its controller pays {1} plus an additional {1} for each
+        #: creature in your party." (Concerted Defense, PAR-72) — a
+        #: `continuous.count_selector` name, each point of which adds one
+        #: more generic mana to ``unless_pays`` at resolution time (read for
+        #: *this effect's own controller* — the counterspell's caster, whose
+        #: party size the tax scales with, not the target's controller who
+        #: actually pays it).
+        self.unless_pays_extra_selector = unless_pays_extra_selector
         #: "…unless its controller pays {4}. **If they do**, you incubate 2."
         #: (Assimilate Essence) — serialized `EffectSpec` dicts applied only
         #: on the branch where the target's controller *pays* the
@@ -69,22 +78,35 @@ class CounterSpellEffect(GameEffect):
     def target_polarity(self) -> Optional[str]:
         return "harmful"
 
+    def _unless_pays_cost(self, context: GameContext) -> Optional[str]:
+        if not self.unless_pays_extra_selector:
+            return self.unless_pays
+        from .. import continuous  # function-scoped: avoid an import cycle
+
+        controller_id = getattr(_controller_of(self.source, context), "id", None)
+        extra = continuous.count_selector(
+            context.state, controller_id, self.unless_pays_extra_selector, source=self.source,
+        )
+        base = ManaCost.parse(self.unless_pays or "").converted_mana_cost
+        return f"{{{base + extra}}}"
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         on_pay = self.on_pay_effect_specs or None
+        unless_pays = self._unless_pays_cost(context)
         if self.target_from_trigger_event:
             event = context.trigger_event or {}
             instance_id = event.get(self.target_from_trigger_event)
             target = context.state.find_object(instance_id) if instance_id is not None else None
             if target is not None:
                 context.counter(
-                    target, unless_pays=self.unless_pays, source=self.source,
+                    target, unless_pays=unless_pays, source=self.source,
                     suspend_instead=self.suspend_instead, on_pay_effect_specs=on_pay,
                 )
             return
         target = (targets[0] if targets else None) or self.target
         if target is not None:
             context.counter(
-                target, unless_pays=self.unless_pays, source=self.source,
+                target, unless_pays=unless_pays, source=self.source,
                 suspend_instead=self.suspend_instead, on_pay_effect_specs=on_pay,
             )
 
@@ -839,11 +861,19 @@ class MillEffect(GameEffect):
         count_selector: Optional[str] = None,
         selector: Optional[str] = None,
         source: Optional["GameObject"] = None,
+        count_from_trigger_event: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.count = count
         self.count_selector = count_selector
         self.selector = selector
+        #: "target player mills X cards, where X is that spell's mana
+        #: value." (Cloudhoof Kirin, PAR-71) — the firing `SPELL_CAST`
+        #: event's own field, read fresh at resolution; the same
+        #: "read the firing event's own payload" idiom `DrawCardEffect.
+        #: count_from_trigger_event`/`CreateTokenEffect.
+        #: count_from_trigger_event` already use.
+        self.count_from_trigger_event = count_from_trigger_event
         if target_kind is not None:
             self.target_spec = TargetSpec(kind=target_kind)
 
@@ -880,6 +910,9 @@ class MillEffect(GameEffect):
             count = continuous.count_selector(
                 context.state, controller_id, self.count_selector, source=self.source
             )
+        elif self.count_from_trigger_event:
+            event = context.trigger_event
+            count = int((event or {}).get(self.count_from_trigger_event) or 0)
         before = len(player.graveyard)
         context.mill(player, count)
         context.moved_objects.extend(player.graveyard[before:])

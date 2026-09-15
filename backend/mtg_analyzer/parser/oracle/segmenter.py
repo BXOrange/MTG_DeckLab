@@ -1384,6 +1384,20 @@ _SPEND_ONLY_CHOSEN_COLOR_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: "This ability costs {1} less to activate for each creature in your
+#: party." (Seafloor Stalker, PAR-72) — a trailing sentence on the ability's
+#: own effect body, peeled off and folded into `ActivationCost.
+#: dynamic_reduction` (already wired for a `count_selector`-scaled per-
+#: activation reduction, `costs.parse_activation_cost`'s ``dynamic_
+#: reduction`` key — Eiganjo, Seat of the Empire's own hand-authored shape,
+#: PAR-72 is the oracle-text route to the same primitive) rather than
+#: becoming a (non-existent) effect.
+_ACTIVATION_COST_REDUCTION_PARTY_RE = re.compile(
+    r"\s*\.?\s*this ability costs \{(?P<n>\d+)\} less to activate "
+    r"for each creature in your party\.?",
+    re.IGNORECASE,
+)
+
 # An activated ability may end with its RULE 602 legality sentence rather
 # than making it a separate oracle line: "{1}: Draw a card. Activate only if
 # <condition> [and only once]."  Peel only this closed tail before parsing
@@ -3929,8 +3943,9 @@ _CREATURE_TARGET_KINDS: frozenset[str] = frozenset(
 
 
 def _announces_creature_target(specs: list[EffectSpec]) -> bool:
-    """Whether the last of ``specs`` picks a permanent (or a graveyard card)
-    the next clause can refer back to as "it"/"that creature"/"that card".
+    """Whether the last of ``specs`` picks a permanent (or a graveyard card,
+    or — PAR-71 — a countered spell) the next clause can refer back to as
+    "it"/"that creature"/"that card"/"that spell".
 
     A ``graveyard_*``/``any_graveyard_*``/``opponent_graveyard_*`` kind
     (PAR-18 — "exile up to 1 target creature card from a graveyard. Create a
@@ -3960,6 +3975,16 @@ def _announces_creature_target(specs: list[EffectSpec]) -> bool:
     # reanimator-token grammar routes "a token that's a copy of that card"
     # through them.
     if last.type in ("create_token", "copy_permanent", "become_copy"):
+        return True
+    # "Counter target spell. Discover X, where X is that spell's mana
+    # value." (Hurl into History/Access Denied/Overwhelming Intellect/Spell
+    # Swindle-shaped, PAR-71) — a ``counter`` spec's own RULE 115 target is
+    # the countered spell, so a following clause's "that spell" refers back
+    # to it the same way `MillEffect.selector="previous_subject_controller"`
+    # (Broken Ambitions) already reads it via `GameContext.previous_targets`
+    # (RULE 608.2h last-known info — the countered spell is in a graveyard,
+    # with no controller, by the time a later clause asks).
+    if last.type == "counter":
         return True
     values: list[Any] = []
     for value in last.params.values():
@@ -5385,6 +5410,13 @@ def segment_line(
         if _SPEND_ONLY_CHOSEN_COLOR_RE.search(effect_text):
             effect_text = _SPEND_ONLY_CHOSEN_COLOR_RE.sub("", effect_text).strip()
             cost_dict["spend_only_chosen_color"] = True
+        party_reduction = _ACTIVATION_COST_REDUCTION_PARTY_RE.search(effect_text)
+        if party_reduction is not None:
+            effect_text = _ACTIVATION_COST_REDUCTION_PARTY_RE.sub("", effect_text).strip()
+            cost_dict["dynamic_reduction"] = {
+                "count_selector": "creatures_in_your_party",
+                "generic_per": int(party_reduction.group("n")),
+            }
         tail_markers: list[EffectSpec] = []
         activation_tail = _ACTIVATE_ONLY_IF_TRAILING_RE.search(effect_text)
         if activation_tail is not None:

@@ -3089,6 +3089,31 @@ is in the rules-engine categories below them.
 
 ## Keyword Catalogue
 
+### PAR-69: Doctor's Companion (RULE 702.124m, PARSER_VERSION 383)
+
+- **What:** Added `"Doctor's Companion"` as a plain FLAG row in `_TABLE` — the
+  third partner-ability variant alongside `Partner` (702.124h) and `Choose a
+  Background` (702.124k), all part of the same RULE 702.124 keyword-ability
+  family: "modif[ies] the rules for deck construction in the Commander
+  variant … and function[s] before the game begins" (702.124a). Just as
+  inert in-game as its siblings — pairing a Doctor's-companion card with a
+  legendary Time Lord Doctor creature (702.124m) is `services/
+  commander_legality.py`'s job (`BACKLOG.md`'s DB-3), not the engine's;
+  recognizing the bare keyword line here just lets a card whose only
+  ability is this reach `MODELED` rather than parking on it forever.
+- **Scope:** `commander_tail_report.py` tags 28 Commander-legal cards on
+  this clause, but only 3 (`Barbara Wright`, `Nardole, Resourceful Cyborg`,
+  `Yasmin Khan`) become `MODELED` from the keyword alone — `Rose Noble` and
+  `An Unearthly Child` also match the substring inside an unrelated,
+  unclaimed trigger clause ("whenever you cast a Doctor spell or creature
+  spell with doctor's companion, draw a card." / a multi-mode reveal-until
+  effect), and the other 23 carry bespoke ability bodies (fight triggers,
+  ability-copying, Saga chapters, suspend interaction) this clause was
+  never going to unlock — all deliberately left as [PAR-12] bespoke tail.
+- **Verification:** `+3, 0 regressed` (`parser_probe.py diff`).
+  `tests/test_par69_doctors_companion.py`.
+- **Files:** `parser/oracle/catalogue/keywords.py`.
+
 ### M2 Ward (RULE 702.21)
 
 - **What:** Ward pushes a real `StackItem` (a genuine ability the target's controller controls, RULE 603.3a) above the spell/ability that triggered it, so both players get a normal priority window before it resolves — replacing an earlier same-day inline-choice shortcut that skipped that window. Cost is paid through the full activated-ability cost vocabulary (mana/life/discard/sacrifice), not mana-only.
@@ -5749,6 +5774,246 @@ measurement of why is the useful half of this work.
   has left).
 
 ## Oracle-Text Parser Front-End
+
+### PAR-70: Rebel/Mercenary Recruiter Tutor Chain (Mercadian Masques, PARSER_VERSION 383)
+
+- **What:** Recognized `"<cost>: search your library for a rebel/mercenary
+  permanent card with mana value N or less, put it onto the battlefield,
+  then shuffle."` (the Ramosian Sergeant/Captain/Commander/Sky Marshal and
+  Cateran Persuader/Brute/Kidnappers/Enforcer/Slaver/Overlord cycles, plus
+  Amrou Scout/Blightspeaker/Defiant Falcon/Bog Glider/Rathi Fiend/Rathi
+  Intimidator). "Permanent" isn't itself a type-line word — no real card's
+  type line ever literally reads "Permanent" — so `handlers._SEARCH_CRITERIA`
+  gained a small `subtype` qualifier group (`_SEARCH_SUBTYPE_WORD =
+  "rebel|mercenary"`, the same fixed-enum shape `_SEARCH_COLOR_WORD` already
+  uses rather than a full creature-subtype vocabulary this codebase doesn't
+  have) that maps "a rebel/mercenary permanent card" straight onto
+  `{"type": "rebel"}` / `{"type": "mercenary"}` alone — both subtypes are
+  exclusively creature subtypes in paper Magic, so no separate "permanent"
+  key is needed. No new engine primitive: reuses the existing `"search"`
+  `EffectSpec` (`SearchLibraryEffect`) unchanged.
+- **Bug fixed (found while proving this end-to-end, unrelated to the parser
+  change itself):** `GameContext._request_search` (`game/effects/core.py`,
+  the `GameEffect`-facing wrapper around `RulesEngine._request_search`) was
+  missing the `then_specs` parameter — added to `RulesEngine._request_search`
+  and to `SearchLibraryEffect`'s call site by PAR-35..42 but never threaded
+  through this intermediate wrapper. Every `SearchLibraryEffect.apply` call
+  passes `then_specs=self.then_specs or None` unconditionally, so *any*
+  search effect resolving through an activated/triggered ability or a
+  resolving spell raised `TypeError: _request_search() got an unexpected
+  keyword argument 'then_specs'` — the entire RULE 701.19 tutor/ramp/fetch
+  family was non-functional in a real game (parse coverage was unaffected;
+  only execution). Fixed by adding the missing `then_specs` parameter to the
+  wrapper and forwarding it. 16 previously-failing tests now pass, including
+  the whole of `tests/test_search_popular_tutors.py` (Demonic Tutor,
+  Vampiric Tutor, Rampant Growth, Farseek, Cultivate-shaped splits, …).
+- **Verification:** `+17, 0 regressed` (`parser_probe.py diff`).
+  `tests/test_par70_rebel_mercenary_recruiters.py`.
+- **Files:** `parser/oracle/catalogue/handlers.py`
+  (`_SEARCH_SUBTYPE_WORD`/`_SEARCH_CRITERIA`/`_search_criteria_from_match`),
+  `game/effects/core.py` (`GameContext._request_search`).
+
+### PAR-71: "That Spell's Mana Value" Amount Referent (PARSER_VERSION 384)
+
+- **What:** "That spell's mana value" as a resolve-time amount, in two
+  shapes. **Trigger-event half** (a genuine "whenever you cast a spell"
+  ability): every `SPELL_CAST` event already carries `mana_value=obj.card.
+  converted_mana_cost` (stamped since MEC-32, "Shark Typhoon-shaped
+  spell-cast payoffs"), so this was pure recognition onto the already-shipped
+  `amount_from_trigger_event`/`count_from_trigger_event`/`pt_from_trigger_
+  event` family — `PumpEffect` (new `_pump_mana_value` row, `+X/+X` and
+  `+X/+0` via `amount_from_count_selector_axis`), `GainLifeEffect`/
+  `LoseLifeEffect` (the latter's `selector="event_player"` "that player"
+  form), `AddCountersEffect`, and two genuinely new fields —
+  `MillEffect.count_from_trigger_event`, `DiscoverEffect.mana_value_from_
+  trigger_event` (the family's first dynamic-X discover; previously literal
+  `mana_value` only). Closes Manaplasm, Erratic Cyclops, Livaan, Bounteous
+  Kirin, Dancing from Dark to Dawn, Cloudhoof Kirin — +6 (Monstrous Vortex
+  prints the identical trigger-event shape but stays UNMODELED — its own
+  "whenever you cast a creature spell **with power 5 or greater**" trigger
+  qualifier is an unrelated, unclaimed trigger-condition-vocabulary gap the
+  amount referent doesn't touch).
+- **What (previous-target half):** "Counter target spell. `<effect>`, where
+  X is that spell's mana value." (Hurl into History/Access Denied/
+  Overwhelming Intellect/Spell Swindle) is a *different* referent — "that
+  spell" is the countered RULE 115 target, not a trigger event (there is
+  none; a plain resolving spell's `context.trigger_event` is `None`, so
+  reusing the trigger-event reading would silently measure 0). Backed by
+  the already-shipped `effects.core._characteristic_of_subject`'s
+  `"previous_subject_mana_value"` reading of `GameContext.previous_targets`
+  (RULE 608.2h last-known info) — `DrawCardEffect.amount_from_subject`/
+  `CreateTokenEffect.count_from_subject` already supported it;
+  `DiscoverEffect` gained the matching `mana_value_from_subject` field.
+  `segmenter._announces_creature_target` (the connector-split loop's
+  pronoun-antecedent gate) gained a `last.type == "counter"` case so the
+  clause after a `counter` spec gets `previous_subject=True`, unlocking four
+  new `previous_subject_only` handler rows that read this referent instead
+  of the trigger-event one — which is what keeps the *identical* printed
+  tail from misfiring on a genuine cast-trigger card (or vice versa): each
+  shape is offered only in its own structural context, proven by a
+  zero-regression full-cache diff. +4 (Hurl into History, Access Denied,
+  Overwhelming Intellect, Spell Swindle) — **+10 total this ticket.**
+  Jamie McCrimmon and Ogre Battlecaster print the trigger-event pump shape
+  but stay UNMODELED too (a "historic spell" trigger filter and a
+  multi-sentence bespoke ability respectively — again unrelated to the
+  amount referent). Imp's Mischief ("You lose life equal to that spell's
+  mana value." after "Change the target of target spell…") and Draining
+  Whelk ("Put X +1/+1 counters on this creature, where X is that spell's
+  mana value." after "counter target spell") print the same previous-target
+  trap on `lose_life`/`add_counters` — the one pairing this batch didn't
+  build (no real card needed it) — and were deliberately left UNCLAIMED
+  rather than guessed; both proven to stay UNMODELED by an adversarial
+  test.
+- **Bugs fixed (found by execute-testing, not just parse verdicts):**
+  (1) `_characteristic_of_subject` never unwrapped a `"spell"`-kind
+  `TargetSpec`'s pick — `targeting.legal_targets`'s own `"spell"` branch
+  resolves to the `StackItem` itself, not a `GameObject` — before reading
+  `.card`/`.power`/`.toughness`, so *any* `"previous_subject_mana_value"`/
+  `"previous_subject_power"`/… reading of a targeted **spell** (as opposed
+  to a targeted permanent) silently measured 0, not just this batch's new
+  use. Fixed by unwrapping `obj.obj` when `obj.kind == "spell"`.
+  (2) The `"discover"`/`"mill"` `EffectRegistry` factory lambdas
+  (`game/effects/registry.py`) were never updated to forward this same
+  batch's own new `DiscoverEffect`/`MillEffect` constructor params, so both
+  were silently dropped at bind time (`__init__` got them; the registry
+  lambda just didn't pass them along) despite the parser emitting them
+  correctly — caught because `tests/test_par71_that_spells_mana_value.py`'s
+  engine-level tests actually cast spells and inspected board state, not
+  just `parse_oracle(...).modeled`.
+- **Verification:** `+10, 0 regressed` (`parser_probe.py diff`, full
+  cache). `tests/test_par71_that_spells_mana_value.py` (parse + adversarial
+  + 3 real execute tests, including one that reproduces the "spell" pick
+  the `_characteristic_of_subject` bug needed).
+- **Files:** `parser/oracle/catalogue/handlers.py` (`_pump_mana_value`,
+  `_gain_life_spell_mv`, `_lose_life_spell_mv_that_player`,
+  `_add_counters_spell_mv`, `_mill_spell_mv`, `_discover_spell_mv` +
+  `_discover_spell_mv_previous_target`, `_draw_spell_mv_previous_target`,
+  `_create_token_xx_spell_mv_previous_target`,
+  `_create_named_token_xx_spell_mv_previous_target`),
+  `game/effects/stack.py` (`MillEffect.count_from_trigger_event`),
+  `game/effects/library.py` (`DiscoverEffect.mana_value_from_trigger_event`/
+  `mana_value_from_subject`), `game/effects/core.py`
+  (`_characteristic_of_subject`'s `StackItem` unwrap),
+  `game/effects/registry.py` (`"discover"`/`"mill"` factory lambdas),
+  `parser/oracle/segmenter.py` (`_announces_creature_target`'s `counter`
+  case).
+
+### PAR-72: Party Generalized Into a Resolve-Time Amount (PARSER_VERSION 385)
+
+- **What:** Party (RULE 700.8/702.129) was previously wired only into two
+  fixed shapes — a cost reduction's "per" and the "you have a full party"
+  boolean condition (both PAR-53). `continuous.count_selector`'s existing
+  `"creatures_in_your_party"` branch needed no engine change to also feed
+  the general resolve-time `amount_from_count_selector`/`count_selector`
+  family (PAR-32/36/43 &c.) every other tribal/board-count amount already
+  uses — this ticket is pure parser recognition plus three small,
+  independently-justified widenings on the effect side. One handler per
+  distinct effect-verb template (this codebase's own convention — no single
+  "for each X" grammar spans every effect type): `add_mana` (`amount_
+  selector`, Ardent Electromancer), `add_counters` self/target (Emeria
+  Captain/Strength of Solidarity), `pump` self-power/target-both/up-to-two-
+  target/target-negative (Grotag Bug-Catcher/Kabira Outrider/Allied
+  Assault/Drana's Silencer), `gain_life` (Shepherd of Heroes), `create_token`
+  (Squad Commander), `scry` (Cascade Seer), a combined `lose_life`+
+  `gain_life` drain (Malakir Blood-Priest), `damage` single/twice-multiplied/
+  split-to-controller (Thundering Sparkmage/Practiced Tactics/Synchronized
+  Spellcraft), and an `inspect_top_choose` library dig (Skyclave Plunder) —
+  plus two **static**-side shapes reusing PAR-43's own generic tables with
+  one new dict entry each: `_SELF_ANTHEM_FOR_EACH_SELECTORS["creature in
+  your party"]` (Ravager's Mace's "equipped creature gets +1/+0 for each…
+  and has menace") and `_PT_CDA_SELECTORS["creatures in your party"]`
+  (Archpriest of Iona's "~'s power is equal to the number of…"). +20 solo
+  cards.
+- **New engine surface (all pure widening, no new concept):**
+  `GainLifeEffect.count_selector_multiplier` (every prior `count_selector`
+  gain_life shape printed exactly 1 life per unit; Shepherd of Heroes
+  prints 2 — the `PumpEffect.x_multiplier` sibling for a fixed count-
+  selector scale); `ScryEffect.count_from_count_selector` (previously a
+  fixed `count` only); `InspectTopChooseEffect.count_from_count_selector`/
+  `count_plus` (Skyclave Plunder's "X is 3 plus the number of…", `max_
+  picks=3` — a *forced*, not "up to", pick since the party-scaled X is
+  always >= 3); `CounterSpellEffect.unless_pays_extra_selector` (Concerted
+  Defense's dynamic "unless its controller pays {1} plus an additional {1}
+  for each…" — computed at `apply()` time as `base + count_selector(...)`
+  generic, rather than a fixed `unless_pays` string); and a `segmenter.py`
+  trailing-sentence peel (`_ACTIVATION_COST_REDUCTION_PARTY_RE`, alongside
+  the existing `_SPEND_ONLY_CHOSEN_COLOR_RE` peel) folding "This ability
+  costs {N} less to activate for each creature in your party." into the
+  **already-existing**, previously hand-authored-only `ActivationCost.
+  dynamic_reduction` (`{"count_selector": ..., "generic_per": N}`, Eiganjo,
+  Seat of the Empire's own shape) — Seafloor Stalker is the oracle-text
+  route to that same primitive, +0 new engine concept. Widening
+  `_PUMP_UNBLOCKABLE_RE`/`_pump_unblockable` from target-only to the
+  general `_SUBJECT` macro (via `_pump_target`) was needed for Seafloor
+  Stalker's own self-form "~ gets +1/+0 … and can't be blocked this turn" —
+  a widening with no party vocabulary of its own, which turned out to
+  unlock a whole unrelated cluster of 8 more cards printing the same
+  self-form pump-and-unblockable combo with different fixed P/T deltas
+  (Ant-Man Reformed Rogue, Elusive Spellfist, Glassdust Hulk, Incursion
+  Specialist, Nimrodel Watcher, Otter-Penguin, TVA Bureaucrat, Vectis
+  Agents). A self-scoped, RULE 205.1b "in addition to its other types"
+  type grant (`type_change`/`add_subtypes`, `affects="self"`) was new
+  *grammar* (a `static_effect_specs` dispatch row) but not new *primitive*
+  — the equipment-scoped `add_subtypes` form already existed
+  (`_ATTACHED_QUOTED_GRANT_AND_TYPE_RE`) — for Burakos, Party Leader's own
+  "~ is also a Cleric, Rogue, Warrior, and Wizard.", which also correctly
+  counts Burakos itself toward its own party (the layer engine's derived-
+  subtype read `continuous._has_subtype` already used is exactly what
+  `count_selector`'s party branch reads too — no new coupling needed). Two
+  more cached cards (Stonework Packbeast, Veteran Adventurer) print the
+  identical self-type-grant line and closed as a bonus too. **+20 from the
+  ten party handler families, +10 bonus (8 unblockable-pump + 2
+  self-type-grant), +30 total this batch, zero regressed**
+  (`parser_probe.py diff`, full cache).
+- **Deliberately left UNCLAIMED:** Acquisitions Expert ("target opponent
+  reveals a number of cards from their hand equal to the number of
+  creatures in your party. You choose one of those cards. That player
+  discards that card.") — every other card in this batch scales an amount
+  the *caster* already controls or measures; here the *hand's owner*
+  chooses which N cards to reveal before the caster picks from that
+  subset, a genuinely different two-step interactive shape from the
+  existing `RevealHandChooseDiscardEffect` (which always offers the chooser
+  the revealed player's **whole** hand) — out of this ticket's "generalize
+  an existing amount" scope, not a party-specific gap. Stays [PAR-12]
+  bespoke tail.
+- **Bug fixed (found by execute-testing, not just parse verdicts):**
+  `DealDamageEffect`'s `recipient_subject` resolution path (Synchronized
+  Spellcraft's own "and X damage to that creature's controller" half)
+  called `context.deal_damage(player, int(self.amount), ...)` directly
+  instead of `self._amount_for(obj, context)` — the method that actually
+  applies `amount_from_count_selector`/`amount_from_trigger_event`/
+  `amount_if_target_color` — so any of those three silently vanished
+  whenever combined with `recipient_subject`. No shipped card had combined
+  them before now (existing `recipient_subject` users — Consign to the
+  Pit/Blur of Blades/Dingus Staff-shaped, `special_mechanics.py`'s Leeching
+  Licid-shaped hand-authored pair — all pass a plain fixed `amount` int),
+  so this was dormant rather than a live regression; fixed for both
+  branches (`previous_subject`/`trigger_subject` fallback and the ordinary
+  controller-resolved path).
+- **Verification:** `+30, 0 regressed` (`parser_probe.py diff`, full
+  cache). `tests/test_par72_party_amounts.py` — 21 parse/static tests (one
+  per handler family, the two widened rows, the two static-side dispatch
+  rows, and the Acquisitions Expert adversarial non-claim) and 5 execute
+  tests, including one that specifically reproduces the `recipient_subject`
+  bug (a durable, high-toughness victim so `damage_marked` survives to be
+  checked, and a distinct assertion on the controller's own life loss) and
+  one that drives `Concerted Defense`'s dynamic counter-tax choice through
+  to its actual prompt text.
+- **Files:** `parser/oracle/catalogue/handlers.py` (the whole "PAR-72:
+  Party" section — ten handler functions + registrations — plus the
+  widened `_PUMP_UNBLOCKABLE_RE`/`_pump_unblockable` and `counter`/
+  `_counter`), `parser/oracle/catalogue/static_handlers.py`
+  (`_SELF_ANTHEM_FOR_EACH_SELECTORS`/`_PT_CDA_SELECTORS` new entries,
+  `_BURAKOS_SELF_TYPES_RE` dispatch row), `parser/oracle/segmenter.py`
+  (`_ACTIVATION_COST_REDUCTION_PARTY_RE` trailing-sentence peel),
+  `game/effects/life_sacrifice.py` (`GainLifeEffect.count_selector_
+  multiplier`), `game/effects/counters_tokens.py`
+  (`ScryEffect.count_from_count_selector`), `game/effects/
+  returns_graveyards.py` (`InspectTopChooseEffect.count_from_count_
+  selector`/`count_plus`), `game/effects/stack.py`
+  (`CounterSpellEffect.unless_pays_extra_selector`), `game/effects/
+  damage_draw.py` (the `recipient_subject`/`_amount_for` bug fix),
+  `game/effects/registry.py` (factory lambdas for all of the above).
 
 ### PAR-49: Mistform chosen creature-type activation (PARSER_VERSION 373)
 

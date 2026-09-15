@@ -243,6 +243,8 @@ EffectRegistry.register(
         decline_leaves_untouched=bool(p.get("decline_leaves_untouched", False)),
         max_picks=int(p.get("max_picks", 1) or 1),
         max_picks_if_teamwork=p.get("max_picks_if_teamwork"),
+        count_from_count_selector=p.get("count_from_count_selector"),
+        count_plus=int(p.get("count_plus", 0) or 0),
     ),
 )
 EffectRegistry.register(
@@ -373,6 +375,7 @@ EffectRegistry.register(
         ),
         amount_from_subject=p.get("amount_from_subject"),
         amount_from_trigger_event=p.get("amount_from_trigger_event"),
+        count_selector_multiplier=int(p.get("count_selector_multiplier", 1) or 1),
     ),
 )
 EffectRegistry.register(
@@ -613,6 +616,7 @@ EffectRegistry.register(
         target_from_trigger_event=p.get("target_from_trigger_event"),
         suspend_instead=p.get("suspend_instead"),
         on_pay_effect_specs=p.get("on_pay_effect_specs"),
+        unless_pays_extra_selector=p.get("unless_pays_extra_selector"),
     ),
 )
 EffectRegistry.register(
@@ -773,6 +777,7 @@ EffectRegistry.register(
     "mill", lambda p: MillEffect(
         count=p.get("count", 1), target_kind=p.get("target_kind"),
         count_selector=p.get("count_selector"), selector=p.get("selector"),
+        count_from_trigger_event=p.get("count_from_trigger_event"),
     )
 )
 EffectRegistry.register(
@@ -2440,7 +2445,10 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    "scry", lambda p: ScryEffect(count=p.get("count", p.get("amount", 1)))
+    "scry", lambda p: ScryEffect(
+        count=p.get("count", p.get("amount", 1)),
+        count_from_count_selector=p.get("count_from_count_selector"),
+    )
 )
 EffectRegistry.register(
     "surveil", lambda p: SurveilEffect(count=p.get("count", p.get("amount", 1)))
@@ -2862,7 +2870,11 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "discover",
-    lambda p: DiscoverEffect(mana_value=p.get("mana_value", p.get("amount", 0))),
+    lambda p: DiscoverEffect(
+        mana_value=p.get("mana_value", p.get("amount", 0)),
+        mana_value_from_trigger_event=p.get("mana_value_from_trigger_event"),
+        mana_value_from_subject=p.get("mana_value_from_subject"),
+    ),
 )
 
 # Static abilities applied through the layer system (RULE 613). Each becomes a

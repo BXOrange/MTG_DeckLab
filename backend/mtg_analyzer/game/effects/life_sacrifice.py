@@ -175,12 +175,19 @@ class GainLifeEffect(GameEffect):
         amount_from_trigger_source_toughness: bool = False,
         amount_from_subject: Optional[str] = None,
         amount_from_trigger_event: Optional[str] = None,
+        count_selector_multiplier: int = 1,
     ) -> None:
         super().__init__(source)
         self.amount = amount
         self.player = player
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
         self.count_selector = count_selector
+        #: "…you gain 2 life for each creature in your party." (Shepherd of
+        #: Heroes, PAR-72) — ``count_selector``'s per-unit amount is always
+        #: implicitly 1 elsewhere on this effect (the count *is* the life
+        #: total); this multiplies it, the `PumpEffect.x_multiplier`
+        #: sibling for a fixed count-selector scale rather than {X}.
+        self.count_selector_multiplier = count_selector_multiplier
         #: "Whenever ~ deals damage, you gain **that much** life." (El-Hajjâj
         #: / Exalted Angel / Whip of Erebos-shaped, PAR-36) — the event
         #: field name (``"amount"``) to read off `GameContext.trigger_event`
@@ -270,7 +277,7 @@ class GainLifeEffect(GameEffect):
         def _from_count_selector() -> int:
             from .. import continuous  # avoid the continuous↔effects import cycle
 
-            return continuous.count_selector(
+            return self.count_selector_multiplier * continuous.count_selector(
                 context.state, player.id, self.count_selector, source=self.source
             )
 

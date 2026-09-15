@@ -2915,7 +2915,89 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: cluster). +0 parser-modeled, +4 hand-authored this batch alongside
 #: PAR-67's own +3, zero regressed (`python -m pytest -q`, 100
 #: pre-existing unrelated failures unchanged before/after).
-PARSER_VERSION = "382"
+#: v383 closes PAR-69 (Doctor's companion, RULE 702.124m — the third
+#: partner-ability variant alongside Partner/Choose a Background, same
+#: `_TABLE` FLAG row treatment) and PAR-70 (the Mercadian Masques Rebel/
+#: Mercenary recruiter tutor chain — `_SEARCH_CRITERIA`'s new `subtype`
+#: qualifier maps "a rebel/mercenary permanent card" onto the existing
+#: `"search"` `EffectSpec`, no new engine primitive). +3 and +17
+#: respectively, +20 total, zero regressed (`parser_probe.py diff`); also
+#: fixes a pre-existing, unrelated bug found while proving PAR-70
+#: end-to-end: `GameContext._request_search` (`game/effects/core.py`) was
+#: missing the `then_specs` param `RulesEngine._request_search` and
+#: `SearchLibraryEffect.apply` already had (added by PAR-35..42's
+#: `then_specs` plumbing but never threaded through this wrapper), which
+#: made *every* search effect routed through an activated/triggered
+#: ability or a resolving spell raise `TypeError` — 16 previously-broken
+#: tests (`test_search_popular_tutors.py` et al.) now pass.
+#: v384 closes PAR-71 — "that spell's mana value" as a resolve-time amount
+#: referent, extending the already-shipped `amount_from_trigger_event`/
+#: `count_from_trigger_event`/`pt_from_trigger_event` family (every
+#: `SPELL_CAST` event already carries `mana_value`) to `PumpEffect`,
+#: `GainLifeEffect`/`LoseLifeEffect`, `AddCountersEffect`, and two new
+#: fields — `MillEffect.count_from_trigger_event`, `DiscoverEffect.
+#: mana_value_from_trigger_event`. +10. A second, genuinely new referent
+#: was needed for "Counter target spell. `<effect>`, where X is that
+#: spell's mana value." (Hurl into History/Access Denied/Overwhelming
+#: Intellect/Spell Swindle): "that spell" there is the *countered* RULE
+#: 115 target, not a trigger event — `segmenter._announces_creature_
+#: target` gained a `counter`-spec case so the connector-split loop opens
+#: `previous_subject_only` rows for it, backed by `DiscoverEffect`'s new
+#: `mana_value_from_subject` (`DrawCardEffect.amount_from_subject`/
+#: `CreateTokenEffect.count_from_subject` already supported it) reading
+#: `effects.core._characteristic_of_subject`'s existing
+#: `"previous_subject_mana_value"`. +4, +14 total, zero regressed
+#: (`parser_probe.py diff`, full cache). Two real cards print the
+#: identical trap and were deliberately left unclaimed rather than
+#: guessed: Imp's Mischief and Draining Whelk (see `Done_Backend.md`'s
+#: PAR-71 entry). Execute-testing this batch (not just parse verdicts)
+#: caught three real bugs, all fixed here: `_characteristic_of_subject`
+#: never unwrapped a "spell"-kind `TargetSpec`'s `StackItem` pick to its
+#: underlying `GameObject` before reading `.card` (silently measuring 0
+#: for every `"previous_subject_mana_value"`/`"previous_subject_power"`/…
+#: reading of a targeted *spell*, not just this batch's new use); and the
+#: `"discover"`/`"mill"` `EffectRegistry` factory lambdas were never
+#: updated to forward the new `DiscoverEffect`/`MillEffect` constructor
+#: params this same batch added, so both were silently dropped at bind
+#: time despite parsing correctly.
+#: v385 closes PAR-72 — Party (RULE 700.8/702.129) generalized from a
+#: cost-reduction "per"/"full party" boolean condition (PAR-53) into the
+#: general resolve-time `amount_from_count_selector`/`count_selector`
+#: family: `continuous.count_selector`'s existing `"creatures_in_your_
+#: party"` branch is now read by ten distinct effect-verb templates
+#: (mana, counter-tax, +1/+1 counters self/target, pump self/target/
+#: multi-target/negative, gain life, token creation, scry, a combined
+#: life-drain, damage single/twice/split-to-controller, an inspect-top
+#: library dig, and a CDA/anthem pair on the static side). Three
+#: primitives gained a param, all pure widening: `GainLifeEffect.
+#: count_selector_multiplier` (every prior `count_selector` gain_life
+#: shape was 1 life per unit; Shepherd of Heroes prints 2),
+#: `ScryEffect.count_from_count_selector`, `InspectTopChooseEffect.
+#: count_from_count_selector`/``count_plus`` (Skyclave Plunder's "X is 3
+#: plus the number of…"); plus `CounterSpellEffect.unless_pays_extra_
+#: selector` (Concerted Defense's dynamic "unless its controller pays {1}
+#: plus an additional {1} for each…") and a `segmenter.py` trailing-
+#: sentence peel folding "This ability costs {N} less to activate for
+#: each…" into the *already-existing*, previously hand-authored-only
+#: `ActivationCost.dynamic_reduction` (Seafloor Stalker is the oracle-text
+#: route to Eiganjo, Seat of the Empire's own primitive). +22 solo cards
+#: plus 2 bonus closures (Stonework Packbeast/Veteran Adventurer print the
+#: same self-type-grant line traced for Burakos, Party Leader), +24 total,
+#: zero regressed (`parser_probe.py diff`, full cache). Acquisitions
+#: Expert was deliberately left UNCLAIMED: its "reveal a number of cards…
+#: you choose one" shape has the *hand's owner*, not the caster, choosing
+#: which cards get revealed — a genuinely different two-step interactive
+#: primitive from `RevealHandChooseDiscardEffect`'s "reveal the whole
+#: hand" template, out of this ticket's "generalize an existing amount"
+#: scope. Execute-testing (not just parse verdicts) caught one real,
+#: previously-latent bug while proving Synchronized Spellcraft's "and X
+#: damage to that creature's controller" half: `DealDamageEffect`'s
+#: `recipient_subject` resolution path read raw `self.amount` instead of
+#: `_amount_for` (the method that actually applies `amount_from_count_
+#: selector`/`amount_from_trigger_event`/`amount_if_target_color`), so any
+#: of those three silently vanished whenever combined with
+#: `recipient_subject` — no shipped card had combined them before now.
+PARSER_VERSION = "385"
 
 
 def parser_source_hash() -> str:

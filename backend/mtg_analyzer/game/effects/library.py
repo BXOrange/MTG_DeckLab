@@ -629,14 +629,37 @@ class DiscoverEffect(GameEffect):
         mana_value: int = 0,
         player: Any = None,
         source: Optional["GameObject"] = None,
+        mana_value_from_trigger_event: Optional[str] = None,
+        mana_value_from_subject: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.mana_value = mana_value
         self.player = player
+        #: "Discover X, where X is that spell's mana value." (Monstrous
+        #: Vortex's cast trigger, PAR-71) — the discover-cap sibling of
+        #: `DealDamageEffect.amount_from_trigger_event`, read off the firing
+        #: `SPELL_CAST` event fresh at resolution. Overrides ``mana_value``
+        #: when set.
+        self.mana_value_from_trigger_event = mana_value_from_trigger_event
+        #: The identical printed tail after "Counter target spell." instead
+        #: of a cast trigger (Hurl into History) — "that spell" there is the
+        #: *countered* target, not an event; `_characteristic_of_subject`'s
+        #: ``"previous_subject_mana_value"`` (`GameContext.previous_targets`,
+        #: RULE 608.2h last-known information once the countered spell is
+        #: in a graveyard), the same referent `DrawCardEffect.
+        #: amount_from_subject`/`CreateTokenEffect.count_from_subject`
+        #: already read for their own "counter target spell. …" siblings.
+        self.mana_value_from_subject = mana_value_from_subject
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = self.player or context.active_player
-        context.discover(player, self.mana_value)
+        mana_value = self.mana_value
+        if self.mana_value_from_trigger_event:
+            event = context.trigger_event
+            mana_value = int((event or {}).get(self.mana_value_from_trigger_event) or 0)
+        elif self.mana_value_from_subject:
+            mana_value = _characteristic_of_subject(context, self.source, self.mana_value_from_subject)
+        context.discover(player, mana_value)
 
 
 # ---------------------------------------------------------------------------

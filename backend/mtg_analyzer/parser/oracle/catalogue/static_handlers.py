@@ -306,11 +306,20 @@ _PT_CDA_SINGLE_RE = re.compile(
 #: selector. "creature cards in your graveyard", "cards in all graveyards",
 #: "<type> you control" &c. are each a *different* selector and stay
 #: unclaimed until one is actually wired.
+#: PAR-72: see the ``static_effect_specs`` dispatch entry using this below.
+_BURAKOS_SELF_TYPES_RE = re.compile(
+    r"~ is also a cleric, rogue, warrior, and wizard", re.IGNORECASE,
+)
+
 _PT_CDA_SELECTORS: dict[str, str] = {
     "cards in your hand": "cards_in_your_hand",
     "lands you control": "lands_you_control",
     "cards in your graveyard": "cards_in_your_graveyard",
     "creatures you control": "creatures_you_control",
+    # PAR-72: "~'s power is equal to the number of creatures in your
+    # party." (Archpriest of Iona) — same `creatures_in_your_party`
+    # selector `_SELF_ANTHEM_FOR_EACH_SELECTORS` above now also carries.
+    "creatures in your party": "creatures_in_your_party",
 }
 
 # "Activated abilities of <type>[s] can't be activated."  (RULE 602 prohibition,
@@ -3350,6 +3359,10 @@ _SELF_ANTHEM_FOR_EACH_SELECTORS: dict[str, str] = {
     # guess here — e.g. treating "gate"/"aura" as a *creature* subtype —
     # would silently count zero forever rather than failing closed).
     "elf you control": "creatures_you_control_of_type_elf",
+    # PAR-72: "equipped creature gets +1/+0 for each creature in your party
+    # and has menace." (Ravager's Mace) — `continuous.count_selector`'s
+    # already-shipped `"creatures_in_your_party"` branch (PAR-53).
+    "creature in your party": "creatures_in_your_party",
 }
 _BASIC_LAND_TYPES: frozenset[str] = frozenset(
     {"plains", "island", "swamp", "mountain", "forest"}
@@ -4565,6 +4578,21 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         if grants is None:
             return None
         return grants
+
+    # PAR-72: "~ is also a Cleric, Rogue, Warrior, and Wizard." (Burakos,
+    # Party Leader) — RULE 205.1b's "in addition to its other types"
+    # self-grant, reusing the existing `type_change`/``add_subtypes``
+    # primitive (`_ATTACHED_QUOTED_GRANT_AND_TYPE_RE` just above already
+    # establishes ``add_subtypes`` as a real, engine-checked grant — this
+    # is its self-scoped, fixed four-type form). A SOLO-1 fixed phrase
+    # rather than a general "is also a/an `<list>`" grammar: no other
+    # cached card prints this exact self-referential party-type-grant
+    # shape.
+    m = _BURAKOS_SELF_TYPES_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("type_change", {
+            "affects": "self", "add_subtypes": ["Cleric", "Rogue", "Warrior", "Wizard"],
+        })]
 
     m = _OPPONENT_CREATURE_ANTHEM_RE.fullmatch(text)
     if m is not None:
