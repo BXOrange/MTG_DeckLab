@@ -374,6 +374,14 @@ class CombatMixin:
         ordinary single-attacker case unchanged (the overwhelming majority):
         the whole ``power`` goes to that one attacker, exactly as before
         RULE 509.1b multi-block grants existed.
+
+        RULE 702.22k reroutes *this* choice to the active player (the
+        attacker's controller) whenever Banding is involved — unlike RULE
+        702.22j's sibling in `_assign_blocked_attacker`, that reroute has
+        no observable effect here: the even-split simplification above is
+        already choice-neutral (any chooser reaches the identical split),
+        so there's nothing for the active-player-chooses case to change.
+        (MEC-88)
         """
         if not attackers:
             return []
@@ -392,6 +400,14 @@ class CombatMixin:
         if it has trample (RULE 702.19), else soaking the remainder on the last
         blocker. Deathtouch shrinks "lethal" to 1 (RULE 702.2b) so trample
         needs assign only 1 per blocker before spilling over.
+
+        RULE 702.22j: if ``attacker`` or any of ``blockers`` has Banding,
+        this order is chosen by the *defending* player instead of the
+        attacker's controller — `_assign_blocked_attacker_evenly` below,
+        not this lethal-first order (which is what favours the attacker,
+        killing blockers efficiently before anything spills to the
+        defender). Single-blocker blocks are unaffected either way: there
+        is no order to choose between one recipient. (MEC-88)
         """
         out: list[tuple[Any, int, GameObject]] = []
         trample = combat.has_trample(attacker)
@@ -402,6 +418,11 @@ class CombatMixin:
                 if defender is not None:
                     out.append((defender, power, attacker))
             return out
+
+        if len(blockers) > 1 and (
+            combat.has_banding(attacker) or any(combat.has_banding(b) for b in blockers)
+        ):
+            return self._assign_blocked_attacker_evenly(attacker, power, blockers)
 
         remaining = power
         for index, blocker in enumerate(blockers):
@@ -420,6 +441,28 @@ class CombatMixin:
             defender = self._resolve_combat_defender(attacker.combat_defender)
             if defender is not None:
                 out.append((defender, remaining, attacker))
+        return out
+
+    def _assign_blocked_attacker_evenly(
+        self, attacker: GameObject, power: int, blockers: list[GameObject]
+    ) -> list[tuple[Any, int, GameObject]]:
+        """RULE 702.22j's defending-player-chosen order: split ``power``
+        evenly among ``blockers`` (remainder to the earliest) — the same
+        non-interactive even-split idiom `_split_blocker_damage` already
+        uses for the symmetric RULE 510.1d choice, applied from the other
+        side of the block. Deliberately assigns nothing to the defender
+        even if ``attacker`` has trample: RULE 702.19's floor (lethal
+        assigned to every blocker first) is a precondition for spillover,
+        never an obligation to create it, and a defending player choosing
+        this order has no reason to volunteer it just to let damage
+        through past their own blockers. (MEC-88)
+        """
+        base, extra = divmod(power, len(blockers))
+        out: list[tuple[Any, int, GameObject]] = []
+        for index, blocker in enumerate(blockers):
+            amount = base + (1 if index < extra else 0)
+            if amount > 0:
+                out.append((blocker, amount, attacker))
         return out
     def _apply_combat_damage(
         self, assignments: list[tuple[Any, int, GameObject]]

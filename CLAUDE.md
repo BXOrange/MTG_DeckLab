@@ -506,8 +506,42 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 44.4% (15,458 / 34,811) as of 2026-09-14, measured at
-PARSER_VERSION 385** (closes PAR-72 — Party (RULE 700.8/702.129) generalized
+**Coverage: 44.6% (15,530 / 34,811) as of 2026-09-15, measured at
+PARSER_VERSION 386** (closes MEC-86 — Prepared (RULE 722.3a): the engine
+primitive (`GameObject.prepared`, `RulesEngine.make_prepared`,
+`BecomePreparedEffect`) and the parser handler for a card's own "~ becomes
+prepared" trigger already existed; the whole gap was one missing
+dispatch — "~ enters prepared." (no "when…", RULE 722.3a's other, bare
+phrasing) fell through unclaimed. `gate.py` now synthesizes the equivalent
+"when ~ enters, it becomes prepared" trigger for that shape. +22, execute-
+tested end to end (ETB sets `prepared`, creates the exiled copy, casting it
+resolves and clears the flag). Also closes MEC-87 — Horsemanship (RULE
+702.31): a recognized flag keyword with zero engine enforcement
+(`combat.py` had no `has_horsemanship` at all) — wired into `can_block`,
+plus five parser handlers widening existing small keyword-filter
+vocabularies (`static_handlers._FILTER_KEYWORD_WORDS`, `handlers.
+_CREATURE_FILTER_KEYWORD_WORDS`, the flying-only mass-damage filter, a new
+multi-target tap filter row) and one new permanent (non-"until end of
+turn") pump-and-grant shape for a genuine Portal Three Kingdoms "this
+effect lasts indefinitely" card. +30, zero regressed. Also closes MEC-88 —
+Banding (RULE 702.22): `has_banding` plus RULE 702.22j's damage-assignment
+reroute (`game/engine/combat_mixin.py`'s `_assign_blocked_attacker`, now
+routing to a new even-split `_assign_blocked_attacker_evenly` whenever
+Banding is on either side of a block — execute-tested via a real
+multi-blocker combat) — the actual behavioural payoff the grant-only
+keyword needed. RULE 702.22c's interactive attacking-band declaration is
+explicitly out of scope (no MODELED card exercises it); "bands with other
+`<quality>`" collapses to plain Banding throughout. +9 via parser
+(`Cathedral of Serra`'s "bands with other legendary creatures" quoted-grant
+cycle, `Soraya the Falconer`, `Shelkin Brownie`) plus one hand-authored
+singleton (`Master of the Hunt` — its "create a *named* token, then grant
+it a quoted ability" compound is a genuinely separate, unbuilt ~60-card
+template family, confirmed via `parser_probe.py`, well outside this
+ticket). Four real cards (`Tolaria`, `Urza's Avenger`, `Nature's Blessing`,
+`Wall of Caltrops`) stay UNMODELED, each blocked by its own separate,
+non-Banding template gap — see `Done_Backend.md`'s "Banding" entry for the
+individual reasoning. Zero regressions across all three tickets
+(`pytest -q`, core combat-damage code included). Also closes PAR-72 — Party (RULE 700.8/702.129) generalized
 from a cost-reduction "per"/"full party" boolean condition (PAR-53) into the
 general resolve-time `amount_from_count_selector`/`count_selector` family:
 `continuous.count_selector`'s existing `"creatures_in_your_party"` branch is
@@ -697,7 +731,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 46.6% (14,839 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 46.8% (14,909 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

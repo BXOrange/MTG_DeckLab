@@ -1257,6 +1257,7 @@ _FILTER_KEYWORD_WORDS: dict[str, str] = {
     "defender": "defender",
     "first strike": "first_strike",
     "menace": "menace",
+    "horsemanship": "horsemanship",
 }
 _FILTER_KEYWORDS_RE = re.compile(
     r"creatures with (?P<kws>[a-z ]+?(?: or [a-z ]+?)*)$", re.I
@@ -1993,6 +1994,22 @@ def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]
         r"\bput another (?P<counter>[+-]\d+/[+-]\d+ counter)\b",
         r"put a \g<counter>", inner, flags=re.IGNORECASE,
     )
+
+    # MEC-88 / RULE 702.22b: "bands with other <quality>" is its own named
+    # ability, distinct from plain Banding, but the *quality* restriction
+    # only matters for RULE 702.22c's interactive attacking-band
+    # declaration — out of scope here (no Commander-legal card in this
+    # batch ever declares a real attacking band; every one just grants the
+    # ability). `keywords.py`'s own `_ALIASES["bands_with_other"] =
+    # "banding"` already treats the two as interchangeable for a card that
+    # *prints* the keyword itself; this mirrors that same precedent for a
+    # card that *grants* it as a quoted ability, dropping the quality
+    # tail rather than threading a second parametric keyword through the
+    # grant machinery for a restriction nothing here enforces yet.
+    if re.fullmatch(r"bands with other [a-z][a-z' -]*", inner.strip().rstrip("."), re.IGNORECASE):
+        return [EffectSpec("grant_keyword", {
+            "keywords": ["banding"], "affects": "attached_permanent",
+        })]
 
     # RULE 702.24: this is a cost-bearing keyword, not a numeric parametric
     # keyword, so it cannot use the ordinary `parametric_keywords` grant

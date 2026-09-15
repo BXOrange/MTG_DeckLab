@@ -997,22 +997,30 @@ def _damage_to_you_per_treasure(m: re.Match[str]) -> list[EffectSpec]:
 
 #: "~ deals N damage to each creature without flying [and each player]."
 #: (RULE 601.2c — Earthquake / Fault Line / Pyroclasm-with-a-filter, ~30
-#: SOLO). The `each_creature` mass selector narrowed by a
-#: `combat.matches_object_filter` `without_keyword` — `DealDamageEffect.
-#: selector_filter`. Digit or ``{X}`` amount; the optional "and each
-#: player" tail flips the union selector (players are never filtered).
-_DAMAGE_EACH_NONFLYER_RE = _c(
+#: SOLO), widened (MEC-87) to "with/without horsemanship" (Borrowing the
+#: East Wind / Rolling Earthquake — the RULE 702.31 evasion keyword's own
+#: mass-damage cluster prints the identical shape one keyword over). The
+#: `each_creature` mass selector narrowed by a `combat.matches_object_filter`
+#: ``keyword``/``without_keyword`` — `DealDamageEffect.selector_filter`.
+#: Digit or ``{X}`` amount; the optional "and each player" tail flips the
+#: union selector (players are never filtered). Deliberately small/local
+#: rather than reusing `_CREATURE_FILTER_KEYWORD_WORDS` (defined later in
+#: this file) — same "closed list, extend as needed" style as every other
+#: per-family keyword-filter vocabulary here.
+_DAMAGE_EACH_CREATURE_KEYWORD_RE = _c(
     rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+|x) damage to "
-    rf"each creature without flying(?P<and_player> and each player)?"
+    rf"each creature (?P<neg>with|without) (?P<kw>flying|horsemanship)"
+    rf"(?P<and_player> and each player)?"
 )
 
 
-def _damage_each_nonflyer(m: re.Match[str]) -> list[EffectSpec]:
+def _damage_each_creature_keyword(m: re.Match[str]) -> list[EffectSpec]:
     n = m.group("n").lower()
+    key = "without_keyword" if m.group("neg").lower() == "without" else "keyword"
     return [EffectSpec("damage", {
         "amount": "x" if n == "x" else int(n),
         "selector": "each_creature_and_player" if m.group("and_player") else "each_creature",
-        "selector_filter": {"without_keyword": "flying"},
+        "selector_filter": {key: m.group("kw").lower()},
     })]
 
 
@@ -2399,7 +2407,7 @@ _CREATURE_FILTER_KEYWORD_WORDS: dict[str, str] = {
     "double strike": "double_strike", "trample": "trample", "vigilance": "vigilance",
     "deathtouch": "deathtouch", "lifelink": "lifelink", "menace": "menace",
     "haste": "haste", "indestructible": "indestructible", "hexproof": "hexproof",
-    "reach": "reach",
+    "reach": "reach", "horsemanship": "horsemanship",
 }
 #: One power/toughness/keyword clause, with named groups suffixed by
 #: ``suffix`` so the same fragment can appear twice in one regex (a compound
@@ -3026,6 +3034,28 @@ def _tap_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     untap = m.group("verb").lower() == "untap"
     params["untap"] = untap
+    return [EffectSpec("tap", params)]
+
+
+#: "Tap one or two target creatures without horsemanship." (MEC-87, Broken
+#: Dam-shaped) — `_tap_multi_target`'s own sibling narrowed by a creature
+#: keyword filter (`TapEffect.creature_filter`, the same field `destroy`/
+#: `damage`'s own single-target filter siblings already use). Restricted to
+#: the bare "target creatures" phrase — the only plural row this filter
+#: family is printed against on a real card so far.
+_TAP_MULTI_TARGET_KEYWORD_FILTER_RE = _c(
+    rf"(?P<verb>tap|untap) {_MULTI_TARGET_QUANTIFIER}(?P<target>target creatures) "
+    rf"(?P<neg>with|without) (?P<kw>{'|'.join(_CREATURE_FILTER_KEYWORD_WORDS)})"
+)
+
+
+def _tap_multi_target_keyword_filter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _multi_target_params(m)
+    if params is None or params["target_kind"] != "creature":
+        return None
+    key = "without_keyword" if m.group("neg").lower() == "without" else "keyword"
+    params["creature_filter"] = {key: _CREATURE_FILTER_KEYWORD_WORDS[m.group("kw").lower()]}
+    params["untap"] = m.group("verb").lower() == "untap"
     return [EffectSpec("tap", params)]
 
 
@@ -6896,6 +6926,25 @@ def _pump_subtype_target(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+#: MEC-88's keyword-only sibling of the row above — "Target Bird creature
+#: gains banding until end of turn." (Soraya the Falconer) — no P/T delta
+#: at all, just a subtype-filtered keyword grant.
+_GRANT_SUBTYPE_TARGET_RE = _c(
+    r"target (?P<subtype>[a-z]+) creature gains? (?P<kw>[a-z, ]+?) until end of turn"
+)
+
+
+def _grant_subtype_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    keywords = _token_keywords(m.group("kw"))
+    if keywords is None:
+        return None
+    return [EffectSpec("pump", {
+        "keywords": keywords,
+        "target_kind": "creature",
+        "creature_filter": {"subtype": m.group("subtype").capitalize()},
+    })]
+
+
 #: "Target Sliver creature gets +X/+0 …, where X is the number of Slivers
 #: on the battlefield." (Magma Sliver) — an unscoped subtype count, distinct
 #: from the controller-relative tribal selectors.
@@ -7483,6 +7532,33 @@ def _grant_until(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("grant_until", params)]
 
 
+#: MEC-88's temporary-removal sibling of `_grant_until` — "target creature
+#: loses banding and all "bands with other" abilities until end of turn."
+#: (Tolaria's own body, minus its separate "activate only during any
+#: upkeep step" timing-restriction sentence — a genuinely new activation-
+#: window marker this batch doesn't build, so Tolaria itself stays
+#: UNMODELED) / "target creature loses all "bands with other" abilities
+#: until end of turn." (Shelkin Brownie). RULE 613.7f ability-removal via
+#: a `grant_until`-parked `remove_keyword` static (`game/effects/
+#: registry.py`'s `remove_keyword`, built for Colossus Hammer's own
+#: standing version of the same removal) rather than the standing
+#: layer-6 grant family — collapses to plain Banding removal, the same
+#: "bands with other `<quality>` == banding" simplification the grant
+#: side (`static_handlers._quoted_ability_grant_effects_list`) already
+#: uses.
+_LOSE_BANDING_RE = _c(
+    r'target creature loses (?:banding and )?all "bands with other" abilities until end of turn'
+)
+
+
+def _lose_banding(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("grant_until", {
+        "static": {"type": "remove_keyword", "params": {"keywords": ["banding"]}},
+        "duration": "end_of_turn",
+        "target_kind": "creature",
+    })]
+
+
 #: PAR-13's P/T sibling of `_grant_until` — "target creature gets -4/-0
 #: until your next turn" (Fungi Cavern/A-Binding Geist/Hag of Inner
 #: Weakness/Wasp, Shrinking Savior-shaped; "creatures your opponents
@@ -7509,6 +7585,34 @@ def _pump_until(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["target_kind"] = None
         static["params"]["affects"] = selector
     return [EffectSpec("grant_until", params)]
+
+
+#: MEC-87's permanent sibling of `_pump_until`/`_grant_until` combined —
+#: "Target creature gets +2/+2 and gains horsemanship." (Riding the Dilu
+#: Horse-shaped, Portal Three Kingdoms' own "This effect lasts
+#: indefinitely." reminder text, stripped by `normalize`). No "until …" tail
+#: at all: RULE 611.2c's own omitted-duration default is `game/durations.py`'s
+#: ``rest_of_game``, not something read off the text — so this is a fixed
+#: duration rather than a row in `_GRANT_DURATIONS`. Plain `TARGET` only
+#: (not the fuller `_SUBJECT`): no printed card needs the self/group/attached
+#: variants of a *permanent* pump-and-grant, and guessing an ``affects``
+#: selector for those would be wrong more often than right.
+def _pump_and_grant_indefinite(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind not in ("creature", "permanent"):
+        return None
+    keywords = _token_keywords(m.group("kw"))
+    if keywords is None:
+        return None
+    return [EffectSpec("grant_until", {
+        "static": {
+            "type": "anthem",
+            "params": {"power": _signed_int(m.group("p")), "toughness": _signed_int(m.group("t"))},
+        },
+        "extra_statics": [{"type": "grant_keyword", "params": {"keywords": keywords}}],
+        "duration": "rest_of_game",
+        "target_kind": kind,
+    })]
 
 
 #: PAR-13's "can't attack"/"can't block" sibling — "target creature can't
@@ -10713,13 +10817,14 @@ HANDLERS: list[EffectHandler] = [
     # "each creature" branch can't consume a prefix and then fail the
     # fullmatch on the trailing "and each …".
     # "~ deals N damage to each creature without flying [and each player]"
-    # (Earthquake / Fault Line) — before the plain `damage_selector` row,
-    # whose bare "each creature" alternative would otherwise consume the
-    # prefix and fail the fullmatch on "without flying".
+    # (Earthquake / Fault Line) / "…with/without horsemanship…" (MEC-87,
+    # Borrowing the East Wind / Rolling Earthquake) — before the plain
+    # `damage_selector` row, whose bare "each creature" alternative would
+    # otherwise consume the prefix and fail the fullmatch on the filter tail.
     EffectHandler(
-        "damage_each_nonflyer",
-        _DAMAGE_EACH_NONFLYER_RE,
-        _damage_each_nonflyer,
+        "damage_each_creature_keyword",
+        _DAMAGE_EACH_CREATURE_KEYWORD_RE,
+        _damage_each_creature_keyword,
     ),
     EffectHandler(
         "damage_to_you_per_treasure",
@@ -11493,6 +11598,13 @@ HANDLERS: list[EffectHandler] = [
         "tap_multi_target",
         _c(rf"(?P<verb>tap|untap) {_MULTI_TARGET_QUANTIFIER}(?:other )?(?P<target>{_MULTI_TARGET_ALT})"),
         _tap_multi_target,
+    ),
+    # "tap 1 or 2 target creatures without horsemanship." (MEC-87, Broken
+    # Dam-shaped).
+    EffectHandler(
+        "tap_multi_target_keyword_filter",
+        _TAP_MULTI_TARGET_KEYWORD_FILTER_RE,
+        _tap_multi_target_keyword_filter,
     ),
     # "untap all creatures you control" (Village Bell-Ringer) / "untap all
     # other creatures you control" (Ahn-Crop Champion/Combat Celebrant's
@@ -12472,6 +12584,11 @@ HANDLERS: list[EffectHandler] = [
         _PUMP_SUBTYPE_TARGET_GLOBAL_COUNT_RE,
         _pump_subtype_target_global_count,
     ),
+    EffectHandler(
+        "grant_subtype_target",
+        _GRANT_SUBTYPE_TARGET_RE,
+        _grant_subtype_target,
+    ),
     # "target creature gets +3/+3 until end of turn" / "gets -2/-2 …" /
     # "gets +1/+1 and gains trample until end of turn" / "~ gets +1/+0 …" /
     # "creatures you control get +2/+1 until end of turn" (plural "get").
@@ -12813,6 +12930,14 @@ HANDLERS: list[EffectHandler] = [
         ),
         _grant_until,
     ),
+    # MEC-88: "target creature loses banding and all 'bands with other'
+    # abilities until end of turn." (Tolaria's body) / "…loses all 'bands
+    # with other' abilities until end of turn." (Shelkin Brownie).
+    EffectHandler(
+        "lose_banding",
+        _LOSE_BANDING_RE,
+        _lose_banding,
+    ),
     # The same grant on a *previous* clause's subject ("It gains haste until
     # your next turn." — Offspring's Revenge). Ordered after the `_SUBJECT`
     # row: that one's `_SUBJECT` never matches a bare "it", so no collision.
@@ -12833,6 +12958,13 @@ HANDLERS: list[EffectHandler] = [
             r"the beginning of the next end step))"
         ),
         _pump_until,
+    ),
+    # MEC-87: the permanent (no "until …" tail at all) sibling of the row
+    # above — "target creature gets +2/+2 and gains horsemanship."
+    EffectHandler(
+        "pump_and_grant_indefinite",
+        _c(rf"{TARGET} gets {_PT_DELTA} and gains? (?P<kw>[a-z, ]+)"),
+        _pump_and_grant_indefinite,
     ),
     # PAR-13: "target creature can't attack/block until <duration>" — the
     # resolve-time-grant sibling of the permanent-static "~ can't attack."

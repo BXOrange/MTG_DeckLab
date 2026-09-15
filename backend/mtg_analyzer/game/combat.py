@@ -406,6 +406,26 @@ def has_shadow(obj: "GameObject") -> bool:
     return "shadow" in _obj_keywords(obj)
 
 
+def has_horsemanship(obj: "GameObject") -> bool:
+    """RULE 702.31b: a creature with horsemanship can't be blocked by
+    creatures without horsemanship — one-directional, unlike shadow: a
+    horsemanship creature can itself block anything. (MEC-87)"""
+    return "horsemanship" in _obj_keywords(obj)
+
+
+def has_banding(obj: "GameObject") -> bool:
+    """RULE 702.22: whether ``obj`` has Banding (or "bands with other
+    `<quality>`", which `static_handlers._quoted_ability_grant_effects_
+    list` and `ability_catalogue.special_mechanics._master_of_the_hunt`
+    both grant as plain Banding — the quality restriction only matters
+    for RULE 702.22c's interactive attacking-band *declaration*, which
+    this engine doesn't model; every card that reaches here just needs
+    the ability to *exist* and to reroute RULE 702.22j/k's damage-
+    assignment choice, both of which read this single flag). Consumed by
+    `game/engine/combat_mixin.py`'s damage-assignment step. (MEC-88)"""
+    return "banding" in _obj_keywords(obj)
+
+
 def _obj_colours(obj: "GameObject") -> set[str]:
     """``obj``'s effective colours as upper-case WUBRG letters (RULE 105 /
     layer 5), the same read every colour check in this module already does
@@ -1083,8 +1103,8 @@ def can_block(attacker: "GameObject", blocker: "GameObject") -> bool:
     * protection (702.16e): an attacker with protection from the blocker's
       quality can't be blocked by it;
     * shadow (702.28b/c), fear (702.36b), intimidate (702.13b), skulk
-      (702.118b): the RULE 509.1b evasion family that reads the blocker's
-      own characteristics (PAR-22).
+      (702.118b), horsemanship (702.31b): the RULE 509.1b evasion family
+      that reads the blocker's own characteristics (PAR-22, MEC-87).
 
     Menace is a *group* requirement (needs 2+ blockers) and so is enforced
     where the whole block is known, not here — see `min_blockers`.
@@ -1110,6 +1130,10 @@ def can_block(attacker: "GameObject", blocker: "GameObject") -> bool:
         return False
     # RULE 702.118b Skulk — can't be blocked by creatures with greater power.
     if has_skulk(attacker) and (blocker.power or 0) > (attacker.power or 0):
+        return False
+    # RULE 702.31b Horsemanship — one-directional: blocked only by
+    # creatures that themselves have horsemanship.
+    if has_horsemanship(attacker) and not has_horsemanship(blocker):
         return False
     return True
 
@@ -1167,6 +1191,8 @@ def display_keywords(
         "intimidate": "Intimidate",
         "skulk": "Skulk",
         "shadow": "Shadow",
+        "horsemanship": "Horsemanship",
+        "banding": "Banding",
     }
     kws = (keywords_of(card) | frozenset(granted or set())) - frozenset(removed or set())
     out = [label for slug, label in labels.items() if slug in kws]

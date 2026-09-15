@@ -2990,6 +2990,26 @@ is in the rules-engine categories below them.
 - **What:** A permanent "becoming prepared" spawns a token copy of just its inset prepare-spell into exile, castable only while the source stays prepared and on the battlefield — distinct from Adventure/Split despite sharing the two-face frame, since the second face can never be cast from hand.
 - **Files:** `game/effects/core.py` (`BecomePreparedEffect`), `game/rules_engine.py` (`make_prepared`), `services/scryfall_client.py`
 - **Why:** Reuses the existing RULE 704.5d "token disappears when stranded" SBA (scoped by checking the source is still prepared and on the battlefield) rather than a parallel expiry mechanism.
+- **MEC-86 (2026-09-15, PARSER_VERSION 386):** the engine primitive above and
+  the parser handler for a card's own "~ becomes prepared" trigger body
+  (`handlers._become_prepared`) both already existed and worked — the whole
+  remaining gap, confirmed by `commander_tail_report.py`'s Bucket C "enters
+  prepared" cluster (26 tagged Commander-legal cards, 22 solo-blocked), was
+  one missing dispatch: `"~ enters prepared."` (RULE 722.3a's *other*
+  phrasing — no "when …" at all, same bare-imperative shape as "~ enters
+  tapped.") was never routed anywhere and fell through to unclaimed.
+  `gate.py`'s per-line loop now recognizes that exact bare clause and
+  synthesizes the equivalent `"when ~ enters, it becomes prepared"` trigger
+  (mirroring the pre-existing Haunt ETB-synthesis branch right above it in
+  the same function) rather than teaching `become_prepared` a second,
+  untriggered entry path. Execute-tested end to end via a real
+  `GameEngine` (`Adventurous Eater // Have a Bite`): casting it sets
+  `prepared=True` and creates the "Have a Bite" copy in exile with
+  `prepared_source_id` linked back; casting that copy from exile resolves
+  its own effect and clears the source's `prepared` flag, exactly per RULE
+  722.3c. Also fixes CLAUDE.md's architecture summary, which listed
+  "Prepared casting" among shipped mechanics while this ETB half was
+  still dark. Closed all 22 solo-blocked cards, zero regressed.
 
 ### Token copies and "becomes a copy of" (RULE 707)
 
@@ -3391,6 +3411,148 @@ is in the rules-engine categories below them.
   only; intimidate shared-colour-or-artifact incl. the colourless case;
   skulk greater-power-only; shadow both directions; an end-to-end
   `GameEngine.declare_blockers` refusal)
+
+### Horsemanship (RULE 702.31) (MEC-87, 2026-09-15, PARSER_VERSION 386)
+
+- **What:** The same PAR-22 shape one keyword later — already a real
+  flag-keyword row in `catalogue/keywords.py` (so every card printing it
+  was already `MODELED`, just not functionally enforced — confirmed by
+  grep returning zero hits for "horsemanship" anywhere outside the
+  catalogue before this), one-directional unlike Shadow: "a creature with
+  horsemanship can't be blocked by creatures **without** horsemanship,"
+  but a horsemanship creature can itself block anything. New
+  `combat.has_horsemanship`, wired into `can_block` right after Skulk.
+- **Parser:** five handlers, mostly widening pre-existing small
+  keyword-filter vocabularies rather than new grammar: "`<name>` can't be
+  blocked by creatures with horsemanship" (`Taoist Mystic`, `Zuo Ci, the
+  Mocking Sage`) widens `static_handlers._FILTER_KEYWORD_WORDS` (the
+  `combat_restriction`/`cant_be_blocked_by` filter family); "destroy
+  target creature with horsemanship" (`Trip Wire`) widens `handlers.
+  _CREATURE_FILTER_KEYWORD_WORDS` (the `destroy`/`exile`/`damage`
+  single-target filter family); "~ deals X damage to each creature
+  with/without horsemanship [and each player]" (`Borrowing the East
+  Wind`, `Rolling Earthquake`) widens the previously flying-only
+  `damage_each_nonflyer` handler into a small `with|without` ×
+  `flying|horsemanship` alternation, renamed `damage_each_creature_
+  keyword`; "tap 1 or 2 target creatures without horsemanship" (`Broken
+  Dam`) is a new `_tap_multi_target_keyword_filter` row (the multi-target
+  quantifier family narrowed by `TapEffect.creature_filter`, which
+  already existed as a field but had no grammar route in); "target
+  creature gets +2/+2 and gains horsemanship." (`Riding the Dilu Horse`,
+  a genuine Portal Three Kingdoms "This effect lasts indefinitely." card
+  — no "until end of turn" tail at all) is a new `_pump_and_grant_
+  indefinite` handler, the permanent (`game/durations.py`'s
+  `"rest_of_game"`) sibling of `_grant_until`/`_pump_until`, combining an
+  `anthem` static + a `grant_keyword` static under one `GrantUntilEffect`.
+- **Verification:** parse-checked via `parser_probe.py card` for all
+  seven cards, then execute-tested with `engine_bench.py combat`/`play`
+  against real cached cards (`Shu Cavalry`, a genuine printed-horsemanship
+  creature): a horsemanship attacker correctly goes unblocked by a
+  non-horsemanship blocker and gets through for damage; a horsemanship
+  blocker correctly can still block a non-horsemanship attacker (the
+  restriction only runs one way); `Riding the Dilu Horse` correctly stamps
+  a permanent +2/+2 and `kw=['horsemanship']` on the target that survives
+  past a normal end-of-turn cleanup.
+- **Files:** `game/combat.py`, `parser/oracle/catalogue/handlers.py`,
+  `parser/oracle/catalogue/static_handlers.py`.
+- **Residue:** `Oddric, Lunar Marquis`'s "the same is true for
+  changeling, devoid, fear, flanking, horsemanship, ingest, intimidate,
+  landwalk, shroud, tantrum, wither, and the activated ability …" is an
+  11-ability conditional-grant cluster shared with the Banding residue
+  below — stays [PAR-12] bespoke tail, not attempted here (a single card,
+  and genuinely a different, much bigger shape than any of this batch's
+  per-keyword handlers).
+
+### Banding (RULE 702.22 / 509–510) (MEC-88, 2026-09-15, PARSER_VERSION 386)
+
+- **What:** `game/combat.py` had zero Banding logic before this (confirmed
+  by grep) despite Banding being a real, live keyword on Commander-legal
+  cards. New `combat.has_banding`. RULE 702.22j/k's damage-assignment
+  reroute is the actual behavioural payoff (the ticket's own warning:
+  "don't ship the grant recognition without the damage-assignment
+  behavior it's supposed to produce") — `game/engine/combat_mixin.py`'s
+  `_assign_blocked_attacker` (RULE 510.1c, normally the attacker's own
+  lethal-first-then-trample order) now reroutes to a new
+  `_assign_blocked_attacker_evenly` (an even split among blockers, no
+  trample-favouring) whenever the attacker or any of its blockers has
+  Banding — modeling RULE 702.22j's "the *defending* player chooses this
+  order instead." `_split_blocker_damage`'s own RULE 510.1d/702.22k pair
+  needed no change: its pre-existing even-split simplification is already
+  choice-neutral, so rerouting *that* choice to the active player has no
+  observable effect (documented in its docstring rather than left
+  unexplained).
+- **Scope decision — RULE 702.22c is not modeled:** declaring an actual
+  attacking *band* (grouping several attackers so they share a block, RULE
+  509.2/702.22c–i) is real, unbuilt, interactive declare-attackers work —
+  deliberately out of scope, since no MODELED Commander-legal card
+  exercises it (every card in this batch is a static grant of the
+  ability, never an attack that actually forms a band). "Bands with
+  other `<quality>`" (RULE 702.22b, a *different* named ability from
+  plain Banding) collapses to plain Banding throughout this batch: the
+  quality restriction only matters for that undeclared band-formation
+  mechanic. If RULE 702.22c is ever built, `has_banding`'s own docstring
+  flags this simplification as the first thing to revisit.
+- **Parser:** `static_handlers._quoted_ability_grant_effects_list` gained
+  a `"bands with other .*"` branch (→ plain `grant_keyword: ["banding"]`)
+  — closes the "`<color>` legendary creatures you control have 'bands
+  with other legendary creatures.'" cycle (`Cathedral of Serra`,
+  `Mountain Stronghold`, `Seafarer's Quay`, `Unholy Citadel`,
+  `Adventurers' Guildhouse`) for free through the existing generic
+  quoted-grant recursion. `handlers._grant_subtype_target` — "target Bird
+  creature gains banding until end of turn" (`Soraya the Falconer`), the
+  keyword-only sibling of the pre-existing P/T-only `_pump_subtype_
+  target`. `handlers._lose_banding` — "target creature loses \[banding
+  and] all 'bands with other' abilities until end of turn" (`Shelkin
+  Brownie`; `Tolaria` also prints this but stays UNMODELED — see
+  residue below), a `grant_until`-parked `remove_keyword` static (`game/
+  effects/registry.py`'s pre-existing Colossus-Hammer-shaped removal
+  type, previously only ever a standing layer-6 grant, never
+  resolve-time-until-end-of-turn).
+- **Hand-authored:** `Master of the Hunt` (`game/ability_catalogue/
+  special_mechanics.py`, `_master_of_the_hunt`) — "Create a 1/1 green
+  Wolf creature token named Wolves of the Hunt. It has 'bands with other
+  creatures named Wolves of the Hunt.'" needs a "create a *named* token,
+  then a follow-up sentence grants a quoted ability to that specific
+  token" compound; `create_token`'s inline-stats grammar has no "named
+  `<X>`" tail at all, confirmed via `parser_probe.py` to be a genuinely
+  separate, unbuilt, ~60-card-wide template family (Goldmeadow Lookout,
+  Llanowar Mentor, Cloudseeder, Iron Hills Blacksmith, …) — well outside
+  this ticket's Banding scope, so hand-authored as a singleton
+  (`CreateTokenEffect(keywords=["banding"], …)`, the same "bands with
+  other → banding" collapse the parser branch above uses) rather than
+  building that shared grammar for a Banding-cluster card count of one.
+- **Verification:** parse-checked via `parser_probe.py card` for every
+  closed card; the damage-assignment reroute execute-tested with a
+  hand-built `GameEngine` combat (a 6-power attacker blocked by two 2/2s,
+  one with Banding) — confirmed an even 3/3 split rather than the
+  ordinary lethal-first order, with zero regression across the full
+  `pytest -q` suite (core combat-damage code, gated strictly behind
+  `has_banding` so the non-Banding path is byte-for-byte unchanged).
+- **Files:** `game/combat.py`, `game/engine/combat_mixin.py`,
+  `parser/oracle/catalogue/handlers.py`,
+  `parser/oracle/catalogue/static_handlers.py`,
+  `game/ability_catalogue/special_mechanics.py`.
+- **Residue — four real cards traced and deliberately left UNMODELED,
+  each blocked by its own separate, non-Banding-specific template gap:**
+  `Tolaria` ("activate only during any upkeep step" — a new RULE 602.5d
+  timing-restriction marker in the `SORCERY_SPEED_MARKER`/`ONLY_DURING_
+  YOUR_TURN_MARKER` family, which is real but threads through five files
+  — cost.py, binding/core.py, activation_mixin.py, legal_actions_mixin.py,
+  mana_mixin.py — for exactly one card); `Urza's Avenger` ("gains your
+  choice of banding, flying, first strike, or trample" — a modal
+  keyword-choice grant with no existing interactive-choice primitive);
+  `Nature's Blessing` ("put a +1/+1 counter … **or** that creature gains
+  banding, first strike, or trample" — an "instruction A, or `<creature>`
+  gains X instead" alternative-effect-body shape); `Wall of Caltrops`
+  ("if at least 1 other Wall creature is blocking that creature and no
+  non-Wall creatures are blocking that creature" — a board-state
+  conditional trigger counting blockers by creature type). `Oddric,
+  Lunar Marquis`'s 11-ability cluster is the same shared residue the
+  Horsemanship entry above documents. `The Girl in the Fireplace` is the
+  Horsemanship-flavoured sibling of the Master of the Hunt "named token +
+  quoted grant" gap. None promoted to a new ticket — each is [PAR-12]
+  bespoke tail, confirmed via `commander_tail_report.py`'s own "(dead
+  pool)" labeling of both clusters post-batch.
 
 ### Triggered keyword abilities: Prowess, Exalted, Battle Cry, Mentor (PAR-24)
 

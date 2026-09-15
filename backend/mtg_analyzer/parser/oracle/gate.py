@@ -2997,7 +2997,72 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: selector`/`amount_from_trigger_event`/`amount_if_target_color`), so any
 #: of those three silently vanished whenever combined with
 #: `recipient_subject` — no shipped card had combined them before now.
-PARSER_VERSION = "385"
+#: v386 closes MEC-86 (Prepared, RULE 722.3a), MEC-87 (Horsemanship, RULE
+#: 702.31) and MEC-88 (Banding, RULE 702.22) — three PAR-31…PAR-53-cluster
+#: tickets that each needed a genuine new engine primitive before any
+#: parser handler could be meaningful, filed together under `## MEC` in
+#: BACKLOG.md. MEC-86: the engine primitive (`GameObject.prepared`,
+#: `RulesEngine.make_prepared`, `BecomePreparedEffect`) and the parser
+#: handler for a card's own "~ becomes prepared" trigger body already
+#: existed — the whole ticket was one missing dispatch: "~ enters
+#: prepared." (no "when…") wasn't routed to it. `gate.py`'s per-line loop
+#: now synthesizes the equivalent "when ~ enters, it becomes prepared"
+#: trigger for that bare shape (mirroring the Haunt ETB synthesis just
+#: above it), closing all 22 solo-blocked cards with zero engine changes.
+#: MEC-87: Horsemanship needed real `game/combat.py` wiring (`has_
+#: horsemanship`, wired into `can_block` — it had none despite being a
+#: recognized RULE 702 keyword) plus five parser handlers: the "can't be
+#: blocked by creatures with horsemanship" combat restriction and
+#: "destroy/tap target creature with/without horsemanship" filters widen
+#: two pre-existing small keyword-filter vocabularies
+#: (`static_handlers._FILTER_KEYWORD_WORDS`, `handlers._CREATURE_FILTER_
+#: KEYWORD_WORDS`); "~ deals N damage to each creature with/without
+#: horsemanship" widens the previously flying-only `damage_each_nonflyer`
+#: handler (renamed `damage_each_creature_keyword`) into a small keyword
+#: alternation; "tap 1 or 2 target creatures without horsemanship" (Broken
+#: Dam) is a new multi-target-plus-creature-filter row; "target creature
+#: gets +N/+M and gains horsemanship." (Riding the Dilu Horse, Portal
+#: Three Kingdoms' own "this effect lasts indefinitely" reminder — no
+#: "until end of turn" tail at all) is a new permanent (``rest_of_game``
+#: duration) sibling of `_grant_until`/`_pump_until`, combining an
+#: `anthem` static and a `grant_keyword` static under one `GrantUntilEffect`.
+#: +30 solo cards, zero regressed.
+#: MEC-88: Banding needed the same kind of engine wiring — `has_banding`
+#: plus RULE 702.22j's damage-assignment reroute (`game/engine/
+#: combat_mixin.py`'s `_assign_blocked_attacker`/new `_assign_blocked_
+#: attacker_evenly`: when Banding is involved on either side of a block,
+#: the defending player's even-split order replaces the attacker-
+#: favouring lethal-first-then-trample order — execute-tested via a real
+#: multi-blocker combat, confirmed to actually split evenly rather than
+#: just parse). RULE 702.22c's interactive attacking-*band* declaration
+#: is explicitly out of scope: no MODELED Commander-legal card exercises
+#: it, and "bands with other `<quality>`" collapses to plain Banding
+#: throughout (the quality restriction only matters for that undeclared
+#: mechanic) — the same simplification `static_handlers._quoted_ability_
+#: grant_effects_list`'s new bare `"bands with other .*"` branch and the
+#: hand-authored `ability_catalogue.special_mechanics._master_of_the_hunt`
+#: (a "create a *named* token, then a follow-up sentence grants it a
+#: quoted ability" compound with no existing grammar at all — confirmed a
+#: genuinely separate ~60-card family via `parser_probe.py`, well outside
+#: this ticket, so hand-authored as the sanctioned singleton escape valve
+#: instead) both use. Two more small handlers: `_grant_subtype_target`
+#: ("target Bird creature gains banding until end of turn", Soraya the
+#: Falconer — the keyword-only sibling of the existing P/T-only `_pump_
+#: subtype_target`) and `_lose_banding` (a `remove_keyword`-parked `grant_
+#: until`, Shelkin Brownie). +9 solo cards, zero regressed. Four real
+#: cards stay UNMODELED, each blocked by its own separate, non-Banding-
+#: specific template gap traced and left as documented residue rather
+#: than guessed at: Tolaria (a new "activate only during any upkeep step"
+#: RULE 602.5d timing-restriction marker, five-file engine wiring);
+#: Urza's Avenger (a "your choice of `<kw1>`, `<kw2>`, …" modal keyword-
+#: choice grant — a real interactive choice with no existing primitive);
+#: Nature's Blessing (an "instruction A, or `<creature>` gains X instead"
+#: alternative-effect-body shape); Wall of Caltrops (a board-state
+#: conditional trigger counting blockers by creature type). Oddric, Lunar
+#: Marquis (an 11-keyword "the same is true for…" quoted-grant cluster
+#: shared with the MEC-87 Horsemanship residue) stays [PAR-12] bespoke
+#: tail, same as PAR-69's own residue.
+PARSER_VERSION = "386"
 
 
 def parser_source_hash() -> str:
@@ -3508,6 +3573,30 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 if raid_override.group("unpreventable"):
                     damages[0].params["unpreventable"] = True
                 return
+        # MEC-86 / RULE 722.3a: "~ enters prepared." states the permanent
+        # gains the prepared designation as it enters — unlike the
+        # tapped-entry/counters checks just below, this *is* an effect
+        # (`make_prepared`/`BecomePreparedEffect`, already engine-side and
+        # effect-spec-driven, not a raw-text battlefield-entry scan), so it
+        # synthesizes the equivalent "when ~ enters, it becomes prepared"
+        # trigger — the same idiom the Haunt ETB half above uses — rather
+        # than teaching `become_prepared` a second, untriggered entry path.
+        # `become_prepared`'s own handler already recognizes the synthesized
+        # body verbatim ("it becomes prepared").
+        enters_prepared = re.fullmatch(
+            r"(?:~|this creature|this permanent) enters prepared\.?", line, re.I
+        )
+        if enters_prepared is not None:
+            enter = segment_line(
+                "when ~ enters, it becomes prepared", allow_spell_effect=allow_spell_effect,
+                provenance=provenance, is_saga=is_saga,
+            )
+            if not enter.claimed or enter.spec is None:
+                all_claimed = False
+                unclaimed.append(line)
+                return
+            effect_specs.append(enter.spec)
+            return
         # RULE 614.1 "enters tapped" clauses are covered by the engine's own
         # tapped-entry machinery (`game/ability_catalogue.land_tap_condition`,
         # resolved by `RulesEngine.enter_land_tapped`), not through an effect

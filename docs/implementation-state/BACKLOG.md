@@ -119,83 +119,22 @@ its block back into the matching section here.
   - **Non-goal / lowest priority, no ticket:** Attractions (RULE 717),
     Conspiracy draft-matters — moved to [DEFERRED.md](DEFERRED.md)'s
     "Permanent non-goals" section 2026-09-14; see that file for the traced
-    reasoning. (Banding and Horsemanship were tagged alongside these by the
-    same report pass but are **not** non-goals — both are live on real
-    Commander-legal cards with zero engine support; see `MEC-87`/`MEC-88`
-    below.)
-
-  `MEC-86` (Prepared mechanic, the report's third named item), `MEC-87`
-  (Horsemanship), and `MEC-88` (Banding) all need a new engine primitive
-  rather than just a parser handler, so they're filed under `## MEC` below
-  instead of here.
+    reasoning. Banding and Horsemanship were tagged alongside these by the
+    same report pass and were **not** non-goals either — both needed (and,
+    2026-09-15, got) real engine primitives; see `Done_Backend.md`'s
+    "Combat / Evasion Keywords" entry. Each residual card left in their own
+    now-"(dead pool)" buckets after that batch (`Nature's Blessing`,
+    `Tolaria`, `Urza's Avenger`, `Wall of Caltrops`, `The Girl in the
+    Fireplace`) is blocked by its own separate, non-keyword-specific
+    template gap (a modal "your choice of `<kw1>`, `<kw2>`, …" grant, a new
+    activation-timing marker, an "or `<creature>` gains X instead"
+    alternative-effect body, a board-state conditional trigger, and the
+    ~60-card "create a *named* token, then a follow-up sentence grants it a
+    quoted ability" family) — each traced and left as documented [PAR-12]
+    bespoke-tail residue rather than promoted to a new ticket; see
+    `Done_Backend.md` for the individual reasoning.
 
 ## MEC — Game mechanics
-
-- **MEC-86 · Prepared (the "sos" set's DFC-adjacent mechanic).** Oracle
-  text: *"This creature enters prepared. (While it's prepared, you may
-  cast a copy of its spell. Doing so unprepares it.)"* — a real Scryfall
-  keyword (`keywords: ['Prepared']`), traced from
-  `commander_tail_report.py`'s Bucket C "enters prepared" cluster (26
-  tagged Commander-legal cards, 22 solo-blocked, e.g. `Adventurous Eater //
-  Have a Bite`, `Blazing Firesinger // Seething Song`, `Campus Composer //
-  Aqueous Aria`, `Cheerful Osteomancer // Raise Dead`). Grepping
-  `backend/mtg_analyzer` for "prepare" (any case) returns zero hits
-  anywhere — no state flag, no granted-permission handling exists yet,
-  despite CLAUDE.md's architecture summary listing "Prepared casting"
-  among already-shipped casting mechanics (that line covers only the
-  layout-level DFC parsing, not this battlefield permission — fix it when
-  this closes). Needs a genuine new primitive: a "prepared" state flag on
-  the permanent set by its ETB, plus a granted "cast a copy of the linked
-  face's spell, then clear the flag" permission — closest existing
-  precedent to adapt from is the granted "cast from an unusual zone/state"
-  shape in `game/top_library.py`, though this is permanent-scoped and
-  flag-gated rather than zone-scoped. Ship the parser handler for `"~
-  enters prepared"` in the same batch — one MEC ticket is the engine
-  primitive, its oracle handler(s), and a `PARSER_VERSION` bump, together.
-
-- **MEC-87 · Horsemanship (RULE 702.31).** A plain evasion keyword — "can't
-  be blocked except by creatures with horsemanship" — structurally
-  identical to Flying/Reach's block restriction, just under a different
-  name; `parser/oracle/catalogue/keywords.py` already recognizes the bare
-  word (row 266), but `game/combat.py`'s evasion family (`has_fear`,
-  `has_intimidate`, `has_skulk`, …, `can_block`) has no Horsemanship check
-  at all — confirmed by grep, zero hits for "horsemanship" anywhere outside
-  the keyword catalogue. Real, live cards need it both ways: `Taoist
-  Mystic` grants itself evasion ("can't be blocked by creatures with
-  horsemanship" — trivially true today since nothing has it, but wrong the
-  moment the keyword exists) and `Riding the Dilu Horse` grants it to
-  another creature ("target creature gets +2/+2 and gains horsemanship").
-  Traced from `commander_tail_report.py`'s Bucket C "Horsemanship" cluster:
-  10 tagged Commander-legal cards, 8 solo-blocked (`Borrowing the East
-  Wind`, `Broken Dam`, `Riding the Dilu Horse`, `Rolling Earthquake`,
-  `Taoist Mystic`, …) — all either a "with/without horsemanship" creature
-  filter (damage/tap effects) or a "gains horsemanship" pump-grant, no
-  clause is the bare block-restriction itself (those cards are already
-  MODELED via the keyword catalogue, just not functionally enforced —
-  don't ship this as parser-only the way PAR-30's caveat about the
-  keyword catalogue warns against). Scope: wire a `has_horsemanship`
-  check into `can_block` alongside the other evasion keywords, add it to
-  `display_keywords`' label table, and the parser handlers for the two
-  clause shapes above, in one batch.
-- **MEC-88 · Banding (RULE 702.22 / 509–510).** Far more involved than
-  Horsemanship: banding creatures attack/block as a group, and whichever
-  player controls a banding creature in that group chooses how combat
-  damage from a blocked/blocking creature is assigned among the group,
-  overriding the normal attacker-assigns-own-damage rule. `game/combat.py`
-  has zero banding logic today (confirmed by grep) — this needs real
-  combat-system work: recognizing a band (RULE 509.2/510.1c), and routing
-  damage-assignment-order choice to the banding player's controller
-  instead of the attacker's during the damage step. Traced from
-  `commander_tail_report.py`'s Bucket C "Banding" cluster: 15 tagged
-  Commander-legal cards, 13 solo-blocked — mostly quoted grants ("white
-  legendary creatures you control have 'bands with other legendary
-  creatures'" — `Cathedral of Serra`, `Mountain Stronghold`; a named-token
-  variant on `Master of the Hunt`) plus a modal "creature gains banding,
-  first strike, or trample" on `Nature's Blessing`. The quoted-grant shape
-  itself likely reuses the existing generic quoted-ability-grant family
-  (v363), but — same caveat as MEC-87 — don't ship the grant recognition
-  without the damage-assignment behavior it's supposed to produce; bundle
-  primitive + parser handlers in one batch.
 
 ## PLR — Player management
 
