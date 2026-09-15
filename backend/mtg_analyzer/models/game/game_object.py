@@ -1121,6 +1121,18 @@ class GameObject:
         #: part of the continuous-characteristics system). Cleared at
         #: cleanup (RULE 514.2) alongside `temp_power`/`temp_keywords`.
         self.temp_unblockable: bool = False
+        #: RULE 701.28/613.7e's "switch `<X>`'s power and toughness until
+        #: end of turn" from a *resolving* effect (Twisted Image-shaped),
+        #: as opposed to a granted/printed static "pt_switch" ability — an
+        #: odd/even counter, not a bool: RULE 613 applies each of a
+        #: permanent's continuous effects in timestamp order, so two
+        #: independent switches on the same object in the same turn must
+        #: cancel back out, and only the parity survives that (a third
+        #: switch behaves like a first). `continuous.recompute`'s own
+        #: layer 7e pass reverses P/T once more for every odd count here,
+        #: on top of whatever any static `pt_switch` ability already did.
+        #: Cleared at cleanup (RULE 514.2) alongside `temp_power`.
+        self.temp_pt_switch_count: int = 0
         #: "Target creature can't block this turn" (Falter/Goblin War Drums'
         #: whole family) — the mirror image of `temp_unblockable` above:
         #: a resolve-time RULE 509.1a restriction on the *blocker* rather
@@ -1380,6 +1392,7 @@ class GameObject:
         self.temp_parametric_keywords = {}
         self.temp_effects = []
         self.temp_unblockable = False
+        self.temp_pt_switch_count = 0
         self.temp_cant_block = False
         self.temp_combat_restrictions = []
         self.temp_protections = set()

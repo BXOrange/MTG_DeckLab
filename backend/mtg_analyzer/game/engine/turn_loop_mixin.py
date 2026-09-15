@@ -852,6 +852,9 @@ class TurnLoopMixin:
             if obj.temp_unblockable:
                 obj.temp_unblockable = False
                 ended_effects = True
+            if obj.temp_pt_switch_count:
+                obj.temp_pt_switch_count = 0
+                ended_effects = True
             if obj.temp_cant_block:
                 obj.temp_cant_block = False
                 ended_effects = True

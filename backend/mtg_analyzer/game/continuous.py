@@ -2801,6 +2801,18 @@ def _apply_layer_7_pt(
                 p, t = base[obj.instance_id]
                 _trace(obj, 7, _source_name(ability), f"switched to {p}/{t}", p, t)
 
+    # A *resolving* one-shot switch (Twisted Image-shaped — PAR-81), as
+    # opposed to a granted/printed static ability above: applied after
+    # every static `pt_switch`, same coarser "until end of turn residual"
+    # timestamp treatment `temp_power`/`temp_toughness` already accepts a
+    # few lines up. Two independent switches on one object still correctly
+    # cancel out either way.
+    for obj in state.battlefield:
+        if obj.instance_id in base and getattr(obj, "temp_pt_switch_count", 0) % 2 == 1:
+            base[obj.instance_id].reverse()
+            p, t = base[obj.instance_id]
+            _trace(obj, 7, "Until-EOT", f"switched to {p}/{t}", p, t, duration="end_of_turn")
+
     for obj in state.battlefield:
         if obj.instance_id in base:
             obj._derived_power, obj._derived_toughness = base[obj.instance_id]

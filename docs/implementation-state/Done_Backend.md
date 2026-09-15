@@ -6010,6 +6010,58 @@ measurement of why is the useful half of this work.
 
 ## Oracle-Text Parser Front-End
 
+### PAR-81: "Switch Target Creature's Power and Toughness Until End of Turn" (PARSER_VERSION 396)
+
+- **What:** `"pt_switch"` already existed as a `StaticAbility` layer 7e
+  type (RULE 613.4d/701.28) for a granted/printed standing ability
+  ("`<X>` has base power and toughness switched", say) — this ticket
+  wires the identical swap into a *resolving* spell/ability effect body
+  instead (Twisted Image-shaped). New primitive: `SwitchPowerToughnessEffect`
+  (`game/effects/counters_tokens.py`), registered as `"switch_power_
+  toughness"`, stamps a new `GameObject.temp_pt_switch_count` — an
+  **odd/even counter, not a bool**: RULE 613 applies each of a permanent's
+  continuous effects in timestamp order, so two independent switches on
+  the same object in the same turn must cancel back out (confirmed a real
+  design bug caught by an execute-level test, not the parse-level ones —
+  a first cut used a plain bool, which made a second switch a no-op
+  instead of reverting). `continuous.recompute`'s layer 7e pass now
+  reverses P/T once more for every odd count here, applied after any
+  static `pt_switch` ability on the same object; swept at cleanup (RULE
+  514.2) the same way `temp_power`/`temp_unblockable` already are.
+  - `_switch_pt_target`/`_SWITCH_PT_TARGET_RE` — the plain RULE 115 form,
+    "switch target creature's power and toughness until end of turn."
+    (About Face, Twisted Image and siblings).
+  - `_switch_pt_self`/`_SWITCH_PT_SELF_RE` — the self-referential form,
+    "switch ~'s power and toughness…" (Aeromoeba's own activated ability)
+    or "switch its power and toughness…" (Valakut Fireboar's attack
+    trigger, "its" naming the trigger's own subject) — both read as no
+    target at all, acting on the effect's own bound `source`.
+  - `_switch_pt_mass`/`_SWITCH_PT_MASS_RE` — the untargeted mass form,
+    "switch each creature's power and toughness…" (Mannichi, the Fevered
+    Dream), reusing `continuous.group_selector_objects`'s existing
+    `"all_creatures"` selector.
+  - `_switch_pt_multi`/`_SWITCH_PT_MULTI_RE` — "switch the power and
+    toughness of each of up to `<N>`/any number of target creatures…"
+    (Invert // Invent, Inversion Behemoth) — RULE 115.1a generalized to
+    N>=2, the same "up to N"/"any number of" quantifier pair used
+    elsewhere, wrapped inside "each of…" rather than leading with it.
+  - Two cards stay UNMODELED, each its own separate gap outside this
+    ticket: Wandering Fumarole grants the ability as a *quoted* string
+    ("'{0}: switch ~'s power and toughness…'") on a land that becomes a
+    creature, which this family's quoted-ability-grant machinery doesn't
+    reach for a replacement/continuous-shaped grant yet; Mangled
+    Soulrager's own ETB pairs the mass switch with a "you get a 12-time
+    boon with '`<quoted trigger>`'" designation grant, a second, unrelated
+    gap.
+- **Verification:** `tests/test_par81_switch_power_toughness_family.py`
+  (10 tests) — parse-level coverage of all four shapes, an end-to-end
+  `parse_oracle` check against five real cards, and three execute-level
+  tests: the swap actually happens and reverts at cleanup, the mass form
+  affects every creature independently by its own current P/T, and two
+  independent switches on one object cancel back to the original values
+  (the test that caught the bool-vs-counter bug above). +23 cards, zero
+  regressed (`parser_probe.py diff`, `pytest -q`).
+
 ### PAR-80: X-Spell "Target Creature Gets +X/+`<N>` Until End of Turn" (in progress, PARSER_VERSION 395)
 
 - **What:** The variable-power/fixed-toughness pump family (an X spell/

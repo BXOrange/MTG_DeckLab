@@ -4343,6 +4343,20 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # PAR-81: "Switch target creature's power and toughness until end of
+    # turn." (Twisted Image-shaped) — the resolving one-shot sibling of
+    # "pt_switch" just above; see `SwitchPowerToughnessEffect`.
+    "switch_power_toughness",
+    lambda p: SwitchPowerToughnessEffect(
+        target_kind=p.get("target_kind"),
+        target=p.get("target"),
+        count=int(p.get("count", 1) or 1),
+        count_max=p.get("count_max"),
+        optional=bool(p.get("optional", False)),
+        selector=p.get("selector"),
+    ),
+)
+EffectRegistry.register(
     "win_game",  # "you win the game" (Jace, Wielder of Mysteries' -8 tail)
     lambda p: WinGameEffect(if_empty_library=bool(p.get("if_empty_library", False))),
 )

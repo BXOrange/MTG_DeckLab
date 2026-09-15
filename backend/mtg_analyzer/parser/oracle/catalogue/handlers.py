@@ -7828,6 +7828,75 @@ def _group_pump_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     return [EffectSpec("pump", {"selector": "creatures_you_control", "amount_from_count_selector": selector})]
 
+
+# ---------------------------------------------------------------------------
+# PAR-81: "Switch target creature's power and toughness until end of turn."
+# — the resolving one-shot form (Twisted Image-shaped). `"pt_switch"`
+# already existed as a `StaticAbility` layer 7e type for a granted/printed
+# standing ability; this is its `"switch_power_toughness"` one-shot sibling
+# (`SwitchPowerToughnessEffect`, `game/effects/counters_tokens.py`).
+# ---------------------------------------------------------------------------
+
+#: The RULE 115 targeted form — "switch target creature's power and
+#: toughness until end of turn." (About Face/Twisted Image and siblings).
+_SWITCH_PT_TARGET_RE = _c(
+    rf"switch {TARGET}'?s power and toughness until end of turn"
+)
+
+
+def _switch_pt_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind not in ("creature", "permanent"):
+        return None
+    return [EffectSpec("switch_power_toughness", {"target_kind": kind})]
+
+
+#: The self-referential form — "switch ~'s power and toughness until end
+#: of turn." (Aeromoeba/Aquamoeba's own activated ability) / "switch its
+#: power and toughness until end of turn." (Valakut Fireboar's own attack
+#: trigger — "its" naming the ability's own source, RULE 603.1 subject
+#: scoping already strips the trigger condition before this clause is
+#: reached). No target at all — acts on the effect's own bound `source`.
+_SWITCH_PT_SELF_RE = _c(r"switch (?:~'s|its) power and toughness until end of turn")
+
+
+def _switch_pt_self(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("switch_power_toughness", {})]
+
+
+#: The mass, untargeted form — "switch each creature's power and toughness
+#: until end of turn." (Mannichi, the Fevered Dream) — RULE 601.2c, no
+#: RULE 115 target at all, reusing `continuous.group_selector_objects`'s
+#: existing ``"all_creatures"`` selector the same way `_cant_block_turn_
+#: group`'s own mass form does.
+_SWITCH_PT_MASS_RE = _c(r"switch each creature'?s power and toughness until end of turn")
+
+
+def _switch_pt_mass(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("switch_power_toughness", {"selector": "all_creatures"})]
+
+
+#: The multi-target form — "switch the power and toughness of each of
+#: `<up to N|any number of>` target creatures until end of turn." (Invert
+#: // Invent's "up to 2"; Inversion Behemoth's "any number of") — RULE
+#: 115.1a generalized to N>=2, the identical "any number of"/"up to N"
+#: quantifier pair `_MULTI_TARGET_QUANTIFIER` uses elsewhere, but this
+#: phrase wraps the quantifier+target *inside* "each of…" rather than
+#: leading with it, so it gets its own small regex instead of that shared
+#: macro.
+_SWITCH_PT_MULTI_RE = _c(
+    r"switch the power and toughness of each of "
+    r"(?:up to (?P<n>\d+)|(?P<any>any number of)) target creatures until end of turn"
+)
+
+
+def _switch_pt_multi(m: re.Match[str]) -> list[EffectSpec]:
+    count = _ANY_NUMBER_TARGET_CAP if m.group("any") else int(m.group("n"))
+    return [EffectSpec("switch_power_toughness", {
+        "target_kind": "creature", "count": count, "optional": True,
+    })]
+
+
 #: The devotion/count-scaled sibling of `_pump_self_subject`'s fixed-int
 #: form — "it gets +X/+X until end of turn, where X is `{DEVOTION}`"
 #: (Angelic Exaltation/Akroan Hoplite-adjacent self-buff-on-attack — see
@@ -13759,6 +13828,13 @@ HANDLERS: list[EffectHandler] = [
         "pump_devotion_negative_target", _PUMP_DEVOTION_NEGATIVE_TARGET_RE, _pump_devotion_negative_target
     ),
     EffectHandler("group_pump_devotion", _GROUP_PUMP_DEVOTION_RE, _group_pump_devotion),
+    # PAR-81: "Switch target creature's power and toughness until end of
+    # turn." and siblings — tried as a block, most-specific (multi-target)
+    # first so a shorter row never shadows it.
+    EffectHandler("switch_pt_multi", _SWITCH_PT_MULTI_RE, _switch_pt_multi),
+    EffectHandler("switch_pt_mass", _SWITCH_PT_MASS_RE, _switch_pt_mass),
+    EffectHandler("switch_pt_target", _SWITCH_PT_TARGET_RE, _switch_pt_target),
+    EffectHandler("switch_pt_self", _SWITCH_PT_SELF_RE, _switch_pt_self),
     # "Whenever ~ attacks, it gets +X/+X until end of turn, where X is …"
     # (Angelic Exaltation-adjacent self-buff-on-attack) — tried before the
     # flat-amount row below, whose `\d+` would never match a bare "x".

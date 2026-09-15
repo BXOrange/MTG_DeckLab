@@ -2366,6 +2366,62 @@ class PumpEffect(GameEffect):
         context.recompute()
 
 
+class SwitchPowerToughnessEffect(GameEffect):
+    """RULE 701.28/613.7e: switch a permanent's power and toughness until
+    end of turn (Twisted Image-shaped) — the *resolving* one-shot sibling
+    of the ``"pt_switch"`` layer 7e `StaticAbility` (a granted/printed
+    standing ability, PAR-81's own starting point). Stamps `GameObject.
+    temp_pt_switch_count`, read by `continuous.recompute`'s layer 7e pass
+    alongside any static `pt_switch` ability on the same object — an odd/
+    even counter, not a bool, so two independent switches on one object
+    correctly cancel back out (RULE 613 timestamp order); swept at
+    cleanup the same way `temp_power`/`temp_unblockable` already are.
+
+    ``target_kind``/``target``/``count``/``count_max`` is an ordinary RULE
+    115 pick (up to N target creatures — Invert // Invent's own "up to 2").
+    ``selector`` is the untargeted RULE 601.2c mass form ("each creature",
+    "each creature you control" — Mannichi, the Fevered Dream), reusing
+    `continuous.group_selector_objects`'s existing vocabulary rather than a
+    new one. Neither set (and no target offered at all) pumps the effect's
+    own ``source`` — "~'s power and toughness" (Twisted Image itself, most
+    of this family's activated/triggered abilities).
+    """
+
+    def __init__(
+        self,
+        target_kind: Optional[str] = None,
+        target: Any = None,
+        count: int = 1,
+        count_max: Optional[int] = None,
+        optional: bool = False,
+        selector: Optional[str] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.selector = selector
+        self.target_spec = (
+            TargetSpec(kind=target_kind, count=count, count_max=count_max, optional=optional)
+            if selector is None and target_kind is not None else None
+        )
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.selector is not None:
+            from ..continuous import group_selector_objects  # avoid the continuous<->effects cycle
+
+            controller_id = getattr(self.source, "controller_id", None)
+            group = group_selector_objects(context.state, controller_id, self.selector, src=self.source)
+        elif self.target_spec is not None:
+            group = _chosen_targets(targets, self.target_spec.effective_count, self.target)
+        else:
+            group = [self.source] if self.source is not None else []
+        for obj in group:
+            if obj is not None:
+                obj.temp_pt_switch_count += 1
+        if group:
+            context.recompute()
+
+
 class ScryEffect(GameEffect):
     """Scry ``count`` for the effect's controller (RULE 701.18)."""
 

@@ -506,8 +506,25 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 45.10% (15,699 / 34,811) as of 2026-09-15, measured at
-PARSER_VERSION 395** (v395 closes the first increment of PAR-80 — X-spell
+**Coverage: 45.16% (15,722 / 34,811) as of 2026-09-15, measured at
+PARSER_VERSION 396** (v396 closes PAR-81 — "switch target creature's power
+and toughness until end of turn" as a resolving one-shot effect. `"pt_
+switch"` already existed as a `StaticAbility` layer 7e type (RULE 613.4d/
+701.28) for a granted/printed standing ability; the new `"switch_power_
+toughness"`/`SwitchPowerToughnessEffect` primitive wires the same swap into
+a resolving spell/ability body instead. Stamps a new `GameObject.temp_pt_
+switch_count` — an **odd/even counter, not a bool**: RULE 613 applies each
+continuous effect in timestamp order, so two independent switches on one
+object in the same turn must cancel back out, caught by an execute-level
+test (a first cut used a plain bool, silently turning a second switch into
+a no-op). Four shapes: bare RULE 115 target, self-referential ("~'s"/"its"
+power and toughness), the untargeted mass form ("each creature's…"), and
+the multi-target "up to N/any number of target creatures" form. +23, zero
+regressed. Two cards stay UNMODELED on separate, unrelated gaps (Wandering
+Fumarole's quoted-ability grant on a land-creature; Mangled Soulrager's
+paired boon-emblem grant). See `Done_Backend.md`'s "Oracle-Text Parser
+Front-End" PAR-81 entry.
+v395 closes the first increment of PAR-80 — X-spell
 "target creature gets +X/+`<N>` until end of turn." Needed no new engine
 primitive: `RulesEngine._substitute_x` already walks any bound effect's own
 `power`/`toughness` for the literal `"x"`/`"-x"` sentinel, and `PumpEffect.
@@ -934,7 +951,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 47.36% (15,076 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 47.44% (15,099 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

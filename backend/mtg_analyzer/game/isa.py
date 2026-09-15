@@ -572,6 +572,10 @@ _ALIAS_TYPES: dict[str, str] = {
     "pt_set": "create_continuous_effect",
     "pt_switch": "create_continuous_effect",
     "pump": "create_continuous_effect",
+    # PAR-81: the *resolving* one-shot sibling of "pt_switch" just above
+    # (a granted/printed standing ability) — same layer-7e swap, stamped
+    # as a temporary until-end-of-turn effect instead.
+    "switch_power_toughness": "create_continuous_effect",
     "put_commander_into_hand": "move_object",
     "put_equal_or_lesser_mv_from_hand": "move_object",
     "put_from_hand_onto_battlefield": "move_object",

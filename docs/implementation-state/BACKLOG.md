@@ -168,12 +168,6 @@ read. Several of these were flagged by `commander_tail_report.py` as
     gap (Contraption cranking) that happens to share this search phrase —
     verify which clause is the real blocker before assuming this family
     closes them.
-- **PAR-81 · "Switch target creature's power and toughness until end of
-  turn" — one-shot form.** `"pt_switch"` already exists as a
-  continuous-effect type (layer 7e, RULE 613.4d/701.28,
-  `game/effects/core.py`/`registry.py`) for static abilities; wire the same
-  swap into a resolving spell/ability effect body. Confirmed: 20 SOLO (23
-  total). e.g. About Face, Aeromoeba, Aquamoeba.
 - **PAR-82 · Quoted static grants — "creatures you control have
   "`<ability>`"" / "enchanted creature has "`<ability>`"".** The general
   quoted-ability-grant machinery exists (see `Done_Backend.md`'s
