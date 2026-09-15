@@ -506,8 +506,21 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 44.6% (15,530 / 34,811) as of 2026-09-15, measured at
-PARSER_VERSION 386** (closes MEC-86 — Prepared (RULE 722.3a): the engine
+**Coverage: 44.7% (15,554 / 34,811) as of 2026-09-15, measured at
+PARSER_VERSION 387** (closes the first increment of PAR-79 — "`<Name>`/
+target creature can't be blocked this turn" broad recognition:
+`UnblockableEffect`/the `"unblockable"` effect key already existed end to
+end (ENG-32, Rogue's Passage/Giant Koi) — this batch is parser recognition
+only, three widened shapes, all reusing the existing primitive: a keyword
+grant plus unblockable in one sentence ("~ gains lifelink until end of
+turn and can't be blocked this turn"), "another target attacking creature
+can't be blocked this turn", and an optional "with power N or less/
+greater" target-power suffix (mirroring `_GAIN_CONTROL_EOT_RE`'s own
+identical suffix) added to both the new handler and the pre-existing bare
+form. +24, zero regressed (`parser_probe.py diff`). ~81 SOLO cards remain
+on the same search phrase, now split across several distinct smaller
+shapes with no dominant template left — see `BACKLOG.md`'s PAR-79 entry,
+kept open rather than closed. v386 closes MEC-86 — Prepared (RULE 722.3a): the engine
 primitive (`GameObject.prepared`, `RulesEngine.make_prepared`,
 `BecomePreparedEffect`) and the parser handler for a card's own "~ becomes
 prepared" trigger already existed; the whole gap was one missing

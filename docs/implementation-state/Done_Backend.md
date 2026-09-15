@@ -2251,6 +2251,65 @@ is in the rules-engine categories below them.
 
 ## Combat
 
+### PAR-79 — "Can't be blocked this turn" broad recognition (first increment)
+
+- **What:** `UnblockableEffect`/the `"unblockable"` `EffectRegistry` key
+  already existed end to end (ENG-32, built for Rogue's Passage/Giant
+  Koi/Waterbender Ascension) — the 2026-09-15 Commander-legal tail sweep
+  found 105 SOLO Commander-legal cards still blocked on this exact phrase
+  regardless, all on parser-recognition gaps rather than the primitive.
+  This entry covers the first increment (PARSER_VERSION 387, +24, zero
+  regressed via `parser_probe.py diff`); the ticket stays open in
+  `BACKLOG.md` for the ~81-card residue.
+- **Parser:** three widened shapes in `catalogue/handlers.py`, all routing
+  through the existing `"pump"`/`"unblockable"` `EffectSpec` types:
+  - `_PUMP_KEYWORD_UNBLOCKABLE_RE`/`_pump_keyword_unblockable` — "~ gains
+    `<keyword list>` until end of turn and can't be blocked this turn"
+    (Apocalypse Runner/Break Through the Line/Cephalid Inkshrouder). The
+    keyword-grant sibling of the already-shipped `_PUMP_UNBLOCKABLE_RE` (a
+    P/T delta plus unblockable); `PumpEffect` already accepted `keywords`
+    and `unblockable` together, so this was pure recognition.
+  - `_CANT_BE_BLOCKED_TURN_OTHER_ATTACKER_RE`/
+    `_cant_be_blocked_turn_other_attacker` — "another target attacking
+    creature can't be blocked this turn" (Clammy Prowler). The
+    unblockable sibling of `_PUMP_OTHER_ATTACKING_CREATURE_RE`; the shared
+    `TARGET` macro has no "another ... attacking creature" phrasing, and
+    plain `target_kind="creature"` already defaults `exclude_source=True`
+    (`targeting.py`) so "another" needs no extra param.
+  - An optional "with power N or less/greater" target-power suffix, added
+    to *both* the new keyword-grant handler and the pre-existing bare
+    `_CANT_BE_BLOCKED_TURN_RE` (Crafty Pathmage — this alone closed more
+    cards than the other two shapes combined). Mirrors
+    `_GAIN_CONTROL_EOT_RE`'s own identical suffix — `creature_filter`'s
+    `min_power`/`max_power` keys, not a new filter shape.
+- **Bug found and fixed en route:** the first cut of
+  `_pump_keyword_unblockable` copied `_pump_unblockable`'s target-kind
+  restriction (`creature`/`permanent` only) verbatim, which silently
+  rejected `creature_you_control`/`creature_you_dont_control` — legal
+  subjects `_cant_be_blocked_turn` already allowed. Caught by
+  `parser_probe.py diff` showing Apocalypse Runner ("target creature you
+  control with power 2 or less…") still uncovered after the handler
+  shipped; fixed by widening the allowed set to match
+  `_cant_be_blocked_turn`'s.
+- **Residue, traced but deliberately left open (not this increment's
+  scope):** a delayed-trigger "…at the beginning of the next end step,
+  return that creature to its owner's hand[, `<tail>`]" compound on the
+  six-card Alora cycle; an activation-cost-reduction rider (A-Sewer
+  Crocodile); a qualified "…except by creatures with `<keyword>`" evasion
+  form (Agility Bobblehead, Departed Deckhand — likely the existing
+  `cant_be_blocked_by_creatures_with_keyword`-shaped family rather than
+  plain `unblockable`); a bare-subtype-without-"creature" target ("target
+  merfolk can't be blocked this turn" — Aquatic Incursion, Daughter of the
+  Deep; "target goblin, orc, or pirate…" — Corsairs of Umbar); "another
+  target legendary creature" (Bessie, the Doctor's Roadster), which needs
+  a `creature_filter` "legendary" key that doesn't exist yet (`subtype`
+  only matches real creature types, not supertypes); and at least one card
+  (Brotherhood Spy) whose real blocker is an unrelated conditional
+  phase-trigger gap ("at the beginning of combat on your turn, **if you
+  control a legendary Assassin**, …") that only incidentally shares this
+  search phrase — a reminder that "SOLO blocker on this regex" names the
+  unclaimed *clause*, not necessarily the right *layer* to fix.
+
 ### MEC-78 — Graveyard-exit batch triggers (RULE 603.3f)
 
 - **What:** `CARDS_LEFT_GRAVEYARD` carries a last-known-information card

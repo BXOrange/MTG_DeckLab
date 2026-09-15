@@ -25,9 +25,9 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**44.6% covered — 15,530 / 34,811 — as of 2026-09-15, PARSER_VERSION 386.**
-Commander-legal slice (the one the product actually plays): **46.8% —
-14,909 / 31,830** (measure with `--commander-legal-only`).
+**44.7% covered — 15,554 / 34,811 — as of 2026-09-15, PARSER_VERSION 387.**
+Commander-legal slice (the one the product actually plays): **46.9% —
+14,933 / 31,830** (measure with `--commander-legal-only`).
 
 Measure with `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe;
@@ -116,9 +116,21 @@ tickets — `PAR-69` through `PAR-72`, filed and closed 2026-09-14 — rather
 than reusing the `PAR-31…PAR-53` block itself. The first free parser
 ticket id past this whole history is **`PAR-73`** (checked 2026-09-15).
 
-**Status (2026-09-15):** No open Bucket B batch right now beyond the basic-
-mechanics track's own backlog above — PAR-67/PAR-68 (the last two
-dedicated Bucket-B tickets) closed 2026-09-14. Bucket C (set-specific,
+**Status (2026-09-15):** PAR-67/PAR-68 (the last two dedicated Bucket-B
+tickets before this pass) closed 2026-09-14. The same day, a fresh sweep
+of `commander_tail_report.py`'s Bucket B/C/D histograms (`--min-cluster 5`)
+traced and verified a further 19 PAR tickets (PAR-74…92) and 8 MEC tickets
+(MEC-89…96) — filed in `BACKLOG.md`, not narrated here per this file's own
+"what does not belong here" rule. Two of the report's own bucket-D labels
+turned out stale on inspection (a dice subsystem and meld both already
+existed; MEC-90/PAR-92 respectively) — another instance of the "needs a
+new primitive" trap below. PAR-79 (the sweep's biggest single cluster, 105
+SOLO) got its first increment the same day (v387, +24) — its own residual
+~81 cards are, on inspection, several distinct smaller shapes rather than
+one dominant remaining template, itself a small worked example of the
+"ticket estimates are wrong in both directions" lesson below (the raw
+regex-match count overstated how much *one* handler would close, but the
+gap didn't vanish either — it fragmented). Bucket C (set-specific,
 deck-first) was resolved into five tickets the same day, traced
 card-by-card with `commander_tail_report.py` + `parser_probe.py
 card`/`blocked` rather than taken at the report's own loose keyword-match
@@ -170,7 +182,12 @@ rules, not one:
   cache-wide yield (`parser_probe.py rank`/`blocked`) — a fix here keeps
   paying off on sets not yet printed, so the biggest SOLO count wins
   regardless of which deck happens to need it today. This is the default
-  track and where most of this document's worked examples live.
+  track and where most of this document's worked examples live. The
+  raw-cache `rank`-driven pass was exhausted 2026-08-28, but re-entering
+  through `commander_tail_report.py`'s own Bucket B histogram found a
+  second wave of real wins the same day 2026-09-15 swept through
+  (PAR-78/PAR-79 alone are 65- and 105-card clusters, see `BACKLOG.md`) —
+  don't copy "exhausted" forward without re-running the tool.
 - **Set-specific mechanics** — a RULE 702 keyword *ability* or *action*
   that a design team built for, and largely confined to, **one expansion or
   Commander-precon product line** (it may get one or two nostalgia reprints

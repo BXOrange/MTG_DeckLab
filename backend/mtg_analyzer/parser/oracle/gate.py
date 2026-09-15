@@ -3062,7 +3062,31 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: Marquis (an 11-keyword "the same is true for…" quoted-grant cluster
 #: shared with the MEC-87 Horsemanship residue) stays [PAR-12] bespoke
 #: tail, same as PAR-69's own residue.
-PARSER_VERSION = "386"
+#:
+#: v387 is PAR-79's first increment — "<Name>/target creature can't be
+#: blocked this turn" broad recognition. `UnblockableEffect`/the
+#: "unblockable" effect key already existed end to end (ENG-32); this batch
+#: is parser recognition only, three widened shapes: a keyword grant plus
+#: unblockable in one sentence (`_PUMP_KEYWORD_UNBLOCKABLE_RE`, the
+#: keyword-grant sibling of the already-shipped `_PUMP_UNBLOCKABLE_RE`),
+#: "another target attacking creature can't be blocked this turn"
+#: (`_CANT_BE_BLOCKED_TURN_OTHER_ATTACKER_RE`, the unblockable sibling of
+#: `_PUMP_OTHER_ATTACKING_CREATURE_RE`), and an optional "with power N or
+#: less/greater" target-power suffix added to both the new handler and the
+#: pre-existing bare `_CANT_BE_BLOCKED_TURN_RE` (the same suffix
+#: `_GAIN_CONTROL_EOT_RE` already uses). +24, zero regressed
+#: (`parser_probe.py diff`). Confirmed via `parser_probe.py blocked "can't
+#: be blocked this turn"` that ~81 SOLO cards remain, split across several
+#: distinct smaller shapes with no single dominant template left (a
+#: delayed-trigger "return that creature to hand" tail on the Alora cycle,
+#: an activation-cost-reduction rider, a qualified "except by creatures
+#: with `<kw>`" evasion form, a bare-subtype-without-"creature" target, an
+#: unrelated conditional-phase-trigger gap that only incidentally shares
+#: this search phrase, and "another target legendary creature" needing a
+#: `creature_filter` "legendary" key that doesn't exist yet) — see
+#: BACKLOG.md's PAR-79 entry for the residual breakdown rather than
+#: treating this as closed.
+PARSER_VERSION = "387"
 
 
 def parser_source_hash() -> str:

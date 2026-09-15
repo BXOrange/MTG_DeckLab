@@ -9993,18 +9993,98 @@ def _pump_unblockable(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: ENG-32: a bare "~ / target creature can't be blocked this turn" (Giant
 #: Koi's own activated ability / Waterbender Ascension) — the standalone
 #: `UnblockableEffect`, no P/T delta (that's `_PUMP_UNBLOCKABLE_RE` above).
+#: PAR-79 widened it with the same optional "with power N or less/greater"
+#: suffix as `_PUMP_KEYWORD_UNBLOCKABLE_RE` (Crafty Pathmage-shaped).
 _CANT_BE_BLOCKED_TURN_RE = _c(
-    rf"(?:(?P<selfref>{_SELF_SUBJECT})|{TARGET}) can'?t be blocked this turn"
+    rf"(?:(?P<selfref>{_SELF_SUBJECT})|{TARGET})"
+    r"(?: with power (?P<pn>\d+) or (?P<pcmp>less|greater))? can'?t be blocked this turn"
 )
 
 
 def _cant_be_blocked_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params: dict = {}
     if m.groupdict().get("selfref"):
-        return [EffectSpec("unblockable", {"target_kind": None})]
-    kind = resolve_target_kind(m.group("target"))
-    if kind not in ("creature", "permanent", "creature_you_control", "creature_you_dont_control"):
+        params["target_kind"] = None
+    else:
+        kind = resolve_target_kind(m.group("target"))
+        if kind not in ("creature", "permanent", "creature_you_control", "creature_you_dont_control"):
+            return None
+        params["target_kind"] = kind
+    if m.group("pn"):
+        if params["target_kind"] is None:
+            return None  # "with power N or less" needs a real RULE 115 target, not the bare self form
+        key = "max_power" if m.group("pcmp") == "less" else "min_power"
+        params["creature_filter"] = {key: int(m.group("pn"))}
+    return [EffectSpec("unblockable", params)]
+
+
+#: PAR-79: "~ gains lifelink until end of turn and can't be blocked this
+#: turn." (Apocalypse Runner/Break Through the Line/Cephalid Inkshrouder-
+#: shaped) — the keyword-grant sibling of `_PUMP_UNBLOCKABLE_RE` above (that
+#: one is a P/T delta plus unblockable; this is a keyword list plus
+#: unblockable, no P/T change). `PumpEffect` already accepts `keywords` and
+#: `unblockable` together (see `_pump_keywords`/`_pump_unblockable`) — this
+#: is a parser-recognition gap only, not a new primitive. The optional
+#: "with power N or less/greater" suffix (Apocalypse Runner/Break Through
+#: the Line) mirrors `_GAIN_CONTROL_EOT_RE`'s own identical suffix —
+#: `creature_filter`'s `min_power`/`max_power` keys (`targeting.py`), not a
+#: new filter shape.
+_PUMP_KEYWORD_UNBLOCKABLE_RE = _c(
+    rf"{_SUBJECT}(?: with power (?P<pn>\d+) or (?P<pcmp>less|greater))?"
+    r" gains? (?P<kw>[a-z0-9, ]+?) until end of turn and can'?t be blocked this turn"
+)
+
+
+def _pump_keyword_unblockable(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    subject = _pump_target(m)
+    if subject is None:
         return None
-    return [EffectSpec("unblockable", {"target_kind": kind})]
+    target_kind, selector = subject
+    # Same allowed set as `_cant_be_blocked_turn` above — "creature you
+    # control"/"…don't control" are legal unblockable-grant subjects too
+    # (Apocalypse Runner); unlike `_pump_unblockable`, this handler has no
+    # P/T delta to worry about conflicting with a non-creature target.
+    if target_kind is not None and target_kind not in (
+        "creature", "permanent", "creature_you_control", "creature_you_dont_control",
+    ):
+        return None
+    split = _split_keywords_with_parametric(m.group("kw"))
+    if split is None:
+        return None
+    flags, parametric = split
+    if not flags and not parametric:
+        return None
+    params: dict = {"unblockable": True}
+    if flags:
+        params["keywords"] = flags
+    if parametric:
+        params["parametric_keywords"] = parametric
+    if target_kind:
+        params["target_kind"] = target_kind
+    if selector:
+        params["selector"] = selector
+    if m.group("pn"):
+        key = "max_power" if m.group("pcmp") == "less" else "min_power"
+        params["creature_filter"] = {key: int(m.group("pn"))}
+    return [EffectSpec("pump", params)]
+
+
+#: PAR-79: "another target attacking creature can't be blocked this turn."
+#: (Bessie, the Doctor's Roadster/Clammy Prowler-shaped) — the unblockable
+#: sibling of `_PUMP_OTHER_ATTACKING_CREATURE_RE` above: "another ... attacking
+#: creature" is a combat-state target restriction the shared `TARGET` macro
+#: doesn't represent (the plain `_CANT_BE_BLOCKED_TURN_RE` above already
+#: covers "up to one target attacking creature" via `TARGET` itself).
+_CANT_BE_BLOCKED_TURN_OTHER_ATTACKER_RE = _c(
+    r"another target attacking creature can'?t be blocked this turn"
+)
+
+
+def _cant_be_blocked_turn_other_attacker(m: re.Match[str]) -> list[EffectSpec]:
+    # Plain "creature" target kind already defaults `exclude_source=True`
+    # (`targeting.py`), so "another" needs no extra param here — same as
+    # `_pump_other_attacking_creature` above.
+    return [EffectSpec("unblockable", {"target_kind": "creature", "creature_filter": {"attacking": True}})]
 
 
 #: "Target creature can't block this turn" (Falter/Ahn-Crop Crasher/Abandon
@@ -12492,6 +12572,25 @@ HANDLERS: list[EffectHandler] = [
         "cant_be_blocked_this_turn",
         _CANT_BE_BLOCKED_TURN_RE,
         _cant_be_blocked_turn,
+    ),
+    # PAR-79: "~ gains lifelink until end of turn and can't be blocked this
+    # turn" — a strict superset of the plain `pump_keyword` row's shape (a
+    # trailing unblockable clause `pump_keyword`'s own grammar doesn't
+    # recognise); fullmatch means the two can never both match the same
+    # clause, so order between them doesn't matter for correctness.
+    EffectHandler(
+        "pump_keyword_unblockable",
+        _PUMP_KEYWORD_UNBLOCKABLE_RE,
+        _pump_keyword_unblockable,
+    ),
+    # PAR-79: "another target attacking creature can't be blocked this
+    # turn" (Bessie/Clammy Prowler-shaped) — tried before the plain
+    # `cant_be_blocked_this_turn` row above, whose `TARGET` alternation has
+    # no "another ... attacking creature" phrasing.
+    EffectHandler(
+        "cant_be_blocked_this_turn_other_attacker",
+        _CANT_BE_BLOCKED_TURN_OTHER_ATTACKER_RE,
+        _cant_be_blocked_turn_other_attacker,
     ),
     # "Up to two target creatures can't block this turn" / "target creature
     # can't block this turn" / "creatures without flying can't block this
