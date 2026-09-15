@@ -6010,6 +6010,56 @@ measurement of why is the useful half of this work.
 
 ## Oracle-Text Parser Front-End
 
+### PAR-82: Quoted Static Grants — Residue After a Stale Premise (in progress, PARSER_VERSION 397)
+
+- **What:** The ticket's own framing — "these two specific subject shapes
+  (`creatures you control have '<ability>'` / `enchanted creature has
+  '<ability>'`) aren't reached by the general quoted-ability-grant
+  machinery yet" — turned out to be **false** on re-verification. Both
+  already resolve correctly today:
+
+  ```python
+  static_effect_specs('creatures you control have "when ~ enters, draw a card."')
+  # → grant_triggered_ability{..., affects: "creatures_you_control"}
+  static_effect_specs('enchanted creature has "when ~ enters, draw a card."')
+  # → grant_triggered_ability{..., affects: "attached_permanent"}
+  ```
+
+  `_QUOTED_GRANT_RE`/`_scope`/`_scope_params` (the non-attached family) and
+  `_ATTACHED_QUOTED_GRANT_RE` (the attached family) both fullmatch and
+  correctly compute `affects` — proven by testing each against a
+  synthetic, already-modeled inner clause. Every card still SOLO on either
+  search phrase turned out to be blocked by its own **separate, unrelated
+  inner-ability recognition gap** — the outer subject-scope machinery was
+  never the real remaining work, the same "SOLO blocker names the
+  unclaimed clause, not necessarily the right layer to fix" lesson PAR-79
+  documented for Brotherhood Spy, just affecting this entire ticket's
+  premise rather than one card.
+  - **Closed this pass:** Phenax, God of Deception's own granted "{T}:
+    Target player mills X cards, where X is this creature's toughness." —
+    `MillEffect.count_selector`'s `"source_power"`/`"source_toughness"`
+    reading (`continuous.count_selector`, evaluated against the effect's
+    own bound `source`) already existed as an engine primitive with no
+    parser route to it; `_mill_source_pt`/`_MILL_SOURCE_PT_RE` is pure
+    recognition. Execute-tested end to end: a granted-to creature's own
+    toughness is what gets read once the ability is regranted per RULE
+    613.7f (layer 6), not the grantor's.
+  - **13 SOLO cards remain**, each its own real, separately-scoped gap —
+    see `BACKLOG.md`'s PAR-82 entry for the full breakdown (a new
+    `CounterSpellEffect` "whatever just targeted this" referent; a
+    triggers-N-times-per-turn `trigger.limit` generalization; a "`<pump>`
+    if monarch, otherwise become the monarch" `if_else`; three missing
+    trigger events — "becomes blocked", "was dealt damage", "becomes
+    tapped"; and six more, each unrelated to any other).
+- **Verification:** `tests/test_par82_mill_source_pt.py` (5 tests) —
+  parse-level coverage of both P/T axes, a `static_effect_specs` check
+  proving the outer "creatures you control have" grant resolves correctly
+  around the new inner clause, an end-to-end `parse_oracle` check against
+  Phenax's real (corrected) oracle text, and an execute-level test
+  granting the ability to a real creature and confirming the mill count
+  is that creature's own toughness. +1, zero regressed (`parser_probe.py
+  diff`, `pytest -q`).
+
 ### PAR-81: "Switch Target Creature's Power and Toughness Until End of Turn" (PARSER_VERSION 396)
 
 - **What:** `"pt_switch"` already existed as a `StaticAbility` layer 7e

@@ -506,8 +506,20 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 45.16% (15,722 / 34,811) as of 2026-09-15, measured at
-PARSER_VERSION 396** (v396 closes PAR-81 — "switch target creature's power
+**Coverage: 45.17% (15,723 / 34,811) as of 2026-09-15, measured at
+PARSER_VERSION 397** (v397 closes one card of PAR-82's residue — Phenax,
+God of Deception's own granted "{T}: Target player mills X cards, where X
+is this creature's toughness." Re-verification found the ticket's own
+premise stale: "creatures you control have '`<ability>`'"/"enchanted
+creature has '`<ability>`'" already correctly resolve today
+(`_QUOTED_GRANT_RE`/`_ATTACHED_QUOTED_GRANT_RE`), so every remaining SOLO
+card is blocked by its own unrelated inner-ability gap, not a shared
+subject-shape recognition gap. Phenax's own gap was `MillEffect.
+count_selector`'s already-shipped `"source_toughness"` reading having no
+parser route (`_mill_source_pt`). +1, zero regressed. 13 SOLO cards
+remain, each a distinct, separately-scoped primitive/recognition gap — see
+`BACKLOG.md`'s PAR-82 entry.
+v396 closes PAR-81 — "switch target creature's power
 and toughness until end of turn" as a resolving one-shot effect. `"pt_
 switch"` already existed as a `StaticAbility` layer 7e type (RULE 613.4d/
 701.28) for a granted/printed standing ability; the new `"switch_power_
@@ -951,7 +963,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 47.44% (15,099 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 47.44% (15,100 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

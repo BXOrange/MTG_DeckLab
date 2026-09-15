@@ -3202,6 +3202,23 @@ def _mill_spell_mv(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("mill", {"target_kind": "player", "count_from_trigger_event": "mana_value"})]
 
 
+#: PAR-82: "target player mills X cards, where X is ~'s power/toughness."
+#: (Phenax, God of Deception's own granted ability) — `MillEffect.
+#: count_selector`'s already-shipped ``"source_power"``/``"source_
+#: toughness"`` reading (`continuous.count_selector`, evaluated against
+#: this effect's own bound ``source`` — the granted-to creature, once
+#: regranted per RULE 613.7f); a parser-recognition gap only.
+_MILL_SOURCE_PT_RE = _c(
+    r"target (?P<who>player|opponent) mills? x cards?, where x is ~'?s (?P<pt>power|toughness)"
+)
+
+
+def _mill_source_pt(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("mill", {
+        "target_kind": "player", "count_selector": f"source_{m.group('pt')}",
+    })]
+
+
 def _mill(m: re.Match[str]) -> list[EffectSpec]:
     # "you mill N" / bare "mill N" → self; "target player/opponent mills N" → targeted.
     who = (m.groupdict().get("who") or "").strip()
@@ -12298,6 +12315,7 @@ HANDLERS: list[EffectHandler] = [
         _mill,
     ),
     EffectHandler("mill_spell_mv", _MILL_SPELL_MV_RE, _mill_spell_mv),
+    EffectHandler("mill_source_pt", _MILL_SOURCE_PT_RE, _mill_source_pt),
     # "exile target creature with power 4 or greater" / "…with flying" —
     # tried before the plain `exile` handler below, same reasoning as
     # `destroy_creature_filter`.
