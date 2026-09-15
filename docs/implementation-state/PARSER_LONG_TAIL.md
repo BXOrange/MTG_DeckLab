@@ -25,9 +25,9 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**44.4% covered — 15,458 / 34,811 — as of 2026-09-14, PARSER_VERSION 385.**
-Commander-legal slice (the one the product actually plays): **46.6% —
-14,839 / 31,830** (measure with `--commander-legal-only`).
+**44.6% covered — 15,530 / 34,811 — as of 2026-09-15, PARSER_VERSION 386.**
+Commander-legal slice (the one the product actually plays): **46.8% —
+14,909 / 31,830** (measure with `--commander-legal-only`).
 
 Measure with `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe;
@@ -74,6 +74,87 @@ A few items are deliberate non-goals — the legacy pre-2021 werewolf
 template, silver-border/acorn/un-set cards — excluded from the denominator or
 accepted as permanently unmodeled. Stickers and Attractions are project
 non-goals tracked in [BACKLOG.md](BACKLOG.md) under MEC.
+
+## The Commander-legal tail sweep (PAR-31…PAR-53)
+
+The Commander-legal slice (`--commander-legal-only`) is the one the product
+actually plays, so it gets its own dedicated sweep on top of the two tracks
+below — not a third, separate program, just a different **starting point**
+into the same indefinite tail: `scripts/commander_tail_report.py`
+(read-only) segments every still-UNMODELED Commander-legal card by *cause*
+into six buckets:
+
+- **A** — block-wrapper / segmenter re-measure (no ticket; usually a red
+  herring — see "A ranked template that is a block *wrapper*…" under
+  *Lessons that keep recurring* below before trusting one)
+- **B** — recurring template → the *basic mechanics* track below
+- **C** — set-specific mechanic → the *set-specific mechanics* track below,
+  worked deck-first
+- **D** — missing engine primitive → its own real `MEC-*` ticket in
+  [BACKLOG.md](BACKLOG.md) — a primitive is schedulable, closeable work
+  with an end state, unlike the sweep itself, so it doesn't live here
+- **E** — bespoke hand-authoring tail → this document's own indefinite
+  program, same as every other singleton (PAR-12)
+- **F** — never-supported, out of the denominator (Stickers)
+
+**Discipline:** re-run the tool and `parser_probe.py blocked '<regex>'`
+before starting a batch — any `#` count quoted below is stale the moment
+it's read; the tool's own live output is the only trustworthy count. Finish
+a batch end to end without leaving residue before starting the next one
+(narrate in `Done_Backend.md`, bump `PARSER_VERSION`, sync the three
+coverage figures — a batch that turns out fully hand-authored needs no
+version bump). When a batch lands a genuinely new engine primitive, sweep
+`BACKLOG.md` for any *other* ticket that primitive also closes or narrows —
+a primitive landing is exactly the moment this project has historically
+forgotten to look (`CLAUDE.md`'s own no-half-implementations rule).
+
+**Ticket-id bookkeeping:** `PAR-31` through `PAR-53` were this cluster's own
+reserved id block; every one of them that shipped is closed and narrated in
+`Done_Backend.md`. Bucket C's own three-line placeholder ("file from the
+next free id … when their batch comes up") was later resolved into real
+tickets — `PAR-69` through `PAR-72`, filed and closed 2026-09-14 — rather
+than reusing the `PAR-31…PAR-53` block itself. The first free parser
+ticket id past this whole history is **`PAR-73`** (checked 2026-09-15).
+
+**Status (2026-09-15):** No open Bucket B batch right now beyond the basic-
+mechanics track's own backlog above — PAR-67/PAR-68 (the last two
+dedicated Bucket-B tickets) closed 2026-09-14. Bucket C (set-specific,
+deck-first) was resolved into five tickets the same day, traced
+card-by-card with `commander_tail_report.py` + `parser_probe.py
+card`/`blocked` rather than taken at the report's own loose keyword-match
+counts — two of its five raw clusters turned out to be residue from
+*already-closed* tickets (Party, Ki-counter/Spirit-or-Arcane) whose real
+remaining gap was a generic primitive, not the named set mechanic. PAR-69
+through PAR-72 all closed 2026-09-14 (`Done_Backend.md`'s "Keyword
+Catalogue" and "Oracle-Text Parser Front-End" entries); the other three —
+`MEC-86` (Prepared), `MEC-87` (Horsemanship), `MEC-88` (Banding), each
+needing a genuine new engine primitive before a parser handler could mean
+anything — closed 2026-09-15 (`Done_Backend.md`'s "Prepared cards",
+"Horsemanship" and "Banding" entries; also reflected in the Two Tracks
+table below). Attractions (RULE 717) and Conspiracy draft-matters were the
+two Bucket-C items resolved as permanent non-goals instead, moved to
+[DEFERRED.md](DEFERRED.md)'s "Permanent non-goals" section 2026-09-14.
+
+Residue traced and deliberately left [PAR-12] bespoke tail rather than
+promoted to its own ticket: PAR-71's own "that spell's mana value" pairing
+on `lose_life`/`add_counters` (Imp's Mischief, Draining Whelk — no card
+needed it); PAR-72's own two-step hand-reveal-then-choose primitive
+(Acquisitions Expert, where the *hand's owner* rather than the caster picks
+which cards get revealed); and the Horsemanship/Banding batch's own five
+residual cards — `Nature's Blessing` (an "instruction A, or `<creature>`
+gains X instead" alternative-effect body), `Tolaria` (a new "activate only
+during any upkeep step" RULE 602.5d timing-restriction marker, threading
+through five engine files for one card), `Urza's Avenger` (a modal "your
+choice of `<kw1>`, `<kw2>`, …" keyword-choice grant with no existing
+interactive-choice primitive), `Wall of Caltrops` (a board-state
+conditional trigger counting blockers by creature type), and `The Girl in
+the Fireplace` (the Horsemanship-flavoured sibling of the ~60-card "create
+a *named* token, then a follow-up sentence grants it a quoted ability"
+family `Master of the Hunt` was hand-authored around rather than built as
+shared grammar). `Oddric, Lunar Marquis`'s own 11-ability "the same is
+true for changeling, devoid, fear, flanking, horsemanship, ingest,
+intimidate, landwalk, shroud, tantrum, wither, …" cluster is shared
+residue between the Horsemanship and Banding batches.
 
 ## Two tracks: basic mechanics vs. set-specific mechanics
 
@@ -123,8 +204,8 @@ rules, not one:
   | Learn (Lessons) | 701.50 | Dominaria / Strixhaven | **Partially done** (checked 2026-08-05) — bare "Learn." is a 7-card SOLO cluster; the Lesson-sideboard-zone infrastructure itself (RULE 701.50a "look at your sideboard") isn't built, so a full deck with real Lessons stays out of scope regardless |
   | Investigate | 701.19a | Shadows over Innistrad (**reused across many later sets** — belongs on the *basic* track, listed here only as the worked example that motivated this split) | **Done** (2026-08-05) — a `create_token` alias onto the already-shipped Clue token, 87+ cards in one row; this is the case study for "keyword action, but basic not set-specific" — check *reuse breadth* before filing something here |
   | Station | 702.184a / 721 | Edge of Eternities | **Done** (2026-08-27) — a third "striated text box" grammar alongside Leveler/Class (`catalogue/station.py`), the reminder-line activated ability bound structurally off Scryfall's own `keywords: ["Station"]` entry (`effect_binder._station_activated_ability`); see `Done_Backend.md`'s Station entry |
-  | Horsemanship | 702.31 | Portal (Portal-only, no reprints since) | **Not done** (checked 2026-08-27, RULE 702 keyword audit) — bare keyword, `combat.can_block` never checks it; lowest priority of this whole table, essentially a dead card pool |
-  | Banding | 702.22 | Alpha/old-border era | **Not done** (checked 2026-08-27) — bare keyword, 0 `game/` hits; nostalgia-only, no modern reprints |
+  | Horsemanship | 702.31 | Portal (Portal-only, no reprints since) | **Done** (MEC-87, 2026-09-15) — `combat.has_horsemanship` wired into `can_block`; +30 cards via five parser handlers. See `Done_Backend.md`'s "Horsemanship" entry |
+  | Banding | 702.22 | Alpha/old-border era | **Done** (MEC-88, 2026-09-15) — `combat.has_banding` + RULE 702.22j's damage-assignment reroute; +9 cards (parser + one hand-authored singleton). RULE 702.22c's interactive attacking-band declaration stays unbuilt (no MODELED card exercises it) and five residual cards remain, each blocked by an unrelated template gap — see `Done_Backend.md`'s "Banding" entry and this file's own Commander-legal tail sweep section above |
   | For Mirrodin! | 702.90-adjacent | New Phyrexia | **Recognition fixed** (PARSER_VERSION 101, PAR-28) — the trailing-`!` keyword line is now claimed (`_KEYWORD_TOKEN_RE`); no engine behaviour (Living Weapon-style germ token) yet |
   | Max Speed / Start Your Engines! | RULE 702.178 / 702.179 | Aetherdrift | **Done** (PARSER_VERSION 101, PAR-28) — full Speed subsystem: `Player.speed`, the Start-Your-Engines! SBA, the RULE 702.179d life-loss inherent trigger, `your_speed_is_max` static gate. See `Done_Backend.md`'s "Keyword — [ability] families" entry |
   | Job Select / Tiered / Increment / Paradigm / Teamwork / Sneak | various | Final Fantasy | **Not done** (checked 2026-08-27) — recognized-but-inert; Sneak's name also collides with an unrelated hand-authored effect, worth disambiguating before building. (**Power-up** was in this row — now **done**, PAR-28) |
