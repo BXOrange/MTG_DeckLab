@@ -506,8 +506,26 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 45.03% (15,675 / 34,811) as of 2026-09-15, measured at
-PARSER_VERSION 393** (closes PAR-78 — "Prevent all damage that would be
+**Coverage: 45.04% (15,679 / 34,811) as of 2026-09-15, measured at
+PARSER_VERSION 394** (v394 closes PAR-79's second increment — "another
+target legendary creature can't be blocked this turn" (Bessie, the
+Doctor's Roadster, `creature_filter`'s `"legendary"` key) and a bare-
+subtype-as-noun target, "target `<subtype>`[, `<subtype>`, or `<subtype>`]
+can't be blocked this turn" (Aquatic Incursion's "target merfolk",
+Corsairs of Umbar's "target goblin, orc, or pirate" — a closed word list,
+this project's own PAR-78 convention for this exact shape, not an open
+vocabulary). +4, zero regressed. A prior pass through this file's
+changelog and `Done_Backend.md` had wrongly marked this ticket fully
+"closed" with a fabricated "0 UNMODELED remaining" claim — `parser_probe.py
+blocked "can't be blocked this turn"` disproves it (77 SOLO cards still
+open: the six-card Alora cycle's delayed-return compound, activation-
+cost-reduction/frequency riders, a qualified "except by `<keyword>`"
+evasion form, and Brotherhood Spy/Cunning Survivor/Devourer of Memory's
+real blocker being an unrelated conditional phase-trigger gap that only
+incidentally shares this search phrase) — corrected in both files rather
+than left standing; ticket reopened in `BACKLOG.md` with the accurate
+residue. See `Done_Backend.md`'s "Combat" section, PAR-79 entry.
+v393 closed PAR-78 — "Prevent all damage that would be
 dealt to `<target>`" broad recognition. The ticket's own "not a new
 primitive" framing was only partly right: `PreventDamageEffect`/
 `"prevent_damage_shield"` already had the unlimited "all" shield, but there
@@ -902,7 +920,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 47.29% (15,053 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 47.30% (15,057 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

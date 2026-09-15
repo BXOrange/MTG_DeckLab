@@ -161,3 +161,78 @@ def test_other_attacking_creature_unblockable_executes():
         other,
     )[0].apply(eng.rules.context, [other])
     assert other.temp_unblockable is True
+
+
+# ---------------------------------------------------------------------------
+# Second increment: "another target legendary creature"/bare-subtype-noun
+# targets (Bessie, the Doctor's Roadster; Aquatic Incursion/Daughter of the
+# Deep/Corsairs of Umbar). See `Done_Backend.md`'s PAR-79 entry — these two
+# shapes are what the second increment actually closed; the ~77-card
+# residue (Alora cycle, activation-cost riders, qualified "except by..."
+# forms) is unaffected and stays open.
+# ---------------------------------------------------------------------------
+
+
+def test_another_target_legendary_creature_unblockable_parses():
+    specs = match_clause("another target legendary creature can't be blocked this turn")
+    assert specs == [EffectSpec("unblockable", {
+        "target_kind": "creature", "creature_filter": {"legendary": True},
+    })]
+
+
+def test_bare_subtype_unblockable_parses():
+    specs = match_clause("target merfolk can't be blocked this turn")
+    assert specs == [EffectSpec("unblockable", {
+        "target_kind": "creature", "creature_filter": {"subtype": "Merfolk"},
+    })]
+
+
+def test_bare_subtype_or_list_unblockable_parses():
+    # The Oxford-comma "A, B, or C" shape (Corsairs of Umbar) — the
+    # regression this increment's own split-regex bug fix targets: a naive
+    # `,\s*|\s+or\s+` split leaves "or pirate" as one unmatched word.
+    specs = match_clause("target goblin, orc, or pirate can't be blocked this turn")
+    assert specs == [EffectSpec("unblockable", {
+        "target_kind": "creature",
+        "creature_filter": {"subtype_any": ["Goblin", "Orc", "Pirate"]},
+    })]
+
+
+def test_bare_subtype_unblockable_rejects_unknown_words():
+    # An unrecognized word must fail closed rather than guessing a subtype
+    # filter for what's really a qualifier — e.g. "attacking creature" is
+    # already claimed by `cant_be_blocked_this_turn` before this handler is
+    # even tried, so this proves the *fallback* also stays closed.
+    assert match_clause("target sliver overlord can't be blocked this turn") is None
+
+
+def test_bare_subtype_unblockable_executes():
+    eng = _engine()
+    merfolk = GameObject(
+        _card("Silvergill Adept", "Creature — Merfolk Wizard", "", power=2, toughness=2),
+        owner_id="p2", zone=Zone.BATTLEFIELD,
+    )
+    merfolk.controller_id = "p2"
+    eng.state.add_to_battlefield(merfolk)
+    build_effects(
+        [EffectSpec("unblockable", {
+            "target_kind": "creature", "creature_filter": {"subtype": "Merfolk"},
+        })],
+        merfolk,
+    )[0].apply(eng.rules.context, [merfolk])
+    assert merfolk.temp_unblockable is True
+
+
+def test_real_cards_now_modeled_second_increment():
+    for name, tl, txt in [
+        ("Bessie, the Doctor's Roadster", "Legendary Creature — Car",
+         "Whenever ~ attacks, another target legendary creature can't be "
+         "blocked this turn."),
+        ("Aquatic Incursion", "Instant",
+         "{3}{U}: Target merfolk can't be blocked this turn."),
+        ("Corsairs of Umbar", "Creature — Human Pirate",
+         "{2}{U}: Target goblin, orc, or pirate can't be blocked this turn."),
+    ]:
+        c = _card(name, tl, txt, power=2, toughness=2, mana_cost_string="{1}{U}")
+        r = parse_oracle(c)
+        assert r.modeled, (name, r.unclaimed)

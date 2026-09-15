@@ -10508,7 +10508,7 @@ _CANT_BE_BLOCKED_TURN_SUBTYPE_RE = _c(
 
 
 def _cant_be_blocked_turn_subtype(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    words = [w for w in re.split(r",\s*|\s+or\s+", m.group("subtypes")) if w]
+    words = [w for w in re.split(r",\s*(?:or\s+)?|\s+or\s+", m.group("subtypes")) if w]
     if not words or not all(w in _CANT_BLOCKED_TARGET_SUBTYPE_WORDS for w in words):
         return None
     filt = {"subtype": words[0].title()} if len(words) == 1 else {

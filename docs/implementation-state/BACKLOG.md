@@ -94,6 +94,43 @@ read. Several of these were flagged by `commander_tail_report.py` as
 "all"-amount `prevent_damage_shield`) — filed as `PAR-*` parser gaps, not
 `MEC-*`, for exactly that reason. Ordered by verified SOLO count.
 
+- **PAR-79 · "`<Name>`/target creature can't be blocked this turn" — broad
+  recognition (residue after two increments).** `temp_unblockable`/the
+  `"unblockable"` effect key already exist end to end
+  (`game/effects/attachments_transforms.py`, `registry.py`). **Two
+  increments shipped** (PARSER_VERSION 387 then 394, +24 then +4, zero
+  regressed each — see `Done_Backend.md`'s "Combat" section for exactly
+  what each closed; a stray edit briefly mis-marked this ticket "closed"
+  with a false "0 UNMODELED remaining" claim on 2026-09-15 — corrected
+  there and here after `parser_probe.py` disproved it). **77 SOLO cards
+  confirmed still open** (re-run `parser_probe.py blocked "can't be
+  blocked this turn"` before starting — the count moves every batch),
+  none of it attempted yet:
+  - a delayed-trigger "…at the beginning of the next end step, return
+    that creature to its owner's hand[, `<tail>`]" compound — the
+    six-card Alora cycle (Alora, Cheerful Assassin/Mastermind/Scout/
+    Swashbuckler/Thief; Alora, Rogue Companion), each with its own
+    distinct conditional tail (life loss/token/perpetual buff/Treasure/
+    perpetual debuff) — likely `create_delayed_trigger` plus a
+    per-card "if you do, `<effect>`" composition, not one shared row.
+  - an activation-cost-reduction/frequency rider on the ability that
+    grants unblockable (A-Sewer Crocodile's "this ability costs `<cost>`
+    less to activate if…"; Basim Ibn Ishaq's "this ability triggers only
+    once each turn") — the unblockable clause itself is trivial; the real
+    gap is the rider on the ability's own cost/frequency.
+  - a qualified "…except by creatures with `<keyword>`" evasion form
+    (Agility Bobblehead, Departed Deckhand) — likely the existing
+    qualified-can't-be-blocked-by-filter family (see
+    `handlers.py`'s own "~ can't be blocked by creatures with power 2 or
+    less this turn" comment) rather than plain `unblockable`; verify
+    before building a third shape.
+  - at least one card (Brotherhood Spy, and likely Cunning
+    Survivor/Devourer of Memory, all already-working `_pump_unblockable`
+    effect bodies) whose real blocker is an unrelated conditional
+    phase-trigger gap ("at the beginning of combat on your turn, **if you
+    control a legendary Assassin**, …") that only incidentally shares this
+    search phrase — don't spend this ticket's effort here, it belongs to
+    a separate conditional-trigger ticket if pursued.
 - **PAR-80 · X-spell "target creature gets +X/+`<N>` until end of turn."**
   The variable-power/fixed-toughness pump family (an X spell whose
   caster-chosen X sets one axis of the buff). Confirmed: 33 SOLO (39

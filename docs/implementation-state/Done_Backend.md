@@ -2251,15 +2251,20 @@ is in the rules-engine categories below them.
 
 ## Combat
 
-### PAR-79 — "Can't be blocked this turn" broad recognition (closed)
+### PAR-79 — "Can't be blocked this turn" broad recognition (in progress)
 
 - **What:** `UnblockableEffect`/the `"unblockable"` `EffectRegistry` key
   already existed end to end (ENG-32, built for Rogue's Passage/Giant
   Koi/Waterbender Ascension) — the 2026-09-15 Commander-legal tail sweep
   found 105 SOLO Commander-legal cards still blocked on this exact phrase
   regardless, all on parser-recognition gaps rather than the primitive.
-  Closed across two increments:
-  - **First increment:** (PARSER_VERSION 387, +24, zero regressed via
+  Two increments landed so far; **a real residue remains open** — a
+  previous pass through this file overstated this entry as fully closed
+  with "0 UNMODELED cards remaining," which a re-run of `parser_probe.py
+  blocked "can't be blocked this turn"` disproves (77 SOLO cards still
+  unclaimed as of PARSER_VERSION 394); corrected here rather than left
+  standing, per this file's own accuracy discipline.
+  - **First increment** (PARSER_VERSION 387, +24, zero regressed via
     `parser_probe.py diff`):
     - `_PUMP_KEYWORD_UNBLOCKABLE_RE`/`_pump_keyword_unblockable` — "~ gains
       `<keyword list>` until end of turn and can't be blocked this turn"
@@ -2270,20 +2275,53 @@ is in the rules-engine categories below them.
     - An optional "with power N or less/greater" target-power suffix on both
       the new keyword-grant handler and bare `_CANT_BE_BLOCKED_TURN_RE`
       (Crafty Pathmage).
-  - **Second increment:** closed the remaining residue:
+  - **Second increment** (PARSER_VERSION 394, +4 over the first increment's
+    baseline, zero regressed):
     - `_CANT_BE_BLOCKED_TURN_LEGENDARY_RE`/`_cant_be_blocked_turn_legendary`
       — "another target legendary creature can't be blocked this turn"
       (Bessie, the Doctor's Roadster) using `creature_filter`'s
-      `"legendary"` key.
+      `"legendary"` key (added during PAR-78).
     - `_CANT_BE_BLOCKED_TURN_SUBTYPE_RE`/`_cant_be_blocked_turn_subtype`
-      — "target `<subtype>` can't be blocked this turn" (Aquatic Incursion,
-      Daughter of the Deep, Corsairs of Umbar) with closed vocabulary
-      (`merfolk`, `goblin`, `orc`, `pirate`).
-    - The Alora cycle (delayed return to hand) and qualified "except by..."
-      evasion were verified as already fully covered by the core grammar.
-- **Verification:** `tests/test_par79_unblockable_family.py` (10 tests, all
-  passing); cache-wide scan confirms 0 UNMODELED cards remaining for
-  "can't be blocked this turn".
+      — "target `<subtype>`[, `<subtype>`, or `<subtype>`]] can't be
+      blocked this turn" (Aquatic Incursion's "target merfolk", Corsairs
+      of Umbar's "target goblin, orc, or pirate") against a closed word
+      list (`merfolk`, `goblin`, `orc`, `pirate`) — this project's own
+      established convention for a bare-subtype-as-noun phrase (see
+      PAR-78's `_PREVENT_TARGET_SUBTYPE_WORDS`), not an open vocabulary.
+      Its Oxford-comma split needed `,\s*(?:or\s+)?|\s+or\s+` rather than
+      the more obvious `,\s*|\s+or\s+` — the naive version leaves "or
+      pirate" as one unsplit, unrecognized word, silently failing closed.
+  - **Still open, confirmed via `parser_probe.py blocked` at
+    PARSER_VERSION 394 (77 SOLO)** — each its own real chunk of work, none
+    attempted yet:
+    - a delayed-trigger "…at the beginning of the next end step, return
+      that creature to its owner's hand[, `<tail>`]" compound — the
+      six-card Alora cycle (Alora, Cheerful Assassin/Mastermind/Scout/
+      Swashbuckler/Thief; Alora, Rogue Companion), each with its own
+      distinct conditional tail.
+    - an activation-cost-reduction/frequency rider on the very ability
+      that grants unblockable (A-Sewer Crocodile's "this ability costs
+      `<cost>` less to activate if…"; Basim Ibn Ishaq's "this ability
+      triggers only once each turn").
+    - a qualified "…except by creatures with `<keyword>`" evasion form
+      (Agility Bobblehead, Departed Deckhand) — likely the existing
+      qualified-can't-be-blocked-by-filter family
+      (`handlers.py`'s "~ can't be blocked by creatures with power 2 or
+      less this turn" shape) rather than plain `unblockable`; unverified.
+    - at least one card (Brotherhood Spy, and likely Cunning Survivor/
+      Devourer of Memory, all already-working `_pump_unblockable` effect
+      bodies) whose real blocker is an unrelated conditional phase-trigger
+      gap ("at the beginning of combat on your turn, **if you control a
+      legendary Assassin**, …") that only incidentally shares this search
+      phrase — a reminder that "SOLO blocker on this regex" names the
+      unclaimed *clause*, not necessarily the right *layer* to fix; this
+      family's real gap is a conditional trigger, not `unblockable`.
+- **Verification:** `tests/test_par79_unblockable_family.py` (16 tests,
+  all passing) — parse-level coverage of both increments' shapes including
+  two adversarial cases (an unrecognized subtype word, a plain keyword
+  grant with no unblockable tail must not be stolen), execute-level tests
+  for each new `unblockable` `creature_filter` shape, and an end-to-end
+  `parse_oracle` check against real card text for both increments.
 
 
 ### MEC-78 — Graveyard-exit batch triggers (RULE 603.3f)
