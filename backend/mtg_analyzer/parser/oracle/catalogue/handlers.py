@@ -47,6 +47,7 @@ from .subgrammars import (
     pluralize_permanent_type,
     resolve_color_word,
     resolve_spell_filter,
+    resolve_target_creature_state_filter,
     resolve_target_kind,
     target_is_optional,
     target_macro,
@@ -287,14 +288,24 @@ def _damage(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if kind is None:
         return None
-    return [EffectSpec("damage", {"amount": int(m.group("n")), "target_kind": kind, **_optional_param(m)})]
+    params: dict = {"amount": int(m.group("n")), "target_kind": kind, **_optional_param(m)}
+    # See `_destroy`'s own comment: "deals N damage to target tapped
+    # creature" needs the same qualifier `resolve_target_kind` discards.
+    state_filter = resolve_target_creature_state_filter(m.group("target"))
+    if state_filter:
+        params["creature_filter"] = state_filter
+    return [EffectSpec("damage", params)]
 
 
 def _damage_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if kind is None:
         return None
-    return [EffectSpec("damage", {"amount": "x", "target_kind": kind, **_optional_param(m)})]
+    params: dict = {"amount": "x", "target_kind": kind, **_optional_param(m)}
+    state_filter = resolve_target_creature_state_filter(m.group("target"))
+    if state_filter:
+        params["creature_filter"] = state_filter
+    return [EffectSpec("damage", params)]
 
 
 _DAMAGE_X_SOURCE_COUNTERS_RE = _c(
@@ -2549,6 +2560,14 @@ def _destroy(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params: dict = {"target_kind": kind, **_optional_param(m)}
     if color:
         params["color"] = color
+    # "destroy target tapped creature" (Assassinate-shaped) — `resolve_
+    # target_kind` deliberately collapses "target attacking/blocking/
+    # tapped/untapped creature" onto the bare "creature" kind (RULE 115's
+    # own precision-loss convention); without this the qualifier is
+    # silently dropped and the spell destroys *any* creature.
+    state_filter = resolve_target_creature_state_filter(m.group("target"))
+    if state_filter:
+        params["creature_filter"] = state_filter
     return [EffectSpec("destroy", params)]
 
 
@@ -3237,7 +3256,13 @@ def _exile(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "creature", "attacking_or_blocking_creature", "permanent", "nonland_permanent", *_SINGLE_TYPE_PERMANENT_KINDS
     ):
         return None
-    return [EffectSpec("exile", {"target_kind": kind, **_optional_param(m)})]
+    params: dict = {"target_kind": kind, **_optional_param(m)}
+    # See `_destroy`'s own comment: "exile target tapped creature" needs the
+    # same qualifier `resolve_target_kind` alone discards.
+    state_filter = resolve_target_creature_state_filter(m.group("target"))
+    if state_filter:
+        params["creature_filter"] = state_filter
+    return [EffectSpec("exile", params)]
 
 
 #: "Whenever this creature deals combat damage to a creature, exile that
@@ -3274,7 +3299,16 @@ def _tap(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if kind is None or kind not in _TAP_TARGET_KINDS:
         return None
     untap = m.group("verb").lower() == "untap"
-    return [EffectSpec("tap", {"target_kind": kind, "untap": untap, **_optional_param(m)})]
+    params: dict = {"target_kind": kind, "untap": untap, **_optional_param(m)}
+    # See `_destroy`'s own comment. "Tap target untapped creature"/"tap
+    # target tapped creature" is a real, printed shape (Backlash, Ana
+    # Battlemage's kicker mode) that needs the qualifier too — a "would be
+    # a no-op either way" case for tap specifically only when the two words
+    # happen to agree with the verb, which they usually don't.
+    state_filter = resolve_target_creature_state_filter(m.group("target"))
+    if state_filter:
+        params["creature_filter"] = state_filter
+    return [EffectSpec("tap", params)]
 
 
 #: "tap target `<c1>` or `<c2>` creature[ an opponent controls]"
@@ -3582,7 +3616,13 @@ def _return_to_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if kind is None or kind not in _RETURN_TO_HAND_KINDS:
         return None
-    return [EffectSpec("return_to_hand", {"target_kind": kind, **_optional_param(m)})]
+    params: dict = {"target_kind": kind, **_optional_param(m)}
+    # See `_destroy`'s own comment: "return target tapped creature to its
+    # owner's hand" (Galestrike-shaped) needs the same qualifier.
+    state_filter = resolve_target_creature_state_filter(m.group("target"))
+    if state_filter:
+        params["creature_filter"] = state_filter
+    return [EffectSpec("return_to_hand", params)]
 
 
 #: RULE 601.2c mass "return all nonland permanents with mana value X or less
@@ -5933,12 +5973,18 @@ def _exile_until_leaves(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     if (m.group("opp_ctrl") or "").strip() == "an opponent controls":
         kind = _EXILE_UNTIL_LEAVES_OPP_KINDS.get(kind, kind)
-    return [EffectSpec("exile", {
+    params: dict = {
         "target_kind": kind,
         "remember": True,
         "until_source_leaves": True,
         **_optional_param(m),
-    })]
+    }
+    # See `_destroy`'s own comment: "exile target tapped creature an
+    # opponent controls until ~ leaves" (Seal Away-shaped) needs it too.
+    state_filter = resolve_target_creature_state_filter(m.group("target"))
+    if state_filter:
+        params["creature_filter"] = state_filter
+    return [EffectSpec("exile", params)]
 
 
 #: PAR-30 "Threaten … tails residue" — the *old two-sentence* O-Ring
@@ -6826,6 +6872,11 @@ def _add_counters_target_params(
     params["target_kind"] = kind
     if include_optional:
         params.update(_optional_param(m))
+    # See `_destroy`'s own comment: "put a counter on target attacking
+    # creature" (Sparring Regimen's Lesson-shaped) needs it too.
+    state_filter = resolve_target_creature_state_filter(m.group("target"))
+    if state_filter:
+        params["creature_filter"] = {**(params.get("creature_filter") or {}), **state_filter}
     return [EffectSpec("add_counters", params)]
 
 
@@ -7259,6 +7310,23 @@ def _pump_target(m: re.Match[str]) -> Optional[tuple[Optional[str], Optional[str
     return (kind, None)
 
 
+def _pump_target_creature_filter(m: re.Match[str]) -> Optional[dict]:
+    """The RULE 508/509 board-state qualifier (attacking/blocking/tapped/
+    untapped) `_pump_target`'s own ``(target_kind, selector)`` pair
+    discards — see `subgrammars.resolve_target_creature_state_filter` and
+    `_destroy`'s own comment on the same fix. Every `_pump_target(m)` caller
+    that threads its ``target_kind`` straight into an `EffectSpec` should
+    also merge this into its own ``creature_filter``, or "target tapped
+    creature gets -1/-1" (etc.) silently pumps *any* creature. A no-op for
+    every match whose ``target`` group didn't come from a qualified phrase
+    (``None`` — most callers).
+    """
+    target_text = m.groupdict().get("target")
+    if not target_text:
+        return None
+    return resolve_target_creature_state_filter(target_text)
+
+
 def _pump(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     subject = _pump_target(m)
     if subject is None:
@@ -7277,6 +7345,9 @@ def _pump(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["target_kind"] = target_kind
     if selector:
         params["selector"] = selector
+    state_filter = _pump_target_creature_filter(m)
+    if state_filter:
+        params["creature_filter"] = {**(params.get("creature_filter") or {}), **state_filter}
     return [EffectSpec("pump", params)]
 
 
@@ -7289,11 +7360,21 @@ _PUMP_SUBTYPE_TARGET_RE = _c(
 
 
 def _pump_subtype_target(m: re.Match[str]) -> list[EffectSpec]:
+    # "Target attacking/blocking/tapped/untapped creature gets +N/+M…" is
+    # RULE 508/509's board-state qualifier, not a real creature subtype —
+    # this regex's bare `[a-z]+` capture doesn't know the difference and
+    # would otherwise stamp a `creature_filter` naming a subtype
+    # ("Attacking") no real creature ever has, making the target
+    # unsatisfiable rather than just imprecise (found auditing the same
+    # `resolve_target_kind` collapse this file's `_destroy`/`_pump_target`
+    # fix addresses one layer down).
+    state_filter = resolve_target_creature_state_filter(f"target {m.group('subtype')} creature")
+    creature_filter = state_filter or {"subtype": m.group("subtype").capitalize()}
     return [EffectSpec("pump", {
         "power": _signed_int(m.group("p")),
         "toughness": _signed_int(m.group("t")),
         "target_kind": "creature",
-        "creature_filter": {"subtype": m.group("subtype").capitalize()},
+        "creature_filter": creature_filter,
     })]
 
 
@@ -7309,10 +7390,14 @@ def _grant_subtype_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     keywords = _token_keywords(m.group("kw"))
     if keywords is None:
         return None
+    # See `_pump_subtype_target`'s own comment: the bare `[a-z]+` capture
+    # can't tell a real subtype from a combat-state qualifier.
+    state_filter = resolve_target_creature_state_filter(f"target {m.group('subtype')} creature")
+    creature_filter = state_filter or {"subtype": m.group("subtype").capitalize()}
     return [EffectSpec("pump", {
         "keywords": keywords,
         "target_kind": "creature",
-        "creature_filter": {"subtype": m.group("subtype").capitalize()},
+        "creature_filter": creature_filter,
     })]
 
 
@@ -7370,6 +7455,9 @@ def _pump_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["target_kind"] = target_kind
     if selector:
         params["selector"] = selector
+    state_filter = _pump_target_creature_filter(m)
+    if state_filter:
+        params["creature_filter"] = {**(params.get("creature_filter") or {}), **state_filter}
     return [EffectSpec("pump", params)]
 
 
@@ -7405,6 +7493,9 @@ def _pump_keywords(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["target_kind"] = target_kind
     if selector:
         params["selector"] = selector
+    state_filter = _pump_target_creature_filter(m)
+    if state_filter:
+        params["creature_filter"] = {**(params.get("creature_filter") or {}), **state_filter}
     return [EffectSpec("pump", params)]
 
 
@@ -7458,6 +7549,9 @@ def _pump_target_two_color(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["keywords"] = kws
     if "power" not in params and "keywords" not in params:
         return None
+    state_filter = _pump_target_creature_filter(m)
+    if state_filter:
+        params["creature_filter"] = {**(params.get("creature_filter") or {}), **state_filter}
     return [EffectSpec("pump", params)]
 
 
@@ -7580,6 +7674,9 @@ def _pump_up_to_two(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         if keywords is None:
             return None
         params["keywords"] = keywords
+    state_filter = _pump_target_creature_filter(m)
+    if state_filter:
+        params["creature_filter"] = {**(params.get("creature_filter") or {}), **state_filter}
     return [EffectSpec("pump", params)]
 
 
@@ -7593,6 +7690,9 @@ def _pump_one_or_two(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         if keywords is None:
             return None
         params["keywords"] = keywords
+    state_filter = _pump_target_creature_filter(m)
+    if state_filter:
+        params["creature_filter"] = {**(params.get("creature_filter") or {}), **state_filter}
     return [EffectSpec("pump", params)]
 
 
@@ -7735,6 +7835,9 @@ def _pump_target_source_power(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["target_kind"] = target_kind
     if selector_subject is not None:
         params["selector"] = selector_subject
+    state_filter = _pump_target_creature_filter(m)
+    if state_filter:
+        params["creature_filter"] = {**(params.get("creature_filter") or {}), **state_filter}
     return [EffectSpec("pump", params)]
 
 
@@ -7764,6 +7867,9 @@ def _pump_mana_value(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["target_kind"] = target_kind
     if selector:
         params["selector"] = selector
+    state_filter = _pump_target_creature_filter(m)
+    if state_filter:
+        params["creature_filter"] = {**(params.get("creature_filter") or {}), **state_filter}
     return [EffectSpec("pump", params)]
 
 
@@ -7802,6 +7908,9 @@ def _pump_target_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["target_kind"] = target_kind
     if selector:
         params["selector"] = selector
+    state_filter = _pump_target_creature_filter(m)
+    if state_filter:
+        params["creature_filter"] = {**(params.get("creature_filter") or {}), **state_filter}
     return [EffectSpec("pump", params)]
 
 
@@ -7848,6 +7957,9 @@ def _pump_target_x_selector(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["target_kind"] = target_kind
     if selector:
         params["selector"] = selector
+    state_filter = _pump_target_creature_filter(m)
+    if state_filter:
+        params["creature_filter"] = {**(params.get("creature_filter") or {}), **state_filter}
     return [EffectSpec("pump", params)]
 
 
@@ -7864,6 +7976,9 @@ def _pump_devotion_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["target_kind"] = target_kind
     if selector_subject:
         params["selector"] = selector_subject
+    state_filter = _pump_target_creature_filter(m)
+    if state_filter:
+        params["creature_filter"] = {**(params.get("creature_filter") or {}), **state_filter}
     return [EffectSpec("pump", params)]
 
 
@@ -7880,6 +7995,9 @@ def _pump_devotion_negative_target(m: re.Match[str]) -> Optional[list[EffectSpec
         params["target_kind"] = target_kind
     if selector_subject:
         params["selector"] = selector_subject
+    state_filter = _pump_target_creature_filter(m)
+    if state_filter:
+        params["creature_filter"] = {**(params.get("creature_filter") or {}), **state_filter}
     return [EffectSpec("pump", params)]
 
 
@@ -7980,6 +8098,9 @@ def _pump_self_subject_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params: dict = {"amount_from_count_selector": selector}
     if m.group("sign") == "-":
         params["amount_from_count_selector_negative"] = True
+    state_filter = _pump_target_creature_filter(m)
+    if state_filter:
+        params["creature_filter"] = {**(params.get("creature_filter") or {}), **state_filter}
     return [EffectSpec("pump", params)]
 
 
@@ -7997,6 +8118,9 @@ def _pump_self_subject(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         if keywords is None:
             return None  # unmodeled granted ability → fail-closed
         params["keywords"] = keywords
+    state_filter = _pump_target_creature_filter(m)
+    if state_filter:
+        params["creature_filter"] = {**(params.get("creature_filter") or {}), **state_filter}
     return [EffectSpec("pump", params)]
 
 
@@ -8572,9 +8696,14 @@ def _connive_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if kind not in _CONNIVE_TARGET_KINDS:
         return None
-    return [EffectSpec("connive", {
-        "target_kind": kind, **_optional_param(m), **_connive_amount_params(m),
-    })]
+    params: dict = {"target_kind": kind, **_optional_param(m), **_connive_amount_params(m)}
+    # "target attacking creature connives X" (Raffine, Scheming Seer) — see
+    # `_destroy`'s own comment: `resolve_target_kind` alone drops the
+    # qualifier. `ConniveEffect.creature_filter` is new alongside this fix.
+    state_filter = resolve_target_creature_state_filter(m.group("target"))
+    if state_filter:
+        params["creature_filter"] = state_filter
+    return [EffectSpec("connive", params)]
 
 
 def _connive_previous(m: re.Match[str]) -> list[EffectSpec]:
@@ -10040,6 +10169,9 @@ def _pump_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         if keywords is None:
             return None  # unmodeled granted ability → fail-closed
         params["keywords"] = keywords
+    state_filter = _pump_target_creature_filter(m)
+    if state_filter:
+        params["creature_filter"] = {**(params.get("creature_filter") or {}), **state_filter}
     return [EffectSpec("pump", params)]
 
 
@@ -10411,6 +10543,9 @@ def _pump_previous_targets_pt(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         if keywords is None:
             return None
         params["keywords"] = keywords
+    state_filter = _pump_target_creature_filter(m)
+    if state_filter:
+        params["creature_filter"] = {**(params.get("creature_filter") or {}), **state_filter}
     return [EffectSpec("pump", params)]
 
 
@@ -10597,6 +10732,9 @@ def _pump_unblockable(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["target_kind"] = target_kind
     if selector:
         params["selector"] = selector
+    state_filter = _pump_target_creature_filter(m)
+    if state_filter:
+        params["creature_filter"] = {**(params.get("creature_filter") or {}), **state_filter}
     return [EffectSpec("pump", params)]
 
 
@@ -10675,6 +10813,14 @@ def _cant_be_blocked_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             return None  # "with power N or less" needs a real RULE 115 target, not the bare self form
         key = "max_power" if m.group("pcmp") == "less" else "min_power"
         params["creature_filter"] = {key: int(m.group("pn"))}
+    # "up to one target attacking creature can't be blocked this turn"
+    # (Alora, Merry Thief) / "…with power 3 or less…" (Gossip's Talent) —
+    # see `_destroy`'s own comment: `resolve_target_kind` alone drops the
+    # qualifier, same bug in this effect family.
+    if not m.groupdict().get("selfref"):
+        state_filter = resolve_target_creature_state_filter(m.group("target"))
+        if state_filter:
+            params["creature_filter"] = {**(params.get("creature_filter") or {}), **state_filter}
     return [EffectSpec("unblockable", params)]
 
 
@@ -10773,58 +10919,37 @@ def _pump_keyword_unblockable(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.group("pn"):
         key = "max_power" if m.group("pcmp") == "less" else "min_power"
         params["creature_filter"] = {key: int(m.group("pn"))}
+    state_filter = _pump_target_creature_filter(m)
+    if state_filter:
+        params["creature_filter"] = {**(params.get("creature_filter") or {}), **state_filter}
     return [EffectSpec("pump", params)]
 
 
-#: PAR-79: "another target attacking creature can't be blocked this turn."
-#: (Bessie, the Doctor's Roadster/Clammy Prowler-shaped) — the unblockable
-#: sibling of `_PUMP_OTHER_ATTACKING_CREATURE_RE` above: "another ... attacking
-#: creature" is a combat-state target restriction the shared `TARGET` macro
-#: doesn't represent (the plain `_CANT_BE_BLOCKED_TURN_RE` above already
-#: covers "up to one target attacking creature" via `TARGET` itself).
-_CANT_BE_BLOCKED_TURN_OTHER_ATTACKER_RE = _c(
-    r"another target attacking creature can'?t be blocked this turn"
-)
-
-
-def _cant_be_blocked_turn_other_attacker(m: re.Match[str]) -> list[EffectSpec]:
-    # Plain "creature" target kind already defaults `exclude_source=True`
-    # (`targeting.py`), so "another" needs no extra param here — same as
-    # `_pump_other_attacking_creature` above.
-    return [EffectSpec("unblockable", {"target_kind": "creature", "creature_filter": {"attacking": True}})]
-
-
-#: PAR-79: "[another ]target legendary creature can't be blocked this
-#: turn." (Bessie, the Doctor's Roadster's "another…"; K-9, Mark I's bare
-#: "target legendary creature") — the supertype sibling of
-#: `_CANT_BE_BLOCKED_TURN_OTHER_ATTACKER_RE` just above: `creature_filter`'s
-#: ``"legendary"`` key (added alongside the pre-existing negative
-#: ``"nonlegendary"`` during PAR-78) is exactly what this needs either way.
-_CANT_BE_BLOCKED_TURN_LEGENDARY_RE = _c(
-    r"(?:another )?target legendary creature can'?t be blocked this turn"
-)
-
-
-def _cant_be_blocked_turn_legendary(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("unblockable", {"target_kind": "creature", "creature_filter": {"legendary": True}})]
-
-
-#: PAR-79: "target `<object-filter phrase>` can't be blocked this turn."
-#: (Merfolk Sovereign's "target Merfolk creature"; Aquatic Incursion's bare
-#: "target merfolk"; Corsairs of Umbar's "target goblin, orc, or pirate";
-#: Private Eye's "target detective") — one row over the *shared*
-#: `static_handlers.object_filter` vocabulary instead of a hand-rolled,
-#: ever-growing subtype word list: that function already resolves a bare
-#: subtype, a "`<subtype>` creature[s]" noun phrase, and an "A, B, or C"/
-#: "A or B" list uniformly (the singular-"creature"/Oxford-comma widenings
-#: needed here were made to `object_filter` itself, so every other caller
-#: — the "except by" restriction, the standing static equivalents —
-#: benefits too, not just this one search phrase). Tried after every
-#: fixed-phrase row above (bare/attacking/legendary/mass/multi), so a word
-#: `object_filter` would otherwise happily treat as a subtype (all of
-#: those) is never reached here.
+#: PAR-79: "[another ]target `<object-filter phrase>` can't be blocked this
+#: turn." (Merfolk Sovereign's "target Merfolk creature"; Aquatic Incursion's
+#: bare "target merfolk"; Corsairs of Umbar's "target goblin, orc, or
+#: pirate"; Private Eye's "target detective"; Bessie, the Doctor's Roadster's
+#: "another target attacking creature"/"another target legendary creature";
+#: K-9, Mark I's bare "target legendary creature") — one row over the
+#: *shared* `static_handlers.object_filter` vocabulary instead of a
+#: hand-rolled, ever-growing word list per adjective: that function
+#: resolves a bare subtype, a "`<subtype>` creature[s]" noun phrase, an "A,
+#: B, or C"/"A or B" list, and — since `object_filter`'s own
+#: `_OBJECT_FILTER_FLAG_WORDS` step — a leading "tapped"/"attacking"/
+#: "blocking"/"legendary" flag word too, uniformly (all widenings made to
+#: `object_filter` itself, so every other caller — the "except by"
+#: restriction, the standing static equivalents — benefits too, not just
+#: this one search phrase). This row used to sit *after* two now-deleted
+#: dedicated regexes for "attacking"/"legendary" specifically, tried first
+#: so `object_filter` never saw those words and mis-guessed them as a bogus
+#: subtype (`_scope` doesn't know either word); now that `object_filter`
+#: strips them itself, this one row is a strict superset of both and they
+#: were removed rather than kept as now-dead duplicates. "another " is a
+#: no-op beyond widening the match: plain "creature" target kind already
+#: defaults `exclude_source=True` (`targeting.py`), same as
+#: `_pump_other_attacking_creature`.
 _CANT_BE_BLOCKED_TURN_OBJECT_FILTER_RE = _c(
-    r"target (?P<filter>[a-z][a-z, ]*?) can'?t be blocked this turn"
+    r"(?:another )?target (?P<filter>[a-z][a-z, ]*?) can'?t be blocked this turn"
 )
 
 
@@ -13646,29 +13771,15 @@ HANDLERS: list[EffectHandler] = [
         _PUMP_KEYWORD_UNBLOCKABLE_RE,
         _pump_keyword_unblockable,
     ),
-    # PAR-79: "another target attacking creature can't be blocked this
-    # turn" (Bessie/Clammy Prowler-shaped) — tried before the plain
-    # `cant_be_blocked_this_turn` row above, whose `TARGET` alternation has
-    # no "another ... attacking creature" phrasing.
-    EffectHandler(
-        "cant_be_blocked_this_turn_other_attacker",
-        _CANT_BE_BLOCKED_TURN_OTHER_ATTACKER_RE,
-        _cant_be_blocked_turn_other_attacker,
-    ),
-    # PAR-79: "another target legendary creature can't be blocked this
-    # turn" (Bessie, the Doctor's Roadster) — same ordering reason as the
-    # "other attacker" row just above.
-    EffectHandler(
-        "cant_be_blocked_this_turn_legendary",
-        _CANT_BE_BLOCKED_TURN_LEGENDARY_RE,
-        _cant_be_blocked_turn_legendary,
-    ),
-    # PAR-79: "target `<object-filter phrase>` can't be blocked this
-    # turn" (Merfolk Sovereign's "target Merfolk creature", Aquatic
-    # Incursion's bare "target merfolk", Corsairs of Umbar's "target
-    # goblin, orc, or pirate") — tried after every fixed-phrase row above
-    # so "attacking"/"tapped"/"legendary" etc. are always claimed by their
-    # own dedicated row first, never mistaken for a subtype here.
+    # PAR-79: "[another ]target `<object-filter phrase>` can't be blocked
+    # this turn" (Merfolk Sovereign's "target Merfolk creature", Corsairs of
+    # Umbar's "target goblin, orc, or pirate", Bessie/Clammy Prowler's
+    # "another target attacking/legendary creature", K-9, Mark I's bare
+    # "target legendary creature") — one general row over
+    # `static_handlers.object_filter`, which now strips a leading
+    # "attacking"/"legendary"/"blocking"/"tapped" flag word itself before
+    # falling through to subtype/colour parsing, so it no longer needs two
+    # dedicated fixed-phrase rows tried ahead of it for exactly those words.
     EffectHandler(
         "cant_be_blocked_this_turn_object_filter",
         _CANT_BE_BLOCKED_TURN_OBJECT_FILTER_RE,

@@ -25,7 +25,7 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**45.46% covered — 15,824 / 34,811 — as of 2026-09-15, PARSER_VERSION 407.**
+**45.46% covered — 15,824 / 34,811 — as of 2026-09-16, PARSER_VERSION 409.**
 Commander-legal slice (the one the product actually plays): **47.76% —
 15,201 / 31,830** (measure with `--commander-legal-only`).
 
@@ -323,8 +323,18 @@ Each was paid for once; re-reading them is cheaper than re-learning them.
   leak — it also covered two cards outside PAR-79's own search phrase — was
   the tell that the row it almost became was never really a one-off. Neither
   correction was caught at design time; both were only visible once the
-  closed list was already growing. Watch for the same shape forming again
-  before it needs a third mid-batch rewrite.
+  closed list was already growing. A third instance (v408) wasn't even
+  mid-batch — it was a standing-code audit, prompted by a question about why
+  PAR-79 kept needing new increments at all: two of its own already-shipped
+  rows (`_CANT_BE_BLOCKED_TURN_OTHER_ATTACKER_RE`/`_LEGENDARY_RE`, each
+  correctly built and tested in its own increment) turned out to be exactly
+  the enumerate-phrase-variants shape this lesson warns about, once
+  `object_filter` learned to strip a leading "attacking"/"legendary" flag
+  word itself — at which point both rows were a strict subset of the general
+  filter row and deleted, +0/+0 coverage (a code-quality fix, not a new
+  handler). The generalizable tell doesn't only show up while writing a
+  batch; it's worth asking of *already-shipped* rows in a search-phrase
+  ticket too, not just new ones.
 - **"Still open" notes written inside a shipped batch's narrative go stale
   silently, and nothing points at them once the batch's ticket closes.** The
   removed per-version changelog ended most entries with a residue list ("still

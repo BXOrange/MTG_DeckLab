@@ -75,13 +75,18 @@ isn't factored out yet — fix the shared primitive, not the phrase.
 is a good sign, not scope creep.** It means the row you were about to add
 really was one card's coincidence of wording, not a genuine one-off — the fix
 belongs at the axis, and cards outside your ticket picking up coverage is the
-proof. Two real, paid-for instances, both caught as a **mid-batch
-correction** rather than up front: PAR-78 (v393) folded a closed, per-phrase
-source-colour word list into `static_handlers.object_filter`'s general
-OR-split; PAR-79 (v401) did the same for a subtype-target list, and the fix's
-own scope leak (two cards outside PAR-79's own search phrase) is the visible
-evidence. See `PARSER_LONG_TAIL.md`'s "Lessons that keep recurring" for the
-narrative of both.
+proof. Three real, paid-for instances: PAR-78 (v393) folded a closed,
+per-phrase source-colour word list into `static_handlers.object_filter`'s
+general OR-split; PAR-79 (v401) did the same for a subtype-target list, and
+the fix's own scope leak (two cards outside PAR-79's own search phrase) is
+the visible evidence. Both were caught as a **mid-batch correction**; a third
+(v408) was caught later still, auditing *already-shipped, already-tested*
+rows — two of PAR-79's own dedicated "attacking"/"legendary" target-filter
+regexes turned out to be exactly this shape once `object_filter` learned
+those two words itself, and were deleted as a strict subset of the general
+row. The check is worth running on old rows in a search-phrase ticket, not
+just the one you're about to add. See `PARSER_LONG_TAIL.md`'s "Lessons that
+keep recurring" for the full narrative.
 
 Don't over-apply this — a genuinely singleton card's bespoke wording, with no
 plausible sibling, is still exactly what `game/ability_catalogue.py`

@@ -113,9 +113,18 @@ read. Several of these were flagged by `commander_tail_report.py` as
   `EffectRegistry` factory ever reaching it (nothing in the codebase could
   construct one) — every affected card would have parsed `MODELED` while
   silently never changing colour at runtime, caught by an execute test,
-  not the parse-level ones. **53 SOLO cards confirmed still open at
-  PARSER_VERSION 407** (re-run `parser_probe.py blocked "can't be blocked
-  this turn"` before starting — the count moves every batch). This ticket
+  not the parse-level ones. **v408 is a same-ticket cleanup, +0/+0**: the
+  two dedicated "another target attacking creature"/"[another ]target
+  legendary creature" rows shipped in earlier increments turned out to be
+  the exact "enumerate phrase variants instead of fixing the axis" shape
+  `handler-recipe.md` warns about — `object_filter` now strips a leading
+  "attacking"/"legendary"/"blocking"/"tapped" flag word itself, so both
+  rows became a strict subset of the general "target `<object-filter
+  phrase>`" row and were deleted rather than kept as dead duplicates (see
+  `PARSER_LONG_TAIL.md`'s "Lessons that keep recurring" for the writeup).
+  **53 SOLO cards confirmed still open at PARSER_VERSION 408** (re-run
+  `parser_probe.py blocked "can't be blocked this turn"` before starting —
+  the count moves every batch). This ticket
   bundles roughly a hundred independently-shaped small gaps under one
   search phrase by design (see the "2026-09-15 Commander-legal tail sweep"
   preamble above — an *indefinite sweep*, not a batch with an end date);

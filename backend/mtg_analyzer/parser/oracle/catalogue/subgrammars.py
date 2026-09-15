@@ -506,6 +506,41 @@ def resolve_target_kind(phrase: str) -> Optional[str]:
     return None
 
 
+#: "target attacking/blocking/tapped/untapped creature" (RULE 508/509's
+#: combat-state qualifiers) is a real, separate filter axis
+#: `resolve_target_kind` doesn't carry — the `_TARGET_ROWS` row for it
+#: deliberately collapses all four onto the bare ``"creature"`` kind (this
+#: file's existing "target `<state>` creature" → `creature` precision-loss
+#: convention, matching how "target attacking or blocking creature" already
+#: collapses too), so a caller that needs the qualifier reads it from the
+#: same raw phrase via this sibling function and merges it into whatever
+#: `creature_filter` it already builds. The four words map straight onto
+#: `combat.matches_object_filter`'s own existing boolean keys — "untapped"
+#: is ``{"tapped": False}``, the negative of the printed ``"tapped"`` key,
+#: not a fifth key of its own. Found auditing PAR-79's own "target legendary
+#: creature" fix: the identical shape existed here too (Assassinate's
+#: "Destroy target tapped creature" silently destroyed *any* creature,
+#: confirmed via `inspect-db` against the real cache — a live rules bug, not
+#: a coverage gap), just one layer up from where that fix landed.
+_TARGET_COMBAT_STATE_RE = re.compile(
+    r"target (attacking|blocking|tapped|untapped) creature", re.IGNORECASE,
+)
+
+
+def resolve_target_creature_state_filter(phrase: str) -> Optional[dict]:
+    """"target `<state>` creature" → a `combat.matches_object_filter`
+    fragment (``{"attacking": True}``/``{"tapped": False}``/…), or ``None``
+    if ``phrase`` carries no such qualifier. Call alongside
+    `resolve_target_kind` on the same raw text and merge the result into
+    the caller's own ``creature_filter``.
+    """
+    m = _TARGET_COMBAT_STATE_RE.fullmatch(phrase.strip())
+    if m is None:
+        return None
+    word = m.group(1).lower()
+    return {"tapped": word != "untapped"} if word in ("tapped", "untapped") else {word: True}
+
+
 def target_is_optional(m: "re.Match[str]", suffix: str = "") -> bool:
     """Whether a `TARGET`-bearing match carries an "up to one" prefix.
 

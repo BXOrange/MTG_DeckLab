@@ -1270,6 +1270,27 @@ _FILTER_KEYWORDS_RE = re.compile(
 )
 _FILTER_WITHOUT_KEYWORD_RE = re.compile(r"creatures without (?P<kw>[a-z ]+)$", re.I)
 
+#: A leading combat-state/supertype word `combat.matches_object_filter`
+#: already reads as its own boolean key (`filt["attacking"]`/
+#: `filt["legendary"]`/…) rather than a printed characteristic. Without
+#: stripping it first, the fallthrough to `_scope` below either silently
+#: drops it (``attacking`` — `_scope` parses it for the *anthem* ``affects``
+#: selector, a different consumer, and `object_filter` never read it back)
+#: or, worse, mis-guesses it as a bogus creature *subtype* named e.g.
+#: "Legendary" (`_scope`'s own digit-only guard doesn't catch a plain word
+#: that just isn't a real subtype) — a filter that would then never match
+#: any real creature, silently making the restriction impossible to satisfy
+#: (the exact "1/1"-subtype failure mode `_scope`'s own digit guard exists
+#: for, just via a non-digit word). One flag per call: no real card compounds
+#: two ("legendary attacking creature") yet, and guessing at that shape
+#: isn't this fix's job. Recurses on the remainder so any already-supported
+#: filter (a subtype, "creature" alone, a colour, an "A or B" list, …) still
+#: composes with the flag for free — this is what let PAR-79's dedicated
+#: "target legendary creature"/"another target attacking creature" rows in
+#: `catalogue/handlers.py` fold into the general "target `<filter>` can't be
+#: blocked this turn" row instead of staying one-phrase-at-a-time regexes.
+_OBJECT_FILTER_FLAG_WORDS = {"tapped", "attacking", "blocking", "legendary"}
+
 
 def object_filter(text: str) -> Optional[dict]:
     """An object-describing phrase → a `combat.matches_object_filter` param
@@ -1285,6 +1306,16 @@ def object_filter(text: str) -> Optional[dict]:
     text = text.strip().rstrip(".").strip()
     if not text:
         return None
+    words = text.split()
+    if words and words[0] in _OBJECT_FILTER_FLAG_WORDS:
+        flag = words.pop(0)
+        rest = " ".join(words)
+        if not rest:
+            return {flag: True}
+        sub = object_filter(rest)
+        if sub is None or flag in sub:
+            return None  # fail closed rather than silently drop/overwrite either half
+        return {flag: True, **sub}
     if " and/or " in text:
         # "artifact creatures and/or red creatures" (PAR-79, Firefright
         # Mage) — a union across *different* filter dimensions (card type,

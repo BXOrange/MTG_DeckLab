@@ -71,6 +71,10 @@ def test_connive_dynamic_x_parses():
         "target attacking creature connives x, where x is the number of attacking creatures"
     ) == [EffectSpec("connive", {
         "target_kind": "creature", "times_from_count_selector": "attacking_creatures",
+        # `creature_filter` is new: "target attacking creature" is a real
+        # RULE 508 target restriction, not a bare "target creature" — see
+        # `ConniveEffect.creature_filter`/`resolve_target_creature_state_filter`.
+        "creature_filter": {"attacking": True},
     })]
     assert match_clause(
         "it connives x, where x is the amount of damage it dealt to that player",

@@ -1965,6 +1965,7 @@ EffectRegistry.register(
         times=int(p.get("times", 1) or 1),
         times_from_count_selector=p.get("times_from_count_selector"),
         times_from_trigger_event=p.get("times_from_trigger_event"),
+        creature_filter=p.get("creature_filter"),
     ),
 )
 EffectRegistry.register(

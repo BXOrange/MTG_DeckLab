@@ -1047,6 +1047,7 @@ class ConniveEffect(GameEffect):
         times: int = 1,
         times_from_count_selector: Optional[str] = None,
         times_from_trigger_event: Optional[str] = None,
+        creature_filter: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
         self.previous_subject = bool(previous_subject)
@@ -1056,7 +1057,7 @@ class ConniveEffect(GameEffect):
         self.target_spec = (
             TargetSpec(kind=target_kind, optional=optional,
                        count=count if isinstance(count, int) else 1,
-                       count_selector=count_selector)
+                       count_selector=count_selector, creature_filter=creature_filter)
             if target_kind is not None
             else None
         )

@@ -1282,6 +1282,52 @@ is in the rules-engine categories below them.
 - **Combat-state target tail (PAR-30, v175):** `_DESTROY_COLOR_ADJ_RE` gained an optional "…that's attacking or blocking / attacking / blocking" group → a `creature_filter` boolean; `combat.matches_object_filter` gained `blocking` / `attacking_or_blocking` keys (siblings of the pre-existing `attacking`, resolved via `blocking_attacker_ids`). +1: Surge of Righteousness. `tests/test_par30_destroy_combat_state_target.py`.
 - **"The damage can't be prevented" (PAR-30, v176):** RULE 615.6. `DealDamageEffect` gained an `unpreventable` flag — `apply()` flips `GameState.damage_prevention_disabled` (the flag `_run_replacement_loop` reads to drop every `prevents_damage` effect) for the span of that one call, restoring it in a `finally` so unrelated later damage this turn is unaffected. The two-colour damage-target regex folds in an optional "…the/that damage can't be prevented" rider (Combust). Separately, a new standalone `_DISABLE_DAMAGE_PREVENTION_RE` routes "Damage can't be prevented this turn." to the pre-existing `disable_damage_prevention` effect (`DisableDamagePreventionEffect`, previously reachable only from hand-authored Insult // Injury). +6: Combust, Flaring Pain, Impractical Joke, Unstable Footing, Pyrewood Gearhulk, A-Ready to Rumble. `tests/test_par30_unpreventable_damage.py`. This closes the colour-list target cluster.
 
+### "Target attacking/blocking/tapped/untapped creature" silently dropped the qualifier (v409, live bug fix)
+
+- **What:** `subgrammars._TARGET_ROWS`' row for "target attacking/blocking/
+  tapped/untapped creature" deliberately collapses onto the bare
+  `"creature"` `target_kind` (RULE 115's own precision-loss convention this
+  file already applies elsewhere) — but nothing preserved the discarded
+  word anywhere else, so every handler that read `resolve_target_kind`
+  alone and threaded the result straight into `EffectSpec` params silently
+  dropped it. Confirmed via `inspect-db` against the real cache:
+  **Assassinate** ("Destroy target tapped creature.") parsed `MODELED` but
+  would destroy *any* creature in an actual game — a wrong-resolution bug
+  on an already-shipped card, not a coverage gap, found while auditing
+  PAR-79's "target legendary/attacking creature" fix (see the Oracle-Text
+  Parser Front-End section's v408/v409) one layer down.
+- **Fix:** new `subgrammars.resolve_target_creature_state_filter(phrase)`
+  reads the qualifier off the same raw target text as a
+  `combat.matches_object_filter` fragment (`{"tapped": True}`/
+  `{"attacking": True}`/… — "untapped" is `{"tapped": False}`, not a fifth
+  key). Merged into `creature_filter` by `_destroy`, `_exile`,
+  `_exile_until_leaves`, `_damage`/`_damage_x`, `_tap`, `_return_to_hand`,
+  every `_pump_target(m)` caller (13 call sites, via one shared
+  `_pump_target_creature_filter` helper), `_add_counters_target_params`,
+  `_cant_be_blocked_turn`, and `_connive_target`.
+- **A second, independent instance of the identical root shape:**
+  `_pump_subtype_target`/`_grant_subtype_target`'s bare `[a-z]+` "subtype"
+  capture blindly accepted "attacking"/"blocking" as a literal creature
+  subtype ("target attacking creature gets +1/+1" →
+  `creature_filter={"subtype": "Attacking"}`) — a filter that could then
+  *never* match any real creature (RULE 115 target-count zero), worse than
+  Assassinate's over-wide match. Both now check
+  `resolve_target_creature_state_filter` first.
+- **New engine capability:** `ConniveEffect` (`game/effects/
+  choices_actions.py`) gained a real `creature_filter` constructor param +
+  `EffectRegistry` forwarding — the one card in the sweep (Raffine,
+  Scheming Seer) needing an actual (small, already-established-shape)
+  engine addition rather than pure parser wiring.
+- **Verification:** a full-cache scan (not `parser_probe.py`, which only
+  tracks the MODELED/UNMODELED verdict, unchanged here) found 87 real
+  already-`MODELED` cards emitting the wrong spec; all 87 confirmed fixed,
+  0 regressed. `game/targeting.legal_targets` exercised directly (not just
+  parse-level assertions) to prove the engine now actually restricts the
+  offered targets, not just that the spec *looks* right.
+- **Files:** `parser/oracle/catalogue/subgrammars.py`, `catalogue/
+  handlers.py`; `game/effects/choices_actions.py`, `game/effects/
+  registry.py`. `tests/test_target_creature_state_filter_family.py`.
+
 ### Linked-Exile Tracking (`remember` on Exile/Search)
 
 - **What:** `ExileEffect`/`SearchLibraryEffect` both gained a `remember` flag stamping `GameObject.linked_exile_id`, backing `Cemetery Gatekeeper`'s `shares_type_with_linked_exile` condition.

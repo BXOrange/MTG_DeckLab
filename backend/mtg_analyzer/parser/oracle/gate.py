@@ -3086,7 +3086,56 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `creature_filter` "legendary" key that doesn't exist yet) — see
 #: BACKLOG.md's PAR-79 entry for the residual breakdown rather than
 #: treating this as closed.
-PARSER_VERSION = "407"
+#: v408 is a structural consolidation, not a coverage increment (+0/+0,
+#: `parser_probe.py diff`): PAR-79's "another target attacking creature"/
+#: "[another ]target legendary creature" rows (`_CANT_BE_BLOCKED_TURN_
+#: OTHER_ATTACKER_RE`/`_CANT_BE_BLOCKED_TURN_LEGENDARY_RE`) existed only
+#: because `static_handlers.object_filter` didn't yet recognise "attacking"/
+#: "legendary" as leading flag words the way `combat.matches_object_filter`
+#: already reads them — so it would have mis-guessed "legendary" as a bogus
+#: creature *subtype* (a filter that could never match a real creature) had
+#: those two rows been deleted outright first. Fixed at the axis instead:
+#: `object_filter` now strips a leading "tapped"/"attacking"/"blocking"/
+#: "legendary" word itself (`_OBJECT_FILTER_FLAG_WORDS`) and recurses on the
+#: remainder, so the two dedicated rows became a strict subset of the
+#: general "target `<object-filter phrase>` can't be blocked this turn" row
+#: and were deleted. A third instance of `reference/handler-recipe.md`'s
+#: "decompose into atomic grammar units" lesson (after PAR-78/v393 and
+#: PAR-79/v401) — every other `object_filter` caller (the standing "except
+#: by legendary creatures" static, the "unless you control an attacking
+#: `<X>`" count) gains the same two words for free.
+#: v409 fixes a real, live rules bug found while verifying v408: the
+#: `_TARGET_ROWS` row for "target attacking/blocking/tapped/untapped
+#: creature" (`subgrammars.py`) collapses onto the bare "creature" kind by
+#: design (RULE 115's own precision-loss convention this file already
+#: applies elsewhere) — but nothing preserved the discarded qualifier
+#: elsewhere, so every generic handler reading `resolve_target_kind` alone
+#: (destroy/exile/damage/tap/return_to_hand/pump/connive/add_counters)
+#: silently dropped it. Confirmed via `inspect-db` against the real cache:
+#: Assassinate ("Destroy target tapped creature") parsed `MODELED` but
+#: would destroy *any* creature in an actual game — not a coverage gap, a
+#: wrong-resolution bug on an already-`MODELED` card. New sibling function
+#: `resolve_target_creature_state_filter` (`subgrammars.py`) extracts the
+#: qualifier from the same raw target phrase as a `combat.
+#: matches_object_filter` fragment; 8 handler functions (`_destroy`,
+#: `_exile`, `_exile_until_leaves`, `_damage`/`_damage_x`, `_tap`,
+#: `_return_to_hand`, `_pump_target`'s 13 callers via one shared
+#: `_pump_target_creature_filter` helper, `_add_counters_target_params`,
+#: `_cant_be_blocked_turn`, `_connive_target`) now merge it into their own
+#: `creature_filter`. Two of those regexes (`_pump_subtype_target`/
+#: `_grant_subtype_target`) had a second, independent instance of the same
+#: root shape — their bare `[a-z]+` "subtype" capture blindly accepted
+#: "attacking"/"blocking" as if they were real creature subtypes (a filter
+#: that could then never match anything, RULE 115 target-count 0 — worse
+#: than Assassinate's over-wide match), now routed through the same
+#: function first. `ConniveEffect` (`game/effects/choices_actions.py`)
+#: gained a `creature_filter` constructor param and registry forwarding —
+#: the one card in this sweep (Raffine, Scheming Seer) needing an actual
+#: (small, already-established-shape) engine addition, not just parser
+#: wiring. 87 real MODELED-but-wrong cards fixed, 0 coverage change (all 87
+#: were already MODELED — this corrects the emitted spec, not the
+#: MODELED/UNMODELED verdict), 0 regressed (`parser_probe.py diff`).
+PARSER_VERSION = "409"
 
 
 def parser_source_hash() -> str:

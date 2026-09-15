@@ -506,8 +506,29 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 45.46% (15,824 / 34,811) as of 2026-09-15, measured at
-PARSER_VERSION 407** (v407/v406/v405 are PAR-79's sixth increment, closing
+**Coverage: 45.46% (15,824 / 34,811) as of 2026-09-16, measured at
+PARSER_VERSION 409** (v409 is a real bug fix, +0/+0 coverage — auditing
+v408's consolidation one layer down found `subgrammars._TARGET_ROWS`'s
+"target attacking/blocking/tapped/untapped creature" row collapses onto the
+bare "creature" kind by design, but nothing preserved the discarded word
+elsewhere: **Assassinate** ("Destroy target tapped creature") parsed
+`MODELED` but would destroy *any* creature in a real game. New sibling
+`resolve_target_creature_state_filter` is now merged into `creature_filter`
+by eight handler families (destroy/exile/damage/tap/return_to_hand/pump/
+add_counters/connive/unblockable); a second, independent instance of the
+same root shape (`_pump_subtype_target`/`_grant_subtype_target` guessing
+"attacking"/"blocking" as a literal, unmatchable creature *subtype*) was
+fixed the same way; `ConniveEffect` gained a real `creature_filter` param
+for the one card (Raffine, Scheming Seer) that needed it. 87 already-
+`MODELED` cards corrected, 0 regressed — see
+[test_target_creature_state_filter_family.py](backend/tests/test_target_creature_state_filter_family.py).
+v408 is the structural consolidation one layer up, +0/+0 — PAR-79's two
+dedicated "attacking"/"legendary" target-filter rows were a strict subset
+of the general "target `<object-filter phrase>`" row once `object_filter`
+itself was taught those two flag words, so the dedicated rows were deleted;
+see `handler-recipe.md`'s "decompose into atomic grammar units" for why
+this is a fix-the-axis case rather than new coverage. v407/
+v406/v405 are PAR-79's sixth increment, closing
 several more shared-grammar axes found while sweeping the trigger-condition
 residue the fifth increment surfaced — `object_filter` gained an `any_of`
 union combinator ("except by artifact creatures and/or red creatures",

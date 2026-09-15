@@ -76,9 +76,16 @@ def test_bare_unblockable_with_power_filter_parses():
 
 
 def test_another_target_attacking_creature_unblockable_parses():
+    # Since the consolidation onto `object_filter`'s general flag-word
+    # recognition (see `static_handlers._OBJECT_FILTER_FLAG_WORDS`), the
+    # bare "creature" head noun following the "attacking" flag recurses
+    # through `object_filter` too and picks up its own (harmless, always-
+    # true here since `target_kind` is already "creature") `card_type`
+    # key — same shape `object_filter("creature")` alone already returns.
     specs = match_clause("another target attacking creature can't be blocked this turn")
     assert specs == [EffectSpec("unblockable", {
-        "target_kind": "creature", "creature_filter": {"attacking": True},
+        "target_kind": "creature",
+        "creature_filter": {"attacking": True, "card_type": "creature"},
     })]
 
 
@@ -175,9 +182,13 @@ def test_other_attacking_creature_unblockable_executes():
 
 
 def test_another_target_legendary_creature_unblockable_parses():
+    # See `test_another_target_attacking_creature_unblockable_parses`'s own
+    # comment: the redundant `card_type` key is `object_filter`'s general
+    # recursion, not a regression.
     specs = match_clause("another target legendary creature can't be blocked this turn")
     assert specs == [EffectSpec("unblockable", {
-        "target_kind": "creature", "creature_filter": {"legendary": True},
+        "target_kind": "creature",
+        "creature_filter": {"legendary": True, "card_type": "creature"},
     })]
 
 
@@ -307,7 +318,10 @@ def test_multi_target_parses():
 
 def test_legendary_target_without_another_parses():
     assert parse_effect_body("target legendary creature can't be blocked this turn.") == [
-        EffectSpec("unblockable", {"target_kind": "creature", "creature_filter": {"legendary": True}}),
+        EffectSpec("unblockable", {
+            "target_kind": "creature",
+            "creature_filter": {"legendary": True, "card_type": "creature"},
+        }),
     ]
 
 
