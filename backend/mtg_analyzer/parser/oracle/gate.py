@@ -3086,7 +3086,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `creature_filter` "legendary" key that doesn't exist yet) — see
 #: BACKLOG.md's PAR-79 entry for the residual breakdown rather than
 #: treating this as closed.
-PARSER_VERSION = "389"
+PARSER_VERSION = "390"
 
 
 def parser_source_hash() -> str:

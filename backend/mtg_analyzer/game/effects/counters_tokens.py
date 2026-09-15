@@ -99,9 +99,19 @@ class AddCountersEffect(GameEffect):
         ring_bearer: bool = False,
         previous_subject: bool = False,
         distinct_from_others: bool = False,
+        amount_if_full_party: Optional[int] = None,
     ) -> None:
         super().__init__(source)
         self.amount = amount
+        #: "…put a +1/+1 counter on target creature you control. If you
+        #: have a full party, put 3 +1/+1 counters on that creature
+        #: instead." (PAR-76, The Destined White Mage) — RULE 700.8's
+        #: already-shipped `"creatures_in_your_party"` count selector read
+        #: as a live threshold (>= 4, the cap that count can ever reach),
+        #: the same override-not-additive shape `DealDamageEffect.
+        #: amount_if_kicked`/`amount_if_raid` already establish for other
+        #: cast-time/board conditions.
+        self.amount_if_full_party = amount_if_full_party
         #: RULE 109.5 — "put N -1/-1 counters on **another** target creature"
         #: / "a **third** target creature" (Incremental Blight / Incremental
         #: Growth). Each escalating clause is its own `AddCountersEffect`
@@ -340,6 +350,15 @@ class AddCountersEffect(GameEffect):
                 context.state, controller_id, self.amount_from_count_selector, source=self.source,
             )
 
+        full_party = False
+        if self.amount_if_full_party is not None:
+            from .. import continuous  # avoid the continuous↔effects import cycle
+
+            controller_id = getattr(self.source, "controller_id", None)
+            full_party = continuous.count_selector(
+                context.state, controller_id, "creatures_in_your_party", source=self.source,
+            ) >= 4
+
         # Same override as the `trigger_subject_key` branch above, for a
         # target reached the ordinary way instead — e.g. `targets` threaded
         # in from a deferred `pay_cost_then` "if you do" branch (Emiel the
@@ -362,6 +381,7 @@ class AddCountersEffect(GameEffect):
                 ),
                 (bool(self.amount_from_count_selector), _from_count_selector),
                 (subtype_matches, lambda: self.amount_if_trigger_subject_subtype_value),
+                (full_party, lambda: self.amount_if_full_party),
             ],
         )
         if target is not None and amount > 0:

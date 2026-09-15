@@ -5996,6 +5996,58 @@ measurement of why is the useful half of this work.
 
 ## Oracle-Text Parser Front-End
 
+### PAR-76: "Full Party" as a Conditional-Magnitude Override (PARSER_VERSION 390)
+
+- **What:** RULE 700.8/702.129's Party mechanic (PAR-53/72) already had a
+  "you have a full party" state predicate (`static_handlers.py`'s
+  `{"kind": "control_count", "selector": "creatures_in_your_party", "min":
+  4}` — full party is exactly 4, the cap that count selector can ever
+  reach) for intervening-ifs/`active_if` contexts. This closes the two real
+  cards that instead use it as a **magnitude override** on a resolving
+  effect — "`<base effect>`. If you have a full party, `<bigger effect>`
+  instead." — the same shape `DealDamageEffect.amount_if_kicked`/
+  `amount_if_raid` (PAR-64) already establish for Kicker/Raid, just gated
+  on a live board count instead of a cast-time flag:
+  - **The Destined Black Mage**: "Whenever you cast a noncreature spell, ~
+    deals 1 damage to each opponent. If you have a full party, it deals 3
+    damage to each opponent instead." — new `DealDamageEffect.amount_if_
+    full_party`, checked in the `amount` property's existing override
+    chain (`_resolve_amount_override`, `stop_at_first=True`) alongside
+    `amount_if_kicked`/`amount_if_raid`/etc., reading `continuous.
+    count_selector(self._state, controller_id, "creatures_in_your_party")
+    >= 4`.
+  - **The Destined White Mage**: "Whenever you gain life, put a +1/+1
+    counter on target creature you control. If you have a full party, put
+    3 +1/+1 counters on that creature instead." — the identical new field
+    on `AddCountersEffect`, wired into its own pre-existing (additive,
+    `stop_at_first=False`) override chain the same way `amount_from_count_
+    selector`/`amount_if_trigger_subject_subtype_value` already are.
+  Both are fixed singleton parser rows (`_DAMAGE_EACH_OPPONENT_FULL_
+  PARTY_RE`/`_ADD_COUNTER_TARGET_FULL_PARTY_RE`) matching the *whole*
+  two-sentence clause as one unit — `parse_effect_body` tries the unsplit
+  body first, so this must span both sentences itself, the same reason
+  every other whole-body compound row in this codebase does (PAR-74's
+  `_ANIMATE_TARGET_RE`, PAR-30's `_SACRIFICE_THEN_WHEN_YOU_DO_RE`) — rather
+  than a general "if `<condition>`, `<bigger effect>` instead" grammar: no
+  other cached card pairs "full party" with a magnitude override on a
+  *third* effect shape yet, so building the general form would be
+  speculative. Acquisitions Expert and Linvala, Shield of Sea Gate also
+  match "full party" in the cache but each needs an unrelated primitive (a
+  two-step hand-reveal-then-owner-chooses shape; an unrelated static/
+  activated clause) — deliberately excluded, already tracked as PAR-12
+  bespoke tail per `PARSER_LONG_TAIL.md`.
+- **Verification:** `+2, 0 regressed` (`parser_probe.py diff`); both real
+  cards individually confirmed `MODELED`. `tests/
+  test_par76_full_party_override.py` — parse-level assertions for both new
+  rows plus four execute tests (damage and add-counters, each with and
+  without a full party on the battlefield) proving the override only fires
+  at the real >= 4 threshold, not merely because the field is set.
+- **Files:** `game/effects/damage_draw.py` (`DealDamageEffect.amount_if_
+  full_party`), `game/effects/counters_tokens.py` (`AddCountersEffect.
+  amount_if_full_party`), `game/effects/registry.py` (both wired through),
+  `parser/oracle/catalogue/handlers.py`
+  (`_DAMAGE_EACH_OPPONENT_FULL_PARTY_RE`/`_ADD_COUNTER_TARGET_FULL_PARTY_RE`).
+
 ### PAR-75: "Doctor's Companion" Referenced as a Card-Quality Filter (PARSER_VERSION 389)
 
 - **What:** RULE 702.124m's "Doctor's companion" keyword (Doctor Who,

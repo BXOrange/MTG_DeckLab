@@ -34,6 +34,7 @@ class DealDamageEffect(GameEffect):
         amount_if_kicked: Optional[int] = None,
         amount_if_teamwork: Optional[int] = None,
         amount_if_raid: Optional[int] = None,
+        amount_if_full_party: Optional[int] = None,
         amount_if_bargained: Optional[Union[int, str]] = None,
         double_if_bargained: bool = False,
         amount_if_target_color: Optional[tuple[Union[int, str], list[str]]] = None,
@@ -140,6 +141,12 @@ class DealDamageEffect(GameEffect):
         #: this turn" replacement. Like Kicker, this replaces this damage
         #: event's magnitude rather than adding a second damage effect.
         self.amount_if_raid = amount_if_raid
+        #: "…it deals 3 damage to each opponent instead." (PAR-76, The
+        #: Destined Black Mage) — RULE 700.8's already-shipped
+        #: `"creatures_in_your_party"` count selector read as a live
+        #: threshold (>= 4, the cap that count can ever reach), the same
+        #: override shape Kicker/Raid establish above.
+        self.amount_if_full_party = amount_if_full_party
         #: "If this spell was cast from exile, it deals 5 damage … instead."
         #: (Delayed Blast Fireball) — `GameObject.cast_from_exile`, the
         #: same override-not-additive shape `amount_if_kicked`/
@@ -223,6 +230,16 @@ class DealDamageEffect(GameEffect):
             words = self.source.card.type_line.partition("—")[2].strip().lower().split()
             source_subtype_match = subtype.lower() in words
 
+        full_party = False
+        state = getattr(self, "_state", None)
+        if self.amount_if_full_party is not None and self.source is not None and state is not None:
+            from .. import continuous  # avoid the continuous↔effects import cycle
+
+            controller_id = getattr(self.source, "controller_id", None)
+            full_party = continuous.count_selector(
+                state, controller_id, "creatures_in_your_party", source=self.source,
+            ) >= 4
+
         def _bargained_amount() -> Union[int, str]:
             if self.double_if_bargained:
                 base = self._base_amount
@@ -242,6 +259,7 @@ class DealDamageEffect(GameEffect):
                     lambda: self.amount_if_teamwork,
                 ),
                 (self.amount_if_raid is not None and raid, lambda: self.amount_if_raid),
+                (full_party, lambda: self.amount_if_full_party),
                 (
                     self.amount_if_cast_from_exile is not None and getattr(self.source, "cast_from_exile", False),
                     lambda: self.amount_if_cast_from_exile,

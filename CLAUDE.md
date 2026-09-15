@@ -506,8 +506,22 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 44.89% (15,626 / 34,811) as of 2026-09-15, measured at
-PARSER_VERSION 389** (closes PAR-75 — "Doctor's companion" (RULE 702.124m)
+**Coverage: 44.89% (15,628 / 34,811) as of 2026-09-15, measured at
+PARSER_VERSION 390** (closes PAR-76 — "Full party" (RULE 700.8/702.129) as
+a conditional-magnitude override, generalizing the already-shipped
+`DealDamageEffect.amount_if_kicked`/`amount_if_raid` family with a new
+`amount_if_full_party` field, also added to `AddCountersEffect`, both
+reading the already-shipped `"creatures_in_your_party"` count selector as a
+live >= 4 threshold. Two cards — The Destined Black Mage ("~ deals 1 damage
+to each opponent. If you have a full party, it deals 3 damage to each
+opponent instead.") and The Destined White Mage ("put a +1/+1 counter on
+target creature you control. If you have a full party, put 3 +1/+1
+counters on that creature instead.") — each a fixed singleton parser row
+matching the whole two-sentence clause as one unit, since no other cached
+card pairs "full party" with a magnitude override on a third effect shape
+yet. +2, zero regressed (`pytest -q`). See `docs/implementation-state/
+Done_Backend.md`'s "Oracle-Text Parser Front-End" PAR-76 entry.)
+v389 closes PAR-75 — "Doctor's companion" (RULE 702.124m)
 referenced by another card as a card-quality filter, not just printed on
 itself (which PAR-69 already handled). Two cards: An Unearthly Child's Saga
 chapter ("reveal cards from the top of your library until you reveal a
@@ -807,7 +821,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 47.14% (15,005 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 47.15% (15,007 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

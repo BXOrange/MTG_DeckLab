@@ -9744,6 +9744,46 @@ def _dig_until_doctor_companion_vehicle(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+#: PAR-76: "`<base effect>`. If you have a full party, `<bigger effect>`
+#: instead." (RULE 700.8/702.129) — a resolve-time magnitude override, the
+#: same "if `<card-specific condition>`, `<bigger effect>` instead" shape
+#: `DealDamageEffect.amount_if_kicked`/`amount_if_raid` already establish
+#: for Kicker/Raid, generalized to a new `amount_if_full_party` field on
+#: both `DealDamageEffect` and `AddCountersEffect` (RULE 700.8's "full
+#: party" is exactly 4 — one each of Cleric/Rogue/Warrior/Wizard — the
+#: `"creatures_in_your_party"` count selector's own cap, checked live at
+#: resolution as a threshold rather than read as a magnitude the way
+#: PAR-72's `count_selector_multiplier` family does). Two fixed singleton
+#: rows (matched as one whole two-sentence clause, before the connector
+#: split ever runs) rather than a general "if `<condition>`, `<bigger
+#: effect>` instead" grammar — no other cached card pairs "full party" with
+#: a magnitude override on a *third* effect shape yet.
+_DAMAGE_EACH_OPPONENT_FULL_PARTY_RE = _c(
+    r"~ deals (?P<n>\d+) damage to each opponent\. "
+    r"if you have a full party, it deals (?P<n2>\d+) damage to each opponent instead"
+)
+
+
+def _damage_each_opponent_full_party(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("damage", {
+        "amount": int(m.group("n")), "selector": "each_opponent",
+        "amount_if_full_party": int(m.group("n2")),
+    })]
+
+
+_ADD_COUNTER_TARGET_FULL_PARTY_RE = _c(
+    r"put an? \+1/\+1 counter on target creature you control\. "
+    r"if you have a full party, put (?P<n2>\d+) \+1/\+1 counters on that creature instead"
+)
+
+
+def _add_counter_target_full_party(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("add_counters", {
+        "kind": "+1/+1", "target_kind": "creature_you_control",
+        "amount_if_full_party": int(m.group("n2")),
+    })]
+
+
 def _reveal_until_type(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     tail = m.group("rest")
     # "put that card onto the battlefield **tapped**" (Clifftop Lookout) —
@@ -13075,6 +13115,16 @@ HANDLERS: list[EffectHandler] = [
         "dig_until_doctor_companion_vehicle",
         _DIG_UNTIL_DOCTOR_COMPANION_VEHICLE_RE,
         _dig_until_doctor_companion_vehicle,
+    ),
+    EffectHandler(
+        "damage_each_opponent_full_party",
+        _DAMAGE_EACH_OPPONENT_FULL_PARTY_RE,
+        _damage_each_opponent_full_party,
+    ),
+    EffectHandler(
+        "add_counter_target_full_party",
+        _ADD_COUNTER_TARGET_FULL_PARTY_RE,
+        _add_counter_target_full_party,
     ),
     # PAR-30: "[Then] sacrifice/exile <it/that creature/that token/them/
     # those tokens> at the beginning of [the/your] next end step." — the

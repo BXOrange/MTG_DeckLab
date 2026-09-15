@@ -25,6 +25,7 @@ EffectRegistry.register(
         amount_if_kicked=p.get("amount_if_kicked"),
         amount_if_teamwork=p.get("amount_if_teamwork"),
         amount_if_raid=p.get("amount_if_raid"),
+        amount_if_full_party=p.get("amount_if_full_party"),
         amount_if_bargained=p.get("amount_if_bargained"),
         double_if_bargained=bool(p.get("double_if_bargained", False)),
         amount_if_target_color=(
@@ -2419,6 +2420,7 @@ EffectRegistry.register(
         ring_bearer=bool(p.get("ring_bearer", False)),
         previous_subject=bool(p.get("previous_subject", False)),
         distinct_from_others=bool(p.get("distinct_from_others", False)),
+        amount_if_full_party=p.get("amount_if_full_party"),
     ),
 )
 EffectRegistry.register(
