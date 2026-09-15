@@ -506,8 +506,47 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 45.28% (15,763 / 34,811) as of 2026-09-15, measured at
-PARSER_VERSION 402** (v402 is PAR-79's fourth increment: a whole missing
+**Coverage: 45.37% (15,795 / 34,811) as of 2026-09-15, measured at
+PARSER_VERSION 404** (v404/v403 are PAR-79's fifth increment, and the first
+one aimed at the trigger-*condition* layer rather than the unblockable
+effect body itself: `parser_probe.py card` on individual SOLO cards showed
+most of the residue's real blocker was an unrecognized cast/attack trigger
+*condition* sitting in front of an `unblockable`/pump-and-unblockable clause
+that already parsed fine (Merfolk Cave-Diver/Sahagin/Snooping Page/
+Hraesvelgr of the First Brood/Undercover Butler/Martha Jones/Matterbending
+Mage, checked individually). Applying handler-recipe.md's newly-documented
+"decompose into atomic grammar units" rule at that layer instead of the
+single-clause layer PAR-78/79's earlier increments used it at:
+`_CAST_SPELL_TRIGGER_MV_AT_LEAST_RE`/`_CAST_SPELL_TRIGGER_X_RE`/
+`_CAST_SPELL_TRIGGER_FIRST_X_RE`/`_CAST_SPELL_TRIGGER_HISTORIC_RE` each
+reached an `effect_binder` predicate (`spell_mana_value_at_least`/
+`spell_has_x`/`first_x_spell`/`spell_is_historic`) that PAR-60 had already
+built and wired up, with **zero segmenter regex ever reaching any of the
+four** — the same "primitive already exists, only the recognizer is
+missing" shape this file's own long history keeps rediscovering, just
+never checked systematically for this family before. `_ETB_AND_CAST_
+TRIGGER_RE` recognizes RULE 603.1's "When ~ enters and whenever you cast
+`<clause>`, `<effect>`" compound (two independent triggers sharing one
+effect body, RULE 603.2) by reconstructing each half as its own ordinary
+trigger line and re-entering `segment_line` on it — reusing the *entire*
+existing ETB/cast-trigger grammar rather than re-deriving any of it, rather
+than a fused condition or a second copy of every cast filter.
+`defender_has_most_life_predicate` (`game/binding/core.py`) is the RULE
+603.4 `>=` mirror of the already-shipped "if no opponent has more life
+than that player" gate, for "attacks the player with the most life or tied
+for most life" (Undercover Butler). +32 newly covered (`parser_probe.py
+diff`, 0 regressed) across the two sub-increments — of which four
+(Hraesvelgr of the First Brood, Matterbending Mage, Undercover Butler,
+Basim Ibn Ishaq) are PAR-79's own SOLO cards; the rest (Angry Rabble,
+Brinelin the Moon Kraken, Jhoira/Cabal Paladin/eight more off the historic-
+spell row, …) are the "widened shared primitive reaches cards outside your
+own ticket" signal the decomposition rule calls out as evidence the fix
+belongs at the axis. 57 SOLO cards remain on "can't be blocked this turn"
+itself, now mostly delayed-trigger compounds (the Alora cycle),
+optional-effect-then-payoff triggers, and other real per-card body gaps
+rather than trigger-recognition dead ends — see `BACKLOG.md`'s PAR-79
+entry.
+v402 is PAR-79's fourth increment: a whole missing
 trigger-*condition* category, found mid-diagnosis of why Cunning
 Survivor/Devourer of Memory stayed unclaimed despite their own
 `unblockable` clause already parsing fine. Both `EventType.DISCARD_CARD`
@@ -1008,7 +1047,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 47.57% (15,140 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 47.67% (15,172 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

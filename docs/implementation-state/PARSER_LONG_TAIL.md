@@ -25,9 +25,9 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**45.28% covered — 15,763 / 34,811 — as of 2026-09-15, PARSER_VERSION 402.**
-Commander-legal slice (the one the product actually plays): **47.57% —
-15,140 / 31,830** (measure with `--commander-legal-only`).
+**45.37% covered — 15,795 / 34,811 — as of 2026-09-15, PARSER_VERSION 404.**
+Commander-legal slice (the one the product actually plays): **47.67% —
+15,172 / 31,830** (measure with `--commander-legal-only`).
 
 Measure with `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe;
@@ -307,6 +307,24 @@ document's own standing rule, and it has now caught itself.
 
 Each was paid for once; re-reading them is cheaper than re-learning them.
 
+- **Decompose into atomic grammar units — don't enumerate phrase variants.**
+  Now a standing rule, not just a lesson — see the extend-parser skill's
+  `reference/handler-recipe.md` for the full writeup and the test to apply
+  before adding a row. The short version: a template usually varies along
+  more than one axis (subject/type/color, count, exception, duration); the
+  fix belongs at the axis, in a shared primitive
+  (`subgrammars.py`, `static_handlers.object_filter`, a
+  `catalogue/keywords.py` word table), not as a regex/whitelist row keyed to
+  the one search phrase or card that motivated it. This was learned the hard
+  way, as a **mid-batch correction**, twice: PAR-78 (v393) started a closed
+  per-phrase source-colour word list, then replaced it with a fix to
+  `static_handlers.object_filter`'s general OR-split instead; PAR-79 (v401)
+  did the identical thing for a subtype-target list, and the fix's own scope
+  leak — it also covered two cards outside PAR-79's own search phrase — was
+  the tell that the row it almost became was never really a one-off. Neither
+  correction was caught at design time; both were only visible once the
+  closed list was already growing. Watch for the same shape forming again
+  before it needs a third mid-batch rewrite.
 - **"Still open" notes written inside a shipped batch's narrative go stale
   silently, and nothing points at them once the batch's ticket closes.** The
   removed per-version changelog ended most entries with a residue list ("still

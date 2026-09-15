@@ -52,6 +52,45 @@ So: patterns are lowercase, use `~` for the source, and never need to handle
 Every builder returning `None` after a successful regex match is **correct and
 expected** for an unrecognised target phrase — that's the fail-closed path.
 
+## Decompose into atomic grammar units — don't enumerate phrase variants
+
+A template's wording usually varies along more than one axis at once — which
+subjects/types/colors it names, what count or magnitude qualifies it, what
+exception or duration applies. The wrong fix keys a new regex/whitelist row to
+the *one search phrase* that motivated it ("target goblin, orc, or pirate" as
+a literal three-word list, kept next to it "target merfolk" as another row,
+and so on for every new card printed). The right fix identifies which axis is
+actually varying and widens the **shared** primitive that every other handler
+already reads for that axis — `subgrammars.py`'s macros,
+`static_handlers.object_filter`'s N-way OR-split, a `catalogue/keywords.py`
+word table — so a future card recombining known axis values needs no new row
+at all.
+
+**The test:** if a different, not-yet-printed card recombined two already-
+known axis values in a way nobody has seen yet, would it already parse
+without a code change? If the answer is "not without a new row," the axis
+isn't factored out yet — fix the shared primitive, not the phrase.
+
+**A widened shared primitive picking up cards outside your own search phrase
+is a good sign, not scope creep.** It means the row you were about to add
+really was one card's coincidence of wording, not a genuine one-off — the fix
+belongs at the axis, and cards outside your ticket picking up coverage is the
+proof. Two real, paid-for instances, both caught as a **mid-batch
+correction** rather than up front: PAR-78 (v393) folded a closed, per-phrase
+source-colour word list into `static_handlers.object_filter`'s general
+OR-split; PAR-79 (v401) did the same for a subtype-target list, and the fix's
+own scope leak (two cards outside PAR-79's own search phrase) is the visible
+evidence. See `PARSER_LONG_TAIL.md`'s "Lessons that keep recurring" for the
+narrative of both.
+
+Don't over-apply this — a genuinely singleton card's bespoke wording, with no
+plausible sibling, is still exactly what `game/ability_catalogue.py`
+hand-authoring is for (see "When to stop parsing and hand-author" in
+`SKILL.md`). The rule targets *known, reused* axes (a filter vocabulary, a
+count/magnitude parameter, a duration) that are at risk of growing as a
+closed enumeration instead of staying an open parameter — it is not a mandate
+to speculatively generalize a clause nothing has printed a sibling of yet.
+
 ## The shape
 
 ```python

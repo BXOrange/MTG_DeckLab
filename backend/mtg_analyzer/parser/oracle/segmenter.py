@@ -740,6 +740,82 @@ _CAST_SPELL_TRIGGER_MV_RE = re.compile(
     re.IGNORECASE | re.S,
 )
 
+#: PAR-79 fifth increment: the ``>=`` mirror of `_CAST_SPELL_TRIGGER_MV_RE`
+#: just above — "Whenever you cast a spell with mana value N or greater,
+#: <effect>." (Angry Rabble/Enraged Flamecaster/Etherium Spinner-shaped).
+#: `effect_binder`'s ``spell_mana_value_at_least`` predicate (built for
+#: PAR-60's "…with mana value 5 or greater" *card-type-qualified* row —
+#: `_CAST_SPELL_TRIGGER_RE`'s own ``types`` slot already threads it through
+#: a *typed* cast trigger) already existed with **no bare, untyped
+#: recognizer at all** — this row is exactly that missing piece, the same
+#: gap `spell_has_x`/`first_x_spell` turned out to have below. Deliberately
+#: narrow to the untyped "a spell" shape (like `_CAST_SPELL_TRIGGER_MV_RE`'s
+#: own "or less" sibling); a typed "an instant or sorcery spell with mana
+#: value N or greater" already reaches the threshold through
+#: `_CAST_SPELL_TRIGGER_RE`'s own dispatch (see the mana-value branch added
+#: there), not this row.
+_CAST_SPELL_TRIGGER_MV_AT_LEAST_RE = re.compile(
+    r"^whenever (?P<subj>you|an opponent|a player) casts? a spell with "
+    r"mana value (?P<n>\d+) or greater,\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+
+#: PAR-79 fifth increment: "Whenever you cast a spell with {X} in its mana
+#: cost, <effect>." (Matterbending Mage/Zaxara, the Exemplary/Geometer's
+#: Arthropod-shaped) — `effect_binder`'s ``spell_has_x`` predicate already
+#: existed (built for PAR-60's Elementalist's Palette/Quandrix {X}-first-
+#: spell cluster) with no oracle-text recognizer reaching it at all; same
+#: gap shape as the mana-value row above. The ordinal "your first spell
+#: with {X} in its mana cost each turn" sibling reads the same-vintage
+#: ``first_x_spell`` predicate and is recognized separately below.
+_CAST_SPELL_TRIGGER_X_RE = re.compile(
+    r"^whenever (?P<subj>you|an opponent|a player) casts? a spell with "
+    r"\{x\} in its mana cost,\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+_CAST_SPELL_TRIGGER_FIRST_X_RE = re.compile(
+    r"^whenever (?P<subj>you|an opponent|a player) casts? (?:your|their) first "
+    r"spell with \{x\} in its mana cost each turn,\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+
+#: PAR-79 fifth increment: "Whenever you cast a historic spell, <effect>."
+#: (RULE 700.13 — an artifact, legendary, or Saga spell; Jhoira, Weatherlight
+#: Captain/Cabal Paladin/Artificer's Assistant-shaped Kaladesh/Dominaria
+#: payoffs) — same dead-primitive shape as the {X} rows just above:
+#: `effect_binder`'s ``spell_is_historic`` predicate already existed with no
+#: segmenter regex reaching it at all.
+_CAST_SPELL_TRIGGER_HISTORIC_RE = re.compile(
+    r"^whenever (?P<subj>you|an opponent|a player) casts? a historic spell,"
+    r"\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+
+#: PAR-79 fifth increment: "When ~ enters and whenever you cast <cast-
+#: trigger clause>, <effect>." (Hraesvelgr of the First Brood/Brinelin, the
+#: Moon Kraken/Flaring Cinder/Jessie Zane, Fangbringer/Up the Beanstalk/
+#: Angel of Unity) — RULE 603.1 lets one ability print two independent
+#: trigger conditions sharing a single effect body: "when X and whenever Y,
+#: Z" is legally "when X, Z" *and* "whenever Y, Z" as two separate
+#: triggered abilities (RULE 603.2 fires each on its own — a card that both
+#: enters and casts a matching spell in the same window legitimately
+#: triggers twice, not once), not a single fused condition. Rather than
+#: build a fused ETB-or-cast condition, or re-derive every cast-trigger
+#: filter (mana value, card type, subtype, "from your graveyard", …) a
+#: second time just for this shape, this reconstructs each half as its own
+#: ordinary trigger line ("when ~ enters, <body>" / "whenever <cast
+#: clause>, <body>") and re-enters `segment_line` on each — reusing the
+#: *entire* existing ETB/cast-trigger grammar rather than duplicating any of
+#: it, the handler-recipe.md "decompose into atomic grammar units" rule
+#: applied at the trigger-condition level instead of a single clause. Two
+#: independent `AbilitySpec`s sharing the same effects (`Segment.
+#: extra_specs`, the same idiom PAR-75's Doctor/companion OR-of-two-
+#: conditions split already uses).
+_ETB_AND_CAST_TRIGGER_RE = re.compile(
+    r"^(?:when|whenever) ~ enters and whenever (?P<cast_clause>you casts? .+?),\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+
 #: A curated whitelist of real creature subtypes for "Whenever you cast an
 #: Elf spell, …"-shaped triggers (Lys Alana Huntmaster/Leaf-Crowned
 #: Visionary, tribal "spells matter" payoffs — ranked the single biggest
@@ -1188,6 +1264,15 @@ _SELF_SUBJECT_RE = re.compile(
 #: ordinary event on a state read" idiom as `controls_none_of_type`.
 _ATTACKS_DEFENDER_LANDS_RE = re.compile(
     r"^(?:~|this creature) attacks a player who controls (?P<n>\d+) or more lands$"
+)
+
+#: PAR-79 fifth increment: "~ attacks the player with the most life or tied
+#: for most life" (Undercover Butler/Seraphic Greatsword/Preacher of the
+#: Schism) — the same "gate an ordinary ATTACKS trigger on a defender
+#: property" idiom as `_ATTACKS_DEFENDER_LANDS_RE` just above, this time via
+#: `defender_has_most_life_predicate` (`game/binding/core.py`).
+_ATTACKS_DEFENDER_MOST_LIFE_RE = re.compile(
+    r"^(?:~|this creature) attacks the player with the most life or tied for most life$"
 )
 
 #: RULE 603.4 intervening-if on an "~ attacks a player" trigger, as a body
@@ -4355,6 +4440,28 @@ def segment_line(
     if is_keyword_line(raw):
         return Segment(raw=raw, claimed=True, keyword_line=True)
 
+    # PAR-79 fifth increment: see `_ETB_AND_CAST_TRIGGER_RE`'s own docstring
+    # — split before any single-trigger regex gets a look, so a compound
+    # "enters and whenever you cast" line always goes through this path
+    # rather than falling through to `_CAST_SPELL_TRIGGER_RE` et al. (whose
+    # own ``^whenever`` anchors wouldn't match this line's leading "when ~
+    # enters and " anyway, but the ordering is deliberate for readability).
+    etb_and_cast = _ETB_AND_CAST_TRIGGER_RE.match(raw)
+    if etb_and_cast is not None:
+        body = etb_and_cast.group("body").strip()
+        cast_clause = etb_and_cast.group("cast_clause").strip()
+        etb_seg = segment_line(
+            f"when ~ enters, {body}",
+            allow_spell_effect=allow_spell_effect, provenance=provenance,
+        )
+        cast_seg = segment_line(
+            f"whenever {cast_clause}, {body}",
+            allow_spell_effect=allow_spell_effect, provenance=provenance,
+        )
+        if etb_seg.spec is not None and cast_seg.spec is not None:
+            return Segment(raw=raw, spec=etb_seg.spec, extra_specs=[cast_seg.spec], claimed=True)
+        return Segment(raw=raw)
+
     if _PLAY_WITH_TOP_REVEALED_RE.match(raw):
         return Segment(raw=raw, claimed=True)  # informational-only, no spec (see docstring)
 
@@ -4411,6 +4518,92 @@ def segment_line(
                 "event": "SPELL_CAST",
                 "condition": mv_condition,
                 "spell_mana_value_at_most": int(cast_spell_trig_mv.group("n")),
+            },
+            optional=optional,
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    cast_spell_trig_mv_at_least = _CAST_SPELL_TRIGGER_MV_AT_LEAST_RE.match(raw)
+    if cast_spell_trig_mv_at_least is not None:
+        subj = cast_spell_trig_mv_at_least.group("subj")
+        body, optional = _peel_optional(cast_spell_trig_mv_at_least.group("body"))
+        effects = parse_effect_body(body, self_subject=True)
+        if effects is None:
+            return Segment(raw=raw)
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={
+                "event": "SPELL_CAST",
+                "condition": _cast_spell_trigger_condition(subj),
+                "spell_mana_value_at_least": int(cast_spell_trig_mv_at_least.group("n")),
+            },
+            optional=optional,
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    cast_spell_trig_x = _CAST_SPELL_TRIGGER_X_RE.match(raw)
+    if cast_spell_trig_x is not None:
+        subj = cast_spell_trig_x.group("subj")
+        body, optional = _peel_optional(cast_spell_trig_x.group("body"))
+        effects = parse_effect_body(body, self_subject=True)
+        if effects is None:
+            return Segment(raw=raw)
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={
+                "event": "SPELL_CAST",
+                "condition": _cast_spell_trigger_condition(subj),
+                "spell_has_x": True,
+            },
+            optional=optional,
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    cast_spell_trig_first_x = _CAST_SPELL_TRIGGER_FIRST_X_RE.match(raw)
+    if cast_spell_trig_first_x is not None:
+        subj = cast_spell_trig_first_x.group("subj")
+        body, optional = _peel_optional(cast_spell_trig_first_x.group("body"))
+        effects = parse_effect_body(body, self_subject=True)
+        if effects is None:
+            return Segment(raw=raw)
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={
+                "event": "SPELL_CAST",
+                "condition": _cast_spell_trigger_condition(subj),
+                "first_x_spell": True,
+            },
+            optional=optional,
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    cast_spell_trig_historic = _CAST_SPELL_TRIGGER_HISTORIC_RE.match(raw)
+    if cast_spell_trig_historic is not None:
+        subj = cast_spell_trig_historic.group("subj")
+        body, optional = _peel_optional(cast_spell_trig_historic.group("body"))
+        effects = parse_effect_body(body, self_subject=True)
+        if effects is None:
+            return Segment(raw=raw)
+        effects, body_limit = _strip_trigger_once_per_turn_marker(effects)
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={
+                "event": "SPELL_CAST",
+                "condition": _cast_spell_trigger_condition(subj),
+                "spell_is_historic": True,
+                **({"limit": True} if body_limit else {}),
             },
             optional=optional,
             raw_text=raw,
@@ -5910,12 +6103,18 @@ def segment_line(
             )
         defender_lands_min: Optional[int] = None
         atk_lands = _ATTACKS_DEFENDER_LANDS_RE.match(cond_text.strip())
+        atk_most_life = _ATTACKS_DEFENDER_MOST_LIFE_RE.match(cond_text.strip())
         multi = _SELF_MULTI_EVENT_RE.match(cond_text.strip())
         attached_multi = _ATTACHED_MULTI_EVENT_RE.match(cond_text.strip())
+        defender_most_life = False
         if atk_lands is not None:
             event: "str | list[str]" = "ATTACKS"
             condition: Optional[dict[str, Any]] = {"subject": "self"}
             defender_lands_min = int(atk_lands.group("n"))
+        elif atk_most_life is not None:
+            event = "ATTACKS"
+            condition = {"subject": "self"}
+            defender_most_life = True
         elif multi is not None:
             event = [_multi_event_name(multi.group("v1")), _multi_event_name(multi.group("v2"))]
             if not all(event):
@@ -5978,6 +6177,8 @@ def segment_line(
                    if defender_lands_min else {}),
                 **({"attacked_player_has_lowest_life": True}
                    if attacked_lowest_life else {}),
+                **({"attacked_player_has_most_life": True}
+                   if defender_most_life else {}),
             },
             optional=optional,
             raw_text=raw,

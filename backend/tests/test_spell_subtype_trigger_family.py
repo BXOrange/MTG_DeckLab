@@ -59,18 +59,33 @@ def test_cast_creature_spell_trigger_still_uses_the_main_type_path():
 
 
 def test_cast_unrecognized_word_spell_trigger_stays_unclaimed():
-    # Not a real main type, not in the curated subtype whitelist — fails
-    # closed rather than guessing.
+    # Not a real main type, not in the curated subtype whitelist, and not
+    # one of the dedicated qualifier rows (color/{X}/mana-value/historic) —
+    # fails closed rather than guessing.
     seg = segment_line(
         "whenever you cast a sorcery spell, draw a card.",  # "sorcery" IS a main type actually
         allow_spell_effect=False, provenance=ParserProvenance(),
     )
     assert seg.claimed  # sanity: this one IS a real main type
     seg2 = segment_line(
-        "whenever you cast a historic spell, draw a card.",
+        "whenever you cast a kicked spell, draw a card.",
         allow_spell_effect=False, provenance=ParserProvenance(),
     )
     assert not seg2.claimed
+
+
+def test_cast_historic_spell_trigger_is_modeled():
+    # PAR-79 fifth increment: "historic" (RULE 700.13 — artifact/legendary/
+    # Saga) was one of this test's own former examples of a *deliberately*
+    # unrecognized word — `_CAST_SPELL_TRIGGER_HISTORIC_RE` now gives it a
+    # dedicated row (reaching `effect_binder`'s pre-existing
+    # `spell_is_historic` predicate, PAR-60), so it belongs here instead.
+    seg = segment_line(
+        "whenever you cast a historic spell, draw a card.",
+        allow_spell_effect=False, provenance=ParserProvenance(),
+    )
+    assert seg.claimed
+    assert seg.spec.trigger["spell_is_historic"] is True
 
 
 def test_lys_alana_huntmaster_is_fully_modeled():

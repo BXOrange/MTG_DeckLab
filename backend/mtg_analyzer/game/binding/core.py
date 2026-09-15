@@ -322,6 +322,36 @@ def attacked_player_lowest_life_predicate(controller_id: Optional[str]) -> Calla
     return _ok
 
 
+def defender_has_most_life_predicate() -> Callable[[Any, Any], bool]:
+    """"~ attacks the player with the most life or tied for most life"
+    (PAR-79, Undercover Butler/Seraphic Greatsword/Preacher of the Schism) —
+    the ``>=`` mirror of `attacked_player_lowest_life_predicate` just above,
+    with one deliberate difference: it takes no ``controller_id``. "The
+    player with the most life" is a global descriptor of the table, not
+    relative to this ability's own controller the way "if no opponent has
+    more life than that player" is (that phrasing names *opponents* of a
+    specific player; this one doesn't) — so it compares the attacked
+    player's life against **every other non-eliminated player** in the
+    game, with no player excluded from the comparison set."""
+
+    def _ok(event: Any, context: Any) -> bool:
+        state = getattr(context, "state", None)
+        did = (event or {}).get("defending_player_id")
+        if state is None or did is None:
+            return False
+        try:
+            defender = state.player_by_id(did)
+        except (KeyError, ValueError):
+            return False
+        others = [
+            p for p in state.players
+            if p.id != did and not getattr(p, "has_lost", False)
+        ]
+        return all(defender.life >= p.life for p in others)
+
+    return _ok
+
+
 def regrant_trigger_gate_predicate(
     key: str, controller_id: Optional[str], source: Any = None
 ) -> Optional[Callable[[Any, Any], bool]]:
@@ -1842,6 +1872,13 @@ def _trigger_condition(
         predicates.append(
             attacked_player_lowest_life_predicate(getattr(source, "controller_id", None))
         )
+
+    # "Whenever ~ attacks the player with the most life or tied for most
+    # life, …" (PAR-79, Undercover Butler-shaped) — the ``>=`` mirror just
+    # above, see `defender_has_most_life_predicate`'s own docstring for why
+    # it takes no controller scoping.
+    if trigger.get("attacked_player_has_most_life"):
+        predicates.append(defender_has_most_life_predicate())
 
     # PAR-28 / RULE 702.169c Solved / 702.178a Max Speed on a *triggered*
     # ability: "[Ability text]. This ability triggers only if [condition]."

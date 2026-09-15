@@ -2394,30 +2394,115 @@ is in the rules-engine categories below them.
     the *shared* condition table rather than this ticket's own scope; the
     atomic-parts principle paying off exactly as the third increment's
     own write-up predicted.
-  - **Real residue remains — 61 SOLO cards confirmed at PARSER_VERSION
-    402** — see `BACKLOG.md`'s PAR-79 entry for the full, categorized
+  - **Fifth increment** (PARSER_VERSION 403 then 404, +18 then +14 more,
+    zero regressed each) — the first increment aimed at the trigger-
+    *condition* layer rather than the unblockable effect body, after
+    `parser_probe.py card` on individual SOLO cards (Merfolk Cave-Diver/
+    Sahagin/Snooping Page/Prismari Apprentice/Hraesvelgr of the First
+    Brood/Undercover Butler/Martha Jones/Matterbending Mage) showed most of
+    the 61-card residue's real blocker wasn't `unblockable` at all — the
+    card's own "…can't be blocked this turn" (or pump-and-unblockable)
+    clause already parsed fine; an unrecognized cast/attack trigger
+    *condition* sitting in front of it was the actual gap. Applying the
+    handler-recipe.md "decompose into atomic grammar units" rule (newly
+    written down this session — see `.claude/skills/extend-parser/
+    reference/handler-recipe.md` and `PARSER_LONG_TAIL.md`'s "Lessons that
+    keep recurring") at that layer:
+    - `_CAST_SPELL_TRIGGER_MV_AT_LEAST_RE` — "whenever `<subj>` casts a
+      spell with mana value N or greater, `<effect>`" (Angry Rabble/
+      Enraged Flamecaster/Etherium Spinner-shaped). `effect_binder`'s
+      `spell_mana_value_at_least` predicate already existed (PAR-60,
+      reached today only through `_CAST_SPELL_TRIGGER_RE`'s own *typed*
+      `types` slot) with **no bare, untyped recognizer at all** — a dead
+      primitive, not a missing engine feature.
+    - `_CAST_SPELL_TRIGGER_X_RE`/`_CAST_SPELL_TRIGGER_FIRST_X_RE` —
+      "whenever `<subj>` casts a spell with {X} in its mana cost[, each
+      turn]" (Matterbending Mage/Zaxara, the Exemplary-shaped). Same dead-
+      primitive shape: `spell_has_x`/`first_x_spell` (PAR-60,
+      Elementalist's Palette/Quandrix {X}-first-spell cluster) had zero
+      segmenter regex reaching either.
+    - `_CAST_SPELL_TRIGGER_HISTORIC_RE` — "whenever `<subj>` casts a
+      historic spell, `<effect>`" (RULE 700.13; Jhoira, Weatherlight
+      Captain/Cabal Paladin/Basim Ibn Ishaq-shaped). Same shape again:
+      `spell_is_historic` (PAR-60) had no recognizer at all — closing this
+      required updating `tests/test_spell_subtype_trigger_family.py`'s own
+      `test_cast_unrecognized_word_spell_trigger_stays_unclaimed`, which
+      had used "historic" as its example of a *deliberately* unrecognized
+      word; repointed to "kicked" (still genuinely unrecognized) and a new
+      `test_cast_historic_spell_trigger_is_modeled` added alongside it,
+      the same "stale regression test documenting a gap this pass closed"
+      fix this ticket's own long history keeps needing.
+    - `_ETB_AND_CAST_TRIGGER_RE` — RULE 603.1's "When ~ enters and whenever
+      you cast `<cast-trigger clause>`, `<effect>`" (Hraesvelgr of the
+      First Brood/Brinelin, the Moon Kraken/Flaring Cinder/Up the
+      Beanstalk-shaped): two independent triggers sharing one effect body
+      (RULE 603.2 fires each on its own — printed "and" is not a fused
+      condition), reconstructed as two ordinary trigger lines and
+      re-entered through `segment_line` itself rather than fusing a new
+      condition or re-deriving every cast-trigger filter a second time —
+      reuses the *entire* existing ETB/cast-trigger grammar. Two
+      `AbilitySpec`s via `Segment.extra_specs`, the same idiom PAR-75's
+      Doctor/companion OR-of-two-conditions split uses.
+    - `defender_has_most_life_predicate` (`game/binding/core.py`) +
+      `_ATTACKS_DEFENDER_MOST_LIFE_RE` — "whenever ~ attacks the player
+      with the most life or tied for most life, `<effect>`" (Undercover
+      Butler-shaped), the RULE 603.4 `>=` mirror of the already-shipped
+      `attacked_player_has_lowest_life`/"if no opponent has more life than
+      that player" gate (PAR-32) — deliberately compares against *every*
+      other player, not just opponents of the ability's controller, since
+      "the player with the most life" is a table-wide descriptor rather
+      than one relative to a specific player the way "no opponent" is.
+    - +32 total (`parser_probe.py diff`, 0 regressed both sub-passes) —
+      four (Hraesvelgr of the First Brood, Matterbending Mage, Undercover
+      Butler, Basim Ibn Ishaq) are PAR-79's own SOLO cards; the rest
+      (Angry Rabble, Brinelin the Moon Kraken, eight more off the
+      historic-spell row alone, …) are the "widened shared primitive
+      reaches cards outside your own ticket" signal the decomposition rule
+      calls out as evidence the fix belongs at the axis, not the phrase.
+    - Tests: `tests/test_par79_trigger_conditions.py` (20 tests, new) —
+      parse-level shape checks for all five new regexes plus adversarial
+      cases (a plain ETB trigger unaffected, a compound whose cast half
+      has no recognizer failing the *whole* compound closed rather than
+      silently dropping half of it), `parse_oracle(...).modeled` on seven
+      real cards, and execute-level tests firing a real
+      `engine.cast_spell`/`resolve_until_stable` for the mana-value/{X}/
+      historic thresholds (each with the below-threshold case proven to
+      *not* fire, not just the above-threshold case proven to fire) and
+      the compound ETB-then-cast-trigger both actually resolving, plus
+      three direct `TriggeredAbility.condition` checks (leader/tie/trailing)
+      for the most-life predicate mirroring `test_par30_attacks_defender_
+      lands_trigger.py`'s own pattern.
+  - **Real residue remains — 57 SOLO cards confirmed at PARSER_VERSION
+    404** — see `BACKLOG.md`'s PAR-79 entry for the full, categorized
     breakdown (the six-card Alora cycle's delayed-return compound; an
-    activation-cost-reduction/frequency rider; two *further* unrelated
-    gaps found on Sewer Crocodile/Basim Ibn Ishaq specifically — a
+    activation-cost-reduction/frequency rider on Sewer Crocodile — a
     conditional flat cost-discount shape `ActivationCost.dynamic_
-    reduction` doesn't cover, and "historic spell" missing from the
-    `SPELL_CAST` trigger's `spell_card_types` vocabulary even though the
-    word already has recognition elsewhere for an unrelated shape; a
-    family of "you may `<effect>`. if you do, `<payoff>`" triggers whose
-    antecedent is itself a resolving effect rather than a cost payment
-    (`_PAY_COST_THEN_GENERAL_RE`'s own `_MAY_COST_THEN_CLAUSE` is
-    cost-shaped only); a type-change-plus-unblockable compound whose base
-    "becomes a N/M creature until end of turn" form doesn't parse standalone
-    even without the unblockable tail; and Brotherhood Spy's real blocker
-    being an unrelated conditional phase-trigger gap). This ticket bundles
+    reduction` doesn't cover; a family of "you may `<effect>`. if you do,
+    `<payoff>`" triggers whose antecedent is itself a resolving effect
+    rather than a cost payment (`_PAY_COST_THEN_GENERAL_RE`'s own
+    `_MAY_COST_THEN_CLAUSE` is cost-shaped only); a type-change-plus-
+    unblockable compound whose base "becomes a N/M creature until end of
+    turn" form doesn't parse standalone even without the unblockable tail;
+    a self-plus-up-to-one-other-target compound subject `UnblockableEffect`
+    doesn't have a shape for yet (Martha Jones); and Brotherhood Spy/
+    Devourer of Memory's real blockers being unrelated trigger-condition
+    gaps). A separate, much larger "mana **spent** (not mana value)
+    threshold" family was found and deliberately **not** built this pass —
+    it only intersects this ticket on one card (Sahagin) but is a real
+    35-SOLO-card cluster on its own, half of it RULE 702.140 Adamant (a
+    wholly unbuilt keyword needing *per-colour* spent-mana tracking, not
+    just the single `GameObject.mana_spent_to_cast` total this pass's
+    `spell_mana_value_at_least`-style predicates read) — sized but held
+    for its own ticket rather than folded in here. This ticket bundles
     roughly a hundred independently-shaped small gaps under one search
     phrase by design (the 2026-09-15 Commander-legal tail sweep's own
     preamble calls this an *indefinite sweep*, not a batch with an end
     date) — closing it to zero SOLO is not one sitting's work, and each
     further increment should keep citing the real, re-verified count
     rather than a stale one.
-- **Verification:** `tests/test_par79_unblockable_family.py` (27 tests)
-  plus `tests/test_par79_discard_cycle_triggers.py` (10 tests, new), all
+- **Verification:** `tests/test_par79_unblockable_family.py` (27 tests),
+  `tests/test_par79_discard_cycle_triggers.py` (10 tests), and
+  `tests/test_par79_trigger_conditions.py` (20 tests, new), all
   passing — parse-level coverage of every increment's shapes including
   several adversarial cases (an unrecognized subtype word, the "1/1
   creature" digit-guard regression itself, the self-scoped "when you
@@ -2428,7 +2513,7 @@ is in the rules-engine categories below them.
   affected), and both new trigger events actually firing off a real
   `RulesEngine.discard_specific`/Cycling activation (not just a parse
   verdict), and an end-to-end `parse_oracle` check against real card
-  text for all three increments.
+  text for all increments.
 
 
 ### MEC-78 — Graveyard-exit batch triggers (RULE 603.3f)
