@@ -422,9 +422,46 @@ class PreventDamageEffect(GameEffect):
         recipient_is_activator: bool = False,
         combat_only: bool = False,
         rider: Optional[dict] = None,
+        source_filter: Optional[dict] = None,
+        recipient_scope: Optional[str] = None,
+        recipient_creatures_scope: Optional[str] = None,
+        recipient_filter: Optional[dict] = None,
+        attached_only: bool = False,
+        previous_subject: bool = False,
     ) -> None:
         super().__init__(source)
         self.amount = amount
+        #: "Untap target creature. Prevent all damage that would be dealt
+        #: to **it** this turn." (PAR-78, Djeru's Resolve/Leap of Faith) —
+        #: "it"/"that creature" naming the *preceding* clause's own RULE
+        #: 115 target (`GameContext.previous_targets`), the same pronoun
+        #: idiom `TapEffect`/`AddCountersEffect` already read.
+        self.previous_subject = bool(previous_subject)
+        #: "Prevent all damage that would be dealt to **enchanted
+        #: creature**." (PAR-78, Inviolability) — mirrors `RegenerateEffect`'s
+        #: own ``target_kind="attached_permanent"`` mode: no RULE 115 choice
+        #: at all, read live off `source.attached_to`.
+        self.attached_only = bool(attached_only)
+        #: PAR-78 — "…by creatures"/"…by sources you don't control"/… — see
+        #: `RulesEngine._damage_source_matches`'s own whitelist.
+        self.source_filter = source_filter
+        #: "Prevent all damage that would be dealt to you and **permanents**
+        #: you control this turn." (PAR-78, Endure/Channel Harm) vs. the
+        #: pre-existing "…and **creatures** you control" (Shadowbane) —
+        #: `RulesEngine.prevent_damage_to_player_and_their_creatures`'s own
+        #: ``scope`` param. ``None`` (the untargeted default) means no
+        #: recipient union at all — just the plain "…to you" shield.
+        self.recipient_scope = recipient_scope
+        #: "Prevent all damage that would be dealt to creatures[ you
+        #: control] this turn." (PAR-78, Forfend/Inner Sanctum/…) — a
+        #: board-wide creature-recipient shield with no player-shield half
+        #: at all (`RulesEngine._prevent_damage_to_creatures`), unlike every
+        #: mode above (all keyed to one player, this effect's controller).
+        #: ``"all"`` or ``"you_control"``; ``None`` (default) means this
+        #: mode is off. ``recipient_filter`` narrows further — see that
+        #: method's own docstring.
+        self.recipient_creatures_scope = recipient_creatures_scope
+        self.recipient_filter = recipient_filter
         self.amount_if_kicked = amount_if_kicked
         self.divided = divided
         self.target = target
@@ -468,9 +505,29 @@ class PreventDamageEffect(GameEffect):
             [(self.amount_if_kicked is not None and kicker_count > 0, lambda: self.amount_if_kicked)],
             stop_at_first=True,
         )
+        if self.attached_only:
+            host_id = getattr(self.source, "attached_to", None)
+            host = context.state.find_object(host_id) if host_id is not None else None
+            if host is not None:
+                context.prevent_damage_to_target(host, amount, source_filter=self.source_filter)
+            return
+        if self.previous_subject:
+            prev = list(context.previous_targets)
+            target = prev[0] if prev else None
+            if target is not None:
+                context.prevent_damage_to_target(target, amount, source_filter=self.source_filter)
+            return
         if self.self_only:
             if self.source is not None:
-                context.prevent_damage_to_target(self.source, amount)
+                context.prevent_damage_to_target(self.source, amount, source_filter=self.source_filter)
+            return
+        if self.recipient_creatures_scope is not None:
+            player = _controller_of(self.source, context)
+            if player is not None:
+                context.engine._prevent_damage_to_creatures(
+                    player, recipient_scope=self.recipient_creatures_scope,
+                    recipient_filter=self.recipient_filter, source_filter=self.source_filter,
+                )
             return
         if self.target_spec is None:
             player = None
@@ -483,10 +540,16 @@ class PreventDamageEffect(GameEffect):
                 player = _controller_of(self.source, context)
             if player is not None:
                 watched_source_id = self.source.instance_id if self.watched_source_is_self and self.source is not None else None
-                context.prevent_damage_to_player(
-                    player, amount, watched_source_id=watched_source_id,
-                    rider=self.rider, combat_only=self.combat_only,
-                )
+                if self.recipient_scope is not None:
+                    context.engine.prevent_damage_to_player_and_their_creatures(
+                        player, amount, watched_source_id=watched_source_id,
+                        rider=self.rider, scope=self.recipient_scope, source_filter=self.source_filter,
+                    )
+                else:
+                    context.prevent_damage_to_player(
+                        player, amount, watched_source_id=watched_source_id,
+                        rider=self.rider, combat_only=self.combat_only, source_filter=self.source_filter,
+                    )
             return
         chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
         if not chosen:
@@ -499,7 +562,7 @@ class PreventDamageEffect(GameEffect):
             shares = [amount] * len(chosen)
         for target, share in zip(chosen, shares):
             if share == "all" or (isinstance(share, int) and share > 0):
-                context.prevent_damage_to_target(target, share)
+                context.prevent_damage_to_target(target, share, source_filter=self.source_filter)
 
 
 class GrantCantLoseThisTurnEffect(GameEffect):
@@ -748,6 +811,54 @@ class RequestPreventDamageSourceEffect(GameEffect):
                 "rider": self.rider,
             },
         )
+
+
+class RequestPreventDamageChosenColorEffect(GameEffect):
+    """RULE 615/616.1d's "sources of **the color of your choice**" (Avacyn,
+    Guardian Angel, PAR-78) — `RequestPreventDamageSourceEffect`'s sibling
+    for a *colour* choice rather than a *source* choice: the shield ends up
+    matching every source of the picked colour for the rest of the turn,
+    not one pinned permanent, so there's no object chooser to open — just
+    `RulesEngine._request_prevent_damage_chosen_color`'s own small WUBRG
+    choice, which feeds the answer into the ordinary ``source_filter=
+    {"color": …}`` key (PAR-78) once resolved.
+
+    ``target_kind``/``target`` route the recipient through RULE 115
+    targeting (Avacyn's own "another target creature"/"target player or
+    planeswalker" shield); unset (no real printed card needs it) falls back
+    to protecting the caster, matching `RequestPreventDamageSourceEffect`'s
+    own default.
+    """
+
+    def __init__(
+        self,
+        target_kind: Optional[str] = None,
+        target: Any = None,
+        amount: Any = "all",
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.amount = amount
+        self.target = target
+        self.target_spec = (
+            TargetSpec(kind=target_kind, count=1) if target_kind is not None else None
+        )
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        src = self.source
+        if src is None:
+            return
+        player = _controller_of(src, context)
+        if player is None:
+            return
+        if self.target_spec is not None:
+            chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
+            recipient = chosen[0] if chosen else None
+        else:
+            recipient = player
+        if recipient is None:
+            return
+        context.engine._request_prevent_damage_chosen_color(player, recipient, amount=self.amount)
 
 
 class RequestRedirectDamageSourceEffect(GameEffect):

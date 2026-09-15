@@ -124,6 +124,30 @@ def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
             )
         if to == "controlled_permanent":
             return _controlled_permanent_matches(recipient_filter, event, context, src)
+        # PAR-78: "Prevent all damage that would be dealt to creatures[ you
+        # control]." (Bubble Matrix/Inner Sanctum/Iroas/Emmara Tandris) —
+        # every creature (``"all_creatures"``) or only this shield's
+        # controller's own (``"creatures_you_control"``), optionally
+        # narrowed further by ``recipient_filter`` (a `combat.
+        # matches_object_filter`-shaped dict, e.g. Iroas' ``{"attacking":
+        # True}``, Emmara's ``{"token": True}``). Distinct from
+        # ``"controlled_permanent"`` above, which has no creature-only
+        # reading in `matches_object_filter`'s own vocabulary.
+        if to in ("all_creatures", "creatures_you_control"):
+            if event.get("is_player"):
+                return False
+            target_obj = context.state.find_object(event.get("target_id"))
+            if target_obj is None or not target_obj.is_creature:
+                return False
+            if to == "creatures_you_control" and (
+                src is None or target_obj.controller_id != src.controller_id
+            ):
+                return False
+            if not recipient_filter:
+                return True
+            from .. import combat  # local: avoid the combat<->effects import cycle
+
+            return combat.matches_object_filter(target_obj, recipient_filter)
         if to in ("any_player", "opponent_player"):
             return _recipient_entry_matches(to, event, context, src)
         if to == "any":
@@ -137,6 +161,15 @@ def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
         color = source_filter.get("color")
         if color is not None and color not in (event.get("source_colors") or ()):
             return False
+        # "…by sources of the chosen color." (Prismatic Ward, PAR-78) — the
+        # standing sibling of `combat.matches_object_filter`'s own
+        # ``color_from_source`` (Story Circle/Prismatic Circle's identical
+        # RULE 601.2b ETB colour pick, read live off this shield's own
+        # source rather than a literal colour baked in at parse time).
+        if source_filter.get("color_from_source"):
+            chosen = getattr(src, "chosen_color", None)
+            if not chosen or chosen not in (event.get("source_colors") or ()):
+                return False
         card_type = source_filter.get("card_type")
         if card_type is not None:
             source_id = event.get("source_id")
@@ -147,6 +180,30 @@ def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
             return False
         if source_filter.get("is_spell") and not event.get("source_is_instant_or_sorcery"):
             return False
+        # PAR-78: "…by deserts."/"…by creatures with first strike."/"…by
+        # enchanted creatures." — a subtype/keyword/enchanted source filter,
+        # alongside the pre-existing ``card_type``/``is_creature`` checks
+        # above.
+        subtype = source_filter.get("subtype")
+        keyword = source_filter.get("keyword")
+        enchanted = source_filter.get("enchanted")
+        if subtype is not None or keyword is not None or enchanted:
+            source_id = event.get("source_id")
+            src_obj = context.state.find_object(source_id) if source_id is not None else None
+            if src_obj is None:
+                return False
+            if subtype is not None and subtype.lower() not in (src_obj.card.type_line or "").lower():
+                return False
+            if keyword is not None:
+                from .. import combat  # local: avoid the combat<->effects import cycle
+
+                if not combat.has(src_obj, keyword):
+                    return False
+            if enchanted and not any(
+                o.attached_to == src_obj.instance_id and "aura" in o.card.type_line.lower()
+                for o in context.state.permanents()
+            ):
+                return False
         controller = source_filter.get("controller")
         if controller is not None:
             shield_controller_id = getattr(src, "controller_id", None)

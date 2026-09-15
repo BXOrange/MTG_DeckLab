@@ -519,10 +519,11 @@ class GameContext:
         watched_source_id: Optional[int] = None,
         rider: Optional[dict] = None,
         combat_only: bool = False,
+        source_filter: Optional[dict] = None,
     ) -> None:
         self.engine.prevent_damage_to_player(
             player, amount, watched_source_id=watched_source_id,
-            rider=rider, combat_only=combat_only,
+            rider=rider, combat_only=combat_only, source_filter=source_filter,
         )
 
     def prevent_life_gain_this_turn(self, players: list["Player"]) -> None:
@@ -534,8 +535,10 @@ class GameContext:
     def cap_damage_life_floor(self, player: "Player", floor: int = 1) -> None:
         self.engine.cap_damage_life_floor(player, floor)
 
-    def prevent_damage_to_target(self, target: Any, amount: Union[int, str] = "all") -> None:
-        self.engine.prevent_damage_to_target(target, amount)
+    def prevent_damage_to_target(
+        self, target: Any, amount: Union[int, str] = "all", source_filter: Optional[dict] = None,
+    ) -> None:
+        self.engine.prevent_damage_to_target(target, amount, source_filter=source_filter)
 
     def prevent_all_combat_damage_this_turn(
         self, controller: "Player", exclude_subtype: Optional[str] = None,

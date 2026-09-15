@@ -506,8 +506,75 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 44.90% (15,629 / 34,811) as of 2026-09-15, measured at
-PARSER_VERSION 391** (closes PAR-77 — the Rebel/Mercenary graveyard-return
+**Coverage: 45.03% (15,675 / 34,811) as of 2026-09-15, measured at
+PARSER_VERSION 393** (closes PAR-78 — "Prevent all damage that would be
+dealt to `<target>`" broad recognition. The ticket's own "not a new
+primitive" framing was only partly right: `PreventDamageEffect`/
+`"prevent_damage_shield"` already had the unlimited "all" shield, but there
+was no `source_filter` ("by creatures"/"by sources you don't control"/…)
+on *any* prevention primitive, and no board-wide "creatures[ you control]"
+recipient shield — both new (`RulesEngine._prevent_damage_to_creatures`).
+The bigger find: a bare **permanent's own** un-triggered "Prevent all
+damage that would be dealt to `<X>`." line is a *standing* RULE 613/616
+replacement effect, not a one-shot resolve-time grant — `segment_line`'s
+own `allow_spell_effect` gate already correctly left it unclaimed for the
+one-shot family; the real primitive was the already-shipped
+`ReplacementRegistry` `"prevent_damage"` factory (MEC-30), reached through
+`catalogue/replacements.py`'s `replacement_clause_specs` (not `static_
+handlers.py`, where a first pass wrongly placed it — `ability_kind`
+distinguishes "static"/StaticAbility from "replacement"/ReplacementEffect
+at bind time, and only the latter routes through that registry). Two
+parallel `source_filter` vocabularies now exist by design: `catalogue.
+handlers._PREVENT_SOURCE_FILTER_PHRASES` (one-shot) and `catalogue.
+replacements._PREVENT_ALL_SOURCE_FILTER_PHRASES` (standing, extending the
+pre-existing `_prevent_damage_replacement`'s own `color`/`card_type`/
+`is_creature`/`controller` keys with `subtype`/`keyword`/`enchanted`) —
+different effect kinds, no shared class to unify them through. A second
+pass closed the remaining ~26 SOLO cards' genuinely separate mechanics: the
+"sources of **the color** of your choice" chooser (Avacyn, Guardian
+Angel) needed a real new primitive — `RequestPreventDamageChosenColorEffect`/
+`RulesEngine._request_prevent_damage_chosen_color`, a fresh resolve-time
+WUBRG choice distinct from both the Circle of Protection family's "**a
+source** of your choice" (picks one permanent) and RULE 601.2b's own
+`"choose_color"` (an ETB-only, once-per-object pick) — feeding the answer
+into the ordinary `source_filter={"color": …}` key; the interactive
+"a source of your choice" chooser family itself (Consulate Surveillance/
+Protective Sphere/Samite Ministration/Shieldmage Advocate/Prismatic Ward)
+was hand-authored in `game/ability_catalogue/damage_prevention.py` per
+`catalogue/replacements.py`'s own documented MEC-30 convention (not
+parser-recognized), picking up two smaller reusable primitives along the
+way — `combat.matches_object_filter`'s `color_from_noted_mana` (Protective
+Sphere's "shares a color with the mana spent on this activation cost",
+reading `ActivationCost.note_spent_color`/`GameObject.noted_mana_color`,
+Jeweled Amulet's own MEC-43 primitive) and `apply_prevent_rider`'s
+`if_source_color_any` (Samite Ministration's "black **or** red", widening
+the existing single-colour `if_source_color` gate) — plus the standing
+replacement family's own `source_filter={"color_from_source": True}`
+(Prismatic Ward). Three more real-card widenings closed along the way:
+the self-subject pronoun family now accepts "him"/"her" alongside "it"
+(Gideon, Ally of Zendikar); the RULE 115 target shape gained a closed
+two-word subtype-OR `creature_filter` (Wellgabber Apothecary's "target
+tapped Merfolk or Kithkin creature"); and a new devotion-shaped
+`static_conditions.py` kind, `control_permanent_of_each_color` (Spirit of
+Resistance's "as long as you control a permanent of each color"). 45 cards
+closed by parser recognition, 6 more hand-authored, zero regressed
+(`pytest -q`, `parser_probe.py diff`). A real residue stays open,
+explicitly out of this ticket's scope rather than silently dropped —
+riders beyond `if_source_color_any` (Channel Harm/Comeuppance/Judgment of
+Alexander/Brace for Impact's own "for each N damage prevented, `<effect>`"
+follow-ups); reciprocal "…and dealt by" shields (Heart of Light/Kiora, the
+Crashing Wave); quoted-ability-loss cost-based removal (Glittering
+Lion/Lynx's "loses \"`<quoted ability>`\""); a RULE 115-targeted damage
+*source* (Stonewise Fortifier's "…by target creature", as opposed to an
+interactively-chosen or filter-matched one); a "blocking this" source
+filter (Wall of Vapor); a reciprocal same-color-as-recipient condition
+(Well-Laid Plans); a "those permanents" group-reference recipient
+(Mutational Advantage); and a spell (not permanent) source_filter
+distinction (Bronze Horse) — each its own genuinely separate primitive,
+none sharing enough shape with another to build once. See `docs/
+implementation-state/Done_Backend.md`'s "Oracle-Text Parser Front-End"
+PAR-78 entry.)
+v391 closes PAR-77 — the Rebel/Mercenary graveyard-return
 filter. PAR-70 built the "`<subtype>` permanent card" qualifier for library
 search; this extends the identical qualifier to `return_from_graveyard`'s
 target family — `_GRAVEYARD_TYPE_WORD`/`_graveyard_target_kind` gained
@@ -835,7 +902,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 47.15% (15,008 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 47.29% (15,053 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

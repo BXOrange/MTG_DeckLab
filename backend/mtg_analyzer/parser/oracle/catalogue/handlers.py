@@ -901,6 +901,257 @@ def _prevent_all_combat_damage_to_self(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+#: PAR-78: "Prevent all damage that would be dealt to `<recipient>` **by
+#: `<source filter>`**." (Argothian Pixies/Champion Lancer/Prismatic Ward/
+#: Deep Wood/Scarecrow/…, ~50 real cards) — the source-qualified sibling of
+#: the plain (unqualified) "prevent all damage…" rows below. A closed,
+#: fail-closed whitelist (`PreventDamageEffect.source_filter`'s own
+#: vocabulary, `RulesEngine._damage_source_matches`) rather than a
+#: compositional grammar — an unrecognized filter phrase leaves the whole
+#: clause unclaimed instead of guessing.
+_PREVENT_SOURCE_FILTER_PHRASES: dict[str, dict] = {
+    "creatures": {"creature": True},
+    "artifact creatures": {"creature": True, "artifact": True},
+    "artifact sources": {"artifact": True},
+    "sources you control": {"controller": "you"},
+    "sources you don'?t control": {"controller": "not_you"},
+    "sources your opponents control": {"controller": "not_you"},
+    "attacking creatures": {"creature": True, "attacking": True},
+    "attacking creatures without flying": {"creature": True, "attacking": True, "without_keyword": "flying"},
+    "creatures with flying": {"creature": True, "keyword": "flying"},
+    "creatures with first strike": {"creature": True, "keyword": "first_strike"},
+    "deserts": {"subtype": "desert"},
+    "enchanted creatures": {"creature": True, "enchanted": True},
+}
+#: Built from the dict above, longest-alternative-first so e.g. "attacking
+#: creatures without flying" wins over the shorter "attacking creatures".
+_PREVENT_SOURCE_FILTER_ALT = "|".join(
+    sorted(_PREVENT_SOURCE_FILTER_PHRASES, key=len, reverse=True)
+)
+
+
+def _parse_prevent_source_filter(phrase: str) -> Optional[dict]:
+    """A matched `_PREVENT_SOURCE_FILTER_ALT` phrase → its `source_filter`
+    dict, or ``None`` if unrecognized (fail-closed)."""
+    text = phrase.strip().lower()
+    for pattern, filt in _PREVENT_SOURCE_FILTER_PHRASES.items():
+        if re.fullmatch(pattern, text):
+            return dict(filt)
+    return None
+
+
+#: PAR-78: bare self — "Prevent all damage that would be dealt to
+#: `<~/this creature/this permanent>`[ this turn][ **by** `<source
+#: filter>`]." (Cho-Manno, Revolutionary/Dawn Elemental/Argothian Pixies/
+#: Champion Lancer/Wall of Putrid Flesh/…).
+_PREVENT_ALL_DAMAGE_SELF_RE = _c(
+    r"prevent all damage that would be dealt to (?:~|this creature|this permanent)"
+    r"(?: this turn)?"
+    rf"(?: by (?P<filter>{_PREVENT_SOURCE_FILTER_ALT}))?"
+)
+
+
+def _prevent_all_damage_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params: dict = {"amount": "all", "self_only": True}
+    filt = m.groupdict().get("filter")
+    if filt:
+        source_filter = _parse_prevent_source_filter(filt)
+        if source_filter is None:
+            return None
+        params["source_filter"] = source_filter
+    return [EffectSpec("prevent_damage_shield", params)]
+
+
+#: PAR-78: the untargeted "you" shield — "Prevent all damage that would be
+#: dealt to you[ **and** creatures/permanents you control][ this turn][
+#: **by** `<source filter>`]." (Solitary Confinement/Endure/Safe Passage/
+#: Deep Wood/Scarecrow/Eerie Interference/…).
+_PREVENT_ALL_DAMAGE_YOU_RE = _c(
+    r"prevent all damage that would be dealt to you"
+    r"(?: and (?P<scope>creatures|permanents) you control)?"
+    r"(?: this turn)?"
+    rf"(?: by (?P<filter>{_PREVENT_SOURCE_FILTER_ALT}))?"
+)
+
+
+def _prevent_all_damage_you(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params: dict = {"amount": "all"}
+    scope = m.groupdict().get("scope")
+    if scope:
+        params["recipient_scope"] = scope
+    filt = m.groupdict().get("filter")
+    if filt:
+        source_filter = _parse_prevent_source_filter(filt)
+        if source_filter is None:
+            return None
+        params["source_filter"] = source_filter
+    return [EffectSpec("prevent_damage_shield", params)]
+
+
+#: PAR-78: the board-wide creature-recipient shield — "Prevent all damage
+#: that would be dealt to [`<attacking/artifact> `]creatures[ **you
+#: control**]/creature tokens you control[ this turn][ **by** `<source
+#: filter>`]." (Forfend/Bubble Matrix/Inner Sanctum/Emmara Tandris/Iroas/
+#: Ethersworn Shieldmage/Light of Sanction/…) — no player-shield half at
+#: all, unlike the "you" row above.
+_PREVENT_ALL_DAMAGE_CREATURES_RE = _c(
+    r"prevent all damage that would be dealt to "
+    r"(?:(?P<attacking>attacking creatures)|(?P<artifact>artifact creatures)|"
+    r"(?P<tokens>creature tokens)|creatures)"
+    r"(?P<yc> you control)?"
+    r"(?: this turn)?"
+    rf"(?: by (?P<filter>{_PREVENT_SOURCE_FILTER_ALT}))?"
+)
+
+
+def _prevent_all_damage_creatures(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params: dict = {
+        "amount": "all",
+        "recipient_creatures_scope": "you_control" if m.groupdict().get("yc") else "all",
+    }
+    recipient_filter: dict = {}
+    if m.groupdict().get("attacking"):
+        recipient_filter["attacking"] = True
+    elif m.groupdict().get("artifact"):
+        recipient_filter["artifact"] = True
+    elif m.groupdict().get("tokens"):
+        recipient_filter["token"] = True
+    if recipient_filter:
+        params["recipient_filter"] = recipient_filter
+    filt = m.groupdict().get("filter")
+    if filt:
+        source_filter = _parse_prevent_source_filter(filt)
+        if source_filter is None:
+            return None
+        params["source_filter"] = source_filter
+    return [EffectSpec("prevent_damage_shield", params)]
+
+
+#: PAR-78: the RULE 115 target form — "Prevent all damage that would be
+#: dealt to target creature[ with power `<N>` or greater] this turn[ **by**
+#: `<source filter>`]." (Indestructible Aura/Shielded Passage/Godtoucher/
+#: Harvestguard Alseids/…).
+#: PAR-78: the closed subtype-word vocabulary `_prevent_all_damage_target`
+#: accepts before "creature" — see its own docstring for why this isn't an
+#: open vocabulary. Small on purpose; widen only when a real card needs
+#: another word.
+_PREVENT_TARGET_SUBTYPE_WORDS: frozenset[str] = frozenset({"merfolk", "kithkin"})
+_PREVENT_ALL_DAMAGE_TARGET_RE = _c(
+    r"prevent all damage that would be dealt to target "
+    r"(?:(?P<tapped>tapped) )?(?:(?P<legendary>legendary) )?"
+    r"(?:(?P<subtype1>[a-z]+)(?: or (?P<subtype2>[a-z]+))? )?creature"
+    r"(?: with power (?P<minpower>\d+) or greater)?"
+    r" this turn"
+    rf"(?: by (?P<filter>{_PREVENT_SOURCE_FILTER_ALT}))?"
+)
+
+
+def _prevent_all_damage_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params: dict = {"amount": "all", "target_kind": "creature"}
+    creature_filter: dict = {}
+    minpower = m.groupdict().get("minpower")
+    if minpower:
+        creature_filter["min_power"] = int(minpower)
+    if m.groupdict().get("legendary"):
+        creature_filter["legendary"] = True
+    if m.groupdict().get("tapped"):
+        creature_filter["tapped"] = True
+    # "target tapped Merfolk or Kithkin creature" (Wellgabber Apothecary,
+    # PAR-78) — a two-word subtype OR-filter. ``_PREVENT_TARGET_SUBTYPE_
+    # WORDS`` is a deliberately closed, explicit list (this project's own
+    # convention — `static_handlers._SPELL_COST_SUBTYPE_WORDS`'s own
+    # docstring — rather than an open vocabulary, since a word here could
+    # just as easily be a qualifier like "attacking", not a subtype).
+    subtype1 = m.groupdict().get("subtype1")
+    subtype2 = m.groupdict().get("subtype2")
+    if subtype1:
+        words = [subtype1] + ([subtype2] if subtype2 else [])
+        if not all(w in _PREVENT_TARGET_SUBTYPE_WORDS for w in words):
+            return None
+        if len(words) == 1:
+            creature_filter["subtype"] = words[0].title()
+        else:
+            creature_filter["subtype_any"] = [w.title() for w in words]
+    if creature_filter:
+        params["creature_filter"] = creature_filter
+    filt = m.groupdict().get("filter")
+    if filt:
+        source_filter = _parse_prevent_source_filter(filt)
+        if source_filter is None:
+            return None
+        params["source_filter"] = source_filter
+    return [EffectSpec("prevent_damage_shield", params)]
+
+
+#: PAR-78: the previous-target pronoun form — "`<earlier clause>`. Prevent
+#: all damage that would be dealt to it/that creature this turn[ **by**
+#: `<source filter>`]." (Djeru's Resolve/Leap of Faith/Enshrouding Mist/
+#: Glyph of Destruction) — "it"/"that creature" naming whichever creature
+#: the *preceding* clause of this same body targeted, `previous_subject_
+#: only`-gated (never offered to a clause parsed standalone).
+_PREVENT_ALL_DAMAGE_PREVIOUS_RE = _c(
+    r"prevent all damage that would be dealt to (?:it|that creature) this turn"
+    rf"(?: by (?P<filter>{_PREVENT_SOURCE_FILTER_ALT}))?"
+)
+
+
+def _prevent_all_damage_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params: dict = {"amount": "all", "previous_subject": True}
+    filt = m.groupdict().get("filter")
+    if filt:
+        source_filter = _parse_prevent_source_filter(filt)
+        if source_filter is None:
+            return None
+        params["source_filter"] = source_filter
+    return [EffectSpec("prevent_damage_shield", params)]
+
+
+#: PAR-78: the self-subject pronoun sibling — "…put a +1/+1 counter on ~
+#: and prevent all damage that would be dealt to **it** this turn."
+#: (Favored Hoplite) — "it" naming this ability's own source, not a
+#: previous RULE 115 pick (no target was ever chosen; "~" appears earlier
+#: in the very same compound sentence). `self_subject_only`-gated, the
+#: bare-imperative-clause sibling of `_PREVENT_ALL_DAMAGE_PREVIOUS_RE`.
+#: "him"/"her" (Gideon, Ally of Zendikar — "~ becomes a 5/5 ... creature
+#: ... . Prevent all damage that would be dealt to **him** this turn.") is
+#: the identical self-reference, just gendered per the planeswalker's own
+#: printed pronoun rather than "it".
+_PREVENT_ALL_DAMAGE_SELF_PRONOUN_RE = _c(
+    r"prevent all damage that would be dealt to (?:it|him|her) this turn"
+    rf"(?: by (?P<filter>{_PREVENT_SOURCE_FILTER_ALT}))?"
+)
+
+
+def _prevent_all_damage_self_pronoun(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params: dict = {"amount": "all", "self_only": True}
+    filt = m.groupdict().get("filter")
+    if filt:
+        source_filter = _parse_prevent_source_filter(filt)
+        if source_filter is None:
+            return None
+        params["source_filter"] = source_filter
+    return [EffectSpec("prevent_damage_shield", params)]
+
+
+#: PAR-78: the Aura self-host form — "Prevent all damage that would be
+#: dealt to enchanted creature[ **by** `<source filter>`]." (Inviolability).
+_PREVENT_ALL_DAMAGE_ENCHANTED_RE = _c(
+    r"prevent all damage that would be dealt to enchanted creature"
+    rf"(?: by (?P<filter>{_PREVENT_SOURCE_FILTER_ALT}))?"
+)
+
+
+def _prevent_all_damage_enchanted(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params: dict = {"amount": "all", "attached_only": True}
+    filt = m.groupdict().get("filter")
+    if filt:
+        source_filter = _parse_prevent_source_filter(filt)
+        if source_filter is None:
+            return None
+        params["source_filter"] = source_filter
+    return [EffectSpec("prevent_damage_shield", params)]
+
+
 #: RULE 601.2c's mass/untargeted-selector vocabulary — shared by the
 #: damage/lose_life/player-counter "each creature/player/opponent" families
 #: below, not RULE 115 targeting (see `subgrammars._TARGET_ROWS`'s note on
@@ -11150,6 +11401,47 @@ HANDLERS: list[EffectHandler] = [
         "prevent_all_combat_damage_to_self",
         _PREVENT_ALL_COMBAT_DAMAGE_TO_SELF_RE,
         _prevent_all_combat_damage_to_self,
+    ),
+    # PAR-78: "Prevent all damage that would be dealt to <recipient>[ by
+    # <source filter>]." — five recipient shapes, tried target/enchanted
+    # first (most specific) so the bare-self/you/creatures rows below don't
+    # need to actively exclude "target"/"enchanted creature" themselves.
+    EffectHandler(
+        "prevent_all_damage_target",
+        _PREVENT_ALL_DAMAGE_TARGET_RE,
+        _prevent_all_damage_target,
+    ),
+    EffectHandler(
+        "prevent_all_damage_previous",
+        _PREVENT_ALL_DAMAGE_PREVIOUS_RE,
+        _prevent_all_damage_previous,
+        previous_subject_only=True,
+    ),
+    EffectHandler(
+        "prevent_all_damage_self_pronoun",
+        _PREVENT_ALL_DAMAGE_SELF_PRONOUN_RE,
+        _prevent_all_damage_self_pronoun,
+        self_subject_only=True,
+    ),
+    EffectHandler(
+        "prevent_all_damage_enchanted",
+        _PREVENT_ALL_DAMAGE_ENCHANTED_RE,
+        _prevent_all_damage_enchanted,
+    ),
+    EffectHandler(
+        "prevent_all_damage_creatures",
+        _PREVENT_ALL_DAMAGE_CREATURES_RE,
+        _prevent_all_damage_creatures,
+    ),
+    EffectHandler(
+        "prevent_all_damage_you",
+        _PREVENT_ALL_DAMAGE_YOU_RE,
+        _prevent_all_damage_you,
+    ),
+    EffectHandler(
+        "prevent_all_damage_self",
+        _PREVENT_ALL_DAMAGE_SELF_RE,
+        _prevent_all_damage_self,
     ),
     EffectHandler(
         "damage_per_noncreature_spell_cast_this_turn",

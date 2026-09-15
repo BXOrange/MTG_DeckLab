@@ -94,13 +94,6 @@ read. Several of these were flagged by `commander_tail_report.py` as
 "all"-amount `prevent_damage_shield`) — filed as `PAR-*` parser gaps, not
 `MEC-*`, for exactly that reason. Ordered by verified SOLO count.
 
-- **PAR-78 · "Prevent all damage that would be dealt to `<target>`" — broad
-  recognition.** The largest verified win in this sweep.
-  `PreventDamageEffect`/the `"prevent_damage_shield"` factory already
-  support an unlimited ("all") shield (`game/effects/registry.py`) — this
-  is a parser/segmenter recognition gap across the many activated/
-  triggered-ability shapes that phrase a damage shield this way, not a new
-  primitive. Confirmed: 65 SOLO (90 total).
 - **PAR-79 · "`<Name>`/target creature can't be blocked this turn" — broad
   recognition (residue after a first increment).** `temp_unblockable`/the
   `"unblockable"` effect key already exist end to end

@@ -115,6 +115,10 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "not_your_turn",
         # -- The board.
         "control_count",  # + ``selector``/``min``/``max`` — Metalcraft-shaped
+        # "as long as you control a permanent of each color" (Spirit of
+        # Resistance, PAR-78) — a devotion-shaped five-colour AND, not a
+        # single-selector count.
+        "control_permanent_of_each_color",
         "control_named",  # + ``name`` — "as long as you control a <card>"
         # "as long as an opponent has N or more cards in their graveyard" —
         # `control_count`'s opponent-scoped sibling: true when *any one*
@@ -617,6 +621,21 @@ def condition_holds(
         if maximum is not None and n > int(maximum):
             return False
         return True
+    if kind == "control_permanent_of_each_color":
+        # "As long as you control a permanent of each color" (Spirit of
+        # Resistance, PAR-78) — unlike `control_count`'s single min/max
+        # threshold on one selector, this is five independent booleans
+        # (one per WUBRG colour) ANDed together; a devotion-shaped check,
+        # not a count.
+        if controller_id is None:
+            return False
+        present = {
+            c
+            for o in state.battlefield
+            if o.controller_id == controller_id
+            for c in o.colors
+        }
+        return {"W", "U", "B", "R", "G"}.issubset(present)
     if kind == "opponent_count":
         # "As long as **an** opponent has N or more cards in their graveyard"
         # (Blackbloom Rogue) — the same `count_selector` vocabulary as

@@ -1157,3 +1157,195 @@ def _opal_eye_kondas_yojimbo() -> list[AbilitySpec]:
 
 register("Opal-Eye, Konda's Yojimbo", _opal_eye_kondas_yojimbo)
 
+
+# ---------------------------------------------------------------------------
+# PAR-78 residue: "sources of **the color of your choice**" (a chosen colour
+# shielding against *every* matching source, not one chosen permanent) and
+# a handful of other genuinely bespoke shapes the "prevent all damage that
+# would be dealt to `<target>`" broad-recognition sweep left as SOLO —
+# see BACKLOG.md's own PAR-78 entry for the family this closes out of.
+# ---------------------------------------------------------------------------
+
+
+def _avacyn_guardian_angel() -> list[AbilitySpec]:
+    """Flying, vigilance
+    {1}{W}: Prevent all damage that would be dealt to another target
+    creature this turn by sources of the color of your choice.
+    {5}{W}{W}: Prevent all damage that would be dealt to target player or
+    planeswalker this turn by sources of the color of your choice.
+
+    — Flying/vigilance are ordinary RULE 702 keywords (repeated here per
+    Kithkin Armor's own "a registered card is trusted wholesale" caution,
+    even though `parse_keywords` would likely fold them in anyway). Both
+    activated abilities are RULE 615/616.1d's "sources of **the color** of
+    your choice" shield — genuinely different from the Circle of
+    Protection family's "**a source** of your choice"
+    (`RequestPreventDamageSourceEffect`): the shield here has to match
+    *every* source of the picked colour, not one specific permanent — see
+    `RequestPreventDamageChosenColorEffect`. "target creature" already
+    excludes this ability's own source (`legal_targets`' plain ``creature``
+    kind), matching the printed "**another** target creature". The second
+    ability drops "or planeswalker" from its target, the project's
+    existing convention for this exact phrase (Boros Charm,
+    `parser/oracle/catalogue/subgrammars.py`'s own "target player or
+    planeswalker" → plain ``"player"`` row).
+    """
+    return [
+        AbilitySpec("keyword", [], keyword={"name": "flying"}),
+        AbilitySpec("keyword", [], keyword={"name": "vigilance"}),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("request_prevent_damage_chosen_color", {"target_kind": "creature"})],
+            cost={"mana": "{1}{W}"},
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("request_prevent_damage_chosen_color", {"target_kind": "player"})],
+            cost={"mana": "{5}{W}{W}"},
+        ),
+    ]
+
+
+register("Avacyn, Guardian Angel", _avacyn_guardian_angel)
+
+
+def _consulate_surveillance() -> list[AbilitySpec]:
+    """When this enchantment enters, you get {E}{E}{E}{E} (four energy
+    counters).
+    Pay {E}{E}: Prevent all damage that would be dealt to you this turn by
+    a source of your choice.
+
+    — The ETB energy grant already parses on its own (``"add_player_
+    counters"``); repeated here since a hand-authored registration replaces
+    the parser's output wholesale rather than merging with it. The shield
+    is the ordinary Circle of Protection-shaped chooser
+    (`RequestPreventDamageSourceEffect`), paid with energy instead of mana
+    — "Pay {E}{E}" is an ordinary `ActivationCost` energy-pip cost text,
+    already generic (Guide of Souls' own precedent).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_player_counters", {"amount": 4, "kind": "energy"})],
+            trigger={"event": "ENTERS_BATTLEFIELD", "condition": {"subject": "self"}},
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("request_prevent_damage_source", {"amount": "all"})],
+            cost={"text": "Pay {E}{E}"},
+        ),
+    ]
+
+
+register("Consulate Surveillance", _consulate_surveillance)
+
+
+def _protective_sphere() -> list[AbilitySpec]:
+    """{1}, Pay 1 life: Prevent all damage that would be dealt to you this
+    turn by a source of your choice that shares a color with the mana
+    spent on this activation cost. (Colorless mana prevents no damage.)
+
+    — The Circle of Protection-shaped chooser (`RequestPreventDamageSourceEffect`)
+    narrowed by ``source_filter={"color_from_noted_mana": True}``, reading
+    `ActivationCost.note_spent_color`/`GameObject.noted_mana_color`
+    (Jeweled Amulet, MEC-43) instead of a printed/ETB-chosen colour — the
+    new dynamic filter `combat.matches_object_filter` gained for this card.
+    "Colorless mana prevents no damage" is exactly what an unset
+    ``noted_mana_color`` (the {1} paid entirely with {C}) already does: the
+    filter fails closed and no source matches.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("request_prevent_damage_source", {
+                "source_filter": {"color_from_noted_mana": True}, "amount": "all",
+            })],
+            cost={"mana": "{1}", "pay_life": 1, "note_spent_color": True},
+        ),
+    ]
+
+
+register("Protective Sphere", _protective_sphere)
+
+
+def _samite_ministration() -> list[AbilitySpec]:
+    """Prevent all damage that would be dealt to you this turn by a source
+    of your choice. Whenever damage from a black or red source is
+    prevented this way this turn, you gain that much life.
+
+    — Shadowbane/Honorable Passage's own ``rider={"if_source_color": …}``
+    gate (MEC-30), widened here to ``if_source_color_any`` (PAR-78) for
+    the first real "black **or** red" two-colour gate this family needed.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("request_prevent_damage_source", {
+                "amount": "all",
+                "rider": {"kind": "gain_life", "recipient": "you", "if_source_color_any": ["B", "R"]},
+            })],
+        ),
+    ]
+
+
+register("Samite Ministration", _samite_ministration)
+
+
+def _shieldmage_advocate() -> list[AbilitySpec]:
+    """{T}: Return target card from an opponent's graveyard to their hand.
+    Prevent all damage that would be dealt to any target this turn by a
+    source of your choice.
+
+    — One activated ability, two independent effects: an ordinary
+    ``"return_to_hand"`` targeting an opponent's graveyard card, then
+    Circle of Despair's own ``target_kind="any"`` chooser shield.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec("return_to_hand", {"target_kind": "opponent_graveyard_card"}),
+                EffectSpec("request_prevent_damage_source", {"target_kind": "any", "amount": "all"}),
+            ],
+            cost={"taps_self": True},
+        ),
+    ]
+
+
+register("Shieldmage Advocate", _shieldmage_advocate)
+
+
+def _prismatic_ward() -> list[AbilitySpec]:
+    """Enchant creature
+    As this Aura enters, choose a color.
+    Prevent all damage that would be dealt to enchanted creature by
+    sources of the chosen color.
+
+    — "Enchant creature" repeated per Kithkin Armor's own wholesale-
+    replacement caution. The colour pick reuses Story Circle's own
+    ``choose_color_on_enter``. The shield is the *standing* ``"prevent_
+    damage"`` replacement family (RULE 613/616 — a bare, un-triggered
+    imperative on a permanent, not a "the next time" one-shot grant),
+    ``to="attached_permanent"`` (Kithkin Armor's own recipient shape)
+    narrowed by the new ``source_filter={"color_from_source": True}`` key
+    (PAR-78) — the standing-replacement sibling of `combat.
+    matches_object_filter`'s identically-named dynamic filter.
+    """
+    return [
+        AbilitySpec("keyword", [], keyword={"name": "enchant", "quality": "creature"}),
+        AbilitySpec(
+            "enter_replacement",
+            [EffectSpec("choose_color_on_enter", {})],
+        ),
+        AbilitySpec(
+            "replacement",
+            [EffectSpec("prevent_damage", {
+                "to": "attached_permanent", "amount": "all",
+                "source_filter": {"color_from_source": True},
+            })],
+        ),
+    ]
+
+
+register("Prismatic Ward", _prismatic_ward)
+

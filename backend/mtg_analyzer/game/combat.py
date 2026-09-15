@@ -676,6 +676,10 @@ def matches_object_filter(
     # the same boolean-flag way `nontoken` reads `is_token` above.
     if filt.get("nonlegendary") and getattr(obj.card, "is_legendary", False):
         return False
+    # "target **legendary** creature" (PAR-78, Kitsune Healer) — the
+    # positive sibling of ``nonlegendary`` just above.
+    if filt.get("legendary") and not getattr(obj.card, "is_legendary", False):
+        return False
     # "target suspected creature you control" (RULE 701.60, PAR-29 — Deadly
     # Complication) — reads `GameObject.is_suspected` the same boolean-flag
     # way `attacking`/`is_commander` do above.
@@ -702,6 +706,17 @@ def matches_object_filter(
     if filt.get("color_from_source"):
         chosen = getattr(reference, "chosen_color", None) if reference is not None else None
         if not chosen or str(chosen).upper() not in {
+            str(c).upper() for c in (getattr(obj, "colors", None) or set())
+        }:
+            return False
+    # "a source of your choice **that shares a color with the mana spent on
+    # this activation cost**" (Protective Sphere, PAR-78) — ``color_from_
+    # source``'s noted-mana sibling: reads ``reference.noted_mana_color``
+    # (`ActivationCost.note_spent_color`/Jeweled Amulet's own primitive,
+    # MEC-43) instead of a RULE 601.2b ETB colour pick.
+    if filt.get("color_from_noted_mana"):
+        noted = getattr(reference, "noted_mana_color", None) if reference is not None else None
+        if not noted or str(noted).upper() not in {
             str(c).upper() for c in (getattr(obj, "colors", None) or set())
         }:
             return False

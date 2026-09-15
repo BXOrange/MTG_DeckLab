@@ -60,6 +60,7 @@ from .handlers import (
     SORCERY_SPEED_MARKER,
     _split_keywords_with_parametric,
 )
+from .replacements import replacement_clause_specs
 from .keywords import KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
 from .subgrammars import (
     CANT_BE_COUNTERED_RE,
@@ -2816,6 +2817,14 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
         re.compile(r"you control an? (?P<land>island|swamp|mountain|forest|plains)", re.I),
         lambda m: {"kind": "control_count", "selector": f"lands_you_control_of_type_{m.group('land').lower()}", "min": 1},
     ),
+    # "as long as you control a permanent of each color" (Spirit of
+    # Resistance, PAR-78) — a devotion-shaped five-colour check, not a
+    # single count, so it's its own `static_conditions.py` kind rather than
+    # `control_count`'s min/max-on-one-selector shape.
+    (
+        re.compile(r"you control an? permanent of each color", re.I),
+        lambda m: {"kind": "control_permanent_of_each_color"},
+    ),
     # -- PAR-62: the four highest-frequency `if <cond>` phrases whose engine
     # kind already existed but had no parser-side row. Measured over every
     # unclaimed clause in the cache; adding them here widens the RULE 603.4
@@ -3477,6 +3486,20 @@ def _self_permission_spec(m: "re.Match[str]"):
     return EffectSpec("combat_restriction", {**params, "affects": "self"})
 
 
+def _static_or_replacement_specs(inner: str) -> Optional[list[EffectSpec]]:
+    """The inner clause of a "as long as `<cond>`, `<X>`"/"during your
+    turn, `<X>`" wrapper may be either a standing static ability
+    (`static_effect_specs`) or a standing replacement effect
+    (`catalogue.replacements.replacement_clause_specs`, PAR-78 — "as long
+    as you control a permanent of each color, prevent all damage that
+    would be dealt to you." needs the latter) — tried in that order, same
+    as `segmenter.segment_line`'s own top-level permanent fallback."""
+    specs = static_effect_specs(inner)
+    if specs:
+        return specs
+    return replacement_clause_specs(inner)
+
+
 def _conditional_static_specs(text: str) -> Optional[list[EffectSpec]]:
     """"As long as `<cond>`, `<static>`" / "`<static>` as long as `<cond>`" →
     the inner static's specs, each carrying an ``active_if`` gate.
@@ -3501,7 +3524,7 @@ def _conditional_static_specs(text: str) -> Optional[list[EffectSpec]]:
             inner = _INNER_SELF_PRONOUN_RE.sub(subject.group(1).lower(), inner)
         else:
             inner = _INNER_SELF_PRONOUN_RE.sub("~", inner)
-        specs = static_effect_specs(inner)
+        specs = _static_or_replacement_specs(inner)
         if not specs:
             return None
         for spec in specs:
@@ -3514,7 +3537,7 @@ def _conditional_static_specs(text: str) -> Optional[list[EffectSpec]]:
     m = _DURING_YOUR_TURN_LEADING_RE.fullmatch(text)
     if m is not None:
         inner = _INNER_SELF_PRONOUN_RE.sub("~", m.group("inner").strip())
-        specs = static_effect_specs(inner)
+        specs = _static_or_replacement_specs(inner)
         if not specs:
             return None
         for spec in specs:

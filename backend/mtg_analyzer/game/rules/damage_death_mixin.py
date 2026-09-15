@@ -134,6 +134,60 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     return True  # unknown type word → any permanent, so the cost is payable
 
 
+#: PAR-78: a damage-prevention shield's own source qualifier — "Prevent all
+#: damage that would be dealt to `<recipient>` **by `<source filter>`**."
+#: (Argothian Pixies/Champion Lancer/Prismatic Ward/…, ~50 real cards on
+#: this template family). A closed, fail-closed whitelist matching
+#: `_matches_permanent_type`'s own discipline: an unrecognized filter key
+#: never silently widens to "any source" — the caller (the parser) simply
+#: doesn't build a `source_filter` dict for a phrase this doesn't cover, so
+#: that card stays unclaimed rather than half-modeled. Checked once per
+#: `DAMAGE` event, against whatever `GameObject` `event["source_id"]`
+#: names (fails closed — no live source object, e.g. a spell already off
+#: the stack, never matches a filtered shield).
+def _damage_source_matches(
+    state: GameState, event: GameEvent, source_filter: Optional[dict], protected_player_id: Optional[str],
+) -> bool:
+    if not source_filter:
+        return True
+    source_id = event.get("source_id")
+    source = state.find_object(source_id) if source_id is not None else None
+    if source is None:
+        return False
+    if source_filter.get("creature") and not source.is_creature:
+        return False
+    if source_filter.get("artifact") and not source.card.is_artifact:
+        return False
+    subtype = source_filter.get("subtype")
+    if subtype and subtype.lower() not in source.card.type_line.lower():
+        return False
+    keyword = source_filter.get("keyword")
+    if keyword and not combat.has(source, keyword):
+        return False
+    without_keyword = source_filter.get("without_keyword")
+    if without_keyword and combat.has(source, without_keyword):
+        return False
+    controller = source_filter.get("controller")
+    if controller == "you" and source.controller_id != protected_player_id:
+        return False
+    if controller == "not_you" and source.controller_id == protected_player_id:
+        return False
+    color = source_filter.get("color")
+    if color and color.upper() not in (source.colors or set()):
+        return False
+    if source_filter.get("attacking") and not getattr(source, "attacking", False):
+        return False
+    if source_filter.get("enchanted"):
+        # "…by enchanted creatures." (Wall of Putrid Flesh) — the source
+        # itself currently has an Aura attached, not the shield's own host.
+        if not any(
+            o.attached_to == source.instance_id and "aura" in o.card.type_line.lower()
+            for o in state.permanents()
+        ):
+            return False
+    return True
+
+
 class _MaxLifeTotalMarker:
     """MEC-54: a permanent "your maximum life total is N." marker on
     `Player.player_effects` (You Compleat Me). Duck-typed like
@@ -1066,6 +1120,7 @@ class DamageDeathMixin:
         watched_source_id: Optional[int] = None,
         rider: Optional[dict] = None,
         combat_only: bool = False,
+        source_filter: Optional[dict] = None,
     ) -> None:
         """RULE 615: grant ``player`` a turn-scoped damage-prevention shield
         (Riot Control's "all", Thought Lash's repeatable "the next 1") —
@@ -1101,6 +1156,11 @@ class DamageDeathMixin:
         dealt to you this turn") narrows the shield to RULE 510 combat
         damage, checked against the `DAMAGE` event's own ``combat`` flag the
         same way `prevent_all_combat_damage_this_turn` does.
+
+        ``source_filter`` (PAR-78 — "…by creatures"/"…by sources you don't
+        control"/…) narrows the shield to damage from a matching source,
+        via `_damage_source_matches` (checked against this player's own id
+        for the ``"controller"`` key).
         """
         remaining = None if amount == "all" else int(amount)
         effect = ReplacementEffect(
@@ -1110,6 +1170,7 @@ class DamageDeathMixin:
                 bool(e.get("is_player")) and e.get("target_id") == player.id
                 and (watched_source_id is None or e.get("source_id") == watched_source_id)
                 and (not combat_only or bool(e.get("combat")))
+                and _damage_source_matches(c.state, e, source_filter, player.id)
             ),
             description=f"{player.name}: Schadensverhinderung",
         )
@@ -1195,29 +1256,34 @@ class DamageDeathMixin:
         amount: Union[int, str] = "all",
         watched_source_id: Optional[int] = None,
         rider: Optional[dict] = None,
+        scope: str = "creatures",
+        source_filter: Optional[dict] = None,
     ) -> None:
         """RULE 615/616.1d's "…would deal damage to you **and/or creatures
         you control** this turn" (Shadowbane, MEC-30) — the recipient-union
         sibling of `prevent_damage_to_player` just above: same one-chosen-
         source shield shape, but the condition matches *either* ``player``
-        themself *or* any creature they currently control (checked live —
-        control can change mid-turn), instead of one fixed id. Kept as its
-        own method rather than a generic `recipient_union` list on the
-        one-shot chooser (Family A's own standing-shield vocabulary) since
-        exactly one real card needs this shape.
+        themself *or* any permanent of ``scope`` they currently control
+        (checked live — control can change mid-turn), instead of one fixed
+        id. ``scope="creatures"`` (the original, Shadowbane-shaped) or
+        ``"permanents"`` (PAR-78 — "…you and **permanents** you control
+        this turn" — Endure/Channel Harm).
+
+        ``source_filter`` (PAR-78) — see `prevent_damage_to_player`.
         """
         remaining = None if amount == "all" else int(amount)
 
         def _condition(e: GameEvent, c: Any) -> bool:
             if watched_source_id is not None and e.get("source_id") != watched_source_id:
                 return False
+            if not _damage_source_matches(c.state, e, source_filter, player.id):
+                return False
             if e.get("is_player"):
                 return e.get("target_id") == player.id
             target_obj = c.state.find_object(e.get("target_id"))
-            return (
-                target_obj is not None and target_obj.is_creature
-                and target_obj.controller_id == player.id
-            )
+            if target_obj is None or target_obj.controller_id != player.id:
+                return False
+            return target_obj.is_creature if scope == "creatures" else True
 
         effect = ReplacementEffect(
             event_type=EventType.DAMAGE,
@@ -1253,6 +1319,7 @@ class DamageDeathMixin:
         amount: Union[int, str] = "all",
         watched_source_id: Optional[int] = None,
         rider: Optional[dict] = None,
+        source_filter: Optional[dict] = None,
     ) -> None:
         """RULE 615, the *any-target* sibling of `prevent_damage_to_player`
         (PAR-15's "prevent the next N damage ... to any number of targets,
@@ -1274,6 +1341,7 @@ class DamageDeathMixin:
         """
         is_player = isinstance(target, Player)
         target_id = target.id if is_player else target.instance_id
+        protected_player_id = target.id if is_player else target.controller_id
         remaining = None if amount == "all" else int(amount)
         effect = ReplacementEffect(
             event_type=EventType.DAMAGE,
@@ -1281,6 +1349,7 @@ class DamageDeathMixin:
             condition=lambda e, c: (
                 bool(e.get("is_player")) == is_player and e.get("target_id") == target_id
                 and (watched_source_id is None or e.get("source_id") == watched_source_id)
+                and _damage_source_matches(c.state, e, source_filter, protected_player_id)
             ),
             description="Schadensverhinderung",
         )
@@ -1306,6 +1375,67 @@ class DamageDeathMixin:
 
         effect.replacement_fn = _replace
         holder.append(effect)
+
+    def _request_prevent_damage_chosen_color(
+        self, player: Player, recipient: Any, amount: Union[int, str] = "all",
+    ) -> None:
+        """RULE 615/616.1d's "sources of **the color of your choice**"
+        (Avacyn, Guardian Angel, PAR-78) — genuinely different from
+        `RequestPreventDamageSourceEffect`'s "**a source** of your choice"
+        (Circle of Protection family): the shield here matches *every*
+        source of a chosen colour for the rest of the turn, not one
+        specific permanent, so there is no object to open `_request_choose_
+        objects`'s chooser over.
+
+        Also distinct from RULE 601.2b's own ``"choose_color"`` kind
+        (`casting_mixin._offer_enter_choices`): that one only ever fires
+        once, as a permanent enters, and stamps `GameObject.chosen_color`
+        for its whole battlefield lifetime. Avacyn's colour is picked fresh
+        at *each* activation, so it can't reuse that stamp — this opens its
+        own ``"prevent_damage_chosen_color"`` choice instead and, once
+        answered, feeds the pick straight into `prevent_damage_to_player`/
+        `_to_target`'s existing ``source_filter={"color": …}`` key (PAR-78)
+        rather than adding a new filter shape.
+        """
+        recipient_is_player = isinstance(recipient, Player)
+        self.open_choice({
+            "kind": "prevent_damage_chosen_color",
+            "player_id": player.id,
+            "prompt": "Farbe wählen",
+            "options": [{"id": color, "label": label} for color, label in self._ANY_COLOR_LABELS.items()],
+            "recipient_id": recipient.id if recipient_is_player else recipient.instance_id,
+            "recipient_is_player": recipient_is_player,
+            "amount": amount,
+        })
+
+    @continuations.choice(
+        "prevent_damage_chosen_color", answer=continuations.ANSWER_STR, rule="615",
+    )
+    def _resume_prevent_damage_chosen_color(
+        self, choice: dict[str, Any], answer: Optional[str]
+    ) -> None:
+        """Answer a pending `prevent_damage_chosen_color` choice, then open
+        the shield for whichever colour was picked. Mandatory (no decline
+        offered) — an unrecognized/missing answer defaults to the first
+        offered colour, the same fallback RULE 601.2b's own colour choice
+        (`casting_mixin._resume_choose_creature_type`) gives a skipped pick.
+        """
+        options = choice["options"]
+        valid_ids = {str(o["id"]) for o in options}
+        chosen = str(answer) if answer is not None and str(answer) in valid_ids else (
+            str(options[0]["id"]) if options else None
+        )
+        if chosen is None:
+            return
+        amount = choice.get("amount", "all")
+        if choice.get("recipient_is_player"):
+            recipient = self.state.player_by_id(choice["recipient_id"])
+            if recipient is not None:
+                self.prevent_damage_to_player(recipient, amount, source_filter={"color": chosen})
+        else:
+            recipient = self._object_by_instance_id(choice["recipient_id"])
+            if recipient is not None:
+                self.prevent_damage_to_target(recipient, amount, source_filter={"color": chosen})
 
     def redirect_damage_from_source(
         self, source: GameObject, new_recipient: Any, amount: Union[int, str] = "all",
@@ -1524,6 +1654,14 @@ class DamageDeathMixin:
         wanted_color = rider.get("if_source_color")
         if wanted_color is not None and wanted_color not in (event.get("source_colors") or ()):
             return
+        # "…from a black **or red** source…" (Samite Ministration, PAR-78) —
+        # ``if_source_color``'s multi-colour sibling, same "any of" idiom
+        # `color_any` uses elsewhere in this file.
+        wanted_colors_any = rider.get("if_source_color_any")
+        if wanted_colors_any and not any(
+            c in (event.get("source_colors") or ()) for c in wanted_colors_any
+        ):
+            return
         kind = rider.get("kind")
         if kind == "add_self_counter":
             if shield_source is not None:
@@ -1654,6 +1792,70 @@ class DamageDeathMixin:
             replacement_fn=lambda e, c: None,  # every point of combat damage prevented
             condition=_condition,
             description="Fog: gesamter Kampfschaden in diesem Zug verhindert",
+        )
+        effect.damage_prevention_shield = True
+        effect.prevents_damage = True  # MEC-30: "damage can't be prevented" filter
+        controller.player_effects.append(effect)
+
+    def _prevent_damage_to_creatures(
+        self,
+        controller: Player,
+        recipient_scope: str = "all",
+        recipient_filter: Optional[dict] = None,
+        source_filter: Optional[dict] = None,
+    ) -> None:
+        """RULE 615: "Prevent all damage that would be dealt to creatures
+        [you control] this turn." (PAR-78 — Forfend/Bubble Matrix/Inner
+        Sanctum/Emmara Tandris/Iroas/Ethersworn Shieldmage) — unlike
+        `prevent_damage_to_player`/`_to_target` (a shield for one chosen
+        recipient) or `prevent_all_combat_damage_this_turn` (unscoped by
+        recipient entirely), this shields *every* creature matching
+        ``recipient_scope``/``recipient_filter`` live, board-wide, the same
+        "no RULE 115 target was ever chosen" shape Fog's own method is, just
+        narrowed to creature-only recipients instead of "everyone".
+
+        ``recipient_scope`` is ``"all"`` (every creature) or
+        ``"you_control"`` (only ``controller``'s own, checked live).
+        ``recipient_filter`` narrows further by the recipient's own
+        characteristics — ``{"token": True}`` (Emmara Tandris' "creature
+        **tokens** you control"), ``{"subtype": "artifact"}``-shaped via
+        ``{"artifact": True}`` (Ethersworn Shieldmage's "artifact
+        creatures"), ``{"attacking": True}`` (Iroas' "attacking creatures
+        you control"). ``source_filter`` — see `prevent_damage_to_player`
+        (Light of Sanction's "…by sources you control").
+
+        Lives on ``controller``'s own `Player.player_effects` purely as a
+        physical home (cleanup-swept the same way every other RULE 615
+        shield is) — the condition itself never reads ``controller`` for
+        ``recipient_scope="all"``.
+        """
+        def _recipient_ok(target_obj: GameObject) -> bool:
+            if not target_obj.is_creature:
+                return False
+            if recipient_scope == "you_control" and target_obj.controller_id != controller.id:
+                return False
+            if recipient_filter:
+                if recipient_filter.get("token") and not getattr(target_obj, "is_token", False):
+                    return False
+                if recipient_filter.get("artifact") and not target_obj.card.is_artifact:
+                    return False
+                if recipient_filter.get("attacking") and not target_obj.attacking:
+                    return False
+            return True
+
+        def _condition(e: GameEvent, c: Any) -> bool:
+            if e.get("is_player"):
+                return False
+            target_obj = c.state.find_object(e.get("target_id"))
+            if target_obj is None or not _recipient_ok(target_obj):
+                return False
+            return _damage_source_matches(c.state, e, source_filter, controller.id)
+
+        effect = ReplacementEffect(
+            event_type=EventType.DAMAGE,
+            replacement_fn=lambda e, c: None,  # every matching point prevented
+            condition=_condition,
+            description="Kreaturen: Schadensverhinderung",
         )
         effect.damage_prevention_shield = True
         effect.prevents_damage = True  # MEC-30: "damage can't be prevented" filter

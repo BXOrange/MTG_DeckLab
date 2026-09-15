@@ -5996,6 +5996,124 @@ measurement of why is the useful half of this work.
 
 ## Oracle-Text Parser Front-End
 
+### PAR-78: "Prevent All Damage That Would Be Dealt To `<target>`" — Broad Recognition (PARSER_VERSION 393)
+
+- **What:** The largest verified win in the 2026-09-15 Commander-legal tail
+  sweep, and the ticket's own "not a new primitive" framing was only partly
+  right. `PreventDamageEffect`/the `"prevent_damage_shield"` factory already
+  supported an unlimited ("all") shield — but no prevention primitive had a
+  `source_filter` ("by creatures"/"by sources you don't control"/…) at all,
+  and no board-wide "creatures[ you control]" recipient shield existed
+  either; both are new. The bigger find: a bare **permanent's own**
+  un-triggered "Prevent all damage that would be dealt to `<X>`." line is a
+  *standing* RULE 613/616 replacement effect, not a one-shot resolve-time
+  grant — `segmenter.segment_line`'s own `allow_spell_effect` gate already
+  correctly left such a line unclaimed for the one-shot family; the real
+  primitive was the already-shipped `ReplacementRegistry` `"prevent_damage"`
+  factory (MEC-30), reached through `catalogue/replacements.py`'s
+  `replacement_clause_specs` — not `static_handlers.py`, where a first pass
+  wrongly wired it before catching the `BindError` it caused (`ability_kind`
+  distinguishes `"static"`/`StaticAbility` from `"replacement"`/
+  `ReplacementEffect` at bind time, and only the latter routes through that
+  registry). Fixed alongside: `_conditional_static_specs`'s "as long as
+  `<cond>`, `<static>`"/"during your turn, `<static>`" wrapper only ever
+  recursed into `static_effect_specs`, so it stopped seeing the relocated
+  standing shields until a `_static_or_replacement_specs` fallback was added
+  (tries `static_effect_specs` first, falls back to `replacement_clause_
+  specs`) — restoring Personal Sanctuary and Guardian Naga // Banishing
+  Coils. Two parallel `source_filter` vocabularies now exist by design, not
+  oversight: `catalogue.handlers._PREVENT_SOURCE_FILTER_PHRASES` (one-shot,
+  `{"creature": bool, "artifact": bool, …}`) and `catalogue.replacements.
+  _PREVENT_ALL_SOURCE_FILTER_PHRASES` (standing, extending the pre-existing
+  `_prevent_damage_replacement`'s own `color`/`card_type`/`is_creature`/
+  `controller` keys with `subtype`/`keyword`/`enchanted`) — different
+  effect kinds (`EffectRegistry` vs `ReplacementRegistry`), no shared class
+  to unify them through.
+  - A second pass closed the remaining SOLO cards' genuinely separate
+    mechanics. "Sources of **the color** of your choice" (Avacyn, Guardian
+    Angel's two activated abilities) needed a real new primitive —
+    `RequestPreventDamageChosenColorEffect`/`RulesEngine._request_prevent_
+    damage_chosen_color`, a fresh resolve-time WUBRG choice distinct from
+    both the Circle of Protection family's "**a source** of your choice"
+    (`RequestPreventDamageSourceEffect`, which picks one permanent) and
+    RULE 601.2b's own `"choose_color"` (`casting_mixin._offer_enter_
+    choices`, an ETB-only, once-per-object pick stamped onto `GameObject.
+    chosen_color`) — the shield here has to match *every* source of the
+    picked colour for the rest of the turn, and the colour is picked fresh
+    at each activation, not once as the permanent enters. It feeds its
+    answer straight into the ordinary `source_filter={"color": …}` key
+    rather than adding a new filter shape.
+  - The interactive "a source of your choice" chooser family itself
+    (Consulate Surveillance, Protective Sphere, Samite Ministration,
+    Shieldmage Advocate, Prismatic Ward) was hand-authored in `game/
+    ability_catalogue/damage_prevention.py` rather than parser-recognized,
+    per that file's own documented MEC-30 convention for this whole family
+    — `RequestPreventDamageSourceEffect` was already mature enough to reuse
+    directly. Closing them surfaced two more small, reusable primitives:
+    `combat.matches_object_filter`'s `color_from_noted_mana` key (Protective
+    Sphere's "a source of your choice that shares a color with the mana
+    spent on this activation cost" — reads `ActivationCost.note_spent_
+    color`/`GameObject.noted_mana_color`, Jeweled Amulet's own MEC-43
+    primitive, rather than an ETB-chosen colour) and `apply_prevent_rider`'s
+    `if_source_color_any` (Samite Ministration's "black **or** red" gate,
+    widening the existing single-colour `if_source_color` check to a list);
+    and the standing replacement family's own `source_filter={"color_from_
+    source": True}` (Prismatic Ward's "sources of the chosen color",
+    mirroring `combat.matches_object_filter`'s identically-named dynamic
+    filter but reading `effect.source.chosen_color` directly, since
+    `_prevent_damage_replacement` has no `reference`/`matches_object_filter`
+    call of its own).
+  - Three more real-card widenings, each a small extension of an existing
+    row rather than a new mechanism: the self-subject pronoun family
+    (`_PREVENT_ALL_DAMAGE_SELF_PRONOUN_RE`) now accepts "him"/"her"
+    alongside "it" (Gideon, Ally of Zendikar's own "~ becomes a 5/5 …
+    creature … . Prevent all damage that would be dealt to **him** this
+    turn."); the RULE 115 target shape (`_PREVENT_ALL_DAMAGE_TARGET_RE`)
+    gained an optional `tapped` qualifier and a closed two-word subtype-OR
+    `creature_filter` (Wellgabber Apothecary's "target tapped Merfolk or
+    Kithkin creature", validated against a small explicit `frozenset`
+    rather than an open vocabulary — this project's own established
+    convention, `static_handlers._SPELL_COST_SUBTYPE_WORDS`'s own
+    docstring); and a new devotion-shaped `static_conditions.py` kind,
+    `control_permanent_of_each_color` (Spirit of Resistance's "as long as
+    you control a permanent of each color" — five independent WUBRG
+    booleans ANDed together, not a single-selector count the way
+    `control_count` reads).
+  - A real residue stays open, explicitly out of this ticket's scope rather
+    than silently dropped: riders beyond `if_source_color_any` (Channel
+    Harm/Comeuppance/Judgment of Alexander/Brace for Impact's own "for each
+    N damage prevented, `<effect>`" follow-ups); reciprocal "…and dealt by"
+    shields (Heart of Light, Kiora, the Crashing Wave — prevents damage
+    *dealt by* the recipient too, a source-side shield alongside the
+    recipient-side one); quoted-ability-loss cost-based removal (Glittering
+    Lion/Lynx's "`<cost>`: ~ loses '`<quoted ability>`.'"); a RULE
+    115-targeted damage *source* (Stonewise Fortifier's "…by target
+    creature", as opposed to an interactively-chosen or filter-matched one);
+    a "blocking this" source filter (Wall of Vapor); a reciprocal
+    same-color-as-recipient condition (Well-Laid Plans); a "those
+    permanents" group-reference recipient (Mutational Advantage's own
+    "permanents you control with counters on them… prevent all damage that
+    would be dealt to **those permanents**"); and a spell-source (not
+    permanent-source) `source_filter` distinction (Bronze Horse's "by
+    spells that target it"). Each is its own genuinely separate primitive,
+    none sharing enough shape with another to build once — a future ticket
+    if the cache ever surfaces more cards on any one of them.
+- **Verification:** 45 cards closed by parser recognition, 6 more
+  hand-authored, zero regressed (`parser_probe.py diff`, `pytest -q` —
+  15,675/34,811, PARSER_VERSION 393). `tests/
+  test_par78_prevent_all_damage_family.py` (24 tests) — parse-level
+  coverage of every closed one-shot/standing shape including the two
+  fail-closed adversarial cases (an unrecognized subtype word, a card that
+  should route through `"replacement"` not `"static"`), and execute-level
+  tests for the source_filter primitive, the mass-creature shield, the
+  standing shield's cross-turn survival, and all six hand-authored cards
+  (driving the real interactive choice/cost-payment machinery via
+  `GameEngine.activate_ability`/`resolve_pending_choice`, not just
+  asserting a parse verdict — this family has twice shipped a chooser that
+  crashed on first real use, caught here again mid-session: a first pass
+  wired the standing "bare permanent" shape into `static_handlers.py`,
+  which raised `BindError` the moment a real test resolved it).
+
 ### PAR-77: Rebel/Mercenary Graveyard-Return Filter (PARSER_VERSION 391)
 
 - **What:** PAR-70 built the "`<subtype>` permanent card" qualifier

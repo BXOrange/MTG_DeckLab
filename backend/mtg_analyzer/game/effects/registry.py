@@ -428,6 +428,12 @@ EffectRegistry.register(
         recipient_is_activator=bool(p.get("recipient_is_activator", False)),
         combat_only=bool(p.get("combat_only", False)),
         rider=p.get("rider"),
+        source_filter=p.get("source_filter"),
+        recipient_scope=p.get("recipient_scope"),
+        recipient_creatures_scope=p.get("recipient_creatures_scope"),
+        recipient_filter=p.get("recipient_filter"),
+        attached_only=bool(p.get("attached_only", False)),
+        previous_subject=bool(p.get("previous_subject", False)),
     ),
 )
 EffectRegistry.register(
@@ -484,6 +490,16 @@ EffectRegistry.register(
         rider=p.get("rider"),
         optional=bool(p.get("optional", False)),
         recipient=p.get("recipient"),
+    ),
+)
+EffectRegistry.register(
+    "request_prevent_damage_chosen_color",
+    # RULE 615/616.1d "sources of the color of your choice" (PAR-78 —
+    # Avacyn, Guardian Angel) — see `RequestPreventDamageChosenColorEffect`.
+    lambda p: RequestPreventDamageChosenColorEffect(
+        target_kind=p.get("target_kind"),
+        target=p.get("target"),
+        amount=p.get("amount", "all"),
     ),
 )
 EffectRegistry.register(

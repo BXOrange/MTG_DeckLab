@@ -293,8 +293,18 @@ def _prevent_recipient_params(recipient: str) -> Optional[dict]:
     own ``to``/``recipient_filter`` params, or ``None`` if unrecognized."""
     if recipient == "you":
         return {"to": "controller"}
-    if recipient == "equipped creature":
+    if recipient in ("equipped creature", "enchanted creature"):
         return {"to": "attached_permanent"}
+    if recipient in ("~", "this creature", "this permanent"):
+        return {"to": "self"}
+    if recipient == "creatures":
+        return {"to": "all_creatures"}
+    if recipient == "creatures you control":
+        return {"to": "creatures_you_control"}
+    if recipient == "attacking creatures you control":
+        return {"to": "creatures_you_control", "recipient_filter": {"attacking": True}}
+    if recipient == "creature tokens you control":
+        return {"to": "creatures_you_control", "recipient_filter": {"token": True}}
     if recipient == "a planeswalker you control":
         return {"to": "controlled_permanent", "recipient_filter": {"card_type": "planeswalker"}}
     if recipient.startswith("a ") and recipient.endswith(" creature you control"):
@@ -325,6 +335,65 @@ def _standing_prevent_spec(m: "re.Match[str]") -> Optional[EffectSpec]:
         params["amount"] = {"all_but": int(amount[len("all but "):])}
     else:
         params["amount"] = int(amount)
+    return EffectSpec("prevent_damage", params)
+
+
+#: PAR-78: the *imperative* sentence shape — "Prevent all damage that
+#: would be dealt to `<recipient>`[ by `<source filter>`]." (Cho-Manno,
+#: Revolutionary/Argothian Pixies/Bubble Matrix/Inner Sanctum/…) — a bare
+#: permanent's own un-triggered "Prevent all damage…" line is a standing
+#: replacement effect (RULE 613), not a one-shot resolve-time grant (see
+#: `catalogue.handlers`'s own one-shot ``"prevent_damage_shield"`` family,
+#: which only ever fires through a trigger/activated-cost/spell-effect
+#: wrapper — `segmenter.segment_line`'s ``allow_spell_effect`` gate leaves
+#: a bare permanent imperative unclaimed for that family on purpose).
+#: `ReplacementRegistry`'s existing ``"prevent_damage"`` factory (Sphere/
+#: absorb/Shield of the Realm family, MEC-30) already has everything this
+#: needs; only the recognition was missing. A plural-noun ``by <filter>``
+#: vocabulary distinct from `_PREVENT_QUALIFIER_MAP`'s singular ``if <X>
+#: would deal damage…`` qualifier (different real-card grammar, same
+#: underlying ``source_filter`` shape).
+_PREVENT_ALL_SOURCE_FILTER_PHRASES: dict[str, dict] = {
+    "creatures": {"is_creature": True},
+    "artifact creatures": {"is_creature": True, "card_type": "artifact"},
+    "artifact sources": {"card_type": "artifact"},
+    "sources you control": {"controller": "you"},
+    "sources you don'?t control": {"controller": "opponent"},
+    "creatures with first strike": {"is_creature": True, "keyword": "first_strike"},
+    "deserts": {"subtype": "desert"},
+    "enchanted creatures": {"is_creature": True, "enchanted": True},
+}
+_PREVENT_ALL_SOURCE_FILTER_ALT = "|".join(
+    sorted(_PREVENT_ALL_SOURCE_FILTER_PHRASES, key=len, reverse=True)
+)
+_PREVENT_ALL_RECIPIENT_ALT = (
+    r"~|this creature|this permanent|you|enchanted creature|"
+    r"attacking creatures you control|creature tokens you control|"
+    r"creatures you control|creatures"
+)
+_PREVENT_ALL_DAMAGE_RE = re.compile(
+    rf"prevent all damage that would be dealt to (?P<recipient>{_PREVENT_ALL_RECIPIENT_ALT})"
+    rf"(?: by (?P<filter>{_PREVENT_ALL_SOURCE_FILTER_ALT}))?",
+    re.IGNORECASE,
+)
+
+
+def _prevent_all_damage_standing_spec(m: "re.Match[str]") -> Optional[EffectSpec]:
+    recipient_params = _prevent_recipient_params(m.group("recipient").lower())
+    if recipient_params is None:
+        return None
+    params: dict = dict(recipient_params)
+    params["amount"] = "all"
+    filt = m.group("filter")
+    if filt:
+        text = filt.strip().lower()
+        source_filter = next(
+            (dict(v) for k, v in _PREVENT_ALL_SOURCE_FILTER_PHRASES.items() if re.fullmatch(k, text)),
+            None,
+        )
+        if source_filter is None:
+            return None
+        params["source_filter"] = source_filter
     return EffectSpec("prevent_damage", params)
 
 
@@ -439,6 +508,12 @@ def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
     m = _STANDING_PREVENT_RE.fullmatch(text)
     if m is not None:
         spec = _standing_prevent_spec(m)
+        if spec is not None:
+            return [spec]
+
+    m = _PREVENT_ALL_DAMAGE_RE.fullmatch(text)
+    if m is not None:
+        spec = _prevent_all_damage_standing_spec(m)
         if spec is not None:
             return [spec]
 
