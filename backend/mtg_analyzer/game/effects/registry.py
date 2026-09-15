@@ -260,6 +260,16 @@ EffectRegistry.register(
         count_max=p.get("count_max"),
         then_draw_discarded=bool(p.get("then_draw_discarded", False)),
         count_from_trigger_event=p.get("count_from_trigger_event"),
+        filter=p.get("filter"),
+    ),
+)
+EffectRegistry.register(
+    # PAR-74: "target opponent exiles a card from their hand." (Kyoki,
+    # Sanity's Eclipse) — the exile-zone sibling of ``"discard"`` above.
+    "exile_hand_card",
+    lambda p: ExileHandCardEffect(
+        count=p.get("count", 1), target_kind=p.get("target_kind"),
+        previous_subject=bool(p.get("previous_subject", False)),
     ),
 )
 EffectRegistry.register(
@@ -611,6 +621,7 @@ EffectRegistry.register(
         unless_pays=p.get("unless_pays"),
         noncreature=bool(p.get("noncreature", False)),
         card_types=p.get("card_types"),
+        subtype_any=p.get("subtype_any"),
         mana_value=p.get("mana_value"),
         color=p.get("color"),
         target_from_trigger_event=p.get("target_from_trigger_event"),
@@ -980,6 +991,7 @@ EffectRegistry.register(
     lambda p: GainControlUntilEndOfTurnEffect(
         target=p.get("target"), target_kind=p.get("target_kind", "permanent"),
         haste=bool(p.get("haste", True)), max_mana_value=p.get("max_mana_value"),
+        exact_mana_value=p.get("exact_mana_value"),
         selector=p.get("selector"), creature_filter=p.get("creature_filter"),
         count_selector=p.get("count_selector"),
         mass_of_target_player=p.get("mass_of_target_player"),

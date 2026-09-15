@@ -21,7 +21,7 @@ here without a cycle.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from ..models.game.game_object import GameObject, Zone
 from ..models.game.game_state import GameState
@@ -415,6 +415,18 @@ class TargetSpec:
     #: is never a legal target to begin with, not merely a no-op if chosen),
     #: mirroring ``color``'s narrowing. ``None`` means unfiltered.
     max_mana_value: Optional[int] = None
+    #: The exact-match sibling of ``max_mana_value`` (PAR-74, Skyfire Kirin
+    #: — "gain control of target creature with **that spell's** mana
+    #: value") — a fixed mana value the target must equal, not a ceiling.
+    #: Resolved the same "sentinel string → real int off `trigger_event`"
+    #: way `max_mana_value`'s own ``"trigger_damage_amount"``/``"source_
+    #: power"`` sentinels are (`legal_targets`'s dispatch, not this field's
+    #: own concern) — a bare int is accepted too, for symmetry, though no
+    #: real card has needed a literal-int "exactly N" target bound yet.
+    #: ``None`` means unfiltered. Gated by the same ``apply_max_mana_value``
+    #: frame flag as ``max_mana_value`` — any frame that cares about a
+    #: target's mana value at all cares about both comparisons.
+    exact_mana_value: Optional[Union[int, str]] = None
     #: A power/toughness/keyword quality filter on a ``"creature"``/
     #: ``"permanent"`` target (RULE 115/601.2c, "destroy target creature
     #: with power 4 or greater"/"…with flying"-shaped) — checked at offer
@@ -772,6 +784,16 @@ def _spell_matches_filter(obj: GameObject, spell_filter: dict[str, Any]) -> bool
             "battle": bool(obj.card.is_battle),
         }
         if not any(type_checks.get(t, False) for t in card_types):
+            return False
+    # "counter target **spirit or arcane** spell." (PAR-74, Hisoka's
+    # Defiance) — a creature-subtype-or-"Arcane" OR filter, unlike
+    # ``card_types``' fixed main-type lookup above: substring-matched
+    # against the spell's own printed type line, the same reading
+    # `card_query.matches`' ``type`` key gives a library search.
+    subtype_any = spell_filter.get("subtype_any")
+    if subtype_any:
+        type_line = (obj.card.type_line or "").lower()
+        if not any(str(s).lower() in type_line for s in subtype_any):
             return False
     mana_value = spell_filter.get("mana_value")
     if mana_value is not None and obj.card.converted_mana_cost != mana_value:
@@ -1164,6 +1186,10 @@ def _legal_from_frame(
             obj.card.converted_mana_cost > spec.max_mana_value
         ):
             continue
+        if frame.apply_max_mana_value and spec.exact_mana_value is not None and (
+            obj.card.converted_mana_cost != spec.exact_mana_value
+        ):
+            continue
         if frame.apply_creature_filter and spec.creature_filter and not (
             _creature_matches_filter(obj, spec.creature_filter)
         ):
@@ -1285,6 +1311,12 @@ def legal_targets(
         # dealt to that player." (Venerable Warsinger, PAR-60) — the firing
         # DAMAGE event's own ``amount``.
         spec = replace(spec, max_mana_value=int((trigger_event or {}).get("amount", 0) or 0))
+    if spec.exact_mana_value == "trigger_spell_mana_value":
+        # "…with that spell's mana value." (PAR-74, Skyfire Kirin) — the
+        # firing SPELL_CAST event's own ``mana_value`` (PAR-71's established
+        # "that spell's mana value" referent, applied to a RULE 115 target
+        # bound instead of a resolve-time amount).
+        spec = replace(spec, exact_mana_value=int((trigger_event or {}).get("mana_value", 0) or 0))
 
     # ENG-34 S0b: every battlefield kind that decomposes into a structured
     # frame is dispatched here, on structure, instead of by one hand-written
@@ -1505,6 +1537,7 @@ def legal_targets(
             and _targetable_by(o, source)
             and _color_ok(spec, o.colors)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
+            and (spec.exact_mana_value is None or o.card.converted_mana_cost == spec.exact_mana_value)
             and (
                 not spec.creature_filter
                 or _creature_matches_filter(o, spec.creature_filter, source, state)

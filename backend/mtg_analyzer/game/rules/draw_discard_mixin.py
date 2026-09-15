@@ -518,6 +518,45 @@ class DrawDiscardMixin:
             player, list(player.hand), "discard", count=count, optional=optional,
             prompt="Wähle eine Karte zum Abwerfen", source=source, then_specs=then_specs,
         )
+
+    def discard_matching(self, player: Player, mana_value: Optional[int] = None) -> None:
+        """Non-interactive "discards all cards with `<X>` mana value" (PAR-74
+        — Infernal Kirin: "target player reveals their hand and discards all
+        cards with that spell's mana value."). RULE 601.2c's "all" leaves
+        nothing to choose between, unlike `discard_choice`'s RULE 701.8 pick
+        — every matching card leaves, via the same non-interactive
+        `discard_specific` Channel/Cycling costs use, rather than opening a
+        chooser over a foregone conclusion.
+        """
+        if mana_value is None:
+            return
+        for obj in list(player.hand):
+            if obj.card.converted_mana_cost == mana_value:
+                self.discard_specific(obj)
+
+    def exile_hand_choice(
+        self,
+        player: Player,
+        count: int = 1,
+        source: Optional[GameObject] = None,
+        then_specs: Optional[list[dict]] = None,
+        optional: bool = False,
+    ) -> None:
+        """Interactive exile-from-hand (PAR-74 — Kyoki, Sanity's Eclipse:
+        "target opponent exiles a card from their hand."). The exile sibling
+        of `discard_choice` just above: ``player`` — not necessarily an
+        effect's controller — picks which ``count`` cards leave their own
+        hand, through the same `_request_choose_objects` chooser, whose
+        ``"exile"`` action already exists for the Gemstone Caverns opening-
+        hand pick (`offer_opening_hand_battlefield_choice`) and simply calls
+        `RulesEngine.exile` on whatever object is chosen, hand card or not.
+        """
+        self._request_choose_objects(
+            player, list(player.hand), "exile", count=count, optional=optional,
+            prompt="Wähle eine Karte aus deiner Hand zum Exilieren",
+            source=source, then_specs=then_specs,
+        )
+
     def put_hand_cards_on_top(self, player: Player, count: int) -> None:
         """Put up to ``count`` cards from ``player``'s hand on top of their
         library, "in any order" (RULE 701 — Brainstorm's "then put two cards

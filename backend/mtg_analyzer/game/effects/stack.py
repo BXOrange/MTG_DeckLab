@@ -25,6 +25,7 @@ class CounterSpellEffect(GameEffect):
         unless_pays: Optional[str] = None,
         noncreature: bool = False,
         card_types: Optional[list[str]] = None,
+        subtype_any: Optional[list[str]] = None,
         mana_value: Optional[int] = None,
         color: Optional[str] = None,
         source: Optional["GameObject"] = None,
@@ -68,6 +69,12 @@ class CounterSpellEffect(GameEffect):
             spell_filter["noncreature"] = True
         if card_types:
             spell_filter["card_types"] = list(card_types)
+        # "counter target **spirit or arcane** spell." (PAR-74, Hisoka's
+        # Defiance) — a creature-subtype-or-"Arcane" OR filter, unlike
+        # ``card_types``' fixed main-type set (`targeting._spell_matches_
+        # filter`'s own ``subtype_any`` branch).
+        if subtype_any:
+            spell_filter["subtype_any"] = list(subtype_any)
         if mana_value is not None:
             spell_filter["mana_value"] = mana_value
         if color:

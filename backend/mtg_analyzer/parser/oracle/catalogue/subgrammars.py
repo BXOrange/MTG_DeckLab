@@ -581,6 +581,19 @@ _SPELL_TYPE_LIST = (
     rf"{_SPELL_TYPE_WORD}(?:,\s*{_SPELL_TYPE_WORD})*(?:,?\s+or\s+{_SPELL_TYPE_WORD})?"
 )
 
+#: PAR-74: "target **spirit or arcane** spell" (Hisoka's Defiance) — a
+#: creature-subtype-or-"Arcane" OR filter, not a main card type
+#: (`_SPELL_TYPE_WORD` deliberately excludes subtypes — no real card's
+#: "target `<type>` spell" filter needed one until now). A small curated
+#: whitelist, same fail-closed discipline as `segmenter._CAST_SPELL_
+#: SUBTYPE_WORDS`' own "arcane" special case (RULE 702.15's Kamigawa
+#: instant/sorcery subtype has no creature-type meaning of its own, so it's
+#: listed separately from the real creature-subtype words rather than
+#: folded into one open vocabulary).
+_SPELL_SUBTYPE_WORD = r"(?:spirit|arcane)"
+_SPELL_SUBTYPE_LIST = (
+    rf"{_SPELL_SUBTYPE_WORD}(?:,\s*{_SPELL_SUBTYPE_WORD})*(?:,?\s+or\s+{_SPELL_SUBTYPE_WORD})?"
+)
 #: The bare "target [noncreature|<type list>] spell [with mana value N]"
 #: phrase, unanchored (embedded inside a handler's own regex via `SPELL_
 #: TARGET`) — never both ``noncreature`` and ``types`` (no real card prints
@@ -589,7 +602,7 @@ _SPELL_TARGET_BODY = (
     r"target "
     rf"(?:(?P<color>{_COLOR_ALT})\s+)?"
     r"(?:(?P<noncreature>noncreature)\s+)?"
-    rf"(?:(?P<types>{_SPELL_TYPE_LIST})\s+)?"
+    rf"(?:(?P<subtypes>{_SPELL_SUBTYPE_LIST})\s+|(?P<types>{_SPELL_TYPE_LIST})\s+)?"
     r"spell"
     r"(?:\s+with mana value (?P<mv>\d+))?"
 )
@@ -621,6 +634,9 @@ def resolve_spell_filter(phrase: str) -> Optional[dict[str, Any]]:
         # a stray "or " glued onto the final type word.
         types = [t for t in re.split(r",\s*or\s+|,\s*|\s+or\s+", m.group("types")) if t]
         filt["card_types"] = types
+    if m.group("subtypes"):
+        subtypes = [t for t in re.split(r",\s*or\s+|,\s*|\s+or\s+", m.group("subtypes")) if t]
+        filt["subtype_any"] = subtypes
     if m.group("mv"):
         filt["mana_value"] = int(m.group("mv"))
     return filt

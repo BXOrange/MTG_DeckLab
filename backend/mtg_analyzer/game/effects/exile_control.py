@@ -239,6 +239,16 @@ class ExileEffect(GameEffect):
             target = self.target or self.source
             if target is not None:
                 context.exile(target)
+                # PAR-74: "exile ~. If you do, return it to the battlefield
+                # …" (Hikari, Twilight Guardian) needs `remember`'s
+                # `linked_exile_id` stamp same as the RULE 115 targeted
+                # branch below — this self mode silently skipped it before
+                # (no real card combined ``target_kind=None`` with
+                # ``remember`` until now).
+                if self.remember and self.source is not None:
+                    self.source.linked_exile_id = target.instance_id
+                if self.track_exiled_with and self.source is not None:
+                    self.source.exiled_with_ids.append(target.instance_id)
             return
         # A `count_selector`-sized spec ("exile X target …" — Waterbender's
         # Restoration / Foggy Swamp Visions) took its real count at announce
@@ -1105,6 +1115,7 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         target_kind: str = "permanent",
         haste: bool = True,
         max_mana_value: Optional[int] = None,
+        exact_mana_value: Optional[Union[int, str]] = None,
         selector: Optional[str] = None,
         creature_filter: Optional[dict] = None,
         count_selector: Optional[str] = None,
@@ -1162,6 +1173,11 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
             #: goad up to one target creature that player controls".
             self.target_spec = TargetSpec(
                 kind=target_kind, max_mana_value=max_mana_value,
+                # "…with **that spell's** mana value." (PAR-74, Skyfire
+                # Kirin) — `TargetSpec.exact_mana_value`'s own sentinel-
+                # string resolution (`targeting.legal_targets`), the
+                # exact-match sibling of `max_mana_value` just above.
+                exact_mana_value=exact_mana_value,
                 creature_filter=creature_filter, count_selector=count_selector,
                 optional=count_selector is not None,
             )

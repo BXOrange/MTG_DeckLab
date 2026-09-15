@@ -497,6 +497,11 @@ _ALIAS_TYPES: dict[str, str] = {
     # `exile_hand_then_draw_that_many` it replaced is retired (`bind` over
     # `resource: hand_size` around this + `draw`).
     "exile_hand": "exile",
+    # PAR-74: "target opponent exiles a card from their hand" — an
+    # interactive per-card pick (RULE 701.5a, `exile_hand_choice`), unlike
+    # `exile_hand`'s untargeted whole-hand move, but the same RULE 701.13
+    # primitive underneath.
+    "exile_hand_card": "exile",
     "exile_library": "exile",
     "exile_own_graveyard_card_mana_value_x": "exile",
     "exile_specific": "exile",

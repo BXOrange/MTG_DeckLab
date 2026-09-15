@@ -88,19 +88,10 @@ its block back into the matching section here.
 Traced card-by-card with `commander_tail_report.py --min-cluster 5` +
 `parser_probe.py blocked`/`card` rather than taken at the report's own
 loose keyword-match counts (same discipline PAR-69…72 used). Each of these
-four is a *generic* residual gap that happens to co-occur with a
+three is a *generic* residual gap that happens to co-occur with a
 set-specific keyword whose own ticket already closed — not the named
 mechanic itself reopening.
 
-- **PAR-74 · "Spirit or arcane spell" cast-trigger filter (Kamigawa).** Not
-  a Ki-counter gap — Ki counters and most Spirit-or-Arcane cast triggers
-  already shipped. This is a plain cast-trigger subject filter ("whenever
-  you cast a spirit or arcane spell") the segmenter doesn't yet recognize
-  as an OR-of-two-creature-types filter, the same shape as an existing
-  filtered cast trigger (e.g. "historic spell"). Confirmed via
-  `parser_probe.py blocked "\bspirit or arcane spell\b"` (2026-09-15): 15
-  SOLO, 0 also-blocked — clean. e.g. Celestial Kirin, Dreamcatcher, Elder
-  Pine of Jukai, Hikari, Twilight Guardian.
 - **PAR-75 · Doctor's companion referenced by another card.** The FLAG
   keyword itself shipped in PAR-69. These two need it recognized (a) as a
   library-search filter ("a card with doctor's companion") and (b) as a

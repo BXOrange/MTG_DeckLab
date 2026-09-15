@@ -1965,10 +1965,44 @@ _GAIN_CONTROL_BARE_HASTE_RE = re.compile(
 #: `<action>`. When you do, `<effect>`." are a real, much bigger family
 #: (RULE 603.3's genuine optional-then-branch shape, needing its own
 #: pending_choice) deliberately NOT attempted here — this regex only matches
-#: when the clause immediately before "When you do," is exactly a bare
-#: self-sacrifice, so it can never misfire onto one of those.
+#: when the clause immediately before "When you do,"/"If you do," is exactly
+#: a bare self-sacrifice, so it can never misfire onto one of those.
+#:
+#: PAR-74: the "**If** you do," connector (Dreamcatcher: "You may sacrifice
+#: ~. If you do, draw a card.") collapses the exact same way as "When you
+#: do,": by the time `parse_effect_body` sees this clause, the *outer*
+#: "you may" has already been peeled off the whole triggered ability
+#: (`optional=True` on the `AbilitySpec`, at the cast-trigger dispatch
+#: site) — so what's left here, "sacrifice ~. if/when you do, `<effect>`.",
+#: is itself an unconditional antecedent once the ability has already been
+#: accepted, same as the plain "Sacrifice it." shape this row was built
+#: for. RULE 603.3 and 603.4's own "if"/"when" reflexive triggers are a real
+#: distinction elsewhere, but not one this already-certain antecedent can
+#: ever make observable.
 _SACRIFICE_THEN_WHEN_YOU_DO_RE = re.compile(
-    r"^(?P<before>sacrifice (?:it|this \w+|~))\.\s*when you do,\s*(?P<after>.+)$",
+    r"^(?P<before>sacrifice (?:it|this \w+|~))\.\s*(?:when|if) you do,\s*(?P<after>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+#: PAR-74: "[You may] exile ~. If you do, return it to the battlefield under
+#: its owner's control at the beginning of the next end step." (Hikari,
+#: Twilight Guardian) — the exile-zone sibling of
+#: `_SACRIFICE_THEN_WHEN_YOU_DO_RE`'s own collapse: once the outer "you may"
+#: has already been peeled off the whole triggered ability, a bare
+#: self-exile is just as certain as a bare self-sacrifice (RULE 400, no
+#: failure state), so "if you do" reduces the same way to one plain
+#: sequence — an `ExileEffect(remember=True)` linking the exiled object onto
+#: this ability's own source (`GameObject.linked_exile_id`, the O-Ring-
+#: shaped mechanism `ReturnLinkedExileEffect` already reads), plus a RULE
+#: 603.7 delayed trigger (`create_delayed_trigger`, ``step="end"``,
+#: ``scope="any"`` — "the next end step" isn't controller-scoped) that fires
+#: it at the named step. Narrow to exactly this destination/timing (no
+#: "tapped"/"under your control" variant seen yet) rather than a general
+#: "exile ~, delayed-return" grammar no other card has needed.
+_EXILE_SELF_THEN_DELAYED_RETURN_RE = re.compile(
+    r"^(?P<before>exile (?:it|this \w+|~))\.\s*(?:when|if) you do, "
+    r"return it to the battlefield under its owner'?s control "
+    r"at the beginning of the next end step$",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -3661,6 +3695,22 @@ def parse_effect_body(
             return None  # fail closed — only a certain, unconditional antecedent collapses
         return _with_after_tail(before_specs, sac_when_you_do.group("after"), group_subject=group_subject)
 
+    exile_self_delayed_return = _EXILE_SELF_THEN_DELAYED_RETURN_RE.match(body)
+    if exile_self_delayed_return is not None:
+        before_specs = parse_effect_body(
+            exile_self_delayed_return.group("before"), self_subject=self_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
+        )
+        if before_specs is None or not any(spec.type == "exile" for spec in before_specs):
+            return None  # fail closed — only a certain, unconditional antecedent collapses
+        return [
+            EffectSpec("exile", {**before_specs[0].params, "remember": True}),
+            EffectSpec("create_delayed_trigger", {
+                "step": "end", "scope": "any",
+                "effects": [{"type": "return_linked_exile", "params": {"destination": "battlefield"}}],
+            }),
+        ]
+
     earthbend_when_you_do = _EARTHBEND_THEN_WHEN_YOU_DO_RE.match(body)
     if earthbend_when_you_do is not None:
         before_specs = parse_effect_body(
@@ -4604,6 +4654,12 @@ def segment_line(
         )
         return Segment(raw=raw, spec=spec, claimed=True)
 
+    # PAR-74: a bare "~" in the body is this ability's own source, the same
+    # unambiguous reading `_CAST_SPELL_TRIGGER_PLAIN_RE`'s dispatch already
+    # passes `self_subject=True` for (Passionate Archaeologist) — this typed
+    # sibling was missing it, so any typed/color/subtype cast trigger whose
+    # own source reacts ("~ gains protection …", "~ becomes a 4/4 …", "~
+    # gains forestwalk …") failed closed on an otherwise-modelable body.
     cast_spell_trig = _CAST_SPELL_TRIGGER_RE.match(raw)
     if cast_spell_trig is not None:
         pos_subj = cast_spell_trig.group("subj")
@@ -4624,7 +4680,7 @@ def segment_line(
             # colour sibling of the subtype branch just below; reuses
             # `effect_binder`'s existing ``cast_of_color`` predicate.
             body, optional = _peel_optional(cast_spell_trig.group("body"))
-            effects = parse_effect_body(body)
+            effects = parse_effect_body(body, self_subject=True)
             if effects is None:
                 return Segment(raw=raw)
             spec = AbilitySpec(
@@ -4649,7 +4705,7 @@ def segment_line(
             for word in subtype_words
         ):
             body, optional = _peel_optional(cast_spell_trig.group("body"))
-            effects = parse_effect_body(body)
+            effects = parse_effect_body(body, self_subject=True)
             if effects is None:
                 return Segment(raw=raw)
             spec = AbilitySpec(
@@ -4668,7 +4724,7 @@ def segment_line(
         if types is None:
             return Segment(raw=raw)
         body, optional = _peel_optional(cast_spell_trig.group("body"))
-        effects = parse_effect_body(body)
+        effects = parse_effect_body(body, self_subject=True)
         if effects is None:
             return Segment(raw=raw)
         spec = AbilitySpec(

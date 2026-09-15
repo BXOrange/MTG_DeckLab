@@ -25,7 +25,7 @@ from typing import Any, Callable, Optional
 
 from ..normalize import SELF
 from ..spec import EffectSpec, ParserProvenance
-from .keywords import KEYWORDS, KeywordShape, keyword_slug
+from .keywords import KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
 from .subgrammars import (
     CANT_BE_COUNTERED_RE,
     COLOR_LETTERS,
@@ -2668,7 +2668,12 @@ _MASS_DESTROY_NOUNS_SINGULAR: dict[str, str] = {
 _MASS_DESTROY_FILTER = (
     r"(?: with (?:mana value (?P<mv>\d+|x) or (?P<mv_cmp>greater|less)"
     r"|toughness (?P<tough>\d+) or greater"
-    r"|power (?P<power>\d+) or (?P<power_cmp>greater|less)))?"
+    r"|power (?P<power>\d+) or (?P<power_cmp>greater|less)"
+    # PAR-74: "destroy all permanents with that spell's mana value."
+    # (Celestial Kirin) — the exact-match sibling of the ``mv``/``mv_cmp``
+    # bound above, reading the firing SPELL_CAST event's own mana value
+    # (`_mass_selector_objects`'s new ``mana_value_from_trigger_event`` key).
+    r"|(?P<trigger_mv>that spell'?s mana value)))?"
 )
 
 
@@ -2683,6 +2688,8 @@ def _mass_destroy_filter_dict(m: re.Match[str]) -> Optional[dict]:
     if groups.get("power"):
         n = int(groups["power"])
         filt["max_power" if groups["power_cmp"] == "less" else "min_power"] = n
+    if groups.get("trigger_mv"):
+        filt["mana_value_from_trigger_event"] = True
     return filt or None
 
 
@@ -3910,13 +3917,28 @@ _SEARCH_SUBTYPE_WORD = r"rebel|mercenary"
 #: shape) narrows the search to *basic* lands of *those* named types, not
 #: "basic land" (any basic) or a bare type list (any card of that type, not
 #: necessarily basic) alone.
+#: PAR-74: "an **Aura** card **with enchant creature**" (Tallowisp). Unlike
+#: `_SEARCH_SUBTYPE_WORD`'s "`<subtype>` permanent" shape, "Aura" is an
+#: *enchantment* subtype (not a creature one) named directly before "card",
+#: with a trailing "with enchant creature" qualifier restricting *which*
+#: Auras. `card_query.matches`'s ``type`` key is already a type-line
+#: substring test, so ``{"type": "Aura"}`` alone correctly narrows to Auras
+#: — the "with enchant creature" tail is consumed and dropped, the same
+#: documented simplification `_SEARCH_REVEAL` uses for pure flavor text:
+#: `card_query` has no "Enchant `<type>`" predicate, and every real card on
+#: this template only ever wants a creature-enchanting Aura anyway (no
+#: printed Aura enchants two different permanent types at once), so the
+#: dropped qualifier can never cause a wrong pick in practice.
+_SEARCH_AURA_ENCHANT_CREATURE_TAIL = r"(?:\s+with enchant creature)?"
 _SEARCH_CRITERIA = (
     r"(?:up to (?P<count>\d+)|an?)\s+"
     rf"(?:(?P<color>{_SEARCH_COLOR_WORD})\s+)?"
     r"(?:(?P<basic>basic)\s+)?"
     rf"(?:(?P<subtype>{_SEARCH_SUBTYPE_WORD})\s+permanent\s+)?"
+    rf"(?:(?P<aura>aura)\s+)?"
     rf"(?P<types>{_SEARCH_TYPE_LIST})?\s*"
     r"cards?"
+    + _SEARCH_AURA_ENCHANT_CREATURE_TAIL
     + _SEARCH_MV_QUALIFIER
 )
 #: Whichever pronoun/noun-phrase a card's "reveal ~"/"put ~ <dest>" clause
@@ -4046,6 +4068,8 @@ def _search_criteria_from_match(m: re.Match[str]) -> dict:
     subtype = m.groupdict().get("subtype")
     if subtype:
         crit["type"] = subtype.strip().lower()
+    if m.groupdict().get("aura"):
+        crit["type"] = "Aura"
     types = m.groupdict().get("types")
     if types:
         words = [t.strip() for t in re.split(r",\s*or\s+|,\s*|\s+or\s+", types) if t.strip()]
@@ -4425,7 +4449,11 @@ def _gain_control_by_opponent(m: re.Match[str]) -> list[EffectSpec]:
 _GAIN_CONTROL_EOT_RE = _c(
     rf"gain control of (?P<another>another )?{TARGET}"
     r"(?: with power (?P<pn>\d+) or (?P<pcmp>less|greater))?"
-    r"(?: with mana value (?P<mv>\d+) or less)? until end of turn"
+    r"(?: with mana value (?P<mv>\d+) or less"
+    # PAR-74: "…with **that spell's** mana value." (Skyfire Kirin) — the
+    # exact-match sibling of the literal-digit ceiling just above,
+    # `TargetSpec.exact_mana_value`'s own sentinel resolution.
+    r"|(?P<trigger_mv> with that spell'?s mana value))? until end of turn"
 )
 
 
@@ -4438,6 +4466,8 @@ def _gain_control_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params: dict = {"target_kind": kind, **_optional_param(m)}
     if m.group("mv"):
         params["max_mana_value"] = int(m.group("mv"))
+    if m.groupdict().get("trigger_mv"):
+        params["exact_mana_value"] = "trigger_spell_mana_value"
     # "gain control of target creature an opponent controls **with power N
     # or less/greater**" (Enthralling Victor) — a target-offer-time filter,
     # RULE 115.1c. "another" (Akroan Conscriptor) is accepted but its RULE
@@ -5910,18 +5940,38 @@ def _token_keywords(text: str) -> Optional[list[str]]:
     exactly like a FLAG keyword. A scoped "hexproof from black" never
     reaches this branch: `keyword_slug` only resolves the bare "hexproof"/
     "hexproof from" spellings, so a real quality suffix keeps `kdef` ``None``
-    and still fails closed below.
+    and still fails closed below. A landwalk variant ("forestwalk") is the
+    same kind of exception, same reasoning as `static_handlers._flag_
+    keywords`' own — RULE 702.14's land type lives in the slug itself, so
+    the grant needs no separate quality param.
     """
     slugs: list[str] = []
     for part in re.split(r",|\band\b", text):
         part = part.strip()
         if not part:
             continue
-        kdef = KEYWORDS.get(keyword_slug(part))
-        if kdef is None or (kdef.shape is not KeywordShape.FLAG and kdef.slug != "hexproof"):
+        slug = _grantable_flag_slug(part)
+        if slug is None:
             return None
-        slugs.append(kdef.slug)
+        slugs.append(slug)
     return slugs
+
+
+def _grantable_flag_slug(part: str) -> Optional[str]:
+    """A single keyword token → its grantable slug, or ``None`` if it isn't a
+    FLAG keyword, bare "hexproof", or a landwalk variant (PAR-74) — the three
+    shapes `_token_keywords`/`_split_keywords_with_parametric` can grant
+    without a separate quality param. Shared so the two callers (a token's
+    "with <keywords>" clause and a temporary "gains <keywords> until end of
+    turn" pump) stay in lockstep."""
+    slug = keyword_slug(part)
+    kdef = KEYWORDS.get(slug)
+    if kdef is not None and (kdef.shape is KeywordShape.FLAG or kdef.slug == "hexproof"):
+        return kdef.slug
+    resolved = resolve_keyword(slug)
+    if resolved is not None and resolved.slug == "landwalk" and slug != "landwalk":
+        return slug
+    return None
 
 
 #: ENG-31: the parametric keywords a *grant* ("gains firebending N until end
@@ -5953,10 +6003,10 @@ def _split_keywords_with_parametric(
         if pm and pm.group(1) in _GRANTABLE_PARAMETRIC_KEYWORDS:
             parametric.append({"name": pm.group(1), "n": int(pm.group(2))})
             continue
-        kdef = KEYWORDS.get(keyword_slug(part))
-        if kdef is None or (kdef.shape is not KeywordShape.FLAG and kdef.slug != "hexproof"):
+        slug = _grantable_flag_slug(part)
+        if slug is None:
             return None
-        flags.append(kdef.slug)
+        flags.append(slug)
     return flags, parametric
 
 
@@ -9428,6 +9478,13 @@ _GROUP = (
     # controller-scoped creature set; tried before the bare
     # "each creature you control" alternative below.
     r"|each creature you control with a counter on it"
+    # PAR-74: "each other creature you control gets …" (Kodama of the South
+    # Tree) — the distributive-singular phrasing of "other creatures you
+    # control" just above, same `other_creatures_you_control` selector, the
+    # same relationship "each creature you control" already has to
+    # "creatures you control". Tried before the bare "each creature you
+    # control" row below so "other" isn't swallowed by it.
+    r"|each other creature you control"
     r"|each creature you control"
     r"|creatures you control|all creatures"
     r"|creatures your opponents control|creatures you don'?t control"
@@ -9451,6 +9508,7 @@ _GROUP_SELECTORS: dict[str, str] = {
     "each creature you control with a counter on it":
         "creatures_you_control_with_a_counter",
     "other creatures you control": "other_creatures_you_control",
+    "each other creature you control": "other_creatures_you_control",
     "all creatures": "all_creatures",
     "creatures your opponents control": "creatures_opponents_control",
     "creatures you dont control": "creatures_opponents_control",
@@ -10523,6 +10581,34 @@ def _look_top_put_three_party(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+#: PAR-74: "Reveal the top N cards of your library. Put all land cards
+#: revealed this way into your hand and the rest on the bottom of your
+#: library in any order." (Elder Pine of Jukai). Not a real choice — RULE
+#: 601.2c's "all" leaves nothing to pick between — so it's `InspectTopChoose
+#: Effect` with ``max_picks`` set to the full inspected count: whenever
+#: every land-filtered candidate is within that cap (always true here, since
+#: candidates are a subset of the N inspected), `_request_choose_objects`
+#: auto-resolves with no prompt (see its own docstring), which *is* "put all
+#: of them" for a filter this narrow. ``rest_destination="library_bottom_
+#: random"`` is the existing "in any order" stand-in `_LOOK_TOP_PUT_THREE_
+#: PARTY_RE` above already uses. Only "land" is in this family's filter
+#: vocabulary — extend `_REVEAL_TOP_ALL_FILTER_RE` the day another type word
+#: needs it.
+_REVEAL_TOP_ALL_FILTER_RE = _c(
+    r"reveal the top (?P<n>\d+) cards of your library\. "
+    r"put all (?P<filter>land) cards revealed this way into your hand and "
+    r"the rest on the bottom of your library in any order"
+)
+
+
+def _reveal_top_all_filter(m: re.Match[str]) -> list[EffectSpec]:
+    n = int(m.group("n"))
+    return [EffectSpec("inspect_top_choose", {
+        "count": n, "action": "library_to_hand", "filter": {"is_land": True},
+        "max_picks": n, "rest_destination": "library_bottom_random",
+    })]
+
+
 #: "~ deals 4 damage to target creature and X damage to that creature's
 #: controller, where X is the number of creatures in your party."
 #: (Synchronized Spellcraft) — two `damage` effects sharing one RULE 115
@@ -10592,6 +10678,124 @@ def _burakos_attack_party(m: re.Match[str]) -> list[EffectSpec]:
             "token_name": "Treasure", "count_selector": "creatures_in_your_party",
         }),
     ]
+
+
+#: PAR-74: "~ becomes a N/M [`<qualifiers>`] creature[ with `<keyword>`]
+#: until end of turn." (Jade Idol) / "target `<permanent kind>` becomes a
+#: N/M creature until end of turn[. it's still a `<kind>`.]" (Soilshaper) —
+#: RULE 613.4d's temporary type-change animation, already a shipped
+#: resolve-time primitive (`GrantUntilEffect` wrapping a layer-4
+#: `type_change` static at ``duration="end_of_turn"`` — Incubator's own
+#: self-animate shape, Hedge Whisperer's own target-a-land shape, see
+#: `ability_catalogue.red_spells`), with only the parser recognition
+#: missing. ``<qualifiers>`` is a curated whitelist, not an open word
+#: class (fail-closed, same reasoning as `_CAST_SPELL_SUBTYPE_WORDS`):
+#: re-stating a permanent's own main type ("spirit **artifact** creature")
+#: is a harmless idempotent `add_types` entry, and a genuine new creature
+#: subtype ("**spirit** artifact creature") is `add_subtypes`. No colour
+#: word is in this list — no real card in this shape has needed one yet;
+#: extend it the day one does, don't guess a `colors`-setting layer-5
+#: param this primitive doesn't carry.
+_ANIMATE_QUALIFIER_TYPES: frozenset[str] = frozenset({"artifact", "enchantment", "land", "planeswalker"})
+_ANIMATE_QUALIFIER_SUBTYPES: frozenset[str] = frozenset({
+    "spirit", "elemental", "plant", "horror", "shade", "boar", "wall",
+})
+
+
+def _split_animate_qualifiers(text: str) -> Optional[tuple[list[str], list[str]]]:
+    """A "`<word>` `<word>` …" blob right before "creature" → ``(add_types,
+    add_subtypes)``, or ``None`` if any word isn't in the curated whitelist
+    above (fail-closed)."""
+    add_types: list[str] = []
+    add_subtypes: list[str] = []
+    for word in text.split():
+        word = word.strip().lower()
+        if not word:
+            continue
+        if word in _ANIMATE_QUALIFIER_TYPES:
+            add_types.append(word)
+        elif word in _ANIMATE_QUALIFIER_SUBTYPES:
+            add_subtypes.append(word.capitalize())
+        else:
+            return None
+    return add_types, add_subtypes
+
+
+_ANIMATE_SELF_RE = _c(
+    r"~ becomes an? (?P<p>\d+)/(?P<t>\d+) (?P<quals>(?:[a-z]+ )*?)creature"
+    r"(?: with (?P<kw>[a-z, ]+?))? until end of turn"
+)
+
+
+def _animate_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    quals = _split_animate_qualifiers(m.group("quals"))
+    if quals is None:
+        return None
+    add_types, add_subtypes = quals
+    static: dict[str, Any] = {
+        "type": "type_change",
+        "params": {
+            "add_types": ["creature"] + add_types,
+            "power": int(m.group("p")), "toughness": int(m.group("t")),
+            **({"add_subtypes": add_subtypes} if add_subtypes else {}),
+        },
+    }
+    extra_statics = []
+    kw = m.groupdict().get("kw")
+    if kw:
+        keywords = _token_keywords(kw)
+        if keywords is None:
+            return None
+        extra_statics.append({"type": "grant_keyword", "params": {"keywords": keywords}})
+    return [EffectSpec("grant_until", {
+        "duration": "end_of_turn", "target_kind": None, "static": static,
+        **({"extra_statics": extra_statics} if extra_statics else {}),
+    })]
+
+
+#: The TARGET sibling — "target land becomes a 3/3 creature until end of
+#: turn. It's still a land." (Soilshaper). The trailing "it's still a
+#: `<kind>`" sentence is pure reminder text (`type_change`'s ``add_types``
+#: only *adds*, RULE 613.4d — the printed type is never lost), so it's
+#: matched and discarded rather than parsed into anything; the ``(?P=kind)``
+#: backreference keeps that discard honest (never swallows a mismatched
+#: reminder sentence). Optional because not every real card bothers to
+#: print the reminder.
+_ANIMATE_TARGET_RE = _c(
+    r"target (?P<kind>land|artifact|creature|enchantment) becomes "
+    r"an? (?P<p>\d+)/(?P<t>\d+) (?P<quals>(?:[a-z]+ )*?)creature"
+    r"(?: with (?P<kw>[a-z, ]+?))? until end of turn"
+    r"(?:\. it'?s still an? (?P=kind))?"
+)
+
+
+def _animate_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    quals = _split_animate_qualifiers(m.group("quals"))
+    if quals is None:
+        return None
+    add_types, add_subtypes = quals
+    kind = resolve_target_kind("target " + m.group("kind"))
+    if kind is None:
+        return None
+    static: dict[str, Any] = {
+        "type": "type_change",
+        "params": {
+            "add_types": ["creature"] + add_types,
+            "power": int(m.group("p")), "toughness": int(m.group("t")),
+            **({"add_subtypes": add_subtypes} if add_subtypes else {}),
+        },
+    }
+    extra_statics = []
+    kw = m.groupdict().get("kw")
+    if kw:
+        keywords = _token_keywords(kw)
+        if keywords is None:
+            return None
+        extra_statics.append({"type": "grant_keyword", "params": {"keywords": keywords}})
+    return [EffectSpec("grant_until", {
+        "duration": "end_of_turn", "target_kind": kind, "static": static,
+        **({"extra_statics": extra_statics} if extra_statics else {}),
+    })]
 
 
 # --- The table --------------------------------------------------------------
@@ -11114,6 +11318,43 @@ HANDLERS: list[EffectHandler] = [
         ),
         _discard,
     ),
+    # PAR-74: "target opponent exiles a card from their hand." (Kyoki,
+    # Sanity's Eclipse) — the exile-zone sibling of the plain ``discard``
+    # row above; RULE 701.5a's interactive "that player chooses" (the
+    # `ExileHandCardEffect`/`exile_hand_choice` chooser, not an auto-pick).
+    EffectHandler(
+        "exile_hand_card",
+        _c(
+            rf"(?P<who>you|target player|target opponent) exiles? {COUNT} "
+            r"cards? from (?:your|their) hand"
+        ),
+        lambda m: [EffectSpec("exile_hand_card", {
+            "count": count_of(m.group("n")),
+            **(
+                {"target_kind": "player"}
+                if m.group("who") in ("target player", "target opponent")
+                else {}
+            ),
+        })],
+    ),
+    # PAR-74: "target player reveals their hand and discards all cards with
+    # that spell's mana value." (Infernal Kirin) — "reveals their hand" is
+    # pure flavor at this engine's fidelity (same treatment `_SEARCH_REVEAL`
+    # gives a tutor's own "reveal it," — nothing else reads the reveal), so
+    # only the discard half becomes an effect: RULE 601.2c's non-interactive
+    # "all `<X>`" mass discard (`DiscardEffect.filter`'s new
+    # ``mana_value_from_trigger_event`` key, `DestroyEffect.filter`'s
+    # identical key/referent).
+    EffectHandler(
+        "reveal_hand_discard_matching_mv",
+        _c(
+            r"(?P<who>target player|target opponent) reveals? (?:their|its) hand "
+            r"and discards? all cards with that spell'?s mana value"
+        ),
+        lambda m: [EffectSpec("discard", {
+            "target_kind": "player", "filter": {"mana_value_from_trigger_event": True},
+        })],
+    ),
     # PAR-13: "each player loses N life unless they discard a card/sacrifice
     # a creature, artifact, or land of their choice." — Veils of Fear/
     # Sandfall Cell's own APNAP mass "unless".
@@ -11620,16 +11861,17 @@ HANDLERS: list[EffectHandler] = [
         _TAP_TWO_COLOR_RE,
         _tap_two_color,
     ),
-    # "you may tap or untap target permanent" (Derevi, Empyrial Tactician;
-    # Ghostly Touch's quoted attached-creature grant).  This is one target
-    # chosen under RULE 115, followed by the resolution-time tap/untap
-    # choice represented by TapEffect.choose_tap_or_untap -- not two
-    # independently optional effects.
+    # "you may tap or untap target permanent/creature" (Derevi, Empyrial
+    # Tactician; Ghostly Touch's quoted attached-creature grant; Teller of
+    # Tales' "creature"-scoped sibling, PAR-74). This is one target chosen
+    # under RULE 115, followed by the resolution-time tap/untap choice
+    # represented by TapEffect.choose_tap_or_untap -- not two independently
+    # optional effects.
     EffectHandler(
         "tap_or_untap",
-        _c(r"(?:you may )?tap or untap target permanent"),
+        _c(r"(?:you may )?tap or untap target (?P<kind>permanent|creature)"),
         lambda m: [EffectSpec("tap", {
-            "target_kind": "permanent",
+            "target_kind": m.group("kind"),
             "choose_tap_or_untap": True,
         })],
     ),
@@ -13558,6 +13800,16 @@ HANDLERS: list[EffectHandler] = [
             {"target_kind": "creature"},
         )],
     ),
+    EffectHandler(
+        "animate_self",
+        _ANIMATE_SELF_RE,
+        _animate_self,
+    ),
+    EffectHandler(
+        "animate_target",
+        _ANIMATE_TARGET_RE,
+        _animate_target,
+    ),
     # "goad target creature [an opponent controls]" (RULE 701.15a).
     EffectHandler(
         "goad",
@@ -13905,6 +14157,7 @@ HANDLERS: list[EffectHandler] = [
         _DAMAGE_ATTACKING_OR_BLOCKING_TWICE_PARTY_RE, _damage_attacking_or_blocking_twice_party,
     ),
     EffectHandler("look_top_put_three_party", _LOOK_TOP_PUT_THREE_PARTY_RE, _look_top_put_three_party),
+    EffectHandler("reveal_top_all_filter", _REVEAL_TOP_ALL_FILTER_RE, _reveal_top_all_filter),
     EffectHandler(
         "damage_target_and_controller_party",
         _DAMAGE_TARGET_AND_CONTROLLER_PARTY_RE, _damage_target_and_controller_party,

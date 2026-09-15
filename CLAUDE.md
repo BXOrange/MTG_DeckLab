@@ -506,8 +506,50 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 44.7% (15,554 / 34,811) as of 2026-09-15, measured at
-PARSER_VERSION 387** (closes the first increment of PAR-79 — "`<Name>`/
+**Coverage: 44.88% (15,624 / 34,811) as of 2026-09-15, measured at
+PARSER_VERSION 388** (closes PAR-74 — the "Spirit or Arcane spell" cast-
+trigger filter, Kamigawa. The ticket's own diagnosis was stale: that OR-of-
+two-subtypes filter already worked (PAR-52+58); what actually blocked all
+15 SOLO cards was a distinct, previously-unclaimed *effect body* per card.
+Fixes/additions, smallest first: `_CAST_SPELL_TRIGGER_RE`'s dispatch was
+missing the `self_subject=True` its untyped sibling already passed — a bare
+"~" in a typed/color/subtype cast trigger's body failed closed for a reason
+unrelated to this ticket (+23 cache-wide, Kami of the Painted Road);
+`handlers._token_keywords`/`_split_keywords_with_parametric` never resolved
+a landwalk *variant* slug ("forestwalk") the way the static-grant family
+already did (+22, Orbweaver Kumo); `_GROUP`'s selector list gained "each
+other creature you control" (Kodama of the South Tree); a new generic
+"becomes a N/M [`<type>`] creature until end of turn" animation family
+(self and target) reached RULE 613.4d's already-shipped `grant_until`/
+`type_change` primitive (Incubator's/Hedge Whisperer's own shape) for the
+first time (+several, Jade Idol/Soilshaper/Hydroform/Kamahl, Fist of
+Krosa); "tap or untap target **creature**" widened alongside the existing
+"target permanent" row (Teller of Tales); a small new primitive
+(`ExileHandCardEffect`/`RulesEngine.exile_hand_choice`, the exile-zone
+sibling of `discard_choice`) for "target opponent exiles a card from their
+hand" (Kyoki, Sanity's Eclipse); `_SEARCH_CRITERIA` widened for an
+enchantment *subtype* ("an Aura card with enchant creature", Tallowisp);
+"reveal the top N … put all `<filter>` cards into hand, rest to the bottom
+in any order" reached `InspectTopChooseEffect` with `max_picks` forcing the
+"all" (Elder Pine of Jukai); PAR-71's "that spell's mana value" referent
+extended to `DestroyEffect.filter`/`DiscardEffect.filter` (mass wipe/
+discard) and a new `TargetSpec.exact_mana_value` (the exact-match sibling
+of `max_mana_value`'s ceiling, Celestial Kirin/Infernal Kirin/Skyfire
+Kirin); `TargetSpec.spell_filter` gained `subtype_any` for "counter target
+spirit or arcane spell" (Hisoka's Defiance, `card_types`' fixed main-type
+lookup can't express a subtype); and `_SACRIFICE_THEN_WHEN_YOU_DO_RE`'s
+"When you do," collapse (a certain antecedent once the ability's own outer
+"you may" is already peeled) widened to "If you do," plus a new exile-zone
+sibling reusing `ExileEffect(remember=True)` + `ReturnLinkedExileEffect`
+via a RULE 603.7 delayed trigger (Dreamcatcher/Hikari, Twilight Guardian).
+Execute-testing caught one real, previously-latent bug along the way:
+`ExileEffect`'s self mode (`target_kind=None`) silently ignored its own
+`remember`/`track_exiled_with` flags — only the RULE 115 targeted branch
+stamped `linked_exile_id`, so no self-exile-then-delayed-return card had
+ever worked; fixed alongside this ticket's own first use. +70 real cards,
+zero regressed (`pytest -q`, full suite). See `docs/implementation-state/
+Done_Backend.md`'s "Oracle-Text Parser Front-End" PAR-74 entry.)
+v387 closes the first increment of PAR-79 — "`<Name>`/
 target creature can't be blocked this turn" broad recognition:
 `UnblockableEffect`/the `"unblockable"` effect key already existed end to
 end (ENG-32, Rogue's Passage/Giant Koi) — this batch is parser recognition
@@ -744,7 +786,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 46.8% (14,909 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 47.13% (15,003 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

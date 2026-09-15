@@ -281,6 +281,21 @@ class GameContext:
             player, count, source=source, then_specs=then_specs, optional=optional
         )
 
+    def discard_matching(self, player: "Player", mana_value: Optional[int] = None) -> None:
+        self.engine.discard_matching(player, mana_value=mana_value)
+
+    def exile_hand_choice(
+        self,
+        player: "Player",
+        count: int = 1,
+        source: Optional["GameObject"] = None,
+        then_specs: Optional[list[dict]] = None,
+        optional: bool = False,
+    ) -> None:
+        self.engine.exile_hand_choice(
+            player, count, source=source, then_specs=then_specs, optional=optional
+        )
+
     def put_hand_cards_on_top(self, player: "Player", count: int = 1) -> None:
         self.engine.put_hand_cards_on_top(player, count)
 

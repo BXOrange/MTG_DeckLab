@@ -5996,6 +5996,149 @@ measurement of why is the useful half of this work.
 
 ## Oracle-Text Parser Front-End
 
+### PAR-74: "Spirit or Arcane spell" cast-trigger filter (Kamigawa, PARSER_VERSION 388)
+
+- **What:** The ticket's own diagnosis was stale by the time it was worked:
+  it framed the whole 15-card cluster as one missing OR-of-two-subtypes
+  cast-trigger filter ("whenever you cast a spirit or arcane spell"), but
+  that filter already worked (`_CAST_SPELL_SUBTYPE_WORDS`'s `"arcane"`
+  special case, PAR-52+58) — the probe's own SOLO/ALSO-BLOCKED split can't
+  see *why* a whole unsplit trigger line is unclaimed, only that it is.
+  What actually blocked every card was a distinct, previously-unclaimed
+  *effect body*, closed one small fix at a time:
+  - `_CAST_SPELL_TRIGGER_RE`'s dispatch never passed `self_subject=True` the
+    way its untyped sibling `_CAST_SPELL_TRIGGER_PLAIN_RE` already did (with
+    its own comment explaining exactly why a bare `~` needs it) — a real,
+    general bug unrelated to this ticket's own subtypes, fixed by adding the
+    same flag to all three of the typed row's branches (+23 cache-wide,
+    Kami of the Painted Road/Balefire Liege/Lys Alana Huntmaster-shaped).
+  - `handlers._token_keywords`/`_split_keywords_with_parametric` resolved a
+    keyword slug via a bare `KEYWORDS.get(...)` lookup, never the landwalk-
+    family `resolve_keyword` fallback `static_handlers._flag_keywords`
+    already used for the *static*-grant shape — so a *temporary* pump grant
+    ("~ gains forestwalk until end of turn") failed closed on any landwalk
+    variant. Extracted the shared check into `_grantable_flag_slug` so both
+    callers stay in lockstep (+22, Orbweaver Kumo and siblings).
+  - `_GROUP`'s selector list had "other creatures you control" (plural) and
+    "each creature you control" (distributive) but not their combination,
+    "each other creature you control" — added, same
+    `other_creatures_you_control` selector (Kodama of the South Tree,
+    Zhang He, Wei General).
+  - No family recognized RULE 613.4d's resolve-time "becomes a N/M
+    [`<type>`] creature until end of turn" animation at all — self
+    (`_ANIMATE_SELF_RE`) and target (`_ANIMATE_TARGET_RE`, with an optional
+    "It's still a `<type>`." reminder tail consumed and dropped) forms, both
+    reaching the already-shipped `grant_until` effect wrapping a layer-4
+    `type_change` static (Incubator's/Hedge Whisperer's own shape,
+    `ability_catalogue.red_spells`) for the first time from the oracle-text
+    front-end. A curated qualifier whitelist (`_ANIMATE_QUALIFIER_TYPES`/
+    `_ANIMATE_QUALIFIER_SUBTYPES`) keeps a re-stated main type ("spirit
+    **artifact** creature") or a real new subtype ("**spirit** artifact
+    creature") safe without an open word class (Jade Idol, Soilshaper,
+    Hydroform, Kamahl Fist of Krosa, Vivify, Ensouled Scimitar).
+  - "tap or untap target permanent" had a handler; "target **creature**"
+    (Teller of Tales) didn't — widened the one regex to accept either noun.
+  - "target opponent exiles a card from their hand" (Kyoki, Sanity's
+    Eclipse) needed a genuinely new small primitive: `ExileHandCardEffect`
+    (`game/effects/damage_draw.py`) + `RulesEngine.exile_hand_choice`
+    (`draw_discard_mixin.py`) — the exile-zone sibling of `discard_choice`,
+    reusing the same `_request_choose_objects("exile", ...)` chooser the
+    Gemstone Caverns opening-hand pick already exercises.
+  - "an Aura card with enchant creature" (Tallowisp) needed `_SEARCH_CRITERIA`
+    widened for an enchantment *subtype* named directly before "card"
+    (`{"type": "Aura"}` — `card_query.matches`'s `type` key is already a
+    type-line substring test, so no engine change was needed); the "with
+    enchant creature" tail is consumed and dropped as a documented
+    simplification (no printed Aura enchants two different permanent types
+    at once, so the drop can't misfire).
+  - "Reveal the top N cards of your library. Put all land cards revealed
+    this way into your hand and the rest on the bottom of your library in
+    any order." (Elder Pine of Jukai) reached the existing
+    `InspectTopChooseEffect` (MEC-72) with `max_picks` set to the full
+    inspected count — RULE 601.2c's "all" leaves nothing to choose between,
+    so `_request_choose_objects` auto-resolves it exactly like "put all of
+    them," the same idiom PAR-72's own `_LOOK_TOP_PUT_THREE_PARTY_RE` uses.
+  - PAR-71's "that spell's mana value" referent gained three new landing
+    points: `DestroyEffect.filter["mana_value_from_trigger_event"]`
+    (Celestial Kirin's "destroy all permanents with that spell's mana
+    value" mass wipe) and the identical key on the new `DiscardEffect.filter`
+    (Infernal Kirin's "discards all cards with that spell's mana value" —
+    RULE 601.2c's non-interactive mass discard via the new `RulesEngine.
+    discard_matching`, unlike every other `DiscardEffect` mode, all RULE
+    701.8 player choices over a count) — and a new `TargetSpec.
+    exact_mana_value`, the exact-match sibling of `max_mana_value`'s
+    existing ceiling, resolved the same sentinel-string way
+    (`"trigger_spell_mana_value"`) as `max_mana_value`'s own
+    `"trigger_damage_amount"`/`"source_power"` sentinels, wired through
+    `GainControlUntilEndOfTurnEffect` (Skyfire Kirin's "gain control of
+    target creature with that spell's mana value"). Required updating
+    *two* separate legality code paths — the ENG-34 S0b structured
+    `TARGET_FRAMES` dispatch (`_legal_from_frame`) *and* the older
+    hand-written `kind in ("creature", "permanent", …)` branch bare
+    "creature"/"permanent" kinds still use — caught by the execute test,
+    not the parse-level one.
+  - "counter target spirit or arcane spell" (Hisoka's Defiance) needed
+    `TargetSpec.spell_filter["subtype_any"]`: `resolve_spell_filter`'s
+    existing `card_types` key is a fixed main-type lookup
+    (`_spell_matches_filter`'s `type_checks` dict), not a substring match,
+    so it can't express a creature subtype or "Arcane". Added a parallel
+    `_SPELL_SUBTYPE_LIST` grammar and a `subtype_any` filter key checked by
+    substring against the spell's type line (mirroring `card_query`'s own
+    `type` reading), threaded through `CounterSpellEffect`.
+  - "You may sacrifice/exile ~. If you do, `<effect>`." —
+    `_SACRIFICE_THEN_WHEN_YOU_DO_RE`'s collapse (a bare self-sacrifice is
+    unconditional once chosen, so RULE 603.3's "when you do" can never fail
+    and the two clauses reduce to one plain sequence) only matched the
+    "When you do," connector; by the time this clause is parsed the outer
+    "you may" has *already* been peeled off the whole triggered ability
+    (`optional=True` on the `AbilitySpec`), so "If you do," collapses
+    exactly the same way — widened the connector to accept both
+    (Dreamcatcher). The exile-zone sibling
+    (`_EXILE_SELF_THEN_DELAYED_RETURN_RE`) is new: `ExileEffect(remember=
+    True)` links the exiled object onto `GameObject.linked_exile_id`, and a
+    RULE 603.7 `create_delayed_trigger` (`step="end"`, `scope="any"` — "the
+    next end step" isn't controller-scoped) fires `ReturnLinkedExileEffect`
+    at that step (Hikari, Twilight Guardian).
+  - The 200+-card "you may `<action>`. When/if you do, `<effect>`." family
+    with a genuinely *fallible* antecedent (needing its own interactive
+    `pending_choice`, `_PAY_COST_THEN_GENERAL_RE`/`PayCostThenEffect`)
+    remains deliberately out of scope, same as before this ticket — neither
+    Dreamcatcher nor Hikari needed it, since a bare self-sacrifice/self-exile
+    can never fail once the ability's own outer "you may" is accepted.
+- **Bug fixed (found by execute-testing the exile-then-delayed-return
+  shape, not by any parse-level check):** `ExileEffect.apply`'s self mode
+  (`target_kind=None` — "Exile ~.") silently ignored its own `remember`/
+  `track_exiled_with` flags; only the RULE 115 targeted branch stamped
+  `linked_exile_id`. No card had ever combined a self-target exile with
+  `remember=True` before Hikari, so the gap was latent. Fixed by stamping
+  both flags in the self-mode branch too, matching the targeted branch's
+  own behaviour.
+- **Verification:** `+70, 0 regressed` (`parser_probe.py diff`); all 15
+  SOLO cards from the ticket individually confirmed `MODELED`
+  (`parser_probe.py card`); full `pytest -q` stays green.
+  `tests/test_par74_spirit_arcane_family.py` — parse-level assertions for
+  every widened/new handler plus execute tests for the six genuinely new
+  primitives (self-animate/target-animate, `exile_hand_card`, the two
+  `mana_value_from_trigger_event` mass-effect filters, `exact_mana_value`
+  targeting, `subtype_any` countering, and the sacrifice/exile "if you do"
+  collapse).
+- **Files:** `parser/oracle/segmenter.py` (`self_subject=True` on the typed
+  cast-trigger dispatch; `_SACRIFICE_THEN_WHEN_YOU_DO_RE`/new
+  `_EXILE_SELF_THEN_DELAYED_RETURN_RE`), `parser/oracle/catalogue/
+  handlers.py` (`_grantable_flag_slug`; `_GROUP`; new `_ANIMATE_SELF_RE`/
+  `_ANIMATE_TARGET_RE`; `tap_or_untap`; new `exile_hand_card` row;
+  `_SEARCH_CRITERIA`'s `aura` group; new `_REVEAL_TOP_ALL_FILTER_RE`;
+  `_MASS_DESTROY_FILTER`'s `trigger_mv` group; new
+  `reveal_hand_discard_matching_mv` row; `_GAIN_CONTROL_EOT_RE`'s
+  `trigger_mv` group; `_counter`'s `subtype_any` passthrough),
+  `parser/oracle/catalogue/subgrammars.py` (`_SPELL_SUBTYPE_LIST`/
+  `resolve_spell_filter`'s `subtype_any`), `game/targeting.py`
+  (`TargetSpec.exact_mana_value`, both legality code paths),
+  `game/effects/{damage_draw,exile_control,stack,registry,core}.py`
+  (`ExileHandCardEffect`; `DiscardEffect.filter`; `GainControlUntilEndOfTurnEffect.exact_mana_value`;
+  `CounterSpellEffect.subtype_any`; `ExileEffect`'s self-mode `remember` fix),
+  `game/rules/draw_discard_mixin.py` (`exile_hand_choice`/`discard_matching`).
+
 ### PAR-70: Rebel/Mercenary Recruiter Tutor Chain (Mercadian Masques, PARSER_VERSION 383)
 
 - **What:** Recognized `"<cost>: search your library for a rebel/mercenary

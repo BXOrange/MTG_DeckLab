@@ -1081,10 +1081,19 @@ class DiscardEffect(GameEffect):
         count_max: Optional[int] = None,
         then_draw_discarded: bool = False,
         count_from_trigger_event: Optional[str] = None,
+        filter: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.count = count
         self.player = player
+        #: "…discards all cards with that spell's mana value." (PAR-74,
+        #: Infernal Kirin) — RULE 601.2c's non-interactive "all `<filter>`"
+        #: mass discard, unlike every other mode above (all RULE 701.8
+        #: player choices over a *count*). Only ``mana_value_from_trigger_
+        #: event`` is recognized so far (`DestroyEffect.filter`'s identical
+        #: key, same PAR-71 "that spell's mana value" referent) — a closed,
+        #: fail-closed vocabulary the same way `DestroyEffect.filter` is.
+        self.filter = dict(filter) if filter else None
         #: "Discard **up to** N cards[, then draw that many]." (Cathartic
         #: Pyre mode 2, Kinetic Augur, Daretti +2 — ENG-37 B7 retired the
         #: fused `discard_up_to_then_draw_that_many` type here.) ``count_max``
@@ -1143,6 +1152,11 @@ class DiscardEffect(GameEffect):
         return [{"type": "draw", "params": {"count": self.count}}]
 
     def _discard_from(self, context: GameContext, player: Any) -> None:
+        if self.filter is not None:
+            if self.filter.get("mana_value_from_trigger_event"):
+                mv = (context.trigger_event or {}).get("mana_value")
+                context.discard_matching(player, mana_value=mv)
+            return
         count = self.count
         if self.count_from_trigger_event:
             count = int((context.trigger_event or {}).get(self.count_from_trigger_event) or 0)
@@ -1214,6 +1228,50 @@ class DiscardEffect(GameEffect):
         if player is None:
             player = _controller_of(self.source, context)
         self._discard_from(context, player)
+
+
+class ExileHandCardEffect(GameEffect):
+    """Make a player exile ``count`` cards from their own hand (PAR-74 —
+    Kyoki, Sanity's Eclipse: "target opponent exiles a card from their
+    hand."). The exile-zone sibling of `DiscardEffect` above, trimmed to the
+    one shape a real card has needed so far: a RULE 115 ``target_kind=
+    "player"`` pick (mirroring `DiscardEffect`'s own), resolved through
+    `GameContext.exile_hand_choice` — RULE 701.5a's interactive "that player
+    chooses" (not this effect's controller), same `_request_choose_objects`
+    chooser `discard_choice` uses, just with its ``"exile"`` action instead
+    of ``"discard"``.
+    """
+
+    def __init__(
+        self,
+        count: int = 1,
+        source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = None,
+        previous_subject: bool = False,
+    ) -> None:
+        super().__init__(source)
+        self.count = count
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+        #: "**That player** exiles a card from their hand." — the `Player`
+        #: an earlier clause of this resolution RULE 115-targeted, the same
+        #: `DiscardEffect.previous_subject` idiom.
+        self.previous_subject = bool(previous_subject)
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = None
+        if self.previous_subject:
+            prev = list(context.previous_targets)
+            player = prev[0] if prev else None
+        if player is None and self.target_spec is not None and targets:
+            player = targets[0]
+        if player is None:
+            player = _controller_of(self.source, context)
+        if player is None or self.count <= 0:
+            return
+        context.exile_hand_choice(player, self.count, source=self.source)
 
 
 class DiscardCardsDiscardedDeltaDrawEffect(GameEffect):
@@ -1622,6 +1680,15 @@ def _mass_selector_objects(
         min_mv = filt.get("min_mana_value")
         if min_mv is not None:
             result = [o for o in result if o.card.converted_mana_cost >= min_mv]
+        # "destroy all permanents with that spell's mana value." (PAR-74,
+        # Celestial Kirin) — the exact-match sibling of ``max_mana_value``/
+        # ``min_mana_value`` above, reading the firing SPELL_CAST event's
+        # own ``mana_value`` field (PAR-71's established "that spell's mana
+        # value" referent, `amount_from_trigger_event="mana_value"`'s
+        # magnitude idiom applied to a mass-wipe filter instead).
+        if filt.get("mana_value_from_trigger_event"):
+            mv = (context.trigger_event or {}).get("mana_value")
+            result = [o for o in result if mv is not None and o.card.converted_mana_cost == mv]
         # "destroy all creatures with power 3 or greater" (Dusk // Dawn/The
         # Battle of Bywater-shaped) — the power-threshold sibling of
         # ``min_toughness`` above.
