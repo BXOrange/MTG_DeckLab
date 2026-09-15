@@ -492,6 +492,27 @@ _CAST_SPELL_TRIGGER_NEG_RE = re.compile(
     re.IGNORECASE | re.S,
 )
 
+#: PAR-75: "Whenever you cast a Doctor spell or creature spell with
+#: doctor's companion, `<effect>`." (Rose Noble) — an OR of two structurally
+#: different cast-trigger filters (a creature-subtype match vs. a card-type
+#: + printed-keyword match), which neither `_CAST_SPELL_TRIGGER_RE`'s single
+#: ``types`` slot nor any AND-combined `trigger` dict can express as one
+#: condition. Rather than build a general trigger-condition OR combinator
+#: for a shape no other cached card uses, this emits *two* independent
+#: triggered abilities sharing the same effects (`Segment.extra_specs`, the
+#: same "one clause, several `AbilitySpec`s" idiom modal/EAP casting uses) —
+#: safe because a real Doctor card and a real companion card are never the
+#: same physical card (RULE 702.124m's two Time Lord partner halves), so
+#: the two conditions can never both fire off one cast and double the
+#: payoff. "Doctor" is a creature type (every printed Doctor card is a
+#: Legendary Creature), read the same way `_CAST_SPELL_SUBTYPE_WORDS` reads
+#: any other subtype cast filter.
+_DOCTOR_OR_COMPANION_CREATURE_CAST_TRIGGER_RE = re.compile(
+    r"^whenever you casts? a doctor spell or creature spell with "
+    r"doctor'?s companion,\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+
 #: The *untyped* sibling of `_CAST_SPELL_TRIGGER_RE` — "Whenever you/an
 #: opponent/a player casts a spell, <effect>." with no card-type filter at
 #: all (Spellshock/Eidolon of the Great Revel-shaped punishers). Doesn't
@@ -4653,6 +4674,39 @@ def segment_line(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+
+    doctor_or_companion_trig = _DOCTOR_OR_COMPANION_CREATURE_CAST_TRIGGER_RE.match(raw)
+    if doctor_or_companion_trig is not None:
+        body, optional = _peel_optional(doctor_or_companion_trig.group("body"))
+        effects = parse_effect_body(body, self_subject=True)
+        if effects is None:
+            return Segment(raw=raw)
+        doctor_spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={
+                "event": "SPELL_CAST",
+                "condition": {"subject": "you"},
+                "spell_subtype_any": ["doctor"],
+            },
+            optional=optional,
+            raw_text=raw,
+            parser=provenance,
+        )
+        companion_spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={
+                "event": "SPELL_CAST",
+                "condition": {"subject": "you"},
+                "spell_card_types": ["creature"],
+                "spell_has_keyword": "Doctor's Companion",
+            },
+            optional=optional,
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=doctor_spec, extra_specs=[companion_spec], claimed=True)
 
     # PAR-74: a bare "~" in the body is this ability's own source, the same
     # unambiguous reading `_CAST_SPELL_TRIGGER_PLAIN_RE`'s dispatch already

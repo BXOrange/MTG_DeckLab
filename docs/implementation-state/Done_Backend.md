@@ -5996,6 +5996,64 @@ measurement of why is the useful half of this work.
 
 ## Oracle-Text Parser Front-End
 
+### PAR-75: "Doctor's Companion" Referenced as a Card-Quality Filter (PARSER_VERSION 389)
+
+- **What:** RULE 702.124m's "Doctor's companion" keyword (Doctor Who,
+  PAR-69) is a deck-construction-only FLAG, inert in-game — PAR-69 already
+  let a card whose *own* ability line is just the keyword reach `MODELED`.
+  This closes the two real cards that reference it as a *quality of some
+  other card* instead:
+  - **An Unearthly Child** (a Saga chapter): "Reveal cards from the top of
+    your library until you reveal a Doctor card, a card with doctor's
+    companion, or a Vehicle card. Put that card into your hand and the rest
+    on the bottom of your library in a random order." — a three-way OR
+    predicate over the already-shipped `dig_until`/`RulesEngine.dig_until`
+    primitive's `criteria`. `models/cards/card_query.py` already had an
+    `"or"` key composing independent criteria dicts; the only new piece is
+    a `has_keyword` criterion (case-insensitive membership in
+    `Card.keywords`) — deliberately generic (not a `doctors_companion`
+    bool), reusable for any future "a card **with** `<keyword>`" search.
+    `_DIG_UNTIL_DOCTOR_COMPANION_VEHICLE_RE` is a fixed singleton row
+    (`handlers.py`) rather than a new compositional OR grammar spliced into
+    `_DIG_UNTIL_PRED` — no other cached card shares this exact three-way
+    shape.
+  - **Rose Noble**: "Whenever you cast a Doctor spell or creature spell
+    with doctor's companion, draw a card." — an OR of two *structurally
+    different* cast-trigger filters: a creature-subtype match ("Doctor" —
+    every printed Doctor card is a Legendary Creature, read the same way
+    `_CAST_SPELL_SUBTYPE_WORDS` reads any other subtype filter) vs. a card
+    type + printed-keyword match. `binding/core.py`'s trigger-condition
+    builder AND-combines every predicate in its list, with no OR combinator
+    — building a general one for a shape no other cached card uses would be
+    disproportionate to two cards. Instead this emits **two** independent
+    triggered `AbilitySpec`s sharing the same effects
+    (`segmenter.Segment.extra_specs` — the same "one clause, several
+    abilities" idiom modal/Adventure casting already uses), gated by a new
+    `spell_has_keyword` trigger-condition key (`binding/core.py`, mirroring
+    `spell_subtype_any`'s exact shape but checking the cast object's
+    `Card.keywords` instead of its type line). Safe because a real Doctor
+    card and a real companion card are never the same physical printed card
+    (RULE 702.124m's two Time Lord partner halves are always separate
+    cards) — the two conditions can never both fire off one cast, so
+    splitting into two abilities can't double the draw.
+- **Verification:** `+2, 0 regressed` (`parser_probe.py diff`); both real
+  cards individually confirmed `MODELED`. `tests/
+  test_par75_doctors_companion_family.py` — parse-level assertions for both
+  new shapes, a `card_query.has_keyword` unit test, an execute test
+  confirming `dig_until` picks the companion card over unrelated filler,
+  and three execute tests proving Rose Noble draws exactly once for a
+  Doctor-subtype spell, exactly once for a companion-keyword spell, and not
+  at all for an unrelated creature spell (never both triggers at once).
+  Also updated `tests/test_par69_doctors_companion.py`'s own test that had
+  pinned this exact gap as a documented `UNMODELED` limitation — flipped to
+  assert `MODELED` now that PAR-75 closes it.
+- **Files:** `parser/oracle/segmenter.py`
+  (`_DOCTOR_OR_COMPANION_CREATURE_CAST_TRIGGER_RE` + dispatch),
+  `parser/oracle/catalogue/handlers.py`
+  (`_DIG_UNTIL_DOCTOR_COMPANION_VEHICLE_RE`/`_dig_until_doctor_companion_vehicle`),
+  `models/cards/card_query.py` (`has_keyword`), `game/binding/core.py`
+  (`spell_has_keyword`).
+
 ### PAR-74: "Spirit or Arcane spell" cast-trigger filter (Kamigawa, PARSER_VERSION 388)
 
 - **What:** The ticket's own diagnosis was stale by the time it was worked:

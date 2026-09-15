@@ -88,16 +88,10 @@ its block back into the matching section here.
 Traced card-by-card with `commander_tail_report.py --min-cluster 5` +
 `parser_probe.py blocked`/`card` rather than taken at the report's own
 loose keyword-match counts (same discipline PAR-69…72 used). Each of these
-three is a *generic* residual gap that happens to co-occur with a
+two is a *generic* residual gap that happens to co-occur with a
 set-specific keyword whose own ticket already closed — not the named
 mechanic itself reopening.
 
-- **PAR-75 · Doctor's companion referenced by another card.** The FLAG
-  keyword itself shipped in PAR-69. These two need it recognized (a) as a
-  library-search filter ("a card with doctor's companion") and (b) as a
-  cast-trigger filter ("creature spell with doctor's companion"). Confirmed
-  via `parser_probe.py blocked "doctor's companion"` (2026-09-15): 2 SOLO,
-  0 also-blocked. An Unearthly Child, Rose Noble.
 - **PAR-76 · "Full party" as a conditional-magnitude override.** Party
   (RULE 700.8/702.129) shipped in PAR-72. Generalize the already-shipped
   `amount_if_kicked`/`amount_if_teamwork` conditional-override family to a

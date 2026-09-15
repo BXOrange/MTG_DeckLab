@@ -506,8 +506,29 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 44.88% (15,624 / 34,811) as of 2026-09-15, measured at
-PARSER_VERSION 388** (closes PAR-74 — the "Spirit or Arcane spell" cast-
+**Coverage: 44.89% (15,626 / 34,811) as of 2026-09-15, measured at
+PARSER_VERSION 389** (closes PAR-75 — "Doctor's companion" (RULE 702.124m)
+referenced by another card as a card-quality filter, not just printed on
+itself (which PAR-69 already handled). Two cards: An Unearthly Child's Saga
+chapter ("reveal cards from the top of your library until you reveal a
+Doctor card, a card with doctor's companion, or a Vehicle card…") is a
+three-way OR predicate over `dig_until`'s `criteria`, composed via
+`card_query`'s existing `"or"` key plus a new, generically-reusable
+`has_keyword` criterion (`Card.keywords` membership). Rose Noble's cast
+trigger ("whenever you cast a Doctor spell or creature spell with doctor's
+companion, draw a card.") is an OR of two *structurally different*
+cast-trigger filters (a subtype match vs. a type + keyword match) no single
+AND-combined `trigger` dict can express — modeled as two independent
+triggered abilities sharing the same effects (`Segment.extra_specs`), safe
+because a real Doctor card and a real companion card are never the same
+physical card, so the two conditions can never both fire off one cast. New
+`trigger` key `spell_has_keyword` (`game/binding/core.py`), mirroring
+`spell_subtype_any`'s shape but checking the cast object's printed
+keywords instead of its type line. +2, zero regressed (`pytest -q`); also
+updated a PAR-69 test that had pinned this exact gap as a documented
+UNMODELED limitation. See `docs/implementation-state/Done_Backend.md`'s
+"Oracle-Text Parser Front-End" PAR-75 entry.)
+v388 closes PAR-74 — the "Spirit or Arcane spell" cast-
 trigger filter, Kamigawa. The ticket's own diagnosis was stale: that OR-of-
 two-subtypes filter already worked (PAR-52+58); what actually blocked all
 15 SOLO cards was a distinct, previously-unclaimed *effect body* per card.
@@ -786,7 +807,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 47.13% (15,003 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 47.14% (15,005 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

@@ -1611,6 +1611,27 @@ def _trigger_condition(
 
         predicates.append(_subtype_ok)
 
+    # "…creature spell with doctor's companion…" (PAR-75, Rose Noble) — a
+    # printed-keyword filter on the cast object, unlike `spell_subtype_any`'s
+    # type-line substring check. Doctor's companion (RULE 702.124m) is
+    # otherwise inert in-game (deck-construction only), so this is its one
+    # runtime reading: gating a cast trigger.
+    has_keyword = trigger.get("spell_has_keyword")
+    if has_keyword:
+        wanted_kw = str(has_keyword).lower()
+
+        def _has_keyword_ok(event: Any, context: Any, kw=wanted_kw) -> bool:
+            state = getattr(context, "state", None)
+            instance_id = event.get("instance_id")
+            if state is None or instance_id is None:
+                return False
+            obj = state.find_object(instance_id)
+            if obj is None:
+                return False
+            return any(str(k).lower() == kw for k in (obj.card.keywords or ()))
+
+        predicates.append(_has_keyword_ok)
+
     # "… if it's not that player's turn, …" (Price of Glory) — the player the
     # event is about (its ``controller_id``, the one who tapped the land) must
     # not be the active player. A RULE 603.4 intervening-if scoped to the

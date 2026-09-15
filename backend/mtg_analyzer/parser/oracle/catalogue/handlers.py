@@ -9715,6 +9715,35 @@ _REVEAL_UNTIL_TYPE_RE = _c(
 )
 
 
+#: PAR-75: "Reveal cards from the top of your library until you reveal a
+#: Doctor card, a card with doctor's companion, or a Vehicle card. Put that
+#: card into your hand and the rest on the bottom of your library in a
+#: random order." (An Unearthly Child) — a three-way OR predicate
+#: `_DIG_UNTIL_PRED`'s single-bare-type grammar can't express (one of its
+#: three arms is a printed-keyword check, not a card type/subtype at all).
+#: `card_query.matches`'s existing `"or"` key composes the three arms
+#: directly, so this is a fixed singleton row rather than a new compositional
+#: OR grammar — no other cached card shares this exact three-way shape.
+_DIG_UNTIL_DOCTOR_COMPANION_VEHICLE_RE = _c(
+    r"reveal cards from the top of your library until you reveal a doctor card, "
+    r"a card with doctor'?s companion, or a vehicle card\. "
+    r"put that card into your hand and the rest on the bottom of your library "
+    r"in a random order"
+)
+
+
+def _dig_until_doctor_companion_vehicle(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("dig_until", {
+        "criteria": {"or": [
+            {"type": "Doctor"},
+            {"has_keyword": "Doctor's Companion"},
+            {"type": "Vehicle"},
+        ]},
+        "hit_destination": "hand",
+        "rest_destination": "library_bottom_random",
+    })]
+
+
 def _reveal_until_type(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     tail = m.group("rest")
     # "put that card onto the battlefield **tapped**" (Clifftop Lookout) —
@@ -13042,6 +13071,11 @@ HANDLERS: list[EffectHandler] = [
     # rest <bottom / graveyard / shuffle>." (Recross the Paths, Clifftop
     # Lookout, Atla Palani, … — `RulesEngine.dig_until`).
     EffectHandler("reveal_until_type", _REVEAL_UNTIL_TYPE_RE, _reveal_until_type),
+    EffectHandler(
+        "dig_until_doctor_companion_vehicle",
+        _DIG_UNTIL_DOCTOR_COMPANION_VEHICLE_RE,
+        _dig_until_doctor_companion_vehicle,
+    ),
     # PAR-30: "[Then] sacrifice/exile <it/that creature/that token/them/
     # those tokens> at the beginning of [the/your] next end step." — the
     # RULE 603.7 delayed-trigger tail on every "create a token …, exile it"

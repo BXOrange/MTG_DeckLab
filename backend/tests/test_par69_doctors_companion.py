@@ -11,9 +11,11 @@ ability is this reach `MODELED` instead of parking forever.
 
 Scoped to the keyword clause only, per the ticket: several Doctor's-
 companion cards (e.g. Rose Noble's "whenever you cast a Doctor spell or
-creature spell with doctor's companion, draw a card.") also carry a
-separate, unrelated bespoke ability body that this clause alone doesn't
-unlock — those stay UNMODELED and are out of scope here.
+creature spell with doctor's companion, draw a card.") also carried a
+separate, unrelated bespoke ability body that this clause alone didn't
+unlock — that gap (referencing the keyword as a card-quality filter, both
+in a cast-trigger condition and a library-search criterion) closed under
+PAR-75; see `test_par75_doctors_companion_family.py`.
 
 Reference: mtg_analyzer/parser/oracle/catalogue/keywords.py (`_TABLE`).
 """
@@ -52,11 +54,10 @@ def test_doctors_companion_combines_with_another_flag_keyword():
     assert result.modeled, result.unclaimed
 
 
-def test_a_trigger_referencing_doctors_companion_as_a_filter_stays_unmodeled():
-    # Rose Noble-shaped residue: the bare keyword line is claimed, but the
+def test_a_trigger_referencing_doctors_companion_as_a_filter_is_modeled():
+    # Rose Noble: the bare keyword line was already claimed by PAR-69; the
     # separate trigger clause quoting "doctor's companion" as a card-quality
-    # filter is a different, unclaimed shape — deliberately out of PAR-69's
-    # scope (fail-closed, not a guess).
+    # filter closed under PAR-75 (`test_par75_doctors_companion_family.py`).
     card = Card(
         id="Test Rose Noble", name="Test Rose Noble",
         type_line="Legendary Creature — Human", is_creature=True, power=2, toughness=2,
@@ -67,5 +68,4 @@ def test_a_trigger_referencing_doctors_companion_as_a_filter_stays_unmodeled():
         ),
     )
     result = parse_oracle(card)
-    assert not result.modeled
-    assert any("doctor's companion" in clause and "whenever" in clause for clause in result.unclaimed)
+    assert result.modeled

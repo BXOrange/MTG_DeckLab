@@ -55,6 +55,13 @@ A criteria value is one of:
                       mana ability **or** a basic land card" — each
                       alternative is itself a complete criteria dict, not
                       merged with the outer one).
+  ``has_keyword``     str  — a printed keyword ability's exact display name
+                      (case-insensitive), checked against `Card.keywords`
+                      ("a card **with doctor's companion**" — An Unearthly
+                      Child). Unlike ``has_mana_ability``'s oracle-text
+                      heuristic, this reads the clean Scryfall-sourced list
+                      directly — safe for any keyword, not just the one this
+                      module happened to need first.
 """
 
 from __future__ import annotations
@@ -73,7 +80,7 @@ _ALLOWED_KEYS: frozenset[str] = frozenset(
         "type", "basic", "max_mana_value", "min_mana_value",
         "max_power", "min_power", "max_toughness", "min_toughness",
         "name", "not_name", "color", "without_type", "has_mana_ability", "or",
-        "nonlegendary",
+        "nonlegendary", "has_keyword",
     }
 )
 
@@ -141,6 +148,11 @@ def matches(card: Card, criteria: Criteria) -> bool:
     if not _color_matches(card, crit.get("color")):
         return False
     if crit.get("has_mana_ability") and not _has_mana_ability(card):
+        return False
+    has_keyword = crit.get("has_keyword")
+    if has_keyword and not any(
+        str(k).lower() == str(has_keyword).lower() for k in (card.keywords or [])
+    ):
         return False
     alternatives = crit.get("or")
     if alternatives is not None and not any(matches(card, alt) for alt in alternatives):
