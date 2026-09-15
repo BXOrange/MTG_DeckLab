@@ -1259,6 +1259,11 @@ _FILTER_KEYWORD_WORDS: dict[str, str] = {
     "first strike": "first_strike",
     "menace": "menace",
     "horsemanship": "horsemanship",
+    # PAR-79: "…except by creatures with haste" (Agility Bobblehead,
+    # Gingerbrute, Resilient Roadrunner, Run for Your Life, Speed, Young
+    # Avenger) — a real, recurring RULE 509.1b blocker qualifier this
+    # closed vocabulary had simply never needed before.
+    "haste": "haste",
 }
 _FILTER_KEYWORDS_RE = re.compile(
     r"creatures with (?P<kws>[a-z ]+?(?: or [a-z ]+?)*)$", re.I
@@ -1320,17 +1325,25 @@ def object_filter(text: str) -> Optional[dict]:
         return {"keyword": keywords[0]} if len(keywords) == 1 else {"keyword_any": keywords}
     if " or " in text and " with " not in text:
         # "another Wolf or Werewolf" (Howlpack Wolf) — an OR over subtypes,
-        # which `_scope` below can't express (it returns one subtype). Every
-        # alternative must itself be a recognisable single-word subtype, or
-        # the whole phrase fails closed.
-        parts = [p.strip() for p in text.split(" or ")]
+        # which `_scope` below can't express (it returns one subtype).
+        # Splits on a bare " or " *or* an Oxford-comma list ("goblin, orc,
+        # or pirate" — Corsairs of Umbar-shaped, PAR-78/79's own N-way
+        # widening, folded into this shared function rather than kept as
+        # each caller's own copy): `,\s*(?:or\s+)?` eats a comma plus an
+        # optional trailing "or ", so a 3+-item list's final "or" doesn't
+        # get left dangling on the last part. Every alternative must itself
+        # be a recognisable single-word subtype, or the whole phrase fails
+        # closed.
+        parts = [
+            p.strip() for p in re.split(r",\s*(?:or\s+)?|\s+or\s+", text) if p.strip()
+        ]
         subtypes = []
         for part in parts:
             sub = _scope(part)
             if sub is None or not sub.subtype or " " in sub.subtype:
                 return None
             subtypes.append(sub.subtype)
-        return {"subtype_any": subtypes}
+        return {"subtype_any": subtypes} if len(subtypes) > 1 else {"subtype": subtypes[0]}
     # "black creatures" / "artifact creatures" / "Walls" — reuse the anthem
     # family's own scope parser so the subtype/colour vocabulary can't drift
     # between "black creatures get +1/+1" and "can't be blocked by black
@@ -1339,7 +1352,15 @@ def object_filter(text: str) -> Optional[dict]:
         head = text.rsplit(" ", 1)[0]
         if head in _CARD_TYPE_WORDS:
             return {"card_type": head}
-    scope = _scope(text)
+    # `_scope` itself only recognises the plural "<subtype> creatures" (the
+    # only form a real anthem/grant ever prints); a RULE 115 target's own
+    # singular "target <subtype> creature" (Merfolk Sovereign) is the exact
+    # same concept, just grammatically singular — pluralize once here
+    # rather than teaching `_scope` a form its other callers never need.
+    if text.endswith(" creature"):
+        scope = _scope(text + "s")
+    else:
+        scope = _scope(text)
     if scope is None:
         return None
     filt: dict = {}
@@ -2570,7 +2591,19 @@ def _scope(body: str) -> Optional[_Scope]:
             return None
     else:
         return None  # multi-word non-"creatures" scope — don't guess
-    if not sub or sub in _NONCREATURE_TYPES:
+    # A real creature subtype is never a P/T pattern — "a **1/1** creature"
+    # (Lovestruck Beast's own "unless you control a 1/1 creature") must
+    # never be guessed as a subtype named "1/1" (`combat.matches_object_
+    # filter`'s substring `subtype` check would then just never match any
+    # real card, silently making the restriction impossible to satisfy —
+    # found via `object_filter`'s own singular-"creature" widening,
+    # PAR-79, reaching this path for the first time on real card text). A
+    # digit is the tell (no real subtype prints one); an outright
+    # `.isalpha()` check is too strict — it would also reject a
+    # legitimate multi-word `sub` this function's own callers (`object_
+    # filter`'s "a multi-word 'subtype' is `_scope` guessing" check, e.g.)
+    # still validate for themselves afterward.
+    if not sub or sub in _NONCREATURE_TYPES or any(c.isdigit() for c in sub):
         return None
     return _Scope(sub.capitalize(), tokens, colors, attacking=attacking)
 

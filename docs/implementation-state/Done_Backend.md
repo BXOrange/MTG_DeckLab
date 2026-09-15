@@ -2291,37 +2291,112 @@ is in the rules-engine categories below them.
       Its Oxford-comma split needed `,\s*(?:or\s+)?|\s+or\s+` rather than
       the more obvious `,\s*|\s+or\s+` — the naive version leaves "or
       pirate" as one unsplit, unrecognized word, silently failing closed.
-  - **Still open, confirmed via `parser_probe.py blocked` at
-    PARSER_VERSION 394 (77 SOLO)** — each its own real chunk of work, none
-    attempted yet:
-    - a delayed-trigger "…at the beginning of the next end step, return
-      that creature to its owner's hand[, `<tail>`]" compound — the
-      six-card Alora cycle (Alora, Cheerful Assassin/Mastermind/Scout/
-      Swashbuckler/Thief; Alora, Rogue Companion), each with its own
-      distinct conditional tail.
-    - an activation-cost-reduction/frequency rider on the very ability
-      that grants unblockable (A-Sewer Crocodile's "this ability costs
-      `<cost>` less to activate if…"; Basim Ibn Ishaq's "this ability
-      triggers only once each turn").
-    - a qualified "…except by creatures with `<keyword>`" evasion form
-      (Agility Bobblehead, Departed Deckhand) — likely the existing
-      qualified-can't-be-blocked-by-filter family
-      (`handlers.py`'s "~ can't be blocked by creatures with power 2 or
-      less this turn" shape) rather than plain `unblockable`; unverified.
-    - at least one card (Brotherhood Spy, and likely Cunning Survivor/
-      Devourer of Memory, all already-working `_pump_unblockable` effect
-      bodies) whose real blocker is an unrelated conditional phase-trigger
-      gap ("at the beginning of combat on your turn, **if you control a
-      legendary Assassin**, …") that only incidentally shares this search
-      phrase — a reminder that "SOLO blocker on this regex" names the
-      unclaimed *clause*, not necessarily the right *layer* to fix; this
-      family's real gap is a conditional trigger, not `unblockable`.
-- **Verification:** `tests/test_par79_unblockable_family.py` (16 tests,
-  all passing) — parse-level coverage of both increments' shapes including
-  two adversarial cases (an unrecognized subtype word, a plain keyword
-  grant with no unblockable tail must not be stolen), execute-level tests
-  for each new `unblockable` `creature_filter` shape, and an end-to-end
-  `parse_oracle` check against real card text for both increments.
+  - **Third increment** (PARSER_VERSION 401, +15 over the second
+    increment's baseline, zero regressed) — the qualified "except by"
+    family and several bare-target widenings that had each individually
+    fallen behind a sibling handler. Built as **atomic, shared parts**
+    rather than one more row per phrase variant (a real mid-batch
+    correction — the first cut of the subtype widening below was a
+    closed, ever-growing word list keyed to this one search phrase;
+    replaced with a fix to the *shared* function instead, which is why
+    two cards outside this ticket's own search phrase (Turtle Lair,
+    a Ninja-or-Turtle unblockable; a `parser_probe.py diff` bonus)
+    picked up coverage from the same change):
+    - `combat.blocker_allowed`'s existing `"only_blocked_by"` restriction
+      arm (RULE 509.1b's *permitted*-set form, already shipped for the
+      standing static, `static_handlers.py`'s "~ can only be blocked by
+      `<filter>`" row) had no resolve-time "this turn" parser route at
+      all — `_CANT_BE_BLOCKED_TURN_RE` gained an optional "except by
+      `<filter>`" tail (Departed Deckhand/Gingerbrute/Joven's Tools/
+      Resilient Roadrunner/Tin Street Dodger), dispatching to
+      `combat_restriction_this_turn`/`"only_blocked_by"` instead of plain
+      `unblockable` — no new engine primitive, `object_filter`'s existing
+      vocabulary just needed `"haste"` added to `_FILTER_KEYWORD_WORDS`
+      (a real, recurring qualifier this closed keyword list had simply
+      never needed before).
+    - `UnblockableEffect` gained a `selector` param (PAR-79 — "creatures
+      [you control] can't be blocked this turn.", Jace, Arcane
+      Strategist/Keeper of Keys), mirroring `CantBlockEffect`'s own mass
+      RULE 601.2c form exactly, and a `count`/`count_max`/`optional`
+      param generalizing the single target to RULE 115.1a's N>=2 shape
+      (Ghostform's "up to 2 target creatures…") — both new parser rows
+      (`_cant_be_blocked_turn_mass`, `_cant_be_blocked_turn_multi`).
+    - `_pump_unblockable`'s own allowed target-kind set (Teleportal-shaped
+      "target creature you control gets +1/+0 … and can't be blocked this
+      turn") had simply fallen behind its keyword-grant sibling
+      `_pump_keyword_unblockable`, which already allowed the
+      controller-scoped kinds — widened to match.
+    - `_CANT_BE_BLOCKED_TURN_LEGENDARY_RE` dropped its "another " prefix
+      requirement (K-9, Mark I's bare "target legendary creature", vs.
+      Bessie's own "another target legendary creature").
+    - **The subtype-target family was consolidated, not extended.** The
+      second increment had shipped a closed word list
+      (`_CANT_BLOCKED_TARGET_SUBTYPE_WORDS`) plus two near-duplicate
+      regex/handler pairs (bare "target `<subtype>`" vs. "target
+      `<subtype>` creature") — exactly the "lookup table of phrase
+      variants" this project's own convention warns against, caught in
+      review before landing. Replaced with **one** row,
+      `_cant_be_blocked_turn_object_filter`, delegating straight to the
+      *shared* `static_handlers.object_filter` — the same function the
+      "except by" restriction above and the standing-static equivalents
+      already use — after widening `object_filter` itself twice: its
+      existing two-item "A or B" subtype-OR splitter now handles a full
+      Oxford-comma N-way list (`,\s*(?:or\s+)?|\s+or\s+`, the same
+      split regex PAR-78/79 kept re-deriving per caller — now genuinely
+      shared), and it now recognizes the RULE 115 target's own singular
+      "`<subtype>` **creature**" noun phrase (`_scope` itself only ever
+      needed the plural "creatures" form for its anthem/grant callers, so
+      `object_filter` pluralizes once at its own boundary rather than
+      teaching `_scope` a form none of its other callers print). Both
+      widenings pay off for every existing `object_filter` caller, not
+      just this search phrase.
+    - **A real, if narrow, bug found and fixed along the way**: the
+      singular-"creature" widening reached `_scope`'s bare-word subtype
+      fallback for real text it had never seen before — Lovestruck
+      Beast's own "unless you control **a 1/1 creature**" — and `_scope`
+      guessed a subtype literally named `"1/1"` (no digit guard existed;
+      no real anthem ever prints a numeric "subtype" so nothing had
+      exercised this before). That filter can never match any real card
+      (`matches_object_filter`'s `subtype` check is a substring match
+      against the printed type line), which would have silently made the
+      restriction permanently unsatisfiable instead of correctly staying
+      `UNMODELED` — caught by `parser_probe.py diff`'s own REGRESSED
+      section (a stray `+15/-9` before the fix), not by a parse-level
+      test. Fixed at the source: `_scope` now fails closed on any
+      candidate subtype containing a digit.
+  - **Real residue remains — 63 SOLO cards confirmed at PARSER_VERSION
+    400** — see `BACKLOG.md`'s PAR-79 entry for the full, categorized
+    breakdown (the six-card Alora cycle's delayed-return compound; an
+    activation-cost-reduction/frequency rider; two *further* unrelated
+    gaps found on Sewer Crocodile/Basim Ibn Ishaq specifically — a
+    conditional flat cost-discount shape `ActivationCost.dynamic_
+    reduction` doesn't cover, and "historic spell" missing from the
+    `SPELL_CAST` trigger's `spell_card_types` vocabulary even though the
+    word already has recognition elsewhere for an unrelated shape; a
+    family of "you may `<effect>`. if you do, `<payoff>`" triggers whose
+    antecedent is itself a resolving effect rather than a cost payment
+    (`_PAY_COST_THEN_GENERAL_RE`'s own `_MAY_COST_THEN_CLAUSE` is
+    cost-shaped only); a type-change-plus-unblockable compound whose base
+    "becomes a N/M creature until end of turn" form doesn't parse standalone
+    even without the unblockable tail; and Brotherhood Spy/Cunning
+    Survivor/Devourer of Memory's real blocker being conditional-
+    trigger/discard-trigger gaps unrelated to `unblockable` at all). This
+    ticket bundles roughly a hundred independently-shaped small gaps under
+    one search phrase by design (the 2026-09-15 Commander-legal tail
+    sweep's own preamble calls this an *indefinite sweep*, not a batch
+    with an end date) — closing it to zero SOLO is not one sitting's work,
+    and each further increment should keep citing the real, re-verified
+    count rather than a stale one.
+- **Verification:** `tests/test_par79_unblockable_family.py` (27 tests,
+  all passing) — parse-level coverage of all three increments' shapes
+  including several adversarial cases (an unrecognized subtype word, the
+  "1/1 creature" digit-guard regression itself, a plain keyword grant
+  with no unblockable tail must not be stolen), execute-level tests for
+  the "except by" restriction (a real `combat.
+  blocker_allowed` check distinguishing a hasty blocker from a non-hasty
+  one) and the mass form (only the controller's own creatures are
+  affected), and an end-to-end `parse_oracle` check against real card
+  text for all three increments.
 
 
 ### MEC-78 — Graveyard-exit batch triggers (RULE 603.3f)

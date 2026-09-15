@@ -318,6 +318,16 @@ class UnblockableEffect(GameEffect):
 
     ``creature_filter`` (Access Tunnel's "target creature with power 3 or
     less") mirrors `DestroyEffect`'s own qualified-target filter.
+
+    ``selector`` (PAR-79 — "creatures [you control] can't be blocked this
+    turn", Jace/Keeper of Keys/Veiling Oddity) is `CantBlockEffect`'s own
+    mass RULE 601.2c form, mirrored here: a `continuous.group_selector_
+    objects` name switches from the targeted form to the untargeted one.
+
+    ``count``/``count_max``/``optional`` (PAR-79 — "up to 2 target
+    creatures can't be blocked this turn.", Ghostform) generalize the
+    single-target form to RULE 115.1a's N>=2 shape, the same
+    `CantBlockEffect`-shaped ``count``/``optional`` pair.
     """
 
     def __init__(
@@ -326,18 +336,42 @@ class UnblockableEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = "creature",
         creature_filter: Optional[dict[str, Any]] = None,
+        selector: Optional[str] = None,
+        count: int = 1,
+        count_max: Optional[int] = None,
+        optional: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        self.selector = selector
         #: ``target_kind=None`` — "~ can't be blocked this turn" from the
         #: creature's own activated ability (Giant Koi, ENG-32): no RULE 115
         #: target, acts on this effect's own source.
         self.target_spec = (
-            TargetSpec(kind=target_kind, creature_filter=creature_filter)
-            if target_kind is not None else None
+            None if selector else (
+                TargetSpec(
+                    kind=target_kind, creature_filter=creature_filter,
+                    count=count, count_max=count_max, optional=optional,
+                )
+                if target_kind is not None else None
+            )
         )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.selector:
+            from ..continuous import group_selector_objects  # avoid the continuous<->effects cycle
+
+            controller_id = getattr(self.source, "controller_id", None)
+            for obj in group_selector_objects(
+                context.state, controller_id, self.selector, src=self.source
+            ):
+                obj.temp_unblockable = True
+            return
+        if self.target_spec is not None and self.target_spec.effective_count != 1:
+            for obj in (targets or []):
+                if obj is not None:
+                    obj.temp_unblockable = True
+            return
         target = (targets[0] if targets else None) or self.target
         if target is None and self.target_spec is None:
             target = self.source

@@ -2239,6 +2239,10 @@ EffectRegistry.register(
         target=p.get("target"),
         target_kind=p.get("target_kind", "creature") if "target_kind" in p else "creature",
         creature_filter=p.get("creature_filter"),
+        selector=p.get("selector"),
+        count=int(p.get("count", 1) or 1),
+        count_max=p.get("count_max"),
+        optional=bool(p.get("optional", False)),
     ),
 )
 EffectRegistry.register(

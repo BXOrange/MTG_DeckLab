@@ -506,8 +506,36 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 45.17% (15,723 / 34,811) as of 2026-09-15, measured at
-PARSER_VERSION 397** (v397 closes one card of PAR-82's residue — Phenax,
+**Coverage: 45.21% (15,738 / 34,811) as of 2026-09-15, measured at
+PARSER_VERSION 401** (v401 is PAR-79's third increment: the qualified
+"except by `<filter>`" family (RULE 509.1b's *permitted*-set restriction,
+`combat.blocker_allowed`'s existing `"only_blocked_by"` arm — already
+shipped for the standing static, just needed a resolve-time "this turn"
+parser route), `UnblockableEffect`'s new mass (`selector`) and multi-target
+(`count`/`count_max`/`optional`) forms mirroring `CantBlockEffect`'s own
+shapes exactly, and several bare-target widenings that had fallen behind a
+sibling handler. Built as atomic, shared parts rather than one more row per
+phrase variant — a real mid-batch correction: the first cut of the
+subtype-target widening was a closed, ever-growing word list keyed to this
+one search phrase, replaced with a fix to the *shared* `static_handlers.
+object_filter` instead (a full Oxford-comma N-way OR-split, and a
+singular-"creature" pluralization at its own boundary rather than teaching
+the underlying `_scope` a form none of its other callers print) — which is
+also why two cards outside this ticket's own search phrase (Turtle Lair;
+a `parser_probe.py diff` bonus) picked up coverage from the same change.
+That same widening also surfaced and fixed a real latent bug: `_scope`
+guessing a subtype literally named `"1/1"` off Lovestruck Beast's "unless
+you control a 1/1 creature" (a filter that could never match any real card,
+silently making the restriction unsatisfiable instead of correctly staying
+UNMODELED) — `_scope` now fails closed on any candidate subtype containing
+a digit. +15, zero regressed. 63 SOLO cards remain — this ticket bundles
+roughly a hundred independently-shaped small gaps under one search phrase
+by design (a missing "discard a card" trigger event, a new cost-reduction
+shape, a new "optional effect then follow-up" composition primitive, the
+six-card Alora cycle's delayed trigger, …), so closing it to zero SOLO is
+not one sitting's work — see `BACKLOG.md`'s PAR-79 entry for the full,
+categorized residue.
+v397 closes one card of PAR-82's residue — Phenax,
 God of Deception's own granted "{T}: Target player mills X cards, where X
 is this creature's toughness." Re-verification found the ticket's own
 premise stale: "creatures you control have '`<ability>`'"/"enchanted
@@ -963,7 +991,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 47.44% (15,100 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 47.49% (15,115 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

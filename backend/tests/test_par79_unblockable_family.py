@@ -30,7 +30,7 @@ from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
-from mtg_analyzer.parser.oracle.segmenter import match_clause
+from mtg_analyzer.parser.oracle.segmenter import match_clause, parse_effect_body
 from mtg_analyzer.parser.oracle.spec import EffectSpec
 
 
@@ -39,7 +39,8 @@ def _card(name, tl, txt, **kw):
         kw.pop("power", None)
         kw.pop("toughness", None)
     return Card(id=name[:6], name=name, type_line=tl, oracle_text=txt,
-                is_creature="Creature" in tl, **kw)
+                is_creature="Creature" in tl, is_instant="Instant" in tl,
+                is_sorcery="Sorcery" in tl, **kw)
 
 
 def _engine():
@@ -206,6 +207,20 @@ def test_bare_subtype_unblockable_rejects_unknown_words():
     assert match_clause("target sliver overlord can't be blocked this turn") is None
 
 
+def test_subtype_word_rejects_a_power_toughness_pattern():
+    # Regression: `object_filter`'s own singular-"creature" widening
+    # (third increment) made `_scope` reach real "a 1/1 creature" text for
+    # the first time (Lovestruck Beast's "unless you control a 1/1
+    # creature") — "1/1" must never be guessed as a subtype *named*
+    # "1/1" (a `combat.matches_object_filter` substring check on that
+    # would just never match any real card, silently making the
+    # restriction impossible to satisfy rather than failing closed).
+    from mtg_analyzer.parser.oracle.catalogue.static_handlers import object_filter
+
+    assert object_filter("1/1 creature") is None
+    assert object_filter("merfolk creature") == {"subtype": "Merfolk"}
+
+
 def test_bare_subtype_unblockable_executes():
     eng = _engine()
     merfolk = GameObject(
@@ -236,3 +251,134 @@ def test_real_cards_now_modeled_second_increment():
         c = _card(name, tl, txt, power=2, toughness=2, mana_cost_string="{1}{U}")
         r = parse_oracle(c)
         assert r.modeled, (name, r.unclaimed)
+
+
+# ---------------------------------------------------------------------------
+# Third increment (2026-09-15 return pass): "except by <filter>", the
+# untargeted mass form, the multi-target form, "target <subtype>[ creature]"
+# widenings, and a bare-target-kind widening on the P/T-delta row. See
+# Done_Backend.md's PAR-79 entry for the full closed/residue breakdown.
+# ---------------------------------------------------------------------------
+
+
+def test_except_by_filter_parses():
+    assert parse_effect_body(
+        "~ can't be blocked this turn except by creatures with haste."
+    ) == [EffectSpec("combat_restriction_this_turn", {
+        "restriction": {"kind": "only_blocked_by", "filter": {"keyword": "haste"}},
+    })]
+
+
+def test_except_by_filter_on_a_real_target_parses():
+    assert parse_effect_body(
+        "another target creature you control can't be blocked this turn "
+        "except by spirits."
+    ) == [EffectSpec("combat_restriction_this_turn", {
+        "restriction": {"kind": "only_blocked_by", "filter": {"subtype": "Spirit"}},
+        "target_kind": "other_creature_you_control",
+    })]
+
+
+def test_pt_delta_unblockable_now_accepts_controller_scoped_targets():
+    # Teleportal-shaped — this row's own allowed set had fallen behind its
+    # keyword-grant sibling.
+    assert parse_effect_body(
+        "target creature you control gets +1/+0 until end of turn and "
+        "can't be blocked this turn."
+    ) == [EffectSpec("pump", {
+        "power": 1, "toughness": 0, "unblockable": True, "target_kind": "creature_you_control",
+    })]
+
+
+def test_mass_form_parses():
+    assert parse_effect_body("creatures can't be blocked this turn.") == [
+        EffectSpec("unblockable", {"selector": "all_creatures"}),
+    ]
+    assert parse_effect_body("creatures you control can't be blocked this turn.") == [
+        EffectSpec("unblockable", {"selector": "creatures_you_control"}),
+    ]
+
+
+def test_multi_target_parses():
+    assert parse_effect_body("up to 2 target creatures can't be blocked this turn.") == [
+        EffectSpec("unblockable", {"target_kind": "creature", "count": 2, "optional": True}),
+    ]
+
+
+def test_legendary_target_without_another_parses():
+    assert parse_effect_body("target legendary creature can't be blocked this turn.") == [
+        EffectSpec("unblockable", {"target_kind": "creature", "creature_filter": {"legendary": True}}),
+    ]
+
+
+def test_subtype_creature_parses():
+    assert parse_effect_body("target merfolk creature can't be blocked this turn.") == [
+        EffectSpec("unblockable", {"target_kind": "creature", "creature_filter": {"subtype": "Merfolk"}}),
+    ]
+
+
+def test_real_cards_now_modeled_third_increment():
+    for name, tl, txt in [
+        ("Gingerbrute", "Artifact Creature — Gremlin",
+         "{1}: ~ can't be blocked this turn except by creatures with haste."),
+        ("Jace, Arcane Strategist", "Legendary Planeswalker — Jace",
+         "−7: Creatures you control can't be blocked this turn."),
+        ("Ghostform", "Instant", "Up to 2 target creatures can't be blocked this turn."),
+        ("K-9, Mark I", "Legendary Artifact Creature — Dog",
+         "{1}{U}, {T}: Target legendary creature can't be blocked this turn."),
+        ("Merfolk Sovereign", "Creature — Merfolk",
+         "{T}: Target Merfolk creature can't be blocked this turn."),
+        ("Teleportal", "Instant",
+         "Target creature you control gets +1/+0 until end of turn and "
+         "can't be blocked this turn."),
+    ]:
+        c = _card(name, tl, txt, power=2, toughness=2, mana_cost_string="{1}{U}")
+        r = parse_oracle(c)
+        assert r.modeled, (name, r.unclaimed)
+
+
+def test_except_by_filter_executes():
+    eng = _engine()
+    attacker = GameObject(_card("Attacker", "Creature — Bear", "", power=2, toughness=2),
+                           owner_id="p1", zone=Zone.BATTLEFIELD)
+    attacker.controller_id = "p1"
+    eng.state.add_to_battlefield(attacker)
+    fast_blocker = GameObject(_card("Fast", "Creature — Bear", "", power=1, toughness=1),
+                               owner_id="p2", zone=Zone.BATTLEFIELD)
+    fast_blocker.controller_id = "p2"
+    slow_blocker = GameObject(_card("Slow", "Creature — Bear", "", power=1, toughness=1),
+                               owner_id="p2", zone=Zone.BATTLEFIELD)
+    slow_blocker.controller_id = "p2"
+    eng.state.add_to_battlefield(fast_blocker)
+    eng.state.add_to_battlefield(slow_blocker)
+    build_effects(
+        [EffectSpec("combat_restriction_this_turn", {
+            "restriction": {"kind": "only_blocked_by", "filter": {"keyword": "haste"}},
+        })],
+        attacker,
+    )[0].apply(eng.rules.context, [attacker])
+
+    from mtg_analyzer.game import combat
+
+    assert combat.blocker_allowed(attacker, slow_blocker) is False
+    fast_blocker.temp_keywords.add("haste")
+    eng.recompute_continuous_effects()
+    assert combat.blocker_allowed(attacker, fast_blocker) is True
+
+
+def test_mass_form_executes():
+    eng = _engine()
+    p1 = eng.state.players[0]
+    a = GameObject(_card("A", "Creature — Bear", "", power=2, toughness=2), owner_id="p1", zone=Zone.BATTLEFIELD)
+    a.controller_id = "p1"
+    b = GameObject(_card("B", "Creature — Bear", "", power=2, toughness=2), owner_id="p2", zone=Zone.BATTLEFIELD)
+    b.controller_id = "p2"
+    eng.state.add_to_battlefield(a)
+    eng.state.add_to_battlefield(b)
+    source = GameObject(_card("Source", "Enchantment", ""), owner_id="p1", zone=Zone.BATTLEFIELD)
+    build_effects(
+        [EffectSpec("unblockable", {"selector": "creatures_you_control"})],
+        source,
+    )[0].apply(eng.rules.context, [])
+    assert a.temp_unblockable is True
+    assert b.temp_unblockable is False

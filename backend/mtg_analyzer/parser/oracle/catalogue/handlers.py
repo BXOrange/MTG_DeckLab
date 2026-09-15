@@ -10534,7 +10534,16 @@ def _pump_unblockable(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if subject is None:
         return None
     target_kind, selector = subject
-    if target_kind is not None and target_kind not in ("creature", "permanent"):
+    # PAR-79: "target creature you control gets +1/+0 … and can't be
+    # blocked this turn" (Teleportal) — this row's own allowed set had
+    # fallen behind its keyword-grant sibling `_pump_keyword_unblockable`
+    # (which already allows the controller-scoped kinds, Apocalypse
+    # Runner) and the bare `_cant_be_blocked_turn` row, both of which
+    # treat "you control"/"you don't control" as ordinary legal unblockable
+    # subjects; this row had simply never been widened to match.
+    if target_kind is not None and target_kind not in (
+        "creature", "permanent", "creature_you_control", "creature_you_dont_control",
+    ):
         return None
     params: dict = {
         "power": _signed_int(m.group("p")), "toughness": _signed_int(m.group("t")),
@@ -10552,9 +10561,19 @@ def _pump_unblockable(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: `UnblockableEffect`, no P/T delta (that's `_PUMP_UNBLOCKABLE_RE` above).
 #: PAR-79 widened it with the same optional "with power N or less/greater"
 #: suffix as `_PUMP_KEYWORD_UNBLOCKABLE_RE` (Crafty Pathmage-shaped).
+#: PAR-79: an optional "except by `<filter>`" tail (Departed Deckhand/
+#: Gingerbrute/Joven's Tools/Resilient Roadrunner/Tin Street Dodger/
+#: Varchild's Crusader) — RULE 509.1b's *permitted*-set restriction
+#: (`combat.blocker_allowed`'s existing `"only_blocked_by"` arm, already
+#: shipped for the standing static — `static_handlers.py`'s own "~ can
+#: only be blocked by `<filter>`" row), reusing `object_filter`'s existing
+#: vocabulary rather than a new one. Routes to a different `EffectSpec`
+#: type (`combat_restriction_this_turn`) than the bare form, so this stays
+#: in `_cant_be_blocked_turn` rather than becoming a second regex.
 _CANT_BE_BLOCKED_TURN_RE = _c(
     rf"(?:(?P<selfref>{_SELF_SUBJECT})|{TARGET})"
     r"(?: with power (?P<pn>\d+) or (?P<pcmp>less|greater))? can'?t be blocked this turn"
+    r"(?: except by (?P<filter>.+))?"
 )
 
 
@@ -10564,15 +10583,70 @@ def _cant_be_blocked_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["target_kind"] = None
     else:
         kind = resolve_target_kind(m.group("target"))
-        if kind not in ("creature", "permanent", "creature_you_control", "creature_you_dont_control"):
+        # "another target creature you control can't be blocked this turn
+        # except by spirits." (Departed Deckhand, PAR-79) — RULE 109.5's
+        # "another … you control" resolves to `other_creature_you_control`
+        # (`subgrammars.py`), the same kind `_pump_target`'s own broader
+        # allowed set already accepts.
+        if kind not in (
+            "creature", "permanent", "creature_you_control", "creature_you_dont_control",
+            "other_creature_you_control",
+        ):
             return None
         params["target_kind"] = kind
+    if m.groupdict().get("filter"):
+        if m.group("pn"):
+            return None  # no real card combines both qualifiers; fail closed rather than dropping one
+        from .static_handlers import object_filter
+
+        filt = object_filter(m.group("filter"))
+        if filt is None:
+            return None
+        restriction_params: dict = {"restriction": {"kind": "only_blocked_by", "filter": filt}}
+        if params["target_kind"] is not None:
+            restriction_params["target_kind"] = params["target_kind"]
+        return [EffectSpec("combat_restriction_this_turn", restriction_params)]
     if m.group("pn"):
         if params["target_kind"] is None:
             return None  # "with power N or less" needs a real RULE 115 target, not the bare self form
         key = "max_power" if m.group("pcmp") == "less" else "min_power"
         params["creature_filter"] = {key: int(m.group("pn"))}
     return [EffectSpec("unblockable", params)]
+
+
+#: PAR-79: the multi-target form — "up to 2 target creatures can't be
+#: blocked this turn." (Ghostform) — RULE 115.1a generalized to N>=2, the
+#: shared `_MULTI_TARGET_QUANTIFIER`/`_multi_target_params` machinery
+#: every other multi-target row in this file already uses.
+_CANT_BE_BLOCKED_TURN_MULTI_RE = _c(
+    rf"{_MULTI_TARGET_QUANTIFIER}(?P<target>target creatures) can'?t be blocked this turn"
+)
+
+
+def _cant_be_blocked_turn_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _multi_target_params(m)
+    if params is None or params["target_kind"] != "creature":
+        return None
+    out: dict = {"target_kind": "creature", "count": params["count"]}
+    if "count_max" in params:
+        out["count_max"] = params["count_max"]
+    if params.get("optional"):
+        out["optional"] = True
+    return [EffectSpec("unblockable", out)]
+
+
+#: PAR-79: the untargeted mass form — "creatures [you control] can't be
+#: blocked this turn." (Jace, Arcane Strategist/Keeper of Keys/Veiling
+#: Oddity) — RULE 601.2c, no RULE 115 target at all, `UnblockableEffect`'s
+#: new `selector` param (mirroring `CantBlockEffect`'s own mass form).
+_CANT_BE_BLOCKED_TURN_MASS_RE = _c(
+    r"(?P<group>creatures you control|creatures) can'?t be blocked this turn"
+)
+
+
+def _cant_be_blocked_turn_mass(m: re.Match[str]) -> list[EffectSpec]:
+    selector = "creatures_you_control" if m.group("group") == "creatures you control" else "all_creatures"
+    return [EffectSpec("unblockable", {"selector": selector})]
 
 
 #: PAR-79: "~ gains lifelink until end of turn and can't be blocked this
@@ -10644,13 +10718,14 @@ def _cant_be_blocked_turn_other_attacker(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("unblockable", {"target_kind": "creature", "creature_filter": {"attacking": True}})]
 
 
-#: PAR-79: "another target legendary creature can't be blocked this turn."
-#: (Bessie, the Doctor's Roadster) — the supertype sibling of
+#: PAR-79: "[another ]target legendary creature can't be blocked this
+#: turn." (Bessie, the Doctor's Roadster's "another…"; K-9, Mark I's bare
+#: "target legendary creature") — the supertype sibling of
 #: `_CANT_BE_BLOCKED_TURN_OTHER_ATTACKER_RE` just above: `creature_filter`'s
 #: ``"legendary"`` key (added alongside the pre-existing negative
-#: ``"nonlegendary"`` during PAR-78) is exactly what this needs.
+#: ``"nonlegendary"`` during PAR-78) is exactly what this needs either way.
 _CANT_BE_BLOCKED_TURN_LEGENDARY_RE = _c(
-    r"another target legendary creature can'?t be blocked this turn"
+    r"(?:another )?target legendary creature can'?t be blocked this turn"
 )
 
 
@@ -10658,32 +10733,31 @@ def _cant_be_blocked_turn_legendary(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("unblockable", {"target_kind": "creature", "creature_filter": {"legendary": True}})]
 
 
-#: PAR-79: "target `<subtype>`[, `<subtype>`[, or `<subtype>`]] can't be
-#: blocked this turn." (Aquatic Incursion/Daughter of the Deep's "target
-#: merfolk"; Corsairs of Umbar's "target goblin, orc, or pirate") — Magic's
-#: own grammar treats a creature subtype as a noun on its own here (no
-#: "creature" word), unlike every other `TARGET`-macro row, which always
-#: pairs a qualifier with the literal word "creature". A closed word list
-#: (this project's own convention — see `_PREVENT_TARGET_SUBTYPE_WORDS`'s
-#: docstring, PAR-78) rather than an open vocabulary, so an unrelated
-#: multi-word qualifier (e.g. "target attacking creature", already claimed
-#: by `_CANT_BE_BLOCKED_TURN_RE` above and tried first regardless) can never
-#: be mis-parsed as a subtype list.
-_CANT_BLOCKED_TARGET_SUBTYPE_WORDS: frozenset[str] = frozenset(
-    {"merfolk", "goblin", "orc", "pirate"}
-)
-_CANT_BE_BLOCKED_TURN_SUBTYPE_RE = _c(
-    r"target (?P<subtypes>[a-z]+(?:, [a-z]+)*(?:,? or [a-z]+)?) can'?t be blocked this turn"
+#: PAR-79: "target `<object-filter phrase>` can't be blocked this turn."
+#: (Merfolk Sovereign's "target Merfolk creature"; Aquatic Incursion's bare
+#: "target merfolk"; Corsairs of Umbar's "target goblin, orc, or pirate";
+#: Private Eye's "target detective") — one row over the *shared*
+#: `static_handlers.object_filter` vocabulary instead of a hand-rolled,
+#: ever-growing subtype word list: that function already resolves a bare
+#: subtype, a "`<subtype>` creature[s]" noun phrase, and an "A, B, or C"/
+#: "A or B" list uniformly (the singular-"creature"/Oxford-comma widenings
+#: needed here were made to `object_filter` itself, so every other caller
+#: — the "except by" restriction, the standing static equivalents —
+#: benefits too, not just this one search phrase). Tried after every
+#: fixed-phrase row above (bare/attacking/legendary/mass/multi), so a word
+#: `object_filter` would otherwise happily treat as a subtype (all of
+#: those) is never reached here.
+_CANT_BE_BLOCKED_TURN_OBJECT_FILTER_RE = _c(
+    r"target (?P<filter>[a-z][a-z, ]*?) can'?t be blocked this turn"
 )
 
 
-def _cant_be_blocked_turn_subtype(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    words = [w for w in re.split(r",\s*(?:or\s+)?|\s+or\s+", m.group("subtypes")) if w]
-    if not words or not all(w in _CANT_BLOCKED_TARGET_SUBTYPE_WORDS for w in words):
+def _cant_be_blocked_turn_object_filter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from .static_handlers import object_filter
+
+    filt = object_filter(m.group("filter"))
+    if filt is None:
         return None
-    filt = {"subtype": words[0].title()} if len(words) == 1 else {
-        "subtype_any": [w.title() for w in words]
-    }
     return [EffectSpec("unblockable", {"target_kind": "creature", "creature_filter": filt})]
 
 
@@ -13394,10 +13468,25 @@ HANDLERS: list[EffectHandler] = [
     ),
     # ENG-32: bare "~ / target creature can't be blocked this turn" (Giant
     # Koi / Waterbender Ascension) — no P/T delta.
+    # PAR-79: "up to 2 target creatures can't be blocked this turn." —
+    # tried before the singular `cant_be_blocked_this_turn` row below,
+    # whose `TARGET` alternation has no multi-target quantifier of its own.
+    EffectHandler(
+        "cant_be_blocked_this_turn_multi",
+        _CANT_BE_BLOCKED_TURN_MULTI_RE,
+        _cant_be_blocked_turn_multi,
+    ),
     EffectHandler(
         "cant_be_blocked_this_turn",
         _CANT_BE_BLOCKED_TURN_RE,
         _cant_be_blocked_turn,
+    ),
+    # PAR-79: the untargeted mass form — "creatures [you control] can't be
+    # blocked this turn."
+    EffectHandler(
+        "cant_be_blocked_this_turn_mass",
+        _CANT_BE_BLOCKED_TURN_MASS_RE,
+        _cant_be_blocked_turn_mass,
     ),
     # PAR-79: "~ gains lifelink until end of turn and can't be blocked this
     # turn" — a strict superset of the plain `pump_keyword` row's shape (a
@@ -13426,15 +13515,16 @@ HANDLERS: list[EffectHandler] = [
         _CANT_BE_BLOCKED_TURN_LEGENDARY_RE,
         _cant_be_blocked_turn_legendary,
     ),
-    # PAR-79: "target merfolk"/"target goblin, orc, or pirate can't be
-    # blocked this turn" — tried after `cant_be_blocked_this_turn` (a couple
-    # rows up) so the plain "target creature" phrasing is always claimed by
-    # that row first; see this handler's own docstring for why that
-    # ordering makes the shared-prefix risk safe either way.
+    # PAR-79: "target `<object-filter phrase>` can't be blocked this
+    # turn" (Merfolk Sovereign's "target Merfolk creature", Aquatic
+    # Incursion's bare "target merfolk", Corsairs of Umbar's "target
+    # goblin, orc, or pirate") — tried after every fixed-phrase row above
+    # so "attacking"/"tapped"/"legendary" etc. are always claimed by their
+    # own dedicated row first, never mistaken for a subtype here.
     EffectHandler(
-        "cant_be_blocked_this_turn_subtype",
-        _CANT_BE_BLOCKED_TURN_SUBTYPE_RE,
-        _cant_be_blocked_turn_subtype,
+        "cant_be_blocked_this_turn_object_filter",
+        _CANT_BE_BLOCKED_TURN_OBJECT_FILTER_RE,
+        _cant_be_blocked_turn_object_filter,
     ),
     # "Up to two target creatures can't block this turn" / "target creature
     # can't block this turn" / "creatures without flying can't block this

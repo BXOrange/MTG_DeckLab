@@ -95,17 +95,26 @@ read. Several of these were flagged by `commander_tail_report.py` as
 `MEC-*`, for exactly that reason. Ordered by verified SOLO count.
 
 - **PAR-79 · "`<Name>`/target creature can't be blocked this turn" — broad
-  recognition (residue after two increments).** `temp_unblockable`/the
+  recognition (residue after three increments).** `temp_unblockable`/the
   `"unblockable"` effect key already exist end to end
-  (`game/effects/attachments_transforms.py`, `registry.py`). **Two
-  increments shipped** (PARSER_VERSION 387 then 394, +24 then +4, zero
+  (`game/effects/attachments_transforms.py`, `registry.py`). **Three
+  increments shipped** (PARSER_VERSION 387/394/401, +24/+4/+15, zero
   regressed each — see `Done_Backend.md`'s "Combat" section for exactly
-  what each closed; a stray edit briefly mis-marked this ticket "closed"
-  with a false "0 UNMODELED remaining" claim on 2026-09-15 — corrected
-  there and here after `parser_probe.py` disproved it). **77 SOLO cards
-  confirmed still open** (re-run `parser_probe.py blocked "can't be
-  blocked this turn"` before starting — the count moves every batch),
-  none of it attempted yet:
+  what each closed, incl. the third increment's own mid-batch correction:
+  a first cut of the subtype-target widening was a closed, per-phrase
+  word list — replaced with a fix to the *shared* `static_handlers.
+  object_filter` instead, which also caught and fixed a real latent bug
+  it exposed, a filter that could never match named `"1/1"`; a stray edit
+  had also briefly mis-marked this ticket "closed" with a false "0
+  UNMODELED remaining" claim on 2026-09-15 — corrected after
+  `parser_probe.py` disproved it). **63 SOLO cards confirmed still open at
+  PARSER_VERSION 401** (re-run `parser_probe.py blocked "can't be blocked
+  this turn"` before starting — the count moves every batch). This ticket
+  bundles roughly a hundred independently-shaped small gaps under one
+  search phrase by design (see the "2026-09-15 Commander-legal tail
+  sweep" preamble above — an *indefinite sweep*, not a batch with an end
+  date); closing it to zero SOLO is not one sitting's work. Categorized
+  residue, none of it attempted yet:
   - a delayed-trigger "…at the beginning of the next end step, return
     that creature to its owner's hand[, `<tail>`]" compound — the
     six-card Alora cycle (Alora, Cheerful Assassin/Mastermind/Scout/
@@ -113,24 +122,65 @@ read. Several of these were flagged by `commander_tail_report.py` as
     distinct conditional tail (life loss/token/perpetual buff/Treasure/
     perpetual debuff) — likely `create_delayed_trigger` plus a
     per-card "if you do, `<effect>`" composition, not one shared row.
+  - a family of "you may `<effect>`. if you do, `<payoff>`" triggers
+    (Biblioplex Kraken/Gravelgill Scoundrel/Tidal Terror/Saprazzan
+    Breaker/Shrouded Serpent/Smart Ass/Gollum, Scheming Guide) whose
+    antecedent is itself a resolving effect ("return another creature you
+    control to its owner's hand", "tap another untapped creature you
+    control", "mill a card") rather than a cost payment —
+    `_PAY_COST_THEN_GENERAL_RE`'s existing "you may `<cost>`. if you do,
+    `<effect>`" machinery is cost-shaped only (`_MAY_COST_THEN_CLAUSE`'s
+    closed vocabulary: mana/sacrifice/discard/life/evidence/forage/
+    blight), so even the simplest possible pairing ("you may return a
+    creature. if you do, draw a card.") fails closed today — confirmed
+    directly, not assumed. A genuinely new "optional effect, then a
+    conditional follow-up keyed on whether it happened" composition, not
+    a parser-only widening.
   - an activation-cost-reduction/frequency rider on the ability that
-    grants unblockable (A-Sewer Crocodile's "this ability costs `<cost>`
-    less to activate if…"; Basim Ibn Ishaq's "this ability triggers only
-    once each turn") — the unblockable clause itself is trivial; the real
-    gap is the rider on the ability's own cost/frequency.
-  - a qualified "…except by creatures with `<keyword>`" evasion form
-    (Agility Bobblehead, Departed Deckhand) — likely the existing
-    qualified-can't-be-blocked-by-filter family (see
-    `handlers.py`'s own "~ can't be blocked by creatures with power 2 or
-    less this turn" comment) rather than plain `unblockable`; verify
-    before building a third shape.
-  - at least one card (Brotherhood Spy, and likely Cunning
-    Survivor/Devourer of Memory, all already-working `_pump_unblockable`
-    effect bodies) whose real blocker is an unrelated conditional
-    phase-trigger gap ("at the beginning of combat on your turn, **if you
-    control a legendary Assassin**, …") that only incidentally shares this
-    search phrase — don't spend this ticket's effort here, it belongs to
-    a separate conditional-trigger ticket if pursued.
+    grants unblockable (A-Sewer Crocodile/Sewer Crocodile's "this ability
+    costs `<cost>` less to activate if there are 5 or more mana values
+    among cards in your graveyard" — a *conditional flat* discount,
+    unlike `ActivationCost.dynamic_reduction`'s existing per-unit-count
+    shape, so it needs a new cost-reduction field, not just a parser row;
+    Basim Ibn Ishaq's "this ability triggers only once each turn" paired
+    with an unrelated second gap below).
+  - "historic spell" is missing from the `SPELL_CAST` trigger's
+    `spell_card_types` vocabulary (Basim Ibn Ishaq's own "whenever you
+    cast a historic spell, draw a card." — confirmed even the "draw a
+    card" half fails alone) even though "historic" already has real
+    recognition elsewhere in this codebase for an unrelated (cost-
+    modifier) shape — a parser-recognition widening, not a new primitive,
+    but its own separate small ticket-worth of work.
+  - a "becomes a N/M [color] [type] creature until end of turn" compound
+    (Dimir Keyrune/Creeping Tar Pit/Chromium, the Mutable/Riverfall
+    Mimic) — confirmed the *base* animation shape (no unblockable tail at
+    all) doesn't parse standalone either, despite v388's changelog citing
+    a similar-sounding family as already shipped; re-diagnose the exact
+    gap (likely a two-card-type "artifact creature"/color+type
+    combination the existing animation row doesn't cover) before assuming
+    this is a one-line widening.
+  - a qualified "…except by `<filter>`" evasion form combined with a
+    multi-word type/color union filter `object_filter` doesn't support
+    yet (Firefright Mage's "except by artifact creatures and/or red
+    creatures" — a type-OR-color union, not a single subtype/colour/
+    keyword `object_filter` already handles) or a count-based exception
+    (Unquenchable Fury's "except by 2 or more creatures" — a blocker
+    *count* requirement, not a characteristic filter at all; `object_
+    filter` currently mis-parses this as a bogus subtype rather than
+    failing closed — a latent bug worth fixing independently of this
+    ticket even though nothing routes real text through it yet).
+  - at least three cards (Brotherhood Spy, Cunning Survivor, Devourer of
+    Memory, all already-working `_pump_unblockable`/`_pump_keyword_
+    unblockable` effect bodies) whose real blocker is an unrelated
+    trigger-condition gap incidentally sharing this search phrase — a
+    conditional phase trigger ("if you control a legendary Assassin") for
+    Brotherhood Spy, and "whenever you discard a card"/"whenever you
+    cycle a card" not being a recognized trigger event *at all* (confirmed
+    directly — even the simplest possible pairing, "whenever you discard
+    a card, draw a card.", fails closed) for Cunning Survivor/Devourer of
+    Memory — a real, broader gap (a whole player-discards-a-card trigger
+    category) likely worth its own ticket rather than folding into this
+    one.
 - **PAR-80 · X-spell "target creature gets +X/+`<N>` until end of turn."**
   (residue after one increment). The variable-power/fixed-toughness pump
   family — turned out to need no new primitive at all:
