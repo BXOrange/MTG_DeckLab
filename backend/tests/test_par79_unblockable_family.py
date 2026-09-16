@@ -729,3 +729,377 @@ def test_may_effect_then_executes():
     assert eng.state.pending_choice is not None
     eng.rules.resolve_choice(kept_card.instance_id)
     assert len(p1.hand) == hand_before
+
+
+# ---------------------------------------------------------------------------
+# "return another/<N> other <type>[s] you control to its owner's hand" /
+# "tap another/<N> other untapped <type>[s] you control" — PAR-79 seventh
+# increment. These are ordinary RULE 608.2c resolve-time effect bodies (no
+# "target" word), reusing the pre-existing `ChooseObjectsEffect`/
+# `"choose_objects"` chooser rather than a new primitive; combined with
+# `_may_effect_then` (sixth increment) they close Biblioplex Kraken/
+# Gravelgill Scoundrel/Tidal Terror — that handler's own three motivating
+# cards, which still didn't parse even once it shipped, because
+# `_peel_optional` stripped their leading "you may " (and the reflexive
+# "if you do" gate along with it) before `_may_effect_then`'s own regex
+# ever got a chance to match. See `segmenter._PAY_ENERGY_THEN_PEEL_GUARD_RE`.
+# ---------------------------------------------------------------------------
+
+
+def test_return_another_you_control_parses():
+    assert match_clause(
+        "return another creature you control to its owner's hand"
+    ) == [EffectSpec("choose_objects", {
+        "action": "return_to_hand", "what": "creature", "count": 1, "exclude_self": True,
+    })]
+
+
+def test_tap_another_untapped_you_control_parses():
+    assert match_clause(
+        "tap another untapped creature you control"
+    ) == [EffectSpec("choose_objects", {
+        "action": "tap", "what": "creature", "count": 1,
+        "exclude_self": True, "require_untapped": True,
+    })]
+
+
+def test_tap_n_other_untapped_you_control_parses():
+    # Tidal Terror's own count-2 form.
+    assert match_clause(
+        "tap 2 other untapped creatures you control"
+    ) == [EffectSpec("choose_objects", {
+        "action": "tap", "what": "creature", "count": 2,
+        "exclude_self": True, "require_untapped": True,
+    })]
+
+
+def test_may_effect_then_peel_guard_protects_resolving_effect_antecedent():
+    from mtg_analyzer.parser.oracle.segmenter import segment_line
+    from mtg_analyzer.parser.oracle.spec import ParserProvenance
+
+    # A segmenter-level test, not just `parse_effect_body` directly: this is
+    # the shape that actually regressed — `_peel_optional` ran *before*
+    # `parse_effect_body` ever saw the clause, stripping "you may " (and
+    # marking the whole ability optional) so `_may_effect_then`'s own
+    # "you may <effect>. if you do, <effect2>." regex never matched.
+    seg = segment_line(
+        "whenever ~ attacks, you may return another creature you control "
+        "to its owner's hand. if you do, ~ can't be blocked this turn.",
+        allow_spell_effect=True, provenance=ParserProvenance(),
+    )
+    assert seg.claimed, seg
+    assert seg.spec.effects == [EffectSpec("optional", {
+        "effects": [
+            {"type": "choose_objects", "params": {
+                "action": "return_to_hand", "what": "creature",
+                "count": 1, "exclude_self": True,
+            }},
+            {"type": "unblockable", "params": {"target_kind": None}},
+        ],
+    })]
+
+
+def test_may_effect_then_peel_guard_does_not_break_certain_antecedent_reduction():
+    from mtg_analyzer.parser.oracle.segmenter import segment_line
+    from mtg_analyzer.parser.oracle.spec import ParserProvenance
+
+    # The regression this guard must NOT reintroduce: a *certain*,
+    # self-referential antecedent ("sacrifice ~") that RULE 603.3's "when
+    # you do" reduces to a plain unconditional sequence
+    # (`_SACRIFICE_THEN_WHEN_YOU_DO_RE`) needs `_peel_optional` to still
+    # strip the leading "you may " — widening the guard to match *every*
+    # "you may X. if/when you do" shape (tried and reverted while building
+    # this increment) broke this family (Sunfire Torch/Throwing Knife &c.).
+    seg = segment_line(
+        "whenever ~ attacks, you may sacrifice ~. when you do, "
+        "~ deals 2 damage to any target.",
+        allow_spell_effect=True, provenance=ParserProvenance(),
+    )
+    assert seg.claimed, seg
+    # The ability itself is still optional (RULE 601.2b — "you may
+    # sacrifice"); it's the *reduction* of "when you do" to a plain
+    # unconditional sequence (rather than a separate `optional`/
+    # `pay_cost_then` wrapper) this test is actually guarding.
+    assert seg.spec.optional is True
+    assert [e.type for e in seg.spec.effects] == ["sacrifice_self", "damage"]
+
+
+def test_real_cards_now_modeled_seventh_increment():
+    cards = [
+        _card(
+            "Biblioplex Kraken", "Creature — Kraken",
+            "Whenever this creature attacks, you may return another creature "
+            "you control to its owner's hand. If you do, this creature can't "
+            "be blocked this turn.",
+            power=5, toughness=5, mana_cost_string="{5}{U}{U}",
+        ),
+        _card(
+            "Gravelgill Scoundrel", "Creature — Merfolk Rogue",
+            "Vigilance\nWhenever this creature attacks, you may tap another "
+            "untapped creature you control. If you do, this creature can't "
+            "be blocked this turn.",
+            power=2, toughness=2, mana_cost_string="{1}{U}", keywords=["Vigilance"],
+        ),
+        _card(
+            "Tidal Terror", "Creature — Serpent",
+            "Whenever this creature attacks, you may tap two other untapped "
+            "creatures you control. If you do, this creature can't be "
+            "blocked this turn.",
+            power=5, toughness=5, mana_cost_string="{4}{U}{U}",
+        ),
+    ]
+    for c in cards:
+        r = parse_oracle(c)
+        assert r.modeled, (c.name, r.unclaimed)
+
+
+def test_require_untapped_excludes_tapped_candidates():
+    eng = _engine()
+    source = GameObject(_card("Source", "Creature — Bear", "", power=1, toughness=1),
+                         owner_id="p1", zone=Zone.BATTLEFIELD)
+    source.controller_id = "p1"
+    eng.state.add_to_battlefield(source)
+    tapped_other = GameObject(_card("TappedOther", "Creature — Bear", "", power=1, toughness=1),
+                               owner_id="p1", zone=Zone.BATTLEFIELD)
+    tapped_other.controller_id = "p1"
+    tapped_other.tapped = True
+    eng.state.add_to_battlefield(tapped_other)
+    untapped_other = GameObject(_card("UntappedOther", "Creature — Bear", "", power=1, toughness=1),
+                                 owner_id="p1", zone=Zone.BATTLEFIELD)
+    untapped_other.controller_id = "p1"
+    eng.state.add_to_battlefield(untapped_other)
+    build_effects(
+        [EffectSpec("choose_objects", {
+            "action": "tap", "what": "creature", "count": 1,
+            "exclude_self": True, "require_untapped": True,
+        })],
+        source,
+    )[0].apply(eng.rules.context, [])
+    # Only the untapped candidate was eligible, so with exactly one legal
+    # pick this resolves without a prompt (the pre-existing "asking would be
+    # theatre" forced-pick idiom `_request_choose_objects` already applies).
+    assert untapped_other.tapped is True
+    assert tapped_other.tapped is True  # was already tapped, untouched
+    assert source.tapped is False  # excluded by `exclude_self`
+
+
+def test_return_to_hand_excludes_self():
+    eng = _engine()
+    p1 = eng.state.players[0]
+    source = GameObject(_card("Source", "Creature — Bear", "", power=1, toughness=1),
+                         owner_id="p1", zone=Zone.BATTLEFIELD)
+    source.controller_id = "p1"
+    eng.state.add_to_battlefield(source)
+    other = GameObject(_card("Other", "Creature — Bear", "", power=1, toughness=1),
+                        owner_id="p1", zone=Zone.BATTLEFIELD)
+    other.controller_id = "p1"
+    eng.state.add_to_battlefield(other)
+    hand_before = len(p1.hand)
+    build_effects(
+        [EffectSpec("choose_objects", {
+            "action": "return_to_hand", "what": "creature", "count": 1,
+            "exclude_self": True,
+        })],
+        source,
+    )[0].apply(eng.rules.context, [])
+    # Only `other` was eligible (the source is excluded), so this resolves
+    # as a forced pick — the source itself never leaves the battlefield.
+    assert len(p1.hand) == hand_before + 1
+    assert source in eng.state.battlefield
+    assert other not in eng.state.battlefield
+
+
+# ---------------------------------------------------------------------------
+# "at the beginning of the next end step, return `<it>` to its owner's
+# hand[. if you do, `<effect>`]." — PAR-79 eighth increment. The Alora,
+# Cheerful `<X>` cycle's own shape: `_DELAYED_SAC_EXILE_WHEN_FIRST_RE`
+# (already shipped for the sacrifice/exile "when-first" siblings, MEC-52)
+# widened with a "return" verb branch and an optional "if you do" tail
+# collapsed into the *same* delayed trigger's own effects list — plus a new
+# `_PREFIXED_DELAYED_SAC_EXILE_RE` dispatch in `parse_effect_body` for when
+# an unrelated earlier sentence (Alora's own unblockable-target pick)
+# precedes the delayed clause, which every existing "certain antecedent"
+# collapse in this family assumes never happens.
+# ---------------------------------------------------------------------------
+
+
+def test_delayed_return_when_first_parses():
+    specs = match_clause(
+        "at the beginning of the next end step, return that creature to its owner's hand"
+    )
+    assert specs is not None
+    assert specs[0].type == "create_delayed_trigger"
+    assert specs[0].params["capture"] == "previous_or_self"
+    assert specs[0].params["effects"] == [{"type": "return_specific_to_hand", "params": {}}]
+
+
+def test_delayed_return_when_first_with_if_you_do_parses():
+    specs = match_clause(
+        "at the beginning of the next end step, return that creature to its owner's "
+        "hand. if you do, each opponent loses 2 life."
+    )
+    assert specs is not None
+    assert specs[0].params["effects"] == [
+        {"type": "return_specific_to_hand", "params": {}},
+        {"type": "lose_life", "params": {"amount": 2, "selector": "each_opponent"}},
+    ]
+
+
+def test_delayed_return_when_first_if_you_do_unparseable_fails_closed():
+    # No handler for this made-up follow-up — the whole clause must stay
+    # unclaimed rather than silently dropping the "if you do" half.
+    assert match_clause(
+        "at the beginning of the next end step, return that creature to its owner's "
+        "hand. if you do, frobnicate the sprocket."
+    ) is None
+
+
+def test_delayed_return_when_first_if_you_do_targeted_effect_fails_closed():
+    # A genuine RULE 115 target in the follow-up needs its own announced-
+    # target step this off-stack delayed-effects list has no way to give
+    # it — same reasoning `_may_effect_then` rejects one for.
+    assert match_clause(
+        "at the beginning of the next end step, return that creature to its owner's "
+        "hand. if you do, destroy target artifact."
+    ) is None
+
+
+def test_prefixed_delayed_return_with_if_you_do_parses():
+    from mtg_analyzer.parser.oracle.segmenter import segment_line
+    from mtg_analyzer.parser.oracle.spec import ParserProvenance
+
+    seg = segment_line(
+        "whenever you attack, up to 1 target attacking creature can't be blocked "
+        "this turn. at the beginning of the next end step, return that creature to "
+        "its owner's hand. if you do, each opponent loses 2 life.",
+        allow_spell_effect=True, provenance=ParserProvenance(),
+    )
+    assert seg.claimed, seg
+    assert [e.type for e in seg.spec.effects] == ["unblockable", "create_delayed_trigger"]
+    assert seg.spec.effects[1].params["effects"] == [
+        {"type": "return_specific_to_hand", "params": {}},
+        {"type": "lose_life", "params": {"amount": 2, "selector": "each_opponent"}},
+    ]
+
+
+def test_real_cards_now_modeled_eighth_increment():
+    cheerful = (
+        "Whenever you attack, up to one target attacking creature can't be "
+        "blocked this turn. At the beginning of the next end step, return that "
+        "creature to its owner's hand. If you do, {tail}"
+    )
+    cards = [
+        _card("Alora, Cheerful Assassin", "Creature — Halfling Rogue",
+              cheerful.format(tail="each opponent loses 2 life."),
+              power=1, toughness=1, mana_cost_string="{1}{B}"),
+        _card("Alora, Cheerful Mastermind", "Creature — Halfling Rogue",
+              cheerful.format(tail="create a 1/1 white Soldier creature token."),
+              power=1, toughness=1, mana_cost_string="{1}{W}"),
+        _card("Alora, Cheerful Swashbuckler", "Creature — Halfling Rogue",
+              cheerful.format(tail="create a Treasure token."),
+              power=1, toughness=1, mana_cost_string="{1}{R}"),
+        _card(
+            "Alora, Rogue Companion", "Creature — Halfling Rogue",
+            "Whenever you attack, up to one target attacking creature can't be "
+            "blocked this turn. At the beginning of the next end step, return "
+            "that creature to its owner's hand.",
+            power=1, toughness=1, mana_cost_string="{1}{U}",
+        ),
+    ]
+    for c in cards:
+        r = parse_oracle(c)
+        assert r.modeled, (c.name, r.unclaimed)
+
+
+def test_alora_cheerful_scout_stays_unmodeled():
+    # The tail's own "it perpetually gets +1/+1" names the just-returned
+    # creature again — `create_delayed_trigger`'s `previous_or_self`
+    # capture bakes its referent once, at arm time, onto every inner
+    # effect built from *this* clause's own recursive parse; a second,
+    # independent pronoun reference in the "if you do" follow-up isn't
+    # reachable through that (see `_delayed_sac_exile_when_first`'s own
+    # docstring) and must stay unclaimed rather than building a
+    # `PumpEffect` with no target baked in at all.
+    c = _card(
+        "Alora, Cheerful Scout", "Creature — Halfling Rogue",
+        "Whenever you attack, up to one target attacking creature can't be "
+        "blocked this turn. At the beginning of the next end step, return that "
+        "creature to its owner's hand. If you do, it perpetually gets +1/+1.",
+        power=1, toughness=1, mana_cost_string="{1}{G}",
+    )
+    r = parse_oracle(c)
+    assert not r.modeled
+
+
+def test_delayed_return_with_if_you_do_fires_both_effects():
+    eng = _engine()
+    p1 = eng.state.players[0]
+    p2 = eng.state.players[1]
+    src = GameObject(_card("Src", "Creature — Bear", "", power=1, toughness=1),
+                      owner_id="p1", zone=Zone.BATTLEFIELD)
+    src.controller_id = "p1"
+    eng.state.add_to_battlefield(src)
+    loaned = GameObject(_card("Loaned", "Creature — Bear", "", power=3, toughness=3),
+                         owner_id="p1", zone=Zone.BATTLEFIELD)
+    loaned.controller_id = "p1"
+    eng.state.add_to_battlefield(loaned)
+    life_before = p2.life
+
+    eng.rules.context.previous_targets = [loaned]
+    build_effects(
+        match_clause(
+            "at the beginning of the next end step, return that creature to its "
+            "owner's hand. if you do, each opponent loses 2 life."
+        ),
+        source=src,
+    )[0].apply(eng.rules.context, [loaned])
+
+    assert len(eng.state.delayed_triggers) == 1
+    eng._fire_delayed_triggers("end")
+    eng.resolve_until_stable()
+    assert loaned not in eng.state.battlefield
+    assert loaned in p1.hand
+    assert p2.life == life_before - 2
+
+
+# ---------------------------------------------------------------------------
+# "return another target `<X>` you control to its owner's hand" — PAR-79
+# ninth increment. `other_creature_you_control` (RULE 109.5, built for Giver
+# of Runes) was already whitelisted in `targeting.ALLOWED_TARGET_KINDS` and
+# already resolved by `resolve_target_kind` — `_return_to_hand`'s own closed
+# `_RETURN_TO_HAND_KINDS` set had just never been widened to accept it.
+# ---------------------------------------------------------------------------
+
+
+def test_return_another_target_creature_you_control_parses():
+    specs = match_clause(
+        "return another target creature you control to its owner's hand"
+    )
+    assert specs == [EffectSpec("return_to_hand", {
+        "target_kind": "other_creature_you_control",
+    })]
+
+
+def test_return_up_to_one_other_target_creature_you_control_parses():
+    specs = match_clause(
+        "return up to 1 other target creature you control to its owner's hand"
+    )
+    assert specs is not None
+    assert specs[0].params["target_kind"] == "other_creature_you_control"
+    assert specs[0].params["optional"] is True
+
+
+def test_real_cards_now_modeled_ninth_increment():
+    cards = [
+        _card("Deputy of Acquittals", "Creature — Bird Soldier",
+              "Flash\nWhen this creature enters, you may return another "
+              "target creature you control to its owner's hand.",
+              power=2, toughness=2, mana_cost_string="{2}{W}", keywords=["Flash"]),
+        _card("Jeskai Barricade", "Creature — Bird Monk",
+              "Flash\nDefender\nWhen this creature enters, you may return "
+              "another target creature you control to its owner's hand.",
+              power=1, toughness=4, mana_cost_string="{3}{W}", keywords=["Flash", "Defender"]),
+    ]
+    for c in cards:
+        r = parse_oracle(c)
+        assert r.modeled, (c.name, r.unclaimed)

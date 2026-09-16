@@ -95,12 +95,12 @@ read. Several of these were flagged by `commander_tail_report.py` as
 `MEC-*`, for exactly that reason. Ordered by verified SOLO count.
 
 - **PAR-79 · "`<Name>`/target creature can't be blocked this turn" — broad
-  recognition (residue after six increments).** `temp_unblockable`/the
+  recognition (residue after nine increments).** `temp_unblockable`/the
   `"unblockable"` effect key already exist end to end
-  (`game/effects/attachments_transforms.py`, `registry.py`). **Six
-  increments shipped** (PARSER_VERSION 387/394/401/402/403+404/405+406+407,
-  +24/+4/+15/+25/+32/+90, zero regressed each — see `Done_Backend.md`'s
-  "Combat" section for exactly what each closed). The fifth and sixth
+  (`game/effects/attachments_transforms.py`, `registry.py`). **Nine
+  increments shipped** (PARSER_VERSION 387/394/401/402/403+404/405+406+407/410/411/412,
+  +24/+4/+15/+25/+32/+90/+13/+4/+5, zero regressed each — see `Done_Backend.md`'s
+  "Combat" section for exactly what each closed). The fifth through ninth
   increments are a different *kind* of fix from the first four: diagnosing
   individual SOLO cards (`parser_probe.py card`) showed most of the
   residue's real blocker wasn't the `unblockable` effect at all — an
@@ -122,7 +122,21 @@ read. Several of these were flagged by `commander_tail_report.py` as
   rows became a strict subset of the general "target `<object-filter
   phrase>`" row and were deleted rather than kept as dead duplicates (see
   `PARSER_LONG_TAIL.md`'s "Lessons that keep recurring" for the writeup).
-  **53 SOLO cards confirmed still open at PARSER_VERSION 408** (re-run
+  The seventh increment closed the sixth's own three named motivating
+  cards (Biblioplex Kraken/Gravelgill Scoundrel/Tidal Terror), which had
+  turned out to still be unparseable even after `_may_effect_then` shipped
+  for them — see `Done_Backend.md`'s "Combat" section for the dormant
+  `_peel_optional` guard bug this uncovered. The eighth increment closed
+  four of the six-card Alora, Cheerful `<X>` cycle (Assassin/Mastermind/
+  Swashbuckler/Rogue Companion) by widening the already-shipped MEC-52
+  `_DELAYED_SAC_EXILE_WHEN_FIRST_RE` (sacrifice/exile "when-first" siblings)
+  with a "return" verb branch and an "if you do" tail collapsed into the
+  same `create_delayed_trigger`'s own effects list, plus a new dispatch for
+  an unrelated earlier sentence in front of the delayed clause; Cheerful
+  Scout/Thief remain open (see `Done_Backend.md` for exactly why).
+  **46 SOLO cards confirmed still open at PARSER_VERSION 412** (unchanged
+  by the ninth increment, which closed a related but separate cluster
+  outside this search phrase — see below; re-run
   `parser_probe.py blocked "can't be blocked this turn"` before starting —
   the count moves every batch). This ticket
   bundles roughly a hundred independently-shaped small gaps under one
@@ -131,34 +145,73 @@ read. Several of these were flagged by `commander_tail_report.py` as
   closing it to zero SOLO is not one sitting's work. Categorized residue,
   grouped by what it actually needs:
   - **Needs a new composition primitive at real cluster size:**
-    - a delayed-trigger "…at the beginning of the next end step, return
-      that creature to its owner's hand[, `<tail>`]" compound — the
-      six-card Alora cycle (Alora, Cheerful Assassin/Mastermind/Scout/
-      Swashbuckler/Thief; Alora, Rogue Companion), each with its own
-      distinct conditional tail (life loss/token/perpetual buff/Treasure/
-      perpetual debuff) — `create_delayed_trigger` already exists (RULE
-      603.7) but has no "if you do, `<effect>`" conditioned-on-success
-      follow-up; the antecedent's own target ("up to 1 target attacking
-      creature") already parses fine via the existing `unblockable`
-      handler, confirmed via `parser_probe.py clause`. Wings of Hubris/
-      Goblin Sappers print the identical "…at/at end of combat, sacrifice/
-      destroy `<permanent>`" delayed-sacrifice shape on an activated (not
-      triggered) ability — likely the same underlying primitive, worth
-      building together rather than twice.
-    - a genuinely separate "you may return/tap another `<X>` you control"
-      **untargeted mandatory choice** family — 17 SOLO cards on its own
+    - the Alora, Cheerful `<X>` cycle's own delayed-trigger-with-payoff
+      compound — **4 of 6 closed by the eighth increment**
+      (`_DELAYED_SAC_EXILE_WHEN_FIRST_RE`'s "return" verb + "if you do"
+      tail, `create_delayed_trigger`'s existing `capture="previous_or_
+      self"`; no new primitive needed after all). Cheerful Scout ("if you
+      do, it perpetually gets +1/+1") and Cheerful Thief ("if you do, a
+      creature of your choice an opponent controls perpetually gets
+      -1/-0") remain: both tails name the returned creature ("it") or open
+      a *fresh* untargeted opponent-choice pick — the "if you do" clause is
+      parsed independently of the antecedent's own `previous_or_self`
+      capture (a deliberate scope limit of the eighth increment, not a bug
+      — see `Done_Backend.md`), so a pronoun or a second interactive choice
+      inside that clause isn't reachable yet. Wings of Hubris/Goblin
+      Sappers print the unrelated **tail-form** "…at/at end of combat,
+      sacrifice/destroy `<permanent>`" shape on an *activated* (not
+      triggered) ability, preceded by their own unblockable-grant sentence
+      — `_DELAYED_SAC_EXILE_TAIL_RE` has no equivalent of the eighth
+      increment's new prefix-dispatch (`segmenter._PREFIXED_DELAYED_SAC_
+      EXILE_RE`, when-first-only) for the tail form, confirmed still
+      UNMODELED — a real, separate widening, not attempted this pass.
+    - the **targeted** sibling of the seventh increment's own "return/tap
+      another `<X>` you control" fix, now split into three real,
+      independently-scoped pieces after the ninth increment (PARSER_VERSION
+      412, `_RETURN_TO_HAND_KINDS` widened with the already-whitelisted
+      `other_creature_you_control` — see `Done_Backend.md`) closed the
+      plain form (Deputy of Acquittals/Jeskai Barricade, +3 bonus cards
+      elsewhere in the cache). **6 SOLO cards confirmed still open**
       (`parser_probe.py blocked "you may (return|tap) (another|2 other|
-      two other) .*you control"`), including this ticket's Biblioplex
-      Kraken/Gravelgill Scoundrel/Tidal Terror. The sixth increment's new
-      `_MAY_EFFECT_THEN_RE`/`"optional"`-wraps-`seq` composition (below)
-      handles the "if you do" pairing once the antecedent itself parses —
-      but "another creature you control" (no "target") isn't RULE 115
-      targeting at all (RULE 608.2c resolve-time choice instead), and this
-      engine's `TargetSpec`/`resolve_target_kind` has no untargeted-choice
-      kind to route it through. Don't rush this: a RULE 115 target and a
-      resolve-time choice differ in exactly the ways that matter for
-      hexproof/protection/fizzling, so modeling one as the other risks a
-      real rules bug, not just a missing feature.
+      two other) .*you control"`, re-run before starting):
+      - Guardians of Koilos ("another target **historic** permanent")/
+        Stockpiling Celebrant ("another target **nonland** permanent") —
+        `resolve_target_kind` doesn't recognize either qualifier combined
+        with "another…you control" at all (confirmed via direct check,
+        not just a `_RETURN_TO_HAND_KINDS` gap) — a real but small
+        `subgrammars.py` widening, not attempted this pass.
+      - Niambi, Esteemed Speaker ("if you do, you gain life equal to that
+        creature's mana value.") — the plain targeted return itself would
+        now parse (ninth increment), but its own "if you do" follow-up
+        names the just-returned creature's mana value, a referent this
+        engine has no baked-target-then-measure-it composition for on a
+        genuine RULE 115 target (the untargeted `previous_or_self`/
+        `create_delayed_trigger` baking mechanism the eighth increment
+        used doesn't apply here — there's no delay, and the target is
+        gone from the battlefield by the time "if you do" would read it).
+      - Meanders Guide ("you may tap another untapped merfolk you
+        control. when you do, return **target** creature card … from your
+        graveyard to the battlefield.") — an untargeted antecedent (the
+        seventh increment's own fix) but a *targeted* follow-up, which
+        `_may_effect_then` correctly declines (the same "no announced-
+        target step for an off-stack effect list" reasoning as everywhere
+        else in this family) — needs the same targeted-follow-up
+        composition as Niambi, not a widening of `_may_effect_then` itself.
+      - First Responder ("you may return another creature you control to
+        its owner's hand, **then** put a number of +1/+1 counters equal to
+        that creature's power on ~.") — untargeted antecedent, but "then"
+        (not "if you do") and a magnitude reading the just-returned
+        creature's *power* rather than gating on success at all; a
+        different composition shape, not part of either bucket above.
+      - Indoctrination Attendant's own antecedent ("return another
+        permanent you control…") already routes through the seventh
+        increment's fix as expected — confirmed via `parser_probe.py card`
+        that its real, sole blocker is instead the "if you do" token-
+        creation tail itself ("create a 1/1 … token with toxic 1 and
+        '~ can't block.'"), a compound "printed keyword count **and** a
+        quoted static ability" token-creation shape with no grammar of its
+        own yet — unrelated to this bucket, filed here only so a future
+        pass doesn't re-diagnose it as the same targeted-return gap.
   - **Needs an interactive mechanic this engine doesn't model at all** —
     Blufferfish's true/false bluffing guess, Smart Ass's hidden-information
     reveal-or-not, Gollum's card-guessing minigame. Out of a parser

@@ -1949,6 +1949,7 @@ EffectRegistry.register(
         then=p.get("then"),
         then_if_commander=p.get("then_if_commander"),
         player_selector=str(p.get("player_selector", "controller")),
+        require_untapped=bool(p.get("require_untapped", False)),
     ),
 )
 EffectRegistry.register(

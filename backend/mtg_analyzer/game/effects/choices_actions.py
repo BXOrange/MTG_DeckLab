@@ -937,6 +937,15 @@ class ChooseObjectsEffect(GameEffect):
     player exiles…": a ``STEP_BEGIN`` trigger scoped to "not you" only ever
     fires during an *opponent's* own upkeep, which is exactly whoever is
     active at firing time.
+
+    ``require_untapped=True`` (PAR-79 seventh increment — Gravelgill
+    Scoundrel/Tidal Terror's "you may tap another untapped creature you
+    control") narrows candidates to permanents that aren't already tapped;
+    combined with ``exclude_self`` this is the general "choose N of your
+    own untapped `<type>`s, excluding this permanent" shape "…another
+    untapped `<type>` you control"/"…`<N>` other untapped `<type>`s you
+    control" templates both need — no separate effect type, since
+    `_request_choose_objects`'s ``action="tap"`` already does the rest.
     """
 
     def __init__(
@@ -951,6 +960,7 @@ class ChooseObjectsEffect(GameEffect):
         then_if_commander: Optional[list[dict[str, Any]]] = None,
         source: Optional["GameObject"] = None,
         player_selector: str = "controller",
+        require_untapped: bool = False,
     ) -> None:
         super().__init__(source)
         self.action = action
@@ -962,6 +972,13 @@ class ChooseObjectsEffect(GameEffect):
         self.then = then
         self.then_if_commander = then_if_commander
         self.player_selector = player_selector
+        #: "…tap another untapped creature you control." (Gravelgill
+        #: Scoundrel/Tidal Terror, PAR-79 seventh increment) — narrows the
+        #: candidate pool to permanents that are currently untapped, the
+        #: same qualifier a RULE 115 target's `creature_filter={"tapped":
+        #: False}` would apply, but this chooser has no such filter param
+        #: of its own since no prior card needed one.
+        self.require_untapped = require_untapped
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..rules_engine import _matches_permanent_type
@@ -977,6 +994,7 @@ class ChooseObjectsEffect(GameEffect):
             for obj in context.state.permanents_controlled_by(player.id)
             if _matches_permanent_type(obj, self.what)
             and not (self.exclude_self and obj is self.source)
+            and not (self.require_untapped and obj.tapped)
         ]
         context.choose_objects(
             player, candidates, self.action, count=self.count,

@@ -506,8 +506,90 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 45.46% (15,824 / 34,811) as of 2026-09-16, measured at
-PARSER_VERSION 409** (v409 is a real bug fix, +0/+0 coverage — auditing
+**Coverage: 45.52% (15,846 / 34,811) as of 2026-09-16, measured at
+PARSER_VERSION 412** (v412 is PAR-79's ninth increment: "return another
+target creature you control to its owner's hand" (Deputy of Acquittals/
+Jeskai Barricade) — `other_creature_you_control` (RULE 109.5, built for
+Giver of Runes) was already whitelisted in `targeting.ALLOWED_TARGET_
+KINDS` and already resolved by `resolve_target_kind`; `_return_to_hand`'s
+own closed `_RETURN_TO_HAND_KINDS` set had just never been widened to
+accept it — a one-line fix, the same "existing primitive, missing
+widening" shape this file's history keeps rediscovering. +5 (2 SOLO
+targets, 3 bonus — Aegis Automaton/Flock Impostor/Prehistoric Pet), zero
+regressed. Guardians of Koilos ("another target **historic** permanent")
+and Stockpiling Celebrant ("another target **nonland** permanent")
+deliberately stay open: `resolve_target_kind` doesn't recognize either
+qualifier combined with "another…you control" at all yet (confirmed via
+direct check, not just the `_RETURN_TO_HAND_KINDS` gap this increment
+closed) — a separate, smaller grammar widening, not attempted this pass.
+v411 is PAR-79's eighth increment: the Alora,
+Cheerful `<X>` cycle's own "at the beginning of the next end step, return
+that creature to its owner's hand[. if you do, `<effect>`]." —
+`catalogue.handlers._DELAYED_SAC_EXILE_WHEN_FIRST_RE` (already shipped for
+the sacrifice/exile "when-first" siblings, MEC-52) widened with a "return"
+verb branch and an optional "if you do" tail collapsed into the *same*
+`create_delayed_trigger`'s own effects list, plus a new `segmenter.
+_PREFIXED_DELAYED_SAC_EXILE_RE` dispatch so an unrelated earlier sentence
+(Alora's own "up to 1 target attacking creature can't be blocked this
+turn.") in front of the delayed clause doesn't block it — every existing
+"certain antecedent, if-you-do collapses to a plain sequence" reduction in
+this family (`_SACRIFICE_THEN_WHEN_YOU_DO_RE` et al.) assumed the
+collapse *is* the whole ability body, which Alora's own three-sentence
+shape breaks. No new engine primitive: `create_delayed_trigger`'s
+`capture="previous_or_self"` already bakes RULE 608.2's "that creature"
+referent onto every inner effect it builds (including a follow-up one),
+so the "if you do" tail just needed to reach the same effects list rather
+than open a second, independently-timed delayed trigger. Closes Alora,
+Cheerful Assassin/Mastermind/Swashbuckler and Alora, Rogue Companion (+4,
+zero regressed, `pytest -q` full suite) — see
+[test_par79_unblockable_family.py](backend/tests/test_par79_unblockable_family.py).
+Alora, Cheerful Scout/Thief stay UNMODELED: their own "if you do" tails
+name "it"/"that creature" *again* ("it perpetually gets +1/+1"), a second
+pronoun reference this recursive parse has no way to resolve against the
+same baked referent (a `PumpEffect` built with no target at all would be
+worse than unclaimed) — real, separately-scoped residue, not attempted
+this pass.
+v410 is PAR-79's seventh increment: "return
+another/`<N>` other `<type>`[s] you control to its owner's hand"/"tap
+another/`<N>` other untapped `<type>`[s] you control" as ordinary RULE
+608.2c resolve-time-choice effect bodies (neither has a "target" word, so
+there's no RULE 115 fizzle risk to worry about modeling one as a target)
+— no new engine primitive, since the pre-existing `ChooseObjectsEffect`/
+`"choose_objects"` chooser (`RulesEngine._request_choose_objects`, already
+this project's general "which one of my own permanents" picker — Tevesh
+Szat's sacrifice, Cloudstone Curio's bounce) only needed a `require_
+untapped` filter param it didn't have yet. Combined with the sixth
+increment's `_may_effect_then` ("You may `<effect>`. If you do,
+`<effect2>`.") this closes that handler's own three named motivating
+cards — Biblioplex Kraken/Gravelgill Scoundrel/Tidal Terror — which, despite
+being its explicit examples, still hadn't parsed even once it shipped: a
+**dormant bug**, found while diagnosing why. `segmenter._peel_optional`'s
+guard against premature "you may " stripping (`_PAY_ENERGY_THEN_PEEL_
+GUARD_RE`) was scoped only to `_MAY_COST_THEN_CLAUSE`'s cost vocabulary
+(protecting `pay_cost_then_general`'s own claim), so it stripped these
+three cards' leading "you may " — and the reflexive "if you do" gate
+along with it — before `_may_effect_then`'s own regex, which requires
+that exact prefix, ever got a chance to match; every non-cost antecedent
+`_may_effect_then` was built for has silently failed this way since the
+sixth increment shipped. Fixed by widening the guard's antecedent
+*vocabulary* (mirroring how it already lists `_MAY_COST_THEN_CLAUSE`), not
+its shape: a first attempt that widened the guard's *shape* to match any
+"you may `<X>`. if/when you do" clause regressed 11 unrelated cards
+(Chaos Spewer/Hikari, Twilight Guardian/Sunfire Torch/Yawgmoth Demon &c.)
+whose own "certain, self-referential antecedent" reduction handlers
+(`_SACRIFICE_THEN_WHEN_YOU_DO_RE`/`_EXILE_SELF_THEN_DELAYED_RETURN_RE`/
+`_EARTHBEND_THEN_WHEN_YOU_DO_RE`/`_DISCARD_THEN_IF_YOU_DO_RE`) specifically
+*depend* on that same peel — the two families are deliberately disjoint,
+not one shape to generalize. +13 (the 3 SOLO targets plus 10 bonus cards
+sharing the same antecedent grammar outside PAR-79's own search phrase —
+Ambrosia Whiteheart/Ambush Krotiq/Aviary Mechanic/Civil Servant [+ its
+Alchemy reprint]/Havengul Skaab/Invasive Species/Loyal Gryff/Rescuer
+Chwinga/Yarok's Wavecrasher), zero regressed (`pytest -q`, full suite) —
+see [test_par79_unblockable_family.py](backend/tests/test_par79_unblockable_family.py).
+46 SOLO cards remain open on PAR-79's own search phrase at PARSER_VERSION
+411, each its own separately-shaped residue — see `BACKLOG.md`'s PAR-79
+entry.
+v409 is a real bug fix, +0/+0 coverage — auditing
 v408's consolidation one layer down found `subgrammars._TARGET_ROWS`'s
 "target attacking/blocking/tapped/untapped creature" row collapses onto the
 bare "creature" kind by design, but nothing preserved the discarded word
@@ -1100,7 +1182,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 47.76% (15,201 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 47.80% (15,213 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

@@ -3135,7 +3135,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: wiring. 87 real MODELED-but-wrong cards fixed, 0 coverage change (all 87
 #: were already MODELED — this corrects the emitted spec, not the
 #: MODELED/UNMODELED verdict), 0 regressed (`parser_probe.py diff`).
-PARSER_VERSION = "409"
+PARSER_VERSION = "412"
 
 
 def parser_source_hash() -> str:

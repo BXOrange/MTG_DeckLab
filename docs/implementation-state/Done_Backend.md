@@ -2651,8 +2651,215 @@ is in the rules-engine categories below them.
     this an *indefinite sweep*, not a batch with an end date) — closing it
     to zero SOLO is not one sitting's work, and each further increment
     should keep citing the real, re-verified count rather than a stale one.
-- **Verification:** `tests/test_par79_unblockable_family.py` (49 tests),
-  `tests/test_par79_discard_cycle_triggers.py` (10 tests), and
+  - **Seventh increment (PARSER_VERSION 410, +13, zero regressed)** closes
+    the *untargeted* half of the "you may return/tap another `<X>` you
+    control" family the sixth increment sized but deliberately didn't
+    build: "return another/`<N>` other `<type>`[s] you control to its
+    owner's hand" / "tap another/`<N>` other untapped `<type>`[s] you
+    control" as ordinary RULE 608.2c resolve-time effect bodies
+    (`_return_another_you_control`/`_tap_another_untapped_you_control`,
+    `handlers.py`). No new engine primitive after all — the sixth
+    increment's own worry ("this engine's `TargetSpec`/`resolve_target_
+    kind` machinery has no untargeted-choice kind to route it through
+    yet") turned out to be looking in the wrong place: `ChooseObjectsEffect`/
+    `"choose_objects"` (`RulesEngine._request_choose_objects`) already *is*
+    that untargeted RULE 608.2c chooser — it's what Tevesh Szat's "you may
+    sacrifice another creature or planeswalker" and Cloudstone Curio's
+    bounce already route through, `exclude_self` already existed for the
+    "another"/"other" exclusion, and the only genuinely missing piece was
+    a `require_untapped` filter param (`ChooseObjectsEffect`/
+    `choices_actions.py`, `registry.py`'s `"choose_objects"` factory) for
+    the "untapped" qualifier. Once these two clauses parse as an ordinary
+    (non-targeted) effect body, the sixth increment's own `_may_effect_then`
+    picks them up with no changes of its own — it already rejects only a
+    *targeted* antecedent, and neither of these is one.
+    - This combination should have already closed the sixth increment's
+      own three named motivating cards (Biblioplex Kraken/Gravelgill
+      Scoundrel/Tidal Terror — `_may_effect_then`'s own docstring cites
+      them by name) the moment it shipped, but none of the three had
+      actually parsed. The real cause was a **dormant bug**, found while
+      diagnosing why: `segmenter._peel_optional` strips a triggered
+      ability's leading "you may " (marking the whole `AbilitySpec`
+      optional) *before* `parse_effect_body` — and therefore
+      `_may_effect_then` — ever sees the clause, guarded only by
+      `_PAY_ENERGY_THEN_PEEL_GUARD_RE`, which was scoped exclusively to
+      `_MAY_COST_THEN_CLAUSE`'s cost vocabulary (mana/sacrifice/discard/
+      life/…) so it could protect `pay_cost_then_general`'s own claim.
+      Every non-cost antecedent `_may_effect_then` was built for — the
+      exact "return/tap another `<X>` you control" shape this increment
+      adds recognition for — fell straight through that gap: the leading
+      "you may " was peeled, the trailing "if you do, `<effect2>`" reflexive
+      gate was silently orphaned as an unparseable fragment, and the whole
+      clause failed rather than half-modeling anything (the fail-closed
+      gate working as designed, just one layer removed from the actual
+      cause). Fixed by widening the guard's antecedent *vocabulary* — a new
+      `handlers._MAY_EFFECT_THEN_ANTECEDENT_PHRASES`, exported the same way
+      `_MAY_COST_THEN_CLAUSE` already is "so this guard can never drift out
+      of sync" — not its *shape*. A first attempt generalized the guard to
+      match *any* "you may `<X>`. if/when you do" clause and regressed 11
+      unrelated cards (Chaos Spewer, Gutsplitter Gang, Hikari, Twilight
+      Guardian, Mortal Obstinacy, Spare Dagger, Sunfire Torch, The Falcon,
+      Airship Restored, Throwing Knife, Yawgmoth Demon, Flamespeaker's
+      Will, Flaxen Intruder // Welcome Home): a *second*, deliberately
+      disjoint family of handlers (`_SACRIFICE_THEN_WHEN_YOU_DO_RE`/
+      `_EXILE_SELF_THEN_DELAYED_RETURN_RE`/`_EARTHBEND_THEN_WHEN_YOU_DO_RE`/
+      `_DISCARD_THEN_IF_YOU_DO_RE`) specifically *depends* on a bare,
+      certain, self-referential antecedent ("sacrifice ~"/"exile it"/
+      "earthbend N"/"discard a card") being peeled — RULE 603.3's "if you
+      do" reduces to a plain unconditional sequence for those, and they run
+      only after the peel, not instead of it. Reverted to the narrower,
+      explicit-vocabulary shape once this was diagnosed (`pytest -q`
+      confirmed all 11 restored, `parser_probe.py diff` confirmed 0 new
+      regressions).
+    - +13 total (`parser_probe.py diff`): the 3 SOLO targets plus 10 bonus
+      cards sharing the same antecedent grammar outside this ticket's own
+      search phrase (Ambrosia Whiteheart, Ambush Krotiq, Aviary Mechanic,
+      Civil Servant + its Alchemy reprint A-Civil Servant, Havengul Skaab,
+      Invasive Species, Loyal Gryff, Rescuer Chwinga, Yarok's Wavecrasher)
+      — several print the mandatory (no "you may") form, which the same
+      `choose_objects` spec models directly with no `optional` wrapper.
+    - **Real residue after this increment — 50 SOLO cards confirmed at
+      PARSER_VERSION 410.** The *targeted* sibling of this increment's own
+      fix — "return/tap **another target** `<X>` you control" (Deputy of
+      Acquittals, Guardians of Koilos, Jeskai Barricade, Niambi, Esteemed
+      Speaker, Stockpiling Celebrant, +2 compound-tail cards) — is a
+      genuine RULE 115 target this engine currently has no way to resolve
+      off-stack inside `_may_effect_then`'s composition, and stays
+      deliberately unbuilt rather than rushed into this same fix (8 SOLO
+      cards, `parser_probe.py blocked "you may (return|tap) (another|2
+      other|two other) .*you control"` — see `BACKLOG.md`'s PAR-79 entry
+      for the categorized breakdown).
+  - **Eighth increment (PARSER_VERSION 411, +4, zero regressed)** closes
+    4 of the 6-card Alora, Cheerful `<X>` cycle: "whenever you attack, up
+    to 1 target attacking creature can't be blocked this turn. at the
+    beginning of the next end step, return that creature to its owner's
+    hand[. if you do, `<effect>`]." Two separate gaps, not one:
+    - `catalogue.handlers._DELAYED_SAC_EXILE_WHEN_FIRST_RE` (MEC-52's
+      "when-first" sibling of `_DELAYED_SAC_EXILE_TAIL_RE` — "at the
+      beginning of the next end step, sacrifice/exile `<it>`") had no
+      "return" verb branch at all (only the *tail*-ordered regex did), and
+      neither "when-first" nor "tail" form had any "if you do, `<effect>`"
+      continuation. Both closed together: a `verb_return`/`obj_return`
+      branch mirroring the tail form's own "return `<it>` to `<its owner's
+      /your>` hand" phrasing, plus an optional trailing `(?:if|when) you
+      do,\s*(?P<after>.+)` group whose recursively-parsed specs are
+      *appended to the same delayed trigger's own `effects` list* — not
+      opened as a second, independently-timed delayed trigger — since RULE
+      603.3's "if you do" here is trivially true whenever the antecedent
+      applies at all (unlike `_SACRIFICE_THEN_WHEN_YOU_DO_RE`'s own
+      "certain, so simplify" collapse, there's no "may" to make this one an
+      approximation: `ReturnSpecificToHandEffect`'s existing "skip if it
+      already left the battlefield" no-op is the only case the antecedent
+      doesn't apply, and this ability then correctly does nothing further
+      either). No new engine primitive: `CreateDelayedTriggerEffect`'s
+      existing `capture="previous_or_self"` already bakes RULE 608.2's
+      referent onto *every* inner effect it builds that exposes `.objects`/
+      `.target` — a follow-up effect just needed to reach that same
+      baked-effects list. A targeted follow-up is rejected the same way
+      `_may_effect_then` rejects one (no announced-target step this
+      off-stack list can give it).
+    - Even with that in place, none of the four cards actually parsed,
+      because Alora's own first sentence ("up to 1 target attacking
+      creature can't be blocked this turn.") sits *in front of* the
+      delayed clause — every existing "certain antecedent, if-you-do
+      collapses" row in this family (`_SACRIFICE_THEN_WHEN_YOU_DO_RE`/
+      `_EXILE_SELF_THEN_DELAYED_RETURN_RE`/`_EARTHBEND_THEN_WHEN_YOU_DO_RE`/
+      `_DISCARD_THEN_IF_YOU_DO_RE`) is anchored at the very start of
+      `parse_effect_body`'s own `body`, because every real card using them
+      prints the collapse as the *entire* ability. `parse_effect_body`'s
+      generic connector-split loop splits `body` on every period before
+      any of those rows gets a second look, which would have cut Alora's
+      "at the beginning of…hand." and "if you do, `<effect>`." into two
+      independent parts before either handler ever saw them joined — the
+      exact failure mode PAR-79's seventh increment hit for a different
+      reason (`_peel_optional`). Fixed with a new `segmenter._PREFIXED_
+      DELAYED_SAC_EXILE_RE` dispatch, tried before the connector split:
+      finds the delayed clause wherever it sits in `body`, recursively
+      parses whatever precedes it, and concatenates the two spec lists —
+      deliberately *not* a widening of any of the anchored rows above (none
+      of their own real cards need a prefix; only this shape does).
+    - +4 (`parser_probe.py diff`, zero regressed): Alora, Cheerful
+      Assassin/Mastermind/Swashbuckler/Rogue Companion. Alora, Cheerful
+      Scout ("if you do, it perpetually gets +1/+1") and Cheerful Thief
+      ("if you do, a creature of your choice an opponent controls
+      perpetually gets -1/-0") stay UNMODELED on purpose: the "after" tail
+      is parsed with no `previous_subject` propagation (deliberately — the
+      captured referent lives in `GameContext.previous_targets` only at
+      the *outer* resolution's arm time, not when the delayed trigger
+      later fires, so re-reading it inside the recursive parse would be
+      wrong even if plumbed through), so a pronoun naming "it" again, or a
+      fresh untargeted opponent-choice pick, isn't reachable through this
+      fix — real, separately-scoped residue. Wings of Hubris/Goblin
+      Sappers' own *tail*-form "…at end of combat, sacrifice/destroy
+      `<permanent>`" on an activated ability, preceded by their own
+      unblockable-grant sentence, has no equivalent prefix-dispatch yet
+      (`_PREFIXED_DELAYED_SAC_EXILE_RE` only reaches the when-first form)
+      — confirmed still UNMODELED, a separate widening. (Investigated but
+      not built this pass: each turned out to need its own distinct
+      mechanism rather than sharing one — Wings of Hubris's own "it" would
+      have to mean the *attached* creature, which `create_delayed_trigger`
+      has no `capture` kind for at all, since its only fallback for an
+      empty `previous_targets` is the ability's own source, not whatever
+      it's attached to; Goblin Sappers' first ability destroys **two**
+      objects at once ("destroy it and ~"), a compound `_DELAYED_TAIL_
+      INNER` entries don't express, while its second ability already
+      parses fine on the existing single-object tail form.)
+  - **Ninth increment (PARSER_VERSION 412, +5, zero regressed)** closes
+    "return another target creature you control to its owner's hand"
+    (Deputy of Acquittals, Jeskai Barricade). `other_creature_you_control`
+    (RULE 109.5, `targeting.ALLOWED_TARGET_KINDS`, built for Giver of
+    Runes) was already resolved by `resolve_target_kind` — `handlers.
+    _return_to_hand`'s own closed `_RETURN_TO_HAND_KINDS` whitelist had
+    simply never been widened to accept it, confirmed via `parser_probe.py
+    clause`'s "consumed 62/63" near-miss. A one-line fix (the same
+    `_return_to_library` handler reuses the identical set, so it widens
+    for free too), no new engine primitive, no new regex. +5
+    (`parser_probe.py diff`): the 2 SOLO targets plus 3 bonus cards
+    elsewhere in the cache (Aegis Automaton, Flock Impostor, Prehistoric
+    Pet). This is a genuinely different residue from the seventh
+    increment's own "return/tap **another** `<X>` you control" family —
+    that one is RULE 608.2c's *untargeted* resolve-time choice (no
+    "target" word, `ChooseObjectsEffect`); this one has the word "target"
+    right there in the clause, a plain RULE 115 pick the shared `TARGET`
+    grammar already produces, just never reached this one handler's own
+    kind list.
+    - **Real residue — the same 8-card cluster BACKLOG.md's PAR-79 entry
+      already sized turns out to split into (at least) four independently-
+      scoped pieces, not one, once the plain form closed**: Guardians of
+      Koilos/Stockpiling Celebrant need `resolve_target_kind` to recognize
+      "historic"/"nonland" combined with "another…you control" at all
+      (confirmed it currently returns `None` for both, a smaller grammar
+      gap one layer below this increment's own fix); Niambi, Esteemed
+      Speaker and Meanders Guide each need a genuinely new "targeted
+      antecedent, then a further RULE 115-targeted (Meanders Guide) or
+      target-attribute-reading (Niambi's "that creature's mana value")
+      follow-up" composition this engine has nothing close to yet (unlike
+      the untargeted seventh/eighth increments' `previous_or_self`/
+      `ChooseObjectsEffect` baking, a genuine target the caster announced
+      can't be silently re-read after the ability already resolved without
+      its own design); First Responder needs a "then" (not "if you do")
+      sequencing plus a magnitude reading the just-returned creature's
+      *power*, a third distinct shape. Indoctrination Attendant's own
+      antecedent already routes through the seventh increment's fix as
+      expected — `parser_probe.py card` confirms its real, sole blocker is
+      an unrelated token-creation grammar gap ("create a … token with
+      toxic 1 **and** a quoted static ability" — no printed-keyword-count-
+      plus-quoted-ability token shape exists yet), not this bucket at all.
+      See `BACKLOG.md`'s PAR-79 entry for the full breakdown.
+- **Verification:** `tests/test_par79_unblockable_family.py` (68 tests, the
+  seventh increment's own 9 covering parse, the `require_untapped`/
+  `exclude_self` execute paths, the segmenter-level peel-guard fix *and*
+  its own non-regression case, and an end-to-end `parse_oracle` check for
+  all three real cards; the eighth increment's own 8 covering the "return"
+  verb + "if you do" parse (with adversarial unparseable/targeted-follow-up
+  cases that must stay unclaimed), the prefixed-dispatch segmenter test,
+  all four real cards end-to-end, Scout's own non-closure as an explicit
+  regression guard, and an execute test firing the delayed trigger to
+  confirm *both* the bounce and the follow-up life loss actually happen;
+  the ninth increment's own 3 covering the bare parse, the "up to N other"
+  optional/count form, and both real cards end-to-end),
+  `tests/test_par79_discard_cycle_triggers.py`
+  (10 tests), and
   `tests/test_par79_trigger_conditions.py` (24 tests), all
   passing — parse-level coverage of every increment's shapes including
   several adversarial cases (an unrecognized subtype word, the "1/1

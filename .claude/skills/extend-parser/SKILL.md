@@ -124,10 +124,13 @@ python -m pytest -q                       # whole suite, fast, keep it green
       rows). Hand-authoring alone needs no bump.
 - [ ] **Authoritative measurement**: `python scripts/coverage_report.py --top 40`
       (ledger-backed — the probe is not a substitute for this).
-- [ ] **Sync the number in all three places**, they drift:
+- [ ] **Sync the number in four places**, they drift:
       `CLAUDE.md` ("Implementation state"), `docs/implementation-state/PARSER_LONG_TAIL.md`
-      ("Where coverage stands"), and `frontend/src/js/implementationStatusView.js`
-      (~line 364, `'Gesamtabdeckung Oracle-Parser (…)'`, German decimal comma).
+      ("Where coverage stands"), and both
+      `frontend/src/js/locales/content/status.de.js`/`status.en.js`
+      (`'Gesamtabdeckung Oracle-Parser (…)'`/`'Total oracle-parser coverage (…)'`
+      — German decimal comma; moved out of `implementationStatusView.js` itself
+      at some point, so grep for the string rather than trusting a line number).
 - [ ] **Backlog discipline**: closing a ticket = *deleting* it from
       `BACKLOG.md` and appending the narrative to `Done_Backend.md`. No `[x]`,
       no "shipped" note, no pointer left behind. If only part is done, keep

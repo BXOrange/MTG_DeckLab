@@ -30,6 +30,7 @@ from .catalogue.handlers import (
     _CYCLING_XX_TOKEN_RE,
     _cycling_xx_token,
     _MAY_COST_THEN_CLAUSE,
+    _MAY_EFFECT_THEN_ANTECEDENT_PHRASES,
     match_clause,
 )
 from .catalogue.keywords import ALIAS_DISPLAYS, KEYWORDS, KeywordShape
@@ -2190,6 +2191,22 @@ _DISCARD_THEN_IF_YOU_DO_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+#: PAR-79 eighth increment: a *preceding* sentence in front of
+#: `catalogue.handlers._DELAYED_SAC_EXILE_WHEN_FIRST_RE`'s own "at the
+#: beginning of the next end step, sacrifice/exile/return `<it>`[. if you
+#: do, `<effect>`]." shape (the Alora, Cheerful `<X>` cycle's own
+#: unblockable-target sentence ahead of the delayed return). Deliberately
+#: loose — it only has to find the split point; `match_clause` re-validates
+#: the ``delayed`` half against the real handler, so a wrong split just
+#: fails closed rather than misparsing anything. ``before`` is non-greedy
+#: so it stops at the *first* such delayed clause, matching how a real
+#: card only ever prints one.
+_PREFIXED_DELAYED_SAC_EXILE_RE = re.compile(
+    r"^(?P<before>.+?)\.\s*(?P<delayed>at the beginning of (?:the|your) next end step, "
+    r"(?:sacrifice|exile|return)\b.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
 #: PAR-18/ENG-33: "Exile [up to N] target <X> card from [a/your] graveyard.
 #: [If you do / If you exiled a card this way,] create a token that's a copy
 #: of **that card**[, except <tail>]." — the reanimator-token cycle (Ardyn,
@@ -3891,6 +3908,34 @@ def parse_effect_body(
         return _with_after_tail(
             before_specs, discard_then_if_you_do.group("after"), group_subject=group_subject,
         )
+
+    # PAR-79 eighth increment: a delayed sacrifice/exile/return clause
+    # (`handlers._DELAYED_SAC_EXILE_WHEN_FIRST_RE`) preceded by an unrelated
+    # earlier sentence of the *same* ability — the Alora, Cheerful `<X>`
+    # cycle's own "whenever you attack, up to 1 target attacking creature
+    # can't be blocked this turn. at the beginning of the next end step,
+    # return that creature to its owner's hand[. if you do, `<effect>`]."
+    # Every existing "certain antecedent" collapse above (`_SACRIFICE_THEN_
+    # WHEN_YOU_DO_RE` et al.) is anchored at the *start* of ``body`` because
+    # every real card using those shapes prints the collapse as the whole
+    # ability body — Alora's own first sentence (an ordinary RULE 115
+    # target pick, already claimed fine by `unblockable`) breaks that
+    # assumption, so this dispatch instead finds the delayed clause
+    # wherever it sits and recursively parses the leading sentence(s) in
+    # front of it, rather than widening any of the anchored checks above to
+    # a shape they were never meant to match.
+    prefixed_delayed = _PREFIXED_DELAYED_SAC_EXILE_RE.match(body)
+    if prefixed_delayed is not None:
+        before_specs = parse_effect_body(
+            prefixed_delayed.group("before"), self_subject=self_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
+        )
+        if before_specs is None:
+            return None
+        delayed_specs = match_clause(prefixed_delayed.group("delayed"))
+        if delayed_specs is None:
+            return None
+        return before_specs + delayed_specs
 
     exile_then_copy = _EXILE_THEN_COPY_SENTENCE_RE.match(body)
     if exile_then_copy is not None:
@@ -6309,17 +6354,40 @@ def segment_line(
 #: "you may pay {E}… . If/When you do, <effect>." (Aether Chaser) / "you
 #: may pay {1}. If you do, draw a card." (RULE 118.3's general
 #: `pay_cost_then` idiom, Spellbomb-cycle-shaped) / MEC-18's wider "you may
-#: sacrifice/discard/pay life `<X>`. When you do, `<effect>`." family — the
-#: "you may" here is the *cost-payment* decision `pay_energy_then`/
-#: `pay_cost_then` model with their own interactive choice, not a
-#: whole-ability "you may". Left un-peeled so the full clause reaches
-#: `parse_effect_body`'s own handler for either shape intact (otherwise the
-#: ability would be marked doubly-optional and the "if you do" gate lost).
-#: The non-energy alternatives are `catalogue.handlers._MAY_COST_THEN_
-#: CLAUSE` itself (not a hand-copied mirror of it) so this guard can never
-#: drift out of sync with what `pay_cost_then_general` actually claims.
+#: sacrifice/discard/pay life `<X>`. When you do, `<effect>`." family / PAR-79
+#: seventh increment's "you may return/tap another `<permanent>` you
+#: control. If you do, `<effect>`." (`handlers._may_effect_then`, via
+#: `handlers._MAY_EFFECT_THEN_ANTECEDENT_PHRASES`) — every one of these is a
+#: *conditioned-on-success* choice `pay_energy_then`/`pay_cost_then`/
+#: `optional`(`_may_effect_then`) model with their own interactive
+#: machinery, not a whole-ability "you may". Left un-peeled so the full
+#: clause reaches `parse_effect_body`'s own handler for whichever shape it
+#: is intact (otherwise the ability would be marked doubly-optional *and*
+#: the "if you do" gate lost outright — the trailing fragment "`<effect2>`"
+#: alone, with no antecedent in front of it, generally can't parse as a
+#: sensible effect on its own, so the whole clause silently fails instead
+#: of half-modeling it).
+#:
+#: Deliberately does **not** cover every "you may `<X>`. if/when you do,
+#: `<Y>`." shape — `_SACRIFICE_THEN_WHEN_YOU_DO_RE`/
+#: `_EXILE_SELF_THEN_DELAYED_RETURN_RE`/`_EARTHBEND_THEN_WHEN_YOU_DO_RE`/
+#: `_DISCARD_THEN_IF_YOU_DO_RE` (below) are the mirror-image case: a bare,
+#: *certain* self-referential antecedent ("sacrifice ~"/"exile it"/
+#: "earthbend N"/"discard a card") that RULE 603.3's "if you do" reduces to
+#: an unconditional sequence, and those handlers' own docstrings say so
+#: explicitly — they run only *after* `_peel_optional` has already stripped
+#: the leading "you may " and need that peel, not this guard, so widening
+#: this regex to catch every antecedent (tried and reverted) broke all four
+#: families (Chaos Spewer/Hikari, Twilight Guardian/Sunfire Torch/Yawgmoth
+#: Demon &c.) by preventing the very peel they depend on. This antecedent
+#: list must therefore only ever grow to cover a **new interactive**
+#: `pay_energy_then`/`pay_cost_then`/`_may_effect_then`-shaped handler, never
+#: widen to "any antecedent" — the two families are deliberately disjoint by
+#: design (`_pay_cost_then_general`'s own docstring on why its cost
+#: vocabulary excludes bare self-sacrifice).
 _PAY_ENERGY_THEN_PEEL_GUARD_RE = re.compile(
-    r"^you may (?:pay (?:\{e\})+|" + _MAY_COST_THEN_CLAUSE + r")\.\s*(?:if|when) you do",
+    r"^you may (?:pay (?:\{e\})+|" + _MAY_COST_THEN_CLAUSE + r"|"
+    + _MAY_EFFECT_THEN_ANTECEDENT_PHRASES + r")\.\s*(?:if|when) you do",
     re.IGNORECASE,
 )
 

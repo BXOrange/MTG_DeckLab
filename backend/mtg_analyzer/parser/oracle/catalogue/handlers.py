@@ -3607,8 +3607,18 @@ def _exile_self(m: re.Match[str]) -> list[EffectSpec]:
 #: reuses the shared `TARGET` grammar, so this claims both a genuine RULE 115
 #: target and the "a land you control" controller-restricted choice the same
 #: way; restricted to the shapes real bounce cards actually use.
+#: ``other_creature_you_control`` (PAR-79 ninth increment — Deputy of
+#: Acquittals/Jeskai Barricade's "you may return another target creature
+#: you control to its owner's hand") is RULE 109.5's "another target
+#: creature you control" — already whitelisted globally
+#: (`ALLOWED_TARGET_KINDS`, built for Giver of Runes) and already resolved
+#: by `resolve_target_kind`, just never added to this handler's own closed
+#: kind list before now.
 _RETURN_TO_HAND_KINDS: frozenset[str] = frozenset(
-    {"creature", "permanent", "nonland_permanent", "any", "creature_you_control", "land_you_control"}
+    {
+        "creature", "permanent", "nonland_permanent", "any", "creature_you_control",
+        "land_you_control", "other_creature_you_control",
+    }
 )
 
 
@@ -5841,6 +5851,69 @@ def _pay_cost_then_or_else(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "effects": [],
         "else_effects": [s.to_dict() for s in sub],
     })]
+
+
+#: PAR-79 seventh increment: "return another/`<N>` other `<type>`[s] you
+#: control to its/their owner's/owners' hand" (Biblioplex Kraken) and "tap
+#: another/`<N>` other untapped `<type>`[s] you control" (Gravelgill
+#: Scoundrel/Tidal Terror) as ordinary resolve-time effect bodies — RULE
+#: 608.2c's "the resolving effect itself makes this choice", not a RULE 115
+#: target (neither clause has the word "target", so there's no announced
+#: target to fizzle if the chosen creature becomes illegal between trigger
+#: and resolution, unlike modeling this as a `target_kind` pick would risk).
+#: No new engine primitive: `ChooseObjectsEffect`/`"choose_objects"`
+#: (`RulesEngine._request_choose_objects`, ``action="tap"``/
+#: ``"return_to_hand"``) already is this project's general "which one of my
+#: own permanents" chooser (Tevesh Szat's "sacrifice another creature or
+#: planeswalker", Cloudstone Curio's bounce) — ``exclude_self`` already
+#: existed for the "another"/"other" exclusion, and only
+#: ``require_untapped`` (this increment) was missing, for the "untapped"
+#: qualifier "tap another untapped creature" needs. Once these parse as an
+#: ordinary (non-targeted) effect body, `_may_effect_then` right below
+#: (the sixth increment's "You may `<effect>`. If you do, `<effect2>`."
+#: wrapper) picks them up with no changes of its own — it already rejects
+#: only a *targeted* antecedent, and neither of these is one.
+_RETURN_ANOTHER_YOU_CONTROL_RE = _c(
+    r"return (?:another|(?P<n>\d+) other) (?P<type>[a-z]+?)s? you control "
+    r"to (?:its owner's|their owners') hand"
+)
+
+
+def _return_another_you_control(m: re.Match[str]) -> list[EffectSpec]:
+    count = int(m.group("n")) if m.group("n") else 1
+    return [EffectSpec("choose_objects", {
+        "action": "return_to_hand", "what": m.group("type"),
+        "count": count, "exclude_self": True,
+    })]
+
+
+_TAP_ANOTHER_UNTAPPED_YOU_CONTROL_RE = _c(
+    r"tap (?:another|(?P<n>\d+) other) untapped (?P<type>[a-z]+?)s? you control"
+)
+
+
+def _tap_another_untapped_you_control(m: re.Match[str]) -> list[EffectSpec]:
+    count = int(m.group("n")) if m.group("n") else 1
+    return [EffectSpec("choose_objects", {
+        "action": "tap", "what": m.group("type"),
+        "count": count, "exclude_self": True, "require_untapped": True,
+    })]
+
+
+#: Exported so `segmenter._PAY_ENERGY_THEN_PEEL_GUARD_RE` can protect these
+#: two antecedent shapes from `_peel_optional` the same way it already
+#: protects `_MAY_COST_THEN_CLAUSE` (same "so this guard can never drift
+#: out of sync" reasoning that constant's own docstring gives). A plain
+#: (non-capturing) mirror of `_RETURN_ANOTHER_YOU_CONTROL_RE`/
+#: `_TAP_ANOTHER_UNTAPPED_YOU_CONTROL_RE` rather than their own
+#: ``.pattern`` — both use the same group names (``n``/``type``), and the
+#: guard embeds this alongside `_MAY_COST_THEN_CLAUSE` in one compiled
+#: regex, where a repeated group name is a `re.error`, not just a style
+#: nit.
+_MAY_EFFECT_THEN_ANTECEDENT_PHRASES = (
+    r"return (?:another|\d+ other) [a-z]+?s? you control to (?:its owner's|their owners') hand"
+    r"|tap (?:another|\d+ other) untapped [a-z]+?s? you control"
+)
 
 
 #: PAR-79 sixth increment: "You may `<effect>`. If you do, `<effect2>`."
@@ -10462,21 +10535,55 @@ def _delayed_sac_exile_tail(m: re.Match[str]) -> list[EffectSpec]:
 
 
 #: The *when-first* sibling of `_DELAYED_SAC_EXILE_TAIL_RE` — "At the
-#: beginning of the next end step, sacrifice/exile `<it>`[ unless `<X>`]."
-#: (Apprentice Necromancer, Momo's Heist, Skirk Alarmist, The Beamtown
-#: Bullies, Sauron the Necromancer — MEC-52). Same `previous_or_self`
-#: capture and inner effect as the tail form; the optional trailing "unless
-#: ~ is your Ring-bearer" rider (RULE 603.4 intervening-if — Sauron only) is
-#: threaded as `create_delayed_trigger`'s new whitelisted ``condition``
-#: param (`_ALLOWED_CONDITION_KEYS["is_ring_bearer"]`, ``False`` = "…unless").
+#: beginning of the next end step, sacrifice/exile/return `<it>`[ unless
+#: `<X>`][. If you do, `<effect>`.]" (Apprentice Necromancer, Momo's Heist,
+#: Skirk Alarmist, The Beamtown Bullies, Sauron the Necromancer — MEC-52;
+#: the "return" branch and the trailing "if you do" — PAR-79 eighth
+#: increment — add the Alora cycle, Ilharg/Zara's own "when-first" phrasing
+#: sibling). Same `previous_or_self` capture and inner effect as the tail
+#: form; the optional trailing "unless ~ is your Ring-bearer" rider (RULE
+#: 603.4 intervening-if — Sauron only) is threaded as `create_delayed_
+#: trigger`'s new whitelisted ``condition`` param
+#: (`_ALLOWED_CONDITION_KEYS["is_ring_bearer"]`, ``False`` = "…unless").
 #: Other "unless" riders on this shape (Satya "unless you pay {E}…",
 #: Tilonalli's Summoner "unless you have the city's blessing") are a
 #: pay-cost / designation check this doesn't model — they stay fail-closed.
+#:
+#: RULE 603.3's "if you do" here is the *delayed ability's own* reflexive
+#: trigger, not `_may_effect_then`'s "you may" gate — nothing about this
+#: shape makes the antecedent optional at all (there's no "may"; sacrifice/
+#: exile/return happens unconditionally once the delayed ability fires), so
+#: unlike `_SACRIFICE_THEN_WHEN_YOU_DO_RE`'s "certain, so collapse" idiom
+#: this isn't a simplification — RULE 603.3's "if you do" is trivially true
+#: whenever the antecedent could apply at all (`ReturnSpecificToHandEffect`/
+#: `SacrificeSpecificEffect`'s own "skip if it already left the battlefield"
+#: no-op is the one case it doesn't, and this ability then correctly does
+#: nothing further either). The recursively-parsed "after" tail is appended
+#: to the *same* delayed trigger's ``effects`` list rather than opened as a
+#: second delayed trigger of its own, so both run off the one `DelayedTrigger`
+#: this ability arms — correct RULE 608.2/603.7 sequencing (the follow-up
+#: never fires as a separate, independently-timed trigger). No `previous_
+#: subject` propagation into the "after" parse: `CreateDelayedTriggerEffect`'s
+#: own ``capture="previous_or_self"`` bakes the referent directly onto every
+#: inner effect exposing ``.objects``/``.target`` *at arm time* (this
+#: resolution's `GameContext.previous_targets`), not read again when the
+#: delayed ability fires — by then `previous_targets` could hold anything
+#: (a wholly unrelated later resolution's targets) or nothing, so an "if you
+#: do" tail naming "it" again (Alora, Cheerful Scout's "it perpetually gets
+#: +1/+1") isn't reachable through this recursive parse and stays fail-closed
+#: (a `.target`-bearing effect built with no target set is worse than
+#: UNMODELED) — real, separately-scoped residue, not attempted here.
 _DELAYED_SAC_EXILE_WHEN_FIRST_RE = _c(
     r"at the beginning of (?:the|your) next end step, "
+    r"(?:"
     r"(?P<verb>sacrifice|exile) "
     r"(?P<obj>it|that creature|that token|that permanent|that artifact|that vehicle|those tokens|the tokens?)"
+    r"|(?P<verb_return>return) "
+    r"(?P<obj_return>it|that creature|that token|that permanent) to "
+    r"(?:your|its owner'?s) hand"
+    r")"
     r"(?P<unless> unless ~ is your ring-bearer)?"
+    r"(?:\.\s*(?:if|when) you do,\s*(?P<after>.+))?"
 )
 
 #: Object phrases that can only mean "the token(s) an earlier clause of this
@@ -10489,9 +10596,29 @@ _DELAYED_TAIL_TOKEN_SUBJECTS: frozenset[str] = frozenset(
 )
 
 
-def _delayed_sac_exile_when_first(m: re.Match[str]) -> list[EffectSpec]:
-    inner = _DELAYED_TAIL_INNER[m.group("verb").lower()]
-    obj = (m.groupdict().get("obj") or "").strip().lower()
+def _delayed_sac_exile_when_first(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
+
+    verb = (m.groupdict().get("verb") or m.groupdict().get("verb_return") or "").lower()
+    inner = _DELAYED_TAIL_INNER[verb]
+    obj = (m.groupdict().get("obj") or m.groupdict().get("obj_return") or "").strip().lower()
+    effects_list: list[dict] = [{"type": inner, "params": {}}]
+    after = (m.groupdict().get("after") or "").strip()
+    if after:
+        # No `previous_subject`/`self_subject` here on purpose — see this
+        # regex's own docstring on why a pronoun naming "it"/"that creature"
+        # again can't be resolved through this recursive parse and must
+        # fail closed instead of guessing.
+        after_specs = parse_effect_body(after)
+        if after_specs is None:
+            return None  # fail closed — the "if you do" follow-up isn't modeled
+        if any(s.params.get("target_kind") for s in after_specs):
+            # A genuine RULE 115 target needs its own announced-target step
+            # (same reasoning `_may_effect_then` rejects one for) — this
+            # delayed trigger's effects resolve off-stack with no
+            # target-gathering of their own.
+            return None
+        effects_list.extend(s.to_dict() for s in after_specs)
     params: dict = {
         "step": "end",
         "scope": "any",
@@ -10499,7 +10626,7 @@ def _delayed_sac_exile_when_first(m: re.Match[str]) -> list[EffectSpec]:
             "created_objects" if obj in _DELAYED_TAIL_TOKEN_SUBJECTS
             else "previous_or_self"
         ),
-        "effects": [{"type": inner, "params": {}}],
+        "effects": effects_list,
     }
     if m.groupdict().get("unless"):
         # "…unless ~ is your Ring-bearer" — the delayed ability doesn't
@@ -13426,6 +13553,20 @@ HANDLERS: list[EffectHandler] = [
         "pay_cost_then_or_else",
         _PAY_COST_THEN_OR_ELSE_RE,
         _pay_cost_then_or_else,
+    ),
+    # PAR-79 seventh increment: "return another/<N> other <type>[s] you
+    # control to its/their owner's/owners' hand" / "tap another/<N> other
+    # untapped <type>[s] you control" as ordinary resolve-time effect
+    # bodies — feeds `may_effect_then` right below automatically.
+    EffectHandler(
+        "return_another_you_control",
+        _RETURN_ANOTHER_YOU_CONTROL_RE,
+        _return_another_you_control,
+    ),
+    EffectHandler(
+        "tap_another_untapped_you_control",
+        _TAP_ANOTHER_UNTAPPED_YOU_CONTROL_RE,
+        _tap_another_untapped_you_control,
     ),
     # PAR-79 sixth increment: "You may <effect>. If you do, <effect2>." with
     # a resolving-effect antecedent rather than a cost — tried after both
