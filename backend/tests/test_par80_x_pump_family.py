@@ -135,11 +135,12 @@ def test_selector_phrase_life_gained_two_clause_body_parses():
 
 
 def test_unrecognized_selector_phrase_stays_unclaimed():
-    # "the greatest mana value among permanents you control" isn't in the
-    # closed phrase table — must fail closed, not guess a selector.
+    # A referent in neither this file's own closed selector table nor the
+    # second increment's amount-phrase table (test_par80_pump_amount_family.py)
+    # must still fail closed rather than guess.
     assert parse_effect_body(
         "target creature gets +x/+x until end of turn, where x is the "
-        "greatest mana value among permanents you control."
+        "greatest toughness among creatures you control."
     ) is None
 
 

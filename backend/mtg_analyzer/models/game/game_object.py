@@ -645,6 +645,15 @@ class GameObject:
         #: can't find, the same "dead reference is harmless" contract
         #: `linked_exile_id`'s own `imprinted_card_colors` reader uses.
         self.exiled_with_ids: list[int] = []
+        #: PAR-80: the reveal-choice sibling of `exiled_with_ids` just
+        #: above — "reveal any number of `<X>` cards in your hand" (Ivy
+        #: Seer, Scent of Ivy) accumulates each pick's instance id here
+        #: (`_apply_chosen_object`'s ``"reveal"`` action) rather than moving
+        #: it anywhere; read back only for its length, by the
+        #: ``"revealed_with_count"`` count_selector. Cleared at the start of
+        #: each `RevealAnyNumberHandCardsEffect.apply` so a repeatable
+        #: ability starts fresh per activation.
+        self.revealed_with_ids: list[int] = []
         #: A generic single-slot "remember an object across a resolution
         #: gap" field — `context.trigger_event` is only live for the one
         #: resolution window a trigger's own effects run in (RULE 603.3), so
@@ -1336,6 +1345,7 @@ class GameObject:
         self.haunting_instance_id = None
         self.exile_after_free_cast = False
         self.exiled_with_ids = []
+        self.revealed_with_ids = []
         self.remembered_instance_id = None
         self.remembered_stack_id = None
         #: RULE 702.112b: a new object hasn't become renowned yet either —

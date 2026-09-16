@@ -855,6 +855,14 @@ def count_selector(
         # be given (a bare test fixture omitting it gets 0, the same safe
         # fallback every self-referential selector here gets).
         return len(getattr(source, "exiled_with_ids", None) or [])
+    if selector == "revealed_with_count":
+        # "Reveal any number of green cards in your hand. …, where X is the
+        # number of cards revealed this way." (Ivy Seer, Scent of Ivy,
+        # PAR-80) — the reveal-choice sibling of `exiled_with_count` above,
+        # reading `GameObject.revealed_with_ids` (populated by
+        # `RevealAnyNumberHandCardsEffect`'s ``"reveal"`` chooser action)
+        # instead of `exiled_with_ids`.
+        return len(getattr(source, "revealed_with_ids", None) or [])
     if selector == "source_x_paid":
         # "When this creature enters, incubate 3 **X times**." (Progenitor
         # Exarch) — the repeat count is the source permanent's own announced
@@ -1036,6 +1044,28 @@ def count_selector(
         return len(present)
     if selector == "creatures_you_control":
         return sum(1 for o in bf if o.is_creature and o.controller_id == controller_id)
+    if selector.startswith("greatest_") and selector.endswith("_you_control") and "_among_" in selector:
+        # PAR-80 second increment: "target creature gets +X/+X until end of
+        # turn, where X is the greatest mana value among permanents you
+        # control." (Accelerated Mutation, Boon of Boseiju) / "…greatest
+        # power among creatures you control." (Oaken Power Suit) — one
+        # shared reader for the whole "greatest <metric> among <scope> you
+        # control" family instead of a hand-rolled loop per phrase (the
+        # shape `greatest_non_human_creature_power_you_control` below
+        # would otherwise have grown a third near-duplicate of).
+        metric_name, _, scope_name = selector[len("greatest_"):-len("_you_control")].partition("_among_")
+        metric = {
+            "mana_value": lambda o: int(getattr(o.card, "converted_mana_cost", 0) or 0),
+            "power": lambda o: int(o.power or 0),
+        }.get(metric_name)
+        in_scope = {
+            "permanents": lambda o: True,
+            "creatures": lambda o: o.is_creature,
+        }.get(scope_name)
+        if metric is None or in_scope is None:
+            return 0
+        eligible = [metric(o) for o in bf if o.controller_id == controller_id and in_scope(o)]
+        return max(eligible, default=0)
     if selector == "greatest_non_human_creature_power_you_control":
         # Return of the Wildspeaker: this is a magnitude, not a target
         # restriction. Derived power is read live at resolution (RULE 613),
@@ -1057,6 +1087,25 @@ def count_selector(
         # battlefield." (Blasphemous Act) — every creature regardless of
         # controller, the unscoped sibling of `creatures_you_control`.
         return sum(1 for o in bf if o.is_creature)
+    if selector == "elves_on_battlefield":
+        # "…where X is the number of Elves on the battlefield." (Timberwatch
+        # Elf, Wirewood Pride, PAR-80) — every Elf regardless of controller,
+        # the subtype-scoped sibling of `creatures_on_battlefield` above.
+        # `_has_subtype` reads derived subtypes (Changeling included), not
+        # just the printed type line.
+        return sum(1 for o in bf if _has_subtype(o, "elf"))
+    if selector == "counters_on_permanents_you_control":
+        # "…where X is the number of counters on permanents you control."
+        # (Hydra Trainer, PAR-80) — every counter of every kind across the
+        # controller's whole board, the board-wide sibling of
+        # `total_counters_on_source`'s single-permanent read below (summing
+        # `counters.values()` directly rather than through the derived
+        # `plus_one_counters` property avoids that helper's own +1/+1-vs--1/-1
+        # double count, immaterial on a single permanent but not board-wide).
+        return sum(
+            sum(int(v or 0) for v in (getattr(o, "counters", None) or {}).values())
+            for o in bf if o.controller_id == controller_id
+        )
     if selector == "instant_sorcery_or_adventure_cards_in_your_graveyard":
         # "the number of cards in your graveyard that are instant cards,
         # sorcery cards, and/or have an Adventure." (Frantic Firebolt) —
@@ -1299,6 +1348,14 @@ def count_selector(
         return sum(
             1 for o in bf
             if (o.card.is_artifact or o.card.is_enchantment) and o.controller_id == controller_id
+        )
+    if selector == "artifacts_opponents_control":
+        # "…where X is the number of artifacts your opponents control."
+        # (Viridian Lorebearers, PAR-80) — the artifact-scoped sibling of
+        # "creatures_opponents_control" just below.
+        return sum(
+            1 for o in bf
+            if o.card.is_artifact and o.controller_id not in (None, controller_id)
         )
     if selector == "creatures_opponents_control":
         # "for each creature your opponents control" (Riot Control) — the

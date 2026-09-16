@@ -363,6 +363,21 @@ class CreateDelayedTriggerEffect(GameEffect):
                     effect.objects = made
                 elif hasattr(effect, "target") and made:
                     effect.target = made[0]
+        if self.capture == "self":
+            # "Sacrifice ~ at the beginning of the next end step." (Wine of
+            # Blood and Iron, PAR-80) — an *explicit* self-reference, unlike
+            # "it"/"that creature"'s `previous_or_self` fallback chain
+            # above: "~" never means whatever an earlier clause of this same
+            # resolution targeted/created (Wine of Blood and Iron's own
+            # earlier clause targets the creature it *pumps*, not itself),
+            # so this ignores `previous_targets` entirely rather than only
+            # falling back to source when that chain is empty.
+            made = [self.source] if self.source is not None else []
+            for effect in inner:
+                if hasattr(effect, "objects"):
+                    effect.objects = made
+                elif hasattr(effect, "target") and made:
+                    effect.target = made[0]
         # "Its controller may draw up to two cards at the beginning of the
         # next turn's upkeep." (Arcane Denial's own first sentence) — the
         # delayed draw belongs to the countered spell's controller, not

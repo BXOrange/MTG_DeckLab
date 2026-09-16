@@ -1115,6 +1115,33 @@ class RollDieEffect(GameEffect):
                 effect.apply(context, targets)
 
 
+class RandomNumberEffect(GameEffect):
+    """RULE 706's other randomization — "a number from ``min_value`` to
+    ``max_value`` chosen at random" (Hapato's Might, PAR-80). Deliberately
+    **not** `RollDieEffect`: RULE 706.11 only treats literal "roll a die"
+    text as a die roll subject to dice-replacement effects (Yenna-shaped
+    doublers, Barbarian Class' advantage), so this fires no `ROLL_DICE`
+    event at all and stashes its result on the separate `GameContext.
+    random_result` rather than `die_result` — a following clause reads it
+    via the ``"random_result"`` `effect_amounts` kind.
+
+    Uses `RulesEngine.random_int` — the same game-state-seeded RNG
+    `roll_die`/`coin_flip` use — so the result is reproducible across a
+    `GameState.clone()` undo, unlike a fresh `random.Random()` each call.
+    """
+
+    def __init__(
+        self, min_value: int = 0, max_value: int = 6, source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.min_value = int(min_value)
+        self.max_value = int(max_value)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        span = self.max_value - self.min_value + 1
+        context.random_result = self.min_value + context.engine.random_int(max(span, 0))
+
+
 #: Termination cap for `RepeatProcessEffect` (Hoarder's Greed): a chain of
 #: clash wins is unbounded in principle (the same top-of-library card can
 #: keep winning), and each iteration also *loses life* — so the loop would

@@ -330,6 +330,20 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # "Target opponent reveals a card at random from their hand."
+    # (Planeswalker's Favor, PAR-80) — see `RevealRandomHandCardEffect`.
+    "reveal_random_hand_card",
+    lambda p: RevealRandomHandCardEffect(
+        target_kind=p.get("target_kind", "opponent"), target=p.get("target"),
+    ),
+)
+EffectRegistry.register(
+    # "Reveal any number of `<color>` cards in your hand." (Ivy Seer, Scent
+    # of Ivy, PAR-80) — see `RevealAnyNumberHandCardsEffect`.
+    "reveal_any_number_hand_cards",
+    lambda p: RevealAnyNumberHandCardsEffect(colors=p.get("colors")),
+)
+EffectRegistry.register(
     # RULE 701.20 — reveal a library's top card, stash it as
     # `GameContext.revealed_card` (ENG-37 B5). The `of: "revealed"` referent.
     "reveal_top",
@@ -2744,6 +2758,12 @@ EffectRegistry.register(
         ignore_highest=p.get("ignore_highest", 0),
         outcomes=p.get("outcomes"),
     ),
+)
+EffectRegistry.register(
+    # RULE 706's other randomization — "a number from A to B chosen at
+    # random" (Hapato's Might, PAR-80) — see `RandomNumberEffect`.
+    "random_number",
+    lambda p: RandomNumberEffect(min_value=p.get("min", 0), max_value=p.get("max", 6)),
 )
 EffectRegistry.register(
     # "`<process>`, then clash …. If you win, repeat this process." (Hoarder's Greed)

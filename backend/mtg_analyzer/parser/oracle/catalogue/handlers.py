@@ -8036,6 +8036,212 @@ def _pump_target_x_selector(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("pump", params)]
 
 
+#: PAR-80 second increment: "target creature gets +X/+<N> until end of
+#: turn, where X is `<phrase>`." for referents beyond a plain
+#: `continuous.count_selector` board count — reuses ENG-37's general
+#: `bind`/`effect_amounts` measurement (`game/effect_amounts.py`) instead of
+#: growing `PumpEffect` a new ``amount_from_*`` boolean per referent, the
+#: exact "25 distinct amount_from_* names" duplication that module's own
+#: docstring documents fixing. Each phrase maps to a full amount spec
+#: rather than a bare selector key, since several of these referents aren't
+#: board counts at all: the target's *own* current power (``of: "target"``,
+#: read before this same effect's pump applies — the identical `bind`
+#: pattern already proven for Drain Life's "equal to the damage dealt, but
+#: not more than the target's toughness"), the most recent `RollDieEffect`
+#: total (``"die_result"``), and two board counts that only need a new
+#: `continuous.count_selector` row, not a new amount kind. An optional
+#: leading "`<N>` plus " (Muscle Burst's "3 plus the number of cards named
+#: ~ in all graveyards") threads straight into the ``amount_of`` general
+#: ``plus`` modifier — no new arithmetic, just recognizing the prefix.
+_PUMP_X_AMOUNT_PHRASES: dict[str, dict] = {
+    "its power": {"kind": "characteristic", "characteristic": "power", "of": "target"},
+    "that creature's power": {"kind": "characteristic", "characteristic": "power", "of": "target"},
+    "the result": {"kind": "die_result"},
+    "the greatest mana value among permanents you control": {
+        "kind": "count_selector", "selector": "greatest_mana_value_among_permanents_you_control",
+    },
+    "the greatest power among creatures you control": {
+        "kind": "count_selector", "selector": "greatest_power_among_creatures_you_control",
+    },
+    "the number of counters on permanents you control": {
+        "kind": "count_selector", "selector": "counters_on_permanents_you_control",
+    },
+    "the number of elves on the battlefield": {
+        "kind": "count_selector", "selector": "elves_on_battlefield",
+    },
+    "the number of artifacts your opponents control": {
+        "kind": "count_selector", "selector": "artifacts_opponents_control",
+    },
+    "the number of verse counters on ~": {
+        # War Dance: this permanent only ever carries verse counters, so the
+        # already-shipped "every counter kind on source" reader is exactly
+        # a verse-counter count here — no new named-counter selector.
+        "kind": "count_selector", "selector": "total_counters_on_source",
+    },
+    "the number of cards named ~ in all graveyards": {
+        "kind": "count_selector", "selector": "cards_named_source_in_all_graveyards",
+    },
+}
+_PUMP_X_AMOUNT_ALT = "|".join(re.escape(p) for p in _PUMP_X_AMOUNT_PHRASES)
+_PUMP_TARGET_X_AMOUNT_RE = _c(
+    rf"{TARGET} gets? \+x/(?P<taxis>\+x|\+0) until end of turn, "
+    rf"where x is (?:(?P<offset>\d+) plus )?(?P<phrase>{_PUMP_X_AMOUNT_ALT})"
+)
+
+
+def _pump_target_x_amount(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    subject = _pump_target(m)
+    if subject is None:
+        return None
+    target_kind, selector = subject
+    amount_spec = dict(_PUMP_X_AMOUNT_PHRASES[m.group("phrase")])
+    offset = m.groupdict().get("offset")
+    if offset:
+        amount_spec["plus"] = int(offset)
+    pump_params: dict = {
+        "power": "$px", "toughness": "$px" if m.group("taxis") == "+x" else 0,
+    }
+    if target_kind:
+        pump_params["target_kind"] = target_kind
+    if selector:
+        pump_params["selector"] = selector
+    state_filter = _pump_target_creature_filter(m)
+    if state_filter:
+        pump_params["creature_filter"] = state_filter
+    return [EffectSpec("bind", {
+        "name": "px", "amount": amount_spec,
+        "effects": [{"type": "pump", "params": pump_params}],
+    })]
+
+
+#: PAR-80: "Roll a `<n>`-sided die. Target creature gets +X/+X until end of
+#: turn, where X is the result." (Growth Spurt) needs no dedicated handler
+#: of its own for the first sentence — "Roll a `<n>`-sided die." already
+#: parses standalone (``roll_die``) — only the second sentence's "the
+#: result" referent, added to `_PUMP_X_AMOUNT_PHRASES` above.
+#:
+#: "target creature gets +X/+<N> until end of turn, where X is a number
+#: from A to B chosen at random." (Hapato's Might) is a *different*
+#: primitive from the die roll above (RULE 706.11 only treats literal "roll
+#: a die" text as subject to dice-replacement effects), so it gets its own
+#: small effect (`RandomNumberEffect`/``"random_number"``) and amount kind
+#: (``"random_result"``) rather than being folded into ``die_result``.
+#: ``A``/``B`` are captured, not hardcoded to 0/6, so a future card with a
+#: different range reuses this same row.
+_PUMP_TARGET_X_RANDOM_RE = _c(
+    rf"{TARGET} gets? \+x/(?P<taxis>\+x|\+0) until end of turn, "
+    r"where x is a number from (?P<lo>\d+) to (?P<hi>\d+) chosen at random"
+)
+
+
+def _pump_target_x_random(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    subject = _pump_target(m)
+    if subject is None:
+        return None
+    target_kind, selector = subject
+    pump_params: dict = {
+        "power": "$px", "toughness": "$px" if m.group("taxis") == "+x" else 0,
+    }
+    if target_kind:
+        pump_params["target_kind"] = target_kind
+    if selector:
+        pump_params["selector"] = selector
+    state_filter = _pump_target_creature_filter(m)
+    if state_filter:
+        pump_params["creature_filter"] = state_filter
+    return [
+        EffectSpec("random_number", {"min": int(m.group("lo")), "max": int(m.group("hi"))}),
+        EffectSpec("bind", {
+            "name": "px", "amount": {"kind": "random_result"},
+            "effects": [{"type": "pump", "params": pump_params}],
+        }),
+    ]
+
+
+#: PAR-80: "Target opponent reveals a card at random from their hand.
+#: Target creature gets +X/+<N> until end of turn, where X is the revealed
+#: card's mana value." (Planeswalker's Favor) — a genuinely singleton
+#: two-target compound (the reveal's own "target opponent" plus the pump's
+#: "target creature"), built the same `bind`-over-`pump` way as the
+#: phrase-table family above, just with its own leading reveal clause
+#: instead of a board count.
+_REVEAL_RANDOM_HAND_CARD_PUMP_MV_RE = _c(
+    r"target opponent reveals a card at random from their hand\. "
+    rf"{TARGET} gets? \+x/(?P<taxis>\+x|\+0) until end of turn, "
+    r"where x is the revealed card'?s mana value"
+)
+
+
+def _reveal_random_hand_card_pump_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    subject = _pump_target(m)
+    if subject is None:
+        return None
+    target_kind, selector = subject
+    pump_params: dict = {
+        "power": "$px", "toughness": "$px" if m.group("taxis") == "+x" else 0,
+    }
+    if target_kind:
+        pump_params["target_kind"] = target_kind
+    if selector:
+        pump_params["selector"] = selector
+    state_filter = _pump_target_creature_filter(m)
+    if state_filter:
+        pump_params["creature_filter"] = state_filter
+    return [
+        EffectSpec("reveal_random_hand_card", {"target_kind": "opponent"}),
+        EffectSpec("bind", {
+            "name": "px",
+            "amount": {"kind": "characteristic", "characteristic": "mana_value", "of": "revealed"},
+            "effects": [{"type": "pump", "params": pump_params}],
+        }),
+    ]
+
+
+#: PAR-80: "Reveal any number of green cards in your hand. Target creature
+#: gets +X/+X until end of turn, where X is the number of cards revealed
+#: this way." (Ivy Seer, Scent of Ivy — the identical body under an
+#: activated-ability cost and a bare sorcery respectively; the cost prefix
+#: is split off before this handler ever sees the text, same as every other
+#: ``<cost>: <effect>`` row in this file). Only "green" is in this closed
+#: table today — widen ``_REVEAL_ANY_NUMBER_COLOR_WORDS`` the day a second
+#: color shows up rather than guessing an open vocabulary now.
+_REVEAL_ANY_NUMBER_COLOR_WORDS: dict[str, str] = {"green": "G"}
+_REVEAL_ANY_NUMBER_COLOR_ALT = "|".join(_REVEAL_ANY_NUMBER_COLOR_WORDS)
+_REVEAL_ANY_NUMBER_PUMP_RE = _c(
+    rf"reveal any number of (?P<color>{_REVEAL_ANY_NUMBER_COLOR_ALT}) cards in your hand\. "
+    rf"{TARGET} gets? \+x/(?P<taxis>\+x|\+0) until end of turn, "
+    r"where x is the number of cards revealed this way"
+)
+
+
+def _reveal_any_number_pump(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    subject = _pump_target(m)
+    if subject is None:
+        return None
+    target_kind, selector = subject
+    color = _REVEAL_ANY_NUMBER_COLOR_WORDS.get(m.group("color"))
+    if color is None:
+        return None
+    pump_params: dict = {
+        "power": "$px", "toughness": "$px" if m.group("taxis") == "+x" else 0,
+    }
+    if target_kind:
+        pump_params["target_kind"] = target_kind
+    if selector:
+        pump_params["selector"] = selector
+    state_filter = _pump_target_creature_filter(m)
+    if state_filter:
+        pump_params["creature_filter"] = state_filter
+    return [
+        EffectSpec("reveal_any_number_hand_cards", {"colors": [color]}),
+        EffectSpec("bind", {
+            "name": "px",
+            "amount": {"kind": "count_selector", "selector": "revealed_with_count"},
+            "effects": [{"type": "pump", "params": pump_params}],
+        }),
+    ]
+
+
 def _pump_devotion_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     subject = _pump_target(m)
     if subject is None:
@@ -10496,10 +10702,17 @@ def _reveal_until_type(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: exile→copy connector relies on), and a create-token antecedent never
 #: sets the segmenter's `previous_subject` flag, so gating would miss the
 #: majority of the cluster.
+#: PAR-80: "~" (Wine of Blood and Iron's "Sacrifice ~ at the beginning of
+#: the next end step.") is an *explicit* self-reference, unlike "it"/"that
+#: creature"'s `previous_or_self` chain — it never means whatever an
+#: earlier clause of the same resolution targeted/created (Wine of Blood
+#: and Iron's own earlier clause targets the creature it *pumps*, not
+#: itself), so it gets its own unconditional ``capture="self"`` rather than
+#: joining the ``obj`` alternation's `previous_or_self` group.
 _DELAYED_SAC_EXILE_TAIL_RE = _c(
     r"(?:then )?(?:"
     r"(?P<verb>sacrifice|exile|destroy) "
-    r"(?P<obj>it|that creature|that token|the tokens?|that permanent|that artifact|those tokens|them|all tokens created this way)"
+    r"(?:(?P<obj>it|that creature|that token|the tokens?|that permanent|that artifact|those tokens|them|all tokens created this way)|(?P<obj_self>~))"
     # "Return that creature to its owner's hand" (Ilharg, Zara, Alora) — a
     # loan bounced end of turn; the object is the same `previous_or_self`
     # referent the sacrifice/exile forms use.
@@ -10522,14 +10735,17 @@ def _delayed_sac_exile_tail(m: re.Match[str]) -> list[EffectSpec]:
     verb = (m.groupdict().get("verb") or m.groupdict().get("verb_return") or "").lower()
     inner = _DELAYED_TAIL_INNER[verb]
     step = "end_combat" if m.group("when").lower() == "at end of combat" else "end"
+    obj = (m.groupdict().get("obj") or "").lower()
+    if m.groupdict().get("obj_self"):
+        capture = "self"
+    elif obj in _DELAYED_TAIL_TOKEN_SUBJECTS:
+        capture = "created_objects"
+    else:
+        capture = "previous_or_self"
     return [EffectSpec("create_delayed_trigger", {
         "step": step,
         "scope": "any",
-        "capture": (
-            "created_objects"
-            if (m.groupdict().get("obj") or "").lower() in _DELAYED_TAIL_TOKEN_SUBJECTS
-            else "previous_or_self"
-        ),
+        "capture": capture,
         "effects": [{"type": inner, "params": {}}],
     })]
 
@@ -14327,6 +14543,24 @@ HANDLERS: list[EffectHandler] = [
     # specific row first matches this file's own convention).
     EffectHandler(
         "pump_target_x_selector", _PUMP_TARGET_X_SELECTOR_RE, _pump_target_x_selector
+    ),
+    # PAR-80 second increment: "…, where X is <phrase>" for a referent
+    # beyond a plain board count (the target's own power, a die-roll
+    # result, an existing selector plus a flat offset, …) — tried
+    # alongside `pump_target_x_selector` above, same reasoning for going
+    # before the bare `pump_target_x` row below.
+    EffectHandler(
+        "pump_target_x_amount", _PUMP_TARGET_X_AMOUNT_RE, _pump_target_x_amount
+    ),
+    EffectHandler(
+        "pump_target_x_random", _PUMP_TARGET_X_RANDOM_RE, _pump_target_x_random
+    ),
+    EffectHandler(
+        "reveal_random_hand_card_pump_mv",
+        _REVEAL_RANDOM_HAND_CARD_PUMP_MV_RE, _reveal_random_hand_card_pump_mv,
+    ),
+    EffectHandler(
+        "reveal_any_number_pump", _REVEAL_ANY_NUMBER_PUMP_RE, _reveal_any_number_pump
     ),
     # PAR-80: the base X-spell/X-ability pump, no "where X is…" tail —
     # RULE 107.3c's announced {X}, substituted generically at resolve time

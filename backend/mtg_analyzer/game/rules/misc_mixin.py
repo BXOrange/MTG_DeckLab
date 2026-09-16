@@ -3202,6 +3202,14 @@ class MiscSystemsMixin:
             # indestructible-respecting) to any battlefield permanent, not
             # only the chooser's own.
             "destroy",
+            # PAR-80 (Ivy Seer/Scent of Ivy — "reveal any number of green
+            # cards in your hand"): a hand-zone pick like "discard"/"exile"
+            # above, but nothing moves — RULE 701.20 reveal has no
+            # mechanical weight of its own (`RevealTopEffect`'s own
+            # docstring). Only accumulates each pick onto `GameObject.
+            # revealed_with_ids`, read back by a following clause via the
+            # ``"revealed_with_count"`` count_selector.
+            "reveal",
         }
     )
     def _request_choose_objects(
@@ -3604,6 +3612,15 @@ class MiscSystemsMixin:
             self.discard_specific(obj)
             if connive and not is_land and source is not None:
                 self.add_counters(source, 1, kind="+1/+1", source=source)
+        elif action == "reveal":
+            # PAR-80 (Ivy Seer/Scent of Ivy): reveal has no mechanical
+            # weight of its own (`RevealTopEffect`'s own docstring) — the
+            # pick stays in hand. Only accumulates onto `source`'s own
+            # `GameObject.revealed_with_ids`, the reveal-choice sibling of
+            # MEC-21's ``track_exiled_with``/``exiled_with_ids``, for a
+            # following clause's ``"revealed_with_count"`` count_selector.
+            if source is not None:
+                source.revealed_with_ids.append(obj.instance_id)
         elif action == "remember_source" and prevent_shield is not None:
             # MEC-30 (RULE 615/616.1d "a source of your choice" — Circle of
             # Protection/Rune of Protection): the pick becomes a

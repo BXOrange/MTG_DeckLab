@@ -506,8 +506,60 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 45.52% (15,846 / 34,811) as of 2026-09-16, measured at
-PARSER_VERSION 412** (v412 is PAR-79's ninth increment: "return another
+**Coverage: 45.58% (15,866 / 34,811) as of 2026-09-16, measured at
+PARSER_VERSION 413** (v413 closes PAR-80's second increment — the 19-card
+residue the first increment (v395) left open, plus 3 bonus closures, +20
+total. Rather than growing `PumpEffect` a 26th `amount_from_*` boolean per
+referent, every new referent is recognized as an ENG-37 `bind` over the
+*existing*, unmodified `pump` effect — the same "measure X, substitute into
+the body" composition already proven for Drain Life. The pumped **target's
+own** current power ("its power"/"that creature's power" — Onward //
+Victory, Rush of Blood, Nantuko Mentor, Wine of Blood and Iron) needed zero
+new engine code: `{"kind": "characteristic", "characteristic": "power",
+"of": "target"}` already reads it off the same `targets` list the `pump`
+effect resolves against, before its own delta lands. Two "greatest `<X>`
+among `<scope>` you control" board reads (Accelerated Mutation/Boon of
+Boseiju's mana value, Oaken Power Suit's power) share one new
+`_greatest_among` reader in `continuous.py` rather than two near-duplicate
+loops; three more new board-count selectors (`counters_on_permanents_you_
+control`, `elves_on_battlefield`, `artifacts_opponents_control`) each
+mirror an existing sibling's own idiom. War Dance's "verse counters on ~"
+needed no new selector at all — the pre-existing `total_counters_on_source`
+already equals it, since this permanent only ever carries that one counter
+kind; Muscle Burst's "3 plus the number of cards named ~ in all
+graveyards" is the pre-existing named-card selector plus `amount_of`'s own
+general `"plus"` modifier. Growth Spurt's die-roll result needed only a new
+`"die_result"` amount kind reading the already-stamped `GameContext.
+die_result` (closing half of MEC-90's own gap); Hapato's Might's "chosen at
+random" is a deliberately *separate* new primitive (`RandomNumberEffect`)
+since RULE 706.11 only subjects a literal "roll a die" to dice-replacement
+effects. Two cards needed a real new interactive primitive:
+`RevealAnyNumberHandCardsEffect` (Ivy Seer/Scent of Ivy) opens the
+established "any number" chooser idiom with a new `"reveal"` action,
+reading the pick count back via a new `GameObject.revealed_with_ids` list
+(MEC-21's `exiled_with_ids` sibling) rather than a `GameContext` tally,
+since the interactive choice's own pause/resume frame doesn't carry
+context fields across it. Fixing Wine of Blood and Iron surfaced a real
+correctness trap, not just a recognition gap: the pre-existing delayed
+sacrifice/exile tail's `capture="previous_or_self"` (PAR-30) would have
+sacrificed the creature this card's *own first clause pumps*, not itself —
+"~" is an explicit self-reference, unlike "it"/"that creature"'s referent
+chain, so it needed its own unconditional `capture="self"`; the general
+(not card-specific) widening this required also closed 3 bonus cards
+sharing the identical self-pump-then-self-sacrifice shape outside this
+ticket's own search phrase (Crazed Armodon, Pyric Salamander, Varchild's
+Crusader). Oaken Power Suit and Accessories to Murder stay UNMODELED — the
+real blocker for both is the wholly separate, unbuilt Contraption-crank
+sub-mechanic (`BACKLOG.md`'s **PAR-93**), confirmed via
+`parser_probe.py card` before assuming this family would close them, not
+attempted this pass. Verified past the parse verdict via `engine_bench.py`/
+manual `GameEngine` runs: the target's-own-power read happens before its
+own pump lands, the dice/random amounts resolve to real board changes, the
+delayed trigger captures the artifact and never the pumped creature, and
+the interactive reveal-then-pump produces the exact count-scaled boost.
+Zero regressed (`parser_probe.py diff`, full `pytest -q`). See
+`Done_Backend.md`'s "Oracle-Text Parser Front-End" PAR-80 entry.
+v412 is PAR-79's ninth increment: "return another
 target creature you control to its owner's hand" (Deputy of Acquittals/
 Jeskai Barricade) — `other_creature_you_control` (RULE 109.5, built for
 Giver of Runes) was already whitelisted in `targeting.ALLOWED_TARGET_
@@ -1182,7 +1234,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 47.80% (15,213 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 47.87% (15,236 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

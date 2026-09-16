@@ -1485,6 +1485,48 @@ class RevealHandChooseDiscardEffect(GameEffect):
         )
 
 
+class RevealAnyNumberHandCardsEffect(GameEffect):
+    """RULE 701.20's "any number" reveal — "Reveal any number of green
+    cards in your hand." (Ivy Seer, Scent of Ivy, PAR-80): the reveal-from-
+    hand sibling of `discard_choice`/`exile_hand_choice`
+    (`RulesEngine._request_choose_objects`'s own ``"reveal"`` action), but
+    the pick changes nothing (RULE 701.20 has no mechanical weight of its
+    own — `RevealTopEffect`'s own docstring); only the *count* chosen
+    matters, accumulated onto `GameObject.revealed_with_ids` (mirroring
+    MEC-21's ``exiled_with_ids``/``"exiled_with_count"``) and read back by a
+    following clause via the `continuous.count_selector`
+    ``"revealed_with_count"``.
+
+    ``count=len(candidates), optional=True`` is this codebase's established
+    "any number, 0 or more" idiom (`ImprintTrackedExileEffect`'s own
+    identical call). `revealed_with_ids` is cleared first so a repeatable
+    ability starts fresh each activation rather than accumulating across
+    uses — unlike Imprint's own accumulating list, this one is a per-use
+    count with nothing else consuming it between activations.
+    """
+
+    def __init__(self, colors: Optional[list[str]] = None, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.colors = [str(c).upper() for c in (colors or [])]
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        source = self.source
+        if source is None:
+            return
+        player = _controller_of(source, context)
+        if player is None:
+            return
+        source.revealed_with_ids = []
+        candidates = [
+            obj for obj in player.hand
+            if not self.colors or any(c in obj.colors for c in self.colors)
+        ]
+        context.choose_objects(
+            player, candidates, "reveal", count=len(candidates), optional=True,
+            source=source,
+        )
+
+
 class RevealRandomHandCardIfNamedEffect(GameEffect):
     """Reveal one random card from an opponent's hand and discard it iff
     its name equals an earlier card-name choice.
@@ -1517,6 +1559,34 @@ class RevealRandomHandCardIfNamedEffect(GameEffect):
         revealed = random.choice(player.hand)
         if revealed.name.casefold() == self.named_card.casefold():
             context.discard_specific(revealed)
+
+
+class RevealRandomHandCardEffect(GameEffect):
+    """RULE 701.20/701.14: "Target opponent reveals a card at random from
+    their hand." (Planeswalker's Favor, PAR-80) — unlike `RevealRandomHand
+    CardIfNamedEffect` above, nothing happens to the pick (no discard); it
+    is stashed as `GameContext.revealed_card` (the same referent
+    `RevealTopEffect` sets, ``of: "revealed"``) so a following clause can
+    read its mana value. Reveal has no mechanical weight of its own in this
+    engine — see `RevealTopEffect`'s own docstring. Uses the game-state-
+    seeded `RulesEngine.random_choice` (reproducible across a `clone()`
+    undo), unlike this file's own plain ``random.choice`` above.
+    """
+
+    def __init__(
+        self, target_kind: str = "opponent", target: Any = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind=target_kind)
+        self.target = target
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        chosen = _chosen_targets(targets, 1, self.target)
+        if not chosen:
+            return
+        player = chosen[0]
+        context.revealed_card = context.engine.random_choice(list(player.hand))
 
 
 class PutHandCardsOnTopEffect(GameEffect):

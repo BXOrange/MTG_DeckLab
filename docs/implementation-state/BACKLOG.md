@@ -86,43 +86,6 @@ its block back into the matching section here.
   > full cache, then batch the small ones rather than opening one ticket
   > per shape.
 
-- **PAR-80 · X-spell "target creature gets +X/+`<N>` until end of turn."**
-  (residue after one increment). The variable-power/fixed-toughness pump
-  family — turned out to need no new primitive at all:
-  `RulesEngine._substitute_x` already walks any bound effect's own
-  `power`/`toughness` for the literal `"x"`/`"-x"` sentinel, and
-  `PumpEffect.amount_from_count_selector`/`_axis` already read a live
-  board count on one or both axes. **First increment shipped**
-  (PARSER_VERSION 395, +20, zero regressed) — `_pump_target_x`/
-  `_PUMP_TARGET_X_RE` (the bare X-spell/X-ability form, with an optional
-  "and gains `<keyword>`" tail) plus `_pump_target_x_selector`/
-  `_PUMP_TARGET_X_SELECTOR_RE` (a closed "where X is `<phrase>`" table:
-  `creatures_you_control`, `creature_cards_in_your_graveyard`,
-  `cards_in_your_hand`, `life_gained_this_turn`, the five basic-land-type
-  counts). **19 SOLO cards confirmed still open** (re-run `parser_probe.py
-  blocked "target creature gets \+x/\+"` before starting), each a distinct
-  new amount referent this increment's phrase table doesn't cover:
-  - "the greatest mana value among permanents you control" (Accelerated
-    Mutation, Boon of Boseiju) / "the greatest power among creatures you
-    control" (Oaken Power Suit) — no `continuous.count_selector` entry for
-    either "greatest `<X>` among" reading yet.
-  - "the number of counters on permanents you control" (Hydra Trainer);
-    "the number of cards revealed this way" (Ivy Seer, Scent of Ivy — a
-    resolve-time count of an earlier clause's own reveal, not a board
-    state); "3 plus the number of cards named `<name>` in all graveyards"
-    (Muscle Burst); "a number from 0 to 6 chosen at random"/"the result"
-    of a die roll (Hapato's Might, Growth Spurt) — each its own referent.
-  - "its power"/"that creature's power" (Onward // Victory, Rush of
-    Blood, Nantuko Mentor, Wine of Blood and Iron) — the pumped *target's
-    own* current power, not the source's (`amount_from_count_selector=
-    "source_power"` already exists but reads the wrong object).
-  - "the revealed card's mana value" (Planeswalker's Favor) — a
-    resolve-time referent off a just-revealed card, not a board count.
-  - Accessories to Murder/Oaken Power Suit's own "whenever you crank this
-    contraption" trigger condition is a separate, unrelated recognition
-    gap (Contraption cranking) that happens to share this search phrase —
-    verify which clause is the real blocker before assuming this family
-    closes them.
 - **PAR-82 · Quoted static grants — the remaining SOLO cards on
   "creatures you control have"/"enchanted creature has" (residue; the
   ticket's own original premise was stale).** Re-verified 2026-09-15: both
@@ -397,17 +360,20 @@ its block back into the matching section here.
   same attack-trigger consequences a normally-declared attacker would.
   Adeline, Resplendent Cathar; Alesha, Who Smiles at Death;
   A-Thousand-Faced Shadow; Altaïr Ibn-La'Ahad.
-- **MEC-90 · Dice-roll result as a resolve-time amount (RULE 706).**
-  MEC-75 shipped the roll-and-branch mechanism (`RollDieEffect`), but no
-  downstream effect can read "the result" as its own `amount` — "gain
-  life/create N tokens/put N counters/draw N cards equal to the result"
-  all still fail. `commander_tail_report.py`'s "no dice subsystem at all"
-  label is stale (verify before trusting it, per this project's own
-  standing rule) — the real gap is a new `amount_from_dice_roll` referent
-  in `game/effect_amounts.py`, alongside the already-shipped
-  `amount_from_trigger_event`/`count_from_trigger_event` family, reading
-  the value `RollDieEffect` already produces. Confirmed: 45 SOLO (90
-  total). Adorable Kitten, Ancient Brass/Bronze/Copper/Gold/Silver Dragon.
+- **MEC-90 · Dice-roll result as a resolve-time amount (RULE 706)
+  (residue — the primitive now exists).** PAR-80's second increment
+  (PARSER_VERSION 413, Growth Spurt) built exactly the missing half: a
+  `"die_result"` `game/effect_amounts.py` amount kind reading
+  `GameContext.die_result` (`RollDieEffect`'s own output), wired generically
+  through ENG-37's `bind` composition — `{"kind": "bind", "amount":
+  {"kind": "die_result"}, "effects": [...]}` works over *any* whitelisted
+  effect body, not just `pump` (Growth Spurt's own use). What's left is
+  pure parser recognition for the other effect shapes this same amount kind
+  already answers: "gain life/create N tokens/put N counters/draw N cards
+  equal to the result." Re-run `parser_probe.py blocked` before starting —
+  the 45 SOLO count predates this primitive landing and needs
+  reconfirming. Adorable Kitten, Ancient Brass/Bronze/Copper/Gold/Silver
+  Dragon.
 - **MEC-91 · "Dealt damage by `<source>` this turn" tracker.** A
   per-source, per-turn record of which objects a specific permanent dealt
   damage to this turn — feeds "can't be regenerated," death/reanimation,

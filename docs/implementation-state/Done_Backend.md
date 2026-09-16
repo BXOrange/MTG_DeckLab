@@ -6706,7 +6706,7 @@ measurement of why is the useful half of this work.
   (the test that caught the bool-vs-counter bug above). +23 cards, zero
   regressed (`parser_probe.py diff`, `pytest -q`).
 
-### PAR-80: X-Spell "Target Creature Gets +X/+`<N>` Until End of Turn" (in progress, PARSER_VERSION 395)
+### PAR-80: X-Spell "Target Creature Gets +X/+`<N>` Until End of Turn" (closed, PARSER_VERSION 413)
 
 - **What:** The variable-power/fixed-toughness pump family (an X spell/
   ability whose caster-chosen X sets one or both axes of the buff, or a
@@ -6734,25 +6734,119 @@ measurement of why is the useful half of this work.
     read by `LoseLifeEffect.amount_from_life_gained_this_turn`), and the
     five basic-land-type counts (`lands_you_control_of_type_<land>`,
     PAR-78's own selector family).
-  - A real residue stays open (19 SOLO cards) — each its own distinct
-    amount referent this phrase table doesn't cover: two "greatest `<X>`
-    among" board reads with no `count_selector` entry yet (mana value,
-    power); a counters-on-permanents count; a resolve-time "cards revealed
-    this way" count (not a board state); a named-card graveyard tally; two
-    random-number shapes (a d6 roll, "a number from 0 to 6"); the pumped
-    *target's own* current power (`amount_from_count_selector="source_
-    power"` reads the wrong object — the ability's source, not the RULE
-    115 target); a just-revealed card's mana value; and two cards
-    (Accessories to Murder, Oaken Power Suit) whose real blocker is an
-    unrelated "whenever you crank this contraption" trigger-recognition
-    gap that only incidentally shares this search phrase.
-- **Verification:** `tests/test_par80_x_pump_family.py` (11 tests) —
-  parse-level coverage of both shapes plus an adversarial unrecognized-
-  phrase case, an end-to-end `parse_oracle` check against six real cards,
-  and two execute-level tests proving `_substitute_x` and
-  `amount_from_count_selector` both actually resolve through a real
-  `GameEngine.cast_spell`, not just a parse verdict. +20 cards, zero
-  regressed (`parser_probe.py diff`, `pytest -q`).
+- **Second increment (PARSER_VERSION 413) closed the residue** — 17 of the
+  19 SOLO cards the first increment left open, plus 3 bonus closures from a
+  general widening below. Rather than growing `PumpEffect` a 26th
+  `amount_from_*` boolean for each new referent (the exact duplication
+  `game/effect_amounts.py`'s own docstring documents fixing), every new
+  referent is recognized as `EffectSpec("bind", {"name": …, "amount": …,
+  "effects": [{"type": "pump", …}]})` — ENG-37's general "measure X,
+  substitute into the body" composition already proven for Drain Life's
+  identically-shaped "equal to the damage dealt, but not more than the
+  target's toughness" — over the *existing*, unmodified `pump` effect. New
+  `_PUMP_TARGET_X_AMOUNT_RE`/`_pump_target_x_amount` dispatches a closed
+  `_PUMP_X_AMOUNT_PHRASES` table:
+  - `{"kind": "characteristic", "characteristic": "power", "of": "target"}`
+    for "its power"/"that creature's power" (Onward // Victory, Rush of
+    Blood, Nantuko Mentor, Wine of Blood and Iron) — the *pumped* target's
+    own current power, read via `effect_conditions.subject_of("target",
+    …)` off the same `targets` list the `pump` effect itself resolves
+    against, before its own delta is added. No new engine code at all —
+    the referent axis `effect_amounts.py`'s docstring calls out as the
+    right shape was already general enough.
+  - Two new `continuous.count_selector` rows sharing one `_greatest_among`
+    reader instead of two near-duplicate loops: `greatest_mana_value_
+    among_permanents_you_control` (Accelerated Mutation, Boon of Boseiju)
+    and `greatest_power_among_creatures_you_control` (Oaken Power Suit,
+    still UNMODELED on its own unrelated Contraption-crank gap — see
+    PAR-93). Also new: `counters_on_permanents_you_control` (Hydra
+    Trainer, every counter kind board-wide, deliberately summing
+    `counters.values()` directly rather than through the derived
+    `plus_one_counters` property to avoid that property's own +1/+1-vs-
+    -1/-1 double count), `elves_on_battlefield` (Timberwatch Elf, Wirewood
+    Pride — the subtype-scoped sibling of the pre-existing unscoped
+    `creatures_on_battlefield`), and `artifacts_opponents_control`
+    (Viridian Lorebearers, mirroring `creatures_opponents_control`'s own
+    "opponents" idiom).
+  - War Dance's "the number of verse counters on ~" needed no new
+    selector at all: the pre-existing `total_counters_on_source` (every
+    counter kind on one permanent) already equals the verse count, since
+    this permanent never carries any other counter kind. Muscle Burst's
+    "3 plus the number of cards named ~ in all graveyards" is the
+    pre-existing `cards_named_source_in_all_graveyards` selector plus
+    `amount_of`'s own general `"plus"` modifier — an optional leading
+    "`<N>` plus " capture in the same regex, no new arithmetic.
+  - Growth Spurt's "Roll a six-sided die. …, where X is the result."
+    needed only a `"die_result"` amount kind reading `GameContext.
+    die_result` (already stamped by the pre-existing `RollDieEffect` for
+    an unbuilt reader — this closes that half of MEC-90). Hapato's Might's
+    "a number from A to B chosen at random" is a *different* primitive —
+    RULE 706.11 only treats literal "roll a die" text as subject to
+    dice-replacement effects, so a new `RandomNumberEffect`/
+    `"random_number"` (reading `RulesEngine.random_int`, the same
+    game-state-seeded RNG `roll_die`/`coin_flip` use) fires no `ROLL_DICE`
+    event and stashes onto a separate `GameContext.random_result` /
+    `"random_result"` amount kind rather than reusing `die_result`.
+  - Planeswalker's Favor ("Target opponent reveals a card at random from
+    their hand. Target creature gets +X/+X…, where X is the revealed
+    card's mana value.") is a genuinely singleton two-target compound: new
+    `RevealRandomHandCardEffect`/`"reveal_random_hand_card"` stashes the
+    pick as `GameContext.revealed_card` (`RevealTopEffect`'s own referent,
+    `of: "revealed"` — no new amount kind needed, `"characteristic"` +
+    `"mana_value"` + `of: "revealed"` already reads it).
+  - Ivy Seer/Scent of Ivy ("Reveal any number of green cards in your
+    hand. …, where X is the number of cards revealed this way.") needed a
+    real new interactive primitive: `RevealAnyNumberHandCardsEffect`/
+    `"reveal_any_number_hand_cards"` opens `_request_choose_objects`'s
+    established "any number" idiom (`count=len(candidates), optional=
+    True`) with a new `"reveal"` action — no zone change, RULE 701.20 has
+    no mechanical weight of its own. The count is read back via a new
+    `GameObject.revealed_with_ids` list (MEC-21's `exiled_with_ids`/
+    `exiled_with_count` sibling) and `"revealed_with_count"` selector,
+    **not** a `GameContext` this-way tally: `_apply_effects_partitioned`'s
+    own deferred-effects dict (the suspend/resume frame a mid-resolution
+    interactive choice pushes) never carries `die_result`-shaped context
+    fields across the pause, only a persistent `GameObject` field
+    survives it — confirmed by tracing the exact same constraint MEC-21's
+    own `exiled_with_ids` was built to route around.
+  - Fixing Wine of Blood and Iron's own "Sacrifice ~ at the beginning of
+    the next end step." surfaced a real *correctness* trap, not just a
+    recognition gap: the pre-existing `_DELAYED_SAC_EXILE_TAIL_RE`'s
+    `capture="previous_or_self"` (PAR-30) reads whatever the *earlier*
+    clause of the same resolution targeted first — which for this card is
+    the creature its own first sentence just *pumped*, not itself. "~" is
+    an *explicit* self-reference, unlike "it"/"that creature"'s referent
+    chain, so it never means an earlier clause's target. New
+    `CreateDelayedTriggerEffect` `capture="self"` (unconditionally
+    `[self.source]`, ignoring `previous_targets` entirely) plus a widened
+    `_DELAYED_SAC_EXILE_TAIL_RE` alternation catches it — and, being a
+    general widening rather than a Wine-of-Blood-and-Iron-specific
+    regex, also correctly closed 3 bonus cards sharing the identical
+    self-pump-then-self-sacrifice/destroy shape outside PAR-80's own
+    search phrase (Crazed Armodon, Pyric Salamander, Varchild's Crusader).
+  - Confirmed via `engine_bench.py`/manual `GameEngine` runs, not just
+    parse verdicts: Onward // Victory's own target correctly reads its
+    *pre-pump* power; Growth Spurt/Hapato's Might resolve real dice/random
+    values end to end; Wine of Blood and Iron's delayed trigger captures
+    the artifact itself (`delayed.effects[0].objects == [wine]`), never
+    the creature it pumped; Ivy Seer's interactive reveal-then-pump
+    (`_resume_choose_objects` → `resume_deferred_effects` continuing the
+    same resolution's `bind` node with the original RULE 115 target
+    intact) produces the exact +2/+2 for two green cards revealed.
+- **Verification:** `tests/test_par80_x_pump_family.py` (11 tests, one
+  updated — the old "greatest mana value among permanents" adversarial
+  case now correctly parses, replaced by an amount referent still outside
+  both phrase tables) and `tests/test_par80_pump_amount_family.py` (14
+  tests) — parse-level coverage of every new phrase/shape, an end-to-end
+  `parse_oracle` check against 13 real-card bodies, and execute-level
+  tests proving the target's-own-power read happens before the pump
+  applies, the "greatest mana value" selector reads live board state, the
+  self-sacrifice delayed trigger captures the source and not the pumped
+  target, and the `revealed_with_count` selector reads `GameObject.
+  revealed_with_ids`. +20 cards (17 of the first increment's own 19 SOLO
+  residue, minus the 2 still blocked on PAR-93's Contraption-crank gap,
+  plus 3 bonus self-sacrifice closures), zero regressed (`parser_probe.py
+  diff`, full `pytest -q`).
 
 ### PAR-78: "Prevent All Damage That Would Be Dealt To `<target>`" — Broad Recognition (PARSER_VERSION 393)
 

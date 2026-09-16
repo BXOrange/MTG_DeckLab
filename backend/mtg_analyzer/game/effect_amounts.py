@@ -126,6 +126,17 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         # The total characteristic of cards a preceding zone-change moved:
         # "the total mana value of cards milled/exiled this way".
         "moved_sum",  # + ``characteristic`` (usually mana_value)
+        # RULE 706.3a: this resolution's most recent `RollDieEffect` total
+        # (`GameContext.die_result`) — "…where X is the result." (Growth
+        # Spurt, PAR-80). MEC-90's own missing half of the dice subsystem.
+        "die_result",
+        # RULE 706's other randomization — "a number from A to B chosen at
+        # random" (Hapato's Might, PAR-80): deliberately a *separate* field
+        # from ``die_result`` (`GameContext.random_result`, set by
+        # `RandomNumberEffect`) since RULE 706.11 only treats literal
+        # "roll a die" text as a die roll subject to dice-replacement
+        # effects — this must stay invisible to those.
+        "random_result",
     }
 )
 
@@ -224,6 +235,14 @@ def _base(
             else:
                 total += int(getattr(obj, characteristic, 0) or 0)
         return total
+
+    if kind == "die_result":
+        result = getattr(context, "die_result", None)
+        return int(result) if isinstance(result, int) else 0
+
+    if kind == "random_result":
+        result = getattr(context, "random_result", None)
+        return int(result) if isinstance(result, int) else 0
 
     subject = effect_conditions.subject_of(
         str(amount.get("of") or "source"), context, source, targets

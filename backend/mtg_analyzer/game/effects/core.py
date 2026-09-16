@@ -229,6 +229,12 @@ class GameContext:
         self.die_result: Optional[int] = None
         self.die_results: list[int] = []
         self.rolled_doubles: bool = False
+        #: RULE 706's other randomization — "a number from A to B chosen at
+        #: random" (`RandomNumberEffect`), deliberately separate from
+        #: ``die_result`` since only a literal "roll a die" is subject to
+        #: RULE 706.11's dice-replacement effects. Same save/reset/restore
+        #: idiom as ``die_result`` in `_apply_effects_partitioned`.
+        self.random_result: Optional[int] = None
 
     @property
     def players(self) -> list["Player"]:
@@ -1210,6 +1216,7 @@ def _apply_effects_partitioned(
     outer_die_result = getattr(context, "die_result", None)
     outer_die_results = getattr(context, "die_results", [])
     outer_rolled_doubles = getattr(context, "rolled_doubles", False)
+    outer_random_result = getattr(context, "random_result", None)
     context.previous_targets = list(previous_targets or [])
     context.moved_objects = list(outer_moved or [])
     context.attachment_hosts = dict(outer_attachment_hosts or {})
@@ -1226,6 +1233,7 @@ def _apply_effects_partitioned(
     context.die_result = None
     context.die_results = []
     context.rolled_doubles = False
+    context.random_result = None
     try:
         for position, effect in enumerate(effects):
             if source is not None and effect.source is None:
@@ -1303,6 +1311,7 @@ def _apply_effects_partitioned(
         context.die_result = outer_die_result
         context.die_results = outer_die_results
         context.rolled_doubles = outer_rolled_doubles
+        context.random_result = outer_random_result
 
 
 # ---------------------------------------------------------------------------
