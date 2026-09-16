@@ -8129,6 +8129,93 @@ measurement of why is the useful half of this work.
   `pytest -q` green (same 17 pre-existing, unrelated failures confirmed
   via isolated baseline comparison, plus the parser-version-lock test
   which this batch's own version bump satisfies).
+- **PAR-117's sacrifice-verb sub-shape, two independent slices closed
+  (PARSER_VERSION 417).** The ticket had filed the whole "its controller
+  sacrifices …" family under one heading, but diagnosing the named
+  examples split it into two genuinely unrelated shapes:
+  - **"Its controller sacrifices it at the beginning of the next end
+    step." (Celestial Sword/Goblin Ski Patrol) is not a referent at all.**
+    RULE 701.17a already makes "sacrifice" inherently self-directed — a
+    permanent's own controller is the *only* player who can ever sacrifice
+    it, there is no "make another player sacrifice a specific known
+    object" concept in the rules — so `SacrificeSpecificEffect.apply`
+    (`context.engine.put_into_graveyard(obj)`) never reads a player at
+    all, only the captured object. "Its controller sacrifices it" and a
+    bare "sacrifice it" (PAR-30's `handlers._DELAYED_SAC_EXILE_TAIL_RE`,
+    the RULE 603.7 delayed-trigger tail already covering ~100 SOLO cache
+    cards) therefore compile to the *identical* `create_delayed_trigger`
+    spec — confirmed directly (`match_clause("sacrifice it at the
+    beginning of the next end step") == match_clause("its controller
+    sacrifices it at the beginning of the next end step")`). Closed by
+    widening the existing regex alone: an optional "its controller "
+    subject prefix, paired with third-person "sacrifices"/"exiles"/
+    "destroys" conjugation (the unprefixed imperative "sacrifice"/"exile"/
+    "destroy" and the "its controller" third-person form never mix, so the
+    two don't need disambiguating beyond the verb form itself) — no engine
+    change, no new gate. Celestial Sword closes; Goblin Ski Patrol's own
+    sacrifice clause now parses too, but the card stays UNMODELED on an
+    unrelated trailing clause (see the singleton note below).
+  - **"Its controller sacrifices `<N>` [nontoken] `<what>`[ or `<what2>`]
+    of their choice." (Funeral March/Tainted Aether) is a real widening,
+    with two layers.** `SacrificeEffect.player` had simply never been
+    routed through `GameEffect._operand_player` the way `GainLifeEffect`/
+    `LoseLifeEffect`/`DrawCardEffect`/`DiscardEffect`/`MillEffect` already
+    are (PAR-115/PAR-117 above) — `apply()` read `self.player or
+    (targets[0] if targets else None)` and nothing else, so a `{"of": …,
+    "as": "controller"}` dict passed as `player` silently became `None`
+    rather than resolving. Widened to `self._operand_player(context,
+    targets, self.player) or (None if isinstance(self.player, (str,
+    dict)) else self.player) or (targets[0] if targets else None)` — the
+    exact `LoseLifeEffect` idiom. That alone wasn't enough: a second,
+    independent, pre-existing gap surfaced empirically (the fix parsed
+    correctly but the object never actually left the battlefield in a
+    live-engine test) — `EffectRegistry`'s own `"sacrifice"` factory
+    lambda (`game/effects/registry.py`) never forwarded a parsed spec's
+    `player` key to `SacrificeEffect.__init__` at all, unlike its
+    `"draw"`/`"gain_life"`/`"lose_life"`/`"discard"` sibling factories,
+    which already do. The constructor parameter has existed since before
+    this ticket (used by hand-authored/programmatic callers), but no
+    parsed `EffectSpec` could ever reach it — a latent gap in the
+    whitelisted-params boundary itself, not just missing parser
+    recognition, caught only because this increment tested past the parse
+    verdict rather than trusting it. New handler rows
+    (`attached_its_controller_sacrifices`/`group_its_controller_
+    sacrifices`) reuse `_SACRIFICE_EDICT_WHAT_WORDS`'s existing vocabulary;
+    an optional "or `<what2>`" alternation is deliberately a closed
+    two-word whitelist (`_SACRIFICE_WHAT_OR_COMBOS`, just
+    `creature_or_land` for Tainted Aether) rather than a general
+    combinator, matching `_matches_permanent_type`'s own closed-vocabulary
+    discipline — a new `"creature_or_land"` case was added there
+    (`damage_death_mixin.py`) alongside the existing `artifact_or_
+    creature`/`creature_or_planeswalker`/`creature_artifact_or_land`
+    compounds; an un-whitelisted pairing fails closed rather than silently
+    falling through `_matches_permanent_type`'s own "unknown word → any
+    permanent" default (which would have over-matched). **+3 (Celestial
+    Sword, Funeral March, Tainted Aether), 0 regressed** (`parser_probe.py
+    diff`, isolated from the committed PARSER_VERSION 416 baseline via
+    `git stash`). Verified past the parse verdict:
+    `tests/test_par117_sacrifice_verb.py` — direct `SacrificeEffect.apply`
+    calls confirm the attached-permanent referent sacrifices the enchanted
+    host from *its own* controller's board (not the Aura's controller's),
+    the group-subject referent sacrifices off the entering creature's own
+    controller's board, and the delayed-trigger widening produces a
+    byte-identical spec to the pre-existing bare form. Full `pytest -q`
+    green (same 17 pre-existing, unrelated failures, plus the version-lock
+    test this batch's own bump satisfies).
+  - **Left open, separately shaped:** Fade Away/Killing Wave's own leading
+    "for each creature, its controller sacrifices `<X>` unless they pay
+    `<cost>`." is RULE 601.2c's *unscoped* per-object iteration (every
+    creature on the battlefield regardless of controller, one at a time)
+    — a different grammar shape from `segmenter._FOR_EACH_SUFFIX_RE`'s
+    existing *trailing* "`<effect>` for each `<group>`" (which is also
+    always a you-control group, per `_FOR_EACH_SELECTORS`), not attempted
+    here. Torment of Venom's "…unless they sacrifice `<X>` of their choice
+    **or discard a card**" is a compound cost-alternative offering two
+    different actions, not the single-cost "unless they pay" shape the
+    existing family models. Goblin Ski Patrol moved to `singletons.md`
+    (its own remaining clause, a reversed "activate only once and only
+    if" word order plus a "snow `<land type>`" selector, is a confirmed
+    true one-off with no cache-wide sibling).
 
 ### PAR-62: the clause grammar's first connective (`14_` S4, PARSER_VERSION 302)
 

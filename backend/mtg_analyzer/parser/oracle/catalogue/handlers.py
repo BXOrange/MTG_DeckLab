@@ -2435,6 +2435,57 @@ def _attached_its_controller_loses_that_much_life(m: re.Match[str]) -> list[Effe
     })]
 
 
+#: PAR-117 (sacrifice-verb residue): "its controller sacrifices `<N>`
+#: [nontoken] `<what>`[ or `<what2>`] of their choice" (Funeral March —
+#: attached_permanent referent; Tainted Aether — group-subject referent).
+#: `SacrificeEffect.player` now accepts the same ``{"of": …, "as":
+#: "controller"}`` referent `GainLifeEffect`/`LoseLifeEffect`/`DrawCardEffect`/
+#: `DiscardEffect`/`MillEffect` already read (widened alongside this row —
+#: RULE 601.2c's interactive edict needed no different plumbing than any
+#: other player-scoped effect, just the same operand). Reuses
+#: `_SACRIFICE_EDICT_WHAT_WORDS`/`_sacrifice_edict`'s own vocabulary; the
+#: optional "or `<what2>`" alternation only recognizes the one two-word
+#: combination a real card needs (`_SACRIFICE_WHAT_OR_COMBOS`) rather than
+#: every pairing, the same closed-vocabulary discipline `_matches_
+#: permanent_type` itself follows.
+_SACRIFICE_WHAT_OR_COMBOS: dict[frozenset, str] = {
+    frozenset({"creature", "land"}): "creature_or_land",
+}
+_ITS_CONTROLLER_SACRIFICES_RE = _c(
+    rf"its controller sacrifices (?P<count>a|an|\d+) (?P<nontoken>nontoken )?"
+    rf"(?P<what>{'|'.join(_SACRIFICE_EDICT_WHAT_WORDS)})s?"
+    rf"(?: or (?P<what2>{'|'.join(_SACRIFICE_EDICT_WHAT_WORDS)})s?)? of their choice"
+)
+
+
+def _its_controller_sacrifices_params(m: re.Match[str]) -> Optional[dict]:
+    what = _SACRIFICE_EDICT_WHAT_WORDS[m.group("what")]
+    what2 = m.groupdict().get("what2")
+    if what2:
+        combo = _SACRIFICE_WHAT_OR_COMBOS.get(frozenset({what, _SACRIFICE_EDICT_WHAT_WORDS[what2]}))
+        if combo is None:
+            return None  # an un-whitelisted "<x> or <y>" pairing → fail closed
+        what = combo
+    elif m.group("nontoken") and what == "creature":
+        what = "nontoken_creature"
+    count_word = m.group("count")
+    return {"what": what, "count": 1 if count_word in ("a", "an") else int(count_word)}
+
+
+def _attached_its_controller_sacrifices(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _its_controller_sacrifices_params(m)
+    if params is None:
+        return None
+    return [EffectSpec("sacrifice", {**params, "player": _ATTACHED_CONTROLLER})]
+
+
+def _group_its_controller_sacrifices(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _its_controller_sacrifices_params(m)
+    if params is None:
+        return None
+    return [EffectSpec("sacrifice", {**params, "player": _ENTERING_CONTROLLER})]
+
+
 #: "Whenever a player casts a spell, they lose 1 life for each spell
 #: they've cast this turn." (Rug of Smothering) — the caster's own running
 #: `GameState.spells_cast_this_turn` count (`LoseLifeEffect.
@@ -10936,9 +10987,24 @@ def _reveal_until_type(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: and Iron's own earlier clause targets the creature it *pumps*, not
 #: itself), so it gets its own unconditional ``capture="self"`` rather than
 #: joining the ``obj`` alternation's `previous_or_self` group.
+#: PAR-117 (residue): an optional "**its controller** sacrifices/exiles/
+#: destroys `<it>` …" subject (Celestial Sword/Goblin Ski Patrol — "Its
+#: controller sacrifices it at the beginning of the next end step.") is
+#: *not* a fourth referent needing its own plumbing: RULE 701.17a already
+#: means "sacrifice" is inherently self-directed — a permanent's sacrifice
+#: always comes from **its own** controller, never another player's — so
+#: `SacrificeSpecificEffect.apply` (`context.engine.put_into_graveyard
+#: (obj)`) never reads a player at all, only the object. "Its controller
+#: sacrifices it" and a bare "sacrifice it" therefore compile to the
+#: identical spec; only the recognition needed widening, not `capture`/the
+#: effect type. Third-person "sacrifices"/"exiles"/"destroys" only ever
+#: appears with this explicit subject present (an unprefixed clause is
+#: always the imperative "sacrifice"/"exile"/"destroy"), so the two forms
+#: don't need disambiguating beyond the verb conjugation itself.
 _DELAYED_SAC_EXILE_TAIL_RE = _c(
     r"(?:then )?(?:"
-    r"(?P<verb>sacrifice|exile|destroy) "
+    r"(?:its controller (?P<verb_ctrl>sacrifices|exiles|destroys)"
+    r"|(?P<verb>sacrifice|exile|destroy)) "
     r"(?:(?P<obj>it|that creature|that token|the tokens?|that permanent|that artifact|those tokens|them|all tokens created this way)|(?P<obj_self>~))"
     # "Return that creature to its owner's hand" (Ilharg, Zara, Alora) — a
     # loan bounced end of turn; the object is the same `previous_or_self`
@@ -10959,7 +11025,11 @@ _DELAYED_TAIL_INNER = {
 
 
 def _delayed_sac_exile_tail(m: re.Match[str]) -> list[EffectSpec]:
-    verb = (m.groupdict().get("verb") or m.groupdict().get("verb_return") or "").lower()
+    verb_ctrl = m.groupdict().get("verb_ctrl")
+    verb = (
+        m.groupdict().get("verb") or m.groupdict().get("verb_return")
+        or (verb_ctrl.rstrip("s") if verb_ctrl else "")
+    ).lower()
     inner = _DELAYED_TAIL_INNER[verb]
     step = "end_combat" if m.group("when").lower() == "at end of combat" else "end"
     obj = (m.groupdict().get("obj") or "").lower()
@@ -12980,6 +13050,10 @@ HANDLERS: list[EffectHandler] = [
         "group_its_controller_mills", _ITS_CONTROLLER_MILLS_RE,
         _group_its_controller_mills, group_subject_only=True,
     ),
+    EffectHandler(
+        "group_its_controller_sacrifices", _ITS_CONTROLLER_SACRIFICES_RE,
+        _group_its_controller_sacrifices, group_subject_only=True,
+    ),
     # PAR-117 (attached-permanent-controller residue): the same clauses
     # again, gated on `attached_subject_only` instead — "its" is the Aura's
     # own host (RULE 303.4/301.5), named by the trigger condition itself
@@ -13008,6 +13082,10 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "attached_its_controller_mills", _ITS_CONTROLLER_MILLS_RE,
         _attached_its_controller_mills, attached_subject_only=True,
+    ),
+    EffectHandler(
+        "attached_its_controller_sacrifices", _ITS_CONTROLLER_SACRIFICES_RE,
+        _attached_its_controller_sacrifices, attached_subject_only=True,
     ),
     # Tried before the plain `lose_life` row below (its own bare
     # `{NUMBER} life` would otherwise stop right after the digit, leaving

@@ -1879,6 +1879,18 @@ class SacrificeEffect(GameEffect):
     through the chooser, since only a tie among several actually leaves
     anything to decide and no shipped card sacrifices more than one this
     way (recomputing "greatest" between interactive picks isn't modeled).
+
+    ``player`` also accepts a ``{"of": …, "as": "controller"|"owner"}``
+    referent (PAR-117 — "whenever enchanted creature leaves the
+    battlefield, **its controller** sacrifices a creature of their
+    choice." / "whenever a creature enters, **its controller** sacrifices
+    a creature or land of their choice.") — resolved the same way
+    `GainLifeEffect`/`LoseLifeEffect`/`DrawCardEffect`/`DiscardEffect`
+    already read one, through `GameEffect._operand_player`. Unlike those,
+    this class's untargeted fallback is `targets[0] if targets else None`
+    rather than `_resolve_target_or_controller`'s own chain (see the
+    ``target_spec`` field below), so the operand is tried first and the
+    existing fallback continues unchanged when it resolves to nobody.
     """
 
     def __init__(
@@ -1930,7 +1942,9 @@ class SacrificeEffect(GameEffect):
             # ability's own controller.
             self._sacrifice_each_in_order(context, list(context.state.living_players()))
             return
-        player = self.player or (targets[0] if targets else None)
+        player = self._operand_player(context, targets, self.player) or (
+            None if isinstance(self.player, (str, dict)) else self.player
+        ) or (targets[0] if targets else None)
         if player is None and self.selector == "controller":
             controller_id = getattr(self.source, "controller_id", None)
             player = context.state.player_by_id(controller_id) if controller_id is not None else None

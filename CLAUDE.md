@@ -583,8 +583,45 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 45.70% (15,909 / 34,811) as of 2026-09-16, measured at
-PARSER_VERSION 416** (v416 closes PAR-117's attached-permanent-controller
+**Coverage: 45.71% (15,912 / 34,811) as of 2026-09-16, measured at
+PARSER_VERSION 417** (v417 closes two independent slices of PAR-117's
+sacrifice-verb residue. (1) "Its controller sacrifices it at the beginning
+of the next end step." (Celestial Sword/Goblin Ski Patrol) is *not* a
+fourth referent: RULE 701.17a already makes "sacrifice" inherently
+self-directed — a permanent's own controller is the only player who can
+ever sacrifice it — so `SacrificeSpecificEffect.apply` never reads a
+player at all, only the captured object; "its controller sacrifices it"
+and a bare "sacrifice it" (PAR-30's `_DELAYED_SAC_EXILE_TAIL_RE`) compile
+to the identical spec. Closed on recognition alone — an optional "its
+controller " subject plus third-person "sacrifices/exiles/destroys"
+conjugation on the existing regex, no engine change. (2) "Its controller
+sacrifices `<N>` [nontoken] `<what>`[ or `<what2>`] of their choice."
+(Funeral March — attached-permanent referent; Tainted Aether —
+group-subject referent) *is* a real widening: `SacrificeEffect.player` had
+never been routed through `GameEffect._operand_player` the way
+`GainLifeEffect`/`LoseLifeEffect`/`DrawCardEffect`/`DiscardEffect`/
+`MillEffect` already are, so the `{"of": …, "as": "controller"}` referent
+silently fell through to `targets[0] if targets else None`. A second,
+independent gap surfaced fixing it: `EffectRegistry`'s own `"sacrifice"`
+factory lambda never forwarded a parsed spec's `player` key to
+`SacrificeEffect.__init__` at all (unlike its `draw`/`gain_life`/
+`lose_life`/`discard` siblings, which already do) — the constructor
+parameter existed and predates this ticket, but no `EffectSpec` could ever
+reach it. Also adds `"creature_or_land"` to `damage_death_mixin.
+_matches_permanent_type` (Tainted Aether's own two-word choice — a new
+whitelisted combination, not a new predicate). +3 (Celestial Sword,
+Funeral March, Tainted Aether), 0 regressed (`parser_probe.py diff`).
+Goblin Ski Patrol stays UNMODELED on its own unrelated singleton
+("Activate only once and only if you control a snow Mountain." — a
+reversed clause order plus a "snow `<land type>`" selector neither shared
+by any other cached card, confirmed via `parser_probe.py blocked`) — left
+for `singletons.md`. Fade Away/Killing Wave's leading "for each creature,
+its controller sacrifices …" (RULE 601.2c's unscoped per-object
+iteration, a different shape from the trailing `_FOR_EACH_SUFFIX_RE` this
+file already models) and Torment of Venom's compound "unless they
+sacrifice `<X>` of their choice or discard a card" stay open, unrelated
+to either closure above.
+v416 closes PAR-117's attached-permanent-controller
 sub-shape: "whenever enchanted creature/land `<trigger>`, its controller
 `<verb>` …" (Contaminated Bond/Corrupted Roots/Sinister Possession/Ragged
 Veins/Visions of Brutality/Chronic Flooding/Fate Foretold/Decomposition) —
@@ -1386,7 +1423,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 48.00% (15,279 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 48.01% (15,282 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

@@ -125,6 +125,10 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
         # RULE 306/302: Tevesh Szat's "another creature or planeswalker" —
         # the one compound word any shipped card needs.
         return obj.is_creature or obj.card.is_planeswalker
+    if what == "creature_or_land":
+        # PAR-117: Tainted Aether's own edict — "its controller sacrifices
+        # a creature or land of their choice."
+        return obj.is_creature or obj.is_land
     if what == "creature_artifact_or_land":
         # PAR-13: "sacrifice a creature, artifact, or land of their choice"
         # (Tomb of Annihilation's "Sandfall Cell" dungeon room) — the

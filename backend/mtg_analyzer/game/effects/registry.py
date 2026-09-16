@@ -1587,6 +1587,7 @@ EffectRegistry.register(
     lambda p: SacrificeEffect(
         count=p.get("count", 1) if p.get("count") == "all_but_one" else int(p.get("count", 1) or 1),
         what=p.get("what", "permanent"),
+        player=p.get("player"),
         selector=p.get("selector"),
         greatest_power=bool(p.get("greatest_power", False)),
         target_kind=p.get("target_kind"),

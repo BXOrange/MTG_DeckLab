@@ -741,7 +741,13 @@ its block back into the matching section here.
   attached-permanent-controller sub-shape closed at PARSER_VERSION 416**
   (Contaminated Bond/Corrupted Roots/Sinister Possession/Ragged Veins/
   Visions of Brutality/Chronic Flooding/Fate Foretold/Decomposition, +8) —
-  see `Done_Backend.md`'s PAR-115 entry:
+  see `Done_Backend.md`'s PAR-115 entry. **Two slices of the sacrifice-verb
+  sub-shape closed at PARSER_VERSION 417** (Celestial Sword — the
+  "sacrifices it at end step" form needed no new referent at all, RULE
+  701.17a already makes sacrifice self-directed; Funeral March/Tainted
+  Aether — `SacrificeEffect.player` widened onto the same `_operand_player`
+  referent, +3) — see `Done_Backend.md`'s PAR-115 entry; its own residue is
+  now listed under that sub-bullet below instead of the shape as a whole:
   - **Group-subject (RULE 603.1) controller — residue.** The bare shape
     ("whenever a/another `<type>` [you control] enters/dies/attacks/blocks,
     its controller `<verb2>` …") is closed (PARSER_VERSION 415,
@@ -778,12 +784,32 @@ its block back into the matching section here.
       the RULE 603.1 group; "enchanted player" scopes *which* player it
       must attack), not a shape either existing condition family expresses
       alone.
-  - **Sacrifice verb** — "its controller sacrifices `<X>` [of their
-    choice/unless they pay `<cost>`]" (Celestial Sword/Fade Away/Funeral
-    March/Goblin Ski Patrol/Killing Wave/Tainted Aether/Torment of Venom).
-    `SacrificeEffect`'s own interactive-chooser shape (RULE 601.2c edict)
-    needs its own referent plumbing, deliberately not attempted alongside
-    the non-interactive verbs above.
+  - **Sacrifice verb — residue.** The "its controller sacrifices `<X>` of
+    their choice"/"…sacrifices it at end step" referent itself is closed
+    (PARSER_VERSION 417 — see above). What's left is real, separately-shaped
+    residue, not this referent:
+    - Fade Away/Killing Wave: "**for each creature**, its controller
+      sacrifices `<X>` unless they pay `<cost>`." — a *leading* "for each
+      creature" (RULE 601.2c, every creature regardless of controller, one
+      at a time), distinct from `segmenter._FOR_EACH_SUFFIX_RE`'s existing
+      *trailing* "`<effect>` for each `<group>`" shape (which also only
+      ever iterates a *you-control* group, `_FOR_EACH_SELECTORS`) — needs
+      its own leading-prefix grammar and an unscoped "every creature"
+      selector, plus (Fade Away only) an interactive edict layered under
+      the per-creature "unless they pay" alternative.
+    - Torment of Venom: "its controller loses N life **unless they
+      sacrifice `<X>` of their choice or discard a card**." — a compound
+      "unless" alternative offering *two* different actions (sacrifice OR
+      discard), not a single pay-cost gate; the existing "unless they pay"
+      family (`_LOSE_LIFE_UNLESS_PAY`-shaped rows) only ever models one
+      cost kind.
+    - Goblin Ski Patrol: its own sacrifice clause now parses (PARSER_VERSION
+      417), but the card stays UNMODELED on an unrelated trailing clause,
+      "Activate only once and only if you control a snow Mountain." — a
+      reversed "only once and only if" word order plus a "snow `<land
+      type>`" control-count selector, confirmed a true singleton (1 SOLO/0
+      also-blocked via `parser_probe.py blocked`) — see `singletons.md`,
+      not tracked here.
   - **Conditional wrapper** — "`<X>`. if `<cond>`, its controller `<verb>`
     …" (Acolyte Hybrid/Faller's Faithful/Gloomlance/Ringwraiths/Soul Reap).
     May fall out for free once the base "its controller `<verb>`" rows
