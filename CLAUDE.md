@@ -583,8 +583,51 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 45.75% (15,927 / 34,811) as of 2026-09-16, measured at
-PARSER_VERSION 419** (v419 closes PAR-117's group-subject colour-qualifier
+**Coverage: 45.8% (15,945 / 34,811) as of 2026-09-16, measured at
+PARSER_VERSION 421** (v421 closes PAR-117's group-subject "attacks **you**"
+residue axis — RULE 506.4's defending-player scope on a group ATTACKS
+condition (Hissing Miasma). No new engine primitive: the ATTACKS event
+already carries a `defending_player_id` (read by `attacked_player_lowest_
+life_predicate`'s trigger-level gate, MEC-28); `_GROUP_SUBJECT_RE`/`_group_
+subject_condition` (segmenter.py) gained a trailing "you" qualifier and
+`effect_binder._build_group_ok` a new `attacks_you` key checking that same
+event field against this ability's own controller. +1, 0 regressed.
+MacCready, Lamplight Mayor's power-and-attacks-you-qualified second ability
+now parses (both axes combine independently), but the card stays UNMODELED
+on its unrelated first ability ("it gains skulk" — a group-subject *self*
+grant, not an "its controller" referent). Sizing this axis surfaced a much
+larger sibling shape, deliberately not attempted here: "attacks you **or a
+planeswalker you control**" (RULE 506.4c, 12 SOLO cards) needs a real new
+event field first — a planeswalker-kind `combat_defender`'s controller
+isn't resolved onto the ATTACKS event at all today (`defending_player_id`
+is `None` for those attacks by construction, not a latent bug).
+v420 closes PAR-117's group-subject power-qualifier
+residue — "whenever a creature with power `<n>` or `<less/greater>`
+`<verb>`, …" (Kavu Lair — "…enters, its controller draws a card."; the
+"another creature you control with power 2 or less enters" template several
+creature-support cards share). No new engine primitive: a "with power
+`<n>` or `<less/greater>`" fragment already existed in several one-shot
+target/damage-filter handlers, reused here as a `_GROUP_SUBJECT_RE`
+qualifier; `effect_binder._build_group_ok` gained `min_power`/`max_power`
+keys read **live** off the board — unlike the colour axis's DIES-shaped
+cards (v419), every verb this filter reaches (ENTERS_BATTLEFIELD, ATTACKS)
+keeps the acting object on the battlefield when the condition is checked,
+so no RULE 400.7 event snapshot is needed. +17 — far more than the 15-card
+search phrase this axis was sized against, since the regex widening is
+general and also reached several bonus cards using the same shape with an
+unrelated payoff (Garruk's Packleader, Inspiring Commander, Marketwatch
+Phantom, Mentor of the Meek, Neighborhood Guardian, Outcaster Trailblazer,
+Paleoloth, Snarling Gorehound, Vicious Clown) — 0 regressed
+(`parser_probe.py diff`). Six cards sharing the original search phrase stay
+UNMODELED on their own separate, unrelated clause (confirmed via
+`parser_probe.py card`, none attempted here): Cavalcade of Calamity/Raid
+Bombardment's own "the player or planeswalker **that creature is
+attacking**" referent; Life Finds a Way's "**populate**" keyword action;
+MacCready, Lamplight Mayor, which needs the still-open "attacks **you**"
+defending-player axis *as well as* this one; Subira, Tulzidi Caravanner's
+granted delayed-trigger-from-a-cost-line grammar; and Where Ancients
+Tread's unrecognized "you may have `<name>` `<effect>`" wrapper.
+v419 closes PAR-117's group-subject colour-qualifier
 residue — "whenever a `<color>` `<type>` [you control] `<verb>`, …"
 (Bereavement; the RTR "Denizen" cycle — Court Street/Foundry Street/Sage's
 Row/Shadow Alley Denizen; Ivy Lane Denizen; Sylvan Anthem; Teysa, Orzhov

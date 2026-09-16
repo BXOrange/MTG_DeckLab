@@ -1436,6 +1436,17 @@ _GROUP_SUBJECT_RE = re.compile(
     # The Reaper, King No More — `_build_group_ok` maps the latter to the
     # existing ``controller="not_you"`` scope).
     r"(?:(?P<you_a> you control)|(?P<opp> an opponent controls))?"
+    # PAR-117 (group-subject residue, Kavu Lair-shaped: "whenever a creature
+    # with power 4 or greater enters"/"whenever a creature you control with
+    # power 2 or less attacks") — the same "with power `<n>` or `<less/
+    # greater>`" fragment several one-shot handlers already share
+    # (`handlers.py`'s target/damage-filter rows), reused here as a
+    # qualifier on the acting object itself. `_build_group_ok`'s new
+    # ``min_power``/``max_power`` keys read the event's live power (every
+    # verb this can appear on — ENTERS_BATTLEFIELD, ATTACKS — keeps the
+    # object on the battlefield when the condition is checked, RULE 508.3/
+    # 508.1, unlike DIES's colour filter which needed a snapshot).
+    r"(?:\s+with power (?P<power_n>\d+) or (?P<power_cmp>less|greater))?"
     # "…**with a -1/-1 counter on it**" / "…with a +1/+1 counter on it" /
     # the kindless "…with a counter on it" (the whole -1/-1 & +1/+1
     # aristocrats archetype — Skyclave Shadowcat, Gladehart Cavalry,
@@ -1445,6 +1456,16 @@ _GROUP_SUBJECT_RE = re.compile(
     r"(?P<ctr>\s+with an?\s+(?:(?P<ctrkind>-1/-1|\+1/\+1)\s+)?counter on it)?"
     rf"\s+(?:{_VERB_ALT})"
     r"(?:\s+the\s+battlefield)?(?:\s+alone)?"
+    # PAR-117 (group-subject residue, Hissing Miasma-shaped: "whenever a
+    # creature attacks **you**") — RULE 506.4's defending-player scope: the
+    # acting object's own ATTACKS event carries a ``defending_player_id``
+    # (already read by `attacked_player_lowest_life_predicate`'s trigger-
+    # level gate, MEC-28), which `_build_group_ok`'s new ``attacks_you`` key
+    # checks against this ability's own controller instead. Only meaningful
+    # on "attacks" (no real card prints "dies you"/"enters you"), but not
+    # anchored to that verb specifically — a bare trailing "you" after any
+    # other verb here has no printed meaning to guess at, so this is safe.
+    r"(?P<attacks_you>\s+you)?"
     r"(?P<you_b> under your control)?$"
 )
 
@@ -3069,6 +3090,16 @@ def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
             # "whenever a **green** creature dies" (Bereavement, the RTR
             # Denizen cycle) — `_build_group_ok`'s new ``color`` key.
             out["color"] = resolve_color_word(m.group("color"))
+        if m.group("power_n"):
+            # "whenever a creature with power `<n>` or `<less/greater>`
+            # `<verb>`" (Kavu Lair) — `_build_group_ok`'s new
+            # ``min_power``/``max_power`` keys.
+            key = "min_power" if m.group("power_cmp") == "greater" else "max_power"
+            out[key] = int(m.group("power_n"))
+        if m.group("attacks_you"):
+            # "whenever a creature attacks **you**" (Hissing Miasma) —
+            # `_build_group_ok`'s new ``attacks_you`` key.
+            out["attacks_you"] = True
         return out
     # Only reached once the exact main-type vocabulary above has already
     # failed to match — a genuine tribal filter ("another nontoken Zombie

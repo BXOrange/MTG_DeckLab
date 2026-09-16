@@ -8347,6 +8347,98 @@ measurement of why is the useful half of this work.
   "this turn" tail, Curse of the Forsaken's attached+group compound) are
   each their own separate grammar gap and stay open — see `BACKLOG.md`'s
   PAR-117 entry.
+- **PAR-117's group-subject power-qualifier residue closed (PARSER_VERSION
+  420).** The sibling axis to the colour qualifier just above: "whenever a
+  creature with power `<n>` or `<less/greater>` `<verb>`, …" (Kavu Lair —
+  "…enters, its controller draws a card."). Confirmed a real, separately-
+  scoped gap the same way — `_trigger_condition()` returned `None` for the
+  power-qualified phrasing even though the bare group-subject shape and the
+  colour qualifier both already worked. No new *primitive* needed at all: a
+  "with power `<n>` or `<less/greater>`" fragment already existed, spelled
+  out independently in several one-shot handlers' own target/damage
+  filters (`handlers.py`) — this batch's only work was recognizing the
+  identical fragment as a qualifier on `_GROUP_SUBJECT_RE`'s own acting
+  object, and reading it back out through two new `effect_binder._build_
+  group_ok` keys:
+  - `segmenter._GROUP_SUBJECT_RE` gained an optional `(?: with power
+    `<n>` or `<less/greater>`)?` group (placed after the "you control"/"an
+    opponent controls" qualifier, matching every real card's own word
+    order), and `_group_subject_condition` folds it into a `min_power`
+    ("or greater") or `max_power` ("or less") key on the emitted condition
+    dict.
+  - `_build_group_ok` reads `min_power`/`max_power` straight off the live
+    board (`state.find_object(event_instance).power`) — deliberately
+    **not** snapshotted onto the event the way the colour axis's `colors`
+    had to be (PARSER_VERSION 419, above). RULE 400.7 only forces a
+    snapshot for a DIES-shaped condition, where the acting object is
+    already gone from the battlefield by the time the trigger condition is
+    checked; every verb this power qualifier can appear on in practice
+    (ENTERS_BATTLEFIELD, ATTACKS) keeps the object right where a live
+    lookup can still find it, so the existing "event field, else live
+    fallback" idiom's fallback half is the only half this axis ever needs.
+  **+17** — well past the 15-card search phrase (`whenever an? .*creature
+  (you control )?with power \d+ or (greater|less)`) this axis was sized
+  against, since widening the shared `_GROUP_SUBJECT_RE` regex is general:
+  it also reached 9 bonus cards using the identical "with power `<n>` or
+  `<less/greater>`" template with a payoff outside that search string
+  (Garruk's Packleader, Inspiring Commander, Marketwatch Phantom, Mentor of
+  the Meek, Neighborhood Guardian, Outcaster Trailblazer, Paleoloth,
+  Snarling Gorehound, Vicious Clown — a `pay_cost_then`/`pump`/`draw`/
+  `gain_life`/`surveil`/`return_from_graveyard` spread, all pre-existing
+  effect bodies that had simply never had a working trigger condition to
+  attach to). **0 regressed** (`parser_probe.py diff`). Verified past the
+  parse verdict (`tests/test_par117_group_subject_power.py`): a 4-power vs.
+  a 3-power creature entering only fires Kavu Lair's draw off the 4-power
+  one (the `min_power`/"or greater" polarity); a 2-power vs. a 3-power
+  creature entering only fires Marketwatch Phantom's pump off the 2-power
+  one (the `max_power`/"or less" polarity, and the live-board-lookup path
+  specifically, since Marketwatch Phantom is ENTERS-shaped like every real
+  card on this axis). **Left open, confirmed unrelated — six cards sharing
+  the search phrase, each its own separate clause:** Cavalcade of
+  Calamity/Raid Bombardment's "~ deals 1 damage to the player or
+  planeswalker **that creature is attacking**" (a RULE 506.4 referent — the
+  acting attacker's own current attack target — no damage effect reads
+  yet); Life Finds a Way's "**populate**" (RULE 701.24, an unrelated
+  keyword action); Subira, Tulzidi Caravanner's granted delayed triggered
+  ability off an activated ability's own cost line (a different
+  activation/delayed-trigger grammar entirely); and Where Ancients Tread's
+  "you may have `<name>` deal 5 damage to any target" (an unrecognized "you
+  may have `<name>` `<effect>`" wrapper, distinct from the already-shipped
+  mid-body "you may `<effect>`" optional node, which has no "have
+  `<name>`" indirection). MacCready, Lamplight Mayor needs *both* this axis
+  and Hissing Miasma's still-open "attacks **you**" defending-player axis —
+  its own power-qualified trigger is itself ATTACKS-shaped, not
+  ENTERS-shaped, so closing only one of the two leaves it UNMODELED; not
+  attempted here. See `BACKLOG.md`'s PAR-117 entry for the remaining axes.
+- **PAR-117's group-subject "attacks you" residue axis closed (PARSER_VERSION
+  421).** RULE 506.4's defending-player scope on a group ATTACKS condition
+  (Hissing Miasma). No new engine primitive: the ATTACKS event already
+  carries `defending_player_id` (`RulesEngine.declare_attackers`), already
+  read by `attacked_player_lowest_life_predicate`'s trigger-level gate
+  (MEC-28) — this only adds a second, independent read of the same field.
+  `_GROUP_SUBJECT_RE`/`_group_subject_condition` (segmenter.py) gained a
+  trailing "you" qualifier; `effect_binder._build_group_ok` gained an
+  `attacks_you` key checking that field against this ability's own
+  controller. **+1, 0 regressed** (`parser_probe.py diff`). Verified past
+  the parse verdict (`tests/test_par117_group_subject_attacks_you.py`):
+  Hissing Miasma's trigger fires when the attacked player is its own
+  controller, not when it's a third player. MacCready, Lamplight Mayor's
+  power-*and*-attacks-you-qualified second ability now parses correctly
+  (the two qualifiers combine as independent optional regex groups, no
+  special-casing needed), but the card as a whole stays UNMODELED on its
+  unrelated first ability ("it gains skulk" — a group-subject *self* grant
+  reading "it" as the acting object, not "its controller", which no
+  existing referent covers). Sizing this axis (`parser_probe.py blocked
+  "whenever an? .*creature.* attacks you"`) surfaced a much larger sibling
+  shape, deliberately **not** attempted here: "attacks you **or a
+  planeswalker you control**" (RULE 506.4c, 12 SOLO cards — Blood
+  Reckoning, Isperia Supreme Judge, Revenge of Ravens, …). That one needs a
+  real new event field, not just recognition — a planeswalker-kind
+  `combat_defender` spec carries `instance_id`, not `id`, so
+  `defending_player_id` is already (correctly) `None` for those attacks;
+  resolving "a planeswalker you control" needs the defender's own
+  controller threaded onto the ATTACKS event. See `BACKLOG.md`'s PAR-117
+  entry.
 
 ### PAR-62: the clause grammar's first connective (`14_` S4, PARSER_VERSION 302)
 

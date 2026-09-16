@@ -669,6 +669,21 @@ def _build_group_ok(
     # event kind this filter can appear on (ENTERS_BATTLEFIELD, ATTACKS, …)
     # keeps the object around, so the live fallback covers those instead.
     want_color = condition.get("color")
+    # "whenever a creature with power `<n>` or `<less/greater>` `<verb>`"
+    # (Kavu Lair, PAR-117) — read live off the board: every verb this filter
+    # can appear on (ENTERS_BATTLEFIELD, ATTACKS) keeps the acting object on
+    # the battlefield when the condition is checked, unlike DIES's colour
+    # filter above (RULE 400.7), so no event snapshot is needed here.
+    want_min_power = condition.get("min_power")
+    want_max_power = condition.get("max_power")
+    # "whenever a creature attacks **you**" (Hissing Miasma, PAR-117) —
+    # RULE 506.4's defending-player scope: the ATTACKS event's own
+    # ``defending_player_id`` (already read by `attacked_player_lowest_
+    # life_predicate`'s trigger-level gate, MEC-28) must equal this
+    # ability's own controller. Distinct from ``recipient_is_you`` below,
+    # which reads a DAMAGE event's player-recipient fields — a different
+    # event shape entirely.
+    want_attacks_you = bool(condition.get("attacks_you"))
     # RULE 603.1 Panharmonicon-shaped self-recursion guard (MEC-43 round
     # 4D, Kodama of the East Tree — "if it wasn't put onto the
     # battlefield with this ability"): the acting object's own live
@@ -725,6 +740,9 @@ def _build_group_ok(
         want_nonbasic=want_nonbasic,
         want_nonland=want_nonland,
         want_color=want_color,
+        want_min_power=want_min_power,
+        want_max_power=want_max_power,
+        want_attacks_you=want_attacks_you,
         want_not_entered_via_self=want_not_entered_via_self,
         want_damaged_by_self=want_damaged_by_self,
         damaged_by_via_attached=damaged_by_via_attached,
@@ -832,6 +850,20 @@ def _build_group_ok(
                 colors = sorted(obj.colors) if obj is not None else None
             if not colors or want_color not in colors:
                 return False
+        if want_min_power is not None or want_max_power is not None:
+            if event_instance is None:
+                return False
+            state = getattr(context, "state", None)
+            obj = state.find_object(event_instance) if state is not None else None
+            if obj is None:
+                return False
+            power = obj.power or 0
+            if want_min_power is not None and power < want_min_power:
+                return False
+            if want_max_power is not None and power > want_max_power:
+                return False
+        if want_attacks_you and event.get("defending_player_id") != cid:
+            return False
         if want_crewed_by_self:
             if iid is None or event_instance is None:
                 return False

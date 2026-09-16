@@ -724,67 +724,34 @@ its block back into the matching section here.
 > clause, a self- vs. target-referent) this scan doesn't capture.**
 
 - **PAR-117 · "Its controller `<verb>`" — the referent shapes PAR-115
-  didn't reach (residue).** PAR-115 (closed, PARSER_VERSION 414, see
-  `Done_Backend.md`) found that `14_`'s own S4 framing — "rewrite
-  `parse_effect_body` as recursive descent, every currently-MODELED card
-  re-derived" — was the wrong shape for this family: "`<destroy/exile/
-  counter/return/tap X>`. its controller `<verb>` …" is a *referent*
-  (`previous_target`'s controller) that `EffectHandler.previous_subject_
-  only` already gates correctly, not a connective needing a rewrite. Real
-  residue confirmed still open at PARSER_VERSION 414 via
-  `parser_probe.py blocked`, each its own separately-scoped referent axis
-  — do not assume they share PAR-115's own `previous_target` plumbing.
-  **The group-subject sub-shape's bare form closed at PARSER_VERSION 415**
-  (Poisonbelly Ogre, +1) — see `Done_Backend.md`'s PAR-115 entry; its own
-  residue (color/power-qualified subjects, "attacks you", …) is now listed
-  under that sub-bullet below instead of the shape as a whole. **The
-  attached-permanent-controller sub-shape closed at PARSER_VERSION 416**
-  (Contaminated Bond/Corrupted Roots/Sinister Possession/Ragged Veins/
-  Visions of Brutality/Chronic Flooding/Fate Foretold/Decomposition, +8) —
-  see `Done_Backend.md`'s PAR-115 entry. **Two slices of the sacrifice-verb
-  sub-shape closed at PARSER_VERSION 417** (Celestial Sword — the
-  "sacrifices it at end step" form needed no new referent at all, RULE
-  701.17a already makes sacrifice self-directed; Funeral March/Tainted
-  Aether — `SacrificeEffect.player` widened onto the same `_operand_player`
-  referent, +3) — see `Done_Backend.md`'s PAR-115 entry; its own residue is
-  now listed under that sub-bullet below instead of the shape as a whole.
-  **The conditional-wrapper sub-shape closed at PARSER_VERSION 418**
-  (Acolyte Hybrid/Faller's Faithful/Gloomlance/Ringwraiths, +4, plus 2 bonus
-  — Gloomwidow's Feast/Smashing Success) — see `Done_Backend.md`'s PAR-115
-  entry; Soul Reap's own residue moved to `MEC-97` (a real new primitive,
-  not a recognition gap). **The group-subject shape's own colour-qualifier
-  axis closed at PARSER_VERSION 419** (+9) — see its own sub-bullet below
-  for the card list and `Done_Backend.md`'s PAR-115 entry for the narrative:
-  - **Group-subject (RULE 603.1) controller — residue.** The bare shape
-    ("whenever a/another `<type>` [you control] enters/dies/attacks/blocks,
-    its controller `<verb2>` …") is closed (PARSER_VERSION 415,
-    `group_subject_only`-gated rows reusing the `{"of": "entering", "as":
-    "controller"}` referent PAR-115 already proved out, plus a new
-    `MillEffect.selector="trigger_subject_controller"`) — Poisonbelly Ogre
-    modeled, 0 regressed. What's left is real, separately-scoped
-    trigger-*condition* grammar `_trigger_condition()` doesn't recognize at
-    all yet (confirmed via direct calls returning `None`), one axis apiece,
-    not this referent. **The colour-qualifier axis closed at PARSER_VERSION
-    419** (Bereavement, the RTR "Denizen" cycle — Court Street/Foundry
-    Street/Sage's Row/Shadow Alley Denizen —, Ivy Lane Denizen, Sylvan
-    Anthem, Teysa Orzhov Scion, Linden the Steadfast Queen — +9, 0
-    regressed) — see `Done_Backend.md`'s PAR-115 entry. Dire Undercurrents
-    and Yorvo, Lord of Garenbrig share that same search phrase but stay
-    UNMODELED on their own unrelated gap each ("you may have target player
-    `<verb>`"; a comparative "if that creature's power is greater than
-    ~'s power") — neither is a group-subject condition gap, not tracked
-    under this bullet:
-    - Kavu Lair (and MacCready, Lamplight Mayor's own "…and you gain 2
-      life" tail): "a creature **with power N or greater** enters/attacks"
-      — reuse the "with power `<n>` or `<less/greater>`" fragment several
-      one-shot handlers already share, as a new `_GROUP_SUBJECT_RE`
-      qualifier.
-    - Hissing Miasma (and MacCready): "a creature attacks **you**" — RULE
-      506.4's defending-player scope on a group ATTACKS condition; no
-      `_build_group_ok` key reads the event's own `defending_player_id`
-      against this ability's controller yet (the closest existing idiom,
-      `attacked_player_has_lowest_life`, is a *trigger*-level gate, not a
-      group-condition key).
+  didn't reach (residue).** PAR-115's own referent plumbing
+  (`EffectHandler.previous_subject_only`/`group_subject_only`/`attached_
+  subject_only`) turned out to already be correct for this whole family;
+  every closed sub-shape's narrative lives in `Done_Backend.md`'s PAR-115
+  entry — this file tracks only what's still open. Each bullet below is its
+  own separately-scoped axis; do not assume a new one shares an
+  already-closed axis's plumbing without checking `Done_Backend.md` first:
+  - **Group-subject (RULE 603.1) controller — residue.** Real,
+    separately-scoped trigger-*condition* grammar `_trigger_condition()`
+    doesn't recognize at all yet (confirmed via direct calls returning
+    `None`):
+    - "attacks you **or a planeswalker you control**" (RULE 506.4c's full
+      defending-permanent spelling, distinct from the bare "attacks you"
+      already shipped): Blood Reckoning, Isperia Supreme Judge, Revenge of
+      Ravens, Riddlekeeper, Search the Premises, and 7 more (12 SOLO via
+      `parser_probe.py blocked "whenever an? .*creature.* attacks you"`).
+      Needs a real new event field, not just recognition: `RulesEngine.
+      declare_attackers`'s ATTACKS event only ever stamps a *player* id
+      into `defending_player_id` — a planeswalker-kind `combat_defender`
+      spec carries `instance_id`, not `id`, so the field is already `None`
+      for those attacks (not a latent bug, just incomplete) — reading "a
+      planeswalker you control" needs the defender's own controller
+      resolved off `combat_defender.instance_id` onto the event, plus the
+      matching `_build_group_ok` OR-condition. MacCready, Lamplight Mayor's
+      first ability ("attacks, it gains skulk") needs a different, unrelated
+      referent (a group-subject *self* grant reading "it" as the acting
+      object, not "its controller") once this axis and the shipped power
+      qualifier both land on its second ability.
     - Essence Sliver: "a Sliver **deals damage**" — `_trigger_event` has no
       group-subject route to a DAMAGE-shaped trigger at all (only the
       self-subject `_DAMAGE_TRIGGER_RE` family reaches it today); the
