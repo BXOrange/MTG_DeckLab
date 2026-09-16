@@ -226,6 +226,18 @@ def subject_of(
     if of == "entering":
         event = getattr(context, "trigger_event", None) or {}
         instance_id = event.get("instance_id")
+        if instance_id is None:
+            # PAR-117: a DAMAGE-shaped group-subject trigger (Edric,
+            # Spymaster of Trest/the Sliver "deals combat damage" cycle)
+            # names its acting object as ``source_id``, not ``instance_id``
+            # — `binding.core._SUBJECT_EVENT_KEYS`'s own per-event lookup,
+            # mirrored here rather than imported (that module imports this
+            # one, not the other way — `game/binding/` sits above `game/
+            # effect_conditions.py`). Every other event this referent
+            # reaches (ENTERS_BATTLEFIELD, DIES, ATTACKS, BLOCKS) already
+            # stamps ``instance_id`` and never ``source_id``, so this is a
+            # pure fallback, never a second candidate to choose between.
+            instance_id = event.get("source_id")
         return context.state.find_object(instance_id) if instance_id is not None else None
     if of == "attached":
         # RULE 303.4a/301.5c's "enchanted permanent"/"equipped creature" —

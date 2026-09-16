@@ -284,22 +284,66 @@ class OptionalEffect(_CompositeEffect):
         self,
         effects: Optional[list[Any]] = None,
         prompt: str = "",
-        player: str = "you",
+        player: Any = "you",
         source: Optional[GameObject] = None,
     ) -> None:
         super().__init__(effects, source)
         self.prompt = str(prompt or "")
         #: Who is asked. "you" (the ability's controller) is every printed
-        #: "you may"; ``"target"`` is "target player may …".
+        #: "you may"; ``"target"`` is "target player may …"; a
+        #: ``{"of": …, "as": "controller"}`` referent dict (PAR-117) is
+        #: "**its controller** may …" — the RULE 603.1 group-subject firing
+        #: object's own controller, not this ability's source's (Edric,
+        #: Spymaster of Trest/Brood Sliver/Synapse Sliver: "whenever a
+        #: creature [you control] deals combat damage to a player, its
+        #: controller may draw a card."). Resolved through the same
+        #: `game/effect_operands.py` vocabulary `GainLifeEffect`/
+        #: `DrawCardEffect`'s own referent operand already reads, rather than
+        #: a fourth hardcoded string alongside "you"/"target" — the
+        #: engine's "who" answer already has to agree for the mandatory
+        #: sibling of this same clause ("its controller gains that much
+        #: life."), so the optional one asking a different question ("may
+        #: they?") of the same referent should read it the same way.
         self.player = player
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if not self.inner_specs:
             return
+        referent_subject_id = None
         if self.player == "target":
             chooser = targets[0] if targets else None
             if chooser is None or getattr(chooser, "instance_id", None) is not None:
                 return
+        elif isinstance(self.player, dict):
+            # PAR-117: "its controller may …" — the referent vocabulary's
+            # own player resolution (function-scoped import: effects↔
+            # effect_operands cycle, the same reason `GameEffect.
+            # _operand_player` imports it this way).
+            from .. import effect_operands
+
+            chooser = effect_operands.player_for(self.player, context, self.source, targets)
+            # RULE 603.1: "its controller" both *asks* and, once answered,
+            # *acts* — Edric, Spymaster of Trest's own "may draw a card" is
+            # the same referent doing both. `context.trigger_event` (what
+            # the resolution above just read to find that referent) is
+            # gone by the time the choice comes back — it's only ever live
+            # for the resolution that opened it — so the inner body's own
+            # identical ``{"of": "entering", …}`` referent (its own
+            # "player"/`CreateTokenEffect.creators="trigger_subject_
+            # controller"` field) has nothing to re-resolve against unless
+            # the *object* this referent named is captured now, while it's
+            # still known, and restored around the inner body at resume
+            # time (`_resume_composite_optional`) — same idea as
+            # ``target_ids``/``previous_target_ids`` below, one step
+            # earlier in the referent chain. `effect_conditions` is already
+            # imported at module level (not function-scoped here, unlike
+            # `effect_operands` above — re-importing it locally would shadow
+            # that module-level name for this whole function, breaking the
+            # plain "you"/`_controller_id` branch below).
+            subject = effect_conditions.subject_of(
+                str(self.player.get("of") or "source"), context, self.source, targets,
+            )
+            referent_subject_id = getattr(subject, "instance_id", None)
         else:
             chooser = effect_conditions._player_by_id(
                 context, effect_conditions._controller_id(self.source, context)
@@ -311,6 +355,7 @@ class OptionalEffect(_CompositeEffect):
             f"{source_name}: Effekt anwenden?" if source_name else "Effekt anwenden?"
         )
         context.engine.open_choice({
+            "referent_subject_id": referent_subject_id,
             "kind": self.CHOICE_KIND,
             "player_id": chooser.id,
             "prompt": prompt,

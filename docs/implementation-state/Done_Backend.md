@@ -8439,6 +8439,102 @@ measurement of why is the useful half of this work.
   resolving "a planeswalker you control" needs the defender's own
   controller threaded onto the ATTACKS event. See `BACKLOG.md`'s PAR-117
   entry.
+- **PAR-117's own Essence Sliver residue closed (PARSER_VERSION 422).** A
+  `DAMAGE`-shaped RULE 603.1 group-subject condition ("whenever a `<type/
+  subtype>` [you control] deals [combat ]damage[ to `<recipient>`], its
+  controller `<verb>`" — Edric, Spymaster of Trest; the Sliver "combat
+  damage to a player" cycle: Essence/Brood/Synapse Sliver). Two independent
+  parser gaps, both scoped to `_DAMAGE_TRIGGER_RE`'s own dispatch
+  (segmenter.py) rather than the already-correct shared group-subject
+  machinery: the dispatch never passed `group_subject=True` at all, so none
+  of PAR-115/117's own `group_its_controller_*` rows — already shipped for
+  every *other* RULE 603.1 event — were reachable for `DAMAGE`; and the
+  trigger regex's group-subject branch only recognized `_GROUP_TYPE_WORDS`'s
+  closed main-type vocabulary, so a creature *subtype* ("a Sliver deals
+  damage") had no route in at all, unlike the ENTERS/DIES/ATTACKS/BLOCKS
+  family's own `_GROUP_SUBTYPE_SUBJECT_RE` sibling (a new `subtype` regex
+  group, tried after the closed `type` alternative, feeding
+  `_build_group_ok`'s existing `subtypes` list key). A new
+  `group_its_controller_gains_that_much_life` row
+  (`_ITS_CONTROLLER_GAINS_THAT_MUCH_LIFE_RE`) closes Essence Sliver's own
+  "gains **that much** life" — the `group_subject_only` sibling of the
+  already-shipped `attached_subject_only` "loses that much life" row,
+  reading `GainLifeEffect.amount_from_trigger_event`.
+  A third gap, found diagnosing Edric/Synapse Sliver: "its controller
+  **may** `<effect>`" had no composition at all (`_peel_optional` only ever
+  strips a *leading* "you may", and `_MID_BODY_OPTIONAL_RE`'s own mid-body
+  sibling only recognizes that same "you may" spelling) — a new
+  `_MID_BODY_ITS_CONTROLLER_MAY_RE` composer (segmenter.py) wraps the
+  identical `"optional"` node, and `game/effects/composition.py`'s
+  `OptionalEffect.player` gained a referent-dict mode (the same `{"of": …,
+  "as": "controller"}` vocabulary `GainLifeEffect`/`DrawCardEffect` already
+  read) alongside its existing `"you"`/`"target"` strings.
+  Proving these end to end past the parse verdict surfaced two real
+  correctness traps, not just recognition gaps:
+  1. RULE 603.1's "its controller" both *asks* and, once answered, *acts* —
+     the same referent, not two independent resolutions of "whoever that
+     is". `OptionalEffect`'s own choice pause loses `context.trigger_event`
+     between asking and acting (it's only ever live for the resolution that
+     opened the choice), so a naive composition would correctly ask the
+     right player but then have the inner body silently fall back to this
+     ability's own controller once answered. Fixed by capturing the
+     resolved referent *object's* `instance_id` into the `pending_choice`
+     payload (`OptionalEffect.apply`'s new `referent_subject_id`, the same
+     "re-find by id across the pause" treatment `target_ids`/
+     `previous_target_ids`/`revealed_card_id` already get) and restoring a
+     minimal synthetic `trigger_event` around the resumed body
+     (`RulesEngine._resume_composite_optional`); a new
+     `_rewrite_optional_referent_actor` (segmenter.py) threads the same
+     referent onto the inner `draw`/`create_token` spec's own actor field
+     (`DrawCardEffect.player`; `CreateTokenEffect` gained a
+     `creators="trigger_subject_controller"` value, the `MillEffect.
+     selector` of the same name's sibling) rather than leaving it to that
+     effect's own "no player specified" default.
+  2. Rakish Heir/Stensia Masquerade's bare "put a +1/+1 counter on **it**"
+     collides, at the `AddCountersEffect` spec level, with an unrelated
+     card naming *itself* under the identical group condition (Malakir
+     Cullblade: "…dies, put a +1/+1 counter on Malakir Cullblade.", folded
+     to "~" by `normalize`) — both compile to the same untargeted
+     `add_counters` spec (no `target_kind` at all), since the shared
+     `_SELF_SUBJECT` macro folds "it" in with "~"/a card's own name as one
+     undifferentiated self-reference. A first cut resolved this at bind
+     time (`effect_binder._retarget_implicit_subject_effects`, mirroring
+     `TapEffect`'s own group-subject retarget) — unable to tell which
+     literal word the original clause used, it silently broke three
+     already-shipped tests (`test_group_subject_counter_qualifier.py`,
+     `test_mec43_round4_f.py`, `test_mec49_damaged_by_source.py`) by
+     retargeting genuine self-buffs too. Replaced with a narrowly-matched,
+     `group_subject_only`-gated parser row instead
+     (`_add_counters_group_subject_it`, matching only the literal "it",
+     tried *before* the generic self/"~" row) emitting a
+     `"__group_subject__"` sentinel that the (now much narrower) binder
+     rewrite resolves to the real event field — an explicit "~"/card name
+     under the same group condition still falls through to the generic
+     row's self-buff untouched.
+  A third shape is deliberately left unclaimed rather than guessed:
+  "…deals combat damage to **a creature**, destroy **that creature**…"
+  (Sosuke, Son of Seshiro) needs the damage *recipient* — a referent
+  distinct from both the group subject (the dealer) and a same-resolution
+  `previous_target`, which this project doesn't model yet.
+  `delayed_sac_exile_tail`'s generic `previous_or_self` capture (built for
+  a same-resolution RULE 115 target chain) has no way to tell that apart
+  from the group subject and would silently fall back to the ability's own
+  source, destroying e.g. Sosuke itself instead of the creature it fought —
+  caught only by an execute test, not the parse verdict. Refused via a
+  targeted pre-check (`_DELAYED_SAC_EXILE_TAIL_RE.fullmatch` on the body,
+  gated on the DAMAGE trigger's own creature-recipient shape) rather than
+  withholding the whole recipient-shape outright, so an unrelated
+  self-referencing body under the same recipient shape (Quest for the
+  Gemblades' "put a quest counter on **~**") keeps working.
+  **+18** (Edric, Essence/Brood/Synapse Sliver, Rakish Heir, Stensia
+  Masquerade, and 12 bonus cards sharing the widened subtype/group-subject
+  axis outside this ticket's own search phrase — Boggart Mob, Cabal Slaver,
+  Curious Altisaur, Ezio Blade of Vengeance, Ingenious Infiltrator, Raiders'
+  Spoils, Sauron the Dark Lord, Seafloor Oracle, Seshiro the Anointed,
+  Shroofus Sproutsire, Thorin Company's Leader, Zeriam Golden Wind),
+  **0 regressed** (`parser_probe.py diff`, full `pytest -q`). Every
+  referent resolution verified past the parse verdict with a real
+  `GameEngine` — see `tests/test_par117_damage_group_subject.py`.
 
 ### PAR-62: the clause grammar's first connective (`14_` S4, PARSER_VERSION 302)
 

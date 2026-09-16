@@ -583,8 +583,48 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 45.8% (15,945 / 34,811) as of 2026-09-16, measured at
-PARSER_VERSION 421** (v421 closes PAR-117's group-subject "attacks **you**"
+**Coverage: 45.86% (15,963 / 34,811) as of 2026-09-17, measured at
+PARSER_VERSION 422** (v422 closes PAR-117's own Essence Sliver residue — a
+`DAMAGE`-shaped RULE 603.1 group-subject condition ("whenever a `<type/
+subtype>` [you control] deals [combat ]damage[ to `<recipient>`], its
+controller `<verb>`", Edric, Spymaster of Trest; the Sliver "combat damage
+to a player" cycle — Essence/Brood/Synapse Sliver). Two independent parser
+gaps, both scoped to `_DAMAGE_TRIGGER_RE`'s own dispatch rather than the
+already-correct shared group-subject machinery: the dispatch never passed
+`group_subject=True` at all (none of PAR-115/117's own `group_its_
+controller_*` rows, already shipped for every *other* RULE 603.1 event,
+were reachable for `DAMAGE`), and the trigger regex's group-subject branch
+only recognized `_GROUP_TYPE_WORDS`'s closed main-type vocabulary — a
+creature *subtype* ("a Sliver deals damage") had no route in, unlike the
+ENTERS/DIES/ATTACKS/BLOCKS family's own `_GROUP_SUBTYPE_SUBJECT_RE`
+sibling. A third gap, found diagnosing Edric/Synapse Sliver: "its
+controller **may** `<effect>`" had no composition at all — `game/effects/
+composition.py`'s `OptionalEffect.player` gained a referent-dict mode
+alongside its existing "you"/"target" strings, and a new segmenter.py
+composer wraps the same `"optional"` node the plain "you may" row already
+builds. Proving these end to end surfaced two real correctness traps: RULE
+603.1's "its controller" both asks *and* acts, so the referent has to
+survive `OptionalEffect`'s own choice pause and reach the inner body too —
+`_resume_composite_optional` now restores a minimal synthetic
+`trigger_event` around the resumed body, and the inner `draw`/
+`create_token` spec's own actor field is rewritten to the same referent
+(`CreateTokenEffect` gained a `creators="trigger_subject_controller"`
+value). Separately, Rakish Heir/Stensia Masquerade's bare "put a +1/+1
+counter on **it**" collides, at the `AddCountersEffect` spec level, with an
+unrelated card naming *itself* under the identical group condition (Malakir
+Cullblade: "…dies, put a +1/+1 counter on Malakir Cullblade.", folded to
+"~") — a first cut that rewrote this at bind time (unable to tell which
+literal word the clause used) silently broke three already-shipped tests
+before being replaced with a narrowly-matched, `group_subject_only`-gated
+parser row matching only the literal "it", tried before the generic self/
+"~" row. A third shape is deliberately left unclaimed: "…deals combat
+damage to **a creature**, destroy **that creature**…" (Sosuke, Son of
+Seshiro) needs the damage *recipient* — a referent distinct from both the
+group subject and a same-resolution `previous_target` this project doesn't
+model yet; refused outright rather than guessed. +18, 0 regressed
+(`parser_probe.py diff`, full `pytest -q`) — see `tests/
+test_par117_damage_group_subject.py`.
+v421 closes PAR-117's group-subject "attacks **you**"
 residue axis — RULE 506.4's defending-player scope on a group ATTACKS
 condition (Hissing Miasma). No new engine primitive: the ATTACKS event
 already carries a `defending_player_id` (read by `attacked_player_lowest_
@@ -1520,7 +1560,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 48.01% (15,282 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 48.2% (15,332 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

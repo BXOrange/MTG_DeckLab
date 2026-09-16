@@ -3359,7 +3359,59 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: ATTACKS event at all today (`defending_player_id` is `None` for those
 #: attacks by construction, not a latent bug) — see `BACKLOG.md`'s PAR-117
 #: entry.
-PARSER_VERSION = "421"
+#: v422 closes PAR-117's own Essence Sliver residue — a `DAMAGE`-shaped
+#: RULE 603.1 group-subject condition ("whenever a `<type/subtype>` [you
+#: control] deals [combat ]damage[ to `<recipient>`], its controller
+#: `<verb>`", Edric, Spymaster of Trest; the Sliver "combat damage to a
+#: player" cycle — Essence/Brood/Synapse Sliver). Two independent parser
+#: gaps, both scoped to `_DAMAGE_TRIGGER_RE`'s own dispatch rather than the
+#: already-correct shared group-subject machinery: the dispatch never
+#: passed `group_subject=True` at all (none of PAR-115/117's own
+#: `group_its_controller_*` rows, already shipped for every *other* RULE
+#: 603.1 event, were reachable for `DAMAGE`), and the trigger regex's
+#: group-subject branch only recognized `_GROUP_TYPE_WORDS`'s closed
+#: main-type vocabulary — a creature *subtype* ("a Sliver deals damage")
+#: had no route in, unlike the ENTERS/DIES/ATTACKS/BLOCKS family's own
+#: `_GROUP_SUBTYPE_SUBJECT_RE` sibling. A third gap, found diagnosing
+#: Edric/Synapse Sliver: "its controller **may** `<effect>`" had no
+#: composition at all (`_peel_optional` only ever strips a *leading* "you
+#: may") — `game/effects/composition.py`'s `OptionalEffect.player` gained a
+#: referent-dict mode (the same `{"of": …, "as": "controller"}` vocabulary
+#: `GainLifeEffect`/`DrawCardEffect` already read) alongside its existing
+#: "you"/"target" strings, and a new `_MID_BODY_ITS_CONTROLLER_MAY_RE`
+#: composer (segmenter.py) wraps the same `"optional"` node
+#: `_MID_BODY_OPTIONAL_RE`'s plain "you may" already builds. Proving these
+#: end to end surfaced two real correctness traps, not just recognition
+#: gaps: (1) RULE 603.1's "its controller" both *asks* and, once answered,
+#: *acts* — the referent has to survive `OptionalEffect`'s own choice pause
+#: and reach the inner body too, not just the question, so
+#: `_resume_composite_optional` now restores a minimal synthetic
+#: `trigger_event` around the resumed body and a new `_rewrite_optional_
+#: referent_actor` (segmenter.py) threads the same referent onto the
+#: inner `draw`/`create_token` spec's own actor field (`CreateTokenEffect`
+#: gained a `creators="trigger_subject_controller"` value, the `MillEffect.
+#: selector` of the same name's sibling). (2) Rakish Heir/Stensia
+#: Masquerade's bare "put a +1/+1 counter on **it**" collides, at the
+#: `AddCountersEffect` spec level, with an unrelated card naming *itself*
+#: under the identical group condition (Malakir Cullblade's own "…dies, put
+#: a +1/+1 counter on Malakir Cullblade.", folded to "~") — both compile to
+#: the same untargeted spec, so a first cut that rewrote it at bind time
+#: (unable to tell which literal word the clause used) silently broke three
+#: already-shipped tests before being replaced with a narrowly-matched,
+#: `group_subject_only`-gated parser row (`_add_counters_group_subject_it`,
+#: matching only the literal "it") tried before the generic self/"~" row.
+#: A third, deliberately unclaimed shape: "…deals combat damage to **a
+#: creature**, destroy **that creature**…" (Sosuke, Son of Seshiro) needs
+#: the damage *recipient* — a referent distinct from both the group subject
+#: and a same-resolution `previous_target` that this project doesn't model
+#: yet; `delayed_sac_exile_tail`'s generic `previous_or_self` capture would
+#: otherwise silently fall back to the ability's own source, so this one
+#: recipient shape is refused outright rather than guessed (confirmed via
+#: `parser_probe.py diff` staying 0 regressed against the full cache).
+#: +18 (Edric, Essence/Brood/Synapse Sliver, Rakish Heir, Stensia
+#: Masquerade, and 12 bonus cards sharing the widened subtype/group-subject
+#: axis outside this ticket's own search phrase), 0 regressed.
+PARSER_VERSION = "422"
 
 
 def parser_source_hash() -> str:

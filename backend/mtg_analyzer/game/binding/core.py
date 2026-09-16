@@ -2199,6 +2199,20 @@ def _retarget_implicit_subject_effects(
             if retarget_value == "trigger_subject":
                 params["trigger_event_key"] = _subject_event_key(trigger)
             retargeted.append(EffectSpec(e.type, params, condition=e.condition))
+        elif e.type == "add_counters" and e.params.get("trigger_subject_key") == "__group_subject__":
+            # PAR-117: `handlers._add_counters_group_subject_it`'s own
+            # sentinel — a bare "it" the parser already confirmed means the
+            # RULE 603.1 group subject (its own dedicated, narrowly-matched
+            # row, unlike the dict-driven rewrite above which can't tell an
+            # ambiguous "it" apart from an explicit "~"/card-name self-buff
+            # sharing the same untargeted `add_counters` spec shape).
+            # `AddCountersEffect` has no `target_kind` sentinel to repoint —
+            # its untargeted mode is this separate `trigger_subject_key`
+            # field instead — so this resolves the placeholder straight to
+            # `_subject_event_key`'s real per-event field name.
+            params = dict(e.params)
+            params["trigger_subject_key"] = _subject_event_key(trigger)
+            retargeted.append(EffectSpec(e.type, params, condition=e.condition))
         else:
             retargeted.append(e)
     return retargeted

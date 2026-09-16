@@ -1386,10 +1386,29 @@ class CastingResolutionMixin:
         ]
         revealed_id = choice.get("revealed_card_id")
         revealed = self.state.find_object(revealed_id) if revealed_id is not None else None
-        _apply_effects_partitioned(
-            built, self.context, announced or None, None, source=source,
-            previous_targets=previous, revealed_card=revealed,
-        )
+        # PAR-117: "its controller may `<effect>`" — the same RULE 603.1
+        # referent that picked *who* is asked (`OptionalEffect.apply`'s own
+        # ``player`` resolution) is what the body itself acts as ("its
+        # controller" both chooses and does), so a body clause reading
+        # ``{"of": "entering", …}`` (`DrawCardEffect.player`/
+        # `CreateTokenEffect.creators="trigger_subject_controller"`) needs
+        # `context.trigger_event` live again — restored to a minimal
+        # synthetic event naming just the referent object, the same
+        # RULE 608.2h re-find-by-id treatment `previous`/`revealed` above
+        # already get, not the full original `DAMAGE`/… payload (gone by
+        # now, and unneeded — every reader of this referent only ever asks
+        # "what object", never a field off the original event itself).
+        outer_trigger_event = self.context.trigger_event
+        referent_subject_id = choice.get("referent_subject_id")
+        if referent_subject_id is not None:
+            self.context.trigger_event = {"instance_id": referent_subject_id}
+        try:
+            _apply_effects_partitioned(
+                built, self.context, announced or None, None, source=source,
+                previous_targets=previous, revealed_card=revealed,
+            )
+        finally:
+            self.context.trigger_event = outer_trigger_event
 
     def _resume_iteration(self, frame: dict[str, Any]) -> None:
         """Run one iteration of a parked loop body, then queue the next.

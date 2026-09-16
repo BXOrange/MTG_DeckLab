@@ -752,11 +752,6 @@ its block back into the matching section here.
       referent (a group-subject *self* grant reading "it" as the acting
       object, not "its controller") once this axis and the shipped power
       qualifier both land on its second ability.
-    - Essence Sliver: "a Sliver **deals damage**" — `_trigger_event` has no
-      group-subject route to a DAMAGE-shaped trigger at all (only the
-      self-subject `_DAMAGE_TRIGGER_RE` family reaches it today); the
-      payoff itself ("gains **that much** life") is already a plain
-      `GainLifeEffect.amount_from_trigger_event` once the condition exists.
     - Mage Hunters' Onslaught: "a creature blocks **this turn**" — check
       whether this is real RULE 603.1 scoping or just a trailing-tail peel
       `_GROUP_SUBJECT_RE`'s own verb match needs to tolerate.

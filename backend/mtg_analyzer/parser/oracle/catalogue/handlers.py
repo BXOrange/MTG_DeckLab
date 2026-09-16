@@ -2350,6 +2350,22 @@ def _group_its_controller_gains_life(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+#: "whenever a Sliver deals damage, its controller gains that much life."
+#: (Essence Sliver) — "that much" is the firing DAMAGE event's own
+#: ``amount`` field, the ``group_subject_only`` sibling of `_ITS_CONTROLLER_
+#: LOSES_THAT_MUCH_LIFE_RE`'s `attached_subject_only` row above (Ragged
+#: Veins/Visions of Brutality print the "loses" polarity off an attached
+#: host; no cached card yet pairs a group subject with "loses" instead of
+#: "gains", so only this polarity is added here).
+_ITS_CONTROLLER_GAINS_THAT_MUCH_LIFE_RE = _c(r"its controller gains that much life")
+
+
+def _group_its_controller_gains_that_much_life(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("gain_life", {
+        "amount_from_trigger_event": "amount", "player": _ENTERING_CONTROLLER,
+    })]
+
+
 def _group_its_controller_draws(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("draw", {
         "count": count_or_x_of(m.group("n")), "player": _ENTERING_CONTROLLER,
@@ -7260,6 +7276,38 @@ def _add_counters(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind, mag = _counter_kind_and_multiplier(m.group("ckind"))
     params: dict = {"count": count_of(m.group("n")) * mag, "kind": kind}
     return _add_counters_target_params(m, params)
+
+
+#: PAR-117: "whenever a `<type>` [you control] deals damage, put a `<kind>`
+#: counter on **it**." (Rakish Heir/Stensia Masquerade) — "it" is RULE
+#: 603.1's group-subject firing object, not this ability's own source, so it
+#: needs its own row rather than falling into `_add_counters`'s shared
+#: `_SELF_SUBJECT` alternation: that macro folds "it" in with "~"/"this
+#: creature"/a card's own name as one undifferentiated self-reference, which
+#: is correct for every other caller (a self-damage "Enrage"-shaped trigger's
+#: bare "it" really does mean the ability's own source) but wrong here — a
+#: card naming *itself* under a group condition ("…dies, put a +1/+1 counter
+#: on Malakir Cullblade.") must still buff its own source, not the object
+#: that triggered it, so that reading has to stay reachable too. Splitting
+#: this into its own `group_subject_only`-gated row, tried *before* the
+#: generic one below, keeps both readings: an explicit "~"/name still falls
+#: through unclaimed here to the generic row's self-buff, while a bare "it"
+#: is claimed here first. The ``"__group_subject__"`` sentinel is resolved
+#: to the real event field by `effect_binder._retarget_implicit_subject_
+#: effects` (the same pass `TapEffect`'s "untap it" retarget uses) — this
+#: handler can't know the field name itself (``instance_id`` vs. `DAMAGE`'s
+#: own ``source_id``), only that the clause is a group-subject "it".
+_ADD_COUNTERS_GROUP_SUBJECT_IT_RE = _c(
+    rf"put {COUNT} (?P<ckind>[+\-−]\d/[+\-−]\d) counters? on it"
+)
+
+
+def _add_counters_group_subject_it(m: re.Match[str]) -> list[EffectSpec]:
+    kind, mag = _counter_kind_and_multiplier(m.group("ckind"))
+    return [EffectSpec("add_counters", {
+        "count": count_of(m.group("n")) * mag, "kind": kind,
+        "trigger_subject_key": "__group_subject__",
+    })]
 
 
 #: "Put a -1/-1 counter on target creature, two -1/-1 counters on another
@@ -13039,6 +13087,11 @@ HANDLERS: list[EffectHandler] = [
         _group_its_controller_gains_life, group_subject_only=True,
     ),
     EffectHandler(
+        "group_its_controller_gains_that_much_life",
+        _ITS_CONTROLLER_GAINS_THAT_MUCH_LIFE_RE,
+        _group_its_controller_gains_that_much_life, group_subject_only=True,
+    ),
+    EffectHandler(
         "group_its_controller_draws", _ITS_CONTROLLER_DRAWS_RE,
         _group_its_controller_draws, group_subject_only=True,
     ),
@@ -14366,6 +14419,16 @@ HANDLERS: list[EffectHandler] = [
         "incremental_counters",
         _INCREMENTAL_COUNTERS_RE,
         _incremental_counters,
+    ),
+    # PAR-117: the group-subject "it" reading, tried *before* the generic
+    # row below so a bare "it" is claimed here while an explicit "~"/name
+    # still falls through to that row's self-buff — see
+    # `_add_counters_group_subject_it`'s own docstring.
+    EffectHandler(
+        "add_counters_group_subject_it",
+        _ADD_COUNTERS_GROUP_SUBJECT_IT_RE,
+        _add_counters_group_subject_it,
+        group_subject_only=True,
     ),
     # "put a +1/+1 counter on target creature" / "put a -1/-1 counter on …" /
     # "… on ~"/"this creature" (Walking Ballista's "{4}: Put a +1/+1 counter

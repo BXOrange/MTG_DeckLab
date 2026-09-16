@@ -2707,7 +2707,10 @@ class CreateTokenEffect(GameEffect):
     """
 
     _CREATORS = frozenset(
-        {"you", "each_player", "each_opponent", "previous_target_controller", "target"}
+        {
+            "you", "each_player", "each_opponent", "previous_target_controller", "target",
+            "trigger_subject_controller",
+        }
     )
 
     def __init__(
@@ -3008,6 +3011,19 @@ class CreateTokenEffect(GameEffect):
             # spell's own controller. No previous target → nobody incubates.
             prev = list(getattr(context, "previous_targets", []) or [])
             owner = getattr(prev[0], "controller_id", None) if prev else None
+            creator_ids = [owner] if owner is not None else []
+        elif self.creators == "trigger_subject_controller":
+            # "whenever a Sliver deals combat damage to a player, its
+            # controller may create a 1/1 colorless Sliver creature token."
+            # (Brood Sliver, PAR-117) — RULE 603.1's group-subject sibling
+            # of ``previous_target_controller`` above, the same
+            # `MillEffect.selector` of this name already reads: whichever
+            # object satisfied this ability's own trigger condition, via
+            # `effect_conditions.subject_of("entering", ...)`.
+            from .. import effect_conditions  # function-scoped: effects↔conditions cycle
+
+            subject = effect_conditions.subject_of("entering", context, self.source, targets)
+            owner = getattr(subject, "controller_id", None)
             creator_ids = [owner] if owner is not None else []
         elif self.creators == "target":
             # "Target player creates a Treasure token." (Prismari Command) —

@@ -29,6 +29,7 @@ from .catalogue.handlers import (
     TRIGGER_ONCE_PER_TURN_MARKER,
     _CYCLING_XX_TOKEN_RE,
     _cycling_xx_token,
+    _DELAYED_SAC_EXILE_TAIL_RE,
     _MAY_COST_THEN_CLAUSE,
     _MAY_EFFECT_THEN_ANTECEDENT_PHRASES,
     match_clause,
@@ -1013,8 +1014,18 @@ _DAMAGE_TRIGGER_RE = re.compile(
     r"^whenever (?:"
     r"(?P<self>~)"
     r"|(?P<attached>(?:enchanted|equipped) (?:creature|permanent|land|artifact))"
-    r"|(?P<article>another|an|a) (?P<goaded>goaded )?(?P<type>"
+    r"|(?P<article>another|an|a) (?P<goaded>goaded )?(?:(?P<type>"
     + "|".join(_GROUP_TYPE_WORDS) + r")"
+    # PAR-117 (group-subject residue, Essence/Brood/Synapse Sliver-shaped:
+    # "whenever a **Sliver** deals [combat ]damage[ to a player], …") — a
+    # creature *subtype* standing in for `_GROUP_TYPE_WORDS`'s closed main-
+    # type list, the identical "any lowercase word, no whitelist" shape
+    # `_GROUP_SUBTYPE_SUBJECT_RE` already accepts for the ENTERS/DIES/
+    # ATTACKS/BLOCKS family (fail-safe: a non-subtype word just never
+    # matches any real object, so this never over-fires). Tried only after
+    # the closed `type` alternative above, so "a **creature** deals damage"
+    # keeps matching that one first.
+    r"|(?P<subtype>[a-z]+))"
     # "a creature **token** you control deals combat damage to a player"
     # (Curiosity Crafter / Reconnaissance Mission-for-tokens) — RULE 111.9's
     # is-a-token filter on the acting object.
@@ -4228,7 +4239,75 @@ def parse_effect_body(
                 return [EffectSpec("optional", {
                     "effects": [spec.to_dict() for spec in inner],
                 })]
+
+    # PAR-117: "its controller may `<effect>`" — same composition as
+    # `_MID_BODY_OPTIONAL_RE` just above, but the chooser is a referent
+    # rather than "you". Only meaningful under exactly one of the three
+    # pronoun-referent modes `parse_effect_body`'s own docstring documents
+    # (never `self_subject`: "its controller" when the subject already *is*
+    # the source would just mean "you", which the plain "you may" row above
+    # already claims) — resolved to the identical `{"of": …, "as":
+    # "controller"}` dict `_its_controller_*`/`_group_its_controller_*`/
+    # `_attached_its_controller_*` already read via `_operand_player`.
+    its_controller_may = _MID_BODY_ITS_CONTROLLER_MAY_RE.match(body)
+    if its_controller_may is not None:
+        referent = (
+            {"of": "previous_target", "as": "controller"} if previous_subject
+            else {"of": "entering", "as": "controller"} if group_subject
+            else {"of": "attached", "as": "controller"} if attached_subject
+            else None
+        )
+        if referent is not None:
+            rest = its_controller_may.group("rest").strip()
+            if not _MID_BODY_OPTIONAL_RE.match(rest) and not _REFLEXIVE_TRIGGER_RE.search(rest):
+                inner = parse_effect_body(
+                    rest, previous_subject=previous_subject,
+                    group_subject=group_subject, previous_selector=previous_selector,
+                )
+                if inner:
+                    inner_dicts = [
+                        _rewrite_optional_referent_actor(spec.to_dict(), referent)
+                        for spec in inner
+                    ]
+                    return [EffectSpec("optional", {
+                        "effects": inner_dicts,
+                        "player": referent,
+                    })]
     return None
+
+
+#: PAR-117: the referent that answers "its controller may `<effect>`"'s own
+#: question ("do they?") is also who *performs* the body once they say yes —
+#: RULE 603.1's "its controller" is one pronoun, not two independent
+#: resolutions of "whoever that is". `OptionalEffect`'s own pause (the
+#: player has to actually answer before the body runs) already re-resolves
+#: this referent at that later point (`_resume_composite_optional`), so the
+#: inner effect just needs to *ask* for it explicitly instead of falling
+#: back to its usual "this ability's own controller" default, which would
+#: silently be the wrong player whenever the referent differs (Edric,
+#: Spymaster of Trest: Edric's own controller vs. the damaging creature's).
+#: A closed, narrow map — only the two inner effect shapes real cards in
+#: this cluster actually use (`draw`'s own referent-dict ``player`` field;
+#: `create_token`'s closed-string ``creators`` enum, needing the
+#: referent's own ``of`` translated rather than passed through raw).
+#: Anything else stays unrewritten rather than guessing a field name that
+#: might not exist on that effect type.
+_OPTIONAL_REFERENT_CREATORS_BY_OF: dict[str, str] = {
+    "entering": "trigger_subject_controller",
+    "previous_target": "previous_target_controller",
+}
+
+
+def _rewrite_optional_referent_actor(spec_dict: dict, referent: dict) -> dict:
+    if spec_dict.get("type") == "draw" and "player" not in (spec_dict.get("params") or {}):
+        spec_dict = {**spec_dict, "params": {**spec_dict.get("params", {}), "player": referent}}
+    elif spec_dict.get("type") == "create_token" and "creators" not in (spec_dict.get("params") or {}):
+        creators = _OPTIONAL_REFERENT_CREATORS_BY_OF.get(str(referent.get("of")))
+        if creators is not None:
+            spec_dict = {
+                **spec_dict, "params": {**spec_dict.get("params", {}), "creators": creators},
+            }
+    return spec_dict
 
 
 #: Target kinds that make a clause a legal antecedent for the next clause's
@@ -5242,10 +5321,46 @@ def segment_line(
         # the trigger's own subject, so a bare "it" in the body is the source
         # (`parse_effect_body`'s ``self_subject``). "whenever enchanted
         # creature deals damage, its controller loses that much life."
-        # (Visions of Brutality, PAR-117) is the attached sibling.
+        # (Visions of Brutality, PAR-117) is the attached sibling. A "group"
+        # condition (Edric, Spymaster of Trest/Essence Sliver-shaped: "…, its
+        # controller `<verb>` …") is the group-subject sibling PAR-117's own
+        # `group_its_controller_*` handlers already model for every other
+        # RULE 603.1 event — this dispatch had just never passed the flag
+        # that unlocks them for `DAMAGE`.
+        #
+        # A group condition whose recipient is "a **creature**" (Sosuke, Son
+        # of Seshiro/Toxin Sliver-shaped: "…deals combat damage to a
+        # creature, destroy **that creature**.") introduces a *second*
+        # antecedent object the body's own pronoun could mean — the one
+        # damaged, not the one dealing it — which `delayed_sac_exile_tail`
+        # (`_DELAYED_SAC_EXILE_TAIL_RE`'s bare "it"/"that creature"/"them"
+        # alternative, ``capture="previous_or_self"``) can't tell apart from
+        # the group subject; being ungated (it also answers a bare
+        # self-subject "sacrifice it"), it would still match and fall back
+        # to this ability's own source, silently destroying e.g. Sosuke
+        # itself rather than the creature it just fought. Reading the
+        # *recipient's* own object (RULE 603.1's real "that creature" here)
+        # needs a referent this project doesn't have yet — a real gap, not
+        # attempted here. Refused narrowly, by pre-checking this one
+        # handler's own ambiguous-pronoun branch (not its ``obj_self``
+        # "~" branch, which stays exactly as unambiguous as ever — Quest
+        # for the Gemblades' "put a quest counter on **~**" keeps working)
+        # rather than withholding the whole clause, so every other reading
+        # of a creature-recipient group trigger is untouched.
+        delayed_tail_pronoun = _DELAYED_SAC_EXILE_TAIL_RE.fullmatch(
+            body.strip().rstrip(".").strip()
+        )
+        if (
+            damage_trig.group("recipient") == "creature"
+            and not (damage_trig.group("self") or damage_trig.group("attached"))
+            and delayed_tail_pronoun is not None
+            and delayed_tail_pronoun.group("obj")
+        ):
+            return Segment(raw=raw)
         effects = parse_effect_body(
             body, self_subject=bool(damage_trig.group("self")),
             attached_subject=bool(damage_trig.group("attached")),
+            group_subject=bool(damage_trig.group("article")),
         )
         if effects is None:
             return Segment(raw=raw)
@@ -5277,11 +5392,16 @@ def segment_line(
         elif damage_trig.group("attached"):
             condition = {"subject": "attached_permanent"}
         else:
-            condition = {
-                "subject": "group",
-                "type": damage_trig.group("type").lower(),
-                "other": damage_trig.group("article").lower() == "another",
-            }
+            condition = {"subject": "group", "other": damage_trig.group("article").lower() == "another"}
+            if damage_trig.group("type"):
+                condition["type"] = damage_trig.group("type").lower()
+            else:
+                # PAR-117: "a **Sliver** deals damage" — the creature-
+                # subtype sibling of the ``type`` branch above, same
+                # ``subtypes`` list shape `_GROUP_SUBTYPE_SUBJECT_RE`'s own
+                # dispatch uses (`_build_group_ok` doesn't care which event
+                # supplied it).
+                condition["subtypes"] = [damage_trig.group("subtype").lower()]
             if damage_trig.group("yours"):
                 condition["controller"] = "you"
             if damage_trig.group("goaded"):  # RULE 701.15b — see `_GOADED_SUBJECT_RE`
@@ -6477,6 +6597,21 @@ _REFLEXIVE_TRIGGER_RE = re.compile(r"\b(?:when|if) you do\b", re.IGNORECASE)
 #: ability-level prefix — what `_peel_optional` sees only when it leads the
 #: whole body. Same shape, read at the other end of the pipeline.
 _MID_BODY_OPTIONAL_RE = re.compile(r"^you may\s+(?P<rest>.+)$", re.IGNORECASE | re.S)
+
+#: PAR-117: "its controller may `<effect>`" — the referent-scoped sibling of
+#: `_MID_BODY_OPTIONAL_RE` above: the chooser is whichever pronoun referent
+#: this body's own subject mode names (RULE 603.1's group-subject firing
+#: object, the previous clause's target, or an Aura/Equipment's attached
+#: host — never "you", so it can't reuse that row), not this ability's own
+#: controller (Edric, Spymaster of Trest/Brood Sliver/Synapse Sliver:
+#: "whenever a creature [you control] deals combat damage to a player, its
+#: controller may `<effect>`."). Composes the identical ``"optional"`` node
+#: `_MID_BODY_OPTIONAL_RE`'s own dispatch does — any effect body "you may"
+#: can wrap, "its controller may" can too — just with `OptionalEffect.
+#: player` pointed at the active referent instead of defaulting to "you".
+_MID_BODY_ITS_CONTROLLER_MAY_RE = re.compile(
+    r"^its controller may\s+(?P<rest>.+)$", re.IGNORECASE | re.S
+)
 
 
 def _peel_optional(body: str) -> tuple[str, bool]:
