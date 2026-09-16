@@ -32,7 +32,7 @@ This pass closed the highest deck-frequency remainder:
   (`_SPELL_COST_TAX_OPPONENTS_RE`)/activation group scope
   (`_ACTIVATION_COST_REDUCTION_TYPE_RE`), none of which any parser handler
   had ever claimed.
-* **Otawara, Soaring City** hand-authored (`game/ability_catalogue.py`),
+* **Otawara, Soaring City** hand-authored (`game/card_registry.py`),
   mirroring Eiganjo/Boseiju's existing Channel + per-legendary-creature
   `ActivationCost.dynamic_reduction` shape exactly — the only new piece is
   `targeting.py`'s `artifact_creature_enchantment_or_planeswalker` target
@@ -60,7 +60,7 @@ from __future__ import annotations
 
 from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.ability_catalogue import is_registered
+from mtg_analyzer.game.card_registry import is_registered
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card

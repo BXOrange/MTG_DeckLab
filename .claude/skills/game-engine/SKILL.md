@@ -7,8 +7,11 @@ description: Work on the rules engine in backend/mtg_analyzer/game/ — implemen
 
 Four areas carry most of it, and each is a package/mixin-composition rather
 than one file: `game/effects/` (~15 modules by effect family, ~29k lines
-combined), `game/ability_catalogue/` (~19 modules by card family, ~32k
-combined), `game/rules_engine.py` + `game/rules/*_mixin.py` (~18k combined),
+combined), `game/card_registry/` (the registration mechanism —
+`register`/`register_family`/`specs_for`, ~small) + `game/card_catalogue/`
+(the ~990 hand-authored cards themselves, one file per card under a
+lowercased-first-letter folder, ~32k combined), `game/rules_engine.py` +
+`game/rules/*_mixin.py` (~18k combined),
 `game/game_engine.py` + `game/engine/*_mixin.py` (~9k combined). Two costs
 dominate any change here — **finding the right place**, and **finding out
 what the engine currently does** — and `scripts/engine_bench.py` exists for
@@ -136,7 +139,7 @@ Already general and frequently missed: `request_pay_cost_then`,
 `GameEffect.extra_target_specs`, `GameContext.trigger_event`,
 `TriggeredAbility.mana_ability`.
 
-Hand-authoring a genuinely singleton card in `game/ability_catalogue/` is
+Hand-authoring a genuinely singleton card in `game/card_catalogue/` is
 the sanctioned escape valve, not a defeat — see
 [the authoring guide](../../../docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md).
 An item deferred a **second** time must be hand-authored in that same batch or

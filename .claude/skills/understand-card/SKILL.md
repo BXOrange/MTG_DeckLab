@@ -47,7 +47,7 @@ instead of one invocation per card.
 Prints, for a cached card:
 
 - identity — type line, mana, cmc, whether it's registered in
-  `ability_catalogue.py`, and the parser coverage verdict
+  `card_catalogue`, and the parser coverage verdict
 - **raw oracle text vs `normalize()` output** side by side — the normalized
   form is what the segmenter and handler regexes actually match, so it's the
   text to reason about and write patterns against

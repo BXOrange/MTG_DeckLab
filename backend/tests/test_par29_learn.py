@@ -5,7 +5,7 @@ card" via the existing `_request_choose_objects` chooser (`optional=True` +
 `then_specs`). **Documented simplification:** RULE 701.48a's "reveal a
 Lesson card you own from outside the game" branch is dropped — this engine
 has no sideboard / outside-the-game zone with a Commander-legal use (the
-same call `ability_catalogue/punishers.py` makes for Karn's -2).
+same call `card_registry/punishers.py` makes for Karn's -2).
 `effects.LearnEffect` is a bare "you"-subject effect; the parser handler
 `learn` matches the bare word.
 

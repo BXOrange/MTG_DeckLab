@@ -15,7 +15,7 @@ X +1/+1 counters on it." Three cooperating pieces:
   way `entry_counters`/tapped-entry already are.
 """
 
-from mtg_analyzer.game.ability_catalogue import kicker_x_mana_restriction
+from mtg_analyzer.game.card_registry import kicker_x_mana_restriction
 from mtg_analyzer.game.binding.core import attach_to_object
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card

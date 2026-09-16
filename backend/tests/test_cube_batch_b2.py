@@ -1,4 +1,4 @@
-"""cEDH staples cube — batch B2: hand-authored `ability_catalogue.py` entries
+"""cEDH staples cube — batch B2: hand-authored `card_registry.py` entries
 plus the small set of generic engine primitives this batch found were cheap
 enough to build as reusable extensions instead of one-off catalogue entries.
 
@@ -36,7 +36,7 @@ additions, each proven here on the *real* card that motivated it:
    type to a `bind` whose ``amount`` measures ``resource: hand_size`` with
    ``aggregate: max`` over ``each_player`` (before the mass `discard`).
 
-Every other card below is a genuinely hand-authored `ability_catalogue.py`
+Every other card below is a genuinely hand-authored `card_registry.py`
 entry, two deliberately *partial* (documented drop of one sub-clause neither
 the parser nor the effect library has a primitive for yet — Damn's Overload,
 Ephemerate's Rebound) per the file's existing Sword of Forge and
@@ -47,7 +47,7 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game import ability_catalogue as ac
+from mtg_analyzer.game import card_registry as ac
 from mtg_analyzer.game import continuous
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine

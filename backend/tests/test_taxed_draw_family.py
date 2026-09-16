@@ -2,13 +2,13 @@
 RULE 118.3's "unless" idiom applied to a draw rather than a
 sacrifice/counter: Rhystic Study, Mystic Remora, Esper Sentinel.
 
-These three were hand-authored (`game/ability_catalogue.py`) but had never
+These three were hand-authored (`game/card_registry.py`) but had never
 gained a committed pytest file — only an ad hoc scratchpad script during the
 batch that first shipped them. Written against the real cached cards (the
 same `tests/test_cube_batch_a1.py` house style) so a `TaxedDrawEffect`
 regression or an oracle-text drift on any of the three shows up here.
 
-Reference: mtg_analyzer/game/{effects,ability_catalogue}.py, RULE 118.3.
+Reference: mtg_analyzer/game/{effects,card_registry}.py, RULE 118.3.
 """
 
 from __future__ import annotations

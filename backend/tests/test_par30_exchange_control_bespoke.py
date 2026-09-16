@@ -1,6 +1,6 @@
 """PAR-30 — RULE 701.10 exchange-control residue closed: the twelve
 bespoke singletons the shared cross-target predicates (PARSER_VERSION 211)
-didn't reach, each hand-authored in `ability_catalogue/special_mechanics.py`.
+didn't reach, each hand-authored in `card_registry/special_mechanics.py`.
 """
 
 from __future__ import annotations
@@ -59,7 +59,7 @@ def test_all_twelve_hand_authored():
         "Cultural Exchange", "Juxtapose", "Perplexing Chimera", "Sudden Substitution",
         "Arteeoh, Dread Scavenger",
     ):
-        from mtg_analyzer.game.ability_catalogue import specs_for
+        from mtg_analyzer.game.card_registry import specs_for
         assert specs_for(db.get_card(name)), name
 
 

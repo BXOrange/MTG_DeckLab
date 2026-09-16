@@ -271,7 +271,7 @@ def test_standing_self_shield_survives_across_turns_no_expiry():
 
 
 # ---------------------------------------------------------------------------
-# Execute: the remaining SOLO cards, hand-authored (`game/ability_catalogue/
+# Execute: the remaining SOLO cards, hand-authored (`game/card_registry/
 # damage_prevention.py`) — the "sources of the color of your choice" chooser
 # family (genuinely different from "a source of your choice": it shields
 # against every matching source, not one permanent) and a few other

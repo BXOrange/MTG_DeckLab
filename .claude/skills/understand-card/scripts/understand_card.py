@@ -86,7 +86,7 @@ REPO = BACKEND.parent if BACKEND.name == "backend" else BACKEND
 sys.path.insert(0, str(BACKEND))
 
 from mtg_analyzer.game.binding.core import bind_from_catalogue  # noqa: E402
-from mtg_analyzer.game.ability_catalogue import is_registered  # noqa: E402
+from mtg_analyzer.game.card_registry import is_registered  # noqa: E402
 from mtg_analyzer.game.mana_abilities import parse_mana_abilities  # noqa: E402
 from mtg_analyzer.models import Card, GameObject, Zone  # noqa: E402
 from mtg_analyzer.parser.oracle.catalogue.keywords import (  # noqa: E402
@@ -479,7 +479,7 @@ def cmd_card(args) -> None:
 
         print(f"{card.name}")
         print(f"  {card.type_line}   {card.mana_cost_string or ''}  cmc={card.converted_mana_cost}")
-        print(f"  registered in ability_catalogue.py: {is_registered(card.name)}")
+        print(f"  registered in card_catalogue: {is_registered(card.name)}")
         print(f"  parser coverage: {result.coverage}")
 
         print("\n--- oracle text (raw) ---")
@@ -533,7 +533,7 @@ def cmd_card(args) -> None:
         print("\n--- where this gets modeled ---")
         print("  parser handler   backend/mtg_analyzer/parser/oracle/catalogue/handlers.py")
         print("                   (static clauses -> static_handlers.py, trigger conditions -> segmenter.py)")
-        print("  hand-authored    backend/mtg_analyzer/game/ability_catalogue/  (singletons / replacement effects)")
+        print("  hand-authored    backend/mtg_analyzer/game/card_catalogue/  (singletons / replacement effects)")
         print("  engine primitive backend/mtg_analyzer/game/effects/ + game/rules/*_mixin.py")
         print("  runtime check    game-engine skill: engine_bench.py inspect/play \"" + card.name + "\"")
 
@@ -621,7 +621,7 @@ def _run_check(wiki: Wiki, db: CardDatabase, name: str, args) -> None:
                     "an EffectSpec.type is likely missing from EffectRegistry, or "
                     "the specs are keyword-only. Confirm with engine_bench.py inspect.")
     if is_registered(card.name) and bound_total == 0:
-        gaps.append("card is hand-authored in ability_catalogue.py but nothing bound — "
+        gaps.append("card is hand-authored in card_catalogue but nothing bound — "
                     "broken factory or an unregistered EffectSpec.type.")
     if result.unclaimed:
         gaps.append(f"{len(result.unclaimed)} clause(s) UNCLAIMED — card is UNMODELED, "

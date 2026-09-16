@@ -1,5 +1,5 @@
 """Blight Curse batch C4 — Auntie Ool, Cursewretch (the deck's commander;
-hand-authored, `ability_catalogue/blight_curse.py`).
+hand-authored, `card_registry/blight_curse.py`).
 
 - **Ward—Blight 2** folds in from the RULE 702 keyword catalogue (the cost
   "Blight 2" is already understood by `game/costs.parse_activation_cost`).
@@ -13,7 +13,7 @@ hand-authored, `ability_catalogue/blight_curse.py`).
 
 from __future__ import annotations
 
-from mtg_analyzer.game.ability_catalogue import specs_for
+from mtg_analyzer.game.card_registry import specs_for
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card

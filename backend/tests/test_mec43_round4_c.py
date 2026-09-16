@@ -2,7 +2,7 @@
 
 Syphon Mind, Spoils of Blood, Dark Petition, Demonic Bargain, Doomsday
 Excruciator, Mizzix's Mastery, Poison the Cup, Hoarding Broodlord — all
-hand-authored in `game/ability_catalogue.py`.
+hand-authored in `game/card_registry.py`.
 
 New/widened primitives exercised here:
 * `DiscardEffect.draw_per_discard` (Syphon Mind) — the discarding player's

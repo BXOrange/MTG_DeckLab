@@ -1896,7 +1896,7 @@ def _granted_trigger_condition(
     non-``STEP_BEGIN`` grant for a ``{"subject": "self"}`` trigger, which by
     construction only exists for events `_TRIGGER_VERBS` has matched to a
     verb whose event *does* carry an identity key — so this is a safety net
-    against a future hand-authored `ability_catalogue.py` entry naming an
+    against a future hand-authored `card_catalogue` entry naming an
     unregistered event, not a path any card exercises today.
     """
     key = _GRANTED_EVENT_KEYS.get(trigger_event or "", "instance_id")
@@ -4982,7 +4982,7 @@ def enters_tapped_from_static(state: "GameState", obj: "GameObject") -> bool:
     Maze-shaped, ``affects="all_permanents"``, no ownership restriction at
     all) forces ``obj`` to enter tapped right now.
 
-    Distinct from `ability_catalogue.enters_tapped` (a card's own printed
+    Distinct from `card_registry.enters_tapped` (a card's own printed
     tapped-entry clause about *itself*) — this is a *different* permanent's
     standing effect. Checked at the moment ``obj`` is about to join the
     battlefield (`RulesEngine._resolve_permanent_spell`/token creation),

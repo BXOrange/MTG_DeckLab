@@ -1,5 +1,5 @@
 """Blight Curse batch C5 wave 11 — Everlasting Torment
-(hand-authored, `ability_catalogue/blight_curse.py`).
+(hand-authored, `card_registry/blight_curse.py`).
 
 Three standing battlefield statics:
 * ``prevent_all_life_gain`` — "Players can't gain life." (already parser-claimed)
@@ -12,7 +12,7 @@ Three standing battlefield statics:
 
 from __future__ import annotations
 
-from mtg_analyzer.game.ability_catalogue import specs_for
+from mtg_analyzer.game.card_registry import specs_for
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card

@@ -5,7 +5,7 @@ the disposable Scryfall cache, so they remain an end-to-end contract for the
 hand-authored cards in this saved Commander deck.
 """
 
-from mtg_analyzer.game.ability_catalogue import specs_for
+from mtg_analyzer.game.card_registry import specs_for
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card

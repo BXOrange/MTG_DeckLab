@@ -28,7 +28,7 @@ Reference: mtg_analyzer/models/events.py (`EventType.BECOMES_TARGET`),
 mtg_analyzer/game/rules/misc_mixin.py (`check_ward`,
 `_fire_becomes_target_events`), mtg_analyzer/game/binding/core.py
 (`caster_relation`), mtg_analyzer/game/effects/core.py
-(`CounterUnlessPayEffect`), mtg_analyzer/game/ability_catalogue.py
+(`CounterUnlessPayEffect`), mtg_analyzer/game/card_registry.py
 (Goldspan Dragon, Tectonic Giant), RULE 115/601.2c/603.1/702.21.
 """
 

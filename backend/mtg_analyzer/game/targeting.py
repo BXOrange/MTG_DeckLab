@@ -190,7 +190,7 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         "permanent_you_neither_own_nor_control",
         # "{T}: Transform target Incubator token you control." (Progenitor
         # Exarch) — a name-keyed token target, the Incubate family's own
-        # two-state token (`ability_catalogue` "Incubator").
+        # two-state token (`card_registry` "Incubator").
         "incubator_token_you_control",
         # "target nonland permanent" (Retraction Helix-shaped) — any
         # controller's, unlike the `_you_control`/`_you_dont_control`

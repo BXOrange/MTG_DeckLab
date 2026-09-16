@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
+from mtg_analyzer.game.card_registry import _REGISTRY, is_registered
 from mtg_analyzer.game.binding.core import bind_ability, build_effects
 from mtg_analyzer.game.effects.core import GameContext
 from mtg_analyzer.game.game_engine import GameEngine

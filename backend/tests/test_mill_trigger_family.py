@@ -14,7 +14,7 @@ Radroach (an opponent, RULE 112.6a graveyard-functioning return-to-hand via
 the new `AbilitySpec.mill_return_from_graveyard` marker), and The Wise
 Mothman (per-nonland-card "up to one target creature" decomposition of its
 printed aggregate "up to X targets" wording — see `_the_wise_mothman`'s own
-docstring in `game/ability_catalogue.py` for why that's rules-equivalent).
+docstring in `game/card_registry.py` for why that's rules-equivalent).
 """
 
 from __future__ import annotations

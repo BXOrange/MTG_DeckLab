@@ -17,7 +17,7 @@ genuinely different primitives, not one:
   ``amount`` param (`game/rules/mana_counters_mixin.py`) and
   `GameObject.added_mana_with_ability_this_turn` (reset each untap step).
 
-Reference: mtg_analyzer/game/{effects,mana_abilities,ability_catalogue}.py,
+Reference: mtg_analyzer/game/{effects,mana_abilities,card_registry}.py,
 mtg_analyzer/game/rules/mana_counters_mixin.py,
 mtg_analyzer/game/engine/turn_loop_mixin.py.
 """
@@ -213,10 +213,10 @@ def test_carpet_of_flowers_never_touches_its_own_controllers_islands():
 
 
 def test_carpet_of_flowers_is_registered_as_two_optional_targeted_triggers():
-    from mtg_analyzer.game import ability_catalogue
+    from mtg_analyzer.game import card_registry
 
-    assert ability_catalogue.is_registered("Carpet of Flowers")
-    specs = ability_catalogue.specs_for(_card("Carpet of Flowers"))
+    assert card_registry.is_registered("Carpet of Flowers")
+    specs = card_registry.specs_for(_card("Carpet of Flowers"))
     assert len(specs) == 2
     steps = {spec.trigger["filter"]["step"] for spec in specs}
     assert steps == {"main1", "main2"}

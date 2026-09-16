@@ -9,7 +9,7 @@ Engine side: `game/effects/core.py`'s `GraveyardImpulsiveCastEffect`/
 `ReturnRemainingExiledEffect`, `RulesEngine._collect_impulsive_draw_triggers`/
 `exile_graveyard_with_cast_permission`/`_grant_temp_play_permission`,
 `GameState.temp_play_permission_player`/`mana_wildcard_permission`,
-`ManaPool`'s ``wildcard`` param, `game/ability_catalogue.py`'s
+`ManaPool`'s ``wildcard`` param, `game/card_registry.py`'s
 `AbilitySpec.impulsive_draw_on_combat_damage` marker.
 """
 
@@ -172,7 +172,7 @@ def _cast_mnemonic_betrayal(eng, caster):
         converted_mana_cost=3, is_sorcery=True,
     )
     obj = GameObject(card, owner_id=caster.id, zone=Zone.HAND)
-    from mtg_analyzer.game import ability_catalogue as ac
+    from mtg_analyzer.game import card_registry as ac
 
     attach_to_object(obj, ac.specs_for(card))
     caster.add_to_zone(obj, Zone.HAND)
@@ -185,7 +185,7 @@ def _cast_mnemonic_betrayal(eng, caster):
 
 
 def test_mnemonic_betrayal_registered():
-    from mtg_analyzer.game import ability_catalogue as ac
+    from mtg_analyzer.game import card_registry as ac
 
     assert ac.is_registered("Mnemonic Betrayal")
 

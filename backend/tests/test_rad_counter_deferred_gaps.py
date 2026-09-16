@@ -12,7 +12,7 @@ lookups — so these tests run in the ordinary suite rather than being gated
 behind `--full-cache` (see `tests/conftest.py`).
 
 Four cards (Acquired Mutation, Contaminated Drink, The Ghoul Gunslinger, The
-Wise Mothman) were *not* registered in `ability_catalogue.py` as of this
+Wise Mothman) were *not* registered in `card_registry.py` as of this
 batch — their new grammar is pure oracle-text parsing. The Ghoul, Gunslinger
 and Contaminated Drink end up fully `MODELED` (every line claimed) and so are
 also exercised end-to-end via `bind_from_catalogue`/`cast_spell`. Acquired
@@ -28,13 +28,13 @@ and the test below asserts that instead.
 The Wise Mothman's own mill-triggered second ability, listed below as
 UNMODELED-at-the-parser-level in this same batch, was subsequently closed
 out (`tests/test_mill_trigger_family.py`): it's now hand-authored directly
-in `ability_catalogue.py`'s `_the_wise_mothman` (registered), which is why
+in `card_registry.py`'s `_the_wise_mothman` (registered), which is why
 `parse_oracle` alone still correctly reports the card UNMODELED with the
 mill clause unclaimed below — `specs_for`'s registry always wins over the
 parser wholesale once a card is registered, so raw `parse_oracle` output
 no longer reflects what the live engine actually does for this card.
 
-The other 7 cards are hand-authored in `ability_catalogue.py` (each needed a
+The other 7 cards are hand-authored in `card_registry.py` (each needed a
 compound shape no oracle-text grammar could express) and are exercised
 end-to-end via `bind_from_catalogue`.
 """
@@ -728,7 +728,7 @@ def test_ghoul_gunslinger_fires_for_another_nontoken_zombie_but_not_an_unrelated
 # `parse_oracle` output stays UNMODELED overall (its second ability's raw
 # oracle-text phrasing is still parser-unrecognized) — only the rad-counter
 # clause is under test at *this* level. The card is now separately
-# registered in `ability_catalogue.py` (`_the_wise_mothman`, reproducing
+# registered in `card_registry.py` (`_the_wise_mothman`, reproducing
 # this same first ability by hand plus a real mill-triggered second ability)
 # — see `tests/test_mill_trigger_family.py` for the live-engine behaviour,
 # which no longer goes through `parse_oracle` at all once registered.

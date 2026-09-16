@@ -15,7 +15,7 @@ Fixed by routing a landed ``destination="battlefield"`` search hit through
 a plain unconditional tap with no choice offered, matching the accepted
 real-card ruling that an explicit "tapped" destination already decides it.
 
-See `test_ability_catalogue.py`'s `test_played_shock_land_defaults_tapped_
+See `game/catalogue/test_catalogue.py`'s `test_played_shock_land_defaults_tapped_
 and_opens_pay_life_choice`/`test_shock_land_pay_life_choice_keeps_it_
 untapped`/`test_shock_land_decline_leaves_it_tapped_and_keeps_life` for the
 pre-existing coverage of `play_land`'s own (already-correct) side of this;

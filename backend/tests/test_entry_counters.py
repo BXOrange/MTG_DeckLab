@@ -1,6 +1,6 @@
 """Engine-side behaviour tests for the RULE 614.1-style "enters with N
 counters" clause (`parser/oracle/catalogue/counters.py`,
-`game/ability_catalogue.entry_counters`, `RulesEngine._apply_entry_counters`).
+`game/card_registry.entry_counters`, `RulesEngine._apply_entry_counters`).
 Clause-shape recognition itself is covered by `test_oracle_counters.py`.
 """
 
@@ -123,13 +123,13 @@ def test_ordinary_creature_gets_no_counters():
 
 
 def test_sunburst_condition_is_recognized():
-    from mtg_analyzer.game import ability_catalogue
+    from mtg_analyzer.game import card_registry
 
     card = creature(
         "Prism Beast", "{4}",
         "Prism Beast enters with a +1/+1 counter on it for each color of mana spent to cast it.",
     )
-    assert ability_catalogue.entry_counters(card) == {
+    assert card_registry.entry_counters(card) == {
         "is_x": False, "count": 1, "counter_type": "+1/+1", "colors_spent_scale": True,
     }
 

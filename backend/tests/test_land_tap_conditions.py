@@ -4,7 +4,7 @@ Commander "Battlebond" lands (``unless_opponents``), the basic-land-
 counting fast/slow-land variant (``unless_count`` with ``basic: True``),
 and the "Turbulent" land cycle's opponents'-lands-count variant
 (``unless_opponents_count``). The pre-existing kinds (always/pay_life/
-unless_types/unless_count) are already covered by `test_ability_catalogue.py`.
+unless_types/unless_count) are already covered by `game/catalogue/test_catalogue.py`.
 """
 
 from mtg_analyzer.models.cards.card import Card

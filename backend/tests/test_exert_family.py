@@ -14,7 +14,7 @@ shapes. `combat.has(obj, "exert")` needs no catalogue change — Scryfall
 already tags these `keywords: ['Exert']` even though the ability is spelled
 out in full sentences with no bare reminder-text keyword line.
 
-Combat Celebrant is hand-authored (`ability_catalogue.py`) rather than left
+Combat Celebrant is hand-authored (`card_registry.py`) rather than left
 to the generic parser handler: its own "if ~ hasn't been exerted this turn"
 guard is a real correctness requirement, not a flavour nuance — without it,
 its own granted extra combat phase would let it exert, and grant, another
@@ -23,7 +23,7 @@ extra combat phase forever.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.ability_catalogue import is_registered
+from mtg_analyzer.game.card_registry import is_registered
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card

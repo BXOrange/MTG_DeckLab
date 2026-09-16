@@ -353,7 +353,7 @@ Five project-scoped skills live in `.claude/skills/` and should be invoked
   and searches existing registries for a primitive before you build a new
   one).
 - **`hand-author-card`** (`.claude/skills/hand-author-card/SKILL.md`) —
-  hand-authoring a specific card's abilities into `game/ability_catalogue.py`
+  hand-authoring a specific card's abilities into `game/card_catalogue/`
   (a replacement effect, a triggered ability with a real conditional
   predicate, or any card the oracle-text parser can't fully claim) rather
   than a parser handler. Ships `author_card.py`: pulls the card's real
@@ -414,8 +414,11 @@ Oracle-text → behaviour pipeline (docs/09):
 boundary) → **binder** (`game/effect_binder.py`) → live `GameEffect` objects via
 the `EffectRegistry` (`game/effects.py`). **Bind-on-load** is wired:
 `build_goldfish_engine` calls `bind_from_catalogue(obj)` for every object it
-creates, sourcing specs from `game/ability_catalogue.py` (a hand-authored,
-name-keyed registry — e.g. Evolving Wilds' fetch) **and** the oracle-text
+creates, sourcing specs from `game/ability_catalogue.py` — now split into
+`game/card_registry/` (`core.py`'s `register`/`specs_for` mechanism,
+`families.py`'s `register_family`) and its content sibling
+`game/card_catalogue/` (one hand-authored module per card, e.g. Evolving
+Wilds' fetch, alphabetically foldered — see below) **and** the oracle-text
 front-end. That front-end (`parser/oracle/`, docs/09 Phase 1) is `normalize` →
 `segmenter` → `catalogue/handlers` (effect families over shared
 `catalogue/subgrammars`) → `gate.parse_oracle`, which returns `AbilitySpec`s +
@@ -435,11 +438,85 @@ fully `MODELED` (never half-resolving). The front-end has **no `game/` imports**
   every battlefield permanent's characteristics in layer order and stamps
   derived P/T, types, granted keywords + a per-object `static_trace`.
 - `costs.py` — regex parser for **activated-ability costs** (`Cost: Effect`).
-- `ability_catalogue.py` — card→`AbilitySpec` registry (bind-on-load source),
-  now also falling back to the oracle-text parser (`parser/oracle/gate.parse_oracle`)
-  for unregistered `MODELED` cards + `enters_tapped` (RULE 614.1, oracle-derived).
+- `card_registry/` — card→`AbilitySpec` registry mechanism (bind-on-load
+  source, née `ability_catalogue/`): `core.py`'s `register`/`specs_for`
+  (also falling back to the oracle-text parser, `parser/oracle/gate.
+  parse_oracle`, for unregistered `MODELED` cards + `enters_tapped`, RULE
+  614.1, oracle-derived) and `families.py`'s `register_family` for a
+  mechanically-identical cycle. The actual card *content* — one
+  hand-authored module per card — lives next door in `card_catalogue/`
+  (see "Hand-authored card catalogue layout" below), not in this package;
+  the two names are deliberately parallel (registry = mechanism, catalogue
+  = content) after `ability_catalogue` stopped describing either half well
+  once card content moved out of it.
 - `targeting.py` — legal-target computation (RULE 115 / 601.2c).
 - `mana_abilities.py`, `models/mana_cost.py`, `models/mana_pool.py` — mana.
+
+### Hand-authored card catalogue layout (`game/card_catalogue/`)
+
+2026-09-16: with hand-authoring now the dominant way new individual cards
+get added (the parser front-end's marginal gains are mostly *generalizable*
+handlers, not one-off cards any more — see the "Oracle-text parser" summary
+below), the ~990 hand-authored card entries were pulled out of the former
+`ability_catalogue/`'s ~20 thematic modules (`black.py`, `graveyard.py`,
+`damage_prevention.py`, `special_mechanics.py` for everything that didn't
+fit a theme, …) into their own sibling package, **one file per card**, so a
+card's entry is a `git log`/`grep`-able unit instead of one factory buried
+among ~50-170 others in a themed file that had stopped meaning much once
+"does this fit `black.py`'s theme" became less useful than "which file is
+this card in". The old package was then renamed `card_registry/` (from
+`ability_catalogue/`) since "catalogue" no longer described a package
+holding zero cards — it's the registration *mechanism* `card_catalogue`
+calls into, not a catalogue of anything itself:
+
+- `game/card_catalogue/<letter>/<slug>.py` — `<letter>` is the card's
+  registered name's lowercased first letter (`a`/`b`/`c`/…; no `x` yet;
+  `misc`/`0-9` are reserved for a name that doesn't start with a letter,
+  not currently needed), `<slug>` is the name lowercased with runs of
+  non-alphanumerics collapsed to `_` (e.g. `c/circle_of_solace.py`, `t/
+  the_master_gallifreys_end.py`). Exactly one `def _card() -> list[
+  AbilitySpec]: ...` + `register("Card Name", _card)` pair per file — the
+  same shape every hand-authored entry has always had (see the authoring
+  guide), just no longer sharing a file with a hundred siblings.
+- `game/card_catalogue/_shared/` — the one carve-out: helpers genuinely
+  reused by **several** cards that don't fit `register_family`'s
+  single-`EffectSpec`-shape template (e.g. `_shared/licid.py`'s `_licid`
+  factory for the Tempest Licid cycle, MEC-47 — 13 cards, one shared
+  become-Aura/revert mechanism, each own file importing it). Not a letter
+  folder, not swept by `card_catalogue/__init__.py`'s import list; each
+  member imports it directly. Reach for this only once ≥2 cards need the
+  same non-trivial helper — a single card's own private constant/helper
+  stays inlined in that card's own file instead (unchanged from before).
+- A mechanically-identical **cycle** (Circle of Protection/Rune of
+  Protection, `families.register_family`) still gets one file per member —
+  `register_family` takes an `entries` list, so a single-entry list per
+  file is exactly as valid as one call registering the whole cycle; the
+  shared template's own doc comment is duplicated across every member's
+  file rather than centralized, since each file has to stand on its own.
+- `game/card_catalogue/__init__.py` explicitly imports every letter
+  subpackage (`from . import a, b, c, …`), and each letter's own
+  `__init__.py` explicitly imports every card module in it — mirroring
+  `card_registry/__init__.py`'s former per-module import list: stable
+  and grep-able rather than a directory scan. `card_registry/__init__.py`
+  pulls in `card_catalogue` itself (after `.core`'s `register` is bound,
+  so this isn't a circular import — `card_catalogue`'s own modules import
+  `register`/`register_family` straight from `card_registry.core`/
+  `.families`, never through the parent package) so every existing call
+  site that does `from .. import card_registry` to trigger registration
+  keeps working unchanged; nothing outside `card_registry/` needed to
+  change for the split, and the later rename was a mechanical identifier
+  swap across both packages plus every call site (no behavior change).
+  Verified byte-for-byte behavior-preserving at migration time:
+  `registry_signature()` unchanged, and every one of the ~990
+  factories' own `repr()`'d output diffed identical against the pre-move
+  code.
+- The **`hand-author-card`** skill/`author_card.py` targets this layout —
+  `scaffold` prints the exact `card_catalogue/<letter>/<slug>.py` path plus
+  the imports a new standalone file needs (not a snippet to paste into an
+  existing themed file), and `similar`/`check` search the whole
+  `card_catalogue/` tree. See
+  [11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md)
+  for the field-by-field how-to.
 
 ## Implementation state (summary)
 
@@ -1263,7 +1340,7 @@ parser push.
 
 Hand-authoring a card's abilities directly (rather than waiting on the
 oracle-effect front-end, or for a replacement-clause/conditional-trigger the
-front-end can't express yet) goes in `game/ability_catalogue.py` — see
+front-end can't express yet) goes in `game/card_catalogue/` — see
 [docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md)
 for the field-by-field how-to and the full `EffectSpec`/layer whitelist.
 
@@ -1440,7 +1517,7 @@ English and German.
   "grant an activated ability" (Umbral Mantle/Squirrel Nest) was deferred
   as needing a new primitive in Batch 3, confirmed again in Batch 7, and
   is *still* neither built nor hand-authored as the stopgap this repo's
-  own escape valve explicitly sanctions (`game/ability_catalogue.py` — see
+  own escape valve explicitly sanctions (`game/card_catalogue/` — see
   [docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md)),
   three rounds of deferral in. To prevent this: (1) before writing "needs a
   new primitive/mechanism" in a `BACKLOG.md` ticket, grep `game/effects.py`/
@@ -1467,7 +1544,7 @@ English and German.
 | How many targets a spell/ability wants (RULE 115.1/601.2c) | `game/targeting.py` (`TargetSpec.count`/`count_max`/`count_selector`, `effective_count`, `resolved_count`, `expand_counts`/`collapse_groups`) |
 | A clause naming what a previous clause targeted, created, or revealed | `effects.GameContext.previous_targets` / `created_objects` / `revealed_card` (all maintained by `_apply_effects_partitioned`; `revealed_card` is the `of: "revealed"` referent, set by `reveal_top`) |
 | Activated abilities / costs | `game/costs.py`, `game/game_engine.py` (`activate_ability`) |
-| Card abilities / fetch lands / enters-tapped | `game/ability_catalogue.py`, `effect_binder.bind_from_catalogue` |
+| Card abilities / fetch lands / enters-tapped | `game/card_catalogue/` (one file per card), `game/card_registry/` (the `register`/`specs_for` mechanism), `effect_binder.bind_from_catalogue` |
 | Hand-authoring a specific card's effects | `hand-author-card` skill, [docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md) |
 | Effects / triggers | `game/effects.py`, `game/effect_binder.py` |
 | Which trigger conditions the parser recognizes | `parser/oracle/segmenter.py` (`_TRIGGER_VERBS` object subjects, `_PHASE_STEP_WORDS`, `_PLAYER_TRIGGER_CONDITIONS` "whenever **you** scry/surveil", `_VARIANT_TRIGGER_CONDITIONS`) |

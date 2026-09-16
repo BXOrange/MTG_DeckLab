@@ -1,5 +1,5 @@
 """Blight Curse batch C5 wave 12 — Cathartic Pyre
-(hand-authored, `ability_catalogue/blight_curse.py`).
+(hand-authored, `card_registry/blight_curse.py`).
 
 Modal instant, "choose one —":
 * mode 1 — ``damage`` 3 to ``creature_or_planeswalker`` (ordinary).
@@ -12,7 +12,7 @@ Modal instant, "choose one —":
 
 from __future__ import annotations
 
-from mtg_analyzer.game.ability_catalogue import specs_for
+from mtg_analyzer.game.card_registry import specs_for
 from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
 from mtg_analyzer.game.effects.core import GameContext
 from mtg_analyzer.game.game_engine import GameEngine

@@ -6,7 +6,7 @@ install's saved decks, not just cache-wide count:
 * **Untargeted mass "destroy/exile all X [with a numeric filter]" board
   wipes** (RULE 601.2c) — the `DestroyEffect`/`ExileEffect` ``selector``
   primitive already existed (hand-authored per card, e.g. Wrath of God in
-  `ability_catalogue.py`); only the general oracle-text recognition was
+  `card_registry.py`); only the general oracle-text recognition was
   missing (`catalogue/handlers.py`'s ``destroy_all``/``destroy_all_no_regen``/
   ``exile_all``). Also widens `game/effects/core.py`'s `_MASS_DESTROY_SELECTORS`
   with ``"all_lands"``, the one selector real cards need that didn't exist.

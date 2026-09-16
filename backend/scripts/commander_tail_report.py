@@ -51,7 +51,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mtg_analyzer.game.ability_catalogue import is_registered  # noqa: E402
+from mtg_analyzer.game.card_registry import is_registered  # noqa: E402
 from mtg_analyzer.parser.oracle import (  # noqa: E402
     NEVER_SUPPORTED,
     PARSER_VERSION,

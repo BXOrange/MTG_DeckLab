@@ -355,7 +355,7 @@ def test_chosen_source_shield_is_swept_at_end_of_turn_even_if_unused():
 
 
 # ---------------------------------------------------------------------------
-# Real hand-authored catalogue cards (`game/ability_catalogue.py`), bound the
+# Real hand-authored catalogue cards (`game/card_registry.py`), bound the
 # ordinary way via `bind_from_catalogue` — not hand-built `EffectSpec`s.
 # ---------------------------------------------------------------------------
 

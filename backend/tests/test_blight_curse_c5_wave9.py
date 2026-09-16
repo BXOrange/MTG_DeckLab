@@ -1,5 +1,5 @@
 """Blight Curse batch C5 wave 9 — Oft-Nabbed Goat
-(hand-authored, `ability_catalogue/blight_curse.py`).
+(hand-authored, `card_registry/blight_curse.py`).
 
 * Activated ability — new `ActivationCost.only_opponents_may_activate` (the
   inverse of Mercenaries' `any_player_may_activate`: every player *except*
@@ -12,7 +12,7 @@
 
 from __future__ import annotations
 
-from mtg_analyzer.game.ability_catalogue import specs_for
+from mtg_analyzer.game.card_registry import specs_for
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card

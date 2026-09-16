@@ -1,12 +1,12 @@
 """Tests for RULE 103.6 pregame setup permission recognition
 (`parser/oracle/catalogue/opening_hand.py`) — the single source of truth
-the coverage gate (`gate.py`) and the engine (`game/ability_catalogue.
+the coverage gate (`gate.py`) and the engine (`game/card_registry.
 opening_hand_battlefield_permission`/`pregame_setup_permission`) both
 consult, so the shapes claimed and the shapes resolved can never drift
 apart (PLR-11 and its own follow-up).
 """
 
-from mtg_analyzer.game.ability_catalogue import (
+from mtg_analyzer.game.card_registry import (
     opening_hand_battlefield_permission,
     pregame_setup_permission,
 )

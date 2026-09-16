@@ -535,7 +535,7 @@ class AbilitySpec:
     #: RULE 118.9: "You may pay `<cost>` rather than pay this spell's mana
     #: cost." (Force of Will/Negation/Vigor, Daze — MEC-15) — see
     #: `ALLOWED_ALT_COST_KEYS`'s own docstring for the vocabulary. Hand-
-    #: authored only (`game/ability_catalogue.py`); no oracle-text grammar
+    #: authored only (`game/card_catalogue`); no oracle-text grammar
     #: recognizes this shape yet — real cards phrase the payment too
     #: variably for one fixed template. Same "may ride on any spec
     #: regardless of ``ability_kind``, own oracle-text line standalone from
@@ -588,7 +588,7 @@ class AbilitySpec:
     #: the event's own source every time a DAMAGE event fires, building the
     #: per-firing `ImpulsiveDrawEffect` the same way `_collect_inherent_
     #: triggers` already does for the Monarch/Initiative combat-damage
-    #: swap. Hand-authored only (`game/ability_catalogue.py`) — the
+    #: swap. Hand-authored only (`game/card_catalogue`) — the
     #: oracle-text parser front-end never produces this field. May ride on
     #: any spec regardless of ``ability_kind``, same "scan every spec,
     #: attach to the object" idiom `additional_cost`/`conditional_flash` use
@@ -642,7 +642,7 @@ class AbilitySpec:
     #: >=1 of the granted ``kind``. ``{"kind": "rad"}`` (default) names
     #: which counter kind — every real card in this family grants "rad",
     #: kept as a key rather than hardcoded since the shape is otherwise
-    #: generic. Hand-authored only (`game/ability_catalogue.py`) — the
+    #: generic. Hand-authored only (`game/card_catalogue`) — the
     #: oracle-text parser front-end has no "that many"/branching grammar
     #: yet. `RulesEngine._collect_rad_counter_damage_triggers` reads it
     #: fresh off the DAMAGE event's own source, mirroring `_collect_

@@ -1,7 +1,7 @@
 """Secrets of Strixhaven — playability batch, wave 37 (PAR-60).
 
 A few more tractable singletons hand-authored in
-`game/ability_catalogue/commander_cards.py`. Engine: `ConditionalEffect` gained
+`game/card_registry/commander_cards.py`. Engine: `ConditionalEffect` gained
 ``previous_target_power_at_least`` (Yavimaya Bloomsage).
 """
 
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
+from mtg_analyzer.game.card_registry import _REGISTRY, is_registered
 from mtg_analyzer.game.binding.core import bind_ability
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone

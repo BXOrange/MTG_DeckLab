@@ -16,7 +16,7 @@ cost-bearing keyword table already claims "Escalate {N}" as a plain
 parametric keyword once its reminder text is stripped).
 
 Return the Favor (`Ojer cEDH`, MEC-31's own named card) is hand-authored in
-`ability_catalogue.py` — its "change the target…" mode is the parser's own
+`card_registry.py` — its "change the target…" mode is the parser's own
 already-built `change_target` handler output verbatim, but its "copy
 target… spell, activated ability, or triggered ability" mode needs a real
 targeted-ability-copy primitive this batch doesn't build (see that entry's
@@ -263,7 +263,7 @@ def test_escalate_charges_the_flat_cost_once_per_mode_beyond_the_first():
     assert p2.life == opp_life_before - 2
 
 
-# -- Hand-authored: Return the Favor (ability_catalogue.py) ------------------
+# -- Hand-authored: Return the Favor (card_registry.py) ------------------
 
 
 def _return_the_favor_card():

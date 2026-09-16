@@ -416,7 +416,7 @@ def has_horsemanship(obj: "GameObject") -> bool:
 def has_banding(obj: "GameObject") -> bool:
     """RULE 702.22: whether ``obj`` has Banding (or "bands with other
     `<quality>`", which `static_handlers._quoted_ability_grant_effects_
-    list` and `ability_catalogue.special_mechanics._master_of_the_hunt`
+    list` and `card_registry.special_mechanics._master_of_the_hunt`
     both grant as plain Banding — the quality restriction only matters
     for RULE 702.22c's interactive attacking-band *declaration*, which
     this engine doesn't model; every card that reaches here just needs

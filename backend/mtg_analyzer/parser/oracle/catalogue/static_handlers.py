@@ -25,7 +25,7 @@ has trample" (RULE 303.4/301.5, docs/11 §6 "attached_permanent"). Unlike the
 controller-scoped selector; `game/continuous.py`'s `group_selector_objects`
 already honours that selector for both `anthem` and `grant_keyword` (it's the
 same code path the hand-authored Armadillo Cloak entry in
-`game/ability_catalogue.py` uses) — only the parser recognition was missing.
+`game/card_catalogue` uses) — only the parser recognition was missing.
 
 A third family (Card-pool Batch 7) recognises RULE 601.2b's "as ~ enters,
 choose a creature type/color" (`enter_choice_specs`, a sibling entry point
@@ -825,7 +825,7 @@ _NO_UNTAP_NONBASIC_LANDS_RE = re.compile(
 # "Players can't untap more than N [nonbasic] `<type>` during their untap
 # steps."  (RULE 502.3-adjacent, Static Orb's "permanents"/Winter Moon's
 # "nonbasic land" — Winter Orb's own "one land" is hand-authored, see
-# `ability_catalogue._winter_orb`, but shares this same `untap_cap` family)
+# `card_registry._winter_orb`, but shares this same `untap_cap` family)
 # — always printed either bare (Winter Moon) or under a leading "as long as
 # this artifact is untapped," gate peeled off by `_conditional_static_specs`
 # before this ever sees the clause (Static Orb).
@@ -852,7 +852,7 @@ _TRIGGER_PROHIBITION_RE = re.compile(
 # Dismantler's "artifacts", Archon of Emeria's "nonbasic lands", Blind
 # Obedience's "artifacts and creatures", Thalia, Heretic Cathar's own mixed
 # "creatures and nonbasic lands" — MEC-43 round 2) — distinct from
-# `ability_catalogue.enters_tapped` (a card's own printed tapped-entry
+# `card_registry.enters_tapped` (a card's own printed tapped-entry
 # clause about *itself*): this is a standing effect from a *different*
 # permanent, scoped to "your opponents". Each ``and``-joined part carries
 # its *own* optional "nonbasic" prefix (Thalia's creatures aren't nonbasic-
@@ -918,7 +918,7 @@ _LAND_IS_BASIC_TYPE_RE = re.compile(
 # (RULE 701-adjacent standing permission, Oracle of Mul Daya/Glarb, Calamity's
 # Augur/Future Sight/Bolas's Citadel/Elsha of the Infinite-shaped) — the
 # generic sibling of the two hand-authored `top_library_permission` entries
-# in `game/ability_catalogue.py` (left registered rather than migrated; no
+# in `game/card_catalogue` (left registered rather than migrated; no
 # harm in both existing side by side, the hand-authored registry always
 # takes precedence for a registered card). ``_TOP_LIBRARY_VERB_PARAMS``'
 # five printed phrasings are a closed vocabulary, same precedent as

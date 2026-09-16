@@ -1,6 +1,6 @@
 """Darksteel Mutation neutralizes its enchanted creature."""
 
-from mtg_analyzer.game.ability_catalogue import _REGISTRY
+from mtg_analyzer.game.card_registry import _REGISTRY
 from mtg_analyzer.game.binding.core import build_effects
 from tests.support.catalogue import battlefield_object, two_player_game
 

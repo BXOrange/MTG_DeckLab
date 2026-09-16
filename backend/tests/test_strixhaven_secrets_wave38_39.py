@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from mtg_analyzer.game import static_conditions
-from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
+from mtg_analyzer.game.card_registry import _REGISTRY, is_registered
 from mtg_analyzer.game.binding.core import bind_ability
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card

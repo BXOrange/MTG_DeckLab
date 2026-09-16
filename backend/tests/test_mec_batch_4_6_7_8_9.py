@@ -117,7 +117,7 @@ def test_embercleave_costs_less_per_attacking_creature_you_control():
         ),
     )
     # `_hand` already binds — Embercleave's cost-reduction static comes from
-    # the hand-authored catalogue entry (`game/ability_catalogue.py`).
+    # the hand-authored catalogue entry (`game/card_registry.py`).
     assert engine.effective_cast_cost(p1, embercleave).converted_mana_cost == 6
 
     a1 = _bf(state, _creature("Attacker1"))
@@ -180,7 +180,7 @@ def test_conditional_flash_targets_a_commander_engine_primitive():
         ),
     )
     # `_hand` already binds — Timely Ward's conditional_flash comes from
-    # the hand-authored catalogue entry (`game/ability_catalogue.py`).
+    # the hand-authored catalogue entry (`game/card_registry.py`).
     assert ward.conditional_flash == {"targets_a_commander": True}
 
     engine.state.current_step = "combat_damage"  # not a main phase, stack empty — instant speed needed

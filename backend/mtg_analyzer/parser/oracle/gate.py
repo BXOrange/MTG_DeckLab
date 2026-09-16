@@ -174,7 +174,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `lose_all_player_counters`/`dies_grants_rad_counters_equal_power`), plus
 #: "You gain life rather than lose life from radiation." (`radiation_life_
 #: gain`). The "that many"/dynamic-player combat-damage shape (Glowing
-#: One/Infesting Radroach) is hand-authored in `ability_catalogue.py`
+#: One/Infesting Radroach) is hand-authored in `card_catalogue`
 #: instead — no oracle-text grammar change for that half.
 #: "22": Rad-counter deferred-gap closeout batch (Acquired Mutation/Bloatfly
 #: Swarm/Contaminated Drink/Harold and Bob/Mariposa Military Base/
@@ -724,11 +724,11 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: value/toughness ones; and a `without_card_type` qualifier on creature
 #: target/blocking filters ("target **nonartifact** creature", Go for the
 #: Throat-shaped). Also fixed a real coverage-badge bug, unrelated to any
-#: of the above: `ability_catalogue.is_registered` lacked `specs_for`'s own
+#: of the above: `card_registry.is_registered` lacked `specs_for`'s own
 #: DFC "//" front-face fallback, so an already-fully-bound split/DFC card
 #: registered under its front face alone (Halvar, God of Battle // Sword
 #: of the Realms) was wrongly reported UNMODELED. The rest of this batch's
-#: ~30 cards were hand-authored in `ability_catalogue.py` (several new
+#: ~30 cards were hand-authored in `card_catalogue` (several new
 #: general primitives along the way: `AddCountersEffect.x_multiplier`,
 #: `ConditionalEffect`'s `source_x_paid_at_least`/
 #: `creatures_died_this_turn_at_least`, `LoseLifeEffect.
@@ -2013,7 +2013,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: predicate) — Tiller of Flesh. +4, 0 regressed. The three remaining
 #: singletons (Phyrexian Incubator's "that many times", Progenitor
 #: Exarch's "X times", Traumatic Revelation's "if you don't" else-branch)
-#: are hand-authored in `ability_catalogue/special_mechanics.py`, not parsed.
+#: are hand-authored in `card_registry/special_mechanics.py`, not parsed.
 #: "206": PAR-30 (Collect Evidence / Forage / Blight residue, sub-cluster a)
 #: — reflexive "**When you do**, `<targeted payoff>`." after an optional
 #: keyword-action cost (RULE 603.11). `_pay_cost_then_general` no longer
@@ -2105,7 +2105,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: target permanent" bonus), 0 regressed.
 #: "212": PAR-30 — RULE 701.10 exchange-control residue, closed. The
 #: twelve remaining bespoke singletons, all hand-authored
-#: (`ability_catalogue/special_mechanics.py`) — no new parser recognition, each
+#: (`card_registry/special_mechanics.py`) — no new parser recognition, each
 #: shape appears on exactly one card. New engine primitives: `TriggeredAbility.
 #: controller_from_trigger_event` (RULE 603.1's chooser can differ from the
 #: ability's own source's controller — Confusion in the Ranks) +
@@ -2909,7 +2909,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: change (one fewer UNCLAIMED clause on that card), so the version still
 #: bumps per the ledger's own "reused vs parsed" keying. PAR-68's other
 #: four cards (Agent Maria Hill, Virtual Assistant, Helicarrier Strike,
-#: Beast Mode) are hand-authored (`game/ability_catalogue/value.py`) —
+#: Beast Mode) are hand-authored (`game/card_registry/value.py`) —
 #: +0 by design, no parser handler was written for any of them (each
 #: confirmed a genuine singleton via `parser_probe.py blocked`, no nearby
 #: cluster). +0 parser-modeled, +4 hand-authored this batch alongside
@@ -3040,7 +3040,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: throughout (the quality restriction only matters for that undeclared
 #: mechanic) — the same simplification `static_handlers._quoted_ability_
 #: grant_effects_list`'s new bare `"bands with other .*"` branch and the
-#: hand-authored `ability_catalogue.special_mechanics._master_of_the_hunt`
+#: hand-authored `card_registry.special_mechanics._master_of_the_hunt`
 #: (a "create a *named* token, then a follow-up sentence grants it a
 #: quoted ability" compound with no existing grammar at all — confirmed a
 #: genuinely separate ~60-card family via `parser_probe.py`, well outside
@@ -3189,7 +3189,7 @@ class ParseResult:
     #: replacement`` (RULE 601.2b/614.1c/614.12 "as ~ enters" — Card-pool
     #: Batch 7's "choose a creature type/color", `static_handlers.
     #: enter_choice_specs`) was added alongside the other five here so
-    #: `ability_catalogue.specs_for` actually binds it for an unregistered
+    #: `card_registry.specs_for` actually binds it for an unregistered
     #: MODELED card, not just keeps it visible on `specs`.
     @property
     def effect_specs(self) -> list[AbilitySpec]:
@@ -3478,7 +3478,7 @@ def _parse_mode_options(
 #: linking"): `parse_oracle` is a pure function of a handful of a card's
 #: fields (see `_parse_cache_key`), but re-runs the full normalise →
 #: segment → match pipeline from scratch on every call — and it's called
-#: once per `GameObject` built (`ability_catalogue.specs_for`), so the same
+#: once per `GameObject` built (`card_registry.specs_for`), so the same
 #: popular card (Sol Ring, Swords to Plowshares, …) gets re-parsed on every
 #: copy, every game. Cache the `ParseResult` per distinct input; unbounded
 #: is fine here — the key space is the real card pool (tens of thousands),
@@ -3516,7 +3516,7 @@ def parse_oracle(card: Any) -> ParseResult:
 
     Returns a deep copy of the cached `ParseResult` so a caller is always
     free to treat its `AbilitySpec`s as its own (matches
-    `ability_catalogue.register`'s "factory returns fresh specs each call"
+    `card_registry.register`'s "factory returns fresh specs each call"
     contract for the hand-authored registry) even though the parse itself
     now runs at most once per distinct input.
     """
@@ -3671,7 +3671,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             effect_specs.append(enter.spec)
             return
         # RULE 614.1 "enters tapped" clauses are covered by the engine's own
-        # tapped-entry machinery (`game/ability_catalogue.land_tap_condition`,
+        # tapped-entry machinery (`game/card_registry.land_tap_condition`,
         # resolved by `RulesEngine.enter_land_tapped`), not through an effect
         # spec — claim the line without emitting one, the same way a mana
         # ability's "add {g}" is covered-without-spec in the segmenter.
@@ -3686,7 +3686,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 return
             line = choice_tail
         # RULE 614.1-style "enters with N counters" clauses: same split as
-        # tapped-entry above — covered by `game/ability_catalogue.
+        # tapped-entry above — covered by `game/card_registry.
         # entry_counters` (`RulesEngine`'s battlefield-entry resolution),
         # not an effect spec.
         if entry_counters_condition(line) is not None:
@@ -3694,7 +3694,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         # RULE 702.33b Kicker's own "{X}" payment restriction ("Spend only
         # colored mana on X. No more than one mana of each color may be
         # spent this way.", PAR-7): same split as the two clauses above —
-        # covered by `game/ability_catalogue.kicker_x_mana_restriction`
+        # covered by `game/card_registry.kicker_x_mana_restriction`
         # (`GameEngine.can_cast`/`cast_spell`), not an effect spec.
         if kicker_x_mana_restriction_condition(line) is not None:
             return
@@ -3710,14 +3710,14 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         # the game with it on the battlefield." (the Leyline cycle) — a
         # pregame setup permission, not an in-game behavioral effect: same
         # split as the three clauses above, covered by `game/
-        # ability_catalogue.opening_hand_battlefield_permission`
+        # card_registry.opening_hand_battlefield_permission`
         # (`services/game_session.py`'s opening-hand handling), not an
         # effect spec.
         if opening_hand_battlefield_permission_line(line):
             return
         # Gemstone Caverns' conditional/costed/counter-bearing sibling of
         # the clause above, and Buried Ogre's graveyard-destination one —
-        # same split, covered by `game/ability_catalogue.
+        # same split, covered by `game/card_registry.
         # pregame_setup_permission` instead.
         if opening_hand_battlefield_conditional_permission_line(line):
             return

@@ -1,4 +1,4 @@
-"""cEDH staples cube — batch B1: hand-authored `ability_catalogue.py` entries
+"""cEDH staples cube — batch B1: hand-authored `card_registry.py` entries
 plus the small set of generic parser/engine extensions this batch found were
 cheap enough to build as reusable primitives instead of one-off catalogue
 entries.
@@ -30,7 +30,7 @@ additions, each proven here on the *real* card that motivated it:
    untap_cap_for_lands`) for Winter Orb's "players can't untap more than
    one land during their untap steps."
 
-Every other card below is a genuinely hand-authored `ability_catalogue.py`
+Every other card below is a genuinely hand-authored `card_registry.py`
 entry, several deliberately *partial* (documented drop of one sub-clause
 neither the parser nor the effect library has a primitive for yet — Mana
 Drain/Corpse Dance's delayed one-shot trigger, Eiganjo's activated-ability
@@ -42,7 +42,7 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game import ability_catalogue as ac
+from mtg_analyzer.game import card_registry as ac
 from mtg_analyzer.game import continuous
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine

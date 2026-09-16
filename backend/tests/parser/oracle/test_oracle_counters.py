@@ -1,7 +1,7 @@
 """Tests for the RULE 614.1-style "enters with N counters" clause
 recognition (`parser/oracle/catalogue/counters.py`) — the single source of
 truth the coverage gate (`gate.py`) and the engine
-(`game/ability_catalogue.entry_counters`) both consult, so the shapes
+(`game/card_registry.entry_counters`) both consult, so the shapes
 claimed and the shapes resolved can never drift apart.
 """
 

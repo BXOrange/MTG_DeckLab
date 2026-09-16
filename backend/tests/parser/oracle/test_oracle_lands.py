@@ -1,6 +1,6 @@
 """Tests for the RULE 614.1 "enters tapped" land-clause recognition
 (`parser/oracle/catalogue/lands.py`) — the single source of truth the
-coverage gate (`gate.py`) and the engine (`game/ability_catalogue.
+coverage gate (`gate.py`) and the engine (`game/card_registry.
 land_tap_condition`) both consult, so the shapes claimed and the shapes
 resolved can never drift apart.
 """

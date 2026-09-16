@@ -400,7 +400,7 @@ def test_attached_subject_damage_trigger_fires_for_the_host():
     host = _bf(state, _creature("Bear"))
     bystander = _bf(state, _creature("Bystander"))
     # Deliberately *not* a real card name: the real Rogue's Gloves is
-    # hand-authored in `ability_catalogue.py` (as an optional "you may
+    # hand-authored in `card_registry.py` (as an optional "you may
     # draw"), which would exercise that entry rather than this batch's new
     # oracle-text recognition.
     gloves = _bf(

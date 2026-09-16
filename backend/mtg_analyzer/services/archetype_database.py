@@ -37,7 +37,7 @@ enumerated by hand, since EDHREC alone lists dozens of tribes and a fixed
 list would go stale as new tribal support prints.
 
 This file is meant to be grown over time by hand, the same authoring model
-`game/ability_catalogue.py` uses — it ships with a first curated pass and is
+`game/card_catalogue` uses — it ships with a first curated pass and is
 extended in later sessions, not regenerated from an external source at
 runtime (this app stays offline-safe; no live EDHREC/internet calls).
 """

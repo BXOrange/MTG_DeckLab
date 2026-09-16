@@ -1,5 +1,5 @@
 """End-to-end checks for the "Wyleth Equip" commander deck's hand-authored
-catalogue entries (`game/ability_catalogue.py`) and the engine primitives
+catalogue entries (`game/card_registry.py`) and the engine primitives
 they lean on (mass board wipes, the "combat damage to a player"/"equipped
 creature" trigger family, Living Weapon, Renown, per-count static buffs).
 
@@ -165,7 +165,7 @@ def test_swords_to_plowshares_exiles_and_gains_life_equal_to_power():
     life is paid to *its* controller (`effect_operands`), neither of which
     the IR could express before.
     """
-    from mtg_analyzer.game.ability_catalogue import specs_for
+    from mtg_analyzer.game.card_registry import specs_for
     from mtg_analyzer.game.binding.core import build_effects
     from mtg_analyzer.game.effects.core import _apply_effects_partitioned
 

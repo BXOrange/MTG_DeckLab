@@ -43,7 +43,7 @@ seat-filling bots that act only through the client surface.
 
 **The dominant remaining gap is unchanged and singular: card text does not
 yet fully become behaviour.** A spell or ability does something only if its
-card is hand-authored in `game/ability_catalogue.py` **or** the oracle-text
+card is hand-authored in `game/card_catalogue/` **or** the oracle-text
 parser recognizes every one of its clauses as `MODELED` (fail-closed —
 never half-resolved). That is **45.03% of the Oracle universe — 15,675 of
 34,811 cards, PARSER_VERSION 393** (Commander-legal: 15,056 / 31,830 = 47.3%).

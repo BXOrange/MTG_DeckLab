@@ -1,5 +1,5 @@
 """Blight Curse batch C5 wave 6 — Kulrath Knight
-(hand-authored, `ability_catalogue/blight_curse.py`).
+(hand-authored, `card_registry/blight_curse.py`).
 
 * Kulrath Knight — "Creatures your opponents control with counters on them
   can't attack or block." A layer-6 ``grant_keyword`` static handing the
@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 from mtg_analyzer.game import combat
-from mtg_analyzer.game.ability_catalogue import specs_for
+from mtg_analyzer.game.card_registry import specs_for
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
@@ -103,5 +103,5 @@ def test_kulrath_knight_lock_lifts_when_counter_removed():
 
 
 def test_kulrath_knight_real_card_is_authored_modeled():
-    from mtg_analyzer.game.ability_catalogue import specs_for as _sf
+    from mtg_analyzer.game.card_registry import specs_for as _sf
     assert _sf(KULRATH_KNIGHT)  # non-empty → AUTHORED

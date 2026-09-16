@@ -8,7 +8,7 @@ Two pieces:
   widened with a third alternative ("any number of ", alongside plain "N "
   and "up to N ") — capped at `_ANY_NUMBER_TARGET_CAP` (10), the same
   generous-fixed-cap convention the one pre-existing hand-authored example
-  (`ability_catalogue._fire_covenant`) already used, rather than a live
+  (`card_registry._fire_covenant`) already used, rather than a live
   `legal_targets` count: the existing "offer up to N, one at a time, stop
   early or when targets run out" round-gathering machinery
   (`RulesEngine._continue_trigger_multi_target`) already handles both

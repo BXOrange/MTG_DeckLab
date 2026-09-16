@@ -45,7 +45,7 @@ Each closes a real subsystem rather than a one-off card:
   the same player who'd cast it, but Knowledge Pool's shared pool can hand
   a player a free cast of a card sitting in *another* player's exile.
 
-Reference: mtg_analyzer/game/{effects,continuous,ability_catalogue}.py,
+Reference: mtg_analyzer/game/{effects,continuous,card_registry}.py,
 mtg_analyzer/game/engine/{casting_mixin,legal_actions_mixin,
 activation_mixin}.py, mtg_analyzer/game/rules/{misc_mixin,copies_mixin,
 sba_mixin}.py, mtg_analyzer/models/game_object.py.

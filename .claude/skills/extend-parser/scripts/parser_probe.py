@@ -59,7 +59,7 @@ def _find_backend() -> Path:
 
 sys.path.insert(0, str(_find_backend()))
 
-from mtg_analyzer.game.ability_catalogue import is_registered  # noqa: E402
+from mtg_analyzer.game.card_registry import is_registered  # noqa: E402
 from mtg_analyzer.parser.oracle import (  # noqa: E402
     NEVER_SUPPORTED,
     PARSER_VERSION,
@@ -86,7 +86,7 @@ def scan(cards):
 
     A row is (name, covered, unclaimed_clauses). "Covered" matches
     `scripts/coverage_report.py`: parser-MODELED **or** hand-AUTHORED in
-    `game/ability_catalogue/`, so a probe never credits a handler for a card
+    `game/card_catalogue/`, so a probe never credits a handler for a card
     that was already behaving via the hand-authored escape valve.
     """
     rows = []

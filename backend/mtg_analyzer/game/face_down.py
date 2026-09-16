@@ -46,7 +46,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 #: The name a face-down object is shown under. RULE 708.2a says it has *no*
 #: name; `Card` requires a non-empty one, so this stands in — deliberately a
 #: phrase no real card is named, so nothing name-keyed (the hand-authored
-#: `game/ability_catalogue.py` registry, a "cards named ~" effect) can match it.
+#: `game/card_catalogue` registry, a "cards named ~" effect) can match it.
 FACE_DOWN_NAME = "Face-down creature"
 
 #: The `Card.id` every synthetic face-down face carries — the frontend keys

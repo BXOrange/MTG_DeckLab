@@ -13,7 +13,7 @@ Engine infrastructure added this batch:
 * `EffectSpec.condition` key `did_all_bends_this_turn` (Avatar Aang's
   reflexive "then if you've done all four this turn, transform ~").
 
-Avatar Aang itself is hand-authored (`game/ability_catalogue/red_spells.py`)
+Avatar Aang itself is hand-authored (`game/card_registry/red_spells.py`)
 — a strict singleton whose reflexive transform clause the parser can't
 express.
 """
@@ -223,7 +223,7 @@ def test_aang_opponent_bend_does_not_trigger():
 
 
 def test_aang_is_hand_authored():
-    from mtg_analyzer.game.ability_catalogue import specs_for
+    from mtg_analyzer.game.card_registry import specs_for
 
     specs = specs_for(_avatar_aang_card())
     assert specs, "Avatar Aang should be hand-authored"

@@ -4,7 +4,7 @@ narrowed to dungeon room abilities:
     Commander creatures you own have "Room abilities of dungeons you own
     trigger an additional time."
 
-Hand-authored (`ability_catalogue.special_mechanics._dungeon_delver`): a bare
+Hand-authored (`card_registry.special_mechanics._dungeon_delver`): a bare
 ``dungeon_room_trigger_doubler`` marker static (the `grant_escape`/
 `grant_retrace`/`extra_etb_counter` out-of-band convention), consulted by
 `continuous.dungeon_room_trigger_doubler_bonus` from `RulesEngine._collect_
@@ -20,11 +20,11 @@ from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.dungeon import Dungeon, DungeonRoom
 from mtg_analyzer.models.game.game_object import GameObject, Zone
-from mtg_analyzer.game import ability_catalogue
+from mtg_analyzer.game import card_registry
 
 
 def test_dungeon_delver_registered_with_doubler_marker():
-    specs = ability_catalogue.specs_for(
+    specs = card_registry.specs_for(
         Card(id="dd", name="Dungeon Delver",
              type_line="Legendary Enchantment — Background"))
     assert specs is not None and len(specs) == 1

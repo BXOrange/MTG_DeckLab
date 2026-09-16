@@ -1,6 +1,6 @@
 """MEC-52 — the last three cards of PAR-29's keyword trail (PAR-30
 close-out), each blocking on a distinct engine primitive rather than oracle
-grammar, so hand-authored in `game/ability_catalogue/special_mechanics.py`.
+grammar, so hand-authored in `game/card_registry/special_mechanics.py`.
 
 - **Hunted by The Family** — `FaceVillainousChoiceEffect`
   ``subject="previous_target_controller"``: the RULE 115 targets are the
@@ -18,7 +18,7 @@ grammar, so hand-authored in `game/ability_catalogue/special_mechanics.py`.
 
 from __future__ import annotations
 
-from mtg_analyzer.game import ability_catalogue as ac
+from mtg_analyzer.game import card_registry as ac
 from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card

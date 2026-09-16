@@ -32,7 +32,7 @@ from ..models.game.player import Player
 from ..parser.oracle.catalogue.keywords import parse_keywords
 from ..parser.oracle.catalogue.saga import all_chapter_numbers
 from . import (
-    ability_catalogue, combat, continuations, continuous, copy_mechanics,
+    card_registry, combat, continuations, continuous, copy_mechanics,
     dungeons, face_down, variants,
 )
 from .combat import is_protected_from

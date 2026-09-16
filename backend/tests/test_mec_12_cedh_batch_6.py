@@ -68,7 +68,7 @@ isolation).
 from __future__ import annotations
 
 from mtg_analyzer.config import DB_PATH
-from mtg_analyzer.game.ability_catalogue import is_registered
+from mtg_analyzer.game.card_registry import is_registered
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card

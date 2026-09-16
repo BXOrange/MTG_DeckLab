@@ -1,7 +1,7 @@
 """Secrets of Strixhaven — playability batch, wave 29 (PAR-60).
 
 Quandrix charge-counter / {X}-matters singletons, hand-authored in
-`game/ability_catalogue/commander_cards.py`. Engine: the `SPELL_CAST` event now
+`game/card_registry/commander_cards.py`. Engine: the `SPELL_CAST` event now
 carries ``has_x`` ("{X}" in the printed mana cost); binder predicate
 ``spell_has_x`` reads it.
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
+from mtg_analyzer.game.card_registry import _REGISTRY, is_registered
 from mtg_analyzer.game.binding.core import bind_ability
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card

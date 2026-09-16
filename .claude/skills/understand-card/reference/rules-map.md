@@ -28,14 +28,14 @@ Read the CR passage with `understand_card.py term "<word>"` or
 | "~ can't be blocked …" / "attacks each combat if able" | 509, 508.1 | `game/combat.py` restriction/requirement family |
 | "As long as …, …" (conditional static) | 613.6 | `game/static_conditions.py`, static `active_if` param |
 | "Until end of turn" / "until your next turn" | 611 | `game/durations.py` (`temp_*` path for EOT), `effects.GrantUntilEffect` |
-| "has \"<ability>\"" (granted ability) | 613 layer 6 | catalogue quoted-ability grants; `game/ability_catalogue/` for singletons |
-| type-/color-changing ("is a 1/1 Insect in addition") | 613 layers 4, 7b | `game/continuous.py`; often UNCLAIMED → `game/ability_catalogue/` |
+| "has \"<ability>\"" (granted ability) | 613 layer 6 | catalogue quoted-ability grants; `game/card_catalogue/` for singletons |
+| type-/color-changing ("is a 1/1 Insect in addition") | 613 layers 4, 7b | `game/continuous.py`; often UNCLAIMED → `game/card_catalogue/` |
 
 ## Replacement & prevention (RULE 614, 615, 616)
 
 | Idiom | Rule | Modeled in |
 | --- | --- | --- |
-| "If ~ would die, exile it instead" | 614 | `ReplacementEffect` (`game/effects/replacements.py`); **no parser grammar** → `game/ability_catalogue/` |
+| "If ~ would die, exile it instead" | 614 | `ReplacementEffect` (`game/effects/replacements.py`); **no parser grammar** → `game/card_catalogue/` |
 | "enters with N +1/+1 counters" / "enters tapped" | 614.1 | catalogue `enters_tapped` / enters-with-counters (oracle-derived) |
 | "Prevent all damage that would be dealt to …" | 615 | `game/effects/` prevention shields |
 | "If you would draw … instead …" | 614 | replacement — hand-author |

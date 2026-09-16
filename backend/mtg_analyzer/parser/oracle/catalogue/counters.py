@@ -7,12 +7,12 @@ clause isn't resolved through the generic effect-handler table
 object's *actual* paid X (RULE 107.3c: 0 if it didn't enter by being cast
 for X) at the moment it enters the battlefield — not a value the binder can
 precompute onto a reusable spec. The engine resolves it directly through
-`game/ability_catalogue.entry_counters`, the same split `lands.py` uses for
+`game/card_registry.entry_counters`, the same split `lands.py` uses for
 tapped-entry.
 
 This module is the **single source of truth** for recognising these clauses;
 both the coverage gate (`gate.py`, claims the line without emitting a spec)
-and the engine-facing card-level API (`game/ability_catalogue.entry_counters`)
+and the engine-facing card-level API (`game/card_registry.entry_counters`)
 call into it, so the shapes the gate claims and the shapes the engine
 resolves can never drift apart.
 

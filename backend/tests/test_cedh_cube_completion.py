@@ -2,7 +2,7 @@
 
 Batch 25 made all 43 cards of the pool playable but left a documented
 residue of narrow simplifications behind, each recorded in its card's
-`game/ability_catalogue.py` entry. This file covers the mechanisms that
+`game/card_registry.py` entry. This file covers the mechanisms that
 close that residue:
 
 * **Entwine** (RULE 702.42a) as a real priced modal upgrade — Tooth and Nail.

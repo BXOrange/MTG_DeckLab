@@ -6,7 +6,7 @@ Mirrors `test_top_library.py`'s fixture/coverage shape for the closely
 related "cast from the top of your library" permission.
 """
 
-from mtg_analyzer.game import ability_catalogue
+from mtg_analyzer.game import card_registry
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.effects.core import GraveyardCastPermissionEffect
 from mtg_analyzer.game.game_engine import GameEngine
@@ -228,7 +228,7 @@ def test_lurrus_specs_include_graveyard_cast_permission():
             "spell with mana value 2 or less from your graveyard."
         ),
     )
-    specs = ability_catalogue.specs_for(card)
+    specs = card_registry.specs_for(card)
     (static,) = [s for s in specs if s.ability_kind == "static"]
     (effect,) = static.effects
     assert effect == EffectSpec(

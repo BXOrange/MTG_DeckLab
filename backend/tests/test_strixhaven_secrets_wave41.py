@@ -1,7 +1,7 @@
 """Secrets of Strixhaven — playability batch, wave 41 (PAR-60).
 
 "for each time you've cast your commander from the command zone" —
-hand-authored in `game/ability_catalogue/commander_cards.py`. Engine:
+hand-authored in `game/card_registry/commander_cards.py`. Engine:
 `continuous.count_selector` ``commander_casts_this_game``.
 """
 
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
+from mtg_analyzer.game.card_registry import _REGISTRY, is_registered
 from mtg_analyzer.game.binding.core import bind_ability
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card

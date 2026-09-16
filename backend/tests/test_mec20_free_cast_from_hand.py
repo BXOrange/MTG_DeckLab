@@ -24,7 +24,7 @@ Reference: mtg_analyzer/game/effects/core.py (`FreeCastFromHandEffect`),
 mtg_analyzer/game/rules/misc_mixin.py (`CHOOSE_OBJECT_ACTIONS`,
 `_apply_chosen_object`'s ``"grant_free_cast"`` branch),
 mtg_analyzer/parser/oracle/catalogue/handlers.py (`_free_cast_from_hand`),
-mtg_analyzer/game/ability_catalogue.py (Kari Zev's Expertise,
+mtg_analyzer/game/card_registry.py (Kari Zev's Expertise,
 Electrodominance), RULE 601.2f/601.3b.
 """
 
@@ -278,7 +278,7 @@ def test_no_attackers_means_no_cap_and_no_choice():
 
 
 def test_kari_zevs_expertise_and_electrodominance_are_registered():
-    from mtg_analyzer.game.ability_catalogue import is_registered, specs_for
+    from mtg_analyzer.game.card_registry import is_registered, specs_for
 
     assert is_registered("Kari Zev's Expertise")
     assert is_registered("Electrodominance")

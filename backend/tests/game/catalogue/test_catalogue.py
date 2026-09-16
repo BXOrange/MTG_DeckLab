@@ -5,7 +5,7 @@ import pytest
 
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
-from mtg_analyzer.game import ability_catalogue
+from mtg_analyzer.game import card_registry
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.services.game_session import GameSessionManager, build_goldfish_engine
 
@@ -64,60 +64,60 @@ def basic_land(subtype):
 
 
 def test_specs_for_known_card():
-    specs = ability_catalogue.specs_for(evolving_wilds())
+    specs = card_registry.specs_for(evolving_wilds())
     assert len(specs) == 1 and specs[0].ability_kind == "activated"
 
 
 def test_specs_for_unknown_card_is_empty():
-    assert ability_catalogue.specs_for(forest()) == []
+    assert card_registry.specs_for(forest()) == []
 
 
 def test_specs_are_fresh_copies_each_call():
-    a = ability_catalogue.specs_for(evolving_wilds())[0]
-    b = ability_catalogue.specs_for(evolving_wilds())[0]
+    a = card_registry.specs_for(evolving_wilds())[0]
+    b = card_registry.specs_for(evolving_wilds())[0]
     assert a is not b  # binding mutates specs, so each object needs its own
 
 
 def test_enters_tapped_plain_tapland():
-    assert ability_catalogue.enters_tapped(tranquil_cove()) is True
+    assert card_registry.enters_tapped(tranquil_cove()) is True
 
 
 def test_enters_tapped_ignores_conditional_lands():
     # Shock land: "you may pay 2 life" — the choice isn't modeled, stays untapped.
-    assert ability_catalogue.enters_tapped(shock_land()) is False
+    assert card_registry.enters_tapped(shock_land()) is False
 
 
 def test_enters_tapped_false_for_normal_land():
-    assert ability_catalogue.enters_tapped(forest()) is False
+    assert card_registry.enters_tapped(forest()) is False
 
 
 # -- Conditional tap-land classification (RULE 614.1) ------------------------
 
 
 def test_land_tap_condition_classifies_plain_tapland():
-    assert ability_catalogue.land_tap_condition(tranquil_cove()) == {"kind": "always"}
+    assert card_registry.land_tap_condition(tranquil_cove()) == {"kind": "always"}
 
 
 def test_land_tap_condition_classifies_normal_land():
-    assert ability_catalogue.land_tap_condition(forest()) == {"kind": "never"}
+    assert card_registry.land_tap_condition(forest()) == {"kind": "never"}
 
 
 def test_land_tap_condition_classifies_shock_land():
-    assert ability_catalogue.land_tap_condition(shock_land()) == {
+    assert card_registry.land_tap_condition(shock_land()) == {
         "kind": "pay_life",
         "amount": 2,
     }
 
 
 def test_land_tap_condition_classifies_check_land():
-    assert ability_catalogue.land_tap_condition(check_land()) == {
+    assert card_registry.land_tap_condition(check_land()) == {
         "kind": "unless_types",
         "types": ["mountain", "forest"],
     }
 
 
 def test_land_tap_condition_classifies_fast_land():
-    assert ability_catalogue.land_tap_condition(fast_land()) == {
+    assert card_registry.land_tap_condition(fast_land()) == {
         "kind": "unless_count",
         "cmp": "le",
         "count": 2,
@@ -125,7 +125,7 @@ def test_land_tap_condition_classifies_fast_land():
 
 
 def test_land_tap_condition_classifies_slow_land():
-    assert ability_catalogue.land_tap_condition(slow_land()) == {
+    assert card_registry.land_tap_condition(slow_land()) == {
         "kind": "unless_count",
         "cmp": "ge",
         "count": 2,
@@ -165,7 +165,7 @@ def bear():
 
 
 def test_specs_for_folds_in_keyword_specs():
-    specs = ability_catalogue.specs_for(flyer())
+    specs = card_registry.specs_for(flyer())
     assert [s.keyword["name"] for s in specs if s.ability_kind == "keyword"] == ["flying"]
 
 
@@ -398,7 +398,7 @@ def test_fetch_land_offers_activate_action_and_resolves_tapped():
 def test_clever_impersonator_specs_shape():
     card = Card(id="CI", name="Clever Impersonator", type_line="Creature — Illusion",
                 is_creature=True, power=3, toughness=3)
-    [spec] = ability_catalogue.specs_for(card)
+    [spec] = card_registry.specs_for(card)
     assert spec.ability_kind == "enter_replacement"
     assert spec.effects[0].type == "enter_as_copy"
     assert spec.effects[0].params["target_kind"] == "permanent"
@@ -407,20 +407,20 @@ def test_clever_impersonator_specs_shape():
 def test_phantasmal_image_carries_the_illusion_subtype_override():
     card = Card(id="PI", name="Phantasmal Image", type_line="Creature — Illusion",
                 is_creature=True, power=0, toughness=2)
-    [spec] = ability_catalogue.specs_for(card)
+    [spec] = card_registry.specs_for(card)
     assert spec.effects[0].params["add_subtypes"] == ["Illusion"]
 
 
 def test_copy_artifact_carries_the_enchantment_type_override():
     card = Card(id="CA", name="Copy Artifact", type_line="Enchantment")
-    [spec] = ability_catalogue.specs_for(card)
+    [spec] = card_registry.specs_for(card)
     assert spec.effects[0].params["add_types"] == ["Enchantment"]
 
 
 def test_vesuvan_shapeshifter_specs_shape():
     card = Card(id="VS", name="Vesuvan Shapeshifter", type_line="Creature — Shapeshifter",
                 is_creature=True, power=2, toughness=2)
-    triggered, static, activated = ability_catalogue.specs_for(card)
+    triggered, static, activated = card_registry.specs_for(card)
     assert triggered.ability_kind == "enter_replacement"
     assert triggered.effects[0].type == "enter_as_copy"
     assert static.ability_kind == "static"
@@ -432,7 +432,7 @@ def test_vesuvan_shapeshifter_specs_shape():
 
 def test_cursed_mirror_specs_shape():
     card = Card(id="CM", name="Cursed Mirror", type_line="Artifact")
-    [spec] = ability_catalogue.specs_for(card)
+    [spec] = card_registry.specs_for(card)
     assert spec.ability_kind == "activated"
     assert spec.cost["taps_self"] is True
     assert spec.effects[0].type == "become_copy_until_eot"

@@ -1,7 +1,7 @@
 """Secrets of Strixhaven — playability batch, wave 31 (PAR-60).
 
 Mixed singletons on small new primitives, hand-authored in
-`game/ability_catalogue/commander_cards.py`:
+`game/card_registry/commander_cards.py`:
 - `_mass_wipe_objects` ``enchanted`` filter (Winds of Rath)
 - `cost_reduction_for` ``reduce_if_targets`` for battlefield statics (Killian)
 - `continuous.count_selector` ``total_power_creatures_you_control`` (Volcanic Salvo)
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
+from mtg_analyzer.game.card_registry import _REGISTRY, is_registered
 from mtg_analyzer.game.binding.core import bind_ability, build_effects
 from mtg_analyzer.game.effects.core import GameContext
 from mtg_analyzer.game.game_engine import GameEngine

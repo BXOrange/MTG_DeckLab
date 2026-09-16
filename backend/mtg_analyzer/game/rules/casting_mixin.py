@@ -33,7 +33,7 @@ from ...models.mana.mana_cost import ManaCost
 from ...models.game.player import Player
 from ...parser.oracle.catalogue.keywords import parse_keywords
 from ...parser.oracle.catalogue.saga import all_chapter_numbers
-from .. import ability_catalogue, combat, continuous, copy_mechanics, dungeons, face_down, variants
+from .. import card_registry, combat, continuous, copy_mechanics, dungeons, face_down, variants
 from ..combat import is_protected_from
 from ..costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from ..mana_abilities import restriction_predicate_for_cast
@@ -199,7 +199,7 @@ class CastingResolutionMixin:
         counters on it, read off its printed text.
 
         Called at every battlefield-entry site right after the tapped-entry
-        check (`ability_catalogue.enters_tapped`) and before ``obj`` is
+        check (`card_registry.enters_tapped`) and before ``obj`` is
         actually added to the battlefield, so the counters are already
         present when ENTERS_BATTLEFIELD fires and any trigger/continuous
         pass reads them. ``x_paid`` is the object's actual paid X (RULE
@@ -215,7 +215,7 @@ class CastingResolutionMixin:
             if param and int(param.get("n", 0) or 0) > 0:
                 obj.add_counters(kind, int(param["n"]))
 
-        condition = ability_catalogue.entry_counters(obj.card)
+        condition = card_registry.entry_counters(obj.card)
         if condition is None:
             return
         if condition.get("kicked_gate") or condition.get("kicked_scale"):
@@ -304,7 +304,7 @@ class CastingResolutionMixin:
         opens; `_resume_land_tapped` flips it untapped if the
         controller pays.
         """
-        condition = ability_catalogue.land_tap_condition(obj.card)
+        condition = card_registry.land_tap_condition(obj.card)
         kind = condition["kind"]
         if kind == "unless_types":
             types = condition["types"]
@@ -444,7 +444,7 @@ class CastingResolutionMixin:
         `_cast_action`'s own ``face="back"`` preview uses.
         """
         card = card or obj.card
-        condition = ability_catalogue.land_tap_condition(card)
+        condition = card_registry.land_tap_condition(card)
         kind = condition["kind"]
         if kind == "unless_types":
             types = condition["types"]
@@ -1655,7 +1655,7 @@ class CastingResolutionMixin:
             # clause, or a *different* permanent's board-wide standing
             # effect ("Artifacts your opponents control enter tapped." —
             # Manglehorn/Dauntless Dismantler/Archon of Emeria-shaped).
-            obj.tapped = ability_catalogue.enters_tapped(obj.card) or continuous.enters_tapped_from_static(
+            obj.tapped = card_registry.enters_tapped(obj.card) or continuous.enters_tapped_from_static(
                 self.state, obj
             )
             self._apply_entry_counters(obj, x_paid=getattr(obj, "x_paid", 0) or 0)

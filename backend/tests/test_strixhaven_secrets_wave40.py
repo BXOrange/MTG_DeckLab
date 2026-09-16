@@ -2,7 +2,7 @@
 
 The "that many plus one +1/+1 counters" replacement (Hardened Scales family)
 + Kinetic Ooze's X-tiered ETB, hand-authored in
-`game/ability_catalogue/commander_cards.py` on existing primitives (the
+`game/card_registry/commander_cards.py` on existing primitives (the
 `double_counters` replacement's ``plus`` param; `EffectSpec.condition`'s
 ``source_x_paid_at_least``).
 """
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
+from mtg_analyzer.game.card_registry import _REGISTRY, is_registered
 from mtg_analyzer.game.binding.core import bind_ability, bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card

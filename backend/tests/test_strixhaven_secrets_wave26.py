@@ -1,7 +1,7 @@
 """Secrets of Strixhaven — playability batch, wave 26 (PAR-60).
 
 Lorehold "land catch-up" + "a card left your graveyard this turn", hand-authored
-in `game/ability_catalogue/commander_cards.py`. New engine primitives:
+in `game/card_registry/commander_cards.py`. New engine primitives:
 `static_conditions` kinds ``opponent_controls_more_lands`` and
 ``card_left_graveyard_this_turn`` (the latter backed by the new
 `GameState.cards_left_graveyard_this_turn` per-turn set, recorded at
@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 
 from mtg_analyzer.game import static_conditions
-from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
+from mtg_analyzer.game.card_registry import _REGISTRY, is_registered
 from mtg_analyzer.game.binding.core import bind_ability
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card

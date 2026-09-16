@@ -9,7 +9,7 @@ signature changed — the deterministic pipeline gets cheaper each time and no
 LLM is involved at any step.
 
 "Covered" here means the card actually *behaves*: the oracle parser returned
-MODELED, **or** the card is hand-registered in `game/ability_catalogue.py`
+MODELED, **or** the card is hand-registered in `game/card_catalogue`
 (AUTHORED). The processing-list ranking counts only *uncovered* cards' unclaimed
 clauses, template-abstracted — that ranking is the build order for the next
 handlers.
@@ -28,7 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mtg_analyzer.game.ability_catalogue import is_registered  # noqa: E402
+from mtg_analyzer.game.card_registry import is_registered  # noqa: E402
 from mtg_analyzer.parser.oracle import NEVER_SUPPORTED, abstract_clause, parse_oracle  # noqa: E402
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH  # noqa: E402
 from mtg_analyzer.services import coverage_db as cov  # noqa: E402

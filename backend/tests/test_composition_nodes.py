@@ -1079,7 +1079,7 @@ class TestB6ConditionalCastFromExile:
         assert EffectRegistry.is_registered("grant_conditional_cast_from_exile")
 
     def test_the_catalogue_entry_still_binds(self) -> None:
-        from mtg_analyzer.game import ability_catalogue as ac
+        from mtg_analyzer.game import card_registry as ac
 
         card = Card(id="LK", name="Lukka, Coppercoat Outcast",
                     type_line="Legendary Planeswalker — Lukka")
@@ -1163,7 +1163,7 @@ class TestB6CorpseDanceRetirement:
         assert "return_top_graveyard_creature_with_haste" not in isa.EFFECT_TYPES
 
     def test_the_catalogue_entry_still_binds(self) -> None:
-        from mtg_analyzer.game import ability_catalogue as ac
+        from mtg_analyzer.game import card_registry as ac
 
         card = Card(id="CD", name="Corpse Dance", type_line="Instant", is_instant=True)
         specs = ac.specs_for(card)
@@ -1288,7 +1288,7 @@ class TestB7WheelFamilyRetirements:
             assert name not in isa.EFFECT_TYPES
 
     def test_the_catalogue_entries_still_bind(self) -> None:
-        from mtg_analyzer.game import ability_catalogue as ac
+        from mtg_analyzer.game import card_registry as ac
 
         for name in ("Timetwister", "Wheel of Fortune", "Windfall", "Day's Undoing"):
             card = Card(id=name, name=name, type_line="Sorcery", is_sorcery=True)
@@ -1369,7 +1369,7 @@ class TestB7ExileHandRetirement:
         assert EffectRegistry.is_registered("exile_hand")
 
     def test_the_catalogue_entry_still_binds(self) -> None:
-        from mtg_analyzer.game import ability_catalogue as ac
+        from mtg_analyzer.game import card_registry as ac
 
         card = Card(id="IoK", name="Invasion of Kaldheim",
                     type_line="Battle — Siege")

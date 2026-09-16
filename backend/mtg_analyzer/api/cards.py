@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from mtg_analyzer.api.dependencies import get_card_database, get_deck_database, get_lazy_card_loader
 from mtg_analyzer.api.schemas import CardResolveRequest
-from mtg_analyzer.game import ability_catalogue
+from mtg_analyzer.game import card_registry
 from mtg_analyzer.parser.deckliste_parser import parse_deck_sections
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase
@@ -25,13 +25,13 @@ router = APIRouter(prefix="/api/cards", tags=["cards"])
 def coverage_for(card: Any) -> dict[str, object]:
     """A card's engine-coverage verdict (docs/09 "coverage is the roadmap").
 
-    A hand-authored `ability_catalogue` entry is trusted wholesale, same as
+    A hand-authored `card_registry` entry is trusted wholesale, same as
     `specs_for` treats it — `MODELED` with no unclaimed lines regardless of
     what the oracle parser alone would say. Otherwise this is exactly the
     verdict `specs_for` falls back to for binding, so "modeled" here means
     "the engine plays this card's abilities", not just "text parses".
     """
-    if ability_catalogue.is_registered(getattr(card, "name", "") or ""):
+    if card_registry.is_registered(getattr(card, "name", "") or ""):
         return {"modeled": True, "source": "catalogue", "unclaimed": []}
     result = parse_oracle(card)
     return {"modeled": result.modeled, "source": "oracle", "unclaimed": result.unclaimed}

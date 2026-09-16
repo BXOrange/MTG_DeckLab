@@ -2,14 +2,14 @@
 
 Vanishing Verse (new ``monocolored_permanent`` target kind) + two
 manland/token singletons, hand-authored in
-`game/ability_catalogue/commander_cards.py`.
+`game/card_registry/commander_cards.py`.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
+from mtg_analyzer.game.card_registry import _REGISTRY, is_registered
 from mtg_analyzer.game.binding.core import bind_ability
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.targeting import ALLOWED_TARGET_KINDS, TargetSpec, legal_targets

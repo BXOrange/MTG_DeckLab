@@ -211,7 +211,7 @@ def _multi_target_kind(phrase: str) -> Optional[str]:
 #: folds spelled-out numbers up to twelve. PAR-15's "any number of" is a
 #: third alternative — RULE 115.1a's genuinely unbounded, freely-chosen
 #: count (0..however many are legal), modeled the same way this codebase's
-#: one pre-existing hand-authored example already did (`ability_catalogue.
+#: one pre-existing hand-authored example already did (`card_registry.
 #: _fire_covenant`'s own comment: "a real board never has X-1's worth of
 #: relevant creatures beyond that") — a generous fixed cap
 #: (`_ANY_NUMBER_TARGET_CAP`) rather than a live `legal_targets` count,
@@ -413,7 +413,7 @@ def _damage_kicked_override(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: varied (a P/T override, an arbitrary granted ability, a name change, "it
 #: loses all other card types") — those stay unclaimed rather than guessed
 #: at, same as every other "can't safely represent this clause" case in this
-#: file; a real card needing one is `game/ability_catalogue.py`'s job
+#: file; a real card needing one is `game/card_catalogue`'s job
 #: instead (PAR-18's own compound-except residue: Espers to Magicite/
 #: Haunting Imitation/Lazav, Dimir Mastermind/Soul Separator).
 #: Card-type words a copy-"except" tail can't be safely reduced to a colour /
@@ -737,7 +737,7 @@ def _damage_each_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: full amount to every chosen target the way `_damage_each_multi_target`
 #: above is. `DealDamageEffect(divided=True)` (RULE 601.2d) already existed
 #: as an engine primitive — Shatterskull Smashing/Fire Covenant, both
-#: hand-authored (`game/ability_catalogue.py`, cEDH-cube batch 19) — but no
+#: hand-authored (`game/card_catalogue`, cEDH-cube batch 19) — but no
 #: oracle-text recognizer had ever reached it; this is that recognizer, not
 #: a new primitive. "targets" (unqualified, RULE 115.4 "any target"),
 #: "target creatures", and the Modern Horizons Incarnation wording
@@ -1901,7 +1901,7 @@ def _cycling_xx_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: your/its owner's control" (Restoration Angel/Icewind Stalwart-shaped).
 #: The pre-existing `BlinkEffect`/`RulesEngine.blink` primitive had no
 #: oracle-text recognizer at all (Ephemerate/Momentary Blink are both
-#: hand-authored in `ability_catalogue.py`) — this is that recognizer, for
+#: hand-authored in `card_catalogue`) — this is that recognizer, for
 #: the specific "non-<subtype> creature you control" + explicit controller
 #: shape those simpler cards don't need. ``subtype`` is a single word (every
 #: real card in this shape names exactly one creature type); a compound
@@ -2906,7 +2906,7 @@ _destroy_multi_target = _multi_target_builder("destroy")
 #: (Wrath of God/Damnation/Citywide Bust-shaped) — untargeted, the same
 #: `selector` vocabulary `game/effects/core.py`'s `DestroyEffect`/`ExileEffect`
 #: already support (previously only reachable via hand-authoring individual
-#: cards in `ability_catalogue.py`; this is the general oracle-text form).
+#: cards in `card_catalogue`; this is the general oracle-text form).
 #: Only the two numeric filter kinds `_mass_selector_objects` actually
 #: implements are recognized here — "power N or greater" has no mass-form
 #: engine support, so it's deliberately left unmatched (fail-closed) rather
@@ -6889,7 +6889,7 @@ def _investigate(m: re.Match[str]) -> list[EffectSpec]:
 #: primitive and the `"the_ring_tempts_you"` `EffectSpec` type already
 #: existed (`RulesEngine.the_ring_tempts_you`, `effects.
 #: TheRingTemptsYouEffect`, both built for one hand-authored card,
-#: `game/ability_catalogue.py`'s "One Ring to Rule Them All") — only this
+#: `game/card_catalogue`'s "One Ring to Rule Them All") — only this
 #: general oracle-text recognition was missing, the single widest gap this
 #: set's own precon deck has (36 SOLO cache-wide).
 _RING_TEMPTS_YOU_RE = _c(r"the ring tempts you")
@@ -7954,7 +7954,7 @@ def _pump_mana_value(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: X here is simply RULE 107.3c's announced {X} — `RulesEngine._substitute_x`
 #: already walks any bound effect's own ``power``/``toughness`` for the
 #: literal ``"x"``/``"-x"`` sentinel (Bring to Light/Toxic Deluge's own
-#: precedent, `game/ability_catalogue/competitive_interaction.py`'s "x"/"x"
+#: precedent, `game/card_registry/competitive_interaction.py`'s "x"/"x"
 #: pump), so this is pure recognition — no new engine primitive.
 #: An optional trailing "and gains `<keyword list>`" (Kessig Wolf Run's
 #: "…and gains trample"; Pedal to the Metal's "…and gains first strike") —
@@ -9268,7 +9268,7 @@ def _take_extra_turn(m: re.Match[str]) -> list[EffectSpec]:
 # "Incubate N." (RULE 701.53, PAR-29) — create an Incubator token (a
 # power/toughness-less colourless artifact token) with N +1/+1 counters on
 # it. No new engine primitive: the `Incubator` catalogue entry
-# (`ability_catalogue/red_spells.py`) already binds "{2}: Transform this
+# (`card_registry/red_spells.py`) already binds "{2}: Transform this
 # token" (→ a 0/0 Phyrexian artifact creature) onto every token so named,
 # and `create_token`'s `extra_counters` places the counters — the exact
 # spec shape Glissa, Herald of Predation's hand-authored entry already
@@ -11464,7 +11464,7 @@ def _attacks_turn_if_able(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 #: RULE 701.47/48 Amass "<Type> N" ("amass Orcs 1"/"amass Zombies 2" — this
 #: repo's existing `game/effects/core.py` `AmassEffect` and its one proven
-#: consumer, Orcish Bowmasters (`ability_catalogue/value.py`), both
+#: consumer, Orcish Bowmasters (`card_registry/value.py`), both
 #: cite it as 701.48; the current `docs/Reference/rules_wiki` text has it
 #: renumbered to 701.47 since Learn moved to take 701.48 — same mechanic
 #: either way). The printed type word is always a regular "+s" plural in
@@ -11847,7 +11847,7 @@ def _burakos_attack_party(m: re.Match[str]) -> list[EffectSpec]:
 #: resolve-time primitive (`GrantUntilEffect` wrapping a layer-4
 #: `type_change` static at ``duration="end_of_turn"`` — Incubator's own
 #: self-animate shape, Hedge Whisperer's own target-a-land shape, see
-#: `ability_catalogue.red_spells`), with only the parser recognition
+#: `card_registry.red_spells`), with only the parser recognition
 #: missing. ``<qualifiers>`` is a curated whitelist, not an open word
 #: class (fail-closed, same reasoning as `_CAST_SPELL_SUBTYPE_WORDS`):
 #: re-stating a permanent's own main type ("spirit **artifact** creature")
@@ -12887,7 +12887,7 @@ HANDLERS: list[EffectHandler] = [
     # "destroy all creatures[.]" / "destroy all artifacts with mana value 3
     # or less." (RULE 601.2c untargeted mass board wipe — Damnation/Citywide
     # Bust-shaped; Wrath of God itself is hand-authored in
-    # `ability_catalogue.py`, this is the general oracle-text form).
+    # `card_catalogue`, this is the general oracle-text form).
     EffectHandler(
         "destroy_all",
         _DESTROY_ALL_RE,
@@ -12976,7 +12976,7 @@ HANDLERS: list[EffectHandler] = [
     # target." (Bolt Bend/Redirect Lightning/Untimely Malfunction/
     # Willbender-shaped) — RULE 115.4/601.2c, the oracle-text front-end for
     # `ChangeTargetEffect`, previously only reachable by hand-authoring
-    # (Misdirection/Deflecting Swat, `ability_catalogue.py`) since no
+    # (Misdirection/Deflecting Swat, `card_catalogue`) since no
     # generic handler had claimed the phrase.
     EffectHandler(
         "change_target",

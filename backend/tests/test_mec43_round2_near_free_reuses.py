@@ -162,7 +162,7 @@ def test_thalia_taps_opponents_creatures_and_only_nonbasic_lands():
 
 
 def test_thoughtseize_execute_via_effect_binder():
-    from mtg_analyzer.game.ability_catalogue import specs_for
+    from mtg_analyzer.game.card_registry import specs_for
     from mtg_analyzer.game.effects.core import EffectRegistry
     from mtg_analyzer.game.effects.core import GameContext
 
@@ -189,7 +189,7 @@ def test_thoughtseize_execute_via_effect_binder():
 
 
 def test_inquisition_of_kozilek_only_offers_cheap_nonland_cards():
-    from mtg_analyzer.game.ability_catalogue import specs_for
+    from mtg_analyzer.game.card_registry import specs_for
     from mtg_analyzer.game.effects.core import EffectRegistry, GameContext
 
     engine, state, p1, p2 = _engine()
@@ -254,7 +254,7 @@ def test_sanctifier_en_vec_redirects_only_colored_graveyard_moves():
 
 
 def test_beacon_of_unrest_reanimates_artifact_and_shuffles_itself_into_library():
-    from mtg_analyzer.game.ability_catalogue import specs_for
+    from mtg_analyzer.game.card_registry import specs_for
     from mtg_analyzer.game.effects.core import EffectRegistry, GameContext
 
     engine, state, p1, p2 = _engine()
@@ -277,7 +277,7 @@ def test_beacon_of_unrest_reanimates_artifact_and_shuffles_itself_into_library()
 
 
 def test_rise_from_the_grave_makes_the_reanimated_creature_a_black_zombie():
-    from mtg_analyzer.game.ability_catalogue import specs_for
+    from mtg_analyzer.game.card_registry import specs_for
     from mtg_analyzer.game.effects.core import EffectRegistry, GameContext, _apply_effects_partitioned
 
     engine, state, p1, p2 = _engine()
@@ -524,7 +524,7 @@ def test_runic_armasaur_does_not_trigger_off_its_own_controllers_activation():
 
 
 def test_peer_into_the_abyss_draws_and_drains_the_targeted_players_own_stats():
-    from mtg_analyzer.game.ability_catalogue import specs_for
+    from mtg_analyzer.game.card_registry import specs_for
     from mtg_analyzer.game.effects.core import EffectRegistry, GameContext, _apply_effects_partitioned
 
     engine, state, p1, p2 = _engine()

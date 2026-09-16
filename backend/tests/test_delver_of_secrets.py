@@ -7,7 +7,7 @@ general-purpose primitive, parameterized on a `models.cards.card_query` criteria
 dict rather than hardcoded to instant/sorcery, so any future card sharing
 this exact template reuses it.
 
-Reference: mtg_analyzer/game/{effects,ability_catalogue,rules_engine}.py.
+Reference: mtg_analyzer/game/{effects,card_registry,rules_engine}.py.
 """
 
 from __future__ import annotations

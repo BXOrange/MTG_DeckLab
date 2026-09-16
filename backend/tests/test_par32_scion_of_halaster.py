@@ -5,7 +5,7 @@
     of them into your graveyard and the other back on top of your library.
     Then draw a card."
 
-Hand-authored (`ability_catalogue.special_mechanics._scion_of_halaster`): a
+Hand-authored (`card_registry.special_mechanics._scion_of_halaster`): a
 granted `ReplacementEffect` (`effects._first_draw_look_two_replacement`),
 which the existing `grant_static_ability` ``static_specs`` plumbing now
 also recognises alongside a granted `StaticAbility`
@@ -19,11 +19,11 @@ from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
-from mtg_analyzer.game import ability_catalogue
+from mtg_analyzer.game import card_registry
 
 
 def test_scion_of_halaster_registered_as_granted_replacement():
-    specs = ability_catalogue.specs_for(
+    specs = card_registry.specs_for(
         Card(id="soh", name="Scion of Halaster",
              type_line="Legendary Enchantment — Background"))
     assert specs is not None and len(specs) == 1

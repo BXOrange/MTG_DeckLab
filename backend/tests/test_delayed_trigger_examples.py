@@ -61,7 +61,7 @@ def _cast_ephemerate(eng, caster, target):
     card = _card("Ephemerate", "Instant", mana_cost_string="{W}",
                  converted_mana_cost=1, is_instant=True)
     obj = GameObject(card, owner_id=caster.id, zone=Zone.HAND)
-    from mtg_analyzer.game import ability_catalogue as ac
+    from mtg_analyzer.game import card_registry as ac
 
     attach_to_object(obj, ac.specs_for(card))
     caster.add_to_zone(obj, Zone.HAND)
@@ -74,7 +74,7 @@ def _cast_ephemerate(eng, caster, target):
 
 
 def test_ephemerate_registered_with_rebound_marker():
-    from mtg_analyzer.game import ability_catalogue as ac
+    from mtg_analyzer.game import card_registry as ac
 
     assert ac.is_registered("Ephemerate")
     card = _card("Ephemerate", "Instant")
@@ -200,7 +200,7 @@ def test_ephemerate_cast_directly_from_exile_by_some_other_means_does_not_reboun
     card = _card("Ephemerate", "Instant", mana_cost_string="{W}",
                  converted_mana_cost=1, is_instant=True)
     obj = GameObject(card, owner_id=p1.id, zone=Zone.EXILE)
-    from mtg_analyzer.game import ability_catalogue as ac
+    from mtg_analyzer.game import card_registry as ac
 
     attach_to_object(obj, ac.specs_for(card))
     p1.exile.append(obj)
@@ -229,7 +229,7 @@ def _marchesa(state, controller="p1"):
 
 
 def test_marchesa_registered_with_counter_death_return_marker():
-    from mtg_analyzer.game import ability_catalogue as ac
+    from mtg_analyzer.game import card_registry as ac
 
     assert ac.is_registered("Marchesa, the Black Rose")
     card = _card("Marchesa, the Black Rose", "Legendary Creature")

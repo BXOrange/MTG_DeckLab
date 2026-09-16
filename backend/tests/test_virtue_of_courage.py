@@ -8,7 +8,7 @@ effect exiled from, and granted play permission to, whoever happened to be
 the *active* player at resolution time rather than Virtue of Courage's own
 controller, wrong whenever it resolved off the controller's own turn.
 
-Engine side: `game/ability_catalogue/red_spells.py`'s `_virtue_of_courage`
+Engine side: `game/card_registry/red_spells.py`'s `_virtue_of_courage`
 (now `requires_damage_to_opponent` + `filter={"combat": False}`, the same
 predicate Chandra's Incinerator already established) and `game/effects/core.py`'s
 `ImpulsiveDrawEffect.apply` (now reads `self.source.controller_id` instead

@@ -311,7 +311,7 @@ def test_trash_for_treasure_completes_with_its_additional_cost():
 
 
 def test_reanimate_is_hand_authored():
-    from mtg_analyzer.game.ability_catalogue import specs_for
+    from mtg_analyzer.game.card_registry import specs_for
 
     card = Card(id="Reanimate", name="Reanimate", type_line="Instant", is_instant=True,
                 mana_cost_string="{B}", converted_mana_cost=1,
@@ -376,7 +376,7 @@ def test_reanimate_from_an_opponents_graveyard_takes_control():
 
 
 def test_exhume_is_not_yet_modeled_or_authored():
-    from mtg_analyzer.game.ability_catalogue import specs_for
+    from mtg_analyzer.game.card_registry import specs_for
 
     card = Card(id="Exhume", name="Exhume", type_line="Sorcery", is_sorcery=True,
                 mana_cost_string="{B}", converted_mana_cost=1,

@@ -1,7 +1,7 @@
 """Secrets of Strixhaven — playability batch, wave 42 (PAR-60).
 
 "Whenever you discard a card, exile it from your graveyard, then you may
-play it this turn" — hand-authored in `game/ability_catalogue/commander_cards.py`.
+play it this turn" — hand-authored in `game/card_registry/commander_cards.py`.
 Engine: `ExileTriggeringDiscardMayPlayThisTurnEffect`
 ("exile_triggering_discard_may_play_this_turn").
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
+from mtg_analyzer.game.card_registry import _REGISTRY, is_registered
 from mtg_analyzer.game.binding.core import bind_ability, bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card

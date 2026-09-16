@@ -26,7 +26,7 @@ layer engine doesn't cover on its own:
    trigger-collection gate (`continuous.trigger_suppressed`,
    `RulesEngine._collect_triggers`).
 6. "[Nonbasic] <type> your opponents control enter tapped." — a board-wide
-   RULE 614.1 effect, distinct from `ability_catalogue.enters_tapped`
+   RULE 614.1 effect, distinct from `card_registry.enters_tapped`
    (`continuous.enters_tapped_from_static`, consulted by both
    `RulesEngine._resolve_permanent_spell`/token creation *and*
    `enter_land_tapped`, since a land normally enters via the separate

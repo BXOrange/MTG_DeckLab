@@ -2,7 +2,7 @@
 spell's mana cost." (the "pitch"/Force-of-Will family: Force of Will,
 Force of Negation, Force of Vigor, Daze).
 
-All four were already hand-authored (`game/ability_catalogue.py`) at their
+All four were already hand-authored (`game/card_registry.py`) at their
 real printed mana cost, with the alternative cost itself dropped as a
 documented "confirmed-unbuilt mechanism" — this batch builds it: a
 structured `AbilitySpec.alt_cost` (mirrors `additional_cost`'s "fixed
@@ -19,7 +19,7 @@ Reference: mtg_analyzer/game/costs.py (`ActivationCost.
 exile_hand_card_color`/`return_to_hand`), game/condition_query.py
 (`free_cast_condition_holds`'s ``not_your_turn``/``your_turn``),
 game/engine/casting_mixin.py, game/engine/legal_actions_mixin.py,
-game/ability_catalogue.py.
+game/card_registry.py.
 """
 
 from __future__ import annotations
@@ -256,7 +256,7 @@ def test_legal_actions_offers_both_plain_and_alt_cost_when_both_are_payable():
 
 
 def test_snapback_pyrokinesis_unmask_are_parser_modeled_not_hand_authored():
-    from mtg_analyzer.game.ability_catalogue import is_registered
+    from mtg_analyzer.game.card_registry import is_registered
 
     for name in ("Snapback", "Pyrokinesis", "Unmask"):
         assert not is_registered(name), name  # reached generically, not one-off

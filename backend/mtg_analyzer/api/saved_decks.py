@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from mtg_analyzer.api.cards import coverage_for
 from mtg_analyzer.api.dependencies import get_deck_database, get_lazy_card_loader
 from mtg_analyzer.api.schemas import SaveDeckRequest
-from mtg_analyzer.game.ability_catalogue import registry_signature
+from mtg_analyzer.game.card_registry import registry_signature
 from mtg_analyzer.models.decks.deck import Deck
 from mtg_analyzer.parser.deckliste_parser import parse_deck_sections
 from mtg_analyzer.parser.oracle import PARSER_VERSION

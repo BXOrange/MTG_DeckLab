@@ -44,7 +44,7 @@ package "Oracle pipeline (parser/oracle/)" {
 }
 
 package "Ability sourcing (game/)" {
-  [ability_catalogue] as Catalogue
+  [card_catalogue\n(via card_registry.specs_for)] as Catalogue
   [effect_binder] as Binder
   [EffectRegistry] as Registry
   Catalogue --> Binder : hand-authored\nAbilitySpec
@@ -226,14 +226,14 @@ Session --> Player : GameState.to_dict()
 
 The compiler pipeline behind "card text becomes behaviour without a
 hand-authored entry" (docs/09). Runs once per object at game setup;
-`ability_catalogue.specs_for` is the fork between the two sources.
+`card_registry.specs_for` is the fork between the two sources.
 
 ```plantuml
 @startuml
 skinparam backgroundColor transparent
 participant "build_goldfish_engine" as Build
-participant "ability_catalogue\n.specs_for(card)" as Specs
-participant "ability_catalogue.py\n(hand-authored)" as Catalogue
+participant "card_registry\n.specs_for(card)" as Specs
+participant "card_catalogue\n(hand-authored)" as Catalogue
 participant "parser.oracle.gate\n.parse_oracle(card)" as Gate
 participant "normalize + segmenter" as Front
 participant "catalogue/handlers\n(effect families)" as Handlers

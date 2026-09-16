@@ -31,7 +31,7 @@ from ...models.mana.mana_cost import ManaCost
 from ...models.game.player import Player
 from ...parser.oracle.catalogue.keywords import parse_keywords
 from ...parser.oracle.catalogue.saga import all_chapter_numbers
-from .. import ability_catalogue, combat, continuous, copy_mechanics, dungeons, face_down, variants
+from .. import card_registry, combat, continuous, copy_mechanics, dungeons, face_down, variants
 from ..combat import is_protected_from
 from ..costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from ..mana_abilities import restriction_predicate_for_cast
@@ -1562,7 +1562,7 @@ class MiscSystemsMixin:
             self.set_tapped(target, tapped=(answer == "tap"))
     def offer_opening_hand_battlefield_choice(self, player: Player, obj: GameObject) -> None:
         """RULE 103.6: a card printing a pregame setup permission
-        (`game/ability_catalogue.pregame_setup_permission`) offers
+        (`game/card_registry.pregame_setup_permission`) offers
         ``player`` the choice for one such card still in their opening
         hand — RULE 103.6a's plain "you may begin the game with it on the
         battlefield." (the Leyline cycle), or one of the two conditional/
@@ -1577,7 +1577,7 @@ class MiscSystemsMixin:
         the same queued-`pending_choice` shape Vancouver's post-keep
         scry uses (`_open_next_vancouver_scry`).
         """
-        permission = ability_catalogue.pregame_setup_permission(obj.card)
+        permission = card_registry.pregame_setup_permission(obj.card)
         assert permission is not None  # game_session only queues qualifying cards
         self._pending_opening_hand_obj = obj
         if permission.destination == "battlefield":
@@ -1622,7 +1622,7 @@ class MiscSystemsMixin:
         self._pending_opening_hand_obj = None
         if obj is None:
             return
-        permission = ability_catalogue.pregame_setup_permission(obj.card)
+        permission = card_registry.pregame_setup_permission(obj.card)
         if permission is None or answer != permission.destination:
             return
         player = self.state.player_by_id(choice["player_id"])
@@ -1701,7 +1701,7 @@ class MiscSystemsMixin:
             token.summoning_sick = True  # RULE 302.6 applies to tokens too
             # RULE 614.1 — see the matching comment in
             # `_resolve_permanent_spell` above.
-            token.tapped = ability_catalogue.enters_tapped(
+            token.tapped = card_registry.enters_tapped(
                 token_card
             ) or continuous.enters_tapped_from_static(self.state, token)
             self._apply_entry_counters(token)  # a token was never cast, so X is 0

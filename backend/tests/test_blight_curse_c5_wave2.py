@@ -1,5 +1,5 @@
 """Blight Curse batch C5 wave 2 — Midnight Banshee / Blowfly Infestation
-(hand-authored, `ability_catalogue/blight_curse.py`).
+(hand-authored, `card_registry/blight_curse.py`).
 
 * Midnight Banshee: upkeep ``add_counters`` mass selector
   (``"each_creature"``) narrowed by ``creature_filter={"without_color":
@@ -17,7 +17,7 @@ from __future__ import annotations
 import pytest
 
 from mtg_analyzer.api.dependencies import get_card_database
-from mtg_analyzer.game.ability_catalogue import specs_for
+from mtg_analyzer.game.card_registry import specs_for
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card

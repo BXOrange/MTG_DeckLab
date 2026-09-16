@@ -1,7 +1,7 @@
 """PAR-67 — counter-removal follow-ups beyond the plain "counters removed
 this way" accumulator (PAR-66). Three singleton-shaped cards, confirmed via
 `parser_probe.py blocked` to have no nearby cluster, hand-authored into
-`game/ability_catalogue/` per the extend-parser skill's own guidance rather
+`game/card_registry/` per the extend-parser skill's own guidance rather
 than given new generic parser grammar:
 
 - Garnet, Princess of Alexandria (`value.py`) — a *chosen set* of the
@@ -34,7 +34,7 @@ than given new generic parser grammar:
 
 from __future__ import annotations
 
-from mtg_analyzer.game.ability_catalogue import specs_for
+from mtg_analyzer.game.card_registry import specs_for
 from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
 from mtg_analyzer.game.effects.core import GameContext
 from mtg_analyzer.game.game_engine import GameEngine

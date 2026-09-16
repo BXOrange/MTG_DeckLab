@@ -35,7 +35,7 @@ def producible_tokens(cards: list[Card]) -> list[Card]:
     engine pieces function-scoped so this stays cheap to import and keeps the
     model→game boundary clean (CLAUDE.md "Model → game import boundary").
     """
-    from mtg_analyzer.game.ability_catalogue import specs_for
+    from mtg_analyzer.game.card_registry import specs_for
     from mtg_analyzer.services.token_database import (
         default_token_database,
         synthesize_token_card,

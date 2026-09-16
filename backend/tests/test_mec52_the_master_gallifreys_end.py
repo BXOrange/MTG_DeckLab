@@ -67,7 +67,7 @@ def _artifact_creature(st, pid="p1", name="Servo") -> GameObject:
 
 
 def test_registered_and_binds_one_triggered_ability():
-    from mtg_analyzer.game import ability_catalogue as ac
+    from mtg_analyzer.game import card_registry as ac
     card = Card(id="x", name="The Master, Gallifrey's End",
                 type_line="Legendary Creature — Time Lord Rogue",
                 is_creature=True, power=4, toughness=3)

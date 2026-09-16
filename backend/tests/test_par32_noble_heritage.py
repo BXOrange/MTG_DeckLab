@@ -6,7 +6,7 @@ counters + protection:
     on a creature they control. For each opponent who does, you gain
     protection from that player until your next turn."
 
-Hand-authored (`ability_catalogue.special_mechanics._noble_heritage`): a
+Hand-authored (`card_registry.special_mechanics._noble_heritage`): a
 compound ENTERS_BATTLEFIELD + STEP_BEGIN/upkeep grant sharing one
 `each_player_counter_then_protection` effect body
 (`EachPlayerMayCounterThenProtectionEffect`). The ETB half is subject to
@@ -24,11 +24,11 @@ from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.events import EventType, GameEvent
 from mtg_analyzer.models.game.game_object import GameObject, Zone
-from mtg_analyzer.game import ability_catalogue
+from mtg_analyzer.game import card_registry
 
 
 def test_noble_heritage_registered_with_compound_trigger():
-    specs = ability_catalogue.specs_for(
+    specs = card_registry.specs_for(
         Card(id="nh", name="Noble Heritage",
              type_line="Legendary Enchantment — Background"))
     assert specs is not None and len(specs) == 1

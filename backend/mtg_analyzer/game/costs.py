@@ -580,7 +580,7 @@ class ActivationCost:
     #: Unlike `continuous.activation_cost_reduction_for`'s Power Artifact-
     #: shaped static (a fixed amount granted by a *different* permanent),
     #: this is the ability's own printed, dynamically-scaled reduction —
-    #: hand-authored only (`game/ability_catalogue.py`); no oracle-text
+    #: hand-authored only (`game/card_catalogue`); no oracle-text
     #: grammar for it yet.
     dynamic_reduction: Optional[dict[str, Any]] = None
     #: ENG-32 (RULE 701.67 Waterbend): which Convoke-style "tap your
@@ -963,7 +963,7 @@ def parse_activation_cost(
         # (`effect_binder.bind_ability`'s "activated" branch, which folds
         # an `ACTIVATION_CONDITION_MARKER` `EffectSpec` here for a card
         # recognized from oracle text) — a spec built directly in
-        # `ability_catalogue.py` has no marker to strip, so it can just
+        # `card_catalogue` has no marker to strip, so it can just
         # set the field on its own `cost` dict (Frodo, Sauron's Bane).
         parsed.activation_condition = dict(cost["activation_condition"])
     if "unattach_self" in cost:

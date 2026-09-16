@@ -155,7 +155,7 @@ def test_legal_actions_surfaces_the_hand_zone_ability():
 
 
 # ---------------------------------------------------------------------------
-# Real deck card: Dismantling Wave's Cycling clause (ability_catalogue.py)
+# Real deck card: Dismantling Wave's Cycling clause (card_registry.py)
 # ---------------------------------------------------------------------------
 
 
@@ -301,7 +301,7 @@ def test_hand_authored_cycling_is_not_duplicated_by_the_generic_binder():
     # Regression: Dismantling Wave's own hand-authored discard-self ability
     # (destroy all artifacts/enchantments) must stay the *only* one — the
     # generic fallback must not also bind a competing plain "draw a card"
-    # for the same cost just because `ability_catalogue.specs_for` folds in
+    # for the same cost just because `card_registry.specs_for` folds in
     # `parse_keywords`' own "cycling" spec for every card, registered or not.
     from mtg_analyzer.game.binding.core import bind_from_catalogue
 

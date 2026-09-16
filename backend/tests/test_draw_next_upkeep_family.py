@@ -8,7 +8,7 @@ Drain's "at the beginning of your next main phase") — this was purely a
 missing parser-front-end recognition gap (`docs/implementation-state/BACKLOG.md`), not a
 new primitive: the front-end had zero handlers for "at the beginning of the
 next `<step>`, `<effect>`" at all before this, so every card using the
-mechanism was hand-authored (`ability_catalogue.py`). The new
+mechanism was hand-authored (`card_registry.py`). The new
 ``draw_next_upkeep`` handler (`catalogue/handlers.py`) emits the same
 `create_delayed_trigger` EffectSpec generically, with ``scope="any"``
 (RULE 603.7a — no "your" qualifier means the very next such step regardless

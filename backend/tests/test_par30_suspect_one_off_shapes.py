@@ -74,7 +74,7 @@ def test_all_four_covered():
         r = parse_oracle(db.get_card(name))
         assert r.coverage != UNMODELED, (name, r.unclaimed)
     # Airtight Alibi is hand-authored, not parser-MODELED.
-    from mtg_analyzer.game.ability_catalogue import specs_for
+    from mtg_analyzer.game.card_registry import specs_for
     assert specs_for(db.get_card("Airtight Alibi"))
 
 

@@ -5,7 +5,7 @@
     end of turn, where X is that card's mana value. You may play that
     card this turn."
 
-Hand-authored (`ability_catalogue.special_mechanics._tavern_brawler`): a
+Hand-authored (`card_registry.special_mechanics._tavern_brawler`): a
 `grant_triggered_ability` (STEP_BEGIN/upkeep) whose `grant_effects` chain
 two existing primitives — `impulsive_draw` (now also seeding
 `GameContext.created_objects` with the exiled card) and `pump`'s new
@@ -20,11 +20,11 @@ from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.events import EventType, GameEvent
 from mtg_analyzer.models.game.game_object import GameObject, Zone
-from mtg_analyzer.game import ability_catalogue
+from mtg_analyzer.game import card_registry
 
 
 def test_tavern_brawler_registered_with_both_clauses():
-    specs = ability_catalogue.specs_for(
+    specs = card_registry.specs_for(
         Card(id="tb", name="Tavern Brawler",
              type_line="Legendary Enchantment — Background"))
     assert specs is not None and len(specs) == 1

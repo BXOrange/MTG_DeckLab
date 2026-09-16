@@ -6,7 +6,7 @@ entries filtered a `STEP_BEGIN` event on ``{"step": "combat"}`` — but
 `GameEngine._step_body`/`turn_loop_mixin.py` stamps onto the event's own
 ``step`` field — so the filter could never match at all, silently.
 
-Reference: `game/ability_catalogue/enrage.py` (Sam), `tribal.py`
+Reference: `game/card_registry/enrage.py` (Sam), `tribal.py`
 (Ardenn), `game/phases.py`.
 """
 

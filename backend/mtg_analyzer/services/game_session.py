@@ -48,7 +48,7 @@ from mtg_analyzer.models.game.game_state import GameState
 from mtg_analyzer.models.mana.mana_cost import ManaCost
 from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.game import ability_catalogue, continuous, mana_potential
+from mtg_analyzer.game import card_registry, continuous, mana_potential
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.top_library import may_look_at_top_of_library
 from mtg_analyzer.services import replay
@@ -535,7 +535,7 @@ class GameSession:
         self._pending_scries: list[str] = []
         #: RULE 103.6: every ``(player_id, instance_id)`` opening-hand card
         #: still owed its "begin the game somewhere else?" choice
-        #: (`game/ability_catalogue.pregame_setup_permission`), in turn
+        #: (`game/card_registry.pregame_setup_permission`), in turn
         #: order — same queued-one-at-a-time shape as `_pending_scries`,
         #: and resolved *before* it (RULE 103.6 precedes Vancouver's scry).
         self._pending_opening_hand: list[tuple[str, int]] = []
@@ -1549,7 +1549,7 @@ class GameSession:
             for p in state.players
             if not p.is_dummy
             for obj in list(p.hand)
-            if (permission := ability_catalogue.pregame_setup_permission(obj.card)) is not None
+            if (permission := card_registry.pregame_setup_permission(obj.card)) is not None
             if permission.condition != "not_starting_player" or p.id != starting_id
         ]
         self._open_next_opening_hand_choice()

@@ -35,7 +35,7 @@ mtg_analyzer/game/continuous.py (`_apply_borrowed_activated_abilities`,
 `group_selector_objects`'s ``"chosen_permanent"``),
 mtg_analyzer/game/rules/misc_mixin.py (`_request_choose_objects`'s
 ``"choose_permanent"`` action), mtg_analyzer/models/game_object.py
-(`chosen_permanent_id`), mtg_analyzer/game/ability_catalogue.py (Drana and
+(`chosen_permanent_id`), mtg_analyzer/game/card_registry.py (Drana and
 Linvala, Scheming Fence), RULE 113.7c/605.1a/606.5c/613.7f.
 """
 
@@ -187,7 +187,7 @@ def test_wildcard_mana_pays_a_borrowed_red_cost_off_drana():
 
 
 def test_drana_and_linvala_is_registered_with_all_three_statics():
-    from mtg_analyzer.game.ability_catalogue import specs_for
+    from mtg_analyzer.game.card_registry import specs_for
 
     specs = specs_for(drana_and_linvala())
     kinds = [(s.ability_kind, s.effects[0].type) for s in specs]
@@ -306,7 +306,7 @@ def test_choosing_itself_is_a_harmless_no_op():
 
 
 def test_scheming_fence_is_registered_with_all_four_pieces():
-    from mtg_analyzer.game.ability_catalogue import specs_for
+    from mtg_analyzer.game.card_registry import specs_for
 
     specs = specs_for(scheming_fence())
     kinds = [(s.ability_kind, s.effects[0].type) for s in specs]

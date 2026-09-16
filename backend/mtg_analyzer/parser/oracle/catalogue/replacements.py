@@ -19,7 +19,7 @@ itself a standing permanent ability) and aren't covered here — nor is the
 Protection and ~25 siblings): a *choice* isn't a plain replacement clause,
 and the family's real per-card variety (ETB-chosen colours/artists,
 sacrifice costs, "if damage is prevented this way" riders) is hand-authored
-in `game/ability_catalogue.py` instead (MEC-30's own documented choice,
+in `game/card_catalogue` instead (MEC-30's own documented choice,
 not a gap — see that batch's `Done_Backend.md` entry).
 
 RULE 616.1's full "if X would Y, Z instead" grammar has many more real

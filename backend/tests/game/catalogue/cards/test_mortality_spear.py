@@ -1,6 +1,6 @@
 """Mortality Spear discounts itself after its controller gains life."""
 
-from mtg_analyzer.game.ability_catalogue import _REGISTRY
+from mtg_analyzer.game.card_registry import _REGISTRY
 from mtg_analyzer.game.binding.core import build_effects
 from mtg_analyzer.game.continuous import self_cost_reduction_for
 from mtg_analyzer.models.cards.card import Card

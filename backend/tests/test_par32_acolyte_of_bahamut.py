@@ -4,7 +4,7 @@ reduction:
     Commander creatures you own have "The first Dragon spell you cast
     each turn costs {2} less to cast."
 
-Hand-authored (`ability_catalogue.special_mechanics._acolyte_of_bahamut`): a
+Hand-authored (`card_registry.special_mechanics._acolyte_of_bahamut`): a
 granted `cost_reduction` static (MEC-55's `grant_static_ability`
 `static_specs`, already-existing `spell_subtype`/`active_if` params) gated
 by a new `static_conditions` kind `first_subtype_spell_this_turn`, reading
@@ -21,11 +21,11 @@ from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.events import EventType, GameEvent
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.models.game.game_state import StackItem
-from mtg_analyzer.game import ability_catalogue
+from mtg_analyzer.game import card_registry
 
 
 def test_acolyte_of_bahamut_registered_with_gated_cost_reduction():
-    specs = ability_catalogue.specs_for(
+    specs = card_registry.specs_for(
         Card(id="ab", name="Acolyte of Bahamut",
              type_line="Legendary Enchantment — Background"))
     assert specs is not None and len(specs) == 1

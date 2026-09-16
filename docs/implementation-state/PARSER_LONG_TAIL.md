@@ -51,7 +51,7 @@ a handler.** The ledger is keyed on content-hash **+ version**, so measuring
 twice within one batch (bump, measure, add more handlers, measure again)
 silently reuses the first run's rows. Either bump again or delete that
 version's rows. Hand-authoring alone needs no bump — `content_hash` folds in
-`ability_catalogue.is_registered`.
+`card_registry.is_registered`.
 
 ## How the tail gets closed
 
@@ -61,7 +61,7 @@ The remaining ~25k templates are, by construction, not generic. This is an
 1. **Narrow parser extensions** for singleton shapes that still generalize a
    little — a slightly different targeting scope, a compound filter.
    Preferred: each still pays off across a small cluster.
-2. **Hand-authoring** genuinely unique cards in `game/ability_catalogue.py`
+2. **Hand-authoring** genuinely unique cards in `game/card_catalogue/`
    ([authoring guide](../Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md)),
    only after confirming no near-miss handler would unlock a cluster.
 

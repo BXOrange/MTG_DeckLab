@@ -1,7 +1,7 @@
 """Blight Curse — mass -1/-1 counter clauses (RULE 122.1a)."""
 
 from mtg_analyzer.game.binding.core import build_effects
-from mtg_analyzer.game.ability_catalogue import is_registered, specs_for
+from mtg_analyzer.game.card_registry import is_registered, specs_for
 from mtg_analyzer.game.effects.core import GameContext
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card

@@ -1,7 +1,7 @@
 """Secrets of Strixhaven — playability batch, wave 30 (PAR-60).
 
 Lorehold spirits: graveyard-reanimate-by-dynamic-mana-value + phasing,
-hand-authored in `game/ability_catalogue/commander_cards.py`. Engine:
+hand-authored in `game/card_registry/commander_cards.py`. Engine:
 `targeting.legal_targets` gained ``max_mana_value`` sentinels ``source_power``
 and ``trigger_damage_amount``.
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
+from mtg_analyzer.game.card_registry import _REGISTRY, is_registered
 from mtg_analyzer.game.binding.core import bind_ability
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.targeting import legal_targets

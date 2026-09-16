@@ -148,7 +148,7 @@ _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
     # past an "Equip commander {N}" line to find the real plain-Equip cost
     # instead. "Equip commander" itself isn't separately recognized here —
     # only 2 cards cache-wide print it, and Commander's Plate's own is
-    # hand-authored (`game/ability_catalogue.py`) rather than built as a
+    # hand-authored (`game/card_catalogue`) rather than built as a
     # second keyword shape for that small a yield.
     "equip": re.compile(rf"\bEquip\b(?!\s+commander\b){_GAP}(?P<cost>{_COST_RUN})", re.I),
 }

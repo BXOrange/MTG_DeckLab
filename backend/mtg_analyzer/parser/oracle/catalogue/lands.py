@@ -2,13 +2,13 @@
 
 A tapped-entry clause isn't resolved through the generic effect-handler
 table (step 3, `catalogue/handlers.py`) — the engine has its own dedicated
-machinery for it (`game/ability_catalogue.land_tap_condition`, consumed by
+machinery for it (`game/card_registry.land_tap_condition`, consumed by
 `RulesEngine.enter_land_tapped`), the same way a mana ability's "add {g}" is
 covered without an effect spec (`segmenter.py`'s `_MANA_EFFECT_RE`). This
 module is the **single source of truth** for recognising those clauses in
 oracle text; both the coverage gate (`gate.py`, claims the line without
 emitting a spec) and the engine-facing card-level API
-(`game/ability_catalogue.land_tap_condition`, which the engine actually
+(`game/card_registry.land_tap_condition`, which the engine actually
 resolves off of) call into it, so the shapes the gate claims and the shapes
 the engine resolves can never drift apart.
 

@@ -1,5 +1,5 @@
 """Incubate (RULE 701.53) residue — the three cache singletons the PAR-30
-parser trail left, now hand-authored in `ability_catalogue/special_mechanics.py`
+parser trail left, now hand-authored in `card_registry/special_mechanics.py`
 (docs/Reference/11 escape valve). Each was blocked on its own bespoke
 shape, not on incubate grammar (v160/v162 shipped that):
 
@@ -36,7 +36,7 @@ from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
-from mtg_analyzer.game.ability_catalogue import is_registered, specs_for
+from mtg_analyzer.game.card_registry import is_registered, specs_for
 
 
 def _db():

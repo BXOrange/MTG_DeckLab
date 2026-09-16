@@ -1,5 +1,5 @@
 """Blight Curse batch C5 wave 8 — Lasting Tarfire
-(hand-authored, `ability_catalogue/blight_curse.py`).
+(hand-authored, `card_registry/blight_curse.py`).
 
 * Lasting Tarfire — "At the beginning of each end step, if you put a counter
   on a creature this turn, this enchantment deals 2 damage to each opponent."
@@ -12,7 +12,7 @@
 
 from __future__ import annotations
 
-from mtg_analyzer.game.ability_catalogue import specs_for
+from mtg_analyzer.game.card_registry import specs_for
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card

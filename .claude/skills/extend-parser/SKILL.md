@@ -141,12 +141,12 @@ python -m pytest -q                       # whole suite, fast, keep it green
       repo has repeatedly built a primitive for card A and left card B's ticket
       reading "blocked on a new primitive" for three more rounds.
 - [ ] A ticket deferred a **second** time must be hand-authored in
-      `game/ability_catalogue/` as the sanctioned stopgap, or explicitly
+      `game/card_catalogue/` as the sanctioned stopgap, or explicitly
       promoted to next-up. It must not roll silently to a third deferral.
 
 ## When to stop parsing and hand-author
 
-A genuinely singleton card is `game/ability_catalogue/`'s job
+A genuinely singleton card is `game/card_catalogue/`'s job
 ([authoring guide](../../../docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md)),
 not the parser's — but only after `blocked` shows no nearby cluster. The
 opposite error is just as common: a "bespoke" card is often two clauses away

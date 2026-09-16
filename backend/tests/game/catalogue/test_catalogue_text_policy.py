@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from mtg_analyzer.game.ability_catalogue import specs_for
+from mtg_analyzer.game.card_registry import specs_for
 from mtg_analyzer.game.binding.core import bind_ability
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
@@ -24,7 +24,7 @@ def _kor_spiritdancer() -> Card:
 
 
 def test_hand_authored_catalogue_specs_do_not_embed_raw_text():
-    catalogue = Path(__file__).parents[3] / "mtg_analyzer" / "game" / "ability_catalogue"
+    catalogue = Path(__file__).parents[3] / "mtg_analyzer" / "game" / "card_registry"
     assert not any("raw_text=" in path.read_text(encoding="utf-8") for path in catalogue.glob("*.py"))
 
 

@@ -25,7 +25,7 @@ Two primitives, both real, both reusable beyond this one card:
 Reference: mtg_analyzer/game/effects/core.py (`ExileEffect.track_exiled_with`,
 `grant_any_color_for_activation`, `grant_borrowed_activated_ability`),
 mtg_analyzer/game/continuous.py (`any_color_for_activation`,
-`_apply_borrowed_activated_abilities`), mtg_analyzer/game/ability_catalogue.py
+`_apply_borrowed_activated_abilities`), mtg_analyzer/game/card_registry.py
 (Agatha's Soul Cauldron), RULE 113.7c/605.1a/605.3a/613.7f.
 """
 
@@ -262,7 +262,7 @@ def test_exiled_with_ids_resets_on_reset_as_new_object():
 
 
 def test_agathas_soul_cauldron_is_registered_with_all_three_pieces():
-    from mtg_analyzer.game.ability_catalogue import specs_for
+    from mtg_analyzer.game.card_registry import specs_for
 
     specs = specs_for(cauldron())
     kinds = [(s.ability_kind, s.effects[0].type) for s in specs]

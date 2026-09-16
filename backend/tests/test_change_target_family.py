@@ -11,10 +11,10 @@ see `ChangeTargetEffect`'s own docstring). The "spell or ability" union
 riding the same `StackItem.stack_id` identity that primitive added.
 
 Reference: mtg_analyzer/game/{effects,targeting}.py,
-mtg_analyzer/game/rules/misc_mixin.py, mtg_analyzer/game/ability_catalogue.py.
+mtg_analyzer/game/rules/misc_mixin.py, mtg_analyzer/game/card_registry.py.
 """
 
-from mtg_analyzer.game import ability_catalogue, targeting
+from mtg_analyzer.game import card_registry, targeting
 from mtg_analyzer.game.effects.core import ChangeTargetEffect, DealDamageEffect
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
@@ -250,17 +250,17 @@ def test_resolve_pending_choice_dispatches_change_target_and_bolt_resolves_on_th
 
 
 # ---------------------------------------------------------------------------
-# Hand-authored cards (game/ability_catalogue.py)
+# Hand-authored cards (game/card_registry.py)
 # ---------------------------------------------------------------------------
 
 
 def test_misdirection_and_deflecting_swat_are_registered():
-    assert ability_catalogue.is_registered("Misdirection")
-    assert ability_catalogue.is_registered("Deflecting Swat")
+    assert card_registry.is_registered("Misdirection")
+    assert card_registry.is_registered("Deflecting Swat")
 
 
 def test_misdirection_spec_is_mandatory_single_target_change():
-    specs = ability_catalogue.specs_for(instant("Misdirection"))
+    specs = card_registry.specs_for(instant("Misdirection"))
     assert len(specs) == 1
     effect_spec = specs[0].effects[0]
     assert effect_spec.type == "change_target"
@@ -269,7 +269,7 @@ def test_misdirection_spec_is_mandatory_single_target_change():
 
 
 def test_deflecting_swat_spec_is_optional_spell_or_ability():
-    specs = ability_catalogue.specs_for(instant("Deflecting Swat"))
+    specs = card_registry.specs_for(instant("Deflecting Swat"))
     assert len(specs) == 1
     effect_spec = specs[0].effects[0]
     assert effect_spec.type == "change_target"

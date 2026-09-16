@@ -1,20 +1,27 @@
 #!/usr/bin/env python3
-"""Speed up hand-authoring a card into `game/ability_catalogue/`.
+"""Speed up hand-authoring a card into `game/card_catalogue/`.
 
 The slow parts of hand-authoring aren't the rules — they're mechanical:
 finding the card's real oracle text with real line breaks, checking whether
 it's already registered, discovering that the parser already claims half the
 card's clauses (so that half needs no hand-authoring at all, just copying),
 and finding an existing catalogue entry with the same shape to adapt instead
-of starting from a blank function (searched across every module in the
-package, not just one file). This script does all four in one command each,
-then a `scaffold` that assembles the result into a paste-ready factory
-function + register() call + test skeleton.
+of starting from a blank function (searched across every one-file-per-card
+module under `card_catalogue/`, not just one file). This script does all
+four in one command each, then a `scaffold` that assembles the result into a
+paste-ready, standalone module — imports + factory function + register()
+call + test skeleton — at the exact `card_catalogue/<letter>/<slug>.py` path
+the new card belongs at.
 
 It does NOT decide what a card's abilities mean, and it does not touch
-ability_catalogue/ — every command only reads and prints. You still write
-(or fix) the EffectSpec for whatever the parser didn't already claim; see
-docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md for the field reference.
+card_catalogue/ or card_registry/ — every command only reads and prints.
+You still write (or fix) the EffectSpec for whatever the parser didn't
+already claim; see docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md for
+the field reference. `game/card_registry/` (this script's own
+`catalogue` import) is the registration *mechanism* (`register`/
+`register_family`/`specs_for`); `game/card_catalogue/` is the *content* —
+one module per card, in a folder named after the lowercased first letter of
+its registered name.
 
 For "does this EffectSpec/replacement/static type already exist" and "does
 the bound ability actually behave", use the game-engine skill's
@@ -70,7 +77,7 @@ def _find_backend() -> Path:
 BACKEND = _find_backend()
 sys.path.insert(0, str(BACKEND))
 
-from mtg_analyzer.game import ability_catalogue as catalogue  # noqa: E402
+from mtg_analyzer.game import card_registry as catalogue  # noqa: E402
 from mtg_analyzer.models import Card, EventType  # noqa: E402
 from mtg_analyzer.parser.oracle.gate import parse_oracle  # noqa: E402
 from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec  # noqa: E402
@@ -202,10 +209,32 @@ def _reindent(src: str, indent: str) -> str:
     return "\n".join([indent + body[0]] + [indent + line for line in body[1:]])
 
 
-def _factory_name(card_name: str) -> str:
+def _card_slug(card_name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "_", card_name.lower()).strip("_")
-    slug = re.sub(r"_+", "_", slug) or "card"
-    return f"_{slug}"
+    return re.sub(r"_+", "_", slug) or "card"
+
+
+def _factory_name(card_name: str) -> str:
+    return f"_{_card_slug(card_name)}"
+
+
+def _card_letter(card_name: str) -> str:
+    """The `card_catalogue/<letter>/` folder a card's own file belongs in —
+    the lowercased first letter of its registered name (`0-9` if it starts
+    with a digit, `misc` for anything else — neither has been needed yet)."""
+    for ch in card_name.lower():
+        if ch.isalpha():
+            return ch
+        if ch.isdigit():
+            return "0-9"
+    return "misc"
+
+
+def _card_target_path(card_name: str) -> Path:
+    return (
+        Path(catalogue.__file__).parent.parent
+        / "card_catalogue" / _card_letter(card_name) / f"{_card_slug(card_name)}.py"
+    )
 
 
 # --- commands -------------------------------------------------------
@@ -218,7 +247,9 @@ def cmd_text(args) -> None:
     print(f"{card.name}")
     print(f"  type_line: {card.type_line}")
     print(f"  mana_cost: {card.mana_cost_string!r}  cmc={card.converted_mana_cost}")
-    print(f"  registered in ability_catalogue.py: {is_registered(card.name)}")
+    print(f"  registered in card_catalogue: {is_registered(card.name)}")
+    if not is_registered(card.name):
+        print(f"  would-be target file: {_card_target_path(card.name)}")
     print(f"  parser coverage: {result.coverage}")
     print()
     print("oracle_text, as a Python literal (paste this into raw_text=/the docstring —")
@@ -273,6 +304,22 @@ def cmd_scaffold(args) -> None:
     if not body_lines:
         body_lines.append("        # TODO: no clauses at all reached here — check `text` output.")
 
+    target = _card_target_path(card.name)
+    body_text = "\n".join(body_lines)
+    needs_event_type = "EventType." in body_text
+
+    print(f"# save as: {target}")
+    print( "# (one file per card, in the folder named after its lowercased first letter —")
+    print( "#  see game/card_catalogue/__init__.py and docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md)")
+    print()
+    print("from __future__ import annotations")
+    print()
+    if needs_event_type:
+        print("from ....models.game.events import EventType")
+    print("from ....parser.oracle.spec import AbilitySpec, EffectSpec")
+    print("from ...card_registry.core import register")
+    print()
+    print()
     print(f"def {fname}() -> list[AbilitySpec]:")
     print(f"    {card.oracle_text!r}")
     print("    return [")
@@ -316,10 +363,10 @@ def _test_skeleton(card_name: str, fname: str, kinds: list[str]) -> str:
     return f'''
 def test_{var}_specs():
     card = _card({card_name!r})  # TODO: match this file's fixture signature
-    specs = ability_catalogue.specs_for(card)
+    specs = card_registry.specs_for(card)
     assert [s.ability_kind for s in specs] == {kinds_literal}
 
-    other = ability_catalogue.specs_for(card)
+    other = card_registry.specs_for(card)
     assert specs is not other and specs[0] is not other[0]  # fresh specs per call
 
     obj = _object(card)  # TODO: match this file's fixture signature
@@ -342,13 +389,17 @@ def cmd_check(args) -> None:
 def _print_existing(name: str, *, must_exist: bool = False) -> None:
     factory = _existing_factory(name)
     if factory is None:
-        msg = f"{name!r} is not registered in ability_catalogue.py."
+        msg = f"{name!r} is not registered in card_catalogue."
         if must_exist:
             sys.exit(msg)
         print(msg)
         return
     aliases = sorted(n for n, f in catalogue._REGISTRY.items() if f is factory)  # noqa: SLF001
     print(f"registered under: {', '.join(aliases)}")
+    try:
+        print(f"source file: {inspect.getsourcefile(factory)}")
+    except TypeError:
+        pass  # e.g. a register_family-built closure defined in families.py
     print()
     print(inspect.getsource(factory))
 
@@ -361,22 +412,25 @@ def cmd_similar(args) -> None:
         query_text = card.oracle_text
         print(f"# matching against {card.name}'s real oracle text")
 
-    # `ability_catalogue` is a package (one module per card family, e.g.
-    # black.py/commander_cards.py/...) — scan every module in it, not just
-    # __init__.py, or almost every real factory function is invisible here.
-    pkg_dir = Path(catalogue.__file__).parent
+    # Card factories live in `game/card_catalogue/<letter>/<slug>.py` — one
+    # file per card, plus `_shared/` for the handful of genuinely-reused
+    # helpers (e.g. the Licid cycle) — not in `card_registry` itself any
+    # more (that package is just the registration mechanism now). Scan every
+    # module under card_catalogue recursively, or almost every real factory
+    # function is invisible here.
+    pkg_dir = Path(catalogue.__file__).parent.parent / "card_catalogue"
 
     docstrings: dict[str, str] = {}
     file_by_fn: dict[str, str] = {}
     names_by_fn: dict[str, list[str]] = {}
-    for src_path in sorted(pkg_dir.glob("*.py")):
+    for src_path in sorted(pkg_dir.rglob("*.py")):
         tree = ast.parse(src_path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef) and node.name.startswith("_"):
                 doc = ast.get_docstring(node)
                 if doc:
                     docstrings[node.name] = doc
-                    file_by_fn[node.name] = src_path.name
+                    file_by_fn[node.name] = str(src_path.relative_to(pkg_dir))
         for node in ast.walk(tree):
             if (
                 isinstance(node, ast.Call)

@@ -89,7 +89,7 @@ just the one you're about to add. See `PARSER_LONG_TAIL.md`'s "Lessons that
 keep recurring" for the full narrative.
 
 Don't over-apply this — a genuinely singleton card's bespoke wording, with no
-plausible sibling, is still exactly what `game/ability_catalogue.py`
+plausible sibling, is still exactly what `game/card_catalogue/`
 hand-authoring is for (see "When to stop parsing and hand-author" in
 `SKILL.md`). The rule targets *known, reused* axes (a filter vocabulary, a
 count/magnitude parameter, a duration) that are at risk of growing as a

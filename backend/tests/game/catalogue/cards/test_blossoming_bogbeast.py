@@ -1,6 +1,6 @@
 """Blossoming Bogbeast scales creatures with life gained."""
 
-from mtg_analyzer.game.ability_catalogue import _REGISTRY
+from mtg_analyzer.game.card_registry import _REGISTRY
 from mtg_analyzer.game.binding.core import build_effects
 from mtg_analyzer.game.effects.core import GameContext
 from tests.support.catalogue import battlefield_object, two_player_game

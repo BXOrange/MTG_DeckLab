@@ -813,7 +813,7 @@ def _parse_mana_ability_lines(
             # ("Each creature you control with a counter on it has '{T}:
             # Add {G}.'", Rishkar) — that ability belongs to whatever it's
             # granted to, not this card itself (RULE 613.7f grants are
-            # hand-authored in `game/ability_catalogue.py`, not auto-parsed
+            # hand-authored in `game/card_catalogue`, not auto-parsed
             # here); skip so it doesn't get mis-attributed as this card's
             # own mana ability.
             continue

@@ -172,7 +172,7 @@ export default {
   // --- card tile (cardTile.js) ------------------------------------
   'cardTile.illegal.banned': 'Ban list',
   'cardTile.illegal.colorIdentity': 'Wrong color identity',
-  'cardTile.coverage.catalogueTitle': 'Hand-catalogued (game/ability_catalogue.py) — fully implemented.',
+  'cardTile.coverage.catalogueTitle': 'Hand-catalogued (game/card_catalogue) — fully implemented.',
   'cardTile.coverage.oracleTitle': 'Fully recognized by the oracle parser (MODELED) — the engine implements all abilities.',
   'cardTile.coverage.catalogued': 'Catalogued',
   'cardTile.coverage.modeled': 'Modeled',

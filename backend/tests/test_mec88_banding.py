@@ -79,7 +79,7 @@ def test_lose_banding_grant_until():
 
 
 def test_master_of_the_hunt_hand_authored():
-    from mtg_analyzer.game.ability_catalogue.core import specs_for
+    from mtg_analyzer.game.card_registry.core import specs_for
 
     card = Card(
         id="Master of the Hunt", name="Master of the Hunt",

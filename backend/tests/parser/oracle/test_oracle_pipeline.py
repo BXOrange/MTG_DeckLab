@@ -10,7 +10,7 @@ import pytest
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.events import EventType
 from mtg_analyzer.models.game.game_object import GameObject, Zone
-from mtg_analyzer.game import ability_catalogue, combat, continuous
+from mtg_analyzer.game import card_registry, combat, continuous
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.effects.core import DealDamageEffect, DrawCardEffect
 from mtg_analyzer.game.game_engine import GameEngine
@@ -885,12 +885,12 @@ def test_class_level_header_is_cost_first_not_level_first():
 
 
 def test_specs_for_uses_parser_for_unregistered_modeled_card():
-    specs = ability_catalogue.specs_for(spell("Bolt", "Bolt deals 3 damage to any target."))
+    specs = card_registry.specs_for(spell("Bolt", "Bolt deals 3 damage to any target."))
     assert any(s.ability_kind == "spell_effect" for s in specs)
 
 
 def test_specs_for_omits_effects_from_unmodeled_card():
-    specs = ability_catalogue.specs_for(spell("Weird", "Heal 2."))
+    specs = card_registry.specs_for(spell("Weird", "Heal 2."))
     assert not any(s.ability_kind in ("spell_effect", "triggered") for s in specs)
 
 

@@ -26,7 +26,7 @@ from ...models.game.game_state import GameState, StackItem
 from ...models.mana.mana_cost import ManaCost
 from ...models.game.player import Player
 from .. import (
-    ability_catalogue, combat, condition_query, continuous, durations, face_down, mana_potential, variants,
+    card_registry, combat, condition_query, continuous, durations, face_down, mana_potential, variants,
 )
 from ...models.decks import formats as game_format
 from ...models.decks.formats import GameFormat, get_format
@@ -891,10 +891,10 @@ class CastingMixin:
         """PAR-7: whether ``obj``'s Kicker ``{X}`` carries the "spend only
         colored mana on X. No more than one mana of each color may be spent
         this way." restriction (Emblazoned Golem) — see
-        `ability_catalogue.kicker_x_mana_restriction`. Read off the printed
+        `card_registry.kicker_x_mana_restriction`. Read off the printed
         card fresh each call rather than cached onto the object, the same
         "recomputed from raw text" treatment `entry_counters` gets."""
-        return ability_catalogue.kicker_x_mana_restriction(obj.card) == "distinct_colors"
+        return card_registry.kicker_x_mana_restriction(obj.card) == "distinct_colors"
     def max_affordable_kicker(self, player: Player, obj: GameObject) -> int:
         """The highest number of times ``player`` could pay Kicker and still
         cast ``obj`` (RULE 702.33) — 0 or 1 for a plain Kicker, 0..N for

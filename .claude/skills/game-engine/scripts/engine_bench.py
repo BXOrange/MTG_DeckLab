@@ -71,7 +71,7 @@ sys.path.insert(0, str(BACKEND))
 
 from mtg_analyzer.game import combat as combat_mod  # noqa: E402
 from mtg_analyzer.game import continuous, mana_abilities  # noqa: E402
-from mtg_analyzer.game.ability_catalogue import is_registered  # noqa: E402
+from mtg_analyzer.game.card_registry import is_registered  # noqa: E402
 from mtg_analyzer.game.binding.core import bind_from_catalogue  # noqa: E402
 from mtg_analyzer.game.game_engine import GameEngine  # noqa: E402
 from mtg_analyzer.models import Card, EventType, GameObject, ManaCost, Zone  # noqa: E402
@@ -538,8 +538,10 @@ _WHERE = {
                "hierarchy + registry; registry.py has the concrete registrations); "
                "grep the type string across game/effects/*.py",
     "binding": "game/binding/core.py attach_to_object/bind_from_catalogue; "
-               "game/ability_catalogue/ specs_for (in core.py) is the source of specs",
-    "authoring": "game/ability_catalogue/ (one module per card family) + "
+               "game/card_registry/core.py specs_for is the source of specs",
+    "authoring": "game/card_catalogue/ (one module per card, folder = lowercased "
+                 "first letter) + game/card_registry/ (the register()/"
+                 "register_family() mechanism) + "
                  "docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md",
     "session": "services/game_session.py — snapshots/undo/take_back/view redaction",
     "facedown": "game/face_down.py; models/game/game_object.py turn_face_down/turn_face_up; "
@@ -732,16 +734,21 @@ def _keyword_rows():
 
 
 def _authored_rows():
-    """Hand-authored cards — `game/ability_catalogue.py` is now the package
-    `game/ability_catalogue/` (one module per card family); search all of it."""
-    from mtg_analyzer.game import ability_catalogue as ac
+    """Hand-authored cards — one module per card under `game/card_catalogue/
+    <letter>/<slug>.py` (folder = lowercased first letter); the mechanism
+    (`register`/`register_family`/`specs_for`) lives in `game/
+    card_registry/` instead and no longer holds any card content."""
+    from mtg_analyzer.game import card_registry as ac
 
-    files = _src_many(["game/ability_catalogue/*.py"])
+    files = _src_many(["game/card_catalogue/**/*.py"])
     rows = []
     for name in sorted(ac._REGISTRY):
-        where = "game/ability_catalogue/"
+        where = "game/card_catalogue/"
         for rel, text in files:
-            m = re.search(rf"register\(\s*[\"']{re.escape(name)}[\"']", text, re.I)
+            # one (or a small handful, for a register_family cycle) card(s)
+            # per file now, so a bare literal-name search is precise enough —
+            # no need to anchor on `register(`/`register_family(` specifically.
+            m = re.search(rf"[\"']{re.escape(name)}[\"']", text, re.I)
             if m:
                 where = f"{rel}:{_lineno(text, m.start())}"
                 break

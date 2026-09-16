@@ -53,8 +53,9 @@ which is why the bench's `inspect` prints each of them:
    `extra_target_specs`; `apply` then reads `targets[0]`, `targets[1]` in
    printed order.
 5. **A parser handler or a catalogue entry**, or no real card can reach it —
-   see the `extend-parser` skill, or hand-author in `game/ability_catalogue/`
-   (one module per card family; `core.py` holds `register`/`specs_for`).
+   see the `extend-parser` skill, or hand-author in `game/card_catalogue/`
+   (one file per card, under a lowercased-first-letter folder;
+   `game/card_registry/core.py` holds `register`/`specs_for`).
 
 ## Interactive effects
 

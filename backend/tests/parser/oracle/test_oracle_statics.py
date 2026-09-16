@@ -5,7 +5,7 @@ Aura/Equipment/Fortification's own "equipped/enchanted creature gets +N/+N
 [and has <keywords>]" / "… has <keywords>" buff — the #2 unclaimed template
 in the card cache. The engine side (`affects="attached_permanent"`,
 `game/continuous.py`) already fully supports this (see the hand-authored
-Armadillo Cloak entry in `game/ability_catalogue.py`); only the parser-
+Armadillo Cloak entry in `game/card_registry.py`); only the parser-
 recognition half is new here.
 """
 

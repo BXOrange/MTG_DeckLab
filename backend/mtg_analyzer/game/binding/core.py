@@ -421,7 +421,7 @@ def _subject_condition(
     """RULE 603.1's trigger *subject* → its predicate, from the ``condition``
     dict the oracle-text segmenter emits (`parser/oracle/segmenter.py`'s
     `_trigger_condition`) — ``None`` when the spec carries no such dict (a
-    hand-authored `ability_catalogue.py` entry, or an older/synthetic spec),
+    hand-authored `card_catalogue` entry, or an older/synthetic spec),
     so those keep their pre-existing unscoped behaviour.
 
     ``{"subject": "self"}`` — the event must be about this ability's own
@@ -2616,7 +2616,7 @@ def _cycling_activated_ability(
     card: Draw a card." The `discard_self` cost primitive (`game/costs.py`)
     already existed; only Dismantling Wave/Renewed Faith-shaped cards ever
     got a real activatable ability out of it, hand-authored per card
-    (`game/ability_catalogue.py`) — an *unregistered* card's plain Cycling
+    (`game/card_catalogue`) — an *unregistered* card's plain Cycling
     was recognized by the parser (satisfying the coverage gate) but bound to
     nothing, so it never became an offered action (PAR-9).
 
@@ -2633,7 +2633,7 @@ def _cycling_activated_ability(
       one.
     * A card already carrying a `discard_self`-cost activated ability
       (Dismantling Wave/Renewed Faith's own hand-authored one, bound
-      earlier in this same pass — `ability_catalogue.specs_for` puts
+      earlier in this same pass — `card_registry.specs_for` puts
       hand-authored specs first) defines its *own* Cycling behaviour;
       don't compete with it for the same cost.
     """
@@ -2766,7 +2766,7 @@ def _station_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
 
     The effect reuses the plain, already-registered ``"add_counters"``
     type (``kind="charge"``, RULE 702.184a's own counter kind — see
-    `game/ability_catalogue/black.py` for another card that already
+    `game/card_registry/black.py` for another card that already
     puts charge counters on itself the same way) with
     ``amount_from_count_selector="station_tapped_power"`` — the amount is
     read fresh off `GameObject.station_tapped_power`, stamped by the cost
@@ -3610,8 +3610,8 @@ def bind_from_catalogue(obj: Any) -> None:
     card's activated/triggered/static abilities are live the moment it exists —
     the "binding on load" that connects card text to behaviour. A no-op for a
     card with no known specs. Import is function-local to avoid an import cycle
-    (`ability_catalogue` builds specs, this module binds them)."""
-    from ..ability_catalogue import specs_for
+    (`card_registry` builds specs, this module binds them)."""
+    from ..card_registry import specs_for
 
     specs = specs_for(getattr(obj, "card", None))
     if specs:

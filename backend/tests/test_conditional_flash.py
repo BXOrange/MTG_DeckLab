@@ -18,7 +18,7 @@ from mtg_analyzer.game.effects.core import DealDamageEffect, TriggeredAbility
 from mtg_analyzer.models.game.game_state import StackItem
 from mtg_analyzer.models.game.events import EventType
 from mtg_analyzer.game import condition_query
-from mtg_analyzer.game.ability_catalogue import specs_for
+from mtg_analyzer.game.card_registry import specs_for
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec, SpecValidationError
 

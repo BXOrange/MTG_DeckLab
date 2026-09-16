@@ -313,7 +313,7 @@ def test_fiery_emancipations_triple_damage_clause_is_recognized():
 
 
 def test_gate_claims_dictate_of_the_twin_gods_as_modeled():
-    # Dictate of the Twin Gods has no `ability_catalogue.py` entry at all —
+    # Dictate of the Twin Gods has no `card_registry.py` entry at all —
     # this proves the oracle-parser recognition alone is enough to model it
     # (Flash is an ordinary keyword, claimed separately).
     card = perm(

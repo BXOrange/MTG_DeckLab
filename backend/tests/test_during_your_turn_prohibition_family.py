@@ -49,7 +49,7 @@ def _bf(state, card, controller="p1", obj=None):
 def _named(name):
     """The real cached card, parsed+bound through `specs_for`'s oracle-text
     fallback (Grand Abolisher/Myrel/Linvala are all MODELED, not
-    hand-authored — see `ability_catalogue.specs_for`)."""
+    hand-authored — see `card_registry.specs_for`)."""
     from mtg_analyzer.config import DB_PATH
     from mtg_analyzer.services.card_database import CardDatabase
 

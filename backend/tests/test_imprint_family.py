@@ -19,14 +19,14 @@ already does, just with `remember=True` added.
 
 Reference: mtg_analyzer/game/effects/core.py (`ImprintEffect`),
 game/mana_abilities.py (`_IMPRINTED_COLOR_ADD_RE`, `resolve_options`),
-game/rules/misc_mixin.py (`_request_choose_objects`), game/ability_catalogue.py.
+game/rules/misc_mixin.py (`_request_choose_objects`), game/card_registry.py.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game import ability_catalogue, mana_abilities
+from mtg_analyzer.game import card_registry, mana_abilities
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
@@ -82,8 +82,8 @@ def enter_mox(eng, mox):
 
 
 def test_chrome_mox_is_registered_on_imprint():
-    assert ability_catalogue.is_registered("Chrome Mox")
-    specs = ability_catalogue.specs_for(_card("Chrome Mox"))
+    assert card_registry.is_registered("Chrome Mox")
+    specs = card_registry.specs_for(_card("Chrome Mox"))
     assert len(specs) == 1
     effect = specs[0].effects[0]
     assert effect.type == "imprint"

@@ -8,13 +8,13 @@ paid*, a fact the engine needs at cast time (`GameEngine.can_cast`/
 `cast_spell`, via `models.mana.mana_pool.ManaPool.can_pay_distinct_colors`/
 `pay_distinct_colors`), not something the binder attaches to the object.
 The engine resolves it directly through
-`game/ability_catalogue.kicker_x_mana_restriction`, the same
+`game/card_registry.kicker_x_mana_restriction`, the same
 recognize-directly-off-card-text shape `counters.py`/`lands.py` use.
 
 This module is the **single source of truth** for recognising the clause;
 both the coverage gate (`gate.py`, claims the line without emitting a spec)
 and the engine-facing card-level API
-(`game/ability_catalogue.kicker_x_mana_restriction`) call into it, so the
+(`game/card_registry.kicker_x_mana_restriction`) call into it, so the
 shape the gate claims and the shape the engine resolves can never drift
 apart.
 

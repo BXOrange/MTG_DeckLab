@@ -6,7 +6,7 @@
 
 A twin-quoted body `"A" and "B"` — outside `_quoted_ability_grant_effects_
 list`'s single-inner-body recursion — so this is hand-authored
-(`ability_catalogue.special_mechanics._master_chef`) rather than a new parser
+(`card_registry.special_mechanics._master_chef`) rather than a new parser
 grammar for a shape only this card uses. Both clauses reduce to a new
 ``extra_etb_counter`` static (RULE 614.1 entry-counter replacement,
 `continuous.extra_etb_counters_for`, consulted from `RulesEngine._apply_
@@ -21,11 +21,11 @@ from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
-from mtg_analyzer.game import ability_catalogue
+from mtg_analyzer.game import card_registry
 
 
 def test_master_chef_registered_with_both_grant_clauses():
-    specs = ability_catalogue.specs_for(
+    specs = card_registry.specs_for(
         Card(id="mc", name="Master Chef", type_line="Legendary Enchantment — Background")
     )
     assert specs is not None and len(specs) == 1

@@ -7,7 +7,7 @@
 **Engineering ledger, not app data** — tracks which cards the oracle-text
 parser (`parser/oracle/`) currently claims `MODELED`/`UNMODELED`/
 `NEVER_SUPPORTED`, or which are hand-`AUTHORED` in
-`game/ability_catalogue/` instead. Lives under `DATA_DIR` (persistent),
+`game/card_catalogue/` instead. Lives under `DATA_DIR` (persistent),
 deliberately not `cache/` (which gets wiped on schema drift) — a full
 34k-card re-measure is expensive enough that this ledger exists specifically
 so it's never redone from scratch.

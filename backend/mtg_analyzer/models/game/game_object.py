@@ -478,7 +478,7 @@ class GameObject:
         #: this out) rather than the raw `battlefield` list — the one place
         #: that still needs the raw list is `GameEngine._step_untap`'s own
         #: RULE 702.26a phase-in sweep, which must see phased-out objects to
-        #: flip them back. Set/cleared by `game/ability_catalogue.py`'s
+        #: flip them back. Set/cleared by `game/card_catalogue`'s
         #: phase-out effects and that same untap-step sweep.
         self.phased_out: bool = False
         #: Damage marked this turn (RULE 120); cleared during cleanup.

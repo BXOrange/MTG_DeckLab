@@ -1,5 +1,5 @@
 """Blight Curse batch C5 wave 3 — Painful Truths / Grave Venerations
-(hand-authored, `ability_catalogue/blight_curse.py`).
+(hand-authored, `card_registry/blight_curse.py`).
 
 * Painful Truths — RULE 702.108a Converge: ``draw`` + ``lose_life`` with
   ``amount_from_count_selector="converge"`` (new `continuous.count_selector`
@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from mtg_analyzer.game.ability_catalogue import specs_for
+from mtg_analyzer.game.card_registry import specs_for
 from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
 from mtg_analyzer.game.effects.core import GameContext
 from mtg_analyzer.game.game_engine import GameEngine

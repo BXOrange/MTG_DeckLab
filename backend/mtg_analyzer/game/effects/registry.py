@@ -4338,7 +4338,7 @@ EffectRegistry.register(
     # "Artifacts your opponents control enter tapped." (RULE 614.1, board-
     # wide — Manglehorn/Dauntless Dismantler; Archon of Emeria's "Nonbasic
     # lands…" narrows further with ``nonbasic``) — distinct from
-    # `ability_catalogue.enters_tapped` (a card's own printed clause about
+    # `card_registry.enters_tapped` (a card's own printed clause about
     # itself): this is a *different* permanent's standing effect, consulted
     # by `continuous.enters_tapped_from_static`
     # (`RulesEngine._resolve_permanent_spell`/token creation).

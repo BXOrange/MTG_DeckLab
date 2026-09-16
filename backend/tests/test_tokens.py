@@ -278,11 +278,11 @@ def test_producible_tokens_synthesized_from_oracle_and_deduped():
 def test_producible_tokens_named_resolves_curated_art():
     # A bare *named* token resolves to the curated catalogue definition, which
     # carries real Scryfall art — so it's exactly what preloading needs.
-    from mtg_analyzer.game import ability_catalogue
+    from mtg_analyzer.game import card_registry
     from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec
     from mtg_analyzer.services.deck_tokens import producible_tokens
 
-    ability_catalogue.register(
+    card_registry.register(
         "Test Treasure Maker",
         lambda: [AbilitySpec(
             ability_kind="spell_effect",
@@ -296,4 +296,4 @@ def test_producible_tokens_named_resolves_curated_art():
         assert token.name == "Treasure"
         assert token.image_uri_small  # curated art present
     finally:
-        ability_catalogue._REGISTRY.pop("test treasure maker", None)
+        card_registry._REGISTRY.pop("test treasure maker", None)

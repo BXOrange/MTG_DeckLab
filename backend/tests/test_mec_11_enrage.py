@@ -23,7 +23,7 @@ label.
 
 Eleven real Enrage cards remained UNMODELED after that (each blocked on its
 own *effect body*, not the trigger) and are hand-authored in
-`game/ability_catalogue.py`, closing the whole ~25-card Enrage population
+`game/card_registry.py`, closing the whole ~25-card Enrage population
 (one further "Enrage" hit, Borborygmos Enraged, doesn't actually have the
 ability — a name-only false positive, correctly left alone). Several needed
 a small, reusable new primitive rather than being purely bespoke — each
@@ -41,7 +41,7 @@ documented at its own definition:
 
 from __future__ import annotations
 
-from mtg_analyzer.game import ability_catalogue, combat, continuous
+from mtg_analyzer.game import card_registry, combat, continuous
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
@@ -480,8 +480,8 @@ def test_every_hand_authored_enrage_card_binds_without_error():
         "Vrondiss, Rage of Ancients",
     ]
     for name in names:
-        assert ability_catalogue.is_registered(name), name
-        specs_a = ability_catalogue.specs_for(Card(id=name, name=name, type_line="Creature — Test"))
-        specs_b = ability_catalogue.specs_for(Card(id=name, name=name, type_line="Creature — Test"))
+        assert card_registry.is_registered(name), name
+        specs_a = card_registry.specs_for(Card(id=name, name=name, type_line="Creature — Test"))
+        specs_b = card_registry.specs_for(Card(id=name, name=name, type_line="Creature — Test"))
         assert specs_a is not specs_b
         assert specs_a[0] is not specs_b[0]

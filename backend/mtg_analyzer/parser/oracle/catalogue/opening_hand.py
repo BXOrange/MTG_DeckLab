@@ -160,7 +160,7 @@ def pregame_setup_permission(card: Any) -> Optional[PregameSetupPermission]:
     """``card``'s RULE 103.6 pregame setup permission, covering all three
     recognised shapes (plain/conditional-battlefield/graveyard) — or
     ``None`` if it has none. Single source of truth for `game/
-    ability_catalogue.pregame_setup_permission`, the same split every
+    card_registry.pregame_setup_permission`, the same split every
     other clause-shape module in this package uses.
     """
     text = getattr(card, "oracle_text", "") or ""

@@ -1,7 +1,7 @@
 """Secrets of Strixhaven — playability batch, wave 27 (PAR-60).
 
 The "~ becomes prepared" trigger cluster (STX Learn/Prepared DFCs), hand-authored
-in `game/ability_catalogue/commander_cards.py`. New engine primitives: binder
+in `game/card_registry/commander_cards.py`. New engine primitives: binder
 predicates ``spell_mana_value_at_least`` and ``attackers_at_least``;
 `static_conditions` kinds ``graveyard_card_type_count_at_least`` and
 ``any_player_cards_in_hand_at_most``.
@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from mtg_analyzer.game import static_conditions
-from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
+from mtg_analyzer.game.card_registry import _REGISTRY, is_registered
 from mtg_analyzer.game.binding.core import bind_ability
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card

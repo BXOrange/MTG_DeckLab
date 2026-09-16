@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered, specs_for
+from mtg_analyzer.game.card_registry import _REGISTRY, is_registered, specs_for
 from mtg_analyzer.game.binding.core import bind_ability
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone

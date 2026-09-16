@@ -256,17 +256,17 @@ def test_control_change_dependency_overrides_timestamp_order():
 
 @pytest.fixture
 def vesuvan_clone_target(request):
-    from mtg_analyzer.game import ability_catalogue
+    from mtg_analyzer.game import card_registry
     from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec
 
-    ability_catalogue.register(
+    card_registry.register(
         "Test Vesuvan Clone",
         lambda: [AbilitySpec(
             "static",
             [EffectSpec("conditional_copy", {"requires_untapped": True})],
         )],
     )
-    request.addfinalizer(lambda: ability_catalogue._REGISTRY.pop("test vesuvan clone", None))
+    request.addfinalizer(lambda: card_registry._REGISTRY.pop("test vesuvan clone", None))
     return creature("Test Vesuvan Clone", power=6, toughness=6, oracle_text="")
 
 

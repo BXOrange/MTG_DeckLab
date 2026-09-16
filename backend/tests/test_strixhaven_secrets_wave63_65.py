@@ -11,7 +11,7 @@ wave 65: Songbirds' Blessing — pure reuse (``dig_until`` on an
 from __future__ import annotations
 
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.ability_catalogue import _REGISTRY, is_registered
+from mtg_analyzer.game.card_registry import _REGISTRY, is_registered
 from mtg_analyzer.game.binding.core import bind_ability, bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card

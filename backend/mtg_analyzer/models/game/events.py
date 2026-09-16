@@ -135,7 +135,7 @@ class EventType:
     #: simplified to this same per-card firing, since "put a +1/+1 counter
     #: on each of up to X target creatures" and "for each of N chances,
     #: optionally put a counter on up to one target creature" reach the same
-    #: board states; see `game/ability_catalogue.py`) needs to tell a
+    #: board states; see `game/card_catalogue`) needs to tell a
     #: nonland card apart from a land one, which the aggregate event can't
     #: do without a live board lookup. Land mills don't fire this at all —
     #: no real card needs a "mills a land card" trigger yet, so there's
