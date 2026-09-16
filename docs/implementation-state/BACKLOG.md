@@ -71,10 +71,12 @@ its block back into the matching section here.
   > and the batch tickets `PAR-107…PAR-114` are the 2026-09-16 **saved-deck
   > coverage sweep** (`backend/scripts/deck_coverage.py` across all 56
   > saved decks, cross-referenced against `commander_tail_report.py` at
-  > two cluster thresholds — see each ticket's own citation). First free
-  > id: **`PAR-115`**. A genuinely new engine primitive found along the way
-  > still files as its own `MEC-*` ticket — only the sweep itself stays out
-  > of this file.
+  > two cluster thresholds — see each ticket's own citation). `PAR-115…
+  > PAR-116` are the 2026-09-16 connective-grammar/slot-grammar pair (14_
+  > PARSER_GRAMMAR_DESIGN.md's S4/S5, opened once its S0-S3 prerequisites
+  > closed under ENG-34…ENG-37). First free id: **`PAR-117`**. A genuinely
+  > new engine primitive found along the way still files as its own
+  > `MEC-*` ticket — only the sweep itself stays out of this file.
   >
   > **Anti-proliferation note:** a 2-6 card cluster is not automatically its
   > own ticket. Bundle several independently-verified small fixes into one
@@ -715,6 +717,46 @@ its block back into the matching section here.
 > filing — do that first for whichever sub-item you pick up, since a
 > handler's exact shape depends on details (e.g. an intervening "if"
 > clause, a self- vs. target-referent) this scan doesn't capture.**
+
+- **PAR-115 · Connective-grammar rewrite for `parse_effect_body`
+  (residue, not fullmatch).** `13_ORACLE_PARSER_GRAMMAR_REVIEW.md`
+  §3.1/§3.3 / `14_PARSER_GRAMMAR_DESIGN.md`'s S4. Confirmed still live in
+  today's code: `EffectHandler.match`/`segmenter.match_clause`
+  (`catalogue/handlers.py`) only ever claim a clause as a *whole*
+  (`re.fullmatch`, no partial-claim/residue hand-off), and
+  `segmenter.parse_effect_body`'s four-connector split (period, semicolon,
+  "`, then`", "`and`") is all-or-nothing — one part failing discards every
+  sibling that parsed fine (`ok = False; break`). Rewrite
+  `parse_effect_body` as recursive descent over those connectives,
+  replacing `fullmatch` with a mechanism that hands a partially-claimed
+  clause's remainder on instead of abandoning the whole body. Fix the two
+  named positional gaps along the way: mid-body "you may" (today only
+  stripped at the head of a clause) and `UP_TO_ONE`'s hardcoded N=1. This
+  stage's own prerequisite — an atom layer with a declared frame for
+  residue to be handed *to* — is now satisfied (ENG-34/ENG-37's atom
+  inventory + composite IR nodes already shipped). **Highest-risk stage**
+  per `14_`: every currently-MODELED card is re-derived through this path.
+  Mitigation: full existing pytest suite plus a `--full-cache`
+  before/after coverage diff before merging. Track via the
+  templates-per-blocked-card ratio (`13_` §5.1's own methodology — 1.12 at
+  PARSER_VERSION 298, re-measure current), not a `parser_probe.py` card
+  count — this is structural work, not a card cluster.
+- **PAR-116 · Cross-module slot-grammar reuse.** `13_
+  ORACLE_PARSER_GRAMMAR_REVIEW.md` §3.4 / `14_PARSER_GRAMMAR_DESIGN.md`'s
+  S5. Explicitly *not* a re-run of the already-rejected `81c3320`
+  clause-tree-grammar-tier prototype — that experiment showed the
+  damage/destroy/exile family's row variety is genuine semantic/
+  parse-context variety, not redundant surface phrasing. Scope here is
+  cross-*module* grammar reuse instead: `catalogue/static_handlers.py`
+  imports only 5 names from `subgrammars` and never `TARGET`;
+  `catalogue/replacements.py` imports none of `subgrammars` at all; a
+  colour-word dict is independently declared in more than one place.
+  Re-audit each specific instance live before starting (some may already
+  be fixed under PAR-63's `subgrammars.COLOR_LETTERS` unification — don't
+  assume `13_`'s 2026-09-08 snapshot of which duplications remain is still
+  accurate). Track via enumerated row count (394 `HANDLERS` rows + 949
+  hand-authored `card_catalogue/` entries as of this writing) — a passing
+  grade is fewer duplicated micro-grammars, not higher coverage.
 
 ## MEC — Game mechanics
 
