@@ -227,6 +227,16 @@ def subject_of(
         event = getattr(context, "trigger_event", None) or {}
         instance_id = event.get("instance_id")
         return context.state.find_object(instance_id) if instance_id is not None else None
+    if of == "attached":
+        # RULE 303.4a/301.5c's "enchanted permanent"/"equipped creature" —
+        # the host this Aura/Equipment ``source`` is attached to (PAR-117,
+        # "whenever enchanted creature attacks or blocks, its controller
+        # loses N life."). `static_conditions._subject`'s own ``"attached"``
+        # branch resolves the identical relation for a standing condition;
+        # this is the resolving-effect sibling, read straight off ``source``
+        # rather than through that module (no state predicate involved).
+        host_id = getattr(source, "attached_to", None)
+        return context.state.find_object(host_id) if host_id is not None else None
     if of == "counter_recipient":
         event = getattr(context, "trigger_event", None) or {}
         return _player_by_id(context, event.get("recipient_controller_id"))

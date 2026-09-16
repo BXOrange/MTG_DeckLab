@@ -8011,6 +8011,124 @@ measurement of why is the useful half of this work.
   plumbing or interactive-chooser handling — filed as `PAR-117` rather
   than left as an unscoped "S4 residue" note, per this file's own
   discipline against a deferred item rolling over unticketed.
+- **PAR-117's first increment (PARSER_VERSION 415) closed the
+  group-subject sub-shape's bare form.** RULE 603.1's own referent —
+  "whenever a `<type>` [you control] `<verb>`, its controller `<verb2>`
+  …" (Poisonbelly Ogre — "whenever another creature enters, its
+  controller loses 1 life.") — where "its" is whichever object satisfied
+  the trigger condition, a different one every firing, not a creature an
+  earlier clause of the same body targeted. The ticket's own diagnosis
+  held up exactly: `effect_conditions.subject_of("entering", ...)`
+  already resolved this referent (MEC-28's `group_subject_only` pronoun
+  gate, built for "untap **that creature**"), so `GainLifeEffect`/
+  `LoseLifeEffect`/`DrawCardEffect`/`DiscardEffect` needed no engine
+  change at all — the same `{"of": "entering", "as": "controller"}` dict
+  they already read via `_operand_player` for PAR-115's `previous_target`
+  sibling works unchanged. Five new `group_subject_only` rows
+  (`group_its_controller_loses_life`/`_gains_life`/`_draws`/`_discards`/
+  `_mills`) reuse PAR-115's own regexes verbatim, gated on the opposite
+  pronoun scope. `MillEffect` gained one new selector,
+  `"trigger_subject_controller"` — the `"previous_subject_controller"`
+  sibling for this referent, reading the object's controller live (or its
+  RULE 400.7 last-known one for a DIES-shaped trigger — nothing resets
+  `controller_id` on death, confirmed by a direct test) since `MillEffect`
+  resolves its player off a bespoke `selector` string rather than
+  `_operand_player`. **+1 card (Poisonbelly Ogre), 0 regressed**
+  (`parser_probe.py diff`) — the ticket's own seven named examples turned
+  out to mostly need a *second*, independent fix first: `Bereavement`
+  (color-qualified subject), `Kavu Lair`/`MacCready, Lamplight Mayor`
+  (power-qualified subject), `Hissing Miasma`/`MacCready` ("attacks
+  **you**", RULE 506.4's defending-player scope), `Essence Sliver`
+  ("deals damage" has no group-subject route at all), and `Mage Hunters'
+  Onslaught`/`Curse of the Forsaken` (a trailing-tail peel and an
+  attached+group compound, respectively) each fail at
+  `segmenter._trigger_condition()` itself — confirmed returning `None`
+  for every one of those phrasings via direct calls — before this
+  referent ever gets a chance to run; only Poisonbelly Ogre's own "a/
+  another `<type>` [you control] enters/dies/attacks/blocks" condition
+  was already recognized. Each residue phrasing is its own separately-
+  scoped RULE 603.1 trigger-*condition* grammar widening, not a shared
+  fix, and stays open under `BACKLOG.md`'s PAR-117 entry. Verified past
+  the parse verdict: `tests/test_par117_group_subject_controller.py`
+  fires a real `ENTERS_BATTLEFIELD` event through `GameEngine`/
+  `bind_from_catalogue` for the real Poisonbelly Ogre card and confirms
+  the *entering* creature's own controller loses the life (not the
+  Ogre's controller, and not fired at all for the Ogre's own entry —
+  "another creature"), plus a direct DIES-triggered `MillEffect` test
+  proving the RULE 400.7 controller persistence claim above. Full
+  `pytest -q` green (same 17 pre-existing, unrelated failures confirmed
+  via `git stash`).
+- **PAR-117's attached-permanent-controller sub-shape closed
+  (PARSER_VERSION 416).** RULE 303.4/301.5's "enchanted creature/land"
+  referent — "whenever enchanted creature/land `<trigger>`, its
+  controller `<verb>` …" (Contaminated Bond/Corrupted Roots/Sinister
+  Possession/Ragged Veins/Visions of Brutality/Chronic Flooding/Fate
+  Foretold/Decomposition) — a fourth pronoun referent alongside
+  `previous_subject_only`/`group_subject_only`, distinguished from both:
+  not a creature an earlier clause of the body targeted, and not a RULE
+  603.1 group trigger's per-firing object, but the permanent this
+  Aura/Equipment is attached to, named by the *trigger condition itself*
+  (`{"subject": "attached_permanent"}`). The ticket's own diagnosis held
+  up on the trigger side — `segmenter._ATTACHED_SUBJECT_RE`/`_ATTACHED_
+  MULTI_EVENT_RE`, and the `attached` groups already on `_DAMAGE_TRIGGER_
+  RE`/`_DAMAGE_RECIPIENT_TRIGGER_RE`, already recognized every antecedent
+  in this cluster (attacks-or-blocks, becomes-tapped, dies, deals-damage,
+  is-dealt-damage) — but its own suggested shape needed one correction:
+  the ticket proposed widening `effect_conditions.subject_of` to
+  *delegate* an `"attached"`/`"affected"` key to `static_conditions`, but
+  that module's own `CONDITION_SUBJECTS`/`_subject` is deliberately for a
+  *standing* condition (a RULE 613.6 `active_if`), with no notion of
+  targets/context a *resolving* effect's referent needs — delegating would
+  have meant threading resolve-time state through a module that doesn't
+  take it. Instead `subject_of` gained its own `"attached"` case directly
+  (mirroring, not delegating to, `static_conditions._subject`'s identical
+  `source.attached_to` lookup) — the same shape `"entering"`'s own case
+  already has. That one addition was enough for `GainLifeEffect`/
+  `LoseLifeEffect`/`DrawCardEffect`/`DiscardEffect` to read the referent
+  for free through the existing `{"of": "attached", "as": "controller"}`
+  operand `_operand_player` already resolves for `previous_target`/
+  `entering` — no per-class plumbing, exactly as PAR-115/PAR-117's
+  group-subject increment predicted. `MillEffect` (which resolves its
+  player off a bespoke `selector` string, not `_operand_player`) gained
+  one new value, `"attached_permanent_controller"` — the sibling of
+  `"trigger_subject_controller"`, and of `LoseLifeEffect.selector` of the
+  *same* name, which already existed (built for the hand-authored
+  Parasitic Impetus, PAR-60 wave 3) but had no parser row reaching it and
+  no `MillEffect`/`DrawCardEffect` counterpart. A new `handlers.
+  EffectHandler.attached_subject_only` gate gets threaded from the
+  trigger *condition* (not a preceding split clause, unlike the other
+  three pronoun flags) at the one call site all of this cluster's bodies
+  actually reach — `parse_effect_body`'s top-level `match_clause` try —
+  deliberately not deep-threaded into the connector-split/`if_else`
+  recursion the way `group_subject` is, mirroring `self_subject`'s own
+  documented reason: every cached card on this shape is a single clause,
+  so there is nothing yet to say what the pronoun should mean two clauses
+  into a split body. Six new rows reuse PAR-115/PAR-117's own regexes
+  verbatim (`attached_its_controller_loses_life`/`_gains_life`/`_draws`/
+  `_discards`/`_mills`), plus one new pattern for the "that much" DAMAGE-
+  amount form (`_ITS_CONTROLLER_LOSES_THAT_MUCH_LIFE_RE`, reading
+  `amount_from_trigger_event: "amount"` — the same idiom
+  `_lose_life_from_trigger_amount`/`_gain_life_from_trigger_amount`
+  already use for a RULE 115 target/the ability's own controller).
+  `_DAMAGE_RECIPIENT_TRIGGER_RE`'s own post-parse rewrite loop (guards
+  against an ambiguous implicit-self "it" reaching `add_counters` with no
+  real target) needed one widening — an effect whose `player` param is
+  already a resolved referent operand is accepted alongside the existing
+  `target_kind`/`selector` checks, since it was never the ambiguous case
+  that loop exists to catch. **+8 cards (the full named cluster), 0
+  regressed** (`parser_probe.py diff`, isolated from the concurrent
+  PAR-115/117 group-subject work already uncommitted on this branch by
+  reverting just this increment's own hunks, snapshotting, then
+  restoring — confirmed the pre-increment baseline matches CLAUDE.md's
+  own recorded v415 number exactly, 15,901/34,811). Verified past the
+  parse verdict: `tests/test_par117_attached_permanent_controller.py`
+  builds a real Aura attached to a creature controlled by a different
+  player than the Aura's own controller and confirms `lose_life`/
+  `lose_life` (that-much)/`draw`/`mill` all resolve against the
+  *enchanted permanent's* controller, never the Aura's own. Full
+  `pytest -q` green (same 17 pre-existing, unrelated failures confirmed
+  via isolated baseline comparison, plus the parser-version-lock test
+  which this batch's own version bump satisfies).
 
 ### PAR-62: the clause grammar's first connective (`14_` S4, PARSER_VERSION 302)
 

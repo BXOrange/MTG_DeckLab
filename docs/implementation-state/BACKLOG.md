@@ -733,34 +733,51 @@ its block back into the matching section here.
   only` already gates correctly, not a connective needing a rewrite. Real
   residue confirmed still open at PARSER_VERSION 414 via
   `parser_probe.py blocked`, each its own separately-scoped referent axis
-  — do not assume they share PAR-115's own `previous_target` plumbing:
-  - **Attached-permanent controller** — "whenever enchanted creature/land
-    `<trigger>`, its controller `<verb>` …" (Contaminated Bond/Corrupted
-    Roots/Sinister Possession/Ragged Veins/Visions of Brutality/Chronic
-    Flooding/Fate Foretold/Decomposition — a real, single-clause SOLO
-    cluster). `LoseLifeEffect.selector="attached_permanent_controller"`
-    already exists (built for Parasitic Impetus, PAR-60 wave 3) and the
-    trigger-condition grammar (`segmenter._ATTACHED_SUBJECT_RE`/
-    `_ATTACHED_MULTI_EVENT_RE`) already recognizes the antecedent — but no
-    handler row emits the effect body, and `effect_conditions.subject_of`
-    doesn't resolve an `"attached"`/`"affected"` referent at all yet (only
-    `static_conditions`'s own separate machinery does), so `GainLifeEffect`/
-    `DrawCardEffect`/`MillEffect`/`DiscardEffect` can't reach this
-    referent the way they now reach `previous_target` (PAR-115). Widening
-    `subject_of` to delegate those two keys to `static_conditions` (rather
-    than adding a second `attached_permanent_controller`-style selector to
-    every effect class) is probably the right shape — confirm against a
-    second referent-consuming card before committing, per this file's own
-    "existing primitive, missing widening" rule.
-  - **Group-subject (RULE 603.1) controller** — "whenever a `<type>`
-    [you control] `<verb>`, its controller `<verb2>` …" where "its" is the
-    trigger's own firing object, not a chosen target (Bereavement/Curse of
-    the Forsaken/Essence Sliver/Hissing Miasma/Poisonbelly Ogre/Mage
-    Hunters' Onslaught/Kavu Lair). Needs the `"entering"` referent
-    (`effect_conditions.subject_of` already resolves it) threaded the same
-    way PAR-115 threads `"previous_target"` — likely the smaller lift of
-    the three, since no new referent resolution is needed, only new
-    handler rows gated on `group_subject_only`.
+  — do not assume they share PAR-115's own `previous_target` plumbing.
+  **The group-subject sub-shape's bare form closed at PARSER_VERSION 415**
+  (Poisonbelly Ogre, +1) — see `Done_Backend.md`'s PAR-115 entry; its own
+  residue (color/power-qualified subjects, "attacks you", …) is now listed
+  under that sub-bullet below instead of the shape as a whole. **The
+  attached-permanent-controller sub-shape closed at PARSER_VERSION 416**
+  (Contaminated Bond/Corrupted Roots/Sinister Possession/Ragged Veins/
+  Visions of Brutality/Chronic Flooding/Fate Foretold/Decomposition, +8) —
+  see `Done_Backend.md`'s PAR-115 entry:
+  - **Group-subject (RULE 603.1) controller — residue.** The bare shape
+    ("whenever a/another `<type>` [you control] enters/dies/attacks/blocks,
+    its controller `<verb2>` …") is closed (PARSER_VERSION 415,
+    `group_subject_only`-gated rows reusing the `{"of": "entering", "as":
+    "controller"}` referent PAR-115 already proved out, plus a new
+    `MillEffect.selector="trigger_subject_controller"`) — Poisonbelly Ogre
+    modeled, 0 regressed. What's left is real, separately-scoped
+    trigger-*condition* grammar `_trigger_condition()` doesn't recognize at
+    all yet (confirmed via direct calls returning `None`), one axis apiece,
+    not this referent:
+    - Bereavement: "a **green** creature dies" — `_GROUP_SUBJECT_RE` has no
+      color qualifier, only the closed `_GROUP_TYPE_WORDS` main-type list.
+    - Kavu Lair (and MacCready, Lamplight Mayor's own "…and you gain 2
+      life" tail): "a creature **with power N or greater** enters/attacks"
+      — reuse the "with power `<n>` or `<less/greater>`" fragment several
+      one-shot handlers already share, as a new `_GROUP_SUBJECT_RE`
+      qualifier.
+    - Hissing Miasma (and MacCready): "a creature attacks **you**" — RULE
+      506.4's defending-player scope on a group ATTACKS condition; no
+      `_build_group_ok` key reads the event's own `defending_player_id`
+      against this ability's controller yet (the closest existing idiom,
+      `attacked_player_has_lowest_life`, is a *trigger*-level gate, not a
+      group-condition key).
+    - Essence Sliver: "a Sliver **deals damage**" — `_trigger_event` has no
+      group-subject route to a DAMAGE-shaped trigger at all (only the
+      self-subject `_DAMAGE_TRIGGER_RE` family reaches it today); the
+      payoff itself ("gains **that much** life") is already a plain
+      `GainLifeEffect.amount_from_trigger_event` once the condition exists.
+    - Mage Hunters' Onslaught: "a creature blocks **this turn**" — check
+      whether this is real RULE 603.1 scoping or just a trailing-tail peel
+      `_GROUP_SUBJECT_RE`'s own verb match needs to tolerate.
+    - Curse of the Forsaken: "a creature attacks **enchanted player**" — a
+      genuine group-subject/attached-permanent compound (the *attacker* is
+      the RULE 603.1 group; "enchanted player" scopes *which* player it
+      must attack), not a shape either existing condition family expresses
+      alone.
   - **Sacrifice verb** — "its controller sacrifices `<X>` [of their
     choice/unless they pay `<cost>`]" (Celestial Sword/Fade Away/Funeral
     March/Goblin Ski Patrol/Killing Wave/Tainted Aether/Torment of Venom).

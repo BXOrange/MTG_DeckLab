@@ -117,6 +117,20 @@ class EffectHandler:
     #: own spec actually used a recognised group selector (`segmenter.
     #: _announces_group_selector`).
     previous_selector_only: bool = False
+    #: PAR-117 (attached-permanent-controller residue): a row whose clause
+    #: says "its controller `<verb>`" about RULE 303.4/301.5's *attached
+    #: host* ("whenever enchanted creature attacks or blocks, its controller
+    #: loses N life.", Contaminated Bond-shaped) — a fourth, genuinely
+    #: different pronoun referent from all three above: not the ability's own
+    #: source, not an earlier clause's chosen target, and not a RULE 603.1
+    #: group-trigger's firing object, but the permanent this Aura/Equipment
+    #: is attached to, a fact about the trigger's own subject the same way
+    #: ``group_subject_only`` is. Offered only when the caller states the
+    #: trigger really has a ``{"subject": "attached_permanent"}`` condition;
+    #: reads through `effect_conditions.subject_of("attached", ...)`, the
+    #: `game/effect_operands.py` ``{"of": "attached", "as": "controller"}``
+    #: referent.
+    attached_subject_only: bool = False
 
     def match(self, clause: str) -> Optional[list[EffectSpec]]:
         """Effects for ``clause`` if this handler claims it whole, else ``None``.
@@ -2304,6 +2318,120 @@ def _its_controller_mills_eq_power(m: re.Match[str]) -> list[EffectSpec]:
             "type": "mill",
             "params": {"count": "$power", "selector": "previous_subject_controller"},
         }],
+    })]
+
+
+#: PAR-117 (PAR-115's group-subject residue): "whenever a `<type>` [you
+#: control] `<verb>`, its controller `<verb2>` …" (Poisonbelly Ogre-shaped
+#: — "whenever another creature enters, its controller loses 1 life.") —
+#: "its" is RULE 603.1's own group-subject referent (whichever object
+#: satisfied the trigger condition, a different one every firing), not a
+#: creature an earlier clause of this body targeted (`_ITS_CONTROLLER_*`
+#: above) or the ability's own source. `effect_conditions.subject_of
+#: ("entering", ...)` already resolves exactly this — the firing event's
+#: own ``instance_id`` (built for MEC-28's `group_subject_only` pronoun
+#: gate) — so the same ``{"of": …, "as": "controller"}`` referent
+#: `GainLifeEffect`/`LoseLifeEffect`/`DrawCardEffect`/`DiscardEffect`
+#: already read via `_operand_player` (PAR-115) works unchanged; only
+#: `MillEffect` needs a new selector value, the `"previous_subject_
+#: controller"` sibling for this referent instead of `previous_targets`.
+_ENTERING_CONTROLLER: dict = {"of": "entering", "as": "controller"}
+
+
+def _group_its_controller_loses_life(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("lose_life", {
+        "amount": int(m.group("n")), "player": _ENTERING_CONTROLLER,
+    })]
+
+
+def _group_its_controller_gains_life(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("gain_life", {
+        "amount": int(m.group("n")), "player": _ENTERING_CONTROLLER,
+    })]
+
+
+def _group_its_controller_draws(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("draw", {
+        "count": count_or_x_of(m.group("n")), "player": _ENTERING_CONTROLLER,
+    })]
+
+
+def _group_its_controller_discards(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("discard", {
+        "count": count_of(m.group("n")), "player": _ENTERING_CONTROLLER,
+    })]
+
+
+def _group_its_controller_mills(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("mill", {
+        "count": int(m.group("n")), "selector": "trigger_subject_controller",
+    })]
+
+
+#: PAR-117 (attached-permanent-controller residue): "whenever enchanted
+#: creature/land `<trigger>`, its controller `<verb>` …" (Contaminated
+#: Bond/Corrupted Roots/Sinister Possession/Ragged Veins/Visions of
+#: Brutality/Chronic Flooding/Fate Foretold/Decomposition) — "its" is RULE
+#: 303.4/301.5's attached host, a fourth referent alongside
+#: `previous_subject_only`/`group_subject_only` above: the trigger
+#: condition itself already names it (`{"subject": "attached_permanent"}`),
+#: not a pronoun chain within the effect body. `segmenter._ATTACHED_
+#: SUBJECT_RE`/`_ATTACHED_MULTI_EVENT_RE`/the ``attached`` groups on
+#: `_DAMAGE_TRIGGER_RE`/`_DAMAGE_RECIPIENT_TRIGGER_RE` already recognize
+#: every one of this cluster's antecedents; only these bodies were
+#: unclaimed. Reuses the same compiled regexes as the `previous_subject`/
+#: `group_subject` families above (the printed clause text is identical —
+#: only the referent differs) and the same ``{"of": "attached", "as":
+#: "controller"}`` operand `effect_conditions.subject_of`/`game/
+#: effect_operands.py` now resolve (PAR-117's own `subject_of` widening);
+#: `MillEffect` gets the `"attached_permanent_controller"` selector sibling
+#: of `"trigger_subject_controller"` the same way `LoseLifeEffect` already
+#: had one (built for the hand-authored Parasitic Impetus).
+_ATTACHED_CONTROLLER: dict = {"of": "attached", "as": "controller"}
+
+
+def _attached_its_controller_loses_life(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("lose_life", {
+        "amount": int(m.group("n")), "player": _ATTACHED_CONTROLLER,
+    })]
+
+
+def _attached_its_controller_gains_life(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("gain_life", {
+        "amount": int(m.group("n")), "player": _ATTACHED_CONTROLLER,
+    })]
+
+
+def _attached_its_controller_draws(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("draw", {
+        "count": count_or_x_of(m.group("n")), "player": _ATTACHED_CONTROLLER,
+    })]
+
+
+def _attached_its_controller_discards(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("discard", {
+        "count": count_of(m.group("n")), "player": _ATTACHED_CONTROLLER,
+    })]
+
+
+def _attached_its_controller_mills(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("mill", {
+        "count": int(m.group("n")), "selector": "attached_permanent_controller",
+    })]
+
+
+#: "whenever enchanted creature is dealt damage / deals damage, its
+#: controller loses that much life." (Ragged Veins / Visions of Brutality)
+#: — "that much" is the firing DAMAGE event's own ``amount`` field, the same
+#: idiom `_lose_life_from_trigger_amount`/`_gain_life_from_trigger_amount`
+#: already use for a RULE 115 target/the ability's own controller; this is
+#: their attached-host-controller sibling.
+_ITS_CONTROLLER_LOSES_THAT_MUCH_LIFE_RE = _c(r"its controller loses that much life")
+
+
+def _attached_its_controller_loses_that_much_life(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("lose_life", {
+        "amount_from_trigger_event": "amount", "player": _ATTACHED_CONTROLLER,
     })]
 
 
@@ -12828,6 +12956,59 @@ HANDLERS: list[EffectHandler] = [
         "its_controller_mills_eq_power", _ITS_CONTROLLER_MILLS_EQ_POWER_RE,
         _its_controller_mills_eq_power, previous_subject_only=True,
     ),
+    # PAR-117: the same four clauses, reusing the same regexes, gated on
+    # `group_subject_only` instead — "its" is a RULE 603.1 group-subject
+    # trigger's own per-firing object (Poisonbelly Ogre-shaped), not a
+    # creature this same body's earlier clause targeted.
+    EffectHandler(
+        "group_its_controller_loses_life", _ITS_CONTROLLER_LOSES_LIFE_RE,
+        _group_its_controller_loses_life, group_subject_only=True,
+    ),
+    EffectHandler(
+        "group_its_controller_gains_life", _ITS_CONTROLLER_GAINS_LIFE_RE,
+        _group_its_controller_gains_life, group_subject_only=True,
+    ),
+    EffectHandler(
+        "group_its_controller_draws", _ITS_CONTROLLER_DRAWS_RE,
+        _group_its_controller_draws, group_subject_only=True,
+    ),
+    EffectHandler(
+        "group_its_controller_discards", _ITS_CONTROLLER_DISCARDS_RE,
+        _group_its_controller_discards, group_subject_only=True,
+    ),
+    EffectHandler(
+        "group_its_controller_mills", _ITS_CONTROLLER_MILLS_RE,
+        _group_its_controller_mills, group_subject_only=True,
+    ),
+    # PAR-117 (attached-permanent-controller residue): the same clauses
+    # again, gated on `attached_subject_only` instead — "its" is the Aura's
+    # own host (RULE 303.4/301.5), named by the trigger condition itself
+    # rather than a pronoun chain within the body.
+    EffectHandler(
+        "attached_its_controller_loses_life", _ITS_CONTROLLER_LOSES_LIFE_RE,
+        _attached_its_controller_loses_life, attached_subject_only=True,
+    ),
+    EffectHandler(
+        "attached_its_controller_loses_that_much_life",
+        _ITS_CONTROLLER_LOSES_THAT_MUCH_LIFE_RE,
+        _attached_its_controller_loses_that_much_life, attached_subject_only=True,
+    ),
+    EffectHandler(
+        "attached_its_controller_gains_life", _ITS_CONTROLLER_GAINS_LIFE_RE,
+        _attached_its_controller_gains_life, attached_subject_only=True,
+    ),
+    EffectHandler(
+        "attached_its_controller_draws", _ITS_CONTROLLER_DRAWS_RE,
+        _attached_its_controller_draws, attached_subject_only=True,
+    ),
+    EffectHandler(
+        "attached_its_controller_discards", _ITS_CONTROLLER_DISCARDS_RE,
+        _attached_its_controller_discards, attached_subject_only=True,
+    ),
+    EffectHandler(
+        "attached_its_controller_mills", _ITS_CONTROLLER_MILLS_RE,
+        _attached_its_controller_mills, attached_subject_only=True,
+    ),
     # Tried before the plain `lose_life` row below (its own bare
     # `{NUMBER} life` would otherwise stop right after the digit, leaving
     # "for each spell they've cast this turn" unconsumed).
@@ -15661,6 +15842,7 @@ HANDLERS: list[EffectHandler] = [
 def match_clause(
     clause: str, *, self_subject: bool = False, previous_subject: bool = False,
     group_subject: bool = False, previous_selector: bool = False,
+    attached_subject: bool = False,
 ) -> Optional[list[EffectSpec]]:
     """The `EffectSpec`s for one normalised effect ``clause``, or ``None``.
 
@@ -15673,11 +15855,13 @@ def match_clause(
     the same body chose; ``group_subject`` says it is whichever object
     matched this ability's own RULE 603.1 group-subject trigger condition;
     ``previous_selector`` says "they" is the group a mass selector in the
-    preceding clause acted on. Each unlocks its own gated rows (see
-    `EffectHandler.self_subject_only`/``previous_subject_only``/
-    ``group_subject_only``/``previous_selector_only``); with none set — the
-    default, and the only reading available to a clause standing alone — a
-    pronoun claims nothing at all.
+    preceding clause acted on; ``attached_subject`` (PAR-117) says "its" is
+    RULE 303.4/301.5's attached host — this ability's own trigger condition
+    is ``{"subject": "attached_permanent"}``. Each unlocks its own gated rows
+    (see `EffectHandler.self_subject_only`/``previous_subject_only``/
+    ``group_subject_only``/``previous_selector_only``/``attached_subject_
+    only``); with none set — the default, and the only reading available to a
+    clause standing alone — a pronoun claims nothing at all.
     """
     for handler in HANDLERS:
         if handler.self_subject_only and not self_subject:
@@ -15687,6 +15871,8 @@ def match_clause(
         if handler.group_subject_only and not group_subject:
             continue
         if handler.previous_selector_only and not previous_selector:
+            continue
+        if handler.attached_subject_only and not attached_subject:
             continue
         effects = handler.match(clause)
         if effects is not None:

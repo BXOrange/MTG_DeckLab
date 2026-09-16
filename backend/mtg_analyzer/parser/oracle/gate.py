@@ -3168,7 +3168,58 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: and conditional ("if `<X>`, its controller loses…") sibling shapes stay
 #: open — real, separately-scoped residue, not attempted this pass; see
 #: `BACKLOG.md`'s PAR-115 entry.
-PARSER_VERSION = "414"
+#: v415 closes PAR-115's own group-subject residue (PAR-117's first
+#: increment): "whenever a `<type>` [you control] `<verb>`, its controller
+#: `<verb2>` …" (Poisonbelly Ogre — "whenever another creature enters, its
+#: controller loses 1 life."), where "its" is RULE 603.1's own group-subject
+#: referent (whichever object satisfied the trigger, a different one every
+#: firing) rather than a creature an earlier clause of the same body
+#: targeted. `effect_conditions.subject_of("entering", ...)` already
+#: resolves it (MEC-28's own `group_subject_only` pronoun gate), so the same
+#: ``{"of": "entering", "as": "controller"}`` referent `GainLifeEffect`/
+#: `LoseLifeEffect`/`DrawCardEffect`/`DiscardEffect` already read via
+#: `_operand_player` works unchanged — this only adds the `group_subject_
+#: only`-gated rows, reusing PAR-115's own regexes verbatim, plus one new
+#: `MillEffect.selector="trigger_subject_controller"` (`MillEffect` reads
+#: its player off a bespoke selector string, not `_operand_player`). +1
+#: (Poisonbelly Ogre), 0 regressed (`parser_probe.py diff`). PAR-117's
+#: other four sub-shapes (attached-permanent controller, the sacrifice
+#: verb, a conditional wrapper, an "unless" cost alternative) and this same
+#: group-subject shape's own color-/power-qualified and "attacks you"
+#: variants (Bereavement, Kavu Lair, Hissing Miasma, MacCready — each
+#: blocked on `_trigger_condition()` returning `None` for that phrasing, a
+#: separate RULE 603.1 grammar widening apiece, not this referent) stay
+#: open — see `BACKLOG.md`'s PAR-117 entry.
+#: v416 closes PAR-117's attached-permanent-controller sub-shape:
+#: "whenever enchanted creature/land `<trigger>`, its controller `<verb>`
+#: …" (Contaminated Bond/Corrupted Roots/Sinister Possession/Ragged Veins/
+#: Visions of Brutality/Chronic Flooding/Fate Foretold/Decomposition) —
+#: "its" is RULE 303.4/301.5's *attached host*, a fourth pronoun referent
+#: alongside `previous_subject_only`/`group_subject_only`: the trigger
+#: *condition itself* already names it (`{"subject": "attached_permanent"}`,
+#: `segmenter._ATTACHED_SUBJECT_RE`/`_ATTACHED_MULTI_EVENT_RE`/the
+#: ``attached`` groups on `_DAMAGE_TRIGGER_RE`/`_DAMAGE_RECIPIENT_TRIGGER_
+#: RE` already recognized every antecedent in this cluster), not a pronoun
+#: chain within the effect body — so this closes on a new `handlers.
+#: EffectHandler.attached_subject_only` gate, threaded from the trigger
+#: condition rather than from a preceding split clause. New `effect_
+#: conditions.subject_of("attached", ...)` referent (reading ``source.
+#: attached_to``, the resolve-time sibling of `static_conditions._subject`'s
+#: existing standing-condition lookup) lets `GainLifeEffect`/`LoseLifeEffect`/
+#: `DrawCardEffect`/`DiscardEffect` read it through the same ``{"of":
+#: "attached", "as": "controller"}`` operand `_operand_player` already
+#: resolves for `previous_target`/`entering` — no per-class plumbing needed;
+#: `MillEffect` gets a new `selector="attached_permanent_controller"`, the
+#: sibling of `"trigger_subject_controller"` (`LoseLifeEffect.selector` of
+#: the same name already existed, built for the hand-authored Parasitic
+#: Impetus, PAR-60 wave 3 — this was only ever missing the parser row and
+#: the `MillEffect`/`DrawCardEffect` engine reach, not the referent itself).
+#: +8, 0 regressed (`parser_probe.py diff`). PAR-117's remaining residue
+#: (the sacrifice verb, the conditional wrapper, the "unless" cost
+#: alternative, and the group-subject shape's own color-/power-qualified/
+#: "attacks you" variants) is unrelated to this referent and stays open —
+#: see `BACKLOG.md`'s PAR-117 entry.
+PARSER_VERSION = "416"
 
 
 def parser_source_hash() -> str:

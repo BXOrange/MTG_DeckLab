@@ -3579,6 +3579,7 @@ def _with_after_tail(
 def parse_effect_body(
     body: str, *, self_subject: bool = False, previous_subject: bool = False,
     group_subject: bool = False, previous_selector: bool = False,
+    attached_subject: bool = False,
 ) -> Optional[list[EffectSpec]]:
     """A normalised effect ``body`` → its `EffectSpec`s, or ``None`` if unclaimed.
 
@@ -3617,6 +3618,16 @@ def parse_effect_body(
     connector-split loop below the same way ``previous_subject`` is
     (`_announces_group_selector`, resolved at runtime off `effects.
     GameContext.previous_selector` rather than a specific object list).
+
+    ``attached_subject`` (PAR-117) says "its" means RULE 303.4/301.5's
+    attached host — this ability's own trigger condition is ``{"subject":
+    "attached_permanent"}`` ("whenever enchanted creature attacks or
+    blocks, its controller loses N life."), unlocking `handlers.
+    EffectHandler.attached_subject_only` rows. Like ``self_subject``, and for
+    the same reason, it is **not** carried into the connector-split parse
+    below: every cached card printing this shape is a single clause, so
+    there is nothing yet to say what the pronoun should mean two clauses
+    into a split body — left narrow rather than guessed.
     """
     body = body.strip().rstrip(".").strip()
     if not body:
@@ -4002,6 +4013,7 @@ def parse_effect_body(
     direct = match_clause(
         body, self_subject=self_subject, previous_subject=previous_subject,
         group_subject=group_subject, previous_selector=previous_selector,
+        attached_subject=attached_subject,
     )
     if direct is not None:
         return direct
@@ -5184,8 +5196,13 @@ def segment_line(
         body, optional = _peel_optional(damage_trig.group("body"))
         # "Enrage — whenever ~ is dealt damage, **it** fights …": the source is
         # the trigger's own subject, so a bare "it" in the body is the source
-        # (`parse_effect_body`'s ``self_subject``).
-        effects = parse_effect_body(body, self_subject=bool(damage_trig.group("self")))
+        # (`parse_effect_body`'s ``self_subject``). "whenever enchanted
+        # creature deals damage, its controller loses that much life."
+        # (Visions of Brutality, PAR-117) is the attached sibling.
+        effects = parse_effect_body(
+            body, self_subject=bool(damage_trig.group("self")),
+            attached_subject=bool(damage_trig.group("attached")),
+        )
         if effects is None:
             return Segment(raw=raw)
         # "deals combat damage" requires the ``combat`` flag; a bare "deals
@@ -5249,7 +5266,10 @@ def segment_line(
         # source (`parse_effect_body`'s ``self_subject``) — same idiom as
         # the "deals damage" family above.
         is_self_subject = bool(damage_recipient_trig.group("self"))
-        effects = parse_effect_body(body, self_subject=is_self_subject)
+        is_attached_subject = bool(damage_recipient_trig.group("attached"))
+        effects = parse_effect_body(
+            body, self_subject=is_self_subject, attached_subject=is_attached_subject,
+        )
         if effects is None:
             return Segment(raw=raw)
         if not is_self_subject:
@@ -5276,7 +5296,16 @@ def segment_line(
                     params = dict(effect_spec.params)
                     params["trigger_subject_key"] = "target_id"
                     rewritten.append(EffectSpec(effect_spec.type, params, condition=effect_spec.condition))
-                elif effect_spec.params.get("target_kind") or effect_spec.params.get("selector"):
+                elif (
+                    effect_spec.params.get("target_kind")
+                    or effect_spec.params.get("selector")
+                    # "its controller loses N/that much life" (PAR-117,
+                    # Ragged Veins) — an ``attached_subject``-gated row
+                    # already names a resolved referent via ``player``, so
+                    # this isn't an ambiguous implicit-self "it" the rewrite
+                    # above exists to catch; let it through unchanged.
+                    or effect_spec.params.get("player")
+                ):
                     rewritten.append(effect_spec)
                 else:
                     return Segment(raw=raw)
@@ -6235,6 +6264,7 @@ def segment_line(
         effects = parse_effect_body(
             body, self_subject=condition == {"subject": "self"},
             group_subject=(condition or {}).get("subject") == "group",
+            attached_subject=(condition or {}).get("subject") == "attached_permanent",
         )
         if effects is None:
             return Segment(raw=raw)

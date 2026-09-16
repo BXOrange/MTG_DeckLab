@@ -583,8 +583,56 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 45.70% (15,900 / 34,811) as of 2026-09-16, measured at
-PARSER_VERSION 414** (v414 closes PAR-115's first increment — the
+**Coverage: 45.70% (15,909 / 34,811) as of 2026-09-16, measured at
+PARSER_VERSION 416** (v416 closes PAR-117's attached-permanent-controller
+sub-shape: "whenever enchanted creature/land `<trigger>`, its controller
+`<verb>` …" (Contaminated Bond/Corrupted Roots/Sinister Possession/Ragged
+Veins/Visions of Brutality/Chronic Flooding/Fate Foretold/Decomposition) —
+"its" is RULE 303.4/301.5's *attached host*, a fourth pronoun referent
+alongside PAR-115's `previous_subject_only`/PAR-117's own `group_subject_
+only`: the trigger *condition itself* already names it (`{"subject":
+"attached_permanent"}`) — `segmenter._ATTACHED_SUBJECT_RE`/`_ATTACHED_
+MULTI_EVENT_RE`/the `attached` groups on `_DAMAGE_TRIGGER_RE`/`_DAMAGE_
+RECIPIENT_TRIGGER_RE` already recognized every antecedent in this cluster,
+so this closes on a new `handlers.EffectHandler.attached_subject_only` gate
+threaded from the trigger condition, not from a preceding split clause. New
+`effect_conditions.subject_of("attached", ...)` referent (`source.
+attached_to`, the resolve-time sibling of `static_conditions._subject`'s
+existing standing-condition lookup) lets `GainLifeEffect`/`LoseLifeEffect`/
+`DrawCardEffect`/`DiscardEffect` read it through the same `{"of": "attached",
+"as": "controller"}` operand `_operand_player` already resolves for
+`previous_target`/`entering` — no per-class plumbing needed; `MillEffect`
+gets a new `selector="attached_permanent_controller"`, the sibling of
+`"trigger_subject_controller"` (`LoseLifeEffect.selector` of the same name
+already existed, built for the hand-authored Parasitic Impetus, PAR-60 wave
+3 — only the parser row and the `MillEffect`/`DrawCardEffect` engine reach
+were missing). +8, 0 regressed (`parser_probe.py diff`). PAR-117's
+remaining residue (the sacrifice verb, a conditional wrapper, an "unless"
+cost alternative, and the group-subject shape's own color-/power-qualified/
+"attacks you" variants) is unrelated to this referent and stays open — see
+`BACKLOG.md`'s PAR-117 entry.
+v415 closes PAR-115's own group-subject residue
+(PAR-117's first increment) — "whenever a `<type>` [you control] `<verb>`,
+its controller `<verb2>` …" (Poisonbelly Ogre — "whenever another creature
+enters, its controller loses 1 life."), where "its" is RULE 603.1's own
+group-subject referent (whichever object satisfied the trigger, a
+different one every firing) rather than a creature an earlier clause of
+the same body targeted. `effect_conditions.subject_of("entering", ...)`
+already resolves it (MEC-28's own `group_subject_only` pronoun gate), so
+the same `{"of": "entering", "as": "controller"}` referent `GainLifeEffect`/
+`LoseLifeEffect`/`DrawCardEffect`/`DiscardEffect` already read via
+`_operand_player` works unchanged — this only adds the `group_subject_
+only`-gated rows, reusing PAR-115's own regexes verbatim, plus one new
+`MillEffect.selector="trigger_subject_controller"`. +1 (Poisonbelly Ogre),
+0 regressed (`parser_probe.py diff`). PAR-117's other four sub-shapes
+(attached-permanent controller, the sacrifice verb, a conditional wrapper,
+an "unless" cost alternative) and this same group-subject shape's own
+color-/power-qualified and "attacks you" variants (Bereavement, Kavu Lair,
+Hissing Miasma, MacCready) each need their own separate RULE 603.1
+trigger-*condition* grammar widening first — confirmed via
+`_trigger_condition()` returning `None` for every one of those phrasings —
+and stay open; see `BACKLOG.md`'s PAR-117 entry.
+v414 closes PAR-115's first increment — the
 "its controller `<verb>`" family diagnosed as a *referent* (the previous
 clause's target's controller), not the connective-grammar rewrite the
 ticket's own text called for: `segmenter._announces_creature_target`
@@ -1338,7 +1386,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 47.99% (15,270 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 48.00% (15,279 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

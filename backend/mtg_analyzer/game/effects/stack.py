@@ -859,6 +859,24 @@ class MillEffect(GameEffect):
     own payload" idiom `LoseLifeEffect.selector="event_player"`/
     `DealDamageEffect.selector` already use for an analogous "that player"
     subject.
+
+    ``selector="trigger_subject_controller"`` (PAR-117, Poisonbelly Ogre-
+    shaped — "whenever another creature enters, its controller mills a
+    card.") is `"event_controller"`'s RULE 603.1 group-subject sibling:
+    the firing event names the acting object by ``instance_id`` (MEC-28's
+    ``group_subject`` pronoun scope) rather than stamping a
+    ``controller_id`` of its own directly, so this reads the object's
+    controller off the live board (or its RULE 400.7 last-known one, for a
+    DIES-shaped trigger) instead of a flat event field.
+
+    ``selector="attached_permanent_controller"`` (PAR-117, Chronic Flooding
+    — "whenever enchanted land becomes tapped, its controller mills three
+    cards.") is RULE 303.4c's "enchanted permanent" sibling of
+    ``"trigger_subject_controller"`` above: the referent is this Aura's own
+    host (`effect_conditions.subject_of("attached", ...)`, its ``attached_to``
+    link) rather than a RULE 603.1 group-trigger's firing object.
+    `LoseLifeEffect.selector` of the same name already exists for this exact
+    referent (Parasitic Impetus) — this is its `MillEffect` sibling.
     """
 
     def __init__(
@@ -899,6 +917,39 @@ class MillEffect(GameEffect):
             prev = list(context.previous_targets)
             obj = prev[0] if prev else None
             who_id = getattr(obj, "controller_id", None) or getattr(obj, "owner_id", None)
+            try:
+                player = context.state.player_by_id(who_id) if who_id is not None else None
+            except (KeyError, ValueError):
+                player = None
+        elif self.selector == "trigger_subject_controller":
+            # RULE 603.1 group-subject sibling of "previous_subject_
+            # controller" above — "its" is whichever object satisfied this
+            # ability's own group-subject trigger condition (MEC-28), read
+            # via the same referent `effect_conditions.subject_of
+            # ("entering", ...)` resolves off the firing event's own
+            # ``instance_id``. A DIES-shaped trigger's object is gone from
+            # the battlefield but keeps its last-known `controller_id`
+            # (RULE 400.7 — nothing here resets it), so no owner_id
+            # fallback is needed the way the countered-spell case above does.
+            from .. import effect_conditions  # function-scoped: effects↔conditions cycle
+
+            obj = effect_conditions.subject_of("entering", context, self.source, targets)
+            who_id = getattr(obj, "controller_id", None)
+            try:
+                player = context.state.player_by_id(who_id) if who_id is not None else None
+            except (KeyError, ValueError):
+                player = None
+        elif self.selector == "attached_permanent_controller":
+            # RULE 303.4c's "enchanted land" sibling of "trigger_subject_
+            # controller" above — "its" is the Aura's own host, read via the
+            # same `effect_conditions.subject_of("attached", ...)` referent
+            # `LoseLifeEffect.selector` of the same name already uses
+            # (PAR-117, Chronic Flooding: "whenever enchanted land becomes
+            # tapped, its controller mills three cards.").
+            from .. import effect_conditions  # function-scoped: effects↔conditions cycle
+
+            obj = effect_conditions.subject_of("attached", context, self.source, targets)
+            who_id = getattr(obj, "controller_id", None)
             try:
                 player = context.state.player_by_id(who_id) if who_id is not None else None
             except (KeyError, ValueError):
