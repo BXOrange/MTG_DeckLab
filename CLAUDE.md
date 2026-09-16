@@ -1215,8 +1215,8 @@ front-end can't express yet) goes in `game/ability_catalogue.py` — see
 [docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md)
 for the field-by-field how-to and the full `EffectSpec`/layer whitelist.
 
-Implementation state is three kinds of document, kept strictly apart —
-**open points**, **worklogs**, **examples** — all under
+Implementation state is four kinds of document, kept strictly apart —
+**open points**, **worklogs**, **examples**, **singleton queue** — all under
 `docs/implementation-state/`:
 
 | Kind | File | Rule |
@@ -1225,6 +1225,7 @@ Implementation state is three kinds of document, kept strictly apart —
 | Parked / non-goals | `DEFERRED.md` | Low-priority or large-and-unscheduled tickets pulled out of `BACKLOG.md` (they keep their id + full write-up), plus the "never to be built" guardrails (Stickers, Attractions, Vanguard avatars). Same open-scope-only discipline. Promote by moving a block back into `BACKLOG.md`. |
 | Worklogs | `Done_Backend.md`, `Done_Frontend.md` | Catalogues, organized by game-mechanic/app-area (not chronologically) — what shipped and *why it was built that way*, one entry per feature/primitive under a subsystem heading. Entry headings are the stable, searchable unit now (not the whole file being append-only); closing a ticket means filing its narrative under the matching subsystem entry, merging into it if one already covers the same primitive, rather than appending at the end. |
 | Examples | `PARSER_LONG_TAIL.md` | Standing strategy + recurring lessons + enumerated worked samples for the indefinite parser tail. Neither backlog nor worklog. |
+| Singleton queue | `singletons.md` | Cards confirmed (via `parser_probe.py blocked`) to share their exact gap with no other cached card — real work, but not ticket-worthy on their own. A queue for `hand-author-card`, not a ticket; promote a row into a real ticket the moment a second card is found sharing its shape. |
 
 (The former `backend/ToDo_Backend.md` and `frontend/ToDo_Frontend.md` are
 gone — merged into `BACKLOG.md`.) The plan to finish is

@@ -2297,7 +2297,7 @@ is in the rules-engine categories below them.
 
 ## Combat
 
-### PAR-79 — "Can't be blocked this turn" broad recognition (in progress)
+### PAR-79 — "Can't be blocked this turn" broad recognition (closed)
 
 - **What:** `UnblockableEffect`/the `"unblockable"` `EffectRegistry` key
   already existed end to end (ENG-32, built for Rogue's Passage/Giant
@@ -2880,6 +2880,42 @@ is in the rules-engine categories below them.
   proving the mana-spent/historic-spell thresholds gate on the *below*-
   threshold case too, and the `optional`/`previous_subject` compositions
   driven through `engine.resolve_choice`, not just inspected as specs.
+- **Closed out (2026-09-16), 46 SOLO cards confirmed still open at
+  PARSER_VERSION 412 rather than driven to zero in one more increment.**
+  `UnblockableEffect`/the `"unblockable"` key are done; what's left is ~20
+  independently-shaped residue items, several of which turned out — on
+  re-diagnosis with `parser_probe.py blocked` against the full cache, not
+  just this ticket's own search phrase — to be bigger clusters than the
+  ticket's own prose had sized them, or to belong to trigger-condition
+  families several *other* SOLO cards outside "can't be blocked this turn"
+  also sit on. Rather than let that residue keep rolling forward under one
+  ticket id (this project's own standing rule against silent
+  re-deferral), it was triaged card-by-card: checked against every open
+  ticket first (no existing one covered any of it), then re-measured
+  against the full cache to tell a real cluster from a true one-off. Six
+  successor tickets now carry the clustered residue, each sized by its own
+  confirmed SOLO count — `BACKLOG.md`'s **PAR-93** (Contraption crank, 45
+  SOLO — a whole unbuilt RULE 715 sub-mechanic, not really this ticket's
+  own residue at all, just sharing Top-Secret Tunnel's one trigger
+  sentence), **PAR-94** (`dynamic_reduction`'s missing oracle recognizer,
+  37 SOLO), **PAR-95** (RULE 702.140 Adamant, 14 SOLO), **PAR-96** ("N or
+  more mana spent" trigger-body upgrade, 11 SOLO), **PAR-97** (RULE
+  603.3f graveyard-batch mill trigger, 8 SOLO — closes Devourer of Memory
+  as a side effect, the same shape MEC-78's mill-side sibling), and
+  **PAR-98** (a fourteen-item small-residue bundle, 2-6 SOLO each, closing
+  Brotherhood Spy, Creeping Tar Pit, Riverfall Mimic, Wings of
+  Hubris/Goblin Sappers, the two remaining Alora cards, Niambi/Meanders
+  Guide, Guardians of Koilos/Stockpiling Celebrant, Agility
+  Bobblehead/Run for Your Life/Speed, Young Avenger, Martha Jones,
+  Saprazzan Breaker, Dread Charge/Varchild's Crusader, Veiling Oddity,
+  Merfolk Cave-Diver, and Lockjaw). The 21 real one-offs (each confirmed
+  SOLO on 1 with no plausible sibling anywhere in the cache — three of
+  them a genuinely unbuilt hidden-information/bluffing/guessing
+  interactive mechanic each, the rest a distinct compound effect body)
+  moved to [singletons.md](singletons.md) rather than staying as ticket
+  residue — see that file for the full list and what each needs. This
+  ticket itself is now closed; none of its own search phrase remains
+  untriaged.
 
 
 ### MEC-78 — Graveyard-exit batch triggers (RULE 603.3f)
