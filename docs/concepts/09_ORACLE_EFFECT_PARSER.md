@@ -1,30 +1,58 @@
 # DeckLab: Oracle-Text → Effect Parser (Design)
 
-Status: **design agreed, not yet implemented.** This is the plan for the
-open "Oracle-text → effect *parser*" item in
-[docs/implementation-state/BACKLOG.md](../implementation-state/BACKLOG.md) (Rules Engine,
-Phase 2). It builds directly on the effect system already implemented in
+Status: **implemented, and the single biggest ongoing engineering effort in
+this project.** The front-end/back-end split, the IR, and the fail-closed
+coverage gate this document designs are all real, running code
+(`backend/mtg_analyzer/parser/oracle/`, `game/binding/core.py`), not a
+proposal — `PARSER_VERSION` climbs continuously as new handlers land, and a
+large fraction of the ~34,811-card Oracle universe is `MODELED` today. This
+document's job is the **stable architectural shape** — why an IR, why a
+two-stage compiler, what the security boundary is, what the coverage gate
+does — not a running coverage tally: the exact percentage/`PARSER_VERSION`
+changes within a day and already has a canonical, actively-maintained home
+in [`CLAUDE.md`](../../CLAUDE.md)'s "The oracle-text parser is the main
+ongoing effort" section, plus the per-feature worklog in
+[`Done_Backend.md`](../implementation-state/Done_Backend.md) and the
+long-tail strategy in
+[`PARSER_LONG_TAIL.md`](../implementation-state/PARSER_LONG_TAIL.md). Check
+those for "how far has this gotten"; this doc answers "why does it work this
+way."
+
+The design here also isn't the last word on its own shape: two later reviews
+built on it once real coverage data existed —
+[13_ORACLE_PARSER_GRAMMAR_REVIEW.md](13_ORACLE_PARSER_GRAMMAR_REVIEW.md)
+(a structural critique of the handler granularity this document specifies)
+and [14_PARSER_GRAMMAR_DESIGN.md](14_PARSER_GRAMMAR_DESIGN.md) (the
+atom/composition redesign that followed from that critique, partially
+implemented as the IR's `bind`/`seq`/`if_else`/`for_each` composition nodes).
+Both are pointed to again at the sections of this document they most
+directly extend. This document still builds on the effect system in
 [07_GAME_LOOP_EFFECT_SYSTEM.md](07_GAME_LOOP_EFFECT_SYSTEM.md) — read that
 first; this document does not re-explain the effect hierarchy.
 
 ---
 
-# THE GAP
+# THE GAP (historical — why this was built)
 
-The engine has effects but no way to *derive* them from a card. Concretely
-(`../../backend/mtg_analyzer/game/rules_engine.py`
-`_effects_for_spell`): an instant/sorcery resolves as a no-op unless a
-fixture hand-attaches effects via the `spell_effects` hook. What's missing
-is the single transformation:
+Before this pipeline existed, the engine had effects but no way to *derive*
+them from a card: an instant/sorcery resolved as a no-op unless a fixture
+hand-attached effects via a `spell_effects` hook
+(`RulesEngine._effects_for_spell`, today `game/rules/casting_mixin.py` — see
+CLAUDE.md's "composition of per-responsibility mixins" note for why this
+method no longer lives directly in `rules_engine.py`). What was missing was
+the single transformation:
 
 ```
 oracle_text  ──►  [GameEffect]  attached to a GameObject
 ```
 
-Everything downstream already exists: the four-type effect hierarchy, the
-concrete one-shots (`DealDamage`, `DrawCard`, …), the `EffectRegistry`
-(`type` + `params` → `GameEffect`), the event bus, replacement/trigger
-machinery, and the `GameObject` ability lists that hold them.
+That transformation is what this document designs, and what now runs for
+every card, every game: the four-type effect hierarchy, the concrete
+one-shots (`DealDamage`, `DrawCard`, …), the `EffectRegistry` (`type` +
+`params` → `GameEffect`), the event bus, and replacement/trigger machinery
+this section originally listed as "downstream and already existing" are now
+joined by the two stages that produce their input — the parser front-end and
+the binder — described below.
 
 ---
 
@@ -43,6 +71,34 @@ oracle_text ──► [FRONT-END: parser] ──► AbilitySpec[]   (pure JSON d
                                              ▼
                                     existing RulesEngine (unchanged)
 ```
+
+The front-end lives in `backend/mtg_analyzer/parser/oracle/`; the binder is
+`game/binding/core.py` (its own module docstring names itself "docs/09
+back-end"), whose `bind_from_catalogue(obj)` is the one hook the game
+builder calls for every `GameObject` it creates. That binder is fed by
+**two** sources of `AbilitySpec`s, not just this document's parser — the
+oracle-text front-end is only one of them:
+
+- the **hand-authored catalogue** (`game/card_catalogue/`, one file per
+  card, registered through `game/card_registry/core.py`'s `register`) for
+  cards whose ability needs a replacement effect, a real conditional
+  predicate, or a body the parser's grammar can't yet express — see
+  CLAUDE.md's "Hand-authored card catalogue layout" for how that package is
+  organized;
+- **this document's oracle-text parser** for everything else.
+
+`game/card_registry/core.py`'s `specs_for(card)` is where the two meet: it
+checks the hand-authored registry first (trusted wholesale when present),
+always folds in the keyword catalogue, and falls back to this parser's
+`parse_oracle(card)` only for a card with no registry entry — and even then
+only adds its effect-bearing specs when the parser's own verdict for that
+card is `MODELED` (the fail-closed rule below applies here too: an
+unregistered, partially-parsed card contributes no effects rather than
+half of them). Both sources produce the exact same `AbilitySpec` IR and
+flow through the exact same binder — this document's front-end/back-end
+split and security boundary apply equally to hand-authored specs, which is
+why `card_catalogue/` factories build `AbilitySpec`/`EffectSpec` values
+rather than writing `GameEffect`s directly.
 
 Why the IR is not ceremony:
 
@@ -88,7 +144,10 @@ One ability = one spec. Pure JSON-serializable data; no behavior.
 ```jsonc
 AbilitySpec {
   ability_kind: "spell_effect" | "triggered" | "activated" | "static"
-              | "replacement" | "keyword",
+              | "replacement" | "enter_replacement" | "keyword",
+  // the exact set is `spec.ALLOWED_ABILITY_KINDS`; "enter_replacement"
+  // (RULE 601.2b/614.1c "as ~ enters, choose...") was added after this
+  // document's original six-kind draft — see spec.py for the current list.
   trigger?:  { event: EventType, condition?: { ... } },        // triggered
   cost?:     { mana?: "{2}{R}", taps_self?: true,
                sacrifice?: { ... } },                          // activated
@@ -118,7 +177,8 @@ the decision below; that source value is unused.)
 
 A **handler** is the unit of the catalogue: a **regex that identifies and
 extracts**, paired with a **builder that emits an `AbilitySpec`** (data,
-never executed behavior).
+never executed behavior). The real shape (`EffectHandler` in
+`parser/oracle/catalogue/handlers.py`):
 
 ```python
 Handler("damage") = (
@@ -131,15 +191,33 @@ Handler("damage") = (
 )
 ```
 
-## Form: declarative-first, with a code escape hatch
+## Form: one handler shape, safety enforced at the IR boundary, not by syntax
 
-- **Declarative rows** — `{regex, effect_type, param_mapping}` committed to
-  the repo — are the primary form and cover the templated majority. The
-  interpreter is fixed code; rows only reference whitelisted
-  `EffectRegistry` types through a constrained param-mapping. This is what
-  keeps the analyzer safe (below) and makes the catalogue *a catalogue*.
-- **Code handlers** — a hand-written escape hatch for genuinely irregular
-  cards — live in the repo behind the same handler interface.
+The shipped catalogue didn't keep this document's original two-tier
+"declarative rows vs. a code escape hatch" split. Every row is the same
+shape — `EffectHandler(name, regex, build)`, where `build` is an ordinary
+Python function from a regex match to `EffectSpec`s
+(`parser/oracle/catalogue/handlers.py`'s `EffectHandler` dataclass) — so
+there is no separate simpler declarative format and no dedicated
+"code_handlers.py" file; an "irregular" clause is just a row with a more
+involved `build` function, committed to the repo like any other.
+
+This does not weaken the security argument — it relocates it correctly.
+Safety was never going to come from restricting *how a row is written*
+(a sufficiently expressive param-mapping DSL is just code with extra
+steps); it comes from what a `build` function is allowed to *produce* and
+what happens to that output next: a `build` function only ever returns
+`EffectSpec`/`AbilitySpec` data (never executes anything itself), and
+`spec.py` validates that data at the boundary — unknown `ability_kind`/
+effect `type` is rejected, numeric params are clamped
+(`MAX_EFFECT_MAGNITUDE`) — before the binder ever instantiates a real
+`EffectRegistry` class from it. See "SECURITY MODEL" below.
+
+The genuine escape hatch for a card this front-end's grammar can't express
+at all — a real replacement effect, a conditional predicate too specific to
+generalize, a one-off body — is hand-authoring straight into
+`game/card_catalogue/` (see "CORE ARCHITECTURE" above), entirely outside
+`parser/oracle/`, not a code-handler tier within it.
 
 ## Keyword abilities: the privileged fast-path handler class
 
@@ -155,7 +233,7 @@ Treat them as a first-class handler class, not as free-text regex:
   extract one param — a trivial, unambiguous sub-grammar.
 - **Scryfall gives them for free.** Every card already carries a
   machine-readable `keywords` array
-  (`../../backend/mtg_analyzer/models/card.py`
+  (`../../backend/mtg_analyzer/models/cards/card.py`
   `Card.keywords`). Use it to *anchor* the keyword pass: the array names
   which keywords are present, the catalogue supplies each keyword's spec
   (and extracts any parameter from the matching oracle line). This is a
@@ -330,6 +408,13 @@ abilities, and effect clauses — is claimed.** Any unclaimed span →
 what it says produces silently wrong game states, which is worse than one
 that is honestly not implemented yet.
 
+A third verdict, `NEVER_SUPPORTED`, exists alongside `MODELED`/`UNMODELED`
+for text the project has declared a permanent non-goal (RULE 123 Stickers is
+the one case today, `gate._mentions_stickers`) — classified separately so it
+never surfaces in the `UNMODELED` processing-list backlog, where it would sit
+forever since no handler will ever claim it. See `gate.py`'s own
+`NEVER_SUPPORTED` docstring and `DEFERRED.md`'s non-goal guardrails.
+
 Three consequences:
 
 1. **This gates the game engine, not the card cache.** An `UNMODELED` card
@@ -348,32 +433,51 @@ Three consequences:
 
 ---
 
-# RUNTIME LINKING: PARSE-ON-LOAD, BIND-PER-GAME
+# RUNTIME LINKING: PARSE-ON-BIND, MEMOIZED IN PROCESS
 
 Because the deterministic parse is cheap (regex over normalized text), the
 base design **does not persist the link.** The repo catalogue is the sole
-source of truth; the link is recomputed whenever a card is served, so there
-is nothing to invalidate — add a handler and the next load reflects it.
+source of truth; the link is recomputed whenever a card is bound into a
+game, so there is nothing to invalidate — add a handler and the next bind
+reflects it.
 
-Linking splits into two runtime phases by durability:
+Linking splits into two conceptual phases by durability, but in the shipped
+code both happen together, triggered from the same call:
 
-1. **Parse** — `oracle_text → AbilitySpec[]`. Runs at **load time**, right
-   where
-   [`LazyCardLoader.load_cards`](../../backend/mtg_analyzer/services/lazy_card_loader.py)
-   returns (or lazily on first access). Pure, deterministic, memoizable.
+1. **Parse** — `oracle_text → AbilitySpec[]`, via `parse_oracle(card)`
+   (`gate.py`). Pure and deterministic, and **memoized in-process** keyed on
+   a content hash of the fields it actually reads (name, oracle text,
+   keywords, type flags — `gate._parse_cache_key`), so a repeatedly-bound
+   card is parsed once per process, not once per object.
 2. **Bind** — `AbilitySpec[] → GameEffect` objects attached to a
-   `GameObject`. Runs **per game instance** at game start (each effect holds
-   its own `source`). **Never persisted.**
+   `GameObject`. **Never persisted.**
+
+Both run from `game/binding/core.py`'s `bind_from_catalogue(obj)` — called
+for **every `GameObject` a game creates** (an original permanent, a token, a
+copy, a card entering from the library — see `game/variants.py`,
+`game/copy_mechanics.py`, `game/rules/copies_mixin.py`,
+`services/game_session.py`, `services/replay.py` for its call sites), not at
+card-cache load time: the card cache (`LazyCardLoader`) stores and serves
+only the raw card, with no knowledge of `AbilitySpec`s at all. "Parse first,
+bind every time it's needed" is still the effective behaviour — the parse
+cache means only the *first* bind of a given card's text in a process pays
+the regex cost — but the trigger point is per-object creation inside a
+running game, not the card-loading pipeline.
 
 Ingest (`save_card`) is unchanged and stores only the raw card. The link is
 never written into the card row.
 
-## Optional memoization (only if parse becomes hot)
+## Optional persistent memoization (only if the in-process cache isn't enough)
 
-Add a memo layer keyed by `catalogue_version`, as an explicitly
-**disposable** derived store — its own gitignored table, reconciled like the
-card DB's schema-version check but hashing the *catalogue* files, never the
-card row. This is an optimization, not a source of truth.
+`parse_oracle`'s cache above is process-local and empties on restart. Should
+that ever prove insufficient (e.g. a very large batch job restarting
+often), the design still allows a persistent memo layer keyed by
+`catalogue_version`/`PARSER_VERSION`, as an explicitly **disposable**
+derived store — its own gitignored table, reconciled like the card DB's
+schema-version check but hashing the *catalogue* files, never the card row.
+This remains unbuilt; the closest existing thing is
+`services/coverage_db.py`'s engineering ledger, which is a coverage-tracking
+tool (see "THE PROCESSING LIST" below), not a hot-path cache.
 
 ---
 
@@ -459,44 +563,72 @@ preserved below for reference in case the decision is revisited.
 
 ```
 parser/oracle/            # FRONT-END — pure, no game/ imports
-  normalize.py            # reminder-strip, digit-words, plural folding
-  segmenter.py            # split abilities; peel trigger/cost/keyword wrappers
-  catalogue/              # the repo-committed handler catalogue
-    handlers.py           # declarative rows {regex, effect_type, param_mapping}
-    subgrammars.py        # shared TARGET / NUMBER / DURATION matchers
-    code_handlers.py      # escape hatch for irregular cards
-  spec.py                 # AbilitySpec dataclasses + JSON (de)serialize + validate
-  gate.py                 # full-span coverage check → MODELED / UNMODELED
-  processing_list.py      # template-abstract + dedupe unclaimed clauses
+  normalize.py            # step 1 NORMALIZE: reminder-strip, digit-words, plural folding
+  segmenter.py            # step 2 SEGMENT: split abilities; peel trigger/cost/keyword wrappers
+  catalogue/              # the repo-committed handler catalogue (step 3 MATCH)
+    handlers.py           # EffectHandler(name, regex, builder) rows — the effect-clause table
+    keywords.py            # the RULE 702 keyword catalogue (flag + parametric shapes)
+    static_handlers.py     # static/continuous-effect clauses (RULE 613)
+    replacements.py        # replacement-effect clauses (RULE 614/616)
+    subgrammars.py         # shared TARGET / NUMBER / DEVOTION / … matchers
+    counters.py, lands.py, modal.py, levels.py, saga.py, station.py,
+    kicker_mana.py, opening_hand.py   # smaller per-mechanic clause families
+  spec.py                 # AbilitySpec dataclasses + JSON (de)serialize + validate + clamp
+  gate.py                 # step 4 GATE: full-span coverage check → MODELED / UNMODELED / NEVER_SUPPORTED
+  processing_list.py      # template-abstract + dedupe unclaimed clauses (the backlog ranking)
   # analyzer.py            # NOT PLANNED — see the 2026-08-27 decision above
 
-game/binding/core.py     # BACK-END — AbilitySpec[] → GameEffect via EffectRegistry
-services/card_effects.py  # (optional) disposable memo cache keyed by catalogue_version
+game/binding/core.py      # BACK-END — AbilitySpec[] → GameEffect via EffectRegistry;
+                           # bind_from_catalogue(obj) is the one call site every
+                           # GameObject-creation path uses
+game/card_registry/core.py    # specs_for(card): hand-authored registry → keyword
+                               # catalogue → parser fallback (only when MODELED)
+game/card_catalogue/          # the OTHER AbilitySpec source: one hand-authored
+                               # file per card (see CLAUDE.md's "Hand-authored
+                               # card catalogue layout")
+services/coverage_db.py   # the persistent engineering ledger the coverage gate's
+                           # results feed (not a hot-path cache — see below)
 ```
+
+A disposable, hot-path parse cache keyed on `catalogue_version`/
+`PARSER_VERSION` (the "optional memoization" above) remains unbuilt beyond
+`parse_oracle`'s own in-process memo; there is no `services/card_effects.py`
+or equivalent today.
 
 ---
 
-# PHASED IMPLEMENTATION PLAN
+# IMPLEMENTATION HISTORY (Phase 0–2 shipped; Phase 3 decided against)
 
-- **Phase 0 — IR + binder + one card end-to-end.** Define `AbilitySpec`,
-  write the binder over the existing `EffectRegistry`, hand-wire one card
-  (e.g. Lightning Bolt) through IR → binder → `spell_effects` → resolves in
-  a game test. Proves the seam with **no parsing** and a few hundred lines.
-- **Phase 1 — deterministic handler table + coverage gate.** Normalize,
-  segment, and the effect-family handlers for what the engine already
-  supports (damage/draw/destroy/discard/gain_life/counter/search) +
-  keywords. Factored sub-grammars. Coverage metric in tests.
-- **Phase 2 — triggered/activated/static wiring + load-time linking.**
-  Trigger-phrase → `EventType` table, cost parsing, attach to `GameObject`
-  ability lists; parse-on-load in `LazyCardLoader`; optional memo cache.
-- **Phase 3 — analyzer + LLM fallback. Decided against, not planned** (see
+The phased build-out this document originally proposed is complete for
+everything except the one phase the project explicitly declined:
+
+- **Phase 0 — IR + binder + one card end-to-end.** Done: `AbilitySpec`
+  (`spec.py`), the binder (`game/binding/core.py`), proven against the
+  `spell_effects`/`_effects_for_spell` seam this document's "THE GAP"
+  section describes.
+- **Phase 1 — deterministic handler table + coverage gate.** Done and has
+  grown far past its original scope: `normalize`/`segment`/`catalogue/
+  handlers` + `gate.py`'s fail-closed `MODELED`/`UNMODELED`/
+  `NEVER_SUPPORTED` verdict, with shared sub-grammars per "Factor shared
+  sub-grammars" above (of varying discipline — see that section's own
+  account of where the debt lives).
+- **Phase 2 — triggered/activated/static/replacement wiring + linking.**
+  Done: every `AbilitySpec.ability_kind` this document lists resolves
+  through the binder into live `TriggeredAbility`/`ActivatedAbility`/
+  `StaticAbility`/`ReplacementEffect` objects; linking happens as described
+  in "RUNTIME LINKING" above (parse-on-bind, not parse-on-cache-load as
+  originally sketched).
+- **Phase 3 — analyzer + LLM fallback.** Decided against, not planned (see
   the decision under "THE PROCESSING LIST + ANALYZER MODULE"). The
   template backlog and review pipeline it would have fed
   (`processing_list.py`) are still real and in use for hand-authoring; the
   ingest-time LLM tier itself was never built and won't be.
 
-Phase 0 de-risks the entire design by validating the IR boundary against
-the real `RulesEngine` before any NLP is written.
+What actually drove coverage from Phase 1's initial handler set to where it
+is now is not further phases of *this* document's plan — it's the ongoing,
+ticket-by-ticket parser work `CLAUDE.md` and `Done_Backend.md` track, plus
+the structural follow-on design in 13/14 above. This document stops being
+the roadmap once Phase 2 lands; for "what's next," see those.
 
 ---
 
@@ -504,13 +636,16 @@ the real `RulesEngine` before any NLP is written.
 
 - `game/effects/core.py` — `EffectRegistry` is the binder's target; extend with
   new effect types as handlers need them.
-- `game/rules_engine.py` — `_effects_for_spell` / the `spell_effects` hook
-  is where a spell's bound effects arrive (already the designed seam).
-- `models/game_object.py` — `triggered_abilities` / `replacement_effects` /
+- `game/rules/casting_mixin.py` — `_effects_for_spell` / the `spell_effects`
+  hook is where a spell's bound effects arrive (originally on
+  `RulesEngine` directly; now one of the per-responsibility mixins
+  `RulesEngine` composes — see `CLAUDE.md`'s "Architecture & data flow").
+- `models/game/game_object.py` — `triggered_abilities` / `replacement_effects` /
   `static_effects` / `activated_abilities` lists receive bound permanents'
   effects.
-- `services/lazy_card_loader.py` — `load_cards` return is the parse-on-load
-  hook; `save_card` stays raw-card-only.
-- `models/events.py` — `EventType` is the vocabulary `trigger.event` maps
-  to; new triggers may add constants here.
-```
+- `game/binding/core.py` — `bind_from_catalogue(obj)` is the actual call
+  site every object-creation path uses (see "RUNTIME LINKING" above); the
+  card cache (`services/lazy_card_loader.py`) itself stays raw-card-only
+  and has no `AbilitySpec` awareness.
+- `models/game/events.py` — `EventType` is the vocabulary `trigger.event`
+  maps to; new triggers may add constants here.
