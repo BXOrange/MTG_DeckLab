@@ -3135,7 +3135,40 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: wiring. 87 real MODELED-but-wrong cards fixed, 0 coverage change (all 87
 #: were already MODELED — this corrects the emitted spec, not the
 #: MODELED/UNMODELED verdict), 0 regressed (`parser_probe.py diff`).
-PARSER_VERSION = "413"
+#: v414 closes PAR-115's first increment — `14_` S4's own
+#: "one part failing discards every sibling" disease, attacked the same
+#: incremental way PAR-62 already proved out rather than the ticket's own
+#: "rewrite `parse_effect_body`" framing: "`<destroy/exile/counter/return/
+#: tap X>`. its controller `<verb>` …" is a *referent*, not a connective —
+#: `segmenter._announces_creature_target` already flips `previous_subject=
+#: True` after exactly the right antecedent clauses (built across PAR-18/
+#: 30/71), and `EffectHandler.previous_subject_only` already gates a row on
+#: it, so this only adds the rows themselves: `lose_life`/`gain_life`/
+#: `draw` read the referent through `game/effect_operands.py`'s
+#: ``{"of": "previous_target", "as": "controller"}`` (the same vocabulary
+#: `game/card_catalogue/swords_to_plowshares.py`/`nature_s_claim.py`
+#: already spell out by hand for one card each), and `mill` reuses
+#: `MillEffect`'s own pre-existing ``selector="previous_subject_controller"``
+#: (built for Broken Ambitions, MEC-50). Two amount forms beyond a flat
+#: number reuse ENG-37's `bind` node the same way `swords_to_plowshares.py`
+#: does: "gains life equal to its mana value" (Illumination), "mills cards
+#: equal to that creature's power" (Grisly Spectacle). `DiscardEffect.
+#: player` gained the same referent-dict resolution `GainLifeEffect`/
+#: `LoseLifeEffect`/`DrawCardEffect` already had via `GameEffect.
+#: _operand_player`; `MillEffect` needed no engine change at all. +34, 0
+#: regressed (`parser_probe.py diff`), including two cards needing no new
+#: grammar at all: Death Bomb (the pre-existing `_NO_REGEN_SENTENCE_RE`
+#: "after" tail already threads `previous_subject` through) and Zulaport
+#: Duelist (`_announces_creature_target`'s generic `_CREATURE_TARGET_KINDS`
+#: scan already covers a `pump` clause's own `target_kind`). The
+#: sacrifice-verb, group-subject ("whenever a creature dies, its
+#: controller discards…"), attached-permanent ("enchanted creature/land",
+#: RULE 303.4c — the referent axis `effect_conditions.subject_of` doesn't
+#: resolve yet, only `static_conditions`'s own separate machinery does),
+#: and conditional ("if `<X>`, its controller loses…") sibling shapes stay
+#: open — real, separately-scoped residue, not attempted this pass; see
+#: `BACKLOG.md`'s PAR-115 entry.
+PARSER_VERSION = "414"
 
 
 def parser_source_hash() -> str:

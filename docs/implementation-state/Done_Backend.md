@@ -7918,6 +7918,100 @@ measurement of why is the useful half of this work.
   (ENG-38's `pay_cost_then`, then this ticket's gate on "if ~ is tapped"), and
   each time it said *which* clause went instead of "2 != 1".
 
+### PAR-115: "its controller `<verb>`" is a referent, not a connective (`14_` S4, PARSER_VERSION 414)
+
+- **What:** `13_ORACLE_PARSER_GRAMMAR_REVIEW.md` §3.1/§3.3 framed this
+  ticket as rewriting `segmenter.parse_effect_body` into recursive descent
+  over its four connectives, replacing the all-or-nothing `fullmatch` split
+  with a residue mechanism — "highest-risk stage... every currently-MODELED
+  card is re-derived through it." Diagnosing the ticket's own motivating
+  family first (`parser_probe.py blocked` on `its controller (loses|mills|
+  discards|sacrifices|draws|gains)` — 94 cards, 78 SOLO at PARSER_VERSION
+  413) found the rewrite unnecessary for it: "`<destroy/exile/counter/
+  return/tap X>`. its controller `<verb>` …" is an ordinary *referent*
+  (the previous clause's target's controller), and the referent-chain
+  gate it needs already exists — `segmenter._announces_creature_target`
+  already flips `previous_subject=True` after exactly the right antecedent
+  clauses (built incrementally across PAR-18/30/71 for the "it"/"that
+  creature" pronoun), and `EffectHandler.previous_subject_only` already
+  offers a row only when that gate is set. The whole gap was that no row
+  existed for the *controller* derivation of that same referent. Same
+  finding PAR-62 already recorded once: "S4 lands in increments, contrary
+  to the ticket's own framing" — applied a second time, to a different
+  part of the ticket's own motivating evidence.
+- **Files:** `parser/oracle/catalogue/handlers.py` (seven new
+  `previous_subject_only` rows: `its_controller_loses_life`/`_gains_life`/
+  `_gains_life_eq_mv`/`_draws`/`_discards`/`_mills`/`_mills_eq_power`),
+  `parser/oracle/gate.py` (v414), `game/effects/damage_draw.py`
+  (`DiscardEffect.player` gains the referent-dict resolution), `tests/
+  test_par115_its_controller_family.py`.
+- **The referent, reused rather than reinvented.** `lose_life`/`gain_life`/
+  `draw` read `{"of": "previous_target", "as": "controller"}` through
+  `game/effect_operands.py` — the exact vocabulary `game/card_catalogue/
+  swords_to_plowshares.py`/`nature_s_claim.py` already spell out by hand
+  for one card each (`GainLifeEffect.player`/`DrawCardEffect.player`
+  already resolved it via `GameEffect._operand_player`, needing zero engine
+  change). `mill` reuses `MillEffect.selector="previous_subject_controller"`
+  — built for Broken Ambitions (MEC-50) and already tested
+  (`test_mec50_clash_win_branches.py`) — rather than adding a second
+  mechanism. `DiscardEffect.player` was the one real engine gap: its own
+  `apply` never routed `self.player` through `_operand_player` at all, so
+  it gained the same one-line resolution its three siblings already had.
+- **Two amount forms beyond a flat number, via `bind`.** "gains life equal
+  to its mana value" (Illumination) and "mills cards equal to that
+  creature's power" (Grisly Spectacle) each measure the referent's own
+  characteristic once through an ENG-37 `bind` node feeding `$mv`/`$power`
+  into the verb's `amount`/`count` — the identical composition
+  `swords_to_plowshares.py` already uses for "gains life equal to its
+  power", generalized here into an ordinary
+  `{"kind": "characteristic", "of": "previous_target"}` parser row instead
+  of a hand-authored one-off.
+- **Two cards needed no new grammar at all**, once the rows existed: Death
+  Bomb ("destroy target `<X>`. it can't be regenerated. its controller
+  loses N life.") — the pre-existing `_NO_REGEN_SENTENCE_RE` special case
+  already threads `previous_subject=_announces_creature_target(before_
+  specs)` through its "after" tail, so the destroy-then-no-regen-then-its-
+  controller three-clause chain just worked; and Zulaport Duelist ("up to
+  1 target creature gets -2/-0... its controller mills 2 cards.") — a
+  `pump` clause's own `target_kind` was already inside
+  `_announces_creature_target`'s generic `_CREATURE_TARGET_KINDS` scan, so
+  the referent chain carried across a *pump*, not just a destroy/exile,
+  with no widening needed.
+- **+34 cards, 0 regressed** (`parser_probe.py diff` against the full
+  ~35k-card cache) — Ajani, Inspiring Leader / Assassin's Strike / Call to
+  Heel / Certain Death / Clutch of the Undercity / Countermand /
+  Countersquall / Death Bomb / Desecrated Earth / Despoil / Didn't Say
+  Please / Dismal Failure / Dream Fracture / Exterminate! / Glen Elendra
+  Guardian / Glissa's Scorn / Grisly Spectacle / Hideous End / Illumination
+  / Inevitable Defeat / Introduction to Annihilation / Last Breath / Launch
+  Party / Ob Nixilis, the Hate-Twisted / Psychic Barrier / Psychic Strike /
+  Punish Ignorance / Sip of Hemlock / Spreading Rot / Thought Collapse /
+  Undermine / Vapor Snag / Victorious Destruction / Zulaport Duelist.
+  Verified past the parse verdict via `engine_bench.py` (Certain Death,
+  Death Bomb) and `tests/test_par115_its_controller_family.py`'s own
+  build-effects-directly execute tests (Countermand's/Grisly Spectacle's
+  `mill`, Illumination's `bind`-measured `gain_life`, Assassin's Strike's
+  `discard`) — the right player is affected in every case, not just a
+  claimed spec. Full `pytest -q` green (the 17 pre-existing, unrelated
+  failures on this branch — `test_isa_inventory.py`/`test_target_frames.py`/
+  `test_showcase_deck.py`/others — were confirmed via `git stash` to
+  predate this change).
+- **A trailing "and you {gain,lose} N life" needed no grammar of its own**
+  (Certain Death/Inevitable Defeat/Punish Ignorance's own "its controller
+  loses N life **and you gain N life**"): `segmenter._CONNECTORS`' own
+  " and " split already recurses into `parse_effect_body` on the
+  remainder with the referent chain re-evaluated per part, and the
+  ordinary bare `gain_life`/`lose_life` rows already claim "you gain/lose
+  N life" by themselves — composing for free rather than needing a
+  dedicated combined-clause row.
+- **Real residue, deliberately not attempted this pass:** the
+  attached-permanent ("enchanted creature/land"), group-subject (RULE
+  603.1 "entering" referent), sacrifice-verb (interactive edict), and
+  conditional-wrapper sibling shapes each need their own referent
+  plumbing or interactive-chooser handling — filed as `PAR-117` rather
+  than left as an unscoped "S4 residue" note, per this file's own
+  discipline against a deferred item rolling over unticketed.
+
 ### PAR-62: the clause grammar's first connective (`14_` S4, PARSER_VERSION 302)
 
 - **What:** RULE 601.2b's "you may `<effect>`" appearing **mid-body** now

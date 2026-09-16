@@ -2208,6 +2208,105 @@ def _gain_life_and_draw_eq_its_self(m: re.Match[str]) -> list[EffectSpec]:
     ]
 
 
+#: PAR-115 (`14_` S4 residue): "…. its controller `<verb>` …" — the
+#: previous clause's own **controller**, not the previous clause's chosen
+#: object itself (`gain_life_eq_that_prev`/`draw_eq_its_self` just above).
+#: `EffectHandler.previous_subject_only` already gates on exactly the right
+#: antecedent (`segmenter._announces_creature_target`: a destroyed/exiled/
+#: countered/bounced/tapped permanent or a countered spell), so these rows
+#: reuse that gate rather than adding a new one, and read the referent
+#: through `game/effect_operands.py`'s ``{"of": "previous_target", "as":
+#: "controller"}`` — the same vocabulary `game/card_catalogue/
+#: swords_to_plowshares.py`/`nature_s_claim.py` already spell out by hand
+#: for one card each. A trailing "and you {gain,lose} N life" (Certain
+#: Death/Inevitable Defeat/Punish Ignorance) needs no grammar here at all:
+#: `segmenter._CONNECTORS`' own " and " split recurses on the remainder
+#: with the same referent, and the ordinary bare ``gain_life``/``lose_life``
+#: rows already claim "you gain/lose N life" by themselves.
+_PREVIOUS_TARGET_CONTROLLER: dict = {"of": "previous_target", "as": "controller"}
+_ITS_CONTROLLER_LOSES_LIFE_RE = _c(rf"its controller loses {NUMBER} life")
+_ITS_CONTROLLER_GAINS_LIFE_RE = _c(rf"its controller gains {NUMBER} life")
+_ITS_CONTROLLER_DRAWS_RE = _c(rf"its controller draws? {COUNT_X} cards?")
+_ITS_CONTROLLER_DISCARDS_RE = _c(rf"its controller discards? {COUNT} cards?")
+
+
+def _its_controller_loses_life(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("lose_life", {
+        "amount": int(m.group("n")), "player": _PREVIOUS_TARGET_CONTROLLER,
+    })]
+
+
+def _its_controller_gains_life(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("gain_life", {
+        "amount": int(m.group("n")), "player": _PREVIOUS_TARGET_CONTROLLER,
+    })]
+
+
+def _its_controller_draws(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("draw", {
+        "count": count_or_x_of(m.group("n")), "player": _PREVIOUS_TARGET_CONTROLLER,
+    })]
+
+
+def _its_controller_discards(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("discard", {
+        "count": count_of(m.group("n")), "player": _PREVIOUS_TARGET_CONTROLLER,
+    })]
+
+
+#: "counter target spell. its controller mills N cards." (Countermand/
+#: Didn't Say Please/Psychic Strike/Thought Collapse's own family) —
+#: `MillEffect.selector="previous_subject_controller"` already exists,
+#: built for Broken Ambitions' "that spell's controller mills four cards"
+#: (see that effect's own docstring, RULE 608.2h) — this was only ever
+#: missing the "its controller" parser row, not the engine primitive.
+_ITS_CONTROLLER_MILLS_RE = _c(rf"its controller mills {NUMBER} cards?")
+
+
+def _its_controller_mills(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("mill", {
+        "count": int(m.group("n")), "selector": "previous_subject_controller",
+    })]
+
+
+#: "…, its controller gains life equal to its mana value." (Illumination)
+#: / "…, its controller mills cards equal to that creature's power."
+#: (Grisly Spectacle) — the referent's own `mana_value`/`power`, measured
+#: once through a `bind` (ENG-37) exactly the way `swords_to_plowshares.py`
+#: already does by hand for "its controller gains life equal to its
+#: power", generalized here into an ordinary parser row.
+_ITS_CONTROLLER_GAINS_LIFE_EQ_MV_RE = _c(
+    r"its controller gains life equal to its mana value"
+)
+_ITS_CONTROLLER_MILLS_EQ_POWER_RE = _c(
+    r"its controller mills cards equal to that creature'?s power"
+)
+
+
+def _its_controller_gains_life_eq_mv(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("bind", {
+        "name": "mv",
+        "amount": {
+            "kind": "characteristic", "characteristic": "mana_value", "of": "previous_target",
+        },
+        "effects": [{
+            "type": "gain_life",
+            "params": {"amount": "$mv", "player": _PREVIOUS_TARGET_CONTROLLER},
+        }],
+    })]
+
+
+def _its_controller_mills_eq_power(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("bind", {
+        "name": "power",
+        "amount": {"kind": "characteristic", "characteristic": "power", "of": "previous_target"},
+        "effects": [{
+            "type": "mill",
+            "params": {"count": "$power", "selector": "previous_subject_controller"},
+        }],
+    })]
+
+
 #: "Whenever a player casts a spell, they lose 1 life for each spell
 #: they've cast this turn." (Rug of Smothering) — the caster's own running
 #: `GameState.spells_cast_this_turn` count (`LoseLifeEffect.
@@ -12697,6 +12796,37 @@ HANDLERS: list[EffectHandler] = [
     ),
     EffectHandler(
         "draw_eq_its_self", _DRAW_EQ_ITS_RE, _draw_eq_its_self, self_subject_only=True,
+    ),
+    # PAR-115: "destroy/exile/counter/return/tap `<X>`. its controller
+    # `<verb>` …" — the previous clause's own controller, gated on
+    # `previous_subject_only` exactly like `gain_life_eq_that_prev` above.
+    EffectHandler(
+        "its_controller_loses_life", _ITS_CONTROLLER_LOSES_LIFE_RE,
+        _its_controller_loses_life, previous_subject_only=True,
+    ),
+    EffectHandler(
+        "its_controller_gains_life", _ITS_CONTROLLER_GAINS_LIFE_RE,
+        _its_controller_gains_life, previous_subject_only=True,
+    ),
+    EffectHandler(
+        "its_controller_gains_life_eq_mv", _ITS_CONTROLLER_GAINS_LIFE_EQ_MV_RE,
+        _its_controller_gains_life_eq_mv, previous_subject_only=True,
+    ),
+    EffectHandler(
+        "its_controller_draws", _ITS_CONTROLLER_DRAWS_RE,
+        _its_controller_draws, previous_subject_only=True,
+    ),
+    EffectHandler(
+        "its_controller_discards", _ITS_CONTROLLER_DISCARDS_RE,
+        _its_controller_discards, previous_subject_only=True,
+    ),
+    EffectHandler(
+        "its_controller_mills", _ITS_CONTROLLER_MILLS_RE,
+        _its_controller_mills, previous_subject_only=True,
+    ),
+    EffectHandler(
+        "its_controller_mills_eq_power", _ITS_CONTROLLER_MILLS_EQ_POWER_RE,
+        _its_controller_mills_eq_power, previous_subject_only=True,
     ),
     # Tried before the plain `lose_life` row below (its own bare
     # `{NUMBER} life` would otherwise stop right after the digit, leaving

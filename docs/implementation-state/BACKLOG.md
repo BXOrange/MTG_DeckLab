@@ -72,9 +72,14 @@ its block back into the matching section here.
   > coverage sweep** (`backend/scripts/deck_coverage.py` across all 56
   > saved decks, cross-referenced against `commander_tail_report.py` at
   > two cluster thresholds — see each ticket's own citation). `PAR-115…
-  > PAR-116` are the 2026-09-16 connective-grammar/slot-grammar pair (14_
+  > PAR-116` were the 2026-09-16 connective-grammar/slot-grammar pair (14_
   > PARSER_GRAMMAR_DESIGN.md's S4/S5, opened once its S0-S3 prerequisites
-  > closed under ENG-34…ENG-37). First free id: **`PAR-117`**. A genuinely
+  > closed under ENG-34…ENG-37); `PAR-115` closed the same day, landing as
+  > one incremental connective (`Done_Backend.md`'s own PAR-62 lesson —
+  > "S4 lands in increments, contrary to the ticket's own framing" —
+  > applied a second time) rather than the ticket's own "rewrite
+  > `parse_effect_body`" framing. `PAR-117` is its residue (the referent
+  > shapes PAR-115 didn't reach). First free id: **`PAR-118`**. A genuinely
   > new engine primitive found along the way still files as its own
   > `MEC-*` ticket — only the sweep itself stays out of this file.
   >
@@ -718,29 +723,60 @@ its block back into the matching section here.
 > handler's exact shape depends on details (e.g. an intervening "if"
 > clause, a self- vs. target-referent) this scan doesn't capture.**
 
-- **PAR-115 · Connective-grammar rewrite for `parse_effect_body`
-  (residue, not fullmatch).** `13_ORACLE_PARSER_GRAMMAR_REVIEW.md`
-  §3.1/§3.3 / `14_PARSER_GRAMMAR_DESIGN.md`'s S4. Confirmed still live in
-  today's code: `EffectHandler.match`/`segmenter.match_clause`
-  (`catalogue/handlers.py`) only ever claim a clause as a *whole*
-  (`re.fullmatch`, no partial-claim/residue hand-off), and
-  `segmenter.parse_effect_body`'s four-connector split (period, semicolon,
-  "`, then`", "`and`") is all-or-nothing — one part failing discards every
-  sibling that parsed fine (`ok = False; break`). Rewrite
-  `parse_effect_body` as recursive descent over those connectives,
-  replacing `fullmatch` with a mechanism that hands a partially-claimed
-  clause's remainder on instead of abandoning the whole body. Fix the two
-  named positional gaps along the way: mid-body "you may" (today only
-  stripped at the head of a clause) and `UP_TO_ONE`'s hardcoded N=1. This
-  stage's own prerequisite — an atom layer with a declared frame for
-  residue to be handed *to* — is now satisfied (ENG-34/ENG-37's atom
-  inventory + composite IR nodes already shipped). **Highest-risk stage**
-  per `14_`: every currently-MODELED card is re-derived through this path.
-  Mitigation: full existing pytest suite plus a `--full-cache`
-  before/after coverage diff before merging. Track via the
-  templates-per-blocked-card ratio (`13_` §5.1's own methodology — 1.12 at
-  PARSER_VERSION 298, re-measure current), not a `parser_probe.py` card
-  count — this is structural work, not a card cluster.
+- **PAR-117 · "Its controller `<verb>`" — the referent shapes PAR-115
+  didn't reach (residue).** PAR-115 (closed, PARSER_VERSION 414, see
+  `Done_Backend.md`) found that `14_`'s own S4 framing — "rewrite
+  `parse_effect_body` as recursive descent, every currently-MODELED card
+  re-derived" — was the wrong shape for this family: "`<destroy/exile/
+  counter/return/tap X>`. its controller `<verb>` …" is a *referent*
+  (`previous_target`'s controller) that `EffectHandler.previous_subject_
+  only` already gates correctly, not a connective needing a rewrite. Real
+  residue confirmed still open at PARSER_VERSION 414 via
+  `parser_probe.py blocked`, each its own separately-scoped referent axis
+  — do not assume they share PAR-115's own `previous_target` plumbing:
+  - **Attached-permanent controller** — "whenever enchanted creature/land
+    `<trigger>`, its controller `<verb>` …" (Contaminated Bond/Corrupted
+    Roots/Sinister Possession/Ragged Veins/Visions of Brutality/Chronic
+    Flooding/Fate Foretold/Decomposition — a real, single-clause SOLO
+    cluster). `LoseLifeEffect.selector="attached_permanent_controller"`
+    already exists (built for Parasitic Impetus, PAR-60 wave 3) and the
+    trigger-condition grammar (`segmenter._ATTACHED_SUBJECT_RE`/
+    `_ATTACHED_MULTI_EVENT_RE`) already recognizes the antecedent — but no
+    handler row emits the effect body, and `effect_conditions.subject_of`
+    doesn't resolve an `"attached"`/`"affected"` referent at all yet (only
+    `static_conditions`'s own separate machinery does), so `GainLifeEffect`/
+    `DrawCardEffect`/`MillEffect`/`DiscardEffect` can't reach this
+    referent the way they now reach `previous_target` (PAR-115). Widening
+    `subject_of` to delegate those two keys to `static_conditions` (rather
+    than adding a second `attached_permanent_controller`-style selector to
+    every effect class) is probably the right shape — confirm against a
+    second referent-consuming card before committing, per this file's own
+    "existing primitive, missing widening" rule.
+  - **Group-subject (RULE 603.1) controller** — "whenever a `<type>`
+    [you control] `<verb>`, its controller `<verb2>` …" where "its" is the
+    trigger's own firing object, not a chosen target (Bereavement/Curse of
+    the Forsaken/Essence Sliver/Hissing Miasma/Poisonbelly Ogre/Mage
+    Hunters' Onslaught/Kavu Lair). Needs the `"entering"` referent
+    (`effect_conditions.subject_of` already resolves it) threaded the same
+    way PAR-115 threads `"previous_target"` — likely the smaller lift of
+    the three, since no new referent resolution is needed, only new
+    handler rows gated on `group_subject_only`.
+  - **Sacrifice verb** — "its controller sacrifices `<X>` [of their
+    choice/unless they pay `<cost>`]" (Celestial Sword/Fade Away/Funeral
+    March/Goblin Ski Patrol/Killing Wave/Tainted Aether/Torment of Venom).
+    `SacrificeEffect`'s own interactive-chooser shape (RULE 601.2c edict)
+    needs its own referent plumbing, deliberately not attempted alongside
+    the non-interactive verbs above.
+  - **Conditional wrapper** — "`<X>`. if `<cond>`, its controller `<verb>`
+    …" (Acolyte Hybrid/Faller's Faithful/Gloomlance/Ringwraiths/Soul Reap).
+    May fall out for free once the base "its controller `<verb>`" rows
+    above exist for a given verb (the suffix-`if` peel already recurses
+    into `parse_effect_body` on the remainder) — check with
+    `parser_probe.py card` before assuming a new gate is needed.
+  - **"Unless" cost alternative** — "counter target spell unless its
+    controller `<pays cost/discards their hand>`" (Perplex) — a single
+    card on this exact shape at PARSER_VERSION 414; re-check cluster size
+    before ticketing further.
 - **PAR-116 · Cross-module slot-grammar reuse.** `13_
   ORACLE_PARSER_GRAMMAR_REVIEW.md` §3.4 / `14_PARSER_GRAMMAR_DESIGN.md`'s
   S5. Explicitly *not* a re-run of the already-rejected `81c3320`

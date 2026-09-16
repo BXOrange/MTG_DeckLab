@@ -583,8 +583,35 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 45.58% (15,866 / 34,811) as of 2026-09-16, measured at
-PARSER_VERSION 413** (v413 closes PAR-80's second increment — the 19-card
+**Coverage: 45.70% (15,900 / 34,811) as of 2026-09-16, measured at
+PARSER_VERSION 414** (v414 closes PAR-115's first increment — the
+"its controller `<verb>`" family diagnosed as a *referent* (the previous
+clause's target's controller), not the connective-grammar rewrite the
+ticket's own text called for: `segmenter._announces_creature_target`
+already flips `previous_subject=True` after a destroy/exile/counter/
+return/tap clause (built incrementally across PAR-18/30/71), and
+`EffectHandler.previous_subject_only` already gates a row on it, so this
+only adds the rows — `lose_life`/`gain_life`/`draw` through
+`game/effect_operands.py`'s `{"of": "previous_target", "as": "controller"}`
+(the vocabulary `game/card_catalogue/swords_to_plowshares.py`/
+`nature_s_claim.py` already use by hand), `mill` through `MillEffect`'s
+pre-existing `selector="previous_subject_controller"` (built for Broken
+Ambitions, MEC-50). Two amount forms beyond a flat number reuse ENG-37's
+`bind` the same way `swords_to_plowshares.py` does: "gains life equal to
+its mana value" (Illumination), "mills cards equal to that creature's
+power" (Grisly Spectacle). `DiscardEffect.player` gained the same
+referent-dict resolution its three siblings already had; `MillEffect`
+needed no engine change. +34, 0 regressed (`parser_probe.py diff`),
+including two cards needing no new grammar at all — Death Bomb (the
+pre-existing `_NO_REGEN_SENTENCE_RE` "after" tail already threads
+`previous_subject` through) and Zulaport Duelist (`_announces_creature_
+target`'s generic scan already covers a `pump` clause's own
+`target_kind`). The sacrifice-verb, group-subject ("whenever a creature
+dies, its controller discards…"), attached-permanent ("enchanted
+creature/land"), and conditional ("if `<X>`, its controller loses…")
+sibling shapes stay open as `PAR-117` — see `Done_Backend.md`'s PAR-115
+entry.
+v413 closes PAR-80's second increment — the 19-card
 residue the first increment (v395) left open, plus 3 bonus closures, +20
 total. Rather than growing `PumpEffect` a 26th `amount_from_*` boolean per
 referent, every new referent is recognized as an ENG-37 `bind` over the
@@ -1311,7 +1338,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 47.87% (15,236 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 47.99% (15,270 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

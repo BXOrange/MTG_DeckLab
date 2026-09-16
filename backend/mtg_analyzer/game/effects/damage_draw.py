@@ -1082,6 +1082,12 @@ class DiscardEffect(GameEffect):
     `pending_choice` actually resolves, possibly turns of real time later
     in a multiplayer game; threading it through as a follow-up effect
     keeps the draw honest no matter how long that takes.
+
+    ``player`` also accepts a ``{"of": …, "as": "controller"|"owner"}``
+    referent (PAR-115, "destroy target creature. **its controller**
+    discards a card.") — resolved the same way `GainLifeEffect`/
+    `LoseLifeEffect`/`DrawCardEffect` already read one, through
+    `GameEffect._operand_player`.
     """
 
     def __init__(
@@ -1215,7 +1221,15 @@ class DiscardEffect(GameEffect):
                     continue
                 self._discard_from(context, other)
             return
-        player = self.player
+        # A ``{"of": …, "as": "controller"}`` referent ("destroy target
+        # creature. its controller discards a card." — PAR-115) resolves
+        # through the same shared vocabulary `LoseLifeEffect`/`GainLifeEffect`/
+        # `DrawCardEffect` already read via `_operand_player`; an
+        # already-resolved `Player` (or ``None``) passes straight through
+        # unchanged, so every existing caller of this field keeps working.
+        player = self._operand_player(context, targets, self.player) or (
+            None if isinstance(self.player, (str, dict)) else self.player
+        )
         if player is None and self.previous_subject:
             prev = list(context.previous_targets)
             player = prev[0] if prev else None
