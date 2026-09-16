@@ -2044,6 +2044,12 @@ class DamageDeathMixin:
                     # runs.
                     is_token=obj.is_token,
                     subtypes=obj.card.type_line.partition("—")[2].strip().lower().split(),
+                    # "whenever a **green** creature dies" (Bereavement,
+                    # PAR-117) — `_build_group_ok`'s ``color`` key needs the
+                    # same RULE 400.7 last-known snapshot as ``object_types``/
+                    # ``subtypes`` just above; a live re-lookup after this
+                    # fires would miss a dead object entirely.
+                    colors=sorted(obj.colors),
                     # RULE 701.15b's designation, for the same reason: "whenever
                     # a **goaded** attacking or blocking creature dies" (Baeloth
                     # Barrityl) can't re-derive it once the object is gone. Also

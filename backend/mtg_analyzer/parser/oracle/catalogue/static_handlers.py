@@ -3095,7 +3095,58 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
          {"kind": "control_count", "selector": devotion_selector(m), "max": int(m.group("n")) - 1}
          if devotion_selector(m) else None
      )),
+    # -- PAR-117 (conditional-wrapper residue): "if <effect>. if that
+    # creature `<predicate>`, its controller `<verb>`." — "that creature" is
+    # RULE 608.2h's own referent, the same `previous_target` `_ITS_
+    # CONTROLLER_*` (`catalogue/handlers.py`) already reads for the paired
+    # effect body; unambiguous here because a RULE 613.6 "as long as" static
+    # has no earlier clause to refer back to, so this phrase can only ever
+    # mean the resolving-effect referent.
+    (re.compile(r"that creature is legendary", re.I),
+     lambda m: {"kind": "is_legendary", "of": "previous_target"}),
+    (re.compile(
+        rf"that creature (?:was|is) (?P<c1>{'|'.join(COLOR_LETTERS)})"
+        rf"(?: or (?P<c2>{'|'.join(COLOR_LETTERS)}))?",
+        re.I,
+    ), lambda m: _previous_target_color_condition(m)),
+    # "if that creature wasn't dealt damage this turn" (Faller's Faithful).
+    (re.compile(r"that creature wasn'?t dealt damage this turn", re.I),
+     lambda m: {
+         "kind": "not",
+         "condition": {"kind": "was_dealt_damage_this_turn", "of": "previous_target"},
+     }),
+    # "if a/an `<type>` is destroyed this way" (Acolyte Hybrid) — the
+    # already-shipped RULE 608.2 resolution tally (`GameContext.permanents_
+    # destroyed_this_way`, ENG-37's `this_way` amount kind via `amount_
+    # compare`) rather than re-reading `previous_target`: a "destroy up to
+    # N" clause that chose zero targets leaves no referent to filter by card
+    # type, but "this way" already means exactly "did the destroy happen".
+    (re.compile(r"an? [a-z]+ is destroyed this way", re.I),
+     lambda m: {
+         "kind": "amount_compare",
+         "left": {"kind": "this_way", "tally": "permanents_destroyed_this_way"},
+         "right": {"kind": "fixed", "amount": 1},
+         "op": "ge",
+     }),
 ]
+
+
+def _previous_target_color_condition(m: "re.Match[str]") -> dict:
+    """"that creature was/is `<color>`[ or `<color2>`]" → `is_color`(s) of
+    `previous_target`, OR-combined via the `any` combinator when a second
+    colour is printed (Gloomlance's "green or white")."""
+    colors = [_COLOR_CONDITION_WORDS[m.group("c1").lower()]]
+    c2 = (m.groupdict().get("c2") or "").lower()
+    if c2:
+        colors.append(_COLOR_CONDITION_WORDS[c2])
+    if len(colors) == 1:
+        return {"kind": "is_color", "color": colors[0], "of": "previous_target"}
+    return {
+        "kind": "any",
+        "conditions": [
+            {"kind": "is_color", "color": c, "of": "previous_target"} for c in colors
+        ],
+    }
 
 #: The characteristic words an "as long as `<attached subject>` is `<word>`"
 #: condition may name — a card type, a colour, or a creature subtype, in that

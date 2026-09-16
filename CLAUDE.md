@@ -583,8 +583,62 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 45.71% (15,912 / 34,811) as of 2026-09-16, measured at
-PARSER_VERSION 417** (v417 closes two independent slices of PAR-117's
+**Coverage: 45.75% (15,927 / 34,811) as of 2026-09-16, measured at
+PARSER_VERSION 419** (v419 closes PAR-117's group-subject colour-qualifier
+residue — "whenever a `<color>` `<type>` [you control] `<verb>`, …"
+(Bereavement; the RTR "Denizen" cycle — Court Street/Foundry Street/Sage's
+Row/Shadow Alley Denizen; Ivy Lane Denizen; Sylvan Anthem; Teysa, Orzhov
+Scion; Linden, the Steadfast Queen). A single new `color` key on `_GROUP_
+SUBJECT_RE`/`_group_subject_condition` (segmenter.py) and `effect_
+binder._build_group_ok` (binding/core.py), checked the same "event
+snapshot, live-board fallback" way `tword`/`want_nonland` already are.
+RULE 400.7 means a DIES-shaped condition (Bereavement, Teysa) needs the
+colour actually snapshotted onto the firing event — added alongside the
+already-snapshotted `object_types`/`subtypes` in the DIES event's one
+firing site (`damage_death_mixin.py`) — since a live re-lookup after the
+object has left the battlefield finds nothing; every other event kind this
+filter reaches (ENTERS_BATTLEFIELD, ATTACKS) keeps the object around, so
+the pre-existing live-lookup fallback already covers those. +9, 0 regressed
+(`parser_probe.py diff`). Dire Undercurrents and Yorvo, Lord of Garenbrig
+share the same search phrase but stay UNMODELED — the colour condition
+itself now parses and fires on both, gated behind a separate, unrelated
+unclaimed clause each ("you may have target player draw a card"; a
+comparative "if that creature's power is greater than ~'s power" —
+confirmed via `parser_probe.py card`, neither attempted here). Justice's "a
+red creature **or spell** deals damage" is a different trigger family
+entirely (`_DAMAGE_TRIGGER_RE`'s creature-or-spell compound subject), not
+this one.
+v418 closes PAR-117's conditional-wrapper residue —
+"`<effect>`. if `<predicate>`, its controller `<verb>` …". The ticket's own
+note that this "may fall out for free" once the base `_ITS_CONTROLLER_*`
+rows existed was wrong: `segmenter._GENERIC_IF_PREFIX_RE`/`_GENERIC_IF_
+SUFFIX_RE` already peeled the "if …," shape and handed the gated remainder
+back into `parse_effect_body` with `previous_subject=True` (proven on all 5
+named cards — every one still failed, each on an unrecognized *predicate*
+phrase, not a missing referent). Four new `static_conditions.py` phrase
+rows, all pointed at `previous_target` instead of the default `source`:
+"that creature is legendary" (a new `is_legendary` kind — neither
+`is_card_type` nor `is_subtype` covers a supertype); "that creature was
+`<color>`[ or `<color2>`]" (Gloomlance) — no new kind, just the
+already-shipped `is_color` OR'd via the `any` combinator (ENG-36); "that
+creature wasn't dealt damage this turn" (Faller's Faithful) — a new
+`was_dealt_damage_this_turn` kind reading `GameObject.damage_marked`, which
+RULE 514.2 clears only at cleanup, so nonzero marked damage anywhere else in
+the same turn already means "dealt damage this turn"; and "an `<type>` is
+destroyed this way" (Acolyte Hybrid) — no new kind, the already-shipped RULE
+608.2 `this_way` resolution tally (`GameContext.permanents_destroyed_this_
+way`) through the generic `amount_compare` context condition, deliberately
+*not* re-reading `previous_target` (a "destroy up to one" that chose zero
+targets leaves nothing to type-filter, but the tally already answers "did
+the destroy happen" directly). +6 (the 4 named cards plus 2 bonus sharing
+the same two shapes — Gloomwidow's Feast, Smashing Success), 0 regressed
+(`parser_probe.py diff`). Soul Reap ("…if you've cast another black spell
+this turn") stays UNMODELED: "another" needs a per-colour, per-turn spell
+*count* to exclude the resolving spell's own cast, and `GameState.
+spell_colors_cast_this_turn` is a set (already containing this spell's own
+colour by the time it resolves), not a count — a real, separate primitive,
+left open in `BACKLOG.md` rather than guessed at here.
+v417 closes two independent slices of PAR-117's
 sacrifice-verb residue. (1) "Its controller sacrifices it at the beginning
 of the next end step." (Celestial Sword/Goblin Ski Patrol) is *not* a
 fourth referent: RULE 701.17a already makes "sacrifice" inherently

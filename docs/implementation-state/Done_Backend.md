@@ -8216,6 +8216,137 @@ measurement of why is the useful half of this work.
     (its own remaining clause, a reversed "activate only once and only
     if" word order plus a "snow `<land type>`" selector, is a confirmed
     true one-off with no cache-wide sibling).
+- **PAR-117's conditional-wrapper sub-shape closed (PARSER_VERSION 418).**
+  "`<effect>`. if `<predicate>`, its controller `<verb>` …" — the ticket's
+  own note that this "may fall out for free" once the base
+  `_ITS_CONTROLLER_*` rows existed (PAR-115, above) was wrong on
+  re-verification: `parser_probe.py card` showed all 5 named cards still
+  failing. The referent plumbing *was* already correct —
+  `segmenter._GENERIC_IF_PREFIX_RE`/`_GENERIC_IF_SUFFIX_RE` already peel
+  the "if …," shape and hand the gated remainder back into
+  `parse_effect_body` with `previous_subject=True`, exactly as the note
+  assumed — but each card's *predicate* text (the `<cond>` itself) had no
+  row in `static_conditions.static_condition`, the shared phrase→dict
+  vocabulary both this RULE 603.4 effect-gate path and every RULE 613.6
+  "as long as" static read. Four new phrase rows in `catalogue/
+  static_handlers.py`'s `_STATIC_CONDITION_RES`, each explicitly pointed at
+  `previous_target` (RULE 608.2h's own referent, the same one `_ITS_
+  CONTROLLER_*` reads for the paired effect body) rather than the default
+  `source` — safe because "that creature" has no meaning in an ordinary
+  RULE 613.6 static, which has no earlier clause to refer back to:
+  - **"That creature is legendary." (Ringwraiths)** — a genuinely new
+    `static_conditions.py` kind, `is_legendary`, reading `GameObject.
+    is_legendary` (the printed supertype or a granted one). Neither
+    `is_card_type` nor `is_subtype` covers RULE 205.4a's supertype axis at
+    all, so this couldn't reuse either.
+  - **"That creature was `<color>`[ or `<color2>`]." (Gloomlance,
+    Gloomwidow's Feast)** — no new kind: `is_color` already existed, this
+    only needed an OR of it. Built via the `any` combinator (ENG-36,
+    `effect_conditions.COMBINATOR_KINDS`) over two `is_color` rows rather
+    than a new `is_color_any` kind, since `any` already recurses through
+    `_evaluate` letting each branch resolve its own `of` independently —
+    exactly the shape this needed with zero new evaluator code.
+  - **"That creature wasn't dealt damage this turn." (Faller's Faithful)**
+    — a new `was_dealt_damage_this_turn` kind, but a cheap one: RULE 514.2
+    only clears `GameObject.damage_marked` at cleanup, so nonzero marked
+    damage at *any* other point in the same turn already means "dealt
+    damage this turn" — no separate per-turn tracker needed, unlike
+    `MEC-91`'s still-open per-*source* sibling ("dealt damage **by** `<X>`
+    this turn").
+  - **"An `<type>` is destroyed this way." (Acolyte Hybrid, Smashing
+    Success)** — no new kind: the already-shipped RULE 608.2 resolution
+    tally (`GameContext.permanents_destroyed_this_way`, ENG-37's `this_way`
+    amount kind) answered it directly through the generic `amount_compare`
+    context condition (`{"kind": "amount_compare", "left": {"kind":
+    "this_way", "tally": "permanents_destroyed_this_way"}, "right":
+    {"kind": "fixed", "amount": 1}, "op": "ge"}`). Deliberately *not*
+    re-reading `previous_target`'s own card type: a "destroy up to one"
+    clause that chose zero targets leaves no referent to filter by type at
+    all, but the tally already answers "did the destroy actually happen"
+    without needing one.
+  **+6 (Acolyte Hybrid, Faller's Faithful, Gloomlance, Ringwraiths, plus 2
+  bonus sharing the colour/tally shapes — Gloomwidow's Feast, Smashing
+  Success), 0 regressed** (`parser_probe.py diff`). Verified past the parse
+  verdict (`tests/test_par117_conditional_wrapper.py`): a positive/negative
+  engine pair per predicate — a legendary vs. a plain target only drains
+  life off the legendary one; a green/white vs. a red target only triggers
+  the discard off the on-colour one; a damaged vs. an undamaged target only
+  draws off the undamaged one; and an actual artifact destruction vs. an
+  empty "up to one" pick only draws when something was really destroyed.
+  **Left open:** Soul Reap ("its controller loses 3 life if you've cast
+  **another** black spell this turn") stays UNMODELED — "another" needs a
+  per-colour, per-turn spell *count* excluding the resolving spell's own
+  cast, and `GameState.spell_colors_cast_this_turn` is a set (already
+  containing this spell's own colour by the time it resolves), not a count,
+  so it cannot answer "another" regardless of any predicate-recognition
+  work. Re-scoped from this ticket to `BACKLOG.md`'s new `MEC-97` once
+  `parser_probe.py blocked "cast another .* spell this turn"` showed 7 SOLO
+  cards sharing the same gap across unrelated effect shapes (a cost
+  reduction, a free-cast alternative, a draw trigger, a counter-tax ETB, and
+  a cast restriction, besides Soul Reap's own rider) — a real shared
+  primitive, not a recognition gap this file's own vocabulary could close.
+- **PAR-117's group-subject colour-qualifier residue closed (PARSER_VERSION
+  419).** The bare group-subject shape ("whenever a/another `<type>` [you
+  control] `<verb>`, its controller `<verb2>` …") had already closed at
+  PARSER_VERSION 415 (Poisonbelly Ogre, above); what stayed open was a
+  colour qualifier on the acting object itself — "whenever a **green**
+  creature dies" (Bereavement) — confirmed via direct `_trigger_condition()`
+  calls returning `None` even before this file's own referent plumbing ever
+  got involved: a genuinely unrecognized *trigger condition*, not a missing
+  referent. One new `color` key, added at both ends of the existing "event
+  snapshot, live-board fallback" idiom `tword`/`want_nonland` already
+  establish for every other group-subject filter:
+  - `segmenter._GROUP_SUBJECT_RE` gained an optional colour word (`_c1`
+    reusing `subgrammars.COLOR_WORD_ALT`, the same vocabulary the pitch-cost
+    family already shares) between the article and the main-type word, and
+    `_group_subject_condition` resolves it through `resolve_color_word`
+    into a `"color"` key on the emitted condition dict — no new regex table,
+    the existing one just needed the word recognized at all.
+  - `effect_binder._build_group_ok` (`game/binding/core.py`) gained a
+    `want_color` check reading `event.get("colors")`, falling back to a live
+    `state.find_object(event_instance).colors` lookup exactly the way
+    `want_nonland`'s `object_types` check already does — the *shared*
+    filter mechanism this whole family was built around, so no new
+    plumbing pattern, just one more filter using it.
+  - The live fallback is enough for an ENTERS_BATTLEFIELD/ATTACKS-shaped
+    condition (the acting object is still on the battlefield when the check
+    runs), but **not** for a DIES-shaped one: RULE 400.7 means the object is
+    already gone from the battlefield by the time a DIES trigger's
+    condition is checked, exactly the reason `object_types`/`subtypes`/
+    `counters` are already snapshotted onto the DIES event rather than
+    re-derived live. `colors=sorted(obj.colors)` was added alongside those,
+    in the DIES event's one canonical firing site
+    (`game/rules/damage_death_mixin.py`) — without it, Bereavement/Teysa,
+    Orzhov Scion's own DIES-shaped triggers would have silently never fired
+    (the live-lookup fallback finding nothing for a creature already in the
+    graveyard), a correctness trap the ENTERS-shaped cards in this same
+    batch wouldn't have exposed on their own.
+  **+9** (Bereavement; the RTR "Denizen" cycle — Court Street/Foundry
+  Street/Sage's Row/Shadow Alley Denizen, all ENTERS-shaped; Ivy Lane
+  Denizen, Sylvan Anthem, also ENTERS-shaped; Teysa, Orzhov Scion,
+  DIES-shaped; Linden, the Steadfast Queen, ATTACKS-shaped), **0 regressed**
+  (`parser_probe.py diff`). Verified past the parse verdict
+  (`tests/test_par117_group_subject_color.py`): `eng.rules.destroy()` on a
+  green vs. a red creature only fires Bereavement's discard off the green
+  one (proving the DIES-event snapshot actually gets read, not just
+  written); a manually-fired ENTERS_BATTLEFIELD event on a green vs. a red
+  creature only fires Ivy Lane Denizen's counter off the green one (proving
+  the live-board fallback path independently). **Left open, confirmed
+  unrelated:** Dire Undercurrents ("you may have target player draw/discard
+  a card" — a distinct effect-body shape, no referent or condition
+  involved) and Yorvo, Lord of Garenbrig ("if that creature's power is
+  greater than ~'s power" — a comparative condition on the entering
+  creature's own power vs. the source's) share this search phrase but each
+  fail on their own separate, unattempted clause; both cards' own colour
+  condition now parses and fires correctly, confirmed via `parser_probe.py
+  card`. Justice ("a red creature **or spell** deals damage") is a
+  different trigger family (`_DAMAGE_TRIGGER_RE`'s creature-or-spell
+  compound subject), not attempted here. The other named residue axes
+  (Kavu Lair's power qualifier, Hissing Miasma's defending-player scope,
+  Essence Sliver's DAMAGE-shaped group condition, Mage Hunters' Onslaught's
+  "this turn" tail, Curse of the Forsaken's attached+group compound) are
+  each their own separate grammar gap and stay open — see `BACKLOG.md`'s
+  PAR-117 entry.
 
 ### PAR-62: the clause grammar's first connective (`14_` S4, PARSER_VERSION 302)
 

@@ -110,6 +110,19 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "is_card_type",  # + ``card_type``
         "is_color",  # + ``color`` (a WUBRG letter)
         "is_subtype",  # + ``subtype``
+        # PAR-117 (conditional-wrapper residue): RULE 205.4a's legendary
+        # supertype, read off `GameObject.is_legendary` (the printed
+        # supertype *or* a granted one) rather than `is_card_type`/
+        # `is_subtype`, neither of which covers a supertype. "that creature
+        # is legendary" (Ringwraiths) is the only printed phrasing so far —
+        # no ``of`` default beyond the usual "source".
+        "is_legendary",
+        # PAR-117: "that creature wasn't dealt damage this turn" (Faller's
+        # Faithful) — RULE 514.2 only clears `GameObject.damage_marked` at
+        # cleanup, so nonzero marked damage at any other point in the same
+        # turn is exactly "dealt damage this turn", with no separate
+        # per-turn tracker needed.
+        "was_dealt_damage_this_turn",
         # -- Whose turn it is (RULE 613.6's commonest non-board gate).
         "your_turn",
         "not_your_turn",
@@ -571,6 +584,11 @@ def condition_holds(
             return bool(color) and _has_color(subject, [str(color)])
         subtype = condition.get("subtype")
         return bool(subtype) and _has_subtype(subject, str(subtype))
+
+    if kind == "is_legendary":
+        return subject is not None and bool(getattr(subject, "is_legendary", False))
+    if kind == "was_dealt_damage_this_turn":
+        return subject is not None and int(getattr(subject, "damage_marked", 0) or 0) > 0
 
     if kind in ("your_turn", "not_your_turn"):
         active = getattr(state, "active_player", None)

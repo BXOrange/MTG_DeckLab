@@ -1416,6 +1416,15 @@ _GROUP_SUBJECT_RE = re.compile(
     # creature subtype on the acting object, `effect_binder._build_group_ok`'s
     # ``excluded_subtypes`` (checked against the event's live subtypes).
     r"(?P<negsub>non-[a-z]+\s+)?"
+    # PAR-117 (group-subject residue, Bereavement-shaped: "whenever a
+    # **green** creature dies"): a colour on the acting object, the RTR
+    # "Denizen" cycle's own trigger shape ("whenever another `<color>`
+    # creature you control enters"). `_build_group_ok`'s new ``color`` key,
+    # read off the DIES/LEAVES_BATTLEFIELD event's snapshotted ``colors``
+    # (RULE 400.7 — the object is gone by the time a DIES trigger checks)
+    # with the same live-board fallback every other characteristic filter
+    # here already uses for a verb that keeps the object around.
+    r"(?:(?P<color>" + COLOR_WORD_ALT + r")\s+)?"
     # A single main type, or an "X or Y[ or Z]" list of them ("an artifact
     # or creature you control dies" — Agent of the Iron Throne). Each word
     # is from the closed `_GROUP_TYPE_WORDS` vocabulary; `_group_subject_
@@ -3056,6 +3065,10 @@ def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
             # ``excluded_subtypes`` (the mirror of the positive ``subtypes``
             # tribal filter below).
             out["excluded_subtypes"] = [m.group("negsub").strip()[4:]]
+        if m.group("color"):
+            # "whenever a **green** creature dies" (Bereavement, the RTR
+            # Denizen cycle) — `_build_group_ok`'s new ``color`` key.
+            out["color"] = resolve_color_word(m.group("color"))
         return out
     # Only reached once the exact main-type vocabulary above has already
     # failed to match — a genuine tribal filter ("another nontoken Zombie

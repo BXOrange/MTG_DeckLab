@@ -660,6 +660,15 @@ def _build_group_ok(
     # object has left the battlefield by the time this runs, RULE 400.7),
     # with the same live-lookup fallback the ``type`` filter uses.
     want_nonland = bool(condition.get("nonland"))
+    # "whenever a **green** creature dies"/"…enters" (Bereavement, the RTR
+    # Denizen cycle, PAR-117) — a WUBRG letter, checked the same "event
+    # snapshot, live-board fallback" way as `tword`/`want_nonland` above.
+    # RULE 400.7: a DIES/LEAVES_BATTLEFIELD event snapshots ``colors``
+    # (`damage_death_mixin.py`'s DIES firing) since a live re-lookup after
+    # the object has left the battlefield would find nothing; every other
+    # event kind this filter can appear on (ENTERS_BATTLEFIELD, ATTACKS, …)
+    # keeps the object around, so the live fallback covers those instead.
+    want_color = condition.get("color")
     # RULE 603.1 Panharmonicon-shaped self-recursion guard (MEC-43 round
     # 4D, Kodama of the East Tree — "if it wasn't put onto the
     # battlefield with this ability"): the acting object's own live
@@ -715,6 +724,7 @@ def _build_group_ok(
         want_crewed_by_self=want_crewed_by_self,
         want_nonbasic=want_nonbasic,
         want_nonland=want_nonland,
+        want_color=want_color,
         want_not_entered_via_self=want_not_entered_via_self,
         want_damaged_by_self=want_damaged_by_self,
         damaged_by_via_attached=damaged_by_via_attached,
@@ -813,6 +823,14 @@ def _build_group_ok(
                 obj = state.find_object(event_instance) if state is not None else None
                 types = sorted(obj.type_words) if obj is not None else None
             if types is None or "land" in types:
+                return False
+        if want_color:
+            colors = event.get("colors")
+            if colors is None and event_instance is not None:
+                state = getattr(context, "state", None)
+                obj = state.find_object(event_instance) if state is not None else None
+                colors = sorted(obj.colors) if obj is not None else None
+            if not colors or want_color not in colors:
                 return False
         if want_crewed_by_self:
             if iid is None or event_instance is None:

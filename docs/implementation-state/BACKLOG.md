@@ -747,7 +747,14 @@ its block back into the matching section here.
   701.17a already makes sacrifice self-directed; Funeral March/Tainted
   Aether — `SacrificeEffect.player` widened onto the same `_operand_player`
   referent, +3) — see `Done_Backend.md`'s PAR-115 entry; its own residue is
-  now listed under that sub-bullet below instead of the shape as a whole:
+  now listed under that sub-bullet below instead of the shape as a whole.
+  **The conditional-wrapper sub-shape closed at PARSER_VERSION 418**
+  (Acolyte Hybrid/Faller's Faithful/Gloomlance/Ringwraiths, +4, plus 2 bonus
+  — Gloomwidow's Feast/Smashing Success) — see `Done_Backend.md`'s PAR-115
+  entry; Soul Reap's own residue moved to `MEC-97` (a real new primitive,
+  not a recognition gap). **The group-subject shape's own colour-qualifier
+  axis closed at PARSER_VERSION 419** (+9) — see its own sub-bullet below
+  for the card list and `Done_Backend.md`'s PAR-115 entry for the narrative:
   - **Group-subject (RULE 603.1) controller — residue.** The bare shape
     ("whenever a/another `<type>` [you control] enters/dies/attacks/blocks,
     its controller `<verb2>` …") is closed (PARSER_VERSION 415,
@@ -757,9 +764,16 @@ its block back into the matching section here.
     modeled, 0 regressed. What's left is real, separately-scoped
     trigger-*condition* grammar `_trigger_condition()` doesn't recognize at
     all yet (confirmed via direct calls returning `None`), one axis apiece,
-    not this referent:
-    - Bereavement: "a **green** creature dies" — `_GROUP_SUBJECT_RE` has no
-      color qualifier, only the closed `_GROUP_TYPE_WORDS` main-type list.
+    not this referent. **The colour-qualifier axis closed at PARSER_VERSION
+    419** (Bereavement, the RTR "Denizen" cycle — Court Street/Foundry
+    Street/Sage's Row/Shadow Alley Denizen —, Ivy Lane Denizen, Sylvan
+    Anthem, Teysa Orzhov Scion, Linden the Steadfast Queen — +9, 0
+    regressed) — see `Done_Backend.md`'s PAR-115 entry. Dire Undercurrents
+    and Yorvo, Lord of Garenbrig share that same search phrase but stay
+    UNMODELED on their own unrelated gap each ("you may have target player
+    `<verb>`"; a comparative "if that creature's power is greater than
+    ~'s power") — neither is a group-subject condition gap, not tracked
+    under this bullet:
     - Kavu Lair (and MacCready, Lamplight Mayor's own "…and you gain 2
       life" tail): "a creature **with power N or greater** enters/attacks"
       — reuse the "with power `<n>` or `<less/greater>`" fragment several
@@ -810,12 +824,6 @@ its block back into the matching section here.
       type>`" control-count selector, confirmed a true singleton (1 SOLO/0
       also-blocked via `parser_probe.py blocked`) — see `singletons.md`,
       not tracked here.
-  - **Conditional wrapper** — "`<X>`. if `<cond>`, its controller `<verb>`
-    …" (Acolyte Hybrid/Faller's Faithful/Gloomlance/Ringwraiths/Soul Reap).
-    May fall out for free once the base "its controller `<verb>`" rows
-    above exist for a given verb (the suffix-`if` peel already recurses
-    into `parse_effect_body` on the remainder) — check with
-    `parser_probe.py card` before assuming a new gate is needed.
   - **"Unless" cost alternative** — "counter target spell unless its
     controller `<pays cost/discards their hand>`" (Perplex) — a single
     card on this exact shape at PARSER_VERSION 414; re-check cluster size
@@ -913,6 +921,25 @@ its block back into the matching section here.
   "\bwaterbend(?:s|ing)?\b"`: 2 SOLO, 0 also-blocked. Genuinely new but
   tiny and single-set — pick up opportunistically rather than scheduling a
   dedicated batch. Aang's Iceberg, Hama, the Bloodbender.
+- **MEC-97 · "Cast another `<color/type>` spell this turn" as a resolve-time
+  count.** Found closing PAR-117's conditional-wrapper residue (Soul Reap
+  stayed UNMODELED on exactly this). `GameState.spell_colors_cast_this_turn`
+  is a per-player *set* of colours, built for `opponent_cast_color_this_turn`
+  (PAR-78) — it already contains a spell's own colour by the time that same
+  spell resolves, so it cannot answer "**another**" (a second spell of that
+  colour/type) at all, only "at least one ever". Needs a real per-colour (and
+  separately, per-type — "another instant or sorcery spell", "another `<X>`
+  spell") *count*, reset the same way `spells_cast_this_turn` is, plus a way
+  to exclude the resolving spell's own cast from that count (an ordinal
+  ">= 2" read taken *before* this spell's own increment lands works, but
+  needs checking against cast-vs-resolve timing) — not a flat boolean.
+  Confirmed via `parser_probe.py blocked "cast another .* spell this
+  turn"`: 7 SOLO, 0 also-blocked, across genuinely different effect shapes
+  (cost reduction, free-cast, a draw trigger, a counter-tax ETB, a cast
+  restriction, and Soul Reap's own "its controller loses life" rider) — one
+  shared condition primitive, not one per card. Burrog Barrage, Dream Thief,
+  Hotheaded Giant, Mage Duel, Patrician's Scorn, Soul Reap, Talara's
+  Battalion.
 
 ## PLR — Player management
 
