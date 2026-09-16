@@ -48,63 +48,44 @@ its block back into the matching section here.
 
 - **PAR-12 · The indefinite long tail (methodology pointer, not a closeable
   ticket).** Strategy, coverage, worked examples, and the Commander-legal
-  tail sweep (`scripts/commander_tail_report.py`'s bucket taxonomy, and
-  everything `PAR-31…PAR-53` ever tracked) all live in
-  [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md) now — not here, and not as a
-  second, separate quasi-ticket the way `PAR-31…PAR-53` used to sit
-  alongside this one. Parser coverage is an *indefinite standing project
-  goal*, not a batch with an end date — that was already true of this
-  entry, and `PAR-31…PAR-53` was never really a different kind of thing,
-  just a differently-prioritized slice of the identical indefinite sweep
-  (Commander-legal-first instead of raw-cache-first). Folded together
-  2026-09-15 so the split matches what each half actually is, not
-  historical accident. Two tracks: **basic mechanics** (generic shapes,
-  cache-wide yield) — the raw-cache `rank`-driven pass was exhausted
-  2026-08-28, but re-entering through `commander_tail_report.py`'s Bucket B
-  (below) found a second wave of real, individually-verified wins the same
-  day (PAR-78/PAR-79 alone are 65- and 105-card clusters) — **don't repeat
-  "exhausted" from stale prose without re-running the tool** — and
+  tail-sweep taxonomy (`scripts/commander_tail_report.py`) all live in
+  [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md), not here — `PAR-31…PAR-53`
+  (folded in 2026-09-15) was never really a separate ticket, just this same
+  indefinite sweep's Commander-legal-first slice. Parser coverage is a
+  standing project goal, not a batch with an end date. Two tracks: **basic
+  mechanics** (generic shapes, cache-wide yield — the raw-cache
+  `rank`-driven pass was "exhausted" 2026-08-28, but re-entering through
+  Bucket B still finds real wins, e.g. PAR-78/PAR-79's 65- and 105-card
+  clusters — **re-run the tool before trusting "exhausted"**) and
   **set-specific mechanics** (a set/precon's signature keyword, worked
-  deck-first against a saved deck). Planechase/Archenemy plane/scheme card
-  *bodies* fold in here too (triggers already recognized, ~13/309 bodies
-  done) — not a separate ticket.
+  deck-first). Planechase/Archenemy plane/scheme card *bodies* fold in here
+  too (~13/309 done), not a separate ticket.
 
-  > **Ticket-id note:** every number from `PAR-1` through `PAR-92` is
-  > already a real, shipped-or-open, cross-referenced ticket — grep
-  > `Done_Backend.md` before reusing one (`PAR-14`, for one, is RULE
-  > 603.2's once-per-turn trigger limiter, nothing to do with keywords).
-  > `PAR-31…PAR-53` was this cluster's own reserved id block (see
-  > [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md) for what shipped under it).
-  > `PAR-74…PAR-92` is the 2026-09-15 Commander-legal tail sweep filed
-  > below, each individually confirmed via `parser_probe.py blocked`
-  > against PARSER_VERSION 386. `PAR-93…PAR-98` is PAR-79's own close-out
-  > triage (2026-09-16, against PARSER_VERSION 412) — PAR-79 itself
-  > (105 cards at its widest) closed after nine increments; its documented
-  > residue was swept for existing tickets it might already be covered by
-  > (none), then split into six successor tickets sized by real
-  > `parser_probe.py` cluster count, with the true one-offs moved to
-  > [singletons.md](singletons.md) instead of kept as ticket residue. The
-  > first free parser ticket id is **`PAR-99`** (checked 2026-09-16). A
-  > genuinely new engine primitive found along the way (missing behaviour,
-  > not just a parser gap) still files as its own real, closeable `MEC-*`
-  > ticket below — that part of the sweep stays in this file, since a
-  > primitive is schedulable work with an end state, unlike the sweep
-  > itself.
+  > **Ticket-id note:** `PAR-1` through `PAR-98` are all taken — grep
+  > `Done_Backend.md` before reusing one (e.g. `PAR-14` is RULE 603.2's
+  > trigger limiter, nothing to do with keywords). `PAR-31…PAR-53` was the
+  > long-tail's own reserved block (see `PARSER_LONG_TAIL.md`);
+  > `PAR-74…PAR-92` is the 2026-09-15 Commander-legal sweep; `PAR-93…PAR-98`
+  > is PAR-79's 2026-09-16 close-out split (its true one-offs went to
+  > [singletons.md](singletons.md) instead of a ticket). First free id:
+  > **`PAR-99`**. A genuinely new engine primitive found along the way
+  > still files as its own `MEC-*` ticket — only the sweep itself stays out
+  > of this file.
+  >
+  > **Anti-proliferation note:** a 2-6 card cluster is not automatically its
+  > own ticket. Bundle several independently-verified small fixes into one
+  > "small verified residue batch" ticket instead (PAR-92, PAR-98) — a
+  > numbered sub-bullet per shape, one `PAR-*` id for the lot — and reserve
+  > a standalone ticket for a cluster large enough, or mechanistically
+  > distinct enough, to be worth tracking on its own. A true one-off (no
+  > sibling anywhere in the cache) isn't a ticket at all — it goes in
+  > [singletons.md](singletons.md) for `hand-author-card` instead. When
+  > closing a large ticket surfaces a pile of small residue (as PAR-79's
+  > own close-out did), triage it the same way before filing: sweep for an
+  > existing ticket it already belongs under, size each shape against the
+  > full cache, then batch the small ones rather than opening one ticket
+  > per shape.
 
-### 2026-09-15 Commander-legal tail sweep — Bucket B (recurring templates)
-
-Every count below is `parser_probe.py blocked` SOLO-blocker output against
-PARSER_VERSION 386 on 2026-09-15 — re-run before starting, per this
-project's own standing rule that a ranked count goes stale the moment it's
-read. Several of these were flagged by `commander_tail_report.py` as
-"missing primitive" but turned out, on grep, to already have one (RULE
-613.4d `pt_switch`, the `unblockable`/`temp_unblockable` grant, the
-"all"-amount `prevent_damage_shield`) — filed as `PAR-*` parser gaps, not
-`MEC-*`, for exactly that reason. Ordered by verified SOLO count.
-
-  > All counts confirmed via `parser_probe.py blocked` at PARSER_VERSION
-  > 412, 2026-09-16 — re-run before starting, same standing rule as every
-  > other ranked count in this file.
 - **PAR-80 · X-spell "target creature gets +X/+`<N>` until end of turn."**
   (residue after one increment). The variable-power/fixed-toughness pump
   family — turned out to need no new primitive at all:
@@ -268,8 +249,7 @@ read. Several of these were flagged by `commander_tail_report.py` as
     than the already-shipped upkeep-check shape — 1 SOLO (Mishra, Claimed
     by Gix); Titania, Voice of Gaea needs the same widening plus one
     unrelated clause.
-
-  - **PAR-93 · Contraption "crank" trigger recognition (RULE 715).** A whole
+- **PAR-93 · Contraption "crank" trigger recognition (RULE 715).** A whole
   unbuilt sub-mechanic — "whenever you crank this Contraption, `<effect>`"
   (the crank event/action, sprocket/target-number resolution) has zero
   recognition today. Unfinity's Contraptions are tournament-legal (not the
@@ -398,16 +378,12 @@ read. Several of these were flagged by `commander_tail_report.py` as
     count paired with a fixed power filter (Runed Arch) — 2 SOLO, related
     but not identical shapes; may or may not share one fix.
 
+  > PAR-93…PAR-98's counts (above) are confirmed via `parser_probe.py
+  > blocked` at PARSER_VERSION 412, 2026-09-16 — a full batch newer than
+  > PAR-80…PAR-92's own 386 checkpoint. Re-run before starting either
+  > batch, same standing rule as every other ranked count in this file.
+
 ## MEC — Game mechanics
-
-### 2026-09-15 Commander-legal tail sweep — Bucket D (missing primitive)
-
-Each confirmed via `parser_probe.py blocked` (2026-09-15, PARSER_VERSION
-386) after grepping `game/` to rule out an existing primitive first — two
-of `commander_tail_report.py`'s own bucket-D labels ("no dice subsystem at
-all", "ISA gap: meld") turned out to be stale (a dice subsystem and meld
-both already shipped, MEC-75/MEC-77); see MEC-90's own note. Ordered by
-verified SOLO count.
 
 - **MEC-89 · "Tapped and attacking" battlefield entry (RULE 508.3).** A
   token or returned/reanimated creature entering the battlefield already

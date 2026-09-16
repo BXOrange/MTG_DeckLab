@@ -307,6 +307,18 @@ document's own standing rule, and it has now caught itself.
 
 Each was paid for once; re-reading them is cheaper than re-learning them.
 
+- **`commander_tail_report.py`'s Bucket-D "missing primitive" label is a
+  heuristic, not proof — grep `game/` before filing a `MEC-*` ticket.** The
+  2026-09-15 sweep found several Bucket-D flags where the primitive already
+  existed and only parser recognition was missing: RULE 613.4d's
+  `pt_switch` layer static, the `unblockable`/`temp_unblockable` grant, and
+  the "all"-amount `prevent_damage_shield` — each filed as a `PAR-*` ticket
+  instead of the `MEC-*` the report suggested. Bucket D caught two of its
+  own labels the same way on closer inspection ("no dice subsystem at
+  all", "ISA gap: meld" — a dice subsystem and meld had both already
+  shipped, `MEC-75`/`MEC-77`), narrowing what the sweep actually needed to
+  file down to `MEC-90`'s missing amount-referent and a small meld-trigger
+  widening folded into `PAR-92`.
 - **Decompose into atomic grammar units — don't enumerate phrase variants.**
   Now a standing rule, not just a lesson — see the extend-parser skill's
   `reference/handler-recipe.md` for the full writeup and the test to apply
