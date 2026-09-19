@@ -576,23 +576,37 @@ class CounterUnlessPayEffect(GameEffect):
     choice` kind, since the two are rules-identical from that point on.
     """
 
-    def __init__(self, cost: str = "", source: Optional["GameObject"] = None) -> None:
+    def __init__(
+        self,
+        cost: str = "",
+        source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = None,
+    ) -> None:
         super().__init__(source)
         self.cost_text = cost
+        # Usually this effect resolves off a BECOMES_TARGET event.  A small
+        # direct-counter family (Perplex) instead names a spell as a normal
+        # RULE 115 target, but shares the same non-mana "unless" cost path.
+        if target_kind is not None:
+            self.target_spec = TargetSpec(kind=target_kind)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..costs import parse_activation_cost  # function-scoped: import cycle
 
         event = context.trigger_event
-        if event is None:
-            return
-        stack_id = event.get("stack_id")
-        item = next((i for i in context.state.stack if i.stack_id == stack_id), None)
-        if item is None:
-            return  # the targeting spell/ability already left the stack
-        caster_id = event.get("controller_id")
-        if caster_id is None:
-            return
+        if event is not None:
+            stack_id = event.get("stack_id")
+            item = next((i for i in context.state.stack if i.stack_id == stack_id), None)
+            if item is None:
+                return  # the targeting spell/ability already left the stack
+            caster_id = event.get("controller_id")
+            if caster_id is None:
+                return
+        else:
+            item = (targets or [None])[0]
+            if item is None or getattr(item, "obj", None) is None:
+                return
+            caster_id = item.obj.controller_id
         ability_controller_id = self.source.controller_id if self.source is not None else None
         context.engine.resolve_ward_effect(
             item,

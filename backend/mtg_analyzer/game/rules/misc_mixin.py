@@ -307,24 +307,23 @@ class MiscSystemsMixin:
             return
         player = self.state.player_by_id(pending["player_id"])
         targets = pending.get("targets") or None
+        captured = pending.get("captured_previous")
+        def apply_branch(specs: list[dict]) -> None:
+            if not captured:
+                self._apply_effect_specs(specs, pending["source"], targets)
+                return
+            saved = list(self.context.previous_targets)
+            self.context.previous_targets = list(captured)
+            try:
+                self._apply_effect_specs(specs, pending["source"], targets)
+            finally:
+                self.context.previous_targets = saved
         if answer != "pay" or not self._can_pay_player_cost(player, pending["cost"]):
             # Re-checked: the board can have changed since the offer was made.
-            self._apply_effect_specs(pending["else_effect_specs"], pending["source"], targets)
+            apply_branch(pending["else_effect_specs"])
         else:
             self._pay_player_cost(player, pending["cost"])
-            captured = pending.get("captured_previous")
-            if captured:
-                # MEC-52: re-seed the RULE 608.2 "that card" referent for a
-                # `copy_permanent` ``referent="previous"`` in the paid
-                # branch (the resolution that opened this choice is gone).
-                saved = list(self.context.previous_targets)
-                self.context.previous_targets = list(captured)
-                try:
-                    self._apply_effect_specs(pending["effect_specs"], pending["source"], targets)
-                finally:
-                    self.context.previous_targets = saved
-            else:
-                self._apply_effect_specs(pending["effect_specs"], pending["source"], targets)
+            apply_branch(pending["effect_specs"])
             self._enqueue_pay_cost_then_trigger(pending)
         # PAR-13: if this single-player choice is one leg of a mass
         # `_request_each_player_pay_or` sweep, move on to whoever's next —

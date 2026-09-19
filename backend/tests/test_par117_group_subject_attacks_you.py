@@ -125,9 +125,9 @@ def test_hissing_miasma_becomes_modeled():
     assert result.modeled, result.unclaimed
 
 
-def test_maccready_stays_unmodeled_on_its_own_unrelated_first_ability():
+def test_maccready_becomes_modeled_when_its_group_subject_gains_skulk():
     result = parse_oracle(_db().get_card("MacCready, Lamplight Mayor"))
-    assert result.coverage is UNMODELED
+    assert result.modeled, result.unclaimed
 
 
 # ---------------------------------------------------------------------------

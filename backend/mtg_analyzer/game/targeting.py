@@ -619,9 +619,10 @@ def spell_target_specs(obj: GameObject) -> list[TargetSpec]:
     (draw/gain-life/search/…) carry ``target_spec = None`` and add nothing.
 
     An Aura is the other permanent-spell exception (RULE 303.4a): it must
-    target what it will enchant *as it's cast*, so an "enchant" attachment
-    kind synthesizes a "permanent" requirement here — `legal_targets` then
-    narrows it by the Aura's own "enchant" quality (creature/land/…).
+    target what it will enchant *as it's cast*. Most enchant qualities name
+    permanents, while ``Enchant player`` names a player (Curse Auras), so the
+    synthesized requirement follows the printed quality rather than assuming
+    every Aura has a battlefield-object host.
     """
     specs: list[TargetSpec] = []
     for effect in getattr(obj, "spell_effects", []) or []:
@@ -631,9 +632,11 @@ def spell_target_specs(obj: GameObject) -> list[TargetSpec]:
         polarity = effect.target_polarity()
         specs.extend(_with_polarity(spec, polarity) for spec in (getattr(effect, "target_specs", None) or []))
     if not specs and "enchant" in (getattr(obj, "parametric_keywords", None) or {}):
+        enchant = (getattr(obj, "parametric_keywords", None) or {}).get("enchant") or {}
+        quality = str(enchant.get("quality", "")).strip().lower()
         specs.append(
             TargetSpec(
-                kind="permanent",
+                kind="player" if quality == "player" else "permanent",
                 description="zu verzauberndes Ziel",
                 polarity=_aura_enchant_polarity(obj),
             )

@@ -583,8 +583,31 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 45.86% (15,963 / 34,811) as of 2026-09-17, measured at
-PARSER_VERSION 422** (v422 closes PAR-117's own Essence Sliver residue — a
+**Coverage: 45.94% (15,993 / 34,811) as of 2026-09-19, measured at
+PARSER_VERSION 427**; the Commander-legal slice is **48.3% (15,362 /
+31,830)**. v427 closes PAR-117: player-Aura attachment and attached-player
+attack conditions (Curse of the Forsaken); group-subject attack/block/self-KW
+tails; Perplex's targeted discard-hand counter-tax; Torment of Venom's
+prior-target-controller sacrifice-or-discard choice; and Fade Away/Killing
+Wave's unscoped, one-creature-at-a-time "unless" iterations. The iterator
+keeps every controller's payment/choice independent. Focused PAR-117 tests
+are green (103 passed).
+v423 closes PAR-117's group-subject "attacks you or a
+planeswalker you control" residue — Blood Reckoning, Isperia, Supreme Judge,
+Revenge of Ravens, Riddlekeeper, Search the Premises, plus four cards reached
+by the shared "that creature's controller" referent spelling. RULE 508.1b
+already gave `combat_mixin.declare_attackers` the needed semantic surface:
+the ATTACKS event's `defending_player_id` is the directly attacked player or
+the attacked planeswalker's controller. `_GROUP_SUBJECT_RE` now recognizes the
+longer qualifier as a distinct `attacks_you_or_planeswalker` condition and
+`_build_group_ok` checks it against that field; battles deliberately don't
+match. The existing group-subject controller rows now accept both "its
+controller" and "that creature's controller", preserving the referent gate
+that distinguishes a trigger subject from a preceding target. +9, 0 regressed
+(`coverage_report.py`; focused tests green; full `pytest -q`: 8,050 passed,
+19 existing unrelated failures) — see `tests/
+test_par117_attacks_you_or_planeswalker.py`.
+v422 closes PAR-117's own Essence Sliver residue — a
 `DAMAGE`-shaped RULE 603.1 group-subject condition ("whenever a `<type/
 subtype>` [you control] deals [combat ]damage[ to `<recipient>`], its
 controller `<verb>`", Edric, Spymaster of Trest; the Sliver "combat damage
@@ -1560,7 +1583,7 @@ connective increments)
 Oracle universe from `scripts/import_bulk.py`). Re-measure with
 `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is 48.2% (15,332 / 31,830);
+that matters for Goldfisch/Deck-Analyzer — is 48.2% (15,341 / 31,830);
 measure it with `scripts/coverage_report.py --commander-legal-only`
 (records a separate `…-commander` snapshot row) and segment the
 still-UNMODELED remainder by *cause* (wrapper re-measure / recurring

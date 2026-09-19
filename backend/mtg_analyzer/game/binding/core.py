@@ -684,6 +684,13 @@ def _build_group_ok(
     # which reads a DAMAGE event's player-recipient fields — a different
     # event shape entirely.
     want_attacks_you = bool(condition.get("attacks_you"))
+    # PAR-117: "whenever a creature attacks you **or a planeswalker you
+    # control**" (Blood Reckoning). `declare_attackers` stamps the
+    # defending planeswalker's controller into the same event field it uses
+    # for a directly-attacked player; it deliberately does *not* treat a
+    # battle protected by that player as a planeswalker.
+    want_attacks_you_or_planeswalker = bool(condition.get("attacks_you_or_planeswalker"))
+    want_attacks_enchanted_player = bool(condition.get("attacks_enchanted_player"))
     # RULE 603.1 Panharmonicon-shaped self-recursion guard (MEC-43 round
     # 4D, Kodama of the East Tree — "if it wasn't put onto the
     # battlefield with this ability"): the acting object's own live
@@ -743,6 +750,8 @@ def _build_group_ok(
         want_min_power=want_min_power,
         want_max_power=want_max_power,
         want_attacks_you=want_attacks_you,
+        want_attacks_you_or_planeswalker=want_attacks_you_or_planeswalker,
+        want_attacks_enchanted_player=want_attacks_enchanted_player,
         want_not_entered_via_self=want_not_entered_via_self,
         want_damaged_by_self=want_damaged_by_self,
         damaged_by_via_attached=damaged_by_via_attached,
@@ -864,6 +873,13 @@ def _build_group_ok(
                 return False
         if want_attacks_you and event.get("defending_player_id") != cid:
             return False
+        if want_attacks_you_or_planeswalker and event.get("defending_player_id") != cid:
+            return False
+        if want_attacks_enchanted_player:
+            state = getattr(context, "state", None)
+            source = state.find_object(iid) if state is not None and iid is not None else None
+            if source is None or event.get("defending_player_id") != source.attached_to:
+                return False
         if want_crewed_by_self:
             if iid is None or event_instance is None:
                 return False

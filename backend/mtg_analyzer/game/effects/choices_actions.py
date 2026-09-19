@@ -682,7 +682,7 @@ class PayCostThenEffect(GameEffect):
 
     def __init__(
         self,
-        cost: str = "",
+        cost: Any = "",
         effects: Optional[list[dict[str, Any]]] = None,
         else_effects: Optional[list[dict[str, Any]]] = None,
         payer: str = "controller",
@@ -690,13 +690,14 @@ class PayCostThenEffect(GameEffect):
         remember_trigger_subject: bool = False,
         target_kind: Optional[str] = None,
         sacrifice_or_discard: bool = False,
+        capture_previous: bool = False,
         prompt: Optional[str] = None,
         remember_trigger_stack_id: bool = False,
         then_trigger: Optional[list[dict[str, Any]]] = None,
         then_trigger_modes: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
-        self.cost_text = str(cost)
+        self.cost_data = cost
         self.inner_specs = list(effects or [])
         self.else_specs = list(else_effects or [])
         #: "You may `<cost>`. **When you do**, `<targeted payoff>`." (Sample
@@ -720,6 +721,10 @@ class PayCostThenEffect(GameEffect):
         #: this compound "sacrifice X **or** discard a card" shape (every
         #: other field on `ActivationCost` is AND-combined).
         self.sacrifice_or_discard = sacrifice_or_discard
+        # A deferred "unless" branch may still name the permanent targeted
+        # by the preceding instruction (Torment of Venom).  Preserve that
+        # RULE 608.2 referent across its payment choice.
+        self.capture_previous = capture_previous
         #: A custom prompt (Tergrid, God of Fright, MEC-43 round 4E — "you
         #: may put that card... onto the battlefield") — the default
         #: ``f"{cost_label} bezahlen?"`` reads oddly for a genuinely free
@@ -764,6 +769,13 @@ class PayCostThenEffect(GameEffect):
             # See ``target_kind`` above — the payer is whoever this
             # ability's own RULE 115 target resolved to.
             player = targets[0] if targets else None
+        elif self.payer == "target_controller":
+            subject = targets[0] if targets else None
+            player = (
+                context.state.player_by_id(subject.controller_id)
+                if getattr(subject, "controller_id", None) is not None
+                else None
+            )
         elif self.payer == "event_controller":
             player = _event_player(context)
         elif self.payer == "event_player":
@@ -798,7 +810,10 @@ class PayCostThenEffect(GameEffect):
             player = _controller_of(self.source, context)
         if player is None:
             return
-        cost = parse_activation_cost(self.cost_text)
+        cost = parse_activation_cost(self.cost_data)
+        from ..costs import PAY_LIFE_X
+        if cost.pay_life == PAY_LIFE_X:
+            cost.pay_life = int(getattr(self.source, "x_paid", 0) or 0)
         if self.sacrifice_or_discard:
             cost.sacrifice_or_discard = True
         context.engine._request_pay_cost_then(
@@ -819,6 +834,7 @@ class PayCostThenEffect(GameEffect):
             # names it ("that player", "defending player's graveyard") can
             # read it back off its own `StackItem.trigger_event`.
             then_trigger_event=context.trigger_event,
+            captured_previous=(list(context.previous_targets) if self.capture_previous else None),
         )
 
 

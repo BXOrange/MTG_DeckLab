@@ -8439,6 +8439,44 @@ measurement of why is the useful half of this work.
   resolving "a planeswalker you control" needs the defender's own
   controller threaded onto the ATTACKS event. See `BACKLOG.md`'s PAR-117
   entry.
+- **PAR-117 closed (PARSER_VERSION 427).** The remaining independently
+  scoped residue landed as one verified batch: Aura targeting/attachment now
+  accepts `Player` for `Enchant player`, and Curse of the Forsaken compares
+  the ATTACKS event's defending player with that attachment; group-subject
+  attack/block tails and "it gains <keyword>" reach their firing creature;
+  Perplex's normal spell target uses the existing arbitrary-cost pay-or-
+  counter flow with `discard your hand`; Torment of Venom preserves its
+  preceding creature target across the controller's sacrifice-or-discard
+  decision; and Fade Away/Killing Wave use the composition iterator over
+  `all_creatures`, pausing once per creature controller. Killing Wave's
+  consequence sacrifices that iteration item, whereas Fade Away opens an
+  ordinary choice among that controller's permanents. `PayCostThenEffect`
+  consequently supports a target-controller payer and structured `{pay_life:
+  x}` costs resolved from the spell's announced X. Verified by the focused
+  PAR-117 suite and parser-version lock: **103 passed**; coverage is
+  15,993/34,811 (Commander-legal 15,362/31,830).
+- **PAR-117's group-subject "attacks you or a planeswalker you control"
+  residue closed (PARSER_VERSION 423).** RULE 508.1b has the attacker choose
+  a player, planeswalker, or battle. The engine's existing
+  `combat_mixin.declare_attackers` implementation already correctly stamps
+  `defending_player_id`: a directly attacked player, or the controller of an
+  attacked planeswalker (while a battle instead resolves to its protector).
+  The actual gap was parser-only, not a missing event field as the backlog's
+  old diagnosis claimed. `_GROUP_SUBJECT_RE` now recognizes the longer
+  spelling as a distinct `attacks_you_or_planeswalker` condition and
+  `_build_group_ok` compares that field to the ability's controller. A battle
+  protected by that player deliberately does not match the printed
+  planeswalker-only alternative. The same scan revealed the payoff spelling
+  "that creature's controller" (Blood Reckoning/Revenge of Ravens/
+  Riddlekeeper) was an unclaimed synonym for the shipped group-subject "its
+  controller" rows, so the shared controller-referent regex now accepts both
+  spellings while retaining each row's existing referent gate. **+9, 0
+  regressed** (`coverage_report.py`; focused tests green; full `pytest -q`:
+  8,050 passed, 19 existing unrelated failures). Verified past the
+  parse verdict in `tests/test_par117_attacks_you_or_planeswalker.py`: real
+  Blood Reckoning, Isperia, Supreme Judge, Revenge of Ravens, Riddlekeeper,
+  and Search the Premises parse, and Blood Reckoning fires for a planeswalker
+  controlled by its controller but not one controlled by another player.
 - **PAR-117's own Essence Sliver residue closed (PARSER_VERSION 422).** A
   `DAMAGE`-shaped RULE 603.1 group-subject condition ("whenever a `<type/
   subtype>` [you control] deals [combat ]damage[ to `<recipient>`], its

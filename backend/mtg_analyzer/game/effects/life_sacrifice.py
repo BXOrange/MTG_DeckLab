@@ -2024,6 +2024,36 @@ class SacrificeSelfEffect(GameEffect):
             context.put_into_graveyard(self.source)
 
 
+class SacrificeTargetEffect(GameEffect):
+    """Sacrifice the loop item's permanent, with no new target selection.
+
+    Used after a per-creature "unless" payment (Killing Wave).  The item
+    was selected by the surrounding untargeted iteration, so it must not
+    accidentally become a fresh RULE 115 target.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        subject = (targets or [None])[0]
+        if subject is not None and subject in context.state.battlefield:
+            context.put_into_graveyard(subject)
+
+
+class SacrificeControllerPermanentEffect(GameEffect):
+    """Have the loop item's controller sacrifice a permanent of their choice."""
+
+    def __init__(self, what: str = "permanent", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.what = what
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        subject = (targets or [None])[0]
+        controller_id = getattr(subject, "controller_id", None)
+        if controller_id is None:
+            return
+        player = context.state.player_by_id(controller_id)
+        context.sacrifice(player, self.what, 1)
+
+
 class SacrificeUnlessAttackedEffect(GameEffect):
     """"Sacrifice ~ unless it attacked this turn." (Instill Furor).
 

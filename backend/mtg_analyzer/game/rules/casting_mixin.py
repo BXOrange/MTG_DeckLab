@@ -930,8 +930,18 @@ class CastingResolutionMixin:
             if name in keywords:
                 return name
         return None
-    def _attachment_legal(self, obj: GameObject, target: GameObject) -> bool:
+    def _attachment_legal(self, obj: GameObject, target: Any) -> bool:
         """Whether ``obj`` can legally attach to ``target`` (basic MVP rules)."""
+        kind = self._attachment_kind(obj)
+        # RULE 303.4a/702.5: a Curse Aura's ``Enchant player`` target is a
+        # player, not a permanent. Its attachment identity is the stable
+        # player id (parallel to a permanent's instance id); unlike a normal
+        # Aura host it has no protection/phase/type state to re-check.
+        if isinstance(target, Player):
+            quality = str(((obj.parametric_keywords or {}).get("enchant") or {}).get(
+                "quality", ""
+            )).strip().lower()
+            return kind == "enchant" and quality == "player" and not target.has_lost
         if target not in self.state.permanents():
             return False  # RULE 702.26c: can't attach to a phased-out permanent
         if target.is_battle:
@@ -940,7 +950,6 @@ class CastingResolutionMixin:
             # requiring a creature; this is what stops a broadly-worded Aura
             # ("enchant permanent") from landing on one.
             return False
-        kind = self._attachment_kind(obj)
         if kind is None:
             return False
         if is_protected_from(target, obj) and not (
@@ -1004,11 +1013,11 @@ class CastingResolutionMixin:
                 return target.is_planeswalker
             return True
         return True
-    def attach_to_target(self, obj: GameObject, target: GameObject) -> bool:
+    def attach_to_target(self, obj: GameObject, target: Any) -> bool:
         """Attach an Aura/Equipment-like object to a legal target (RULE 303/301.5)."""
         if not self._attachment_legal(obj, target):
             return False
-        obj.attached_to = target.instance_id
+        obj.attached_to = target.id if isinstance(target, Player) else target.instance_id
         return True
 
     def _begin_bestow(self, obj: GameObject) -> None:
@@ -1075,6 +1084,14 @@ class CastingResolutionMixin:
             host_id = attached.attached_to
             if host_id is None:
                 continue
+            player_host = next((p for p in self.state.players if p.id == host_id), None)
+            if player_host is not None:
+                if self._attachment_legal(attached, player_host):
+                    continue
+                attached.attached_to = None
+                if self._attachment_kind(attached) == "enchant":
+                    self._move_to_graveyard(attached)
+                return True
             host = self._object_by_instance_id(host_id)
             if host is None or host not in self.state.battlefield or host.phased_out:
                 # Host leaving the battlefield is `_detach_attachments_from`'s
@@ -1690,7 +1707,7 @@ class CastingResolutionMixin:
             self._pending_read_ahead_count = None
             self.state.add_to_battlefield(obj, saga_lore_override=read_ahead_count)
             if self._attachment_kind(obj) == "enchant":
-                targets = [t for t in item.targets if isinstance(t, GameObject)]
+                targets = [t for t in item.targets if isinstance(t, (GameObject, Player))]
                 target = targets[0] if targets else None
                 # RULE 303.4f (MEC-34): "Enchant creature card in a
                 # graveyard" — the target isn't a permanent at all, so it
@@ -1700,7 +1717,7 @@ class CastingResolutionMixin:
                 # this enters" ability (queued by the ENTERS_BATTLEFIELD
                 # event just below) is what reanimates the stashed target
                 # and attaches this Aura to the result.
-                target_in_graveyard = target is not None and target.zone == Zone.GRAVEYARD
+                target_in_graveyard = isinstance(target, GameObject) and target.zone == Zone.GRAVEYARD
                 if target_in_graveyard:
                     obj.reanimate_target_id = target.instance_id
                 elif not (target is not None and self.attach_to_target(obj, target)):

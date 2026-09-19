@@ -147,7 +147,7 @@ def test_real_cards_become_modeled():
 
 def test_still_unmodeled_on_unrelated_gaps():
     for name in (
-        "Cavalcade of Calamity", "Life Finds a Way", "MacCready, Lamplight Mayor",
+        "Cavalcade of Calamity", "Life Finds a Way",
         "Raid Bombardment", "Subira, Tulzidi Caravanner", "Where Ancients Tread",
     ):
         card = _db().get_card(name)

@@ -826,6 +826,11 @@ EffectRegistry.register(
     "sacrifice_self",  # "Sacrifice ~." (Dress Down/Underworld Breach-shaped)
     lambda p: SacrificeSelfEffect(),
 )
+EffectRegistry.register("sacrifice_target", lambda p: SacrificeTargetEffect())
+EffectRegistry.register(
+    "sacrifice_controller_permanent",
+    lambda p: SacrificeControllerPermanentEffect(what=p.get("what", "permanent")),
+)
 EffectRegistry.register(
     "sacrifice_unless_attacked",
     lambda p: SacrificeUnlessAttackedEffect(),
@@ -1472,6 +1477,7 @@ EffectRegistry.register(
         # Lantern, MEC-43 round 4E) — see PayCostThenEffect.target_spec.
         target_kind=p.get("target_kind"),
         sacrifice_or_discard=bool(p.get("sacrifice_or_discard", False)),
+        capture_previous=bool(p.get("capture_previous", False)),
         prompt=p.get("prompt"),
         remember_trigger_stack_id=bool(p.get("remember_trigger_stack_id", False)),
         then_trigger=p.get("then_trigger"),
@@ -1500,7 +1506,9 @@ EffectRegistry.register(
     # controller pays <cost>" — the un-keyworded-Ward-shaped trigger
     # resolution (EventType.BECOMES_TARGET).
     "counter_unless_pay",
-    lambda p: CounterUnlessPayEffect(cost=p.get("cost", "")),
+    lambda p: CounterUnlessPayEffect(
+        cost=p.get("cost", ""), target_kind=p.get("target_kind"),
+    ),
 )
 EffectRegistry.register(
     # RULE 118.3-adjacent multi-player tax: "Any player may pay <cost>. If

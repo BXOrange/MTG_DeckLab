@@ -1466,17 +1466,27 @@ _GROUP_SUBJECT_RE = re.compile(
     # `effect_binder._build_group_ok`'s ``has_counter``/``has_counter_kind``.
     r"(?P<ctr>\s+with an?\s+(?:(?P<ctrkind>-1/-1|\+1/\+1)\s+)?counter on it)?"
     rf"\s+(?:{_VERB_ALT})"
+    # "Whenever a creature blocks **this turn**" (Mage Hunters'
+    # Onslaught) — on a trigger condition this is a tautological time tail,
+    # not a duration the resulting ability has to remember: the BLOCKS event
+    # necessarily occurred during the current turn. Consume it rather than
+    # leaving an otherwise ordinary RULE 603.1 group condition unclaimed.
+    r"(?:\s+this turn)?"
     r"(?:\s+the\s+battlefield)?(?:\s+alone)?"
-    # PAR-117 (group-subject residue, Hissing Miasma-shaped: "whenever a
-    # creature attacks **you**") — RULE 506.4's defending-player scope: the
-    # acting object's own ATTACKS event carries a ``defending_player_id``
-    # (already read by `attacked_player_lowest_life_predicate`'s trigger-
-    # level gate, MEC-28), which `_build_group_ok`'s new ``attacks_you`` key
-    # checks against this ability's own controller instead. Only meaningful
-    # on "attacks" (no real card prints "dies you"/"enters you"), but not
-    # anchored to that verb specifically — a bare trailing "you" after any
-    # other verb here has no printed meaning to guess at, so this is safe.
+    # PAR-117 (group-subject residue, Hissing Miasma/Blood Reckoning-shaped:
+    # "whenever a creature attacks **you [or a planeswalker you control]**")
+    # — RULE 508.1b's defending-player scope. The ATTACKS event's own
+    # ``defending_player_id`` is the player directly attacked or, for a
+    # planeswalker defender, that planeswalker's controller; `_build_group_ok`
+    # compares it to this ability's controller. The longer spelling is kept
+    # distinct: attacking a battle protected by that player does not satisfy
+    # a printed "you or a planeswalker you control" condition.
+    r"(?P<attacks_you_or_planeswalker>\s+you or a planeswalker you control)?"
     r"(?P<attacks_you>\s+you)?"
+    # Curse of the Forsaken: the group subject is the attacking creature,
+    # while "enchanted player" is this Aura's player attachment. Kept apart
+    # from ``attached_permanent`` — a player has no GameObject identity.
+    r"(?P<attacks_enchanted_player>\s+enchanted player)?"
     r"(?P<you_b> under your control)?$"
 )
 
@@ -3111,6 +3121,15 @@ def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
             # "whenever a creature attacks **you**" (Hissing Miasma) —
             # `_build_group_ok`'s new ``attacks_you`` key.
             out["attacks_you"] = True
+        if m.group("attacks_you_or_planeswalker"):
+            # "whenever a creature attacks you or a planeswalker you
+            # control" (Blood Reckoning, Revenge of Ravens, …). The engine
+            # stamps the planeswalker's controller in ATTACKS'
+            # ``defending_player_id``; a separate key deliberately keeps
+            # this wider printed scope distinct from bare "attacks you".
+            out["attacks_you_or_planeswalker"] = True
+        if m.group("attacks_enchanted_player"):
+            out["attacks_enchanted_player"] = True
         return out
     # Only reached once the exact main-type vocabulary above has already
     # failed to match — a genuine tribal filter ("another nontoken Zombie

@@ -2238,10 +2238,17 @@ def _gain_life_and_draw_eq_its_self(m: re.Match[str]) -> list[EffectSpec]:
 #: with the same referent, and the ordinary bare ``gain_life``/``lose_life``
 #: rows already claim "you gain/lose N life" by themselves.
 _PREVIOUS_TARGET_CONTROLLER: dict = {"of": "previous_target", "as": "controller"}
-_ITS_CONTROLLER_LOSES_LIFE_RE = _c(rf"its controller loses {NUMBER} life")
-_ITS_CONTROLLER_GAINS_LIFE_RE = _c(rf"its controller gains {NUMBER} life")
-_ITS_CONTROLLER_DRAWS_RE = _c(rf"its controller draws? {COUNT_X} cards?")
-_ITS_CONTROLLER_DISCARDS_RE = _c(rf"its controller discards? {COUNT} cards?")
+# Both "its controller" and "that creature's controller" name the same
+# antecedent. Which antecedent that is remains the handler gate's job:
+# `previous_subject_only` for a preceding target, `group_subject_only` for a
+# RULE 603.1 firing object (Blood Reckoning), and `attached_subject_only` for
+# an Aura's host. Keeping the spelling together prevents a second parallel
+# referent vocabulary from drifting out of sync.
+_CONTROLLER_REFERENT = r"(?:its|that creature'?s) controller"
+_ITS_CONTROLLER_LOSES_LIFE_RE = _c(rf"{_CONTROLLER_REFERENT} loses {NUMBER} life")
+_ITS_CONTROLLER_GAINS_LIFE_RE = _c(rf"{_CONTROLLER_REFERENT} gains {NUMBER} life")
+_ITS_CONTROLLER_DRAWS_RE = _c(rf"{_CONTROLLER_REFERENT} draws? {COUNT_X} cards?")
+_ITS_CONTROLLER_DISCARDS_RE = _c(rf"{_CONTROLLER_REFERENT} discards? {COUNT} cards?")
 
 
 def _its_controller_loses_life(m: re.Match[str]) -> list[EffectSpec]:
@@ -2268,13 +2275,35 @@ def _its_controller_discards(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+#: Torment of Venom — its targeted creature's controller, not the spell's
+#: caster, may choose either half of the printed compound cost.  The earlier
+#: counter instruction supplies the RULE 608.2 pronoun referent.
+_ITS_CONTROLLER_LOSES_LIFE_UNLESS_SAC_OR_DISCARD_RE = _c(
+    rf"{_CONTROLLER_REFERENT} loses (?P<n>\d+) life unless they sacrifice "
+    r"another nonland permanent of their choice or discard a card"
+)
+
+
+def _its_controller_loses_life_unless_sac_or_discard(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("pay_cost_then", {
+        "cost": "sacrifice a nonland permanent",
+        "payer": "previous_target_controller",
+        "sacrifice_or_discard": True,
+        "capture_previous": True,
+        "effects": [],
+        "else_effects": [{"type": "lose_life", "params": {
+            "amount": int(m.group("n")), "player": _PREVIOUS_TARGET_CONTROLLER,
+        }}],
+    })]
+
+
 #: "counter target spell. its controller mills N cards." (Countermand/
 #: Didn't Say Please/Psychic Strike/Thought Collapse's own family) —
 #: `MillEffect.selector="previous_subject_controller"` already exists,
 #: built for Broken Ambitions' "that spell's controller mills four cards"
 #: (see that effect's own docstring, RULE 608.2h) — this was only ever
 #: missing the "its controller" parser row, not the engine primitive.
-_ITS_CONTROLLER_MILLS_RE = _c(rf"its controller mills {NUMBER} cards?")
+_ITS_CONTROLLER_MILLS_RE = _c(rf"{_CONTROLLER_REFERENT} mills {NUMBER} cards?")
 
 
 def _its_controller_mills(m: re.Match[str]) -> list[EffectSpec]:
@@ -3813,6 +3842,36 @@ def _sacrifice_unless_pay(m: re.Match[str]) -> list[EffectSpec]:
     cost = m.group("cost")
     return [EffectSpec("sacrifice_unless_pay", {
         "cost": "source_mana_cost" if cost == "pay its mana cost" else cost,
+    })]
+
+
+#: PAR-117: Fade Away / Killing Wave.  This is leading, unscoped
+#: per-creature iteration, unlike the parser's existing trailing "for each"
+#: connective.  The outer iterator snapshots every creature; the normal
+#: composition runtime then pauses for each controller's individual choice.
+_EACH_CREATURE_SACRIFICES_UNLESS_RE = _c(
+    r"for each creature, its controller sacrifices "
+    r"(?P<subject>a permanent of their choice|it) unless they "
+    r"(?P<cost>pay \{1\}|pay x life)"
+)
+
+
+def _each_creature_sacrifices_unless(m: re.Match[str]) -> list[EffectSpec]:
+    is_self = m.group("subject") == "it"
+    cost: object = {"pay_life": "x"} if m.group("cost") == "pay x life" else "{1}"
+    consequence = (
+        {"type": "sacrifice_target", "params": {}}
+        if is_self else
+        {"type": "sacrifice_controller_permanent", "params": {"what": "permanent"}}
+    )
+    return [EffectSpec("for_each", {
+        "over": {"selector": "all_creatures"},
+        "effects": [{"type": "pay_cost_then", "params": {
+            "cost": cost,
+            "payer": "target_controller",
+            "effects": [],
+            "else_effects": [consequence],
+        }}],
     })]
 
 
@@ -6273,6 +6332,20 @@ _COUNTER_UNLESS_PAY_RE = _c(
 def _counter_unless_pay(m: re.Match[str]) -> list[EffectSpec]:
     verb = "pay" if m.group("verb") == "pays" else "discard"
     return [EffectSpec("counter_unless_pay", {"cost": f"{verb} {m.group('amount')}"})]
+
+
+#: Perplex — unlike the BECOMES_TARGET family above, this has a normal RULE
+#: 115 spell target and a non-mana "unless" cost.
+_COUNTER_TARGET_SPELL_UNLESS_DISCARD_HAND_RE = _c(
+    r"counter target spell unless its controller discards their hand"
+)
+
+
+def _counter_target_spell_unless_discard_hand(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("counter_unless_pay", {
+        "cost": "discard your hand",
+        "target_kind": "spell",
+    })]
 
 
 #: "you get {E}{E}" (RULE 122 energy production, the reminder-text
@@ -8737,6 +8810,21 @@ def _grant_self_subject_kw(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if keywords is None:
         return None  # unmodeled granted ability → fail-closed
     return [EffectSpec("pump", {"keywords": keywords})]
+
+
+def _grant_group_subject_kw(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    """"Whenever a creature … attacks, it gains skulk until end of turn."
+
+    Here ``it`` is neither this ability's source nor a preceding RULE 115
+    target: it is the particular RULE 603.1 group object that fired the
+    trigger. `GrantKeywordToTriggerSubjectEffect` already owns that live
+    event-reference behaviour (Tyvar Kell's emblem); this parser row merely
+    routes the ordinary creature-event spelling to it.
+    """
+    keywords = _token_keywords(m.group("kw"))
+    if keywords is None or len(keywords) != 1:
+        return None
+    return [EffectSpec("grant_keyword_to_trigger_subject", {"keyword": keywords[0]})]
 
 
 #: The durations a grant may carry beyond "until end of turn", as printed →
@@ -13047,6 +13135,12 @@ HANDLERS: list[EffectHandler] = [
     # `<verb>` …" — the previous clause's own controller, gated on
     # `previous_subject_only` exactly like `gain_life_eq_that_prev` above.
     EffectHandler(
+        "its_controller_loses_life_unless_sac_or_discard",
+        _ITS_CONTROLLER_LOSES_LIFE_UNLESS_SAC_OR_DISCARD_RE,
+        _its_controller_loses_life_unless_sac_or_discard,
+        previous_subject_only=True,
+    ),
+    EffectHandler(
         "its_controller_loses_life", _ITS_CONTROLLER_LOSES_LIFE_RE,
         _its_controller_loses_life, previous_subject_only=True,
     ),
@@ -13533,6 +13627,11 @@ HANDLERS: list[EffectHandler] = [
         "sacrifice_unless_pay",
         _SACRIFICE_UNLESS_PAY_RE,
         _sacrifice_unless_pay,
+    ),
+    EffectHandler(
+        "each_creature_sacrifices_unless",
+        _EACH_CREATURE_SACRIFICES_UNLESS_RE,
+        _each_creature_sacrifices_unless,
     ),
     EffectHandler(
         "sacrifice_unless_attacked",
@@ -14241,6 +14340,11 @@ HANDLERS: list[EffectHandler] = [
         "counter_unless_pay",
         _COUNTER_UNLESS_PAY_RE,
         _counter_unless_pay,
+    ),
+    EffectHandler(
+        "counter_target_spell_unless_discard_hand",
+        _COUNTER_TARGET_SPELL_UNLESS_DISCARD_HAND_RE,
+        _counter_target_spell_unless_discard_hand,
     ),
     # "you get {E}{E}" — energy-counter production (RULE 122).
     EffectHandler(
@@ -15059,6 +15163,12 @@ HANDLERS: list[EffectHandler] = [
         _c(r"it gains? (?P<kw>[a-z, ]+?) until end of turn"),
         _grant_self_subject_kw,
         self_subject_only=True,
+    ),
+    EffectHandler(
+        "grant_group_subject_kw",
+        _c(r"it gains? (?P<kw>[a-z, ]+?) until end of turn"),
+        _grant_group_subject_kw,
+        group_subject_only=True,
     ),
     # "It doesn't untap during its controller's untap step for as long as ~
     # remains tapped." — the tap-then-lock family (PAR-11), whose subject is
