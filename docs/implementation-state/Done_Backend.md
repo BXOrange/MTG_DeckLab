@@ -11332,3 +11332,17 @@ table, re-measured after each batch.
   continuous-copy instruction; it does not weld two copies or branches.
 - **Verification:** `tests/game/effects/test_continuous_effects.py` and
   `tests/test_isa_inventory.py`.
+
+### PAR-82 / PAR-106 — redundant parser-ticket audit (PARSER_VERSION 429)
+
+- **What:** Retired two tickets whose stated shared parser work was already
+  complete. PAR-82's quoted-static-grant subject scopes have worked since its
+  earlier re-evaluation; its remaining cards are unrelated inner-ability
+  gaps, so retaining them under that umbrella gave no actionable shared work.
+  PAR-106's repeatable-mode chooser also already parses; the five Season
+  cards are blocked only by distinct mode bodies, not by the chooser.
+- **Verification:** A fresh complete-cache `coverage_report.py --no-db`
+  measurement at PARSER_VERSION 429 confirmed both subject shapes still
+  parse as designed and identified the remaining unmodeled clauses as the
+  independent bodies above. Representative cards (Phenax / Season of
+  Gathering) were checked directly through `parse_oracle`.

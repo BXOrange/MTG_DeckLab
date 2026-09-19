@@ -100,57 +100,6 @@ its block back into the matching section here.
   > full cache, then batch the small ones rather than opening one ticket
   > per shape.
 
-- **PAR-82 · Quoted static grants — the remaining SOLO cards on
-  "creatures you control have"/"enchanted creature has" (residue; the
-  ticket's own original premise was stale).** Re-verified 2026-09-15: both
-  subject shapes **already work** — `static_effect_specs('creatures you
-  control have "when ~ enters, draw a card."')` and the "enchanted
-  creature has" equivalent both correctly resolve to `affects=
-  "creatures_you_control"`/`"attached_permanent"` today, confirmed
-  directly against `_QUOTED_GRANT_RE`/`_ATTACHED_QUOTED_GRANT_RE`. Every
-  card still SOLO on either search phrase is blocked by its **own
-  unrelated inner-ability gap** instead — closing one doesn't touch any
-  other, so don't build a shared fix expecting it to sweep the list.
-  **One closed this pass**: Phenax, God of Deception's own granted "{T}:
-  target player mills X cards, where X is this creature's toughness." —
-  `MillEffect.count_selector`'s already-shipped `"source_power"`/`"source_
-  toughness"` reading (`continuous.count_selector`, evaluated against the
-  effect's own bound `source` — the *granted-to* creature once regranted,
-  not the enchantment/permanent that printed the ability) just needed a
-  parser row (`_mill_source_pt`/`_MILL_SOURCE_PT_RE`). Re-run
-  `parser_probe.py blocked 'creatures you control have "'`/`'enchanted
-  creature has "'` before picking the next one — 13 SOLO cards remain,
-  each its own separate primitive/recognition gap:
-  - Kira, Great Glass-Spinner: "whenever ~ becomes the target of a spell
-    or ability for the first time each turn, counter that spell or
-    ability." — `BECOMES_TARGET` + "for the first time each turn" both
-    already parse; the blocker is "counter that spell or ability" itself,
-    a `CounterSpellEffect` referent for "whatever `BECOMES_TARGET` just
-    named" that doesn't exist yet.
-  - Nadu, Winged Wisdom: same `BECOMES_TARGET` trigger, but "this ability
-    triggers only twice each turn" — `trigger.limit` is currently a bare
-    once-per-turn flag, not a count.
-  - Regal Sliver: "`<pump>` if you're the monarch. otherwise, you become
-    the monarch." — an `is_monarch`-gated `if_else` joining two genuinely
-    different effect types (pump vs. `become_monarch`); confirmed neither
-    half parses today even alone (the "if you're the monarch" conditional
-    pump clause fails closed on its own).
-  - Retaliation ("whenever ~ becomes blocked by a creature, …" — no
-    "became blocked" trigger event yet, only `BLOCKS`/attacker-side);
-    Spiteful Sliver ("whenever ~ is dealt damage, it deals that much
-    damage to…" — no "this permanent was dealt damage" trigger event);
-    Tale of Katara and Toph ("whenever ~ becomes tapped for the first
-    time during each of your turns…" — no `TAPPED` trigger event at all).
-  - Ghired, Mirror of the Wilds (copy a token that entered this turn);
-    Katilda, Dawnhart Prime (a mana ability reading the *granted-to*
-    object's own printed colors); Animal Friend (counting Auras/Equipment
-    attached to the granted-to creature, excluding itself); Bewitching
-    Leechcraft (an untap-step replacement effect); Custody Battle
-    (upkeep "gain control unless you sacrifice a land"); Mark of Sakiko
-    (combat-damage-triggered mana that doesn't empty at end of step);
-    Sisay's Ingenuity (a resolve-time interactive "becomes the color of
-    your choice" chooser) — each its own real, separately-scoped gap; none
-    share enough shape with another in this list to close together.
 - **PAR-83 · "`<cost>`: put target card from a graveyard on the bottom of
   its owner's library."** A new one-shot effect verb, distinct from the
   existing shuffle-into-library family — no shuffle involved, straight to
@@ -437,18 +386,7 @@ its block back into the matching section here.
   cast creature spells from the top of your library"`: **5 SOLO, 3
   also-blocked**. Augur of Autumn, Elven Chorus, Garruk's Horde, Ranger
   Class, Summoning Materia.
-- **PAR-106 · Season-of repeatable-mode chooser ("choose up to N `<cost>`
-  worth of modes; you may choose the same mode more than once").** The
-  chooser itself already parses — confirmed via `parser_probe.py blocked
-  "worth of modes. you may choose the same mode more than once"`: **0
-  SOLO, 5 also-blocked**. Every card is blocked by its own three
-  differently-worded per-tier mode bodies instead (`{P}`/`{P}{P}`/
-  `{P}{P}{P}`, a distinct effect each), so this ticket is really "extend
-  whichever handlers those individual mode bodies need" rather than one
-  fix. Season of Gathering, Season of Loss, Season of Weaving, Season of
-  the Bold, Season of the Burrow.
-
-> **PAR-99…PAR-106's counts are confirmed via `parser_probe.py blocked` at
+> **PAR-99…PAR-105's counts are confirmed via `parser_probe.py blocked` at
 > PARSER_VERSION 413, 2026-09-16, cross-referenced against the 56 saved
 > decks in `backend/scripts/deck_coverage.py`. Re-run before starting —
 > same standing rule as every other ranked count in this file.**
