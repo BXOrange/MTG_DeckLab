@@ -1897,9 +1897,10 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `then_specs_if_none` — "if you don't put a card onto the battlefield
 #: this way, `<body>`." (here `scry 2`) runs `<body>` when the from-hand
 #: pick places nothing (declined in `_resume_search`, or nothing
-#: eligible in `_request_search`). `_PUT_FROM_HAND_RE` also consumes the
-#: reminder "if it has any 'whenever ~ attacks' triggers, those trigger"
-#: (a no-op — `put_onto_battlefield_attacking` re-fires ATTACKS already).
+#: eligible in `_request_search`). `_PUT_FROM_HAND_RE` also records the
+#: explicit instruction "if it has any 'whenever ~ attacks' triggers, those
+#: trigger" as `trigger_attacks`; ordinary entering-attacking remains silent
+#: under RULE 508.3a.
 #: +1.
 #: "197": PAR-30 "copy of a named card" body singletons — **Living Laser**.
 #: New `GameState.cards_discarded_this_turn` (bumped at every `DISCARD_CARD`
@@ -3411,7 +3412,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: +18 (Edric, Essence/Brood/Synapse Sliver, Rakish Heir, Stensia
 #: Masquerade, and 12 bonus cards sharing the widened subtype/group-subject
 #: axis outside this ticket's own search phrase), 0 regressed.
-PARSER_VERSION = "427"
+PARSER_VERSION = "428"
 
 
 def parser_source_hash() -> str:

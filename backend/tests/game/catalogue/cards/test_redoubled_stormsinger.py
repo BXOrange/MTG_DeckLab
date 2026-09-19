@@ -41,6 +41,8 @@ def test_copies_each_just_entered_token_tapped_and_attacking():
     eng = GameEngine.new_game(
         [("p1", "Alice", []), ("p2", "Bob", [])], starting_life=20, starting_hand=0,
     )
+    eng.state.current_phase = "combat"
+    eng.state.current_step = "declare_attackers"
     singer = GameObject(_singer_card(), owner_id="p1", zone=Zone.BATTLEFIELD)
     singer.controller_id = "p1"
     singer.summoning_sick = False

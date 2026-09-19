@@ -26,6 +26,8 @@ def _engine():
     eng = GameEngine.new_game(
         [("p1", "Alice", []), ("p2", "Bob", [])], starting_life=20, starting_hand=0
     )
+    eng.state.current_phase = "combat"
+    eng.state.current_step = "declare_attackers"
     return eng, eng.state
 
 
@@ -115,5 +117,5 @@ def test_battlefield_attacking_destination_enters_tapped_and_attacking():
     assert grunt.tapped is True
     assert grunt.attacking is True
     assert (grunt.combat_defender or {}).get("id") == "p2"
-    assert any(e.type == EventType.ATTACKS
-               and e.get("instance_id") == grunt.instance_id for e in events)
+    assert not any(e.type == EventType.ATTACKS
+                   and e.get("instance_id") == grunt.instance_id for e in events)

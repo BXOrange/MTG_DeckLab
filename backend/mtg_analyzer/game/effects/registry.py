@@ -1918,6 +1918,7 @@ EffectRegistry.register(
         count=int(p.get("count", 1) or 1),
         tapped=bool(p.get("tapped", False)),
         attacking=bool(p.get("attacking", False)),
+        trigger_attacks=bool(p.get("trigger_attacks", False)),
         max_mana_value_selector=p.get("max_mana_value_selector"),
         power_less_than_source=bool(p.get("power_less_than_source", False)),
         miss_effect_specs=p.get("miss_effect_specs"),

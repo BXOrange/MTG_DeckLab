@@ -1667,7 +1667,7 @@ class SearchMixin:
         self, player: Player, obj: GameObject, destination: str,
         chooser_id: Optional[str] = None,
     ) -> None:
-        if destination in ("battlefield", "battlefield_tapped", "battlefield_attacking"):
+        if destination in ("battlefield", "battlefield_tapped", "battlefield_attacking", "battlefield_attacking_triggering"):
             obj.summoning_sick = True
             # RULE 614.1: a permanent's own "enters with" replacement applies
             # no matter whether it was cast or put onto the battlefield.
@@ -1705,11 +1705,20 @@ class SearchMixin:
                     object_types=sorted(obj.type_words),
                 )
             )
-            if destination == "battlefield_attacking":
+            if destination in ("battlefield_attacking", "battlefield_attacking_triggering"):
                 # RULE 508.4: "…onto the battlefield tapped **and attacking**"
                 # (Preeminent Captain, Kaalia of the Vast). The tap is set
                 # above; this puts it into the current combat.
-                self.put_onto_battlefield_attacking(obj)
+                entered_attacking = self.put_onto_battlefield_attacking(obj)
+                # The Vast Scrier's explicit post-entry instruction, not the
+                # generic RULE 508.3a path: make this creature's printed
+                # attack triggers fire without changing declaration history.
+                if destination == "battlefield_attacking_triggering" and entered_attacking:
+                    self.state.fire_event(GameEvent(
+                        EventType.ATTACKS, attacker=obj.name, player_id=obj.controller_id,
+                        instance_id=obj.instance_id, object_types=sorted(obj.type_words),
+                        defending_player_id=(obj.combat_defender or {}).get("id"),
+                    ))
         elif destination == "library_bottom":
             obj.zone = Zone.LIBRARY
             player.library.insert(0, obj)  # bottom (index 0 — see Player.library)

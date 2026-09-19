@@ -76,6 +76,8 @@ def _engine_with_ll():
     eng = GameEngine.new_game(
         [("p1", "A", []), ("p2", "B", [])], starting_life=20, starting_hand=0
     )
+    eng.state.current_phase = "combat"
+    eng.state.current_step = "declare_attackers"
     ll = GameObject(
         Card(id="ll", name="Living Laser",
              type_line="Legendary Artifact Creature — Equipment",

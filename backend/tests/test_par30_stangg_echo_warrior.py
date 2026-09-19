@@ -58,6 +58,8 @@ def _engine_with_stangg():
     eng = GameEngine.new_game(
         [("p1", "A", []), ("p2", "B", [])], starting_life=20, starting_hand=0
     )
+    eng.state.current_phase = "combat"
+    eng.state.current_step = "declare_attackers"
     stangg = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
     stangg.controller_id = "p1"
     eng.state.add_to_battlefield(stangg)

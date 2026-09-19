@@ -83,6 +83,8 @@ def _engine():
     eng = GameEngine.new_game(
         [("p1", "A", []), ("p2", "B", [])], starting_life=20, starting_hand=0
     )
+    eng.state.current_phase = "combat"
+    eng.state.current_step = "declare_attackers"
     src = GameObject(
         Card(id="j", name="The Joiner of Cats",
              type_line="Legendary Creature — Cat", is_creature=True,

@@ -25,6 +25,8 @@ from mtg_analyzer.parser.oracle.spec import EffectSpec
 def _engine(n=3):
     seats = [(f"p{i+1}", name, []) for i, name in enumerate(["Alice", "Bob", "Cara", "Dave"][:n])]
     eng = GameEngine.new_game(seats, starting_life=20, starting_hand=0)
+    eng.state.current_phase = "combat"
+    eng.state.current_step = "declare_attackers"
     return eng, eng.state
 
 

@@ -241,6 +241,8 @@ def test_impulsive_look_grants_temp_keyword_to_placed_card():
         [("p1", "A", []), ("p2", "B", [])], starting_life=20, starting_hand=0
     )
     st = eng.state
+    st.current_phase = "combat"
+    st.current_step = "declare_attackers"
     p1 = st.player_by_id("p1")
     human = GameObject(
         Card(id="h", name="Soldier", type_line="Creature — Human Soldier",

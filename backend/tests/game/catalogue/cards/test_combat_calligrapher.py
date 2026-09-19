@@ -46,6 +46,9 @@ def test_attacker_makes_a_tapped_attacking_inkling_when_an_opponent_is_attacked(
         [("p1", "Alice", []), ("p2", "Bob", []), ("p3", "Cara", [])],
         starting_life=20, starting_hand=0,
     )
+    eng.state.active_player_index = 1  # p2 is attacking this combat
+    eng.state.current_phase = "combat"
+    eng.state.current_step = "declare_attackers"
     cc = GameObject(_calligrapher_card(), owner_id="p1", zone=Zone.BATTLEFIELD)
     cc.controller_id = "p1"
     cc.summoning_sick = False
@@ -55,6 +58,15 @@ def test_attacker_makes_a_tapped_attacking_inkling_when_an_opponent_is_attacked(
 
     before = len(eng.state.battlefield)
     # p2 attacks p3 (one of p1's opponents)
+    attacker = GameObject(
+        Card(id="attacker", name="Attacker", type_line="Creature — Human",
+             is_creature=True, power=2, toughness=2),
+        owner_id="p2", zone=Zone.BATTLEFIELD,
+    )
+    attacker.controller_id = "p2"
+    attacker.attacking = True
+    attacker.combat_defender = {"kind": "player", "id": "p3", "label": "Cara"}
+    eng.state.add_to_battlefield(attacker)
     eng.state.fire_event(GameEvent(
         EventType.PLAYER_ATTACKED, attacking_player_id="p2", defending_player_id="p3",
         player_id="p2", count=1,

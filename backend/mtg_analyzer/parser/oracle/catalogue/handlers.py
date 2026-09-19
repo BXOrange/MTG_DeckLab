@@ -1647,13 +1647,12 @@ _PUT_FROM_HAND_RE = _c(
     # phrase is consumed, not re-modeled.
     r"(?P<atk_defender> that (?:player|opponent))?"
     r"(?P<xdef>, where x is the number of attacking creatures you control)?"
-    # The Vast Scrier's two trailing sentences: (1) a reminder that the
-    # placed creature's own "whenever ~ attacks" triggers fire — the engine
-    # already re-fires ATTACKS via `put_onto_battlefield_attacking`, so this
-    # is consumed as a no-op; (2) "if you don't put a card … this way,
+    # The Vast Scrier's two trailing sentences: (1) an explicit instruction
+    # that the placed creature's own "whenever ~ attacks" triggers fire —
+    # unlike ordinary RULE 508.4 entry, this is *not* a no-op; (2) "if you don't put a card … this way,
     # <body>." → `miss_effect_specs` (via `_request_search`'s
     # ``then_specs_if_none``).
-    r"(?:\. if it has any \"whenever ~ attacks\" triggers,? those trigger)?"
+    r"(?:\. (?P<trigger_attacks>if it has any \"whenever ~ attacks\" triggers,? those trigger))?"
     r"(?:\. if you don'?t put a card onto the battlefield this way, (?P<elsebody>.+?))?"
 )
 
@@ -1720,6 +1719,8 @@ def _put_from_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["tapped"] = True
     if m.groupdict().get("or_gy"):
         params["zones"] = ["hand", "graveyard"]
+    if m.groupdict().get("trigger_attacks"):
+        params["trigger_attacks"] = True
     elsebody = (m.groupdict().get("elsebody") or "").strip().rstrip(".")
     if elsebody:
         from ..segmenter import parse_effect_body  # lazy: segmenter imports this module

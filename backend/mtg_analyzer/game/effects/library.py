@@ -1593,6 +1593,7 @@ class PutFromHandOntoBattlefieldEffect(GameEffect):
         count: int = 1,
         tapped: bool = False,
         attacking: bool = False,
+        trigger_attacks: bool = False,
         max_mana_value_selector: Optional[str] = None,
         power_less_than_source: bool = False,
         miss_effect_specs: Optional[list[dict]] = None,
@@ -1617,6 +1618,10 @@ class PutFromHandOntoBattlefieldEffect(GameEffect):
         #: ``"battlefield_attacking"`` search destination, which enters the
         #: card tapped and calls `RulesEngine.put_onto_battlefield_attacking`.
         self.attacking = attacking
+        #: A card can explicitly override RULE 508.3a after putting the
+        #: creature into combat (The Vast Scrier: "those trigger"). This is
+        #: deliberately separate from ordinary ``attacking`` entry.
+        self.trigger_attacks = bool(trigger_attacks)
         #: "…creature card **with mana value X or less** … where X is the
         #: number of attacking creatures you control." (Kinscaer Sentry) —
         #: a `continuous.count_selector` name resolved at `apply` time and
@@ -1631,7 +1636,9 @@ class PutFromHandOntoBattlefieldEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is None:
             return
-        if self.attacking:
+        if self.attacking and self.trigger_attacks:
+            destination = "battlefield_attacking_triggering"
+        elif self.attacking:
             destination = "battlefield_attacking"
         elif self.tapped:
             destination = "battlefield_tapped"

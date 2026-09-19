@@ -168,6 +168,8 @@ def test_unless_ring_bearer_fires_when_source_is_not_ring_bearer():
 
 def test_sauron_end_to_end_makes_the_token_and_exiles_it_at_end_step():
     eng, st = _engine()
+    st.current_phase = "combat"
+    st.current_step = "declare_attackers"
     grave = GameObject(
         Card(id="Bear", name="Grizzly Bear", type_line="Creature — Bear",
              is_creature=True, power=2, toughness=2),
