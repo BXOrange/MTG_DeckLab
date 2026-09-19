@@ -272,6 +272,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # The "don't" is the ``not`` combinator below, not a second kind.
         "controls_subtype",  # + ``subtype``, ``min``/``max`` (``min`` 1)
         "opponent_cast_color_this_turn",  # + ``colors`` (WUBRG letters)
+        "another_spell_cast_this_turn",  # + ``color`` or ``spell_type``
         # -- Combinator (MEC-43 round 2, Conqueror's Flail's "As long as
         # this Equipment is attached to a creature, your opponents can't
         # cast spells during your turn." — two independent gates ANDed in
@@ -929,6 +930,16 @@ def condition_holds(
         wanted = {str(c).upper() for c in (condition.get("colors") or [])}
         cast = getattr(state, "spell_colors_cast_this_turn", None) or {}
         return any(colors & wanted for pid, colors in cast.items() if pid != controller_id)
+    if kind == "another_spell_cast_this_turn":
+        color = condition.get("color")
+        spell_type = condition.get("spell_type")
+        if color and not spell_type:
+            counts = getattr(state, "spell_color_cast_counts_this_turn", None) or {}
+            return int((counts.get(controller_id, {}) or {}).get(str(color).upper(), 0)) >= 2
+        if spell_type and not color:
+            counts = getattr(state, "spell_type_cast_counts_this_turn", None) or {}
+            return int((counts.get(controller_id, {}) or {}).get(str(spell_type).lower(), 0)) >= 2
+        return False
     return False
 
 

@@ -2425,6 +2425,14 @@ _FREE_CAST_IF_COMMANDER_RE = re.compile(
     r"^if you control a commander,\s*you may cast this spell without paying its mana cost\.?\s*$",
     re.IGNORECASE,
 )
+_FREE_CAST_IF_ANOTHER_COLOR_RE = re.compile(
+    r"^if you'?ve cast another (?P<color>white|blue|black|red|green) spell this turn,\s*"
+    r"you may cast this spell without paying its mana cost\.?\s*$", re.IGNORECASE,
+)
+_CAST_ONLY_IF_ANOTHER_COLOR_RE = re.compile(
+    r"^cast this spell only if you'?ve cast another "
+    r"(?P<color>white|blue|black|red|green) spell this turn\.?$", re.IGNORECASE,
+)
 
 #: "If an opponent cast three or more spells this turn, you may pay {0}
 #: rather than pay this spell's mana cost." (Mindbreak Trap-shaped RULE
@@ -5889,6 +5897,17 @@ def segment_line(
             raw_text=raw, parser=provenance,
         ), claimed=True)
 
+    another_cast = _CAST_ONLY_IF_ANOTHER_COLOR_RE.match(raw)
+    if another_cast is not None:
+        color = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}[
+            another_cast.group("color").lower()
+        ]
+        return Segment(raw=raw, spec=AbilitySpec(
+            "spell_effect", effects=[],
+            cast_condition={"another_spell_cast_this_turn": {"color": color}},
+            raw_text=raw, parser=provenance,
+        ), claimed=True)
+
     flash_for_mana = _CONDITIONAL_FLASH_FOR_EXTRA_MANA_RE.match(raw)
     if flash_for_mana is not None:
         return Segment(raw=raw, spec=AbilitySpec(
@@ -5922,6 +5941,16 @@ def segment_line(
                 parser=provenance,
             )
             return Segment(raw=raw, spec=spec, claimed=True)
+        another_color = _FREE_CAST_IF_ANOTHER_COLOR_RE.match(raw)
+        if another_color is not None:
+            color = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}[
+                another_color.group("color").lower()
+            ]
+            return Segment(raw=raw, spec=AbilitySpec(
+                "spell_effect", effects=[],
+                free_cast_condition={"another_spell_cast_this_turn": {"color": color}},
+                raw_text=raw, parser=provenance,
+            ), claimed=True)
 
         opp_spells = _FREE_CAST_IF_OPPONENT_SPELLS_RE.match(raw)
         if opp_spells is not None:

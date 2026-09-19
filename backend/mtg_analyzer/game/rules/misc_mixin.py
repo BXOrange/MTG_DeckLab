@@ -1949,6 +1949,14 @@ class MiscSystemsMixin:
             if obj is not None:
                 colors = self.state.spell_colors_cast_this_turn.setdefault(player_id, set())
                 colors.update(obj.colors)
+                color_counts = self.state.spell_color_cast_counts_this_turn.setdefault(player_id, {})
+                for color in obj.colors:
+                    color_counts[color] = color_counts.get(color, 0) + 1
+                type_counts = self.state.spell_type_cast_counts_this_turn.setdefault(player_id, {})
+                for card_type in object_types:
+                    type_counts[card_type] = type_counts.get(card_type, 0) + 1
+                if "instant" in object_types or "sorcery" in object_types:
+                    type_counts["instant_or_sorcery"] = type_counts.get("instant_or_sorcery", 0) + 1
                 # MEC-60 (Acolyte of Bahamut): "the first Dragon spell you
                 # cast each turn …" — read the cast object's *subtypes*
                 # (after the printed em dash), which ``object_types`` above

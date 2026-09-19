@@ -258,6 +258,15 @@ class CastingResolutionMixin:
             # onto the battlefield later.
             attacked = getattr(self.state, "players_attacked_this_turn", None) or set()
             amount = condition["count"] if getattr(obj, "controller_id", None) in attacked else 0
+        elif condition.get("another_color_spell_unless"):
+            color = str(condition["another_color_spell_unless"]).upper()
+            counts = getattr(self.state, "spell_color_cast_counts_this_turn", None) or {}
+            # This permanent's own spell was recorded at cast time, before
+            # resolution.  The replacement therefore applies only if that
+            # count has not reached two ("another" excludes this spell).
+            amount = condition["count"] if int(
+                (counts.get(getattr(obj, "controller_id", None), {}) or {}).get(color, 0)
+            ) < 2 else 0
         elif condition.get("chosen_opponent_creatures_scale"):
             chosen_id = getattr(obj, "chosen_player_id", None)
             amount = condition["count"] * sum(

@@ -2889,6 +2889,11 @@ def _vehicle_scope_params(m: "re.Match[str]") -> dict:
 #: whole clause unclaimed (fail-closed), which is why this list is ordered
 #: most-specific-first.
 _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
+    (re.compile(r"you'?ve cast another (?P<color>white|blue|black|red|green) spell this turn", re.I),
+     lambda m: {"kind": "another_spell_cast_this_turn",
+                "color": {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}[m.group("color").lower()]}),
+    (re.compile(r"you'?ve cast another instant or sorcery spell this turn", re.I),
+     lambda m: {"kind": "another_spell_cast_this_turn", "spell_type": "instant_or_sorcery"}),
     # "as long as you control a Swamp" (Sedge Sliver) — a live basic-land
     # subtype count, using the same selector vocabulary the layer engine
     # already consults for land-count thresholds.

@@ -40,13 +40,8 @@ Feast shares Gloomlance's colour shape, Smashing Success shares Acolyte
 Hybrid's "destroyed this way" shape), 0 regressed.
 
 Soul Reap ("its controller loses 3 life if you've cast another black spell
-this turn.") stays UNMODELED — "another" needs a per-colour, per-turn spell
-*count* to exclude the resolving spell's own cast; `GameState.
-spell_colors_cast_this_turn` is a set, not a count, and already contains
-this spell's own colour by the time it resolves, so it cannot answer
-"another" at all. A real, separate primitive (a new per-colour counter
-alongside `spell_colors_cast_this_turn`) — left open in `BACKLOG.md` rather
-than guessed at here.
+this turn.") now uses the per-colour, per-turn spell count which excludes
+the resolving spell's own cast by requiring two casts at resolution.
 """
 
 from __future__ import annotations
@@ -190,10 +185,12 @@ def test_real_cards_become_modeled():
         assert result.modeled, f"{name}: {result.unclaimed}"
 
 
-def test_soul_reap_stays_unmodeled_on_the_another_black_spell_count():
+def test_soul_reap_models_the_another_black_spell_count():
     card = _db().get_card("Soul Reap")
     result = parse_oracle(card)
-    assert result.coverage is UNMODELED
+    assert result.modeled
+    rider = result.specs[0].effects[1]
+    assert rider.condition == {"kind": "another_spell_cast_this_turn", "color": "B"}
 
 
 # ---------------------------------------------------------------------------

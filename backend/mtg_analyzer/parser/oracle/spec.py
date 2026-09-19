@@ -278,6 +278,7 @@ ALLOWED_FREE_CAST_CONDITION_KEYS: frozenset[str] = frozenset(
         # PAR-62/Raid: declaration history rather than a live battlefield
         # count, so it remains true after combat ends.
         "you_attacked_this_turn",
+        "another_spell_cast_this_turn",
     }
 )
 
@@ -520,6 +521,11 @@ class AbilitySpec:
     #: PAR-35: a narrow spell-local casting window restriction. Unlike
     #: ``conditional_flash`` this removes otherwise legal windows.
     cast_timing_restriction: Optional[dict[str, Any]] = None
+    #: RULE 601.2: a condition that must hold to cast this spell at all,
+    #: distinct from `free_cast_condition`, which merely enables an
+    #: alternative cost.  Uses that field's closed condition vocabulary and
+    #: evaluator because both are checked immediately before casting.
+    cast_condition: Optional[dict[str, Any]] = None
     #: PAR-35: mana surcharge paid only when this spell uses its own
     #: conditional Flash permission outside a sorcery window.
     flash_extra_cost: Optional[str] = None
@@ -713,6 +719,7 @@ class AbilitySpec:
             and not self.alt_cost
             and not self.conditional_flash
             and not self.cast_timing_restriction
+            and not self.cast_condition
             and not self.flash_extra_cost
             and not self.strive_cost
             and not self.cast_mana_source_restriction
@@ -733,6 +740,9 @@ class AbilitySpec:
 
         if self.cast_timing_restriction is not None:
             self._validate_cast_timing_restriction()
+
+        if self.cast_condition is not None:
+            self._validate_cast_condition()
 
         if self.flash_extra_cost is not None:
             if not isinstance(self.flash_extra_cost, str) or not _STRIVE_COST_RE.fullmatch(self.flash_extra_cost):
@@ -1111,6 +1121,23 @@ class AbilitySpec:
             )
         if key == "control_land_type" and (not isinstance(value, str) or not value):
             raise SpecValidationError("'control_land_type' condition must be a non-empty str")
+        if key == "another_spell_cast_this_turn" and (
+            not isinstance(value, dict)
+            or set(value) not in ({"color"}, {"spell_type"})
+            or not isinstance(next(iter(value.values())), str)
+        ):
+            raise SpecValidationError("'another_spell_cast_this_turn' must name one color or spell_type")
+
+    def _validate_cast_condition(self) -> None:
+        """Structural check for a mandatory spell-casting condition."""
+        original = self.free_cast_condition
+        try:
+            self.free_cast_condition = self.cast_condition
+            self._validate_free_cast_condition()
+        except SpecValidationError as exc:
+            raise SpecValidationError(str(exc).replace("free_cast_condition", "cast_condition")) from exc
+        finally:
+            self.free_cast_condition = original
 
     def _validate_alt_cost(self) -> None:
         """Structural check for an ``alt_cost`` clause (RULE 118.9)."""
@@ -1448,6 +1475,7 @@ class AbilitySpec:
             "additional_cost_optional": self.additional_cost_optional,
             "conditional_flash": self.conditional_flash,
             "cast_timing_restriction": self.cast_timing_restriction,
+            "cast_condition": self.cast_condition,
             "flash_extra_cost": self.flash_extra_cost,
             "free_cast_condition": self.free_cast_condition,
             "optional": self.optional,
@@ -1500,6 +1528,7 @@ class AbilitySpec:
             additional_cost_optional=bool(data.get("additional_cost_optional", False)),
             conditional_flash=data.get("conditional_flash"),
             cast_timing_restriction=data.get("cast_timing_restriction"),
+            cast_condition=data.get("cast_condition"),
             flash_extra_cost=data.get("flash_extra_cost"),
             free_cast_condition=data.get("free_cast_condition"),
             optional=bool(data.get("optional", False)),

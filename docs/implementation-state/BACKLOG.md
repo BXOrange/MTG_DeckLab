@@ -726,49 +726,6 @@ its block back into the matching section here.
 > handler's exact shape depends on details (e.g. an intervening "if"
 > clause, a self- vs. target-referent) this scan doesn't capture.**
 
-## MEC — Game mechanics
-
-- **MEC-94 · Face a Villainous Choice.** An opponent-facing (not
-  caster-facing) binary modal choice — the affected player, not the
-  spell's controller, picks between two named consequences. Distinct from
-  the existing caster-side modal-spell machinery. Confirmed via
-  `parser_probe.py blocked "villainous choice|face a villainous"`: 3 SOLO
-  (6 total). Midnight Crusader Shuttle, Sycorax Commander, This Is How It
-  Ends.
-- **MEC-95 · Incubate (RULE 701.71).** Create a face-down Incubator token
-  carrying N +1/+1 counters that can later be turned face up (transformed)
-  into a copy of its source creature. No existing primitive. Confirmed via
-  `parser_probe.py blocked "\bincubate[sd]?\b"`: 1 clean SOLO (Incubob).
-  Brimaz, Blight of Oreskos and Sunder the Gateway also match "incubate"
-  but each need a second, unrelated clause too — this ticket only needs to
-  cover the primitive itself.
-- **MEC-96 · Waterbend `<cost>` alternative-cost verb (low priority).** A
-  distinct alternative-cost-payment keyword ("waterbend {N}" instead of
-  paying a mana cost/activation cost), from the paper-legal *Avatar: The
-  Last Airbender* set. Confirmed via `parser_probe.py blocked
-  "\bwaterbend(?:s|ing)?\b"`: 2 SOLO, 0 also-blocked. Genuinely new but
-  tiny and single-set — pick up opportunistically rather than scheduling a
-  dedicated batch. Aang's Iceberg, Hama, the Bloodbender.
-- **MEC-97 · "Cast another `<color/type>` spell this turn" as a resolve-time
-  count.** Found closing PAR-117's conditional-wrapper residue (Soul Reap
-  stayed UNMODELED on exactly this). `GameState.spell_colors_cast_this_turn`
-  is a per-player *set* of colours, built for `opponent_cast_color_this_turn`
-  (PAR-78) — it already contains a spell's own colour by the time that same
-  spell resolves, so it cannot answer "**another**" (a second spell of that
-  colour/type) at all, only "at least one ever". Needs a real per-colour (and
-  separately, per-type — "another instant or sorcery spell", "another `<X>`
-  spell") *count*, reset the same way `spells_cast_this_turn` is, plus a way
-  to exclude the resolving spell's own cast from that count (an ordinal
-  ">= 2" read taken *before* this spell's own increment lands works, but
-  needs checking against cast-vs-resolve timing) — not a flat boolean.
-  Confirmed via `parser_probe.py blocked "cast another .* spell this
-  turn"`: 7 SOLO, 0 also-blocked, across genuinely different effect shapes
-  (cost reduction, free-cast, a draw trigger, a counter-tax ETB, a cast
-  restriction, and Soul Reap's own "its controller loses life" rider) — one
-  shared condition primitive, not one per card. Burrog Barrage, Dream Thief,
-  Hotheaded Giant, Mage Duel, Patrician's Scorn, Soul Reap, Talara's
-  Battalion.
-
 ## PLR — Player management
 
 - **PLR-9 · User accounts.** Login/signup (docs/04 PART 4), auth token

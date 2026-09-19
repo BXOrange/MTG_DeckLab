@@ -325,6 +325,8 @@ class TurnLoopMixin:
         # spell this turn" — same game-wide reset scope as the row above.
         for player in self.state.players:
             self.state.spell_colors_cast_this_turn[player.id] = set()
+            self.state.spell_color_cast_counts_this_turn[player.id] = {}
+            self.state.spell_type_cast_counts_this_turn[player.id] = {}
         # "Until your next turn, …" (RULE 611.2b) — a player-scoped effect
         # granted on someone's turn lapses the moment *that* player's next
         # turn begins, which is exactly now for `active`. Swept across every

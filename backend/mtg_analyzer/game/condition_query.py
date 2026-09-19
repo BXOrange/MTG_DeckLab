@@ -203,6 +203,17 @@ def free_cast_condition_holds(condition: dict[str, Any], obj: "GameObject", stat
             attacked = getattr(state, "players_attacked_this_turn", None) or set()
             if bool(value) != (controller_id in attacked):
                 return False
+        elif key == "another_spell_cast_this_turn":
+            if not isinstance(value, dict) or set(value) not in ({"color"}, {"spell_type"}):
+                return False
+            if "color" in value:
+                counts = getattr(state, "spell_color_cast_counts_this_turn", {}) or {}
+                count = (counts.get(controller_id, {}) or {}).get(str(value["color"]).upper(), 0)
+            else:
+                counts = getattr(state, "spell_type_cast_counts_this_turn", {}) or {}
+                count = (counts.get(controller_id, {}) or {}).get(str(value["spell_type"]).lower(), 0)
+            if int(count) < 1:
+                return False
         else:
             return False
     return True

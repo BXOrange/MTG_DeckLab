@@ -603,6 +603,11 @@ class CastingMixin:
             for e in player.player_effects
         ):
             return False
+        cast_condition = getattr(obj, "cast_condition", None)
+        if cast_condition is not None and not condition_query.free_cast_condition_holds(
+            cast_condition, obj, self.state
+        ):
+            return False
         restriction = getattr(obj, "cast_timing_restriction", None)
         if restriction is not None:
             if self.state.current_step != restriction.get("step"):

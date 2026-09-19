@@ -41,6 +41,44 @@ def test_raid_entry_counter_reads_player_attack_history_at_entry():
     assert parse_oracle(card).coverage == MODELED
 
 
+def test_another_color_spell_unless_entry_counter_is_a_pre_entry_replacement():
+    engine = _engine()
+    card = _card(
+        "Hotheaded Giant",
+        "This creature enters with two -1/-1 counters on it unless you've cast another red spell this turn.",
+    )
+    obj = GameObject(card, owner_id="p1", zone=Zone.HAND)
+    engine.rules._apply_entry_counters(obj)
+    assert obj.counters == {"-1/-1": 2}
+
+    # The resolving red creature is already in the per-turn history; a
+    # second red spell proves that a distinct prior one was cast.
+    engine.state.spell_color_cast_counts_this_turn["p1"] = {"R": 2}
+    other = GameObject(card, owner_id="p1", zone=Zone.HAND)
+    engine.rules._apply_entry_counters(other)
+    assert other.counters == {}
+    assert parse_oracle(card).coverage == MODELED
+
+
+def test_another_color_spell_cast_restriction_binds_and_checks_history():
+    engine = _engine()
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    card = _card(
+        "Talara's Battalion",
+        "Cast this spell only if you've cast another green spell this turn.",
+    )
+    obj = GameObject(card, owner_id="p1", zone=Zone.HAND)
+    bind_from_catalogue(obj)
+    player = engine.state.player_by_id("p1")
+    player.hand.append(obj)
+    assert obj.cast_condition == {"another_spell_cast_this_turn": {"color": "G"}}
+    assert not engine.can_cast(player, obj, assume_mana_available=True)
+    engine.state.spell_color_cast_counts_this_turn["p1"] = {"G": 1}
+    assert engine.can_cast(player, obj, assume_mana_available=True)
+    assert parse_oracle(card).coverage == MODELED
+
+
 def test_raid_activation_restriction_binds_and_checks_player_history():
     engine = _engine()
     engine.begin_turn()

@@ -504,7 +504,7 @@ is in the rules-engine categories below them.
 - **Yield:** 3 real cache cards newly MODELED (0 regressed) — All of History All at Once, Time Beetle, Wibbly-wobbly Timey-wimey. The 6 ALSO-BLOCKED cards (Coward // Killer, Rotating Fireplace, The Girl in the Fireplace, The Parting of the Ways, …) stay UNMODELED on *other* clauses (an activated-cost restriction, a "becomes a `<subtype>` in addition" body, a modal-chapter block), not on time travel — tracked in PAR-30.
 - **Tests:** `tests/test_par29_time_travel.py` (clause parse; real-card `parse_oracle`; execute: accelerates a suspended card and opens the free-cast window at zero; prolongs a Vanishing permanent).
 
-### Face a Villainous Choice (RULE 701.55) (PAR-29, PARSER_VERSION 126)
+### Face a Villainous Choice (RULE 701.55) (PAR-29 / MEC-94, PARSER_VERSION 126)
 
 - **What:** The Doctor Who forced-modal-on-an-opponent action. `RulesEngine.request_villainous_choice(source, controller_id, facing_ids, option_a, option_b, labels)` is the `VoteEffect` APNAP sweep **minus the tally**: each facing player (already resolved and APNAP-ordered by the effect) gets a `villainous_choice` `pending_choice` (`_advance_villainous_choice` opens the next; `resolve_villainous_choice` applies that player's chosen option and re-advances). `GameState._pending_villainous` holds the two serialized option effect-lists. The key move: each option is applied with `_apply_effect_specs(specs, source, targets=[facing])`, so an option's `sacrifice`/`discard`/`lose_life` spec (no selector) lands **on the facing player**, while a "you …" spec (no target) stays on `controller_id`.
 - **`effects.FaceVillainousChoiceEffect`** resolves the facing players from `subject`: `"each_opponent"` (APNAP), `"target"` (`targets[0]`), `"trigger_target_player"` (the triggering event's `player_id` — "Whenever ~ deals combat damage to a player, that player faces …"). Registered as `face_villainous_choice`; dispatched from `turn_loop_mixin` as `kind == "villainous_choice"`.
@@ -514,6 +514,12 @@ is in the rules-engine categories below them.
 - **Files:** `game/rules_engine.py` (`_pending_villainous`), `game/rules/misc_mixin.py` (`request_villainous_choice`/`_advance_villainous_choice`/`resolve_villainous_choice`), `game/engine/turn_loop_mixin.py` (dispatch), `game/effects/core.py` (`FaceVillainousChoiceEffect` + `EffectRegistry`), `parser/oracle/catalogue/handlers.py` (`_VILLAINOUS_HEADER_RE`/`_villainous_option_specs`/`_face_villainous_choice` + `EffectHandler`; `_inline_create_token_params` `who` fix), `parser/oracle/gate.py` (PARSER_VERSION 126).
 - **Yield:** 2 real cache cards newly MODELED (0 regressed) — Damocles Base, Sword of Kang; The Dalek Emperor.
 - **Tests:** `tests/test_par29_villainous_choice.py` (edict-vs-lose-life parse; unmodelable-option fail-closed; real-card `parse_oracle`; execute: 3-player `each_opponent` sweep where each opponent applies their own pick via `resolve_pending_choice`, a "you gain life" option landing on the controller not the facing player).
+
+- **MEC-94 reconciliation:** A fresh full-cache probe still lists Midnight
+  Crusader Shuttle, Sycorax Commander, and This Is How It Ends, but each is
+  blocked by a different option-body effect rather than the opponent-facing
+  choice action. The implemented primitive is therefore complete; any such
+  card work belongs with those individual effects.
 
 #### Option-body primitives (ENG-33, PARSER_VERSION 129 / 130 / 132)
 
@@ -605,7 +611,7 @@ is in the rules-engine categories below them.
 - **Yield:** v123 — 3 real cache cards (Airbending Lesson, Glider Staff, Whirlwind Technique). v144 — +2 SOLO (Monk Gyatso, Airbender's Reversal); the airbend clause also stops blocking Aang Airbending Master / Aang the Last Airbender / Appa Loyal Sky Bison / Appa Steadfast Guardian (each still UNMODELED on its own other clauses). v145 — +1 (Aang, Swift Savior). 0 regressed each pass.
 - **Tests:** `tests/test_par29_airbend.py` (v123 — clause forms incl. the "creature or spell" adversarial reject + real-card `parse_oracle` + execute: exile → owner-only cast-from-exile permission at a fixed {2}, not the printed {4}{G}{G}; v144 — every qualifier form parses to the right `target_kind`, "airbend that creature"/"airbend it" → `trigger_subject`, Monk Gyatso + Airbender's Reversal MODELED, and execute: a `BECOMES_TARGET` trigger firing with the ally's `instance_id` exiles the ally and stamps its `{2}` recast override; v145 — the "creature or spell" form parses to `spell_or_creature`/`spell_or_permanent`, and execute end-to-end: a Lightning Bolt on the stack is pulled off it into exile with a `{2}` recast override, and the same effect still exiles a battlefield creature).
 
-### Waterbend (RULE 701.67) (ENG-32, PARSER_VERSION 131) + optional-additional-cost-paid tracker (PAR-30, PARSER_VERSION 155)
+### Waterbend (RULE 701.67) (ENG-32 / MEC-96, PARSER_VERSION 131) + optional-additional-cost-paid tracker (PAR-30, PARSER_VERSION 155)
 
 - **What:** the last of the "bending quartet". The activated `waterbend {N}:` cost was never the blocker — the segmenter's `_COST_LOOKS_REAL` sniff already accepts the `{N}` brace, so "Waterbend {3}: `<body>`" bound as a plain `{3}` activated ability all along (the word "Waterbend" is noise, and RULE 701.67's Convoke-style "tap your artifacts and creatures to help" helper is a **documented simplification**, dropped — `ActivationCost.help_pay_kind="waterbend"` records it, nothing consumes it). What the cards were actually blocked on was their **effect bodies**, all built here as general primitives:
   - **base P/T set with a duration** — `_BASE_PT_UNTIL_EOT_RE` ("~ / creatures you control ha[s|ve] base power and toughness N/M until end of turn", literal or `{X}`) → `grant_until` parking a resolve-time layer-7b `pt_set` `StaticAbility` in `GameState.floating_statics`. `GrantUntilEffect.apply` resolves an `"x"` sentinel in the nested `static.params` against `GameObject.x_paid` (`RulesEngine._substitute_x` only walks a one-shot effect's own magnitude fields, not a grant's payload). Flexible Waterbender, Katara Water Tribe's Hope, Biomass Mutation.
@@ -742,7 +748,7 @@ is in the rules-engine categories below them.
 - **Yield:** 15 real cache cards newly MODELED (`parser_probe.py` diff / `coverage_report.py --no-db`, full cache, 0 regressed) — Arcane Subtraction, Cram Session, Enthusiastic Study, Eyetwitch, Field Trip, Gnarled Professor, Guiding Voice, Igneous Inspiration, Overgrown Arch, Poet's Quill, Pop Quiz, Professor of Symbology, Rise of Extus, Sparring Regimen, Study Break. Retriever Phoenix stays UNMODELED — its "if you would learn, you may instead return this card" is a replacement on the learn action (a `WOULD_LEARN` event shape), a separate build.
 - **Tests:** `tests/test_par29_learn.py` (parse + real-card end-to-end + discard→draw + decline is a no-op + empty-hand no-op + ETB-via-binder).
 
-### Incubate (RULE 701.53) — literal `incubate N` (PAR-29, PARSER_VERSION 116) + dynamic X (PAR-30, PARSER_VERSION 133 / 160 / 162) + residue closed (PAR-30, PARSER_VERSION 205)
+### Incubate (RULE 701.53) — literal `incubate N` (PAR-29 / MEC-95, PARSER_VERSION 116) + dynamic X (PAR-30, PARSER_VERSION 133 / 160 / 162) + residue closed (PAR-30, PARSER_VERSION 205)
 
 - **What:** "Incubate N" — create an Incubator token (a power/toughness-less colourless artifact token) with N +1/+1 counters on it. **No new engine primitive:** the Incubator DFC token already existed end-to-end — `create_token`'s `extra_counters` places the counters, and the `Incubator` catalogue entry (`ability_catalogue/entries_008.py`, `_incubator_token`) binds "{2}: Transform this token" (→ a 0/0 Phyrexian artifact creature, whose counters then make it N/N) onto every token so named via `bind_from_catalogue`'s name-keyed lookup. Glissa, Herald of Predation's hand-authored entry already emitted exactly this `create_token` spec; this batch is just the oracle-text recognizer — handler `incubate`, `_c(r"(?:you )?incubate (?P<n>\d+)")` (the "you incubate N" form covers the "when you do" continuation, e.g. Assimilate Essence).
 - **Dynamic X (PAR-30, v133):** "Incubate X, where X is `<count>`" — `_incubate_x`/`_INCUBATE_X_RE`. `CreateTokenEffect.extra_counters` gained two resolve-time amount keys alongside the literal `count` (`_resolve_extra_counter_amount`, clamped to `MAX_EFFECT_MAGNITUDE`): `count_from_count_selector` (a live `continuous.count_selector` read — "the number of lands you control", and a new `creature_cards_in_your_graveyard` selector for "creature cards in your graveyard") and `count_from_trigger_event` (the firing event's own field — "that spell's mana value" off a `SPELL_CAST` `mana_value`, the same field `CreateTokenEffect.pt_from_trigger_event` already read for Shark Typhoon). "incubate X **twice**" is just `create_token`'s own `count=2` (one Incubator per repetition).
@@ -761,6 +767,22 @@ is in the rules-engine categories below them.
   - **Phyrexian Incubator** — "incubate 2 **that many times**" (count = cards the search exiled, across the search's RULE 608.2 `pending_choice` suspension). `SearchLibraryEffect(track_exiled_with=True)` → `_finish_search` appends every card sent to `"exile"` onto the source's own `GameObject.exiled_with_ids` (the same accumulator `ExileEffect.track_exiled_with` writes) — it lives on the permanent, so it survives suspend/resume; the following `create_token` reads it back with the pre-existing `count_selector="exiled_with_count"`. "Then shuffle" is `_finish_search`'s default. *Documented simplification:* "or cards with phyrexian back faces" is dropped (`card_query` type-line substring match claims the Phyrexian subtype, not a DFC whose back-only face is Phyrexian).
   - **Progenitor Exarch** — "incubate 3 **X times**" off the source's own announced {X} (new `continuous.count_selector` key `"source_x_paid"` reading `GameObject.x_paid`, still present when the ETB trigger resolves). The "{T}: Transform target Incubator token you control" ability reuses the `Incubator` token's own `grant_until`/`type_change`/`rest_of_game` animation with a RULE 115 target — new `incubator_token_you_control` target kind (a token named "Incubator" the ability's controller controls).
 - **Tests:** `tests/test_par29_incubate.py` (parse + real-card end-to-end + token created with counters + transforms into an N/N creature + ETB-via-binder); `tests/test_par30_incubate_dynamic.py` (each X phrasing parses to the right `extra_counters` key; execute: a live creature-card graveyard count, an "incubate X twice" land count; v160 — Bloated Processor's DIES trigger reads a grown creature's last-known power through a real `destroy` + `resolve_until_stable`, X=0 still makes the Incubator; v162 — Excise creates the Incubator under the *victim's* controller sized to its mana value, Sunfall sizes to the number of creatures it exiled, and the accumulator doesn't leak between two back-to-back resolutions); `tests/test_incubate_parser_residue.py` (v205 parser rows — parse each clause + adversarial non-match, execute: Searing Barb's rider bites a creature target and no-ops on a player one, Assimilate Essence incubates on the pay branch only); `tests/test_incubate_residue_authored.py` (v205 hand-authored — parser still UNMODELED but registered; Traumatic Revelation's else-branch fires when the hand has no creature/battle card and doesn't when a card is discarded; Phyrexian Incubator makes one Incubator per exiled card end-to-end through the search suspension and none when nothing's found; Progenitor Exarch makes X Incubators off `x_paid` and its {T} ability transforms only your own Incubator token).
+
+- **MEC-95 reconciliation:** A fresh full-cache probe confirms Incubob is the
+  only solo match and is an Un-card named-card variation, not ordinary
+  Incubate. Brimaz, Blight of Oreskos and Sunder the Gateway are blocked on
+  unrelated trigger or modal grammar. The RULE 701.53 primitive is complete.
+
+- **MEC-97 reconciliation — "another `<color/type>` spell this turn":**
+  `GameState` now keeps per-player, per-colour and per-type spell-cast
+  counts alongside its existing colour set. The shared condition reads one
+  prior cast at cast time and two at resolution, excluding the spell being
+  cast/resolved exactly as "another" requires. It serves colour/type riders,
+  cost reductions, draw triggers, free casts, Talara's Battalion's mandatory
+  cast restriction, and Hotheaded Giant's RULE 614.12 pre-entry
+  `-1/-1`-counter replacement. A fresh
+  `parser_probe.py blocked "cast another .* spell this turn"` reports 0
+  SOLO and 0 also-blocked cards.
 
 ### Reproducible random numbers (RULE 705/706)
 
@@ -8310,18 +8332,9 @@ measurement of why is the useful half of this work.
   the discard off the on-colour one; a damaged vs. an undamaged target only
   draws off the undamaged one; and an actual artifact destruction vs. an
   empty "up to one" pick only draws when something was really destroyed.
-  **Left open:** Soul Reap ("its controller loses 3 life if you've cast
-  **another** black spell this turn") stays UNMODELED — "another" needs a
-  per-colour, per-turn spell *count* excluding the resolving spell's own
-  cast, and `GameState.spell_colors_cast_this_turn` is a set (already
-  containing this spell's own colour by the time it resolves), not a count,
-  so it cannot answer "another" regardless of any predicate-recognition
-  work. Re-scoped from this ticket to `BACKLOG.md`'s new `MEC-97` once
-  `parser_probe.py blocked "cast another .* spell this turn"` showed 7 SOLO
-  cards sharing the same gap across unrelated effect shapes (a cost
-  reduction, a free-cast alternative, a draw trigger, a counter-tax ETB, and
-  a cast restriction, besides Soul Reap's own rider) — a real shared
-  primitive, not a recognition gap this file's own vocabulary could close.
+  **MEC-97 follow-through:** Soul Reap's former "another black spell"
+  blocker is now covered by the shared per-colour spell-count primitive;
+  the broader cross-shape family closes with it.
 - **PAR-117's group-subject colour-qualifier residue closed (PARSER_VERSION
   419).** The bare group-subject shape ("whenever a/another `<type>` [you
   control] `<verb>`, its controller `<verb2>` …") had already closed at

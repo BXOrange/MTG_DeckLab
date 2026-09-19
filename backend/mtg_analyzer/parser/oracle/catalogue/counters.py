@@ -121,6 +121,17 @@ _RAID_ENTRY_COUNTERS_RE = re.compile(
     re.IGNORECASE,
 )
 
+# MEC-97: Hotheaded Giant's "unless you've cast another red spell this
+# turn" is still an entry replacement (RULE 614.12), so the test belongs at
+# the same pre-entry point as revolt/raid rather than becoming a late ETB
+# trigger.  The spell being cast is not counted here: its own cast was
+# recorded before it resolved, hence "another" requires at least two.
+_ANOTHER_COLOR_SPELL_ENTRY_COUNTERS_UNLESS_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} with {_FIXED_AMOUNT} {_COUNTER_TYPE} counters? on it "
+    r"unless you'?ve cast another (?P<color>white|blue|black|red|green) spell this turn\.?$",
+    re.IGNORECASE,
+)
+
 #: PAR-45: Canker Abomination's compound entry instruction, after the
 #: preceding "as ~ enters, choose an opponent" replacement has stamped
 #: ``chosen_player_id``.  The counter count is fixed at the same pre-entry
@@ -220,6 +231,15 @@ def entry_counters_condition(line: str) -> Optional[dict[str, Any]]:
         return {
             "is_x": False, "count": _fixed_count(match.group(1)),
             "counter_type": match.group(2).lower(), "raid_gate": True,
+        }
+    match = _ANOTHER_COLOR_SPELL_ENTRY_COUNTERS_UNLESS_RE.match(line)  # MEC-97
+    if match is not None:
+        return {
+            "is_x": False, "count": _fixed_count(match.group(1)),
+            "counter_type": match.group(2).lower(),
+            "another_color_spell_unless": {
+                "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G",
+            }[match.group("color").lower()],
         }
     match = _CHOSEN_OPPONENT_CREATURES_ENTRY_COUNTERS_RE.match(line)  # PAR-45
     if match is not None:

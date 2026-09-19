@@ -1031,6 +1031,8 @@ class GameState:
         #: non-active player too), set by `RulesEngine._track_spell_cast`
         #: off the same `SPELL_CAST` event.
         self.spell_colors_cast_this_turn: dict[str, set[str]] = {p.id: set() for p in players}
+        self.spell_color_cast_counts_this_turn: dict[str, dict[str, int]] = {p.id: {} for p in players}
+        self.spell_type_cast_counts_this_turn: dict[str, dict[str, int]] = {p.id: {} for p in players}
         #: Mana actually produced (tapped/hand-exiled for) by each player
         #: *this turn*, per colour (WUBRGC) — the "genutztes Potenzial" half
         #: of `game/mana_potential.py`'s open/used split. Unlike

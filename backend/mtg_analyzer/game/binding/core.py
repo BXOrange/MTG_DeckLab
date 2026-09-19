@@ -3502,6 +3502,9 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
         if spec.cast_timing_restriction:
             spec.validate()
             obj.cast_timing_restriction = spec.cast_timing_restriction
+        if spec.cast_condition:
+            spec.validate()
+            obj.cast_condition = spec.cast_condition
         if spec.flash_extra_cost:
             spec.validate()
             obj.flash_extra_cost = spec.flash_extra_cost
