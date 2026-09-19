@@ -70,7 +70,7 @@ const CHOICE_ICONS = {
   enter_as_copy: '🪞', counter_unless_pays: '🚫', ward: '🛡️',
   commander_zone: '👑', trigger_mode: '🎭', add_mana_any_color: '💎',
   choose_creature_type: '🐾', choose_color: '🎨', choose_basic_land_type: '🗺️', read_ahead: '📜',
-  scry: '🔮', surveil: '🕵️', opening_hand_battlefield: '🌅', dredge: '⚰️',
+  scry: '🔮', surveil: '🕵️', clash: '⚔️', opening_hand_battlefield: '🌅', dredge: '⚰️',
   explore_bin: '🧭', populate: '🌱', bolster: '💪', blight: '🥀', endure: '🕊️', recruit: '🎖️',
   // Explorer's Scope's "look at the top card, if it's a land you may put
   // it onto the battlefield tapped" (bug report, 2026-09-04).
@@ -1789,6 +1789,8 @@ export function createGameBoardView(opts = {}) {
         ? triggerOrderHtml(pending)
         : pending.kind === 'scry' || pending.kind === 'surveil'
           ? lookTopChoiceHtml(pending)
+          : pending.kind === 'clash'
+            ? clashChoiceHtml(pending)
           // MEC-46: a "vote for one of these objects" ballot (Council's
           // Judgment / Custodi Squire) — options carry a `card_id`, so the
           // same face-thumbnail renderer scry/surveil use reads far better
@@ -1860,6 +1862,26 @@ export function createGameBoardView(opts = {}) {
       })
       .join('');
     return `<div class="gf-lt-options">${cards}</div>`;
+  }
+
+  // RULE 701.30c: both clash cards are public while their owners decide,
+  // even though they are still physically in hidden libraries.  The server
+  // sends them separately as `state.clash_revealed`; show both faces here,
+  // then offer only this pending choice's owner the top/bottom decision.
+  function clashChoiceHtml(pending) {
+    const revealed = view.state?.clash_revealed || [];
+    const faces = revealed.map((card) => {
+      const img = card.card_id ? cardImageUrl(card.card_id, 'small', 'front') : null;
+      return `<article class="gf-clash-card" data-hover-card="${escapeHtml(card.name || '')}">
+        ${img ? `<img class="gf-lt-card-img" src="${escapeAttr(img)}" alt="${escapeAttr(card.name || '')}" loading="lazy">` : ''}
+        <span class="gf-lt-card-label">${escapeHtml(card.name || 'Karte')}</span>
+      </article>`;
+    }).join('');
+    const buttons = (pending.options || []).map((opt) => {
+      const action = JSON.stringify({ type: 'choose', option_id: opt.id, name: opt.label });
+      return `<button type="button" class="${opt.id === 'bottom' ? 'gf-decline' : 'primary'}" data-action='${escapeAttr(action)}'>${escapeHtml(opt.label || opt.id)}</button>`;
+    }).join('');
+    return `<div class="gf-clash-reveal">${faces}</div><div class="gf-choice-options">${buttons}</div>`;
   }
 
   // RULE 616.1: 2+ simultaneously-applicable replacement effects (e.g.

@@ -1131,6 +1131,8 @@ def _apply_effects_partitioned(
     damaged_this_way: Optional[list[Any]] = None,
     previous_selector: Optional[str] = None,
     revealed_card: Optional[Any] = None,
+    clash_won: Optional[bool] = None,
+    clashed_opponent: Optional[Any] = None,
     stack_item: Optional[Any] = None,
 ) -> bool:
     """Apply each of ``effects`` against its own share of ``targets``.
@@ -1229,8 +1231,8 @@ def _apply_effects_partitioned(
     context.damaged_this_way = list(damaged_this_way or [])
     context.previous_selector = previous_selector
     context.revealed_card = revealed_card
-    context.clash_won = None
-    context.clashed_opponent = None
+    context.clash_won = clash_won
+    context.clashed_opponent = clashed_opponent
     context.die_result = None
     context.die_results = []
     context.rolled_doubles = False
@@ -1290,6 +1292,8 @@ def _apply_effects_partitioned(
                         "damaged_this_way": list(context.damaged_this_way),
                         "previous_selector": context.previous_selector,
                         "revealed_card": context.revealed_card,
+                        "clash_won": context.clash_won,
+                        "clashed_opponent": context.clashed_opponent,
                         "stack_item": stack_item,
                     }
                 )

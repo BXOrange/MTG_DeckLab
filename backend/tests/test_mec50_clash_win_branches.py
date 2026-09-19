@@ -77,6 +77,19 @@ def _run(eng, src, specs, targets=None):
     _apply_effects_partitioned(effs, eng.rules.context, targets, None, source=src)
 
 
+def _finish_choices(eng):
+    """Answer every interactive branch, keeping revealed clash cards on top."""
+    guard = 0
+    while eng.state.pending_choice and guard < 20:
+        guard += 1
+        choice = eng.state.pending_choice
+        if choice["kind"] == "clash":
+            eng.resolve_pending_choice("top")
+        else:
+            eng.resolve_pending_choice(choice["options"][0]["instance_id"])
+    assert guard < 20
+
+
 # --- all six are MODELED -----------------------------------------------------
 
 
@@ -146,6 +159,7 @@ def test_broken_ambitions_mills_the_countered_spells_owner_on_win():
     src.x_paid = 5  # p2 holds no mana → can't pay {5} → spell is countered
     specs = parse_oracle(src.card).specs[0].effects
     _run(eng, src, specs, targets=[spell])
+    _finish_choices(eng)
 
     assert spell not in [i.obj for i in st.stack]     # countered
     assert len(p2.graveyard) == 4 + 1                 # milled 4 (+ the countered Bolt)
@@ -168,6 +182,7 @@ def test_whirlpool_whelm_bounces_to_hand_on_loss_library_on_win():
 
         src = _spec_source(eng, "Whirlpool Whelm")
         _run(eng, src, parse_oracle(src.card).specs[0].effects, targets=[creature])
+        _finish_choices(eng)
 
         assert creature not in st.battlefield
         assert (creature in p2.hand) is in_hand
@@ -193,6 +208,7 @@ def test_captivating_glance_control_goes_to_winner():
 
         trig = next(s for s in parse_oracle(aura.card).specs if s.ability_kind == "triggered")
         _run(eng, aura, trig.effects)
+        _finish_choices(eng)
         assert host.controller_id == new_ctrl
 
 
@@ -211,12 +227,7 @@ def test_pulling_teeth_win_discards_two_otherwise_that_player_discards_one():
         src = _spec_source(eng, "Pulling Teeth")
         specs = parse_oracle(src.card).specs[0].effects
         _run(eng, src, specs, targets=[p2])
-
-        guard = 0
-        while st.pending_choice and guard < 6:
-            guard += 1
-            opt = st.pending_choice["options"][0]
-            eng.rules.resolve_choice(opt["instance_id"])
+        _finish_choices(eng)
         assert len(p2.graveyard) == expected
 
 
@@ -274,6 +285,7 @@ def test_pollen_lullaby_clashed_opponent_creatures_dont_untap_on_win():
 
     src = _spec_source(eng, "Pollen Lullaby")
     _run(eng, src, parse_oracle(src.card).specs[0].effects)
+    _finish_choices(eng)
 
     assert getattr(theirs, "skip_next_untap", False) is True
     assert getattr(mine, "skip_next_untap", False) is False

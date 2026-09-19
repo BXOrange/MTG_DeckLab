@@ -1032,7 +1032,7 @@ class ClashEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         context.clash_won = context.engine.clash(
-            player, with_opponent=self.with_opponent
+            player, with_opponent=self.with_opponent, source=self.source,
         )
         # RULE 701.30b's "that player" referent — the opponent this clash
         # was with (`RulesEngine.clash` recorded its id).

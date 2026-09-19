@@ -3000,7 +3000,12 @@ class MiscSystemsMixin:
         for obj in objs:
             if obj is not None:
                 obj.is_suspected = False
-    def clash(self, player: Optional[Player], with_opponent: bool = True) -> bool:
+    def clash(
+        self,
+        player: Optional[Player],
+        with_opponent: bool = True,
+        source: Optional[GameObject] = None,
+    ) -> bool:
         """RULE 701.30: ``player`` clashes — reveals the top card of their
         library — and, for "clash with an opponent" (``with_opponent``, RULE
         701.30b), one opponent reveals theirs too. Returns whether ``player``
@@ -3009,14 +3014,11 @@ class MiscSystemsMixin:
         you win, `<effect>`. / otherwise, `<effect>`." branch reads back via
         `effects.ClashEffect` → `GameContext.clash_won`.
 
-        **Documented simplification** — RULE 701.30a's "may then put that card
-        on the bottom of their library" is always declined here: every
-        revealed card stays on top. Modeling that optional bottoming means an
-        APNAP pair of interactive yes/no pauses (RULE 701.30c) for a keyword
-        action ~33 cache cards use, and it never changes *this* resolution's
-        win/lose outcome — only a later draw. Same accepted "an undecided
-        beneficial *may* is declined" convention `effects.CoinFlipEffect`
-        documents.
+        After revealing, each player who revealed a card chooses whether it
+        stays on top or goes on the bottom.  The choices are asked in APNAP
+        order and the selected cards move only after all answers, as RULE
+        701.30c requires.  `GameState.clash_revealed` makes both faces public
+        to every board view while that decision is in progress.
 
         With no opponent at all (a 1-player Goldfisch/Replay board) or every
         opponent's library empty, no *other* card is revealed, so ``player``
@@ -3032,6 +3034,9 @@ class MiscSystemsMixin:
             return False
         top = player.library[-1] if player.library else None
         my_mv = top.card.converted_mana_cost if top is not None else -1
+        revealed: list[tuple[Player, GameObject]] = []
+        if top is not None:
+            revealed.append((player, top))
         other_mvs: list[int] = []
         #: RULE 701.30b: which opponent this clash was "with" — recorded so a
         #: following "if you win, `<X> that player <does Y>`" / "otherwise,
@@ -3051,7 +3056,13 @@ class MiscSystemsMixin:
                 opp_top = opp.library[-1] if opp.library else None
                 if opp_top is not None:
                     other_mvs.append(opp_top.card.converted_mana_cost)
+                    revealed.append((opp, opp_top))
+                # RULE 701.30b is one opponent, not every opponent.  Choosing
+                # the first living one remains this engine's documented
+                # multiplayer simplification.
+                break
         won = top is not None and all(my_mv > mv for mv in other_mvs)
+        self.state.clash_revealed = [obj.instance_id for _, obj in revealed]
         self.state.fire_event(GameEvent(
             EventType.CLASHED, player_id=player.id, controller_id=player.id, won=won,
         ))
@@ -3059,7 +3070,77 @@ class MiscSystemsMixin:
             self.state.fire_event(GameEvent(
                 EventType.WON_CLASH, player_id=player.id, controller_id=player.id,
             ))
+        self._open_clash_choice(revealed, source=source)
         return won
+
+    def _open_clash_choice(
+        self,
+        revealed: list[tuple[Player, GameObject]],
+        *,
+        source: Optional[GameObject] = None,
+        queue: Optional[list[tuple[str, int]]] = None,
+        bottom: Optional[list[tuple[str, int]]] = None,
+    ) -> None:
+        """Open the next RULE 701.30c clash-placement decision in APNAP order.
+
+        The cards stay in their libraries throughout all choices; only the
+        final branch moves every elected card to its owner's library bottom.
+        This keeps the public reveal visible and avoids one player's decision
+        changing another player's "top card" midway through the action.
+        """
+        if queue is None:
+            by_player = {p.id: obj.instance_id for p, obj in revealed}
+            living = self.state.living_players()
+            start = next(
+                (i for i, p in enumerate(living) if p.id == self.state.active_player.id), 0
+            )
+            ordered = living[start:] + living[:start]
+            queue = [(p.id, by_player[p.id]) for p in ordered if p.id in by_player]
+        bottom = list(bottom or [])
+        if not queue:
+            for player_id, instance_id in bottom:
+                owner = self.state.player_by_id(player_id)
+                obj = self._object_by_instance_id(instance_id)
+                if obj is not None and obj in owner.library:
+                    owner.library.remove(obj)
+                    owner.library.insert(0, obj)
+            self.state.clash_revealed = []
+            return
+        player_id, instance_id = queue[0]
+        chooser = self.state.player_by_id(player_id)
+        card = self._object_by_instance_id(instance_id)
+        if card is None or card not in chooser.library:
+            self._open_clash_choice(revealed, source=source, queue=queue[1:], bottom=bottom)
+            return
+        self.open_choice({
+            "kind": "clash",
+            "player_id": chooser.id,
+            "instance_id": card.instance_id,
+            "queue": list(queue),
+            "bottom": bottom,
+            "source_name": source.name if source is not None else None,
+            "prompt": "Clash: Lege deine aufgedeckte Karte oben oder unten in deine Bibliothek?",
+            "options": [
+                {"id": "top", "label": "Oben lassen"},
+                {"id": "bottom", "label": "Unter die Bibliothek legen"},
+            ],
+        })
+
+    @continuations.choice("clash", answer=continuations.ANSWER_STR, rule="701.30")
+    def _resume_clash_choice(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        """Record one clash placement, then ask the next APNAP player."""
+        queue = [(str(pid), int(iid)) for pid, iid in choice.get("queue", [])]
+        bottom = [(str(pid), int(iid)) for pid, iid in choice.get("bottom", [])]
+        if not queue:
+            raise ValueError("clash choice has no queued card")
+        player_id, instance_id = queue[0]
+        if answer == "bottom":
+            bottom.append((player_id, instance_id))
+        elif answer not in ("top", None):
+            raise ValueError(f"{answer!r} is not a legal clash choice")
+        self._open_clash_choice(
+            [], queue=queue[1:], bottom=bottom,
+        )
 
     def become_monarch(self, player: Player) -> None:
         """RULE 725.3: ``player`` becomes the monarch; whoever held it

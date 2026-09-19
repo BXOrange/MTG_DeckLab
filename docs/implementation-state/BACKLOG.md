@@ -728,33 +728,6 @@ its block back into the matching section here.
 
 ## MEC — Game mechanics
 
-- **MEC-91 · "Dealt damage by `<source>` this turn" tracker.** A
-  per-source, per-turn record of which objects a specific permanent dealt
-  damage to this turn — feeds "can't be regenerated," death/reanimation,
-  and flip triggers scoped to one damage source; distinct from the generic
-  damage-dealt-this-turn totals already used elsewhere. Confirmed via
-  `parser_probe.py blocked "dealt damage by ~ this turn"`: 11 SOLO, 0
-  also-blocked — clean. Mirror the pattern of
-  `GameContext.objects_exiled_this_way`. Bone Shaman, Bushi Tenderfoot //
-  Kenzo the Hardhearted, Dread Slaver, Krovikan Vampire.
-- **MEC-92 · Exchange control / exchange life totals.** Two related
-  one-shot primitives, neither implemented: (a) swap `Player.life` between
-  two players outright (grep for an existing life-swap effect before
-  building — none found as of this sweep), and (b) exchange control of two
-  target permanents simultaneously, including across two different
-  controllers — distinct from an ordinary gain-control effect since both
-  permanents change hands in the same event. Confirmed via
-  `parser_probe.py blocked "exchange control of|exchange the control|
-  exchange life totals"`: 9 SOLO (10 total). Get a Life, Magus of the
-  Mirror, Mirror Universe, Kitsune, Dragon's Daughter.
-- **MEC-93 · Clash (RULE 701.16).** Zero engine support today. Reveal the
-  top card of your library and have an opponent do the same; compare mana
-  values, the higher wins (a tie means no one wins); each player may put
-  their own card back or leave it revealed on top depending on the calling
-  card's text. Confirmed via `parser_probe.py blocked
-  "\bclash(?:es|ed)?\b"`: 3 SOLO, 0 also-blocked. Small cluster but a
-  genuine RULE-defined keyword action. Merfolk Surveyor, Scattering
-  Stroke, Sentry Oak.
 - **MEC-94 · Face a Villainous Choice.** An opponent-facing (not
   caster-facing) binary modal choice — the affected player, not the
   spell's controller, picks between two named consequences. Distinct from

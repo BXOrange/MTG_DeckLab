@@ -495,6 +495,13 @@ class GameState:
         #: engine (mtg_analyzer/game/rules_engine.py).
         self.pending_choice: Optional[dict[str, Any]] = None
 
+        #: RULE 701.30c: cards currently revealed by a clash.  These are
+        #: public information even though they remain in normally hidden
+        #: libraries, so `to_dict` emits their faces separately until every
+        #: clashing player has decided whether to put theirs on the bottom.
+        #: Instance ids keep snapshots/rewind independent of live objects.
+        self.clash_revealed: list[int] = []
+
         #: RULE 608.2: effect lists suspended mid-resolution because one of
         #: their effects opened `pending_choice`, innermost last (a LIFO
         #: stack — the most recently paused resolution finishes first).
@@ -1597,6 +1604,10 @@ class GameState:
             ),
             "planar_deck_count": len(self.planar_deck),
             "pending_choice": self.pending_choice,
+            "clash_revealed": [
+                obj.to_dict() for iid in self.clash_revealed
+                if (obj := self.find_object(iid)) is not None
+            ],
             # MEC-51 (RULE 720): active/waiting "you control that player's
             # turn/combat" windows, for the board's control banner.
             "turn_controls": [tc.to_dict() for tc in self.turn_controls],

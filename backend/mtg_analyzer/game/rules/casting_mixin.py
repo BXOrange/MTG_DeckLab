@@ -1530,6 +1530,8 @@ class CastingResolutionMixin:
             damaged_this_way=resumed.get("damaged_this_way"),
             previous_selector=resumed.get("previous_selector"),
             revealed_card=resumed.get("revealed_card"),
+            clash_won=resumed.get("clash_won"),
+            clashed_opponent=resumed.get("clashed_opponent"),
             stack_item=stack_item,
         )
         if not deferred_again and stack_item is not None:

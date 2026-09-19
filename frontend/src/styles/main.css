@@ -4057,6 +4057,27 @@ textarea {
   gap: 0.5rem;
 }
 
+/* RULE 701.30c: unlike scry, every clashing player's revealed card is
+   public. These are display-only faces; the top/bottom decision follows
+   below in the ordinary pending-choice buttons. */
+.gf-clash-reveal {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.gf-clash-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 9rem;
+  padding: 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-alt);
+}
+
 .gf-lt-card {
   display: flex;
   flex-direction: column;
