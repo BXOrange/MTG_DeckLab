@@ -7776,6 +7776,21 @@ measurement of why is the useful half of this work.
   parse-context-not-redundant-grammar finding the damage/destroy/exile family
   gave. No change.
 
+### PAR-116: cross-module slot-grammar reuse audit (`14_` S5)
+
+- **What:** Closed the successor audit without adding a false abstraction.
+  PAR-63 had already discharged every concrete instance in PAR-116's filing:
+  `COLOR_LETTERS` is shared by all prior duplicate owners,
+  `replacements.py` imports it, and `CARD_TYPE_WORD_ALT` is used where the
+  exact printed-card-type vocabulary is shared. The proposed
+  `static_handlers` → `TARGET` reuse was rechecked and rejected: `TARGET`
+  parses RULE 115 target-selection phrases into an engine `target_kind`, while
+  static grammar only tests criteria against a spell's existing target and
+  never selects one. No parser rows, coverage, or parser version changed.
+- **Files:** `docs/concepts/13_ORACLE_PARSER_GRAMMAR_REVIEW.md`,
+  `docs/concepts/14_PARSER_GRAMMAR_DESIGN.md`,
+  `docs/implementation-state/BACKLOG.md`.
+
 ### PAR-62: clause grammar surface complete (PARSER_VERSION 302–305)
 
 - **Final follow-up (PARSER_VERSION 305):**

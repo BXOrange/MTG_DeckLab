@@ -10,13 +10,11 @@ S0–S3 shipped since this review was written (ENG-34…ENG-37: the atom
 inventory, a general continuation/suspension primitive, one structured
 condition vocabulary, and composite IR nodes + fusion retirement —
 `game/isa.py`, `game/continuations.py`, `game/effect_conditions.py`,
-`game/effects/composition.py`). What remains open, confirmed still live in
-today's code, is specifically §3.1/§3.3's `fullmatch`-only handler dispatch
-and all-or-nothing connector split, and §3.4's cross-module slot-grammar
-reuse gap — tracked as **PAR-115** and **PAR-116** in
-[BACKLOG.md](../implementation-state/BACKLOG.md). The measured evidence in
-§5 below stays a frozen PARSER_VERSION 298 snapshot; don't cite its exact
-numbers as current.
+`game/effects/composition.py`). PAR-115 closed the §3.1/§3.3 connective
+increment; PAR-116's live audit closed §3.4: PAR-63 had already unified the
+concrete cross-module micro-grammars, while `TARGET` cannot serve statics'
+different, criteria-matching job. The measured evidence in §5 below stays a
+frozen PARSER_VERSION 298 snapshot; don't cite its exact numbers as current.
 
 The question this answers: *is the parser's handler granularity right, or is it
 over-specific — and does the grammar understand chaining and branching of

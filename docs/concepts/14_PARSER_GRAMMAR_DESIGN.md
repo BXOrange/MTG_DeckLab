@@ -364,13 +364,21 @@ Mitigation is the existing suite plus a full-cache before/after coverage diff.
 It must not precede S0/S3: without an atom layer to hand residue *to*, recursive
 descent has nothing to descend into.
 
-### S5 — Slot grammars, re-scoped
+### S5 — Slot grammars, re-scoped *(closed: PAR-63 / PAR-116)*
 
 `81c3320` already showed the damage/destroy/exile rows are driven by genuine
 semantic and parse-context variety, not redundant surface grammar — **do not
 re-run that experiment.** What it did not examine is cross-module reuse:
 `static_handlers.py` imports five names from `subgrammars` and not `TARGET`;
 `replacements.py` imports none; the same colour dict is declared three times.
+
+**Exit, 2026-09-19.** PAR-63 removed the concrete duplication: all consumers
+now share `COLOR_LETTERS`, `replacements.py` imports it, and the meaningful
+printed-card-type alternation is `CARD_TYPE_WORD_ALT`. PAR-116 re-audited the
+remaining premise live: `TARGET` maps RULE 115 target-selection language to
+an engine target kind, whereas statics test criteria against an already-chosen
+target and take no targets themselves. Sharing it would be a category error,
+not grammar reuse. No row-count or coverage change was appropriate.
 
 ---
 

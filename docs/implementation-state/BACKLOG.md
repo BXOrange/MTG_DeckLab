@@ -78,7 +78,10 @@ its block back into the matching section here.
   > one incremental connective (`Done_Backend.md`'s own PAR-62 lesson —
   > "S4 lands in increments, contrary to the ticket's own framing" —
   > applied a second time) rather than the ticket's own "rewrite
-  > `parse_effect_body`" framing. `PAR-117` is its residue (the referent
+  > `parse_effect_body`" framing. `PAR-116` closed after its live audit
+  > confirmed that PAR-63 had already removed every concrete cross-module
+  > duplication, while `TARGET` is the wrong grammar for statics. `PAR-117`
+  > is PAR-115's residue (the referent
   > shapes PAR-115 didn't reach). First free id: **`PAR-118`**. A genuinely
   > new engine primitive found along the way still files as its own
   > `MEC-*` ticket — only the sweep itself stays out of this file.
@@ -722,23 +725,6 @@ its block back into the matching section here.
 > filing — do that first for whichever sub-item you pick up, since a
 > handler's exact shape depends on details (e.g. an intervening "if"
 > clause, a self- vs. target-referent) this scan doesn't capture.**
-
-- **PAR-116 · Cross-module slot-grammar reuse.** `13_
-  ORACLE_PARSER_GRAMMAR_REVIEW.md` §3.4 / `14_PARSER_GRAMMAR_DESIGN.md`'s
-  S5. Explicitly *not* a re-run of the already-rejected `81c3320`
-  clause-tree-grammar-tier prototype — that experiment showed the
-  damage/destroy/exile family's row variety is genuine semantic/
-  parse-context variety, not redundant surface phrasing. Scope here is
-  cross-*module* grammar reuse instead: `catalogue/static_handlers.py`
-  imports only 5 names from `subgrammars` and never `TARGET`;
-  `catalogue/replacements.py` imports none of `subgrammars` at all; a
-  colour-word dict is independently declared in more than one place.
-  Re-audit each specific instance live before starting (some may already
-  be fixed under PAR-63's `subgrammars.COLOR_LETTERS` unification — don't
-  assume `13_`'s 2026-09-08 snapshot of which duplications remain is still
-  accurate). Track via enumerated row count (394 `HANDLERS` rows + 949
-  hand-authored `card_catalogue/` entries as of this writing) — a passing
-  grade is fewer duplicated micro-grammars, not higher coverage.
 
 ## MEC — Game mechanics
 
