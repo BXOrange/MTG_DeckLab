@@ -1072,6 +1072,7 @@ class RollDieEffect(GameEffect):
         ignore_lowest: int = 0,
         ignore_highest: int = 0,
         outcomes: Optional[list[dict[str, Any]]] = None,
+        then_trigger: Optional[list[dict[str, Any]]] = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
@@ -1080,6 +1081,10 @@ class RollDieEffect(GameEffect):
         self.ignore_lowest = int(ignore_lowest)
         self.ignore_highest = int(ignore_highest)
         self.outcomes = list(outcomes or [])
+        # RULE 603.11: a mandatory roll can still have a separate "When you
+        # do" ability. Keep its serialized body until the roll succeeds, so
+        # targets are chosen for the reflexive trigger, not before it.
+        self.then_trigger = list(then_trigger or [])
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
@@ -1096,6 +1101,13 @@ class RollDieEffect(GameEffect):
         context.die_results = list(results)
         context.die_result = sum(results)
         context.rolled_doubles = len(results) > 1 and len(set(results)) == 1
+        if self.then_trigger:
+            # A reflexive trigger resolves in a fresh context, so carry the
+            # just-rolled result on its triggering event as well.
+            context.enqueue_reflexive_trigger(
+                self.then_trigger, self.source,
+                GameEvent(EventType.DICE_ROLLED, die_result=context.die_result),
+            )
         if not self.outcomes:
             return
         total = context.die_result

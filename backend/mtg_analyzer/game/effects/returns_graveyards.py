@@ -565,6 +565,26 @@ class ReturnFromGraveyardEffect(GameEffect):
         self._apply_one(context, target)
 
 
+class ReturnCreatureCardsWithTotalMVEffect(GameEffect):
+    """Ancient Brass Dragon's any-number graveyard return (RULE 701.3)."""
+
+    def __init__(self, budget: int = 0, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.budget = int(budget)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None or self.budget < 0:
+            return
+        candidates = [obj for owner in context.state.living_players() for obj in owner.graveyard if obj.card.is_creature]
+        context.engine._request_choose_objects(
+            player, candidates, "return_from_graveyard", count=len(candidates), optional=True,
+            prompt=f"Kreaturenkarten mit Gesamtmanawert bis {self.budget} zurückbringen",
+            source=self.source, control_recipient_id=player.id,
+            total_mana_value_budget=self.budget,
+        )
+
+
 class ReturnChosenCreatureTypeFromGraveyardEffect(GameEffect):
     """Resolve Haunting Voyage after its creature-type choice.
 

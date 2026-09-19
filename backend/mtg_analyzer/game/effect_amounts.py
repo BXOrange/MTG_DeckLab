@@ -238,6 +238,8 @@ def _base(
 
     if kind == "die_result":
         result = getattr(context, "die_result", None)
+        if result is None:
+            result = (getattr(context, "trigger_event", None) or {}).get("die_result")
         return int(result) if isinstance(result, int) else 0
 
     if kind == "random_result":

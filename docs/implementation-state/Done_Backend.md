@@ -6009,6 +6009,14 @@ measurement of why is the useful half of this work.
 
 ### MEC-75 — Rolling a die (RULE 706) [CLOSED, PARSER_VERSION 306]
 
+- **MEC-90 — Dice-roll result as a resolve-time amount (RULE 706, PARSER_VERSION
+  429):** `die_result` now composes through ENG-37 `bind` with life gain,
+  drawing, named/creature token creation, +1/+1 counters, and Ancient Brass
+  Dragon's any-number graveyard return under a total mana-value budget.
+  `RollDieEffect.then_trigger` queues RULE 603.11's reflexive payoff after
+  the roll, preserving Ancient Bronze Dragon's post-roll target selection;
+  the triggering event carries the result into that fresh resolution.
+
 - **What:** The first of the ENG-34 CR-versus-engine diff MEC tickets closed
   — a full RULE 706 dice subsystem, engine primitive + oracle handlers +
   version bump in one batch, built as `flip_coin`'s (RULE 705) sibling as

@@ -1387,6 +1387,10 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    "return_creatures_total_mana_value",
+    lambda p: ReturnCreatureCardsWithTotalMVEffect(budget=p.get("budget", 0)),
+)
+EffectRegistry.register(
     "add_mana",  # a spell's own bare "Add {B}{B}{B}." body (RULE 106.4, Dark Ritual)
     lambda p: AddManaEffect(
         colors=list(p.get("colors", [])),
@@ -2767,6 +2771,7 @@ EffectRegistry.register(
         ignore_lowest=p.get("ignore_lowest", 0),
         ignore_highest=p.get("ignore_highest", 0),
         outcomes=p.get("outcomes"),
+        then_trigger=p.get("then_trigger"),
     ),
 )
 EffectRegistry.register(

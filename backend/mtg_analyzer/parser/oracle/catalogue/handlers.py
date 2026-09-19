@@ -8514,6 +8514,95 @@ def _pump_target_x_amount(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     })]
 
 
+#: MEC-90 / RULE 706: these ordinary effect bodies consume the prior die
+#: result through ENG-37's generic ``bind`` node, instead of each effect
+#: class gaining its own ``amount_from_die_result`` parameter. The same inner
+#: specs work after a roll and in its RULE 603.11 ``then_trigger`` body.
+_DIE_RESULT_AMOUNT = {"kind": "die_result"}
+
+
+def _bind_die_result(effect_type: str, params: dict) -> list[EffectSpec]:
+    return [EffectSpec("bind", {
+        "name": "die", "amount": dict(_DIE_RESULT_AMOUNT),
+        "effects": [{"type": effect_type, "params": params}],
+    })]
+
+
+_GAIN_LIFE_DIE_RESULT_RE = _c(r"you gain life equal to the result")
+
+
+def _gain_life_die_result(m: re.Match[str]) -> list[EffectSpec]:
+    return _bind_die_result("gain_life", {"amount": "$die"})
+
+
+_DRAW_DIE_RESULT_RE = _c(r"(?:you )?draw cards equal to the result")
+
+
+def _draw_die_result(m: re.Match[str]) -> list[EffectSpec]:
+    return _bind_die_result("draw", {"count": "$die"})
+
+
+_NO_MAX_HAND_SIZE_REST_OF_GAME_RE = _c(
+    r"you have no maximum hand size for the rest of the game"
+)
+
+
+def _no_max_hand_size_rest_of_game(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("no_max_hand_size_rest_of_game", {})]
+
+
+_CREATE_NAMED_TOKEN_DIE_RESULT_RE = _c(
+    r"you create a number of (?P<name>[a-z]+) tokens equal to the result"
+)
+
+
+def _create_named_token_die_result(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    name = m.group("name")
+    if name not in _NAMED_TOKEN_WORDS:
+        return None
+    return _bind_die_result("create_token", {
+        "count": "$die", "token_name": _NAMED_TOKEN_WORDS[name],
+    })
+
+
+_CREATE_CREATURE_TOKEN_DIE_RESULT_RE = _c(
+    r"you create a number of (?P<p>\d+)/(?P<t>\d+) (?P<mid>[a-z ]*?)"
+    r"creature tokens?(?: with (?P<kw>[a-z, ]+))? equal to the result"
+)
+
+
+def _create_creature_token_die_result(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _xx_token_mid_params(m.group("mid"), m.groupdict().get("kw"))
+    if params is None:
+        return None
+    return _bind_die_result("create_token", {
+        **params, "count": "$die", "power": int(m.group("p")), "toughness": int(m.group("t")),
+    })
+
+
+_ADD_COUNTERS_DIE_RESULT_RE = _c(
+    r"put x (?P<kind>\+1/\+1|-1/-1|−1/−1) counters on each of up to "
+    r"(?P<targets>\d+) target creatures, where x is the result"
+)
+
+
+def _add_counters_die_result(m: re.Match[str]) -> list[EffectSpec]:
+    return _bind_die_result("add_counters", {
+        "count": "$die", "kind": _counter_sign(m.group("kind")),
+        "target_kind": "creature", "target_count": int(m.group("targets")), "optional": True,
+    })
+
+
+_RETURN_CREATURES_DIE_RESULT_RE = _c(
+    r"put any number of target creature cards with total mana value x or less from "
+    r"graveyards onto the battlefield under your control, where x is the result"
+)
+
+
+def _return_creatures_die_result(m: re.Match[str]) -> list[EffectSpec]:
+    return _bind_die_result("return_creatures_total_mana_value", {"budget": "$die"})
+
+
 #: PAR-80: "Roll a `<n>`-sided die. Target creature gets +X/+X until end of
 #: turn, where X is the result." (Growth Spurt) needs no dedicated handler
 #: of its own for the first sentence — "Roll a `<n>`-sided die." already
@@ -15493,6 +15582,26 @@ HANDLERS: list[EffectHandler] = [
         "roll_die",
         _ROLL_DIE_RE,
         _roll_die,
+    ),
+    # MEC-90: non-pump bodies whose amount is a preceding die-roll result.
+    EffectHandler("gain_life_die_result", _GAIN_LIFE_DIE_RESULT_RE, _gain_life_die_result),
+    EffectHandler("draw_die_result", _DRAW_DIE_RESULT_RE, _draw_die_result),
+    EffectHandler(
+        "no_max_hand_size_rest_of_game", _NO_MAX_HAND_SIZE_REST_OF_GAME_RE,
+        _no_max_hand_size_rest_of_game,
+    ),
+    EffectHandler(
+        "create_named_token_die_result", _CREATE_NAMED_TOKEN_DIE_RESULT_RE,
+        _create_named_token_die_result,
+    ),
+    EffectHandler(
+        "create_creature_token_die_result", _CREATE_CREATURE_TOKEN_DIE_RESULT_RE,
+        _create_creature_token_die_result,
+    ),
+    EffectHandler("add_counters_die_result", _ADD_COUNTERS_DIE_RESULT_RE, _add_counters_die_result),
+    EffectHandler(
+        "return_creatures_die_result", _RETURN_CREATURES_DIE_RESULT_RE,
+        _return_creatures_die_result,
     ),
     # MEC-50: Clash win/otherwise-branch bodies (RULE 701.30d).
     EffectHandler(

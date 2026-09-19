@@ -3269,6 +3269,7 @@ class MiscSystemsMixin:
         rest_ids: Optional[list[int]] = None,
         rest_destination: Optional[str] = None,
         decline_leaves_untouched: bool = False,
+        total_mana_value_budget: Optional[int] = None,
     ) -> None:
         """Open a "choose N of these objects" decision (RULE 601.2c-style).
 
@@ -3362,6 +3363,10 @@ class MiscSystemsMixin:
         if action not in self.CHOOSE_OBJECT_ACTIONS:
             raise ValueError(f"unknown choose-objects action {action!r}")
         pool = [obj for obj in candidates if obj is not None]
+        if total_mana_value_budget is not None:
+            pool = [obj for obj in pool if int(
+                getattr(obj.card, "converted_mana_cost", 0) or 0
+            ) <= int(total_mana_value_budget)]
         if not pool or count <= 0:
             # Nothing to choose ⇒ "you didn't choose" — run the else branch
             # (Traumatic Revelation's "If you don't, incubate 3." when the
@@ -3400,6 +3405,7 @@ class MiscSystemsMixin:
             control_recipient_id=control_recipient_id,
             rest_ids=rest_ids, rest_destination=rest_destination,
             decline_leaves_untouched=decline_leaves_untouched,
+            total_mana_value_budget=total_mana_value_budget,
         ))
     def _apply_choose_objects_tail(
         self,
@@ -3434,6 +3440,7 @@ class MiscSystemsMixin:
         rest_ids: Optional[list[int]] = None,
         rest_destination: Optional[str] = None,
         decline_leaves_untouched: bool = False,
+        total_mana_value_budget: Optional[int] = None,
     ) -> dict[str, Any]:
         """Build the serializable `choose_objects` `pending_choice`."""
         options = [
@@ -3494,6 +3501,7 @@ class MiscSystemsMixin:
             "rest_ids": list(rest_ids) if rest_ids else None,
             "rest_destination": rest_destination,
             "decline_leaves_untouched": decline_leaves_untouched,
+            "total_mana_value_budget": total_mana_value_budget,
         }
     @continuations.choice("choose_objects", answer=continuations.ANSWER_INT, rule="601.2b")
     def _resume_choose_objects(self, choice: dict[str, Any], instance_id: Optional[int]) -> None:
@@ -3529,6 +3537,16 @@ class MiscSystemsMixin:
             for obj in self._choose_objects_pool(choice, picked)
             if obj is not None
         ]
+        budget = choice.get("total_mana_value_budget")
+        if budget is not None:
+            spent = sum(
+                int(getattr(getattr(self._object_by_instance_id(i), "card", None), "converted_mana_cost", 0) or 0)
+                for i in picked
+            )
+            remaining_pool = [
+                obj for obj in remaining_pool
+                if int(getattr(obj.card, "converted_mana_cost", 0) or 0) <= int(budget) - spent
+            ]
         if declined or len(picked) >= choice["count"] or not remaining_pool:
             self.state.pending_choice = None
             if choice.get("rest_destination") and choice.get("rest_ids"):
@@ -3564,6 +3582,7 @@ class MiscSystemsMixin:
             rest_ids=choice.get("rest_ids"),
             rest_destination=choice.get("rest_destination"),
             decline_leaves_untouched=bool(choice.get("decline_leaves_untouched")),
+            total_mana_value_budget=choice.get("total_mana_value_budget"),
         )
         next_choice["commander_taken"] = commander_taken
         self.open_choice(next_choice)
@@ -3625,7 +3644,9 @@ class MiscSystemsMixin:
         elif action == "return_to_hand":
             self.return_to_hand(obj)
         elif action == "return_from_graveyard":
-            self.return_from_graveyard(obj, "battlefield")
+            self.return_from_graveyard(
+                obj, "battlefield", controller_id=control_recipient_id,
+            )
         elif action == "graveyard_to_library":
             # Quandrix Command mode 4: move the pick from its owner's
             # graveyard to its owner's library, then shuffle that library

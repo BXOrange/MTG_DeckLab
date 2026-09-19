@@ -2228,6 +2228,17 @@ _EARTHBEND_THEN_WHEN_YOU_DO_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+#: RULE 706 + 603.11: "Roll a d20. When you do, <payoff where X is the
+#: result>." The roll is mandatory, but its payoff is nevertheless a fresh
+#: reflexive trigger: Ancient Bronze Dragon's targets must be chosen after
+#: its controller knows X. ``RollDieEffect`` owns the deferred trigger; this
+#: parser layer only folds the two printed sentences into ``then_trigger``.
+_ROLL_DIE_THEN_WHEN_YOU_DO_RE = re.compile(
+    r"^(?P<before>roll (?:a |an |\d+ )?(?:d\d+|\d+-sided die(?:s)?))\.\s*"
+    r"when you do,\s*(?P<after>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
 #: "Discard a card. **If you do,** `<effect>`." (Gristle Glutton's
 #: `{T}, Blight 1:` loot body, and the wider mandatory-discard-then-draw
 #: family). Same collapse rationale as the two above — a plain "discard a
@@ -3981,6 +3992,23 @@ def parse_effect_body(
         return _with_after_tail(
             before_specs, earthbend_when_you_do.group("after"), group_subject=group_subject,
         )
+
+    roll_when_you_do = _ROLL_DIE_THEN_WHEN_YOU_DO_RE.match(body)
+    if roll_when_you_do is not None:
+        before_specs = parse_effect_body(
+            roll_when_you_do.group("before"), self_subject=self_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
+        )
+        after_specs = parse_effect_body(
+            roll_when_you_do.group("after"), self_subject=self_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
+        )
+        if (before_specs is None or len(before_specs) != 1
+                or before_specs[0].type != "roll_die" or after_specs is None):
+            return None
+        params = dict(before_specs[0].params)
+        params["then_trigger"] = [spec.to_dict() for spec in after_specs]
+        return [EffectSpec("roll_die", params)]
 
     discard_then_if_you_do = _DISCARD_THEN_IF_YOU_DO_RE.match(body)
     if discard_then_if_you_do is not None:

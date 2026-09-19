@@ -728,20 +728,6 @@ its block back into the matching section here.
 
 ## MEC — Game mechanics
 
-- **MEC-90 · Dice-roll result as a resolve-time amount (RULE 706)
-  (residue — the primitive now exists).** PAR-80's second increment
-  (PARSER_VERSION 413, Growth Spurt) built exactly the missing half: a
-  `"die_result"` `game/effect_amounts.py` amount kind reading
-  `GameContext.die_result` (`RollDieEffect`'s own output), wired generically
-  through ENG-37's `bind` composition — `{"kind": "bind", "amount":
-  {"kind": "die_result"}, "effects": [...]}` works over *any* whitelisted
-  effect body, not just `pump` (Growth Spurt's own use). What's left is
-  pure parser recognition for the other effect shapes this same amount kind
-  already answers: "gain life/create N tokens/put N counters/draw N cards
-  equal to the result." Re-run `parser_probe.py blocked` before starting —
-  the 45 SOLO count predates this primitive landing and needs
-  reconfirming. Adorable Kitten, Ancient Brass/Bronze/Copper/Gold/Silver
-  Dragon.
 - **MEC-91 · "Dealt damage by `<source>` this turn" tracker.** A
   per-source, per-turn record of which objects a specific permanent dealt
   damage to this turn — feeds "can't be regenerated," death/reanimation,
