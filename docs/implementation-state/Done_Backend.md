@@ -2950,9 +2950,23 @@ is in the rules-engine categories below them.
 - **Verification:** Parser regressions cover all five cards, dynamic counts,
   opt-out/no-spend behavior, and Sphere's planeswalker scope.
 
-### Put onto the battlefield attacking (RULE 508.4) — PAR-30, v177
+### MEC-89: rules-correct entering-attacking combat primitive (RULE 506.3, 508.3a/508.4)
 
-- **What:** `RulesEngine.put_onto_battlefield_attacking(obj, defender=None)` — an already-on-the-battlefield creature is placed into the current combat *attacking* without being declared: no tap for the attack (RULE 508.4), summoning sickness is irrelevant (it never "attacked"), an `ATTACKS` event fires so "whenever ~ attacks" / battalion triggers still see it. RULE 508.4a's defender choice is auto-made — the defender the rest of the combat is attacking if that's unambiguous, else the controller's sole/first opponent. The shared primitive behind "create a … token that's tapped **and attacking**" (`CreateTokenEffect.attacking`, v177 — Captain's Claws, Hanweir Garrison, Hero of Bladehold, +10) and, when wired, "put a card … onto the battlefield tapped and attacking".
+- **What:** Corrected the shared `put_onto_battlefield_attacking` primitive
+  to distinguish combat status from an attacker declaration. It accepts only
+  a creature controlled by the active player during combat and assigns a live
+  legal player, planeswalker, or battle defender; an explicit invalid or
+  ambiguous implicit defender leaves the entering object out of combat.
+  The caller supplies any `tapped` state. Per RULE 508.3a it never fires
+  `ATTACKS` and never stamps `attacked_this_turn`; Ninjutsu now uses the same
+  path, retaining its ETB event but not falsely enabling attack triggers,
+  Boast, or Raid.
+- **Tests:** `tests/test_par30_token_tapped_and_attacking.py`,
+  `tests/test_par30_attacking_that_player_defender_ref.py`,
+  `tests/test_par26_cast_timing_keywords.py`,
+  `tests/test_par62_connectives.py`.
+
+- **What:** `RulesEngine.put_onto_battlefield_attacking(obj, defender=None)` — an already-on-the-battlefield creature is placed into the current combat *attacking* without being declared: no tap for the attack (RULE 508.4), summoning sickness is irrelevant (it never "attacked"), and RULE 508.3a means it neither fires `ATTACKS` nor receives `attacked_this_turn`. RULE 508.4a's defender choice is auto-made only when the existing combat or the legal defender set makes it unambiguous; otherwise the object enters without attacking. The shared primitive behind "create a … token that's tapped **and attacking**" (`CreateTokenEffect.attacking`, v177 — Captain's Claws, Hanweir Garrison, Hero of Bladehold, +10) and, when wired, "put a card … onto the battlefield tapped and attacking".
 - **Files:** `game/rules/misc_mixin.py`, `game/effects/core.py` (`CreateTokenEffect`), `parser/oracle/catalogue/handlers.py` (`_TOKEN_TAPPED_ATTACKING` suffix). `tests/test_par30_token_tapped_and_attacking.py`.
 - **v178 extended it to `PutFromHandOntoBattlefieldEffect`:** an `attacking` param routes through a new `"battlefield_attacking"` search destination in `_put_searched_card` (enters tapped, then `put_onto_battlefield_attacking`). Parser: `_put_from_hand` gained a creature-subtype filter, a colour filter ("blue or red creature card" → `{"color": […]}`) and the "…tapped and attacking" tail; derived qualities ("historic", "multicolored") fail closed. +7 — Preeminent Captain, Goblin Lackey, Warren Instigator, Mindwrack Liege, Didgeridoo, Dramatic Entrance, Firebrand Ranger. `tests/test_par30_put_from_hand_attacking_and_filters.py`.
 - **v179 finished the common shapes + a bycatch:** `CopyPermanentEffect` gained `tapped`/`attacking` (→ `put_onto_battlefield_attacking` per made token). Parser: `_CREATED_ENTERS_ATTACKING_RE` — "Create a token. The token[s] enter[s] tapped and attacking." stamps the preceding `create_token`/`copy_permanent`; `_LOOK_TOP_PUT_ATTACKING_RE` — "look at the top N … put a creature card … onto the battlefield tapped and attacking. Put the rest on the bottom …" → `impulsive_look` with `hit_destination="battlefield_attacking"`. Separately, `_DELAYED_SAC_EXILE_TAIL_RE` grew an **"at end of combat"** timing (→ `create_delayed_trigger` step `"end_combat"`) + "the token[s]" subject — a tail that rides far beyond this cluster (Crumbling Colossus, the Basilisk morph cycle, Ohran Viper). +18 — Geist of Saint Traft, Crumbling Colossus, Serpentine/Stone-Tongue/Lowland Basilisk, Ohran Viper, Fog Elemental, Geist/Invocation of Saint Traft, &c. `tests/test_par30_enters_attacking_and_delayed_combat_tail.py`.

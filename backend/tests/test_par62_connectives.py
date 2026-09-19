@@ -274,6 +274,8 @@ class TestConditionWhitelistWidening:
             zone=Zone.BATTLEFIELD,
         )
         eng.state.add_to_battlefield(attacker)
+        eng.state.current_phase = "combat"
+        eng.state.current_step = "declare_attackers"
         eng.rules.put_onto_battlefield_attacking(attacker)
 
         assert attacker.attacking

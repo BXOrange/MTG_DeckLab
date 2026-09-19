@@ -124,6 +124,8 @@ def test_self_attacks_an_opponent_is_attacks_trigger():
 
 def test_created_token_enters_attacking_via_auto_defender():
     eng, state = _engine()
+    state.current_phase = "combat"
+    state.current_step = "declare_attackers"
     src = GameObject(
         Card(id="s", name="Src", type_line="Creature — Soldier",
              is_creature=True, power=2, toughness=2),

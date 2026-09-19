@@ -283,6 +283,7 @@ def test_ninjutsu_swaps_an_unblocked_attacker_for_a_ninja():
     assert rat.zone == Zone.HAND and rat in p1.hand
     assert ninja.zone == Zone.BATTLEFIELD
     assert ninja.tapped and ninja.attacking
+    assert ninja.attacked_this_turn is False  # entered attacking, never declared
 
 
 def test_ninjutsu_refused_for_a_blocked_attacker():

@@ -1794,58 +1794,95 @@ class MiscSystemsMixin:
         return result
     def put_onto_battlefield_attacking(
         self, obj: GameObject, defender: Optional[dict[str, Any]] = None
-    ) -> None:
+    ) -> bool:
         """RULE 508.4: an already-on-the-battlefield creature is put into
         combat *attacking* without having been declared — it doesn't tap for
         the attack (RULE 508.4) and summoning sickness doesn't stop it (it
         never "attacked"). RULE 508.4a: the effect's controller chooses which
         defender it attacks; with one obvious defender — the common
         two-player combat, or whatever the rest of this combat is already
-        attacking — that choice is auto-made here. Fires an `ATTACKS` event
-        so "whenever ~ attacks" / battalion-style triggers still see it.
+        attacking — that choice is auto-made here. It deliberately does
+        **not** fire `ATTACKS` or set ``attacked_this_turn``: RULE 508.3a says
+        neither "whenever [this creature] attacks" nor declaration-history
+        effects such as Boast see a creature put onto the battlefield
+        attacking.
 
         This is the shared primitive behind "create a … token that's tapped
         **and attacking**" and "put a card … onto the battlefield tapped
         **and attacking**" (RULE 508.4) — the ``tapped`` half is applied
-        separately by the caller.
+        separately by the caller. Returns whether the object actually joined
+        combat. A missing/invalid defender leaves the object on the battlefield
+        but not attacking (RULE 506.3b/c, 508.4a).
         """
-        if not obj.is_creature:
-            return
-        if defender is None:
-            # Attack whoever the rest of this combat is attacking, if that's
-            # unambiguous; otherwise the controller's sole/first opponent.
-            player_defenders = {
-                (o.combat_defender or {}).get("id")
-                for o in self.state.battlefield
-                if o is not obj and getattr(o, "attacking", False)
-                and (o.combat_defender or {}).get("kind") == "player"
-            }
-            opponents = [
-                p for p in self.state.living_players() if p.id != obj.controller_id
-            ]
-            target_id = player_defenders.pop() if len(player_defenders) == 1 else None
-            if target_id is None and opponents:
-                target_id = opponents[0].id
-            if target_id is not None:
-                try:
-                    dp = self.state.player_by_id(target_id)
-                except (KeyError, ValueError):
-                    dp = None
-                if dp is not None:
-                    defender = {"kind": "player", "id": dp.id, "label": dp.name}
-        obj.attacking = True
-        obj.attacked_this_turn = True
-        obj.combat_defender = defender
-        self.state.fire_event(
-            GameEvent(
-                EventType.ATTACKS,
-                attacker=obj.name,
-                player_id=obj.controller_id,
-                instance_id=obj.instance_id,
-                object_types=sorted(obj.type_words),
-                defending_player_id=(defender or {}).get("id"),
-            )
+        active = self.state.active_player
+        if (
+            not obj.is_creature
+            or obj.controller_id != active.id
+            or self.state.current_phase != "combat"
+        ):
+            return False
+
+        # `RulesEngine` deliberately does not import the high-level
+        # `GameEngine`, so mirror only the defender *universe* here (not its
+        # declaration restrictions): 508.4c says those restrictions do not
+        # apply to a creature entering attacking.
+        legal: list[dict[str, Any]] = [
+            {"kind": "player", "id": player.id, "label": player.name}
+            for player in self.state.living_players()
+            if player.id != active.id
+        ]
+        legal.extend(
+            {"kind": "planeswalker", "instance_id": permanent.instance_id,
+             "label": permanent.name}
+            for permanent in self.state.battlefield
+            if permanent.controller_id != active.id and permanent.is_planeswalker
         )
+        legal.extend(
+            {"kind": "battle", "instance_id": permanent.instance_id,
+             "label": permanent.name}
+            for permanent in self.state.battlefield
+            if permanent.is_battle and permanent.protector_id not in (None, active.id)
+        )
+
+        def _same_defender(left: dict[str, Any], right: dict[str, Any]) -> bool:
+            if left.get("kind") != right.get("kind"):
+                return False
+            key = "id" if left.get("kind") == "player" else "instance_id"
+            return left.get(key) == right.get(key)
+
+        if defender is not None:
+            candidate = dict(defender)
+            if not any(_same_defender(candidate, legal_defender) for legal_defender in legal):
+                return False
+        else:
+            # RULE 508.4 supplies a choice. The engine has no priority-time
+            # chooser for this primitive, so infer it only when the existing
+            # combat or the legal defender set makes it unambiguous; never
+            # silently pick the first opponent in multiplayer.
+            current = [
+                o.combat_defender
+                for o in self.state.battlefield
+                if o is not obj
+                and getattr(o, "attacking", False)
+                and o.combat_defender is not None
+                and any(
+                    _same_defender(o.combat_defender, legal_defender)
+                    for legal_defender in legal
+                )
+            ]
+            candidates = [
+                legal_defender for legal_defender in legal
+                if any(_same_defender(legal_defender, current_defender) for current_defender in current)
+            ]
+            if len(candidates) == 1:
+                candidate = dict(candidates[0])
+            elif len(legal) == 1:
+                candidate = dict(legal[0])
+            else:
+                return False
+        obj.attacking = True
+        obj.combat_defender = candidate
+        return True
     def advance_sagas(self, player: Player) -> None:
         """Add a lore counter to each Saga ``player`` controls (RULE 714.3c).
 

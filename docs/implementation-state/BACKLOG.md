@@ -728,18 +728,6 @@ its block back into the matching section here.
 
 ## MEC — Game mechanics
 
-- **MEC-89 · "Tapped and attacking" battlefield entry (RULE 508.3).** A
-  token or returned/reanimated creature entering the battlefield already
-  flagged as attacking (a specific player or planeswalker) has no engine
-  primitive — nothing lets an object join `CombatState`'s attacker list
-  outside the declare-attackers step. Confirmed via `parser_probe.py
-  blocked "tapped and attacking"`: 63 SOLO (84 total) — the single biggest
-  cluster in this whole sweep. Needs a combat-mixin primitive that adds an
-  object to the current combat as an attacker of a chosen defender, taps
-  it (unless the card's own wording grants an exemption), and fires the
-  same attack-trigger consequences a normally-declared attacker would.
-  Adeline, Resplendent Cathar; Alesha, Who Smiles at Death;
-  A-Thousand-Faced Shadow; Altaïr Ibn-La'Ahad.
 - **MEC-90 · Dice-roll result as a resolve-time amount (RULE 706)
   (residue — the primitive now exists).** PAR-80's second increment
   (PARSER_VERSION 413, Growth Spurt) built exactly the missing half: a

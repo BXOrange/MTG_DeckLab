@@ -780,9 +780,9 @@ class CombatMixin:
 
         The ninja takes the returned attacker's place in combat — same
         defender, tapped and attacking, and it doesn't tap for its own
-        attack (it's *put* there, not declared). Its own ``ATTACKS`` event
-        fires so an "whenever ~ attacks" trigger (Ninja of the Deep
-        Hours-shaped) still works; ETB fires normally.
+        attack (it's *put* there, not declared). RULE 508.3a therefore does
+        not fire its ``ATTACKS`` triggers or mark it as having attacked.
+        ETB fires normally.
         """
         cost = getattr(ninja, "ninjutsu_cost", None)
         if cost is None:
@@ -803,23 +803,14 @@ class CombatMixin:
 
         player.remove_from_zone(ninja, Zone.HAND)
         ninja.tapped = True
-        ninja.attacking = True
-        ninja.attacked_this_turn = True
         ninja.summoning_sick = False
-        ninja.combat_defender = defender
         self.state.add_to_battlefield(ninja)
+        self.rules.put_onto_battlefield_attacking(ninja, defender=defender)
         self.state.fire_event(
             GameEvent(
                 EventType.ENTERS_BATTLEFIELD, controller_id=ninja.controller_id,
                 card_id=ninja.card.id, object=ninja.name, instance_id=ninja.instance_id,
                 object_types=sorted(ninja.type_words),
-            )
-        )
-        self.state.fire_event(
-            GameEvent(
-                EventType.ATTACKS, attacker=ninja.name, player_id=player.id,
-                instance_id=ninja.instance_id, object_types=sorted(ninja.type_words),
-                defending_player_id=getattr(self._defending_player(defender), "id", None),
             )
         )
     def _assign_defender(
