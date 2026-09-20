@@ -10633,12 +10633,29 @@ def _suspect_self(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("suspect", {})]
 
 
+def _suspected_self_counter_or_suspect(m: re.Match[str]) -> list[EffectSpec]:
+    """Repeat Offender: mutually exclusive self-suspect branches."""
+    return [
+        EffectSpec("add_counters", {"count": 1, "kind": "+1/+1", "self": True},
+                   condition={"source_is_suspected": True}),
+        EffectSpec("suspect", {}, condition={"source_is_suspected": False}),
+    ]
+
+
 def _suspect_previous(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("suspect", {"previous_subject": True})]
 
 
 def _suspect_attached(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("suspect", {"attached": True})]
+
+
+def _suspect_other_then_remove_self(m: re.Match[str]) -> list[EffectSpec]:
+    """Frantic Scapegoat's optional non-target choice and reflexive tail."""
+    return [EffectSpec("suspect", {
+        "selection_kind": "other_creature_you_control", "optional": True,
+        "then_specs": [{"type": "remove_suspected", "params": {"self_subject": True}}],
+    })]
 
 
 def _suspect_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -10663,6 +10680,10 @@ def _remove_suspected_all(m: re.Match[str]) -> list[EffectSpec]:
 # keeps the menace a suspected creature has (`RemoveSuspectedEffect.optional`).
 def _remove_suspected_may_previous(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("remove_suspected", {"previous_subject": True, "optional": True})]
+
+
+def _remove_suspected_previous_selector(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("remove_suspected", {"previous_selector": True})]
 
 
 # "Detain [up to N] target <permanent> an opponent controls." (RULE 701.35a
@@ -15970,6 +15991,12 @@ HANDLERS: list[EffectHandler] = [
         _c(r"all suspected creatures are no longer suspected"),
         _remove_suspected_all,
     ),
+    EffectHandler(
+        "suspected_self_counter_or_suspect",
+        _c(r"if ~ is suspected, put a \+1/\+1 counter on it\. otherwise, suspect it"),
+        _suspected_self_counter_or_suspect,
+        self_subject_only=True,
+    ),
     # "you may have it become no longer suspected" (RULE 701.60a's reverse,
     # PAR-30 — Deadly Complication) — "it" = the previous clause's target.
     EffectHandler(
@@ -15978,11 +16005,23 @@ HANDLERS: list[EffectHandler] = [
         _remove_suspected_may_previous,
         previous_subject_only=True,
     ),
+    EffectHandler(
+        "remove_suspected_previous_selector",
+        _c(r"if any of them are suspected, (?:they'?re|they are) no longer suspected"),
+        _remove_suspected_previous_selector,
+        previous_selector_only=True,
+    ),
     # "suspect enchanted creature" (RULE 701.60a) — an Aura's host.
     EffectHandler(
         "suspect_attached",
         _c(r"suspect enchanted creature"),
         _suspect_attached,
+    ),
+    EffectHandler(
+        "suspect_other_then_remove_self",
+        _c(r"you may suspect 1 of the other creatures\. if you do, ~ is no longer suspected"),
+        _suspect_other_then_remove_self,
+        self_subject_only=True,
     ),
     # "suspect [up to N] target creature [an opponent controls]" (RULE 701.60a).
     EffectHandler(

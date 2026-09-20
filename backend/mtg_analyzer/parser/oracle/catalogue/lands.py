@@ -32,6 +32,9 @@ _ENTERS = r"enters(?: the battlefield)?"
 #: Plain tap-land: "~ enters tapped." / "this land enters the battlefield
 #: tapped." (35+ cards — the single biggest unclaimed cluster).
 _ALWAYS_RE = re.compile(rf"^{_SUBJECT} {_ENTERS} tapped\.?$", re.IGNORECASE)
+_TAPPED_WITH_COUNTERS_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} tapped with (?:a|an|\d+) [a-z]+ counters? on it\.?$", re.IGNORECASE
+)
 #: Thriving lands: "~ enters tapped. As it enters, choose a color other
 #: than red."  The first sentence is still an unconditional RULE 614.1
 #: tapped-entry replacement; ``tapped_entry_choice_tail`` exposes the second
@@ -240,7 +243,7 @@ def tap_clause_condition(line: str) -> Optional[dict[str, Any]]:
         types = _split_types_clause(match.group(1))
         if types:
             return {"kind": "reveal_types", "types": types}
-    if _ALWAYS_RE.match(line):
+    if _ALWAYS_RE.match(line) or _TAPPED_WITH_COUNTERS_RE.match(line):
         return {"kind": "always"}
     return None
 

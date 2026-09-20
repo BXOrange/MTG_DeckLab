@@ -106,7 +106,7 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
         "creatures_died_this_turn_at_least", "graveyard_has_type", "target_is_player",
         "not_already_exerted", "is_first_combat_phase", "is_your_turn",
         "opponent_cast_color_this_turn", "no_creatures_on_battlefield",
-        "source_is_renowned", "shares_type_with_linked_exile", "source_was_cast",
+        "source_is_renowned", "source_is_suspected", "attached_is_suspected", "sacrificed_cost_was_suspected", "shares_type_with_linked_exile", "source_was_cast",
         "source_entered_untapped", "cast_outside_sorcery_speed", "cast_via_escape",
         "cards_in_graveyard_at_least", "entering_object_unique_name",
         # MEC-43 round 4C: Dark Petition's Spell mastery (a graveyard-count

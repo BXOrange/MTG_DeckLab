@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .core import GameEffect
+from .counters_tokens import GrantUntilEffect, PumpEffect
 from ._runtime import install, register
 
 install(globals())
@@ -319,7 +320,7 @@ class SkipNextUntapEffect(GameEffect):
 #: — see that function's docstring. `TapEffect`-only today, matching
 #: `effect_binder._GROUP_SUBJECT_RETARGET_FIELDS`'s identically narrow,
 #: widen-only-as-a-real-card-needs-it convention.
-_PREVIOUS_SELECTOR_EFFECT_TYPES: tuple[type, ...] = (TapEffect,)
+_PREVIOUS_SELECTOR_EFFECT_TYPES: tuple[type, ...] = (TapEffect, PumpEffect, GrantUntilEffect)
 
 
 class UnblockableEffect(GameEffect):

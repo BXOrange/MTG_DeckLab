@@ -583,9 +583,15 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 46.1% (16,046 / 34,811) as of 2026-09-20, measured at
-PARSER_VERSION 434**; the Commander-legal slice is **48.4% (15,414 /
-31,830)**. v434 closes PAR-87: "sacrifice a creature or pay {M}" offers
+**Coverage: 46.3% (16,106 / 34,811) as of 2026-09-20, measured at
+PARSER_VERSION 438**; the Commander-legal slice is **48.6% (15,473 /
+31,830)**. v438 closes PAR-90: suspected-state conditions can read the
+source, an Aura host, and an activation's sacrificed-cost creature; it also
+models Frantic Scapegoat's optional non-target selection and reflexive tail.
+v437 closes PAR-89: named-counter entry cycles and hand-cast
+Myojin gates. v435 closes PAR-88: standing permission to play lands from the
+controller's graveyard reuses the existing graveyard-land action path.
+v434 closes PAR-87: "sacrifice a creature or pay {M}" offers
 both distinct additional-cost payment paths. v433 closes PAR-86: a target player
 can shuffle up to N targeted cards from their graveyard into their library,
 reusing the existing Quandrix Command primitive; five cards newly model, while

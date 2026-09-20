@@ -1360,6 +1360,14 @@ _BATCH_DIES_TRIGGER_RE = re.compile(
     r"creatures(?P<yours> you control)? die$"
 )
 
+#: "Whenever one or more other creatures you control enter, …" (Frantic
+#: Scapegoat).  The event dispatcher exposes each entering object, so the
+#: group predicate supplies the precise controller/type/other filter; a
+#: simultaneous entry is still represented by its individual entry events.
+_BATCH_ENTER_TRIGGER_RE = re.compile(
+    r"^(?:1|one) or more other creatures you control enter$"
+)
+
 #: RULE 603.3f — Quintorius, Field Historian: one trigger for the complete
 #: zone-change event, whether one card is flashback-cast or many are returned
 #: together. The optional timing tail is an intervening trigger condition.
@@ -3735,6 +3743,41 @@ def parse_effect_body(
     if not body:
         return []
 
+    # An activated ability's sacrifice cost is paid before its effects resolve
+    # (RULE 602.2b).  Keep both mutually-exclusive draw counts explicit: the
+    # card does not draw one and then a further two when the sacrificed
+    # creature was suspected.
+    if re.fullmatch(
+        r"draw a card\. if the sacrificed creature was suspected, draw 2 cards instead",
+        body,
+        re.IGNORECASE,
+    ):
+        return [
+            EffectSpec("draw", {"count": 1}, condition={"sacrificed_cost_was_suspected": False}),
+            EffectSpec("draw", {"count": 2}, condition={"sacrificed_cost_was_suspected": True}),
+        ]
+
+    # Primetime Suspect — both branches are the same optional library search,
+    # but the Aura host's suspected state changes its cardinality.  This is
+    # deliberately kept to the complete printed search sentence; a general
+    # "instead" rewrite would be unsafe around asynchronous searches.
+    if re.fullmatch(
+        r"search your library for a land card, put that card onto the battlefield tapped, "
+        r"then shuffle\. if enchanted creature is suspected, you search for 2 lands instead",
+        body,
+        re.IGNORECASE,
+    ):
+        return [
+            EffectSpec(
+                "search", {"criteria": {"type": "land"}, "destination": "battlefield_tapped"},
+                condition={"attached_is_suspected": False},
+            ),
+            EffectSpec(
+                "search", {"criteria": {"type": "land"}, "destination": "battlefield_tapped", "count": 2},
+                condition={"attached_is_suspected": True},
+            ),
+        ]
+
     # RULE 603.4 intervening-ifs, and RULE 601.2b's optional-additional-cost
     # gates: one rule over `_CONDITION_PREFIXES` (ENG-36), where each of these
     # was its own ten-line block. They run before `match_clause` / the
@@ -4456,7 +4499,7 @@ def _announces_creature_target(specs: list[EffectSpec]) -> bool:
 #: card (Karlach, Fury of Avernus) needs today, widened only as another
 #: card actually prints a different mass selector before this same "they"
 #: tail, matching this file's usual narrow-whitelist convention.
-_GROUP_SELECTOR_VALUES: frozenset[str] = frozenset({"attacking_creatures"})
+_GROUP_SELECTOR_VALUES: frozenset[str] = frozenset({"attacking_creatures", "creatures_opponents_control"})
 
 
 def _announces_group_selector(specs: list[EffectSpec]) -> bool:
@@ -4467,7 +4510,15 @@ def _announces_group_selector(specs: list[EffectSpec]) -> bool:
     to be caught by that check."""
     if not specs:
         return False
-    return specs[-1].type == "tap" and specs[-1].params.get("selector") in _GROUP_SELECTOR_VALUES
+    last = specs[-1]
+    if last.type == "tap":
+        return last.params.get("selector") in _GROUP_SELECTOR_VALUES
+    if last.type == "pump":
+        return last.params.get("selector") in _GROUP_SELECTOR_VALUES
+    if last.type == "grant_until":
+        return (last.params.get("static", {}).get("params", {}).get("affects")
+                in _GROUP_SELECTOR_VALUES)
+    return False
 
 
 def is_keyword_line(line: str) -> bool:
@@ -4772,7 +4823,7 @@ def segment_line(
     if cast_spell_trig_mv is not None:
         subj = cast_spell_trig_mv.group("subj").lower()
         body, optional = _peel_optional(cast_spell_trig_mv.group("body"))
-        effects = parse_effect_body(body)
+        effects = parse_effect_body(body, self_subject=True)
         if effects is None:
             return Segment(raw=raw)
         if subj == "you":
@@ -6109,7 +6160,7 @@ def segment_line(
                 tail_markers.append(EffectSpec(ACTIVATE_ONLY_ONCE_MARKER, {}))
             effect_text = effect_text[:activation_tail.start()].strip()
         body, optional = _peel_optional(effect_text)
-        effects = parse_effect_body(body)
+        effects = parse_effect_body(body, self_subject=True)
         if effects is None:
             # RULE 700.2's *compact* inline modal ("gets +1/-1 or -1/+1
             # until end of turn" — Pemmin's Aura), which the bulleted
@@ -6305,6 +6356,22 @@ def segment_line(
                 optional=optional,
                 raw_text=raw,
                 parser=provenance,
+            )
+            return Segment(raw=raw, spec=spec, claimed=True)
+
+        batch_enters = _BATCH_ENTER_TRIGGER_RE.match(cond_text.strip())
+        if batch_enters is not None:
+            body, optional = _peel_optional(trig.group("body"))
+            effects = parse_effect_body(body, self_subject=True)
+            if effects is None:
+                return Segment(raw=raw)
+            spec = AbilitySpec(
+                "triggered", effects=effects,
+                trigger={
+                    "event": "ENTERS_BATTLEFIELD",
+                    "condition": {"subject": "group", "type": "creature", "controller": "you", "other": True},
+                },
+                optional=optional, raw_text=raw, parser=provenance,
             )
             return Segment(raw=raw, spec=spec, claimed=True)
 

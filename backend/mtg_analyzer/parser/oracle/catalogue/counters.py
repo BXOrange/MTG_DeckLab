@@ -44,6 +44,14 @@ _ENTRY_COUNTERS_RE = re.compile(
     rf"^{_SUBJECT} {_ENTERS} with {_AMOUNT} {_COUNTER_TYPE} counters? on it\.?$",
     re.IGNORECASE,
 )
+_CAST_FROM_HAND_ENTRY_COUNTERS_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} with (a|an|\d+) {_COUNTER_TYPE} counters? on it if you cast it from your hand\.?$",
+    re.IGNORECASE,
+)
+_TAPPED_ENTRY_COUNTERS_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} tapped with {_AMOUNT} {_COUNTER_TYPE} counters? on it\.?$",
+    re.IGNORECASE,
+)
 
 #: A fixed amount only — used by the Multikicker-scaled shape below, which
 #: is always a fixed *per-kick* amount (no cache card scales that amount
@@ -190,6 +198,14 @@ def entry_counters_condition(line: str) -> Optional[dict[str, Any]]:
     either shape; the per-kick scaling only ever applies to the counter
     count, never to "how many times" a keyword is granted).
     """
+    match = _TAPPED_ENTRY_COUNTERS_RE.match(line)
+    if match is not None:
+        return {"is_x": False, "count": _fixed_count(match.group(1)),
+                "counter_type": match.group(2).lower()}
+    match = _CAST_FROM_HAND_ENTRY_COUNTERS_RE.match(line)
+    if match is not None:
+        return {"is_x": False, "count": _fixed_count(match.group(1)),
+                "counter_type": match.group(2).lower(), "cast_from_hand_gate": True}
     match = _KICKED_ENTRY_COUNTERS_RE.match(line)
     if match is not None:
         amount_raw = match.group(1).lower()

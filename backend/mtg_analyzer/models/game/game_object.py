@@ -302,6 +302,7 @@ class GameObject:
         #: magnitude is "the sacrificed creature's mana value" needs its own
         #: channel; read by `SearchLibraryEffect`'s ``mana_value_from``.
         self.sacrificed_cost_mana_value: Optional[int] = None
+        self.sacrificed_cost_was_suspected: bool = False
         #: The *power* sibling of the field above (MEC-43, Altar of
         #: Dementia: "Sacrifice a creature: target player mills cards equal
         #: to the sacrificed creature's power.") — stamped alongside it by
@@ -338,6 +339,7 @@ class GameObject:
         #: gate an "enters with N +1/+1 counters" rider. Reassigned every
         #: cast, like `cast_via_flashback`.
         self.cast_via_escape: bool = False
+        self.was_cast_from_hand: bool = False
         #: RULE 702.74a (MEC-42): whether this permanent spell was cast for
         #: its Evoke cost — if so, `RulesEngine._resolve_permanent_spell`
         #: sacrifices it right after it enters the battlefield (a
@@ -1305,6 +1307,7 @@ class GameObject:
         self.was_cast = False
         self.cast_outside_sorcery_speed = False
         self.sacrificed_cost_mana_value = None
+        self.sacrificed_cost_was_suspected = False
         self.sacrificed_cost_power = None
         self.station_tapped_power = None
         self.paired_with = None

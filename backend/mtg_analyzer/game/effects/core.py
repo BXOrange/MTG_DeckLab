@@ -1269,8 +1269,12 @@ def _apply_effects_partitioned(
                 used = list(targets or [])
             if specs and used:
                 context.previous_targets = list(used)
-            if isinstance(effect, _PREVIOUS_SELECTOR_EFFECT_TYPES) and effect.selector:
-                context.previous_selector = effect.selector
+            if isinstance(effect, _PREVIOUS_SELECTOR_EFFECT_TYPES):
+                selector = getattr(effect, "selector", None)
+                if selector is None:
+                    selector = (getattr(effect, "static", {}) or {}).get("params", {}).get("affects")
+                if selector:
+                    context.previous_selector = selector
             if state is None or position + 1 >= len(effects):
                 continue
             opened = getattr(state, "pending_choice", None)

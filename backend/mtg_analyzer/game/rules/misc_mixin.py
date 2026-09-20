@@ -3215,7 +3215,7 @@ class MiscSystemsMixin:
     #: than passing a continuation closure around.
     CHOOSE_OBJECT_ACTIONS = frozenset(
         {
-            "tap", "sacrifice", "return_to_hand", "return_from_graveyard", "soulbond_pair", "library_top", "discard",
+            "tap", "sacrifice", "suspect", "return_to_hand", "return_from_graveyard", "soulbond_pair", "library_top", "discard",
             "library_to_hand", "sacrifice_for_descendants_fury",
             # Quandrix Command mode 4 ("target player shuffles up to three
             # target cards from their graveyard into their library") — the
@@ -3726,6 +3726,8 @@ class MiscSystemsMixin:
         elif action == "sacrifice":
             # RULE 701.17a: non-destructive, so no regeneration shield saves it.
             self.put_into_graveyard(obj)
+        elif action == "suspect":
+            self.suspect(obj)
         elif action == "destroy":
             # Immoral Bargain (PAR-60 round 4): RULE 701.7 "destroy" — honours
             # regeneration and indestructible, unlike ``sacrifice`` above.

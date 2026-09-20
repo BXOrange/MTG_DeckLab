@@ -483,6 +483,11 @@ _FROM_LEGACY: dict[str, Callable[[Any], Optional[dict[str, Any]]]] = {
     "cast_via_escape": _flag("cast_via_escape"),
     "cast_outside_sorcery_speed": _flag("cast_outside_sorcery_speed"),
     "source_is_renowned": _flag("renowned"),
+    "source_is_suspected": _flag("is_suspected"),
+    "attached_is_suspected": lambda v: _negated(
+        {"kind": "flag", "flag": "is_suspected", "of": "attached"}, bool(v)
+    ),
+    "sacrificed_cost_was_suspected": _flag("sacrificed_cost_was_suspected"),
     "previous_target_is_suspected": lambda v: _negated(
         {"kind": "flag", "flag": "is_suspected", "of": "chosen"}, bool(v)
     ),

@@ -6648,6 +6648,35 @@ measurement of why is the useful half of this work.
 
 ## Oracle-Text Parser Front-End
 
+### PAR-90: Suspected-state resolve-time referents (PARSER_VERSION 438)
+
+- **What:** Added source, attached-host, and sacrificed-cost suspected-state
+  conditions; Agency Coroner's alternate draw, Primetime Suspect's alternate
+  search, and Frantic Scapegoat's optional non-target selection/reflexive
+  removal now resolve through parser specs and engine effects.
+- **Files:** `game/effect_conditions.py`, `game/effects/counters_tokens.py`,
+  `game/rules/misc_mixin.py`, `parser/oracle/segmenter.py`,
+  `parser/oracle/catalogue/handlers.py`, `tests/test_par90_suspected_referents.py`.
+
+### PAR-89: Named-counter entry cycles (PARSER_VERSION 437)
+
+- **What:** Tapped lands entering with charge/depletion counters now use both
+  entry replacements, and "enters with a divinity counter if cast from your
+  hand" reads the cast-zone marker at entry time.
+- **Verification:** `tests/test_par89_entry_counter_cycles.py` covers both
+  combined land forms and the Myojin gate; cache probing leaves no ticket
+  clause unclaimed. Coverage: 16,070 / 34,811; Commander 15,438 / 31,830.
+
+### PAR-88: Graveyard land-play permission (PARSER_VERSION 435)
+
+- **What:** "You may play lands from your graveyard" now binds a land-only
+  standing `GraveyardCastPermissionEffect`. It reuses the existing land-play
+  legality/action path but remains distinct from Muldrotha's one-per-type
+  grant.
+- **Verification:** `tests/test_par88_graveyard_land_permission.py` covers
+  the emitted static spec and playing a graveyard land end to end; cache
+  probing leaves no SOLO card on the exact phrase.
+
 ### PAR-87: Sacrifice-or-mana additional cost (PARSER_VERSION 434)
 
 - **What:** The mandatory "sacrifice a creature or pay {M}" cast-cost form

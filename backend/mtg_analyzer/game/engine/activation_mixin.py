@@ -980,6 +980,7 @@ class ActivationMixin:
         # this same permanent's sacrifice cost must not leak into a later
         # one that didn't sacrifice anything (or sacrificed nothing found).
         source.sacrificed_cost_mana_value = None
+        source.sacrificed_cost_was_suspected = False
         source.sacrificed_cost_power = None
         source.sacrificed_cost_toughness = None
         source.station_tapped_power = None
@@ -1081,6 +1082,7 @@ class ActivationMixin:
                 # magnitude" idiom `cost.exile_creature`'s own
                 # `last_cost_exiled_object_mv` just below already uses.
                 source.sacrificed_cost_mana_value = victim.card.converted_mana_cost
+                source.sacrificed_cost_was_suspected = bool(getattr(victim, "is_suspected", False))
                 # MEC-43 (Altar of Dementia): the *power* sibling of the
                 # stamp just above — read `victim.power` (derived, RULE
                 # 613) rather than the card's printed value, since a

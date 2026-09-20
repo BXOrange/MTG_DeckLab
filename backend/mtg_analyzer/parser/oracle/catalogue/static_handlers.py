@@ -2895,6 +2895,10 @@ def _vehicle_scope_params(m: "re.Match[str]") -> dict:
 #: whole clause unclaimed (fail-closed), which is why this list is ordered
 #: most-specific-first.
 _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
+    (re.compile(r"~ is suspected", re.I),
+     lambda m: {"kind": "flag", "flag": "is_suspected", "of": "source"}),
+    (re.compile(r"it'?s not suspected", re.I),
+     lambda m: {"kind": "not", "condition": {"kind": "flag", "flag": "is_suspected", "of": "source"}}),
     (re.compile(r"you'?ve cast another (?P<color>white|blue|black|red|green) spell this turn", re.I),
      lambda m: {"kind": "another_spell_cast_this_turn",
                 "color": {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}[m.group("color").lower()]}),

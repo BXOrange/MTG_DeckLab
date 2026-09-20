@@ -25,9 +25,33 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**46.1% covered — 16,046 / 34,811 — as of 2026-09-20, PARSER_VERSION 434.**
-Commander-legal slice (the one the product actually plays): **48.4% —
-15,414 / 31,830** (measure with `--commander-legal-only`).
+**46.3% covered — 16,106 / 34,811 — as of 2026-09-20, PARSER_VERSION 438.**
+Commander-legal slice (the one the product actually plays): **48.6% —
+15,473 / 31,830** (measure with `--commander-legal-only`).
+
+### PAR-90: Suspected-state resolve-time referents (PARSER_VERSION 438)
+
+- **What:** Conditions now distinguish a source, attached Aura host, and
+  activation-cost sacrifice's suspected flag. Frantic Scapegoat's optional
+  non-target choice uses the general pending chooser, then clears its source
+  only after a creature was chosen.
+- **Verification:** `tests/test_par90_suspected_referents.py`; the suspected
+  probe has no remaining SOLO blockers.
+
+### PAR-89: Named-counter entry cycles (PARSER_VERSION 437)
+
+- **What:** Tapped charge/depletion lands now receive their counters as well
+  as entering tapped; hand-cast divinity-counter Myojin gates read cast zone.
+- **Verification:** `tests/test_par89_entry_counter_cycles.py`; no ticket
+  clause remains in the cache probe.
+
+### PAR-88: Graveyard land-play permission (PARSER_VERSION 435)
+
+- **What:** "You may play lands from your graveyard" binds a land-only
+  `GraveyardCastPermissionEffect`, distinct from Muldrotha's per-type grant.
+- **Verification:** `tests/test_par88_graveyard_land_permission.py` covers
+  parser output and playing a graveyard land end to end; all five SOLO cards
+  model.
 
 ### PAR-87: Sacrifice-or-mana additional cost (PARSER_VERSION 434)
 

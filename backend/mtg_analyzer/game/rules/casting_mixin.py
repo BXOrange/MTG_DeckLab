@@ -245,6 +245,8 @@ class CastingResolutionMixin:
                 # pass the same way a card's own printed flag keywords are
                 # (`effect_binder.attach_to_object`'s flag-keyword handling).
                 obj.intrinsic_keywords.add(grant_keyword)
+        elif condition.get("cast_from_hand_gate"):
+            amount = condition["count"] if getattr(obj, "was_cast_from_hand", False) else 0
         elif condition.get("revolt_gate"):
             # MEC-84 Revolt: ``count`` if a permanent left the battlefield
             # under this permanent's controller this turn, else 0. Read at
@@ -632,6 +634,7 @@ class CastingResolutionMixin:
         # same window (zone already EXILE here), Rebound doesn't repeat.
         if getattr(obj, "has_rebound", False) and obj.zone == Zone.HAND:
             obj.rebound_pending = True
+        obj.was_cast_from_hand = obj.zone == Zone.HAND
         # RULE 702.88b's own free-cast window (`ReboundFreeCastWindowEffect`)
         # — consumed the instant it's used, same "check, then discard" shape
         # `mana_wildcard_permission`'s per-card grant already uses.

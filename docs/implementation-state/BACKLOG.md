@@ -100,28 +100,6 @@ its block back into the matching section here.
   > full cache, then batch the small ones rather than opening one ticket
   > per shape.
 
-- **PAR-88 · "You may play lands from your graveyard" — static
-  permission.** Same shape as the existing "play from top of library"
-  permission (`game/top_library.py`) but for the graveyard zone. Confirmed:
-  5 SOLO, 5 also-blocked. Crucible of Worlds, Ramunap Excavator, Perennial
-  Behemoth.
-- **PAR-89 · ETB-with-named-counter cycles.** Four small, structurally
-  identical cycles: enters tapped with N charge counters (Vivid lands),
-  enters tapped with N depletion counters, and two Kamigawa Myojin cycles
-  that enter with a divinity/indestructible counter only if cast from
-  hand (the cast-from-hand condition already exists as a referent
-  elsewhere — verify before treating as new). Confirmed: 5 + 5 + 3 + 2 =
-  15 SOLO combined, all clean. Vivid Crag, Hickory Woodlot, Myojin of
-  Cleansing Fire, Myojin of Blooming Dawn.
-- **PAR-90 · Suspect-state as a resolve-time/condition referent.** RULE
-  701.60's `is_suspected` flag already exists
-  (`game/effect_conditions.py`, `game/static_conditions.py`); these cards
-  read it from effect bodies the parser doesn't yet wire to it — a draw
-  bonus conditioned on "if the sacrificed creature was suspected," a Case
-  solve-condition ("you control no suspected skeletons"), and clauses that
-  clear the flag ("it's no longer suspected"). Confirmed: 11 SOLO, 1
-  also-blocked. Agency Coroner, Case of the Stashed Skeleton, Eliminate the
-  Impossible, Frantic Scapegoat.
 - **PAR-91 · "Evidence was collected" as a resolve-time conditional
   referent.** Collect Evidence is already largely built (`game/isa.py`,
   `effects/choices_actions.py`, `condition_query.py`,

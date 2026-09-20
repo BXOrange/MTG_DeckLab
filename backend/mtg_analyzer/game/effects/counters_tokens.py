@@ -1203,14 +1203,20 @@ class SuspectEffect(GameEffect):
         self,
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = None,
+        selection_kind: Optional[str] = None,
         previous_subject: bool = False,
         attached: bool = False,
         optional: bool = False,
         count: Any = 1,
+        then_specs: Optional[list[dict]] = None,
     ) -> None:
         super().__init__(source)
         self.previous_subject = bool(previous_subject)
         self.attached = bool(attached)
+        self.selection_kind = selection_kind
+        self.optional = bool(optional)
+        self.count = count if isinstance(count, int) else 1
+        self.then_specs = list(then_specs or [])
         self.target_spec = (
             TargetSpec(
                 kind=target_kind,
@@ -1227,6 +1233,23 @@ class SuspectEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.target_spec is not None:
             chosen = list(targets or [])
+        elif self.selection_kind == "other_creature_you_control":
+            controller = _controller_of(self.source, context)
+            if controller is None or self.source is None:
+                return
+            candidates = [
+                obj for obj in context.state.battlefield
+                if getattr(obj, "is_creature", False)
+                and getattr(obj, "controller_id", None) == controller.id
+                and getattr(obj, "instance_id", None) != getattr(self.source, "instance_id", None)
+            ]
+            context.engine._request_choose_objects(
+                controller, candidates, "suspect", count=self.count,
+                optional=self.optional, source=self.source,
+                then_specs=self.then_specs,
+                prompt="Choose another creature to suspect.",
+            )
+            return
         elif self.attached:
             host_id = getattr(self.source, "attached_to", None)
             host = context.state.find_object(host_id) if host_id is not None else None
@@ -1307,12 +1330,16 @@ class RemoveSuspectedEffect(GameEffect):
         source: Optional["GameObject"] = None,
         scope: str = "all",
         previous_subject: bool = False,
+        self_subject: bool = False,
+        previous_selector: bool = False,
         attached: bool = False,
         optional: bool = False,
     ) -> None:
         super().__init__(source)
         self.scope = scope
         self.previous_subject = bool(previous_subject)
+        self.self_subject = bool(self_subject)
+        self.previous_selector = bool(previous_selector)
         self.attached = bool(attached)
         self.optional = bool(optional)
 
@@ -1325,6 +1352,16 @@ class RemoveSuspectedEffect(GameEffect):
             objs = [
                 o for o in context.previous_targets
                 if getattr(o, "instance_id", None) is not None
+            ]
+        elif self.self_subject:
+            objs = [self.source] if self.source is not None else []
+        elif self.previous_selector:
+            selector = context.previous_selector
+            objs = [
+                o for o in context.state.battlefield
+                if selector == "creatures_opponents_control"
+                and getattr(o, "is_creature", False)
+                and o.controller_id != getattr(self.source, "controller_id", None)
             ]
         else:
             objs = list(context.state.battlefield)

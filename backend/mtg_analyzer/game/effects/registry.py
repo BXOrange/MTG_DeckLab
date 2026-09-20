@@ -4517,10 +4517,12 @@ EffectRegistry.register(
     "suspect",
     lambda p: SuspectEffect(
         target_kind=p.get("target_kind"),
+        selection_kind=p.get("selection_kind"),
         previous_subject=bool(p.get("previous_subject")),
         attached=bool(p.get("attached")),
         optional=bool(p.get("optional")),
         count=p.get("count", 1),
+        then_specs=p.get("then_specs"),
     ),
 )
 EffectRegistry.register(
@@ -4533,6 +4535,8 @@ EffectRegistry.register(
     lambda p: RemoveSuspectedEffect(
         scope=str(p.get("scope") or "all"),
         previous_subject=bool(p.get("previous_subject", False)),
+        self_subject=bool(p.get("self_subject", False)),
+        previous_selector=bool(p.get("previous_selector", False)),
         attached=bool(p.get("attached", False)),
         optional=bool(p.get("optional", False)),
     ),
