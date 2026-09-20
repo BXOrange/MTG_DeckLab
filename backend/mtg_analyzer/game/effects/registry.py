@@ -529,6 +529,10 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    "redirect_damage_to_target_creature",
+    lambda p: RedirectDamageToTargetCreatureEffect(amount=p.get("amount", 1)),
+)
+EffectRegistry.register(
     "choose_source_coinflip",
     # "Choose a source you control and flip a coin. If you win, ... double
     # ... . If you lose, ... prevent ...." (MEC-30 — Desperate Gambit) —
@@ -2261,6 +2265,7 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)),
         creature_filter=p.get("creature_filter"),
         subject=p.get("subject"),
+        target_operand=p.get("target_operand"),
     ),
 )
 EffectRegistry.register(
@@ -2571,6 +2576,7 @@ EffectRegistry.register(
         once_per_turn=p.get("once_per_turn", True),
         exile_if_would_be_put_into_graveyard=p.get("exile_if_would_be_put_into_graveyard", False),
         per_permanent_type=bool(p.get("per_permanent_type", False)),
+        lands_only=bool(p.get("lands_only", False)),
     ),
 )
 EffectRegistry.register(

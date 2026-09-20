@@ -1110,7 +1110,8 @@ class CastingMixin:
         add_optional = getattr(obj, "additional_cast_cost_optional", False)
         if (
             add_cost is not None and add_cost.mana.symbols and face != "face_down"
-            and (not add_optional or pay_additional)
+            and ((getattr(add_cost, "sacrifice_or_mana", False) and not pay_additional)
+                 or (not getattr(add_cost, "sacrifice_or_mana", False) and (not add_optional or pay_additional)))
         ):
             wb_mana = add_cost.mana.with_x(x) if add_cost.mana.has_variable else add_cost.mana
             cost = cost.add(wb_mana)
@@ -2063,6 +2064,8 @@ class CastingMixin:
         made yet).
         """
         if cost is None:
+            return True
+        if getattr(cost, "sacrifice_or_mana", False) and not pay_additional:
             return True
         # Yasharn, Implacable Earth (MEC-40): "Players can't pay life or
         # sacrifice nonland permanents to cast spells or activate

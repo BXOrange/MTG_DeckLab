@@ -916,6 +916,13 @@ class AbilitySpec:
                 raise SpecValidationError(
                     f"unsupported additional_cost sacrifice type {value!r}"
                 )
+        elif key == "sacrifice_or_mana":
+            if not isinstance(value, dict) or set(value) != {"sacrifice", "mana"}:
+                raise SpecValidationError("'additional_cost' sacrifice_or_mana must name sacrifice and mana")
+            if value["sacrifice"] not in _ADDITIONAL_COST_SACRIFICE_TYPES:
+                raise SpecValidationError("unsupported sacrifice_or_mana sacrifice type")
+            if not isinstance(value["mana"], str) or not value["mana"].startswith("{"):
+                raise SpecValidationError("'additional_cost' sacrifice_or_mana mana must be a mana cost")
         elif key == "discard":
             valid_int = isinstance(value, int) and not isinstance(value, bool) and value > 0
             if value != "x" and not valid_int:

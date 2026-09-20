@@ -100,28 +100,6 @@ its block back into the matching section here.
   > full cache, then batch the small ones rather than opening one ticket
   > per shape.
 
-- **PAR-84 · Tap-and-skip-next-untap family.** Two grammatical shapes of
-  the same underlying effect: a static/one-shot form ("tap up to N target
-  creatures. those creatures don't untap during their controller's next
-  untap step.") and a triggered form ("whenever ~ deals combat damage to a
-  creature, tap that creature and it doesn't untap during its controller's
-  next untap step."). Confirmed: 11 + 7 = 18 SOLO combined (14 + 9 total).
-  Adverse Conditions, Chilling Grasp; Kashi-Tribe Reaver, Kashi-Tribe
-  Warriors.
-- **PAR-85 · Self-protective damage redirect.** "The next N damage that
-  would be dealt to `<name>` this turn is dealt to target creature you
-  control instead." Distinct from the already-shipped
-  `RequestRedirectDamageSourceEffect` (which redirects damage from a chosen
-  *source*) — this is a fixed-amount, fixed-recipient (self) redirect to a
-  different chosen creature. Confirmed: 5 SOLO, 1 also-blocked. The en-Kor
-  cycle: Lancers en-Kor, Nomads en-Kor, Outrider en-Kor.
-- **PAR-86 · "Target player shuffles up to N target cards from their
-  graveyard into their library."** Confirmed: 6 SOLO, 1 also-blocked.
-  Dwell on the Past, Gaea's Blessing, Krosan Reclamation.
-- **PAR-87 · Additional cost "sacrifice a creature or pay `<cost>`."** An
-  OR-form additional cost between a sacrifice and a mana payment.
-  Confirmed: 5 SOLO, 0 also-blocked. Bayou Groff, Eaten Alive, Lash of the
-  Balrog.
 - **PAR-88 · "You may play lands from your graveyard" — static
   permission.** Same shape as the existing "play from top of library"
   permission (`game/top_library.py`) but for the graveyard zone. Confirmed:

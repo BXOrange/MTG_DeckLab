@@ -6648,6 +6648,66 @@ measurement of why is the useful half of this work.
 
 ## Oracle-Text Parser Front-End
 
+### PAR-87: Sacrifice-or-mana additional cost (PARSER_VERSION 434)
+
+- **What:** The mandatory "sacrifice a creature or pay {M}" cast-cost form
+  now represents both RULE 601.2b alternatives. The regular cast action adds
+  the fallback mana; its second action spends a selected creature instead.
+- **Verification:** `tests/test_par87_sacrifice_or_mana_cast_cost.py` covers
+  parsing Bayou Groff's shape and both payment branches. Cache-wide probing
+  finds no remaining cards for the five-card exact family.
+
+### PAR-86: Targeted graveyard-card shuffle (PARSER_VERSION 433)
+
+- **What:** "Target player shuffles up to N target cards from their graveyard
+  into their library" now emits the existing
+  `shuffle_target_graveyard_cards_into_library` primitive, previously reached
+  only by Quandrix Command. The player target identifies the graveyard; the
+  resolving controller chooses up to the stated number of cards and shuffles
+  them into that target player's library.
+- **Verification:** `tests/test_par86_target_graveyard_shuffle.py` covers the
+  emitted spec, rejects the different self-graveyard wording, and parses Dwell
+  on the Past. Cache coverage rises by five cards (16,036 to 16,041); the
+  residual Witness the Future remains unmodeled solely because its following
+  look-and-reorder library clause is unsupported.
+
+### PAR-85: Self-protective finite damage redirect (PARSER_VERSION 432)
+
+- **What:** The en-Kor form "the next N damage that would be dealt to ~ this
+  turn is dealt to target creature you control instead" now emits
+  `redirect_damage_to_target_creature`. `RulesEngine.redirect_damage_from_target`
+  watches the DAMAGE event recipient (not its source), moves only the shield's
+  finite amount to the chosen creature, and leaves a same-event remainder on
+  the original permanent. It is a RULE 616 redirect rather than prevention,
+  keeping the pre-existing chosen-source `RequestRedirectDamageSourceEffect`
+  separate.
+- **Verification:** `tests/test_par85_en_kor_redirect.py` parses Nomads en-Kor
+  and resolves three damage through its one-damage shield (one redirected,
+  two retained). Cache-wide `parser_probe.py blocked` finds zero remaining
+  cards on the exact template; the five confirmed SOLO en-Kor cards are now
+  modeled.
+
+### PAR-84: Tap and skip-next-untap family (PARSER_VERSION 431)
+
+- **What:** The existing `TapEffect`/`SkipNextUntapEffect` pair now reaches
+  both missing pronoun shapes. "Tap up to N target creatures. Those creatures
+  don't untap during their controller's next untap step" carries the full
+  `GameContext.previous_targets` group into the one-shot rider, including
+  plural `don't`/`their controller` grammar. For the Kashi-Tribe damage
+  triggers, "that creature" is neither a fresh target nor the damage source:
+  `target_operand="damage_recipient"` resolves `GameEvent.DAMAGE.target_id`
+  after replacements, so both tap and skip affect the creature actually
+  damaged. `SkipNextUntapEffect` gained the same generic operand surface
+  already used by `TapEffect`.
+- **Verification:** `tests/test_par84_tap_skip_untap.py` covers both emitted
+  spec sequences, their context gate, Chilling Grasp/Kashi-Tribe Reaver
+  parsing, a two-target spell resolution, and a real combat-damage trigger
+  proving the recipient — not the Reaver — is tapped and frozen. `parser_probe.py
+  diff` reports +12, 0 regressed. Adverse Conditions' remaining inline-token
+  activated ability is a 1-SOLO token-definition gap, triaged to
+  `singletons.md`, rather than being silently retained in this parser-family
+  ticket.
+
 ### PAR-83: Targeted graveyard card to library bottom (PARSER_VERSION 430)
 
 - **What:** Parser recognition now reaches the existing `return_to_library`

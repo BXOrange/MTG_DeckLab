@@ -957,6 +957,12 @@ _TOP_LIBRARY_PERMISSION_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: PAR-88 / RULE 305.2: Crucible of Worlds/Ramunap Excavator's standing
+#: permission is a land-only graveyard sibling of the top-library play grant.
+_GRAVEYARD_LAND_PLAY_PERMISSION_RE = re.compile(
+    r"you may play lands from your graveyard", re.IGNORECASE
+)
+
 #: "You may look at the top card of your library any time." (Sphinx of Jwar
 #: Isle/Fblthp, Lost on the Range/Glowcap Lantern/Iron Lad, Diverging
 #: Destiny/Vesuvan Drifter-shaped — ~57 real cards) — the standalone,
@@ -4137,6 +4143,9 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         if tail is not None:
             params[_TOP_LIBRARY_TAILS[tail.lower()]] = True
         return [EffectSpec("top_library_permission", params)]
+
+    if _GRAVEYARD_LAND_PLAY_PERMISSION_RE.fullmatch(text):
+        return [EffectSpec("graveyard_cast_permission", {"lands_only": True})]
 
     if _LOOK_AT_TOP_ANY_TIME_RE.fullmatch(text):
         return [EffectSpec("top_library_permission", {"look": True})]

@@ -915,6 +915,21 @@ class RequestRedirectDamageSourceEffect(GameEffect):
         )
 
 
+class RedirectDamageToTargetCreatureEffect(GameEffect):
+    """"The next N damage that would be dealt to ~ this turn is dealt to
+    target creature you control instead." (en-Kor family)."""
+
+    def __init__(self, amount: Any = 1, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.amount = amount
+        self.target_spec = TargetSpec(kind="creature_you_control")
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets or [None])[0]
+        if self.source is not None and target is not None:
+            context.engine.redirect_damage_from_target(self.source, target, self.amount)
+
+
 class ChooseSourceCoinFlipEffect(GameEffect):
     """"Choose a source you control and flip a coin. If you win the flip,
     the next time that source would deal damage this turn, it deals

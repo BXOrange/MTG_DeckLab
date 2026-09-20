@@ -256,6 +256,9 @@ class ActivationCost:
     taps_self: bool = False
     untaps_self: bool = False
     sacrifice: Optional[str] = None
+    #: PAR-87 / RULE 601.2b: mutually exclusive "sacrifice a creature or
+    #: pay {M}" additional cost. The mana branch is selected by default.
+    sacrifice_or_mana: bool = False
     #: "Exile a creature you control: …" (Food Chain, MEC-40) — a genuine
     #: RULE 605.1a mana-ability cost component (paid, not targeted, so it
     #: doesn't disqualify the ability from being a mana ability the way a
@@ -853,6 +856,11 @@ def parse_activation_cost(
         parsed.untaps_self = bool(cost["untaps_self"])
     if cost.get("sacrifice"):
         parsed.sacrifice = str(cost["sacrifice"])
+    if cost.get("sacrifice_or_mana"):
+        choice = cost["sacrifice_or_mana"]
+        parsed.sacrifice = str(choice["sacrifice"])
+        parsed.mana = ManaCost.parse(str(choice["mana"]))
+        parsed.sacrifice_or_mana = True
     if "pay_life" in cost:
         value = cost["pay_life"]
         parsed.pay_life = PAY_LIFE_X if value == "x" else int(value)

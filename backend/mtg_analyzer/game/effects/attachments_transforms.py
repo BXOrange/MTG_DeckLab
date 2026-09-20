@@ -265,9 +265,14 @@ class SkipNextUntapEffect(GameEffect):
         optional: bool = False,
         creature_filter: Optional[dict[str, Any]] = None,
         subject: Optional[str] = None,
+        target_operand: Any = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: An event/relationship referent rather than a fresh RULE 115
+        #: target. PAR-84's Kashi-Tribe family reads the creature damaged by
+        #: this trigger from its firing DAMAGE event.
+        self.target_operand = target_operand
         self.previous_subject = previous_subject
         #: "clash with an opponent. If you win, **creatures that player
         #: controls** don't untap during the player's next untap step."
@@ -277,14 +282,20 @@ class SkipNextUntapEffect(GameEffect):
         self.subject = subject
         self.target_spec = (
             TargetSpec(kind=target_kind, optional=optional, creature_filter=creature_filter)
-            if target_kind is not None and not previous_subject and subject is None else None
+            if target_kind is not None and not previous_subject and subject is None
+            and target_operand is None else None
         )
 
     def target_polarity(self) -> Optional[str]:
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.subject == "clashed_opponent":
+        if self.target_operand is not None:
+            from ..effect_operands import object_for
+
+            obj = object_for(self.target_operand, context, self.source, targets)
+            objs = [obj] if obj is not None else []
+        elif self.subject == "clashed_opponent":
             opp = getattr(context, "clashed_opponent", None)
             if opp is None:
                 return

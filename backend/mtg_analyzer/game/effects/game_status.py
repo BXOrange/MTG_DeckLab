@@ -618,6 +618,7 @@ class GraveyardCastPermissionEffect(GameEffect):
         instant_sorcery_only: bool = False,
         expires_turn: Optional[int] = None,
         per_permanent_type: bool = False,
+        lands_only: bool = False,
     ) -> None:
         super().__init__(source)
         self.max_mana_value = max_mana_value
@@ -642,6 +643,10 @@ class GraveyardCastPermissionEffect(GameEffect):
         #: Muldrotha: one permanent spell of *each* permanent type, rather
         #: than this grant's ordinary single use per turn.
         self.per_permanent_type = per_permanent_type
+        #: PAR-88: Crucible of Worlds/Ramunap Excavator's unrestricted
+        #: standing permission to play land cards from the controller's own
+        #: graveyard.  Kept distinct from Muldrotha's per-type allowance.
+        self.lands_only = lands_only
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         return None  # continuous marker — consulted by graveyard_cast.py, not applied

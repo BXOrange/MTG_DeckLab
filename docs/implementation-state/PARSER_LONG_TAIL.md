@@ -25,9 +25,28 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**46.0% covered — 16,019 / 34,811 — as of 2026-09-20, PARSER_VERSION 430.**
-Commander-legal slice (the one the product actually plays): **48.3% —
-15,387 / 31,830** (measure with `--commander-legal-only`).
+**46.1% covered — 16,046 / 34,811 — as of 2026-09-20, PARSER_VERSION 434.**
+Commander-legal slice (the one the product actually plays): **48.4% —
+15,414 / 31,830** (measure with `--commander-legal-only`).
+
+### PAR-87: Sacrifice-or-mana additional cost (PARSER_VERSION 434)
+
+- **What:** "Sacrifice a creature or pay {M}" represents both mandatory
+  RULE 601.2b alternatives: the normal cast pays the fallback mana, while a
+  second cast action pays by sacrificing a selected creature instead.
+- **Verification:** `tests/test_par87_sacrifice_or_mana_cast_cost.py` covers
+  the parser plus both payment branches; all five exact cache cards model.
+
+### PAR-86: Targeted graveyard-card shuffle (PARSER_VERSION 433)
+
+- **What:** The target-player wording for shuffling up to N targeted cards
+  from that player's graveyard into their library now reaches the existing
+  Quandrix Command shuffle primitive. The target determines the graveyard and
+  library; resolution selects up to the stated number of cards.
+- **Verification:** `tests/test_par86_target_graveyard_shuffle.py` covers the
+  emitted spec, rejects the self-graveyard near miss, and parses Dwell on the
+  Past. Five cards newly model; Witness the Future remains open only for its
+  independent following library look-and-reorder clause.
 
 Measure with `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~35k-card Oracle universe;

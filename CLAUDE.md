@@ -583,9 +583,19 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 46.0% (16,019 / 34,811) as of 2026-09-20, measured at
-PARSER_VERSION 430**; the Commander-legal slice is **48.3% (15,387 /
-31,830)**. v430 closes PAR-83: a targeted card from any graveyard can be
+**Coverage: 46.1% (16,046 / 34,811) as of 2026-09-20, measured at
+PARSER_VERSION 434**; the Commander-legal slice is **48.4% (15,414 /
+31,830)**. v434 closes PAR-87: "sacrifice a creature or pay {M}" offers
+both distinct additional-cost payment paths. v433 closes PAR-86: a target player
+can shuffle up to N targeted cards from their graveyard into their library,
+reusing the existing Quandrix Command primitive; five cards newly model, while
+Witness the Future's separate library look-and-reorder tail remains open.
+v432 closes PAR-85: finite self-damage redirects to a chosen
+creature you control (the en-Kor cycle), distinct from the existing
+chosen-source redirect. v431 closes PAR-84: multi-target tap effects preserve every
+chosen creature for the next-untap rider, while combat-damage triggers can
+read and tap their damaged creature from the event payload (Chilling Grasp,
+Kashi-Tribe Reaver and ten siblings). v430 closes PAR-83: a targeted card from any graveyard can be
 put on the bottom of its owner's library without shuffling it (Junktroller,
 Chrome Companion and ten siblings), reusing the existing from-any-zone
 `return_to_library` primitive with its `any_graveyard_card` target kind.

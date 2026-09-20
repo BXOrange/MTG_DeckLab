@@ -1515,6 +1515,55 @@ class DamageDeathMixin:
         effect.replacement_fn = _replace
         controller.player_effects.append(effect)
 
+    def redirect_damage_from_target(
+        self, protected: GameObject, new_recipient: Any, amount: Union[int, str] = "all",
+    ) -> None:
+        """Redirect the next damage headed to one permanent (en-Kor).
+
+        Unlike :meth:`redirect_damage_from_source`, the watched side of the
+        DAMAGE event is its recipient.  This is a redirect, not prevention,
+        and a finite shield can split one event exactly like the source-based
+        sibling above.
+        """
+        controller = self.state.player_by_id(protected.controller_id) if protected.controller_id else None
+        if controller is None:
+            return
+        protected_id = protected.instance_id
+        remaining = None if amount == "all" else int(amount)
+        new_is_player = not hasattr(new_recipient, "instance_id")
+        effect = ReplacementEffect(
+            event_type=EventType.DAMAGE,
+            replacement_fn=lambda e, c: e,
+            condition=lambda e, c: not e.get("is_player") and e.get("target_id") == protected_id,
+            description=f"{protected.name}: Schadensumleitung",
+        )
+        effect.damage_prevention_shield = True
+
+        def _replace(event: GameEvent, context: Any) -> Optional[GameEvent]:
+            nonlocal remaining
+            dealt = int(event.get("amount", 0) or 0)
+            redirected = dealt if remaining is None else min(remaining, dealt)
+            if remaining is not None:
+                remaining -= redirected
+                if remaining <= 0 and effect in controller.player_effects:
+                    controller.player_effects.remove(effect)
+            if redirected <= 0:
+                return event
+            leftover = dealt - redirected
+            if leftover > 0:
+                self.deal_damage(protected, leftover, source=self.state.find_object(event.get("source_id")), combat=bool(event.get("combat", False)))
+            overrides: dict[str, Any] = {
+                "amount": redirected,
+                "target_id": new_recipient.id if new_is_player else new_recipient.instance_id,
+                "is_player": new_is_player,
+            }
+            if not new_is_player:
+                overrides["target_controller_id"] = new_recipient.controller_id
+            return event.copy_with(**overrides)
+
+        effect.replacement_fn = _replace
+        controller.player_effects.append(effect)
+
     def prevent_damage_from_source(
         self, source: GameObject, amount: Union[int, str] = "all", rider: Optional[dict] = None,
     ) -> None:

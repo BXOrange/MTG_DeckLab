@@ -100,6 +100,8 @@ def graveyard_land_play_grant_for(player: "Player", state: "GameState", card: "C
     if not card.is_land:
         return None
     for effect in active_graveyard_cast_grants(player, state):
+        if effect.lands_only:
+            return effect
         if not effect.per_permanent_type:
             continue
         if "land" not in getattr(effect.source, "graveyard_cast_types_this_turn", set()):

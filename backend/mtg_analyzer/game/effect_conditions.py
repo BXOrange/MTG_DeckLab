@@ -239,6 +239,17 @@ def subject_of(
             # pure fallback, never a second candidate to choose between.
             instance_id = event.get("source_id")
         return context.state.find_object(instance_id) if instance_id is not None else None
+    if of == "damage_recipient":
+        # PAR-84 — a DAMAGE trigger can name the creature it damaged ("tap
+        # that creature"), which is neither the triggering source nor a
+        # newly chosen target. `deal_damage` snapshots its actual recipient
+        # as ``target_id`` after any replacement effects, so this follows the
+        # final event rather than a pre-replacement candidate.
+        event = getattr(context, "trigger_event", None) or {}
+        if bool(event.get("is_player")):
+            return None
+        instance_id = event.get("target_id")
+        return context.state.find_object(instance_id) if instance_id is not None else None
     if of == "attached":
         # RULE 303.4a/301.5c's "enchanted permanent"/"equipped creature" —
         # the host this Aura/Equipment ``source`` is attached to (PAR-117,

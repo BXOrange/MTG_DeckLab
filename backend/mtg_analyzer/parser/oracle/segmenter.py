@@ -2323,6 +2323,10 @@ _ADDITIONAL_COST_LINE_RE = re.compile(
 _ADDITIONAL_COST_SACRIFICE_RE = re.compile(
     r"^sacrifice an?\s+(creature|artifact|land)$", re.IGNORECASE
 )
+_ADDITIONAL_COST_SACRIFICE_OR_MANA_RE = re.compile(
+    r"^sacrifice a (?P<what>creature) or pay (?P<mana>(?:\{[^{}]+\})+)$",
+    re.IGNORECASE,
+)
 #: "sacrifice an artifact or creature" (RULE 601.2b — Deadly Dispute/Costly
 #: Plunder-shaped, the single most-repeated compound sacrifice cost in the
 #: cache) — the two-way sibling of `misc_mixin._matches_permanent_type`'s
@@ -2733,6 +2737,11 @@ def _additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
     ``{"pay_life": N|"x"}``.
     """
     text = text.strip().lower()
+    sac_or_mana = _ADDITIONAL_COST_SACRIFICE_OR_MANA_RE.match(text)
+    if sac_or_mana is not None:
+        return {"sacrifice_or_mana": {
+            "sacrifice": sac_or_mana.group("what"), "mana": sac_or_mana.group("mana"),
+        }}
     if _ADDITIONAL_COST_SACRIFICE_ARTIFACT_OR_CREATURE_RE.match(text):
         return {"sacrifice": "artifact_or_creature"}
     sac = _ADDITIONAL_COST_SACRIFICE_RE.match(text)
@@ -5881,7 +5890,7 @@ def segment_line(
             "spell_effect",
             effects=[],
             additional_cost=cost,
-            additional_cost_optional=is_optional,
+            additional_cost_optional=is_optional or "sacrifice_or_mana" in cost,
             raw_text=raw,
             parser=provenance,
         )

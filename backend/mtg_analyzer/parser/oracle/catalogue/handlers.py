@@ -4412,6 +4412,22 @@ def _return_from_graveyard_shuffle_any(m: re.Match[str]) -> Optional[list[Effect
     })]
 
 
+#: "Target player shuffles up to N target cards from their graveyard into
+#: their library." (PAR-86 — Dwell on the Past/Krosan Reclamation).  This
+#: has two linked choices: the player target identifies the graveyard and
+#: the controller then chooses its cards, represented by the existing
+#: Quandrix Command effect rather than independent card TargetSpecs.
+_SHUFFLE_TARGET_GRAVEYARD_CARDS_RE = _c(
+    r"target player shuffles up to (?P<n>\d+) target cards from their graveyard into their library"
+)
+
+
+def _shuffle_target_graveyard_cards(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("shuffle_target_graveyard_cards_into_library", {
+        "count_max": int(m.group("n")),
+    })]
+
+
 #: Living Death family — "[each player returns / you return / return] all
 #: [or each] creature card[s] from [their / your / its owner's] graveyard
 #: to the battlefield [or their/your hand]". A mass, untargeted recursion
@@ -11012,10 +11028,12 @@ def _tap_previous_subject(m: re.Match[str]) -> list[EffectSpec]:
 #: routed by the same `_PERMANENT_NOUN`/`~`/pronoun split every other
 #: family here uses.
 _DONT_UNTAP_SUFFIX = (
-    r" doesn'?t untap during (?:its controller'?s|your|the player'?s) next untap step"
+    r" do(?:es)?n'?t untap during (?:its controller'?s|their controller'?s|your|the player'?s) next untap step"
 )
 _SKIP_UNTAP_TARGET_RE = _c(rf"target (?P<what>creature|artifact|land|permanent){_DONT_UNTAP_SUFFIX}")
-_SKIP_UNTAP_PREV_RE = _c(rf"(?:it|that (?:creature|artifact|land|permanent)){_DONT_UNTAP_SUFFIX}")
+_SKIP_UNTAP_PREV_RE = _c(
+    rf"(?:it|that (?:creature|artifact|land|permanent)|those creatures){_DONT_UNTAP_SUFFIX}"
+)
 _SKIP_UNTAP_SELF_RE = _c(rf"(?:~|this (?:creature|artifact|permanent)){_DONT_UNTAP_SUFFIX}")
 
 
@@ -11031,6 +11049,34 @@ def _skip_untap_prev(m: re.Match[str]) -> list[EffectSpec]:
 
 def _skip_untap_self(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("skip_next_untap", {"target_kind": None})]
+
+
+#: "Whenever ~ deals combat damage to a creature, tap that creature and it
+#: doesn't untap during its controller's next untap step." (PAR-84 —
+#: Kashi-Tribe Reaver and siblings).  Both pronouns name the DAMAGE event's
+#: *recipient*, rather than the source that dealt it; `target_operand` keeps
+#: this distinct from a normal RULE 115 target and reads that event payload at
+#: resolution time.
+_TAP_DAMAGE_RECIPIENT_AND_SKIP_UNTAP_RE = _c(
+    rf"tap that creature and it{_DONT_UNTAP_SUFFIX}"
+)
+
+
+def _tap_damage_recipient_and_skip_untap(m: re.Match[str]) -> list[EffectSpec]:
+    params = {"target_operand": "damage_recipient"}
+    return [EffectSpec("tap", params), EffectSpec("skip_next_untap", params)]
+
+
+#: "The next N damage that would be dealt to ~ this turn is dealt to target
+#: creature you control instead." (PAR-85 — en-Kor).  This watches damage's
+#: recipient, unlike the existing chosen-*source* redirect family.
+_REDIRECT_DAMAGE_TO_SELF_RE = _c(
+    rf"the next (?P<n>\d+) damage that would be dealt to ~ this turn is dealt to target creature you control instead"
+)
+
+
+def _redirect_damage_to_self(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("redirect_damage_to_target_creature", {"amount": int(m.group("n"))})]
 
 
 #: "[`<TARGET>` / ~ / it] gains protection from the color of your choice
@@ -14080,6 +14126,11 @@ HANDLERS: list[EffectHandler] = [
         _RETURN_FROM_GRAVEYARD_SHUFFLE_ANY_RE,
         _return_from_graveyard_shuffle_any,
     ),
+    EffectHandler(
+        "shuffle_target_graveyard_cards",
+        _SHUFFLE_TARGET_GRAVEYARD_CARDS_RE,
+        _shuffle_target_graveyard_cards,
+    ),
     # "exile target [type] card from [scope] graveyard" (RULE 701.5a,
     # Deathrite Shaman/Scavenging Ooze/Lion Sash-shaped graveyard hate).
     EffectHandler(
@@ -14999,6 +15050,21 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "skip_next_untap_self", _SKIP_UNTAP_SELF_RE, _skip_untap_self,
         self_subject_only=True,
+    ),
+    # "Whenever ~ deals combat damage to a creature, tap that creature and
+    # it doesn't untap …" (PAR-84 — Kashi-Tribe Reaver/Warriors).  The
+    # DAMAGE recipient is neither a normal target nor the trigger source;
+    # this tightly scoped row reads it from the firing event.
+    EffectHandler(
+        "tap_damage_recipient_and_skip_untap",
+        _TAP_DAMAGE_RECIPIENT_AND_SKIP_UNTAP_RE,
+        _tap_damage_recipient_and_skip_untap,
+        self_subject_only=True,
+    ),
+    EffectHandler(
+        "redirect_damage_to_self",
+        _REDIRECT_DAMAGE_TO_SELF_RE,
+        _redirect_damage_to_self,
     ),
     # "[TARGET / ~ / it] gains protection from the color of your choice
     # until end of turn" (RULE 702.16 — Gods Willing, Jareth, Feat of
