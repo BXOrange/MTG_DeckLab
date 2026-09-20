@@ -166,6 +166,10 @@ class GameObject:
         #: `SearchLibraryEffect.mana_value_from`'s ``"colors_spent_to_cast"``
         #: source (Bring to Light, MEC-41) via ``len(...)``.
         self.colors_spent_to_cast: frozenset = frozenset()
+        #: Adamant's per-colour sibling of ``colors_spent_to_cast``.  This
+        #: preserves *how much* of each WUBRG colour paid the spell, not just
+        #: whether that colour appeared at least once.
+        self.mana_by_color_spent_to_cast: dict[str, int] = {}
         #: The snow sibling of `colors_spent_to_cast` (MEC-43 round 3,
         #: Search for Glory's "gain 1 life for each {S} spent to cast this
         #: spell") — how much mana tapped from a snow-typed source (RULE
@@ -1304,6 +1308,9 @@ class GameObject:
         self.additional_cost_paid = False
         self.teamwork_paid = False
         self.mana_spent_to_cast = 0
+        self.colors_spent_to_cast = frozenset()
+        self.mana_by_color_spent_to_cast = {}
+        self.mana_spent_to_cast_snow = 0
         self.was_cast = False
         self.cast_outside_sorcery_speed = False
         self.sacrificed_cost_mana_value = None

@@ -1258,6 +1258,20 @@ def _trigger_condition(
 
         predicates.append(_spell_mana_spent_ok)
 
+    # PAR-96: the complementary half of an "if N or more mana was spent …
+    # instead" cast-trigger branch.  Keeping it on the trigger (rather than
+    # a resolution-time wrapper) makes the low and high branches mutually
+    # exclusive, so the original effect is never doubled.
+    spell_mana_spent_less_than = trigger.get("spell_mana_spent_less_than")
+    if spell_mana_spent_less_than is not None:
+        threshold = int(spell_mana_spent_less_than)
+
+        def _spell_mana_spent_below_ok(event: Any, context: Any, n=threshold) -> bool:
+            spent = event.get("mana_spent")
+            return spent is not None and spent < n
+
+        predicates.append(_spell_mana_spent_below_ok)
+
     # "Whenever you cast your first spell with {X} in its mana cost each
     # turn, …" (Zimone Infinite Analyst, Owlin Spiralmancer, Nev, Lattice
     # Library, PAR-60) — `SPELL_CAST`'s ``first_x_spell`` bool, computed in
@@ -2680,6 +2694,8 @@ def _specialize_activated_ability(
     if not cost_text:
         return None
     cost = parse_activation_cost(f"{cost_text}, Discard a card")
+    if keyword.get("dynamic_reduction"):
+        cost.dynamic_reduction = dict(keyword["dynamic_reduction"])
     cost.sorcery_speed_only = True  # RULE-analogue: "Activate only as a sorcery."
     return ActivatedAbility(
         effects=[SpecializeEffect(source=obj)],

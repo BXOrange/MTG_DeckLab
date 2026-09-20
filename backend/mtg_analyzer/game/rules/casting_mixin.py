@@ -85,6 +85,12 @@ from .. import continuations
 #: Converge explicitly doesn't count).
 _FIVE_COLORS: tuple[str, ...] = ("W", "U", "B", "R", "G")
 
+#: Adamant's payment fact needs the same five colours *and* colorless: one
+#: printed rider (Desecrate Reality) asks whether three colorless mana paid
+#: the spell.  Keep this separate from Converge's intentionally narrower
+#: vocabulary above.
+_ADAMANT_MANA_TYPES: tuple[str, ...] = ("C", *_FIVE_COLORS)
+
 
 def _saga_final_chapter(card: Card) -> int:
     """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
@@ -260,6 +266,12 @@ class CastingResolutionMixin:
             # onto the battlefield later.
             attacked = getattr(self.state, "players_attacked_this_turn", None) or set()
             amount = condition["count"] if getattr(obj, "controller_id", None) in attacked else 0
+        elif condition.get("mana_color_spent_gate"):
+            # Adamant reads an exact per-type payment amount, not Converge's
+            # presence-only set.  Non-cast entries have an empty record.
+            gate = condition["mana_color_spent_gate"]
+            paid = getattr(obj, "mana_by_color_spent_to_cast", None) or {}
+            amount = condition["count"] if int(paid.get(gate["color"], 0)) >= int(gate["amount"]) else 0
         elif condition.get("another_color_spell_unless"):
             color = str(condition["another_color_spell_unless"]).upper()
             counts = getattr(self.state, "spell_color_cast_counts_this_turn", None) or {}
@@ -679,6 +691,11 @@ class CastingResolutionMixin:
                 color for color in _FIVE_COLORS
                 if pool_before.get(color, 0) > player.mana_pool.pool.get(color, 0)
             )
+            obj.mana_by_color_spent_to_cast = {
+                mana_type: pool_before.get(mana_type, 0) - player.mana_pool.pool.get(mana_type, 0)
+                for mana_type in _ADAMANT_MANA_TYPES
+                if pool_before.get(mana_type, 0) > player.mana_pool.pool.get(mana_type, 0)
+            }
             # MEC-43 round 3: the snow sibling of the Converge diff just
             # above (`GameObject.mana_spent_to_cast_snow`).
             obj.mana_spent_to_cast_snow = snow_before - sum(player.mana_pool.snow_pool.values())

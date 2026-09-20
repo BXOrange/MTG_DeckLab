@@ -6648,6 +6648,74 @@ measurement of why is the useful half of this work.
 
 ## Oracle-Text Parser Front-End
 
+### PAR-93 — Contraption-crank ticket retired after legality audit
+
+- **What:** Retired the ticket rather than implementing an unsupported game
+  subsystem. The 45 cards returned by `parser_probe.py blocked "crank this
+  contraption"` are all *Unstable* cards and their current Scryfall
+  legalities are `not_legal` for Commander and Legacy. Current Comprehensive
+  Rules 701.45a also expressly says that Unstable cards and mechanics are not
+  included in the rules; RULE 715 is now Adventure cards, not Contraptions.
+- **Why:** The ticket's assertion that Unfinity Contraptions were
+  tournament-legal was false. Building crank events, sprockets, and a
+  Contraption deck for a deliberately excluded silver-border mechanic would
+  violate the project's existing non-goal. This is a documentation correction,
+  not a parser-coverage increase, so `PARSER_VERSION` is unchanged.
+- **Verification:** Current rules source (`MagicCompRules 20260807.txt`,
+  701.45a) and the raw Scryfall store's legalities for all 45 probe results.
+
+### PAR-94: Per-unit activation-cost reductions — increment (PARSER_VERSION 441)
+
+- **What:** Added the oracle-text route for a trailing "this ability costs
+  {N} less to activate for each …" clause. It writes the existing
+  `ActivationCost.dynamic_reduction` payload and only admits count selectors
+  that `continuous.count_selector` evaluates, including source counters,
+  graveyard cards, basic land types, subtypes, modified creatures, and a
+  power-qualified opposing-creature count.
+- **Files:** `parser/oracle/segmenter.py`, `game/continuous.py`,
+  `tests/test_par94_activation_cost_reductions.py`.
+- **Verification:** The focused tests pass. Fresh full-cache coverage is
+  16,140 / 34,811 (46.4%); Commander-legal is 15,506 / 31,830 (48.7%).
+  The residual broad-probe matches are distinct X, surcharge, conditional,
+  or independently unmodeled effect-body shapes.
+
+### PAR-94: Conditional graveyard-mana-value discount — increment (PARSER_VERSION 442)
+
+- **What:** `dynamic_reduction` now honours an optional live `active_if`
+  gate. The parser routes Sewer Crocodile's distinct-mana-value graveyard
+  threshold to that gate, keeping it separate from a per-unit reduction.
+- **Files:** `game/static_conditions.py`, `game/engine/activation_mixin.py`,
+  `parser/oracle/segmenter.py`, `tests/test_par94_activation_cost_reductions.py`.
+- **Verification:** Focused tests pass; coverage is 16,142 / 34,811 (46.4%)
+  and Commander-legal coverage is 15,507 / 31,830 (48.7%).
+
+### PAR-94: Conditional cost gates — increment (PARSER_VERSION 443)
+
+- **What:** Added the legendary-creature and instant/sorcery-graveyard
+  condition phrases to the existing closed static-condition vocabulary, so
+  numeric conditional activation discounts can consume them safely.
+- **Verification:** Focused PAR-94 tests pass. Coverage: 16,151 / 34,811
+  (46.4%); Commander-legal: 15,516 / 31,830 (48.7%).
+
+### PAR-94: Specialize conditional discount — increment (PARSER_VERSION 444)
+
+- **What:** Imoen's Specialize rider is parsed fail-closed into keyword
+  metadata, then transferred to the binder-created activation cost.
+- **Verification:** Focused tests pass; full-cache `--no-db` coverage is
+  16,152 / 34,811 (46.4%) and Commander-legal is 15,516 / 31,830 (48.7%).
+
+### PAR-95: Adamant per-mana-type riders (PARSER_VERSION 445)
+
+- **What:** The casting payment now preserves exact WUBRG/colorless amounts,
+  not only Converge's set of colors. Adamant's closed parsing covers the
+  14 original SOLO cards: entry counters, additive riders, Slaying Fire's
+  damage override, Outmuscle's first-target rider, and Sundering Stroke's
+  per-target replacement. Adamant is an ability word, not RULE 702.140.
+- **Verification:** `tests/test_par95_adamant.py` (4 tests); full cache
+  `--no-db` coverage is 16,166 / 34,811 (46.4%) and Commander-legal is
+  15,530 / 31,830 (48.8%). The two remaining probe matches are independently
+  blocked by unrelated clauses.
+
 ### PAR-92: Small verified residue batch (PARSER_VERSION 440)
 
 - **What:** Modeled five small, independently verified parser shapes: the

@@ -689,6 +689,19 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
         seen.add(dedupe_key)
 
         param = _extract_param(kdef, text, forced_quality)
+        if kdef.slug == "specialize":
+            rider = re.search(
+                r"specialize\s+\{[^}]+\}\.\s*this ability costs \{(?P<discount>\d+)\} "
+                r"less to activate if there are (?P<minimum>\d+) or more instant and/or sorcery "
+                r"cards in your graveyard", text, re.I,
+            )
+            if rider:
+                param["dynamic_reduction"] = {
+                    "generic_per": int(rider.group("discount")),
+                    "active_if": {"kind": "graveyard_card_type_count_at_least",
+                                  "types": ["instant", "sorcery"],
+                                  "amount": int(rider.group("minimum"))},
+                }
         if _slug(str(raw_name)) == "multikicker":
             # RULE 702.34a: Multikicker is Kicker's repeatable variant — both
             # alias onto the same "kicker" slug/behaviour, but the "may pay

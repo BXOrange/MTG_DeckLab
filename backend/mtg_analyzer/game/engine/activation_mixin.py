@@ -400,20 +400,24 @@ class ActivationMixin:
             self.state, source, is_mana_ability=is_mana_ability
         )
         if cost is not None and cost.dynamic_reduction:
-            per = int(cost.dynamic_reduction.get("generic_per", 1))
-            selector = cost.dynamic_reduction.get("count_selector")
-            if selector:
-                reduction += per * continuous.count_selector(
-                    self.state, source.controller_id, str(selector), source=source
-                )
-            else:
-                kind = cost.dynamic_reduction.get("kind", "rad")
-                try:
-                    player = self.state.player_by_id(source.controller_id)
-                except (KeyError, ValueError):
-                    player = None
-                if player is not None:
-                    reduction += per * player.counters.get(kind, 0)
+            active_if = cost.dynamic_reduction.get("active_if")
+            if not active_if or static_conditions.condition_holds(
+                active_if, self.state, source, source.controller_id
+            ):
+                per = int(cost.dynamic_reduction.get("generic_per", 1))
+                selector = cost.dynamic_reduction.get("count_selector")
+                if selector:
+                    reduction += per * continuous.count_selector(
+                        self.state, source.controller_id, str(selector), source=source
+                    )
+                else:
+                    kind = cost.dynamic_reduction.get("kind", "rad")
+                    try:
+                        player = self.state.player_by_id(source.controller_id)
+                    except (KeyError, ValueError):
+                        player = None
+                    if player is not None:
+                        reduction += per * player.counters.get(kind, 0)
         if (
             cost is not None
             and getattr(cost, "powerup_cost_reduction", False)

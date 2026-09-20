@@ -541,6 +541,24 @@ _SPELL_MANA_SPENT_AT_LEAST_IF_RE = re.compile(
     re.IGNORECASE | re.S,
 )
 
+_ADAMANT_MANA_SPENT_IF_RE = re.compile(
+    r"^if at least (?P<n>\d+) (?P<color>white|blue|black|red|green|colorless) mana was spent to cast "
+    r"(?:it|this spell),\s*(?P<rest>.+)$", re.IGNORECASE | re.S,
+)
+
+_ADAMANT_MANA_KEYS: dict[str, str] = {
+    "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G", "colorless": "C",
+}
+
+
+def _adamant_mana_spent_condition(m: "re.Match[str]") -> dict[str, Any]:
+    """The closed, spell-local condition behind Adamant's printed rider."""
+    return {
+        "kind": "mana_color_spent_to_cast_at_least",
+        "color": _ADAMANT_MANA_KEYS[m.group("color").lower()],
+        "amount": int(m.group("n")),
+    }
+
 
 def _peel_spell_mana_spent_at_least(body: str) -> tuple[str, Optional[int]]:
     """Strip a leading "if at least N mana was spent to cast it/that spell,"
@@ -550,6 +568,31 @@ def _peel_spell_mana_spent_at_least(body: str) -> tuple[str, Optional[int]]:
     if m is None:
         return body, None
     return m.group("rest"), int(m.group("n"))
+
+_CAST_MANA_RIDER_RE = re.compile(
+    r"^(?P<base>.+?)\.\s*if (?P<n>\d+) or more mana was spent to cast that spell,\s*"
+    r"(?P<instead>instead\s+)?(?P<rider>.+)$", re.IGNORECASE | re.S,
+)
+
+
+def _cast_mana_rider_parts(body: str, *, self_subject: bool) -> Optional[tuple[list[EffectSpec], int, list[EffectSpec], bool]]:
+    """Parse PAR-96's one-rider cast-trigger body without losing its gate."""
+    m = _CAST_MANA_RIDER_RE.match(body.strip())
+    if m is None:
+        return None
+    base = parse_effect_body(m.group("base"), self_subject=self_subject)
+    rider_text = m.group("rider").strip()
+    # Oracle places both modifiers after the effect as often as before it:
+    # "~ also gains …" and "~ gets … instead".  They describe the rider's
+    # relation to the base branch, not its effect grammar.
+    replaces = bool(m.group("instead")) or rider_text.lower().endswith(" instead")
+    if rider_text.lower().endswith(" instead"):
+        rider_text = rider_text[:-len(" instead")].rstrip()
+    rider_text = re.sub(r"^(~) also\s+", r"\1 ", rider_text, flags=re.I)
+    rider = parse_effect_body(rider_text.removeprefix("also "), self_subject=self_subject)
+    if base is None or rider is None:
+        return None
+    return base, int(m.group("n")), rider, replaces
 
 #: PAR-75: "Whenever you cast a Doctor spell or creature spell with
 #: doctor's companion, `<effect>`." (Rose Noble) — an OR of two structurally
@@ -1620,6 +1663,67 @@ _ACTIVATION_COST_REDUCTION_PARTY_RE = re.compile(
     r"for each creature in your party\.?",
     re.IGNORECASE,
 )
+
+# PAR-94: the general trailing, per-unit activation discount.  This stays a
+# closed vocabulary: the engine may only receive a count selector it actually
+# evaluates, and a novel "for each" phrase must leave its card unclaimed.
+_ACTIVATION_COST_REDUCTION_FOR_EACH_RE = re.compile(
+    r"\s*\.?\s*this ability costs \{(?P<n>\d+)\} less to activate "
+    r"for each (?P<what>.+?)(?=\.?\s*(?:activate\b|$))",
+    re.IGNORECASE,
+)
+
+_ACTIVATION_COST_REDUCTION_GRAVEYARD_MV_RE = re.compile(
+    r"\s*\.?\s*this ability costs \{(?P<n>\d+)\} less to activate if there are "
+    r"(?P<minimum>\d+) or more mana values among cards in your graveyard\.?$",
+    re.IGNORECASE,
+)
+
+_ACTIVATION_COST_REDUCTION_CONDITIONAL_RE = re.compile(
+    r"\s*\.?\s*this ability costs \{(?P<n>\d+)\} less to activate if "
+    r"(?P<condition>.+?)(?=\.?\s*(?:activate\b|$))",
+    re.IGNORECASE,
+)
+
+_ACTIVATION_COST_REDUCTION_SELECTORS: dict[str, str] = {
+    "basic land type among lands you control": "basic_land_types_among_lands_you_control",
+    "creature card in your graveyard": "creature_cards_in_your_graveyard",
+    "instant and sorcery card in your graveyard": "instant_or_sorcery_cards_in_your_graveyard",
+    "legendary creature you control": "legendary_creatures_you_control",
+    "legendary creature and planeswalker you control": "legendary_creatures_and_planeswalkers_you_control",
+    "other artifact you control": "other_artifacts_you_control",
+    "other equipment you control": "other_permanents_you_control_of_subtype_equipment",
+    "equipment you control": "equipment_you_control",
+    "other town you control": "other_permanents_you_control_of_subtype_town",
+    "town you control": "permanents_you_control_of_subtype_town",
+    "shrine you control": "permanents_you_control_of_subtype_shrine",
+    "vampire you control": "creatures_you_control_of_type_vampire",
+    "+1/+1 counter on creatures you control": "plus_one_counters_on_creatures_you_control",
+    "modified creature you control": "modified_creatures_you_control",
+}
+
+
+def _activation_cost_reduction_selector(what: str) -> Optional[str]:
+    """Map PAR-94's closed, per-unit discount vocabulary to live readers."""
+    normalized = " ".join(what.lower().split())
+    selector = _ACTIVATION_COST_REDUCTION_SELECTORS.get(normalized)
+    if selector is not None:
+        return selector
+    counter = re.fullmatch(
+        r"(?P<kind>[a-z][a-z-]*) counters? on (?:~|this (?:artifact|creature|enchantment))",
+        normalized,
+    )
+    if counter is not None:
+        return f"source_{counter.group('kind')}_counters"
+    power = re.fullmatch(
+        r"creature with power (?P<n>\d+) or greater your opponents control", normalized
+    )
+    if power is not None:
+        return f"creatures_opponents_control_with_power_ge_{power.group('n')}"
+    land = re.fullmatch(r"(?P<kind>[a-z]+) you control", normalized)
+    if land is not None and land.group("kind") in {"island"}:
+        return f"lands_you_control_of_type_{land.group('kind')}"
+    return None
 
 # An activated ability may end with its RULE 602 legality sentence rather
 # than making it a separate oracle line: "{1}: Draw a card. Activate only if
@@ -2937,6 +3041,10 @@ _COMPANION_LABEL_LINE_RE = re.compile(r"^companion\s*[—-]\s*\S.*$", re.IGNOREC
 _SPECIALIZE_WITH_RIDER_RE = re.compile(
     r"^specialize\s+\{[^}]+\}(?:\s*\{[^}]+\})*\s*[.:]\s*\S.*$", re.IGNORECASE | re.DOTALL
 )
+_SPECIALIZE_GRAVEYARD_DISCOUNT_RE = re.compile(
+    r"^specialize\s+\{[^}]+\}\.\s*this ability costs \{\d+\} less to activate "
+    r"if there are \d+ or more instant and/or sorcery cards in your graveyard\.?$", re.IGNORECASE,
+)
 
 _COMPOUND_KEYWORD_LINE_RES: tuple[re.Pattern[str], ...] = (
     _COMPOUND_COST_LINE_RE,
@@ -3500,6 +3608,10 @@ def _generic_negated_condition(m: "re.Match[str]") -> "Optional[dict[str, Any]]"
 
 
 _CONDITION_PREFIXES: tuple[_ConditionPrefix, ...] = (
+    # Adamant's spell-local payment fact is not a board-state phrase for the
+    # generic condition grammar: it must be recognized before an effect body
+    # can be claimed, so the rider never silently becomes unconditional.
+    _ConditionPrefix(_ADAMANT_MANA_SPENT_IF_RE, _adamant_mana_spent_condition),
     # "`<effect>` if an opponent lost N or more life this turn." (Davros,
     # Dalek Creator) — a suffix, but peeled here with the prefixes because it
     # gates the whole pre-split body.
@@ -4787,6 +4899,8 @@ def segment_line(
 
     # MEC-48: keep `_KEYWORD_TOKEN_RE`'s greedy `.*$` from swallowing a
     # "Specialize {cost}. <rider>" line whole and dropping the rider.
+    if _SPECIALIZE_GRAVEYARD_DISCOUNT_RE.match(raw):
+        return Segment(raw=raw, claimed=True, keyword_line=True)
     if _SPECIALIZE_WITH_RIDER_RE.match(raw):
         return Segment(raw=raw, claimed=False)
 
@@ -5368,6 +5482,27 @@ def segment_line(
         if types is None:
             return Segment(raw=raw)
         body, optional = _peel_optional(cast_spell_trig.group("body"))
+        rider_parts = _cast_mana_rider_parts(body, self_subject=True)
+        if rider_parts is not None:
+            base_effects, threshold, rider_effects, replaces = rider_parts
+            trigger = {
+                "event": "SPELL_CAST", "condition": _cast_spell_trigger_condition(pos_subj),
+                "spell_card_types": types,
+            }
+            if replaces:
+                low = AbilitySpec("triggered", effects=base_effects,
+                    trigger={**trigger, "spell_mana_spent_less_than": threshold}, optional=optional,
+                    raw_text=raw, parser=provenance)
+                high = AbilitySpec("triggered", effects=rider_effects,
+                    trigger={**trigger, "spell_mana_spent_at_least": threshold}, optional=optional,
+                    raw_text=raw, parser=provenance)
+                return Segment(raw=raw, spec=low, extra_specs=[high], claimed=True)
+            base_spec = AbilitySpec("triggered", effects=base_effects, trigger=trigger,
+                optional=optional, raw_text=raw, parser=provenance)
+            rider_spec = AbilitySpec("triggered", effects=rider_effects,
+                trigger={**trigger, "spell_mana_spent_at_least": threshold}, optional=optional,
+                raw_text=raw, parser=provenance)
+            return Segment(raw=raw, spec=base_spec, extra_specs=[rider_spec], claimed=True)
         effects = parse_effect_body(body, self_subject=True)
         if effects is None:
             return Segment(raw=raw)
@@ -6213,6 +6348,36 @@ def segment_line(
                 "count_selector": "creatures_in_your_party",
                 "generic_per": int(party_reduction.group("n")),
             }
+        else:
+            per_reduction = _ACTIVATION_COST_REDUCTION_FOR_EACH_RE.search(effect_text)
+            if per_reduction is not None:
+                selector = _activation_cost_reduction_selector(per_reduction.group("what"))
+                if selector is not None:
+                    effect_text = _ACTIVATION_COST_REDUCTION_FOR_EACH_RE.sub("", effect_text).strip()
+                    cost_dict["dynamic_reduction"] = {
+                        "count_selector": selector,
+                        "generic_per": int(per_reduction.group("n")),
+                    }
+            conditional_reduction = _ACTIVATION_COST_REDUCTION_GRAVEYARD_MV_RE.search(effect_text)
+            if conditional_reduction is not None:
+                effect_text = _ACTIVATION_COST_REDUCTION_GRAVEYARD_MV_RE.sub("", effect_text).strip()
+                cost_dict["dynamic_reduction"] = {
+                    "generic_per": int(conditional_reduction.group("n")),
+                    "active_if": {
+                        "kind": "distinct_mana_values_in_graveyard_at_least",
+                        "min": int(conditional_reduction.group("minimum")),
+                    },
+                }
+            else:
+                conditional_reduction = _ACTIVATION_COST_REDUCTION_CONDITIONAL_RE.search(effect_text)
+                if conditional_reduction is not None:
+                    active_if = static_condition(conditional_reduction.group("condition"))
+                    if active_if is not None:
+                        effect_text = _ACTIVATION_COST_REDUCTION_CONDITIONAL_RE.sub("", effect_text).strip()
+                        cost_dict["dynamic_reduction"] = {
+                            "generic_per": int(conditional_reduction.group("n")),
+                            "active_if": active_if,
+                        }
         tail_markers: list[EffectSpec] = []
         activation_tail = _ACTIVATE_ONLY_IF_TRAILING_RE.search(effect_text)
         if activation_tail is not None:

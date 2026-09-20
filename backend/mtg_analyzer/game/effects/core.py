@@ -1220,6 +1220,7 @@ def _apply_effects_partitioned(
     outer_die_results = getattr(context, "die_results", [])
     outer_rolled_doubles = getattr(context, "rolled_doubles", False)
     outer_random_result = getattr(context, "random_result", None)
+    outer_target_groups = getattr(context, "resolution_target_groups", None)
     context.previous_targets = list(previous_targets or [])
     context.moved_objects = list(outer_moved or [])
     context.attachment_hosts = dict(outer_attachment_hosts or {})
@@ -1237,6 +1238,10 @@ def _apply_effects_partitioned(
     context.die_results = []
     context.rolled_doubles = False
     context.random_result = None
+    # A later rider can name a specific earlier target requirement rather
+    # than merely the most recently resolved one (Outmuscle's first target
+    # survives its intervening fight instruction).
+    context.resolution_target_groups = target_groups
     try:
         for position, effect in enumerate(effects):
             if source is not None and effect.source is None:
@@ -1321,6 +1326,7 @@ def _apply_effects_partitioned(
         context.die_results = outer_die_results
         context.rolled_doubles = outer_rolled_doubles
         context.random_result = outer_random_result
+        context.resolution_target_groups = outer_target_groups
 
 
 # ---------------------------------------------------------------------------

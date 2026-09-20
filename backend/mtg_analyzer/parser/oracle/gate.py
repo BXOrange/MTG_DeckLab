@@ -3412,7 +3412,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: +18 (Edric, Essence/Brood/Synapse Sliver, Rakish Heir, Stensia
 #: Masquerade, and 12 bonus cards sharing the widened subtype/group-subject
 #: axis outside this ticket's own search phrase), 0 regressed.
-PARSER_VERSION = "440"
+PARSER_VERSION = "445"
 
 
 def parser_source_hash() -> str:
@@ -3850,6 +3850,25 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
 
     def _process_line(line: str) -> None:
         nonlocal all_claimed
+        # PAR-95 / Adamant — Sundering Stroke's rider changes the preceding
+        # divided instruction into one full hit per already selected target.
+        # It is deliberately one exact form: a general "instead" rewrite
+        # would be unsound for target choice and distribution semantics.
+        sundering = re.fullmatch(
+            r"~ deals (?P<n>\d+) damage divided as you choose among 1, 2, or 3 targets\. "
+            r"if at least (?P<threshold>\d+) red mana was spent to cast this spell, instead ~ deals "
+            r"(?P<replacement>\d+) damage to each of those permanents and/or players\.?",
+            line, re.I,
+        )
+        if sundering is not None and sundering.group("n") == sundering.group("replacement"):
+            effect_specs.append(AbilitySpec("spell_effect", [EffectSpec("damage", {
+                "amount": int(sundering.group("n")), "target_kind": "any", "count": 3,
+                "count_max": 3, "optional": True, "divided": True,
+                "each_target_if_mana_color_spent": {
+                    "color": "R", "threshold": int(sundering.group("threshold")),
+                },
+            })], raw_text=line, parser=provenance))
+            return
         # PAR-59 / RULE 702.55: Haunt cards print either the combined ETB +
         # linked-creature-death trigger or the latter alone.  The ordinary
         # ETB half stays a normal battlefield trigger; the death half is a
@@ -3923,6 +3942,51 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 if raid_override.group("unpreventable"):
                     damages[0].params["unpreventable"] = True
                 return
+        # PAR-95 / Adamant's two-line forms.  These riders refer to the
+        # immediately preceding spell instruction, so append/modify that
+        # same AbilitySpec and retain its target-resolution context instead
+        # of creating an independent, incorrectly targeted spell effect.
+        adamant = re.fullmatch(
+            r"if at least (?P<threshold>\d+) (?P<color>white|blue|black|red|green|colorless) mana was spent "
+            r"to cast this spell, (?P<body>.+)\.?,?", line, re.I,
+        )
+        if adamant is not None and effect_specs:
+            previous = effect_specs[-1]
+            adamant_body = adamant.group("body").strip().rstrip(".").strip()
+            condition = {
+                "kind": "mana_color_spent_to_cast_at_least",
+                "color": {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G", "colorless": "C"}[
+                    adamant.group("color").lower()
+                ],
+                "amount": int(adamant.group("threshold")),
+            }
+            # Searing Barrage: a second damage instruction to the controller
+            # of the preceding creature target.
+            if re.fullmatch(r"~ deals \d+ damage to that creature'?s controller", adamant_body, re.I):
+                n = int(re.search(r"\d+", adamant_body).group())
+                if previous.ability_kind == "spell_effect":
+                    previous.effects.append(EffectSpec("damage", {
+                        "amount": n, "recipient_subject": "previous_subject_controller",
+                    }, condition=condition))
+                    return
+            # Slaying Fire: a magnitude replacement, never a second hit.
+            override = re.fullmatch(r"it deals (?P<n>\d+) damage instead", adamant_body, re.I)
+            if override is not None:
+                damages = [effect for effect in previous.effects if effect.type == "damage"]
+                if previous.ability_kind == "spell_effect" and len(previous.effects) == len(damages) == 1:
+                    damages[0].params["amount_if_mana_color_spent"] = {
+                        "color": condition["color"], "threshold": condition["amount"],
+                        "amount": int(override.group("n")),
+                    }
+                    return
+            # Outmuscle: its first target remains the referent after the
+            # intervening fight has consumed a second target requirement.
+            if re.fullmatch(r"the creature you control gains indestructible until end of turn", adamant_body, re.I):
+                if previous.ability_kind == "spell_effect" and len(previous.effects) == 2 and previous.effects[-1].type == "fight":
+                    previous.effects.append(EffectSpec("pump", {
+                        "keywords": ["indestructible"], "target_group_index": 0,
+                    }, condition=condition))
+                    return
         # MEC-86 / RULE 722.3a: "~ enters prepared." states the permanent
         # gains the prepared designation as it enters — unlike the
         # tapped-entry/counters checks just below, this *is* an effect

@@ -25,9 +25,49 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**46.3% covered — 16,122 / 34,811 — as of 2026-09-20, PARSER_VERSION 440.**
-Commander-legal slice (the one the product actually plays): **48.7% —
-15,488 / 31,830** (measure with `--commander-legal-only`).
+**46.4% covered — 16,166 / 34,811 — as of 2026-09-20, PARSER_VERSION 445.**
+Commander-legal slice (the one the product actually plays): **48.8% —
+**15,530 / 31,830** (measure with `--commander-legal-only`).
+
+### PAR-95: Adamant per-mana-type riders (PARSER_VERSION 445)
+
+- **What:** Cast payment now records exact WUBRG and colorless quantities.
+  Closed Adamant parsing covers additive spell riders, entry counters,
+  amount overrides, a preserved first target after a fight, and Sundering
+  Stroke's divided-damage replacement.
+- **Verification:** `tests/test_par95_adamant.py`; 14 former SOLO cards are
+  modeled. The two remaining probe hits have independent unclaimed clauses.
+
+### PAR-94: Specialize conditional discount — increment (PARSER_VERSION 444)
+
+- **What:** A closed Specialize rider now preserves its conditional dynamic
+  reduction in keyword data and the binder applies it to the generated
+  Specialize activation.
+- **Verification:** `tests/test_par94_activation_cost_reductions.py`; fresh
+  full-cache `--no-db` measurement.
+
+### PAR-94: Conditional cost gates — increment (PARSER_VERSION 443)
+
+- **What:** Existing conditions now recognize legendary-creature control and
+  instant/sorcery graveyard thresholds for activation-cost reductions.
+- **Verification:** `tests/test_par94_activation_cost_reductions.py`.
+
+### PAR-94: Conditional graveyard-mana-value discount — increment (PARSER_VERSION 442)
+
+- **What:** A flat activation discount can now carry a live
+  `active_if` threshold; Sewer Crocodile's five distinct mana values in the
+  controller's graveyard are counted once per mana value.
+- **Verification:** `tests/test_par94_activation_cost_reductions.py`.
+
+### PAR-94: Per-unit activation-cost reductions — increment (PARSER_VERSION 441)
+
+- **What:** Trailing "this ability costs {N} less to activate for each …"
+  clauses now populate `ActivationCost.dynamic_reduction` through a closed,
+  live-selector vocabulary, including counters, card zones, basic land types,
+  subtypes, modified creatures, and power-qualified opposing creatures.
+- **Verification:** `tests/test_par94_activation_cost_reductions.py`; the
+  residual broad-probe hits are separate X, surcharge, conditional, or
+  independently unmodeled effect-body shapes.
 
 ### PAR-92: Small verified residue batch (PARSER_VERSION 440)
 

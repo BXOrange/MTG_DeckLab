@@ -34,6 +34,8 @@ class DealDamageEffect(GameEffect):
         amount_if_kicked: Optional[int] = None,
         amount_if_teamwork: Optional[int] = None,
         amount_if_raid: Optional[int] = None,
+        amount_if_mana_color_spent: Optional[dict[str, Any]] = None,
+        each_target_if_mana_color_spent: Optional[dict[str, Any]] = None,
         amount_if_full_party: Optional[int] = None,
         amount_if_bargained: Optional[Union[int, str]] = None,
         double_if_bargained: bool = False,
@@ -141,6 +143,10 @@ class DealDamageEffect(GameEffect):
         #: this turn" replacement. Like Kicker, this replaces this damage
         #: event's magnitude rather than adding a second damage effect.
         self.amount_if_raid = amount_if_raid
+        #: PAR-95 / Adamant's amount-replacement form (Slaying Fire): unlike
+        #: an additive rider, this replaces the preceding damage amount.
+        self.amount_if_mana_color_spent = amount_if_mana_color_spent
+        self.each_target_if_mana_color_spent = each_target_if_mana_color_spent
         #: "…it deals 3 damage to each opponent instead." (PAR-76, The
         #: Destined Black Mage) — RULE 700.8's already-shipped
         #: `"creatures_in_your_party"` count selector read as a live
@@ -259,6 +265,14 @@ class DealDamageEffect(GameEffect):
                     lambda: self.amount_if_teamwork,
                 ),
                 (self.amount_if_raid is not None and raid, lambda: self.amount_if_raid),
+                (
+                    self.amount_if_mana_color_spent is not None
+                    and self.source is not None
+                    and int((getattr(self.source, "mana_by_color_spent_to_cast", None) or {}).get(
+                        str(self.amount_if_mana_color_spent.get("color", "")).upper(), 0
+                    )) >= int(self.amount_if_mana_color_spent.get("threshold", 1)),
+                    lambda: self.amount_if_mana_color_spent["amount"],
+                ),
                 (full_party, lambda: self.amount_if_full_party),
                 (
                     self.amount_if_cast_from_exile is not None and getattr(self.source, "cast_from_exile", False),
@@ -380,6 +394,14 @@ class DealDamageEffect(GameEffect):
             return
         chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
         if self.divided:
+            override = self.each_target_if_mana_color_spent or {}
+            paid = getattr(self.source, "mana_by_color_spent_to_cast", None) or {}
+            if override and int(paid.get(str(override.get("color", "")).upper(), 0)) >= int(override.get("threshold", 1)):
+                # Sundering Stroke's Adamant branch replaces the divided pool
+                # with the full printed amount to every already chosen target.
+                for target in chosen:
+                    context.deal_damage(target, self._amount_for(target, context), self.source)
+                return
             self._apply_divided(context, chosen)
             return
         # "targets only a single creature" (Imodane, the Pyrohammer) is a

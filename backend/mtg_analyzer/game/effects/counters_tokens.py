@@ -2027,6 +2027,7 @@ class PumpEffect(GameEffect):
         power_if_bargained: Optional[int] = None,
         toughness_if_bargained: Optional[int] = None,
         target_operand: Any = None,
+        target_group_index: Optional[int] = None,
     ) -> None:
         super().__init__(source)
         #: "target `<c1>` or `<c2>` creature gets/gains … until end of
@@ -2147,6 +2148,7 @@ class PumpEffect(GameEffect):
         self.toughness_if_bargained = toughness_if_bargained
         self._attached_mode = target_kind == "attached_permanent"
         self.target_operand = target_operand
+        self.target_group_index = target_group_index
         if target_kind is not None and not self._attached_mode and not previous_subject and target_operand is None:
             # PAR-15: "any number of target creatures each get +N/+N [and
             # gain `<keyword>`] until end of turn" (Aerial Formation/Ajani's
@@ -2238,6 +2240,14 @@ class PumpEffect(GameEffect):
             )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.target_group_index is not None:
+            groups = getattr(context, "resolution_target_groups", None) or []
+            chosen = list(groups[self.target_group_index]) if self.target_group_index < len(groups) else []
+            for obj in chosen:
+                self._pump_one(obj)
+            if chosen:
+                context.recompute()
+            return
         if self.target_operand is not None:
             from ..effect_operands import object_for
 

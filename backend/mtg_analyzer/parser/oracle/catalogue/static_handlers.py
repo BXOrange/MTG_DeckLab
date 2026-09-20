@@ -3060,6 +3060,9 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     (re.compile(r"there are (?P<n>\d+) or more cards in your graveyard", re.I),
      lambda m: {"kind": "control_count", "selector": "cards_in_your_graveyard",
                 "min": int(m.group("n"))}),
+    (re.compile(r"there are (?P<n>\d+) or more instant and/or sorcery cards in your graveyard", re.I),
+     lambda m: {"kind": "graveyard_card_type_count_at_least",
+                "types": ["instant", "sorcery"], "amount": int(m.group("n"))}),
     # The Odyssey-block Threshold phrasing — "as long as **seven or more
     # cards are in your graveyard**" (subject-verb order rather than the
     # "there are …" existential above; the "Threshold —" ability-word label
@@ -3220,6 +3223,8 @@ _CONTROL_COUNT_SELECTORS: dict[str, str] = {
     "permanents": "permanents_you_control",
     "multicolored permanent": "multicolored_permanents_you_control",
     "multicolored permanents": "multicolored_permanents_you_control",
+    "legendary creature": "legendary_creatures_you_control",
+    "legendary creatures": "legendary_creatures_you_control",
 }
 
 

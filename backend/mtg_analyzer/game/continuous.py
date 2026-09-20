@@ -1307,6 +1307,46 @@ def count_selector(
             if o.is_creature and o.controller_id == controller_id
             and "legendary" in o.card.type_line.lower()
         )
+    if selector == "legendary_creatures_and_planeswalkers_you_control":
+        return sum(
+            1 for o in bf
+            if o.controller_id == controller_id and "legendary" in o.card.type_line.lower()
+            and (o.is_creature or o.is_planeswalker)
+        )
+    if selector.startswith("other_permanents_you_control_of_subtype_"):
+        subtype = selector[len("other_permanents_you_control_of_subtype_"):]
+        source_id = getattr(source, "instance_id", None)
+        return sum(
+            1 for o in bf
+            if o.controller_id == controller_id and o.instance_id != source_id and _has_subtype(o, subtype)
+        )
+    if selector.startswith("permanents_you_control_of_subtype_"):
+        subtype = selector[len("permanents_you_control_of_subtype_"):]
+        return sum(1 for o in bf if o.controller_id == controller_id and _has_subtype(o, subtype))
+    if selector == "plus_one_counters_on_creatures_you_control":
+        return sum(
+            int(getattr(o, "plus_one_counters", 0) or 0)
+            for o in bf if o.is_creature and o.controller_id == controller_id
+        )
+    if selector == "modified_creatures_you_control":
+        # RULE 700.9: a creature is modified if it has a counter, is equipped,
+        # or is enchanted by an Aura controlled by the same player.
+        attached_hosts = {
+            attachment.attached_to
+            for attachment in bf
+            if attachment.controller_id == controller_id
+            and attachment.attached_to is not None
+            and (_has_subtype(attachment, "equipment") or _has_subtype(attachment, "aura"))
+        }
+        return sum(
+            1 for creature in bf
+            if creature.is_creature and creature.controller_id == controller_id
+            and (
+                creature.instance_id in attached_hosts
+                or bool(getattr(creature, "counters", None))
+                or bool(getattr(creature, "plus_one_counters", 0))
+            )
+        )
     if selector == "artifacts_you_control":
         return sum(1 for o in bf if o.card.is_artifact and o.controller_id == controller_id)
     if selector == "enchantments_you_control":
@@ -1364,6 +1404,13 @@ def count_selector(
         return sum(
             1 for o in bf
             if o.is_creature and o.controller_id not in (None, controller_id)
+        )
+    if selector.startswith("creatures_opponents_control_with_power_ge_"):
+        threshold = int(selector.removeprefix("creatures_opponents_control_with_power_ge_"))
+        return sum(
+            1 for o in bf
+            if o.is_creature and o.controller_id not in (None, controller_id)
+            and o.power is not None and o.power >= threshold
         )
     if selector == "artifacts_and_or_enchantments_opponents_control":
         # "the number of artifacts and enchantments your opponents control"

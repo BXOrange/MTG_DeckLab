@@ -100,39 +100,11 @@ its block back into the matching section here.
   > full cache, then batch the small ones rather than opening one ticket
   > per shape.
 
-- **PAR-93 · Contraption "crank" trigger recognition (RULE 715).** A whole
-  unbuilt sub-mechanic — "whenever you crank this Contraption, `<effect>`"
-  (the crank event/action, sprocket/target-number resolution) has zero
-  recognition today. Unfinity's Contraptions are tournament-legal (not the
-  silver-border non-goal). Confirmed 45 SOLO, 0 also-blocked
-  (`parser_probe.py blocked "crank this contraption"`). Accessories to
-  Murder, Applied Aeronautics, Top-Secret Tunnel.
-- **PAR-94 · `ActivationCost.dynamic_reduction` has zero oracle-text
-  recognizer.** The engine primitive ("costs `<cost>` less to activate for
-  each `<count_selector>`") is fully ready — built for hand-authored
-  cards — but no parser row reaches it; every card printing "this ability
-  costs `<cost>` less to activate for each `<X>`" stays UNMODELED
-  regardless. Confirmed 37 SOLO, 7 also-blocked
+<!--
+
   (`parser_probe.py blocked "this ability costs \{"`). A-Llanowar
-  Greenwidow and most of the cluster.
-  Separately, **not the same primitive**: A-Sewer Crocodile/Sewer
-  Crocodile's own "costs `{3}` less to activate if there are 5 or more mana
-  values among cards in your graveyard" is a *conditional flat* discount (a
-  binary threshold, not a per-unit count) — `dynamic_reduction` has no field
-  for this shape. Same ability on two database rows (an Alchemy rebalance +
-  the original), so effectively one real card; decide whether a flat-if-
-  condition case is worth a shared field or its own small one when this
-  lands.
-- **PAR-95 · RULE 702.140 Adamant.** Completely unbuilt (`grep -ri adamant`
-  finds nothing) — "if at least 3 `<color>` mana was spent to cast this
-  spell, `<effect>`" needs *per-colour* spent-mana tracking; today's
-  `SPELL_CAST` event only carries the total `mana_spent` (built for
-  PAR-79's sixth increment's `spell_mana_spent_at_least`, see
-  `Done_Backend.md`). Confirmed 14 SOLO, 3 also-blocked
-  (`parser_probe.py blocked "if at least [0-9]+ [a-z]+ mana was spent to
-  cast this spell"`). Ardenvale/Embereth/Garenbrig/Locthwain Paladin,
-  Foreboding Fruit, Outmuscle, Searing Barrage, Silverflame Ritual, Slaying
-  Fire, Sundering Stroke, Turn into a Pumpkin.
+-->
+
 - **PAR-96 · "N or more mana was spent to cast that spell" trigger-body
   upgrade.** Distinct from Adamant above (total spent mana, not
   per-colour) — the engine predicate already exists

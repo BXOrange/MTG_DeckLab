@@ -583,9 +583,15 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 46.3% (16,122 / 34,811) as of 2026-09-20, measured at
-PARSER_VERSION 440**; the Commander-legal slice is **48.7% (15,488 /
-31,830)**. v440 closes PAR-92: second-spell and domain cost reductions,
+**Coverage: 46.4% (16,166 / 34,811) as of 2026-09-20, measured at
+PARSER_VERSION 445**; the Commander-legal slice is **48.8% (15,530 /
+31,830)**. v445 closes PAR-95's Adamant per-mana-type payment riders;
+v444 advances PAR-94 with Specialize conditional discounts;
+v443 advances PAR-94 with reusable conditional cost gates;
+v442 advances PAR-94 with a graveyard-mana-value threshold
+activation discount; v441 advances PAR-94: per-unit activation-cost reductions now
+parse into the existing live dynamic-reduction primitive. v440 closes PAR-92:
+second-spell and domain cost reductions,
 self graveyard-to-library replacements, Triple Threat's commander-damage
 multiplier, and attack-triggered Meld are modeled. v439 closes PAR-91:
 optional collect-evidence costs now gate

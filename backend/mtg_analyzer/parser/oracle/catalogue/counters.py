@@ -129,6 +129,18 @@ _RAID_ENTRY_COUNTERS_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: PAR-95 / Adamant: this is an entry replacement, not a delayed spell
+#: effect, so the counter exists before the permanent enters.  ``colorless``
+#: is included because the same spent-mana family has a real colorless rider.
+_ADAMANT_ENTRY_COUNTERS_RE = re.compile(
+    rf"^if at least (?P<n>\d+) (?P<color>white|blue|black|red|green|colorless) mana was spent to cast "
+    rf"this spell, {_SUBJECT} {_ENTERS} with {_FIXED_AMOUNT} {_COUNTER_TYPE} counters? on it\.?$",
+    re.IGNORECASE,
+)
+_ADAMANT_MANA_KEYS: dict[str, str] = {
+    "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G", "colorless": "C",
+}
+
 # MEC-97: Hotheaded Giant's "unless you've cast another red spell this
 # turn" is still an entry replacement (RULE 614.12), so the test belongs at
 # the same pre-entry point as revolt/raid rather than becoming a late ETB
@@ -247,6 +259,16 @@ def entry_counters_condition(line: str) -> Optional[dict[str, Any]]:
         return {
             "is_x": False, "count": _fixed_count(match.group(1)),
             "counter_type": match.group(2).lower(), "raid_gate": True,
+        }
+    match = _ADAMANT_ENTRY_COUNTERS_RE.match(line)  # PAR-95 / Adamant
+    if match is not None:
+        return {
+            "is_x": False, "count": _fixed_count(match.group(3)),
+            "counter_type": match.group(4).lower(),
+            "mana_color_spent_gate": {
+                "color": _ADAMANT_MANA_KEYS[match.group("color").lower()],
+                "amount": int(match.group("n")),
+            },
         }
     match = _ANOTHER_COLOR_SPELL_ENTRY_COUNTERS_UNLESS_RE.match(line)  # MEC-97
     if match is not None:

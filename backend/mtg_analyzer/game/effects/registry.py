@@ -25,6 +25,8 @@ EffectRegistry.register(
         amount_if_kicked=p.get("amount_if_kicked"),
         amount_if_teamwork=p.get("amount_if_teamwork"),
         amount_if_raid=p.get("amount_if_raid"),
+        amount_if_mana_color_spent=p.get("amount_if_mana_color_spent"),
+        each_target_if_mana_color_spent=p.get("each_target_if_mana_color_spent"),
         amount_if_full_party=p.get("amount_if_full_party"),
         amount_if_bargained=p.get("amount_if_bargained"),
         double_if_bargained=bool(p.get("double_if_bargained", False)),
@@ -2263,6 +2265,7 @@ EffectRegistry.register(
         choose_tap_or_untap=bool(p.get("choose_tap_or_untap", False)),
         colors=p.get("colors"),
         target_operand=p.get("target_operand"),
+        target_group_index=p.get("target_group_index"),
     ),
 )
 EffectRegistry.register(

@@ -158,6 +158,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # "if there are N or more <type> and/or <type> cards in your
         # graveyard" (Lorehold Archivist, PAR-60). + ``types`` + ``amount``.
         "graveyard_card_type_count_at_least",
+        "distinct_mana_values_in_graveyard_at_least",
         # "if a player has one or fewer cards in hand" (Naktamun Lorespinner,
         # PAR-60) — any player. + ``amount``.
         "any_player_cards_in_hand_at_most",
@@ -182,6 +183,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # needed — the per-object entry flag already exists.
         "another_subtype_entered_this_turn",  # + ``subtype``
         "drawn_cards_at_least",  # + ``amount`` — "…you've drawn N cards this turn"
+        "mana_color_spent_to_cast_at_least",  # + ``color`` + ``amount`` (Adamant)
         # "…you've cast an instant or sorcery spell this turn" (PAR-10) —
         # `GameState.cast_instant_or_sorcery_this_turn`, reset for *every*
         # player each `begin_turn` (unlike `spells_cast_this_turn`'s
@@ -753,6 +755,9 @@ def condition_holds(
         # counter.
         drawn = getattr(state, "cards_drawn_this_turn", None) or {}
         return int(drawn.get(controller_id, 0) or 0) >= int(condition.get("amount", 0))
+    if kind == "mana_color_spent_to_cast_at_least":
+        color = str(condition.get("color", "")).upper()
+        return int((getattr(source, "mana_by_color_spent_to_cast", None) or {}).get(color, 0)) >= int(condition.get("amount", 1))
     if kind == "cast_instant_or_sorcery_this_turn":
         cast = getattr(state, "cast_instant_or_sorcery_this_turn", None) or {}
         return bool(cast.get(controller_id, False))
@@ -857,6 +862,13 @@ def condition_holds(
             if word in obj.card.type_line.lower()
         )
         return hits >= minimum
+    if kind == "distinct_mana_values_in_graveyard_at_least":
+        # Sewer Crocodile: cards with the same mana value count only once.
+        minimum = int(condition.get("min", 1) or 1)
+        return len({
+            int(getattr(obj.card, "converted_mana_cost", 0) or 0)
+            for obj in getattr(player, "graveyard", [])
+        }) >= minimum
     if kind == "another_subtype_entered_this_turn":
         # MEC-46 (Galadriel): a permanent other than the source, controlled
         # by "you", carrying the named type word, that entered this turn.
