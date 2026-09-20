@@ -1251,6 +1251,42 @@ class CollectEvidenceEffect(GameEffect):
             context.engine.collect_evidence(player, self.amount)
 
 
+class ExileSelfCollectEvidenceReturnEffect(GameEffect):
+    """Lamplight Phoenix's optional death-trigger sequence.
+
+    The source has already died, so it moves from its owner's graveyard to
+    exile, then the controller collects evidence.  The return is conditional
+    on that collection actually completing; moving through the graveyard
+    immediately before the established self-return helper preserves its
+    normal entry and event path without exposing an intermediate game action.
+    """
+
+    def __init__(self, amount: int, tapped: bool = True, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.amount = int(amount)
+        self.tapped = bool(tapped)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ...models.game.game_object import Zone
+
+        source = self.source
+        player = _controller_of(source, context)
+        if source is None or player is None or not context.engine.collect_evidence_possible(player, self.amount):
+            return
+        context.exile(source)
+        if source.zone != Zone.EXILE or not context.engine.collect_evidence(player, self.amount):
+            return
+        owner = context.state.player_by_id(source.owner_id)
+        if owner is None:
+            return
+        owner.remove_from_zone(source, Zone.EXILE)
+        source.zone = Zone.GRAVEYARD
+        owner.add_to_zone(source, Zone.GRAVEYARD)
+        context.return_from_graveyard(
+            source, "battlefield_tapped" if self.tapped else "battlefield"
+        )
+
+
 class RecordBendEffect(GameEffect):
     """Mark that this effect's controller performed a bending keyword action
     (RULE 701.6x — ``kind`` in `RulesEngine.BEND_KINDS`) by calling

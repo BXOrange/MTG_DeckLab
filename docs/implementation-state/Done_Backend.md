@@ -6648,6 +6648,33 @@ measurement of why is the useful half of this work.
 
 ## Oracle-Text Parser Front-End
 
+### PAR-92: Small verified residue batch (PARSER_VERSION 440)
+
+- **What:** Modeled five small, independently verified parser shapes: the
+  second spell cast each turn costs less; a spell's domain cost reduction for
+  basic land types; a self graveyard-to-library replacement; the 3×
+  commander-damage bookkeeping replacement; and attack-triggered Meld. The
+  cast-count condition reads `GameState.spells_cast_this_turn`; the new
+  self-replacement reuses the existing continuous replacement flag. Meld can
+  now preserve a tapped-and-attacking entry.
+- **Files:** `game/static_conditions.py`, `game/rules/damage_death_mixin.py`,
+  `game/effects/attachments_transforms.py`, `game/effects/registry.py`,
+  `parser/oracle/catalogue/static_handlers.py`, `parser/oracle/segmenter.py`,
+  `tests/test_par92_cost_reductions.py`, `tests/test_par92_residue_batch.py`.
+- **Verification:** Both focused test modules pass (7 tests). A fresh full
+  cache measurement reports 16,122 / 34,811 (46.3%) and the Commander-legal
+  measurement 15,488 / 31,830 (48.7%); the ticket's card clauses are all
+  claimed. Cards with unrelated remaining clauses stay fail-closed.
+
+### PAR-91: Optional collect-evidence conditional riders (PARSER_VERSION 439)
+
+- **What:** Added parser support for optional `collect evidence N` additional
+  costs and their conditional self discount; Lamplight Phoenix's optional
+  exile/evidence/reflexive tapped return now resolves through one effect.
+- **Files:** `game/effects/choices_actions.py`, `parser/oracle/segmenter.py`,
+  `parser/oracle/catalogue/static_handlers.py`,
+  `tests/test_par91_collect_evidence_conditions.py`.
+
 ### PAR-90: Suspected-state resolve-time referents (PARSER_VERSION 438)
 
 - **What:** Added source, attached-host, and sacrificed-cost suspected-state

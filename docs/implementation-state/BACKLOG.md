@@ -100,32 +100,6 @@ its block back into the matching section here.
   > full cache, then batch the small ones rather than opening one ticket
   > per shape.
 
-- **PAR-91 · "Evidence was collected" as a resolve-time conditional
-  referent.** Collect Evidence is already largely built (`game/isa.py`,
-  `effects/choices_actions.py`, `condition_query.py`,
-  `rules/misc_mixin.py`); these two need "if evidence was collected" wired
-  as a conditional-magnitude/cost-reduction gate, the same shape as the
-  existing kicked/teamwork conditional family. Confirmed: 2 SOLO, 14
-  also-blocked on unrelated clauses — Bite Down on Crime, Lamplight
-  Phoenix are the two clean ones.
-- **PAR-92 · Small verified residue batch.** Five independent,
-  already-confirmed small fixes — bundle as one batch rather than five
-  tickets:
-  - "The second spell you cast each turn costs `<cost>` less to cast." — 3
-    SOLO (Alisaie Leveilleur, Highspire Bell-Ringer, Monk Class).
-  - "This spell costs `<cost>` less to cast for each basic land type among
-    lands you control." — 3 SOLO (Draco, Leyline Binding, Scion of Draco).
-  - "If `<name>` would be put into a graveyard from anywhere, reveal
-    `<name>` and shuffle it into its owner's library instead." — 5 SOLO, 0
-    also-blocked (Blightsteel Colossus, Darksteel Colossus, Legacy
-    Weapon).
-  - "Triple that/target/its `<amount>`" — a straight 3× sibling of the
-    already-shipped "double" multiplier (RULE 701.11); 1 SOLO (Triple
-    Threat).
-  - Meld triggered by a specific game event (attacking together) rather
-    than the already-shipped upkeep-check shape — 1 SOLO (Mishra, Claimed
-    by Gix); Titania, Voice of Gaea needs the same widening plus one
-    unrelated clause.
 - **PAR-93 · Contraption "crank" trigger recognition (RULE 715).** A whole
   unbuilt sub-mechanic — "whenever you crank this Contraption, `<effect>`"
   (the crank event/action, sprocket/target-number resolution) has zero

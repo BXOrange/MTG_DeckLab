@@ -438,6 +438,12 @@ _MELD_TRIGGER_RE = re.compile(
     r"exile them, then meld them into (?P<result>.+?)\.?$",
     re.IGNORECASE,
 )
+_ATTACK_MELD_TRIGGER_RE = re.compile(
+    r"^whenever you attack, (?P<before>.+?)\. if ~ and a creature named "
+    r"(?P<partner>.+?) are attacking, and you both own and control them, exile them, "
+    r"then meld them into (?P<result>.+?)\. it enters tapped and attacking\.?$",
+    re.IGNORECASE,
+)
 
 #: RULE 603.1's "Whenever you cast a/an <type>[, <type>, or <type>] spell,
 #: <effect>." (Baral, Chief of Compliance/Archmage of Runes/Young Pyromancer-
@@ -2328,6 +2334,15 @@ _EXILE_X_GY_FOR_EACH_CREATE_RE = re.compile(
 _ADDITIONAL_COST_LINE_RE = re.compile(
     r"^as an additional cost to cast this spell,\s*(?P<cost>.+?)\.?\s*$", re.IGNORECASE
 )
+#: Bite Down on Crime — an optional collect-evidence additional cost followed
+#: by the spell's own conditional discount.  These are two distinct ability
+#: records: the cost must be offered during casting, while the static
+#: reduction must be visible before mana is paid (RULE 601.2f).
+_COLLECT_EVIDENCE_COST_REDUCTION_RE = re.compile(
+    r"^as an additional cost to cast this spell,\s*you may collect evidence (?P<evidence>\d+)\.\s*"
+    r"this spell costs \{(?P<reduction>\d+)\} less to cast if evidence was collected\.?$",
+    re.IGNORECASE,
+)
 _ADDITIONAL_COST_SACRIFICE_RE = re.compile(
     r"^sacrifice an?\s+(creature|artifact|land)$", re.IGNORECASE
 )
@@ -2742,9 +2757,12 @@ def _additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
 
     Matches `AbilitySpec.additional_cost`'s shape exactly: ``{"sacrifice":
     "creature"|"artifact"|"land"|"artifact_or_creature"}``, ``{"discard": 1|"x"}``, or
-    ``{"pay_life": N|"x"}``.
+    ``{"pay_life": N|"x"}``, or ``{"collect_evidence": N}``.
     """
     text = text.strip().lower()
+    collect_evidence = re.fullmatch(r"collect evidence (?P<n>\d+)", text)
+    if collect_evidence is not None:
+        return {"collect_evidence": int(collect_evidence.group("n"))}
     sac_or_mana = _ADDITIONAL_COST_SACRIFICE_OR_MANA_RE.match(text)
     if sac_or_mana is not None:
         return {"sacrifice_or_mana": {
@@ -3756,6 +3774,20 @@ def parse_effect_body(
             EffectSpec("draw", {"count": 1}, condition={"sacrificed_cost_was_suspected": False}),
             EffectSpec("draw", {"count": 2}, condition={"sacrificed_cost_was_suspected": True}),
         ]
+
+    # Lamplight Phoenix — the whole optional reflexive sequence is one
+    # atomic action.  It cannot be split at "and"/"if you do": exile and
+    # collect evidence must both happen before the card returns.
+    lamplight = re.fullmatch(
+        r"exile (?:it|~) and collect evidence (?P<n>\d+)\. if you do, "
+        r"return this card to the battlefield(?P<tapped> tapped)?",
+        body,
+        re.IGNORECASE,
+    )
+    if lamplight is not None:
+        return [EffectSpec("exile_self_collect_evidence_return", {
+            "amount": int(lamplight.group("n")), "tapped": bool(lamplight.group("tapped")),
+        })]
 
     # Primetime Suspect — both branches are the same optional library search,
     # but the Aura host's suspected state changes its cardinality.  This is
@@ -4800,6 +4832,22 @@ def segment_line(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+
+    attack_meld = _ATTACK_MELD_TRIGGER_RE.match(raw)
+    if attack_meld is not None:
+        before = parse_effect_body(attack_meld.group("before"))
+        if before is None:
+            return Segment(raw=raw)
+        before.append(EffectSpec("meld", {
+            "partner_name": attack_meld.group("partner").strip(),
+            "result_name": attack_meld.group("result").strip(),
+            "tapped_attacking": True,
+        }))
+        return Segment(raw=raw, spec=AbilitySpec(
+            "triggered", effects=before,
+            trigger={"event": "PLAYER_ATTACKED", "condition": {"subject": "you"}},
+            raw_text=raw, parser=provenance,
+        ), claimed=True)
 
     magecraft = _MAGECRAFT_RE.match(raw)
     if magecraft is not None:
@@ -5924,6 +5972,23 @@ def segment_line(
     # just as much as an instant/sorcery (Kinsbaile Aspirant/Lys Alana
     # Dignitary/Silvergill Mentor — Behold, PAR-29), and the spec it emits
     # carries no bare imperative for the gate to guard against.
+    evidence_discount = _COLLECT_EVIDENCE_COST_REDUCTION_RE.match(raw)
+    if evidence_discount is not None:
+        cost = {"collect_evidence": int(evidence_discount.group("evidence"))}
+        cost_spec = AbilitySpec(
+            "spell_effect", effects=[], additional_cost=cost,
+            additional_cost_optional=True, raw_text=raw, parser=provenance,
+        )
+        reduction_spec = AbilitySpec(
+            "static",
+            effects=[EffectSpec("cost_reduction", {
+                "affects": "self", "generic": int(evidence_discount.group("reduction")),
+                "active_if": {"kind": "flag", "flag": "additional_cost_paid"},
+            })],
+            raw_text=raw, parser=provenance,
+        )
+        return Segment(raw=raw, spec=cost_spec, extra_specs=[reduction_spec], claimed=True)
+
     add_cost = _ADDITIONAL_COST_LINE_RE.match(raw)
     if add_cost is not None:
         cost_text = add_cost.group("cost")
@@ -6676,8 +6741,9 @@ def segment_line(
     # genuine resolve-time clause here.
     if allow_spell_effect:
         cost_static = static_effect_specs(raw)
-        if cost_static is not None and all(
-            spec.type == "cost_reduction" and spec.params.get("affects") == "self" for spec in cost_static
+        if cost_static is not None and (
+            all(spec.type == "cost_reduction" and spec.params.get("affects") == "self" for spec in cost_static)
+            or all(spec.type == "grant_graveyard_to_library_replacement" for spec in cost_static)
         ):
             spec = AbilitySpec("static", effects=cost_static, raw_text=raw, parser=provenance)
             return Segment(raw=raw, spec=spec, claimed=True)

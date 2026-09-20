@@ -998,6 +998,10 @@ class AbilitySpec:
             # {M}" documented drop as `behold`/`blight`. A bare bool.
             if value is not True:
                 raise SpecValidationError("'additional_cost' forage must be True")
+        elif key == "collect_evidence":
+            valid = isinstance(value, int) and not isinstance(value, bool) and value > 0
+            if not valid:
+                raise SpecValidationError("'additional_cost' collect_evidence must be a positive int")
         else:
             raise SpecValidationError(f"unknown additional_cost kind {key!r}")
 

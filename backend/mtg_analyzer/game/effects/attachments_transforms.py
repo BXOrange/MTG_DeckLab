@@ -887,11 +887,12 @@ class MeldEffect(GameEffect):
 
     def __init__(
         self, partner_name: str = "", result_name: str = "",
-        source: Optional["GameObject"] = None,
+        source: Optional["GameObject"] = None, tapped_attacking: bool = False,
     ) -> None:
         super().__init__(source)
         self.partner_name = partner_name
         self.result_name = result_name
+        self.tapped_attacking = bool(tapped_attacking)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         src = self.source
@@ -913,7 +914,15 @@ class MeldEffect(GameEffect):
         )
         if partner is None:
             return  # RULE 701.42c / 603.4 — the pair isn't both here
-        context.engine.meld(src, partner, self.result_name)
+        result_name = self.result_name
+        if result_name.startswith("~,"):
+            result_name = src.name.partition(",")[0] + result_name[1:]
+        else:
+            result_name = result_name.replace("~", src.name)
+        melded = context.engine.meld(src, partner, result_name)
+        if melded is not None and self.tapped_attacking:
+            melded.tapped = True
+            melded.attacking = True
 
 
 class SiegeDefeatedEffect(GameEffect):

@@ -491,6 +491,13 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    "commander_damage_multiplier",
+    lambda p: StaticAbility(
+        "commander_damage_multiplier", affects="all",
+        params={"multiplier": int(p.get("multiplier", 3))},
+    ),
+)
+EffectRegistry.register(
     "request_prevent_damage_source",
     # RULE 615/616.1d "the next time a source of your choice would deal
     # damage to `<recipient>` this turn, prevent that damage" (MEC-30 —
@@ -2017,6 +2024,12 @@ EffectRegistry.register(
     "collect_evidence", lambda p: CollectEvidenceEffect(amount=int(p.get("amount", 0) or 0)),
 )
 EffectRegistry.register(
+    "exile_self_collect_evidence_return",
+    lambda p: ExileSelfCollectEvidenceReturnEffect(
+        amount=int(p.get("amount", 0) or 0), tapped=bool(p.get("tapped", True)),
+    ),
+)
+EffectRegistry.register(
     # RULE 701.61 "Forage" as a resolving effect (the "you may" is the
     # segmenter's outer optional peel). See `ForageEffect`.
     "forage", lambda p: ForageEffect(),
@@ -2742,6 +2755,7 @@ EffectRegistry.register(
     "meld",
     lambda p: MeldEffect(
         partner_name=p.get("partner_name", ""), result_name=p.get("result_name", ""),
+        tapped_attacking=bool(p.get("tapped_attacking", False)),
     ),
 )
 EffectRegistry.register(

@@ -583,9 +583,14 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 46.3% (16,106 / 34,811) as of 2026-09-20, measured at
-PARSER_VERSION 438**; the Commander-legal slice is **48.6% (15,473 /
-31,830)**. v438 closes PAR-90: suspected-state conditions can read the
+**Coverage: 46.3% (16,122 / 34,811) as of 2026-09-20, measured at
+PARSER_VERSION 440**; the Commander-legal slice is **48.7% (15,488 /
+31,830)**. v440 closes PAR-92: second-spell and domain cost reductions,
+self graveyard-to-library replacements, Triple Threat's commander-damage
+multiplier, and attack-triggered Meld are modeled. v439 closes PAR-91:
+optional collect-evidence costs now gate
+self discounts, and Lamplight Phoenix's evidence-reflexive return resolves.
+v438 closes PAR-90: suspected-state conditions can read the
 source, an Aura host, and an activation's sacrificed-cost creature; it also
 models Frantic Scapegoat's optional non-target selection and reflexive tail.
 v437 closes PAR-89: named-counter entry cycles and hand-cast

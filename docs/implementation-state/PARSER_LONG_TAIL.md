@@ -25,9 +25,26 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**46.3% covered — 16,106 / 34,811 — as of 2026-09-20, PARSER_VERSION 438.**
-Commander-legal slice (the one the product actually plays): **48.6% —
-15,473 / 31,830** (measure with `--commander-legal-only`).
+**46.3% covered — 16,122 / 34,811 — as of 2026-09-20, PARSER_VERSION 440.**
+Commander-legal slice (the one the product actually plays): **48.7% —
+15,488 / 31,830** (measure with `--commander-legal-only`).
+
+### PAR-92: Small verified residue batch (PARSER_VERSION 440)
+
+- **What:** The five independently verified shapes are modeled: second-spell
+  cast discounts, domain reductions for basic land types, self
+  graveyard-to-library replacements, Triple Threat's commander-damage
+  multiplier, and attack-triggered Meld.
+- **Verification:** `tests/test_par92_cost_reductions.py` and
+  `tests/test_par92_residue_batch.py`; all ticket clauses are claimed by the
+  cache probe.
+
+### PAR-91: Optional collect-evidence conditional riders (PARSER_VERSION 439)
+
+- **What:** Optional collect-evidence cast costs now feed the existing
+  cast-state condition into self cost reductions; Lamplight Phoenix's
+  exile/evidence/reflexive tapped return resolves atomically.
+- **Verification:** `tests/test_par91_collect_evidence_conditions.py`.
 
 ### PAR-90: Suspected-state resolve-time referents (PARSER_VERSION 438)
 

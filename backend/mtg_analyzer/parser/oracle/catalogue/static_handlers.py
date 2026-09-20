@@ -532,6 +532,18 @@ _SELF_COST_REDUCTION_GY_RE = re.compile(
     r"(?P<word>[a-z]+(?: and sorcery)?) cards? in your graveyard",
     re.IGNORECASE,
 )
+_SELF_COST_REDUCTION_BASIC_LAND_TYPES_RE = re.compile(
+    r"this spell costs \{(?P<n>\d+)\} less to cast for each basic land type among lands you control",
+    re.IGNORECASE,
+)
+_SECOND_SPELL_COST_REDUCTION_RE = re.compile(
+    r"the second spell you cast each turn costs \{(?P<n>\d+)\} less to cast",
+    re.IGNORECASE,
+)
+_SELF_GRAVEYARD_SHUFFLE_RE = re.compile(
+    r"if ~ would be put into a graveyard from anywhere, reveal ~ and shuffle it into its owner'?s library instead",
+    re.IGNORECASE,
+)
 #: The `<type>` words `_SELF_COST_REDUCTION_GY_RE` accepts, → the
 #: `continuous.count_selector` name. Kept explicit for the same reason
 #: `_SPELL_COST_SUBTYPE_WORDS` is.
@@ -2895,6 +2907,8 @@ def _vehicle_scope_params(m: "re.Match[str]") -> dict:
 #: whole clause unclaimed (fail-closed), which is why this list is ordered
 #: most-specific-first.
 _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
+    (re.compile(r"evidence was collected", re.I),
+     lambda m: {"kind": "flag", "flag": "additional_cost_paid"}),
     (re.compile(r"~ is suspected", re.I),
      lambda m: {"kind": "flag", "flag": "is_suspected", "of": "source"}),
     (re.compile(r"it'?s not suspected", re.I),
@@ -3713,6 +3727,13 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     `_ATTACHED_SUBJECTS` above.
     """
     text = clause.strip().rstrip(".").strip()
+    if _SELF_GRAVEYARD_SHUFFLE_RE.fullmatch(text):
+        return [EffectSpec("grant_graveyard_to_library_replacement", {"affects": "self"})]
+    if re.fullmatch(
+        r"if an opponent would be dealt commander damage, they receive triple that amount of commander damage instead",
+        text, re.IGNORECASE,
+    ):
+        return [EffectSpec("commander_damage_multiplier", {"multiplier": 3})]
     # ``additional`` is semantic emphasis for an additive P/T modifier, not
     # a different layer operation: "White creatures get an additional
     # +1/+1" is simply another ordinary anthem.
@@ -4068,6 +4089,20 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
                 {"affects": "self", "generic": int(m.group("n")), "per": selector},
             )
         ]
+
+    m = _SELF_COST_REDUCTION_BASIC_LAND_TYPES_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("cost_reduction", {
+            "affects": "self", "generic": int(m.group("n")),
+            "per": "basic_land_types_among_lands_you_control",
+        })]
+
+    m = _SECOND_SPELL_COST_REDUCTION_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("cost_reduction", {
+            "affects": "your_spells", "generic": int(m.group("n")),
+            "active_if": {"kind": "spells_cast_this_turn", "min": 1, "max": 1},
+        })]
 
     m = _SELF_COST_REDUCTION_IF_RE.fullmatch(text)
     if m is not None:

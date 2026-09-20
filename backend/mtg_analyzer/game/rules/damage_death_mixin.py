@@ -366,7 +366,8 @@ class DamageDeathMixin:
                         by = self.state.damage_dealt_by_this_turn
                         by[source.controller_id] = by.get(source.controller_id, 0) + final
                     if combat and source.is_commander:
-                        final_target.add_commander_damage(source.instance_id, source.name, final)
+                        final_target.add_commander_damage(source.instance_id, source.name,
+                                                          final * self._commander_damage_multiplier(final_target))
                     if combat:
                         self.state.combat_damage_to_players_this_turn.setdefault(
                             source.instance_id, set()
@@ -396,7 +397,8 @@ class DamageDeathMixin:
                     # RULE 903.10a: combat damage from a commander is tallied
                     # separately toward the 21-damage loss threshold.
                     if combat and source.is_commander:
-                        final_target.add_commander_damage(source.instance_id, source.name, final)
+                        final_target.add_commander_damage(source.instance_id, source.name,
+                                                          final * self._commander_damage_multiplier(final_target))
                     if combat:
                         # RULE 120.3: remember *who* this source hit this turn
                         # — "target player who was dealt combat damage by ~
@@ -1955,6 +1957,17 @@ class DamageDeathMixin:
         effect.source = source
         effect.damage_multiplier_grant = True
         controller.player_effects.append(effect)
+
+    def _commander_damage_multiplier(self, recipient: Player) -> int:
+        """Replacement multiplier for commander-damage bookkeeping only."""
+        multiplier = 1
+        for permanent in self.state.battlefield:
+            for ability in getattr(permanent, "static_effects", []):
+                if getattr(ability, "layer", None) != "commander_damage_multiplier":
+                    continue
+                if permanent.controller_id == recipient.id:
+                    multiplier *= int(ability.params.get("multiplier", 3))
+        return multiplier
 
     def _move_to_graveyard(self, obj: GameObject, cause: Optional[str] = None) -> None:
         """Put ``obj`` into its owner's graveyard (RULE 704.5), firing the
