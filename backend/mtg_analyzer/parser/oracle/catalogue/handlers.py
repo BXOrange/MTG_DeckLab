@@ -4027,6 +4027,23 @@ def _return_to_library(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     ]
 
 
+#: "Put target card from a graveyard on the bottom of its owner's library."
+#: (PAR-83 — Junktroller/Chrome Companion).  This is deliberately a
+#: ``return_to_library`` spec rather than a shuffle: RulesEngine.
+#: return_to_library already moves an object from any zone to its owner's
+#: library without randomising it, and ``any_graveyard_card`` is the existing
+#: RULE 115 target vocabulary for a card from any player's graveyard.
+_GRAVEYARD_CARD_TO_LIBRARY_BOTTOM_RE = _c(
+    r"put target card from a graveyard on the bottom of its owner's library"
+)
+
+
+def _graveyard_card_to_library_bottom(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("return_to_library", {
+        "target_kind": "any_graveyard_card", "position": "bottom",
+    })]
+
+
 #: "Return ~ to its owner's hand." (RULE 701.3, self form — no RULE 115
 #: target and no player choice, the bounce sibling of `_sacrifice_self`/
 #: `_exile_self`). Two families of real cards, both Aura-heavy:
@@ -13951,6 +13968,15 @@ HANDLERS: list[EffectHandler] = [
         "return_to_library",
         _c(rf"put {TARGET} on (?:top|the (?P<pos>bottom)) of its owner's library"),
         _return_to_library,
+    ),
+    # "Put target card from a graveyard on the bottom of its owner's
+    # library." (PAR-83 — Junktroller/Chrome Companion).  Its target is a
+    # card in any graveyard, not the battlefield target the generic tempo-
+    # bounce row directly above accepts.
+    EffectHandler(
+        "graveyard_card_to_library_bottom",
+        _GRAVEYARD_CARD_TO_LIBRARY_BOTTOM_RE,
+        _graveyard_card_to_library_bottom,
     ),
     # "return all nonland permanents with mana value X or less to their
     # owners' hands." (Displacement Wave).

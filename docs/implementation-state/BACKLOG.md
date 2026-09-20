@@ -100,11 +100,6 @@ its block back into the matching section here.
   > full cache, then batch the small ones rather than opening one ticket
   > per shape.
 
-- **PAR-83 · "`<cost>`: put target card from a graveyard on the bottom of
-  its owner's library."** A new one-shot effect verb, distinct from the
-  existing shuffle-into-library family — no shuffle involved, straight to
-  bottom. Confirmed: 12 SOLO, 2 also-blocked. Chrome Companion, Cogwork
-  Archivist.
 - **PAR-84 · Tap-and-skip-next-untap family.** Two grammatical shapes of
   the same underlying effect: a static/one-shot form ("tap up to N target
   creatures. those creatures don't untap during their controller's next

@@ -583,9 +583,13 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 45.94% (15,993 / 34,811) as of 2026-09-19, measured at
-PARSER_VERSION 427**; the Commander-legal slice is **48.3% (15,362 /
-31,830)**. v427 closes PAR-117: player-Aura attachment and attached-player
+**Coverage: 46.0% (16,019 / 34,811) as of 2026-09-20, measured at
+PARSER_VERSION 430**; the Commander-legal slice is **48.3% (15,387 /
+31,830)**. v430 closes PAR-83: a targeted card from any graveyard can be
+put on the bottom of its owner's library without shuffling it (Junktroller,
+Chrome Companion and ten siblings), reusing the existing from-any-zone
+`return_to_library` primitive with its `any_graveyard_card` target kind.
+Focused PAR-83 tests are green (4 passed). v427 closes PAR-117: player-Aura attachment and attached-player
 attack conditions (Curse of the Forsaken); group-subject attack/block/self-KW
 tails; Perplex's targeted discard-hand counter-tax; Torment of Venom's
 prior-target-controller sacrifice-or-discard choice; and Fade Away/Killing

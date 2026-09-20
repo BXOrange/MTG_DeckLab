@@ -3412,7 +3412,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: +18 (Edric, Essence/Brood/Synapse Sliver, Rakish Heir, Stensia
 #: Masquerade, and 12 bonus cards sharing the widened subtype/group-subject
 #: axis outside this ticket's own search phrase), 0 regressed.
-PARSER_VERSION = "429"
+PARSER_VERSION = "430"
 
 
 def parser_source_hash() -> str:

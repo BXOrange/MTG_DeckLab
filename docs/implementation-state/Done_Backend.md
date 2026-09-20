@@ -6648,6 +6648,24 @@ measurement of why is the useful half of this work.
 
 ## Oracle-Text Parser Front-End
 
+### PAR-83: Targeted graveyard card to library bottom (PARSER_VERSION 430)
+
+- **What:** Parser recognition now reaches the existing `return_to_library`
+  one-shot primitive for "put target card from a graveyard on the bottom of
+  its owner's library" (Chrome Companion, Junktroller, and ten siblings).
+  The target is `any_graveyard_card`, so it can be selected from any player's
+  graveyard; `RulesEngine.return_to_library` moves it from that zone to its
+  owner's library at index zero, preserving the existing library's order and
+  deliberately not shuffling. The ticket's claim that this needed a new
+  engine effect was stale: the generic, from-any-zone primitive already had
+  the precise owner and bottom-placement semantics.
+- **Verification:** `tests/test_par83_graveyard_library_bottom.py` covers the
+  exact emitted spec, a top-of-library near miss that remains unclaimed, real
+  Junktroller parsing, and activating Junktroller against an opponent's
+  graveyard card end to end. `parser_probe.py diff` reports +12 (the twelve
+  confirmed SOLO cards), 0 regressed; full-cache coverage is 16,019 / 34,811
+  (46.0%), Commander-legal 15,387 / 31,830 (48.3%).
+
 ### PAR-82: Quoted Static Grants — Residue After a Stale Premise (in progress, PARSER_VERSION 397)
 
 - **What:** The ticket's own framing — "these two specific subject shapes
