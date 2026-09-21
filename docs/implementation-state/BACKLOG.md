@@ -44,6 +44,27 @@ its block back into the matching section here.
 
 ## ENG — Game engine
 
+- **ENG-47 · Turn-scoped event queries + one amount operand (replace the per-card
+  trackers and per-verb amount flags).** Two hand-maintained families that
+  every new parser row grows. **(a)** `GameState` carries 37 `*_this_turn`/
+  `*_this_combat` trackers (`life_gained_this_turn`, `creatures_died_this_turn`,
+  `permanents_left_battlefield_this_turn`, …), each with its own update site,
+  reset and ~125 read sites in `continuous.py`/`static_conditions.py`/
+  `effect_conditions.py`, while `GameState.event_log` already records every
+  fired event chronologically — but `GameEvent` carries no turn stamp. Stamp the
+  turn (and, for zone-change events, the RULE 400.7 snapshot) and answer "did X
+  happen this turn" / "how many X this turn" as one filtered query over the log;
+  migrate trackers one at a time behind the existing names. **(b)** 43 effect
+  classes carry 124 `amount_from_*`/`count_from_*`/`amount_if_*` parameters
+  (`DealDamageEffect` 18; `LoseLifeEffect`/`AddCountersEffect`/`PumpEffect` 10
+  each — `amount_if_kicked`/`_raid`/`_bargained`/`_teamwork`/`_full_party`/
+  `_cast_from_exile`, `amount_from_life_gained_this_turn`, …) although ENG-37's
+  `bind` (measure X → substitute) and `if_else` (condition → A else B) already
+  express both once. Route the parser through `bind`/`if_else` and retire the
+  per-verb flags as their last user migrates. Prerequisite for the
+  quantity/condition halves of PAR-120; no coverage change on its own (measure
+  with `parser_probe.py diff` + the full suite).
+
 ## PAR — Parser
 
 - **PAR-12 · The indefinite long tail (methodology pointer, not a closeable
@@ -82,7 +103,7 @@ its block back into the matching section here.
   > confirmed that PAR-63 had already removed every concrete cross-module
   > duplication, while `TARGET` is the wrong grammar for statics. `PAR-117`
   > is PAR-115's residue (the referent
-  > shapes PAR-115 didn't reach). First free id: **`PAR-119`**. A genuinely
+  > shapes PAR-115 didn't reach). First free id: **`PAR-125`**. A genuinely
   > new engine primitive found along the way still files as its own
   > `MEC-*` ticket — only the sweep itself stays out of this file.
   >
@@ -99,11 +120,6 @@ its block back into the matching section here.
   > existing ticket it already belongs under, size each shape against the
   > full cache, then batch the small ones rather than opening one ticket
   > per shape.
-
-<!--
-
-  (`parser_probe.py blocked "this ability costs \{"`). A-Llanowar
--->
 
 - **PAR-118 · "Exile a card from your hand with N time counters on it, it gains suspend."** Alaundo the Seer's
   "{T}: draw a card, then exile a card from your hand and put a number of
@@ -126,6 +142,114 @@ its block back into the matching section here.
   (its own trigger is `LAST_TIME_COUNTER_REMOVED`, which exists) and a
   per-owner "remove a time counter from each other card" sweep.
 
+- **PAR-119 · Composed trigger-head grammar (event × actor × subject × quantity ×
+  qualifier) — remaining axes.** `parser_probe.py composition summary` at PARSER_VERSION
+  450: about 690 distinct trigger heads still block cards whose body parses alone. What is
+  built: the cast head (`catalogue/spell_phrase.py`) and the object head
+  (`catalogue/object_trigger_head.py`: enters / dies / attacks / blocks / leaves, deals
+  [combat|noncombat] damage [to …], sacrifices / discards `<object>`, "X and whenever Y"),
+  both over `catalogue/characteristic_phrase.py` and `catalogue/trigger_context.py`. Still
+  open, in order of size: **(a) batch quantity** — "N or more X enter / leave / attack /
+  are discarded / are put into a graveyard / deal combat damage" (three event-specific
+  `_BATCH_*_TRIGGER_RE` rows exist; the engine fires one event per object, so a batch needs
+  simultaneous-event grouping, RULE 603.2c, not just a parser row); **(b) attack/block
+  predicates** — "attacks while `<state>`" (saddled, "you control a creature with power N or
+  greater"), "attacks and isn't blocked", "blocks / becomes blocked by `<object phrase>`"
+  (the BLOCKS event needs the other creature's id), "you attack with N or more creatures",
+  "`~` and at least N other creatures attack" (≈100 cards); **(c) zone origin** — "enters
+  from a graveyard/exile", "is put into a graveyard from anywhere/a library" (`from_zone`
+  is stamped on `SPELL_CAST` only); **(d) player-event heads** — "you draw your Nth card each
+  turn", "an opponent loses life", "you gain life during your turn", cycles, land plays;
+  **(e) cast leftovers** — ordinals ("your first spell each turn"), "or copies", "that has
+  an adventure". Heads that need a *new event* (crank a Contraption, exploit, saddle,
+  expend, commit a crime, unlock a door/room) are `MEC-*` work, not composition. **Then
+  migrate the legacy rows onto the composed heads** (`_GROUP_SUBJECT_RE`,
+  `_GROUP_SUBTYPE_SUBJECT_RE`, `_SELF_OR_GROUP_*`, `_DAMAGE_TRIGGER_RE`,
+  `_DAMAGE_RECIPIENT_TRIGGER_RE`, `_BECOMES_TARGET_TRIGGER_RE`, the seven
+  `_CAST_SPELL_TRIGGER_*` rows): emit the legacy condition keys from the composed head so
+  the `AbilitySpec`s are identical, diff the whole cache, delete the row. Known defect to
+  fix in that migration: `_CAST_SPELL_TRIGGER_PLAIN_RE`'s "during an opponent's turn" tail
+  is caster-relative (`not_controllers_turn`), while RULE 102.2 and the composed head's
+  `phase_relation` are controller-relative. Measure each step with `parser_probe.py
+  composition heads --family <f>` and `parser_probe.py diff` (0 regressed), and **execute**
+  a sample of the newly claimed cards — the parse verdict alone hid four wrong-but-MODELED
+  shapes at v450 (see `PARSER_LONG_TAIL.md`).
+- **PAR-120 · Shared count / filter / condition vocabulary.** One phrase →
+  structured-selector table instead of eleven (`_FOR_EACH_SELECTORS`,
+  `_PT_CDA_SELECTORS`, `_GY_COST_COUNT_SELECTORS`, `_CONTROL_COUNT_SELECTORS`,
+  `_SELF_ANTHEM_FOR_EACH_SELECTORS`, `_PUMP_X_SELECTOR_PHRASES`,
+  `_ACTIVATION_COST_REDUCTION_SELECTORS`, `_GROUP_SELECTORS`, …): 106 entries
+  that reduce to 59 distinct selectors (`creatures_you_control` is spelled in 6
+  tables; 17 phrase keys repeat), feeding cost reductions, CDAs, "for each",
+  "where X is …" and pumps. On the engine side `continuous.count_selector` is a
+  string mini-language (~80 named branches + ~20 prefix parsers such as
+  `creatures_you_control_with_power_ge_N`) although `combat.matches_object_
+  filter` already is a structured ~35-key filter; emit `{zone, controller,
+  filter}` selectors evaluated through it and keep the old names as aliases
+  until the full-cache diff is clean. Same vocabulary for **conditions**: a
+  leading "if `<cond>`," repairs **656 failing effect sentences (590 cards)**
+  once the condition parses (`parser_probe.py composition conds`); after
+  excluding reflexive "if you do" they are comparator × count × filter/zone,
+  "X happened this turn" (needs ENG-47), referent state ("it was a creature"),
+  or cast provenance ("if you cast it from your hand"). Other modifier axes the
+  same probe measures: "for each `<count>`" 187 sentences, scope words ("each
+  opponent"/"target player") 47, "you don't control"/"an opponent controls" 51,
+  "another/other" 54, "where X is" 62. **Absorbs PAR-101's count phrases and
+  PAR-110's three "costs less for each …" bullets** — implement those through
+  this table, not as rows.
+- **PAR-121 · Subject-scope slot and per-verb connective de-duplication (no
+  coverage change).** Roughly a third of the parser's regexes sit in
+  near-duplicate clusters (`parser_probe`-style token-similarity clustering,
+  49 clusters). The two families that matter: **(a) subject scope** — the same
+  verb re-registered per subject (self / target / previous target(s) / group /
+  attached host / "its controller"): prevent-damage ≈27 rows, skip-untap,
+  pump-previous/target/group, its-controller draw/discard, attached
+  tap/exile/phase-out; **(b) connectives** — `_SACRIFICE_/_DESTROY_/_TAP_/
+  _EXILE_UNLESS_PAY_RE` are identical except the leading verb (the "pay or
+  discard" cost alternation is pasted five times), and the `_X_THEN_WHEN_YOU_DO_
+  RE` family re-matches an antecedent the normal clause parser already handles
+  (`_TAP_THEN_WHEN_YOU_DO_RE` hard-codes one card's whole text). Also the 32
+  `*_DEVOTION_*` rows, which are verb × one count phrase (fold into PAR-120's
+  table). Measured 2026-09-21: only 1 clause fails as a whole when every
+  sentence parses, so this is maintainability and future-recombination work —
+  do it when touching a verb, and never as a large batch (handler-recipe.md's
+  v408 lesson: audit shipped rows, delete strict subsets).
+- **PAR-122 · Trigger-doubler recognition ("… triggers an additional time").**
+  32 cached cards print this axis (Panharmonicon, Teysa Karlov, Naban, Chief of
+  the Wilds, Cloud Midgar Mercenary, The Masamune, …), differing only in the
+  scope filter (what enters/dies/attacks, whose ability). The engine primitive
+  exists (`continuous.trigger_doubler_bonus`/`TriggerDoublerEffect`, built for
+  Roaming Throne) and only hand-authored cards use it; nothing parses it. Size
+  with `parser_probe.py blocked "triggers an additional time"` and route the
+  scope through PAR-119's event/filter phrase, not a row per card.
+- **PAR-123 · A bare "it" under a group-subject trigger acts on the ability's source
+  (retarget beyond `tap`).** "Whenever `<group>` `<verb>`, return/exile/… **it**" parses to
+  an effect with `target_kind: None`, which resolves to the *source*, not the object that
+  fired the trigger; `binding/core.py`'s `_GROUP_SUBJECT_RETARGET_FIELDS` rewrites `tap`
+  only, because an explicit "return ~ to its owner's hand" (12 cards: the Dragonstorm/
+  Trial cycles, Timid Drake) shares the identical spec. Three already-claimed cards are
+  wrong today (Cunning Evasion, Grazilaxx, Gossip's Talent), and PAR-119's composed head
+  refuses the same shape (Dissipation Field, Rienne, Angel of Rebirth — the latter also
+  needs a graveyard-to-hand delayed return; `return_specific_to_hand` is battlefield-only).
+  Fix at the parse: let the pronoun rows (`it` / `that creature`) emit a distinct marker
+  from the explicit `~` rows, retarget on the marker for every effect type that has a
+  `trigger_subject` mode (add it to `return_to_hand` / `exile` / `pump` / `copy_permanent`
+  as each one is exercised), then lift the refusal in `segmenter._group_it_would_hit_source`.
+- **PAR-124 · Turn-scoped delayed event triggers ("… this turn", "until end of turn,
+  whenever …") on a resolving spell.** RULE 603.7: a spell that says "Whenever a creature
+  attacks this turn, …" creates a delayed triggered ability that lasts the turn; the parser
+  emits an ordinary permanent trigger instead, and `_collect_triggers` only scans
+  permanents (plus graveyard-function abilities), so it can never fire. Seven claimed
+  cards are inert today (Beck // Call, Bonus Round, First Day of Class, Indulge // Excess,
+  Mage Hunters' Onslaught, Ondu Rising, Rite of Harmony) and about 27 more stay unclaimed
+  on the same phrase (Battle Cry, Consuming Rage, Descend on the Prey, Bubbling Muck,
+  False Cure, Doublecast, Dual Strike, Complete the Circuit …). Needs one primitive — a
+  `GameState` list of turn-scoped `TriggeredAbility` objects created at resolution
+  (source = the spell, expiring at cleanup; `DelayedTrigger` today is step-based only) that
+  `_collect_triggers` also scans — plus the parser wrapping a spell-level trigger in it.
+  "When you next cast an instant or sorcery spell this turn" is the one-shot variant. Verify
+  the seven inert claims by execution first; `object_trigger_head` refuses "this turn" until
+  this exists.
 - **PAR-99 · Khans-of-Tarkir "choose khans or dragons" Siege cycle.** The
   ETB choice itself (`as ~ enters, choose khans or dragons.`) already
   parses — confirmed via `parser_probe.py blocked "as .* enters, choose
@@ -167,8 +291,8 @@ its block back into the matching section here.
   "power is equal to the number of land cards in your graveyard" (**2
   SOLO** — Uurg, Spawn of Turg and its Alchemy rebalance). These five are
   one axis — the count phrase — so build a single phrase → `count_selector`
-  table (the `_GY_COST_COUNT_SELECTORS` idiom in `static_handlers.py`), not
-  five rows.
+  table (the `_GY_COST_COUNT_SELECTORS` idiom in `static_handlers.py`) — **build
+  it under PAR-120**, not as five rows.
 - **PAR-102 · Pump + arbitrary keyword/quoted-ability grant in one
   sentence (general form).** "Target/that creature gets +N/+N and gains
   `<keyword>`/"`<quoted ability>`" until end of turn" — PAR-79's own
@@ -404,9 +528,8 @@ its block back into the matching section here.
       Karlov, Naban, Chief of the Wilds, Cloud Midgar Mercenary, …)
       differing only in the scope filter. The engine primitive exists
       (`continuous.trigger_doubler_bonus`/`TriggerDoublerEffect`, built for
-      Roaming Throne) and is used by hand-authored cards only — **no ticket
-      tracks the parser side; worth its own PAR-* ticket**, not a per-card
-      row.
+      Roaming Throne) and is used by hand-authored cards only — the parser
+      side is **PAR-122**, not a per-card row.
     - **"Conjure a card named `<X>` onto the battlefield tapped and
       attacking":** Stormforged Armor (SOLO) + Kari Zev, Crew of Two (also
       blocked by its own riders) — a 2-card Alchemy-conjure cluster.
@@ -489,7 +612,7 @@ its block back into the matching section here.
   > (`_SELF_COST_REDUCTION_ATTACKING_RE`, `_PARTY_RE`, `_GY_RE`,
   > `_BASIC_LAND_TYPES_RE`) differing only in which `count_selector` name
   > the phrase maps to. Do **not** add three more. Factor the "for each
-  > `<X>`" axis into one row keyed by a phrase → selector table (a partial
+  > `<X>`" axis (**PAR-120**) into one row keyed by a phrase → selector table (a partial
   > one, `_GY_COST_COUNT_SELECTORS`, already exists). `continuous.
   > count_selector` **already has** `creatures_died_this_turn` and
   > `creatures_opponents_control`, so two of the three are pure recognition
