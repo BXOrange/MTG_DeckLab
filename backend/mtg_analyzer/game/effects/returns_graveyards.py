@@ -135,9 +135,17 @@ class ReturnToHandEffect(GameEffect):
         colors: Optional[list[str]] = None,
         to_library_top_if_clash_won: bool = False,
         then_specs: Optional[list[dict]] = None,
+        trigger_event_key: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: ``target_kind="trigger_subject"`` (PAR-123, Cunning Evasion's "whenever
+        #: a creature you control becomes blocked, you may return **it** …") —
+        #: the acted-on object is whichever one fired this trigger, read live
+        #: off `GameContext.trigger_event` under ``trigger_event_key``, the
+        #: same mode `TapEffect`/`ExileEffect` already have.
+        self._trigger_subject_mode = target_kind == "trigger_subject"
+        self.trigger_event_key = trigger_event_key or "instance_id"
         #: "Clash with an opponent, then return target creature to its
         #: owner's hand. **If you win, you may put that creature on top of
         #: its owner's library instead.**" (Whirlpool Whelm) — the clash
@@ -183,6 +191,7 @@ class ReturnToHandEffect(GameEffect):
                 creature_filter=creature_filter,
             )
             if target_kind is not None and not previous_subject and self.selector is None
+            and not self._trigger_subject_mode
             else None
         )
 
@@ -202,6 +211,12 @@ class ReturnToHandEffect(GameEffect):
             # path `DestroyEffect`'s own mass wipes use).
             for obj in _mass_selector_objects(context, self.selector, self.filter, source=self.source):
                 bounce(obj)
+            return
+        if self._trigger_subject_mode:
+            obj_id = (context.trigger_event or {}).get(self.trigger_event_key)
+            target = context.state.find_object(obj_id) if obj_id is not None else None
+            if target is not None:
+                bounce(target)
             return
         if self.previous_subject:
             # "Return those creatures to their owners' hands." (PAR-1) — the
@@ -1634,16 +1649,28 @@ class BlinkEffect(GameEffect):
         optional: bool = False,
         count: int = 1,
         count_max: Optional[int] = None,
+        trigger_event_key: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
-        self.target_spec = TargetSpec(
+        #: ``target_kind="trigger_subject"`` (PAR-123, Gossip's Talent's "exile
+        #: **it**, then return it …") — no RULE 115 target; the object that
+        #: fired the trigger, read off `GameContext.trigger_event`.
+        self._trigger_subject_mode = target_kind == "trigger_subject"
+        self.trigger_event_key = trigger_event_key or "instance_id"
+        self.target_spec = None if self._trigger_subject_mode else TargetSpec(
             kind=target_kind, creature_filter=creature_filter,
             optional=optional, count=count, count_max=count_max,
         )
         self.under_your_control = under_your_control
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self._trigger_subject_mode:
+            obj_id = (context.trigger_event or {}).get(self.trigger_event_key)
+            subject = context.state.find_object(obj_id) if obj_id is not None else None
+            if subject is not None:
+                context.blink(subject)
+            return
         chosen = targets if targets else ([self.target] if self.target is not None else [])
         controller = _controller_of(self.source, context) if self.under_your_control else None
         for target in chosen:

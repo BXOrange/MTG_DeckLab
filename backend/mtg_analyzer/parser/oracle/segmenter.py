@@ -47,7 +47,7 @@ from .catalogue.static_handlers import (
     static_effect_specs,
 )
 from .catalogue.subgrammars import COLOR_WORD_ALT, resolve_color_word
-from .spec import AbilitySpec, EffectSpec, ParserProvenance
+from .spec import GROUP_SUBJECT_KEY_SENTINEL, AbilitySpec, EffectSpec, ParserProvenance
 
 #: RULE 603.1's object-subject trigger *verbs*, longest phrase first, each
 #: mapped to the `EventType` the engine actually fires for it. **One table**
@@ -5230,26 +5230,74 @@ def _segment_keyword_labeled_ability(
 #: A bare pronoun in a trigger body ("return **it**", "exile **that creature**").
 _BARE_PRONOUN_RE = re.compile(r"\b(?:it|that (?:creature|permanent|artifact|land|token))\b")
 
-#: Effect types the binder rewrites from an implicit ``target_kind: None`` to the
-#: acting object of a group-subject trigger (`game/binding/core.py`'s
-#: ``_GROUP_SUBJECT_RETARGET_FIELDS``); keep the two in step.
-_GROUP_IT_RETARGETED: frozenset[str] = frozenset({"tap"})
+#: An explicit naming of the ability's own source in a normalised body ("~", or the
+#: "this card"/"this spell" phrasings `normalize` leaves alone).
+_EXPLICIT_SOURCE_RE = re.compile(r"~|\bthis (?:card|spell|creature|permanent|artifact|enchantment|land)\b")
+
+#: Effect types whose untargeted form ("it") has a ``"trigger_subject"`` mode — the
+#: object that fired a group trigger, read off the event at resolution.
+_GROUP_IT_RETARGETED: frozenset[str] = frozenset({"tap", "return_to_hand", "exile"})
+
+
+def _stamp_group_pronoun(
+    condition: Optional[dict[str, Any]], body: str, effects: "list[EffectSpec]"
+) -> "Optional[list[EffectSpec]]":
+    """PAR-123: under a group-subject trigger a bare "it"/"that creature" is the
+    object that fired the trigger, whereas "~" is the source. Both parse to the
+    same untargeted spec (``target_kind: None``, which acts on the source), so the
+    parser — the only place the words are visible — stamps the pronoun reading
+    onto each effect that has a trigger-subject mode; the binder resolves which
+    event field names the object (`GROUP_SUBJECT_KEY_SENTINEL`).
+
+    A body that also names the source explicitly is left as parsed ("exile ~, then
+    return it" is the source both times). ``None`` means the body is a pronoun
+    reading no effect here can honour, so the line stays unclaimed."""
+    if (condition or {}).get("subject") != "group":
+        return effects
+    lowered = body.lower()
+    if _BARE_PRONOUN_RE.search(lowered) is None or _EXPLICIT_SOURCE_RE.search(lowered):
+        return effects
+    stamped: list[EffectSpec] = []
+    index = 0
+    while index < len(effects):
+        effect = effects[index]
+        following = effects[index + 1] if index + 1 < len(effects) else None
+        if (effect.type == "exile" and effect.params.get("target_kind", "unset") is None
+                and following is not None and following.type == "return_self_to_battlefield"):
+            # "exile it, then return it to the battlefield under its owner's control"
+            if following.params != {"tapped": False}:
+                return None
+            stamped.append(EffectSpec(
+                "blink", {"target_kind": "trigger_subject",
+                          "trigger_event_key": GROUP_SUBJECT_KEY_SENTINEL},
+                condition=effect.condition,
+            ))
+            index += 2
+            continue
+        if effect.type in _GROUP_IT_RETARGETED and effect.params.get("target_kind", "unset") is None:
+            params = dict(effect.params)
+            params["target_kind"] = "trigger_subject"
+            params["trigger_event_key"] = GROUP_SUBJECT_KEY_SENTINEL
+            effect = EffectSpec(effect.type, params, condition=effect.condition)
+        stamped.append(effect)
+        index += 1
+    return stamped
 
 
 def _group_it_would_hit_source(
     condition: Optional[dict[str, Any]], body: str, effects: "list[EffectSpec]"
 ) -> bool:
-    """Whether a group-subject trigger body's bare "it" would resolve to the wrong
-    permanent. With a group subject "it" is the object that fired the trigger, but
-    an effect parsed with no target (``target_kind: None``), or a delayed capture
-    that falls back to the source, acts on *this ability's own source* — wrong,
-    yet claimed. Only the effect types the binder retargets are safe."""
+    """Whether a group-subject trigger body's bare "it" would still resolve to the
+    wrong permanent after `_stamp_group_pronoun`. With a group subject "it" is the
+    object that fired the trigger, but an effect parsed with no target
+    (``target_kind: None``), or a delayed capture that falls back to the source,
+    acts on *this ability's own source* — wrong, yet claimed."""
     if (condition or {}).get("subject") not in ("group", "self_or_group"):
         return False
     if _BARE_PRONOUN_RE.search(body.lower()) is None:
         return False
     return any(
-        (e.params.get("target_kind", "unset") is None and e.type not in _GROUP_IT_RETARGETED)
+        e.params.get("target_kind", "unset") is None
         or (e.type == "create_delayed_trigger" and e.params.get("capture") == "previous_or_self")
         for e in effects
     )
@@ -5265,6 +5313,79 @@ _COMPOUND_TRIGGER_RE = re.compile(
 )
 
 
+#: PAR-124 (RULE 603.7a): a spell's "Whenever <event> this turn, <effect>" / "Until end
+#: of turn, whenever <event>, <effect>" creates a triggered ability that lasts the turn —
+#: it is not a permanent's ability, so it must not be parsed as one.
+_TURN_TRIGGER_RE = re.compile(
+    r"^(?:until end of turn,\s*(?P<kw1>whenever|when)\s+(?P<cond1>[^,]+?)"
+    r"|(?P<kw2>whenever|when)\s+(?P<cond2>[^,]+?)\s+this turn),\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+
+#: "when you next cast an instant or sorcery spell this turn" — the one-shot variant.
+_NEXT_CAST_RE = re.compile(r"\byou next cast\b")
+
+
+def _turn_trigger_segment(
+    line: str, *, provenance: ParserProvenance
+) -> "Optional[Segment]":
+    """A spell line that creates a turn-long trigger → its `create_turn_trigger` segment;
+    an unclaimed `Segment` when the trigger inside is not one the grammar reads; ``None``
+    when the line is not this shape at all."""
+    m = _TURN_TRIGGER_RE.match(line.strip())
+    if m is None:
+        return None
+    keyword = (m.group("kw1") or m.group("kw2")).lower()
+    condition = m.group("cond1") or m.group("cond2")
+    once = _NEXT_CAST_RE.search(condition.lower()) is not None
+    if once:
+        condition = _NEXT_CAST_RE.sub("you cast", condition.lower())
+    inner = segment_line(
+        f"{keyword} {condition}, {m.group('body')}",
+        allow_spell_effect=False, provenance=provenance,
+    )
+    unclaimed = Segment(raw=line.strip())
+    if not inner.claimed or inner.spec is None or inner.extra_specs:
+        return unclaimed
+    spec = inner.spec
+    if spec.ability_kind != "triggered" or not spec.effects or isinstance(spec.trigger.get("event"), list):
+        return unclaimed
+    return Segment(
+        raw=line.strip(),
+        spec=AbilitySpec(
+            "spell_effect",
+            effects=[EffectSpec("create_turn_trigger", {
+                "trigger": spec.trigger,
+                "effects": [e.to_dict() for e in spec.effects],
+                "optional": bool(spec.optional),
+                **({"once": True} if once else {}),
+                "description": line.strip(),
+            })],
+            raw_text=line.strip(), parser=provenance,
+        ),
+        claimed=True,
+    )
+
+
+def _stamp_group_pronoun_segment(segment: "Segment") -> "Segment":
+    """`_stamp_group_pronoun` over a finished triggered segment — every dispatch that
+    builds a group-subject trigger (damage, batch, object-head, …) is covered here
+    instead of at each of its call sites."""
+    if not segment.claimed or segment.spec is None:
+        return segment
+    trigger_line = _TRIGGER_RE.match(segment.raw.strip().lower())
+    for spec in [segment.spec, *segment.extra_specs]:
+        if spec.ability_kind != "triggered" or trigger_line is None:
+            continue
+        stamped = _stamp_group_pronoun(
+            (spec.trigger or {}).get("condition"), trigger_line.group("body"), spec.effects
+        )
+        if stamped is None:
+            return Segment(raw=segment.raw)
+        spec.effects = stamped
+    return segment
+
+
 def segment_line(
     line: str,
     *,
@@ -5274,9 +5395,13 @@ def segment_line(
 ) -> Segment:
     """Parse one normalised ability ``line`` into a `Segment` — whole first,
     then, if unclaimed, as two independent triggers sharing one body."""
-    whole = _segment_line_unsplit(
+    if allow_spell_effect:
+        turn_trigger = _turn_trigger_segment(line, provenance=provenance)
+        if turn_trigger is not None:
+            return turn_trigger
+    whole = _stamp_group_pronoun_segment(_segment_line_unsplit(
         line, allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga
-    )
+    ))
     if whole.claimed:
         return whole
     m = _COMPOUND_TRIGGER_RE.match(line.strip())
@@ -7470,6 +7595,10 @@ def _segment_line_unsplit(
         )
         if effects is None:
             return Segment(raw=raw)
+        stamped = _stamp_group_pronoun(condition, body, effects)
+        if stamped is None:
+            return Segment(raw=raw)
+        effects = stamped
         if composed_head and _group_it_would_hit_source(condition, body, effects):
             return Segment(raw=raw)
         effects, body_limit = _strip_trigger_once_per_turn_marker(effects)

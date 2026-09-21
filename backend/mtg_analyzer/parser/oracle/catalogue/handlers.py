@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from ..normalize import SELF
-from ..spec import EffectSpec, ParserProvenance
+from ..spec import GROUP_SUBJECT_KEY_SENTINEL, EffectSpec, ParserProvenance
 from .keywords import KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
 from .subgrammars import (
     CANT_BE_COUNTERED_RE,
@@ -7441,7 +7441,7 @@ def _add_counters_group_subject_it(m: re.Match[str]) -> list[EffectSpec]:
     kind, mag = _counter_kind_and_multiplier(m.group("ckind"))
     return [EffectSpec("add_counters", {
         "count": count_of(m.group("n")) * mag, "kind": kind,
-        "trigger_subject_key": "__group_subject__",
+        "trigger_subject_key": GROUP_SUBJECT_KEY_SENTINEL,
     })]
 
 

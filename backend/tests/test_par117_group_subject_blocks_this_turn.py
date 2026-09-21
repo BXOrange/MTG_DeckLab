@@ -39,19 +39,26 @@ def test_mage_hunters_onslaught_becomes_modeled():
 
 
 def test_mage_hunters_onslaught_drains_the_blockers_controller():
+    # A sorcery: "whenever a creature blocks this turn" is created when it resolves
+    # (RULE 603.7a, PAR-124) — it is not an ability of a permanent.
     eng = GameEngine.new_game(
         [("p1", "Alice", []), ("p2", "Bob", [])], starting_life=20, starting_hand=0
     )
     state = eng.state
-    source = GameObject(_db().get_card("Mage Hunters' Onslaught"), owner_id="p1", zone=Zone.BATTLEFIELD)
-    source.controller_id = "p1"
-    bind_from_catalogue(source)
+    spell = GameObject(_db().get_card("Mage Hunters' Onslaught"), owner_id="p1", zone=Zone.HAND)
+    spell.controller_id = "p1"
+    bind_from_catalogue(spell)
+    state.player_by_id("p1").hand.append(spell)
     attacker = _permanent("Attacker", "Creature — Bear", "p1", creature=True)
     blocker = _permanent("Blocker", "Creature — Bear", "p2", creature=True)
-    state.add_to_battlefield(source)
-    state.add_to_battlefield(attacker)
-    state.add_to_battlefield(blocker)
+    victim = _permanent("Victim", "Creature — Bear", "p2", creature=True)
+    for obj in (attacker, blocker, victim):
+        state.add_to_battlefield(obj)
     eng.begin_turn()
+    state.current_step = "main1"
+    eng.rules.cast_without_paying(state.active_player, spell, targets=[victim])
+    eng.resolve_until_stable()
+    assert victim not in state.battlefield
     state.current_step = "declare_attackers"
     eng.declare_attackers(state.active_player, [attacker])
     state.current_step = "declare_blockers"

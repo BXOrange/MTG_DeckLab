@@ -647,11 +647,11 @@ def test_a_printed_multiplier_scales_the_for_each_count():
     assert life == -6
 
 
-def test_group_subject_bare_it_that_would_hit_the_source_fails_closed():
-    # "…deals damage to you, return **it** to its owner's hand": `return_to_hand`
-    # with no target acts on the ability's own source (the Field), not the
-    # damaging permanent — the binder only retargets `tap` for a group subject.
-    assert parse_oracle(_named("Dissipation Field")).modeled is False
+def test_group_subject_bare_it_that_still_would_hit_the_source_fails_closed():
+    # "…dies, return **it** to its owner's hand at the beginning of the next end step":
+    # the delayed return falls back to the ability's own source (and is battlefield-only,
+    # so it could not bring a dead creature back anyway) — refused, not claimed wrong.
+    assert parse_oracle(_named("Rienne, Angel of Rebirth")).modeled is False
 
 
 # ---------------------------------------------------------------------------

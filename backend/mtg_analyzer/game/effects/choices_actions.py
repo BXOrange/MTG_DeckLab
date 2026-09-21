@@ -514,6 +514,65 @@ class InstallTemporaryPlayerTriggerEffect(GameEffect):
         )
 
 
+class CreateTurnTriggerEffect(GameEffect):
+    """A spell or ability that creates a triggered ability lasting the turn (RULE
+    603.7a) — "whenever a creature you control attacks this turn, create a 1/1 …"
+    (Indulge // Excess), "until end of turn, whenever a player casts an instant or
+    sorcery spell, that player copies it" (Bonus Round).
+
+    ``trigger`` is the same dict an ordinary triggered ability carries (event +
+    subject condition + filters) and ``effects`` its ``{"type", "params"}`` body; both
+    are bound here through `bind_ability`, so the trigger is read by exactly the
+    predicates a permanent's would be, with this effect's source (the spell) as the
+    ability's source and its controller as the ability's controller. The result is
+    appended to `GameState.turn_scoped_triggers`. ``once`` makes it the one-shot "when
+    you next cast …" variant.
+    """
+
+    def __init__(
+        self,
+        trigger: Optional[dict[str, Any]] = None,
+        effects: Optional[list[dict[str, Any]]] = None,
+        optional: bool = False,
+        once: bool = False,
+        description: str = "",
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.trigger = dict(trigger or {})
+        self.inner_specs = list(effects or [])
+        self.optional = bool(optional)
+        self.once = bool(once)
+        self.description = str(description)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..binding.core import bind_ability  # function-scoped: effects↔binder cycle
+        from ...parser.oracle.spec import AbilitySpec, EffectSpec
+        from ...models.game.game_state import TurnScopedTrigger
+
+        if not self.trigger.get("event") or not self.inner_specs:
+            return
+        spec = AbilitySpec(
+            "triggered",
+            effects=[
+                EffectSpec(type=d["type"], params=dict(d.get("params") or {}),
+                           condition=d.get("condition"))
+                for d in self.inner_specs
+            ],
+            trigger=dict(self.trigger),
+            optional=self.optional,
+            raw_text=self.description,
+        )
+        ability = bind_ability(spec, source=self.source)
+        controller = _controller_of(self.source, context)
+        for one in ability if isinstance(ability, list) else [ability]:
+            if controller is not None:
+                one.controller_id = controller.id
+            context.state.turn_scoped_triggers.append(
+                TurnScopedTrigger(one, context.state.internal_turn.number, once=self.once)
+            )
+
+
 class PayEnergyThenEffect(GameEffect):
     """RULE 122/601.2b resolve-time optional cost: "you may pay {E}{E}. If you
     do, `<effect>`." (Aether Chaser/Herder/Inspector/Swooper — "…create a 1/1

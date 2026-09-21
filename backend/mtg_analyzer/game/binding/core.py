@@ -29,7 +29,7 @@ from ...parser.oracle.catalogue.handlers import (
     POWERUP_COST_REDUCTION_MARKER,
     SORCERY_SPEED_MARKER,
 )
-from ...parser.oracle.spec import AbilitySpec, EffectSpec
+from ...parser.oracle.spec import GROUP_SUBJECT_KEY_SENTINEL, AbilitySpec, EffectSpec
 from ..costs import ActivationCost, parse_activation_cost
 from ..static_conditions import condition_holds
 from ..effects.core import (
@@ -2394,14 +2394,6 @@ _ATTACHED_PERMANENT_RETARGET_FIELDS: dict[str, str] = {
     "damage_equal_to_power": "dealer_kind",
 }
 
-#: MEC-28's ``{"subject": "group"}`` sibling of the whitelist above — see
-#: `_retarget_implicit_subject_effects`'s docstring for why it's `tap`-only
-#: today rather than mirroring the wider attached-permanent list.
-_GROUP_SUBJECT_RETARGET_FIELDS: dict[str, str] = {
-    "tap": "target_kind",
-}
-
-
 def _retarget_implicit_subject_effects(
     effect_specs: list[EffectSpec], trigger: dict[str, Any]
 ) -> list[EffectSpec]:
@@ -2431,28 +2423,24 @@ def _retarget_implicit_subject_effects(
     "it" effect body today, so leaving it unhandled fails closed rather than
     silently picking the wrong one.
 
-    MEC-28: a ``{"subject": "group"}`` condition ("whenever a creature you
+    MEC-28/PAR-123: a ``{"subject": "group"}`` condition ("whenever a creature you
     control attacks alone, ... untap it.", Raiyuu-shaped) is the same "it"
-    ambiguity one level removed — there's no static field to repoint at all,
-    since *which* object matched varies every firing, so this rewrites
-    ``target_kind: None`` to ``"trigger_subject"`` instead (`TapEffect`'s new
-    mode reading `GameContext.trigger_event` live, the same idiom
-    `GrantKeywordToTriggerSubjectEffect` already uses for Tyvar Kell's
-    emblem) and additionally stamps ``trigger_event_key`` so the effect knows
-    *which* event field names the acting object — `_subject_event_key`'s own
-    per-event-type lookup, the same one the trigger *condition* side already
-    uses to check whether it fired. Scoped to `tap` alone for now — no
-    shipped card needs this retarget for `pump`/`fight`/`copy_permanent`/
-    `damage_equal_to_power` yet, and extending those means confirming each
-    one actually reads `trigger_event_key` the way `TapEffect` was just
-    given, not assuming the shape transfers for free.
+    ambiguity one level removed — *which* object matched varies every firing, so
+    there is no static field to repoint. Here the **parser** decides (it alone
+    can tell a bare "it"/"that creature" from an explicit "~": the binder sees
+    only specs) and stamps ``target_kind: "trigger_subject"`` with the
+    ``GROUP_SUBJECT_KEY_SENTINEL`` as ``trigger_event_key``; this pass only
+    resolves the sentinel to the real event field (`_subject_event_key`, the
+    lookup the trigger *condition* side already uses). An effect the parser left
+    at ``target_kind: None`` under a group trigger names the source explicitly
+    and keeps acting on it.
     """
     condition = trigger.get("condition") or {}
     subject = condition.get("subject")
     if subject == "attached_permanent":
-        retarget_fields, retarget_value = _ATTACHED_PERMANENT_RETARGET_FIELDS, "attached_permanent"
+        retarget_fields = _ATTACHED_PERMANENT_RETARGET_FIELDS
     elif subject == "group":
-        retarget_fields, retarget_value = _GROUP_SUBJECT_RETARGET_FIELDS, "trigger_subject"
+        retarget_fields = {}
     else:
         return effect_specs
     retargeted: list[EffectSpec] = []
@@ -2460,11 +2448,13 @@ def _retarget_implicit_subject_effects(
         field_name = retarget_fields.get(e.type)
         if field_name is not None and field_name in e.params and e.params[field_name] is None:
             params = dict(e.params)
-            params[field_name] = retarget_value
-            if retarget_value == "trigger_subject":
-                params["trigger_event_key"] = _subject_event_key(trigger)
+            params[field_name] = "attached_permanent"
             retargeted.append(EffectSpec(e.type, params, condition=e.condition))
-        elif e.type == "add_counters" and e.params.get("trigger_subject_key") == "__group_subject__":
+        elif e.params.get("trigger_event_key") == GROUP_SUBJECT_KEY_SENTINEL:
+            params = dict(e.params)
+            params["trigger_event_key"] = _subject_event_key(trigger)
+            retargeted.append(EffectSpec(e.type, params, condition=e.condition))
+        elif e.type == "add_counters" and e.params.get("trigger_subject_key") == GROUP_SUBJECT_KEY_SENTINEL:
             # PAR-117: `handlers._add_counters_group_subject_it`'s own
             # sentinel — a bare "it" the parser already confirmed means the
             # RULE 603.1 group subject (its own dedicated, narrowly-matched

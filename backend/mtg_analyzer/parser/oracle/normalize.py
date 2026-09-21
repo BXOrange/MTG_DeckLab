@@ -238,8 +238,12 @@ def _fold_dies_long_form(text: str) -> str:
 #: the middle of that quote instead of the sentence's real end. Runs after
 #: lowercasing, per-line since the duration only ever opens a line (never
 #: appears mid-sentence).
+#: A leading "Until end of turn, whenever …" is not a duration on an effect but the
+#: lifetime of a triggered ability the spell creates (RULE 603.7a, PAR-124) — folding it
+#: to the tail would turn it into an ordinary trigger, so it is left leading for
+#: `segmenter._TURN_TRIGGER_RE`.
 _LEADING_UNTIL_EOT_RE = re.compile(
-    r"^until end of turn, (?P<body>[^.\n]+)\.$", re.MULTILINE
+    r"^until end of turn, (?!(?:whenever|when) )(?P<body>[^.\n]+)\.$", re.MULTILINE
 )
 
 

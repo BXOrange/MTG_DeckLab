@@ -1318,6 +1318,7 @@ EffectRegistry.register(
         colors=p.get("colors"),
         to_library_top_if_clash_won=bool(p.get("to_library_top_if_clash_won", False)),
         then_specs=p.get("then_specs"),
+        trigger_event_key=p.get("trigger_event_key"),
     ),
 )
 EffectRegistry.register(
@@ -1469,6 +1470,18 @@ EffectRegistry.register(
         recipient=p.get("recipient", "defending_player"),
         duration=p.get("duration", "defending_next_turn"),
         event_player_scope=p.get("event_player_scope", "self"),
+    ),
+)
+EffectRegistry.register(
+    # RULE 603.7a: a triggered ability created at resolution that lasts the turn
+    # (Indulge // Excess's "whenever a creature you control attacks this turn").
+    "create_turn_trigger",
+    lambda p: CreateTurnTriggerEffect(
+        trigger=p.get("trigger"),
+        effects=list(p.get("effects", [])),
+        optional=bool(p.get("optional", False)),
+        once=bool(p.get("once", False)),
+        description=p.get("description", ""),
     ),
 )
 EffectRegistry.register(
@@ -2257,6 +2270,7 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)),
         count=p.get("target_count", 1),
         count_max=p.get("target_count_max"),
+        trigger_event_key=p.get("trigger_event_key"),
     ),
 )
 EffectRegistry.register(

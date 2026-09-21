@@ -6764,6 +6764,53 @@ measurement of why is the useful half of this work.
   `test_par79_trigger_conditions`, `test_spell_subtype_trigger_family`,
   `test_strixhaven_secrets_wave14`). Also new: `parser_probe.py composition`.
 
+### PAR-123 / PAR-124: two wrong-but-modeled families closed (PARSER_VERSION 455)
+
+- **PAR-123 — a bare "it" under a group-subject trigger.** "Whenever a creature you control becomes
+  blocked, return **it** to its owner's hand" and "…, return **~** …" parsed to the same untargeted
+  spec, and untargeted means "the ability's own source". Cunning Evasion, Grazilaxx and Gossip's
+  Talent (its level-3 blink) acted on themselves; Baloth Prime's "untap **this creature**" was
+  rewritten by the binder onto the *sacrificed land* — the reverse defect, found while scanning for the
+  first. The parser is the only place the words are visible, so `segmenter._stamp_group_pronoun`
+  (run over every finished trigger segment in `segment_line`, so no dispatch site is missed) stamps the
+  pronoun reading — `target_kind: "trigger_subject"` plus the `GROUP_SUBJECT_KEY_SENTINEL`
+  (`spec.py`) as `trigger_event_key` — on `tap`, `return_to_hand`, `exile`, and on the
+  `exile` + `return_self_to_battlefield` pair, which becomes one `blink`. The binder resolves the
+  sentinel through `_subject_event_key` (the lookup the trigger condition side already uses); the
+  implicit "`tap` with `target_kind: None` under a group subject → trigger subject" rewrite is gone, so
+  an explicit "~" stays on the source. `ReturnToHandEffect` and `BlinkEffect` gained the
+  `trigger_subject` mode `TapEffect`/`ExileEffect` already had. A body that names the source
+  explicitly ("~" / "this card" / "this creature") is left as parsed — "exile ~, then return it" is the
+  source both times. The composed head's refusal (`_group_it_would_hit_source`) now only fires on what
+  is still unresolved after stamping, which lifted Dissipation Field.
+- **PAR-124 — a spell's "whenever … this turn".** RULE 603.7a: the spell *creates* a triggered ability
+  when it resolves; the parser had instead attached a permanent-shaped trigger to an instant or
+  sorcery, and `_collect_triggers` scans only permanents, so seven claimed cards (Beck // Call, Bonus
+  Round, First Day of Class, Indulge // Excess, Mage Hunters' Onslaught, Ondu Rising, Rite of Harmony)
+  did nothing — one existing test even ran the sorcery *on the battlefield* to make it fire.
+  `segmenter._turn_trigger_segment` recognises "whenever/when `<cond>` this turn, `<body>`" and
+  "until end of turn, whenever `<cond>`, `<body>`" on a spell line, parses the inner line as an
+  ordinary trigger (so every trigger head and the pronoun stamp above apply unchanged) and wraps it in
+  `create_turn_trigger`; if the inner trigger is not one the grammar reads, the line stays unclaimed
+  rather than falling back to the inert shape. `CreateTurnTriggerEffect` binds it with `bind_ability`
+  (source = the spell, controller = the caster) and appends a `TurnScopedTrigger` to
+  `GameState.turn_scoped_triggers`; `RulesEngine._collect_turn_scoped_triggers` fires it beside the
+  permanents and drops entries whose `install_turn` is no longer the current turn. `once` is the
+  "when you next cast …" variant (one firing, then removed). `normalize` no longer folds a leading
+  "Until end of turn, whenever …" into a trailing duration — that would have turned the trigger's
+  lifetime into an effect duration.
+- **A found ENG-47 bug, fixed here.** `GameState.clone()` (every undo snapshot) emptied the event log, so
+  after an undo "you gained life this turn" read false again. It now carries the current turn's events.
+- **Verification:** `tests/test_par123_group_pronoun.py` (parse pins for pronoun vs explicit source, and
+  executions: the blocked creature is bounced, not the enchantment; Dissipation Field returns the
+  damaging permanent; the blink resets the creature's counters but not the source's; Baloth Prime
+  untaps itself) and `tests/test_par124_turn_scoped_triggers.py` (nothing before the spell resolves,
+  fires repeatedly for the turn, subject filter, expiry, caster-relative "you control" for either
+  caster, a bare "it", the spell's own other effects, the `once` variant, survival across a state
+  clone). +3 (Dissipation Field, Glimpse of Nature, Touch of the Horned God), 0 regressed. Two tests that
+  pinned the old behaviour were rewritten (`test_par117_group_subject_blocks_this_turn`,
+  `test_par119_object_trigger_head`).
+
 ### PAR-121 (first step): one "unless you pay" row over the verb (PARSER_VERSION 454)
 
 - **What:** `_SACRIFICE_/_DESTROY_/_TAP_/_EXILE_UNLESS_PAY_RE` were four registrations of "`<verb>` ~

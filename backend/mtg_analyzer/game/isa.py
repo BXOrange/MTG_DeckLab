@@ -362,6 +362,7 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     "control_player": "control_player",
     "counter": "counter",
     "create_delayed_trigger": "create_delayed_trigger",
+    "create_turn_trigger": "create_delayed_trigger",
     "create_token": "create",
     "damage": "deal_damage",
     "destroy": "destroy",

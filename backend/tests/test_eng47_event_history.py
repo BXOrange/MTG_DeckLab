@@ -137,6 +137,18 @@ def test_events_this_turn_stops_at_the_first_earlier_turn():
     assert list(state.events_this_turn()) == []
 
 
+def test_a_clone_keeps_this_turns_events_and_only_those():
+    # undo restores a clone: "you gained life this turn" must survive it
+    engine, state = _engine()
+    state.fire_event(GameEvent(EventType.LIFE_GAINED, player_id="p1", amount=1))
+    state.internal_turn.number += 1
+    state.fire_event(GameEvent(EventType.LIFE_LOST, player_id="p1", amount=2))
+    restored = state.clone()
+    assert [e.type for e in restored.events_this_turn()] == [EventType.LIFE_LOST]
+    assert len(restored.event_log) == 1
+    assert len(state.event_log) == 2  # the live game's own log is untouched
+
+
 def test_a_replacement_copy_is_stamped_when_it_fires_not_when_it_is_copied():
     original = GameEvent(EventType.DAMAGE, amount=3)
     original.turn = 5

@@ -201,6 +201,12 @@ _STRUCTURED_CONDITION_FIELDS: dict[str, type] = {
 #: a numeric amount field until the engine substitutes the paid value.
 X_SENTINELS: frozenset[str] = frozenset({"x", "-x"})
 
+#: The placeholder the parser stamps where a bare "it"/"that creature" under a RULE
+#: 603.1 group trigger means the object that fired it: as ``trigger_event_key`` beside
+#: ``target_kind: "trigger_subject"`` (or as an ``add_counters`` ``trigger_subject_key``).
+#: The parser cannot name the event field — the binder resolves it per event type.
+GROUP_SUBJECT_KEY_SENTINEL = "__group_subject__"
+
 #: PAR-120's structured count selector — ``{"zone", "of", "filter", "distinct"}`` —
 #: validated by shape only (the zone/scope/`distinct` vocabularies are named here
 #: because this package cannot import `game/`; `tests/test_par120_count_phrase.py`
@@ -1501,6 +1507,13 @@ class AbilitySpec:
             node_condition = params.get("condition")
             if isinstance(node_condition, dict) and node_condition:
                 AbilitySpec._validate_condition(node_condition)
+        if _effect_type == "create_turn_trigger":
+            # PAR-124: the trigger a spell creates for the turn — the same trigger dict
+            # a triggered ability carries; its body clamps as nested effect specs below.
+            trigger = params.get("trigger")
+            if not isinstance(trigger, dict):
+                raise SpecValidationError("'create_turn_trigger' needs a 'trigger' dict")
+            AbilitySpec._validate_trigger_shape(trigger)
         if _effect_type == "bind" and isinstance(params.get("amount"), dict):
             # The measurement a ``bind`` substitutes into its body — the same shape
             # an `amount_compare` operand has, so the same check (kind vocabulary

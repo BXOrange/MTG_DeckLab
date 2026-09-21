@@ -233,6 +233,7 @@ class TriggerCollectionMixin:
         self._collect_rad_counter_damage_triggers(event)
         self._collect_attacks_you_rad_counter_triggers(event)
         self._collect_temporary_player_triggers(event)
+        self._collect_turn_scoped_triggers(event)
         self._advance_turn_controls(event)
         self._collect_counter_death_return_triggers(event)
         self._collect_undying_persist_triggers(event)
@@ -730,6 +731,25 @@ class TriggerCollectionMixin:
                 self.pending_triggers.append((ability, event))
             remaining.append(trig)
         self.state.temporary_player_triggers = remaining
+    def _collect_turn_scoped_triggers(self, event: GameEvent) -> None:
+        """RULE 603.7a: fire the triggered abilities a spell or ability created for the
+        rest of the turn (`GameState.turn_scoped_triggers`, PAR-124) and drop the ones
+        whose turn is over. A ``once`` entry is removed the moment it triggers."""
+        entries = self.state.turn_scoped_triggers
+        if not entries:
+            return
+        turn = self.state.internal_turn.number
+        remaining = []
+        for entry in entries:
+            if entry.install_turn != turn:
+                continue
+            if entry.ability.check_trigger(event, self.context):
+                self.pending_triggers.append((entry.ability, event))
+                if entry.once:
+                    continue
+            remaining.append(entry)
+        self.state.turn_scoped_triggers = remaining
+
     def _advance_turn_controls(self, event: GameEvent) -> None:
         """MEC-51 (RULE 720): run the `TURN_BEGIN` state machine for
         `GameState.turn_controls` — the twin of

@@ -25,9 +25,9 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**48.5% covered — 16,896 / 34,811 — as of 2026-09-21, PARSER_VERSION 454.**
+**48.5% covered — 16,899 / 34,811 — as of 2026-09-21, PARSER_VERSION 455.**
 Commander-legal slice (the one the product actually plays): **51.0% —
-**16,245 / 31,830** (measure with `--commander-legal-only`).
+**16,247 / 31,830** (measure with `--commander-legal-only`).
 
 ### PAR-119: composed object-event head (PARSER_VERSION 450)
 

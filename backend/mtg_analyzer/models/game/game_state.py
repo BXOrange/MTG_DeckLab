@@ -245,6 +245,28 @@ class DelayedTrigger:
         }
 
 
+class TurnScopedTrigger:
+    """A triggered ability that a resolving spell or ability creates and that lasts
+    the rest of the turn (RULE 603.7a — "whenever a creature enters this turn, draw a
+    card.", "until end of turn, whenever a player casts an instant or sorcery spell,
+    …"). Unlike a permanent's ability its ``source`` (the spell) is not on the
+    battlefield, so `RulesEngine._collect_turn_scoped_triggers` scans this list
+    alongside the permanents. ``ability`` is a fully bound `TriggeredAbility`;
+    ``install_turn`` is the internal turn it was created in — it is dropped as soon as
+    that is no longer the current turn. ``once`` is the "the next time" variant
+    ("when you next cast an instant or sorcery spell this turn"): it fires once and is
+    removed. Deep-copies with `GameState.clone`.
+    """
+
+    def __init__(self, ability: Any, install_turn: int, once: bool = False) -> None:
+        self.ability = ability
+        self.install_turn = install_turn
+        self.once = once
+
+    def __repr__(self) -> str:
+        return f"TurnScopedTrigger(turn={self.install_turn}, once={self.once}, {self.ability.description!r})"
+
+
 class TemporaryPlayerTrigger:
     """A *recurring*, bounded-duration ability installed on a **player**
     rather than a permanent (RULE 603.7-adjacent) — "until the end of
@@ -689,6 +711,11 @@ class GameState:
         #: prunes expired entries. Plain board state — deep-copies with
         #: `clone`.
         self.temporary_player_triggers: list["TemporaryPlayerTrigger"] = []
+
+        #: Triggered abilities a resolving spell/ability created for the rest of the
+        #: turn (PAR-124) — see `TurnScopedTrigger`. Scanned by
+        #: `RulesEngine._collect_turn_scoped_triggers`, which also prunes the expired.
+        self.turn_scoped_triggers: list["TurnScopedTrigger"] = []
 
         #: MEC-51 (RULE 720): active + waiting "you control that player's
         #: next turn/combat" windows. `RulesEngine._advance_turn_controls`
@@ -1546,17 +1573,21 @@ class GameState:
     def clone(self) -> "GameState":
         """A deep, self-contained copy of the game — for undo/restart.
 
-        Event subscribers (bound methods of a live `RulesEngine`) and the
-        event log are intentionally *not* copied: the clone is inert game
-        data, and whoever restores it wraps a fresh engine around it that
-        re-subscribes. Because the underlying `Card` definitions are
+        Event subscribers (bound methods of a live `RulesEngine`) are
+        intentionally *not* copied: the clone is inert game data, and whoever
+        restores it wraps a fresh engine around it that re-subscribes. Of the
+        event log only the *current turn's* events travel (ENG-47: a "…this turn"
+        condition reads them, so an undo must not make "you gained life this
+        turn" false again); earlier turns are never asked about. Because the
+        underlying `Card` definitions are
         immutable and share via ``Card.__deepcopy__``, and `GameObject`
         instance ids are plain values, all in-state references (an object
         on the battlefield vs. referenced from the stack) stay consistent
         across the copy.
         """
         subscribers, log = self._subscribers, self.event_log
-        self._subscribers, self.event_log = [], []
+        turn = self.internal_turn.number
+        self._subscribers, self.event_log = [], [e for e in log if e.turn == turn]
         try:
             clone = copy.deepcopy(self)
         finally:

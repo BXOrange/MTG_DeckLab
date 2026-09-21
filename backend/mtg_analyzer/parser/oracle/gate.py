@@ -3481,7 +3481,17 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: | destroy | tap | exile>` ~ unless you pay `<cost>`" rows became one over the leading
 #: verb; the specs of all 489 cards with "unless you" text are byte-identical before and
 #: after.
-PARSER_VERSION = "454"
+#: v455 fixes two wrong-but-modeled families (PAR-123, PAR-124). Under a group-subject
+#: trigger a bare "it"/"that creature" is the object that fired it while "~" is the
+#: source, yet both parse to one untargeted spec that acts on the source: the parser now
+#: stamps the pronoun reading (`target_kind: "trigger_subject"`, resolved per event by the
+#: binder) on `tap`/`return_to_hand`/`exile`/blink and leaves "~" on the source (Cunning
+#: Evasion, Grazilaxx and Gossip's Talent acted on themselves; Baloth Prime's "untap this
+#: creature" untapped the sacrificed land). And a spell's "whenever … this turn" /
+#: "until end of turn, whenever …" is no longer a permanent-shaped trigger no scan ever
+#: reaches: it is a `create_turn_trigger` effect whose `TurnScopedTrigger` lives on
+#: `GameState` for the turn (RULE 603.7a) — seven claimed cards had been inert. +3.
+PARSER_VERSION = "455"
 
 
 def parser_source_hash() -> str:

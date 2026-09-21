@@ -221,34 +221,38 @@ its block back into the matching section here.
   Cloud, "another colorless permanent or a colorless spell" — Echoes of Eternity, "while you
   control six or more Shrines" — Sanctum of All), The Fish Brewer's tap-for-extra-copies and
   The Masamune's granted quoted doubler.
-- **PAR-123 · A bare "it" under a group-subject trigger acts on the ability's source
-  (retarget beyond `tap`).** "Whenever `<group>` `<verb>`, return/exile/… **it**" parses to
-  an effect with `target_kind: None`, which resolves to the *source*, not the object that
-  fired the trigger; `binding/core.py`'s `_GROUP_SUBJECT_RETARGET_FIELDS` rewrites `tap`
-  only, because an explicit "return ~ to its owner's hand" (12 cards: the Dragonstorm/
-  Trial cycles, Timid Drake) shares the identical spec. Three already-claimed cards are
-  wrong today (Cunning Evasion, Grazilaxx, Gossip's Talent), and PAR-119's composed head
-  refuses the same shape (Dissipation Field, Rienne, Angel of Rebirth — the latter also
-  needs a graveyard-to-hand delayed return; `return_specific_to_hand` is battlefield-only).
-  Fix at the parse: let the pronoun rows (`it` / `that creature`) emit a distinct marker
-  from the explicit `~` rows, retarget on the marker for every effect type that has a
-  `trigger_subject` mode (add it to `return_to_hand` / `exile` / `pump` / `copy_permanent`
-  as each one is exercised), then lift the refusal in `segmenter._group_it_would_hit_source`.
-- **PAR-124 · Turn-scoped delayed event triggers ("… this turn", "until end of turn,
-  whenever …") on a resolving spell.** RULE 603.7: a spell that says "Whenever a creature
-  attacks this turn, …" creates a delayed triggered ability that lasts the turn; the parser
-  emits an ordinary permanent trigger instead, and `_collect_triggers` only scans
-  permanents (plus graveyard-function abilities), so it can never fire. Seven claimed
-  cards are inert today (Beck // Call, Bonus Round, First Day of Class, Indulge // Excess,
-  Mage Hunters' Onslaught, Ondu Rising, Rite of Harmony) and about 27 more stay unclaimed
-  on the same phrase (Battle Cry, Consuming Rage, Descend on the Prey, Bubbling Muck,
-  False Cure, Doublecast, Dual Strike, Complete the Circuit …). Needs one primitive — a
-  `GameState` list of turn-scoped `TriggeredAbility` objects created at resolution
-  (source = the spell, expiring at cleanup; `DelayedTrigger` today is step-based only) that
-  `_collect_triggers` also scans — plus the parser wrapping a spell-level trigger in it.
-  "When you next cast an instant or sorcery spell this turn" is the one-shot variant. Verify
-  the seven inert claims by execution first; `object_trigger_head` refuses "this turn" until
-  this exists.
+- **PAR-123 · Group-subject pronoun residue.** The parse now stamps a bare "it"/"that
+  creature" under a group trigger as the firing object for `tap` / `return_to_hand` /
+  `exile` / blink; what is left is every other effect type that has no pronoun row or no
+  `trigger_subject` mode yet: `pump` ("it gets +0/+1" — Battle Cry, and the whole
+  "whenever a creature … it gets +N/+N" family, unclaimed today), `copy_permanent`, `fight`,
+  and the delayed return in Rienne, Angel of Rebirth ("return it to its owner's hand at
+  the beginning of the next end step" — `create_delayed_trigger`'s `previous_or_self`
+  capture falls back to the source and `return_specific_to_hand` is battlefield-only, so
+  it needs a graveyard-to-hand variant). One wrong claim is known and small: Dragon Tempest's
+  "**it** deals X damage" is dealt by the Enchantment, not the entering Dragon (visible only
+  through lifelink / deathtouch / protection); the `damage` dealer needs the same
+  `trigger_subject` mode. A bare "it" under a `self_or_group` subject stays refused by the
+  composed head (Kappa Cannoneer's correct only because "~" is named first). Add each effect
+  type as it is exercised, and execute the card, as the tests in
+  `test_par123_group_pronoun.py` do.
+- **PAR-124 · Turn-scoped trigger residue.** `create_turn_trigger` /
+  `GameState.turn_scoped_triggers` exist and 9 spells use them; 21 instants and sorceries
+  with "… this turn" / "until end of turn, whenever …" text are still unclaimed:
+  the "when you next cast an instant or sorcery spell this turn, copy that spell" family
+  (Doublecast, Dual Strike, Complete the Circuit — the `once` mode is built, the body "copy
+  that spell. You may choose new targets" does not parse under a cast trigger; Bonus Round's
+  `copy_spell` is the shape to reuse), the pump-the-firing-creature family (Battle Cry,
+  Consuming Rage — plus "destroy that creature at end of combat" — Descend on the Prey —
+  plus "must be blocked this turn if able"), player-event heads that need PAR-119's
+  player-event axis (Bubbling Muck / High Tide "whenever a player taps a land for mana …
+  adds an additional", False Cure "whenever a player gains life"), and twelve not yet
+  diagnosed (Consumed by History, Forth Eorlingas!, Galvanic Iteration, Gaze of Pain,
+  Graceful Reprieve, Howl of the Horde, Pure Intentions, Spellchain Scatter, Spiritualize,
+  Storm King's Thunder, Teach by Example, Theoretical Duplication — start with
+  `parser_probe.py card`). Ruinous Waterbending and Nuka-Nuke Launcher still install a
+  filterless `TemporaryPlayerTrigger`; the `this_turn` mode of it is a subset of
+  `TurnScopedTrigger` and could move onto `create_turn_trigger`.
 - **PAR-99 · Khans-of-Tarkir "choose khans or dragons" Siege cycle.** The
   ETB choice itself (`as ~ enters, choose khans or dragons.`) already
   parses — confirmed via `parser_probe.py blocked "as .* enters, choose

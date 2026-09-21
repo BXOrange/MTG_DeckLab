@@ -20,9 +20,9 @@ result is the same ``{"subject": "group", …}`` condition the older per-adjecti
 regexes in `segmenter` emit, plus a ``filter`` (a `combat.matches_object_filter`
 dict) that the binder reads off the acting object. Anything unrecognised returns
 ``None`` and the trigger stays unclaimed — including a "… this turn" tail: on an
-instant or sorcery that is a delayed trigger created at resolution (RULE 603.7),
-which a permanent-style triggered ability can never model. Pure — no `game/`
-imports.
+instant or sorcery that is a trigger created at resolution (RULE 603.7a), which
+`segmenter._turn_trigger_segment` strips and wraps *before* this grammar sees the
+head; a permanent's ability can never carry it. Pure — no `game/` imports.
 """
 
 from __future__ import annotations
