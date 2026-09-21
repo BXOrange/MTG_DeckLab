@@ -126,6 +126,24 @@ class EventType:
     #: replace them.
     DESTROY = "DESTROY"
     MILL = "MILL"
+    #: One milling instruction put one or more cards from a player's library
+    #: into that player's graveyard (RULE 701.13).  ``cards`` preserves each
+    #: moved card's last-known identity and type words, so “one or more
+    #: creature/land cards are put into your graveyard from your library”
+    #: triggers fire once for the instruction rather than once per card.
+    #: Kept distinct from ``MILL`` (which only reports requested ``count``)
+    #: and ``MILL_CARD`` (the existing per-nonland-card sibling).
+    CARDS_MILLED = "CARDS_MILLED"
+    #: RULE 702.62a: the last time counter came off a suspended card in exile
+    #: ("When the last time counter is removed from this card while it's
+    #: exiled, …" — Riftmarked Knight, Veiling Oddity).  ``instance_id`` names
+    #: the exiled card; no permanent exists to see it, so the trigger is
+    #: collected off that id (`_collect_last_time_counter_triggers`).
+    LAST_TIME_COUNTER_REMOVED = "LAST_TIME_COUNTER_REMOVED"
+    #: A single card was put into a graveyard by milling, including lands.
+    #: This is deliberately separate from the older nonland-only
+    #: ``MILL_CARD`` compatibility event and from aggregate ``CARDS_MILLED``.
+    MILLED_CARD = "MILLED_CARD"
     #: A single *nonland* card was milled (RULE 701.13) — fired once per
     #: qualifying card by `RulesEngine.mill`, in addition to (and after) the
     #: plain aggregate `MILL` above, which only ever carries a batch

@@ -8,6 +8,14 @@ from ._runtime import install, register
 
 install(globals())
 
+
+class PreventCombatDamageDealtEffect(GameEffect):
+    """Prevent all combat damage this effect's source would deal this turn."""
+
+    def apply(self, context, targets=None) -> None:
+        if self.source is not None:
+            self.source.temp_prevent_combat_damage_dealt = True
+
 class DealDamageEffect(GameEffect):
     """Deal ``amount`` damage to a target player or creature — or, with
     ``selector`` set, to *every* object/player a closed vocabulary names

@@ -193,6 +193,8 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # use (Hall of Oracles/Jin-Gitaxias — only reachable at sorcery speed
         # anyway, but the state itself must stay correct regardless).
         "cast_instant_or_sorcery_this_turn",
+        "cast_noncreature_spell_this_turn",
+        "control_legendary_subtype",
         # PAR-32 phase-trigger intervening-ifs (Cloakwood Hermit / Dragon
         # Cultist) — new per-turn `GameState` trackers.
         "creature_card_to_graveyard_this_turn",
@@ -643,6 +645,16 @@ def condition_holds(
         if maximum is not None and n > int(maximum):
             return False
         return True
+    if kind == "control_legendary_subtype":
+        # "as long as you control a legendary Assassin" (Brotherhood Spy and
+        # the like) — a live board read, like `control_count` above.
+        subtype = str(condition.get("subtype", "")).lower()
+        return bool(subtype and controller_id is not None and any(
+            o.is_creature and o.controller_id == controller_id
+            and "legendary" in str(o.card.type_line).lower()
+            and subtype in str(o.card.type_line).lower()
+            for o in state.battlefield
+        ))
     if kind == "control_permanent_of_each_color":
         # "As long as you control a permanent of each color" (Spirit of
         # Resistance, PAR-78) — unlike `control_count`'s single min/max
@@ -761,6 +773,9 @@ def condition_holds(
     if kind == "cast_instant_or_sorcery_this_turn":
         cast = getattr(state, "cast_instant_or_sorcery_this_turn", None) or {}
         return bool(cast.get(controller_id, False))
+    if kind == "cast_noncreature_spell_this_turn":
+        cast = getattr(state, "noncreature_spells_cast_this_turn", None) or {}
+        return int(cast.get(controller_id, 0) or 0) > 0
     if kind == "gained_life_this_turn":
         # "if you gained life this turn" (Eccentric Pestfinder / Witch of the
         # Moors / Mortality Spear, PAR-60) — `GameState.life_gained_this_turn`

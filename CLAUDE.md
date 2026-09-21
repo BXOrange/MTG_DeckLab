@@ -583,9 +583,13 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 46.4% (16,166 / 34,811) as of 2026-09-20, measured at
-PARSER_VERSION 445**; the Commander-legal slice is **48.8% (15,530 /
-31,830)**. v445 closes PAR-95's Adamant per-mana-type payment riders;
+**Coverage: 46.7% (16,247 / 34,811) as of 2026-09-21, measured at
+PARSER_VERSION 448**; the Commander-legal slice is **49.0% (15,609 /
+31,830)**. v448 closes PAR-98's small verified residue batch #2 (reflexive
+tap-then-return, the "except by creatures with haste" family, the last-time-
+counter trigger); v447 closes PAR-97's graveyard-entry mill batch triggers; v446
+closes PAR-96's total-mana cast-trigger riders; v445 closes
+PAR-95's Adamant per-mana-type payment riders;
 v444 advances PAR-94 with Specialize conditional discounts;
 v443 advances PAR-94 with reusable conditional cost gates;
 v442 advances PAR-94 with a graveyard-mana-value threshold

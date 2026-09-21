@@ -25,9 +25,45 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**46.4% covered — 16,166 / 34,811 — as of 2026-09-20, PARSER_VERSION 445.**
-Commander-legal slice (the one the product actually plays): **48.8% —
-**15,530 / 31,830** (measure with `--commander-legal-only`).
+**46.7% covered — 16,247 / 34,811 — as of 2026-09-21, PARSER_VERSION 448.**
+Commander-legal slice (the one the product actually plays): **49.0% —
+**15,609 / 31,830** (measure with `--commander-legal-only`).
+
+### PAR-98: Small verified residue batch #2 (PARSER_VERSION 448)
+
+- **What:** The fourteen-shape residue batch closed: +63 cards over PAR-97
+  (16,184 → 16,247), each shape with an execute-level test. The last pass
+  added Meanders Guide's RULE 603.12 reflexive trigger, the "except by
+  creatures with haste" family, "When you sacrifice a Clue", the suspend
+  last-time-counter trigger and a noncreature-spell activation gate. Alora,
+  Cheerful Scout/Thief (Alchemy `perpetually`, an engine non-goal) and four
+  other single cards went to [singletons.md](singletons.md).
+- **Verification:** `tests/test_par98_residue_batch.py`; full cache is
+  16,247 / 34,811 (46.7%) and Commander-legal coverage is 15,609 / 31,830
+  (49.0%).
+
+### PAR-97: Mill graveyard-entry batches (PARSER_VERSION 447)
+
+- **What:** `CARDS_MILLED` preserves the actual moved cards and their type
+  information per milling instruction; `MILLED_CARD` covers the singular
+  counterpart. Batch triggers therefore fire exactly once while singular
+  card triggers still fire per card. Eight former SOLO cards are modeled.
+- **Verification:** `tests/test_par97_mill_batch_triggers.py`; full cache is
+  16,184 / 34,811 (46.5%) and Commander-legal coverage is 15,548 / 31,830
+  (48.8%).
+
+### PAR-96: Total-mana cast-trigger riders (PARSER_VERSION 446)
+
+- **What:** Reusable cast-trigger decomposition now makes an additive rider
+  an independently gated ability and makes an `instead` rider mutually
+  exclusive with its low-mana branch. Tellah's two additive thresholds also
+  retain its damage amount from the `SPELL_CAST` event. Ten former SOLO
+  cards are modeled. Phoenix of Iteration remains deliberately unmodeled:
+  its Alchemy `perpetually` modification is an engine non-goal, not a
+  total-mana-rider gap.
+- **Verification:** `tests/test_par96_mana_spent_riders.py`; full-cache
+  coverage is 16,176 / 34,811 (46.5%) and Commander-legal coverage is
+  15,540 / 31,830 (48.8%).
 
 ### PAR-95: Adamant per-mana-type riders (PARSER_VERSION 445)
 

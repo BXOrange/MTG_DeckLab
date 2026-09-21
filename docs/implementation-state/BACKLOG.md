@@ -61,7 +61,7 @@ its block back into the matching section here.
   deck-first). Planechase/Archenemy plane/scheme card *bodies* fold in here
   too (~13/309 done), not a separate ticket.
 
-  > **Ticket-id note:** `PAR-1` through `PAR-114` are all taken — grep
+  > **Ticket-id note:** `PAR-1` through `PAR-118` are all taken — grep
   > `Done_Backend.md` before reusing one (e.g. `PAR-14` is RULE 603.2's
   > trigger limiter, nothing to do with keywords). `PAR-31…PAR-53` was the
   > long-tail's own reserved block (see `PARSER_LONG_TAIL.md`);
@@ -82,7 +82,7 @@ its block back into the matching section here.
   > confirmed that PAR-63 had already removed every concrete cross-module
   > duplication, while `TARGET` is the wrong grammar for statics. `PAR-117`
   > is PAR-115's residue (the referent
-  > shapes PAR-115 didn't reach). First free id: **`PAR-118`**. A genuinely
+  > shapes PAR-115 didn't reach). First free id: **`PAR-119`**. A genuinely
   > new engine primitive found along the way still files as its own
   > `MEC-*` ticket — only the sweep itself stays out of this file.
   >
@@ -105,106 +105,26 @@ its block back into the matching section here.
   (`parser_probe.py blocked "this ability costs \{"`). A-Llanowar
 -->
 
-- **PAR-96 · "N or more mana was spent to cast that spell" trigger-body
-  upgrade.** Distinct from Adamant above (total spent mana, not
-  per-colour) — the engine predicate already exists
-  (`spell_mana_spent_at_least`, PAR-79's sixth increment) but needs a
-  reusable "if `<condition>`, `<effect>` instead/also" intervening-if peel
-  on a *trigger* body; today this shape only exists as one-off whole-line
-  regexes per exact combination (`_COUNTER_FREE_SPELL_RE`). Confirmed 11
-  SOLO, 0 also-blocked (`parser_probe.py blocked "if [0-9]+ or more mana
-  was spent to cast that spell"`). Colorstorm Stallion, Deluge Virtuoso,
-  Elemental Mascot, Exhibition Tidecaller, Expressive Firedancer,
-  Molten-Core Maestro, Phoenix of Iteration, Spectacular Skywhale, Tackle
-  Artist, Tellah Great Sage, Thunderdrum Soloist.
-- **PAR-97 · Graveyard-batch mill trigger (RULE 603.3f).** "Whenever 1 or
-  more [`<type>`] cards are put into your graveyard from your library" as a
-  single batch event, distinct from `EventType.MILL_CARD`'s existing
-  per-card firing — modeling it naively off the per-card event over-fires
-  (RULE 603.3f wants exactly one trigger per simultaneous batch, the same
-  reasoning MEC-78's `graveyard_exit_batch()`/`CARDS_LEFT_GRAVEYARD`
-  already established; this is that event's mirror-image mill-side sibling,
-  which doesn't exist yet). Confirmed 8 SOLO, 4 also-blocked
-  (`parser_probe.py blocked "put into your graveyard from your library"`).
-  Colossal Grave-Reaver, Creeping Chill, Devourer of Memory, Hedge
-  Shredder, Narcomoeba, Pedantic Learning, Polluted Cistern // Dim
-  Oubliette, Sidisi, Brood Tyrant.
-- **PAR-98 · Small verified residue batch #2.** Fourteen independent,
-  already-confirmed small fixes surfaced while closing out PAR-79's own
-  "can't be blocked this turn" residue — bundled as one batch rather than
-  fourteen tickets, same convention as PAR-92:
-  - "Activate only/costs `<cost>` less if you control a legendary
-    creature" as an activation restriction/cost-reduction condition — 4
-    SOLO (Brotherhood Spy, Esquire of the King, Haunt of the Dead Marshes,
-    Rivendell).
-  - "Becomes a `<N>`/`<M>` creature. It's still a land." manland-animate
-    compound with no explicit colour word, a leading "until end of turn"
-    word order, and (on one card) a separate-sentence unblockable tail —
-    PAR-79's sixth increment's colour/subtype widening already closed
-    every same-template card; this is separately-shaped residue — 3 SOLO,
-    1 also-blocked (Creeping Tar Pit, Siege of Towers, Woodwraith
-    Corrupter; Frostwalk Bastion also-blocked on an unrelated clause).
-  - "Whenever you cast a spell that's both `<color>` and `<color>`" — a
-    two-colour AND cast-trigger filter; `_CAST_SPELL_TRIGGER_RE`'s
-    `types`/`cast_of_color` slots are single-colour only today — 5 SOLO, 1
-    also-blocked (Battlegate Mimic, Nightsky Mimic, Riverfall Mimic).
-  - Delayed sac/destroy tail-form dispatch reaching an *activated* (not
-    triggered) ability preceded by its own unblockable-grant sentence, plus
-    a "destroy it **and** `<self>`" two-object compound
-    `_DELAYED_SAC_EXILE_TAIL_RE` has no shape for yet — 2 SOLO (Wings of
-    Hubris, Goblin Sappers).
-  - Alora, Cheerful Scout/Thief's own "if you do" tail names the returned
-    creature ("it") a second time, or opens a *fresh* untargeted
-    opponent-choice pick — the eighth PAR-79 increment's `previous_or_self`
-    capture deliberately doesn't reach a second pronoun reference inside
-    the follow-up (see `Done_Backend.md`'s PAR-79 entry) — 2 SOLO (Alora,
-    Cheerful Scout; Alora, Cheerful Thief).
-  - A targeted "return `<creature>` to its owner's hand. If you do,
-    `<effect measuring the returned creature>`." composition — the
-    untargeted `previous_or_self`/`ChooseObjectsEffect` baking mechanism
-    doesn't apply to a genuine RULE 115 target (gone from the battlefield
-    by the time "if you do" would read it) — 2 SOLO (Niambi, Esteemed
-    Speaker; Meanders Guide — untargeted antecedent, targeted follow-up,
-    needs the identical composition from the other direction). First
-    Responder is a *related but distinct* third shape ("**then**", not "if
-    you do", plus a magnitude reading the just-returned creature's power)
-    confirmed a true singleton — see `singletons.md`.
-  - "Another target `<qualifier>` permanent you control" where the
-    qualifier is "historic" or "nonland" — `resolve_target_kind` doesn't
-    recognize either combined with "another…you control" at all — 2 SOLO
-    (Guardians of Koilos, Stockpiling Celebrant).
-  - "Except by creatures with haste" as an evasion-exception filter, paired
-    with a haste-granting effect — 3 SOLO (Agility Bobblehead, Run for Your
-    Life, Speed, Young Avenger).
-  - "Whenever you sacrifice a clue[ or food]" trigger condition — entirely
-    unrecognized today — 6 SOLO (Astrid Peth, Blu, Mansion Prince, Jenny
-    Flint, Lazav, Wearer of Faces, Martha Jones, +1 more).
-  - "If a land card was milled this way" as a conditional gate after a
-    "mill a card" clause — 4 SOLO (Loafing Giant, Locke, Treasure Hunter,
-    Lorehold Excavation, Saprazzan Breaker).
-  - "Except by `<same-color>` creatures" / "except by walls" as a
-    static/resolve-time evasion-exception filter (colour- or type-scoped
-    permitted-blocker set) — 2 SOLO (Dread Charge, Varchild's Crusader).
-  - "When the last time counter is removed from this card[, while it's
-    exiled]" trigger condition — unrecognized regardless of body — 3 SOLO
-    (Alaundo the Seer, Riftmarked Knight, Veiling Oddity).
-  - "Whenever a creature you control explores" trigger condition —
-    unrecognized regardless of body — 5 SOLO (Lurking Chupacabra, Merfolk
-    Cave-Diver, Nicanzil, Current Conductor, +2 more).
-  - "At the beginning of combat on your turn, if you've cast a noncreature
-    spell this turn" combat-phase trigger condition — 6 SOLO, 6
-    also-blocked (Franklin Richards, Ascendant; H.E.R.B.I.E., Lovable
-    Robot; Hurkyl, Master Wizard; Lockjaw, Slobbering Teleporter, +2 more).
-  - A cost-`{X}`-driven "power `<N>` or less" target filter/count on an
-    unblockable ability — the filter threshold itself reading the
-    activation's own paid X (Minamo Sightbender), or an X-sized target
-    count paired with a fixed power filter (Runed Arch) — 2 SOLO, related
-    but not identical shapes; may or may not share one fix.
-
-  > PAR-93…PAR-98's counts (above) are confirmed via `parser_probe.py
-  > blocked` at PARSER_VERSION 412, 2026-09-16 — a full batch newer than
-  > PAR-80…PAR-92's own 386 checkpoint. Re-run before starting either
-  > batch, same standing rule as every other ranked count in this file.
+- **PAR-118 · "Exile a card from your hand with N time counters on it, it gains suspend."** Alaundo the Seer's
+  "{T}: draw a card, then exile a card from your hand and put a number of
+  time counters on it equal to its mana value. It gains '`<last-time-counter
+  trigger>`.' Then remove a time counter from each other card you own in
+  exile.", The Eleventh Doctor's "you may exile a card from your hand with a
+  number of time counters on it equal to its mana value. If it doesn't have
+  suspend, it gains suspend.", and The Wedding of River Song's "…then you
+  may exile a nonland card from your hand with … Then target opponent does
+  the same. Cards exiled this way that don't have suspend gain suspend." —
+  3 SOLO, 0 also-blocked (`parser_probe.py blocked "time counters on it
+  equal to its mana value"`). Suspend itself is engine-complete
+  (`GameObject.granted_suspend`/`_has_suspend`, `RulesEngine.
+  remove_suspend_time_counter`, `SuspendUpkeepEffect`; Delay is the existing
+  granted-suspend user) — what is missing is the *hand-to-exile pick*
+  (interactive `choose_objects`-style, optional, optionally nonland) that
+  stamps `time` counters equal to the card's mana value plus the suspend
+  grant, and for Wedding the "target opponent does the same" mirror pass.
+  Alaundo additionally needs the quoted trigger granted to the exiled card
+  (its own trigger is `LAST_TIME_COUNTER_REMOVED`, which exists) and a
+  per-owner "remove a time counter from each other card" sweep.
 
 - **PAR-99 · Khans-of-Tarkir "choose khans or dragons" Siege cycle.** The
   ETB choice itself (`as ~ enters, choose khans or dragons.`) already
@@ -223,10 +143,10 @@ its block back into the matching section here.
   trigger whose effect binds to "that player" (the one whose draw step it
   is) rather than "you" — distinct from the already-shipped "you" forms.
   Confirmed via `parser_probe.py blocked "at the beginning of each
-  player.s draw step"`: **10 SOLO, 1 also-blocked**. Academy Loremaster,
-  Anvil of Bogardan, Dictate of Kruphix, Font of Mythos, Howling Mine,
-  Kami of the Crescent Moon, Nekusar the Mindrazer, Rites of Flourishing,
-  Spiteful Visions.
+  player.s draw step"`: **10 SOLO, 1 also-blocked** (Mornsong Aria).
+  Academy Loremaster, Anvil of Bogardan, Dictate of Kruphix, Font of
+  Mythos, Howling Mine, Kami of the Crescent Moon, Nekusar, the Mindrazer,
+  Rites of Flourishing, Spiteful Visions, Teferi's Puzzle Box.
 - **PAR-101 · CDA "power (and toughness) is equal to the number of `<X>`"
   family.** A characteristic-defining-ability (RULE 604.3) reading a flat
   board/graveyard count into base power (optionally toughness too) —
@@ -236,14 +156,19 @@ its block back into the matching section here.
   recognition. Four related shapes, confirmed via `parser_probe.py
   blocked`: "power is equal to the number of artifacts you control" (**4
   SOLO, 1 also-blocked** — Bronze Guardian, Brotherhood Vertibird,
-  Cephalopod Sentry, Filigree Attendant); "power is equal to the number of
-  instant and sorcery cards in your graveyard" (**3 SOLO, 2 also-blocked**
-  — Enigma Drake, Haughty Djinn, Spellheart Chimera); "power and toughness
-  are each equal to the number of artifacts you control" (Master of
-  Etherium and siblings); "power is equal to the greatest mana value among
-  creatures you control" (Dodgy Jalopy and a sibling); "power is equal to
-  the number of land cards in your graveyard" (Uurg, Spawn of Turg and its
-  Alchemy rebalance).
+  Cephalopod Sentry, Filigree Attendant; also blocked: Mendicant Core,
+  Guidelight); "power is equal to the number of instant and sorcery cards
+  in your graveyard" (**3 SOLO, 2 also-blocked** — Enigma Drake, Haughty
+  Djinn, Spellheart Chimera; also blocked: Kinetic Augur, Smoldering
+  Stagecoach); "power and toughness are each equal to the number of
+  artifacts you control" (**3 SOLO** — Broodstar, Darksteel Juggernaut,
+  Master of Etherium); "power is equal to the greatest mana value among
+  creatures you control" (**2 SOLO** — Dodgy Jalopy, Towering Gibbon);
+  "power is equal to the number of land cards in your graveyard" (**2
+  SOLO** — Uurg, Spawn of Turg and its Alchemy rebalance). These five are
+  one axis — the count phrase — so build a single phrase → `count_selector`
+  table (the `_GY_COST_COUNT_SELECTORS` idiom in `static_handlers.py`), not
+  five rows.
 - **PAR-102 · Pump + arbitrary keyword/quoted-ability grant in one
   sentence (general form).** "Target/that creature gets +N/+N and gains
   `<keyword>`/"`<quoted ability>`" until end of turn" — PAR-79's own
@@ -251,13 +176,36 @@ its block back into the matching section here.
   every other keyword or quoted-ability tail on the same pump sentence
   stays unrecognized. The single biggest new cluster in this sweep.
   Confirmed via `parser_probe.py blocked "gets \+\[0-9\]/\+\[0-9\] and
-  gains"`: **105 SOLO, 34 also-blocked** — re-run and narrow the regex
-  before starting, since this spans two sub-shapes that may want separate
-  handlers (a plain printed keyword vs. a fully quoted granted ability,
-  e.g. Abnormal Endurance's `gains "when ~ dies, return it to the
-  battlefield tapped under its owner's control."`). Abnormal Endurance,
-  Ashnod's Intervention, Demonic Gifts, Fake Your Own Death, Galuf's Final
-  Act, Supernatural Stamina.
+  gains"`: **104 SOLO, 34 also-blocked** at PARSER_VERSION 447 — two
+  independent axes, split by whether the text after "gains" contains a
+  quote:
+  - **(a) Plain printed-keyword tail — 86 SOLO, 29 also-blocked.** A
+    keyword-list widening (`catalogue/keywords.py`'s word table +
+    the existing pump row's tail), the bulk of the cluster — e.g. Enlarge,
+    Colossal Growth (its kicker-conditional "instead" override is the
+    separate MEC-82 gap noted in CLAUDE.md). None of this ticket's original
+    example cards were from this half; all six were from (b).
+  - **(b) Quoted-ability tail — 18 SOLO, 5 also-blocked.** Not a
+    per-ability row list: for most inner texts the segmenter already claims
+    the ability standalone (verified: "when ~ dies, return it to the
+    battlefield tapped…", "…and suspect it", "whenever ~ deals combat
+    damage to a player, draw a card" all claim; Dreadmaw's Ire's "destroy
+    target artifact that player controls" does not), so the fix is the
+    shell **recursing into the standard ability grammar** (as
+    `_QUOTED_GRANT_RE`/`_ATTACHED_QUOTED_GRANT_RE` already do for static
+    grants). Measured by abstracted inner text: 8 of the SOLO cards ride
+    one trigger, "when ~ dies, return it to the battlefield…" with a
+    rider variant (tapped ×4 — Abnormal Endurance, Perigee Beckoner,
+    Return to Action, Supernatural Stamina; plain — Demonic Gifts; +
+    treasure — Fake Your Own Death; + suspect — Presumed Dead; "dies or is
+    exiled → hand" — Ashnod's Intervention); 3 ride "whenever ~ deals
+    combat damage to a player, `<effect>`" (Dreadmaw's Ire, Hunter's
+    Prowess, Unnatural Moonrise); Viconia, Disciple of Strength/Violence
+    share "spend mana as though it were mana of any color to cast this
+    spell". After the recursion lands, re-run `blocked` and route whichever
+    inner abilities (Full Steam Ahead, Galuf's Final Act, Greater Stone
+    Spirit, Tower Above) still don't parse standalone to `singletons.md`
+    if they have no sibling.
 - **PAR-103 · "When `<name>` is put into a graveyard from anywhere,
   shuffle it into its owner's library" (plain triggered form).** Distinct
   from PAR-92's already-scoped replacement-effect form ("if `<name>` would
@@ -283,10 +231,12 @@ its block back into the matching section here.
   cast creature spells from the top of your library"`: **5 SOLO, 3
   also-blocked**. Augur of Autumn, Elven Chorus, Garruk's Horde, Ranger
   Class, Summoning Materia.
-> **PAR-99…PAR-105's counts are confirmed via `parser_probe.py blocked` at
-> PARSER_VERSION 413, 2026-09-16, cross-referenced against the 56 saved
-> decks in `backend/scripts/deck_coverage.py`. Re-run before starting —
-> same standing rule as every other ranked count in this file.**
+> **PAR-99…PAR-105's counts were confirmed via `parser_probe.py blocked` at
+> PARSER_VERSION 413 (2026-09-16, cross-referenced against the 56 saved
+> decks in `backend/scripts/deck_coverage.py`) and re-verified at
+> PARSER_VERSION 447 on 2026-09-21 (PAR-100/101/102 corrected above;
+> PAR-99/103/104/105 unchanged). Re-run before starting — same standing rule
+> as every other ranked count in this file.**
 
 - **PAR-107 · Small residue batch — graveyard/library/exile
   interactions.** 26 independently-shaped clauses (each ≥2 cards
@@ -302,8 +252,10 @@ its block back into the matching section here.
     cache-wide — **see PAR-105, already split out.**
   - "When `<name>` dies or is put into exile from the battlefield, you may
     put it into its owner's library third from the top." (the
-    God-Eternal cycle) — 5 cache-wide (God-Eternal Bontu, God-Eternal
-    Kefnet, God-Eternal Oketra, God-Eternal Rhonas).
+    God-Eternal cycle) — 5 cache-wide, **2 SOLO** (God-Eternal Oketra,
+    Ilharg, the Raze-Boar), 3 also-blocked (God-Eternal Bontu/Kefnet/
+    Rhonas — each by its own second clause: a sacrifice-draw ETB, a
+    reveal-first-draw copy trigger, a double-power ETB).
   - CDA "power is equal to the number of instant and sorcery cards in your
     graveyard" — 5 cache-wide — **see PAR-101, already split out.**
   - "You may cast this card from your graveyard." (plain, no named
@@ -355,23 +307,42 @@ its block back into the matching section here.
     card to the battlefield under its owner's control at the beginning of
     the next end step." — 2 cache-wide (Flickerwisp, Glimmerpoint Stag).
   - "Return target creature card from your graveyard to the battlefield
-    with an additional +1/+1 counter on it." — 2 cache-wide (Prison
-    Break + its Alchemy rebalance).
+    with an additional +1/+1 counter on it." — 2 cache-wide: **1 SOLO**
+    (Prison Break), 1 also-blocked (A-Graveyard Shift, blocked by its own
+    conditional-flash clause). The earlier "Prison Break + its Alchemy
+    rebalance" citation was wrong — no `A-Prison Break` is cached; the
+    second member is a different card printing the same effect body.
   - "`<cost>`, `<cost>`: exile another target creature. Return that card
     to the battlefield under its owner's control at the beginning of the
     next end step." — 2 cache-wide (Angel of Condemnation, Roon of the
     Hidden Realm).
   - "At the beginning of your end step, if you didn't play a card from
-    exile this turn, create a tapped Powerstone token." — 2 cache-wide
-    (Visions of Phyrexia + its Alchemy rebalance).
+    exile this turn, create a tapped Powerstone token." — 2 cache-wide:
+    **1 SOLO** (Visions of Phyrexia), 1 also-blocked (A-Visions of
+    Phyrexia — its rebalanced upkeep clause, "exile the top two cards …
+    play one of those cards", is a distinct unclaimed variant of the
+    original's "top card / that card").
   - "When `<name>` enters, look at the top `<n>` cards of your library.
     You may reveal a creature card from among them and put it into your
     hand. Put the rest on the bottom of your library in any order." — 2
-    cache-wide (Foul Emissary, Growing Rites of Itlimoc // Itlimoc,
-    Cradle of the Sun).
+    cache-wide: **1 SOLO** (Growing Rites of Itlimoc // Itlimoc, Cradle of
+    the Sun), 1 also-blocked (Foul Emissary, blocked by its own emerge-
+    sacrifice trigger).
   - "Exile up to `<n>` target creatures you control, then return those
     cards to the battlefield under their owner's control." — 2 cache-wide
     (Displace, Illusionist's Stratagem).
+
+  > **Atomic-decomposition note — the three "exile `<target(s)>`, return
+  > `<it/those>` to the battlefield" bullets above (Flickerwisp's ETB
+  > form, the `<cost>`-activated form, Displace's multi-target form) are
+  > one axis, not three:** the blink family already exists
+  > (`handlers._BLINK_PLAIN_RE`/`_BLINK_NON_SUBTYPE_RE`, `BlinkEffect`, and
+  > the RULE 603.7 delayed-return path `ExileEffect(remember=True)` +
+  > `ReturnLinkedExileEffect` from PAR-74), and the variation is only (a)
+  > the wrapper — ETB trigger vs. activated cost — (b) the target count/
+  > filter, and (c) *when* it returns (immediately vs. at the next end
+  > step). Check which of those three the existing rows lack before writing
+  > any dedicated row.
   - "Search your library for an instant card or a card with flash, reveal
     it, put it into your hand, then shuffle." — 2 cache-wide (Mystical
     Teachings, Waterlogged Teachings // Inundated Archive).
@@ -392,9 +363,12 @@ its block back into the matching section here.
     target kind beyond "spell" to abilities on the stack.
   - "Whenever N or more other creatures you control with power `<n>` or
     less enter, draw a card. This ability triggers only once each turn."
-    — 2 cache-wide (Enduring Innocence, Welcoming Vampire).
+    — 2 cache-wide: **1 SOLO** (Welcoming Vampire), 1 also-blocked
+    (Enduring Innocence — also carries PAR-111's Enduring-cycle dies-return
+    clause, so it needs both tickets' handlers).
   - "`<name>` deals `<n>` damage to each non-Dragon creature." — 2
-    cache-wide (Breath Weapon, Desolation of Smaug).
+    cache-wide: **1 SOLO** (Breath Weapon), 1 also-blocked (Desolation of
+    Smaug, blocked by its own dragon-only restricted-mana clause).
   - "You may have `<name>` enter as a copy of a creature you control,
     except it's a Shapeshifter Rogue in addition to its other types." — 2
     cache-wide (Glasspool Mimic // Glasspool Shore, Visage Bandit).
@@ -404,8 +378,9 @@ its block back into the matching section here.
   - "At the beginning of your upkeep, if you have `<n>` or more life, you
     win the game." — 2 cache-wide (Felidar Sovereign, Test of Endurance).
   - "At the beginning of your upkeep, you gain X life, where X is the
-    number of cards in your hand minus `<n>`." — 2 cache-wide (Ivory
-    Tower, The Archimandrite).
+    number of cards in your hand minus `<n>`." — 2 cache-wide: **1 SOLO**
+    (Ivory Tower), 1 also-blocked (The Archimandrite, blocked by its own
+    life-gain-triggered pump clause).
   - "As long as you have at least `<n>` life more than your starting life
     total, creatures you control get +`<n>`/+`<n>`." — 2 cache-wide
     (Leyline of Hope, Righteous Valkyrie).
@@ -418,18 +393,47 @@ its block back into the matching section here.
   - "Look at target player's hand." — 2 cache-wide (Clairvoyance, Peek).
 - **PAR-109 · Small residue batch — static/activated abilities &
   mana.** 9 independently-shaped clauses, each ≥2 cards cache-wide:
-  - "Equipped creature has `<name>`" (a quoted/named granted ability via
-    Equipment specifically) — 6 cache-wide (Conformer Shuriken, Fishing
-    Pole, Lobe Lobber, Shuriken).
+  - "Equipped creature has `<quoted ability>`" — 6 cards, **not a
+    cluster.** The quoted-grant shell (`static_handlers.
+    _ATTACHED_QUOTED_GRANT_RE`) already works; the `<name>` in the
+    abstracted template hides six different inner abilities, each
+    independently unclaimed (same finding as the PAR-82/PAR-106 audit). By
+    inner ability, checked cache-wide:
+    - **Trigger doubler ("…triggers an additional time"): The Masamune** is
+      one of **32** cached cards printing this axis (Panharmonicon, Teysa
+      Karlov, Naban, Chief of the Wilds, Cloud Midgar Mercenary, …)
+      differing only in the scope filter. The engine primitive exists
+      (`continuous.trigger_doubler_bonus`/`TriggerDoublerEffect`, built for
+      Roaming Throne) and is used by hand-authored cards only — **no ticket
+      tracks the parser side; worth its own PAR-* ticket**, not a per-card
+      row.
+    - **"Conjure a card named `<X>` onto the battlefield tapped and
+      attacking":** Stormforged Armor (SOLO) + Kari Zev, Crew of Two (also
+      blocked by its own riders) — a 2-card Alchemy-conjure cluster.
+    - **No sibling cache-wide → `singletons.md` Batch 3:** Conformer
+      Shuriken, Lobe Lobber, Shuriken, Fishing Pole.
+  - "[Basic] lands you control have `<quoted mana ability>`" — 4 cache-wide,
+    **2 SOLO** (Nexos, Worldknit), 2 also-blocked (Resonating Lute,
+    Sovereign's Realm — each by unrelated clauses). Unlike the equipment
+    grant this is a **real shell gap**: even the unrestricted
+    `Lands you control have "{T}: Add one mana of any color."` is
+    unclaimed by the segmenter, so the fix is a land-group
+    mana-ability-grant row, not per-card work. A secondary axis is the
+    RULE 605.3a spend restriction on the granted ability ("only on costs
+    that contain {X}" — Nexos, plus Rosheen, Roaring Prophet's own ability;
+    "only to cast instant and sorcery spells" — Resonating Lute).
   - "Untap `<name>` during each other player's untap step." — 4
-    cache-wide (Bender's Waterskin, Endbringer, Thousand Moons Infantry,
-    Victory Chimes).
+    cache-wide: **2 SOLO** (Bender's Waterskin, Thousand Moons Infantry),
+    2 also-blocked (Endbringer, Victory Chimes — each by its own second
+    clause).
   - "`<cost>`: permanents your opponents control lose hexproof and
-    indestructible until end of turn." — 3 cache-wide (Luxior and
-    Shadowspear, Shadowspear, The Fire Nation Drill).
+    indestructible until end of turn." — 3 cache-wide: **1 SOLO**
+    (Shadowspear), 2 also-blocked (Luxior and Shadowspear, The Fire Nation
+    Drill — each by its own second clause).
   - "You may activate abilities of creatures you control as though those
-    creatures had haste." — 3 cache-wide (Shang-Chi Master of Kung Fu,
-    Thousand-Year Elixir, Tyvar Jubilant Brawler).
+    creatures had haste." — 3 cache-wide: **2 SOLO** (Shang-Chi, Master of
+    Kung Fu; Thousand-Year Elixir), 1 also-blocked (Tyvar, Jubilant
+    Brawler).
   - "`<cost>`: target land you control becomes a `<n>`/`<n>` Elemental
     creature with haste until end of turn. It's still a land. Activate
     only as a sorcery." — 2 cache-wide (Llanowar Loamspeaker + its
@@ -438,21 +442,21 @@ its block back into the matching section here.
     flying." — 2 cache-wide (Harbinger of the Hunt, Scourge of Kher
     Ridges).
   - "`<cost>`: Dragons you control get +`<n>`/+`<n>` until end of turn."
-    — 2 cache-wide (Lathliss Dragon Queen, Ran and Shaw).
+    — 2 cache-wide: **1 SOLO** (Lathliss, Dragon Queen), 1 also-blocked
+    (Ran and Shaw, blocked by its own conditional token-copy trigger).
   - "`<cost>`, `<cost>`: untap another target artifact." — 2 cache-wide
     (Manifold Key, Sonic Screwdriver).
-  - "Basic lands you control have `<name>`" — 2 cache-wide (Nexos,
-    Sovereign's Realm).
   - "Equipped creature gets +`<n>`/+`<n>` and is every creature type." —
     2 cache-wide (Amorphous Axe, Runed Stalactite).
 - **PAR-110 · Small residue batch — board wipes & mass effects.** 10
   independently-shaped clauses, each ≥2 cards cache-wide:
   - "This spell costs `<cost>` less to cast for each creature that
-    attacked this turn." — 3 cache-wide (Rowdy Research, The Mary Janes,
+    attacked this turn." — **3 SOLO** (Rowdy Research, The Mary Janes,
     Witchstalker Frenzy).
   - "This spell costs `<cost>` less to cast for each creature that died
-    this turn." — 3 cache-wide (Blood for the Blood God!, Death-Rattle
-    Oni, Diregraf Rebirth).
+    this turn." — **1 SOLO** (Diregraf Rebirth), 2 also-blocked (Blood for
+    the Blood God!, Death-Rattle Oni — each blocked by its own unrelated
+    second clause).
   - "`<name>` deals X damage to each creature." — 2 cache-wide (Savage
     Twister, Starstorm).
   - "Each player exiles all creature cards from their graveyard, then
@@ -466,7 +470,8 @@ its block back into the matching section here.
   - "Put all creatures on the bottom of their owners' libraries." — 2
     cache-wide (Hallowed Burial, Terminus).
   - "Destroy all creatures. You gain `<n>` life for each creature
-    destroyed this way." — 2 cache-wide (Avenge, Fumigate).
+    destroyed this way." — **1 SOLO** (Fumigate), 1 also-blocked (Avenge,
+    blocked by its own unrelated conditional cost reduction).
   - "Destroy all nonartifact creatures." — 2 cache-wide (Organic
     Extinction, Their Name Is Death).
   - "This spell costs `<cost>` less to cast for each creature your
@@ -476,13 +481,40 @@ its block back into the matching section here.
     — 2 cache-wide (Flare of Malice, Soul Shatter).
   - "Target player mills half their library, rounded down." — 2
     cache-wide (Cut Your Losses, Traumatize).
+
+  > **Atomic-decomposition note for this ticket's three "costs `<cost>`
+  > less to cast for each `<count phrase>`" bullets (attacked this turn /
+  > died this turn / opponents control):** `static_handlers.py` already
+  > carries four near-identical per-phrase rows for this template
+  > (`_SELF_COST_REDUCTION_ATTACKING_RE`, `_PARTY_RE`, `_GY_RE`,
+  > `_BASIC_LAND_TYPES_RE`) differing only in which `count_selector` name
+  > the phrase maps to. Do **not** add three more. Factor the "for each
+  > `<X>`" axis into one row keyed by a phrase → selector table (a partial
+  > one, `_GY_COST_COUNT_SELECTORS`, already exists). `continuous.
+  > count_selector` **already has** `creatures_died_this_turn` and
+  > `creatures_opponents_control`, so two of the three are pure recognition
+  > with zero engine work; only "creature that attacked this turn" (a
+  > per-turn attack-history count, distinct from the live
+  > `attacking_creatures` selector) may need a new selector. PAR-114's
+  > "where X is the greatest power among creatures you control" cost
+  > reduction (out of this ticket's scope) targets the same self-cost
+  > primitive through a different grammar shape and is worth checking
+  > against the same table. The same "already-shipped rows are the
+  > phrase-variant antipattern" check applies to the mass-destroy/damage
+  > bullets above ("destroy all nonartifact creatures", "deals X damage to
+  > each creature"): confirm whether `object_filter`/`creature_filter`
+  > already reaches them before adding a dedicated row.
 - **PAR-111 · Small residue batch — ETB/dies/leaves-the-battlefield
   triggers.** 6 independently-shaped clauses (excluding PAR-104, already
   split out), each ≥2 cards cache-wide:
   - "When `<name>` dies, if it was a creature, return it to the
     battlefield under its owner's control. It's an enchantment." (the
-    Enduring cycle) — 5 cache-wide (Enduring Courage, Enduring Curiosity,
-    Enduring Friendship, Enduring Innocence).
+    Enduring cycle) — 5 members, only **2 SOLO** (Enduring Curiosity,
+    Enduring Tenacity); the other 3 each carry a second, distinct unclaimed
+    clause: Enduring Courage (pump-and-haste grant on ETB), Enduring
+    Friendship (`double team` + an instant/sorcery-cast anthem), Enduring
+    Innocence (the "1 or more other creatures with power `<n>` or less
+    enter, draw" trigger — **see PAR-108**, which lists the same card).
   - "When `<name>` enters, manifest dread, then attach `<name>` to that
     creature." — 4 cache-wide (Conductive Machete, Cursed Windbreaker,
     Dissection Tools, Killer's Mask).
@@ -497,17 +529,22 @@ its block back into the matching section here.
     opponent controls." — 2 cache-wide (Rambunctious Mutt, Witch
     Enchanter // Witch-Blessed Meadow).
   - "When `<name>` enters, attach it to target legendary creature you
-    control." — 2 cache-wide (Mithril Coat, Mjölnir Storm Hammer).
+    control." — **1 SOLO** (Mithril Coat), 1 also-blocked (Mjölnir, Storm
+    Hammer, blocked by its own unrelated tap/stun-counter attack trigger).
 - **PAR-112 · Small residue batch — counters, tokens & CDA formulas.** 5
   independently-shaped clauses (excluding PAR-101's own sub-items, already
   split out), each ≥2 cards cache-wide:
-  - "Create X `<n>`/`<n>` white Angel creature tokens with flying." — 2
-    cache-wide (Decree of Justice, Entreat the Angels).
-  - "−`<n>`: target opponent gets an emblem with `<name>`" — 2 cache-wide
-    (Garruk Apex Predator, Ob Nixilis Reignited).
+  - "Create X `<n>`/`<n>` white Angel creature tokens with flying." —
+    **1 SOLO** (Entreat the Angels), 1 also-blocked (Decree of Justice,
+    blocked by its own unrelated cycling trigger).
+  - "−`<n>`: target opponent gets an emblem with `<name>`" — **1 SOLO**
+    (Ob Nixilis Reignited), 1 also-blocked (Garruk, Apex Predator, blocked
+    by its own two other unrelated loyalty abilities). Note the loyalty
+    cost prints a Unicode minus (−), not an ASCII hyphen — a
+    `parser_probe.py blocked` regex must use `−`.
   - "Whenever you sacrifice a permanent, put a +`<n>`/+`<n>` counter on
-    `<name>`." — 2 cache-wide (Blood Aspirant, Juri Master of the
-    Revue).
+    `<name>`." — **1 SOLO** (Juri, Master of the Revue), 1 also-blocked
+    (Blood Aspirant, blocked by its own unrelated activated ability).
   - "At the beginning of your end step, if you gained life this turn,
     create a `<n>`/`<n>` white Cat creature token. Then if you have the
     city's blessing, for each token you control that entered this turn,
@@ -516,26 +553,25 @@ its block back into the matching section here.
 - **PAR-113 · Small residue batch — combat triggers.** 6
   independently-shaped clauses, each ≥2 cards cache-wide:
   - "Whenever `<name>` deals combat damage to a player, you get that many
-    `<cost>`." — 3 cache-wide (Aurora Shifter, Empyreal Voyager, Peema
-    Trailblazer).
-  - "Whenever a creature you control with power `<n>` or greater enters,
-    draw a card." — 3 cache-wide (Elemental Bond, Garruk Curse Breaker,
-    Kiora Behemoth Beckoner).
+    `<cost>`." — **2 SOLO** (Empyreal Voyager, Peema Trailblazer), 1
+    also-blocked (Aurora Shifter, blocked by its own unrelated copy
+    trigger).
   - "Whenever `<name>` deals combat damage to an opponent, it deals that
-    much damage to each other opponent." — 3 cache-wide (Amarant Coral,
+    much damage to each other opponent." — **3 SOLO** (Amarant Coral,
     Grenzo's Ruffians, Hydra Omnivore).
   - "Whenever `<name>` enters or attacks, you may put a land card from a
-    graveyard onto the battlefield tapped under your control." — 2
-    cache-wide (Soul of Windgrace + its Alchemy rebalance).
+    graveyard onto the battlefield tapped under your control." — **2 SOLO**
+    (Soul of Windgrace + its Alchemy rebalance).
   - "Whenever `<name>` attacks, add `<cost>`. Until end of turn, you
-    don't lose this mana as steps and phases end." — 2 cache-wide
+    don't lose this mana as steps and phases end." — **2 SOLO**
     (Brazen Collector, Savage Ventmaw).
   - "Whenever `<name>` attacks while you control a creature with power
-    `<n>` or greater, `<name>` gets +`<n>`/+`<n>` until end of turn." — 2
-    cache-wide (Nighthowl Pursuer, Ruby Daring Tracker).
+    `<n>` or greater, `<name>` gets +`<n>`/+`<n>` until end of turn." —
+    **2 SOLO** (Nighthowl Pursuer, Ruby, Daring Tracker).
   - "Whenever `<name>` attacks, it gets +`<n>`/+`<n>` until end of turn
-    for each other attacking Goblin." — 2 cache-wide (Goblin Piledriver,
-    Goblin Rabblemaster).
+    for each other attacking Goblin." — **1 SOLO** (Goblin Piledriver), 1
+    also-blocked (Goblin Rabblemaster, blocked by its own unrelated
+    "attacks each combat if able" static).
 - **PAR-114 · Small residue batch — cost reduction & alternative
   costs.** 4 independently-shaped clauses, each ≥2 cards cache-wide:
   - "This spell costs `<cost>` less to cast, where X is the greatest power
@@ -559,7 +595,14 @@ its block back into the matching section here.
 > were not individually re-diagnosed with `parser_probe.py card` before
 > filing — do that first for whichever sub-item you pick up, since a
 > handler's exact shape depends on details (e.g. an intervening "if"
-> clause, a self- vs. target-referent) this scan doesn't capture.**
+> clause, a self- vs. target-referent) this scan doesn't capture. PAR-107…
+> PAR-113 (not PAR-114) were re-measured at PARSER_VERSION 447 on
+> 2026-09-21 by exact `abstract_clause` template match — every sub-item
+> above now states its SOLO / also-blocked split where the two differ. Two
+> traps for whoever re-runs this: a `<name>` in a template like "`X` has
+> `<name>`" is a *wrapper* hiding a quoted inner ability (decompose it
+> before counting it as a cluster — see PAR-109), and loyalty costs print a
+> Unicode minus (−), not an ASCII hyphen.**
 
 ## PLR — Player management
 

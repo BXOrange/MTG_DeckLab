@@ -2907,6 +2907,12 @@ def _vehicle_scope_params(m: "re.Match[str]") -> dict:
 #: whole clause unclaimed (fail-closed), which is why this list is ordered
 #: most-specific-first.
 _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
+    (re.compile(r"you control a legendary (?P<subtype>[a-z]+)", re.I),
+     lambda m: {"kind": "control_legendary_subtype", "subtype": m.group("subtype").lower()}),
+    # PAR-98: reused by conditional activation-cost reductions as well as
+    # ordinary "as long as" clauses.
+    (re.compile(r"you control a legendary creature", re.I),
+     lambda m: {"kind": "control_count", "selector": "legendary_creatures_you_control", "min": 1}),
     (re.compile(r"evidence was collected", re.I),
      lambda m: {"kind": "flag", "flag": "additional_cost_paid"}),
     (re.compile(r"~ is suspected", re.I),

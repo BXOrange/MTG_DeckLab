@@ -2235,12 +2235,7 @@ class SuspendUpkeepEffect(GameEffect):
         obj = self.source
         if obj is None or obj.zone != Zone.EXILE or obj.counters.get("time", 0) <= 0:
             return
-        obj.add_counters("time", -1)
-        if obj.counters.get("time", 0) > 0:
-            return
-        if obj.card.is_creature:
-            obj.granted_suspend_haste = True
-        context.engine.grant_free_cast_window_from_exile(obj)
+        context.engine.remove_suspend_time_counter(obj)
 
 
 def _scale_cumulative_upkeep_cost(cost: "ActivationCost", n: int) -> "ActivationCost":

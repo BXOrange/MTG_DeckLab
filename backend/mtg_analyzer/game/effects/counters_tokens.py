@@ -2009,6 +2009,7 @@ class PumpEffect(GameEffect):
         count: int = 1,
         count_max: Optional[int] = None,
         optional: bool = False,
+        count_selector: Optional[str] = None,
         amount_from_trigger_event: Optional[str] = None,
         per_recipient_controller_counter: Optional[str] = None,
         amount_from_count_selector: Optional[str] = None,
@@ -2159,6 +2160,7 @@ class PumpEffect(GameEffect):
             # stated boost independently.
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max,
+                count_selector=count_selector,
                 creature_filter=creature_filter, colors=self.colors,
             )
 

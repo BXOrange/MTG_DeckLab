@@ -525,6 +525,12 @@ _CAST_SPELL_TRIGGER_NEG_RE = re.compile(
     re.IGNORECASE | re.S,
 )
 
+_CAST_TWO_COLOR_SPELL_TRIGGER_RE = re.compile(
+    r"^whenever (?P<subj>you|an opponent|a player) casts? a spell that'?s both "
+    r"(?P<c1>white|blue|black|red|green) and (?P<c2>white|blue|black|red|green),\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+
 #: PAR-79 sixth increment: "…, if at least N mana was spent to cast
 #: it/that spell, `<effect>`" (Sahagin) — a RULE 603.4 intervening-if on a
 #: cast trigger's own body, reading `effect_binder`'s new
@@ -574,6 +580,16 @@ _CAST_MANA_RIDER_RE = re.compile(
     r"(?P<instead>instead\s+)?(?P<rider>.+)$", re.IGNORECASE | re.S,
 )
 
+#: Tellah, Great Sage is the sole current cast-trigger with *two* additive
+#: total-mana riders.  Keep it adjacent to the one-rider peel: both reuse the
+#: same trigger predicate and, crucially, each threshold is independently
+#: true (eight mana draws the cards *and* performs the final rider).
+_CAST_MANA_TWO_RIDERS_RE = re.compile(
+    r"^(?P<base>.+?)\.\s*if (?P<n1>\d+) or more mana was spent to cast that spell,\s*"
+    r"(?P<rider1>.+?)\.\s*if (?P<n2>\d+) or more mana was spent to cast that spell,\s*"
+    r"(?P<rider2>.+)$", re.IGNORECASE | re.S,
+)
+
 
 def _cast_mana_rider_parts(body: str, *, self_subject: bool) -> Optional[tuple[list[EffectSpec], int, list[EffectSpec], bool]]:
     """Parse PAR-96's one-rider cast-trigger body without losing its gate."""
@@ -581,7 +597,7 @@ def _cast_mana_rider_parts(body: str, *, self_subject: bool) -> Optional[tuple[l
     if m is None:
         return None
     base = parse_effect_body(m.group("base"), self_subject=self_subject)
-    rider_text = m.group("rider").strip()
+    rider_text = m.group("rider").strip().rstrip(".").strip()
     # Oracle places both modifiers after the effect as often as before it:
     # "~ also gains …" and "~ gets … instead".  They describe the rider's
     # relation to the base branch, not its effect grammar.
@@ -589,10 +605,47 @@ def _cast_mana_rider_parts(body: str, *, self_subject: bool) -> Optional[tuple[l
     if rider_text.lower().endswith(" instead"):
         rider_text = rider_text[:-len(" instead")].rstrip()
     rider_text = re.sub(r"^(~) also\s+", r"\1 ", rider_text, flags=re.I)
-    rider = parse_effect_body(rider_text.removeprefix("also "), self_subject=self_subject)
+    # In a mutually-exclusive high branch the original target isn't carried
+    # by a prior resolving effect; this exact mill wording therefore needs a
+    # fresh, equivalent target-player requirement.
+    rider_text = re.sub(r"^that player mills", "target player mills", rider_text, flags=re.I)
+    mana_from_power = re.fullmatch(r"add an amount of \{(?P<color>[wubrgc])\} equal to ~'?s power", rider_text, re.I)
+    rider = (
+        [EffectSpec("add_mana", {"color": mana_from_power.group("color").upper(), "amount_selector": "source_power"})]
+        if mana_from_power is not None
+        else parse_effect_body(rider_text.removeprefix("also "), self_subject=self_subject)
+    )
     if base is None or rider is None:
         return None
     return base, int(m.group("n")), rider, replaces
+
+
+def _cast_mana_two_rider_parts(
+    body: str, *, self_subject: bool,
+) -> Optional[tuple[list[EffectSpec], list[tuple[int, list[EffectSpec]]]]]:
+    """Parse PAR-96's additive two-threshold trigger body (Tellah)."""
+    m = _CAST_MANA_TWO_RIDERS_RE.match(body.strip())
+    if m is None:
+        return None
+    base = parse_effect_body(m.group("base"), self_subject=self_subject)
+    first = parse_effect_body(m.group("rider1").strip().rstrip("."), self_subject=self_subject)
+    second_text = m.group("rider2").strip().rstrip(".")
+    # ``that much`` is the total mana paid for the spell that caused this
+    # trigger, carried by SPELL_CAST's event payload.  The preceding
+    # sacrifice is a sequence, not a cost, so it remains an ordinary effect.
+    if re.fullmatch(r"sacrifice ~ and it deals that much damage to each opponent", second_text, re.I):
+        second = [
+            EffectSpec("sacrifice_self", {}),
+            EffectSpec("damage", {
+                "amount": 0, "selector": "each_opponent",
+                "amount_from_trigger_event": "mana_spent",
+            }),
+        ]
+    else:
+        second = parse_effect_body(second_text, self_subject=self_subject)
+    if base is None or first is None or second is None:
+        return None
+    return base, [(int(m.group("n1")), first), (int(m.group("n2")), second)]
 
 #: PAR-75: "Whenever you cast a Doctor spell or creature spell with
 #: doctor's companion, `<effect>`." (Rose Noble) — an OR of two structurally
@@ -951,7 +1004,7 @@ _CYCLE_TRIGGER_RE = re.compile(
 #: line*, so "a permanent" or an arbitrary creature type would need its own
 #: (much wider, unverified) matching rules this narrow vocabulary sidesteps.
 _SACRIFICE_TYPE_TRIGGER_RE = re.compile(
-    r"^whenever you sacrifice an? (?P<type>treasure|clue|food),\s*(?P<body>.+)$",
+    r"^when(?:ever)? you sacrifice an? (?P<type>treasure|clue|food)(?: or (?P<type2>treasure|clue|food))?,\s*(?P<body>.+)$",
     re.IGNORECASE | re.S,
 )
 
@@ -1417,11 +1470,47 @@ _BATCH_ENTER_TRIGGER_RE = re.compile(
     r"^(?:1|one) or more other creatures you control enter$"
 )
 
+_CREATURE_EXPLORES_TRIGGER_RE = re.compile(
+    r"^a creature you control explores(?: a (?P<result>land|nonland) card)?$",
+    re.IGNORECASE,
+)
+
 #: RULE 603.3f — Quintorius, Field Historian: one trigger for the complete
 #: zone-change event, whether one card is flashback-cast or many are returned
 #: together. The optional timing tail is an intervening trigger condition.
 _CARDS_LEAVE_YOUR_GRAVEYARD_TRIGGER_RE = re.compile(
     r"^(?:1|one) or more cards leave your graveyard(?P<during> during your turn)?$"
+)
+
+#: PAR-97 / RULE 701.13: a milling instruction moves a batch, so “one or
+#: more [<type>] cards are put into your graveyard from your library” must
+#: bind the aggregate event rather than the legacy per-card MILL_CARD event.
+_CARDS_MILLED_TO_YOUR_GRAVEYARD_TRIGGER_RE = re.compile(
+    r"^(?:1|one) or more (?:(?P<type>artifact|creature|enchantment|instant|land|planeswalker|sorcery) )?"
+    r"cards? are put into your graveyard from your library$"
+)
+
+#: Narcomoeba/Creeping Chill: this card's own zone-change trigger functions
+#: from the graveyard it has just entered, unlike the battlefield batch
+#: triggers above.  The source-id predicate identifies the relevant card in
+#: the same milling-instruction snapshot.
+#: RULE 702.62a: "the last time counter is removed from this card[ while it's
+#: exiled]" (Riftmarked Knight/Veiling Oddity). The exile clause is redundant —
+#: the event only ever fires for a suspended card in exile.
+_LAST_TIME_COUNTER_REMOVED_COND_RE = re.compile(
+    r"^the last time counter is removed from (?:~|this card)(?: while it'?s exiled)?$",
+    re.IGNORECASE,
+)
+
+_SELF_MILLED_TO_GRAVEYARD_TRIGGER_RE = re.compile(
+    r"^(?:this card|~) is put into your graveyard from your library$"
+)
+
+#: Pedantic Learning's singular form is deliberately a per-card trigger,
+#: unlike the “one or more” aggregate above.
+_ONE_CARD_MILLED_TO_YOUR_GRAVEYARD_TRIGGER_RE = re.compile(
+    r"^a (?P<type>artifact|creature|enchantment|instant|land|planeswalker|sorcery) card "
+    r"is put into your graveyard from your library$"
 )
 
 
@@ -2384,6 +2473,37 @@ _DISCARD_THEN_IF_YOU_DO_RE = re.compile(
 _PREFIXED_DELAYED_SAC_EXILE_RE = re.compile(
     r"^(?P<before>.+?)\.\s*(?P<delayed>at the beginning of (?:the|your) next end step, "
     r"(?:sacrifice|exile|return)\b.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# PAR-98: the tail-form sibling is attached to an activated ability after
+# an ordinary target effect (Wings of Hubris / Goblin Sappers).  As above,
+# the catalogue handler validates the tail itself; this only protects the
+# two-sentence composition from the generic connector splitter.
+_PREFIXED_DELAYED_TAIL_RE = re.compile(
+    r"^(?P<before>.+?)\.\s*(?P<delayed>(?:then )?(?:its controller )?"
+    r"(?:sacrifice|exile|destroy)\b.+?"
+    r"(?:at the beginning of (?:the|your) next end step|at end of combat))$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+_MILL_LAND_THIS_WAY_RE = re.compile(
+    r"^(?P<before>mill (?:a|\d+) cards?)\.\s*if a land card was milled this way,\s*(?P<after>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+_COUNTER_THEN_WHEN_YOU_DO_RE = re.compile(
+    r"^(?P<before>put a \+1/\+1 counter on ~)\.\s*when you do,\s*(?P<after>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+_REFLEXIVE_TAP_PEEL_RE = re.compile(
+    r"^(?:you may )?(?P<rest>tap another untapped merfolk you control\.\s*when you do,.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+_TAP_THEN_WHEN_YOU_DO_RE = re.compile(
+    r"^(?P<before>tap another untapped [a-z]+ you control)\.\s*when you do,\s*(?P<after>return target creature card with mana value \d+ or less from your graveyard to the battlefield)\.?$",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -3873,6 +3993,17 @@ def parse_effect_body(
     if not body:
         return []
 
+    return_then = re.fullmatch(r"(?P<before>return .+?)\. if you do, (?P<after>.+)", body, re.I | re.S)
+    if return_then is not None:
+        before_specs = parse_effect_body(return_then.group("before"), self_subject=self_subject)
+        after_specs = parse_effect_body(return_then.group("after"), self_subject=self_subject)
+        if (before_specs is None or after_specs is None or len(before_specs) != 1
+                or before_specs[0].type != "return_to_hand"):
+            return None
+        params = dict(before_specs[0].params)
+        params["then_specs"] = [spec.to_dict() for spec in after_specs]
+        return [EffectSpec("return_to_hand", params)]
+
     # An activated ability's sacrifice cost is paid before its effects resolve
     # (RULE 602.2b).  Keep both mutually-exclusive draw counts explicit: the
     # card does not draw one and then a further two when the sacrificed
@@ -4253,6 +4384,60 @@ def parse_effect_body(
         if delayed_specs is None:
             return None
         return before_specs + delayed_specs
+
+    prefixed_delayed_tail = _PREFIXED_DELAYED_TAIL_RE.match(body)
+    if prefixed_delayed_tail is not None:
+        before_specs = parse_effect_body(
+            prefixed_delayed_tail.group("before"), self_subject=self_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
+        )
+        delayed_specs = match_clause(prefixed_delayed_tail.group("delayed"))
+        # Fall through (rather than fail closed) when this split doesn't
+        # parse: the shape is loose enough to catch a multi-sentence body
+        # another row owns whole (Incandescent Soulstoke's "…onto the
+        # battlefield. That creature gains haste until end of turn. Sacrifice
+        # it at the beginning of the next end step.").
+        if before_specs is not None and delayed_specs is not None:
+            return before_specs + delayed_specs
+
+    mill_land_this_way = _MILL_LAND_THIS_WAY_RE.match(body)
+    if mill_land_this_way is not None:
+        before_specs = parse_effect_body(mill_land_this_way.group("before"))
+        after_specs = parse_effect_body(mill_land_this_way.group("after"))
+        if before_specs is None or after_specs is None or not any(s.type == "mill" for s in before_specs):
+            return None
+        return before_specs + [
+            EffectSpec(s.type, dict(s.params), condition={"kind": "milled_land_this_way"})
+            for s in after_specs
+        ]
+
+    counter_when_you_do = _COUNTER_THEN_WHEN_YOU_DO_RE.match(body)
+    if counter_when_you_do is not None:
+        before_specs = parse_effect_body(counter_when_you_do.group("before"), self_subject=True)
+        after_specs = parse_effect_body(counter_when_you_do.group("after"), self_subject=True)
+        if before_specs is None or after_specs is None:
+            return None
+        return before_specs + after_specs
+
+    tap_when_you_do = _TAP_THEN_WHEN_YOU_DO_RE.match(body)
+    if tap_when_you_do is not None:
+        before_specs = parse_effect_body(tap_when_you_do.group("before"))
+        after_specs = parse_effect_body(tap_when_you_do.group("after"))
+        if before_specs is None or after_specs is None:
+            return None
+        # RULE 603.12: "When you do" is a *reflexive trigger* — it exists only
+        # if the tap actually happened, and its graveyard target is chosen when
+        # it goes on the stack. `choose_objects`' ``then`` runs only once a pick
+        # was made, so the trigger rides there instead of following the tap as
+        # an unconditional sibling effect.
+        if len(before_specs) != 1 or before_specs[0].type != "choose_objects":
+            return None
+        return [EffectSpec("choose_objects", {
+            **before_specs[0].params,
+            "then": [EffectSpec("reflexive_trigger", {
+                "then_trigger": [s.to_dict() for s in after_specs],
+            }).to_dict()],
+        })]
 
     exile_then_copy = _EXILE_THEN_COPY_SENTENCE_RE.match(body)
     if exile_then_copy is not None:
@@ -5265,6 +5450,38 @@ def segment_line(
         )
         return Segment(raw=raw, spec=spec, claimed=True)
 
+    two_color_cast = _CAST_TWO_COLOR_SPELL_TRIGGER_RE.match(raw)
+    if two_color_cast is not None:
+        body, optional = _peel_optional(two_color_cast.group("body"))
+        effects = parse_effect_body(body, self_subject=True)
+        mimic_body = re.fullmatch(
+            r"~ has base power and toughness (?P<p>\d+)/(?P<t>\d+) until end of turn and "
+            r"(?P<tail>gains? [a-z ]+|can'?t be blocked this turn)\.", body.strip(), re.I,
+        )
+        if effects is None and mimic_body is not None:
+            effects = [EffectSpec("grant_until", {
+                "static": {"type": "pt_set", "params": {
+                    "power": int(mimic_body.group("p")), "toughness": int(mimic_body.group("t")),
+                }}, "duration": "end_of_turn", "target_kind": None,
+            })]
+            tail = mimic_body.group("tail").lower()
+            if tail.startswith("gains "):
+                effects.append(EffectSpec("pump", {"keywords": [tail.removeprefix("gains ")]}))
+            else:
+                effects.append(EffectSpec("pump", {"unblockable": True}))
+        if effects is None:
+            return Segment(raw=raw)
+        colors = [
+            _CAST_SPELL_COLOR_WORDS[two_color_cast.group("c1").lower()],
+            _CAST_SPELL_COLOR_WORDS[two_color_cast.group("c2").lower()],
+        ]
+        spec = AbilitySpec("triggered", effects=effects, trigger={
+            "event": "SPELL_CAST",
+            "condition": _cast_spell_trigger_condition(two_color_cast.group("subj")),
+            "cast_of_all_colors": colors,
+        }, optional=optional, raw_text=raw, parser=provenance)
+        return Segment(raw=raw, spec=spec, claimed=True)
+
     cast_spell_trig_plain = _CAST_SPELL_TRIGGER_PLAIN_RE.match(raw)
     if cast_spell_trig_plain is not None:
         subj = cast_spell_trig_plain.group("subj").lower()
@@ -5352,6 +5569,23 @@ def segment_line(
     # enough to also swallow "noncreature" as if it were a types list —
     # failing `_parse_cast_spell_types` and returning unclaimed *before*
     # this negated form ever got a chance to match the same line.
+    two_color_cast = _CAST_TWO_COLOR_SPELL_TRIGGER_RE.match(raw)
+    if two_color_cast is not None:
+        body, optional = _peel_optional(two_color_cast.group("body"))
+        effects = parse_effect_body(body, self_subject=True)
+        if effects is None:
+            return Segment(raw=raw)
+        colors = [
+            _CAST_SPELL_COLOR_WORDS[two_color_cast.group("c1").lower()],
+            _CAST_SPELL_COLOR_WORDS[two_color_cast.group("c2").lower()],
+        ]
+        spec = AbilitySpec("triggered", effects=effects, trigger={
+            "event": "SPELL_CAST",
+            "condition": _cast_spell_trigger_condition(two_color_cast.group("subj")),
+            "cast_of_all_colors": colors,
+        }, optional=optional, raw_text=raw, parser=provenance)
+        return Segment(raw=raw, spec=spec, claimed=True)
+
     cast_spell_trig_neg = _CAST_SPELL_TRIGGER_NEG_RE.match(raw)
     if cast_spell_trig_neg is not None:
         excluded = cast_spell_trig_neg.group("type").lower()
@@ -5359,6 +5593,23 @@ def segment_line(
             return Segment(raw=raw)
         neg_subj = cast_spell_trig_neg.group("subj")
         body, optional = _peel_optional(cast_spell_trig_neg.group("body"))
+        trigger = {
+            "event": "SPELL_CAST",
+            "condition": _cast_spell_trigger_condition(neg_subj),
+            "spell_exclude_card_types": [excluded],
+        }
+        two_rider_parts = _cast_mana_two_rider_parts(body, self_subject=True)
+        if two_rider_parts is not None:
+            base_effects, riders = two_rider_parts
+            base_spec = AbilitySpec("triggered", effects=base_effects, trigger=trigger,
+                optional=optional, raw_text=raw, parser=provenance)
+            rider_specs = [
+                AbilitySpec("triggered", effects=effects,
+                    trigger={**trigger, "spell_mana_spent_at_least": threshold}, optional=optional,
+                    raw_text=raw, parser=provenance)
+                for threshold, effects in riders
+            ]
+            return Segment(raw=raw, spec=base_spec, extra_specs=rider_specs, claimed=True)
         body, mana_spent_at_least = _peel_spell_mana_spent_at_least(body)
         effects = parse_effect_body(body, self_subject=True)
         if effects is None:
@@ -5367,9 +5618,7 @@ def segment_line(
             "triggered",
             effects=effects,
             trigger={
-                "event": "SPELL_CAST",
-                "condition": _cast_spell_trigger_condition(neg_subj),
-                "spell_exclude_card_types": [excluded],
+                **trigger,
                 **({"spell_mana_spent_at_least": mana_spent_at_least}
                    if mana_spent_at_least is not None else {}),
             },
@@ -5482,6 +5731,22 @@ def segment_line(
         if types is None:
             return Segment(raw=raw)
         body, optional = _peel_optional(cast_spell_trig.group("body"))
+        two_rider_parts = _cast_mana_two_rider_parts(body, self_subject=True)
+        if two_rider_parts is not None:
+            base_effects, riders = two_rider_parts
+            trigger = {
+                "event": "SPELL_CAST", "condition": _cast_spell_trigger_condition(pos_subj),
+                "spell_card_types": types,
+            }
+            base_spec = AbilitySpec("triggered", effects=base_effects, trigger=trigger,
+                optional=optional, raw_text=raw, parser=provenance)
+            rider_specs = [
+                AbilitySpec("triggered", effects=effects,
+                    trigger={**trigger, "spell_mana_spent_at_least": threshold}, optional=optional,
+                    raw_text=raw, parser=provenance)
+                for threshold, effects in riders
+            ]
+            return Segment(raw=raw, spec=base_spec, extra_specs=rider_specs, claimed=True)
         rider_parts = _cast_mana_rider_parts(body, self_subject=True)
         if rider_parts is not None:
             base_effects, threshold, rider_effects, replaces = rider_parts
@@ -5587,7 +5852,9 @@ def segment_line(
             trigger={
                 "event": "SACRIFICE",
                 "condition": {"subject": "you"},
-                "sacrifice_type": sacrifice_trig.group("type").lower(),
+                "sacrifice_type": [
+                    t.lower() for t in (sacrifice_trig.group("type"), sacrifice_trig.group("type2")) if t
+                ],
             },
             raw_text=raw,
             parser=provenance,
@@ -6459,9 +6726,15 @@ def segment_line(
         dmg_if = _YOU_DEALT_DAMAGE_IF_RE.match(body)
         no_subtype_if = _YOU_CONTROL_NO_SUBTYPE_IF_RE.match(body)
         harnessed_if = _SOURCE_HARNESSED_IF_RE.match(body)
+        noncreature_if = re.match(
+            r"^if you'?ve cast a noncreature spell this turn,\s*(?P<rest>.+)$", body, re.I | re.S,
+        )
         if harnessed_if is not None:  # MEC-79 / RULE 701.64b
             phase_active_if = {"kind": "source_harnessed"}
             body = harnessed_if.group("rest").strip()
+        elif noncreature_if is not None:
+            phase_active_if = {"kind": "cast_noncreature_spell_this_turn"}
+            body = noncreature_if.group("rest").strip()
         elif entered_if is not None:
             phase_active_if = {
                 "kind": "another_subtype_entered_this_turn",
@@ -6603,6 +6876,95 @@ def segment_line(
                 },
                 optional=optional, raw_text=raw, parser=provenance,
             )
+            return Segment(raw=raw, spec=spec, claimed=True)
+
+        creature_explores = _CREATURE_EXPLORES_TRIGGER_RE.match(cond_text.strip())
+        if creature_explores is not None:
+            body, optional = _peel_optional(trig.group("body"))
+            effects = parse_effect_body(body, group_subject=True)
+            if effects is None:
+                return Segment(raw=raw)
+            condition = {"subject": "group", "type": "creature", "controller": "you"}
+            result = creature_explores.group("result")
+            if result is not None:
+                condition["explore_found_land"] = result.lower() == "land"
+            spec = AbilitySpec("triggered", effects=effects, trigger={
+                "event": "EXPLORED", "condition": condition,
+            }, optional=optional, raw_text=raw, parser=provenance)
+            return Segment(raw=raw, spec=spec, claimed=True)
+
+        milled_cards = _CARDS_MILLED_TO_YOUR_GRAVEYARD_TRIGGER_RE.match(cond_text.strip())
+        if milled_cards is not None:
+            body, optional = _peel_optional(trig.group("body"))
+            milled_type = milled_cards.group("type")
+            normalized_body = body.strip().rstrip(".").lower()
+            if milled_type and normalized_body == "put them onto the battlefield tapped":
+                effects = [EffectSpec("return_milled_cards", {
+                    "card_type": milled_type.lower(), "tapped": True,
+                })]
+            elif milled_type and normalized_body == "put 1 of them onto the battlefield":
+                effects = [EffectSpec("return_milled_cards", {
+                    "card_type": milled_type.lower(), "choose_one": True,
+                })]
+            elif normalized_body == "each opponent loses 1 life for each card type among those cards":
+                effects = [EffectSpec("lose_life_for_milled_card_types", {})]
+            else:
+                effects = parse_effect_body(body, self_subject=True)
+            if effects is None:
+                return Segment(raw=raw)
+            trigger: dict[str, Any] = {
+                "event": "CARDS_MILLED", "condition": {"subject": "you"},
+            }
+            if milled_type:
+                trigger["milled_card_type"] = milled_type.lower()
+            spec = AbilitySpec("triggered", effects=effects, trigger=trigger,
+                optional=optional, raw_text=raw, parser=provenance)
+            return Segment(raw=raw, spec=spec, claimed=True)
+
+        if _LAST_TIME_COUNTER_REMOVED_COND_RE.match(cond_text.strip()):
+            # RULE 702.62a: a suspended card's own trigger, fired from exile.
+            body, optional = _peel_optional(trig.group("body"))
+            effects = parse_effect_body(body, self_subject=True)
+            if effects is None:
+                return Segment(raw=raw)
+            spec = AbilitySpec("triggered", effects=effects,
+                trigger={"event": "LAST_TIME_COUNTER_REMOVED", "condition": {"subject": "self"}},
+                optional=optional, raw_text=raw, parser=provenance)
+            return Segment(raw=raw, spec=spec, claimed=True)
+
+        self_milled = _SELF_MILLED_TO_GRAVEYARD_TRIGGER_RE.match(cond_text.strip())
+        if self_milled is not None:
+            body, optional = _peel_optional(trig.group("body"))
+            # Narcomoeba's "put it onto the battlefield" is an untargeted
+            # self-return, not a fresh RULE 115 target.
+            if body.strip().rstrip(".").lower() == "put it onto the battlefield":
+                effects = [EffectSpec("return_self_from_graveyard", {})]
+            else:
+                effects = parse_effect_body(body, self_subject=True)
+                # Creeping Chill's optionality encloses its reflexive
+                # exile-and-damage sequence; retain that composition instead
+                # of peeling the leading ``you may`` into ability-level
+                # optionality (which loses the pronoun's antecedent).
+                if effects is None:
+                    effects = parse_effect_body(trig.group("body"), self_subject=True)
+                    optional = False
+            if effects is None:
+                return Segment(raw=raw)
+            spec = AbilitySpec("triggered", effects=effects,
+                trigger={"event": "CARDS_MILLED", "milled_source": True},
+                optional=optional, raw_text=raw, parser=provenance)
+            return Segment(raw=raw, spec=spec, claimed=True)
+
+        one_milled_card = _ONE_CARD_MILLED_TO_YOUR_GRAVEYARD_TRIGGER_RE.match(cond_text.strip())
+        if one_milled_card is not None:
+            body, optional = _peel_optional(trig.group("body"))
+            effects = parse_effect_body(body, self_subject=True)
+            if effects is None:
+                return Segment(raw=raw)
+            spec = AbilitySpec("triggered", effects=effects, trigger={
+                "event": "MILLED_CARD", "condition": {"subject": "you"},
+                "milled_card_type": one_milled_card.group("type").lower(),
+            }, optional=optional, raw_text=raw, parser=provenance)
             return Segment(raw=raw, spec=spec, claimed=True)
 
         graveyard_exit = _CARDS_LEAVE_YOUR_GRAVEYARD_TRIGGER_RE.match(cond_text.strip())
@@ -6787,6 +7149,25 @@ def segment_line(
             if condition is None:
                 return Segment(raw=raw)  # unrecognised subject scope → unclaimed (fail-closed)
         body, optional = _peel_optional(trig.group("body"))
+        # PAR-98: Meanders Guide's optional tap is the antecedent for a
+        # following "When you do" trigger.  Keep the pair together before
+        # the ordinary optional wrapper can turn it into two unrelated
+        # clauses.
+        # `_peel_optional` deliberately leaves this "you may" in place (its
+        # guard protects `_MAY_EFFECT_THEN_ANTECEDENT_PHRASES` shapes), so
+        # peel it here — the optionality wraps the whole tap-then-return pair.
+        reflexive_tap = _REFLEXIVE_TAP_PEEL_RE.match(body)
+        if cond_text.strip() == "~ attacks" and reflexive_tap is not None:
+            body = reflexive_tap.group("rest")
+            optional = True
+            effects = parse_effect_body(body, self_subject=True)
+            if effects is None:
+                return Segment(raw=raw)
+            return Segment(raw=raw, spec=AbilitySpec(
+                "triggered", effects=effects,
+                trigger={"event": "ATTACKS", "condition": {"subject": "self"}},
+                optional=optional, raw_text=raw, parser=provenance,
+            ), claimed=True)
         # RULE 603.4 intervening-if prefix on an "~ attacks a player"
         # trigger — "…, if no opponent has more life than that player, …"
         # (Guild Artisan &c). Only for a self-subject ATTACKS trigger;
@@ -6808,7 +7189,7 @@ def segment_line(
         # rather than requiring an exact dict match the way ``self_subject``
         # does above.
         effects = parse_effect_body(
-            body, self_subject=condition == {"subject": "self"},
+            body, self_subject=(condition or {}).get("subject") == "self",
             group_subject=(condition or {}).get("subject") == "group",
             attached_subject=(condition or {}).get("subject") == "attached_permanent",
         )

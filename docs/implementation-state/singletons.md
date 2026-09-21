@@ -52,14 +52,17 @@ header before treating the two as equally verified.
 | Mistford River Turtle | "Another target attacking **non-human** creature" | A subtype-*negation* qualifier on an attacking-creature target; no other cached card pairs "non-`<type>`" with this target shape. |
 | Shrouded Serpent | "Defending player may pay `{4}`. If that player doesn't, `<effect>`" | A combat-trigger tax-or-else composition, distinct from the shipped attack-tax statics (this one gates a *different* effect on non-payment, not the attack itself). |
 | Temmet, Vizier of Naktamun | "Target creature **token** you control" combined with pump + unblockable in one trigger | The "token" qualifier on this exact combined effect body; the one other cached card sharing "target creature token you control" (Kaya, Geist Hunter) is blocked on unrelated clauses too, so no real shared yield today. |
-| First Responder | Untargeted "return another creature you control to hand, **then** put counters on ~ equal to that creature's power" | Related to PAR-98's targeted-return-then-measure bucket but a third, distinct shape: "then" (not "if you do") sequencing, and a magnitude reading the just-returned creature's *power* rather than gating on success. |
+| First Responder | Untargeted "return another creature you control to hand, **then** put counters on ~ equal to that creature's power" | Related to Niambi's targeted-return-then-measure shape (PAR-98, closed) but a third, distinct shape: "then" (not "if you do") sequencing, and a magnitude reading the just-returned creature's *power* rather than gating on success. |
 | Indoctrination Attendant | "If you do, create a 1/1 … token with toxic 1 **and** '`<quoted static ability>`'" | A printed-keyword-count-plus-quoted-ability token-creation compound; no token-creation handler combines both yet. |
 | Goblin Ski Patrol | "Activate only once **and only if** you control a snow Mountain." — reversed "only once and only if" order (`_ACTIVATE_ONLY_IF_TRAILING_RE` only recognizes "only if `<cond>` [and only once]"), plus a "snow `<land type>`" control-count selector `_CONTROL_COUNT_SELECTORS` doesn't have | PAR-117's sacrifice-verb closure (PARSER_VERSION 417) unblocked the card's own sacrifice clause; this trailing activation-condition is the sole remaining gap, confirmed 1 SOLO/0 also-blocked via `parser_probe.py blocked "activate only once and only if"`. |
+| Alora, Cheerful Scout / Alora, Cheerful Thief | "If you do, it perpetually gets +1/+1" / "a creature of your choice an opponent controls perpetually gets -1/-0" | Alchemy's `perpetually` is a documented engine non-goal (persistent cross-zone state, see `PARSER_LONG_TAIL.md`'s Alchemy row) — the rest of both cards (the delayed return, PAR-79's eighth increment) already parses. Two cards, one cause; not a ticket. |
+| Blu, Mansion Prince | "Choose a Room card at random. Create a token that's a copy of 1 of its halves, then unlock it." | The Room/unlock subsystem plus a random-card-from-the-pool pick; no other cached card unlocks a Room this way (`parser_probe.py blocked "choose a room card at random"`: SOLO 1). |
+| Lazav, Wearer of Faces | "You may have ~ become a copy of a creature card exiled with it until end of turn." | A self-copy of a *linked-exile* card (`GameObject.exiled_with_ids`) as a layer-1 copy effect; the "you sacrifice a Clue" trigger itself parses now, only this body is open. |
+| Hurkyl, Master Wizard | "…reveal the top 5 cards of your library. For each card type among noncreature spells you've cast this turn, you may put a card of that type from among the revealed cards into your hand. Put the rest on the bottom …" | A per-card-type reveal-and-choose loop driven by the turn's cast-spell type history (`parser_probe.py blocked "for each card type among noncreature spells"`: SOLO 1). |
 | Adverse Conditions | Its inline Eldrazi Scion token's quoted "Sacrifice this token: Add {C}" activated mana ability | PAR-84 now recognizes the preceding multi-target tap/next-untap sequence. The remaining full body is 1 SOLO/0 also-blocked (`parser_probe.py blocked "tap up to [0-9]+ target creatures\\. those creatures don.t untap"`); `CreateTokenEffect` has no generic inline-token activated-ability field, so this is a token-definition singleton, not a tap/untap parser family. |
 
-See `docs/implementation-state/BACKLOG.md`'s PAR-98 entry for the related
-*clustered* residue these were sorted out of (2+ cards sharing one gap —
-those are tickets, not singletons).
+The *clustered* residue these were sorted out of (2+ cards sharing one gap)
+went to tickets in `docs/implementation-state/BACKLOG.md`, not to this file.
 
 ## Batch 2 — 2026-09-16 saved-deck coverage sweep
 
@@ -1288,3 +1291,24 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Stormscape Familiar | `White spells and black spells you cast cost <cost> less to cast.` |  |
 | Sygg, River Cutthroat | `At the beginning of each end step, if an opponent lost <n> or more life this turn, you may draw a card.` |  |
 | Unwind | `Counter target noncreature spell. untap up to <n> lands.` |  |
+
+
+## Batch 3 — 2026-09-21 re-evaluation of PAR-99…PAR-113 (PARSER_VERSION 447)
+
+Found by decomposing the wrapper template `equipped creature has <name>`
+(`BACKLOG.md`'s PAR-109), which the batch-1 sweep had counted as a 6-card
+cluster: the quoted-grant shell (`static_handlers._ATTACHED_QUOTED_GRANT_RE`)
+already works, so each card is blocked only by its own **inner** ability. Each
+inner ability below was searched cache-wide across every unclaimed clause
+(`parser_probe.py blocked`-equivalent regex over the distinctive text) and came
+back on this card alone. The other two Equipment cards in that template are
+*not* singletons — The Masamune belongs to the 32-card "triggers an
+additional time" axis and Stormforged Armor pairs with Kari Zev on
+"conjure … tapped and attacking" (both noted under PAR-109).
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Conformer Shuriken | Granted "Whenever ~ attacks, tap target creature defending player controls. If that creature has greater power than ~, put a number of +1/+1 counters on ~ equal to the difference." | The counters go on the *Equipment*, and the count is a power difference against a just-tapped target — no composition reads that. |
+| Lobe Lobber | Granted "{T}: ~ deals 1 damage to target player or planeswalker. Roll a 6-sided die. On a 5 or higher, untap it." | A die-roll-gated untap; the RULE 706 dice subsystem exists (MEC-75), but this is the only card whose text gates an untap on a roll result. |
+| Shuriken | Granted "{T}, Unattach ~: ~ deals 2 damage to target creature. That creature's controller gains control of ~ unless it was unattached from a Ninja." | A cost that unattaches the source, plus a control-change conditioned on what the Equipment was attached to. Elbrus, the Binding Blade shares the word "unattach" but not the shape (its trigger unattaches then transforms). |
+| Fishing Pole | Compound gap — granted `{1}, {T}, tap ~: put a bait counter on ~.`; `Whenever equipped creature becomes untapped, remove a bait counter from ~. If you do, create a 1/1 blue Fish creature token.` | Both clauses are unique cache-wide ("bait counter" appears on no other card); the second is a becomes-untapped trigger on the equipped creature, which handler-recipe.md lists as deliberately absent from `_TRIGGER_VERBS` (re-check whether the engine fires a becomes-untapped event before hand-authoring). |

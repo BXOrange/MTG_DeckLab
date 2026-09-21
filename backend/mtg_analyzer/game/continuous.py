@@ -1263,6 +1263,16 @@ def count_selector(
             if o.is_planeswalker and o.controller_id == controller_id
             and _has_subtype(o, planeswalker_type)
         )
+    if selector.startswith("permanents_you_control_of_type_"):
+        # "X is the number of Bobbleheads you control as you activate this
+        # ability" (Agility Bobblehead) — the subtype-of-any-permanent sibling
+        # of `creatures_you_control_of_type_`, for a subtype (Bobblehead,
+        # Equipment, Vehicle, …) that isn't a creature type.
+        permanent_type = selector[len("permanents_you_control_of_type_"):]
+        return sum(
+            1 for o in bf
+            if o.controller_id == controller_id and _has_subtype(o, permanent_type)
+        )
     if selector == "foods_you_control":
         # "…for each Food you control." (Of Herbs and Stewed Rabbit's own
         # Saga chapter III) — same closed Food/Clue/Treasure named-token

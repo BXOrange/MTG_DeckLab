@@ -212,6 +212,9 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # handled both (see the ``nonland_permanent_you_control`` case), just
         # never whitelisted here until a real card's TARGET row needed it.
         "nonland_permanent_you_control", "nonland_permanent_you_dont_control",
+        # PAR-98: "another target historic permanent you control" (Guardians
+        # of Koilos) — artifact, legendary or Saga (RULE 700.6), your own.
+        "historic_permanent_you_control",
         # "target spell or nonland permanent an opponent controls" (Sink
         # into Stupor) — the ``"spell"``/``nonland_permanent_you_dont_
         # control`` union.
@@ -269,6 +272,7 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # the controller-restricted kinds above. ``nonbasic_land_you_dont_
         # control`` is the "an opponent controls" narrowing (Field of Ruin).
         "nonbasic_land", "basic_land", "nonbasic_land_you_dont_control",
+        "mountain", "forest",
         # "Target legendary permanent" (Minamo, School at Water's Edge,
         # RULE 205.4a) — any player's, supertype-filtered.
         "legendary_permanent",
@@ -764,7 +768,13 @@ def _creature_matches_filter(
     # target attacking creature") rather than adding a name branch.
     if filt.get("attacking") and not obj.attacking:
         return False
-    combat_filter = {key: value for key, value in filt.items() if key != "attacking"}
+    if filt.get("max_power_from_source_x"):
+        if reference is None or (obj.power or 0) > int(getattr(reference, "x_paid", 0) or 0):
+            return False
+    combat_filter = {
+        key: value for key, value in filt.items()
+        if key not in {"attacking", "max_power_from_source_x"}
+    }
     return combat.matches_object_filter(obj, combat_filter, reference=reference, state=state)
 
 
@@ -944,8 +954,14 @@ _FRAME_TYPE_PREDICATES: dict[str, Any] = {
     "noncreature_artifact": lambda o: bool(o.card.is_artifact) and not o.is_creature,
     "nonbasic_land": _fp_nonbasic,
     "basic_land": lambda o: bool(o.is_land) and "basic" in o.card.type_line.lower(),
+    "mountain": lambda o: bool(o.is_land) and "mountain" in str(o.card.type_line).lower(),
+    "forest": lambda o: bool(o.is_land) and "forest" in str(o.card.type_line).lower(),
     "forest": lambda o: bool(o.is_land) and _fp_subtype(o, "forest"),
     "legendary_permanent": lambda o: bool(o.card.is_legendary),
+    "historic_permanent": lambda o: (
+        bool(o.card.is_artifact) or bool(o.card.is_legendary)
+        or "saga" in o.card.type_line.lower()
+    ),
     # RULE 105.3: exactly one colour — a colourless permanent is not
     # monocolored.
     "monocolored_permanent": lambda o: len(o.colors or ()) == 1,
@@ -1012,6 +1028,7 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
         "permanent", SCOPE_NEITHER_OWN_NOR_CONTROL, apply_color=True,
         emit_controller=True),
     "legendary_permanent": TargetFrame("legendary_permanent", apply_color=True),
+    "historic_permanent_you_control": TargetFrame("historic_permanent", SCOPE_YOU, apply_color=True),
     "monocolored_permanent": TargetFrame("monocolored_permanent"),
     "incubator_token_you_control": TargetFrame("incubator_token", SCOPE_YOU),
 
@@ -1036,6 +1053,8 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
         "noncreature_artifact", apply_color=True, apply_max_mana_value=True),
     "nonbasic_land": TargetFrame("nonbasic_land"),
     "basic_land": TargetFrame("basic_land"),
+    "mountain": TargetFrame("mountain"),
+    "forest": TargetFrame("forest"),
     "forest": TargetFrame("forest"),
     "forest_you_control": TargetFrame("forest", SCOPE_YOU),
 

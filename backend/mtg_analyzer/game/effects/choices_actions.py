@@ -654,6 +654,33 @@ class MayExileSourceThenEffect(GameEffect):
         )
 
 
+class ReflexiveTriggerEffect(GameEffect):
+    """RULE 603.12: put a "When you do, `<effect>`" reflexive triggered
+    ability on the stack.
+
+    The body of a `ChooseObjectsEffect`'s ``then`` list ("You may tap
+    another untapped Merfolk you control. When you do, return target
+    creature card … from your graveyard to the battlefield." — Meanders
+    Guide): ``then`` only runs once a pick was actually made, so the
+    reflexive trigger exists only if the antecedent happened, and its own
+    RULE 115 target is chosen when it is put on the stack, not before.
+    Unlike `PayCostThenEffect`'s own ``then_trigger`` this has no payment of
+    its own — the antecedent is whatever effect carries this in ``then``.
+    """
+
+    def __init__(
+        self, then_trigger: Optional[list[dict[str, Any]]] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.then_trigger_specs = list(then_trigger or [])
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None or not self.then_trigger_specs:
+            return
+        context.enqueue_reflexive_trigger(self.then_trigger_specs, self.source)
+
+
 class PayCostThenEffect(GameEffect):
     """RULE 118.3-style resolve-time optional payment: "you may pay
     `<cost>`. If you do, `<effect>`." — the general form of

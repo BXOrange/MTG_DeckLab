@@ -6716,6 +6716,137 @@ measurement of why is the useful half of this work.
   15,530 / 31,830 (48.8%). The two remaining probe matches are independently
   blocked by unrelated clauses.
 
+### PAR-98: Small verified residue batch #2 (PARSER_VERSION 448)
+
+- **What:** Closed the fourteen-shape batch that PAR-79's close-out split off
+  (+63 cards, 16,184 → 16,247; Commander-legal 15,548 → 15,609). Each shape
+  reuses an existing primitive or adds one small one:
+  - *Legendary-matters gate* (Brotherhood Spy, Esquire of the King, Haunt of
+    the Dead Marshes, Rivendell): "you control a legendary creature" as both an
+    activation condition and a static/cost-reduction condition
+    (`control_count` on `legendary_creatures_you_control`).
+  - *Manland animate* (Creeping Tar Pit, Siege of Towers, Woodwraith Corrupter,
+    Frostwalk Bastion): leading-duration word order, plus the basic-land-subtype
+    target frames `target mountain`/`target forest`.
+  - *Two-colour cast triggers* (Battlegate/Nightsky/Riverfall Mimic): a
+    `cast_of_all_colors` trigger predicate — an AND over the cast spell's
+    colors, which `cast_of_color` (single colour) could not express.
+  - *Delayed sacrifice/destroy tail on an activated ability* (Wings of Hubris,
+    Goblin Sappers): `segmenter._PREFIXED_DELAYED_TAIL_RE`.
+  - *Targeted return, then measure it* (Niambi, Esteemed Speaker): the
+    returned creature's last-known mana value, read as `previous_target`.
+  - *"Another target historic/nonland permanent you control"* (Guardians of
+    Koilos, Stockpiling Celebrant), *"whenever you sacrifice a Clue"* (Astrid
+    Peth, Jenny Flint, Martha Jones), *"if a land card was milled this way"*
+    (`milled_land_this_way` over `GameContext.milled_objects`; Loafing Giant,
+    Lorehold Excavation, Saprazzan Breaker), *"explores"* triggers with a
+    found-land/nonland outcome (`EXPLORED`; Merfolk Cave-Diver, Nicanzil,
+    Lurking Chupacabra), *"cast a noncreature spell this turn"* combat
+    triggers (Franklin Richards, H.E.R.B.I.E., Lockjaw), and the cost-`{X}`
+    power filter (`max_power_from_source_x`; Minamo Sightbender, Runed Arch).
+  - *Meanders Guide* — the one item where the ticket's own framing needed a
+    real primitive. "You may tap another untapped Merfolk you control. When you
+    do, return target creature card …" is a RULE 603.12 reflexive trigger: its
+    graveyard target is chosen when it goes on the stack, and it exists only if
+    the tap happened. A flat `[tap, return]` sequence would have returned the
+    creature with no untapped Merfolk at all (an execute test caught it). New
+    `ReflexiveTriggerEffect`/`"reflexive_trigger"` rides in
+    `choose_objects`' ``then`` (which already runs only once a pick was made)
+    and calls `enqueue_reflexive_trigger`.
+  - *"…can't be blocked this turn except by creatures with haste"* (Run for
+    Your Life, Agility Bobblehead, Speed, Young Avenger): `combat_restriction_
+    this_turn` gained a `creature_filter`, multi-target counts, and a
+    `previous_subject` mode ("they can't be blocked … except by …" after a
+    "1 or 2 target creatures each gain haste" clause); the target qualifier
+    widened from "with power N or less" to the shared `_CREATURE_FILTER_SUFFIX`
+    (keywords included). `PumpEffect` gained a target-count `count_selector`
+    and `count_selector` a `permanents_you_control_of_type_<subtype>` reading
+    (Bobblehead's "X is the number of Bobbleheads you control as you activate").
+  - *"When you sacrifice a Clue"* with a bare "when" (Curious Cadaver, Daring
+    Sleuth) and *"target opponent gets N poison counters"* (Persuasive
+    Interrogators, the existing `opponent` target kind).
+  - *"When the last time counter is removed from this card while it's exiled"*
+    (Veiling Oddity, Riftmarked Knight): `EventType.LAST_TIME_COUNTER_REMOVED`,
+    fired by the new shared `RulesEngine.remove_suspend_time_counter` (used by
+    the suspend upkeep effect and time travel alike) and collected off the
+    exiled card by `_collect_last_time_counter_triggers`. Riftmarked's token
+    "with … protection from white" carries the protection as the token's own
+    oracle text (`_split_token_protection`).
+  - *"Activate only if you've cast a noncreature spell this turn"* (Seeker of
+    Insight, Tapestry of the Ages) — the shared `cast_noncreature_spell_this_
+    turn` predicate.
+- **Residue:** Alora, Cheerful Scout/Thief (Alchemy `perpetually`, an engine
+  non-goal), Blu, Mansion Prince, Lazav, Wearer of Faces, Hurkyl, Master Wizard
+  and Locke, Treasure Hunter are single cards and live in
+  [singletons.md](singletons.md). Alaundo the Seer shares its
+  "exile from hand with time counters equal to its mana value" gap with two
+  other cards, so it became **PAR-118** rather than a singleton.
+- **Defects found by the diff/suite gates** (a full-suite comparison against a
+  clean `HEAD` worktree — 110 failures there, 17 more with the working tree —
+  is what surfaced them): `UnblockableEffect` read `_attached_mode` without
+  setting it (the assignment had landed in `TapEffect`), crashing every
+  unblockable effect; the `control_legendary_subtype` branch had been inserted
+  *inside* `static_conditions`' `control_count` block, displacing its
+  `return True` so every `control_count` condition evaluated false;
+  `historic_permanent_you_control` was framed but never whitelisted in
+  `ALLOWED_TARGET_KINDS`; and `_PREFIXED_DELAYED_TAIL_RE` failed closed instead
+  of falling through, taking Incandescent Soulstoke's multi-sentence body away
+  from the row that owned it (`parser_probe.py diff`: 1 regressed, now 0). The
+  `HEAD` commit itself also had the `"tap"` registry entry passing a
+  `target_group_index` kwarg `TapEffect` does not accept, which failed ~90
+  tests at `HEAD`; the stray kwarg is removed. The suite is now 21 failed /
+  8,144 passed, all 21 also failing at `HEAD` and unrelated to this batch
+  (the ENG-34 ISA inventory's 21 unclassified effect types, the suspected-state
+  condition samples, a showcase-deck legality pin, and similar).
+- **Files:** `parser/oracle/segmenter.py`, `catalogue/handlers.py`,
+  `catalogue/static_handlers.py`, `catalogue/subgrammars.py`, `gate.py`,
+  `game/effects/{attachments_transforms,choices_actions,counters_tokens,
+  library,registry}.py`, `game/rules/{misc_mixin,triggers_mixin}.py`,
+  `game/continuous.py`, `game/isa.py`, `models/game/events.py`.
+- **Verification:** `tests/test_par98_residue_batch.py` (parse + execute for
+  each new primitive: Meanders Guide with and without an untapped Merfolk, both
+  haste-exception shapes against real blockers, the Clue trigger, the
+  last-counter trigger through the real upkeep removal, Riftmarked's token
+  protection); `parser_probe.py diff` against HEAD: +78 (with PAR-96/97), 0
+  regressed; `coverage_report.py`: 16,247 / 34,811 (46.7%), Commander-legal
+  15,609 / 31,830 (49.0%).
+
+### PAR-96: Total-mana cast-trigger riders (PARSER_VERSION 446)
+
+- **What:** Added reusable parsing for “if N or more mana was spent to cast
+  that spell” riders on typed and noncreature cast triggers. Additive riders
+  become separately gated triggered abilities; `instead` riders split into
+  below-threshold and at-least-threshold branches. Tellah, Great Sage's
+  two-rider form preserves both thresholds and reads “that much” from the
+  casting event's `mana_spent` payload for its mass damage.
+- **Scope result:** Ten of the original eleven SOLO cards now parse. Phoenix
+  of Iteration remains correctly fail-closed because its primary effect is
+  an Alchemy `perpetually` modification — a documented engine non-goal whose
+  persistent cross-zone state cannot be approximated by a normal temporary
+  pump. This is independent of the total-mana trigger grammar.
+- **Files:** `parser/oracle/segmenter.py`, `parser/oracle/gate.py`,
+  `parser/oracle/PARSER_VERSION.lock`, `tests/test_par96_mana_spent_riders.py`.
+- **Verification:** 30 focused PAR-79/PAR-95/PAR-96 tests pass; fresh
+  `coverage_report.py --no-db` is 16,176 / 34,811 (46.5%), with
+  Commander-legal coverage 15,540 / 31,830 (48.8%).
+
+### PAR-97: Mill graveyard-entry batches (PARSER_VERSION 447)
+
+- **What:** Added `CARDS_MILLED`, a last-known-information snapshot emitted
+  once for each complete milling instruction, plus `MILLED_CARD` for the
+  singular land-card form. Typed batch triggers inspect that snapshot;
+  `ReturnMilledCardsEffect` and Polluted Cistern's distinct-card-type loss
+  likewise use it rather than scanning a changed graveyard. All eight named
+  ticket cards now parse, including graveyard-functioning Narcomoeba and
+  Creeping Chill.
+- **Files:** `models/game/events.py`, `game/rules/draw_discard_mixin.py`,
+  `game/binding/core.py`, `game/effects/returns_graveyards.py`,
+  `game/effects/registry.py`, `parser/oracle/segmenter.py`, and
+  `tests/test_par97_mill_batch_triggers.py`.
+- **Verification:** 25 focused mill/PAR-95/PAR-96/PAR-97 tests pass;
+  full-cache coverage is 16,184 / 34,811 (46.5%) and Commander-legal is
+  15,548 / 31,830 (48.8%).
+
 ### PAR-92: Small verified residue batch (PARSER_VERSION 440)
 
 - **What:** Modeled five small, independently verified parser shapes: the
@@ -8638,7 +8769,12 @@ measurement of why is the useful half of this work.
   Snarling Gorehound, Vicious Clown — a `pay_cost_then`/`pump`/`draw`/
   `gain_life`/`surveil`/`return_from_graveyard` spread, all pre-existing
   effect bodies that had simply never had a working trigger condition to
-  attach to). **0 regressed** (`parser_probe.py diff`). Verified past the
+  attach to). A 2026-09-21 backlog audit found this same widening had also
+  silently closed PAR-113's "whenever a creature you control with power
+  `<n>` or greater enters, draw a card" sub-item (Elemental Bond, Kiora,
+  Behemoth Beckoner — `MODELED` at PARSER_VERSION 447), filed at v413 and
+  never swept back; the sub-item was deleted from `BACKLOG.md`. **0
+  regressed** (`parser_probe.py diff`). Verified past the
   parse verdict (`tests/test_par117_group_subject_power.py`): a 4-power vs.
   a 3-power creature entering only fires Kavu Lair's draw off the 4-power
   one (the `min_power`/"or greater" polarity); a 2-power vs. a 3-power

@@ -926,6 +926,15 @@ def _prevent_all_combat_damage_to_self(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+_PREVENT_ALL_COMBAT_DAMAGE_DEALT_SELF_RE = _c(
+    r"prevent all combat damage (?:this creature|this permanent|~) would deal this turn"
+)
+
+
+def _prevent_all_combat_damage_dealt_self(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("prevent_combat_damage_dealt", {})]
+
+
 #: PAR-78: "Prevent all damage that would be dealt to `<recipient>` **by
 #: `<source filter>`**." (Argothian Pixies/Champion Lancer/Prismatic Ward/
 #: Deep Wood/Scarecrow/…, ~50 real cards) — the source-qualified sibling of
@@ -2784,6 +2793,10 @@ def _add_rad_counters(m: re.Match[str]) -> list[EffectSpec]:
     params: dict = {"amount": _rad_counter_amount(m.group("n")), "kind": m.group("kind")}
     if who == "target player":
         params["target_kind"] = "player"
+    elif who == "target opponent":
+        # PAR-98 (Persuasive Interrogators): a real RULE 115 target, but only
+        # among opponents — the "opponent" kind `targeting` already resolves.
+        params["target_kind"] = "opponent"
     elif who in _RAD_COUNTER_WHO_SELECTOR:
         params["selector"] = _RAD_COUNTER_WHO_SELECTOR[who]
     return [EffectSpec("add_player_counters", params)]
@@ -3970,7 +3983,7 @@ def _exile_self(m: re.Match[str]) -> list[EffectSpec]:
 #: kind list before now.
 _RETURN_TO_HAND_KINDS: frozenset[str] = frozenset(
     {
-        "creature", "permanent", "nonland_permanent", "any", "creature_you_control",
+        "creature", "permanent", "nonland_permanent", "nonland_permanent_you_control", "historic_permanent_you_control", "any", "creature_you_control",
         "land_you_control", "other_creature_you_control",
     }
 )
@@ -6715,6 +6728,11 @@ FROM_HAND_MARKER = "from_hand_marker"
 # work, not part of this ticket — fail-closed here, same as everywhere else.
 ACTIVATION_CONDITION_MARKER = "activation_condition_marker"
 _ACTIVATION_CONDITION_RES: list[tuple[re.Pattern[str], Callable[[re.Match[str]], dict]]] = [
+    # PAR-98: the legendary-matters activation gate shared by Rivendell and
+    # Haunt of the Dead Marshes.  It is a live board count, not a spell-cast
+    # history condition.
+    (re.compile(r"you control a legendary creature", re.I),
+     lambda m: {"kind": "control_count", "selector": "legendary_creatures_you_control", "min": 1}),
     # PAR-64 / Raid: player-scoped declaration history, deliberately unlike
     # Boast's source_attacked_this_turn condition.
     (re.compile(r"you attacked this turn", re.I),
@@ -6731,6 +6749,11 @@ _ACTIVATION_CONDITION_RES: list[tuple[re.Pattern[str], Callable[[re.Match[str]],
                 "min": int(m.group("n"))}),
     (re.compile(r"you'?ve cast an instant or sorcery spell this turn", re.I),
      lambda m: {"kind": "cast_instant_or_sorcery_this_turn"}),
+    # PAR-98 (Seeker of Insight, Tapestry of the Ages): the same shared
+    # `static_conditions` predicate the "beginning of combat … if you've cast a
+    # noncreature spell this turn" triggers (Franklin Richards) already read.
+    (re.compile(r"you'?ve cast a noncreature spell this turn", re.I),
+     lambda m: {"kind": "cast_noncreature_spell_this_turn"}),
 ]
 
 
@@ -6826,6 +6849,31 @@ _GRANTABLE_PARAMETRIC_KEYWORDS: frozenset[str] = frozenset(
 )
 
 
+#: PAR-98 (Riftmarked Knight): "…token with flanking, protection from white,
+#: and haste" — RULE 702.16's protection is a *quality*, not a flag keyword, so
+#: it can't ride the keyword list. It is carried as the token's own oracle text
+#: instead (`combat.protections_of_text` reads exactly that off a synthesized
+#: token, `CreateTokenEffect.oracle_text`), and the remaining flag keywords keep
+#: their usual route.
+_TOKEN_PROTECTION_PART_RE = re.compile(r"protection from (white|blue|black|red|green)")
+
+
+def _split_token_protection(text: str) -> tuple[str, str]:
+    """A token's "with …" list → ``(keywords-without-protection, oracle text)``."""
+    kept: list[str] = []
+    protections: list[str] = []
+    for part in re.split(r",|\band\b", text):
+        part = part.strip()
+        if not part:
+            continue
+        pm = _TOKEN_PROTECTION_PART_RE.fullmatch(part)
+        if pm:
+            protections.append(f"Protection from {pm.group(1)}")
+        else:
+            kept.append(part)
+    return ", ".join(kept), "\n".join(protections)
+
+
 def _split_keywords_with_parametric(
     text: str,
 ) -> Optional[tuple[list[str], list[dict[str, object]]]]:
@@ -6878,8 +6926,10 @@ def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
     colors, subtypes, is_artifact = _split_token_mid_words(m.group("mid") or "")
     keywords: list[str] = []
     parametric_keywords: list[dict[str, object]] = []
+    protection_text = ""
     if m.groupdict().get("kw"):
-        split = _split_keywords_with_parametric(m.group("kw"))
+        kw_text, protection_text = _split_token_protection(m.group("kw"))
+        split = _split_keywords_with_parametric(kw_text)
         if split is None:
             return None  # unrecognised "with …" ability → fail-closed
         keywords, parametric_keywords = split
@@ -6893,6 +6943,8 @@ def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
     }
     if parametric_keywords:  # ENG-31: "… token with firebending N"
         params["parametric_keywords"] = parametric_keywords
+    if protection_text:
+        params["oracle_text"] = protection_text
     if m.groupdict().get("dies_life"):
         # STX Pest — "with \"when ~ dies, you gain N life.\""
         params["token_dies_gain_life"] = int(m.group("dies_life"))
@@ -7341,7 +7393,10 @@ def _add_counters_target_params(
     if m.groupdict().get("selfref"):
         return [EffectSpec("add_counters", params)]
     kind = resolve_target_kind(m.group("target"))
-    if kind not in ("creature", "permanent", "creature_you_control", *_SINGLE_TYPE_PERMANENT_KINDS):
+    if kind not in (
+        "creature", "permanent", "creature_you_control", "other_creature_you_control",
+        *_SINGLE_TYPE_PERMANENT_KINDS,
+    ):
         return None
     params["target_kind"] = kind
     if include_optional:
@@ -8205,8 +8260,10 @@ def _pump_one_or_two(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: ENG-30: "1 or 2 target creatures gain `<kw>` until end of turn." (Wind
 #: Sail) — the keyword-only sibling of `_PUMP_ONE_OR_TWO_RE` (no P/T delta
 #: at all, unlike every other row in this family).
+#: PAR-98: the optional "each" (Run for Your Life's "1 or 2 target creatures
+#: **each** gain haste until end of turn").
 _PUMP_ONE_OR_TWO_KW_RE = _c(
-    r"1 or 2 target creatures gains? (?P<kw>[a-z][a-z, ]*?) until end of turn"
+    r"1 or 2 target creatures (?:each )?gains? (?P<kw>[a-z][a-z, ]*?) until end of turn"
 )
 
 
@@ -10201,6 +10258,22 @@ def _vote_winner_protection(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("vote", {"options": options, "winner_specs": winner_specs})]
 
 
+# PAR-98: Niambi's "If you do" tail measures the bounced target's last
+# known mana value.  The enclosing ReturnToHandEffect preserves that target
+# as the nested resolution's previous subject before applying this bind.
+_YOU_GAIN_LIFE_EQ_THAT_CREATURE_MV_RE = _c(
+    r"you gain life equal to that creature'?s mana value"
+)
+
+
+def _you_gain_life_eq_that_creature_mv(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("bind", {
+        "name": "mv",
+        "amount": {"kind": "characteristic", "characteristic": "mana_value", "of": "previous_target"},
+        "effects": [{"type": "gain_life", "params": {"amount": "$mv"}}],
+    })]
+
+
 # MEC-46 — the tally-over-objects vote (`ObjectVoteEffect` /
 # `RulesEngine._request_object_vote`): "each player votes for a nonland
 # permanent you don't control. Exile each permanent with the most votes or
@@ -11313,6 +11386,11 @@ def _reveal_until_type(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: don't need disambiguating beyond the verb conjugation itself.
 _DELAYED_SAC_EXILE_TAIL_RE = _c(
     r"(?:then )?(?:"
+    # PAR-98: Goblin Sappers destroys the earlier target *and* itself at
+    # end of combat.  These become two delayed triggers because each has a
+    # different captured referent.
+    r"(?P<verb_double>destroy) (?P<obj_double>it) and (?P<obj_double_self>~)"
+    r"|"
     r"(?:its controller (?P<verb_ctrl>sacrifices|exiles|destroys)"
     r"|(?P<verb>sacrifice|exile|destroy)) "
     r"(?:(?P<obj>it|that creature|that token|the tokens?|that permanent|that artifact|those tokens|them|all tokens created this way)|(?P<obj_self>~))"
@@ -11335,6 +11413,18 @@ _DELAYED_TAIL_INNER = {
 
 
 def _delayed_sac_exile_tail(m: re.Match[str]) -> list[EffectSpec]:
+    if m.groupdict().get("verb_double"):
+        step = "end_combat" if m.group("when").lower() == "at end of combat" else "end"
+        return [
+            EffectSpec("create_delayed_trigger", {
+                "step": step, "scope": "any", "capture": "previous_or_self",
+                "effects": [{"type": "destroy_specific", "params": {}}],
+            }),
+            EffectSpec("create_delayed_trigger", {
+                "step": step, "scope": "any", "capture": "self",
+                "effects": [{"type": "destroy_specific", "params": {}}],
+            }),
+        ]
     verb_ctrl = m.groupdict().get("verb_ctrl")
     verb = (
         m.groupdict().get("verb") or m.groupdict().get("verb_return")
@@ -11702,9 +11792,13 @@ def _pump_unblockable(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: vocabulary rather than a new one. Routes to a different `EffectSpec`
 #: type (`combat_restriction_this_turn`) than the bare form, so this stays
 #: in `_cant_be_blocked_turn` rather than becoming a second regex.
+#: PAR-98 widened the target qualifier from "with power N or less/greater" to
+#: the shared `_CREATURE_FILTER_SUFFIX` vocabulary (power/toughness/keyword/
+#: counter), so Speed, Young Avenger's "target creature **with haste** can't be
+#: blocked this turn except by creatures with haste" parses alongside it.
 _CANT_BE_BLOCKED_TURN_RE = _c(
     rf"(?:(?P<selfref>{_SELF_SUBJECT})|{TARGET})"
-    r"(?: with power (?P<pn>\d+) or (?P<pcmp>less|greater))? can'?t be blocked this turn"
+    rf"(?: {_CREATURE_FILTER_SUFFIX})? can'?t be blocked this turn"
     r"(?: except by (?P<filter>.+))?"
 )
 
@@ -11720,6 +11814,20 @@ _CANT_BE_BLOCKED_TURN_RE = _c(
 _CANT_BE_BLOCKED_TURN_MIN_BLOCKERS_RE = re.compile(
     r"^(?P<n>\d+) or more creatures\.?$", re.IGNORECASE
 )
+
+
+def _except_by_restriction(text: str) -> Optional[dict]:
+    """The RULE 509.1b restriction dict for an "…except by `<filter>`" tail:
+    a blocker-count requirement (RULE 509.1c) or a permitted-blocker filter."""
+    min_blockers = _CANT_BE_BLOCKED_TURN_MIN_BLOCKERS_RE.fullmatch(text.strip())
+    if min_blockers is not None:
+        return {"kind": "min_blockers", "count": int(min_blockers.group("n"))}
+    from .static_handlers import object_filter
+
+    filt = object_filter(text)
+    if filt is None:
+        return None
+    return {"kind": "only_blocked_by", "filter": filt}
 
 
 def _cant_be_blocked_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -11739,30 +11847,22 @@ def _cant_be_blocked_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         ):
             return None
         params["target_kind"] = kind
+    quality_filter = _creature_quality_filter(m)
+    if quality_filter is not None and params["target_kind"] is None:
+        return None  # a target-quality qualifier needs a real RULE 115 target, not the bare self form
     if m.groupdict().get("filter"):
-        if m.group("pn"):
-            return None  # no real card combines both qualifiers; fail closed rather than dropping one
         restriction_params: dict = {}
-        min_blockers = _CANT_BE_BLOCKED_TURN_MIN_BLOCKERS_RE.fullmatch(m.group("filter").strip())
-        if min_blockers is not None:
-            restriction_params["restriction"] = {
-                "kind": "min_blockers", "count": int(min_blockers.group("n")),
-            }
-        else:
-            from .static_handlers import object_filter
-
-            filt = object_filter(m.group("filter"))
-            if filt is None:
-                return None
-            restriction_params["restriction"] = {"kind": "only_blocked_by", "filter": filt}
+        restriction = _except_by_restriction(m.group("filter"))
+        if restriction is None:
+            return None
+        restriction_params["restriction"] = restriction
         if params["target_kind"] is not None:
             restriction_params["target_kind"] = params["target_kind"]
+        if quality_filter is not None:
+            restriction_params["creature_filter"] = quality_filter
         return [EffectSpec("combat_restriction_this_turn", restriction_params)]
-    if m.group("pn"):
-        if params["target_kind"] is None:
-            return None  # "with power N or less" needs a real RULE 115 target, not the bare self form
-        key = "max_power" if m.group("pcmp") == "less" else "min_power"
-        params["creature_filter"] = {key: int(m.group("pn"))}
+    if quality_filter is not None:
+        params["creature_filter"] = quality_filter
     # "up to one target attacking creature can't be blocked this turn"
     # (Alora, Merry Thief) / "…with power 3 or less…" (Gossip's Talent) —
     # see `_destroy`'s own comment: `resolve_target_kind` alone drops the
@@ -11782,8 +11882,113 @@ def _cant_be_blocked_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 _CANT_BE_BLOCKED_TURN_PREVIOUS_RE = _c(rf"{_THEN}{_PREVIOUS_SUBJECT} can'?t be blocked this turn")
 
 
+def _equipped_creature_unblockable(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("unblockable", {"target_kind": "attached_permanent"})]
+
+
+# PAR-98: Martha Jones' source plus an independently optional second target
+# are two effects, not a two-target RULE 115 declaration (the source is
+# always affected even when no other creature is chosen).
+_SELF_AND_OTHER_UNBLOCKABLE_RE = _c(
+    r"~ and up to 1 other target creature(?: you control)? can'?t be blocked this turn"
+)
+
+
+def _self_and_other_unblockable(m: re.Match[str]) -> list[EffectSpec]:
+    return [
+        EffectSpec("unblockable", {"target_kind": None}),
+        EffectSpec("unblockable", {"target_kind": "other_creature", "optional": True}),
+    ]
+
+
+_COLOR_CREATURES_UNBLOCKABLE_RE = _c(
+    r"(?P<color>white|blue|black|red|green) creatures you control can'?t be blocked this turn "
+    r"except by (?P=color) creatures"
+)
+
+
+def _color_creatures_unblockable(m: re.Match[str]) -> list[EffectSpec]:
+    color = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}[m.group("color").lower()]
+    return [EffectSpec("combat_restriction_this_turn", {
+        "selector": "creatures_you_control", "selector_params": {"color": [color]},
+        "restriction": {"kind": "only_blocked_by", "filter": {"color": color}},
+    })]
+
+
+_X_POWER_UNBLOCKABLE_RE = _c(
+    r"target creature with power x or less can'?t be blocked this turn"
+)
+_X_TARGETS_UNBLOCKABLE_RE = _c(
+    r"x target creatures with power (?P<p>\d+) or less can'?t be blocked this turn"
+)
+
+
+def _x_power_unblockable(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("unblockable", {
+        "target_kind": "creature", "creature_filter": {"max_power_from_source_x": True},
+    })]
+
+
+def _x_targets_unblockable(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("unblockable", {
+        "target_kind": "creature", "count_selector": "source_x_paid",
+        "creature_filter": {"max_power": int(m.group("p"))},
+    })]
+
+
 def _cant_be_blocked_turn_previous(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("unblockable", {"previous_subject": True})]
+
+
+#: PAR-98: "`<earlier clause targeted creatures>`. **They** can't be blocked
+#: this turn except by creatures with haste." (Run for Your Life) — the
+#: plural-referent, "except by" sibling of `_CANT_BE_BLOCKED_TURN_PREVIOUS_RE`
+#: above. Reads `GameContext.previous_targets` for *every* creature the
+#: previous clause chose (RULE 608.2), through `GrantCombatRestrictionEffect`'s
+#: new ``previous_subject`` mode.
+_CANT_BE_BLOCKED_EXCEPT_PREVIOUS_RE = _c(
+    rf"{_THEN}(?:{_PREVIOUS_SUBJECT}|they|those creatures) can'?t be blocked this turn "
+    r"except by (?P<filter>.+)"
+)
+
+
+def _cant_be_blocked_except_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    restriction = _except_by_restriction(m.group("filter"))
+    if restriction is None:
+        return None
+    return [EffectSpec("combat_restriction_this_turn", {
+        "restriction": restriction, "previous_subject": True,
+    })]
+
+
+#: PAR-98: Agility Bobblehead's "up to X target creatures you control each
+#: gain `<keywords>` until end of turn and can't be blocked this turn except by
+#: `<filter>`, where X is the number of `<subtype>`s you control as you
+#: activate this ability." — one sentence, two effects: a multi-target keyword
+#: grant plus the previous-subject "except by" restriction. X is read when the
+#: targets are announced (RULE 601.2c — "as you activate"), which is exactly
+#: when `TargetSpec.count_selector` is evaluated.
+_KW_GRANT_UNBLOCKABLE_EXCEPT_X_RE = _c(
+    r"up to x target creatures you control each gains? (?P<kw>[a-z][a-z, ]*?) until end of turn "
+    r"and can'?t be blocked this turn except by (?P<filter>.+?), "
+    r"where x is the number of (?P<what>[a-z]+?)s you control as you activate this ability"
+)
+
+
+def _kw_grant_unblockable_except_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    keywords = _token_keywords(m.group("kw"))
+    restriction = _except_by_restriction(m.group("filter"))
+    if keywords is None or restriction is None:
+        return None
+    return [
+        EffectSpec("pump", {
+            "keywords": keywords, "target_kind": "creature_you_control", "optional": True,
+            "count_selector": f"permanents_you_control_of_type_{m.group('what')}",
+        }),
+        EffectSpec("combat_restriction_this_turn", {
+            "restriction": restriction, "previous_subject": True,
+        }),
+    ]
 
 
 #: PAR-79: the multi-target form — "up to 2 target creatures can't be
@@ -12477,7 +12682,7 @@ _ANIMATE_QUALIFIER_SUBTYPES: frozenset[str] = frozenset({
     "spirit", "elemental", "plant", "horror", "shade", "boar", "wall",
     "elf", "goblin", "zombie", "human", "wizard", "merfolk", "vampire",
     "dragon", "angel", "demon", "soldier", "knight", "warrior", "giant",
-    "dwarf", "faerie", "sliver", "rogue", "cleric", "shaman", "druid",
+    "dwarf", "faerie", "sliver", "rogue", "cleric", "shaman", "druid", "construct",
     "beast", "bird", "cat", "dog", "insect", "snake", "treefolk", "wolf",
 })
 #: PAR-79 sixth increment: "~ becomes a 2/2 **blue and black** horror
@@ -12538,6 +12743,15 @@ _ANIMATE_SELF_RE = _c(
     r"(?P<unblockable> and can'?t be blocked this turn)?"
 )
 
+# PAR-98: Creeping Tar Pit puts the duration first and uses full stops for
+# the land reminder and unblockable rider, rather than the normal one-sentence
+# "becomes … until end of turn and can't …" ordering.
+_ANIMATE_SELF_LEADING_EOT_RE = _c(
+    r"until end of turn, ~ becomes an? (?P<p>\d+)/(?P<t>\d+) "
+    r"(?P<quals>(?:[a-z]+ )*?)creature"
+    r"(?:\. it'?s still a land)?(?:\. it can'?t be blocked this turn)?"
+)
+
 
 def _animate_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     quals = _split_animate_qualifiers(m.group("quals"))
@@ -12570,6 +12784,31 @@ def _animate_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return specs
 
 
+def _animate_self_leading_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    quals = _split_animate_qualifiers(m.group("quals"))
+    if quals is None:
+        return None
+    colors, add_types, add_subtypes = quals
+    static: dict[str, Any] = {
+        "type": "type_change",
+        "params": {
+            "add_types": ["creature"] + add_types,
+            "power": int(m.group("p")), "toughness": int(m.group("t")),
+            **({"add_subtypes": add_subtypes} if add_subtypes else {}),
+        },
+    }
+    extra_statics = []
+    if colors:
+        extra_statics.append({"type": "color", "params": {"colors": colors, "set": True}})
+    specs = [EffectSpec("grant_until", {
+        "duration": "end_of_turn", "target_kind": None, "static": static,
+        **({"extra_statics": extra_statics} if extra_statics else {}),
+    })]
+    if m.group(0).lower().endswith("can't be blocked this turn"):
+        specs.append(EffectSpec("unblockable", {"target_kind": None}))
+    return specs
+
+
 #: The TARGET sibling — "target land becomes a 3/3 creature until end of
 #: turn. It's still a land." (Soilshaper). The trailing "it's still a
 #: `<kind>`" sentence is pure reminder text (`type_change`'s ``add_types``
@@ -12584,10 +12823,12 @@ def _animate_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: above — reusing the identical `_split_animate_qualifiers`/`extra_statics`
 #: machinery rather than a second copy.
 _ANIMATE_TARGET_RE = _c(
-    r"target (?:snow )?(?P<kind>land|artifact|creature|enchantment) becomes "
+    r"target (?:snow )?(?P<kind>land|mountain|forest|artifact|creature|enchantment) becomes "
     r"an? (?P<p>\d+)/(?P<t>\d+) (?P<quals>(?:[a-z]+ )*?)creature"
-    r"(?: with (?P<kw>[a-z, ]+?))? until end of turn"
-    r"(?:\. it'?s still an? (?:snow )?(?P=kind))?"
+    r"(?: with (?P<kw>[a-z, ]+?))?(?P<eot> until end of turn)?"
+    # A basic-land-subtype target (Mountain/Forest) still says merely
+    # "it's still a land" in its reminder sentence.
+    r"(?:\. it'?s still an? (?:snow )?(?:(?P=kind)|land))?"
 )
 
 
@@ -12617,7 +12858,8 @@ def _animate_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             return None
         extra_statics.append({"type": "grant_keyword", "params": {"keywords": keywords}})
     return [EffectSpec("grant_until", {
-        "duration": "end_of_turn", "target_kind": kind, "static": static,
+        "duration": "end_of_turn" if m.group("eot") else "rest_of_game",
+        "target_kind": kind, "static": static,
         **({"extra_statics": extra_statics} if extra_statics else {}),
     })]
 
@@ -12887,6 +13129,11 @@ HANDLERS: list[EffectHandler] = [
         _prevent_next_damage_to_you,
     ),
     # RULE 615's unscoped Fog-shaped form — no recipient at all.
+    EffectHandler(
+        "prevent_all_combat_damage_dealt_self",
+        _PREVENT_ALL_COMBAT_DAMAGE_DEALT_SELF_RE,
+        _prevent_all_combat_damage_dealt_self,
+    ),
     EffectHandler(
         "prevent_all_combat_damage",
         _PREVENT_ALL_COMBAT_DAMAGE_RE,
@@ -13485,7 +13732,7 @@ HANDLERS: list[EffectHandler] = [
     # counters.
     EffectHandler(
         "add_player_counters",
-        _c(rf"(?P<who>you |target player |defending player )?gets? (?P<n>a|an|x|\d+) (?P<kind>rad|poison) counters?"),
+        _c(rf"(?P<who>you |target player |target opponent |defending player )?gets? (?P<n>a|an|x|\d+) (?P<kind>rad|poison) counters?"),
         _add_rad_counters,
     ),
     # "each player gets three rad counters" / "each opponent gets a poison
@@ -14400,6 +14647,14 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "cant_be_blocked_turn_previous", _CANT_BE_BLOCKED_TURN_PREVIOUS_RE,
         _cant_be_blocked_turn_previous, previous_subject_only=True,
+    ),
+    EffectHandler(
+        "cant_be_blocked_except_previous", _CANT_BE_BLOCKED_EXCEPT_PREVIOUS_RE,
+        _cant_be_blocked_except_previous, previous_subject_only=True,
+    ),
+    EffectHandler(
+        "kw_grant_unblockable_except_x", _KW_GRANT_UNBLOCKABLE_EXCEPT_X_RE,
+        _kw_grant_unblockable_except_x,
     ),
     # RULE 702.26 "~ phases out." (Blink Dog/Vaporous Djinn-shaped) / the
     # attached-permanent sibling "enchanted/equipped creature phases out."
@@ -15947,9 +16202,36 @@ HANDLERS: list[EffectHandler] = [
         )],
     ),
     EffectHandler(
+        "you_gain_life_eq_that_creature_mv",
+        _YOU_GAIN_LIFE_EQ_THAT_CREATURE_MV_RE,
+        _you_gain_life_eq_that_creature_mv,
+    ),
+    EffectHandler(
+        "equipped_creature_unblockable",
+        _c(r"equipped creature can'?t be blocked this turn"),
+        _equipped_creature_unblockable,
+    ),
+    EffectHandler(
+        "self_and_other_unblockable",
+        _SELF_AND_OTHER_UNBLOCKABLE_RE,
+        _self_and_other_unblockable,
+    ),
+    EffectHandler(
+        "color_creatures_unblockable",
+        _COLOR_CREATURES_UNBLOCKABLE_RE,
+        _color_creatures_unblockable,
+    ),
+    EffectHandler("x_power_unblockable", _X_POWER_UNBLOCKABLE_RE, _x_power_unblockable),
+    EffectHandler("x_targets_unblockable", _X_TARGETS_UNBLOCKABLE_RE, _x_targets_unblockable),
+    EffectHandler(
         "animate_self",
         _ANIMATE_SELF_RE,
         _animate_self,
+    ),
+    EffectHandler(
+        "animate_self_leading_eot",
+        _ANIMATE_SELF_LEADING_EOT_RE,
+        _animate_self_leading_eot,
     ),
     EffectHandler(
         "animate_target",

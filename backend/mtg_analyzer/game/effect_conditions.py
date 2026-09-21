@@ -138,6 +138,7 @@ CONTEXT_CONDITION_KINDS: frozenset[str] = frozenset(
         # already `True` by the time the trigger resolves; only the event's
         # pre-set value still distinguishes a first exert from a repeat.
         "already_exerted",
+        "milled_land_this_way",
         "source_cast_via_flashback",
         # Cemetery Gatekeeper — the played land/cast spell the firing event
         # names, against the card this source remembered exiling
@@ -298,6 +299,10 @@ def _context_holds(
     if kind == "already_exerted":
         event = getattr(context, "trigger_event", None) or {}
         return bool(event.get("already_exerted"))
+
+    if kind == "milled_land_this_way":
+        milled = getattr(context, "milled_objects", None)
+        return None if milled is None else any(bool(getattr(obj, "is_land", False)) for obj in milled)
 
     if kind == "source_cast_via_flashback":
         return None if source is None else bool(getattr(source, "cast_via_flashback", False))

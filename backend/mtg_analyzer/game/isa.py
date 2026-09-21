@@ -557,6 +557,9 @@ _ALIAS_TYPES: dict[str, str] = {
     "graveyard_play_permission_this_turn": "create_continuous_effect",
     "graveyard_to_library_bottom_random": "move_object",
     "haunt_linked_death": "create_delayed_trigger",
+    # RULE 603.12: a reflexive "When you do, …" trigger is created during
+    # resolution and triggers at once — the same instruction as a delayed one.
+    "reflexive_trigger": "create_delayed_trigger",
     "install_temporary_player_trigger": "create_delayed_trigger",
     "look_at_cards": "reveal",
     "lose_all_player_counters": "remove_counter",

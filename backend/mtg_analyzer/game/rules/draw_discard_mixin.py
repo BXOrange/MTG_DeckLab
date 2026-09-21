@@ -357,7 +357,29 @@ class DrawDiscardMixin:
             self._flag_commander_zone_choice(obj)  # RULE 903.9a (rare: a commander milled from the library)
             milled.append(obj)
         self.state.fire_event(GameEvent(EventType.MILL, player_id=player.id, count=count))
+        if milled:
+            # RULE 701.13 moves all cards from one mill instruction together.
+            # Preserve the moved-card snapshot before any triggered ability
+            # can return/exile one of them; batch triggers must see one event.
+            self.state.fire_event(GameEvent(
+                EventType.CARDS_MILLED,
+                player_id=player.id,
+                cards=[{
+                    "instance_id": obj.instance_id,
+                    "owner_id": obj.owner_id,
+                    "object_types": sorted(obj.type_words),
+                    "subtypes": obj.card.type_line.partition("—")[2].strip().lower().split(),
+                } for obj in milled],
+            ))
         for obj in milled:
+            self.state.fire_event(GameEvent(
+                EventType.MILLED_CARD,
+                player_id=player.id,
+                instance_id=obj.instance_id,
+                owner_id=obj.owner_id,
+                object_types=sorted(obj.type_words),
+                subtypes=obj.card.type_line.partition("—")[2].strip().lower().split(),
+            ))
             if not obj.is_land:
                 self.state.fire_event(
                     GameEvent(EventType.MILL_CARD, player_id=player.id, instance_id=obj.instance_id)

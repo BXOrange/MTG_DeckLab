@@ -250,6 +250,10 @@ class DamageDeathMixin:
         single_target_hint: bool = False,
     ) -> None:
         is_player = isinstance(target, Player)
+        # RULE 615: a source-scoped prevention effect (Loafing Giant) stops
+        # all combat damage this object would deal, irrespective of recipient.
+        if combat and source is not None and getattr(source, "temp_prevent_combat_damage_dealt", False):
+            return
         # RULE 702.16c: protection prevents *all* damage from a source of the
         # stated quality, not just combat damage — a burn spell from a
         # protected colour fizzles here same as a blocked attacker would.

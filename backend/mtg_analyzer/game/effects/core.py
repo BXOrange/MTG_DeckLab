@@ -1205,6 +1205,7 @@ def _apply_effects_partitioned(
     already_pending = getattr(state, "pending_choice", None) if state is not None else None
     outer_previous = getattr(context, "previous_targets", [])
     outer_moved = getattr(context, "moved_objects", [])
+    outer_milled = getattr(context, "milled_objects", None)
     outer_attachment_hosts = getattr(context, "attachment_hosts", {})
     outer_created = getattr(context, "created_objects", [])
     outer_life_lost = getattr(context, "life_lost_this_way", 0)
@@ -1223,6 +1224,7 @@ def _apply_effects_partitioned(
     outer_target_groups = getattr(context, "resolution_target_groups", None)
     context.previous_targets = list(previous_targets or [])
     context.moved_objects = list(outer_moved or [])
+    context.milled_objects = None
     context.attachment_hosts = dict(outer_attachment_hosts or {})
     context.created_objects = list(created_objects or [])
     context.life_lost_this_way = life_lost_this_way
@@ -1311,6 +1313,7 @@ def _apply_effects_partitioned(
     finally:
         context.previous_targets = outer_previous
         context.moved_objects = outer_moved
+        context.milled_objects = outer_milled
         context.attachment_hosts = outer_attachment_hosts
         context.created_objects = outer_created
         context.life_lost_this_way = outer_life_lost

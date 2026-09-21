@@ -2835,15 +2835,33 @@ class MiscSystemsMixin:
                     continue
                 if not _has_suspend(obj):
                     continue
-                obj.add_counters("time", -1)
-                if obj.counters.get("time", 0) <= 0:
-                    if getattr(obj.card, "is_creature", False):
-                        obj.granted_suspend_haste = True
-                    self.grant_free_cast_window_from_exile(obj)
+                self.remove_suspend_time_counter(obj)
             for obj in self.state.permanents_controlled_by(player.id):
                 if obj.counters.get("time", 0) > 0:
                     obj.add_counters("time", 1)
         self.check_state_based_actions()
+    def remove_suspend_time_counter(self, obj: GameObject) -> bool:
+        """RULE 702.62a: take one time counter off a suspended card in exile.
+
+        When that was the last one, the free-cast window opens (with RULE
+        702.62a's haste rider for a creature) and
+        `EventType.LAST_TIME_COUNTER_REMOVED` fires, so a card's own "When the
+        last time counter is removed from this card while it's exiled, …"
+        (Riftmarked Knight, Veiling Oddity) triggers alongside the cast. Shared
+        by the upkeep trigger (`SuspendUpkeepEffect`) and time travel above.
+        Returns whether the last counter came off.
+        """
+        obj.add_counters("time", -1)
+        if obj.counters.get("time", 0) > 0:
+            return False
+        if getattr(obj.card, "is_creature", False):
+            obj.granted_suspend_haste = True
+        self.grant_free_cast_window_from_exile(obj)
+        self.state.fire_event(GameEvent(
+            EventType.LAST_TIME_COUNTER_REMOVED,
+            instance_id=obj.instance_id, controller_id=obj.owner_id,
+        ))
+        return True
     def _endure_make_token(self, player: Player, amount: int) -> None:
         """The token half of `endure` (RULE 701.63a) — an N/N white Spirit
         creature token."""

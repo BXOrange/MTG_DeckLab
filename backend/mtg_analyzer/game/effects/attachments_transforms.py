@@ -351,6 +351,7 @@ class UnblockableEffect(GameEffect):
         selector: Optional[str] = None,
         count: int = 1,
         count_max: Optional[int] = None,
+        count_selector: Optional[str] = None,
         optional: bool = False,
         previous_subject: bool = False,
     ) -> None:
@@ -367,11 +368,14 @@ class UnblockableEffect(GameEffect):
         #: ``target_kind=None`` — "~ can't be blocked this turn" from the
         #: creature's own activated ability (Giant Koi, ENG-32): no RULE 115
         #: target, acts on this effect's own source.
+        #: "Enchanted/equipped creature can't be blocked this turn": acts on the
+        #: host via ``attached_to`` (RULE 301.5/303.4), no RULE 115 target.
+        self._attached_mode = target_kind == "attached_permanent"
         self.target_spec = (
-            None if selector or previous_subject else (
+            None if selector or previous_subject or self._attached_mode else (
                 TargetSpec(
                     kind=target_kind, creature_filter=creature_filter,
-                    count=count, count_max=count_max, optional=optional,
+                    count=count, count_max=count_max, count_selector=count_selector, optional=optional,
                 )
                 if target_kind is not None else None
             )
@@ -391,6 +395,12 @@ class UnblockableEffect(GameEffect):
             for obj in context.previous_targets:
                 if obj is not None:
                     obj.temp_unblockable = True
+            return
+        if self._attached_mode:
+            attached_id = getattr(self.source, "attached_to", None)
+            target = context.state.find_object(attached_id) if attached_id is not None else None
+            if target is not None:
+                target.temp_unblockable = True
             return
         if self.target_spec is not None and self.target_spec.effective_count != 1:
             for obj in (targets or []):
@@ -503,21 +513,58 @@ class GrantCombatRestrictionEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = None,
         restrict_to_source: bool = False,
+        selector: Optional[str] = None,
+        selector_params: Optional[dict[str, Any]] = None,
+        creature_filter: Optional[dict[str, Any]] = None,
+        count: int = 1,
+        count_max: Optional[int] = None,
+        count_selector: Optional[str] = None,
+        optional: bool = False,
+        previous_subject: bool = False,
     ) -> None:
         super().__init__(source)
         self.restriction = dict(restriction or {})
         self.target = target
         self.restrict_to_source = restrict_to_source
+        self.selector = selector
+        self.selector_params = dict(selector_params or {})
+        #: PAR-98: "they can't be blocked this turn except by creatures with
+        #: haste" (Run for Your Life) — the creatures an earlier clause of the
+        #: same resolution targeted (`GameContext.previous_targets`, the same
+        #: referent `UnblockableEffect.previous_subject` reads), not a fresh
+        #: RULE 115 target of this effect's own.
+        self.previous_subject = previous_subject
         # No ``target_kind`` at all is the self form ("~ can't be blocked
         # by … this turn"), matching `PumpEffect`'s own self/target split.
-        self.target_spec = TargetSpec(kind=target_kind) if target_kind else None
+        self.target_spec = (
+            TargetSpec(
+                kind=target_kind, creature_filter=creature_filter, count=count,
+                count_max=count_max, count_selector=count_selector, optional=optional,
+            )
+            if target_kind and not previous_subject else None
+        )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.target_spec is None:
-            target = self.source
+        if self.selector:
+            from ..continuous import group_selector_objects
+            if not self.restriction.get("kind"):
+                return
+            for obj in group_selector_objects(
+                context.state, getattr(self.source, "controller_id", None), self.selector,
+                self.selector_params, self.source,
+            ):
+                obj.temp_combat_restrictions.append(dict(self.restriction))
+            return
+        if self.previous_subject:
+            recipients = [o for o in context.previous_targets if o is not None]
+        elif self.target_spec is None:
+            recipients = [self.source]
         else:
-            target = (targets[0] if targets else None) or self.target
-        if target is None or not self.restriction.get("kind"):
+            # Every declared target (RULE 115.1a's "1 or 2 target creatures"),
+            # not just the first; the legacy ``self.target`` is the single-
+            # target fallback for a caller that pre-resolved one.
+            recipients = [t for t in (targets or []) if t is not None] or [self.target]
+        if not self.restriction.get("kind"):
             return
         restriction = dict(self.restriction)
         if self.restrict_to_source and self.source is not None:
@@ -525,7 +572,9 @@ class GrantCombatRestrictionEffect(GameEffect):
                 **dict(restriction.get("filter") or {}),
                 "instance_id": self.source.instance_id,
             }
-        target.temp_combat_restrictions.append(restriction)
+        for target in recipients:
+            if target is not None:
+                target.temp_combat_restrictions.append(dict(restriction))
 
 
 class BecomeAuraEffect(GameEffect):

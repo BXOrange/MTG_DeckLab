@@ -238,6 +238,7 @@ class TriggerCollectionMixin:
         self._collect_graveyard_function_triggers(event)
         self._collect_cycled_triggers(event)
         self._collect_suspend_triggers(event)
+        self._collect_last_time_counter_triggers(event)
     def _resolve_mana_trigger(self, ability: "TriggeredAbility", event: GameEvent) -> None:
         """Apply a triggered mana ability immediately (RULE 605.4).
 
@@ -1080,6 +1081,26 @@ class TriggerCollectionMixin:
                         "you may cast it without paying its mana cost."
                     ),
                 )
+                self.pending_triggers.append((ability, event))
+    def _collect_last_time_counter_triggers(self, event: GameEvent) -> None:
+        """RULE 702.62a: "When the last time counter is removed from this card
+        while it's exiled, …" (Riftmarked Knight, Veiling Oddity) — a trigger
+        of the *exiled card itself*, which `_collect_triggers`'s battlefield
+        scan can't see. `EventType.LAST_TIME_COUNTER_REMOVED` carries the
+        card's ``instance_id`` (`RulesEngine.remove_suspend_time_counter`), so
+        this looks the card up directly, exactly like
+        `_collect_self_cast_triggers` does for a spell on the stack."""
+        if event.type != EventType.LAST_TIME_COUNTER_REMOVED:
+            return
+        obj = self.state.find_object(event.get("instance_id"))
+        if obj is None:
+            return
+        for ability in obj.triggered_abilities + obj.granted_triggered_abilities:
+            if (
+                isinstance(ability, TriggeredAbility)
+                and ability.trigger_event == EventType.LAST_TIME_COUNTER_REMOVED
+                and ability.check_trigger(event, self.context)
+            ):
                 self.pending_triggers.append((ability, event))
     def put_triggers_on_stack(self) -> int:
         """Move fired triggers onto the stack (RULE 603.3). Returns count.

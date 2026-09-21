@@ -205,6 +205,8 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # Glowing One/Infesting Radroach, The Wise Mothman) — `RulesEngine.mill`
     # fires this per nonland card, keyed by whose library it came from.
     "MILL_CARD": "player_id",
+    "CARDS_MILLED": "player_id",
+    "MILLED_CARD": "player_id",
     # "Whenever you discard a card, …" (MEC-38, Necropotence) — same
     # per-card-sibling-of-an-aggregate shape as `MILL_CARD` above.
     "DISCARD_CARD": "player_id",
@@ -723,6 +725,10 @@ def _build_group_ok(
     #: "creatures that are enchanted by an Aura you control" (Killian,
     #: Decisive Mentor, PAR-60).
     want_enchanted_by_your_aura = bool(condition.get("enchanted_by_your_aura"))
+    # RULE 701.44a/b: an EXPLORED event records whether the revealed card
+    # was a land, allowing Nicanzil-shaped "explores a land/nonland card"
+    # triggers to distinguish the two outcomes.
+    explore_found_land = condition.get("explore_found_land")
 
     def _group_ok(
         event: Any,
@@ -758,7 +764,10 @@ def _build_group_ok(
         want_has_counter=want_has_counter,
         want_has_counter_kind=want_has_counter_kind,
         want_enchanted_by_your_aura=want_enchanted_by_your_aura,
+        want_explore_found_land=explore_found_land,
     ) -> bool:
+        if want_explore_found_land is not None and event.get("found_land") is not want_explore_found_land:
+            return False
         event_instance = event.get(skey)
         if other and (event_instance is None or event_instance == iid):
             return False
@@ -1053,6 +1062,30 @@ def _trigger_condition(
             )
 
         predicates.append(_your_graveyard_exit_ok)
+
+    # PAR-97 / RULE 701.13: one ``CARDS_MILLED`` event represents the full
+    # milling instruction.  A typed “one or more … cards” trigger therefore
+    # checks the LKI snapshots, never the post-trigger graveyard (which a
+    # prior trigger may already have changed).
+    milled_card_type = trigger.get("milled_card_type")
+    if milled_card_type:
+        wanted_milled_type = str(milled_card_type).lower()
+
+        def _milled_type_ok(event: Any, context: Any, wanted=wanted_milled_type) -> bool:
+            cards = event.get("cards")
+            if cards is not None:
+                return any(wanted in card.get("object_types", ()) for card in cards)
+            return wanted in (event.get("object_types") or ())
+
+        predicates.append(_milled_type_ok)
+
+    if trigger.get("milled_source"):
+        source_id = getattr(source, "instance_id", None)
+
+        def _milled_source_ok(event: Any, context: Any, iid=source_id) -> bool:
+            return iid is not None and any(card.get("instance_id") == iid for card in (event.get("cards") or []))
+
+        predicates.append(_milled_source_ok)
 
     # "Whenever one or more cards are put into exile from your library and/or
     # your graveyard, …" (Laelia, the Blade Reforged, PAR-60) — an
@@ -1708,6 +1741,20 @@ def _trigger_condition(
 
         predicates.append(_cast_of_color_ok)
 
+    cast_of_all_colors = trigger.get("cast_of_all_colors")
+    if cast_of_all_colors:
+        wanted_colors = {str(color).upper() for color in cast_of_all_colors}
+
+        def _cast_of_all_colors_ok(event: Any, context: Any, colors=wanted_colors) -> bool:
+            state = getattr(context, "state", None)
+            instance_id = event.get("instance_id")
+            if state is None or instance_id is None:
+                return False
+            obj = state.find_object(instance_id)
+            return obj is not None and colors.issubset(set(getattr(obj, "colors", None) or ()))
+
+        predicates.append(_cast_of_all_colors_ok)
+
     # "Whenever you sacrifice a Food, …" (RULE 122.1a/701.17 — Experimental
     # Confectioner/Trail of Crumbs-shaped) — `EventType.SACRIFICE`'s own
     # `subtypes` payload (`RulesEngine.put_into_graveyard`, the sacrificed
@@ -1716,10 +1763,12 @@ def _trigger_condition(
     # the way `spell_card_types` above does for a cast spell's main types).
     sacrifice_type = trigger.get("sacrifice_type")
     if sacrifice_type:
-        word = str(sacrifice_type).lower()
+        words = {str(word).lower() for word in (
+            sacrifice_type if isinstance(sacrifice_type, (list, tuple, set)) else [sacrifice_type]
+        )}
 
-        def _sacrifice_type_ok(event: Any, context: Any, w=word) -> bool:
-            return w in (event.get("subtypes") or ())
+        def _sacrifice_type_ok(event: Any, context: Any, wanted=words) -> bool:
+            return bool(wanted & set(event.get("subtypes") or ()))
 
         predicates.append(_sacrifice_type_ok)
 

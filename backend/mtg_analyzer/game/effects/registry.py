@@ -453,6 +453,10 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    "prevent_combat_damage_dealt",
+    lambda p: PreventCombatDamageDealtEffect(),
+)
+EffectRegistry.register(
     "prevent_all_combat_damage",
     # RULE 615's unscoped Fog-shaped shield — distinct from
     # "prevent_damage_shield" above, which always shields one recipient.
@@ -1316,6 +1320,7 @@ EffectRegistry.register(
         creature_filter=p.get("creature_filter"),
         colors=p.get("colors"),
         to_library_top_if_clash_won=bool(p.get("to_library_top_if_clash_won", False)),
+        then_specs=p.get("then_specs"),
     ),
 )
 EffectRegistry.register(
@@ -1371,6 +1376,14 @@ EffectRegistry.register(
     "gain_control_attached",
     lambda p: GainControlAttachedEffect(recipient=p.get("recipient", "controller")),
 )
+EffectRegistry.register(
+    "return_milled_cards",
+    lambda p: ReturnMilledCardsEffect(
+        card_type=p.get("card_type", "card"), choose_one=bool(p.get("choose_one", False)),
+        tapped=bool(p.get("tapped", False)),
+    ),
+)
+EffectRegistry.register("lose_life_for_milled_card_types", lambda p: LoseLifeForMilledCardTypesEffect())
 EffectRegistry.register(
     # "return target creature card from your graveyard to the battlefield/
     # your hand" (RULE 701.3, Regrowth/Reanimate-shaped)
@@ -1478,6 +1491,12 @@ EffectRegistry.register(
     lambda p: MayExileSourceThenEffect(
         then_trigger=list(p.get("then_trigger", [])), prompt=p.get("prompt"),
     ),
+)
+EffectRegistry.register(
+    # RULE 603.12 reflexive "When you do, <effect>" trigger, carried in an
+    # antecedent effect's `then` list (Meanders Guide's tap-then-return).
+    "reflexive_trigger",
+    lambda p: ReflexiveTriggerEffect(then_trigger=list(p.get("then_trigger", []))),
 )
 EffectRegistry.register(
     # RULE 118.3 resolve-time optional payment, generalized past energy:
@@ -2265,7 +2284,6 @@ EffectRegistry.register(
         choose_tap_or_untap=bool(p.get("choose_tap_or_untap", False)),
         colors=p.get("colors"),
         target_operand=p.get("target_operand"),
-        target_group_index=p.get("target_group_index"),
     ),
 )
 EffectRegistry.register(
@@ -2293,6 +2311,7 @@ EffectRegistry.register(
         selector=p.get("selector"),
         count=int(p.get("count", 1) or 1),
         count_max=p.get("count_max"),
+        count_selector=p.get("count_selector"),
         optional=bool(p.get("optional", False)),
         previous_subject=bool(p.get("previous_subject", False)),
     ),
@@ -2322,6 +2341,14 @@ EffectRegistry.register(
         target=p.get("target"),
         target_kind=p.get("target_kind"),
         restrict_to_source=bool(p.get("restrict_to_source", False)),
+        selector=p.get("selector"),
+        selector_params=dict(p.get("selector_params") or {}),
+        creature_filter=p.get("creature_filter"),
+        count=int(p.get("count", 1)),
+        count_max=p.get("count_max"),
+        count_selector=p.get("count_selector"),
+        optional=bool(p.get("optional", False)),
+        previous_subject=bool(p.get("previous_subject", False)),
     ),
 )
 EffectRegistry.register(
@@ -2511,6 +2538,7 @@ EffectRegistry.register(
         count=p.get("target_count", 1),
         count_max=p.get("target_count_max"),
         optional=bool(p.get("optional", False)),
+        count_selector=p.get("count_selector"),
         amount_from_trigger_event=p.get("amount_from_trigger_event"),
         per_recipient_controller_counter=p.get("per_recipient_controller_counter"),
         amount_from_count_selector=p.get("amount_from_count_selector"),

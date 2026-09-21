@@ -6,6 +6,68 @@ from ._runtime import install, register
 
 install(globals())
 
+
+class ReturnMilledCardsEffect(GameEffect):
+    """Return cards named by the firing ``CARDS_MILLED`` batch.
+
+    The event's LKI list, rather than a fresh graveyard scan, is the RULE
+    701.13 referent for “them” / “one of them”.  This matters when another
+    trigger has already moved a card from the same mill, or a later card has
+    entered the graveyard before this trigger resolves.
+    """
+
+    def __init__(self, card_type: str, choose_one: bool = False, tapped: bool = False,
+                 source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.card_type = card_type.lower()
+        self.choose_one = bool(choose_one)
+        self.tapped = bool(tapped)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        event = context.trigger_event or {}
+        candidates = []
+        for snapshot in event.get("cards") or []:
+            if self.card_type not in snapshot.get("object_types", ()):
+                continue
+            obj = context.state.find_object(snapshot.get("instance_id"))
+            if obj is not None and obj.zone == Zone.GRAVEYARD:
+                candidates.append(obj)
+        if not candidates:
+            return
+        controller = _controller_of(self.source, context)
+        if self.choose_one:
+            if controller is not None:
+                context.choose_objects(
+                    controller, candidates, "return_from_graveyard", count=1,
+                    prompt="Wähle eine gemillte Karte zum Zurückbringen", source=self.source,
+                )
+            return
+        destination = "battlefield_tapped" if self.tapped else "battlefield"
+        with context.engine.graveyard_exit_batch():
+            for obj in candidates:
+                context.return_from_graveyard(obj, destination)
+
+
+class LoseLifeForMilledCardTypesEffect(GameEffect):
+    """Polluted Cistern's count of distinct card types in one mill batch."""
+
+    _CARD_TYPES = frozenset({
+        "artifact", "battle", "creature", "enchantment", "instant", "kindred",
+        "land", "planeswalker", "sorcery", "tribal",
+    })
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        types = {
+            word for card in ((context.trigger_event or {}).get("cards") or [])
+            for word in card.get("object_types", ()) if word in self._CARD_TYPES
+        }
+        controller = _controller_of(self.source, context)
+        if controller is None or not types:
+            return
+        for player in context.state.living_players():
+            if player.id != controller.id:
+                context.lose_life(player, len(types))
+
 class ReturnToHandEffect(GameEffect):
     """Return a target permanent to its owner's hand (RULE 701.3 "return").
 
@@ -72,6 +134,7 @@ class ReturnToHandEffect(GameEffect):
         creature_filter: Optional[dict[str, Any]] = None,
         colors: Optional[list[str]] = None,
         to_library_top_if_clash_won: bool = False,
+        then_specs: Optional[list[dict]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -85,6 +148,7 @@ class ReturnToHandEffect(GameEffect):
         #: same convention `CoinFlipEffect` documents) — one effect, so no
         #: stale RULE 400.7 reference to "that creature" after a zone change.
         self.to_library_top_if_clash_won = bool(to_library_top_if_clash_won)
+        self.then_specs = list(then_specs or [])
         #: "return target `<c1>` or `<c2>` creature you control to its
         #: owner's hand" (Escape Routes) — `TargetSpec.colors`' OR
         #: narrowing, offer-time (`targeting._color_ok`).
@@ -158,6 +222,12 @@ class ReturnToHandEffect(GameEffect):
         target = (targets[0] if targets else None) or self.target
         if target is not None:
             bounce(target)
+            if self.then_specs:
+                # RULE 608.2h: a nested "if you do" rider reads the
+                # returned object by last-known information after its zone
+                # change, not an unrelated prior effect's target.
+                context.previous_targets = [target]
+                context.engine._apply_effect_specs(self.then_specs, self.source)
 
 
 class ReturnToLibraryEffect(GameEffect):

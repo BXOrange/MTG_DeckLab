@@ -150,6 +150,7 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # supertype-filtered pick (RULE 205.4a), above the bare "target
     # permanent" row below so the longer phrase wins.
     (r"target legendary permanent", "legendary_permanent"),
+    (r"(?:another |other )?target historic permanent you control", "historic_permanent_you_control"),
     # "target permanent an opponent controls" (Assassin's Trophy/
     # Geomancer's Gambit) — the controller-scoped sibling of the bare
     # "target permanent" row below, mirroring "target creature an opponent
@@ -213,6 +214,10 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     (r"target nonbasic land (?:an opponent controls|you don't control)",
      "nonbasic_land_you_dont_control"),
     (r"target nonbasic land", "nonbasic_land"),
+    # PAR-98: Siege of Towers' basic-land-subtype target.  This is a land
+    # characteristic, not the generic ``target land`` frame.
+    (r"target mountain", "mountain"),
+    (r"target forest", "forest"),
     # "target land" (Sinkhole) — same RULE 115.1c precision as the artifact/
     # enchantment rows just above.
     (r"target land", "land"),
@@ -230,7 +235,7 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # "target nonland permanent you control" (PAR-30 — Daring Thief / Puca's
     # Mischief exchange-control targets); the controller-scoped sibling,
     # above the bare row so the longer phrase wins.
-    (r"target nonland permanent you control", "nonland_permanent_you_control"),
+    (r"(?:another |other )?target nonland permanent you control", "nonland_permanent_you_control"),
     # "[up to one] other target nonland permanent" (RULE 109.5 — Invasion
     # Submersible's ETB); "other" adds no distinct kind, same call as the
     # "another target permanent" row just below.

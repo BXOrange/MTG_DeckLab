@@ -885,6 +885,8 @@ class TurnLoopMixin:
                 obj.controller_id = obj.control_change_until_eot
                 obj.control_change_until_eot = None
                 ended_effects = True
+            if getattr(obj, "temp_prevent_combat_damage_dealt", False):
+                obj.temp_prevent_combat_damage_dealt = False
             # RULE 701.16a: an unused regeneration shield lasts only "that
             # turn" — sweep it here rather than only on consumption
             # (`RulesEngine.regenerate`'s own removal handles the used case).

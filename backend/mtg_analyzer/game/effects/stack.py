@@ -987,7 +987,11 @@ class MillEffect(GameEffect):
             count = int((event or {}).get(self.count_from_trigger_event) or 0)
         before = len(player.graveyard)
         context.mill(player, count)
-        context.moved_objects.extend(player.graveyard[before:])
+        milled = player.graveyard[before:]
+        context.moved_objects.extend(milled)
+        # RULE 701.13: "this way" is this one mill instruction, not every
+        # card moved earlier in the resolution.
+        context.milled_objects = list(milled)
 
 
 
