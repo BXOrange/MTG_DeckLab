@@ -69,6 +69,7 @@ from mtg_analyzer.models.game.game_state import GameState
 from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase
+from tests import turn_history_events as history
 
 
 def _named(name):
@@ -251,10 +252,10 @@ def test_mindbreak_trap_free_cast_condition_gates_on_opponent_spell_count():
     trap = GameObject(_named("Mindbreak Trap"), owner_id="p1", zone=Zone.HAND)
     condition = {"opponent_spells_cast_this_turn_at_least": 3}
 
-    state.spells_cast_this_turn["p2"] = 2
+    history.cast_spell(state, "p2", times=2)
     assert not free_cast_condition_holds(condition, trap, state)
 
-    state.spells_cast_this_turn["p2"] = 3
+    history.cast_spell(state, "p2")
     assert free_cast_condition_holds(condition, trap, state)
 
 

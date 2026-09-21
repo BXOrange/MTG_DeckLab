@@ -119,7 +119,7 @@ def test_second_dragon_spell_this_turn_gets_no_discount():
     # real choke point every cast path funnels SPELL_CAST through).
     st.fire_event(GameEvent(
         EventType.SPELL_CAST, player_id="p1", instance_id=first_dragon.instance_id,
-        object_types=sorted(first_dragon.type_words),
+        object_types=sorted(first_dragon.type_words), subtypes=["dragon"],
     ))
     assert "dragon" in st.creature_type_spells_cast_this_turn.get("p1", set())
 
@@ -145,7 +145,7 @@ def test_tracker_resets_next_turn():
     st.stack.append(item)
     st.fire_event(GameEvent(
         EventType.SPELL_CAST, player_id="p1", instance_id=first_dragon.instance_id,
-        object_types=sorted(first_dragon.type_words),
+        object_types=sorted(first_dragon.type_words), subtypes=["dragon"],
     ))
     st.stack.remove(item)
 

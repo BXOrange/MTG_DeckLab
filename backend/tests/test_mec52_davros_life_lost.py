@@ -20,6 +20,7 @@ from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec
+from tests import turn_history_events as history
 
 
 def _engine(players=3):
@@ -144,8 +145,8 @@ def test_conditional_token_only_when_an_opponent_is_past_the_threshold():
 def test_villainous_sweep_skips_opponents_who_did_not_lose_enough_life():
     eng, st = _engine(3)
     src = _src(st, "p1")
-    st.life_lost_this_turn["p2"] = 4   # past the threshold
-    st.life_lost_this_turn["p3"] = 1   # not
+    history.lose_life(st, "p2", 4)   # past the threshold
+    history.lose_life(st, "p3", 1)   # not
 
     effects = build_effects([EffectSpec("face_villainous_choice", {
         "subject": "each_opponent",
@@ -168,7 +169,7 @@ def test_villainous_sweep_is_empty_when_no_opponent_qualifies():
     eng, st = _engine(2)
     src = _src(st, "p1")
     # p2 lost only 2
-    st.life_lost_this_turn["p2"] = 2
+    history.lose_life(st, "p2", 2)
     effects = build_effects([EffectSpec("face_villainous_choice", {
         "subject": "each_opponent", "subject_min_life_lost": 3,
         "option_a": [{"type": "draw", "params": {"count": 1}}],

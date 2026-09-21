@@ -243,3 +243,82 @@ def test_the_condition_is_relative_to_who_is_asking():
     state.fire_event(GameEvent(EventType.LIFE_GAINED, player_id="p1", amount=1))
     assert static_conditions.condition_holds(cond, state, None, "p1") is True
     assert static_conditions.condition_holds(static_conditions_cond, state, None, "p2") is False
+
+
+# ---------------------------------------------------------------------------
+# The per-turn counters are derived from the log, not kept beside it
+# ---------------------------------------------------------------------------
+
+
+def _real_engine():
+    from mtg_analyzer.game.game_engine import GameEngine
+
+    eng = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])], starting_life=20, starting_hand=0)
+    for pid in ("p1", "p2"):
+        p = eng.state.player_by_id(pid)
+        for i in range(6):
+            p.library.append(GameObject(Card(id=f"{pid}{i}", name=f"{pid}{i}", type_line="Land"),
+                                        owner_id=pid, zone=Zone.LIBRARY))
+    eng.begin_turn()
+    return eng, eng.state
+
+
+def test_life_draw_and_discard_are_tallied_from_the_real_events():
+    eng, state = _real_engine()
+    p1, p2 = state.player_by_id("p1"), state.player_by_id("p2")
+    eng.rules.gain_life(p1, 4)
+    eng.rules.lose_life(p2, 3)
+    eng.rules.draw(p1, 2)
+    eng.rules.discard(p1, 1)
+    assert state.life_gained_this_turn["p1"] == 4 and state.life_gained_this_turn["p2"] == 0
+    assert state.life_lost_this_turn["p2"] == 3
+    assert state.cards_drawn_this_turn["p1"] == 2
+    assert len(state.cards_drawn_this_turn_ids["p1"]) == 2
+    assert state.cards_discarded_this_turn["p1"] == 1
+
+
+def test_every_counter_moves_to_a_new_window_for_every_player_at_once():
+    # Several of these used to reset only for the incoming active player, so an opponent's
+    # total from *their* last turn was still readable during yours.
+    eng, state = _real_engine()
+    p1, p2 = state.player_by_id("p1"), state.player_by_id("p2")
+    eng.rules.gain_life(p2, 5)
+    eng.rules.draw(p2, 1)
+    assert state.life_gained_this_turn["p2"] == 5 and state.cards_drawn_this_turn["p2"] == 1
+    eng.begin_turn()   # the other player's turn
+    eng.begin_turn()   # and back
+    assert state.life_gained_this_turn["p2"] == 0
+    assert state.cards_drawn_this_turn["p2"] == 0
+
+
+def test_a_cast_spell_carries_what_the_history_reads():
+    eng, state = _real_engine()
+    p1 = state.player_by_id("p1")
+    card = Card(id="Wyrm", name="Wyrm", type_line="Creature — Dragon", is_creature=True,
+                mana_cost_string="{X}{R}", color_identity={"R"}, power=1, toughness=1)
+    spell = GameObject(card, owner_id="p1", zone=Zone.HAND)
+    spell.controller_id = "p1"
+    p1.hand.append(spell)
+    eng.rules.cast_without_paying(p1, spell)
+    assert state.spells_cast_this_turn["p1"] == 1
+    assert state.noncreature_spells_cast_this_turn["p1"] == 0
+    assert state.nonartifact_spells_cast_this_turn["p1"] == 1
+    assert "dragon" in state.creature_type_spells_cast_this_turn["p1"]
+    assert state.cast_x_spell_this_turn == {"p1"}
+    assert state.spell_type_cast_counts_this_turn["p1"].get("creature") == 1
+
+
+def test_damage_history_reads_the_damage_events():
+    eng, state = _real_engine()
+    hitter = _creature(state, "Hitter")
+    victim = _creature(state, "Victim", owner="p2")
+    p2 = state.player_by_id("p2")
+    eng.rules.deal_damage(p2, 3, source=hitter, combat=True)
+    eng.rules.deal_damage(victim, 2, source=hitter)
+    assert state.damage_dealt_to_players_this_turn["p2"] == 3
+    assert state.damage_dealt_by_this_turn["p1"] == 3
+    assert state.combat_damage_to_players_this_turn[hitter.instance_id] == {"p2"}
+    assert state.creatures_damaged_by_source_this_turn[victim.instance_id] == {hitter.instance_id}
+    assert state.noncombat_damage_to_opponents_this_turn == {}
+    eng.rules.deal_damage(p2, 2, source=hitter)
+    assert state.noncombat_damage_to_opponents_this_turn["p1"] == 2

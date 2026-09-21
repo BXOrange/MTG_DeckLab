@@ -20,6 +20,7 @@ from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.models.game.game_state import GameState
 from mtg_analyzer.models.game.player import Player
+from tests import turn_history_events as history
 
 
 def _named(name):
@@ -216,7 +217,7 @@ def test_ethersworn_canonist_prohibits_a_second_nonartifact_spell():
     _catalogue_obj(state, "Ethersworn Canonist", controller="p1")
     engine.recompute_continuous_effects()
 
-    state.nonartifact_spells_cast_this_turn[p2.id] = 1
+    history.cast_spell(state, p2.id, types=["instant"])
     spell = _card("Shock", "Instant", "{R}", 1, is_instant=True)
     artifact_spell = _card("Sol Ring", "Artifact", "{1}", 1)
 

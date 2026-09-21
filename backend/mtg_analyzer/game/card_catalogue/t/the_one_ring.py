@@ -23,7 +23,7 @@ def _the_one_ring() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("lose_life", {"amount_from_burden_counters_on_self": True})],
+            [EffectSpec("lose_life", {"amount_from_count_selector": "burden_counters_on_self"})],
             trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "upkeep"}, "phase_relation": "you"},
         ),
         AbilitySpec(

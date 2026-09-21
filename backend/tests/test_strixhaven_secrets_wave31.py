@@ -20,6 +20,7 @@ from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.spec import EffectSpec
+from tests import turn_history_events as history
 
 WAVE31 = ["Winds of Rath", "The Goose Mother", "Killian, Ink Duelist",
           "Volcanic Salvo", "Volcanic Torrent", "Tocasia's Welcome"]
@@ -88,7 +89,7 @@ def test_volcanic_salvo_reduces_by_total_power():
 
 def test_volcanic_torrent_hits_opponent_creatures_and_planeswalkers():
     eng, p1, p2 = _eng()
-    eng.state.spells_cast_this_turn[p1.id] = 3
+    history.cast_spell(eng.state, p1.id, times=3)
     my_c = _mk(eng, p1.id, "Mine", "Creature — Bear", is_creature=True, power=5, toughness=5)
     opp_c = _mk(eng, p2.id, "Theirs", "Creature — Bear", is_creature=True, power=5, toughness=5)
     src = GameObject(card=Card(id="vt", name="Volcanic Torrent", type_line="Sorcery"),

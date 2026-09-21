@@ -172,7 +172,6 @@ class GainLifeEffect(GameEffect):
         count_selector: Optional[str] = None,
         amount_from_target_power: bool = False,
         recipient: Optional[str] = None,
-        amount_from_trigger_source_toughness: bool = False,
         amount_from_subject: Optional[str] = None,
         amount_from_trigger_event: Optional[str] = None,
         count_selector_multiplier: int = 1,
@@ -209,19 +208,6 @@ class GainLifeEffect(GameEffect):
         #: life equal to its toughness" — Angelic Chorus; reads the firing
         #: event's own ``instance_id``).
         self.amount_from_subject = amount_from_subject
-        #: "Whenever a creature you control deals combat damage to a
-        #: player, you gain life equal to that creature's toughness." (Ikra
-        #: Shidiqi, the Usurper, MEC-43) — "that creature" is the *source*
-        #: of the very DAMAGE event that fired this group-subject trigger
-        #: (Bident of Thassa's own trigger shape), not a chosen target at
-        #: all, so it's read off `GameContext.trigger_event`'s
-        #: ``source_id`` (`DestroyEffect.target_from_trigger_event`'s same
-        #: "read this firing's own payload" idiom, applied to a magnitude
-        #: rather than a destroy target) and the creature's *current* live
-        #: toughness (layer-engine derived, matching RULE 613's "as the
-        #: event is processed" reading every other toughness-scaled effect
-        #: uses), not the damage amount itself.
-        self.amount_from_trigger_source_toughness = amount_from_trigger_source_toughness
         #: "You gain life equal to target creature's power." (Dazzling
         #: Reflection, MEC-30) — reads a *shared* target this effect never
         #: declares itself (no `target_spec` of its own here; a sibling
@@ -264,11 +250,6 @@ class GainLifeEffect(GameEffect):
         # threaded in as ``explicit`` rather than folded into the helper.
         player = self._resolve_target_or_controller(context, targets, explicit=player)
 
-        def _from_trigger_source_toughness() -> int:
-            event = context.trigger_event or {}
-            source_obj = context.state.find_object(event.get("source_id"))
-            return int(source_obj.toughness or 0) if source_obj is not None else 0
-
         def _from_subject() -> int:
             return _characteristic_of_subject(
                 context, self.source, self.amount_from_subject or ""
@@ -294,7 +275,6 @@ class GainLifeEffect(GameEffect):
                     self.amount_from_target_power,
                     lambda: int(subject.power or 0) if subject is not None else 0,
                 ),
-                (self.amount_from_trigger_source_toughness, _from_trigger_source_toughness),
                 (bool(self.amount_from_subject), _from_subject),
                 (
                     # "You gain life equal to the life lost this way." (Gray
@@ -1551,8 +1531,6 @@ class LoseLifeEffect(GameEffect):
         target_kind: Optional[str] = None,
         player_id: Optional[str] = None,
         amount_from_trigger_event: Optional[str] = None,
-        amount_from_life_gained_this_turn: bool = False,
-        amount_from_burden_counters_on_self: bool = False,
         amount_from_count_selector: Optional[str] = None,
         amount_from_spells_cast_this_turn: bool = False,
         amount_from_half_own_life: bool = False,
@@ -1608,11 +1586,6 @@ class LoseLifeEffect(GameEffect):
         #: counter before triggers are collected off the same event.
         self.amount_from_spells_cast_this_turn = amount_from_spells_cast_this_turn
         self.player = player
-        #: "…you lose 1 life for each burden counter on The One Ring."
-        #: Reads `GameObject.counters["burden"]` on this effect's own
-        #: source, the `LoseLifeEffect` sibling of `DrawCardEffect`'s
-        #: ``"burden_counters_on_self"`` count selector.
-        self.amount_from_burden_counters_on_self = amount_from_burden_counters_on_self
         #: A specific player named by *id* rather than by object — the only
         #: form a serialized `EffectSpec` can carry (Professor Onyx's
         #: per-opponent "if you don't, they lose 3 life" branch, built fresh
@@ -1630,12 +1603,6 @@ class LoseLifeEffect(GameEffect):
         #: "read this firing's own payload" idiom `AddManaEffect.
         #: amount_from_trigger_event` uses. Overrides ``amount`` when set.
         self.amount_from_trigger_event = amount_from_trigger_event
-        #: "…loses life equal to the amount of life you gained this turn."
-        #: (Gollum, Obsessed Stalker) — `GameState.life_gained_this_turn`,
-        #: a *cumulative-this-turn* total rather than one firing's payload,
-        #: so unlike `amount_from_trigger_event` this reads state, not the
-        #: triggering event.
-        self.amount_from_life_gained_this_turn = amount_from_life_gained_this_turn
 
     def target_polarity(self) -> Optional[str]:
         return "harmful"
@@ -1670,10 +1637,6 @@ class LoseLifeEffect(GameEffect):
         return player
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        def _from_life_gained_this_turn() -> int:
-            player = _controller_of(self.source, context)
-            return context.state.life_gained_this_turn.get(getattr(player, "id", None), 0)
-
         def _from_count_selector() -> int:
             from .. import continuous  # avoid the continuous↔effects import cycle
 
@@ -1714,11 +1677,6 @@ class LoseLifeEffect(GameEffect):
                 (
                     bool(self.amount_from_trigger_event),
                     lambda: int((context.trigger_event or {}).get(self.amount_from_trigger_event) or 0),
-                ),
-                (self.amount_from_life_gained_this_turn, _from_life_gained_this_turn),
-                (
-                    self.amount_from_burden_counters_on_self,
-                    lambda: int((getattr(self.source, "counters", None) or {}).get("burden", 0)),
                 ),
                 (bool(self.amount_from_count_selector), _from_count_selector),
                 (self.amount_from_spells_cast_this_turn, _from_spells_cast_this_turn),

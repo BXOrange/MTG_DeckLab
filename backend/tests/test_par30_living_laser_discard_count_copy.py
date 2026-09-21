@@ -99,8 +99,8 @@ def test_discard_counter_tracks_and_resets():
         p1.hand.append(c)
     eng.rules.discard(p1, 3)
     assert eng.state.cards_discarded_this_turn["p1"] == 3
-    # a fresh turn for p1 zeroes it
-    eng.state.cards_discarded_this_turn["p1"] = 0
+    # a fresh turn zeroes it — nothing resets, the window moves
+    eng.state.internal_turn.number += 1
     assert eng.state.cards_discarded_this_turn["p1"] == 0
 
 

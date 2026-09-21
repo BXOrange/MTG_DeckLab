@@ -869,7 +869,10 @@ def _characteristic_of_subject(
         event = context.trigger_event or {}
         if char in ("power", "toughness") and event.get(char) is not None:
             return int(event.get(char) or 0)
-        obj = context.state.find_object(event.get("instance_id"))
+        # A DAMAGE-shaped group trigger names its acting object as ``source_id``
+        # (`effect_conditions.subject_of("entering")`'s own fallback).
+        subject_id = event.get("instance_id")
+        obj = context.state.find_object(subject_id if subject_id is not None else event.get("source_id"))
     if obj is None:
         return 0
     # PAR-71: "counter target spell. …, where X is that spell's mana

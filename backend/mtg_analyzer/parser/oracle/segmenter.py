@@ -2169,9 +2169,43 @@ _WEREWOLF_TWO_SPELLS_CONDITION_RE = re.compile(
 _IF_YOU_WIN_CLASH_RE = re.compile(
     r"^if you w(?:in|on)(?: the clash)?,\s*(?P<rest>.+)$", re.IGNORECASE,
 )
-_OTHERWISE_CLASH_RE = re.compile(
+_OTHERWISE_RE = re.compile(
     r"^otherwise,\s*(?P<rest>.+)$", re.IGNORECASE,
 )
+
+
+def _otherwise_specs(
+    rest: str, preceding: "list[EffectSpec]", **flags: Any
+) -> "Optional[list[EffectSpec]]":
+    """"…`<A>` if `<condition>`. **Otherwise**, `<B>`." → the ``if_else`` that replaces `<A>`.
+
+    `<B>` runs exactly when `<A>`'s gate did not hold, whatever it was (RULE 701.30d's "if you
+    win the clash" is one case). The gate has to be *decided once*, before either branch runs:
+    "draw a card if you have no cards in hand, otherwise discard" must not re-read the hand
+    after the draw — hence one node rather than a second, negated gate. The preceding clause
+    must carry a condition; without one there is nothing "otherwise" could mean, so the body
+    stays unclaimed rather than guessed at."""
+    if not preceding:
+        return None
+    gate = preceding[0].condition
+    if gate is None or any(spec.condition != gate for spec in preceding):
+        return None
+    inner = parse_effect_body(rest, **flags)
+    if not inner or any(spec.condition is not None for spec in inner):
+        return None
+    if gate == {"kind": "clash_won"}:
+        # RULE 701.30d's clash outcome is a fact of the resolution that no branch changes, so
+        # the two gated lists it always had are equivalent — and `clash` runs its own machinery.
+        negated = {"kind": "not", "condition": gate}
+        return list(preceding) + [
+            EffectSpec(spec.type, dict(spec.params), condition=negated) for spec in inner
+        ]
+    return [EffectSpec("if_else", {
+        "condition": gate,
+        "then": [EffectSpec(spec.type, dict(spec.params)).to_dict() for spec in preceding],
+        "else": [spec.to_dict() for spec in inner],
+    })]
+
 
 #: MEC-50: "`<process>`, then clash with an opponent. If you win, **repeat
 #: this process**." (Hoarder's Greed) — the win branch loops the *whole*
@@ -3940,10 +3974,6 @@ _CONDITION_PREFIXES: tuple[_ConditionPrefix, ...] = (
     ),
     # RULE 701.30d's two complementary clash branches.
     _ConditionPrefix(_IF_YOU_WIN_CLASH_RE, lambda m: {"kind": "clash_won"}),
-    _ConditionPrefix(
-        _OTHERWISE_CLASH_RE,
-        lambda m: {"kind": "not", "condition": {"kind": "clash_won"}},
-    ),
     # RULE 119.3, Frodo, Adventurous Hobbit — carries a ``trailing`` group,
     # because "if A, effect1. Then if B, effect2." is two independently
     # gated sentences and the naive greedy read would gate both with A.
@@ -4709,6 +4739,27 @@ def parse_effect_body(
     if if_else is not None:
         return if_else
 
+    # "If `<cond>`, `<A>` and `<B>`." — one sentence, one gate over *both* effects. The
+    # connector split below would hand `<B>` over on its own, ungated (Unholy Annex: "If you
+    # control a Demon, each opponent loses 2 life and you gain 2 life" gained the life
+    # whether or not you did). A body with a period is several sentences and keeps its
+    # per-clause gating.
+    one_gate = _GENERIC_IF_PREFIX_RE.match(body)
+    if one_gate is not None and "." not in one_gate.group("rest") and re.search(
+        r"\s+and\s+", one_gate.group("rest")
+    ):
+        gate = static_condition(one_gate.group("cond"))
+        gated_inner = (
+            parse_effect_body(
+                one_gate.group("rest"), self_subject=self_subject,
+                previous_subject=previous_subject, group_subject=group_subject,
+                previous_selector=previous_selector,
+            )
+            if gate is not None else None
+        )
+        if gated_inner and all(spec.condition is None for spec in gated_inner):
+            return [EffectSpec(spec.type, dict(spec.params), condition=gate) for spec in gated_inner]
+
     for sep in _CONNECTORS:
         parts = [p for p in re.split(sep, body) if p.strip()]
         if len(parts) > 1:
@@ -4732,20 +4783,32 @@ def parse_effect_body(
             # chain, this survives a clause that only re-references the
             # source (a counter on "~").
             carry_self = self_subject
+            last_len = 0
             for idx, part in enumerate(parts):
                 # A period split retains the leading "then" from a printed
                 # "… . Then <effect>" sentence, unlike the explicit
                 # `, then` connector. It is sequencing, not effect grammar.
                 part = re.sub(r"^then\s+", "", part.strip(), flags=re.IGNORECASE)
-                sub = parse_effect_body(
-                    part,
-                    self_subject=carry_self and not referent,
-                    previous_subject=referent, previous_selector=referent_selector,
-                    group_subject=group_subject,
-                )
+                otherwise = _OTHERWISE_RE.match(part)
+                if otherwise is not None:
+                    sub = _otherwise_specs(
+                        otherwise.group("rest"), collected[len(collected) - last_len:] if last_len else [],
+                        self_subject=carry_self and not referent, previous_subject=referent,
+                        previous_selector=referent_selector, group_subject=group_subject,
+                    )
+                    if sub is not None:
+                        del collected[len(collected) - last_len:]  # the if_else replaces them
+                else:
+                    sub = parse_effect_body(
+                        part,
+                        self_subject=carry_self and not referent,
+                        previous_subject=referent, previous_selector=referent_selector,
+                        group_subject=group_subject,
+                    )
                 if sub is None:
                     ok = False
                     break
+                last_len = len(sub)
                 collected.extend(sub)
                 prev_referent, prev_referent_selector = referent, referent_selector
                 # RULE 601.2c: what the clause just parsed *chose* is what
@@ -5284,6 +5347,44 @@ def _stamp_group_pronoun(
     return stamped
 
 
+#: Effect params that read a number or object off the firing event. An `ATTACKERS_DECLARED`
+#: event names the whole declaration, not "that many"/"that creature": the count a body means
+#: depends on the head's own filter, which the shared event cannot carry.
+_EVENT_READS = ("amount_from_trigger_event", "count_from_trigger_event", "pt_from_trigger_event")
+
+
+def _retarget_block_relation(
+    event: "str | list[str]", head_trigger: dict[str, Any], effects: "list[EffectSpec]"
+) -> "list[EffectSpec]":
+    """Under a block-relation head ("~ blocks or becomes blocked by a non-Wall creature")
+    "that creature" is the creature on the other side of the block. A delayed effect built
+    from it captured the source when nothing preceded it; it now captures the event's
+    related creatures, filtered as the head is."""
+    events = event if isinstance(event, list) else [event]
+    if not events or not set(events) <= {"BLOCKS", "BECOMES_BLOCKED"}:
+        return effects
+    out: "list[EffectSpec]" = []
+    for e in effects:
+        if e.type == "create_delayed_trigger" and e.params.get("capture") == "previous_or_self":
+            params = dict(e.params)
+            params["capture"] = "trigger_related"
+            params["related_filter"] = dict(head_trigger.get("related_filter") or {})
+            e = EffectSpec(e.type, params, condition=e.condition)
+        out.append(e)
+    return out
+
+
+def _batch_attack_body_unresolvable(effects: "list[EffectSpec]") -> bool:
+    """Whether a batch-attack ("you attack with …" / "~ and at least N other creatures
+    attack") body reads something the event cannot say: "that many" / "that much", or a
+    delayed effect that falls back to the source for "that creature"."""
+    return any(
+        any(key in e.params for key in _EVENT_READS)
+        or (e.type == "create_delayed_trigger" and e.params.get("capture") == "previous_or_self")
+        for e in effects
+    )
+
+
 def _group_it_would_hit_source(
     condition: Optional[dict[str, Any]], body: str, effects: "list[EffectSpec]"
 ) -> bool:
@@ -5308,9 +5409,39 @@ def _group_it_would_hit_source(
 #: "whenever Y, Z". Each half is a whole ordinary trigger, so it is parsed as one
 #: (the halves stop at the first comma, which is where the body begins).
 _COMPOUND_TRIGGER_RE = re.compile(
-    r"^(?P<kw1>when|whenever) (?P<first>[^,]+?) and (?P<kw2>when|whenever) (?P<second>[^,]+?),\s*(?P<body>.+)$",
-    re.IGNORECASE | re.S,
+    r"^(?P<kw>when|whenever|at) (?P<cond>[^,]+?),\s*(?P<body>.+)$", re.IGNORECASE | re.S,
 )
+_COMPOUND_AND_RE = re.compile(r" and (?P<kw>when|whenever|at) ", re.IGNORECASE)
+_COMPOUND_OR_RE = re.compile(r" or ", re.IGNORECASE)
+
+
+_SHARED_TAIL_RE = re.compile(r"\b(?:from|during|for the first time|this turn)\b")
+
+
+def _compound_candidates(line: str) -> "list[tuple[str, str]]":
+    """Every way to read one trigger line as two independent trigger lines sharing its body
+    (RULE 603.2): "when X and whenever Y, Z" / "when X and at the beginning of Y, Z" split at
+    the second keyword, "whenever X or Y, Z" at an "or" — each half keeps the keyword and the
+    body, and the caller keeps only a split whose halves both parse as whole triggers."""
+    m = _COMPOUND_TRIGGER_RE.match(line.strip())
+    if m is None:
+        return []
+    kw, cond, body = m.group("kw"), m.group("cond"), m.group("body")
+    out: "list[tuple[str, str]]" = []
+    for sep in _COMPOUND_AND_RE.finditer(cond):
+        out.append((f"{kw} {cond[:sep.start()]}, {body}", f"{sep.group('kw')} {cond[sep.end():]}, {body}"))
+    for sep in _COMPOUND_OR_RE.finditer(cond):
+        left, right = cond[:sep.start()], cond[sep.end():]
+        if _SHARED_TAIL_RE.search(right):
+            # "you play a land or cast a spell **from anywhere other than your hand**": the tail
+            # qualifies both verbs, so the right half alone is a different (broader) trigger
+            # for the left one — no faithful split exists without distributing it.
+            continue
+        out.append((f"{kw} {left}, {body}", f"{kw} {right}, {body}"))
+        if left.startswith("you "):
+            # "you play a land or cast a spell": the second verb keeps the first one's subject.
+            out.append((f"{kw} {left}, {body}", f"{kw} you {right}, {body}"))
+    return out
 
 
 #: PAR-124 (RULE 603.7a): a spell's "Whenever <event> this turn, <effect>" / "Until end
@@ -5386,6 +5517,41 @@ def _stamp_group_pronoun_segment(segment: "Segment") -> "Segment":
     return segment
 
 
+#: "Whenever ~ attacks **while `<state>`**, `<effect>`" — the state is a condition on the
+#: ability (RULE 603.4's intervening if), so it is read as "…attacks, **if `<state>`**, …"
+#: through the condition grammar every leading "if" already uses.
+_WHILE_TAIL_RE = re.compile(
+    r"^(?P<kw>when|whenever) (?P<head>[^,]+?) while (?P<state>[^,]+),\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+
+
+def _while_condition_segment(
+    line: str, *, allow_spell_effect: bool, provenance: ParserProvenance, is_saga: bool
+) -> "Optional[Segment]":
+    """A trigger with a "while `<state>`" tail → the segment of the "if `<state>`" reading,
+    ``"while saddled"`` → the source's own ``requires_saddled`` gate; ``None`` when the line
+    has no such tail."""
+    m = _WHILE_TAIL_RE.match(line.strip())
+    if m is None:
+        return None
+    saddled = m.group("state").strip() == "saddled"
+    rewritten = (
+        f"{m.group('kw')} {m.group('head')}, {m.group('body')}" if saddled
+        else f"{m.group('kw')} {m.group('head')}, if {m.group('state')}, {m.group('body')}"
+    )
+    inner = segment_line(
+        rewritten, allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga
+    )
+    if not saddled or not inner.claimed or inner.spec is None:
+        return inner
+    # `requires_saddled` reads the *source's* stamp, so it is only right for a self subject.
+    if inner.extra_specs or (inner.spec.trigger or {}).get("condition", {}).get("subject") != "self":
+        return Segment(raw=line.strip())
+    inner.spec.trigger = {**inner.spec.trigger, "requires_saddled": True}
+    return inner
+
+
 def segment_line(
     line: str,
     *,
@@ -5399,25 +5565,28 @@ def segment_line(
         turn_trigger = _turn_trigger_segment(line, provenance=provenance)
         if turn_trigger is not None:
             return turn_trigger
+    while_reading = _while_condition_segment(
+        line, allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga
+    )
+    if while_reading is not None and while_reading.claimed:
+        return while_reading
     whole = _stamp_group_pronoun_segment(_segment_line_unsplit(
         line, allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga
     ))
     if whole.claimed:
         return whole
-    m = _COMPOUND_TRIGGER_RE.match(line.strip())
-    if m is None:
-        return whole
-    halves = [
-        segment_line(
-            f"{m.group(kw)} {m.group(half)}, {m.group('body')}",
-            allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga,
-        )
-        for kw, half in (("kw1", "first"), ("kw2", "second"))
-    ]
-    if any(h.spec is None or not h.claimed for h in halves):
-        return whole
-    specs = [h.spec for h in halves] + [x for h in halves for x in h.extra_specs]
-    return Segment(raw=line.strip(), spec=specs[0], extra_specs=specs[1:], claimed=True)
+    for first, second in _compound_candidates(line):
+        halves = [
+            segment_line(
+                half, allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga
+            )
+            for half in (first, second)
+        ]
+        if any(h.spec is None or not h.claimed for h in halves):
+            continue
+        specs = [h.spec for h in halves] + [x for h in halves for x in h.extra_specs]
+        return Segment(raw=line.strip(), spec=specs[0], extra_specs=specs[1:], claimed=True)
+    return whole
 
 
 def _segment_line_unsplit(
@@ -7601,6 +7770,10 @@ def _segment_line_unsplit(
         effects = stamped
         if composed_head and _group_it_would_hit_source(condition, body, effects):
             return Segment(raw=raw)
+        if event == "ATTACKERS_DECLARED" and _batch_attack_body_unresolvable(effects):
+            return Segment(raw=raw)
+        if composed_head:
+            effects = _retarget_block_relation(event, head_trigger, effects)
         effects, body_limit = _strip_trigger_once_per_turn_marker(effects)
         limit = limit or body_limit
         spec = AbilitySpec(

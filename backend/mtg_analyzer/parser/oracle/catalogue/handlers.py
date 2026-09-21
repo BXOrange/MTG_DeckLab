@@ -5408,6 +5408,24 @@ def _next_spell_cant_be_countered(m: re.Match[str]) -> list[EffectSpec]:
     ]
 
 
+#: "When you next cast an instant or sorcery spell this turn, **copy that spell**. You may
+#: choose new targets for the copy." (Doublecast, Galvanic Iteration, Teach by Example, Dual
+#: Strike) — the copier is the trigger's controller and "that spell" is the one that fired it
+#: (`CopySpellEffect.spell_from_trigger_event`). "twice"/"N times" is the copy count.
+_COPY_THAT_SPELL_RE = _c(
+    r"copy that spell(?: (?P<n>twice|\d+ times))?\.\s*you may choose new targets for the cop(?:y|ies)"
+)
+
+
+def _copy_that_spell(m: re.Match[str]) -> list[EffectSpec]:
+    word = m.group("n")
+    count = 1 if word is None else (2 if word == "twice" else int(word.split()[0]))
+    params: dict = {"spell_from_trigger_event": "instance_id"}
+    if count != 1:
+        params["count"] = count
+    return [EffectSpec("copy_spell", params)]
+
+
 def _trigger_copy_spell(m: re.Match[str]) -> list[EffectSpec]:
     return [
         EffectSpec(
@@ -8977,7 +8995,22 @@ def _grant_group_subject_kw(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     keywords = _token_keywords(m.group("kw"))
     if keywords is None or len(keywords) != 1:
         return None
-    return [EffectSpec("grant_keyword_to_trigger_subject", {"keyword": keywords[0]})]
+    return [EffectSpec("grant_keyword_to_trigger_subject", {
+        "keyword": keywords[0], "event_key": GROUP_SUBJECT_KEY_SENTINEL,
+    })]
+
+
+def _pump_group_subject(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    """"Whenever a creature … attacks, **it** gets +N/+N [and gains `<keyword>`] until end of
+    turn." — the object that fired the group trigger, read live off the event
+    (`PumpEffect.trigger_subject`, the mechanism Exalted uses)."""
+    specs = _pump_self_subject(m)
+    if specs is None:
+        return None
+    params = dict(specs[0].params)
+    params["trigger_subject"] = True
+    params["trigger_event_key"] = GROUP_SUBJECT_KEY_SENTINEL
+    return [EffectSpec("pump", params)]
 
 
 #: The durations a grant may carry beyond "until end of turn", as printed →
@@ -15572,6 +15605,16 @@ HANDLERS: list[EffectHandler] = [
         _c(r"it gains? (?P<kw>[a-z, ]+?) until end of turn"),
         _grant_self_subject_kw,
         self_subject_only=True,
+    ),
+    EffectHandler("copy_that_spell", _COPY_THAT_SPELL_RE, _copy_that_spell),
+    EffectHandler(
+        "pump_group_subject",
+        _c(
+            rf"it gets? {_PT_DELTA}"
+            rf"(?: and gains? (?P<kw>[a-z, ]+?))? until end of turn"
+        ),
+        _pump_group_subject,
+        group_subject_only=True,
     ),
     EffectHandler(
         "grant_group_subject_kw",

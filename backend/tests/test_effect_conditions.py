@@ -404,7 +404,6 @@ class TestOnePeelerRule:
         "if that player is you, draw a card",
         "if that player isn't you, draw a card",
         "if you win, draw a card",
-        "otherwise, draw a card",
         "if you gained 3 or more life this turn, draw a card",
         "if you don't control a food, create a food token",
         "if there's a lesson card in your graveyard, draw a card",

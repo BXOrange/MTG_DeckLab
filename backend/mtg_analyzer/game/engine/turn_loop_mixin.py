@@ -233,100 +233,22 @@ class TurnLoopMixin:
         # roller has already rolled it *this turn*, so the tally resets with
         # every other per-turn counter here.
         self.state.planar_die_rolls_this_turn.clear()
-        # MEC-36: widened from `active.id`-only to every player (Damping
-        # Sphere needs a non-active player's own running total to stay
-        # accurate too — see the field's own docstring), the same
-        # game-wide reset scope `noncreature_spells_cast_this_turn` below
-        # already uses.
-        for player in self.state.players:
-            self.state.spells_cast_this_turn[player.id] = 0
-            # RULE 500.1 — reset for *every* player, not just the incoming
-            # active one: Davros, Dalek Creator's own end-step trigger reads
-            # each *opponent's* `life_lost_this_turn`, so a stale value from
-            # someone else's turn must be cleared here.
-            self.state.life_lost_this_turn[player.id] = 0
+        # ENG-47: the per-turn history counters (spells cast, life gained/lost, cards
+        # drawn/discarded, creatures died, damage dealt, …) are derived from the
+        # turn-stamped event log (`models/game/turn_history.py`) — a new turn is a new
+        # window, so none of them is reset here.
         self.state.combats_this_turn = 0
-        self.state.cards_drawn_this_turn[active.id] = 0
-        self.state.cards_drawn_this_turn_ids[active.id] = []
-        self.state.cards_discarded_this_turn[active.id] = 0
-        self.state.life_gained_this_turn[active.id] = 0
-        # Raid declaration history is game-wide and expires on every new turn.
-        self.state.players_attacked_this_turn.clear()
-        # RULE 120.3 history ("dealt combat damage by ~ *this turn*", Hope of
-        # Ghirapur) — game-wide, not per active player: last turn's combat
-        # damage is stale for everyone once a new turn starts.
-        self.state.combat_damage_to_players_this_turn.clear()
-        # Chandra's Incinerator's own running per-turn amount total, same
-        # game-wide reset scope as the row above.
-        self.state.noncombat_damage_to_opponents_this_turn.clear()
-        # Final Punishment's own running per-turn amount total (MEC-43) —
-        # same game-wide reset scope as the two rows above.
-        self.state.damage_dealt_to_players_this_turn.clear()
-        # RULE 700.4 history ("unless a creature died under your control this
-        # turn", Bontu the Glorified) — game-wide for the same reason.
-        self.state.creatures_died_this_turn.clear()
-        self.state.modified_creatures_died_this_turn.clear()
-        # PAR-32: "if a source you controlled dealt N or more damage this
-        # turn" (Dragon Cultist) / "if a creature card was put into your
-        # graveyard from anywhere this turn" (Cloakwood Hermit) — per-
-        # controller / per-owner history, game-wide reset like the rows
-        # around it.
-        self.state.damage_dealt_by_this_turn.clear()
-        self.state.creature_card_to_graveyard_this_turn.clear()
         self.state.cards_left_graveyard_this_turn.clear()
-        self.state.cast_x_spell_this_turn.clear()
-        self.state.nontoken_creatures_entered_this_turn[active.id] = 0
-        self.state.lands_entered_this_turn[active.id] = 0
-        self.state.permanent_card_to_graveyard_this_turn.clear()
         # MEC-57: "the first time you would draw a card each turn, instead
         # …" (Scion of Halaster) — game-wide, same reason.
         self.state.first_draw_replaced_this_turn.clear()
-        # MEC-60: "the first `<subtype>` spell you cast each turn …"
-        # (Acolyte of Bahamut) — game-wide, same reason.
-        self.state.creature_type_spells_cast_this_turn.clear()
-        # MEC-49 history ("whenever a creature dealt damage by ~ this turn
-        # dies", Baron Sengir) — game-wide, same reason.
-        self.state.creatures_damaged_by_source_this_turn.clear()
-        # RULE 701.6x history ("then if you've done all four this turn",
-        # Avatar Aang) — game-wide, same as the row above; a bend by any
-        # player is a per-turn fact none of them carry on the board.
-        self.state.bends_this_turn.clear()
-        # "if you put a counter on a creature this turn" (Lasting Tarfire) —
-        # game-wide, same reason as the rows around it.
-        self.state.counter_placed_on_creature_this_turn.clear()
-        self.state.permanents_left_battlefield_this_turn.clear()  # MEC-84
-        self.state.creatures_left_battlefield_this_turn.clear()
         # Mana-potential tracking (`game/mana_potential.py`) — game-wide,
-        # not `active.id`-only like `spells_cast_this_turn` above: a
-        # non-active player can still tap mana at instant speed under
-        # `interactive_priority` (Multiplayer), and "open + used = total
-        # capacity accessed this turn" must hold for the turn now beginning
-        # regardless of whose turn it is.
+        # not `active.id`-only: a non-active player can still tap mana at
+        # instant speed under `interactive_priority` (Multiplayer), and "open
+        # + used = total capacity accessed this turn" must hold for the turn
+        # now beginning regardless of whose turn it is.
         for player in self.state.players:
             self.state.mana_produced_this_turn[player.id] = {}
-        # PAR-10 (`static_conditions.py`'s `cast_instant_or_sorcery_this_
-        # turn`) — game-wide for the same reason as `mana_produced_this_
-        # turn` above: a non-active player's static condition must read
-        # correctly too, not just the active player's own activation check.
-        for player in self.state.players:
-            self.state.cast_instant_or_sorcery_this_turn[player.id] = False
-            # Rootha, Mastering the Moment (PAR-60) — running max i/s mana
-            # value this turn, same game-wide reset scope.
-            self.state.greatest_instant_sorcery_mv_this_turn[player.id] = 0
-        # Same game-wide reset scope as the row above — Magebane Lizard's
-        # own running per-player noncreature-spell count.
-        for player in self.state.players:
-            self.state.noncreature_spells_cast_this_turn[player.id] = 0
-        # Ethersworn Canonist's own running per-player nonartifact-spell
-        # count (MEC-43) — same game-wide reset scope as the row above.
-        for player in self.state.players:
-            self.state.nonartifact_spells_cast_this_turn[player.id] = 0
-        # Veil of Summer-shaped "if an opponent has cast a blue or black
-        # spell this turn" — same game-wide reset scope as the row above.
-        for player in self.state.players:
-            self.state.spell_colors_cast_this_turn[player.id] = set()
-            self.state.spell_color_cast_counts_this_turn[player.id] = {}
-            self.state.spell_type_cast_counts_this_turn[player.id] = {}
         # "Until your next turn, …" (RULE 611.2b) — a player-scoped effect
         # granted on someone's turn lapses the moment *that* player's next
         # turn begins, which is exactly now for `active`. Swept across every
@@ -467,6 +389,7 @@ class TurnLoopMixin:
             self._fire_attacks_alone_event()
         if self.state.current_step == "declare_blockers":
             self._enforce_block_requirements()
+            self._fire_unblocked_events()
         if not self._turn_steps or self._cursor >= len(self._turn_steps):
             self.state.fire_event(
                 GameEvent(EventType.TURN_END, player_id=self.state.active_player.id)

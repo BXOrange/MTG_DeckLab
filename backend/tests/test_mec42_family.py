@@ -17,6 +17,7 @@ from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.models.game.game_state import StackItem
 
 from tests.support.game import make_engine
+from tests import turn_history_events as history
 
 
 def _named(name):
@@ -495,7 +496,7 @@ def test_tymna_postcombat_main_offers_pay_life_draw_x():
     p1.life = 30
 
     eng.begin_turn()
-    state.combat_damage_to_players_this_turn[attacker.instance_id] = {p2.id}
+    history.damage(state, source_id=attacker.instance_id, source_controller_id="p1", target_id=p2.id, combat=True)
     state.current_step = "main2"
     from mtg_analyzer.models.game.events import EventType, GameEvent
     state.fire_event(GameEvent(EventType.STEP_BEGIN, step="main2", player_id="p1"))

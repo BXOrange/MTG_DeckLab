@@ -397,9 +397,6 @@ EffectRegistry.register(
         count_selector=p.get("count_selector"),
         amount_from_target_power=bool(p.get("amount_from_target_power", False)),
         recipient=p.get("recipient"),
-        amount_from_trigger_source_toughness=bool(
-            p.get("amount_from_trigger_source_toughness", False)
-        ),
         amount_from_subject=p.get("amount_from_subject"),
         amount_from_trigger_event=p.get("amount_from_trigger_event"),
         count_selector_multiplier=int(p.get("count_selector_multiplier", 1) or 1),
@@ -639,8 +636,6 @@ EffectRegistry.register(
         amount=p.get("amount", 0), player=p.get("player"), selector=p.get("selector"),
         target_kind=p.get("target_kind"), player_id=p.get("player_id"),
         amount_from_trigger_event=p.get("amount_from_trigger_event"),
-        amount_from_life_gained_this_turn=bool(p.get("amount_from_life_gained_this_turn", False)),
-        amount_from_burden_counters_on_self=bool(p.get("amount_from_burden_counters_on_self", False)),
         amount_from_count_selector=p.get("amount_from_count_selector"),
         amount_from_spells_cast_this_turn=bool(p.get("amount_from_spells_cast_this_turn", False)),
         amount_from_half_own_life=bool(p.get("amount_from_half_own_life", False)),
@@ -1456,6 +1451,7 @@ EffectRegistry.register(
         min_turn_offset=p.get("min_turn_offset", 0),
         description=p.get("description", ""),
         condition=p.get("condition"),
+        related_filter=p.get("related_filter"),
     ),
 )
 EffectRegistry.register(
@@ -2543,6 +2539,8 @@ EffectRegistry.register(
         power=p.get("power", 0),
         toughness=p.get("toughness", 0),
         keywords=list(p.get("keywords", [])),
+        trigger_subject=bool(p.get("trigger_subject", False)),
+        trigger_event_key=p.get("trigger_event_key"),
         target_kind=p.get("target_kind"),
         selector=p.get("selector"),
         unblockable=bool(p.get("unblockable", False)),

@@ -2020,6 +2020,7 @@ class PumpEffect(GameEffect):
         previous_subject: bool = False,
         subtypes: Optional[list[str]] = None,
         trigger_subject: bool = False,
+        trigger_event_key: Optional[str] = None,
         self_multiplier: Optional[int] = None,
         parametric_keywords: Optional[list[dict[str, Any]]] = None,
         colors: Optional[list[str]] = None,
@@ -2056,6 +2057,9 @@ class PumpEffect(GameEffect):
         #: `AddCountersEffect.trigger_subject_key` / `GrantKeywordTo
         #: TriggerSubjectEffect` (PAR-24).
         self.trigger_subject = trigger_subject
+        #: Which event field names the object (``instance_id`` unless a DAMAGE-shaped group
+        #: trigger names it ``source_id`` — the binder resolves `GROUP_SUBJECT_KEY_SENTINEL`).
+        self.trigger_event_key = trigger_event_key or "instance_id"
         #: "Birds, Frogs, Otters, and Rats you control get +1/+1 until end
         #: of turn." (Valley Floodcaller, MEC-41) — the ``selector``-group
         #: sibling of `AddCountersEffect.subtypes` (same "any of these
@@ -2276,7 +2280,7 @@ class PumpEffect(GameEffect):
         if self.trigger_subject:
             # RULE 702.83a Exalted: pump the object the firing event names.
             event = context.trigger_event or {}
-            obj = context.state.find_object(event.get("instance_id"))
+            obj = context.state.find_object(event.get(self.trigger_event_key))
             if obj is not None:
                 self._pump_one(obj)
                 context.recompute()

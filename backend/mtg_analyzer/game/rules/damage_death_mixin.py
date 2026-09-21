@@ -361,21 +361,13 @@ class DamageDeathMixin:
                 self.state.record_stat(final_target.id, "damage_taken", amount=final)
                 # RULE 120.3 (Final Punishment, MEC-43): damage is still
                 # "dealt" here even though 702.90b redirects its life-loss
-                # consequence into poison counters instead.
-                counts = self.state.damage_dealt_to_players_this_turn
-                counts[final_target.id] = counts.get(final_target.id, 0) + final
+                # consequence into poison counters instead — the DAMAGE event fired
+                # below is what the per-turn damage history is derived from.
                 if source is not None:
                     self.state.record_stat(source.controller_id, "damage_dealt", amount=final)
-                    if source.controller_id is not None:
-                        by = self.state.damage_dealt_by_this_turn
-                        by[source.controller_id] = by.get(source.controller_id, 0) + final
                     if combat and source.is_commander:
                         final_target.add_commander_damage(source.instance_id, source.name,
                                                           final * self._commander_damage_multiplier(final_target))
-                    if combat:
-                        self.state.combat_damage_to_players_this_turn.setdefault(
-                            source.instance_id, set()
-                        ).add(final_target.id)
             elif final_is_player:
                 # RULE 120.3: damage dealt to a player causes that much life
                 # loss. This is a *consequence* of damage, not a separate
@@ -385,41 +377,13 @@ class DamageDeathMixin:
                 # cause.
                 self.lose_life(final_target, final, cause="damage")
                 self.state.record_stat(final_target.id, "damage_taken", amount=final)
-                # RULE 120.3 (Final Punishment, MEC-43): the running total
-                # a later "damage already dealt to that player this turn"
-                # effect reads — incremented here (the ordinary branch) and
-                # in the ``infect`` branch just above, since RULE 702.90b
-                # redirects infect's life-loss consequence into poison
-                # counters without the damage itself stopping being "dealt".
-                counts = self.state.damage_dealt_to_players_this_turn
-                counts[final_target.id] = counts.get(final_target.id, 0) + final
                 if source is not None:
                     self.state.record_stat(source.controller_id, "damage_dealt", amount=final)
-                    if source.controller_id is not None:
-                        by = self.state.damage_dealt_by_this_turn
-                        by[source.controller_id] = by.get(source.controller_id, 0) + final
                     # RULE 903.10a: combat damage from a commander is tallied
                     # separately toward the 21-damage loss threshold.
                     if combat and source.is_commander:
                         final_target.add_commander_damage(source.instance_id, source.name,
                                                           final * self._commander_damage_multiplier(final_target))
-                    if combat:
-                        # RULE 120.3: remember *who* this source hit this turn
-                        # — "target player who was dealt combat damage by ~
-                        # this turn" (Hope of Ghirapur) is asked long after
-                        # the damage step, when no live state records it. See
-                        # `GameState.combat_damage_to_players_this_turn`.
-                        self.state.combat_damage_to_players_this_turn.setdefault(
-                            source.instance_id, set()
-                        ).add(final_target.id)
-                    elif source.controller_id is not None and source.controller_id != final_target.id:
-                        # Chandra's Incinerator (MEC-45): "the total amount
-                        # of noncombat damage dealt to your opponents this
-                        # turn" — summed per dealing player, the amount-sum
-                        # sibling of `combat_damage_to_players_this_turn`'s
-                        # own per-source hit-set (which only tracks combat).
-                        counts = self.state.noncombat_damage_to_opponents_this_turn
-                        counts[source.controller_id] = counts.get(source.controller_id, 0) + final
             elif getattr(final_target, "is_planeswalker", False):
                 # RULE 306.9: damage to a planeswalker removes that many
                 # loyalty counters (the 0-loyalty SBA then sends it to the
@@ -465,26 +429,19 @@ class DamageDeathMixin:
                 toxic_n = toxic_value(source)
                 if toxic_n:
                     self.add_player_counters(final_target, toxic_n, "poison", source=source)
-            # MEC-49: remember which sources dealt damage to this creature
-            # this turn — "whenever a creature dealt damage by ~ this turn
-            # dies, …" (`GameState.creatures_damaged_by_source_this_turn`).
-            # Any damage to a creature, combat or not, infect/wither
-            # included (RULE 702.90b/702.91a still deal damage, just recolor
-            # its result), so it sits here rather than in a type-specific
-            # branch above.
-            if not final_is_player and source is not None and getattr(
-                final_target, "is_creature", False
-            ):
-                self.state.creatures_damaged_by_source_this_turn.setdefault(
-                    final_target.instance_id, set()
-                ).add(source.instance_id)
+            # MEC-49: "whenever a creature dealt damage by ~ this turn dies, …"
+            # (`GameState.creatures_damaged_by_source_this_turn`, derived from the
+            # DAMAGE event below, which is flagged when its recipient is a creature).
+            # Any damage to a creature, combat or not, infect/wither included
+            # (RULE 702.90b/702.91a still deal damage, just recolor its result).
+            target_is_creature = not final_is_player and getattr(final_target, "is_creature", False)
             # `copy_with` (not a fresh `GameEvent`) so `source_id`/`combat`/
             # `source_controller_id` survive onto the broadcast event — a
             # "whenever equipped creature deals combat damage to a player"
             # trigger (`effect_binder._trigger_condition`'s ``filter``) reads
             # exactly these fields, and they'd otherwise be silently dropped
             # here even though the pre-replacement ``event`` above carried them.
-            self.state.fire_event(resolved.copy_with(amount=final))
+            self.state.fire_event(resolved.copy_with(amount=final, target_is_creature=target_is_creature))
 
         self.apply_replacements(event, on_resolved=_finish)
     def lose_life(self, player: Player, amount: int, cause: str = "effect") -> None:
@@ -518,13 +475,8 @@ class DamageDeathMixin:
             self.gain_life(player, amount)
             return
         player.lose_life(amount)
-        # RULE 118-119 running per-turn total, the mirror of `gain_life`'s own
-        # `life_gained_this_turn` bump — every life-loss path funnels through
-        # here (see this method's docstring), so this one site covers damage,
-        # life-paid costs and "loses N life" alike.
-        self.state.life_lost_this_turn[player.id] = (
-            self.state.life_lost_this_turn.get(player.id, 0) + amount
-        )
+        # Every life-loss path funnels through here (see this method's docstring), so
+        # this one event is what `GameState.life_lost_this_turn` is derived from.
         self.state.fire_event(
             GameEvent(EventType.LIFE_LOST, player_id=player.id, amount=amount, cause=cause)
         )
@@ -1104,9 +1056,6 @@ class DamageDeathMixin:
             if final <= 0:
                 return
             player.gain_life(final)
-            self.state.life_gained_this_turn[player.id] = (
-                self.state.life_gained_this_turn.get(player.id, 0) + final
-            )
             self.state.fire_event(
                 GameEvent(EventType.LIFE_GAINED, player_id=player.id, amount=final)
             )

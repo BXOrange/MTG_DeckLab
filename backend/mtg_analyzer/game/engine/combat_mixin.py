@@ -209,6 +209,21 @@ class CombatMixin:
                 object_types=sorted(obj.type_words),
             )
         )
+    def _fire_unblocked_events(self) -> None:
+        """RULE 509.1h: every attacking creature no creature blocked is "unblocked" once the
+        declare-blockers step is over — the moment "whenever ~ attacks and isn't blocked"
+        triggers. One event per such attacker."""
+        for obj in list(self.state.battlefield):
+            if obj.attacking and not obj.blocked_by:
+                self.state.fire_event(
+                    GameEvent(
+                        EventType.ATTACKER_UNBLOCKED,
+                        attacker=obj.name,
+                        player_id=obj.controller_id,
+                        instance_id=obj.instance_id,
+                        object_types=sorted(obj.type_words),
+                    )
+                )
     def _fire_player_attacked_events(self) -> None:
         """RULE 506.4's "a player attacks you with one or more creatures" —
         see `EventType.PLAYER_ATTACKED`'s docstring for why this needs its
@@ -225,6 +240,15 @@ class CombatMixin:
                 continue
             key = (obj.controller_id, spec["id"])
             counts[key] = counts.get(key, 0) + 1
+        declared: dict[str, list[int]] = {}
+        for obj in self.state.battlefield:
+            if obj.attacking and obj.controller_id is not None:
+                declared.setdefault(obj.controller_id, []).append(obj.instance_id)
+        for attacker_id, ids in declared.items():
+            self.state.fire_event(
+                GameEvent(EventType.ATTACKERS_DECLARED, player_id=attacker_id,
+                          attacker_ids=list(ids), count=len(ids))
+            )
         for (attacker_id, defender_id), count in counts.items():
             self.state.fire_event(
                 GameEvent(
@@ -717,10 +741,6 @@ class CombatMixin:
                 )
             player.mana_pool.pay(tax_cost)
 
-        # Rule 508.1a/Raid: entering attacking does not reach this declared-
-        # attackers path, so it cannot make this alternative cost available.
-        if resolved:
-            self.state.players_attacked_this_turn.add(player.id)
 
         for obj, defender, exert in resolved:
             # Vigilance (RULE 702.21b): attacking doesn't cause it to tap.
@@ -736,6 +756,10 @@ class CombatMixin:
                     player_id=player.id,  # RULE 508.1a: the attacker's controller
                     instance_id=obj.instance_id,
                     object_types=sorted(obj.type_words),
+                    # RULE 508.1a/Raid: only a *declared* attacker counts as "attacked this
+                    # turn" (`GameState.players_attacked_this_turn`); a creature put onto the
+                    # battlefield attacking fires ATTACKS too, without this.
+                    declared=True,
                     # "…destroy target artifact or enchantment defending
                     # player controls." (Kogla, the Titan Ape, MEC-43) — the
                     # already-resolved defending player (`_defending_player`
@@ -1187,6 +1211,8 @@ class CombatMixin:
                     player_id=player.id,  # RULE 509.1b: the blocker's controller
                     instance_id=blocker.instance_id,
                     object_types=sorted(blocker.type_words),
+                    # "…blocks a creature with flying" — the attacker on the other side.
+                    related_ids=[attacker.instance_id],
                 )
             )
 
@@ -1200,6 +1226,8 @@ class CombatMixin:
                     instance_id=attacker.instance_id,
                     object_types=sorted(attacker.type_words),
                     blocker_count=blocker_count,
+                    # "…becomes blocked by a creature with flying" — the blockers.
+                    related_ids=list(attacker.blocked_by),
                 )
             )
             # RULE 702.23: Rampage's own per-firing dynamic pump — see

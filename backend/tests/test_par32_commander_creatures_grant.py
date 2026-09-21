@@ -19,6 +19,7 @@ from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.static_handlers import static_effect_specs
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
+from tests import turn_history_events as history
 
 
 # --- parse -----------------------------------------------------------
@@ -407,7 +408,7 @@ def test_you_dealt_damage_this_turn_condition_evaluates():
     st = eng.state
     cond = {"kind": "you_dealt_damage_this_turn_at_least", "amount": 5}
     assert static_conditions.condition_holds(cond, st, None, "p1") is False
-    st.damage_dealt_by_this_turn["p1"] = 6
+    history.damage(st, source_id=1, source_controller_id="p1", target_id="p2", amount=6)
     assert static_conditions.condition_holds(cond, st, None, "p1") is True
     assert static_conditions.condition_holds(cond, st, None, "p2") is False
 
@@ -420,7 +421,7 @@ def test_creature_card_to_graveyard_condition_evaluates():
     st = eng.state
     cond = {"kind": "creature_card_to_graveyard_this_turn"}
     assert static_conditions.condition_holds(cond, st, None, "p1") is False
-    st.creature_card_to_graveyard_this_turn.add("p1")
+    history.discard(st, "p1")  # a creature card discarded
     assert static_conditions.condition_holds(cond, st, None, "p1") is True
 
 

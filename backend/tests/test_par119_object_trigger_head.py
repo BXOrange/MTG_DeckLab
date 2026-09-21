@@ -149,7 +149,7 @@ def test_object_head_parses(cond, event, condition, trigger):
         "another creature you control dies during frobnication",
         "a creature you control enters tapped and untapped",
         "~ enters",                       # self subjects belong to the legacy self row
-        "you draw a card",                # not an object event
+        "you frobnicate a card",          # not an event the grammar knows
         "a creature attacks alone or dies",  # "alone" is only valid after a lone attack verb
         "a minotaur attacks this turn",   # a delayed trigger (RULE 603.7), not a standing one
         "you sacrifice a creature you control",   # the actor already says whose

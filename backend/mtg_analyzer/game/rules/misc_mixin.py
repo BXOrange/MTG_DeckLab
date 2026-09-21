@@ -1906,65 +1906,6 @@ class MiscSystemsMixin:
                         chapter=obj.lore,
                     )
                 )
-    def _track_spell_cast(self, event: GameEvent) -> None:
-        """Tally `SPELL_CAST` toward RULE 731.2's "spells cast this turn"
-        count — both a paid `cast_spell` and a free `cast_without_paying`
-        fire that event, so subscribing here (rather than incrementing at
-        each call site) covers every cast path from one place. Also flips
-        PAR-10's `cast_instant_or_sorcery_this_turn` off the same event's
-        ``object_types`` — the front-end front for Hall of Oracles/Jin-
-        Gitaxias's activation condition and Haunting Figment/Leapfrog/
-        Piston-Fist Cyclops's "as long as" statics."""
-        if event.type != EventType.SPELL_CAST:
-            return
-        player_id = event.get("player_id")
-        if player_id is None:
-            return
-        counts = self.state.spells_cast_this_turn
-        counts[player_id] = counts.get(player_id, 0) + 1
-        object_types = event.get("object_types") or []
-        if "instant" in object_types or "sorcery" in object_types:
-            self.state.cast_instant_or_sorcery_this_turn[player_id] = True
-            # Rootha, Mastering the Moment (PAR-60) — running max of the
-            # instant/sorcery mana values this player has cast this turn.
-            mv = int(event.get("mana_value") or 0)
-            gmv = self.state.greatest_instant_sorcery_mv_this_turn
-            gmv[player_id] = max(gmv.get(player_id, 0), mv)
-        if "creature" not in object_types:
-            nc_counts = self.state.noncreature_spells_cast_this_turn
-            nc_counts[player_id] = nc_counts.get(player_id, 0) + 1
-        if "artifact" not in object_types:
-            # Ethersworn Canonist (MEC-43) — the nonartifact-scoped sibling
-            # of the noncreature tally above.
-            na_counts = self.state.nonartifact_spells_cast_this_turn
-            na_counts[player_id] = na_counts.get(player_id, 0) + 1
-        # Veil of Summer-shaped "if an opponent has cast a blue or black
-        # spell this turn" — SPELL_CAST carries no ``colors`` of its own,
-        # so this reads the cast object's live colour off the stack it was
-        # just pushed onto (still findable by `instance_id`, the same
-        # object either way — RULE 400.7 doesn't apply mid-stack).
-        instance_id = event.get("instance_id")
-        if instance_id is not None:
-            obj = self.state.find_object(instance_id)
-            if obj is not None:
-                colors = self.state.spell_colors_cast_this_turn.setdefault(player_id, set())
-                colors.update(obj.colors)
-                color_counts = self.state.spell_color_cast_counts_this_turn.setdefault(player_id, {})
-                for color in obj.colors:
-                    color_counts[color] = color_counts.get(color, 0) + 1
-                type_counts = self.state.spell_type_cast_counts_this_turn.setdefault(player_id, {})
-                for card_type in object_types:
-                    type_counts[card_type] = type_counts.get(card_type, 0) + 1
-                if "instant" in object_types or "sorcery" in object_types:
-                    type_counts["instant_or_sorcery"] = type_counts.get("instant_or_sorcery", 0) + 1
-                # MEC-60 (Acolyte of Bahamut): "the first Dragon spell you
-                # cast each turn …" — read the cast object's *subtypes*
-                # (after the printed em dash), which ``object_types`` above
-                # never carries (main card types only).
-                subtypes = obj.card.type_line.partition("—")[2].strip().lower().split()
-                if subtypes:
-                    seen = self.state.creature_type_spells_cast_this_turn.setdefault(player_id, set())
-                    seen.update(subtypes)
     def arm_spell_watcher(
         self,
         player: Player,
@@ -2037,76 +1978,6 @@ class MiscSystemsMixin:
         for watcher in matched:
             source = self._object_by_instance_id(watcher.get("source_id"))
             self._apply_effect_specs(watcher["then_specs"], source, targets=[item])
-    def _track_creature_death(self, event: GameEvent) -> None:
-        """Tally `DIES` toward `GameState.creatures_died_this_turn` (RULE
-        700.4). Subscribed rather than incremented at `_move_to_graveyard`,
-        so every path a creature can die by is covered from one place — the
-        same reason `_track_spell_cast` above listens for `SPELL_CAST`.
-
-        `DIES` fires for *every* permanent type (an Aura/land dying is a real
-        dies-trigger too), so this narrows to creatures off the event's own
-        snapshotted ``object_types`` — the object is already out of the
-        battlefield by the time a subscriber runs (RULE 400.7), so its types
-        can't be re-read live. ``controller_id`` is what "died **under your
-        control**" asks about, not the owner."""
-        if event.type != EventType.DIES:
-            return
-        if "creature" not in (event.get("object_types") or []):
-            return
-        player_id = event.get("controller_id")
-        if player_id is None:
-            return
-        counts = self.state.creatures_died_this_turn
-        counts[player_id] = counts.get(player_id, 0) + 1
-        # Intermediate Chirography (PAR-60), level 3 — "if a modified creature
-        # died under your control this turn". Documented simplification:
-        # "modified" == had one or more counters, read off the DIES event's
-        # snapshotted ``counters`` (RULE 400.7).
-        if any(int(v) > 0 for v in (event.get("counters") or {}).values()):
-            mods = self.state.modified_creatures_died_this_turn
-            mods[player_id] = mods.get(player_id, 0) + 1
-
-    def _track_creature_card_to_graveyard(self, event: GameEvent) -> None:
-        """PAR-32: record a *creature card* entering a graveyard from
-        anywhere this turn (Cloakwood Hermit — `GameState.creature_card_to_
-        graveyard_this_turn`, keyed by the card's owner). Listens for
-        `DIES` (battlefield), `DISCARD_CARD` (hand) and `MILL_CARD`
-        (library); the card sits in its graveyard by the time each fires,
-        so `is_creature` is read live where the event doesn't snapshot it."""
-        if event.type == EventType.DIES:
-            if "creature" not in (event.get("object_types") or []):
-                return
-            obj = self.state.find_object(event.get("instance_id"))
-            owner_id = obj.owner_id if obj is not None else event.get("owner_id")
-        elif event.type in (EventType.DISCARD_CARD, EventType.MILL_CARD):
-            obj = self.state.find_object(event.get("instance_id"))
-            if obj is None or not getattr(obj, "is_creature", False):
-                return
-            owner_id = obj.owner_id
-        else:
-            return
-        if owner_id is not None:
-            self.state.creature_card_to_graveyard_this_turn.add(owner_id)
-
-    def _track_permanent_card_to_graveyard(self, event: GameEvent) -> None:
-        """RULE 702.175: remember a permanent card entering its graveyard."""
-        if event.type == EventType.DIES:
-            types = event.get("object_types") or []
-            owner_id = event.get("owner_id")
-        elif event.type in (EventType.DISCARD_CARD, EventType.MILL_CARD):
-            obj = self.state.find_object(event.get("instance_id"))
-            if obj is None:
-                return
-            types = obj.type_words
-            owner_id = obj.owner_id
-        else:
-            return
-        if owner_id is not None and any(
-            type_word in {"artifact", "battle", "creature", "enchantment", "land", "planeswalker"}
-            for type_word in types
-        ):
-            self.state.permanent_card_to_graveyard_this_turn.add(owner_id)
-
     def apply_day_night_turn_check(self) -> None:
         """RULE 731.2: as the second part of the untap step, maybe flip
         day/night based on how many spells the *previous* turn's active
@@ -2753,7 +2624,7 @@ class MiscSystemsMixin:
     ) -> None:
         """Register that ``player`` has performed a bending keyword action
         (RULE 701.6x — ``kind`` in `BEND_KINDS`): stamp `GameState.
-        bends_this_turn` and fire `EventType.BENT`.
+        bends_this_turn` (derived from) `EventType.BENT`, which this fires.
 
         Called from each bending primitive once its own procedure is
         complete — `earthbend` (after the land is animated + countered),
@@ -2766,7 +2637,6 @@ class MiscSystemsMixin:
         """
         if kind not in self.BEND_KINDS:
             return
-        self.state.bends_this_turn.setdefault(player.id, set()).add(kind)
         self.state.fire_event(GameEvent(
             EventType.BENT,
             player_id=player.id, controller_id=player.id,

@@ -24,7 +24,7 @@ def _gollum_obsessed_stalker() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("lose_life", {
                 "selector": "each_opponent",
-                "amount_from_life_gained_this_turn": True,
+                "amount_from_count_selector": "life_gained_this_turn",
             })],
             trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "end"}, "phase_relation": "you"},
         ),

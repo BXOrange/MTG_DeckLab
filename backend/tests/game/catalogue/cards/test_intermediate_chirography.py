@@ -8,6 +8,7 @@ from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.events import EventType, GameEvent
 from mtg_analyzer.models.game.game_object import GameObject, Zone
+from tests import turn_history_events as history
 
 
 def _ic_card():
@@ -66,6 +67,6 @@ def test_l3_effect_gates_on_the_tracker():
     eng.rules._apply_effect_specs([{"type": "intermediate_chirography_l3", "params": {}}], src)
     assert not [o for o in eng.state.battlefield if o.card.name == "Inkling"]
 
-    eng.state.modified_creatures_died_this_turn["p1"] = 1
+    history.creature_died(eng.state, "p1", counters={"+1/+1": 1})
     eng.rules._apply_effect_specs([{"type": "intermediate_chirography_l3", "params": {}}], src)
     assert len([o for o in eng.state.battlefield if o.card.name == "Inkling"]) == 1

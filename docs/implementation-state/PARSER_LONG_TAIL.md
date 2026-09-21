@@ -25,9 +25,27 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**48.5% covered — 16,899 / 34,811 — as of 2026-09-21, PARSER_VERSION 455.**
-Commander-legal slice (the one the product actually plays): **51.0% —
-**16,247 / 31,830** (measure with `--commander-legal-only`).
+**48.9% covered — 17,035 / 34,811 — as of 2026-09-21, PARSER_VERSION 457.**
+Commander-legal slice (the one the product actually plays): **51.5% —
+**16,377 / 31,830** (measure with `--commander-legal-only`).
+
+### PAR-119 at v455–456: attack / block / player-event heads, and what executing them found
+
+- **What:** attack batches over a new `ATTACKERS_DECLARED`, "isn't blocked", "attacks while
+  `<state>`", the block relation over `related_ids`, player events as one actor × verb × tail
+  grammar, "A or B" as two triggers, the group "it gets +N/+N" pump, the next-cast copy spells. +139 (16,896 → 17,035).
+- **Lessons worth keeping:** (1) *the same words, two objects*: "it"/"that creature" under a
+  group trigger, "that creature" under a block relation, and "~" all reach the binder as one
+  untargeted spec that acts on the source — only the parser sees which was printed, so it must
+  stamp the reading (`trigger_subject`, `trigger_related`) rather than let the binder guess.
+  (2) *A shared word can be a shared connective, not a per-row one*: "Otherwise" was a row of the
+  leading-gate table hard-wired to a clash — seven cards claimed it wrongly for months. When a
+  word appears in a gate table, ask what every card using the word would need, not just the card
+  that put it there. (3) *An "or" between two heads is only two triggers when nothing trails it*:
+  "…or cast a spell from anywhere other than your hand" qualifies both verbs. (4) A shared event
+  cannot answer a question that depends on one listener's own filter ("that many") — refuse the
+  body. (5) A leading-if gate has to be decided once (`if_else`) when an earlier effect changes
+  what it reads.
 
 ### PAR-119: composed object-event head (PARSER_VERSION 450)
 

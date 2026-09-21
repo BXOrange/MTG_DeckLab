@@ -16,6 +16,7 @@ from mtg_analyzer.game.binding.core import bind_ability, bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
+from tests import turn_history_events as history
 
 
 def test_gorma_extra_etb_counters_scale_with_creatures_died_this_turn():
@@ -30,7 +31,8 @@ def test_gorma_extra_etb_counters_scale_with_creatures_died_this_turn():
     g.controller_id = p1.id
     eng.state.add_to_battlefield(g)
     bind_from_catalogue(g)
-    eng.state.creatures_died_this_turn[p1.id] = 3
+    for _ in range(3):
+        history.creature_died(eng.state, p1.id)
 
     nontoken = GameObject(card=Card(id="n", name="Newbie", type_line="Creature — Beast",
                                    is_creature=True, power=2, toughness=2),
@@ -45,7 +47,7 @@ def test_gorma_extra_etb_counters_scale_with_creatures_died_this_turn():
     token.is_token = True
     assert continuous.extra_etb_counters_for(eng.state, token) == {}
 
-    eng.state.creatures_died_this_turn[p1.id] = 0
+    eng.state.internal_turn.number += 1  # a new turn: no creature has died yet
     assert continuous.extra_etb_counters_for(eng.state, nontoken) == {}
 
 

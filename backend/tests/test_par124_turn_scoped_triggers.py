@@ -237,3 +237,31 @@ def test_the_once_variant_fires_a_single_time():
         engine.resolve_until_stable()
     assert len(p1.hand) == hand + 2 + 1  # two creatures came into the hand, one card was drawn
     assert state.turn_scoped_triggers == []
+
+
+def test_doublecast_copies_the_next_instant_or_sorcery_once():
+    engine, state = _engine()
+    state.current_step = "main1"
+    p1 = _library(state)
+    _cast(engine, state, _spell(
+        state, "When you next cast an instant or sorcery spell this turn, copy that spell. "
+               "You may choose new targets for the copy.", name="Doublecast"))
+    life = p1.life
+    _cast(engine, state, _spell(state, "You gain 3 life.", types="Instant", name="Heal"))
+    assert p1.life == life + 6            # the spell and its copy
+    _cast(engine, state, _spell(state, "You gain 3 life.", types="Instant", name="Heal2"))
+    assert p1.life == life + 9            # "next" — the second one is not copied
+
+
+def test_a_creature_spell_is_not_the_next_instant_or_sorcery():
+    engine, state = _engine()
+    state.current_step = "main1"
+    p1 = _library(state)
+    _cast(engine, state, _spell(
+        state, "When you next cast an instant or sorcery spell this turn, copy that spell. "
+               "You may choose new targets for the copy.", name="Doublecast"))
+    creature = _spell(state, "Nothing.", types="Creature — Bear", name="Bear")
+    _cast(engine, state, creature)
+    life = p1.life
+    _cast(engine, state, _spell(state, "You gain 3 life.", types="Instant", name="Heal"))
+    assert p1.life == life + 6            # the creature did not use up "next"

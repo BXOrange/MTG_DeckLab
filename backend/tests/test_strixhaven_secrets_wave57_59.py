@@ -58,6 +58,56 @@ def test_chaos_warp_shuffles_target_and_reveals_top_permanent():
     assert len(p2_perms) + len(p2.library) == 7  # victim + 6 library cards, conserved
 
 
+def _chaos_warp_setup(library_type_line: str, *, is_instant: bool):
+    eng = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])],
+                              starting_hand=0, starting_life=20)
+    p1, p2 = eng.state.players
+    victim = GameObject(card=Card(id="v", name="Big Threat", type_line="Creature — Dragon",
+                                 is_creature=True, power=6, toughness=6),
+                        owner_id=p2.id, zone=Zone.BATTLEFIELD)
+    victim.controller_id = p2.id
+    eng.state.add_to_battlefield(victim)
+    for j in range(3):
+        p2.library.append(GameObject(card=Card(id=f"c{j}", name=f"Card{j}",
+                                              type_line=library_type_line,
+                                              is_instant=is_instant, is_creature=not is_instant,
+                                              power=None if is_instant else 2,
+                                              toughness=None if is_instant else 2),
+                                     owner_id=p2.id, zone=Zone.LIBRARY))
+    src = GameObject(card=Card(id="cw", name="Chaos Warp", type_line="Instant"),
+                     owner_id=p1.id, zone=Zone.STACK)
+    src.controller_id = p1.id
+    return eng, p2, victim, src
+
+
+def _shuffle_victim_to_bottom(monkeypatch):
+    # Library top is the last element; a no-op shuffle leaves the victim (appended last by
+    # shuffle_into_library) on top, so rotate it to the bottom instead.
+    import random
+    monkeypatch.setattr(random, "shuffle", lambda seq: seq.insert(0, seq.pop()))
+
+
+def test_chaos_warp_revealed_permanent_entering_fires_enters(monkeypatch):
+    eng, p2, victim, src = _chaos_warp_setup("Creature — Bear", is_instant=False)
+    _shuffle_victim_to_bottom(monkeypatch)
+    _apply(eng, _REGISTRY["chaos warp"]()[0], src, targets=[victim])
+    eng.resolve_until_stable()
+    entered = [e for e in eng.state.events_this_turn() if e.type == EventType.ENTERS_BATTLEFIELD]
+    assert len(entered) == 1 and entered[0].get("controller_id") == p2.id
+    assert entered[0].get("instance_id") in {o.instance_id for o in eng.state.battlefield}
+
+
+def test_chaos_warp_revealing_a_nonpermanent_card_fires_no_enters(monkeypatch):
+    # Revealing is not entering (RULE 603.6a): an instant on top stays in the library.
+    eng, p2, victim, src = _chaos_warp_setup("Instant", is_instant=True)
+    _shuffle_victim_to_bottom(monkeypatch)
+    _apply(eng, _REGISTRY["chaos warp"]()[0], src, targets=[victim])
+    eng.resolve_until_stable()
+    assert not [e for e in eng.state.events_this_turn() if e.type == EventType.ENTERS_BATTLEFIELD]
+    assert not [o for o in eng.state.battlefield if o.controller_id == p2.id]
+    assert len(p2.library) == 4
+
+
 def test_thunderclap_drake_copies_next_spell_per_commander_cast():
     assert is_registered("Thunderclap Drake")
     eng = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])],

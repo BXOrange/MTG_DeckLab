@@ -6764,6 +6764,101 @@ measurement of why is the useful half of this work.
   `test_par79_trigger_conditions`, `test_spell_subtype_trigger_family`,
   `test_strixhaven_secrets_wave14`). Also new: `parser_probe.py composition`.
 
+### ENG-47 (second slice): the per-turn history counters are derived from the event log
+
+- **What:** 31 of the 37 `GameState.*_this_turn` counters (spells cast and their per-colour / per-type
+  / subtype / X variants, life gained and lost, cards drawn (+ which) and discarded, creatures died
+  (and modified ones), damage dealt to players / by a controller / combat hits by source / noncombat to
+  opponents / creatures damaged by a source, creature and permanent cards put into a graveyard, bends,
+  counters put on creatures, nontoken creatures and lands entered, permanents and creatures left the
+  battlefield, players who attacked) are now read-only properties over `events_this_turn()`
+  (`models/game/turn_history.py`, one small function each). Their writers, the two subscribers that
+  fed them (`_track_spell_cast`, `_track_creature_death`, the two graveyard ones) and ~70 lines of
+  resets in `begin_turn` are gone. The payload each reads is stamped by the event's own fire site:
+  `SPELL_CAST` gained `colors` / `subtypes`, `DRAW` the drawn `instance_ids`, `DAMAGE`
+  `target_is_creature`, `ATTACKS` `declared`, `ENTERS_BATTLEFIELD` an `is_token` stamp (in
+  `fire_event`, since a copy of a card is a token whose type line says otherwise).
+- **Why this way, and what it found:** an event-log reading is only as complete as the event's firing
+  sites, so each was audited first — a temporary pytest plugin compared every engine call of
+  `add_to_battlefield` / `remove_from_battlefield` against the ENTERS / LEAVES events over the whole
+  suite. Everything fires except two real gaps, now fixed: a card a dig put onto the battlefield
+  (`_place_dig_hit`) and a permanent card Chaos Warp puts onto the battlefield after its reveal
+  (`ShuffleTargetIntoLibraryRevealTopEffect`) fired no ENTERS, so "whenever a creature enters" never saw
+  them. Only the entry fires the event — revealing a card is not entering (a revealed non-permanent card
+  stays in the library and fires nothing; pinned in `test_strixhaven_secrets_wave57_59.py`). The old counters also had inconsistent reset scopes — several
+  cleared only for the incoming active player, so an opponent's total from *their* last turn was still
+  readable during yours; every one is now "this turn, for every player". Tallies in an undo snapshot
+  survive because `GameState.clone()` carries the current turn's events.
+- **Left as they were, deliberately:** `combats_this_turn` (turn-structure state, incremented in the step
+  machinery), `cards_left_graveyard_this_turn` (its event is batched and can fire late),
+  `mana_produced_this_turn` and `planar_die_rolls_this_turn` (no event), `first_draw_replaced_this_turn`
+  (a replacement flag), `no_attack_pairs_this_turn` and `declared_blockers_this_combat` (restrictions, not
+  history). Tests that assigned a counter now fire the event (`tests/turn_history_events.py`).
+- **The amount flags (ENG-47 b):** only the cases with an exact existing equivalent were retired —
+  `amount_from_life_gained_this_turn` and `amount_from_burden_counters_on_self` became the
+  `amount_from_count_selector` names the same class already had, and
+  `amount_from_trigger_source_toughness` the `amount_from_subject` reading `trigger_subject_toughness`
+  (whose referent now also resolves a DAMAGE event's ``source_id``). The other ~120 stay: each needs its
+  own measure kind or a `bind` rewrite, not a one-line swap.
+
+### PAR-119 (attack / block / player-event axes) and two wrong-but-modeled fixes (PARSER_VERSION 456)
+
+- **Attack batches.** "Whenever you attack with N or more `<creatures>`" and "whenever ~ and at least N
+  other creatures attack" count the whole declaration, which exists only once combat locks in, so the
+  engine fires `ATTACKERS_DECLARED` per attacking player (every attacker, whichever defender) beside
+  `PLAYER_ATTACKED`. The head is one `attackers_declared` spec — an object filter, min/max, "other",
+  "includes the source" — that `binding/core.py` evaluates over that set with the shared
+  `matches_object_filter`. +34 (the Battalion cycle, Chivalric Alliance, …). A body reading "that many" /
+  "that creature" (Lulu, Amazing Alliance, Arthur) stays unclaimed: the count depends on the head's own
+  filter, which the event every listener shares cannot carry.
+- **"Attacks and isn't blocked"** reads a new `ATTACKER_UNBLOCKED` (fired once the declare-blockers step
+  is left, per attacker no creature blocked); **"attacks while `<state>`"** is the same clause's "if
+  `<state>`" through the leading-if grammar, and "while saddled" the source's own `requires_saddled`
+  (refused for a group subject, where it would read the wrong object). +34.
+- **The block relation.** BLOCKS carries the attacker and BECOMES_BLOCKED the blockers as `related_ids`;
+  a `related_filter` (any related creature matches) covers "blocks a creature with flying", "becomes
+  blocked by a non-Wall creature" and "blocks or becomes blocked by …". The Basilisk cycle's "destroy
+  **that creature** at end of combat" needed a new referent — `create_delayed_trigger`'s
+  `previous_or_self` capture falls back to the *source*, which would have destroyed the Basilisk — so it
+  is `capture: "trigger_related"` (the event's related creatures that match the head's filter). +59 with
+  the two above's shared rows.
+- **Player-event heads.** One grammar (`catalogue/player_event_head.py`): actor (you / an opponent / a
+  player) × verb (gain life, lose life, cycle a card, play a land, draw a card / your Nth card in a turn)
+  × tails (during your / an opponent's turn, for the first time each turn). The binder gained a
+  `{"subject": "player", "scope": …}` condition beside `"you"`. +18.
+- **"Whenever A or B"** and "when X and at the beginning of Y" now split into two independent triggers
+  sharing the body (`_compound_candidates`, replacing the one "and whenever" regex), with the elided
+  subject of "you play a land or cast a spell" carried over. An "or" whose right half has a tail that
+  qualifies both verbs ("…from anywhere other than your hand") is refused — Shadow of the Goblin would
+  otherwise have dealt damage on every ordinary land play.
+- **Two wrong-but-modeled families found by executing the newly claimed cards.** (1) A split
+  "`<A>` if `<C>`. Otherwise, `<B>`." attached B to *"you didn't win a clash"* whatever `<C>` was
+  (`_OTHERWISE_CLASH_RE` was in the leading-gate table) — Gravelighter drew and made everyone sacrifice,
+  Stolen Vitality gave first strike on your own turn, and Unholy Annex, HYDRA Troopers, Sphinx
+  Sovereign, Stolen Vitality and Pippin's Bravery had the same shape. `_otherwise_specs` now builds one
+  `if_else` from the preceding clause's gate (decided once — "draw a card if you have no cards in hand,
+  otherwise discard" must not re-read the hand after the draw); clash keeps its two gated lists; with
+  nothing gated before it the body is unclaimed. (2) "If `<C>`, `<A>` and `<B>`." gated only A (the
+  connector split handed B over ungated: Unholy Annex gained the life regardless). One sentence with an
+  " and " and no period now gates every effect. Insatiable Appetite, Pippin's Bravery and Lorehold
+  Excavation lost their (wrong) coverage — their else branches follow a "you may … if you do" antecedent
+  or a milled-card rider not modeled yet.
+- **Verification:** `tests/test_par119_attack_batch_head.py` (grammar, fail-closed cases, real cards, and
+  executions: the whole declaration is counted, the filter counts only matching attackers, Battalion
+  needs the source among enough company, an unblocked attacker triggers and a blocked one does not,
+  "while" gates the effect, saddled reads the source, a Basilisk destroys the other creature — as blocker
+  and as blocked — and spares a Wall, Wall of Tears returns what it blocked, the "or" compound fires only
+  the named half each) and `tests/test_par119_player_event_head.py` (scope, verbs, tails, the third card
+  drawn fires once, Flubs draws *or* discards). +119 (16,896 → 17,015 across v455–456), 3 deliberate
+  corrections. **v457** adds two more rows the same audit turned up: under a group trigger "it gets
+  +N/+N [and gains K] until end of turn" pumps the firing object (`PumpEffect.trigger_subject` with the
+  binder-resolved `trigger_event_key`, +13 — the PAR-123 residue), and "when you next cast an
+  instant or sorcery spell this turn, copy that spell" is a `create_turn_trigger(once)` whose body
+  `copy_spell` reads the cast event (+7: Doublecast, Galvanic Iteration, Teach by Example, and the
+  "twice" count for Complete the Circuit); executed end to end — the spell and its copy resolve, the
+  next one does not, and a creature spell does not use up "next". 17,035 (+20 over v456), Commander-legal
+  51.5% (16,377).
+
 ### PAR-123 / PAR-124: two wrong-but-modeled families closed (PARSER_VERSION 455)
 
 - **PAR-123 — a bare "it" under a group-subject trigger.** "Whenever a creature you control becomes

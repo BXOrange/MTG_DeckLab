@@ -5,6 +5,7 @@ from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
+from tests import turn_history_events as history
 
 
 def _db():
@@ -45,6 +46,6 @@ def test_second_spell_reduction_changes_the_next_spells_cost():
     player = engine.state.player_by_id("p1")
     player.add_to_zone(spell, Zone.HAND)
     base = engine.effective_cast_cost(player, spell).converted_mana_cost
-    engine.state.spells_cast_this_turn["p1"] = 1
+    history.cast_spell(engine.state, "p1")
     reduced = engine.effective_cast_cost(player, spell).converted_mana_cost
     assert reduced == max(0, base - 2)

@@ -29,7 +29,7 @@ def _ikra_shidiqi_the_usurper() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("gain_life", {"amount_from_trigger_source_toughness": True})],
+            [EffectSpec("gain_life", {"amount_from_subject": "trigger_subject_toughness"})],
             trigger={
                 "event": EventType.DAMAGE,
                 "condition": {"subject": "group", "type": "creature", "other": False, "controller": "you"},

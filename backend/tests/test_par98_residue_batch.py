@@ -196,6 +196,7 @@ def test_persuasive_interrogators_gives_the_targeted_opponent_two_poison():
 # --- "When the last time counter is removed from this card while it's exiled" ---
 
 from mtg_analyzer.models.game.events import EventType, GameEvent
+from tests import turn_history_events as history
 
 
 def _suspended(eng, name, counters):
@@ -268,5 +269,5 @@ def test_seeker_of_insight_activation_needs_a_noncreature_spell_cast_this_turn()
     seeker = _bound(eng, "Seeker of Insight", Zone.BATTLEFIELD)
     ability = seeker.activated_abilities[-1]
     assert eng.can_activate(p1, seeker, ability) is False
-    eng.state.noncreature_spells_cast_this_turn[p1.id] = 1
+    history.cast_spell(eng.state, p1.id, types=["instant"])
     assert eng.can_activate(p1, seeker, ability) is True

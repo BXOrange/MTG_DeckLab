@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from .characteristic_phrase import parse_object_phrase
+from .player_event_head import parse_player_event_head
 from .trigger_context import PHASE_TAILS, consume
 
 #: Verb phrase → `EventType` name (RULE 603.1). "Enters" carries an optional
@@ -209,16 +210,105 @@ def _parse_actor_head(cond: str) -> Optional[ObjectHead]:
     return ObjectHead(event, condition, trigger)
 
 
+#: "you attack with `<quantity>` `<creatures>`" / "~ and at least N other creatures
+#: attack" — a count over the whole declaration (`ATTACKERS_DECLARED`), not one
+#: attacker. Quantity words are digits by the time the normaliser is done.
+_ATTACK_WITH = re.compile(
+    r"^you attack with (?:(?P<min>\d+) or more|at least (?P<atleast>\d+)|exactly (?P<exact>\d+)) "
+    r"(?P<phrase>.+)$"
+)
+_SELF_AND_OTHERS_ATTACK = re.compile(r"^~ and at least (?P<n>\d+) other (?P<phrase>.+) attack$")
+
+
+def _attackers_spec(
+    phrase: str, low: Optional[int], high: Optional[int], *, other: bool, includes_source: bool
+) -> Optional[ObjectHead]:
+    other = other or phrase.startswith("other ")
+    phrase = phrase.removeprefix("other ")
+    parsed = parse_object_phrase(phrase, plural=True)
+    if parsed is None:
+        return None
+    filt, controller = parsed
+    if controller not in (None, "you"):
+        return None  # only your own creatures can attack for you
+    spec: dict[str, Any] = {"filter": filt}
+    if low is not None:
+        spec["min"] = low
+    if high is not None:
+        spec["max"] = high
+    if other:
+        spec["other"] = True
+    if includes_source:
+        spec["includes_source"] = True
+    return ObjectHead("ATTACKERS_DECLARED", {"subject": "you"}, {"attackers_declared": spec})
+
+
+def _parse_attack_batch_head(cond: str) -> Optional[ObjectHead]:
+    m = _ATTACK_WITH.match(cond)
+    if m is not None:
+        exact = m.group("exact")
+        low = int(m.group("min") or m.group("atleast") or exact)
+        return _attackers_spec(
+            m.group("phrase"), low, low if exact else None, other=False, includes_source=False
+        )
+    m = _SELF_AND_OTHERS_ATTACK.match(cond)
+    if m is not None:
+        return _attackers_spec(m.group("phrase"), int(m.group("n")), None, other=True, includes_source=True)
+    return None
+
+
+#: "<subject> blocks <a creature …>" / "becomes blocked by <a creature …>" / "blocks or
+#: becomes blocked by <a creature …>" — the block relation, whose other side is an object
+#: filter over the event's ``related_ids``.
+_BLOCK_RELATION = re.compile(
+    r"^(?P<subject>.+?)\s+(?:(?P<both>blocks or becomes blocked by)|(?P<blocks>blocks)|"
+    r"(?P<blocked>becomes blocked by))\s+(?P<other>(?:a|an) .+)$"
+)
+
+
+def _parse_block_relation_head(cond: str) -> Optional[ObjectHead]:
+    m = _BLOCK_RELATION.match(cond)
+    if m is None:
+        return None
+    subject = m.group("subject").strip()
+    condition = {"subject": "self"} if subject == "~" else _subject(subject)
+    if condition is None or condition["subject"] == "self_or_group":
+        return None
+    other = _SUBJECT_ARTICLE.match(m.group("other"))
+    parsed = parse_object_phrase(other.group("phrase")) if other else None
+    if parsed is None or not parsed[0]:
+        return None
+    if parsed[1] is not None:  # whose creature it is is not modelled
+        return None
+    if m.group("both"):
+        events: "str | list[str]" = ["BLOCKS", "BECOMES_BLOCKED"]
+    else:
+        events = "BLOCKS" if m.group("blocks") else "BECOMES_BLOCKED"
+    # Any creature is every attacker/blocker there is, so it adds nothing to the plain head.
+    related = {} if parsed[0] == {"card_type": "creature"} else {"related_filter": parsed[0]}
+    return ObjectHead(events, condition, related)
+
+
 def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
     """``cond`` — the trigger condition with its "when"/"whenever" stripped."""
     cond = cond.strip().lower()
-    actor = _parse_actor_head(cond) or _parse_damage_head(cond)
+    player = parse_player_event_head(cond)
+    if player is not None:
+        return ObjectHead(*player)
+    actor = (
+        _parse_actor_head(cond) or _parse_damage_head(cond) or _parse_attack_batch_head(cond)
+        or _parse_block_relation_head(cond)
+    )
     if actor is not None:
         return actor
     m = _HEAD.match(cond)
     if m is None:
         return None
-    condition = _subject(m.group("subject").strip())
+    subject_text = m.group("subject").strip()
+    if subject_text == "~" and (m.group("tail") or "").strip() == "and isn't blocked":
+        condition: Optional[dict[str, Any]] = {"subject": "self"}  # the source itself
+    else:
+        condition = _subject(subject_text)
     if condition is None:
         return None
     events = [_event_name(m.group("v1"))]
@@ -231,7 +321,7 @@ def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
             events, tail = ["ATTACKS_ALONE"], tail[len("alone"):].strip()
             continue
         if tail.startswith("under your control"):
-            if condition["controller"] != "any":
+            if condition.get("controller", "any") != "any":
                 return None
             condition["controller"], tail = "you", tail[len("under your control"):].strip()
             continue
@@ -241,6 +331,9 @@ def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
                 return None
             trigger.update(phase)
             tail = rest
+            continue
+        if events == ["ATTACKS"] and tail == "and isn't blocked":
+            events, tail = ["ATTACKER_UNBLOCKED"], ""
             continue
         if "ATTACKS" in events:
             attack, rest = consume(tail, _ATTACK_TAILS)

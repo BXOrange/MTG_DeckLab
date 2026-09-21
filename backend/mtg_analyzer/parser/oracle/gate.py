@@ -3491,7 +3491,35 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: "until end of turn, whenever …" is no longer a permanent-shaped trigger no scan ever
 #: reaches: it is a `create_turn_trigger` effect whose `TurnScopedTrigger` lives on
 #: `GameState` for the turn (RULE 603.7a) — seven claimed cards had been inert. +3.
-PARSER_VERSION = "455"
+#: v456 continues PAR-119's composed heads (+119 with v455's, 3 deliberate corrections).
+#: Attack batches — "whenever you attack with N or more `<creatures>`", "~ and at least N
+#: other creatures attack" (Battalion) — are a count over the whole declaration, so the engine
+#: fires `ATTACKERS_DECLARED` (per attacking player, every attacker) when combat locks in and
+#: the head is one `attackers_declared` spec (object filter × min/max × other × includes-
+#: source). "~ attacks and isn't blocked" reads a new `ATTACKER_UNBLOCKED` event; "attacks
+#: while `<state>`" is read as the same clause's "if `<state>`" through the leading-if
+#: grammar, "while saddled" as the source's own `requires_saddled`. The block relation — "~
+#: blocks a creature with flying", "becomes blocked by …", "blocks or becomes blocked by a
+#: non-Wall creature" — reads the creature(s) on the other side (`related_ids` on BLOCKS /
+#: BECOMES_BLOCKED) through a `related_filter`, and "destroy that creature at end of combat"
+#: under it captures those creatures (`trigger_related`) instead of the source, which the
+#: Basilisk cycle would otherwise have destroyed. Player events — "a player cycles a card",
+#: "an opponent loses life", "you draw your third card in a turn", "you lose life during your
+#: turn" — are one actor-scope × verb × tail grammar (`player_event_head.py`). "whenever A or
+#: B" and "when X and at the beginning of Y" split into independent triggers sharing the body
+#: like "and whenever" always did (an "or" whose right half carries a tail that qualifies both
+#: — "…from anywhere other than your hand" — is refused). Two wrong-but-modeled families
+#: found on the way: "`<A>` if `<C>`. Otherwise, `<B>`." attached B to *"you didn't win a
+#: clash"* whatever C was (Gravelighter, Stolen Vitality, Unholy Annex, …) — it is now one
+#: `if_else` deciding C once, and unclaimed when nothing before it carries a gate — and "If
+#: `<C>`, `<A>` and `<B>`." gated only A. Insatiable Appetite, Pippin's Bravery and Lorehold
+#: Excavation lose their (wrong) coverage until their else branches are modeled. Bodies
+#: reading "that many"/"that creature" off the shared attack event stay unclaimed.
+#: v457: under a group trigger "it gets +N/+N [and gains K] until end of turn" pumps the object
+#: that fired it (`PumpEffect.trigger_subject`, +13) and a spell's "when you next cast an
+#: instant or sorcery spell this turn, copy that spell" is a one-shot turn trigger with
+#: `copy_spell` reading the cast event (+7).
+PARSER_VERSION = "457"
 
 
 def parser_source_hash() -> str:

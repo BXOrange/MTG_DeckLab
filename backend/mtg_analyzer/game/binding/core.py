@@ -186,6 +186,8 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # carries a ``defending_player_id``, unlike every other player-subject
     # event above), fired once per combat rather than once per attacker.
     "PLAYER_ATTACKED": "attacking_player_id",
+    "ATTACKERS_DECLARED": "player_id",
+    "ATTACKER_UNBLOCKED": "player_id",
     "BLOCKS": "player_id",
     # RULE 509.5: "whenever a creature you control becomes blocked" — the
     # attacker-side event names its controller as ``player_id`` (the same
@@ -498,6 +500,22 @@ def _subject_condition(
             return _any_attacking_matches(context, actor, gf)
 
         return _you_ok
+
+    if subject == "player":
+        # PAR-119: a player-event head whose actor is not (only) you — "whenever an
+        # opponent loses life", "whenever a player cycles a card". The same actor key as
+        # the "you" subject, compared against this ability's controller by ``scope``.
+        actor_key = _GROUP_CONTROLLER_EVENT_KEYS.get(trigger.get("event"), "controller_id")
+        scope = condition.get("scope", "any")
+
+        def _player_ok(event: Any, context: Any, src=source, key=actor_key, wanted=scope) -> bool:
+            actor = event.get(key)
+            if actor is None:
+                return False
+            mine = actor == getattr(src, "controller_id", None)
+            return wanted == "any" or (wanted == "not_you" and not mine) or (wanted == "you" and mine)
+
+        return _player_ok
 
     if subject == "self":
 
@@ -1469,6 +1487,56 @@ def _trigger_condition(
             return int(event.get("count", 0) or 0) >= n
 
         predicates.append(_attackers_at_least_ok)
+
+    # "Whenever ~ blocks a creature with flying" / "…becomes blocked by a non-Wall
+    # creature" (PAR-119) — the creature(s) on the other side of the block, named by the
+    # event's ``related_ids``, must satisfy an object filter (any one of them, for a
+    # multi-blocked attacker).
+    related_filter = trigger.get("related_filter")
+    if related_filter:
+        def _related_filter_ok(event: Any, context: Any, filt=related_filter, src=source) -> bool:
+            from ..combat import matches_object_filter  # function-scoped: see combat.py
+
+            state = getattr(context, "state", None)
+            if state is None:
+                return False
+            for iid in event.get("related_ids") or []:
+                obj = state.find_object(iid)
+                if obj is not None and matches_object_filter(obj, filt, reference=src, state=state):
+                    return True
+            return False
+
+        predicates.append(_related_filter_ok)
+
+    # "Whenever you attack with three or more creatures" / "…with one or more other
+    # creatures with flying" / "…~ and at least two other creatures attack" (PAR-119) —
+    # a count over the `ATTACKERS_DECLARED` set of attackers that satisfy an object
+    # filter, optionally excluding the source or requiring it to be among them.
+    declared_attackers = trigger.get("attackers_declared")
+    if declared_attackers:
+        def _attackers_declared_ok(
+            event: Any, context: Any, spec=declared_attackers, src=source
+        ) -> bool:
+            from ..combat import matches_object_filter  # function-scoped: see combat.py
+
+            state = getattr(context, "state", None)
+            ids = list(event.get("attacker_ids") or [])
+            if state is None:
+                return False
+            src_id = getattr(src, "instance_id", None)
+            if spec.get("includes_source") and src_id not in ids:
+                return False
+            matching = 0
+            for iid in ids:
+                obj = state.find_object(iid)
+                if obj is None or (spec.get("other") and iid == src_id):
+                    continue
+                if matches_object_filter(obj, spec.get("filter"), reference=src, state=state):
+                    matching += 1
+            low, high = spec.get("min"), spec.get("max")
+            return (low is None or matching >= int(low)) and (high is None or matching <= int(high))
+
+        predicates.append(_attackers_declared_ok)
 
     # "Whenever an opponent attacks with creatures, if two or more of those
     # creatures are attacking you …" (Mangara the Diplomat, Tomik Wielder of
@@ -2450,9 +2518,11 @@ def _retarget_implicit_subject_effects(
             params = dict(e.params)
             params[field_name] = "attached_permanent"
             retargeted.append(EffectSpec(e.type, params, condition=e.condition))
-        elif e.params.get("trigger_event_key") == GROUP_SUBJECT_KEY_SENTINEL:
+        elif GROUP_SUBJECT_KEY_SENTINEL in (e.params.get("trigger_event_key"), e.params.get("event_key")):
             params = dict(e.params)
-            params["trigger_event_key"] = _subject_event_key(trigger)
+            for name in ("trigger_event_key", "event_key"):
+                if params.get(name) == GROUP_SUBJECT_KEY_SENTINEL:
+                    params[name] = _subject_event_key(trigger)
             retargeted.append(EffectSpec(e.type, params, condition=e.condition))
         elif e.type == "add_counters" and e.params.get("trigger_subject_key") == GROUP_SUBJECT_KEY_SENTINEL:
             # PAR-117: `handlers._add_counters_group_subject_it`'s own

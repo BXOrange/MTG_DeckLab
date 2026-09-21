@@ -1083,6 +1083,10 @@ class ShuffleTargetIntoLibraryRevealTopEffect(GameEffect):
             owner.remove_from_zone(top, Zone.LIBRARY)
             top.zone = Zone.BATTLEFIELD
             context.state.add_to_battlefield(top)
+            context.state.fire_event(GameEvent(
+                EventType.ENTERS_BATTLEFIELD, controller_id=owner.id, object=top.name,
+                instance_id=top.instance_id, object_types=sorted(top.type_words),
+            ))
 
 
 class GainControlUntilEndOfTurnEffect(GameEffect):

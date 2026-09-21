@@ -20,6 +20,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Iterator, Optional
 
+from . import turn_history
 from .events import EventType, GameEvent
 from .game_object import GameObject, Zone
 from .player import Player
@@ -866,45 +867,6 @@ class GameState:
         #: daybound/nightbound permanent (RULE 702.145) establishes it, then
         #: exactly one of ``"day"``/``"night"`` for the rest of the game.
         self.day_night: Optional[str] = None
-        #: Spells cast by each player *this turn* (RULE 731.2's "did the
-        #: active player cast any/2+ spells last turn" check, and MEC-36's
-        #: Damping Sphere — "costs {1} more for each **other** spell that
-        #: player has cast this turn," read cross-player via `continuous.
-        #: count_selector`'s ``"spells_cast_this_turn"``) — reset for
-        #: *every* player each `GameEngine.begin_turn` (widened from the
-        #: original RULE 731.2-only "just the incoming active player" scope
-        #: once Damping Sphere needed a non-active player's own count to
-        #: stay accurate too, the same `mana_produced_this_turn`/`cast_
-        #: instant_or_sorcery_this_turn` game-wide idiom below), incremented
-        #: off the `SPELL_CAST` event by `RulesEngine._track_spell_cast`.
-        self.spells_cast_this_turn: dict[str, int] = {p.id: 0 for p in players}
-        #: The greatest mana value among instant/sorcery spells each player
-        #: has cast *this turn* ("…where X is the greatest mana value among
-        #: instant and sorcery spells you've cast this turn." — Rootha,
-        #: Mastering the Moment, PAR-60). Bumped off the `SPELL_CAST` event
-        #: by `RulesEngine._track_spell_cast`, read via `continuous.
-        #: count_selector`'s ``"greatest_instant_sorcery_mv_this_turn"``;
-        #: reset per `GameEngine.begin_turn` alongside `spells_cast_this_turn`.
-        self.greatest_instant_sorcery_mv_this_turn: dict[str, int] = {p.id: 0 for p in players}
-        #: Noncreature spells cast by each player *this turn* ("~ deals
-        #: damage to that player equal to the number of noncreature spells
-        #: they've cast this turn." — Magebane Lizard) — unlike
-        #: `spells_cast_this_turn` above (reset only for the incoming
-        #: active player, RULE 731.2's own narrow scope), this resets for
-        #: *every* player each `GameEngine.begin_turn`, the same
-        #: `mana_produced_this_turn`/`cast_instant_or_sorcery_this_turn`
-        #: game-wide idiom: a non-active player's own cast still counts
-        #: toward *their* running total for this trigger. Incremented
-        #: alongside `spells_cast_this_turn` by `RulesEngine.
-        #: _track_spell_cast`.
-        self.noncreature_spells_cast_this_turn: dict[str, int] = {p.id: 0 for p in players}
-        #: Nonartifact spells cast by each player *this turn* ("Each player
-        #: who has cast a nonartifact spell this turn can't cast additional
-        #: nonartifact spells." — Ethersworn Canonist, MEC-43) — the
-        #: nonartifact-scoped sibling of `noncreature_spells_cast_this_turn`
-        #: above, same game-wide-every-player reset scope, incremented
-        #: alongside it by `RulesEngine._track_spell_cast`.
-        self.nonartifact_spells_cast_this_turn: dict[str, int] = {p.id: 0 for p in players}
         #: How many combat phases this turn has had (RULE 603.4's "if it's
         #: the first combat phase of the turn" intervening-if — Karlach,
         #: Fury of Avernus/Finest Hour/Genji Glove-shaped extra-combat
@@ -945,23 +907,6 @@ class GameState:
         #: (no previous turn to check).
         self._last_turn_player_id: Optional[str] = None
         self._last_turn_spell_count: int = 0
-        #: Cards drawn by each player *this turn* (RULE 121.5-adjacent "each
-        #: player can't draw more than N cards each turn" cap, Spirit of the
-        #: Labyrinth-shaped) — reset for the new active player in
-        #: `GameEngine.begin_turn`, incremented by `RulesEngine._single_draw`
-        #: on every successful draw, the same shape `spells_cast_this_turn`
-        #: uses for `cast_limit`.
-        self.cards_drawn_this_turn: dict[str, int] = {p.id: 0 for p in players}
-        #: Cards discarded by each player *this turn* (RULE 701.8 — "create a
-        #: token that's a copy of ~ for each card you've discarded this
-        #: turn", Living Laser; "draw a card for each card you've discarded
-        #: this turn", Change of Fortune). Same shape/reset as `cards_drawn_
-        #: this_turn` above — zeroed for the incoming active player in
-        #: `GameEngine.begin_turn`, bumped at every `DISCARD_CARD` fire site
-        #: (`RulesEngine.discard`/`discard_specific`, the Pitch-cost discard);
-        #: read by `continuous.count_selector`'s ``"cards_discarded_this_
-        #: turn"``.
-        self.cards_discarded_this_turn: dict[str, int] = {p.id: 0 for p in players}
         #: "You can't attack that player this turn." (Call for Aid) —
         #: ``(attacker_player_id, defending_player_id)`` pairs barred from
         #: combat for the rest of this turn (RULE 508.1a). Checked by
@@ -969,13 +914,6 @@ class GameState:
         #: (offer-time, with no defender yet, stays permissive); cleared at
         #: cleanup (RULE 514.2).
         self.no_attack_pairs_this_turn: set[tuple[str, str]] = set()
-        #: The *specific objects* drawn by each player this turn (Sylvan
-        #: Library, MEC-40 — "choose two cards in your hand drawn this
-        #: turn"), unlike `cards_drawn_this_turn`'s own plain count above:
-        #: some effects need to name *which* cards, not just how many.
-        #: Appended by `RulesEngine._single_draw`/`draw` alongside the count,
-        #: reset in lockstep with it (`GameEngine.begin_turn`).
-        self.cards_drawn_this_turn_ids: dict[str, list[int]] = {p.id: [] for p in players}
         #: Whether each player has already had "the first one they draw in
         #: [their] draw step" this draw step (MEC-32 — Notion Thief/Chains
         #: of Mephistopheles's shared exemption clause). Reset to ``False``
@@ -989,31 +927,6 @@ class GameState:
         #: draw anywhere else in the turn always reads as "not first,"
         #: correctly, since it can never be the draw step's own first card.
         self.first_draw_done_this_step: dict[str, bool] = {p.id: False for p in players}
-        #: Life actually gained by each player *this turn* (RULE 119.3 —
-        #: "whenever ~ attacks, if you gained 3 or more life this turn,
-        #: <effect>", Frodo, Adventurous Hobbit-shaped). Reset for the new
-        #: active player in `GameEngine.begin_turn`, incremented by
-        #: `RulesEngine.gain_life` on every successful gain — the same
-        #: only-the-incoming-active-player reset `cards_drawn_this_turn`
-        #: above uses, since the cards that read this are all "whenever ~
-        #: attacks" triggers and a creature only ever attacks on its own
-        #: controller's turn.
-        self.life_gained_this_turn: dict[str, int] = {p.id: 0 for p in players}
-        #: Players who declared an attacker this turn (RULE 508.1a; Raid).
-        #: This player history is distinct from an individual creature's
-        #: Boast flag: a creature entering attacking did not declare an attack.
-        self.players_attacked_this_turn: set[str] = set()
-        #: The life each player has *lost* this turn — the mirror of
-        #: `life_gained_this_turn`, bumped at `RulesEngine.lose_life`'s single
-        #: choke point (damage, life-paid costs, "loses N life" effects all
-        #: funnel through it) and reset for every player each
-        #: `GameEngine.begin_turn`. Read by `ConditionalEffect`'s
-        #: ``opponent_lost_life_this_turn_at_least`` key and
-        #: `FaceVillainousChoiceEffect.subject_min_life_lost` (Davros, Dalek
-        #: Creator — "…if an opponent lost 3 or more life this turn" / "each
-        #: opponent who lost 3 or more life this turn faces a villainous
-        #: choice").
-        self.life_lost_this_turn: dict[str, int] = {p.id: 0 for p in players}
         #: Owner ids of players who had one or more cards leave their
         #: graveyard this turn (RULE 603.3f `CARDS_LEFT_GRAVEYARD` — recorded
         #: at `RulesEngine._note_graveyard_exit`, the single zone-exit choke
@@ -1021,45 +934,6 @@ class GameState:
         #: `static_conditions.py`'s ``card_left_graveyard_this_turn``
         #: intervening-if (Primary Research, Relic Retriever, PAR-60).
         self.cards_left_graveyard_this_turn: set[str] = set()
-        #: Player ids who have already cast a spell with {X} in its mana cost
-        #: this turn (PAR-60 — the Quandrix "your first spell with {X} in its
-        #: mana cost each turn" trigger family: Zimone Infinite Analyst,
-        #: Owlin Spiralmancer, Nev, Lattice Library). Set in
-        #: `RulesEngine.cast_spell` *after* the `SPELL_CAST` event is built
-        #: (whose ``first_x_spell`` flag reads this set), cleared each
-        #: `GameEngine.begin_turn`.
-        self.cast_x_spell_this_turn: set[str] = set()
-        #: How many *nontoken* creatures each player has had enter the
-        #: battlefield under their control this turn (PAR-60 — Gyome, Master
-        #: Chef's "Food tokens equal to the number of nontoken creatures you
-        #: had enter … this turn"). Bumped in `add_to_battlefield`, cleared
-        #: each `GameEngine.begin_turn` for the incoming active player.
-        self.nontoken_creatures_entered_this_turn: dict[str, int] = {p.id: 0 for p in players}
-        #: PAR-60 (Zimone, All-Questioning): lands entering under each
-        #: player's control this turn — a superset of ``lands_played_this_
-        #: turn`` (also counts fetch/ramp puts). Reset for the active player
-        #: at ``begin_turn`` like its creature sibling above.
-        self.lands_entered_this_turn: dict[str, int] = {p.id: 0 for p in players}
-        #: Whether each player has cast an instant or sorcery spell *this
-        #: turn* (PAR-10 — `game/static_conditions.py`'s
-        #: ``cast_instant_or_sorcery_this_turn`` condition: Hall of Oracles/
-        #: Jin-Gitaxias's activation condition, Haunting Figment/Leapfrog/
-        #: Piston-Fist Cyclops's "as long as" statics). Reset for *every*
-        #: player each `GameEngine.begin_turn` — like `mana_produced_this_
-        #: turn` below and unlike `spells_cast_this_turn` above, since a
-        #: static condition can be read for a non-active player's permanent
-        #: too. Set by `RulesEngine._track_spell_cast` off the same
-        #: `SPELL_CAST` event.
-        self.cast_instant_or_sorcery_this_turn: dict[str, bool] = {p.id: False for p in players}
-        #: Colours each player has cast a spell of *this turn* ("if an
-        #: opponent has cast a blue or black spell this turn" — Veil of
-        #: Summer). Same "every player, reset each `begin_turn`" scope as
-        #: `cast_instant_or_sorcery_this_turn` just above (read for a
-        #: non-active player too), set by `RulesEngine._track_spell_cast`
-        #: off the same `SPELL_CAST` event.
-        self.spell_colors_cast_this_turn: dict[str, set[str]] = {p.id: set() for p in players}
-        self.spell_color_cast_counts_this_turn: dict[str, dict[str, int]] = {p.id: {} for p in players}
-        self.spell_type_cast_counts_this_turn: dict[str, dict[str, int]] = {p.id: {} for p in players}
         #: Mana actually produced (tapped/hand-exiled for) by each player
         #: *this turn*, per colour (WUBRGC) — the "genutztes Potenzial" half
         #: of `game/mana_potential.py`'s open/used split. Unlike
@@ -1090,55 +964,6 @@ class GameState:
         #: `GameEngine.pay_search_exemption` (a genuine RULE 116.2a special
         #: action — no stack, offered any time the payer has priority).
         self.search_exempt_until_turn: dict[str, int] = {}
-        #: Who each source has dealt *combat* damage to this turn (RULE
-        #: 120.3): ``{source instance_id: {player_id, …}}``, stamped by
-        #: `RulesEngine.deal_damage` and cleared for the whole game in
-        #: `GameEngine.begin_turn`. Exists because "target player who was
-        #: dealt combat damage by ~ this turn" (Hope of Ghirapur) is a
-        #: *history* question no live board state can answer — by the time
-        #: the sacrifice ability is activated, the damage step is long over.
-        #: Keyed by source rather than by player so two copies of the same
-        #: card each track their own victims.
-        self.combat_damage_to_players_this_turn: dict[int, set[str]] = {}
-        #: Total *noncombat* damage each player has dealt to opponents
-        #: *this turn* ("This spell costs {X} less to cast, where X is the
-        #: total amount of noncombat damage dealt to your opponents this
-        #: turn." — Chandra's Incinerator, MEC-45): ``{dealing player_id:
-        #: summed amount}`` — an amount total, unlike
-        #: `combat_damage_to_players_this_turn`'s own per-source hit-*set*
-        #: (RULE 120.3 only ever asks "was this player hit", never "how
-        #: much"). Incremented by `RulesEngine.deal_damage`, reset
-        #: game-wide in `GameEngine.begin_turn`.
-        self.noncombat_damage_to_opponents_this_turn: dict[str, int] = {}
-        #: Total damage (combat *and* noncombat, from *any* source) dealt
-        #: to each player *this turn* — ``{player_id: summed amount}``
-        #: (Final Punishment, MEC-43: "loses life equal to the damage
-        #: already dealt to that player this turn"). Unlike
-        #: `noncombat_damage_to_opponents_this_turn` (keyed by the
-        #: *dealing* player, noncombat only, opponents only) and
-        #: `combat_damage_to_players_this_turn` (a per-source hit-*set*,
-        #: combat only), this is the plain RULE 120.3 total a *victim*
-        #: took, from anyone, by any means — the simplest of the three, but
-        #: no prior card needed exactly this reading. Incremented by
-        #: `RulesEngine.deal_damage`, reset game-wide in `GameEngine.
-        #: begin_turn`.
-        self.damage_dealt_to_players_this_turn: dict[str, int] = {}
-        #: PAR-32: total damage dealt *by* each player's own sources this
-        #: turn, ``{controller_id: amount}`` (Dragon Cultist — "if a source
-        #: you controlled dealt N or more damage this turn"). Incremented in
-        #: `RulesEngine.deal_damage` off ``source.controller_id``, cleared
-        #: game-wide in `begin_turn`.
-        self.damage_dealt_by_this_turn: dict[str, int] = {}
-        #: PAR-32: player ids into whose graveyard a *creature card* went
-        #: from anywhere this turn (Cloakwood Hermit). Added in
-        #: `RulesEngine._move_to_graveyard` (and mill/discard paths), keyed
-        #: by the card's owner; cleared game-wide in `begin_turn`.
-        self.creature_card_to_graveyard_this_turn: set[str] = set()
-        #: RULE 702.175 (Descend): player ids for whom a permanent card was
-        #: put into their graveyard from anywhere this turn.  Unlike the
-        #: creature-only history above, this includes artifact/enchantment/
-        #: land/planeswalker cards as well.
-        self.permanent_card_to_graveyard_this_turn: set[str] = set()
         #: MEC-57: player ids whose "the first time you would draw a card
         #: each turn, instead …" replacement (Scion of Halaster) has already
         #: fired this turn — the gate `effects._first_draw_look_two_
@@ -1146,46 +971,6 @@ class GameState:
         #: this_step` (which resets every *draw step*, not every turn).
         #: Cleared game-wide in `GameEngine.begin_turn`.
         self.first_draw_replaced_this_turn: set[str] = set()
-        #: MEC-60: each player's own creature-*subtype* words (lowercase)
-        #: among every spell they've cast this turn — ``{player_id:
-        #: {subtype, ...}}`` — the general "have you cast a `<subtype>`
-        #: spell yet this turn" tracker `static_conditions`'
-        #: ``first_subtype_spell_this_turn`` reads (Acolyte of Bahamut:
-        #: "The first Dragon spell you cast each turn costs {2} less").
-        #: Populated in `RulesEngine._track_spell_cast` off the just-cast
-        #: object's live subtypes (not the SPELL_CAST event's own
-        #: ``object_types``, which only carries *main* card types); cleared
-        #: game-wide in `GameEngine.begin_turn`.
-        self.creature_type_spells_cast_this_turn: dict[str, set[str]] = {}
-        #: How many creatures have died under each player's control *this
-        #: turn* (RULE 700.4) — ``{player_id: count}``, incremented off the
-        #: `DIES` event by `RulesEngine._track_creature_death` and cleared
-        #: wholesale in `GameEngine.begin_turn`, the same shape
-        #: `spells_cast_this_turn` uses. Exists because "unless a creature
-        #: died under your control this turn" (Bontu the Glorified's attack
-        #: restriction) is a *history* question — the creature is long gone
-        #: from every zone a live board scan could reach.
-        self.creatures_died_this_turn: dict[str, int] = {p.id: 0 for p in players}
-        #: Intermediate Chirography (PAR-60), level 3: "if a **modified**
-        #: creature died under your control this turn". Same `DIES`-subscribed,
-        #: begin-turn-cleared, controller-keyed shape as
-        #: `creatures_died_this_turn` above. Documented simplification:
-        #: "modified" is read as "had one or more counters" (RULE 700.9's
-        #: Equipment/Aura modifications are not tracked here), off the DIES
-        #: event's snapshotted ``counters``.
-        self.modified_creatures_died_this_turn: dict[str, int] = {p.id: 0 for p in players}
-        #: MEC-49: for each creature that took damage *this turn*, the set of
-        #: `instance_id`s of the sources that dealt it — ``{damaged_obj_id:
-        #: {source_id, …}}``. A *history* question no live board can answer:
-        #: "whenever a creature dealt damage by ~ this turn dies, …" (Baron
-        #: Sengir, Abattoir Ghoul, Blood Cultist &c.) is asked off the DIES
-        #: event, after the creature is gone. Recorded by `RulesEngine.
-        #: deal_damage` for any damage to a creature (combat *or* not, from
-        #: any source), read by `effect_binder._build_group_ok`'s
-        #: ``damaged_by_source_this_turn`` filter, cleared wholesale in
-        #: `GameEngine.begin_turn` (the per-source hit-*set* sibling of
-        #: `combat_damage_to_players_this_turn`).
-        self.creatures_damaged_by_source_this_turn: dict[int, set[int]] = {}
 
         #: Player ids granted "you have no maximum hand size **for the rest
         #: of the game**" by a resolving spell/ability (Spirit Water
@@ -1196,40 +981,7 @@ class GameState:
         #: player, not an object).
         self.no_max_hand_size_player_ids: set[str] = set()
 
-        #: Which bending keyword actions (RULE 701.6x — Avatar: The Last
-        #: Airbender) each player has performed *this turn*: ``{player_id:
-        #: {"waterbend", "earthbend", "firebend", "airbend"}}``. Populated by
-        #: `RulesEngine.record_bend` (which also fires `EventType.BENT`) and
-        #: cleared wholesale in `GameEngine.begin_turn`, the same
-        #: history-question shape `creatures_died_this_turn` uses above —
-        #: Avatar Aang's "then if you've done all four this turn, transform"
-        #: is exactly such a question (the individual bends leave no board
-        #: trace a live scan could reach).
-        self.bends_this_turn: dict[str, set[str]] = {}
 
-        #: Player ids who have put one or more counters on a creature *this
-        #: turn* — "At the beginning of each end step, if you put a counter
-        #: on a creature this turn, …" (Lasting Tarfire). Populated in
-        #: `RulesEngine.add_counters`'s post-replacement `_finish` (keyed by
-        #: the COUNTER event's causer-scoped ``source_controller_id``) and
-        #: cleared wholesale in `GameEngine.begin_turn`, the same game-wide
-        #: history-question shape `bends_this_turn` / `creatures_died_this_turn`
-        #: use above.
-        self.counter_placed_on_creature_this_turn: set[str] = set()
-        #: MEC-84 (Revolt / Disappear ability words): how many permanents left
-        #: the battlefield **under each player's control** this turn —
-        #: ``{controller_id: count}``, keyed by the object's ``controller_id``
-        #: as it left (RULE: "under your control", the controller at the
-        #: moment of leaving, not the owner). Incremented at the single
-        #: `remove_from_battlefield` chokepoint every departure passes through
-        #: (sacrifice, destroy, exile, bounce, mill from battlefield, token
-        #: ceasing to exist — but *not* phasing out, which never calls it),
-        #: cleared wholesale in `GameEngine.begin_turn`. A history question no
-        #: live board scan can answer — the permanent is gone. `creatures_…`
-        #: is the RULE 700.4-narrowed sibling for "a **creature** left …"
-        #: (Tale of Momo, That's Rough Buddy, Kutzil's Flanker).
-        self.permanents_left_battlefield_this_turn: dict[str, int] = {}
-        self.creatures_left_battlefield_this_turn: dict[str, int] = {}
 
         #: Chronological log of everything fired; also the record the
         #: WebSocket layer can diff to build ``game_state_update``s.
@@ -1474,22 +1226,6 @@ class GameState:
         # "As long as ~ entered the battlefield this turn" conditions (The
         # Wandering Emperor-shaped, `game/condition_query.py`).
         obj.turn_entered = self.internal_turn.number
-        # PAR-60 (Gyome, Master Chef): count nontoken creatures entering
-        # under each player's control this turn.
-        if obj.is_creature and not obj.is_token:
-            _entrant = obj.controller_id or obj.owner_id
-            if _entrant is not None:
-                self.nontoken_creatures_entered_this_turn[_entrant] = (
-                    self.nontoken_creatures_entered_this_turn.get(_entrant, 0) + 1
-                )
-        # PAR-60 (Zimone, All-Questioning): "if a land entered the
-        # battlefield under your control this turn …".
-        if obj.is_land:
-            _lentrant = obj.controller_id or obj.owner_id
-            if _lentrant is not None:
-                self.lands_entered_this_turn[_lentrant] = (
-                    self.lands_entered_this_turn.get(_lentrant, 0) + 1
-                )
         # RULE 606.5b: a planeswalker enters with its printed starting loyalty.
         if obj.is_planeswalker and obj.card.loyalty and "loyalty" not in obj.counters:
             obj.counters["loyalty"] = obj.card.loyalty
@@ -1541,18 +1277,6 @@ class GameState:
     def remove_from_battlefield(self, obj: GameObject) -> None:
         if obj in self.battlefield:
             self.battlefield.remove(obj)
-            # MEC-84: Revolt/Disappear history. Only a permanent that was
-            # actually on the battlefield "leaves" it; read the controller
-            # before any caller resets it with the destination zone.
-            cid = getattr(obj, "controller_id", None)
-            if cid is not None:
-                self.permanents_left_battlefield_this_turn[cid] = (
-                    self.permanents_left_battlefield_this_turn.get(cid, 0) + 1
-                )
-                if getattr(obj, "is_creature", False):
-                    self.creatures_left_battlefield_this_turn[cid] = (
-                        self.creatures_left_battlefield_this_turn.get(cid, 0) + 1
-                    )
         # RULE 708.9: "if a face-down permanent moves from the battlefield to
         # any other zone, its owner must reveal it to all players as they
         # move it" — so no object ever leaves the battlefield still wearing
@@ -1603,6 +1327,12 @@ class GameState:
         triggered abilities are queued by subscribers.
         """
         event.turn = self.internal_turn.number
+        if event.type == EventType.ENTERS_BATTLEFIELD and "is_token" not in event.data:
+            # The history reads whether a permanent was a token (Gyome), and the entering
+            # object is on the battlefield right now; a copy of a card is a token too, so the
+            # type line cannot answer it.
+            entered = self.find_object(event.get("instance_id"))
+            event.data["is_token"] = bool(entered is not None and entered.is_token)
         self.event_log.append(event)
         for subscriber in list(self._subscribers):
             subscriber(event)
@@ -1619,6 +1349,145 @@ class GameState:
             if event.turn != current:
                 break
             yield event
+
+    # -- Per-turn history, derived from the event log (ENG-47) -------------------
+    # Each of these was a counter bumped at one site and reset in `GameEngine.begin_turn`;
+    # it is now a fresh read over `events_this_turn()` (`turn_history`), so it can never
+    # drift from what actually fired and needs no reset. The reset scope is the same for
+    # everyone: this turn, for every player.
+
+    @property
+    def life_gained_this_turn(self) -> dict[str, int]:
+        """Life each player gained this turn (RULE 119.3)."""
+        return turn_history.life_gained(self.events_this_turn())
+
+    @property
+    def life_lost_this_turn(self) -> dict[str, int]:
+        """Life each player lost this turn — damage, life payments and "loses N life" alike."""
+        return turn_history.life_lost(self.events_this_turn())
+
+    @property
+    def cards_discarded_this_turn(self) -> dict[str, int]:
+        return turn_history.cards_discarded(self.events_this_turn())
+
+    @property
+    def cards_drawn_this_turn(self) -> dict[str, int]:
+        """Cards each player drew this turn (RULE 121)."""
+        return turn_history.cards_drawn(self.events_this_turn())
+
+    @property
+    def cards_drawn_this_turn_ids(self) -> dict[str, list[int]]:
+        """The specific objects each player drew this turn, oldest first (Sylvan Library)."""
+        return turn_history.cards_drawn_ids(self.events_this_turn())
+
+    @property
+    def spells_cast_this_turn(self) -> dict[str, int]:
+        """Spells each player cast this turn (RULE 731.2; Damping Sphere)."""
+        return turn_history.spells_cast(self.events_this_turn())
+
+    @property
+    def noncreature_spells_cast_this_turn(self) -> dict[str, int]:
+        return turn_history.noncreature_spells_cast(self.events_this_turn())
+
+    @property
+    def nonartifact_spells_cast_this_turn(self) -> dict[str, int]:
+        return turn_history.nonartifact_spells_cast(self.events_this_turn())
+
+    @property
+    def cast_instant_or_sorcery_this_turn(self) -> dict[str, bool]:
+        return turn_history.cast_instant_or_sorcery(self.events_this_turn())
+
+    @property
+    def greatest_instant_sorcery_mv_this_turn(self) -> dict[str, int]:
+        return turn_history.greatest_instant_sorcery_mv(self.events_this_turn())
+
+    @property
+    def spell_colors_cast_this_turn(self) -> dict[str, set[str]]:
+        return turn_history.spell_colors_cast(self.events_this_turn())
+
+    @property
+    def spell_color_cast_counts_this_turn(self) -> dict[str, dict[str, int]]:
+        return turn_history.spell_color_cast_counts(self.events_this_turn())
+
+    @property
+    def spell_type_cast_counts_this_turn(self) -> dict[str, dict[str, int]]:
+        return turn_history.spell_type_cast_counts(self.events_this_turn())
+
+    @property
+    def creature_type_spells_cast_this_turn(self) -> dict[str, set[str]]:
+        return turn_history.creature_type_spells_cast(self.events_this_turn())
+
+    @property
+    def cast_x_spell_this_turn(self) -> set[str]:
+        return turn_history.cast_x_spell(self.events_this_turn())
+
+    @property
+    def creatures_died_this_turn(self) -> dict[str, int]:
+        """Creatures that died under each player's control this turn (RULE 700.4)."""
+        return turn_history.creatures_died(self.events_this_turn())
+
+    @property
+    def modified_creatures_died_this_turn(self) -> dict[str, int]:
+        return turn_history.modified_creatures_died(self.events_this_turn())
+
+    @property
+    def combat_damage_to_players_this_turn(self) -> dict[int, set[str]]:
+        """``{source instance id: players it dealt combat damage to}`` (RULE 120.3)."""
+        return turn_history.combat_damage_to_players(self.events_this_turn())
+
+    @property
+    def noncombat_damage_to_opponents_this_turn(self) -> dict[str, int]:
+        return turn_history.noncombat_damage_to_opponents(self.events_this_turn())
+
+    @property
+    def damage_dealt_to_players_this_turn(self) -> dict[str, int]:
+        return turn_history.damage_dealt_to_players(self.events_this_turn())
+
+    @property
+    def damage_dealt_by_this_turn(self) -> dict[str, int]:
+        return turn_history.damage_dealt_by(self.events_this_turn())
+
+    @property
+    def creatures_damaged_by_source_this_turn(self) -> dict[int, set[int]]:
+        return turn_history.creatures_damaged_by_source(self.events_this_turn())
+
+    @property
+    def creature_card_to_graveyard_this_turn(self) -> set[str]:
+        return turn_history.creature_card_to_graveyard(self.events_this_turn())
+
+    @property
+    def permanent_card_to_graveyard_this_turn(self) -> set[str]:
+        return turn_history.permanent_card_to_graveyard(self.events_this_turn())
+
+    @property
+    def bends_this_turn(self) -> dict[str, set[str]]:
+        return turn_history.bends(self.events_this_turn())
+
+    @property
+    def counter_placed_on_creature_this_turn(self) -> set[str]:
+        return turn_history.counter_placed_on_creature(self.events_this_turn())
+
+    @property
+    def nontoken_creatures_entered_this_turn(self) -> dict[str, int]:
+        return turn_history.nontoken_creatures_entered(self.events_this_turn())
+
+    @property
+    def lands_entered_this_turn(self) -> dict[str, int]:
+        return turn_history.lands_entered(self.events_this_turn())
+
+    @property
+    def permanents_left_battlefield_this_turn(self) -> dict[str, int]:
+        """Permanents that left the battlefield under each player's control (MEC-84)."""
+        return turn_history.permanents_left_battlefield(self.events_this_turn())
+
+    @property
+    def creatures_left_battlefield_this_turn(self) -> dict[str, int]:
+        return turn_history.creatures_left_battlefield(self.events_this_turn())
+
+    @property
+    def players_attacked_this_turn(self) -> set[str]:
+        """Players who declared an attacker this turn (RULE 508.1a; Raid)."""
+        return turn_history.players_attacked(self.events_this_turn())
 
     def to_dict(self) -> dict[str, Any]:
         self.internal_turn.player_id = self.active_player.id

@@ -274,9 +274,12 @@ class CreateDelayedTriggerEffect(GameEffect):
         description: str = "",
         condition: Optional[dict[str, Any]] = None,
         source: Optional["GameObject"] = None,
+        related_filter: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.step = str(step)
+        #: ``capture="trigger_related"``'s object filter (see `apply`).
+        self.related_filter = related_filter
         self.inner_specs = list(effects or [])
         self.scope = str(scope)
         self.capture = capture
@@ -358,6 +361,25 @@ class CreateDelayedTriggerEffect(GameEffect):
                 or list(getattr(context, "created_objects", []))
                 or ([self.source] if self.source is not None else [])
             )
+            for effect in inner:
+                if hasattr(effect, "objects"):
+                    effect.objects = made
+                elif hasattr(effect, "target") and made:
+                    effect.target = made[0]
+        if self.capture == "trigger_related":
+            # "Whenever ~ blocks or becomes blocked by a non-Wall creature, destroy **that
+            # creature** at end of combat." (the Basilisks, PAR-119) — the creature(s) on the
+            # other side of the block the firing event names as ``related_ids`` (those that
+            # satisfy the head's filter), baked in now so they survive to the delayed firing.
+            from ...game.combat import matches_object_filter
+
+            made = []
+            for iid in (context.trigger_event or {}).get("related_ids") or []:
+                obj = context.state.find_object(iid)
+                if obj is not None and matches_object_filter(
+                    obj, self.related_filter, reference=self.source, state=context.state
+                ):
+                    made.append(obj)
             for effect in inner:
                 if hasattr(effect, "objects"):
                     effect.objects = made

@@ -514,6 +514,19 @@ class EventType:
     #: "player"``), not the "or a planeswalker you control" variant (no
     #: real card in this pool needs it yet).
     PLAYER_ATTACKED = "PLAYER_ATTACKED"
+    #: RULE 508.1's whole declaration as one event, per attacking player — fired once
+    #: combat locks in (`GameEngine._fire_player_attacked_events`, the same moment
+    #: `PLAYER_ATTACKED` fires), carrying ``player_id`` and ``attacker_ids`` (every
+    #: creature of theirs now attacking, whichever defender) plus ``count``. "Whenever
+    #: you attack with three or more creatures" and "whenever ~ and at least two other
+    #: creatures attack" are counts over that set, which no per-attacker `ATTACKS` event
+    #: can answer (it fires before the later attackers are declared).
+    ATTACKERS_DECLARED = "ATTACKERS_DECLARED"
+    #: "…attacks and isn't blocked" (RULE 509.1h) — one per attacking creature that no
+    #: creature blocked, fired once the declare-blockers step is over (`GameEngine.
+    #: _fire_unblocked_events`). Same ``instance_id``/``player_id``/``object_types`` payload as
+    #: `ATTACKS`, so RULE 603.1's subject scoping works unchanged.
+    ATTACKER_UNBLOCKED = "ATTACKER_UNBLOCKED"
     #: RULE 506.5-adjacent "whenever ~ attacks alone" / "whenever a Samurai
     #: or Warrior you control attacks alone" — the *only* attacking creature
     #: this combat. Aggregate for the same reason `PLAYER_ATTACKED` is:

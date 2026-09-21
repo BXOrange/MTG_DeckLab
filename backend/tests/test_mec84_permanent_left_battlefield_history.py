@@ -4,8 +4,8 @@
 sibling) count, per controller, how many permanents left the battlefield under
 that player's control this turn — the history the "Revolt" / "Disappear"
 ability words ("if a permanent left the battlefield under your control this
-turn, …") gate on. Incremented at the single `remove_from_battlefield`
-chokepoint, cleared each `begin_turn`.
+turn, …") gate on. Derived from the `LEAVES_BATTLEFIELD` events
+the departure paths fire (ENG-47), so it needs no reset at `begin_turn`.
 
 Reference: models/game/game_state.py (`remove_from_battlefield`),
 game/engine/turn_loop_mixin.py (reset), game/static_conditions.py
@@ -58,9 +58,9 @@ def test_leaving_the_battlefield_is_counted_per_controller():
     b = _artifact(eng.state, "B", "p1")
     opp = _creature(eng.state, "Opp", "p2")
 
-    eng.state.remove_from_battlefield(a)
-    eng.state.remove_from_battlefield(b)
-    eng.state.remove_from_battlefield(opp)
+    eng.rules.exile(a)
+    eng.rules.exile(b)
+    eng.rules.exile(opp)
 
     assert eng.state.permanents_left_battlefield_this_turn == {"p1": 2, "p2": 1}
     # only the creature bumps the creature sibling
@@ -74,7 +74,7 @@ def test_condition_reads_the_controller_scoped_count():
     assert condition_holds(cond_p, eng.state, controller_id="p1") is False
 
     rock = _artifact(eng.state, "R", "p1")
-    eng.state.remove_from_battlefield(rock)
+    eng.rules.exile(rock)
     assert condition_holds(cond_p, eng.state, controller_id="p1") is True
     # a non-creature leaving does not satisfy the creature-narrowed sibling
     assert condition_holds(cond_c, eng.state, controller_id="p1") is False
@@ -84,7 +84,7 @@ def test_condition_reads_the_controller_scoped_count():
 
 def test_begin_turn_clears_the_history():
     eng = _engine()
-    eng.state.remove_from_battlefield(_creature(eng.state, "X", "p1"))
+    eng.rules.exile(_creature(eng.state, "X", "p1"))
     assert eng.state.permanents_left_battlefield_this_turn
     eng.begin_turn()
     assert eng.state.permanents_left_battlefield_this_turn == {}
@@ -134,7 +134,7 @@ def test_greenwheel_liberator_gets_its_counters_only_after_a_revolt():
 
     # something left → enters with its two +1/+1 counters
     eng2 = _engine()
-    eng2.state.remove_from_battlefield(_creature(eng2.state, "Fetched", "p1"))
+    eng2.rules.exile(_creature(eng2.state, "Fetched", "p1"))
     obj2 = GameObject(card, owner_id="p1", zone=Zone.STACK)
     obj2.controller_id = "p1"
     eng2.rules._apply_entry_counters(obj2)

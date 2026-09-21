@@ -32,6 +32,7 @@ from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import _FOR_EACH_SELECTORS, parse_effect_body
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
+from tests import turn_history_events as history
 
 
 class TestIfGate:
@@ -313,7 +314,7 @@ class TestConditionWhitelistWidening:
         )
         spell = GameObject(card, owner_id="p1", zone=Zone.HAND)
         assert not free_cast_condition_holds(alt["condition"], spell, eng.state)
-        eng.state.players_attacked_this_turn.add("p1")
+        history.declared_attack(eng.state, "p1")
         assert free_cast_condition_holds(alt["condition"], spell, eng.state)
 
 

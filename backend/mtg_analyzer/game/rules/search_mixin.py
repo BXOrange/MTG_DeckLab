@@ -2741,6 +2741,12 @@ class SearchMixin:
         if destination == "battlefield":
             obj.zone = Zone.BATTLEFIELD
             self.state.add_to_battlefield(obj)
+            # RULE 603.6a: an entry is an event — without it "whenever a creature enters"
+            # never fired for a card a dig put onto the battlefield.
+            self.state.fire_event(GameEvent(
+                EventType.ENTERS_BATTLEFIELD, controller_id=player.id, object=obj.name,
+                instance_id=obj.instance_id, object_types=sorted(obj.type_words),
+            ))
             return
         obj.zone = Zone.HAND
         player.add_to_zone(obj, Zone.HAND)

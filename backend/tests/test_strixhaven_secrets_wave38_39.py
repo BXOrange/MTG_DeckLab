@@ -17,6 +17,7 @@ from mtg_analyzer.game.binding.core import bind_ability
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
+from tests import turn_history_events as history
 
 WAVE = ["Curse of the Swine", "Forum Filibuster", "Gyome, Master Chef",
         "Jadar, Ghoulcaller of Nephalia"]
@@ -44,11 +45,13 @@ def test_nontoken_creatures_entered_tracker():
                           "nontoken_creatures_you_entered_this_turn") == 0
 
     def add(name, is_tok, is_cre=True):
-        o = GameObject(card=Card(id=name, name=name, type_line="Creature — Bear",
+        o = GameObject(card=Card(id=name, name=name,
+                                 type_line="Creature — Bear" if is_cre else "Land",
                                  is_creature=is_cre), owner_id=p1.id, zone=Zone.HAND)
         o.controller_id = p1.id
         o.is_token = is_tok
         eng.state.add_to_battlefield(o)
+        history.entered(eng.state, o)
 
     add("Real1", False)
     add("Real2", False)

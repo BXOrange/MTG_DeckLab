@@ -44,29 +44,32 @@ its block back into the matching section here.
 
 ## ENG — Game engine
 
-- **ENG-47 · Retire the per-phrase turn trackers and the per-verb amount flags — remaining scope.**
-  Built: turn-stamped events, `GameState.events_this_turn`, the `event_this_turn` condition (a
-  trigger-shaped dict over the turn's log) and its parser (`catalogue/history_phrase.py`). Still
-  open: **(a) migrate the trackers** — 37 `GameState.*_this_turn`/`*_this_combat` trackers with ~125
-  read sites (`continuous.py`, `static_conditions.py`, `effect_conditions.py`), one at a time behind
-  their existing names. The catch, found while sizing it: an event-log reading is only as complete
-  as the event's firing sites — `permanents_left_battlefield_this_turn` is bumped in
-  `remove_from_battlefield` (the single choke point) but `LEAVES_BATTLEFIELD` is fired from five
-  hand-written sites — so first make the event fire from the choke point (or audit every site),
-  then swap the tracker's read sites and delete it; `spells_cast_this_turn` (86 sites) and the
-  per-colour/per-type cast counters are the big ones and come last. Also missing as events: a
-  per-card draw count ("you drew two or more cards this turn" is refused for that reason),
-  token creation ("you created a token"), "descended", "committed a crime". **(b) one amount
-  operand** — 43 effect classes carry 124 `amount_from_*`/`count_from_*`/`amount_if_*` parameters
+- **ENG-47 · Turn-history trackers and per-verb amount flags — remaining scope.** Built:
+  turn-stamped events, `event_this_turn`, and 31 counters derived from the log
+  (`models/game/turn_history.py`). **(a)** What is left of the 37 is not a straight swap:
+  `combats_this_turn` (turn-structure state, bumped in the step machinery),
+  `cards_left_graveyard_this_turn` (its `CARDS_LEFT_GRAVEYARD` event is batched and can fire late),
+  `mana_produced_this_turn` and `planar_die_rolls_this_turn` (no event to derive from),
+  `first_draw_replaced_this_turn` (a replacement flag), and `no_attack_pairs_this_turn` /
+  `declared_blockers_this_combat` (restrictions, not history). Events still missing for history
+  phrases: token creation ("you created a token"), "descended", "committed a crime". **The same
+  mechanism exists twice:** `GameState.spell_watchers` (`arm_spell_watcher` — Dual Strike, Domri,
+  Thunderclap Drake, Autumn's Veil, Veil of Summer, and the parser row at `handlers.py`'s "when you
+  next cast …") is a one-shot, turn-scoped `SPELL_CAST` trigger that runs its effects inline, i.e.
+  what `create_turn_trigger(once)` is (RULE 603.7a, PAR-124); fold it in — the copy-that-spell body
+  then goes on the stack above the spell like any trigger — and so is
+  `TemporaryPlayerTrigger`'s `this_turn` mode (Ruinous Waterbending). **(b) one amount operand** —
+  43 effect classes carry ~120 `amount_from_*`/`count_from_*`/`amount_if_*` parameters
   (`DealDamageEffect` 18; `LoseLifeEffect`/`AddCountersEffect`/`PumpEffect` 10 each —
-  `amount_if_kicked`/`_raid`/`_bargained`/`_teamwork`/`_full_party`/`_cast_from_exile`,
-  `amount_from_life_gained_this_turn`, …) although ENG-37's `bind` (measure X → substitute) and
-  `if_else` (condition → A else B) express both once. PAR-120's generic "where X is the number of …"
-  / "for each `<count>`" already emit `bind`; migrate the older per-verb rows to it and retire each
-  flag as its last user goes, checking every migrated card with an execute test (a `bind` body's
-  magnitude must be exactly one recognised param, and `previous_target` referents read 0 when
-  nothing was targeted). No coverage change on its own (measure with `parser_probe.py diff` and the
-  full suite).
+  `amount_if_kicked`/`_raid`/`_bargained`/`_teamwork`/`_full_party`/`_cast_from_exile`, …) although
+  ENG-37's `bind` (measure X → substitute) and `if_else` (condition → A else B) express both once.
+  Three whose exact equivalent already existed were retired; each of the rest needs either a measure
+  kind `effect_amounts.py` lacks (damage dealt to *that* player this turn, half a player's life,
+  the target's hand size) or a `bind` rewrite of its hand-authored user, checked by an execute test
+  (a `bind` body's magnitude must be exactly one recognised param, and `previous_target` referents
+  read 0 when nothing was targeted; a composition node also does not hand its body's "… this way"
+  tallies to the sentence after it — see `_apply_effects_partitioned`'s restore). No coverage change
+  on its own (measure with `parser_probe.py diff` and the full suite).
 
 ## PAR — Parser
 
@@ -147,36 +150,43 @@ its block back into the matching section here.
 
 - **PAR-119 · Composed trigger-head grammar (event × actor × subject × quantity ×
   qualifier) — remaining axes.** `parser_probe.py composition summary` at PARSER_VERSION
-  450: about 690 distinct trigger heads still block cards whose body parses alone. What is
-  built: the cast head (`catalogue/spell_phrase.py`) and the object head
+  456: about 560 distinct trigger heads still block cards whose body parses alone (mostly
+  one-card heads). Built: the cast head (`catalogue/spell_phrase.py`), the object head
   (`catalogue/object_trigger_head.py`: enters / dies / attacks / blocks / leaves, deals
-  [combat|noncombat] damage [to …], sacrifices / discards `<object>`, "X and whenever Y"),
-  both over `catalogue/characteristic_phrase.py` and `catalogue/trigger_context.py`. Still
-  open, in order of size: **(a) batch quantity** — "N or more X enter / leave / attack /
-  are discarded / are put into a graveyard / deal combat damage" (three event-specific
-  `_BATCH_*_TRIGGER_RE` rows exist; the engine fires one event per object, so a batch needs
-  simultaneous-event grouping, RULE 603.2c, not just a parser row); **(b) attack/block
-  predicates** — "attacks while `<state>`" (saddled, "you control a creature with power N or
-  greater"), "attacks and isn't blocked", "blocks / becomes blocked by `<object phrase>`"
-  (the BLOCKS event needs the other creature's id), "you attack with N or more creatures",
-  "`~` and at least N other creatures attack" (≈100 cards); **(c) zone origin** — "enters
-  from a graveyard/exile", "is put into a graveyard from anywhere/a library" (`from_zone`
-  is stamped on `SPELL_CAST` only); **(d) player-event heads** — "you draw your Nth card each
-  turn", "an opponent loses life", "you gain life during your turn", cycles, land plays;
-  **(e) cast leftovers** — ordinals ("your first spell each turn"), "or copies", "that has
+  [combat|noncombat] damage [to …], sacrifices / discards `<object>`, attack batches over
+  `ATTACKERS_DECLARED`, "isn't blocked", "while `<state>`", the block relation over `related_ids`),
+  the player-event head (`catalogue/player_event_head.py`), and "X and/or whenever Y" splits, over
+  `catalogue/characteristic_phrase.py` and `catalogue/trigger_context.py`. Still open: **(a) batch
+  quantity** — "N or more X enter / leave / are discarded / are put into a graveyard / deal
+  combat damage" (three event-specific `_BATCH_*_TRIGGER_RE` rows exist; the engine fires one event
+  per object, so a batch needs simultaneous-event grouping, RULE 603.2c, not just a parser row);
+  **(b) attack leftovers** — "attacks with your commander", "~ and another legendary creature",
+  "creatures with total power N or greater", "creatures with counters on them" (need a per-attacker
+  state filter or a sum over the declaration) and a body reading "that many" off an attack batch
+  (a new `attackers_declared` amount kind measuring the head's own filter — Lulu, Amazing Alliance,
+  Arthur); **(c) zone origin** — "enters from a graveyard/exile", "is put into a graveyard from
+  anywhere/a library" (`from_zone` is stamped on `SPELL_CAST` only; the ENTERS event has thirteen
+  hand-written fire sites); **(d) player-event leftovers** — "you discard N or more cards" and other
+  per-player batches, "an opponent draws a card except the first N they draw in each of their draw
+  steps", "you're dealt damage", proliferate, "taps a land for mana" (no event); **(e) cast
+  leftovers** — ordinals ("your first spell during each opponent's turn"), "or copies", "that has
   an adventure". Heads that need a *new event* (crank a Contraption, exploit, saddle,
   expend, commit a crime, unlock a door/room) are `MEC-*` work, not composition. **Then
   migrate the legacy rows onto the composed heads** (`_GROUP_SUBJECT_RE`,
   `_GROUP_SUBTYPE_SUBJECT_RE`, `_SELF_OR_GROUP_*`, `_DAMAGE_TRIGGER_RE`,
   `_DAMAGE_RECIPIENT_TRIGGER_RE`, `_BECOMES_TARGET_TRIGGER_RE`, the seven
-  `_CAST_SPELL_TRIGGER_*` rows): emit the legacy condition keys from the composed head so
-  the `AbilitySpec`s are identical, diff the whole cache, delete the row. Known defect to
-  fix in that migration: `_CAST_SPELL_TRIGGER_PLAIN_RE`'s "during an opponent's turn" tail
-  is caster-relative (`not_controllers_turn`), while RULE 102.2 and the composed head's
-  `phase_relation` are controller-relative. Measure each step with `parser_probe.py
-  composition heads --family <f>` and `parser_probe.py diff` (0 regressed), and **execute**
-  a sample of the newly claimed cards — the parse verdict alone hid four wrong-but-MODELED
-  shapes at v450 (see `PARSER_LONG_TAIL.md`).
+  `_CAST_SPELL_TRIGGER_*` rows, `_BATCH_ATTACK_TRIGGER_RE`, the `_PLAYER_TRIGGER_CONDITIONS` "you …"
+  rows): emit the legacy condition keys from the composed head so the `AbilitySpec`s are identical,
+  diff the whole cache, delete the row. Known defect to fix in that migration:
+  `_CAST_SPELL_TRIGGER_PLAIN_RE`'s "during an opponent's turn" tail is caster-relative
+  (`not_controllers_turn`), while RULE 102.2 and the composed head's `phase_relation` are
+  controller-relative. Also open from the "otherwise" fix: Insatiable Appetite / Pippin's Bravery
+  ("you may sacrifice a Food. If you do, X. Otherwise, Y" — a *targeted* then-branch with an else,
+  which `pay_cost_then` cannot carry) and Lorehold Excavation ("if a land card was milled this way …
+  otherwise …" — the milled-card rider row does not take an else). Measure each step with
+  `parser_probe.py composition heads --family <f>` and `parser_probe.py diff`, and **execute** a
+  sample of the newly claimed cards — the parse verdict alone hid wrong-but-MODELED shapes at v450,
+  v455 and v456 (see `PARSER_LONG_TAIL.md`).
 - **PAR-120 · Shared count / filter / condition vocabulary — remaining scope.** Built: the
   structured `{zone, of, filter, distinct}` selector, `catalogue/count_phrase.py`, its consumers
   ("for each `<count>`", the generic "where X is the number of …" / "`<life|cards|damage>`
@@ -214,42 +224,43 @@ its block back into the matching section here.
   do it when touching a verb, and never as a large batch (handler-recipe.md's
   v408 lesson: audit shipped rows, delete strict subsets).
 - **PAR-122 · Trigger-doubler residue.** The composed `trigger_doubler` (cause × subject) is
-  built; what still fails closed is a *player-event cause* ("a player drawing a card" — Krang,
-  "turning a face-down permanent face up" — Panoptic Projektor, "a creature you control becoming
+  built; what still fails closed is a *player-event cause* ("turning a face-down permanent face up" — Panoptic Projektor, "a creature you control becoming
   the target of …" — Valiant Emberkin, "being dealt damage" — Wayta; each needs its head in
   PAR-119's player-event axis first), a *compound subject* ("~ or an Equipment attached to it" —
   Cloud, "another colorless permanent or a colorless spell" — Echoes of Eternity, "while you
   control six or more Shrines" — Sanctum of All), The Fish Brewer's tap-for-extra-copies and
   The Masamune's granted quoted doubler.
-- **PAR-123 · Group-subject pronoun residue.** The parse now stamps a bare "it"/"that
+- **PAR-123 · Group-subject pronoun residue.** The parse stamps a bare "it"/"that
   creature" under a group trigger as the firing object for `tap` / `return_to_hand` /
-  `exile` / blink; what is left is every other effect type that has no pronoun row or no
-  `trigger_subject` mode yet: `pump` ("it gets +0/+1" — Battle Cry, and the whole
-  "whenever a creature … it gets +N/+N" family, unclaimed today), `copy_permanent`, `fight`,
-  and the delayed return in Rienne, Angel of Rebirth ("return it to its owner's hand at
-  the beginning of the next end step" — `create_delayed_trigger`'s `previous_or_self`
-  capture falls back to the source and `return_specific_to_hand` is battlefield-only, so
-  it needs a graveyard-to-hand variant). One wrong claim is known and small: Dragon Tempest's
-  "**it** deals X damage" is dealt by the Enchantment, not the entering Dragon (visible only
-  through lifelink / deathtouch / protection); the `damage` dealer needs the same
+  `exile` / blink, and the plain "it gets +N/+N [and gains `<keyword>`] until end of turn" /
+  "it gains `<keyword>`" pump reads it too (`PumpEffect.trigger_subject`). Still open: the
+  amount forms of that pump ("it gets +X/+X where X …", "+1/+0 for each …" — Angelic Exaltation,
+  Asari Captain, Shared Animosity, Thoughtweft Imbuer; a `bind` over the trigger subject), "it
+  fights …" (Boxing Ring), "it deals damage equal to its power" (Stalking Vengeance, Warstorm
+  Surge), `copy_permanent`, and the delayed return in Rienne, Angel of Rebirth ("return it to
+  its owner's hand at the beginning of the next end step" — `create_delayed_trigger`'s
+  `previous_or_self` capture falls back to the source and `return_specific_to_hand` is
+  battlefield-only, so it needs a graveyard-to-hand variant). One wrong claim is known and small:
+  Dragon Tempest's "**it** deals X damage" is dealt by the Enchantment, not the entering Dragon
+  (visible only through lifelink / deathtouch / protection); the `damage` dealer needs the same
   `trigger_subject` mode. A bare "it" under a `self_or_group` subject stays refused by the
   composed head (Kappa Cannoneer's correct only because "~" is named first). Add each effect
-  type as it is exercised, and execute the card, as the tests in
-  `test_par123_group_pronoun.py` do.
+  type as it is exercised, and execute the card, as `test_par123_group_pronoun.py` does.
 - **PAR-124 · Turn-scoped trigger residue.** `create_turn_trigger` /
-  `GameState.turn_scoped_triggers` exist and 9 spells use them; 21 instants and sorceries
-  with "… this turn" / "until end of turn, whenever …" text are still unclaimed:
-  the "when you next cast an instant or sorcery spell this turn, copy that spell" family
-  (Doublecast, Dual Strike, Complete the Circuit — the `once` mode is built, the body "copy
-  that spell. You may choose new targets" does not parse under a cast trigger; Bonus Round's
-  `copy_spell` is the shape to reuse), the pump-the-firing-creature family (Battle Cry,
-  Consuming Rage — plus "destroy that creature at end of combat" — Descend on the Prey —
-  plus "must be blocked this turn if able"), player-event heads that need PAR-119's
-  player-event axis (Bubbling Muck / High Tide "whenever a player taps a land for mana …
-  adds an additional", False Cure "whenever a player gains life"), and twelve not yet
-  diagnosed (Consumed by History, Forth Eorlingas!, Galvanic Iteration, Gaze of Pain,
-  Graceful Reprieve, Howl of the Horde, Pure Intentions, Spellchain Scatter, Spiritualize,
-  Storm King's Thunder, Teach by Example, Theoretical Duplication — start with
+  `GameState.turn_scoped_triggers` exist and 13 spells use them, including the "when you next cast
+  an instant or sorcery spell this turn, copy that spell" family (Doublecast, Galvanic
+  Iteration, Teach by Example; Dual Strike is hand-authored on `spell_watchers` — see ENG-47). 17
+  instants and sorceries with "… this turn" / "until end of turn, whenever …" text are still
+  unclaimed: "copy that spell **X times**" (Storm King's Thunder), Howl of the Horde's "an
+  additional time" second clause, Complete the Circuit's "cast sorcery spells this turn as though
+  they had flash" line and Spellchain Scatter's "conjure a duplicate"; the pump-the-firing-creature
+  spells whose second effect is not yet a row (Consuming Rage — "destroy that creature at end of
+  combat" after a group "it gets" — Descend on the Prey — "must be blocked this turn if able" —
+  Battle Cry's "untap all white creatures you control"); player-event heads that need PAR-119's
+  event work (Bubbling Muck / High Tide "whenever a player taps a land for mana … adds an
+  additional", False Cure "whenever a player gains life … for each 1 life they gained",
+  Spiritualize "whenever target creature deals damage"); and Consumed by History, Forth Eorlingas!,
+  Gaze of Pain, Graceful Reprieve, Pure Intentions, Theoretical Duplication (start with
   `parser_probe.py card`). Ruinous Waterbending and Nuka-Nuke Launcher still install a
   filterless `TemporaryPlayerTrigger`; the `this_turn` mode of it is a subset of
   `TurnScopedTrigger` and could move onto `create_turn_trigger`.

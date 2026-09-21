@@ -516,14 +516,6 @@ class ManaCountersMixin:
             if resolved is None:
                 return
             _place(resolved.get("amount", amount))
-            # "if you put a counter on a creature this turn" (Lasting Tarfire)
-            # — a per-turn history question no board scan can answer; record
-            # the causer here, keyed by the same causer-scoped
-            # ``source_controller_id`` the event already carries.
-            if resolved.get("recipient_is_creature") and resolved.get("amount", 0) > 0:
-                _scid = resolved.get("source_controller_id")
-                if _scid is not None:
-                    self.state.counter_placed_on_creature_this_turn.add(_scid)
             # "Whenever a -1/-1 counter is put on a creature, …" (Flourishing
             # Defenses) / "…on a permanent you control, …" (Hardened Scales-
             # adjacent triggered, not just replacement, consumers) — RULE

@@ -42,6 +42,7 @@ from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.catalogue.static_handlers import static_effect_specs
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
+from tests import turn_history_events as history
 
 
 def _creature(name, oracle_text="", power=2, toughness=2, keywords=None):
@@ -134,7 +135,7 @@ def test_condition_holds_reads_the_new_state_flag():
     assert static_conditions.condition_holds(
         {"kind": "cast_instant_or_sorcery_this_turn"}, state, controller_id="p1"
     ) is False
-    state.cast_instant_or_sorcery_this_turn["p1"] = True
+    history.cast_spell(state, "p1", types=["instant"])
     assert static_conditions.condition_holds(
         {"kind": "cast_instant_or_sorcery_this_turn"}, state, controller_id="p1"
     ) is True
@@ -158,8 +159,9 @@ def test_spell_cast_event_flips_the_flag_only_for_instants_and_sorceries():
 def test_flag_resets_for_every_player_at_begin_turn_not_just_the_active_one():
     eng = _engine()
     state = eng.state
-    state.cast_instant_or_sorcery_this_turn["p1"] = True
-    state.cast_instant_or_sorcery_this_turn["p2"] = True
+    history.cast_spell(state, "p1", types=["instant"])
+    history.cast_spell(state, "p2", types=["sorcery"])
+    assert state.cast_instant_or_sorcery_this_turn["p1"] and state.cast_instant_or_sorcery_this_turn["p2"]
     eng.begin_turn()
     assert state.cast_instant_or_sorcery_this_turn[state.active_player.id] is False
     # game-wide reset — the *other* player's flag is cleared too, unlike
@@ -203,7 +205,7 @@ def test_activation_condition_blocks_and_permits_activation():
     source.activated_abilities = [ability]
 
     assert eng.can_activate(p1, source, ability) is False
-    eng.state.cast_instant_or_sorcery_this_turn["p1"] = True
+    history.cast_spell(eng.state, "p1", types=["instant"])
     assert eng.can_activate(p1, source, ability) is True
 
 

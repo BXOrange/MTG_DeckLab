@@ -8,6 +8,7 @@ from mtg_analyzer.game.effects.core import _is_prime
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
+from tests import turn_history_events as history
 
 
 def test_is_prime():
@@ -66,7 +67,8 @@ def test_makes_primo_when_prime_land_count_and_land_entered():
                        owner_id="p1", zone=Zone.LIBRARY)
     land5.controller_id = "p1"
     eng.state.player_by_id("p1").add_to_zone(land5, Zone.LIBRARY)
-    eng.state.add_to_battlefield(land5)  # goes through add_to_battlefield -> tracker++
+    eng.state.add_to_battlefield(land5)
+    history.entered(eng.state, land5)  # what the engine's entry paths fire
 
     eng.rules._apply_effect_specs(
         [{"type": "zimone_all_questioning_end_step", "params": {}}], zim,
@@ -107,7 +109,6 @@ def test_no_primo_when_no_land_entered_this_turn():
     eng.state.add_to_battlefield(zim)
     bind_from_catalogue(zim)
     _mk_lands(eng, "p1", 5)  # prime, but none "entered" this turn per the tracker
-    eng.state.lands_entered_this_turn["p1"] = 0
     eng.rules._apply_effect_specs(
         [{"type": "zimone_all_questioning_end_step", "params": {}}], zim,
     )

@@ -102,6 +102,17 @@ def _saga_final_chapter(card: Card) -> int:
     return max(all_chapter_numbers(card.oracle_text or ""), default=0)
 
 
+def _cast_history_traits(obj: "GameObject") -> dict[str, Any]:
+    """The spell's colours and subtype words, stamped on its SPELL_CAST event so the
+    per-turn history ("if an opponent has cast a blue or black spell this turn", "the
+    first Dragon spell you cast each turn") is derivable from the event alone — the cast
+    object is no longer findable once it has resolved."""
+    return {
+        "colors": sorted(obj.colors),
+        "subtypes": obj.card.type_line.partition("—")[2].strip().lower().split(),
+    }
+
+
 def _targets_a_permanent(targets: Optional[list[Any]]) -> bool:
     """Whether a spell's chosen ``targets`` include at least one permanent
     (a `GameObject` currently on the battlefield) — RULE 608.2b's own
@@ -796,10 +807,10 @@ class CastingResolutionMixin:
                 # permanents, incubate 2." (Tiller of Flesh) — RULE 608.2b.
                 targets_a_permanent=_targets_a_permanent(targets),
                 target_instance_ids=_target_instance_ids(targets),
+                # What `GameState`'s per-turn cast tallies (`turn_history`) read back.
+                **_cast_history_traits(obj),
             )
         )
-        if "{X}" in (getattr(obj.card, "mana_cost_string", "") or "").upper():
-            self.state.cast_x_spell_this_turn.add(player.id)
         self.check_ward(item, player)
         return item
     def cast_without_paying(
@@ -886,10 +897,10 @@ class CastingResolutionMixin:
                 ),
                 targets_a_permanent=_targets_a_permanent(targets),
                 target_instance_ids=_target_instance_ids(targets),
+                # What `GameState`'s per-turn cast tallies (`turn_history`) read back.
+                **_cast_history_traits(obj),
             )
         )
-        if "{X}" in (getattr(obj.card, "mana_cost_string", "") or "").upper():
-            self.state.cast_x_spell_this_turn.add(player.id)
         self.check_ward(item, player)
         return item
     @contextmanager
@@ -1912,7 +1923,6 @@ class CastingResolutionMixin:
         if land is not None and player is not None and land in player.hand:
             player.remove_from_zone(land, Zone.HAND)
             player.add_to_zone(land, Zone.GRAVEYARD)
-            self._note_discarded(player.id)
             self.state.fire_event(
                 GameEvent(
                     EventType.DISCARD_CARD, player_id=player.id, instance_id=land.instance_id,

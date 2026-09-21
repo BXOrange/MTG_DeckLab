@@ -197,3 +197,43 @@ def test_baloth_primes_untap_hits_the_source_only():
     engine.resolve_until_stable()
     assert prime.tapped is False
     assert land.tapped is True
+
+
+# ---------------------------------------------------------------------------
+# "it gets +N/+N [and gains …] until end of turn" under a group trigger
+# ---------------------------------------------------------------------------
+
+
+def _power(state, obj) -> int:
+    from mtg_analyzer.game import continuous  # noqa: F401  (recompute below)
+
+    return obj.power
+
+
+def test_the_attacker_that_fired_the_trigger_gets_the_pump_not_the_enchantment():
+    engine, state = _engine()
+    state.current_step = "declare_attackers"
+    charge = _put(state, "Whenever a creature you control attacks, it gets +2/+2 until end of turn.",
+                  name="Charge", types="Enchantment")
+    attacker = _creature(state, "Attacker")
+    bystander = _creature(state, "Bystander")
+    attacker.summoning_sick = False
+    engine.declare_attackers(state.active_player, [attacker])
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    assert attacker.power == 3          # printed 1, +2
+    assert bystander.power == 1
+    assert charge.card.power is None
+
+
+def test_a_pump_that_grants_a_keyword_too():
+    engine, state = _engine()
+    _put(state, "Whenever a creature you control enters, it gets +2/+0 and gains haste until end of turn.",
+         name="Web", types="Enchantment")
+    late = _creature(state, "Late")
+    from tests.test_par119_object_trigger_head import _fire_enter
+
+    _fire_enter(engine, state, late)
+    engine.recompute_continuous_effects()
+    assert late.power == 3
+    assert "haste" in {k.lower() for k in late.granted_keywords} | {k.lower() for k in late.temp_keywords}

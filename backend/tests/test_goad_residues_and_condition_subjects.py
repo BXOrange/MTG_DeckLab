@@ -41,6 +41,7 @@ from mtg_analyzer.parser.oracle.catalogue.static_handlers import (
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import segment_line
 from mtg_analyzer.parser.oracle.spec import ParserProvenance
+from tests import turn_history_events as history
 
 
 def _creature(name, oracle_text="", power=2, toughness=2, keywords=None,
@@ -154,7 +155,7 @@ def test_drawn_cards_this_turn_condition():
     eng = _engine()
     condition = {"kind": "drawn_cards_at_least", "amount": 2}
     assert static_conditions.condition_holds(condition, eng.state, None, "p1") is False
-    eng.state.cards_drawn_this_turn["p1"] = 2
+    history.draw(eng.state, "p1", count=2)
     assert static_conditions.condition_holds(condition, eng.state, None, "p1") is True
     # Scoped to the named player, not to whoever drew most.
     assert static_conditions.condition_holds(condition, eng.state, None, "p2") is False
