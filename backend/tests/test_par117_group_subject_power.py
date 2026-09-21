@@ -139,6 +139,7 @@ def test_real_cards_become_modeled():
         "Kiora, Behemoth Beckoner", "Kronch Wrangler", "Mighty Emergence",
         "Temur Ascendancy", "Territorial Boar", "Marketwatch Phantom",
         "Mentor of the Meek",
+        "Life Finds a Way",  # head: PAR-119's composed object head; body: populate
     ):
         card = _db().get_card(name)
         result = parse_oracle(card)
@@ -147,7 +148,7 @@ def test_real_cards_become_modeled():
 
 def test_still_unmodeled_on_unrelated_gaps():
     for name in (
-        "Cavalcade of Calamity", "Life Finds a Way",
+        "Cavalcade of Calamity",
         "Raid Bombardment", "Subira, Tulzidi Caravanner", "Where Ancients Tread",
     ):
         card = _db().get_card(name)

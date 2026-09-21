@@ -583,9 +583,31 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 46.7% (16,247 / 34,811) as of 2026-09-21, measured at
-PARSER_VERSION 448**; the Commander-legal slice is **49.0% (15,609 /
-31,830)**. v448 closes PAR-98's small verified residue batch #2 (reflexive
+**Coverage: 48.5% (16,896 / 34,811) as of 2026-09-21, measured at
+PARSER_VERSION 454**; the Commander-legal slice is **51.0% (16,245 /
+31,830)**. v454 is a pure de-duplication (PAR-121: the four "`<sacrifice | destroy | tap | exile>` ~ unless you pay" rows became one, specs of 489 cards byte-identical). v453 adds ENG-47's turn history: every fired event is stamped with its turn and a
+"… this turn" condition is one `event_this_turn` — the head of a trigger in the past tense,
+evaluated by the binder's own predicate over the turn's event log — instead of a tracker per
+phrase (+47, 0 regressed; migrating the 37 existing trackers is still open). v452 opens PAR-120's shared count vocabulary: a count phrase ("creatures you
+control", "creature cards in your graveyard", "creatures with different powers") becomes a
+structured `{zone, of, filter, distinct}` selector (`catalogue/count_phrase.py`,
+evaluated by `continuous.count_selector` through `matches_object_filter`) feeding "for each
+`<count>`", "where X is the number of …" and the count comparators of a leading "if" — +350,
+0 regressed; an ordering bug in the named condition rows had blocked every open-vocabulary "if
+you control a `<Type>`". v451 closes PAR-122's doubler axis: "triggers an additional time" is one
+`trigger_doubler` spec built from a subject filter and a trigger-shaped cause (the
+seven hand-authored doublers migrated onto it, six flat flags retired), and the
+legacy tribal rows now accept only real subtypes. v450 extends PAR-119's composed head to the object events (enters/
+dies/attacks/blocks/leaves), sacrifice, discard and damage: one subject noun
+phrase (`catalogue/characteristic_phrase.py`, subtypes from the generated
+`subtype_vocabulary.py`) becomes a `filter` dict the binder evaluates against the
+acting object's last-known values — +146, 0 regressed, and audits of the newly
+claimed cards fixed several wrong-but-MODELED shapes. v449 opens PAR-119's composed trigger-head grammar with its pilot
+axis, the cast-spell filter (`catalogue/spell_phrase.py` +
+`catalogue/characteristic_phrase.py`: one head built from shared word tables,
+read at bind time through the `spell_filter` predicate over
+`combat.matches_object_filter` — +86, 0 regressed; find the next shared axis
+with `parser_probe.py composition`). v448 closes PAR-98's small verified residue batch #2 (reflexive
 tap-then-return, the "except by creatures with haste" family, the last-time-
 counter trigger); v447 closes PAR-97's graveyard-entry mill batch triggers; v446
 closes PAR-96's total-mana cast-trigger riders; v445 closes

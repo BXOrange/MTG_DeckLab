@@ -726,6 +726,7 @@ class CastingResolutionMixin:
         # from their hand" (Possibility Storm) reads it as the event's
         # ``from_hand`` key.
         from_hand = obj.zone == Zone.HAND
+        cast_from_zone = obj.zone.value
         obj.cast_from_exile = obj.zone == Zone.EXILE
         obj.was_cast = True
         # Zone-agnostic (not just hand/command) so an Adventure creature can
@@ -759,6 +760,8 @@ class CastingResolutionMixin:
                 instance_id=obj.instance_id, object_types=sorted(obj.type_words),
                 mana_spent=obj.mana_spent_to_cast,
                 from_hand=from_hand,
+                # PAR-119: the zone the spell was cast from ("from your graveyard", "from anywhere other than your hand").
+                from_zone=cast_from_zone,
                 # RULE 601.2a: cast from exile (Passionate Archaeologist's
                 # granted "whenever you cast a spell from exile" trigger).
                 from_exile=getattr(obj, "cast_from_exile", False),
@@ -826,6 +829,7 @@ class CastingResolutionMixin:
         if target_groups is not None and targets is None:
             targets = [t for group in target_groups for t in group]
         from_hand = obj.zone == Zone.HAND
+        cast_from_zone = obj.zone.value
         obj.cast_from_exile = obj.zone == Zone.EXILE
         obj.was_cast = True
         self._remove_from_current_zone(player, obj)
@@ -863,6 +867,8 @@ class CastingResolutionMixin:
                 free=True,
                 mana_spent=0,
                 from_hand=from_hand,
+                # PAR-119: the zone the spell was cast from ("from your graveyard", "from anywhere other than your hand").
+                from_zone=cast_from_zone,
                 # RULE 601.2a: cast from exile (Passionate Archaeologist's
                 # granted "whenever you cast a spell from exile" trigger).
                 from_exile=getattr(obj, "cast_from_exile", False),

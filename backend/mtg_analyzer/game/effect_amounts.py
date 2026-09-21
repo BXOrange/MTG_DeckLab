@@ -204,7 +204,12 @@ def _base(
         selector = amount.get("selector")
         if not selector:
             return 0
-        return int(count_selector(context.state, controller_id, str(selector), source=source) or 0)
+        return int(
+            count_selector(
+                context.state, controller_id,
+                selector if isinstance(selector, dict) else str(selector), source=source,
+            ) or 0
+        )
 
     if kind == "player_count":
         return len(_players(context, controller_id, str(amount.get("scope", "each_player"))))
@@ -254,7 +259,17 @@ def _base(
         counter = str(amount.get("counter", ""))
         if not counter or subject is None:
             return 0
-        return int((getattr(subject, "counters", None) or {}).get(counter, 0) or 0)
+        counters = getattr(subject, "counters", None) or {}
+        # RULE 603.10a: a leaves-the-battlefield / dies trigger about ``subject``
+        # itself counts the counters it had *then* — the object is already in
+        # another zone by the time the ability resolves, with its counters gone.
+        event = getattr(context, "trigger_event", None) or {}
+        if (
+            event.get("counters") is not None
+            and event.get("instance_id") == getattr(subject, "instance_id", None)
+        ):
+            counters = event.get("counters")
+        return int(counters.get(counter, 0) or 0)
 
     if kind == "counters_among_creatures":
         player_id = getattr(subject, "id", None)

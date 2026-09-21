@@ -30,7 +30,9 @@ def _delney_streetwise_lookout() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "static",
-            [EffectSpec("trigger_doubler", {"max_power": 2})],
+            [EffectSpec("trigger_doubler", {
+                "subject": {"filter": {"card_type": "creature", "max_power": 2}},
+            })],
         ),
     ]
 

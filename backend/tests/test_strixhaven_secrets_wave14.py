@@ -41,11 +41,14 @@ def test_color_cast_trigger_claimed(clause, color):
     assert "spell_card_types" not in seg.spec.trigger
 
 
-def test_colorless_spell_cast_stays_unclaimed():
+def test_colorless_spell_cast_is_not_folded_into_cast_of_color():
     # `cast_of_color` is a membership check, not an empty-identity one —
-    # "colorless" must not fold in.
+    # "colorless" must not fold in. PAR-119 gives it its own filter key
+    # (`spell_filter={"colorless": True}`, an empty-colour-set test).
     seg = _seg("whenever you cast a colorless spell, you draw a card")
-    assert not seg.claimed
+    assert seg.claimed
+    assert "cast_of_color" not in seg.spec.trigger
+    assert seg.spec.trigger["spell_filter"] == {"colorless": True}
 
 
 def test_main_type_cast_trigger_unchanged():

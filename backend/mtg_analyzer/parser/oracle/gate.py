@@ -3412,7 +3412,76 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: +18 (Edric, Essence/Brood/Synapse Sliver, Rakish Heir, Stensia
 #: Masquerade, and 12 bonus cards sharing the widened subtype/group-subject
 #: axis outside this ticket's own search phrase), 0 regressed.
-PARSER_VERSION = "448"
+#: v449 opens PAR-119 (composed trigger-head grammar) with its pilot axis, the
+#: cast-spell filter: `catalogue/spell_phrase.py` + `catalogue/characteristic_
+#: phrase.py` build one `SPELL_CAST` head from shared word tables (multicolored/
+#: colorless/legendary/kicked, colour and type alternations, `with mana value|
+#: power N or greater|less`, `with <keyword>`, "of the chosen color/type",
+#: "from your graveyard / exile / anywhere other than your hand", "you don't
+#: own", "that targets a `<filter>` [you control]", "during your/an opponent's
+#: turn") instead of one regex + dispatch block per combination. Tried only
+#: after every legacy cast row declined, and `when` now reads like `whenever`.
+#: +76 (`parser_probe.py diff`), 0 regressed.
+#: v450 extends PAR-119's composed head to the object events (enters / dies /
+#: attacks / blocks / leaves the battlefield): `catalogue/object_trigger_head.py`
+#: reads one subject noun phrase (`characteristic_phrase.parse_object_phrase` —
+#: adjectives, card types, the generated `subtype_vocabulary`, colours, `with
+#: <qualifier>`, "of the chosen type") × one or two verbs × shared tails, into a
+#: `{"subject": "group", "filter": …}` condition the binder reads through
+#: `combat.matches_object_filter` (last-known values for a departure, RULE
+#: 603.10a). Also splits "when X and whenever Y, Z" into two triggers, and lets a
+#: "pay {cost}, then return this card" trigger function from the graveyard. Tried
+#: only after the per-adjective regexes decline. The same head also reads
+#: "<player> sacrifices/discards <object>" (SACRIFICE / DISCARD_CARD, the object
+#: filtered through last-known values) and "<subject> deals [combat|noncombat]
+#: damage [to <recipient>]" (DAMAGE; recipient a player, "an opponent", "you" or an
+#: object phrase). Audits of the newly claimed cards fixed three pre-existing
+#: wrong-but-MODELED shapes: "for each `<counter>` counter on it" under a
+#: self-subject trigger now reads the source's last-known counters, a "for each"
+#: with a printed magnitude above 1 multiplies instead of replacing it, and the
+#: composed group head refuses a bare "it" that would act on the source. +138
+#: (`parser_probe.py diff`), 0 regressed.
+#: v451 closes the doubler axis of PAR-122: `catalogue/trigger_doubler.py` reads
+#: "if a triggered ability of `<subject>` triggers" / "if `<cause>` causes a
+#: triggered ability of a permanent you control to trigger" into one
+#: `trigger_doubler` spec built from a *subject* (a `matches_object_filter` dict
+#: on the doubled permanent, plus "another"/"equipped") and a *cause* (a
+#: trigger-shaped dict answered by the binder's own `_trigger_condition`, so "a
+#: creature you control attacking" means "whenever a creature you control
+#: attacks"), with an `active_if` gate for "as long as …"; the seven hand-authored
+#: doublers were migrated onto it and `TriggerDoublerEffect`'s six flat flags
+#: retired. The legacy tribal rows now accept only real subtypes (from
+#: `subtype_vocabulary`), and the shared grammar reads "commander", "outlaw" and
+#: "historic" for what they are — claimed-but-never-firing "subtype" triggers
+#: (Keleth, Vial Smasher, Traveling Chocobo's cause) now parse correctly. +19,
+#: 0 regressed.
+#: v452 opens PAR-120's shared count vocabulary: `catalogue/count_phrase.py` reads a
+#: count phrase ("creatures you control", "creature cards in your graveyard", "lands
+#: your opponents control", "creatures with different powers") with the shared
+#: noun-phrase grammar into a structured `{zone, of, filter, distinct}` selector that
+#: `continuous.count_selector` evaluates through `matches_object_filter`. It feeds
+#: "for each `<count>`" amounts, the generic "where X is the number of …" / "`<life|
+#: cards|damage>` equal to the number of …" bind, and the comparator half of a leading
+#: "if" / "as long as" (`control_count`, and the new `opponent_has_more`) — including
+#: the open-vocabulary "you control a Wizard / an Ajani planeswalker / three or more
+#: Gates" templates the older named row declined. A named condition row that matches but
+#: has no reading no longer blocks the count grammar. A bare "on it" is now refused unless
+#: it names the source or an announced target, and `bind` amounts are shape-checked like
+#: every other measurement. +203 +147, 0 regressed.
+#: v453 adds ENG-47's turn history: every fired event is stamped with its turn
+#: (`GameEvent.turn`, set by `GameState.fire_event`), `GameState.events_this_turn`
+#: walks the log back to the first earlier turn, and a "… this turn" condition —
+#: `catalogue/history_phrase.py` reads it as the head of a trigger in the past tense
+#: ("a creature you controlled died", "you haven't cast a spell from your hand",
+#: "two or more nonland permanents entered the battlefield under your control") — is one
+#: `event_this_turn` condition (a trigger-shaped dict, evaluated by the binder's own
+#: predicate over the turn's log) instead of a hand-kept tracker per phrase. +47,
+#: 0 regressed.
+#: v454 is a pure de-duplication (PAR-121, no classification change): the four "`<sacrifice
+#: | destroy | tap | exile>` ~ unless you pay `<cost>`" rows became one over the leading
+#: verb; the specs of all 489 cards with "unless you" text are byte-identical before and
+#: after.
+PARSER_VERSION = "454"
 
 
 def parser_source_hash() -> str:

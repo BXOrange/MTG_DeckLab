@@ -155,6 +155,16 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # Archaeomancer's Map, Claim Jumper, PAR-60) — true when any one
         # opponent's land count exceeds the controller's.
         "opponent_controls_more_lands",
+        # PAR-120: the general form — some one opponent's count of a structured
+        # ``selector`` exceeds the controller's ("an opponent controls more
+        # creatures than you"). `opponent_controls_more_lands` is its special case.
+        "opponent_has_more",  # + ``selector``
+        # ENG-47: "…happened this turn" — how many events of the current turn match a
+        # trigger-shaped ``trigger`` dict (the same ``event`` / ``condition`` /
+        # ``filter`` keys a triggered ability of that shape carries), read off the
+        # turn-stamped `GameState.event_log`. + ``min``/``max``. Replaces one
+        # hand-kept `*_this_turn` tracker per phrase.
+        "event_this_turn",
         # "if there are N or more <type> and/or <type> cards in your
         # graveyard" (Lorehold Archivist, PAR-60). + ``types`` + ``amount``.
         "graveyard_card_type_count_at_least",
@@ -420,6 +430,54 @@ def _subject(
     return None
 
 
+def _events_this_turn_matching(
+    state: Any, trigger: dict[str, Any], source: Any, controller_id: str
+) -> int:
+    """How many events of the current turn a trigger-shaped dict matches (ENG-47).
+
+    The predicate is the binder's own `_trigger_condition` — so "a creature you
+    controlled died this turn" means exactly what "whenever a creature you control
+    dies" means, including a departed object's last-known values — evaluated against
+    the logged events, with ``source`` (or, for a condition with none, the asking
+    player) standing in for "you".
+    """
+    from types import SimpleNamespace
+
+    from .binding.core import _trigger_condition  # local: binding imports this module
+
+    events = trigger["event"] if isinstance(trigger["event"], (list, tuple)) else [trigger["event"]]
+    asker = source if source is not None else SimpleNamespace(
+        controller_id=controller_id, instance_id=None
+    )
+    context = SimpleNamespace(state=state)
+    predicates = {
+        name: _trigger_condition({**trigger, "event": name}, asker) for name in events
+    }
+    count = 0
+    for event in state.events_this_turn():
+        name = getattr(event.type, "name", str(event.type))
+        if name not in predicates:
+            continue
+        predicate = predicates[name]
+        if predicate is None or predicate(event, context):
+            count += 1
+    return count
+
+
+def _selector_arg(selector: Any) -> Any:
+    """A count selector as `continuous.count_selector` takes it: a structured dict as
+    is, anything else as its string name."""
+    return selector if isinstance(selector, dict) else str(selector)
+
+
+def _selector_label(selector: Any) -> str:
+    """A short human label for a selector (named, or a structured dict)."""
+    if not isinstance(selector, dict):
+        return str(selector)
+    filt = ", ".join(str(v) if v is not True else str(k) for k, v in (selector.get("filter") or {}).items())
+    return f"{selector.get('zone', 'battlefield')}/{selector.get('of', 'you')}" + (f" [{filt}]" if filt else "")
+
+
 def condition_holds(
     condition: Optional[dict[str, Any]],
     state: "GameState",
@@ -637,7 +695,7 @@ def condition_holds(
             # permanent rather than the board; it was omitted here while no
             # static named one, and `effect_conditions` routes the shipped
             # ``count_selector_at_least`` gate through this row (ENG-36).
-            n = count_selector(state, controller_id, str(selector), source=source)
+            n = count_selector(state, controller_id, _selector_arg(selector), source=source)
         minimum = condition.get("min")
         maximum = condition.get("max")
         if minimum is not None and n < int(minimum):
@@ -686,13 +744,41 @@ def condition_holds(
         for other in getattr(state, "players", []):
             if other.id == controller_id:
                 continue
-            n = count_selector(state, other.id, str(selector))
+            n = count_selector(state, other.id, _selector_arg(selector), source=source)
             if minimum is not None and n < int(minimum):
                 continue
             if maximum is not None and n > int(maximum):
                 continue
             return True
         return False
+    if kind == "event_this_turn":
+        trigger = condition.get("trigger")
+        if not isinstance(trigger, dict) or controller_id is None:
+            return False
+        n = _events_this_turn_matching(state, trigger, source, controller_id)
+        minimum = condition.get("min")
+        maximum = condition.get("max")
+        if minimum is not None and n < int(minimum):
+            return False
+        if maximum is not None and n > int(maximum):
+            return False
+        return True
+    if kind == "opponent_has_more":
+        # "…if an opponent controls more lands than you" — some one opponent's
+        # count of the selector exceeds the ability controller's own (RULE 107.1
+        # comparison of two counts of the same structured selector, each read from
+        # its own player's point of view).
+        from .continuous import count_selector  # local: continuous imports this module
+
+        selector = condition.get("selector")
+        if not selector or controller_id is None:
+            return False
+        mine = count_selector(state, controller_id, _selector_arg(selector), source=source)
+        return any(
+            count_selector(state, other.id, _selector_arg(selector), source=source) > mine
+            for other in getattr(state, "players", [])
+            if other.id != controller_id
+        )
     if kind == "control_named":
         # "As long as you control a <specific card>" — matched on name, the
         # only stable identity a parsed condition can carry (an instance id
@@ -1076,9 +1162,13 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
     if kind == "source_counters":
         return prefix + f"≥{condition.get('min', 1)} {condition.get('counter', 'Marken')}"
     if kind == "control_count":
-        return f"solange ≥{condition.get('min', 1)} {condition.get('selector', '')}"
+        return f"solange ≥{condition.get('min', 1)} {_selector_label(condition.get('selector', ''))}"
     if kind == "opponent_count":
-        return f"solange Gegner ≥{condition.get('min', 1)} {condition.get('selector', '')}"
+        return f"solange Gegner ≥{condition.get('min', 1)} {_selector_label(condition.get('selector', ''))}"
+    if kind == "opponent_has_more":
+        return f"solange ein Gegner mehr hat als du: {_selector_label(condition.get('selector', ''))}"
+    if kind == "event_this_turn":
+        return f"falls diesen Zug {condition.get('trigger', {}).get('event', '')} eingetreten ist"
     if kind == "control_named":
         return f"solange du {condition.get('name', '')} kontrollierst"
     if kind == "drawn_cards_at_least":

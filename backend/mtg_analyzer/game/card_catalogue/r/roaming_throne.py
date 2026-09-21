@@ -39,7 +39,12 @@ def _roaming_throne() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "static",
-            [EffectSpec("trigger_doubler", {})],
+            [EffectSpec("trigger_doubler", {
+                "subject": {
+                    "filter": {"card_type": "creature", "subtype_from_source": True},
+                    "other": True,
+                },
+            })],
         ),
     ]
 

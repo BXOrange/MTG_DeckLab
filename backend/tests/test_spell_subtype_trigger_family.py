@@ -68,7 +68,7 @@ def test_cast_unrecognized_word_spell_trigger_stays_unclaimed():
     )
     assert seg.claimed  # sanity: this one IS a real main type
     seg2 = segment_line(
-        "whenever you cast a kicked spell, draw a card.",
+        "whenever you cast a frobnicated spell, draw a card.",
         allow_spell_effect=False, provenance=ParserProvenance(),
     )
     assert not seg2.claimed

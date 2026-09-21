@@ -18,7 +18,7 @@ import copy
 import itertools
 import uuid
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Iterator, Optional
 
 from .events import EventType, GameEvent
 from .game_object import GameObject, Zone
@@ -1571,10 +1571,23 @@ class GameState:
         ``fire_event`` (the event here is what actually happened), and
         triggered abilities are queued by subscribers.
         """
+        event.turn = self.internal_turn.number
         self.event_log.append(event)
         for subscriber in list(self._subscribers):
             subscriber(event)
         return event
+
+    def events_this_turn(self) -> "Iterator[GameEvent]":
+        """Every event fired in the current turn, newest first (ENG-47).
+
+        The log is chronological and every fired event is turn-stamped, so this stops
+        at the first event of an earlier turn instead of scanning the whole game.
+        """
+        current = self.internal_turn.number
+        for event in reversed(self.event_log):
+            if event.turn != current:
+                break
+            yield event
 
     def to_dict(self) -> dict[str, Any]:
         self.internal_turn.player_id = self.active_player.id

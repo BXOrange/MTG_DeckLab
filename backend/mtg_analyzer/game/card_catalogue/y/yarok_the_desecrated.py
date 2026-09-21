@@ -7,7 +7,12 @@ from ...card_registry.core import register
 
 def _yarok_the_desecrated() -> list[AbilitySpec]:
     return [AbilitySpec(
-        "static", [EffectSpec("trigger_doubler", {"cause_filter": [EventType.ENTERS_BATTLEFIELD]})],
+        "static", [EffectSpec("trigger_doubler", {
+            "cause": {
+                "event": "ENTERS_BATTLEFIELD",
+                "condition": {"subject": "group", "controller": "any", "other": False},
+            },
+        })],
     )]
 
 

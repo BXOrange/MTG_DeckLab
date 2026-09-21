@@ -1,0 +1,252 @@
+"""The condition of an object-event trigger → event(s) + subject scope (PAR-119).
+
+``whenever <subject> <verb> [or <verb>] [tails], …`` for the object events —
+enters, dies, attacks, blocks, leaves the battlefield, deals [combat] damage [to
+<recipient>] — and ``whenever <player> <verb> <object>`` for the events a player
+does *to* an object (sacrifice, discard)::
+
+    "another nontoken creature you control dies"
+    "a creature you control with power 4 or greater enters"
+    "your commander enters or attacks"
+    "~ or another legendary creature you control enters"
+    "a land enters during your turn"
+    "whenever you sacrifice another permanent"
+    "whenever an opponent discards a creature card"
+    "whenever a creature you control with a counter on it deals combat damage to a player"
+
+The subject is one `characteristic_phrase` noun phrase, so a new adjective, type
+or qualifier needs no row here; the verbs and tails are the only tables. The
+result is the same ``{"subject": "group", …}`` condition the older per-adjective
+regexes in `segmenter` emit, plus a ``filter`` (a `combat.matches_object_filter`
+dict) that the binder reads off the acting object. Anything unrecognised returns
+``None`` and the trigger stays unclaimed — including a "… this turn" tail: on an
+instant or sorcery that is a delayed trigger created at resolution (RULE 603.7),
+which a permanent-style triggered ability can never model. Pure — no `game/`
+imports.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from typing import Any, Optional
+
+from .characteristic_phrase import parse_object_phrase
+from .trigger_context import PHASE_TAILS, consume
+
+#: Verb phrase → `EventType` name (RULE 603.1). "Enters" carries an optional
+#: trailing "the battlefield" in its older printing.
+_VERBS: dict[str, str] = {
+    "enters": "ENTERS_BATTLEFIELD",
+    "dies": "DIES",
+    "attacks": "ATTACKS",
+    "blocks": "BLOCKS",
+    "leaves the battlefield": "LEAVES_BATTLEFIELD",
+}
+_VERB_ALT = r"(?:enters(?: the battlefield)?|dies|attacks|blocks|leaves the battlefield)"
+_HEAD = re.compile(
+    rf"^(?P<subject>.+?)\s+(?P<v1>{_VERB_ALT})(?:\s+or\s+(?P<v2>{_VERB_ALT}))?(?P<tail>\s.*)?$"
+)
+#: "<player> <verb> <object>" — the actor is a player, the acted-on object is the
+#: subject of the filter. Verb → `EventType`; both events fire once per object,
+#: name the object as ``instance_id`` and the acting player under
+#: `binding.core._GROUP_CONTROLLER_EVENT_KEYS`.
+_ACTOR_VERBS: dict[str, str] = {
+    "sacrifice": "SACRIFICE", "sacrifices": "SACRIFICE",
+    "discard": "DISCARD_CARD", "discards": "DISCARD_CARD",
+}
+_ACTOR_SCOPE: dict[str, str] = {
+    "you": "you", "an opponent": "not_you", "each opponent": "not_you", "a player": "any",
+    "each player": "any",
+}
+#: "<subject> deals [combat|noncombat] damage [to <recipient>]" — RULE 120.3. The
+#: DAMAGE event names its *source* (``source_id``/``source_controller_id``), so
+#: the subject phrase filters the damage source; the recipient is player-or-object.
+_DAMAGE_HEAD = re.compile(
+    r"^(?P<subject>.+?)\s+deals\s+(?P<kind>combat |noncombat )?damage"
+    r"(?:\s+to\s+(?P<recipient>.+?))?(?P<tail>\s+during .+)?$"
+)
+_ATTACHED_SUBJECT = re.compile(r"^(?:enchanted|equipped)\s+(?:creature|permanent|land|artifact)$")
+_ACTOR_HEAD = re.compile(
+    r"^(?P<actor>you|an opponent|each opponent|a player|each player)\s+"
+    r"(?P<verb>sacrifices?|discards?)\s+(?P<object>.+)$"
+)
+_SUBJECT_ARTICLE = re.compile(r"^(?P<article>another|an|a)\s+(?P<phrase>.+)$")
+_SELF_OR_ANOTHER = re.compile(r"^~ or another\s+(?P<phrase>.+)$")
+
+#: Attack-only tails: RULE 506.4's defending-player scope, as condition keys
+#: `effect_binder._build_group_ok` reads off the ATTACKS event. Longest first.
+_ATTACK_TAILS: list[tuple[str, dict[str, Any]]] = [
+    ("you or a planeswalker you control", {"attacks_you_or_planeswalker": True}),
+    ("you", {"attacks_you": True}),
+    ("enchanted player", {"attacks_enchanted_player": True}),
+]
+
+
+@dataclass(frozen=True)
+class ObjectHead:
+    event: "str | list[str]"
+    condition: dict[str, Any]
+    trigger: dict[str, Any] = field(default_factory=dict)
+
+
+def _event_name(verb: str) -> str:
+    return _VERBS[verb.removesuffix(" the battlefield") if verb.startswith("enters") else verb]
+
+
+def _subject(text: str) -> Optional[dict[str, Any]]:
+    """The subject words → the group condition's scope keys, or ``None``."""
+    if text == "your commander":
+        # RULE 903.3: a commander is designated, so it is a filter, not a type.
+        return {"subject": "group", "controller": "you", "other": False,
+                "filter": {"is_commander": True}}
+    subject, other = "group", False
+    m = _SELF_OR_ANOTHER.match(text)
+    if m is not None:
+        subject, other, phrase = "self_or_group", True, m.group("phrase")
+    else:
+        m = _SUBJECT_ARTICLE.match(text)
+        if m is None:
+            return None
+        other, phrase = m.group("article") == "another", m.group("phrase")
+    parsed = parse_object_phrase(phrase)
+    if parsed is None:
+        return None
+    filt, controller = parsed
+    condition: dict[str, Any] = {
+        "subject": subject, "controller": controller or "any", "other": other,
+    }
+    if filt:
+        condition["filter"] = filt
+    return condition
+
+
+def _damage_recipient(text: str) -> Optional[tuple[dict[str, Any], dict[str, Any]]]:
+    """The words after "damage to" → ``(event filter keys, condition keys)``."""
+    if text in ("a player", "each player"):
+        return {"is_player": True}, {}
+    if text in ("an opponent", "one of your opponents", "1 of your opponents"):
+        return {"is_player": True}, {"recipient_is_opponent": True}
+    if text == "you":
+        return {"is_player": True}, {"recipient_is_you": True}
+    if text in ("a player or planeswalker", "a player or a planeswalker"):
+        return {"player_or_planeswalker": True}, {}
+    article = _SUBJECT_ARTICLE.match(text)
+    if article is None:
+        return None
+    parsed = parse_object_phrase(article.group("phrase"))
+    if parsed is None or parsed[1] is not None or not parsed[0]:
+        return None  # whose it is would need a recipient-controller scope no card prints
+    return {"is_player": False}, {"recipient_filter": parsed[0]}
+
+
+def _parse_damage_head(cond: str) -> Optional[ObjectHead]:
+    m = _DAMAGE_HEAD.match(cond)
+    if m is None:
+        return None
+    subject = m.group("subject").strip()
+    if subject == "~":
+        condition: Optional[dict[str, Any]] = {"subject": "self"}
+    elif _ATTACHED_SUBJECT.match(subject):
+        condition = {"subject": "attached_permanent"}
+    else:
+        condition = _subject(subject)
+    if condition is None or condition["subject"] == "self_or_group":
+        return None
+    event_filter: dict[str, Any] = {}
+    kind = (m.group("kind") or "").strip()
+    if kind:
+        event_filter["combat"] = kind == "combat"
+    if m.group("recipient"):
+        recipient = _damage_recipient(m.group("recipient").strip())
+        if recipient is None:
+            return None
+        if recipient[1] and condition["subject"] != "group":
+            # Only the group subject's predicate reads the recipient scope keys;
+            # emitting them on a self/attached subject would silently over-fire.
+            return None
+        event_filter.update(recipient[0])
+        condition.update(recipient[1])
+    trigger: dict[str, Any] = {"filter": event_filter}
+    tail = (m.group("tail") or "").strip()
+    if tail:
+        phase, rest = consume(tail, PHASE_TAILS)
+        if phase is None or rest:
+            return None
+        trigger.update(phase)
+    return ObjectHead("DAMAGE", condition, trigger)
+
+
+def _parse_actor_head(cond: str) -> Optional[ObjectHead]:
+    m = _ACTOR_HEAD.match(cond)
+    if m is None:
+        return None
+    event = _ACTOR_VERBS[m.group("verb")]
+    text = m.group("object").strip()
+    trigger: dict[str, Any] = {}
+    for phase_text, keys in PHASE_TAILS:
+        if text.endswith(" " + phase_text):
+            trigger.update(keys)
+            text = text[: -len(phase_text)].strip()
+            break
+    condition: Optional[dict[str, Any]]
+    if text == "~":
+        condition = {"subject": "self"}
+    else:
+        condition = _subject(text)
+    if condition is None:
+        return None
+    if condition["subject"] != "group" and event != "SACRIFICE":
+        # A discarded card is already in the graveyard, where a plain triggered
+        # ability of that card cannot fire.
+        return None
+    if condition["subject"] != "self":
+        if condition["controller"] != "any":
+            return None  # "sacrifice a creature you control": the actor already says whose
+        condition["controller"] = _ACTOR_SCOPE[m.group("actor")]
+    elif m.group("actor") != "you":
+        return None  # only its controller can sacrifice a permanent as this ability's subject
+    return ObjectHead(event, condition, trigger)
+
+
+def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
+    """``cond`` — the trigger condition with its "when"/"whenever" stripped."""
+    cond = cond.strip().lower()
+    actor = _parse_actor_head(cond) or _parse_damage_head(cond)
+    if actor is not None:
+        return actor
+    m = _HEAD.match(cond)
+    if m is None:
+        return None
+    condition = _subject(m.group("subject").strip())
+    if condition is None:
+        return None
+    events = [_event_name(m.group("v1"))]
+    if m.group("v2"):
+        events.append(_event_name(m.group("v2")))
+    trigger: dict[str, Any] = {}
+    tail = (m.group("tail") or "").strip()
+    while tail:
+        if tail.startswith("alone") and events == ["ATTACKS"]:
+            events, tail = ["ATTACKS_ALONE"], tail[len("alone"):].strip()
+            continue
+        if tail.startswith("under your control"):
+            if condition["controller"] != "any":
+                return None
+            condition["controller"], tail = "you", tail[len("under your control"):].strip()
+            continue
+        phase, rest = consume(tail, PHASE_TAILS)
+        if phase is not None:
+            if any(k in trigger for k in phase):
+                return None
+            trigger.update(phase)
+            tail = rest
+            continue
+        if "ATTACKS" in events:
+            attack, rest = consume(tail, _ATTACK_TAILS)
+            if attack is not None and not any(k in condition for k in attack):
+                condition.update(attack)
+                tail = rest
+                continue
+        return None
+    return ObjectHead(events[0] if len(events) == 1 else events, condition, trigger)

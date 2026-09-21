@@ -620,6 +620,12 @@ class GameEvent:
     def __init__(self, type: str, **data: Any) -> None:
         self.type = type
         self.data: dict[str, Any] = data
+        #: The game turn (`GameState.internal_turn.number`) this event fired in,
+        #: stamped by `GameState.fire_event` — what lets "did X happen this turn" be
+        #: one query over `GameState.event_log` instead of a hand-kept tracker per
+        #: phrase (ENG-47). ``None`` until fired; not part of ``data``, so a
+        #: replacement's `copy_with` is stamped afresh when it fires.
+        self.turn: int | None = None
 
     def get(self, key: str, default: Any = None) -> Any:
         return self.data.get(key, default)

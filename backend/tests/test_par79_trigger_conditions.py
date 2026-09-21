@@ -216,11 +216,12 @@ def test_etb_and_cast_trigger_accepts_whenever_for_the_etb_half():
 
 
 def test_etb_and_cast_trigger_fails_closed_on_an_unrecognized_cast_clause():
-    # "from your graveyard" has no cast-trigger recognizer — both halves
-    # must be claimable, or the whole compound stays unclaimed (fail-closed),
-    # not silently dropping the cast half.
+    # "from mars" is in no cast-trigger vocabulary — both halves must be
+    # claimable, or the whole compound stays unclaimed (fail-closed), not
+    # silently dropping the cast half. (PAR-119 taught the composed head
+    # "from your graveyard", which this test originally used.)
     seg = _segment(
-        "when ~ enters and whenever you cast a spell from your graveyard, draw a card"
+        "when ~ enters and whenever you cast a spell from mars, draw a card"
     )
     assert not seg.claimed
 

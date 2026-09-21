@@ -793,13 +793,75 @@ _DEVOTION_WEDGES: dict[str, str] = {
 }
 
 
+#: The zones a structured count selector may name, and the `Player` attribute each
+#: is read from (a card outside the battlefield is counted by its *owner's* zone).
+COUNT_SELECTOR_ZONES: dict[str, str] = {
+    "graveyard": "graveyard", "hand": "hand", "exile": "exile", "library": "library",
+}
+#: What a ``distinct`` selector counts different values of ("creatures with
+#: different powers").
+_DISTINCT_KEYS: dict[str, Any] = {
+    "power": lambda o: o.power, "toughness": lambda o: o.toughness,
+    "mana_value": lambda o: o.card.converted_mana_cost, "name": lambda o: o.name,
+}
+
+
+def _count_structured(
+    state: "GameState", controller_id: Optional[str], spec: dict[str, Any],
+    source: Optional["GameObject"] = None,
+) -> int:
+    """PAR-120: count the objects a structured selector describes.
+
+    ``{"zone": "battlefield"|"graveyard"|"hand"|"exile"|"library", "of": "you"|
+    "opponents"|"any", "filter": <matches_object_filter dict>, "distinct": <key>}``
+    — one representation for "creatures you control", "creature cards in your
+    graveyard", "lands your opponents control", "cards in your hand", read through
+    the same filter every trigger head and target phrase uses, instead of one named
+    branch per phrase. ``of`` is relative to ``controller_id`` ("you" is that
+    player; a battlefield object is counted by its *controller*, a card in another
+    zone by its *owner*). ``distinct`` counts different values instead of objects.
+    """
+    from .combat import matches_object_filter  # local: combat imports models lazily too
+
+    if controller_id is None:
+        return 0
+    scope = spec.get("of", "you")
+    players = [
+        p for p in state.players
+        if scope == "any"
+        or (scope == "you" and p.id == controller_id)
+        or (scope == "opponents" and p.id != controller_id)
+    ]
+    zone = spec.get("zone", "battlefield")
+    filt = spec.get("filter") or None
+    matched: list[Any] = []
+    for player in players:
+        if zone == "battlefield":
+            candidates = state.permanents_controlled_by(player.id)
+        elif zone in COUNT_SELECTOR_ZONES:
+            candidates = list(getattr(player, COUNT_SELECTOR_ZONES[zone]))
+        else:
+            return 0
+        matched.extend(
+            o for o in candidates if matches_object_filter(o, filt, reference=source, state=state)
+        )
+    distinct = spec.get("distinct")
+    if distinct is not None:
+        getter = _DISTINCT_KEYS.get(distinct)
+        return len({getter(o) for o in matched}) if getter else 0
+    return len(matched)
+
+
 def count_selector(
     state: "GameState",
     controller_id: Optional[str],
-    selector: str,
+    selector: "str | dict[str, Any]",
     source: Optional["GameObject"] = None,
 ) -> int:
     """Evaluate a "number of X" count selector, scoped to ``controller_id``.
+
+    ``selector`` is a *named* selector (the string vocabulary below) or, since
+    PAR-120, a structured ``{"zone", "of", "filter"}`` dict (`_count_structured`).
 
     The vocabulary a layer-7a characteristic-defining P/T (RULE 613.7c/604.3
     — a ``*/*`` creature like Nightmare's Swamps, a graveyard-count beater)
@@ -813,6 +875,8 @@ def count_selector(
     every other selector answers purely from ``state``/``controller_id``, so
     callers without a source in hand can keep omitting it.
     """
+    if isinstance(selector, dict):
+        return _count_structured(state, controller_id, selector, source)
     bf = state.battlefield
     _source_card_name = getattr(source, "name", None)
     if selector == "creatures_in_your_party":
@@ -5265,7 +5329,54 @@ def _describe_ability(ability: StaticAbility) -> str:
     return ability.affects
 
 
-def trigger_doubler_bonus(state: "GameState", obj: "GameObject", event: Any = None) -> int:
+def _composed_doubler_applies(
+    state: "GameState", doubler: "GameObject", effect: Any, obj: "GameObject",
+    event: Any, context: Any,
+) -> bool:
+    """PAR-122: whether a `TriggerDoublerEffect` built from a ``cause`` and/or
+    ``subject`` doubles ``obj``'s trigger caused by ``event``.
+
+    The subject half is the doubled permanent's own filter; the cause half is a
+    trigger-shaped dict answered by the same predicate a triggered ability of that
+    shape would use (`binding.core._trigger_condition`), so "a creature you control
+    attacking" means exactly what "whenever a creature you control attacks" means.
+    """
+    from .combat import matches_object_filter  # local: combat imports models lazily too
+
+    subject = effect.subject or {}
+    if subject.get("other") and doubler is obj:
+        return False
+    if subject.get("attached") and getattr(doubler, "attached_to", None) != obj.instance_id:
+        return False
+    subject_filter = subject.get("filter")
+    if subject_filter and not matches_object_filter(
+        obj, subject_filter, reference=doubler, state=state
+    ):
+        return False
+    cause = effect.cause
+    if cause is None:
+        return True
+    if event is None:
+        return False
+    events = cause["event"] if isinstance(cause["event"], (list, tuple)) else [cause["event"]]
+    firing = getattr(event.type, "name", str(event.type))
+    if firing not in events:
+        return False
+    from .binding.core import _trigger_condition  # local: binding imports this module
+
+    if context is None:
+        # A caller outside the engine (a unit test, a bot's look-ahead): every
+        # trigger predicate reads the game only through ``context.state``.
+        from types import SimpleNamespace
+
+        context = SimpleNamespace(state=state)
+    predicate = _trigger_condition({**cause, "event": firing}, doubler)
+    return predicate is None or bool(predicate(event, context))
+
+
+def trigger_doubler_bonus(
+    state: "GameState", obj: "GameObject", event: Any = None, context: Any = None
+) -> int:
     """RULE 603.3d: how many *additional* times a triggered ability of
     ``obj`` should be placed on the stack (0 in the overwhelming common
     case), from every active `effects.TriggerDoublerEffect` a
@@ -5279,12 +5390,9 @@ def trigger_doubler_bonus(state: "GameState", obj: "GameObject", event: Any = No
     not four, matching how the rule itself composes rather than
     multiplying.
 
-    ``event`` (MEC-40, Elesh Norn, Mother of Machines) is the `GameEvent`
-    that fired ``obj``'s own trigger — consulted only by a doubler whose
-    own `TriggerDoublerEffect.cause_filter` is set, which skips the
-    ``chosen_type`` gate entirely in favour of matching that event's own
-    `EventType` (unscoped by ``obj``'s own creature type, matching the
-    printed "**a** triggered ability").
+    ``event`` is the `GameEvent` that fired ``obj``'s own trigger and ``context``
+    the `GameContext` its predicate reads — consulted only by a doubler whose
+    `TriggerDoublerEffect.cause` is set (see `_composed_doubler_applies`).
     """
     from .effects.core import TriggerDoublerEffect  # local: effects imports this module
 
@@ -5297,54 +5405,10 @@ def trigger_doubler_bonus(state: "GameState", obj: "GameObject", event: Any = No
         for effect in getattr(doubler, "static_effects", None) or []:
             if not isinstance(effect, TriggerDoublerEffect):
                 continue
-            if effect.min_power is not None or effect.max_power is not None:
-                # "…a triggered ability of a creature you control with
-                # power 2 or less triggers…" (MEC-43 round 2, Delney,
-                # Streetwise Lookout) — a board-state gate on ``obj``
-                # itself, unlike ``chosen_type``'s RULE 601.2b choice; the
-                # printed clause names no "another", so (unlike the
-                # ``chosen_type`` branch below) the doubler's own triggers
-                # may double themselves too.
-                power = obj.power or 0
-                if effect.min_power is not None and power < effect.min_power:
-                    continue
-                if effect.max_power is not None and power > effect.max_power:
-                    continue
-                bonus += 1
+            if effect.active_if and not static_conditions.condition_holds(
+                effect.active_if, state, doubler, doubler.controller_id
+            ):
                 continue
-            if doubler is obj:
-                continue  # "another creature you control" (Roaming Throne/Elesh Norn)
-            if effect.cause_filter is not None:
-                if event is None or event.type not in effect.cause_filter:
-                    continue
-                if effect.cause_type_filter:
-                    caused_id = event.get("instance_id")
-                    caused = state.find_object(caused_id) if caused_id is not None else None
-                    card = getattr(caused, "card", None)
-                    words = effect.cause_type_filter
-                    matches = card is not None and (
-                        ("legendary" in words and getattr(card, "is_legendary", False))
-                        or ("artifact" in words and getattr(card, "is_artifact", False))
-                    )
-                    if not matches:
-                        continue
-                if effect.cause_spell_type_any:
-                    # "…casting or copying an **instant or sorcery** spell…"
-                    # (Veyran, Voice of Duality) — the firing SPELL_CAST
-                    # event stamps the cast spell's own card types.
-                    firing_types = {str(t).lower() for t in (event.get("object_types") or ())}
-                    if not firing_types.intersection(effect.cause_spell_type_any):
-                        continue
-            elif effect.subject_subtype_any:
-                # "…a triggered ability of a Shaman or another Wizard you
-                # control…" (Harmonic Prodigy) — a fixed subtype list on the
-                # doubled permanent, the closed-list sibling of ``chosen_
-                # type`` below.
-                if not any(_has_subtype(obj, st) for st in effect.subject_subtype_any):
-                    continue
-            else:
-                wanted = getattr(doubler, "chosen_type", None)
-                if not wanted or not _has_subtype(obj, wanted):
-                    continue
-            bonus += 1
+            if _composed_doubler_applies(state, doubler, effect, obj, event, context):
+                bonus += 1
     return bonus

@@ -333,13 +333,19 @@ class TestForEachQuantity:
     def test_a_counter_quantity_becomes_a_bind_node(self) -> None:
         # MEC-83: `effect_amounts` now reads a named counter on a permanent,
         # so "for each +1/+1 counter on it" measures rather than failing
-        # closed. "it" is the previous clause's target referent.
-        specs = parse_effect_body("you gain 1 life for each +1/+1 counter on it")
+        # closed. Which permanent "it" is depends on the context (PAR-120): an earlier
+        # clause's announced target, the source under a self-subject trigger, and
+        # otherwise nothing says — refused rather than measured against an empty referent.
+        text = "you gain 1 life for each +1/+1 counter on it"
+        specs = parse_effect_body(text, previous_subject=True)
         assert specs is not None
         assert [s.type for s in specs] == ["bind"]
         assert specs[0].params["amount"] == {
             "kind": "counters", "counter": "+1/+1", "of": "previous_target",
         }
+        specs = parse_effect_body(text, self_subject=True)
+        assert specs is not None and specs[0].params["amount"]["of"] == "source"
+        assert parse_effect_body(text) is None
 
     def test_a_genuinely_unmeasurable_quantity_still_fails_closed(self) -> None:
         assert parse_effect_body(

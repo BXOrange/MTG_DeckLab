@@ -530,7 +530,7 @@ def test_yarok_uses_the_shared_etb_trigger_doubler():
                 oracle_text="If a permanent entering the battlefield causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time.")
     (spec,) = specs_for(card)
     assert spec.effects[0].type == "trigger_doubler"
-    assert spec.effects[0].params["cause_filter"] == ["ENTERS_BATTLEFIELD"]
+    assert spec.effects[0].params["cause"]["event"] == "ENTERS_BATTLEFIELD"
 
 
 def test_reality_shift_exiles_then_manifests_for_the_exiled_creatures_controller():

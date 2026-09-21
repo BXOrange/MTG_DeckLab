@@ -25,9 +25,37 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**46.7% covered — 16,247 / 34,811 — as of 2026-09-21, PARSER_VERSION 448.**
-Commander-legal slice (the one the product actually plays): **49.0% —
-**15,609 / 31,830** (measure with `--commander-legal-only`).
+**48.5% covered — 16,896 / 34,811 — as of 2026-09-21, PARSER_VERSION 454.**
+Commander-legal slice (the one the product actually plays): **51.0% —
+**16,245 / 31,830** (measure with `--commander-legal-only`).
+
+### PAR-119: composed object-event head (PARSER_VERSION 450)
+
+- **What:** One noun-phrase grammar (`catalogue/characteristic_phrase.py`, subtypes
+  from the generated `subtype_vocabulary.py`) × the verbs enters / dies / attacks /
+  blocks / leaves, "deals [combat|noncombat] damage [to …]", "sacrifices / discards
+  `<object>`" (`catalogue/object_trigger_head.py`), plus "X and whenever Y" split into
+  two triggers. +146 cards (16,333 → 16,479), 0 regressed.
+- **Lessons worth keeping:** a parse verdict is not proof — *executing* the newly claimed
+  cards' bodies found four wrong-but-MODELED shapes (an event missing the `player_id` an
+  `event_player` body reads, a bare "it" that acts on the source under a group subject, a
+  `previous_target` referent used for "on it", a "for each" that dropped its printed
+  multiplier). For any new head, list every (event, referent) pair the newly claimed bodies
+  use and check that event's payload carries it. Heads that still need a new engine event
+  (crank, exploit, saddle, expend, commit a crime, unlock a door) are not composition work.
+
+### PAR-119 pilot: composed cast-trigger head (PARSER_VERSION 449)
+
+- **What:** `parser_probe.py composition` showed 849 cards blocked *only* by
+  their trigger head (the body parsed alone), 138 distinct cast heads among
+  them. One composed row now builds a `SPELL_CAST` head from shared word tables
+  instead of one regex + dispatch block per adjective combination; +86 cards
+  (16,247 → 16,333), 0 regressed. Recorded gaps left on the axis (subtype words
+  closed at v450 by the generated vocabulary): ordinals
+  ("your first spell each turn"), "or copies" (no copy event).
+- **Verification:** `tests/test_par119_cast_trigger_grammar.py` (grammar,
+  fail-closed cases, real cards, and execute tests that fire real `SPELL_CAST`
+  events); five stale "stays unclaimed" pins were updated to the new truth.
 
 ### PAR-98: Small verified residue batch #2 (PARSER_VERSION 448)
 

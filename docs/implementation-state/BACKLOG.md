@@ -44,26 +44,29 @@ its block back into the matching section here.
 
 ## ENG — Game engine
 
-- **ENG-47 · Turn-scoped event queries + one amount operand (replace the per-card
-  trackers and per-verb amount flags).** Two hand-maintained families that
-  every new parser row grows. **(a)** `GameState` carries 37 `*_this_turn`/
-  `*_this_combat` trackers (`life_gained_this_turn`, `creatures_died_this_turn`,
-  `permanents_left_battlefield_this_turn`, …), each with its own update site,
-  reset and ~125 read sites in `continuous.py`/`static_conditions.py`/
-  `effect_conditions.py`, while `GameState.event_log` already records every
-  fired event chronologically — but `GameEvent` carries no turn stamp. Stamp the
-  turn (and, for zone-change events, the RULE 400.7 snapshot) and answer "did X
-  happen this turn" / "how many X this turn" as one filtered query over the log;
-  migrate trackers one at a time behind the existing names. **(b)** 43 effect
-  classes carry 124 `amount_from_*`/`count_from_*`/`amount_if_*` parameters
-  (`DealDamageEffect` 18; `LoseLifeEffect`/`AddCountersEffect`/`PumpEffect` 10
-  each — `amount_if_kicked`/`_raid`/`_bargained`/`_teamwork`/`_full_party`/
-  `_cast_from_exile`, `amount_from_life_gained_this_turn`, …) although ENG-37's
-  `bind` (measure X → substitute) and `if_else` (condition → A else B) already
-  express both once. Route the parser through `bind`/`if_else` and retire the
-  per-verb flags as their last user migrates. Prerequisite for the
-  quantity/condition halves of PAR-120; no coverage change on its own (measure
-  with `parser_probe.py diff` + the full suite).
+- **ENG-47 · Retire the per-phrase turn trackers and the per-verb amount flags — remaining scope.**
+  Built: turn-stamped events, `GameState.events_this_turn`, the `event_this_turn` condition (a
+  trigger-shaped dict over the turn's log) and its parser (`catalogue/history_phrase.py`). Still
+  open: **(a) migrate the trackers** — 37 `GameState.*_this_turn`/`*_this_combat` trackers with ~125
+  read sites (`continuous.py`, `static_conditions.py`, `effect_conditions.py`), one at a time behind
+  their existing names. The catch, found while sizing it: an event-log reading is only as complete
+  as the event's firing sites — `permanents_left_battlefield_this_turn` is bumped in
+  `remove_from_battlefield` (the single choke point) but `LEAVES_BATTLEFIELD` is fired from five
+  hand-written sites — so first make the event fire from the choke point (or audit every site),
+  then swap the tracker's read sites and delete it; `spells_cast_this_turn` (86 sites) and the
+  per-colour/per-type cast counters are the big ones and come last. Also missing as events: a
+  per-card draw count ("you drew two or more cards this turn" is refused for that reason),
+  token creation ("you created a token"), "descended", "committed a crime". **(b) one amount
+  operand** — 43 effect classes carry 124 `amount_from_*`/`count_from_*`/`amount_if_*` parameters
+  (`DealDamageEffect` 18; `LoseLifeEffect`/`AddCountersEffect`/`PumpEffect` 10 each —
+  `amount_if_kicked`/`_raid`/`_bargained`/`_teamwork`/`_full_party`/`_cast_from_exile`,
+  `amount_from_life_gained_this_turn`, …) although ENG-37's `bind` (measure X → substitute) and
+  `if_else` (condition → A else B) express both once. PAR-120's generic "where X is the number of …"
+  / "for each `<count>`" already emit `bind`; migrate the older per-verb rows to it and retire each
+  flag as its last user goes, checking every migrated card with an execute test (a `bind` body's
+  magnitude must be exactly one recognised param, and `previous_target` referents read 0 when
+  nothing was targeted). No coverage change on its own (measure with `parser_probe.py diff` and the
+  full suite).
 
 ## PAR — Parser
 
@@ -174,29 +177,27 @@ its block back into the matching section here.
   composition heads --family <f>` and `parser_probe.py diff` (0 regressed), and **execute**
   a sample of the newly claimed cards — the parse verdict alone hid four wrong-but-MODELED
   shapes at v450 (see `PARSER_LONG_TAIL.md`).
-- **PAR-120 · Shared count / filter / condition vocabulary.** One phrase →
-  structured-selector table instead of eleven (`_FOR_EACH_SELECTORS`,
-  `_PT_CDA_SELECTORS`, `_GY_COST_COUNT_SELECTORS`, `_CONTROL_COUNT_SELECTORS`,
-  `_SELF_ANTHEM_FOR_EACH_SELECTORS`, `_PUMP_X_SELECTOR_PHRASES`,
-  `_ACTIVATION_COST_REDUCTION_SELECTORS`, `_GROUP_SELECTORS`, …): 106 entries
-  that reduce to 59 distinct selectors (`creatures_you_control` is spelled in 6
-  tables; 17 phrase keys repeat), feeding cost reductions, CDAs, "for each",
-  "where X is …" and pumps. On the engine side `continuous.count_selector` is a
-  string mini-language (~80 named branches + ~20 prefix parsers such as
-  `creatures_you_control_with_power_ge_N`) although `combat.matches_object_
-  filter` already is a structured ~35-key filter; emit `{zone, controller,
-  filter}` selectors evaluated through it and keep the old names as aliases
-  until the full-cache diff is clean. Same vocabulary for **conditions**: a
-  leading "if `<cond>`," repairs **656 failing effect sentences (590 cards)**
-  once the condition parses (`parser_probe.py composition conds`); after
-  excluding reflexive "if you do" they are comparator × count × filter/zone,
-  "X happened this turn" (needs ENG-47), referent state ("it was a creature"),
-  or cast provenance ("if you cast it from your hand"). Other modifier axes the
-  same probe measures: "for each `<count>`" 187 sentences, scope words ("each
-  opponent"/"target player") 47, "you don't control"/"an opponent controls" 51,
-  "another/other" 54, "where X is" 62. **Absorbs PAR-101's count phrases and
-  PAR-110's three "costs less for each …" bullets** — implement those through
-  this table, not as rows.
+- **PAR-120 · Shared count / filter / condition vocabulary — remaining scope.** Built: the
+  structured `{zone, of, filter, distinct}` selector, `catalogue/count_phrase.py`, its consumers
+  ("for each `<count>`", the generic "where X is the number of …" / "`<life|cards|damage>`
+  equal to the number of …", and the count comparators of a leading "if"/"as long as"). Still open:
+  **(a) retire the duplicates** — `_FOR_EACH_SELECTORS`, `_FOR_EACH_AMOUNTS`, `_PT_CDA_SELECTORS`,
+  `_GY_COST_COUNT_SELECTORS`, `_CONTROL_COUNT_SELECTORS`, `_SELF_ANTHEM_FOR_EACH_SELECTORS`,
+  `_PUMP_X_SELECTOR_PHRASES`, `_ACTIVATION_COST_REDUCTION_SELECTORS`, `_GROUP_SELECTORS` (106
+  entries collapsing to 59 selectors) and the ~100 named `continuous.count_selector` branches plus
+  its ~20 prefix parsers (`creatures_you_control_of_type_<word>` accepts *any* word as a type); an
+  equivalence test (`test_par120_count_phrase.py`) already pins 15 of them to their structured
+  form — extend it to each name before deleting it, then diff the whole cache; **(b) the other
+  condition shapes** a leading "if" still fails on (`parser_probe.py composition conds`): "X happened this turn" — the object/life/cast/sacrifice/discard/attack forms are built (ENG-47's
+  `event_this_turn`); still open: "you descended", "you created a token", "you committed a crime",
+  per-card draw counts, damage-dealt histories ("`<name>` dealt damage to an opponent this turn", "a
+  player lost N or more life"), "the second time this ability has resolved this turn", referent state ("if it was a creature/a Human", "if it had a
+  +1/+1 counter on it"), cast provenance ("if you cast it from your hand", "if `<cost>` was spent"),
+  sum-based counts ("creatures you control have total power N or greater"), and compounds ("a
+  desert or a desert card in your graveyard"); **(c) the other modifier axes** the probe measures:
+  "you don't control / an opponent controls" (247 sentences), "another/other" (588), scope words
+  (284). **Absorbs PAR-101's count phrases and PAR-110's three "costs less for each …" bullets** —
+  implement those through this vocabulary, not as rows.
 - **PAR-121 · Subject-scope slot and per-verb connective de-duplication (no
   coverage change).** Roughly a third of the parser's regexes sit in
   near-duplicate clusters (`parser_probe`-style token-similarity clustering,
@@ -204,9 +205,7 @@ its block back into the matching section here.
   verb re-registered per subject (self / target / previous target(s) / group /
   attached host / "its controller"): prevent-damage ≈27 rows, skip-untap,
   pump-previous/target/group, its-controller draw/discard, attached
-  tap/exile/phase-out; **(b) connectives** — `_SACRIFICE_/_DESTROY_/_TAP_/
-  _EXILE_UNLESS_PAY_RE` are identical except the leading verb (the "pay or
-  discard" cost alternation is pasted five times), and the `_X_THEN_WHEN_YOU_DO_
+  tap/exile/phase-out; **(b) connectives** — the `_X_THEN_WHEN_YOU_DO_
   RE` family re-matches an antecedent the normal clause parser already handles
   (`_TAP_THEN_WHEN_YOU_DO_RE` hard-codes one card's whole text). Also the 32
   `*_DEVOTION_*` rows, which are verb × one count phrase (fold into PAR-120's
@@ -214,14 +213,14 @@ its block back into the matching section here.
   sentence parses, so this is maintainability and future-recombination work —
   do it when touching a verb, and never as a large batch (handler-recipe.md's
   v408 lesson: audit shipped rows, delete strict subsets).
-- **PAR-122 · Trigger-doubler recognition ("… triggers an additional time").**
-  32 cached cards print this axis (Panharmonicon, Teysa Karlov, Naban, Chief of
-  the Wilds, Cloud Midgar Mercenary, The Masamune, …), differing only in the
-  scope filter (what enters/dies/attacks, whose ability). The engine primitive
-  exists (`continuous.trigger_doubler_bonus`/`TriggerDoublerEffect`, built for
-  Roaming Throne) and only hand-authored cards use it; nothing parses it. Size
-  with `parser_probe.py blocked "triggers an additional time"` and route the
-  scope through PAR-119's event/filter phrase, not a row per card.
+- **PAR-122 · Trigger-doubler residue.** The composed `trigger_doubler` (cause × subject) is
+  built; what still fails closed is a *player-event cause* ("a player drawing a card" — Krang,
+  "turning a face-down permanent face up" — Panoptic Projektor, "a creature you control becoming
+  the target of …" — Valiant Emberkin, "being dealt damage" — Wayta; each needs its head in
+  PAR-119's player-event axis first), a *compound subject* ("~ or an Equipment attached to it" —
+  Cloud, "another colorless permanent or a colorless spell" — Echoes of Eternity, "while you
+  control six or more Shrines" — Sanctum of All), The Fish Brewer's tap-for-extra-copies and
+  The Masamune's granted quoted doubler.
 - **PAR-123 · A bare "it" under a group-subject trigger acts on the ability's source
   (retarget beyond `tap`).** "Whenever `<group>` `<verb>`, return/exile/… **it**" parses to
   an effect with `target_kind: None`, which resolves to the *source*, not the object that

@@ -569,6 +569,24 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # number; needs ``state`` (like ``power_lt_count_selector``), so
         # callers without one in hand can't use this key.
         "entered_this_turn",
+        # PAR-119 (spell-filter axis): characteristics a cast trigger names
+        # ("multicolored"/"colorless"/"kicked"/"mana value N or greater"/"an
+        # instant or sorcery") that no permanent filter needed until now —
+        # kept here, on the one shared filter, so a static or a target phrase
+        # can use them too.
+        "multicolored", "colorless", "min_mana_value", "max_mana_value",
+        "card_type_any", "kicked",
+        # "an **artifact creature**" — every listed type at once (the AND
+        # sibling of ``card_type_any``); ``card_type`` names exactly one.
+        "card_type_all",
+        # "a permanent you control **but don't own**" (RULE 108.3) — the owner
+        # is not the *reference* object's controller ("you" in the ability text).
+        "not_owned_by_you",
+        # "**another** creature you control" as a count/condition operand — the
+        # object is not the *reference* (the ability's own source).
+        "not_reference",
+        # RULE 205.4a supertype: "basic lands you control" / "nonbasic land".
+        "basic", "nonbasic",
     }
 )
 
@@ -803,6 +821,49 @@ def matches_object_filter(
         entered = getattr(obj, "turn_entered", None) == state.internal_turn.number
         if entered != bool(entered_this_turn):
             return False
+    # "a **multicolored** spell" / "a **colorless** spell" (RULE 105.2a/
+    # 105.2c) — a count of colours, not a colour word, so neither fits
+    # ``color``/``color_any``.
+    obj_color_count = len(getattr(obj, "colors", None) or ())
+    if filt.get("multicolored") and obj_color_count < 2:
+        return False
+    if filt.get("colorless") and obj_color_count != 0:
+        return False
+    # "…with mana value 3 or greater" — the printed mana value, like
+    # ``even_mana_value`` above (a spell on the stack keeps it, RULE 202.3).
+    min_mana_value = filt.get("min_mana_value")
+    if min_mana_value is not None and obj.card.converted_mana_cost < min_mana_value:
+        return False
+    max_mana_value = filt.get("max_mana_value")
+    if max_mana_value is not None and obj.card.converted_mana_cost > max_mana_value:
+        return False
+    # "an **instant or sorcery** spell" — the OR-of-types form of
+    # ``card_type``, same idiom as ``subtype_any``/``keyword_any``.
+    card_type_any = filt.get("card_type_any")
+    if card_type_any:
+        obj_types = {str(w).lower() for w in (getattr(obj, "type_words", None) or set())}
+        if not any(str(t).lower() in obj_types for t in card_type_any):
+            return False
+    card_type_all = filt.get("card_type_all")
+    if card_type_all:
+        obj_types = {str(w).lower() for w in (getattr(obj, "type_words", None) or set())}
+        if not all(str(t).lower() in obj_types for t in card_type_all):
+            return False
+    if filt.get("basic") or filt.get("nonbasic"):
+        is_basic = "basic" in str(getattr(obj.card, "type_line", "") or "").lower().split("—")[0]
+        if filt.get("basic") and not is_basic:
+            return False
+        if filt.get("nonbasic") and is_basic:
+            return False
+    if filt.get("not_reference") and reference is not None and obj is reference:
+        return False
+    if filt.get("not_owned_by_you"):
+        if reference is None or getattr(obj, "owner_id", None) == reference.controller_id:
+            return False
+    # "a **kicked** spell" (RULE 702.33b) — `GameObject.kicker_count`, set at
+    # cast time and left on the object.
+    if filt.get("kicked") and not getattr(obj, "kicker_count", 0):
+        return False
     return True
 
 

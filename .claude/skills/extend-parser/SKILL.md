@@ -44,6 +44,24 @@ a solo blocker on 5. Two lessons fall out of one command — the ranking is an
 upper bound, and the residue ranking usually names the *next* handler, so
 taking two adjacent ones together is often worth several times either alone.
 
+**Before adding a row for one phrase, ask which half is missing.** `blocked`
+counts a clause as one unit, so a trigger head that fronts fifty bodies the
+parser already handles looks like fifty different gaps:
+
+```bash
+python $PROBE composition summary            # H-B+ = trigger head is the ONLY gap
+python $PROBE composition families           # ...by event family (cast / attack / enter…)
+python $PROBE composition heads --family cast --top 40
+python $PROBE composition mods               # which modifier axis ("if", "for each"…) repairs how many
+python $PROBE composition conds              # the leading-"if" conditions, by shape
+```
+
+A head that recurs with different bodies, or a modifier that repairs hundreds
+of sentences, is an *axis* — widen the shared primitive (see handler-recipe.md's
+"decompose into atomic grammar units"), don't add a row. Recorded 2026-09-21
+at PARSER_VERSION 447: 849 cards were blocked only by their trigger head, 0 by
+an activated-cost head, and connectives were not a lever (1 clause).
+
 If the ranked template is a **block wrapper** (`choose <n> —`, a Saga chapter,
 a Class level), it is usually a red herring: `gate.py` fail-closes the whole
 block when one mode body fails and appends *every* body to `unclaimed`. Run

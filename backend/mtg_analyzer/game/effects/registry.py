@@ -1152,12 +1152,9 @@ EffectRegistry.register(
     lambda p: SylvanLibraryEffect(life=int(p.get("life", 4)), count=int(p.get("count", 2))),
 )
 EffectRegistry.register(
-    "trigger_doubler",  # Roaming Throne / Elesh Norn, Mother of Machines / Delney, Streetwise Lookout
+    "trigger_doubler",  # Roaming Throne / Panharmonicon / Elesh Norn, Mother of Machines / Delney …
     lambda p: TriggerDoublerEffect(
-        cause_filter=p.get("cause_filter"), cause_type_filter=p.get("cause_type_filter"),
-        min_power=p.get("min_power"), max_power=p.get("max_power"),
-        subject_subtype_any=p.get("subject_subtype_any"),
-        cause_spell_type_any=p.get("cause_spell_type_any"),
+        cause=p.get("cause"), subject=p.get("subject"), active_if=p.get("active_if"),
     ),
 )
 EffectRegistry.register(

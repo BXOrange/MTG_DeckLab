@@ -14,7 +14,9 @@ def _harmonic_prodigy() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "static",
-            [EffectSpec("trigger_doubler", {"subject_subtype_any": ["Shaman", "Wizard"]})],
+            [EffectSpec("trigger_doubler", {
+                "subject": {"filter": {"subtype_any": ["shaman", "wizard"]}, "other": True},
+            })],
         ),
     ]
 

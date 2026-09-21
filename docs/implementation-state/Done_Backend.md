@@ -6716,6 +6716,269 @@ measurement of why is the useful half of this work.
   15,530 / 31,830 (48.8%). The two remaining probe matches are independently
   blocked by unrelated clauses.
 
+### PAR-119 pilot: composed cast-trigger head (PARSER_VERSION 449)
+
+- **What:** The first axis of the composed trigger-head grammar. One head row
+  (`segmenter._CAST_TRIGGER_COMPOSED_RE` → `catalogue/spell_phrase.py`'s
+  `parse_spell_phrase`) builds a `SPELL_CAST` trigger from shared word tables
+  and one dispatch (`_cast_trigger_segment`: optional peel, the two-rider
+  mana-spent shape, the intervening "if at least N mana was spent") instead of
+  one regex + ~25-line block per adjective combination. The object part of the
+  phrase (multicolored / colorless / legendary / kicked, colour and type
+  alternations, `with mana value|power N or greater|less`, `with <keyword>`,
+  "of the chosen color/type") goes through the new
+  `catalogue/characteristic_phrase.py` and becomes one `spell_filter` dict; the
+  cast *context* (`spell_cast_from`, `spell_not_cast_from_hand`,
+  `spell_not_owned`, `spell_targets`, and "during your/an opponent's turn" via the
+  existing event-agnostic `phase_relation`) stays a separate key each, because
+  none of it is a property of the cast object. +86 cards (16,247 → 16,333),
+  0 regressed.
+- **Why it is built this way:** `parser_probe.py composition` (new) measured
+  that 849 cards were blocked only by their trigger head, 138 distinct cast heads
+  among them, 107 of those on a single card — the recombination signature. The
+  binder already had ~20 flat `spell_*` predicates; `spell_filter` is *one*
+  predicate that evaluates a `combat.matches_object_filter` dict against the cast
+  object (still on the stack when the event fires), so a new adjective is a table
+  entry, not a new binder predicate. `matches_object_filter` gained
+  `multicolored`, `colorless`, `min_mana_value`, `max_mana_value`, `card_type_any`
+  and `kicked`, so statics and target phrases can use them too. `SPELL_CAST`
+  gained `from_zone` (both the paid and the free cast site).
+- **Design traps caught:** (1) `static_handlers.object_filter` was not reusable:
+  its subtype fallback turns "multicolored creature" into `{'subtype':
+  'Multicolored'}` and it has no singular "with power N", hence the new
+  fail-closed grammar. (2) The legacy typed row (`_CAST_SPELL_TRIGGER_RE`) used to
+  `return Segment(raw=raw)` for a phrase it couldn't classify, which would have
+  shadowed the composed row — it now declines instead, so the composed row is
+  tried last and can only add coverage, never change a spec a legacy row emits.
+  (3) The legacy untyped row's "during an opponent's turn" tail is
+  caster-relative (`not_controllers_turn`), not RULE 102.2's ability-
+  controller-relative reading; left as is (recorded on PAR-119) so no existing
+  spec changed.
+- **Verification:** `tests/test_par119_cast_trigger_grammar.py` — grammar,
+  fail-closed cases, eight real cards, the new filter keys, and execute tests that
+  bind a listener from oracle text and fire real `SPELL_CAST` events (multicolored,
+  mana-value threshold, cast-from zone, targets a creature you control, chosen
+  color, opponent scope, controller-relative turn gate, real-cast `from_zone`
+  stamp). Five stale "stays unclaimed" pins for gaps this closed were updated
+  (`test_modal_spells`, `test_par30_group_and_cast_trigger`,
+  `test_par79_trigger_conditions`, `test_spell_subtype_trigger_family`,
+  `test_strixhaven_secrets_wave14`). Also new: `parser_probe.py composition`.
+
+### PAR-121 (first step): one "unless you pay" row over the verb (PARSER_VERSION 454)
+
+- **What:** `_SACRIFICE_/_DESTROY_/_TAP_/_EXILE_UNLESS_PAY_RE` were four registrations of "`<verb>` ~
+  unless you pay `<cost>`" that differed only in which consequence the unpaid branch performs. They are
+  now `_SELF_UNLESS_PAY_RE` — one regex with a `verb` group — and `_self_unless_pay`, which maps the verb
+  to `sacrifice_unless_pay` / `destroy_unless_pay` / `pay_cost_then` with a tap or exile `else_effects`
+  ("pay its mana cost" stays sacrifice-only and returns `None` for the others). No coverage change
+  (16,896 / 34,811 at 453 and 454).
+- **Why this way:** PAR-121 is maintainability work and must never be a large batch, so the proof is
+  narrow and exact rather than a coverage count: the emitted `AbilitySpec`s of all 489 cards whose text
+  contains "unless you" were dumped before and after and are byte-identical. The registration sits where
+  the earliest of the four sat, ahead of the plain `tap_self`/`exile_self`/`sacrifice_self` rows whose
+  regexes are a prefix of it.
+- **Still open on PAR-121:** the per-subject re-registrations (prevent-damage ≈27 rows, skip-untap,
+  pump previous/target/group, its-controller draw/discard, attached tap/exile/phase-out), the `_X_THEN_WHEN_YOU_DO_RE`
+  family and the 32 `*_DEVOTION_*` rows (which fold into PAR-120's count phrases).
+
+### ENG-47 (first slice): turn-stamped events and `event_this_turn` (PARSER_VERSION 453)
+
+- **What:** Every fired event now carries the turn it fired in (`GameEvent.turn`, set by
+  `GameState.fire_event`), `GameState.events_this_turn()` walks the chronological log back
+  to the first earlier turn, and "did X happen this turn" is one condition kind,
+  `event_this_turn`, instead of a hand-kept `*_this_turn` tracker per phrase. Its operand is a
+  *trigger-shaped dict* (`event` / `condition` / `filter` / `spell_filter` / `spell_cast_from` …)
+  evaluated by the binder's own `_trigger_condition` predicate against each logged event
+  (`static_conditions._events_this_turn_matching`), with ``min``/``max`` counts — so "a creature
+  you controlled died this turn" means exactly what "whenever a creature you control dies"
+  means, including a departed object's last-known values, and needs no new predicate. The
+  parser side, `catalogue/history_phrase.py`, reads a "… this turn" phrase as the head of a
+  trigger in the past tense: `<quantity> <object phrase> <died | entered [the battlefield] | left
+  the battlefield | attacked | blocked> [under whose control]` through the shared noun-phrase
+  grammar, and the player forms ("you gained / lost life", "you've cast N or more `<spell phrase>`",
+  "you discarded / sacrificed `<object>`", "you attacked", "you played a land") plus their
+  negations ("you haven't cast a spell from your hand", "you didn't attack with a creature") as
+  ``max: 0``. It is the last fallback of `static_condition`, so it reaches every leading "if", "as
+  long as" static and cost reduction. +47 cards (16,849 → 16,896; Commander-legal 16,199 →
+  16,245), 0 regressed. `AbilitySpec` shape-checks the `trigger` operand (an event name or list,
+  plain JSON, depth-limited).
+- **Why it is built this way:** the parser needed "X happened this turn" for ~60 distinct leading-
+  "if" phrases and the engine carried 37 per-phrase trackers (`life_gained_this_turn`,
+  `creatures_died_this_turn`, `permanents_left_battlefield_this_turn`, …), each with its own update
+  site, reset and read sites. `GameState.event_log` already recorded every event in order; only
+  the turn stamp and one query were missing. Reusing the trigger predicate instead of a second
+  filter vocabulary is what keeps a new phrase a table entry.
+- **What was deliberately not done, and why:** no tracker was migrated. `permanents_left_battlefield_this_turn`
+  is bumped in `GameState.remove_from_battlefield` — the single choke point for leaving play — while
+  `LEAVES_BATTLEFIELD` is fired from five hand-written sites, so reading the event log instead
+  could silently miss a departure the tracker sees. Migrating a tracker therefore starts with
+  auditing that its event fires at every site (or moving the firing into the choke point); it is
+  recorded on ENG-47 rather than forced. `spells_cast_this_turn` alone has 86 read sites.
+- **Verification:** `tests/test_eng47_event_history.py` — the grammar and its fail-closed cases, real
+  cards, the stamp and the query (including that a replacement copy is stamped when it fires), and
+  execute tests that make things happen for real (a creature you controlled dying flips a gate for
+  the turn but not for the opponent's creature or the next turn, a quantity of two, a negative gate
+  that holds until a land is played, life gained, a static that follows the history live).
+
+### PAR-120 (first slice): structured count selectors, count conditions and "where X is the number of …" (PARSER_VERSION 452)
+
+- **What:** "How many X" is now one grammar instead of a phrase → selector table per
+  consumer. `catalogue/count_phrase.py` reads a count phrase with the shared noun-phrase
+  grammar (plural nouns allowed) into a structured selector `{"zone": battlefield |
+  graveyard | hand | exile | library, "of": you | opponents | any, "filter":
+  <matches_object_filter dict>, "distinct": power | toughness | mana_value | name}`;
+  `continuous.count_selector` accepts it next to the ~100 named branches (`_count_structured`,
+  through `combat.matches_object_filter`, so a filter written for a trigger head or a target
+  phrase counts too). Three consumers use it: (1) "for each `<count>`" amounts
+  (`segmenter._count_amount`, a fallback after the iteration table and the named amounts),
+  (2) a generic "`<effect with X>`, where X is the number of `<count>`" and "`<gain life | draw
+  cards | deal damage>` equal to the number of `<count>`" bind (`_where_x_specs`; the X-capable
+  handlers already parse a literal X, so the bind only measures it, and a targeted body such as
+  "deals X damage to target creature an opponent controls" keeps its RULE 115 target), and (3)
+  the comparator half of a leading "if" / "as long as" (`parse_count_condition` → the existing
+  `control_count` kind, plus the new general `opponent_has_more`), which also reaches cost
+  reductions and statics through `static_condition`. New filter keys `not_reference` ("another"),
+  `not_owned_by_you`, `basic`/`nonbasic`, `card_type_all`; `AbilitySpec` validates a selector's
+  shape (`SELECTOR_ZONES`/`SCOPES`/`DISTINCT`, with a test that they equal the engine's). +350 cards
+  (16,499 → 16,849; Commander-legal 15,857 → 16,199, crossing 50%), 0 regressed.
+- **Why it is built this way:** the composition probe put "leading `if`" at 663 repairable sentences
+  and "for each `<count>`" at 189, and the parser spelled the count phrase eleven times
+  (`_FOR_EACH_*`, `_PT_CDA_*`, `_GY_COST_COUNT_*`, `_CONTROL_COUNT_*`, …) while the engine had one
+  branch per phrase. The single largest gain (+147) was not new grammar but an ordering bug: the
+  older "you control N or more `<named thing>`" row matched first and returned `None` for every
+  phrase outside its table, so "you control a Wizard / an Ajani planeswalker / three or more
+  Gates / a red permanent / a token" — some 140 cards — never reached anything else. A matching
+  row that declines now lets the count grammar run (and only it, so no other named row can
+  reinterpret the text). An equivalence test pins 15 structured selectors to the legacy named ones
+  they replace on a two-player board, which is the gate for retiring those branches later.
+- **Audit findings fixed on the way:** (1) a bare "on it" in "for each +1/+1 counter on it" defaulted
+  to the previous clause's target even when none existed, so the measurement read 0 (Magmatic Core
+  would have dealt no damage): "it" is now the source under a self-subject trigger, the earlier
+  clause's target only when one was announced, and otherwise refused. (2) `bind`'s `amount` was not
+  shape-checked at all (only `amount_compare` operands were); it now goes through the same
+  validator, which accepts the announced-X sentinel (`"x"`, Drain Life). (3) The empty phrase parsed
+  to "count every permanent" — refused. The legacy open-vocabulary selector
+  `creatures_you_control_of_type_<word>` still accepts any word as a creature type (retire with the
+  named branches).
+- **Left open on PAR-120:** the eleven phrase tables and ~100 named selector branches themselves
+  (now redundant for the phrases the equivalence test covers); "X happened this turn"
+  conditions (need ENG-47), referent state ("if it was a creature", "if it had a +1/+1 counter on it"),
+  cast provenance ("if you cast it from your hand"), sum-based counts ("total power N or greater")
+  and the compound "a desert or a desert card in your graveyard".
+- **Verification:** `tests/test_par120_count_phrase.py` — grammar and fail-closed cases, the
+  structured/named equivalence, spec validation, real cards, and execute tests (a for-each over
+  flying creatures, graveyard cards with a printed multiplier, "no untapped lands", "another
+  Wizard", a graveyard threshold, "an opponent controls more lands", a conditional static that
+  follows the board live, distinct powers, a targeted where-X body and an Ajani planeswalker
+  type). Two pins were updated (`test_par62_connectives`, three contexts for "on it").
+
+### PAR-122: trigger doublers as a composed cause × subject (PARSER_VERSION 451)
+
+- **What:** "If a triggered ability of `<subject>` triggers, that ability triggers an
+  additional time" and "if `<cause>` causes a triggered ability of a permanent you
+  control to trigger, …" (RULE 603.2d — Panharmonicon, Teysa Karlov, Naban, Annie Joins
+  Up, Chief of the Wilds, Wizard's Staff, …) now parse into one `trigger_doubler` spec
+  (`catalogue/trigger_doubler.py`). It carries a **subject** (a `matches_object_filter`
+  dict on the doubled permanent plus `other` / `attached` — "another", "equipped creature")
+  and/or a **cause**: a *trigger-shaped dict*, because "a creature you control attacking" is
+  the head "a creature you control attacks" — the gerund is turned back into the finite
+  head and parsed by the same grammar every triggered ability uses
+  (`segmenter.trigger_condition_dict`), and the engine answers it with the binder's own
+  `_trigger_condition` predicate against the firing event
+  (`continuous._composed_doubler_applies`). "As long as …" rides the existing
+  `active_if` gate. +19 cards (16,479 → 16,499), 0 regressed.
+- **Why it is built this way:** `TriggerDoublerEffect` had grown one flat flag per printed
+  variation (`chosen_type`, `cause_filter`, `cause_type_filter`, `min_power`/`max_power`,
+  `subject_subtype_any`, `cause_spell_type_any`) — the "per-verb flags" shape ENG-47 names.
+  All seven hand-authored doublers (Roaming Throne, Elesh Norn, Yarok, Gandalf the White,
+  Harmonic Prodigy, Delney, Veyran) were migrated onto `subject`/`cause` in the same pass and
+  the six flat flags, their registry plumbing and the legacy branch of
+  `trigger_doubler_bonus` deleted, so there is one representation. New filter key
+  `not_owned_by_you` ("a permanent you control but don't own", read relative to the
+  reference object's controller). Behaviour change, deliberate: a doubler no longer skips
+  *its own* triggers for the cause form (RULE 603.2d has no such exception; Veyran's own
+  magecraft is doubled).
+- **Audit findings fixed on the way (found by reading every doubler's printed line beside its
+  emitted params):** the legacy tribal rows (`_GROUP_SUBTYPE_SUBJECT_RE`,
+  `_SELF_OR_GROUP_SUBTYPE_RE`) accepted *any* `[a-z]+` as a creature subtype, so "a
+  commander you control attacks" (Keleth), "another outlaw you control enters" (Vial
+  Smasher) and "a land or Bird you control entering" became subtype filters no object can
+  match — claimed, never firing. They now accept only words in `subtype_vocabulary`
+  (`segmenter._all_subtypes`); the shared grammar reads "commander" (a designation),
+  "outlaw" (five creature types) and "historic" for what they are and the composed head
+  claims those lines correctly.
+- **Left open (each blocked by something other than the doubler grammar):** player-event
+  causes ("a player drawing a card", "turning a face-down permanent face up", "a creature you
+  control becoming the target of …", "being dealt damage"), compound subjects ("~ or an
+  Equipment attached to it", "another colorless permanent or a colorless spell", "while you
+  control six or more Shrines"), The Fish Brewer's tap-for-extra-copies and The Masamune's
+  granted quoted doubler.
+- **Verification:** `tests/test_par122_trigger_doubler_grammar.py` (grammar, fail-closed, 16 real
+  cards, and execute tests that double a real ETB / dies trigger per cause and subject shape,
+  "another", ownership, the `active_if` gate, controller scope); the tests that pinned the
+  old flat keys were updated (`test_dance_elements_batch`, `test_strixhaven_secrets_wave51`).
+
+### PAR-119: composed object-event head — enters/dies/attacks/blocks/leaves, sacrifice, discard, damage (PARSER_VERSION 450)
+
+- **What:** The second axis of the composed trigger-head grammar, for the events
+  an *object* or a *player acting on an object* fires. `catalogue/object_trigger_head.py`
+  reads `<subject> <verb> [or <verb>] [tails]` (enters, dies, attacks [alone|you],
+  blocks, leaves the battlefield), `<subject> deals [combat|noncombat] damage [to
+  <recipient>]` and `<player> sacrifices/discards <object>`. The subject is one noun
+  phrase — `characteristic_phrase.parse_object_phrase`: adjectives, card types,
+  subtypes, colours, `with <qualifier>` (mana value / power / toughness / a
+  counter on it / a keyword), "of the chosen type", a controller tail — and lands as
+  one `filter` dict in the `{"subject": "group"}` condition instead of one
+  `_build_group_ok` key per property. `_build_group_ok` evaluates it with
+  `combat.matches_object_filter` against the acting object, using its **last-known
+  values** (`binding.core._LastKnownObject`, RULE 603.10a) for the departure/zone-change
+  events (DIES, LEAVES_BATTLEFIELD, SACRIFICE, DISCARD_CARD). Also: "X and whenever Y,
+  Z" is now split into two triggers by a wrapper around `segment_line` (`_COMPOUND_TRIGGER_RE`,
+  only tried when the whole line is unclaimed). +146 cards (16,333 → 16,479;
+  Commander-legal 15,693 → 15,838), 0 regressed.
+- **Why it is built this way:** the composition probe put 60 of the 187 enter/leave/die
+  cards on subject-property variations alone (nontoken, token, "with power N or
+  greater", subtype words, "your commander", "N counters on it") and the rest of the
+  head families re-spelled the same subject grammar per verb (`_GROUP_SUBJECT_RE`,
+  `_DAMAGE_TRIGGER_RE`, `_BECOMES_TARGET_TRIGGER_RE`, …). The composed head is a
+  fallback tried only after those decline, so no card they already claim can change;
+  migrating them onto it stays open on PAR-119. The subtype vocabulary
+  (`catalogue/subtype_vocabulary.py`, 554 words) is generated by
+  `scripts/build_subtype_vocabulary.py` from the card cache's type lines **and** the
+  Comprehensive Rules' own lists (205.3g–q, which carry the token-only subtypes no
+  card prints — Blood, Powerstone …), never curated. New `matches_object_filter`
+  key: `card_type_all` ("artifact creature"). New condition keys read by the group
+  predicate: `filter`, `recipient_is_opponent`, `recipient_filter`. Shared tails moved to
+  `catalogue/trigger_context.py` (`spell_phrase` uses them too).
+- **Design traps caught (each by executing a claimed card, not by the parse verdict):**
+  (1) a "whenever … this turn" trigger on an instant/sorcery is a *delayed* trigger
+  (RULE 603.7); the head refuses it, because `_collect_triggers` only scans permanents
+  and graveyard-function abilities — seven already-claimed spells have the same inert
+  shape (recorded as PAR-124). (2) "you may pay {cost}, then return this card from your
+  graveyard" never functioned from the graveyard: `functions_from_graveyard` was only
+  inferred from a direct return effect, not from `PayCostThenEffect`'s payoff specs
+  (Unconventional Tactics, Killian's Confidence, and now Endless Ranks of HYDRA);
+  `_returns_self_from_graveyard` fixes all three. (3) `event_player` reads `player_id`,
+  which the SACRIFICE event did not carry — Vengeful Tracker would have damaged
+  nobody; the event now stamps it. (4) Under a group subject a bare "it" parses to
+  `target_kind: None`, which acts on the ability's own *source*; the binder only
+  retargets `tap` (`_GROUP_SUBJECT_RETARGET_FIELDS`), because explicit "return ~" shares
+  that spec shape. The composed head refuses such bodies (Dissipation Field, Rienne);
+  three older claims have the same defect (PAR-123). (5) "for each `<counter>` counter on
+  it" under a self-subject trigger used the `previous_target` referent, so Vogar,
+  Marketback Walker and eight siblings drew/lost nothing; it now reads the source's
+  last-known counters (`counters` snapshot added to every LEAVES_BATTLEFIELD event). (6)
+  A "for each" with a printed magnitude above 1 replaced it instead of multiplying
+  (Krovikan Whispers lost 3 life, not 6); the bind now uses the `multiply` amount modifier
+  and refuses a non-numeric magnitude. (7) The recipient scope keys are only read by the
+  group predicate, so the head declines them on a self/attached subject rather than emit
+  a key nothing reads.
+- **Verification:** `tests/test_par119_object_trigger_head.py` (grammar, fail-closed
+  cases, real cards, and execute tests that destroy, sacrifice, discard, declare attackers,
+  deal damage and enter real objects). Two "stays closed" pins of the pilot's tests
+  (`a wizard spell`, `a creature artifact spell`) and one PAR-117 pin (Life Finds a Way)
+  were updated to the new truth.
+
 ### PAR-98: Small verified residue batch #2 (PARSER_VERSION 448)
 
 - **What:** Closed the fourteen-shape batch that PAR-79's close-out split off

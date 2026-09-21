@@ -35,8 +35,13 @@ def _gandalf_the_white() -> list[AbilitySpec]:
                 EffectSpec(
                     "trigger_doubler",
                     {
-                        "cause_filter": [EventType.ENTERS_BATTLEFIELD, EventType.LEAVES_BATTLEFIELD],
-                        "cause_type_filter": ["legendary", "artifact"],
+                        "cause": {
+                            "event": ["ENTERS_BATTLEFIELD", "LEAVES_BATTLEFIELD"],
+                            "condition": {
+                                "subject": "group", "controller": "any", "other": False,
+                                "filter": {"any_of": [{"legendary": True}, {"card_type": "artifact"}]},
+                            },
+                        },
                     },
                 )
             ],

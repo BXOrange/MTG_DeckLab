@@ -80,10 +80,14 @@ def test_cast_spell_during_opponents_turn_sets_not_controllers_turn():
     assert trig["not_controllers_turn"] is True
 
 
-def test_cast_spell_during_your_turn_stays_unmodeled():
+def test_cast_spell_during_your_turn_is_modeled():
+    # PAR-119: the composed cast-trigger head reads "during your turn" as the
+    # event-agnostic controller-relative `phase_relation` gate.
     c = Card(id="x", name="X", type_line="Enchantment",
              oracle_text="Whenever you cast a spell during your turn, draw a card.")
-    assert parse_oracle(c).coverage == UNMODELED
+    r = parse_oracle(c)
+    assert r.coverage != UNMODELED, r.unclaimed
+    assert r.specs[0].trigger["phase_relation"] == "you"
 
 
 def test_real_cards_modeled():

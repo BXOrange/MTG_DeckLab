@@ -34,8 +34,12 @@ def _veyran_voice_of_duality() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("trigger_doubler", {
-                "cause_filter": [EventType.SPELL_CAST],
-                "cause_spell_type_any": ["instant", "sorcery"]})],
+                "cause": {
+                    "event": "SPELL_CAST",
+                    "condition": {"subject": "you"},
+                    "spell_filter": {"card_type_any": ["instant", "sorcery"]},
+                },
+            })],
         ),
     ]
 

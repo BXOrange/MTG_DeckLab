@@ -191,18 +191,30 @@ _COMPOSITION_EFFECT_TYPES: frozenset[str] = frozenset(
 #: and recurse instead of matching a type here.
 _STRUCTURED_CONDITION_FIELDS: dict[str, type] = {
     "of": str, "flag": str, "subtype": str, "card_type": str, "color": str,
-    "counter": str, "selector": str, "name": str, "keyword": str,
+    "counter": str, "selector": (str, dict), "name": str, "keyword": str,
     "op": str,
     "min": int, "max": int, "amount": int, "min_power": int,
     "colors": list, "types": list,
 }
+
+#: The literal placeholders for a spell's announced {X} (RULE 107.3) that may sit in
+#: a numeric amount field until the engine substitutes the paid value.
+X_SENTINELS: frozenset[str] = frozenset({"x", "-x"})
+
+#: PAR-120's structured count selector — ``{"zone", "of", "filter", "distinct"}`` —
+#: validated by shape only (the zone/scope/`distinct` vocabularies are named here
+#: because this package cannot import `game/`; `tests/test_par120_count_phrase.py`
+#: asserts they stay equal to `continuous`'s own).
+SELECTOR_ZONES: frozenset[str] = frozenset({"battlefield", "graveyard", "hand", "exile", "library"})
+SELECTOR_SCOPES: frozenset[str] = frozenset({"you", "opponents", "any"})
+SELECTOR_DISTINCT: frozenset[str] = frozenset({"power", "toughness", "mana_value", "name"})
 
 #: Non-``kind`` keys an `effect_amounts` measurement spec may carry (the
 #: operands of an ENG-37 B5 `amount_compare`), and the type each must have.
 #: The ``kind`` vocabulary itself is `game/effect_amounts.py`'s (not
 #: importable here, docs/09); ``str`` fields are further shape-checked there.
 _AMOUNT_SPEC_FIELDS: dict[str, type] = {
-    "of": str, "characteristic": str, "counter": str, "selector": str,
+    "of": str, "characteristic": str, "counter": str, "selector": (str, dict),
     "tally": str, "scope": str, "resource": str, "field": str, "aggregate": str,
     "amount": int, "multiply": int, "divide": int, "plus": int, "minus": int,
     "minimum": int, "maximum": int, "round_up": bool,
@@ -1325,6 +1337,14 @@ class AbilitySpec:
                         raise SpecValidationError(f"malformed {key!r} in condition {condition!r}")
                     AbilitySpec._validate_structured_condition(sub, _depth + 1)
                 continue
+            if key == "trigger":
+                # ENG-47 `event_this_turn`: a trigger-shaped dict evaluated by the
+                # binder over the turn's event log. Shape and depth only — the key
+                # vocabulary is `game/binding/core.py`'s, which this package cannot import.
+                if not isinstance(value, dict):
+                    raise SpecValidationError("'trigger' in an effect condition must be a dict")
+                AbilitySpec._validate_trigger_shape(value)
+                continue
             if key in ("left", "right"):
                 # ENG-37 B5 `amount_compare` — an `effect_amounts` measurement
                 # spec, not a condition field. Same posture as ``condition``:
@@ -1343,8 +1363,90 @@ class AbilitySpec:
                 raise SpecValidationError(f"{key!r} in an effect condition must be an int")
             if expected is not int and not isinstance(value, expected):
                 raise SpecValidationError(
-                    f"{key!r} in an effect condition must be a {expected.__name__}"
+                    f"{key!r} in an effect condition must be a {AbilitySpec._type_label(expected)}"
                 )
+            if key == "selector" and isinstance(value, dict):
+                AbilitySpec._validate_selector(value)
+
+    @staticmethod
+    def _type_label(expected: Any) -> str:
+        if isinstance(expected, tuple):
+            return " or ".join(t.__name__ for t in expected)
+        return expected.__name__
+
+    @staticmethod
+    def _validate_trigger_shape(trigger: dict[str, Any], _depth: int = 0) -> None:
+        """A trigger-shaped dict inside a condition: an ``event`` (a name or a list of
+        names) plus plain JSON values, nested no deeper than `MAX_SPEC_DEPTH`; ints are
+        clamped like any magnitude."""
+        if _depth > AbilitySpec.MAX_SPEC_DEPTH:
+            raise SpecValidationError("trigger dict nested too deeply")
+        if _depth == 0:
+            event = trigger.get("event")
+            names = event if isinstance(event, list) else [event]
+            if not names or not all(isinstance(n, str) and n for n in names):
+                raise SpecValidationError(f"a trigger dict needs an 'event' name: {trigger!r}")
+
+        def check(value: Any, depth: int) -> Any:
+            if depth > AbilitySpec.MAX_SPEC_DEPTH:
+                raise SpecValidationError("trigger dict nested too deeply")
+            if isinstance(value, bool) or value is None or isinstance(value, str):
+                return value
+            if isinstance(value, int):
+                return max(-MAX_EFFECT_MAGNITUDE, min(value, MAX_EFFECT_MAGNITUDE))
+            if isinstance(value, list):
+                return [check(v, depth + 1) for v in value]
+            if isinstance(value, dict):
+                for k in value:
+                    if not isinstance(k, str):
+                        raise SpecValidationError(f"trigger dict key must be a str: {k!r}")
+                return {k: check(v, depth + 1) for k, v in value.items()}
+            raise SpecValidationError(f"bad value in a trigger dict: {value!r}")
+
+        for key in list(trigger):
+            trigger[key] = check(trigger[key], _depth + 1)
+
+    @staticmethod
+    def _validate_selector(selector: dict[str, Any]) -> None:
+        """Shape-check a structured count selector (PAR-120) and clamp its numbers."""
+        for key, value in selector.items():
+            if key == "zone":
+                ok = isinstance(value, str) and value in SELECTOR_ZONES
+            elif key == "of":
+                ok = isinstance(value, str) and value in SELECTOR_SCOPES
+            elif key == "distinct":
+                ok = isinstance(value, str) and value in SELECTOR_DISTINCT
+            elif key == "filter":
+                ok = isinstance(value, dict)
+                if ok:
+                    AbilitySpec._validate_filter(value)
+            else:
+                raise SpecValidationError(f"unknown count selector field {key!r}")
+            if not ok:
+                raise SpecValidationError(f"bad {key!r} in a count selector: {value!r}")
+
+    @staticmethod
+    def _validate_filter(filt: dict[str, Any], _depth: int = 0) -> None:
+        """A `combat.matches_object_filter` dict: scalar and list values, ``any_of``
+        entries that are filters themselves; numbers are clamped like any magnitude."""
+        if _depth > AbilitySpec.MAX_SPEC_DEPTH:
+            raise SpecValidationError("object filter nested too deeply")
+        for key, value in filt.items():
+            if not isinstance(key, str):
+                raise SpecValidationError(f"object filter key must be a str: {key!r}")
+            if key == "any_of":
+                if not isinstance(value, list) or not all(isinstance(v, dict) for v in value):
+                    raise SpecValidationError("'any_of' in an object filter must be a list of filters")
+                for sub in value:
+                    AbilitySpec._validate_filter(sub, _depth + 1)
+            elif isinstance(value, bool) or isinstance(value, str):
+                continue
+            elif isinstance(value, int):
+                filt[key] = max(-MAX_EFFECT_MAGNITUDE, min(value, MAX_EFFECT_MAGNITUDE))
+            elif isinstance(value, list) and all(isinstance(v, (str, int)) for v in value):
+                continue
+            else:
+                raise SpecValidationError(f"bad value for object filter key {key!r}: {value!r}")
 
     @staticmethod
     def _validate_amount_spec(spec: dict[str, Any], _depth: int = 0) -> None:
@@ -1363,8 +1465,17 @@ class AbilitySpec:
             expected = _AMOUNT_SPEC_FIELDS.get(key)
             if expected is None:
                 raise SpecValidationError(f"unknown amount spec field {key!r}")
+            if key == "selector":
+                if isinstance(value, dict):
+                    AbilitySpec._validate_selector(value)
+                    continue
+                if not isinstance(value, str):
+                    raise SpecValidationError("'selector' in an amount spec must be a str or a dict")
+                continue
             if expected is bool and not isinstance(value, bool):
                 raise SpecValidationError(f"{key!r} in an amount spec must be a bool")
+            if expected is int and isinstance(value, str) and value in X_SENTINELS:
+                continue  # the announced {X} (RULE 107.3): `RulesEngine._substitute_x` makes it an int at cast
             if expected is int and (isinstance(value, bool) or not isinstance(value, int)):
                 raise SpecValidationError(f"{key!r} in an amount spec must be an int")
             if expected is str and not isinstance(value, str):
@@ -1390,6 +1501,11 @@ class AbilitySpec:
             node_condition = params.get("condition")
             if isinstance(node_condition, dict) and node_condition:
                 AbilitySpec._validate_condition(node_condition)
+        if _effect_type == "bind" and isinstance(params.get("amount"), dict):
+            # The measurement a ``bind`` substitutes into its body — the same shape
+            # an `amount_compare` operand has, so the same check (kind vocabulary
+            # in `game/effect_amounts.py`, shape and magnitude clamps here).
+            AbilitySpec._validate_amount_spec(params["amount"])
         for key in _CLAMPED_PARAM_KEYS:
             value = params.get(key)
             if isinstance(value, bool):  # bool is an int subclass — leave flags alone

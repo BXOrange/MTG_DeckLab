@@ -2307,90 +2307,44 @@ class GrantDieToExileThisTurnEffect(GameEffect):
 
 
 class TriggerDoublerEffect(GameEffect):
-    """"If a triggered ability of another creature you control of the
-    chosen type triggers, it triggers an additional time." (Roaming
-    Throne, RULE 603.3d) — a continuous marker like `TopLibraryPermission
-    Effect`/`CantBeCounteredEffect` above: no layer/characteristic
-    behaviour of its own (``apply()`` is a no-op), just something
-    `game/rules/triggers_mixin.py`'s `_collect_triggers` scans for
-    (`continuous.trigger_doubler_bonus`) when deciding how many times to
-    place a *different* permanent's triggered ability on the stack. "The
-    chosen type" is this effect's own source's `GameObject.chosen_type`
-    (RULE 601.2b), read live so a Replay/Puzzle-mode change to the choice
-    is honoured immediately.
+    """"If `<cause>` causes a triggered ability of a permanent you control to
+    trigger, that ability triggers an additional time." / "If a triggered ability
+    of `<subject>` triggers, …" (RULE 603.2d — Roaming Throne, Panharmonicon,
+    Elesh Norn, Teysa Karlov, Delney …) — a continuous marker like
+    `TopLibraryPermissionEffect`/`CantBeCounteredEffect`: no layer behaviour of
+    its own (``apply()`` is a no-op), just something `game/rules/triggers_mixin.py`'s
+    `_collect_triggers` scans (`continuous.trigger_doubler_bonus`) when deciding how
+    many times to place a permanent's triggered ability on the stack.
 
-    ``cause_filter`` (Elesh Norn, Mother of Machines, MEC-40 — "If a
-    permanent entering causes a triggered ability of a permanent you
-    control to trigger, that ability triggers an additional time.") is an
-    alternative scoping axis: instead of narrowing *which permanent's*
-    triggers double (by creature type, the ``chosen_type`` gate above),
-    it narrows *which firing event* doubles (one `EventType`, or a list —
-    Gandalf the White's "entering **or leaving**" — matched against the
-    very event that caused the trigger), unscoped by the doubled
-    permanent's own type — matching the printed "**a** triggered ability",
-    not "a triggered ability of an Elf". The two axes are mutually
-    exclusive per instance: a ``cause_filter`` doubler skips the
-    ``chosen_type`` gate entirely (`continuous.trigger_doubler_bonus`).
+    Two independent, optional halves (PAR-122 — they replaced seven flat flags,
+    one per printed variation):
 
-    ``cause_type_filter`` (Gandalf the White) additionally narrows *which
-    permanent* caused the event — "if a **legendary permanent or an
-    artifact** entering or leaving…" — a closed word list
-    ("legendary"/"artifact"), union semantics, checked against the causing
-    object named by the event's own ``instance_id``.
+    ``cause`` is a trigger-shaped dict — the same ``event`` / ``condition`` /
+    ``filter`` / ``phase_relation`` / ``spell_filter`` keys an `AbilitySpec.trigger`
+    carries — answered by the binder's own `_trigger_condition` predicate against the
+    firing event, so "a creature you control attacking" means exactly what "whenever
+    a creature you control attacks" means. Absent = any cause.
 
-    ``min_power``/``max_power`` (MEC-43 round 2, Delney, Streetwise
-    Lookout — "a triggered ability of a creature you control **with power
-    2 or less** triggers") is a third, independent scoping axis alongside
-    ``chosen_type``/``cause_filter``: a live board-state gate on the
-    doubled permanent's own current power instead of its type or the
-    firing event's shape (`continuous.trigger_doubler_bonus`).
+    ``subject`` scopes the *doubled* permanent: ``filter`` (a
+    `combat.matches_object_filter` dict — a creature type, a power bound, "of the
+    chosen type" via ``subtype_from_source``, "you control but don't own"),
+    ``other`` ("another": not this doubler itself) and ``attached`` ("equipped
+    creature"). Absent = any permanent its controller controls.
 
-    ``subject_subtype_any`` (PAR-60, Harmonic Prodigy — "a triggered
-    ability of a Shaman or another Wizard you control triggers") is the
-    fixed-list sibling of ``chosen_type``: the doubled permanent must have
-    one of these (printed/derived) subtypes. Unlike ``chosen_type`` (a
-    RULE 601.2b choice read off the doubler's own `GameObject.chosen_type`)
-    this is a closed list baked into the card; like ``chosen_type`` it
-    keeps the "another" `doubler is obj` skip (every real printing so far —
-    Harmonic Prodigy is itself a Wizard, hence "another Wizard").
-
-    ``cause_spell_type_any`` (PAR-60, Veyran, Voice of Duality — "if you
-    casting or copying an instant or sorcery spell causes a triggered
-    ability of a permanent you control to trigger…") narrows a
-    ``cause_filter`` match further: the firing event's own ``object_types``
-    (a SPELL_CAST event stamps the cast spell's card types) must intersect
-    this list. Documented simplification: like the parser's own magecraft
-    modeling, "or copy" is treated as just the cast (no distinct
-    spell-copy event), and Veyran does not double its *own* magecraft
-    trigger (the shared ``cause_filter`` `doubler is obj` skip).
+    ``active_if`` is a RULE 613.6 "as long as …" gate on the whole doubler.
     """
 
     def __init__(
         self,
-        cause_filter: Optional[Union[str, list[str]]] = None,
-        cause_type_filter: Optional[list[str]] = None,
-        min_power: Optional[int] = None,
-        max_power: Optional[int] = None,
-        subject_subtype_any: Optional[list[str]] = None,
-        cause_spell_type_any: Optional[list[str]] = None,
         source: Optional["GameObject"] = None,
+        cause: Optional[dict[str, Any]] = None,
+        subject: Optional[dict[str, Any]] = None,
+        active_if: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
-        if cause_filter is None or isinstance(cause_filter, (list, tuple)):
-            self.cause_filter = tuple(cause_filter) if cause_filter else None
-        else:
-            self.cause_filter = (cause_filter,)
-        self.cause_type_filter = (
-            [str(w).lower() for w in cause_type_filter] if cause_type_filter else None
-        )
-        self.min_power = min_power
-        self.max_power = max_power
-        self.subject_subtype_any = (
-            [str(s) for s in subject_subtype_any] if subject_subtype_any else None
-        )
-        self.cause_spell_type_any = (
-            [str(s).lower() for s in cause_spell_type_any] if cause_spell_type_any else None
-        )
+        self.cause = dict(cause) if cause else None
+        self.subject = dict(subject) if subject else None
+        self.active_if = dict(active_if) if active_if else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         return None

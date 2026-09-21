@@ -27,7 +27,12 @@ def _elesh_norn_mother_of_machines() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "static",
-            [EffectSpec("trigger_doubler", {"cause_filter": [EventType.ENTERS_BATTLEFIELD]})],
+            [EffectSpec("trigger_doubler", {
+                "cause": {
+                    "event": "ENTERS_BATTLEFIELD",
+                    "condition": {"subject": "group", "controller": "any", "other": False},
+                },
+            })],
         ),
         AbilitySpec(
             "static",

@@ -204,7 +204,9 @@ class TriggerCollectionMixin:
                     # multiplier baked into the ability itself, since each
                     # copy is separately orderable/targetable (RULE 603.3b)
                     # once 2+ end up pending together.
-                    copies = 1 + continuous.trigger_doubler_bonus(self.state, obj, event=event)
+                    copies = 1 + continuous.trigger_doubler_bonus(
+                        self.state, obj, event=event, context=self.context
+                    )
                     for _ in range(copies):
                         self.pending_triggers.append((ability, event))
         # RULE 114.4: an emblem's abilities function in the command zone —

@@ -20,6 +20,10 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
+from .catalogue.object_trigger_head import parse_object_trigger_head
+from .catalogue.count_phrase import parse_count_phrase
+from .catalogue.spell_phrase import parse_spell_phrase
+from .catalogue.subtype_vocabulary import SUBTYPES
 from .catalogue.handlers import (
     ACTIVATE_ONLY_ONCE_MARKER,
     ACTIVATION_CONDITION_MARKER,
@@ -505,6 +509,55 @@ def _cast_spell_trigger_condition(subj: str) -> dict[str, Any]:
     if subj == "an opponent":
         return {"subject": "group", "controller": "not_you"}
     return {"subject": "group"}
+
+#: PAR-119: the composed cast-trigger head — actor + "cast" + a spell phrase
+#: that `catalogue.spell_phrase.parse_spell_phrase` builds from shared word
+#: tables (characteristic adjectives, ``with`` qualifiers, cast-from zone,
+#: ownership, targets). One row for what used to be one regex *and* one ~25-line
+#: dispatch block per adjective combination (`_CAST_SPELL_TRIGGER_MV_RE`,
+#: `_..._HISTORIC_RE`, …). Tried only after every legacy row declined, so it
+#: can only add coverage, never change a spec a legacy row already emits.
+_CAST_TRIGGER_COMPOSED_RE = re.compile(
+    r"^(?:whenever|when) (?P<subj>you|an opponent|a player) casts? "
+    r"(?P<phrase>(?:an?|another) [^,]*?\bspell\b[^,]*),\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+
+
+def _cast_trigger_segment(
+    raw: str, subj: str, trigger_keys: dict[str, Any], body_text: str, provenance: ParserProvenance
+) -> Segment:
+    """The one dispatch for a `SPELL_CAST` trigger whose head is already parsed
+    into ``trigger_keys``: optional peel, the two-rider mana-spent shape, the
+    intervening "if at least N mana was spent", then the body."""
+    body, optional = _peel_optional(body_text)
+    trigger = {
+        "event": "SPELL_CAST",
+        "condition": _cast_spell_trigger_condition(subj),
+        **trigger_keys,
+    }
+    two_rider_parts = _cast_mana_two_rider_parts(body, self_subject=True)
+    if two_rider_parts is not None:
+        base_effects, riders = two_rider_parts
+        base_spec = AbilitySpec("triggered", effects=base_effects, trigger=trigger,
+            optional=optional, raw_text=raw, parser=provenance)
+        rider_specs = [
+            AbilitySpec("triggered", effects=effects,
+                trigger={**trigger, "spell_mana_spent_at_least": threshold}, optional=optional,
+                raw_text=raw, parser=provenance)
+            for threshold, effects in riders
+        ]
+        return Segment(raw=raw, spec=base_spec, extra_specs=rider_specs, claimed=True)
+    body, mana_spent_at_least = _peel_spell_mana_spent_at_least(body)
+    effects = parse_effect_body(body, self_subject=True)
+    if effects is None:
+        return Segment(raw=raw)
+    if mana_spent_at_least is not None:
+        trigger = {**trigger, "spell_mana_spent_at_least": mana_spent_at_least}
+    spec = AbilitySpec("triggered", effects=effects, trigger=trigger,
+        optional=optional, raw_text=raw, parser=provenance)
+    return Segment(raw=raw, spec=spec, claimed=True)
+
 
 #: The negated sibling — "Whenever you cast a **noncreature** spell, …"
 #: (Young Pyromancer/Shark Typhoon/dozens of "spells matter" payoffs —
@@ -3274,6 +3327,14 @@ def _player_trigger_event(condition: str) -> Any:
     return None
 
 
+def _all_subtypes(words: str) -> bool:
+    """Whether every word of an "X or Y" list is a real card subtype. The tribal
+    rows accept ``[a-z]+`` so they can name any creature type; without this check
+    "a land or Bird you control" or "a planeswalker you control" became a
+    *subtype* filter no object could ever match — claimed, but never firing."""
+    return all(w.strip() in SUBTYPES for w in words.split(" or "))
+
+
 def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
     """RULE 603.1's condition *subject* → the `AbilitySpec.trigger["condition"]` dict.
 
@@ -3314,7 +3375,7 @@ def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
             "other": True,
         }
     m = _SELF_OR_GROUP_SUBTYPE_RE.match(cond)
-    if m is not None:
+    if m is not None and _all_subtypes(m.group("subtypes")):
         return {
             "subject": "self_or_group",
             "subtypes": [w.strip() for w in m.group("subtypes").split(" or ")],
@@ -3417,7 +3478,7 @@ def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
     # failed to match — a genuine tribal filter ("another nontoken Zombie
     # or Mutant you control dies", The Ghoul Gunslinger-shaped).
     m = _GROUP_SUBTYPE_SUBJECT_RE.match(cond)
-    if m is not None:
+    if m is not None and _all_subtypes(m.group("subtypes")):
         return {
             "subject": "group",
             "subtypes": [w.strip() for w in m.group("subtypes").split(" or ")],
@@ -3425,6 +3486,35 @@ def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
             "controller": "you",
             "other": m.group("article") == "another",
         }
+    return None
+
+
+def trigger_condition_dict(cond_text: str) -> Optional[dict[str, Any]]:
+    """A finite trigger *condition* phrase (no body) → the `AbilitySpec.trigger`-shaped
+    dict it would produce (``event``, ``condition``, extra keys), or ``None``.
+
+    For a caller that needs the condition on its own — a trigger doubler's cause
+    ("a creature you control attacks") — through the same three recognisers
+    `segment_line` uses for an ordinary trigger: player events, the per-adjective
+    object subjects, then the composed object head.
+    """
+    cond = cond_text.strip()
+    player_event = _player_trigger_event(cond)
+    if player_event is not None:
+        extra: dict[str, Any] = {}
+        if isinstance(player_event, tuple):
+            player_event, event_filter = player_event
+            if event_filter:
+                extra["filter"] = dict(event_filter)
+        return {"event": player_event, "condition": {"subject": "you"}, **extra}
+    event = _trigger_event(cond)
+    if event is not None:
+        condition = _trigger_condition(cond)
+        if condition is not None:
+            return {"event": event, "condition": condition}
+    head = parse_object_trigger_head(cond)
+    if head is not None:
+        return {"event": head.event, "condition": head.condition, **head.trigger}
     return None
 
 
@@ -3564,6 +3654,38 @@ _FOR_EACH_AMOUNTS: dict[str, dict[str, Any]] = {
 _MAGNITUDE_PARAM_KEYS: tuple[str, ...] = ("amount", "count")
 
 
+def _count_amount(
+    phrase: str, *, self_subject: bool, previous_subject: bool = True
+) -> "Optional[dict[str, Any]]":
+    """The quantity a "for each `<phrase>`" / "the number of `<phrase>`" measures, as an
+    `effect_amounts` spec, or ``None`` for a phrase outside every reading."""
+    phrase = phrase.strip().lower()
+    amount = _FOR_EACH_AMOUNTS.get(phrase)
+    if amount is not None:
+        return amount
+    cm = _FOR_EACH_COUNTER_RE.match(phrase)
+    if cm is not None:
+        who = cm.group("who").lower()
+        # "~"/"this <type>" name the source; a bare "it" is the source under a
+        # self-subject trigger ("when ~ dies, draw a card for each +1/+1 counter on
+        # it") and an earlier clause's target only when one was announced — with
+        # neither, nothing says which permanent it is, so the phrase is refused
+        # rather than measured against an empty referent (which reads 0).
+        if who == "~" or who.startswith("this ") or (who == "it" and self_subject):
+            of = "source"
+        elif previous_subject:
+            of = "previous_target"
+        else:
+            return None
+        return {"kind": "counters", "counter": cm.group("counter").lower(), "of": of}
+    # PAR-120: any other count phrase — a structured selector over the shared
+    # noun-phrase grammar, not a table row.
+    selector = parse_count_phrase(phrase)
+    if selector is None:
+        return None
+    return {"kind": "count_selector", "selector": selector}
+
+
 def _for_each_amount_specs(
     match: "re.Match[str]", phrase: str, *, self_subject: bool,
     previous_subject: bool, group_subject: bool, previous_selector: bool,
@@ -3576,20 +3698,20 @@ def _for_each_amount_specs(
     the measured number, and putting it in the wrong place would scale
     something the card never scaled.
     """
-    amount = _FOR_EACH_AMOUNTS.get(phrase)
+    amount = _count_amount(phrase, self_subject=self_subject, previous_subject=previous_subject)
     if amount is None:
-        # MEC-83: "<X> counter on it/~/this <type>" — a dynamic `counters`
-        # read (the ``of`` referent is the source for "~"/"this …", the
-        # previous clause's target for "it").
-        cm = _FOR_EACH_COUNTER_RE.match(phrase)
-        if cm is None:
-            return None
-        who = cm.group("who").lower()
-        amount = {
-            "kind": "counters",
-            "counter": cm.group("counter").lower(),
-            "of": "source" if (who == "~" or who.startswith("this ")) else "previous_target",
-        }
+        return None
+    return _bound_for_each_amount(
+        match, amount, self_subject=self_subject, previous_subject=previous_subject,
+        group_subject=group_subject, previous_selector=previous_selector,
+    )
+
+
+def _bound_for_each_amount(
+    match: "re.Match[str]", amount: dict[str, Any], *, self_subject: bool,
+    previous_subject: bool, group_subject: bool, previous_selector: bool,
+) -> "Optional[list[EffectSpec]]":
+    """The body of "<effect> for each `<quantity>`" bound to a measured ``amount``."""
     inner = parse_effect_body(
         match.group("rest").strip(), self_subject=self_subject,
         previous_subject=previous_subject, group_subject=group_subject,
@@ -3601,6 +3723,11 @@ def _for_each_amount_specs(
     if len(keys) != 1:
         return None
     params = dict(inner[0].params)
+    printed = params[keys[0]]
+    if isinstance(printed, bool) or not isinstance(printed, int) or printed < 1:
+        return None  # only a printed number can scale the count ("lose 2 life for each …")
+    if printed > 1:
+        amount = {**amount, "multiply": printed}
     params[keys[0]] = "$n"
     return [EffectSpec("bind", {
         "name": "n",
@@ -3693,6 +3820,60 @@ def _for_each_specs(
     return [EffectSpec("for_each", {
         "over": {"selector": selector},
         "effects": [spec.to_dict() for spec in inner],
+    })]
+
+
+#: PAR-120: "`<effect with x>`, where X is the number of `<count phrase>`" and "`<you gain
+#: life | draw cards | ~ deals damage>` equal to the number of `<count phrase>`" — the
+#: effect parsed with a literal X (every X-capable handler already reads it) and the X
+#: bound to one measured count, instead of one row per verb × per quantity.
+_WHERE_X_RE = re.compile(
+    r"^(?P<rest>.+?),?\s+where x is the number of (?P<phrase>.+)$", re.IGNORECASE
+)
+_EQUAL_TO_RE = re.compile(
+    r"^(?P<verb>.+?)\s+(?P<noun>life|cards?|damage) equal to the number of (?P<phrase>.+?)"
+    r"(?P<tail>\s+to (?:any target|target [a-z ]+?|each opponent|each player|that player))?$",
+    re.IGNORECASE,
+)
+#: The params an X can sit in once an X-capable handler has parsed the body.
+_X_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "power", "toughness")
+
+
+def _where_x_specs(
+    body: str, *, self_subject: bool, previous_subject: bool,
+    group_subject: bool, previous_selector: bool,
+) -> "Optional[list[EffectSpec]]":
+    """See `_WHERE_X_RE`; ``None`` unless exactly one recognised param holds the X."""
+    text = body.strip().rstrip(".").strip()
+    m = _WHERE_X_RE.match(text)
+    if m is not None:
+        rest = m.group("rest")
+    else:
+        m = _EQUAL_TO_RE.match(text)
+        if m is None:
+            return None
+        rest = f"{m.group('verb')} x {m.group('noun')}{m.group('tail') or ''}"
+    amount = _count_amount(
+        m.group("phrase"), self_subject=self_subject, previous_subject=previous_subject
+    )
+    if amount is None:
+        return None
+    inner = parse_effect_body(
+        rest.strip(), self_subject=self_subject, previous_subject=previous_subject,
+        group_subject=group_subject, previous_selector=previous_selector,
+    )
+    if not inner or len(inner) != 1:
+        return None
+    params = dict(inner[0].params)
+    holders = [k for k in _X_PARAM_KEYS if params.get(k) == "x"]
+    if not holders or any(v == "-x" for v in params.values()):
+        return None
+    for key in holders:
+        params[key] = "$n"
+    return [EffectSpec("bind", {
+        "name": "n",
+        "amount": amount,
+        "effects": [{"type": inner[0].type, "params": params}],
     })]
 
 
@@ -4643,6 +4824,13 @@ def parse_effect_body(
     if for_each is not None:
         return for_each
 
+    where_x = _where_x_specs(
+        body, self_subject=self_subject, previous_subject=previous_subject,
+        group_subject=group_subject, previous_selector=previous_selector,
+    )
+    if where_x is not None:
+        return where_x
+
     matched, peeled = _peel_condition(
         body, _GENERIC_CONDITION_ROWS, self_subject=self_subject,
         previous_subject=previous_subject, group_subject=group_subject,
@@ -5039,7 +5227,75 @@ def _segment_keyword_labeled_ability(
     return Segment(raw=raw, spec=inner.spec, extra_specs=inner.extra_specs, claimed=True)
 
 
+#: A bare pronoun in a trigger body ("return **it**", "exile **that creature**").
+_BARE_PRONOUN_RE = re.compile(r"\b(?:it|that (?:creature|permanent|artifact|land|token))\b")
+
+#: Effect types the binder rewrites from an implicit ``target_kind: None`` to the
+#: acting object of a group-subject trigger (`game/binding/core.py`'s
+#: ``_GROUP_SUBJECT_RETARGET_FIELDS``); keep the two in step.
+_GROUP_IT_RETARGETED: frozenset[str] = frozenset({"tap"})
+
+
+def _group_it_would_hit_source(
+    condition: Optional[dict[str, Any]], body: str, effects: "list[EffectSpec]"
+) -> bool:
+    """Whether a group-subject trigger body's bare "it" would resolve to the wrong
+    permanent. With a group subject "it" is the object that fired the trigger, but
+    an effect parsed with no target (``target_kind: None``), or a delayed capture
+    that falls back to the source, acts on *this ability's own source* — wrong,
+    yet claimed. Only the effect types the binder retargets are safe."""
+    if (condition or {}).get("subject") not in ("group", "self_or_group"):
+        return False
+    if _BARE_PRONOUN_RE.search(body.lower()) is None:
+        return False
+    return any(
+        (e.params.get("target_kind", "unset") is None and e.type not in _GROUP_IT_RETARGETED)
+        or (e.type == "create_delayed_trigger" and e.params.get("capture") == "previous_or_self")
+        for e in effects
+    )
+
+
+#: PAR-119: RULE 603.1 lets one ability print two independent trigger
+#: conditions sharing a body — "when X and whenever Y, Z" is "when X, Z" *and*
+#: "whenever Y, Z". Each half is a whole ordinary trigger, so it is parsed as one
+#: (the halves stop at the first comma, which is where the body begins).
+_COMPOUND_TRIGGER_RE = re.compile(
+    r"^(?P<kw1>when|whenever) (?P<first>[^,]+?) and (?P<kw2>when|whenever) (?P<second>[^,]+?),\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+
+
 def segment_line(
+    line: str,
+    *,
+    allow_spell_effect: bool,
+    provenance: ParserProvenance,
+    is_saga: bool = False,
+) -> Segment:
+    """Parse one normalised ability ``line`` into a `Segment` — whole first,
+    then, if unclaimed, as two independent triggers sharing one body."""
+    whole = _segment_line_unsplit(
+        line, allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga
+    )
+    if whole.claimed:
+        return whole
+    m = _COMPOUND_TRIGGER_RE.match(line.strip())
+    if m is None:
+        return whole
+    halves = [
+        segment_line(
+            f"{m.group(kw)} {m.group(half)}, {m.group('body')}",
+            allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga,
+        )
+        for kw, half in (("kw1", "first"), ("kw2", "second"))
+    ]
+    if any(h.spec is None or not h.claimed for h in halves):
+        return whole
+    specs = [h.spec for h in halves] + [x for h in halves for x in h.extra_specs]
+    return Segment(raw=line.strip(), spec=specs[0], extra_specs=specs[1:], claimed=True)
+
+
+def _segment_line_unsplit(
     line: str,
     *,
     allow_spell_effect: bool,
@@ -5729,7 +5985,10 @@ def segment_line(
             )
             return Segment(raw=raw, spec=spec, claimed=True)
         if types is None:
-            return Segment(raw=raw)
+            # Not a bare type/colour/subtype list: decline (rather than fail
+            # closed) so the composed cast-trigger row below can read the phrase.
+            cast_spell_trig = None
+    if cast_spell_trig is not None:
         body, optional = _peel_optional(cast_spell_trig.group("body"))
         two_rider_parts = _cast_mana_two_rider_parts(body, self_subject=True)
         if two_rider_parts is not None:
@@ -5784,6 +6043,14 @@ def segment_line(
             parser=provenance,
         )
         return Segment(raw=raw, spec=spec, claimed=True)
+
+    composed_cast = _CAST_TRIGGER_COMPOSED_RE.match(raw)
+    if composed_cast is not None:
+        composed_keys = parse_spell_phrase(composed_cast.group("phrase"))
+        if composed_keys is not None:
+            return _cast_trigger_segment(
+                raw, composed_cast.group("subj"), composed_keys, composed_cast.group("body"), provenance
+            )
 
     cycle_trig = _CYCLE_TRIGGER_RE.match(raw)
     if cycle_trig is not None:
@@ -7113,6 +7380,8 @@ def segment_line(
                 claimed=True,
             )
         defender_lands_min: Optional[int] = None
+        head_trigger: dict[str, Any] = {}
+        composed_head = False
         atk_lands = _ATTACKS_DEFENDER_LANDS_RE.match(cond_text.strip())
         atk_most_life = _ATTACKS_DEFENDER_MOST_LIFE_RE.match(cond_text.strip())
         multi = _SELF_MULTI_EVENT_RE.match(cond_text.strip())
@@ -7143,11 +7412,17 @@ def segment_line(
             condition = {"subject": "attached_permanent"}
         else:
             event = _trigger_event(cond_text)
-            if event is None:
-                return Segment(raw=raw)  # unrecognised trigger → unclaimed
-            condition = _trigger_condition(cond_text)
-            if condition is None:
-                return Segment(raw=raw)  # unrecognised subject scope → unclaimed (fail-closed)
+            condition = _trigger_condition(cond_text) if event is not None else None
+            if event is None or condition is None:
+                # PAR-119: the composed object head — subject noun phrase ×
+                # verb(s) × tails — for whatever the per-adjective regexes
+                # above did not name. Only reached when they declined, so no
+                # line they already claim changes.
+                head = parse_object_trigger_head(cond_text)
+                if head is None:
+                    return Segment(raw=raw)  # unrecognised trigger/scope → unclaimed (fail-closed)
+                event, condition, head_trigger = head.event, head.condition, head.trigger
+                composed_head = True
         body, optional = _peel_optional(trig.group("body"))
         # PAR-98: Meanders Guide's optional tap is the antecedent for a
         # following "When you do" trigger.  Keep the pair together before
@@ -7195,6 +7470,8 @@ def segment_line(
         )
         if effects is None:
             return Segment(raw=raw)
+        if composed_head and _group_it_would_hit_source(condition, body, effects):
+            return Segment(raw=raw)
         effects, body_limit = _strip_trigger_once_per_turn_marker(effects)
         limit = limit or body_limit
         spec = AbilitySpec(
@@ -7210,6 +7487,7 @@ def segment_line(
                    if attacked_lowest_life else {}),
                 **({"attacked_player_has_most_life": True}
                    if defender_most_life else {}),
+                **head_trigger,
             },
             optional=optional,
             raw_text=raw,

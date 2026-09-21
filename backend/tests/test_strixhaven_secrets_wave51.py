@@ -1,9 +1,10 @@
 """Secrets of Strixhaven — playability batch, wave 51 (PAR-60).
 
-Triggered-ability doubling generalized: `TriggerDoublerEffect` gained
-``subject_subtype_any`` (Harmonic Prodigy — "a Shaman or another Wizard you
-control") and ``cause_spell_type_any`` (Veyran, Voice of Duality — narrows a
-``cause_filter`` match to the firing spell's card types).
+Triggered-ability doubling generalized (Harmonic Prodigy — "a Shaman or another
+Wizard you control"; Veyran, Voice of Duality — a cast of an instant or sorcery).
+Since PAR-122 both are `TriggerDoublerEffect`'s composed ``subject`` / ``cause``
+halves; the cast cause is answered by the shared ``spell_filter`` predicate, which
+reads the cast spell's types off the real spell object.
 """
 
 from __future__ import annotations
@@ -80,9 +81,16 @@ def test_veyran_doubles_only_instant_sorcery_cast_causes():
                 is_creature=True, power=1, toughness=1)
     eng.recompute_continuous_effects()
 
-    on_instant = GameEvent(EventType.SPELL_CAST, player_id=p1.id, object_types=["instant"])
-    on_sorcery = GameEvent(EventType.SPELL_CAST, player_id=p1.id, object_types=["sorcery"])
-    on_creature = GameEvent(EventType.SPELL_CAST, player_id=p1.id, object_types=["creature"])
+    def cast(type_line, types, **card_kw):
+        spell = GameObject(card=Card(id=type_line, name=type_line, type_line=type_line, **card_kw),
+                           owner_id=p1.id, zone=Zone.HAND)
+        p1.hand.append(spell)
+        return GameEvent(EventType.SPELL_CAST, player_id=p1.id, instance_id=spell.instance_id,
+                         object_types=types)
+
+    on_instant = cast("Instant", ["instant"])
+    on_sorcery = cast("Sorcery", ["sorcery"])
+    on_creature = cast("Creature — Bear", ["creature"], is_creature=True, power=1, toughness=1)
     etb = GameEvent(EventType.ENTERS_BATTLEFIELD, instance_id=other.instance_id)
 
     assert continuous.trigger_doubler_bonus(eng.state, other, on_instant) == 1

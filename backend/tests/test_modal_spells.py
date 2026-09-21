@@ -170,7 +170,7 @@ def test_modal_triggered_ability_needs_a_recognized_trigger_event():
         id="Modal Permanent Unknown Trigger", name="Modal Permanent Unknown Trigger",
         type_line="Creature — Bear", is_creature=True, power=2, toughness=2,
         oracle_text=(
-            "When you cast a spell, choose one —\n• Deal 3 damage to any target.\n"
+            "When you frobnicate a spell, choose one —\n• Deal 3 damage to any target.\n"
             "• Draw 2 cards."
         ),
     )

@@ -3273,8 +3273,24 @@ def static_condition(text: str) -> Optional[dict]:
     stripped = text.strip().rstrip(".").strip()
     for pattern, build in _STATIC_CONDITION_RES:
         if pattern.fullmatch(stripped):
-            return build(pattern.fullmatch(stripped))
-    return None
+            built = build(pattern.fullmatch(stripped))
+            if built is not None:
+                return built
+            break  # the row matched but its table has no reading — no other row may claim it
+    # PAR-120: a count comparison over the shared noun-phrase grammar ("you control
+    # three or more gates", "there are seven or more creature cards in your
+    # graveyard", "an opponent controls more lands than you"), tried only after the
+    # named rows above declined.
+    from .count_phrase import parse_count_condition
+
+    counted = parse_count_condition(stripped)
+    if counted is not None:
+        return counted
+    # ENG-47: "… this turn" — a trigger head in the past tense, asked over the
+    # turn-stamped event log (`event_this_turn`) instead of a tracker per phrase.
+    from .history_phrase import parse_history_condition
+
+    return parse_history_condition(stripped)
 
 
 #: "As long as <cond>, <static>." and "<static> as long as <cond>." The inner
@@ -3738,6 +3754,13 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     `_ATTACHED_SUBJECTS` above.
     """
     text = clause.strip().rstrip(".").strip()
+    if text.lower().startswith("if ") and "triggers an additional time" in text.lower():
+        from ..segmenter import trigger_condition_dict  # lazy: segmenter imports this module
+        from .trigger_doubler import parse_trigger_doubler
+
+        doubler = parse_trigger_doubler(text, trigger_condition_dict)
+        if doubler is not None:
+            return [doubler]
     if _SELF_GRAVEYARD_SHUFFLE_RE.fullmatch(text):
         return [EffectSpec("grant_graveyard_to_library_replacement", {"affects": "self"})]
     if re.fullmatch(

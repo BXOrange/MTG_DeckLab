@@ -644,6 +644,11 @@ def _build_group_ok(
     # folded into ``controller_key`` so a permanent-recipient condition and
     # a player-recipient one never get confused for each other.
     wants_recipient_you = bool(condition.get("recipient_is_you"))
+    # "…deals combat damage to **an opponent**" — a player recipient other than
+    # this ability's controller; and "…to **a creature**" — an object recipient
+    # read through the shared filter (a planeswalker is not a creature).
+    wants_recipient_opponent = bool(condition.get("recipient_is_opponent"))
+    recipient_filter = condition.get("recipient_filter")
     # RULE 702.122c: "whenever a Vehicle crewed by ~ this turn attacks"
     # (Balthier and Fran) — a filter on the acting object's own state
     # (`GameObject.crewed_by_ids`, stamped when a creature is tapped to pay
@@ -725,6 +730,12 @@ def _build_group_ok(
     #: "creatures that are enchanted by an Aura you control" (Killian,
     #: Decisive Mentor, PAR-60).
     want_enchanted_by_your_aura = bool(condition.get("enchanted_by_your_aura"))
+    # PAR-119: one structured `combat.matches_object_filter` dict describing the
+    # acting object ("nontoken", "with power 4 or greater", "a Goblin", …) —
+    # what the per-property keys above each re-spell one axis of. Read off the
+    # live object, or off the event's last-known snapshot for a departure.
+    want_filter = condition.get("filter")
+    departed = trigger.get("event") in _DEPARTURE_EVENTS
     # RULE 701.44a/b: an EXPLORED event records whether the revealed card
     # was a land, allowing Nicanzil-shaped "explores a land/nonland card"
     # triggers to distinguish the two outcomes.
@@ -765,6 +776,11 @@ def _build_group_ok(
         want_has_counter_kind=want_has_counter_kind,
         want_enchanted_by_your_aura=want_enchanted_by_your_aura,
         want_explore_found_land=explore_found_land,
+        want_filter=want_filter,
+        departed=departed,
+        filter_source=source,
+        want_recipient_opponent=wants_recipient_opponent,
+        want_recipient_filter=recipient_filter,
     ) -> bool:
         if want_explore_found_land is not None and event.get("found_land") is not want_explore_found_land:
             return False
@@ -779,6 +795,23 @@ def _build_group_ok(
             return False
         if want_recipient_you and not (event.get("is_player") and event.get("target_id") == cid):
             return False
+        if want_recipient_opponent and not (
+            event.get("is_player") and event.get("target_id") not in (None, cid)
+        ):
+            return False
+        if want_recipient_filter:
+            from ..combat import matches_object_filter  # local: see `is_goaded` below
+
+            state = getattr(context, "state", None)
+            recipient = (
+                state.find_object(event.get("target_id"))
+                if state is not None and not event.get("is_player") and event.get("target_id") is not None
+                else None
+            )
+            if recipient is None or not matches_object_filter(
+                recipient, want_recipient_filter, reference=filter_source, state=state
+            ):
+                return False
         # "An opponent sacrifices a nontoken permanent…" (Tergrid, God of
         # Fright, MEC-43 round 4E) — unlike every prior caller, this is a
         # bare "nontoken `<any permanent>`" qualifier with *no* accompanying
@@ -968,9 +1001,84 @@ def _build_group_ok(
                 for o in state.battlefield
             ):
                 return False
+        if want_filter:
+            from ..combat import matches_object_filter  # local: see `is_goaded` above
+
+            state = getattr(context, "state", None)
+            acting = (
+                state.find_object(event_instance)
+                if state is not None and event_instance is not None else None
+            )
+            if acting is None:
+                return False
+            if departed:
+                acting = _LastKnownObject(acting, event)
+            if not matches_object_filter(acting, want_filter, reference=filter_source, state=state):
+                return False
         return True
 
     return _group_ok
+
+
+#: The events that report an object as it was when it left play or its zone —
+#: their payload is the last-known information (RULE 603.10a) a filter must read
+#: rather than the object's graveyard self. A discarded card is snapshotted for
+#: its printed types alone: a card in a graveyard is never a "permanent".
+_DEPARTURE_EVENTS = frozenset({"DIES", "LEAVES_BATTLEFIELD", "SACRIFICE", "DISCARD_CARD"})
+
+
+class _LastKnownObject:
+    """``obj`` as it was when a departure event fired (RULE 400.7/603.10a).
+
+    Delegates every attribute to the live object except the characteristics the
+    event snapshotted (`RulesEngine`'s DIES/LEAVES firing), so one structured
+    filter (`combat.matches_object_filter`) answers a "whenever a creature with
+    power 4 or greater dies" without a per-property snapshot key.
+    """
+
+    __slots__ = ("_obj", "_snapshot")
+
+    def __init__(self, obj: Any, event: Any) -> None:
+        snapshot: dict[str, Any] = {}
+        for key in ("power", "toughness", "is_token"):
+            if event.get(key) is not None:
+                snapshot[key] = event.get(key)
+        if event.get("counters") is not None:
+            snapshot["counters"] = dict(event.get("counters"))
+        if event.get("colors") is not None:
+            snapshot["colors"] = set(event.get("colors"))
+        if event.get("object_types") is not None:
+            snapshot["type_words"] = set(event.get("object_types"))
+        object.__setattr__(self, "_obj", obj)
+        object.__setattr__(self, "_snapshot", snapshot)
+
+    def __getattr__(self, name: str) -> Any:
+        snapshot = object.__getattribute__(self, "_snapshot")
+        if name in snapshot:
+            return snapshot[name]
+        return getattr(object.__getattribute__(self, "_obj"), name)
+
+
+#: `EffectRegistry` types whose whole point is returning the source card from its
+#: owner's graveyard — the marker that its trigger functions *from the graveyard*.
+_SELF_GRAVEYARD_RETURN_TYPES = frozenset(
+    {"return_self_from_graveyard", "return_self_from_graveyard_to_hand"}
+)
+
+
+def _returns_self_from_graveyard(effect: Any) -> bool:
+    """Whether ``effect`` returns its own source from the graveyard, directly or as
+    the payoff of "you may pay {cost}. If you do, return this card …" (RULE 113.6k
+    — Unconventional Tactics, Killian's Confidence), whose payoff `PayCostThenEffect`
+    keeps as serialized specs rather than as a built effect."""
+    if isinstance(
+        effect, (ReturnSelfFromGraveyardToBattlefieldEffect, ReturnSelfFromGraveyardToHandEffect)
+    ):
+        return True
+    return any(
+        spec.get("type") in _SELF_GRAVEYARD_RETURN_TYPES
+        for spec in getattr(effect, "inner_specs", None) or []
+    )
 
 
 def _card_subtypes(card: Any) -> list[str]:
@@ -1810,6 +1918,84 @@ def _trigger_condition(
 
         predicates.append(_has_keyword_ok)
 
+    # PAR-119 — the composed spell filter. One key instead of a predicate per
+    # adjective: ``spell_filter`` is a `combat.matches_object_filter` dict read
+    # against the cast object (still on the stack when the event fires), so
+    # "multicolored", "legendary", "kicked", "mana value N or greater", "an
+    # instant or sorcery", … compose without a new binder predicate each. The
+    # three cast-*context* keys below are the parts that aren't a property of
+    # the object: where it was cast from, whose card it is, what it targets.
+    spell_filter = trigger.get("spell_filter")
+    if spell_filter:
+        def _spell_filter_ok(event: Any, context: Any, filt=spell_filter, src=source) -> bool:
+            from ..combat import matches_object_filter  # function-scoped: see combat.py
+
+            state = getattr(context, "state", None)
+            instance_id = event.get("instance_id")
+            if state is None or instance_id is None:
+                return False
+            obj = state.find_object(instance_id)
+            # ``reference`` = the ability's own source: "of the chosen color/
+            # type" reads its ETB choice (`color_from_source`/`subtype_from_source`).
+            return obj is not None and matches_object_filter(obj, filt, reference=src, state=state)
+
+        predicates.append(_spell_filter_ok)
+
+    # "…a spell **from your graveyard**" / "**from exile**" / "**from anywhere
+    # other than your hand**" (RULE 601.2a) — the cast-from zone snapshot
+    # `cast_spell` stamps as ``from_zone``.
+    spell_cast_from = trigger.get("spell_cast_from")
+    if spell_cast_from:
+        wanted_zones = tuple(str(z).lower() for z in spell_cast_from)
+
+        def _spell_cast_from_ok(event: Any, context: Any, zones=wanted_zones) -> bool:
+            return str(event.get("from_zone") or "").lower() in zones
+
+        predicates.append(_spell_cast_from_ok)
+
+    if trigger.get("spell_not_cast_from_hand"):
+        def _spell_not_from_hand_ok(event: Any, context: Any) -> bool:
+            return not event.get("from_hand")
+
+        predicates.append(_spell_not_from_hand_ok)
+
+    # "…a spell **you don't own**" (Thief of Sanity-adjacent gain-control
+    # payoffs) — the cast object's owner isn't the caster (RULE 108.3).
+    if trigger.get("spell_not_owned"):
+        def _spell_not_owned_ok(event: Any, context: Any) -> bool:
+            state = getattr(context, "state", None)
+            instance_id = event.get("instance_id")
+            obj = state.find_object(instance_id) if state is not None and instance_id is not None else None
+            return obj is not None and getattr(obj, "owner_id", None) != event.get("player_id")
+
+        predicates.append(_spell_not_owned_ok)
+
+    # "…a spell **that targets a creature**" / "…**a creature you control**"
+    # (RULE 601.2c) — at least one chosen target satisfies the filter;
+    # ``you_control`` is relative to the ability's own controller.
+    spell_targets = trigger.get("spell_targets")
+    if spell_targets:
+        target_filter = {k: v for k, v in spell_targets.items() if k != "you_control"}
+        need_yours = bool(spell_targets.get("you_control"))
+
+        def _spell_targets_ok(event: Any, context: Any, src=source) -> bool:
+            from ..combat import matches_object_filter  # function-scoped: see combat.py
+
+            state = getattr(context, "state", None)
+            if state is None:
+                return False
+            for target_id in event.get("target_instance_ids") or ():
+                target = state.find_object(target_id)
+                if target is None:
+                    continue
+                if need_yours and getattr(target, "controller_id", None) != getattr(src, "controller_id", None):
+                    continue
+                if matches_object_filter(target, target_filter, state=state):
+                    return True
+            return False
+
+        predicates.append(_spell_targets_ok)
+
     # "… if it's not that player's turn, …" (Price of Glory) — the player the
     # event is about (its ``controller_id``, the one who tapped the land) must
     # not be the active player. A RULE 603.4 intervening-if scoped to the
@@ -2457,8 +2643,7 @@ def bind_ability(
                 # the same "effect and permission always travel together"
                 # shape `graveyard_zone` uses below for the activated half.
                 functions_from_graveyard=any(
-                    isinstance(e, (ReturnSelfFromGraveyardToBattlefieldEffect, ReturnSelfFromGraveyardToHandEffect))
-                    for e in own_effects
+                    _returns_self_from_graveyard(e) for e in own_effects
                 ),
                 # RULE 601.2i (MEC-43): "When you cast this spell, …" is
                 # the one trigger shape genuinely meant to fire while its

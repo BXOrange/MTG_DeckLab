@@ -685,6 +685,9 @@ class DamageDeathMixin:
                     controller_id=obj.controller_id,
                     instance_id=obj.instance_id,
                     object_types=sorted(obj.type_words),
+                    # RULE 603.10a last-known counters — a "for each counter on it" leaves-the-
+                    # battlefield trigger of this same object reads them after it is gone.
+                    counters=dict(obj.counters),
                     # "…target opponent loses life equal to its power."
                     # (Rapacious Guest-shaped) — snapshotted for the same
                     # RULE 400.7 reason `counters`/`subtypes` are elsewhere
@@ -743,6 +746,9 @@ class DamageDeathMixin:
                     controller_id=obj.controller_id,
                     instance_id=obj.instance_id,
                     object_types=sorted(obj.type_words),
+                    # RULE 603.10a last-known counters — a "for each counter on it" leaves-the-
+                    # battlefield trigger of this same object reads them after it is gone.
+                    counters=dict(obj.counters),
                     # "…target opponent loses life equal to its power."
                     # (Rapacious Guest-shaped) — snapshotted for the same
                     # RULE 400.7 reason `counters`/`subtypes` are elsewhere
@@ -785,6 +791,9 @@ class DamageDeathMixin:
                     controller_id=obj.controller_id,
                     instance_id=obj.instance_id,
                     object_types=sorted(obj.type_words),
+                    # RULE 603.10a last-known counters — a "for each counter on it" leaves-the-
+                    # battlefield trigger of this same object reads them after it is gone.
+                    counters=dict(obj.counters),
                 )
             )
             self.state.remove_from_battlefield(obj)
@@ -824,6 +833,9 @@ class DamageDeathMixin:
                     controller_id=obj.controller_id,
                     instance_id=obj.instance_id,
                     object_types=sorted(obj.type_words),
+                    # RULE 603.10a last-known counters — a "for each counter on it" leaves-the-
+                    # battlefield trigger of this same object reads them after it is gone.
+                    counters=dict(obj.counters),
                 )
             )
             self.state.remove_from_battlefield(obj)
@@ -2064,6 +2076,9 @@ class DamageDeathMixin:
                     controller_id=obj.controller_id,
                     instance_id=obj.instance_id,
                     object_types=sorted(obj.type_words),
+                    # RULE 603.10a last-known counters — a "for each counter on it" leaves-the-
+                    # battlefield trigger of this same object reads them after it is gone.
+                    counters=dict(obj.counters),
                     # "…target opponent loses life equal to its power."
                     # (Rapacious Guest-shaped) — snapshotted for the same
                     # RULE 400.7 reason `counters`/`subtypes` are elsewhere
@@ -2160,6 +2175,11 @@ class DamageDeathMixin:
                         object=obj.name,
                         owner_id=obj.owner_id,
                         controller_id=obj.controller_id,
+                        # The player who sacrificed (RULE 701.17a: only a
+                        # permanent's controller can) — the key a "…deals 2
+                        # damage to them"/"that player" body reads through
+                        # `event_player`, as on every other player-acted event.
+                        player_id=obj.controller_id,
                         instance_id=obj.instance_id,
                         object_types=sorted(obj.type_words),
                         # "Whenever you sacrifice a Food/Clue/Treasure, …"
