@@ -2126,9 +2126,18 @@ def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]
     mana_grant = _granted_mana_options(inner)
     if mana_grant is not None:
         mana, mana_cost = mana_grant
-        return [EffectSpec("grant_mana_ability", {
-            "mana": mana, "granted_mana_cost": mana_cost, "affects": "attached_permanent",
-        })]
+        params: dict[str, Any] = {"mana": mana, "affects": "attached_permanent"}
+        # A bare "{T}: Add …" (Tyvar Kell) folds onto the granted-to permanent's
+        # own tap ability the same way its hand-authored catalogue entry does
+        # (`continuous.recompute`'s plain `_granted_mana` bucket) — only the
+        # non-tap "sacrifice this permanent: …" variant needs its cost recorded
+        # (routing through the separate `_granted_mana_abilities` bucket
+        # instead); tagging *every* grant with its cost, `{T}` included, was
+        # silently routing the common case through that other bucket too,
+        # which `GameObject.granted_mana_options` never reads.
+        if mana_cost.strip().lower() != "{t}":
+            params["granted_mana_cost"] = mana_cost
+        return [EffectSpec("grant_mana_ability", params)]
 
     ward = _GRANTED_WARD_RE.fullmatch(inner.strip().rstrip("."))
     if ward is not None:

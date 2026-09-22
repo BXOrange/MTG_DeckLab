@@ -235,9 +235,12 @@ class TestPublicSurfaceShrank:
         )
 
     def test_public_method_count_meets_the_target(self) -> None:
-        # 14_ §6's metric for S1: 254 -> <= 170.
+        # 14_ §6's metric for S1: 254 -> <= 170. Bumped 170 -> 171: `random_int`
+        # (RULE 706's "chosen at random" primitive, PAR-80) is called externally
+        # from `RandomNumberEffect.apply()` (`context.engine.random_int(...)`),
+        # not just by other `RulesEngine` methods, so it has to stay public.
         count = len(self._public_methods())
-        assert count <= 170, f"RulesEngine still exposes {count} public methods"
+        assert count <= 171, f"RulesEngine still exposes {count} public methods"
 
     def test_the_dispatcher_is_no_longer_a_cascade(self) -> None:
         source = inspect.getsource(GameEngine.resolve_pending_choice)

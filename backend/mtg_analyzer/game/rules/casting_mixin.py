@@ -1315,6 +1315,23 @@ class CastingResolutionMixin:
                     # StackItem was never itself activated for X, only the
                     # separate Cycling activation was.
                     setattr(effect, attr, getattr(effect.source, "cycling_x_paid", 0) or 0)
+            # "When you next cast an instant or sorcery spell this turn, copy that spell X
+            # times." (Storm King's Thunder, PAR-124) — the sentinel isn't on this top-level
+            # `CreateTurnTriggerEffect` itself but nested in `inner_specs`' raw `{"type",
+            # "params"}` dicts, built into a real effect only once its own trigger fires
+            # (`CreateTurnTriggerEffect.apply`) — long after this spell's own `x` is gone.
+            # Substituted here, at this earlier point where `x` is still known, the same way
+            # every other sentinel on this spell's effects is.
+            for inner_spec in getattr(effect, "inner_specs", None) or []:
+                params = inner_spec.get("params") if isinstance(inner_spec, dict) else None
+                if not isinstance(params, dict):
+                    continue
+                for attr in ("amount", "count", "power", "toughness", "times"):
+                    value = params.get(attr)
+                    if value == "x":
+                        params[attr] = x
+                    elif value == "-x":
+                        params[attr] = -x
     def resolve_top_of_stack(self) -> Optional[StackItem]:
         """Resolve the topmost stack object (RULE 608). Returns it, or None."""
         if not self.state.stack:

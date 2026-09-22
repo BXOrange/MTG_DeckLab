@@ -237,3 +237,61 @@ def test_a_pump_that_grants_a_keyword_too():
     engine.recompute_continuous_effects()
     assert late.power == 3
     assert "haste" in {k.lower() for k in late.granted_keywords} | {k.lower() for k in late.temp_keywords}
+
+
+# ---------------------------------------------------------------------------
+# PAR-124 residue: a delayed trigger's own "it"/"that creature" (Consuming Rage,
+# Rienne, Angel of Rebirth) — `create_delayed_trigger`'s capture must follow the same
+# group-subject referent as a plain pump, not fall back to this ability's own source.
+# ---------------------------------------------------------------------------
+
+CONSUMING_RAGE = ("Whenever a Minotaur attacks this turn, it gets +2/+0 until end of turn. "
+                   "Destroy that creature at end of combat.")
+
+
+def _end_combat(engine, state):
+    state.current_step = "end_combat"
+    engine._fire_delayed_triggers("end_combat")
+    engine.resolve_until_stable()
+
+
+def test_consuming_rage_pumps_and_later_destroys_the_attacker_not_the_source():
+    from tests.test_par124_turn_scoped_triggers import _cast, _spell
+
+    engine, state = _engine()
+    state.current_step = "main1"
+    _cast(engine, state, _spell(state, CONSUMING_RAGE, types="Instant", name="Consuming Rage"))
+    minotaur = _creature(state, "Charger", types="Creature — Minotaur")
+    minotaur.summoning_sick = False
+    bystander = _creature(state, "Bystander", types="Creature — Minotaur")
+    bystander.summoning_sick = False
+    state.current_step = "declare_attackers"
+    engine.declare_attackers(state.active_player, [minotaur])
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    assert minotaur.power == 3            # printed 1, +2 from its own attack trigger
+    assert bystander.power == 1           # only the attacker that fired it
+    _end_combat(engine, state)
+    assert not any(o is minotaur for o in state.battlefield)   # the attacker was destroyed
+    assert any(o is bystander for o in state.battlefield)      # not every Minotaur
+
+
+RIENNE = ("Whenever another creature you control dies, return it to its owner's hand "
+          "at the beginning of the next end step.")
+
+
+def test_rienne_returns_the_dead_creature_from_the_graveyard():
+    engine, state = _engine()
+    state.current_step = "main1"
+    _put(state, RIENNE, name="Rienne", types="Creature — Angel")
+    victim = _creature(state, "Victim")
+    hand_before = len(state.player_by_id("p1").hand)
+    engine.rules.destroy(victim)
+    engine.resolve_until_stable()
+    assert victim in state.player_by_id("p1").graveyard
+    assert len(state.player_by_id("p1").hand) == hand_before   # not yet — delayed to end step
+    state.current_step = "end"
+    engine._fire_delayed_triggers("end")
+    engine.resolve_until_stable()
+    assert victim in state.player_by_id("p1").hand
+    assert victim not in state.player_by_id("p1").graveyard

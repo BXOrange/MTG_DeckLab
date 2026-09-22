@@ -5423,18 +5423,29 @@ def _look_at_target(m: re.Match[str]) -> list[EffectSpec]:
 #: "When you next cast an instant or sorcery spell this turn, **copy that spell**. You may
 #: choose new targets for the copy." (Doublecast, Galvanic Iteration, Teach by Example, Dual
 #: Strike) — the copier is the trigger's controller and "that spell" is the one that fired it
-#: (`CopySpellEffect.spell_from_trigger_event`). "twice"/"N times" is the copy count.
+#: (`CopySpellEffect.spell_from_trigger_event`). "twice"/"N times" is the copy count; "X times"
+#: (Storm King's Thunder) is this ability's *own* announced {X} — a literal string here, not yet
+#: a number, since the value isn't known until the spell that carries this ability is cast, well
+#: before it fires (`_substitute_x`'s nested walk into `CreateTurnTriggerEffect.inner_specs`
+#: resolves the sentinel at that earlier point). "an additional time" (Howl of the Horde's own
+#: Raid-gated second ability) makes one more copy on top of whatever an unconditional sibling
+#: instance of this same trigger already grants — from this instance's own perspective that is
+#: just an ordinary single copy, same as no suffix at all.
 _COPY_THAT_SPELL_RE = _c(
-    r"copy that spell(?: (?P<n>twice|\d+ times))?\.\s*you may choose new targets for the cop(?:y|ies)"
+    r"copy that spell(?: (?P<n>twice|x times|an additional time|\d+ times))?\.\s*"
+    r"you may choose new targets for the cop(?:y|ies)"
 )
 
 
 def _copy_that_spell(m: re.Match[str]) -> list[EffectSpec]:
     word = m.group("n")
-    count = 1 if word is None else (2 if word == "twice" else int(word.split()[0]))
     params: dict = {"spell_from_trigger_event": "instance_id"}
-    if count != 1:
-        params["count"] = count
+    if word == "x times":
+        params["count"] = "x"
+    elif word not in (None, "an additional time"):
+        count = 2 if word == "twice" else int(word.split()[0])
+        if count != 1:
+            params["count"] = count
     return [EffectSpec("copy_spell", params)]
 
 

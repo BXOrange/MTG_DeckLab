@@ -25,10 +25,10 @@ from tests.test_par120_count_phrase import _creature, _put
 DRAW_ON_ENTER = "Whenever a creature you control enters this turn, draw a card."
 
 
-def _spell(state, oracle, *, types="Sorcery", owner="p1", name="Spell"):
+def _spell(state, oracle, *, types="Sorcery", owner="p1", name="Spell", keywords=None):
     card = Card(id=name, name=name, type_line=types, oracle_text=oracle,
                 is_instant=types == "Instant", is_sorcery=types == "Sorcery",
-                converted_mana_cost=0)
+                converted_mana_cost=0, keywords=list(keywords or []))
     obj = GameObject(card, owner_id=owner, zone=Zone.HAND)
     obj.controller_id = owner
     bind_from_catalogue(obj)
@@ -265,3 +265,73 @@ def test_a_creature_spell_is_not_the_next_instant_or_sorcery():
     life = p1.life
     _cast(engine, state, _spell(state, "You gain 3 life.", types="Instant", name="Heal"))
     assert p1.life == life + 6            # the creature did not use up "next"
+
+
+# ---------------------------------------------------------------------------
+# PAR-124 residue: "copy that spell X times"/"an additional time"
+# ---------------------------------------------------------------------------
+
+
+def test_storm_kings_thunder_copy_count_is_the_x_sentinel():
+    spec = _effect(
+        "When you next cast an instant or sorcery spell this turn, copy that spell X times. "
+        "You may choose new targets for the copies.", types="Instant")
+    [effect] = spec.effects
+    [inner] = effect.params["effects"]
+    assert inner["params"]["count"] == "x"
+
+
+def test_howl_of_the_hordes_raid_clause_is_a_second_gated_trigger():
+    card = Card(id="H", name="Howl of the Horde", type_line="Sorcery", is_sorcery=True,
+                keywords=["Raid"], oracle_text=(
+                    "When you next cast an instant or sorcery spell this turn, copy that spell. "
+                    "You may choose new targets for the copy.\n"
+                    "Raid — If you attacked this turn, when you next cast an instant or sorcery "
+                    "spell this turn, copy that spell an additional time. You may choose new "
+                    "targets for the copy."))
+    result = _parse(card)
+    assert result.modeled
+    unconditional, raid = result.specs
+    assert unconditional.effects[0].condition is None
+    assert raid.effects[0].condition == {"kind": "you_attacked_this_turn"}
+    # "an additional time" is this instance's own single copy, same as no suffix.
+    assert "count" not in raid.effects[0].params["effects"][0]["params"]
+
+
+def test_storm_kings_thunder_makes_x_copies():
+    engine, state = _engine()
+    state.current_step = "main1"
+    p1 = _library(state)
+    p1.mana_pool.add_many({"R": 12})
+    storm = _spell(
+        state, "When you next cast an instant or sorcery spell this turn, copy that spell X "
+               "times. You may choose new targets for the copies.", types="Instant",
+        name="Storm King's Thunder")
+    engine.rules.cast_spell(p1, storm, x=3)
+    engine.resolve_until_stable()
+    life = p1.life
+    _cast(engine, state, _spell(state, "You gain 3 life.", types="Instant", name="Heal"))
+    assert p1.life == life + 12           # the spell and 3 copies
+
+
+def test_howl_of_the_horde_raid_makes_a_second_copy():
+    def scenario(*, raided):
+        engine, state = _engine()
+        state.current_step = "main1"
+        p1 = _library(state)
+        p1.mana_pool.add_many({"C": 12})
+        if raided:
+            state.fire_event(GameEvent(EventType.ATTACKS, player_id="p1", declared=True))
+        howl = _spell(
+            state, "When you next cast an instant or sorcery spell this turn, copy that spell. "
+                   "You may choose new targets for the copy.\n"
+                   "Raid — If you attacked this turn, when you next cast an instant or sorcery "
+                   "spell this turn, copy that spell an additional time. You may choose new "
+                   "targets for the copy.", name="Howl of the Horde", keywords=["Raid"])
+        _cast(engine, state, howl)
+        life = p1.life
+        _cast(engine, state, _spell(state, "You gain 3 life.", types="Instant", name="Heal"))
+        return p1.life - life
+
+    assert scenario(raided=False) == 6    # the spell and 1 copy
+    assert scenario(raided=True) == 9     # the spell and 2 copies

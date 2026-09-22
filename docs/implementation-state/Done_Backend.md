@@ -6766,7 +6766,7 @@ measurement of why is the useful half of this work.
 
 ### ENG-47 (second slice): the per-turn history counters are derived from the event log
 
-- **What:** 31 of the 37 `GameState.*_this_turn` counters (spells cast and their per-colour / per-type
+- **What:** 31 of the 38 `GameState.*_this_turn` counters (spells cast and their per-colour / per-type
   / subtype / X variants, life gained and lost, cards drawn (+ which) and discarded, creatures died
   (and modified ones), damage dealt to players / by a controller / combat hits by source / noncombat to
   opponents / creatures damaged by a source, creature and permanent cards put into a graveyard, bends,
@@ -6964,6 +6964,52 @@ measurement of why is the useful half of this work.
   "twice" count for Complete the Circuit); executed end to end — the spell and its copy resolve, the
   next one does not, and a creature spell does not use up "next". 17,035 (+20 over v456), Commander-legal
   51.5% (16,377).
+
+### PAR-124's own residue: "copy that spell X times" and a delayed trigger's own group pronoun (PARSER_VERSION 460)
+
+- **"Copy that spell X times"/"an additional time".** `_COPY_THAT_SPELL_RE`'s count suffix already
+  read "twice"/"N times" (PAR-124, v456); Storm King's Thunder's "X times" and Howl of the Horde's
+  Raid-gated second ability's "an additional time" (functionally a plain single copy from that
+  instance's own perspective — the "additional" is relative to the unconditional first ability, not
+  a magnitude on this one) are two more suffix words on the same row. The "X" sentinel needed
+  `_substitute_x` (`game/rules/casting_mixin.py`) to reach one level deeper than every other user of
+  it: a `CreateTurnTriggerEffect`'s own `inner_specs` are raw `{"type","params"}` dicts, not built
+  into real effects until the *later* firing (`CreateTurnTriggerEffect.apply`) — long after this
+  spell's own announced `{X}` is gone, so the substitution runs at the earlier point, immediately
+  after `StackItem.x` is known, walking into the nested dicts the same "x"/"-x" pass already gives
+  the top-level effect.
+- **A delayed trigger's own group pronoun.** `create_delayed_trigger`'s `capture` had no
+  `trigger_subject` mode — every *other* effect PAR-123's `_stamp_group_pronoun` retargets under a
+  RULE 603.1 group subject (`tap`/`return_to_hand`/`exile`/the blink pair) had one, but a *delayed*
+  tail fell through to the ordinary `previous_or_self`/`self` parse (PAR-30's own "it"/"that
+  creature" fallback chain), which has nothing upstream to fall back *to* under a group subject and
+  silently captured this ability's own source instead: "whenever a Minotaur attacks this turn, it
+  gets +2/+0 … Destroy **that creature** at end of combat." (Consuming Rage) was destroying itself.
+  `CreateDelayedTriggerEffect` gained the same `trigger_event_key`-resolved `trigger_subject` capture
+  its siblings use; `_stamp_group_pronoun` now rewrites a `create_delayed_trigger` spec's
+  `previous_or_self` capture the same way it already retargets `target_kind` on the others (an
+  explicit "~" anywhere in the body still bails out before reaching this, same as always).
+- **A second, real bug the fix surfaced, not just the parse gap.** Executing Consuming Rage's fix
+  found `ReturnSpecificToHandEffect` (Ilharg, the Raze-Boar/Zara, Renegade Recruiter/Alora, Merry
+  Thief's battlefield-loan bounce) was unconditionally battlefield-only — correct for *that* family
+  (RULE 400.7: a permanent that left some other way before the delayed return fires is a new object,
+  gone for good) but wrong for the identical capture bug on Rienne, Angel of Rebirth ("…dies, return
+  it to its owner's hand at the beginning of the next end step"), where the delayed trigger's own
+  firing event *is* the move to the graveyard, so "it" names the very card sitting there. One shared
+  zone check would have gotten one of the two families wrong, so `ReturnSpecificToHandEffect` gained
+  an `allow_graveyard` flag that `CreateDelayedTriggerEffect` sets only when the captured referent's
+  origin event was `DIES` — a capture-mode-scoped widening, not a blanket "return from anywhere".
+- **Verification:** `tests/test_par124_turn_scoped_triggers.py` (Storm King's Thunder makes exactly X
+  copies; Howl of the Horde makes one copy normally and two when Raid is satisfied, real combat via
+  `EventType.ATTACKS`) and `tests/test_par123_group_pronoun.py` (Consuming Rage pumps and later
+  destroys the attacker that fired it, not a bystander Minotaur and not its own source; Rienne pulls
+  the destroyed creature out of the graveyard at exactly the next end step and not before). Two
+  pre-existing tests pinning this exact gap (`test_par119_object_trigger_head.py`'s two "…fails
+  closed" cases for Rienne) flipped from `modeled is False` to `True`. `test_par30_delayed_return_
+  to_hand_tail.py`'s existing 8 tests (the Ilharg/Zara/Alora family) pass unchanged. +4 (Storm King's
+  Thunder, Howl of the Horde, Consuming Rage, Rienne, Angel of Rebirth), 0 regressed
+  (`parser_probe.py diff`, full `pytest -q`: 21 known-red unrelated to this change, 0 new). Coverage
+  17,065 → 17,069, Commander-legal 51.5% → 51.6% (16,407 → 16,410).
 
 ### PAR-123 / PAR-124: two wrong-but-modeled families closed (PARSER_VERSION 455)
 

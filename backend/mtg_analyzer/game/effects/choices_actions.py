@@ -254,9 +254,13 @@ class CreateDelayedTriggerEffect(GameEffect):
         condition: Optional[dict[str, Any]] = None,
         source: Optional["GameObject"] = None,
         related_filter: Optional[dict[str, Any]] = None,
+        trigger_event_key: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.step = str(step)
+        #: ``capture="trigger_subject"``'s event field name (see `apply`) —
+        #: `PAR-123`'s own `GROUP_SUBJECT_KEY_SENTINEL`, resolved by the binder.
+        self.trigger_event_key = trigger_event_key
         #: ``capture="trigger_related"``'s object filter (see `apply`).
         self.related_filter = related_filter
         self.inner_specs = list(effects or [])
@@ -362,6 +366,30 @@ class CreateDelayedTriggerEffect(GameEffect):
             for effect in inner:
                 if hasattr(effect, "objects"):
                     effect.objects = made
+                elif hasattr(effect, "target") and made:
+                    effect.target = made[0]
+        if self.capture == "trigger_subject":
+            # "Whenever a Minotaur attacks this turn, it gets +2/+0 until end of turn.
+            # Destroy that creature at end of combat." (Consuming Rage, PAR-124) — under a
+            # RULE 603.1 group-subject trigger, "that creature" is the object *this firing*
+            # named, not whatever an earlier RULE 115 target/creation chose (the
+            # `"previous_or_self"`/`"self"` capture `_stamp_group_pronoun` would otherwise
+            # leave this on, wrongly falling back to this ability's own source). Baked in now,
+            # the same as every other capture here, since the object has to survive to the
+            # delayed firing and the triggering event is long gone by then.
+            event = context.trigger_event or {}
+            obj = context.state.find_object(event.get(self.trigger_event_key))
+            made = [obj] if obj is not None else []
+            for effect in inner:
+                if hasattr(effect, "objects"):
+                    effect.objects = made
+                    if (isinstance(effect, ReturnSpecificToHandEffect)
+                            and context.trigger_event is not None
+                            and context.trigger_event.type == EventType.DIES):
+                        # RULE 400.7's own exception: the firing event *is* the move
+                        # to the graveyard, so "it" names the card sitting there —
+                        # see `ReturnSpecificToHandEffect`'s own docstring.
+                        effect.allow_graveyard = True
                 elif hasattr(effect, "target") and made:
                     effect.target = made[0]
         if self.capture == "self":
@@ -2162,19 +2190,36 @@ class ReturnSpecificToHandEffect(GameEffect):
     of turn" loan). Referent baked in by `CreateDelayedTriggerEffect`'s
     ``capture`` handling, which special-cases any inner effect exposing an
     ``.objects`` list. Silently skips anything that already left the
-    battlefield (RULE 111.7 / a token that ceased to exist)."""
+    battlefield (RULE 111.7 / a token that ceased to exist) — RULE 400.7:
+    once this object leaves some *other* way before the delayed return
+    fires, it is a new object the loan was never over.
+
+    ``allow_graveyard=True`` (PAR-123, Rienne, Angel of Rebirth's "whenever
+    another multicolored creature you control dies, return it to its
+    owner's hand …") is the opposite, RULE-correct case: the delayed
+    trigger's own firing event *is* the zone change to the graveyard, so
+    "it" names the very card sitting there, not a permanent this loan has
+    lost track of — `CreateDelayedTriggerEffect` sets it only when the
+    captured referent came from a DIES event.
+    """
 
     def __init__(
         self,
         objects: list["GameObject"],
         source: Optional["GameObject"] = None,
+        allow_graveyard: bool = False,
     ) -> None:
         super().__init__(source)
         self.objects = objects
+        self.allow_graveyard = allow_graveyard
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         for obj in list(self.objects):
-            if obj in context.state.battlefield:
+            in_graveyard = (
+                self.allow_graveyard
+                and obj in context.state.player_by_id(obj.owner_id).graveyard
+            )
+            if obj in context.state.battlefield or in_graveyard:
                 context.engine.return_to_hand(obj)
 
 

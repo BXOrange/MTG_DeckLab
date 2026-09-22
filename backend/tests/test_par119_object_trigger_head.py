@@ -510,10 +510,11 @@ def test_event_player_referent_resolves_for_sacrifice_and_discard():
     assert before - p2.life == 3
 
 
-def test_group_subject_delayed_pronoun_tail_fails_closed():
-    # "…dies, return it … at the beginning of the next end step": the delayed
-    # capture would fall back to the source, not the creature that died.
-    assert parse_oracle(_named("Rienne, Angel of Rebirth")).modeled is False
+def test_group_subject_delayed_pronoun_tail_is_now_modeled():
+    # "…dies, return it … at the beginning of the next end step": PAR-123/PAR-124's
+    # `create_delayed_trigger` `trigger_subject` capture resolves "it" to the creature
+    # that died, not the source — see `test_par123_group_pronoun.py`'s execute test.
+    assert parse_oracle(_named("Rienne, Angel of Rebirth")).modeled is True
 
 
 # ---------------------------------------------------------------------------
@@ -647,11 +648,12 @@ def test_a_printed_multiplier_scales_the_for_each_count():
     assert life == -6
 
 
-def test_group_subject_bare_it_that_still_would_hit_the_source_fails_closed():
+def test_group_subject_bare_it_that_used_to_fall_back_to_the_source():
     # "…dies, return **it** to its owner's hand at the beginning of the next end step":
-    # the delayed return falls back to the ability's own source (and is battlefield-only,
-    # so it could not bring a dead creature back anyway) — refused, not claimed wrong.
-    assert parse_oracle(_named("Rienne, Angel of Rebirth")).modeled is False
+    # now resolves to the creature that died (PAR-123/PAR-124's `trigger_subject`
+    # capture), not the ability's own source — see `test_par119_object_trigger_head.py`'s
+    # sibling test just above and `test_par123_group_pronoun.py`'s execute test.
+    assert parse_oracle(_named("Rienne, Angel of Rebirth")).modeled is True
 
 
 # ---------------------------------------------------------------------------

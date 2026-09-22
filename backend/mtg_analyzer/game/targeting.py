@@ -1302,17 +1302,6 @@ def legal_targets(
             spec, max_mana_value=None, creature_filter=None, color=None,
             colors=None, unless_flag=None,
         )
-    if kind == "player_or_planeswalker_or_creature_subtype":
-        from . import continuous
-        subtype = str((spec.creature_filter or {}).get("subtype", ""))
-        players = [{"player_id": p.id, "name": p.name} for p in state.players]
-        objects = [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if o is not source and _targetable_by(o, source)
-            and (o.is_planeswalker or (o.is_creature and continuous.has_subtype(o, subtype)))
-        ]
-        return players + objects
     # "…with mana value X or less." as a genuine RULE 115 target bound
     # (March of Otherworldly Light, MEC-43) — unlike `_substitute_x`'s
     # resolve-time-only substitution (a search/mass-effect criteria dict,
@@ -1358,6 +1347,23 @@ def legal_targets(
     frame = TARGET_FRAMES.get(kind)
     if frame is not None:
         return _legal_from_frame(state, controller_id, spec, frame, source, trigger_event)
+
+    if kind == "player_or_planeswalker_or_creature_subtype":
+        # MEC-45's own sibling family: unlike `with_opponents`' opponents-only
+        # union, this wants *every* player (RULE 115.1's plain "target player or
+        # planeswalker"), and its type predicate depends on `spec.creature_
+        # filter`'s subtype at call time rather than being fixed — neither fits
+        # `TargetFrame`'s existing shape, so it stays its own branch.
+        from . import continuous
+        subtype = str((spec.creature_filter or {}).get("subtype", ""))
+        players = [{"player_id": p.id, "name": p.name} for p in state.players]
+        objects = [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if o is not source and _targetable_by(o, source)
+            and (o.is_planeswalker or (o.is_creature and continuous.has_subtype(o, subtype)))
+        ]
+        return players + objects
 
     if kind == "permanent" and source is not None:
         attachment_kind = None

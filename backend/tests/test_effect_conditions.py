@@ -66,6 +66,9 @@ _LEGACY_SAMPLES: dict[str, list[object]] = {
     "cast_outside_sorcery_speed": [True],
     "source_is_renowned": [True, False],
     "previous_target_is_suspected": [True, False],
+    "source_is_suspected": [True, False],
+    "attached_is_suspected": [True, False],
+    "sacrificed_cost_was_suspected": [True, False],
     "source_entered_untapped": [True, False],
     "source_x_paid_at_least": [5],
     "source_has_subtype": ["Detective"],
@@ -219,7 +222,7 @@ class TestTheCollapseIsReal:
         assert target["kind"] == recipient["kind"] == "is_you"
         assert {target["of"], recipient["of"]} == {"target", "counter_recipient"}
 
-    def test_nine_flat_keys_were_one_attribute_read(self) -> None:
+    def test_twelve_flat_keys_were_one_attribute_read(self) -> None:
         flags = {
             key for key, _, condition in _translated()
             if condition.get("kind") == "flag"
@@ -230,6 +233,12 @@ class TestTheCollapseIsReal:
             "source_was_foretold", "cast_via_escape",
             "cast_outside_sorcery_speed", "source_is_renowned",
             "previous_target_is_suspected", "teamwork_paid",
+            # RULE 701.60c's `is_suspected` flag read off two more referents,
+            # plus RULE 602.2b's sacrificed-cost-specific flag — always part of
+            # the same collapse, just missing their own `_LEGACY_SAMPLES` rows
+            # until now (`test_every_flat_key_has_a_sample`).
+            "source_is_suspected", "attached_is_suspected",
+            "sacrificed_cost_was_suspected",
         }
 
     def test_a_negative_boolean_is_the_not_combinator(self) -> None:
@@ -395,6 +404,7 @@ class TestOnePeelerRule:
     """
 
     BODIES = [
+        "if at least 3 green mana was spent to cast this spell, draw a card",
         "draw a card if an opponent lost 3 or more life this turn",
         "if this spell was kicked, draw a card",
         "if it was kicked twice, draw a card",

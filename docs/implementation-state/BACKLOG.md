@@ -42,37 +42,6 @@ its block back into the matching section here.
 
 ---
 
-## ENG — Game engine
-
-- **ENG-47 · Turn-history trackers — final residue.** 33 of the 37 counters are now derived
-  from the turn-stamped event log (`models/game/turn_history.py`), including `combats_this_turn`
-  and `planar_die_rolls_this_turn` (a new `PLANAR_DIE_ROLLED` event) picked up in the final pass.
-  Five stay hand-kept, each for a reason that won't go away on its own: `cards_left_graveyard_this_turn`
-  (its `CARDS_LEFT_GRAVEYARD` event is batched and can fire late), `mana_produced_this_turn`
-  (no event to derive from — `mana_potential.py` bumps it directly), `first_draw_replaced_this_turn`
-  (a replacement flag, not history), and `no_attack_pairs_this_turn` / `declared_blockers_this_combat`
-  (restrictions on what's still legal this combat, not a record of what happened). `GameState.
-  spell_watchers` is retired — "when you next cast …" (Dual Strike, Domri, Thunderclap Drake,
-  Autumn's Veil, Veil of Summer, Mistrise Village) and "can't be countered this turn" both now go
-  through `create_turn_trigger`/`UncounterableGrant`, and Dual Strike's hand-authored entry parses
-  on its own. The per-effect `amount_from_*`/`count_from_*`/`amount_if_*` parameter proliferation is
-  mostly retired too — draw/discard/mill/impulsive_draw/scry/inspect_top_choose/connive/gain_life/
-  lose_life/add_counters/pump/create_token/copy_permanent/bolster/earthbend/discover/
-  prevent_damage_shield/taxed_draw now take one `effect_amounts` operand per magnitude
-  (`GameEffect._measured`, `game/effects/operands.py`'s `rule()`/`lower()` rewriting the legacy
-  parameter spelling at bind time so the parser/hand-authored `EffectSpec` vocabulary is
-  unchanged), and a dozen-plus hand-authored cards (Solitude, Dazzling Reflection, Doomsday,
-  Final Punishment, Peer into the Abyss, Esper Sentinel, Tavern Brawler, Emiel the Blessed,
-  Burning Curiosity, Rousing Refrain, Jeska's Will, Carpet of Flowers, Rootha, Spoils of Blood)
-  moved onto a real `bind` instead. Left alone, deliberately: `DealDamageEffect`'s own `amount`
-  property (already one well-contained priority chain, not duplicated elsewhere — nothing to
-  retire); `PumpEffect.power_if_kicked`/`toughness_if_kicked`/`power_if_bargained`/
-  `toughness_if_bargained` (a closed 4-param vocabulary shared by only a few MEC-82 cards;
-  folding it in needs `_pump_one` to take `context`, a larger change for a small win);
-  `AddManaEffect.amount_selector`/`amount_from_context` (additive riders stacked on top of a
-  fixed-symbol production, not an override — a different shape); `EnterAsCopyReplacement.
-  max_mana_value_from_mana_spent` (a targeting-time legality gate, not a resolve-time magnitude).
-
 ## PAR — Parser
 
 - **PAR-12 · The indefinite long tail (methodology pointer, not a closeable
@@ -201,9 +170,11 @@ its block back into the matching section here.
   equivalence test (`test_par120_count_phrase.py`) already pins 15 of them to their structured
   form — extend it to each name before deleting it, then diff the whole cache; **(b) the other
   condition shapes** a leading "if" still fails on (`parser_probe.py composition conds`): "X happened this turn" — the object/life/cast/sacrifice/discard/attack forms are built (ENG-47's
-  `event_this_turn`); still open: "you descended", "you created a token", "you committed a crime",
-  per-card draw counts, damage-dealt histories ("`<name>` dealt damage to an opponent this turn", "a
-  player lost N or more life"), "the second time this ability has resolved this turn", referent state ("if it was a creature/a Human", "if it had a
+  `event_this_turn`), and so are "you descended"/"you created a token"/"you committed a crime"
+  (`history_phrase.py`, `static_handlers.py`'s `descended_this_turn`, PARSER_VERSION 459); still
+  open: per-card draw counts, damage-dealt histories ("`<name>` dealt damage to an opponent this
+  turn", "a player lost N or more life"), "the second time this ability has resolved this turn",
+  referent state ("if it was a creature/a Human", "if it had a
   +1/+1 counter on it"), cast provenance ("if you cast it from your hand", "if `<cost>` was spent"),
   sum-based counts ("creatures you control have total power N or greater"), and compounds ("a
   desert or a desert card in your graveyard"); **(c) the other modifier axes** the probe measures:
@@ -249,23 +220,29 @@ its block back into the matching section here.
   composed head (Kappa Cannoneer's correct only because "~" is named first). Add each effect
   type as it is exercised, and execute the card, as `test_par123_group_pronoun.py` does.
 - **PAR-124 · Turn-scoped trigger residue.** `create_turn_trigger` /
-  `GameState.turn_scoped_triggers` exist and 13 spells use them, including the "when you next cast
+  `GameState.turn_scoped_triggers` exist and 16 spells use them, including the "when you next cast
   an instant or sorcery spell this turn, copy that spell" family (Doublecast, Galvanic
-  Iteration, Teach by Example; Dual Strike is hand-authored on `spell_watchers` — see ENG-47). 17
+  Iteration, Teach by Example, Dual Strike, Storm King's Thunder's "X times", Howl of the Horde's
+  Raid-gated "an additional time") and `create_delayed_trigger`'s own `trigger_subject` capture
+  (Consuming Rage's "destroy that creature at end of combat", Rienne, Angel of Rebirth's "return
+  it to its owner's hand" from the graveyard — both closed together, see `Done_Backend.md`'s
+  PAR-124 residue entry). 14
   instants and sorceries with "… this turn" / "until end of turn, whenever …" text are still
-  unclaimed: "copy that spell **X times**" (Storm King's Thunder), Howl of the Horde's "an
-  additional time" second clause, Complete the Circuit's "cast sorcery spells this turn as though
-  they had flash" line and Spellchain Scatter's "conjure a duplicate"; the pump-the-firing-creature
-  spells whose second effect is not yet a row (Consuming Rage — "destroy that creature at end of
-  combat" after a group "it gets" — Descend on the Prey — "must be blocked this turn if able" —
-  Battle Cry's "untap all white creatures you control"); player-event heads that need PAR-119's
+  unclaimed: Complete the Circuit's "cast sorcery spells this turn as though
+  they had flash" line and Spellchain Scatter's "conjure a duplicate"; Descend on the Prey's own
+  "must be blocked this turn if able" tail (a bare self/trigger-subject form of the standing
+  `must_be_blocked` combat restriction — `GrantCombatRestrictionEffect` has no `trigger_subject`
+  mode yet, the same axis PAR-124's own closure just widened for `create_delayed_trigger`) and
+  Battle Cry's "untap all white creatures you control" (an ordinary `tap_selector` row, just
+  missing a colour-word slot); player-event heads that need PAR-119's
   event work (Bubbling Muck / High Tide "whenever a player taps a land for mana … adds an
   additional", False Cure "whenever a player gains life … for each 1 life they gained",
   Spiritualize "whenever target creature deals damage"); and Consumed by History, Forth Eorlingas!,
   Gaze of Pain, Graceful Reprieve, Pure Intentions, Theoretical Duplication (start with
-  `parser_probe.py card`). Ruinous Waterbending and Nuka-Nuke Launcher still install a
-  filterless `TemporaryPlayerTrigger`; the `this_turn` mode of it is a subset of
-  `TurnScopedTrigger` and could move onto `create_turn_trigger`.
+  `parser_probe.py card`). Nuka-Nuke Launcher still installs a filterless, *recurring*
+  `TemporaryPlayerTrigger` (not `this_turn`-scoped, so not a `create_turn_trigger` candidate);
+  Ruinous Waterbending's own `this_turn` instance moved onto it as part of ENG-47 and is no
+  longer hand-authored.
 - **PAR-99 · Khans-of-Tarkir "choose khans or dragons" Siege cycle.** The
   ETB choice itself (`as ~ enters, choose khans or dragons.`) already
   parses — confirmed via `parser_probe.py blocked "as .* enters, choose

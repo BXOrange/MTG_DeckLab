@@ -194,8 +194,13 @@ class TestDispatchIsStructural:
         branches = source.count("if kind ==") + source.count("if kind in")
         # 14_ S0b's exit: `legal_targets` dispatches on structure, not on 58
         # name branches. What remains is the documented irreducible set plus
-        # the graveyard family's single composed branch.
-        assert branches <= 14, (
+        # the graveyard family's single composed branch, plus (bumped 14 -> 15)
+        # `player_or_planeswalker_or_creature_subtype` (MEC-45's own sibling
+        # family): it wants every player, not `with_opponents`' opponents-only
+        # union, and its type predicate reads `spec.creature_filter`'s subtype
+        # at call time rather than being one of `_FRAME_TYPE_PREDICATES`'
+        # fixed lambdas — neither fits `TargetFrame`'s shape.
+        assert branches <= 15, (
             f"{branches} name branches left in legal_targets; the frame "
             f"dispatch was supposed to absorb them"
         )

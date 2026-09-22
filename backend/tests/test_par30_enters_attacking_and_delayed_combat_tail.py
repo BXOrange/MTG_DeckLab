@@ -41,9 +41,13 @@ def _engine():
 
 
 def test_exile_that_token_at_end_of_combat_parses():
+    # "that token" can only mean what an earlier clause of this same resolution
+    # created (RULE 608.2), never a RULE 115 target — `_DELAYED_TAIL_TOKEN_
+    # SUBJECTS` captures `created_objects` directly rather than the general
+    # `previous_or_self` fallback "it"/"that creature" use.
     assert match_clause("exile that token at end of combat") == [
         EffectSpec("create_delayed_trigger", {
-            "step": "end_combat", "scope": "any", "capture": "previous_or_self",
+            "step": "end_combat", "scope": "any", "capture": "created_objects",
             "effects": [{"type": "exile_specific", "params": {}}],
         })
     ]
@@ -52,7 +56,7 @@ def test_exile_that_token_at_end_of_combat_parses():
 def test_sacrifice_the_tokens_at_end_of_combat_parses():
     assert match_clause("sacrifice the tokens at end of combat") == [
         EffectSpec("create_delayed_trigger", {
-            "step": "end_combat", "scope": "any", "capture": "previous_or_self",
+            "step": "end_combat", "scope": "any", "capture": "created_objects",
             "effects": [{"type": "sacrifice_specific", "params": {}}],
         })
     ]

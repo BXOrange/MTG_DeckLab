@@ -1426,6 +1426,7 @@ EffectRegistry.register(
         description=p.get("description", ""),
         condition=p.get("condition"),
         related_filter=p.get("related_filter"),
+        trigger_event_key=p.get("trigger_event_key"),
     ),
 )
 EffectRegistry.register(

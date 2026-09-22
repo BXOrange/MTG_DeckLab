@@ -25,9 +25,44 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**49.0% covered — 17,065 / 34,811 — as of 2026-09-22, PARSER_VERSION 459.**
-Commander-legal slice (the one the product actually plays): **51.5% —
-**16,407 / 31,830** (measure with `--commander-legal-only`).
+**49.0% covered — 17,069 / 34,811 — as of 2026-09-22, PARSER_VERSION 461.**
+Commander-legal slice (the one the product actually plays): **51.6% —
+16,410 / 31,830** (measure with `--commander-legal-only`).
+
+### PAR-124 residue: "copy that spell X times", and a delayed trigger's own group pronoun (PARSER_VERSION 461)
+
+- **What:** "copy that spell X times"/"an additional time" (Storm King's Thunder, Howl of the
+  Horde's Raid-gated second ability) widens the existing `_COPY_THAT_SPELL_RE` count suffix; the
+  "X" sentinel needed `_substitute_x` to reach one level deeper than before — into a
+  `CreateTurnTriggerEffect`'s own `inner_specs` (raw `{"type","params"}` dicts, not yet built into
+  real effects at the point this spell's own announced X is known). Separately, `create_delayed_
+  trigger`'s `capture` never had a `trigger_subject` mode — every group-subject "it"/"that
+  creature" `_stamp_group_pronoun` (PAR-123) already retargets for `tap`/`return_to_hand`/`exile`
+  had a real hole for a *delayed* tail: "whenever a Minotaur attacks this turn, it gets +2/+0 …
+  Destroy **that creature** at end of combat." (Consuming Rage) was silently destroying the
+  ability's own source, since `previous_or_self`'s fallback chain has nothing upstream to fall
+  back *to* under a group subject. +4 (Storm King's Thunder, Howl of the Horde, Consuming Rage,
+  and — found executing Consuming Rage's fix — Rienne, Angel of Rebirth, whose own "…dies, return
+  it to its owner's hand at the beginning of the next end step" hit the identical capture bug),
+  0 regressed.
+- **A second, real bug the fix surfaced, not just the parse gap:** `ReturnSpecificToHandEffect`
+  (Ilharg/Zara/Alora's battlefield-loan bounce) was unconditionally battlefield-only — correct for
+  *that* family (RULE 400.7: a permanent that left some other way before the delayed return fires
+  is a new object, gone for good), but wrong for Rienne, where the delayed trigger's own firing
+  event *is* the move to the graveyard, so "it" names the very card sitting there. A single shared
+  zone-check would have gotten one of the two families wrong; `ReturnSpecificToHandEffect` gained
+  an `allow_graveyard` flag `CreateDelayedTriggerEffect` sets only when the captured referent's
+  origin was a `DIES` event — a capture-mode-scoped fix, not a blanket "return from anywhere"
+  widening. Verified by execute test both ways: Ilharg-shaped tests (`test_par30_delayed_return_
+  to_hand_tail.py`) untouched, Rienne pulls the destroyed creature out of the graveyard exactly at
+  the next end step and not before (`test_par123_group_pronoun.py`).
+- **Lesson:** a "such-and-such capture falls back to the source" gap, once found for one effect
+  type, is worth checking against every *other* effect type the same pronoun-retargeting axis
+  reaches — `create_delayed_trigger` had been sitting right next to the already-fixed `tap`/
+  `return_to_hand`/`exile` trio (PAR-123) the whole time. Two long-standing pinned "fails closed"
+  tests (`test_par119_object_trigger_head.py`) had to flip from asserting `modeled is False` to
+  `True` once this landed — a reminder that a negative test pinning a *known* gap needs revisiting
+  the moment the ticket that names it closes, not left to bit-rot as a stale regression guard.
 
 ### PAR-119 at v455–456: attack / block / player-event heads, and what executing them found
 

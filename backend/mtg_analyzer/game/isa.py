@@ -223,6 +223,11 @@ INSTRUCTIONS: dict[str, Instruction] = {
         _ins("gain_control", "609.4", ROLE_AGENT, ROLE_PATIENT, ROLE_DURATION),
         _ins("flip_coin", "705", ROLE_AGENT),
         _ins("roll_die", "706", ROLE_AGENT, ROLE_AMOUNT),
+        _ins("random_number", "706", ROLE_AGENT, ROLE_AMOUNT,
+             note="RULE 706.11's own carve-out: a card's bare \"chosen at "
+                  "random\" is not a die roll and is not subject to "
+                  "dice-replacement effects, so it is a separate operation "
+                  "sharing 706's section rather than an alias of roll_die"),
         _ins("win_game", "104.2", ROLE_AGENT),
         _ins("lose_game", "104.3", ROLE_AGENT),
         _ins("take_extra_turn", "500.7", ROLE_AGENT, ROLE_AMOUNT),
@@ -401,7 +406,9 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     "planeswalk": "planeswalk",
     "populate": "populate",
     "proliferate": "proliferate",
+    "random_number": "random_number",
     "recruit": "recruit",
+    "redirect_damage_to_target_creature": "redirect_damage",
     "regenerate": "regenerate",
     "remove_counters": "remove_counter",
     "roll_die": "roll_die",
@@ -434,6 +441,10 @@ _INSTRUCTION_TYPES: dict[str, str] = {
 _ALIAS_TYPES: dict[str, str] = {
     "add_counters_to_trigger_damaged_player": "put_counter",
     "add_player_counters": "put_counter",
+    # Garnet, Princess of Alexandria's own +1/+1 payoff tail (PAR-67) — a
+    # `then_specs` continuation of `remove_lore_counter_from_chosen_sagas_
+    # then_add_counters`'s own choice, not itself a second pause.
+    "add_counters_from_saga_lore_removed_delta": "put_counter",
     "attach_triggering_permanent": "attach",
     "unattach": "attach",
     "attacker_creates_attacking_token": "create",
@@ -548,6 +559,9 @@ _ALIAS_TYPES: dict[str, str] = {
     "grant_life_for_mana_pip": "create_continuous_effect",
     "grant_mana_ability": "create_continuous_effect",
     "grant_protection": "create_continuous_effect",
+    # The mass-selector sibling of `grant_protection` — a fixed colour granted
+    # to a group ("creatures you control") rather than one RULE 115 target.
+    "grant_fixed_protection_group": "create_continuous_effect",
     "grant_retrace": "create_continuous_effect",
     "grant_self_activated_ability": "create_continuous_effect",
     "grant_skip_extra_turns": "create_continuous_effect",
@@ -565,12 +579,18 @@ _ALIAS_TYPES: dict[str, str] = {
     "look_at_cards": "reveal",
     "lose_all_player_counters": "remove_counter",
     "lose_game_trigger_damaged_player": "lose_game",
+    # Polluted Cistern's own amount computation (distinct card types in one
+    # mill batch) — the same instruction, a bespoke amount operand.
+    "lose_life_for_milled_card_types": "lose_life",
     "mark_cant_be_countered": "create_continuous_effect",
     "cant_be_countered_this_turn": "create_continuous_effect",
     "mill_until_creature": "mill",
     "move_all_plus_one_counters_from_self": "move_counter",
     "phase_out_all_you_control": "phase_out",
     "prevent_all_combat_damage": "prevent_damage",
+    # The source-scoped sibling of `prevent_all_combat_damage`'s player-scoped
+    # Fog effect — "prevent all combat damage this effect's source would deal".
+    "prevent_combat_damage_dealt": "prevent_damage",
     "prevent_attacking_player_this_turn": "create_continuous_effect",
     "prevent_damage_from_target": "prevent_damage",
     "prevent_damage_shield": "prevent_damage",
@@ -625,10 +645,27 @@ _ALIAS_TYPES: dict[str, str] = {
     "return_from_graveyard_transformed": "transform",
     "reveal_top_then_transform": "transform",
     "reveal_until": "reveal",
+    # "Target opponent reveals a card at random from their hand." (Planeswalker's
+    # Favor, PAR-80) and its "…if you named it" sibling — a random, not a chosen,
+    # patient, so no continuation opens.
+    "reveal_random_hand_card": "reveal",
+    "reveal_random_hand_card_if_named": "reveal",
     "sacrifice_attached_permanent": "sacrifice",
     "sacrifice_permanents_per_counter": "sacrifice",
     "sacrifice_self": "sacrifice",
     "sacrifice_specific": "sacrifice",
+    # Killing Wave's own per-creature "unless" iteration item — already
+    # selected by the surrounding untargeted loop, no fresh target/choice.
+    "sacrifice_target": "sacrifice",
+    # The subject's controller sacrifices a permanent of their own choosing —
+    # same instruction, the "of their choice" idiom RULE 601.2c already covers
+    # generically rather than opening a fresh continuation.
+    "sacrifice_controller_permanent": "sacrifice",
+    # "Sacrifice ~ unless it attacked this turn." (Instill Furor) — an
+    # objective conditional consequence (RULE 508's own `attacked_this_turn`
+    # marker), not a payment choice, so this is a gated instruction, not a
+    # continuation.
+    "sacrifice_unless_attacked": "sacrifice",
     "set_copy_target": "copy_object",
     # RULE 613 layer-1 continuous copy, conditionally active; its condition
     # is an operand of one static instruction, not an if/else composition.
@@ -688,6 +725,7 @@ _CONTINUATION_TYPES: dict[str, str] = {
     "choose_named_mode": "700.2",
     "choose_number_on_enter": "601.2b",
     "choose_objects": "601.2b",
+    "choose_opponent_on_enter": "601.2b",
     "choose_permanent": "601.2b",
     "choose_source_coinflip": "705",
     "choose_targets": "601.2c",
@@ -702,6 +740,7 @@ _CONTINUATION_TYPES: dict[str, str] = {
     "destroy_unless_pay": "118.3",
     "discard_or_lose_life": "701.9",
     "exile_opponents_graveyards_impulsive_cast": "601.2b",
+    "exile_own_graveyard_cards": "601.2b",
     "exile_top_from_each_player_cast_free": "601.2b",
     "draw_reveal_cast_one_free": "601.2b",
     "each_player_pay_or": "118.3",
@@ -730,12 +769,20 @@ _CONTINUATION_TYPES: dict[str, str] = {
     "peek_top_land_or_hand": "601.2b",
     "remove_counter_or_sacrifice": "118.3",
     "remove_counters_from_among_then_draw_lose_life": "601.2b",
+    "remove_lore_counter_from_chosen_sagas_then_add_counters": "601.2b",
     "repeat_process": "601.2b",
     "put_hand_card_on_bottom_then_draw": "601.2b",
     "_request_choose_creature_type_grant": "601.2b",
     "_request_choose_player": "601.2b",
     "request_prevent_damage_source": "615",
+    # Avacyn, Guardian Angel's "sources of the color of your choice" — the
+    # same RULE 615 prevention window as `request_prevent_damage_source`,
+    # choosing a colour to filter by instead of one specific source.
+    "request_prevent_damage_chosen_color": "615",
     "request_redirect_damage_source": "616",
+    "return_creatures_total_mana_value": "601.2b",
+    "return_milled_cards": "601.2b",
+    "reveal_any_number_hand_cards": "601.2b",
     "reveal_hand_choose_discard": "701.9",
     "reveal_top_hand_lose_life_loop": "601.2b",
     "sacrifice_unless_pay": "701.17",
@@ -760,7 +807,7 @@ _CONTINUATION_TYPES: dict[str, str] = {
 _STATIC_TYPES: frozenset[str] = frozenset({
     "activation_prohibition", "anthem", "attack_tax", "cant_attack_defender",
     "cant_be_countered", "cast_limit", "cast_prohibition", "color_change",
-    "combat_restriction", "cost_reduction", "cost_restriction",
+    "combat_restriction", "commander_damage_multiplier", "cost_reduction", "cost_restriction",
     "damage_cant_be_prevented", "disable_damage_prevention", "draw_limit",
     # ENG-37 re-derivation: not an `exile`+`create_continuous_effect` weld.
     # It resolves nothing — it is a RULE 613 static cost-reduction read off
@@ -772,6 +819,7 @@ _STATIC_TYPES: frozenset[str] = frozenset({
     "exile_discount_cost",
     "extra_land_drop", "extra_land_play", "flash_permission",
     "free_cast_permission", "goaded", "grant_any_color_for_activation",
+    "grant_graveyard_to_library_replacement",
     "grant_protection_static", "grant_search_limited_to_top_n",
     "grant_search_prohibited", "granted_alt_cast_cost",
     "graveyard_cast_permission", "graveyard_library_cast_prohibition",
@@ -825,6 +873,7 @@ _SPECIAL_TYPES: dict[str, str] = {
     "exchange_control_then_copy_token": "Exchange-control token copy",
     "exile_cast_spell_into_imprint_pool": "Imprint-pool casting",
     "exile_graveyard_card_counter_if_permanent": "Permanent-sensitive graveyard exile",
+    "exile_self_collect_evidence_return": "Lamplight Phoenix",
     "specialize": "Specialize (Duskmourn) — parked, see DEFERRED.md",
     "double_cast_x": "X-doubling cast family",
     "expressive_iteration": "Expressive Iteration",

@@ -10,7 +10,7 @@ def _bane_of_progress() -> list[AbilitySpec]:
         EffectSpec("destroy", {"selector": "all_artifacts_and_enchantments"}),
         EffectSpec("bind", {
             "amount": {"kind": "this_way", "tally": "permanents_destroyed_this_way"},
-            "effects": [{"type": "put_counter", "params": {
+            "effects": [{"type": "add_counters", "params": {
                 "amount": "$n", "kind": "+1/+1",
             }}],
         }),

@@ -5349,6 +5349,19 @@ def _stamp_group_pronoun(
             params["target_kind"] = "trigger_subject"
             params["trigger_event_key"] = GROUP_SUBJECT_KEY_SENTINEL
             effect = EffectSpec(effect.type, params, condition=effect.condition)
+        elif effect.type == "create_delayed_trigger" and effect.params.get("capture") == "previous_or_self":
+            # "Whenever a Minotaur attacks this turn, it gets +2/+0 … Destroy that creature at
+            # end of combat." (Consuming Rage) — the delayed clause's own "that creature" parsed
+            # to the default ``previous_or_self`` fallback (PAR-30), which has nothing to fall
+            # back *to* here (this resolution's earlier effect is itself untargeted) and would
+            # silently capture this ability's own source instead. Under a confirmed group
+            # subject a bare pronoun is always RULE 603.1's firing object, never that fallback
+            # chain — an explicit "~" would have failed the ``_EXPLICIT_SOURCE_RE`` guard above
+            # before reaching here, so this can only be the pronoun.
+            params = dict(effect.params)
+            params["capture"] = "trigger_subject"
+            params["trigger_event_key"] = GROUP_SUBJECT_KEY_SENTINEL
+            effect = EffectSpec(effect.type, params, condition=effect.condition)
         stamped.append(effect)
         index += 1
     return stamped

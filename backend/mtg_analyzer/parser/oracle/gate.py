@@ -3545,7 +3545,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (Solitude, Doomsday, Final Punishment, Peer into the Abyss, Esper Sentinel, Tavern Brawler,
 #: Emiel the Blessed, Burning Curiosity, Rousing Refrain, Jeska's Will, Carpet of Flowers,
 #: Rootha, Spoils of Blood).
-PARSER_VERSION = "459"
+PARSER_VERSION = "461"
 
 
 def parser_source_hash() -> str:

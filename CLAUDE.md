@@ -583,9 +583,23 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 49.0% (17,065 / 34,811) as of 2026-09-22, measured at
-PARSER_VERSION 459**; the Commander-legal slice is **51.5% (16,407 /
-31,830)**. v459 closes ENG-47: `combats_this_turn`/`planar_die_rolls_this_turn` join the derived
+**Coverage: 49.0% (17,069 / 34,811) as of 2026-09-22, measured at
+PARSER_VERSION 461**; the Commander-legal slice is **51.6% (16,410 /
+31,830)**. v460 closes four cards of PAR-124's own residue (+4, 0 regressed): "copy that spell
+X times"/"an additional time" (Storm King's Thunder, Howl of the Horde's Raid-gated second
+ability) widens the existing count-suffix row, with `_substitute_x` reaching one level deeper —
+into a `CreateTurnTriggerEffect`'s own `inner_specs`, raw dicts not yet built into real effects at
+the point this spell's own announced `{X}` is known — for the first time; and
+`create_delayed_trigger` gains the `trigger_subject` capture mode its `tap`/`return_to_hand`/
+`exile` siblings already had (PAR-123), closing a real bug where "whenever a Minotaur attacks this
+turn, it gets +2/+0 … Destroy **that creature** at end of combat." (Consuming Rage) destroyed its
+own source instead of the attacker. Executing that fix surfaced a second one:
+`ReturnSpecificToHandEffect` (Ilharg/Zara/Alora's battlefield-only bounce loan, correctly refusing
+a creature that left the battlefield some other way, RULE 400.7) was too narrow for Rienne, Angel
+of Rebirth's identical capture bug, where the delayed trigger's own firing event *is* the move to
+the graveyard — a new `allow_graveyard` flag, set only when the captured referent's origin was a
+`DIES` event, distinguishes the two rather than widening the shared zone check for both. v459
+closes ENG-47: `combats_this_turn`/`planar_die_rolls_this_turn` join the derived
 turn-history set (a new `PLANAR_DIE_ROLLED` event), `GameState.spell_watchers` is retired — "when
 you next cast …" (Dual Strike, whose hand-authored entry is now deleted) is an ordinary
 `create_turn_trigger(once)` and "can't be countered this turn" (Veil of Summer, Domri, Mistrise

@@ -330,6 +330,11 @@ SUBJECT_FLAGS: frozenset[str] = frozenset(
         "cast_outside_sorcery_speed",
         "renowned",  # RULE 702.111b — was ``source_is_renowned``
         "is_suspected",  # RULE 701.60c — was ``previous_target_is_suspected``
+        # RULE 602.2b (an activated ability's sacrifice cost) — "if the sacrificed
+        # creature was suspected, draw 2 cards instead" — stamped onto the
+        # activating source by `GameEngine`'s cost-payment step, read off *that*
+        # object rather than the (now-gone) sacrificed one.
+        "sacrificed_cost_was_suspected",
         # RULE 702.194b (PAR-56) — Teamwork's own cast-time record
         # (`GameObject.teamwork_paid`, stamped by `GameEngine.cast_spell`
         # exactly like `bargained`/`additional_cost_paid` above), for

@@ -194,7 +194,11 @@ class TestOperatorsAreJustified:
 
     @pytest.mark.parametrize("operator", isa.OPERATORS)
     def test_operator_retires_at_least_one_fusion(self, operator: str) -> None:
-        assert operator in isa.COMPOSITION_TYPES
+        # `_FUSION_TYPES` is now empty — ENG-37 fully retired every fusion — so an
+        # operator's justification is that it is a real, registered composition
+        # primitive (`game/effects/composition.py`) rather than a speculative one
+        # with no fusions left to justify it against.
+        assert operator in isa.types_classified(isa.Classification.COMPOSITION)
 
     def test_every_fusion_is_claimed_by_exactly_one_operator(self) -> None:
         assert not isa.types_classified(isa.Classification.FUSION)
@@ -235,9 +239,13 @@ class TestBacklogSizes:
     """
 
     def test_continuation_backlog_does_not_grow(self) -> None:
-        # ENG-35 retires these onto one continuation primitive.
+        # ENG-35 retires these onto one continuation primitive. Bumped 74 -> 81:
+        # not new work, but 7 pre-existing registered types (Avacyn's chosen-colour
+        # prevention, Garnet's Saga-counter choice, Ancient Brass Dragon's any-number
+        # graveyard return, …) that had never been classified at all, found while
+        # closing the `test_every_registered_effect_type_is_classified` gap.
         n = len(isa.types_classified(isa.Classification.CONTINUATION))
-        assert n <= 74, f"continuation types grew to {n}"
+        assert n <= 81, f"continuation types grew to {n}"
 
     def test_fusion_backlog_does_not_grow(self) -> None:
         # ENG-37 deletes these outright.

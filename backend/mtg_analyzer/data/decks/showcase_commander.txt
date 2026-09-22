@@ -1,0 +1,110 @@
+// Showcase Commander deck — a coverage fixture for the oracle-text -> effect
+// parser (docs/09_ORACLE_EFFECT_PARSER.md). Kenrith, the Returned King is a
+// 5-colour (WUBRG) commander, so every card below is inside its colour
+// identity and the deck is Commander-legal (100 cards, singleton except
+// basics). It is deliberately land-heavy to exercise the "enters tapped"
+// replacement effect the task called out, and its token-makers produce
+// exactly the tokens seeded in mtg_analyzer/data/tokens.json (Treasure,
+// Clue, Food, Soldier, Zombie).
+//
+// Parsed by parser.deckliste_parser.parse_deck_sections: the "// Commander"
+// and "// Mainboard" markers below are ignored as comments; tests split the
+// file on them (see tests/test_showcase_deck.py). Inline comments are NOT
+// supported (they would corrupt names / clash with split-card "//"), so the
+// coverage each section showcases is annotated in these header comments only.
+
+// Commander
+1 Kenrith, the Returned King
+
+// Mainboard
+
+// Keyword abilities (creatures): Flying, Vigilance, Trample, Deathtouch,
+// Lifelink, Haste, Reach, Menace, First strike, Double strike, Hexproof,
+// Ward, Defender, Flash.
+1 Serra Angel
+1 Air Elemental
+1 Colossal Dreadmaw
+1 Typhoid Rats
+1 Vampire Nighthawk
+1 Goblin Guide
+1 Giant Spider
+1 Boggart Brute
+1 Youthful Knight
+1 Fencing Ace
+1 Invisible Stalker
+1 Stonecoil Serpent
+1 Wall of Omens
+1 Restoration Angel
+1 Grizzly Bears
+1 Elvish Mystic
+1 Llanowar Elves
+
+// Token makers — produce exactly the tokens in tokens.json
+// (Treasure, Clue, Food, Zombie, Soldier).
+1 Prosperous Innkeeper
+1 Thraben Inspector
+1 Tireless Tracker
+1 Gilded Goose
+1 Grave Titan
+1 Raise the Alarm
+
+// One-shot effects (instants / sorceries): damage, kicker, draw, scry,
+// destroy, board wipe, counter, discard, tutor/search, copy, gain life,
+// prevent (fog), treasure.
+1 Lightning Bolt
+1 Shock
+1 Burst Lightning
+1 Divination
+1 Preordain
+1 Serum Visions
+1 Murder
+1 Doom Blade
+1 Naturalize
+1 Wrath of God
+1 Counterspell
+1 Cancel
+1 Mind Rot
+1 Duress
+1 Rampant Growth
+1 Cultivate
+1 Rite of Replication
+1 Revitalize
+1 Fog
+1 Seize the Spoils
+
+// Artifacts / equipment: mana, Equip, Cycling.
+1 Sol Ring
+1 Arcane Signet
+1 Bonesplitter
+1 Swiftfoot Boots
+1 Shark Typhoon
+
+// Lands — "enters tapped" replacement showcase + colour fixing.
+1 Command Tower
+1 Exotic Orchard
+1 Path of Ancestry
+1 Azorius Guildgate
+1 Boros Guildgate
+1 Golgari Guildgate
+1 Simic Guildgate
+1 Rakdos Guildgate
+1 Selesnya Guildgate
+1 Temple of Enlightenment
+1 Temple of Malady
+1 Temple of Triumph
+1 Temple of Mystery
+1 Temple of Silence
+1 Frontier Bivouac
+1 Sandsteppe Citadel
+1 Mystic Monastery
+1 Nomad Outpost
+1 Opulent Palace
+1 Evolving Wilds
+1 Terramorphic Expanse
+
+// Basic lands (exempt from singleton).
+6 Plains
+6 Island
+6 Swamp
+6 Mountain
+6 Forest

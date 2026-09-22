@@ -38,11 +38,17 @@ def test_static_inner_body_emits_grant_static_ability():
     assert inner["params"]["affects"] == "creatures_you_control"
 
 
-def test_self_scoped_inner_static_fails_closed():
-    # "~ gets +1/+1" once regranted has no host to mean "~" — fail closed.
-    assert static_effect_specs(
-        'commander creatures you own have "~ gets +1/+1."'
-    ) in (None, [])
+def test_self_scoped_inner_static_resolves_per_granted_to_object():
+    # "~ gets +1/+1", once regranted, means the affected object itself: the same
+    # `continuous._apply_layer_6_ability` "sourced on it" mechanism that already
+    # re-scopes "creature tokens you control" per granted-to permanent's own
+    # controller (`test_static_inner_body_emits_grant_static_ability`) sources
+    # the inner `StaticAbility` on each regrant target, so a bare "self" affects
+    # resolves correctly per object rather than needing its own referent.
+    specs = static_effect_specs('commander creatures you own have "~ gets +1/+1."')
+    assert specs is not None and len(specs) == 1
+    (inner,) = specs[0].params["static_specs"]
+    assert inner == {"type": "anthem", "params": {"power": 1, "toughness": 1, "affects": "self"}}
 
 
 # --- execute -------------------------------------------------------
@@ -110,6 +116,25 @@ def test_two_commander_creatures_stack_the_granted_anthem():
                        power=1, toughness=1), token=True)
     eng.recompute_continuous_effects()
     assert (tok.power, tok.toughness) == (5, 5)  # +2/+2 from each
+
+
+def test_self_scoped_grant_boosts_each_commander_creature_not_just_one():
+    eng = _engine()
+    st = eng.state
+    granter = _bf(st, Card(
+        id="il3", name="Inspiring Leader Clone", type_line="Enchantment",
+        oracle_text='Commander creatures you own have "~ gets +1/+1."'))
+    bind_from_catalogue(granter)
+    c1 = _bf(st, Card(id="k3", name="C3", type_line="Legendary Creature — Human",
+                      is_creature=True, power=3, toughness=3), commander=True)
+    c2 = _bf(st, Card(id="k4", name="C4", type_line="Legendary Creature — Elf",
+                      is_creature=True, power=3, toughness=3), commander=True)
+    bear = _bf(st, Card(id="b3", name="Bear", type_line="Creature — Bear",
+                        is_creature=True, power=2, toughness=2))
+    eng.recompute_continuous_effects()
+    assert (c1.power, c1.toughness) == (4, 4)
+    assert (c2.power, c2.toughness) == (4, 4)
+    assert (bear.power, bear.toughness) == (2, 2)  # not a commander creature
 
 
 def test_inspiring_leader_modeled():
