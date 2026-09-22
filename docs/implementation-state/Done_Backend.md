@@ -7501,15 +7501,68 @@ measurement of why is the useful half of this work.
   named branches).
 - **Left open on PAR-120:** the eleven phrase tables and ~100 named selector branches themselves
   (now redundant for the phrases the equivalence test covers); "X happened this turn"
-  conditions (need ENG-47), referent state ("if it was a creature", "if it had a +1/+1 counter on it"),
-  cast provenance ("if you cast it from your hand"), sum-based counts ("total power N or greater")
-  and the compound "a desert or a desert card in your graveyard".
+  conditions (closed by ENG-47's `event_this_turn`, PARSER_VERSION 453+459); referent state and
+  cast provenance (closed below, PARSER_VERSION 465); sum-based counts ("total power N or
+  greater") and the compound "a desert or a desert card in your graveyard".
 - **Verification:** `tests/test_par120_count_phrase.py` — grammar and fail-closed cases, the
   structured/named equivalence, spec validation, real cards, and execute tests (a for-each over
   flying creatures, graveyard cards with a printed multiplier, "no untapped lands", "another
   Wizard", a graveyard threshold, "an opponent controls more lands", a conditional static that
   follows the board live, distinct powers, a targeted where-X body and an Ajani planeswalker
   type). Two pins were updated (`test_par62_connectives`, three contexts for "on it").
+
+### PAR-120: referent state, cast provenance, and "that player" (PARSER_VERSION 465–466)
+
+- **What:** Two more rows in `static_handlers._STATIC_CONDITION_RES` — the same generic
+  vocabulary the RULE 613.6 "as long as" statics and the resolving-effect "if `<cond>`,"
+  wrapper already share, so both closures needed no new plumbing beyond the phrase table
+  itself. "It was/wasn't a `<type>`[ card]"/"it was/wasn't a `<subtype>`" reads
+  `is_card_type`/`is_subtype` of `previous_target` (unchanged — both already read straight off
+  the immutable `Card` reference via `continuous._has_card_type`/`_has_subtype`, so a RULE 400.7
+  zone change since the referent was captured doesn't matter: Scavenging Ooze/Cling to Dust's
+  own exiled graveyard card, Avacyn's Collar/Slayer's Plate/Weatherseed Totem's own dying self).
+  "You cast it[ from your hand]" reads the trigger's own source through the `flag` condition kind
+  against `was_cast` (already whitelisted) and a newly-whitelisted `was_cast_from_hand`
+  (`GameObject.was_cast_from_hand`, already stamped by `GameEngine.cast_spell` for an unrelated
+  counter-amount gate, `game/rules/casting_mixin.py` — this is its first boolean-condition route)
+  — `of` defaults to `"source"`, correct because for a self "~ enters" trigger the trigger's
+  source *is* the entering permanent (Coal Stoker, Furnace Dragon, Feasting Troll King, Scion of
+  Vitu-Ghazi, bonus Zephyr Sentinel). PARSER_VERSION 465, +11, 0 regressed.
+- **"That player" is a third spelling of "its controller", not a separate referent:**
+  `_CONTROLLER_REFERENT` (`catalogue/handlers.py`) widened to `(?:its|that creature's) controller
+  |that player`, reused unchanged under every subject mode that already dispatches "its
+  controller" (`previous_subject_only`, `group_subject_only`, `attached_subject_only`) and every
+  verb (loses/gains life, draws, discards, mills). The operand this resolves to,
+  `{"of": "previous_target"/"entering", "as": "controller"}`, already disambiguates the two
+  antecedent shapes the pronoun can follow: `effect_operands._derive` returns a referent that
+  already *is* a `Player` (a preceding "target player"/"target opponent" clause) as-is rather than
+  looking up a controller, and falls back to `.controller_id`/`.owner_id` otherwise — the same
+  logic "its controller" already relied on, just reached under a different printed pronoun.
+  `MillEffect`'s own `"previous_subject_controller"` selector (`effects/stack.py`) needed the
+  identical passthrough added by hand, since it resolves its player outside `effect_operands`
+  entirely. Carrion Locust, Massacre Wurm, Assault Intercessor, Fell Specter, Liliana's Caress,
+  Raiders' Wake, Sword of Body and Mind, Nightshade Harvester, Polluted Bonds.
+- **One sibling shape needed a real new referent:** "whenever a creature attacks 1 of your
+  opponents, that player loses/gains N life" (Calculating Lich) is a RULE 603.1 group-subject
+  trigger whose group subject (the attacker) can be controlled by *either* player — "that player"
+  here is RULE 506.4's defending player, not the attacker's controller the generic group-subject
+  dispatch would have read. Caught by its own narrow regex
+  (`segmenter._ATTACKS_OPPONENT_THAT_PLAYER_LIFE_RE`) ahead of the generic "its controller"
+  dispatch so the two can never collide, emitting a new `attacked_player` referent
+  (`effect_conditions.subject_of`, reading the ATTACKS event's `defending_player_id`). The trigger
+  condition itself gained a matching `attacks_opponent` qualifier on `_GROUP_SUBJECT_RE`/
+  `_build_group_ok` — *any* living opponent of the ability's controller, the RULE 506.4 sibling of
+  the existing `attacks_you`'s one fixed player — which also reaches Genestealer Locus, whose own
+  payoff doesn't use "that player" at all. PARSER_VERSION 466, +11 more (+22 total across both
+  versions), 0 regressed.
+- **Verification:** `tests/test_par120_referent_state.py` (the type/subtype and cast-provenance
+  rows in isolation, real cards, and execute tests — Cling to Dust's own `if_else` reading a
+  creature vs. a land card off `previous_target`, Coal Stoker's mana trigger firing only when
+  `was_cast_from_hand` is set) and `tests/test_par120_that_player.py` (the widened macro in
+  isolation under both previous-subject and group-subject dispatch, the new `attacks_opponent`
+  condition, real cards, and execute tests — Carrion Locust draining the exiled card's owner,
+  Massacre Wurm draining a dying creature's own controller, and Calculating Lich draining the
+  defender regardless of who controls the attacking creature). Full suite: 8,711 passed.
 
 ### PAR-122: trigger doublers as a composed cause × subject (PARSER_VERSION 451)
 

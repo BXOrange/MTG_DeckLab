@@ -2282,13 +2282,25 @@ def _gain_life_and_draw_eq_its_self(m: re.Match[str]) -> list[EffectSpec]:
 #: with the same referent, and the ordinary bare ``gain_life``/``lose_life``
 #: rows already claim "you gain/lose N life" by themselves.
 _PREVIOUS_TARGET_CONTROLLER: dict = {"of": "previous_target", "as": "controller"}
-# Both "its controller" and "that creature's controller" name the same
-# antecedent. Which antecedent that is remains the handler gate's job:
-# `previous_subject_only` for a preceding target, `group_subject_only` for a
-# RULE 603.1 firing object (Blood Reckoning), and `attached_subject_only` for
-# an Aura's host. Keeping the spelling together prevents a second parallel
-# referent vocabulary from drifting out of sync.
-_CONTROLLER_REFERENT = r"(?:its|that creature'?s) controller"
+# "its controller"/"that creature's controller"/"that player" all name the
+# same antecedent's controller. Which antecedent that is remains the handler
+# gate's job: `previous_subject_only` for a preceding target,
+# `group_subject_only` for a RULE 603.1 firing object (Blood Reckoning), and
+# `attached_subject_only` for an Aura's host. Keeping the spelling together
+# prevents a second parallel referent vocabulary from drifting out of sync.
+#
+# PAR-120: "that player" reads the same `_PREVIOUS_TARGET_CONTROLLER`
+# operand unchanged — no separate referent needed. `effect_operands._derive`
+# already resolves "controller of" a referent that turns out to *already be*
+# a `Player` (a preceding "target player"/"target opponent" clause) to that
+# player directly rather than a controller lookup (Diplomacy of the Wastes:
+# "target opponent reveals their hand. … that player discards that card." —
+# previous_target is already the opponent), and falls back to reading
+# `.controller_id` off a `GameObject` referent otherwise (Carrion Locust's
+# exiled graveyard card, Massacre Wurm's group-subject dying creature,
+# Dalek Drone's destroyed creature) — the same disambiguation "its
+# controller" already relies on, just under a different printed pronoun.
+_CONTROLLER_REFERENT = r"(?:(?:its|that creature'?s) controller|that player)"
 _ITS_CONTROLLER_LOSES_LIFE_RE = _c(rf"{_CONTROLLER_REFERENT} loses {NUMBER} life")
 _ITS_CONTROLLER_GAINS_LIFE_RE = _c(rf"{_CONTROLLER_REFERENT} gains {NUMBER} life")
 _ITS_CONTROLLER_DRAWS_RE = _c(rf"{_CONTROLLER_REFERENT} draws? {COUNT_X} cards?")

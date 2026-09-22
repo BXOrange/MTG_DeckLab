@@ -115,7 +115,8 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 #: choice against would be a guess baked into a whitelisted vocabulary.
 EFFECT_SUBJECTS: frozenset[str] = frozenset(
     {"target", "previous_target", "previous_player", "previous_subject", "created", "remembered",
-     "chosen", "entering", "trigger_subject", "self", "event_player", "counter_recipient", "revealed"}
+     "chosen", "entering", "trigger_subject", "self", "event_player", "counter_recipient", "revealed",
+     "attacked_player"}
 )
 
 #: Every referent a condition may name here, static-resolved ones included.
@@ -268,6 +269,14 @@ def subject_of(
             # pure fallback, never a second candidate to choose between.
             instance_id = event.get("source_id")
         return context.state.find_object(instance_id) if instance_id is not None else None
+    if of == "attacked_player":
+        # PAR-120: "whenever a creature attacks 1 of your opponents, **that
+        # player** loses 1 life." (Calculating Lich) — the group subject's
+        # own referent chain would read the *attacking* creature's
+        # controller, which is the wrong side of the attack; RULE 508.1b's
+        # defending player is a distinct field on the same ATTACKS event.
+        event = getattr(context, "trigger_event", None) or {}
+        return _player_by_id(context, event.get("defending_player_id"))
     if of == "damage_recipient":
         # PAR-84 — a DAMAGE trigger can name the creature it damaged ("tap
         # that creature"), which is neither the triggering source nor a
@@ -512,6 +521,7 @@ _FROM_LEGACY: dict[str, Callable[[Any], Optional[dict[str, Any]]]] = {
     "teamwork_paid": _flag("teamwork_paid"),  # RULE 702.194b (PAR-56)
     "additional_cost_paid": _flag("additional_cost_paid"),
     "source_was_cast": _flag("was_cast"),
+    "source_was_cast_from_hand": _flag("was_cast_from_hand"),  # RULE 601.2/400.1 (PAR-120)
     "source_was_foretold": _flag("foretold"),
     "cast_via_escape": _flag("cast_via_escape"),
     "cast_outside_sorcery_speed": _flag("cast_outside_sorcery_speed"),

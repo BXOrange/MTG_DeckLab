@@ -25,9 +25,9 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**49.2% covered — 17,132 / 34,811 — as of 2026-09-22, PARSER_VERSION 463.**
-Commander-legal slice (the one the product actually plays): **51.7% —
-16,471 / 31,830** (measure with `--commander-legal-only`).
+**49.3% covered — 17,160 / 34,811 — as of 2026-09-23, PARSER_VERSION 466.**
+Commander-legal slice (the one the product actually plays): **51.8% —
+16,499 / 31,830** (measure with `--commander-legal-only`).
 
 ### PAR-124 closes completely: player-events, X-tokens, a targeted delayed trigger, a hand-zone duplicate, an optional-attach composition — and the controller-binding bug the targeted variant first exposed (PARSER_VERSION 463)
 

@@ -583,9 +583,33 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 49.2% (17,133 / 34,811) as of 2026-09-22, measured at
-PARSER_VERSION 464**; the Commander-legal slice is **51.7% (16,472 /
-31,830)**. v464 closes MEC-99 (Gaze of Pain): a reflexive "you may choose
+**Coverage: 49.3% (17,160 / 34,811) as of 2026-09-23, measured at
+PARSER_VERSION 466**; the Commander-legal slice is **51.8% (16,499 /
+31,830)**. v465–466 close PAR-120's referent-state/cast-provenance residue.
+"If it was/wasn't a `<type/subtype>`[ card]" reads `previous_target`'s RULE
+400.7 last-known card type (`is_card_type`/`is_subtype` already read the
+immutable `Card` reference, so this is correct even once the referent has
+left its zone — Scavenging Ooze, Cling to Dust, Avacyn's Collar/Slayer's
+Collar, Weatherseed Totem, Ethereal Absolution); "if you cast it[ from your
+hand]" reads the trigger source's own `was_cast`/(newly whitelisted)
+`was_cast_from_hand` flag (Coal Stoker, Furnace Dragon, Feasting Troll King,
+Scion of Vitu-Ghazi, bonus Zephyr Sentinel); and "that player" is a third
+spelling of the existing "its controller"/"that creature's controller"
+referent (`_CONTROLLER_REFERENT`), unchanged under every subject mode that
+already dispatches it — `effect_operands._derive` already resolves a
+referent that already *is* a `Player` (a preceding "target player" clause)
+to itself rather than looking up a controller, so one macro widening
+correctly covers both antecedent shapes (Carrion Locust, Massacre Wurm,
+Assault Intercessor, Fell Specter, Liliana's Caress, Raiders' Wake, Sword of
+Body and Mind, Nightshade Harvester, Polluted Bonds). One sibling shape
+needed a genuinely new referent instead of the wider phrase table: "whenever
+a creature attacks 1 of your opponents, that player loses life" (Calculating
+Lich) has a group subject whose controller is the *attacker's* side, not the
+referent this phrase means — RULE 506.4's defending player, a new
+`attacked_player` referent read off a new `attacks_opponent` trigger
+qualifier (also reaches Genestealer Locus, which doesn't use "that player"
+at all). +22 total, 0 regressed. v464 closes MEC-99 (Gaze of Pain): a
+reflexive "you may choose
 to have it deal damage equal to its power to target creature. if you do,
 it assigns no combat damage this turn." reuses `effects.
 DamageEqualToPowerEffect`'s existing subject vocabulary (a new

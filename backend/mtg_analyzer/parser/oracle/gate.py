@@ -3559,7 +3559,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: shape — the controller is asked, but the body still has to act as the attacker) silently
 #: resolved against no trigger subject at all once the interactive choice came back. Now
 #: captured whenever `context.trigger_event` names one, regardless of who's asked.
-PARSER_VERSION = "464"
+PARSER_VERSION = "466"
 
 
 def parser_source_hash() -> str:

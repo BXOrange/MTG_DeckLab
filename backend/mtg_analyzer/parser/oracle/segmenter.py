@@ -1503,6 +1503,16 @@ _ATTACKED_PLAYER_LOWEST_LIFE_IF_RE = re.compile(
     re.IGNORECASE | re.S,
 )
 
+#: PAR-120: "whenever a creature attacks 1 of your opponents, that player
+#: loses/gains N life." (Calculating Lich) — "that player" is RULE 506.4's
+#: defending player again, the same referent the row above already reads
+#: off the same phrase under a *self*-subject ATTACKS trigger; here the
+#: subject is a group (any creature), so it's caught before the generic
+#: group-subject "its controller" dispatch (see the call site).
+_ATTACKS_OPPONENT_THAT_PLAYER_LIFE_RE = re.compile(
+    r"^that player (?P<verb>loses|gains) (?P<n>\d+) life\.?$", re.IGNORECASE,
+)
+
 #: RULE 508.3a's batch attack trigger: "whenever **one or more** [<filter>]
 #: creatures you control attack[ a player], …" (Winota / A-Winota, Angelic
 #: Guardian, Ancestor Dragon, Alibou, …). Fires once per combat, not per
@@ -1703,6 +1713,12 @@ _GROUP_SUBJECT_RE = re.compile(
     # a printed "you or a planeswalker you control" condition.
     r"(?P<attacks_you_or_planeswalker>\s+you or a planeswalker you control)?"
     r"(?P<attacks_you>\s+you)?"
+    # PAR-120: "whenever a creature attacks 1/one of your opponents, …"
+    # (Calculating Lich) — RULE 506.4's *any*-opponent scope, distinct from
+    # ``attacks_you`` (a specific player: the controller). The ATTACKS
+    # event's ``defending_player_id`` just needs to be a living opponent of
+    # this ability's controller, not equal to any one fixed player.
+    r"(?P<attacks_opponent>\s+(?:1|one) of your opponents)?"
     # Curse of the Forsaken: the group subject is the attacking creature,
     # while "enchanted player" is this Aura's player attachment. Kept apart
     # from ``attached_permanent`` — a player has no GameObject identity.
@@ -3528,6 +3544,10 @@ def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
             out["attacks_you_or_planeswalker"] = True
         if m.group("attacks_enchanted_player"):
             out["attacks_enchanted_player"] = True
+        if m.group("attacks_opponent"):
+            # "whenever a creature attacks 1 of your opponents" (Calculating
+            # Lich) — `_build_group_ok`'s new ``attacks_opponent`` key.
+            out["attacks_opponent"] = True
         return out
     # Only reached once the exact main-type vocabulary above has already
     # failed to match — a genuine tribal filter ("another nontoken Zombie
@@ -7859,6 +7879,28 @@ def _segment_line_unsplit(
             if low_m is not None:
                 attacked_lowest_life = True
                 body = low_m.group("rest")
+        # PAR-120: "whenever a creature attacks 1 of your opponents, **that
+        # player** loses/gains N life." (Calculating Lich). Caught here,
+        # before the generic group-subject dispatch below: that dispatch's
+        # own "its controller"/"that player" family (`_group_its_
+        # controller_loses_life`) means the *attacking* creature's
+        # controller (RULE 603.1's own group referent, "entering"), which
+        # is the wrong side of this attack — RULE 506.4's defending player
+        # is a distinct event field, so this shape needs its own referent
+        # rather than reusing that one under the same printed pronoun.
+        if (condition or {}).get("attacks_opponent"):
+            attacked_player_life = _ATTACKS_OPPONENT_THAT_PLAYER_LIFE_RE.match(body.strip())
+            if attacked_player_life is not None:
+                verb = attacked_player_life.group("verb")
+                effect_type = "lose_life" if verb == "loses" else "gain_life"
+                effects = [EffectSpec(effect_type, {
+                    "amount": int(attacked_player_life.group("n")),
+                    "player": {"of": "attacked_player"},
+                })]
+                return Segment(raw=raw, spec=AbilitySpec(
+                    "triggered", effects=effects, trigger={"event": event, "condition": condition},
+                    raw_text=raw, parser=provenance,
+                ), claimed=True)
         # "When ~ enters, **it** fights …": with the source as the trigger's
         # own subject, a bare "it" in the body is the source — anything else
         # (a group subject, an attached permanent) leaves the pronoun

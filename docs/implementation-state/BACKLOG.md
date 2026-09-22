@@ -170,29 +170,24 @@ its block back into the matching section here.
   `parser_probe.py composition heads --family <f>` and `parser_probe.py diff`, and **execute** a
   sample of the newly claimed cards — the parse verdict alone hid wrong-but-MODELED shapes at v450,
   v455 and v456 (see `PARSER_LONG_TAIL.md`).
-- **PAR-120 · Shared count / filter / condition vocabulary — remaining scope.** Built: the
-  structured `{zone, of, filter, distinct}` selector, `catalogue/count_phrase.py`, its consumers
-  ("for each `<count>`", the generic "where X is the number of …" / "`<life|cards|damage>`
-  equal to the number of …", and the count comparators of a leading "if"/"as long as"). Still open:
+- **PAR-120 · Shared count / filter / condition vocabulary — remaining scope.**
   **(a) retire the duplicates** — `_FOR_EACH_SELECTORS`, `_FOR_EACH_AMOUNTS`, `_PT_CDA_SELECTORS`,
   `_GY_COST_COUNT_SELECTORS`, `_CONTROL_COUNT_SELECTORS`, `_SELF_ANTHEM_FOR_EACH_SELECTORS`,
   `_PUMP_X_SELECTOR_PHRASES`, `_ACTIVATION_COST_REDUCTION_SELECTORS`, `_GROUP_SELECTORS` (106
   entries collapsing to 59 selectors) and the ~100 named `continuous.count_selector` branches plus
   its ~20 prefix parsers (`creatures_you_control_of_type_<word>` accepts *any* word as a type); an
   equivalence test (`test_par120_count_phrase.py`) already pins 15 of them to their structured
-  form — extend it to each name before deleting it, then diff the whole cache; **(b) the other
-  condition shapes** a leading "if" still fails on (`parser_probe.py composition conds`): "X happened this turn" — the object/life/cast/sacrifice/discard/attack forms are built (ENG-47's
-  `event_this_turn`), and so are "you descended"/"you created a token"/"you committed a crime"
-  (`history_phrase.py`, `static_handlers.py`'s `descended_this_turn`, PARSER_VERSION 459); still
-  open: per-card draw counts, damage-dealt histories ("`<name>` dealt damage to an opponent this
-  turn", "a player lost N or more life"), "the second time this ability has resolved this turn",
-  referent state ("if it was a creature/a Human", "if it had a
-  +1/+1 counter on it"), cast provenance ("if you cast it from your hand", "if `<cost>` was spent"),
-  sum-based counts ("creatures you control have total power N or greater"), and compounds ("a
-  desert or a desert card in your graveyard"); **(c) the other modifier axes** the probe measures:
-  "you don't control / an opponent controls" (247 sentences), "another/other" (588), scope words
-  (284). **Absorbs PAR-101's count phrases and PAR-110's three "costs less for each …" bullets** —
-  implement those through this vocabulary, not as rows.
+  form — extend it to each name before deleting it, then diff the whole cache; **(b) remaining
+  condition shapes**: referent counter-state ("if it had a +1/+1 counter on it", "if it had no
+  time counters on it" — needs the RULE 603.10a trigger-event counters snapshot fallback threaded
+  through `previous_target`); per-card draw counts; damage-dealt histories ("`<name>` dealt damage
+  to an opponent this turn", "a player lost N or more life"); "the second time this ability has
+  resolved this turn"; cast-cost provenance ("if `<cost>` was spent"); sum-based counts ("creatures
+  you control have total power N or greater"); and compounds ("a desert or a desert card in your
+  graveyard"); **(c) the other modifier axes** the probe measures: "you don't control / an
+  opponent controls" (247 sentences), "another/other" (588), scope words (284). **Absorbs PAR-101's
+  count phrases and PAR-110's three "costs less for each …" bullets** — implement those through
+  this vocabulary, not as rows.
 - **PAR-121 · Subject-scope slot and per-verb connective de-duplication (no
   coverage change).** Roughly a third of the parser's regexes sit in
   near-duplicate clusters (`parser_probe`-style token-similarity clustering,

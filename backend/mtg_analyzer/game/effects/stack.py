@@ -935,14 +935,22 @@ class MillEffect(GameEffect):
             # spell's controller** mills four cards." (Broken Ambitions) —
             # `context.previous_targets[0]` is the countered spell, now in
             # a graveyard with no controller (RULE 608.2h last-known info),
-            # so fall back to its `owner_id`.
+            # so fall back to its `owner_id`. PAR-120: "that player" reaches
+            # this same selector for an antecedent that already targeted a
+            # *player* directly ("target player mills N cards" preceded by
+            # a clause naming that player again as "that player") — a
+            # referent with no `controller_id`/`owner_id` of its own, so it
+            # is the mill's recipient outright rather than looked up.
             prev = list(context.previous_targets)
             obj = prev[0] if prev else None
-            who_id = getattr(obj, "controller_id", None) or getattr(obj, "owner_id", None)
-            try:
-                player = context.state.player_by_id(who_id) if who_id is not None else None
-            except (KeyError, ValueError):
-                player = None
+            if obj is not None and getattr(obj, "instance_id", None) is None:
+                player = obj
+            else:
+                who_id = getattr(obj, "controller_id", None) or getattr(obj, "owner_id", None)
+                try:
+                    player = context.state.player_by_id(who_id) if who_id is not None else None
+                except (KeyError, ValueError):
+                    player = None
         elif self.selector == "trigger_subject_controller":
             # RULE 603.1 group-subject sibling of "previous_subject_
             # controller" above — "its" is whichever object satisfied this

@@ -726,6 +726,11 @@ def _build_group_ok(
     # battle protected by that player as a planeswalker.
     want_attacks_you_or_planeswalker = bool(condition.get("attacks_you_or_planeswalker"))
     want_attacks_enchanted_player = bool(condition.get("attacks_enchanted_player"))
+    # PAR-120: "attacks 1 of your opponents" (Calculating Lich) — *any*
+    # living opponent of this ability's controller, not one fixed player
+    # (``attacks_you``'s own check), so this only rejects a defender that
+    # either doesn't exist or *is* the controller.
+    want_attacks_opponent = bool(condition.get("attacks_opponent"))
     # RULE 603.1 Panharmonicon-shaped self-recursion guard (MEC-43 round
     # 4D, Kodama of the East Tree — "if it wasn't put onto the
     # battlefield with this ability"): the acting object's own live
@@ -797,6 +802,7 @@ def _build_group_ok(
         want_attacks_you=want_attacks_you,
         want_attacks_you_or_planeswalker=want_attacks_you_or_planeswalker,
         want_attacks_enchanted_player=want_attacks_enchanted_player,
+        want_attacks_opponent=want_attacks_opponent,
         want_not_entered_via_self=want_not_entered_via_self,
         want_damaged_by_self=want_damaged_by_self,
         damaged_by_via_attached=damaged_by_via_attached,
@@ -949,6 +955,10 @@ def _build_group_ok(
             state = getattr(context, "state", None)
             source = state.find_object(iid) if state is not None and iid is not None else None
             if source is None or event.get("defending_player_id") != source.attached_to:
+                return False
+        if want_attacks_opponent:
+            defender_id = event.get("defending_player_id")
+            if defender_id is None or defender_id == cid:
                 return False
         if want_crewed_by_self:
             if iid is None or event_instance is None:

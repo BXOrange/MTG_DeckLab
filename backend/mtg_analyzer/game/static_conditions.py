@@ -341,6 +341,14 @@ SUBJECT_FLAGS: frozenset[str] = frozenset(
         # resolve-time riders beyond the modal "choose both instead"
         # shape `_modal_override_active` already special-cases.
         "teamwork_paid",
+        # RULE 601.2/400.1 (PAR-120) — "if you cast it from your hand" (the
+        # "~ enters, if you cast it[ from your hand], …" ETB cluster,
+        # distinguishing a cast permanent from one reanimated/cheated in) —
+        # `GameObject.was_cast_from_hand`, already stamped by `GameEngine.
+        # cast_spell` (`obj.was_cast_from_hand = obj.zone == Zone.HAND`) for
+        # an unrelated counter-amount gate; this is its first boolean-
+        # condition route.
+        "was_cast_from_hand",
     }
 )
 

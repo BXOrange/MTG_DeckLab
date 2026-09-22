@@ -271,6 +271,17 @@ _CARD_TYPE_WORDS: frozenset[str] = frozenset(
     {"artifact", "creature", "enchantment", "land", "planeswalker", "permanent"}
 )
 
+#: The creature/artifact subtypes real "as long as enchanted `<x>` is a `<y>`"
+#: clauses actually name. Kept small and explicit for the same reason
+#: `_CONTROL_COUNT_SELECTORS` is: an open subtype vocabulary here would claim
+#: clauses whose word is really something else entirely. Moved above
+#: `_STATIC_CONDITION_RES` (PAR-120) once its own "it was a `<subtype>`" rows
+#: started referencing it inside that list literal at module-load time.
+_CONDITION_SUBTYPE_WORDS: frozenset[str] = frozenset(
+    {"vehicle", "human", "goblin", "elf", "zombie", "spirit", "warrior", "knight", "soldier",
+     "equipment", "aura", "dragon", "angel", "demon", "wizard", "cleric", "rogue", "beast"}
+)
+
 # "~'s power and toughness are each equal to the number of <X>."  (RULE 604.3
 # characteristic-defining ability — Maro / Molimo / Psychosis Crawler / Dakkon
 # Blackblade). The engine layer (`continuous.recompute`'s 7a `pt_cda` pass,
@@ -3188,6 +3199,41 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
          "right": {"kind": "fixed", "amount": 1},
          "op": "ge",
      }),
+    # PAR-120: "if you cast it[ from your hand]" — the "when ~ enters, if you
+    # cast it, …" cluster (Crystalline Entity, Coal Stoker, …): "it" is the
+    # trigger's own source (the entering permanent *is* "~" for this shape),
+    # so the default ``of: "source"`` needs no operand. The "from your hand"
+    # form is checked first so the plainer row below can't swallow it and
+    # drop the stricter reading.
+    (re.compile(r"you cast it from your hand", re.I),
+     lambda m: {"kind": "flag", "flag": "was_cast_from_hand"}),
+    (re.compile(r"you cast it", re.I),
+     lambda m: {"kind": "flag", "flag": "was_cast"}),
+    # PAR-120: "if it was/wasn't a `<type>`[ card]" — RULE 400.7 referent
+    # state read off `previous_target` (an exiled/returned/destroyed card
+    # this same resolution already named: Scavenging Ooze's exiled
+    # graveyard card, Enduring Courage's own dying self, …). `is_card_type`/
+    # `is_subtype` already read straight off the immutable `Card` reference
+    # (`continuous._has_card_type`/`_has_subtype`), so this is safe even
+    # once the object has left its original zone.
+    (re.compile(
+        rf"it (?:was|is) an? (?P<type>{'|'.join(_CARD_TYPE_WORDS)})(?: card)?", re.I),
+     lambda m: {"kind": "is_card_type", "of": "previous_target", "card_type": m.group("type").lower()}),
+    (re.compile(
+        rf"it (?:wasn'?t|isn'?t) an? (?P<type>{'|'.join(_CARD_TYPE_WORDS)})(?: card)?", re.I),
+     lambda m: {
+         "kind": "not",
+         "condition": {"kind": "is_card_type", "of": "previous_target", "card_type": m.group("type").lower()},
+     }),
+    (re.compile(
+        rf"it (?:was|is) an? (?P<sub>{'|'.join(_CONDITION_SUBTYPE_WORDS)})", re.I),
+     lambda m: {"kind": "is_subtype", "of": "previous_target", "subtype": m.group("sub").lower()}),
+    (re.compile(
+        rf"it (?:wasn'?t|isn'?t) an? (?P<sub>{'|'.join(_CONDITION_SUBTYPE_WORDS)})", re.I),
+     lambda m: {
+         "kind": "not",
+         "condition": {"kind": "is_subtype", "of": "previous_target", "subtype": m.group("sub").lower()},
+     }),
 ]
 
 
@@ -3227,15 +3273,6 @@ def _attached_characteristic(word: str) -> Optional[dict]:
 #: RULE 105.1's five colours as an "…is red" condition would print them.
 #: PAR-63: the shared map.
 _COLOR_CONDITION_WORDS = COLOR_LETTERS
-
-#: The creature/artifact subtypes real "as long as enchanted `<x>` is a `<y>`"
-#: clauses actually name. Kept small and explicit for the same reason
-#: `_CONTROL_COUNT_SELECTORS` is: an open subtype vocabulary here would claim
-#: clauses whose word is really something else entirely.
-_CONDITION_SUBTYPE_WORDS: frozenset[str] = frozenset(
-    {"vehicle", "human", "goblin", "elf", "zombie", "spirit", "warrior", "knight", "soldier",
-     "equipment", "aura", "dragon", "angel", "demon", "wizard", "cleric", "rogue", "beast"}
-)
 
 #: "you control an <what>" → the `count_selector` name, or ``None``
 #: (fail-closed) for a scope that has no selector. Deliberately small: only
