@@ -7011,6 +7011,123 @@ measurement of why is the useful half of this work.
   (`parser_probe.py diff`, full `pytest -q`: 21 known-red unrelated to this change, 0 new). Coverage
   17,065 → 17,069, Commander-legal 51.5% → 51.6% (16,407 → 16,410).
 
+### PAR-124 closes completely: the mana-tap/life-gain player-event pair, X-token creation, a for-each pump variant, a targeted delayed DIES trigger, an optional targeted-antecedent composition, a hand-zone spell duplicate, and the controller-binding fix that makes the targeted variant generally safe (PARSER_VERSION 463)
+
+- **"Whenever a player taps a `<land>` for mana, `<effect>`."** Crypt Ghast/Wild Growth's own
+  `EventType.TAPPED_FOR_MANA` triggered-mana-ability shape (RULE 605.1b) had only ever been
+  hand-authored, always scoped to "you". Bubbling Muck/High Tide print the unscoped, symmetric "a
+  player"/"that player" form instead — a new `_TAP_FOR_MANA_TRIGGER_RE` recognizes both the "you"-
+  and "a player"-scoped condition (the group-subject `{"type":"land","subtypes":[...]}` filter,
+  with `controller: "you"` added only for the "you" spelling), and a new "that player adds an
+  additional `<mana>`" parser row maps to `AddManaEffect.recipient="event_controller"` — already
+  built for Wild Growth's own "its controller adds…", just never reachable from a symmetric,
+  unscoped condition before. Verified with a real two-player board: each player's own swamp-tap
+  independently doubles for *that* player only, never the other.
+- **"Whenever a player gains life, that player loses N life for each 1 life they gained."** False
+  Cure needed no new engine code at all: `LoseLifeEffect.selector="event_player"` already existed
+  (Sheoldred, the Apocalypse's "they lose 2 life"), and the magnitude is a live multiple of the
+  `LIFE_GAINED` event's own `amount` field through the shared `effect_amounts` `"trigger_event"`
+  operand's generic `multiply` modifier (ENG-47 b) — pure parser recognition
+  (`_LOSE_LIFE_PER_LIFE_GAINED_RE`) plus widening `_lose_life`'s own `who` alternation. Verified:
+  a player gaining 3 life nets exactly -3 (the gain and the 2x drain), independently per player.
+- **"Create X `<p>`/`<t>` … tokens" + a "1 or more … to 1 or more players" monarch trigger.** Forth
+  Eorlingas! needed two independent, small widenings: `_inline_create_token_params`'s `count` now
+  reads `count_or_x_of` (the `COUNT_X` sentinel, resolved generically by `_substitute_x`'s existing
+  `"count"` pass) instead of a plain digit/"a"/"an", widening the shared `create_token` row rather
+  than adding a parallel one; and the "1 or more creatures you control deal combat damage to a
+  player" monarch condition (already shipped) gained the recipient-side plural spelling ("to 1 or
+  more players") as an equivalent alternative — RULE 508.1's target is always exactly one player,
+  so the plural is wording only, not a second condition to model. Verified with `engine_bench.py`:
+  X=3 makes exactly three 2/2 Human Knight tokens.
+- **A pump's "for each" clause before its keyword tail, not after "until end of turn."**
+  `_PUMP_TARGET_PER_CREATURE_YOU_CONTROL_RE` (Friendly Neighborhood's "gets +1/+1 until end of turn
+  for each creature you control") gained an optional leading "until end of turn," prefix, an
+  optional "and gains `<kw>`" tail, and a trailing duration in either position — King Harald's
+  Revenge's own word order ("gets +1/+1 for each creature you control and gains trample" with the
+  duration leading the whole sentence) is the same primitive, just a different phrase shape.
+- **A hand-zone spell duplicate + a kicker-gated delayed discard.** Spellchain Scatter ("conjure a
+  duplicate of that spell into your hand. If this spell wasn't kicked, discard the duplicate at
+  the beginning of your next end step.") needed one real new primitive:
+  `RulesEngine.conjure_duplicate_into_hand`/`ConjureDuplicateIntoHandEffect`, the hand-zone sibling
+  of `copy_spell`'s stack-only copy (same `_stack_item_for`/`Card.as_copy` construction, `zone=
+  Zone.HAND` instead of `Zone.STACK`, appended to `player.hand` instead of pushed as a `StackItem`)
+  — reading "that spell" off the identical RULE 603.1 firing-event referent `CopySpellEffect.
+  spell_from_trigger_event` already uses. Proving it end to end surfaced a real dormant-shaped bug
+  the new primitive exposed for the first time: RULE 704.5d's stranded-token SBA (`_remove_
+  stranded_tokens`) reaps *any* token-marked object outside the battlefield, on the assumption a
+  token only ever exists there or transiently on the stack — correct for every prior consumer, but
+  it reaped the conjured hand duplicate the instant the next SBA pass ran, before it could ever be
+  cast or discarded. A new `GameObject.conjured_into_hand` flag (mirroring `prepared_source_id`'s
+  own RULE 722.3c exemption pattern), scoped to *only* the hand zone (so a later discard or cast
+  correctly drops the exemption, unlike a permanent grant), fixes it. The delayed discard reuses
+  PAR-30's own `_DELAYED_SAC_EXILE_TAIL_RE` family, widened with a "discard" verb (`discard_
+  specific`/`DiscardSpecificEffect`, the hand-zone sibling of `destroy_specific`/
+  `sacrifice_specific`) and "the duplicate" as a `_DELAYED_TAIL_TOKEN_SUBJECTS` referent
+  (`capture="created_objects"`); the kicker gate itself needed a new `static_conditions.py`
+  phrase row ("this spell wasn't/was kicked" → the already-shipped `"kicked"` condition kind, RULE
+  702.33b, previously reachable only from an inline amount-override, never a plain "if" gate).
+  Verified live both ways: unkicked, the duplicate is discarded at the next end step; kicked, it
+  survives.
+- **A targeted (not group-subject) delayed trigger, and the controller-binding bug it first
+  exposed.** Graceful Reprieve ("when target creature dies this turn, return that card to the
+  battlefield under its owner's control.") needed `create_turn_trigger`'s own RULE 115 *target* —
+  distinct from every other `create_turn_trigger` card, which all scope to a RULE 603.1 *group*
+  condition. `CreateTurnTriggerEffect` gained a `target_kind` param; the chosen target's
+  `instance_id` is baked into the trigger condition as `instance_id_override`
+  (`binding.core._subject_condition`'s "self" branch checks it before falling back to `source.
+  instance_id` — additive, every other card's condition dict has no such key, so behaviour is
+  unchanged for all of them) rather than rebinding the whole ability's `source` to the target. The
+  first version of this fix *did* rebind `source`, which worked for Graceful Reprieve's own "return
+  **that card**" (self-referential to the target — correct, since `target_kind=None` effects read
+  `self.source`) but broke Spiritualize ("you gain that much life," a *different* target_kind card
+  landing the same day): `GainLifeEffect`'s untargeted default reads `effect.source.controller_id`,
+  which after the rebind read the *target's* controller instead of the spell's — a real, silent
+  wrong-player bug caught by testing Spiritualize against an opponent's own creature before
+  shipping, not by any parse-level check. The final design keeps the whole ability bound to
+  `self.source` (the spell) throughout — "you" always means the caster — and gives the one effect
+  that *does* need the captured object (`ReturnSelfToBattlefieldEffect`) an explicit `target_kind=
+  "trigger_subject"` mode reading `GameContext.trigger_event` instead, the same live-event-reference
+  idiom `TapEffect`'s own RULE 603.1 group-subject pronoun mode already uses — decoupling "which
+  object satisfies the trigger condition" from "who the ability's own effects act as." Verified
+  three ways: Graceful Reprieve returns exactly the targeted creature (not a bystander) exactly
+  once; Spiritualize gains the *caster* life regardless of who controls the targeted creature or
+  who ends up damaged (tested both an opponent's creature damaging the caster, and that same
+  creature damaging its own controller instead — the caster gains the life either way, the
+  target's controller never does).
+- **An optional attach whose own target the follow-up refers back to.** Magitek Scythe ("you may
+  attach it to target creature you control. If you do, that creature gains first strike until end
+  of turn and must be blocked this turn if able.") is a genuinely different shape from every
+  existing `_may_effect_then` antecedent: RULE 115's target is announced normally when the
+  triggered ability goes on the stack (RULE 601.2c), not mid-resolution, so `_may_effect_then`'s
+  own "no way to announce a target from inside this wrapper" refusal doesn't apply — confirmed by
+  `OptionalEffect.target_specs`'s own docstring, which already names exactly this shape (Choking
+  Tethers' "you may tap target creature") as one of the two node kinds allowed to announce targets
+  at all. A new, narrowly-scoped `_MAY_ATTACH_IF_YOU_DO_RE` row (added to the same `_PAY_ENERGY_
+  THEN_PEEL_GUARD_RE` whitelist so "you may" doesn't get peeled before the atomic recognizer sees
+  it) builds `optional(seq(attach(target_kind="creature_you_control"), pump(previous_subject=True,
+  keywords=[...])))` — the follow-up's "that creature" is the ordinary `previous_subject` referent
+  onto the same chosen target, since `_apply_effects_partitioned` threads `targets`/`previous_
+  targets` through a composite node's own inner list identically to a plain effect list. Verified
+  live: the Equipment attaches, the target gains both keywords, and its own static "+2/+1" applies
+  in the same resolution (2/2 → 4/3).
+- **The "must be blocked this turn if able" cluster, the animate-land/flash/tap-selector family,
+  and a group-subject copy** (PARSER_VERSION 462, closed the same push): see the next entry below
+  for the full write-up — Compelled Duel/Deadly Allure/Descend on the Prey/Emergent Growth/Enlarge/
+  Goldenhide Ox/Irresistible Prey/Joraga Invocation/Loathsome Catoblepas/Satyr Piper (must-be-
+  blocked), Disturbed Slumber/Elemental Uprising/Vengeant Earth/Fountain of Ichor (animate-land),
+  Complete the Circuit/Winding Canyons (type-scoped flash), Battle Cry (colour-scoped tap
+  selector), Theoretical Duplication/Impostor Syndrome/Necroduality (group-subject copy).
+- **Verification:** full suite green (`pytest -q`: 8,661 passed, 0 failed, 244 skipped — the only
+  transient red was the expected `PARSER_VERSION.lock` pin, re-generated). `parser_probe.py diff`:
+  +40 over v462 (Bubbling Muck, High Tide, False Cure, Forth Eorlingas!, King Harald's Revenge,
+  Spellchain Scatter, Graceful Reprieve, Spiritualize, Magitek Scythe, + bonus cards sharing the
+  widened shared rows), 0 regressed. Coverage 17,092 → 17,132 (49.1% → 49.2%), Commander-legal
+  16,432 → 16,471 (51.6% → 51.7%). **PAR-124 is fully closed — every card in its own original
+  scope is MODELED.** Four cards surfaced along the way needed a genuinely new, unbuilt primitive
+  outside this ticket's own scope (RULE 121.5 Perpetual, an "assigns no combat damage" flag, the
+  RULE 723 Contraption crank event, "caused you to discard" event provenance) and were filed as
+  their own `MEC-98`…`MEC-101` tickets rather than left as unticketed residue — see `BACKLOG.md`.
+
 ### PAR-124's own residue, second batch: the "must be blocked this turn if able" cluster, the animate-land/flash/tap-selector family, and a group-subject copy (PARSER_VERSION 462)
 
 - **"`<subject>` must be blocked this turn if able."** RULE 509.1c's `must_be_blocked` flag keyword

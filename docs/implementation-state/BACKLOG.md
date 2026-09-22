@@ -81,12 +81,18 @@ its block back into the matching section here.
   > duplication, while `TARGET` is the wrong grammar for statics. `PAR-117`
   > is PAR-115's residue (the referent
   > shapes PAR-115 didn't reach); `PAR-118` was ENG-47's `spell_watchers`
-  > retirement, `PAR-119…PAR-124` the composed-head/turn-scoped-trigger
-  > program (all closed), `PAR-125` is PAR-124's own controller-binding
-  > residue (Spiritualize). First free id: **`PAR-126`**. A genuinely
-  > new engine primitive found along the way still files as its own
-  > `MEC-*` ticket (next free id: **`MEC-102`**) — only the sweep itself
-  > stays out of this file.
+  > retirement, `PAR-119…PAR-125` the composed-head/turn-scoped-trigger
+  > program (all closed — `PAR-125` was Spiritualize's own `create_turn_
+  > trigger.target_kind` controller-binding fix, closed same-day once the
+  > fix turned out to be a general one: `CreateTurnTriggerEffect` now bakes
+  > the chosen target into the trigger *condition*
+  > [`instance_id_override`] instead of rebinding the whole ability's
+  > `source` to it, so "you" in an untargeted effect body stays the
+  > spell's controller regardless of who controls the target — see
+  > `Done_Backend.md`'s PAR-124 entry). First free id: **`PAR-126`**. A
+  > genuinely new engine primitive found along the way still files as its
+  > own `MEC-*` ticket (next free id: **`MEC-102`**) — only the sweep
+  > itself stays out of this file.
   >
   > **Anti-proliferation note:** a 2-6 card cluster is not automatically its
   > own ticket. Bundle several independently-verified small fixes into one
@@ -223,19 +229,6 @@ its block back into the matching section here.
   `trigger_subject` mode. A bare "it" under a `self_or_group` subject stays refused by the
   composed head (Kappa Cannoneer's correct only because "~" is named first). Add each effect
   type as it is exercised, and execute the card, as `test_par123_group_pronoun.py` does.
-- **PAR-125 · Spiritualize's own `create_turn_trigger.target_kind` controller residue.** "Until
-  end of turn, whenever target creature deals damage, you gain that much life." needs PAR-124's
-  own new `CreateTurnTriggerEffect.target_kind` mode (built for Graceful Reprieve) — binding the
-  ability's condition-check against the chosen target — but Graceful Reprieve's own implementation
-  also rebinds every *inner effect's* `source` to the target, correct for its own "return **that
-  card**" (self-referential to the target) but wrong here: "**you** gain life" must stay the
-  spell's controller, never the target's controller, and `GainLifeEffect`'s default "you" reads
-  `effect.source.controller_id` — the target's, once rebound. The two cards need different source
-  semantics for their own effect bodies from the same mechanism; closing this needs deciding how
-  an inner effect asks for "the captured target" vs. "the ability's own controller" once they stop
-  being the same object — not attempted here rather than risk a silent wrong-player bug (confirmed
-  live: an untargeted `gain_life` under the current binding reads the target's controller, not the
-  caster's, whenever the two differ).
 - **PAR-99 · Khans-of-Tarkir "choose khans or dragons" Siege cycle.** The
   ETB choice itself (`as ~ enters, choose khans or dragons.`) already
   parses — confirmed via `parser_probe.py blocked "as .* enters, choose

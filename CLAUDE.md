@@ -583,9 +583,23 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 49.1% (17,092 / 34,811) as of 2026-09-22, measured at
-PARSER_VERSION 462**; the Commander-legal slice is **51.6% (16,432 /
-31,830)**. v462 closes PAR-124's own "must be blocked this turn if able" cluster (a plain flag
+**Coverage: 49.2% (17,132 / 34,811) as of 2026-09-22, measured at
+PARSER_VERSION 463**; the Commander-legal slice is **51.7% (16,471 /
+31,830)**. v463 **closes PAR-124 completely** (every card in its own original scope is MODELED):
+a symmetric "whenever a player taps a `<land>` for mana"/"gains life" player-event pair (Bubbling
+Muck/High Tide, False Cure), X-scaled token creation plus a recipient-plural monarch condition
+(Forth Eorlingas!), a pump's "for each" clause in front of its keyword tail (King Harald's
+Revenge), a hand-zone spell duplicate + kicker-gated delayed discard (`ConjureDuplicateIntoHandEffect`,
+Spellchain Scatter — surfacing and fixing a real RULE 704.5d stranded-token bug), a *targeted*
+(not group) delayed trigger (`CreateTurnTriggerEffect.target_kind`, Graceful Reprieve) — whose
+first implementation broke Spiritualize's own controller resolution (a real, caught-before-ship
+wrong-player bug; fixed by baking the target into the trigger *condition* instead of rebinding the
+whole ability's `source`) — and an optional attach whose own RULE 115 target a follow-up clause
+refers back to (Magitek Scythe). Four cards surfaced along the way needed a genuinely new, unbuilt
+primitive outside PAR-124's own scope and were filed as their own tickets instead of left as
+residue: `MEC-98` (RULE 121.5 Perpetual, Consumed by History), `MEC-99` (an "assigns no combat
+damage" flag, Gaze of Pain), `MEC-100` (the RULE 723 Contraption crank event, Head Banger), `MEC-101`
+("caused you to discard" event provenance, Pure Intentions). v462 closes PAR-124's own "must be blocked this turn if able" cluster (a plain flag
 keyword grant reused across five shapes — a bare form, a pump-clause tail, and a `previous_subject`/
 group-subject pronoun tail: Compelled Duel, Deadly Allure, Descend on the Prey, Emergent Growth,
 Enlarge, Goldenhide Ox, Head Banger's sibling Irresistible Prey/Satyr Piper/Loathsome Catoblepas,

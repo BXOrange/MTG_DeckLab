@@ -474,7 +474,17 @@ def _subject_condition(
     if not condition:
         return None
     subject = condition.get("subject")
-    instance_id = getattr(source, "instance_id", None)
+    # PAR-124/PAR-125: `CreateTurnTriggerEffect.target_kind` (Graceful
+    # Reprieve — "when **target creature** dies this turn, …") needs the
+    # RULE 603.1 condition to match a *specific chosen object*, baked in at
+    # apply time, while the ability itself stays bound to its own source
+    # (the spell) — so "you"/an untargeted effect body still reads the
+    # spell's own controller, not the target's (PAR-125's own bug: rebinding
+    # the whole ability's source to the target made "you gain life" read
+    # the target's controller instead). ``instance_id_override`` lets the
+    # condition name that object without touching ``source`` at all; absent
+    # (every other card), behaviour is unchanged.
+    instance_id = condition.get("instance_id_override", getattr(source, "instance_id", None))
     event_key = _subject_event_key(trigger)
 
     if subject == "you":

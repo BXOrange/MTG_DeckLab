@@ -728,6 +728,8 @@ EffectRegistry.register(
         tapped=bool(p.get("tapped", False)),
         under_your_control=bool(p.get("under_your_control", False)),
         extra_counters=p.get("extra_counters"),
+        target_kind=p.get("target_kind"),
+        trigger_event_key=p.get("trigger_event_key"),
     ),
 )
 EffectRegistry.register(

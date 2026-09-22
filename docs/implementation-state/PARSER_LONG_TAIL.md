@@ -25,9 +25,45 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**49.1% covered — 17,092 / 34,811 — as of 2026-09-22, PARSER_VERSION 462.**
-Commander-legal slice (the one the product actually plays): **51.6% —
-16,432 / 31,830** (measure with `--commander-legal-only`).
+**49.2% covered — 17,132 / 34,811 — as of 2026-09-22, PARSER_VERSION 463.**
+Commander-legal slice (the one the product actually plays): **51.7% —
+16,471 / 31,830** (measure with `--commander-legal-only`).
+
+### PAR-124 closes completely: player-events, X-tokens, a targeted delayed trigger, a hand-zone duplicate, an optional-attach composition — and the controller-binding bug the targeted variant first exposed (PARSER_VERSION 463)
+
+- **What:** the last seven cards of PAR-124's own scope, each its own small distinct primitive —
+  see `Done_Backend.md`'s full write-up. +40, 0 regressed.
+- **Lesson — a "no residue" instruction is itself useful triage pressure.** Several of these
+  (Bubbling Muck/High Tide's `TAPPED_FOR_MANA` recipient, False Cure's `event_player` selector,
+  Spellchain Scatter's hand-zone copy) turned out to need *no new primitive at all* once actually
+  investigated — only a missing parser recognizer over an already-shipped engine mechanism. The
+  ticket's own prior write-up had guessed several of these needed real new engine work; checking
+  each one directly (rather than trusting the earlier guess) found four of six were pure
+  recognition gaps. Re-verify a "needs a new primitive" claim before believing it, every time —
+  this project's own recurring lesson, applied once more.
+- **Lesson — a targeted variant of a group-subject mechanism needs its own referent design, not a
+  copy-paste of the group one.** `CreateTurnTriggerEffect.target_kind`'s first cut rebuilt the
+  ability with the *chosen target* as its whole `source`, reasoning that "self"-referential effect
+  bodies would then naturally resolve against it — true for Graceful Reprieve's own "return that
+  card," which is precisely why it shipped looking correct. But an ability's `source` is silently
+  overloaded in this codebase to mean two different things whenever they happen to coincide: "the
+  object RULE 603.1's condition is about" and "whose controller 'you' means." For every ability
+  before this one they're the same object (a permanent's own ability). The instant a *target*
+  becomes the condition's subject while the ability's controller stays the caster, the two split —
+  and nothing catches this at the parse level, since both readings produce a perfectly well-formed
+  spec. It only ever surfaces at runtime, and only for a body that reads an untargeted "you" while
+  under a targeted condition — exactly the reason this project's own testing discipline insists on
+  a real `GameEngine` run over an *adversarial* board (here: target an opponent's own creature)
+  before trusting a parse verdict, not just the card the ticket happened to be written against.
+- **Lesson — `OptionalEffect.target_specs`'s own docstring already answered the "can an optional
+  wrapper have a target" question before Magitek Scythe asked it.** `_may_effect_then`'s
+  target-rejecting design (built for a genuinely different shape — a mid-resolution "you may" with
+  no RULE 115 target at all) reads, at a skim, like "an optional composition can't have a target."
+  It was never a general rule; it was that *specific* composition's own scope. The actual answer
+  — `seq`/`optional`/`bind` can all announce targets, `if_else`/`for_each` can't, because RULE
+  601.2c only needs to know the body runs at all, not which branch or how many times — was already
+  written down. Reading the primitive's own docstring before concluding a shape is unsupported
+  would have skipped a chunk of this investigation.
 
 ### PAR-124 residue, second batch: "must be blocked this turn if able", animate-land/flash/tap-selector, a group-subject copy (PARSER_VERSION 462)
 

@@ -6720,17 +6720,20 @@ def _return_self_to_battlefield(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("return_self_to_battlefield", params)]
 
 
-#: PAR-124: "When target creature dies this turn, return **that card** to
-#: the battlefield under its owner's control." (Graceful Reprieve) — a
-#: `create_turn_trigger` bound with the RULE 115 target itself as its
-#: source (`CreateTurnTriggerEffect.target_kind`), so "that card" here is
-#: the same self-referent `_RETURN_SELF_TO_BATTLEFIELD_RE` already reads —
-#: just spelled differently from "it"/"~"/"this card". Kept as its own,
-#: `self_subject_only`-gated row rather than folded into that ungated one:
-#: "that card" already means something *else* (PAR-18/30's own previous-
-#: clause pronoun) everywhere this dispatch isn't the target-bound-as-
-#: source shape, so it must only be offered when the caller has actually
-#: rewritten "target creature `<verb>`" into this self-subject form.
+#: PAR-124/PAR-125: "When target creature dies this turn, return **that
+#: card** to the battlefield under its owner's control." (Graceful
+#: Reprieve) — `CreateTurnTriggerEffect.target_kind` keeps the ability
+#: bound to its own source (the spell, PAR-125's own fix), so "that card"
+#: is read live off the firing DIES event instead
+#: (`ReturnSelfToBattlefieldEffect.target_kind="trigger_subject"`, the
+#: same live-event-reference idiom `TapEffect`'s own group-subject
+#: pronoun already uses) rather than via `self.source` identity. Kept as
+#: its own, `self_subject_only`-gated row rather than folded into
+#: `_RETURN_SELF_TO_BATTLEFIELD_RE`: "that card" already means something
+#: *else* (PAR-18/30's own previous-clause pronoun) everywhere this
+#: dispatch isn't the target-bound-as-source shape, so it must only be
+#: offered when the caller has actually rewritten "target creature
+#: `<verb>`" into this self-subject form.
 _RETURN_TARGET_TO_BATTLEFIELD_SELF_RE = _c(
     r"return that card to the battlefield(?P<tapped> tapped)? under "
     r"(?P<whose>its owner'?s|your) control"
@@ -6738,7 +6741,7 @@ _RETURN_TARGET_TO_BATTLEFIELD_SELF_RE = _c(
 
 
 def _return_target_to_battlefield_self(m: re.Match[str]) -> list[EffectSpec]:
-    params: dict = {"tapped": bool(m.group("tapped"))}
+    params: dict = {"tapped": bool(m.group("tapped")), "target_kind": "trigger_subject"}
     if m.group("whose").lower() == "your":
         params["under_your_control"] = True
     return [EffectSpec("return_self_to_battlefield", params)]

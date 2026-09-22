@@ -541,17 +541,20 @@ class CreateTurnTriggerEffect(GameEffect):
 
     ``target_kind`` (PAR-124, Graceful Reprieve — "When target creature dies
     this turn, return that card to the battlefield under its owner's
-    control.") binds the ability with the *chosen RULE 115 target* as its
-    source instead of the spell: `_trigger_condition`'s ``{"subject":
-    "self"}`` branch (and every plain self-referential effect body,
-    ``target_kind=None``) already resolves against whatever object
-    `bind_ability` was given as ``source`` — no new condition kind or
-    referent needed, just binding to a different object. `GameObject`
-    identity survives the DIES zone change (RULE 400.7's ``instance_id``/
-    Python identity both persist through `reset_as_new_object`), so the
-    captured target is still the right object once the delayed check fires,
-    however many zones it's since moved through — the same guarantee
-    `ReturnSelfToBattlefieldEffect`'s own docstring already relies on.
+    control.") scopes the RULE 603.1 condition to the *chosen RULE 115
+    target* by baking its ``instance_id`` into the trigger condition
+    (``instance_id_override``, `binding.core._subject_condition`) rather
+    than rebinding the whole ability's ``source`` to it — PAR-125 found that
+    rebinding wrong: it also redirects every plain, untargeted effect body
+    (a bare "you gain life") onto the *target's* controller instead of the
+    spell's own, since those effects' default player-resolution reads
+    ``self.source.controller_id``. The ability itself stays bound to
+    ``self.source`` (the spell) throughout — "you" in the body still means
+    its controller. An inner effect that *does* need the captured object
+    itself (Graceful Reprieve's own "return **that card**") reads it off
+    `GameContext.trigger_event` the same way a RULE 603.1 group-subject
+    pronoun already does (`ReturnSelfToBattlefieldEffect.
+    target_kind="trigger_subject"`), not via ``source`` identity.
     """
 
     def __init__(
@@ -579,11 +582,15 @@ class CreateTurnTriggerEffect(GameEffect):
 
         if not self.trigger.get("event") or not self.inner_specs:
             return
-        bind_source = self.source
+        trigger = dict(self.trigger)
         if self.target_spec is not None:
-            bind_source = targets[0] if targets else None
-            if bind_source is None:
+            target = targets[0] if targets else None
+            if target is None:
                 return  # RULE 608.2b: fizzle — no legal target remained
+            trigger["condition"] = {
+                **dict(trigger.get("condition") or {}),
+                "instance_id_override": target.instance_id,
+            }
         spec = AbilitySpec(
             "triggered",
             effects=[
@@ -591,11 +598,11 @@ class CreateTurnTriggerEffect(GameEffect):
                            condition=d.get("condition"))
                 for d in self.inner_specs
             ],
-            trigger=dict(self.trigger),
+            trigger=trigger,
             optional=self.optional,
             raw_text=self.description,
         )
-        ability = bind_ability(spec, source=bind_source)
+        ability = bind_ability(spec, source=self.source)
         controller = _controller_of(self.source, context)
         for one in ability if isinstance(ability, list) else [ability]:
             if controller is not None:

@@ -750,11 +750,23 @@ class ReturnSelfToBattlefieldEffect(GameEffect):
     the reference), so `self.source` is still the right object once the
     delayed step arrives, however many zone changes it's been through
     since.
+
+    ``target_kind="trigger_subject"`` (PAR-124/PAR-125, Graceful Reprieve —
+    "When **target creature** dies this turn, return **that card** to the
+    battlefield…") reads the object off `GameContext.trigger_event` instead
+    of `self.source`: `CreateTurnTriggerEffect.target_kind` keeps the whole
+    ability bound to its own source (the spell), so a plain "return it"
+    can't mean `self.source` here — the firing DIES event's own subject key
+    *is* the chosen target (RULE 603.1's condition only ever matches that
+    one instance), the same live-event-reference idiom `TapEffect`'s own
+    ``target_kind="trigger_subject"`` already uses for a RULE 603.1
+    group-subject pronoun.
     """
 
     def __init__(
         self, tapped: bool = False, source: Optional["GameObject"] = None,
         under_your_control: bool = False, extra_counters: Optional[dict[str, Any]] = None,
+        target_kind: Optional[str] = None, trigger_event_key: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.tapped = tapped
@@ -766,22 +778,29 @@ class ReturnSelfToBattlefieldEffect(GameEffect):
         #: ``{"kind", "count"}`` shape `_request_search`'s own
         #: ``extra_counters`` uses, put on the object right after it lands.
         self.extra_counters = dict(extra_counters) if extra_counters else None
+        self._trigger_subject_mode = target_kind == "trigger_subject"
+        self.trigger_event_key = trigger_event_key or "instance_id"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.source is None:
+        obj = self.source
+        if self._trigger_subject_mode:
+            event = context.trigger_event or {}
+            iid = event.get(self.trigger_event_key)
+            obj = context.state.find_object(iid) if iid is not None else None
+        if obj is None:
             return
         controller_id = None
         if self.under_your_control:
             player = _controller_of(self.source, context)
             controller_id = player.id if player is not None else None
         context.return_from_graveyard(
-            self.source, "battlefield_tapped" if self.tapped else "battlefield",
+            obj, "battlefield_tapped" if self.tapped else "battlefield",
             controller_id=controller_id,
         )
         if self.extra_counters:
             kind = str(self.extra_counters.get("kind", "+1/+1"))
             count = int(self.extra_counters.get("count", 1) or 1)
-            context.add_counters(self.source, count, kind, source=self.source)
+            context.add_counters(obj, count, kind, source=self.source)
 
 
 class RevealTopThenCreatureAndOrLandBattlefieldEffect(GameEffect):
