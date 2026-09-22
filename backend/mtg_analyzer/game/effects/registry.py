@@ -682,6 +682,14 @@ EffectRegistry.register(
     lambda p: CopyAbilityEffect(),
 )
 EffectRegistry.register(
+    # "Conjure a duplicate of that spell into your hand." (Spellchain
+    # Scatter, PAR-124) — the hand-zone sibling of ``"copy_spell"``.
+    "conjure_duplicate_into_hand",
+    lambda p: ConjureDuplicateIntoHandEffect(
+        spell_from_trigger_event=p.get("spell_from_trigger_event"),
+    ),
+)
+EffectRegistry.register(
     "copy_self_spell",
     lambda p: CopySelfSpellEffect(controller=p.get("controller")),
 )
@@ -1121,7 +1129,10 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    "grant_flash_until_eot", lambda p: GrantFlashUntilEndOfTurnEffect()  # Borne Upon a Wind
+    # Borne Upon a Wind (unrestricted) / Complete the Circuit ("sorcery
+    # spells", PAR-124's ``card_types`` narrowing).
+    "grant_flash_until_eot",
+    lambda p: GrantFlashUntilEndOfTurnEffect(card_types=p.get("card_types")),
 )
 EffectRegistry.register(
     "become_saddled", lambda p: BecomeSaddledEffect(),  # Guardian Sunmare's own "Saddle N"
@@ -1450,6 +1461,7 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)),
         once=bool(p.get("once", False)),
         description=p.get("description", ""),
+        target_kind=p.get("target_kind"),
     ),
 )
 EffectRegistry.register(
@@ -1685,6 +1697,13 @@ EffectRegistry.register(
     # TriggerEffect`'s own `capture`" idiom.
     "destroy_specific",
     lambda p: DestroySpecificEffect(objects=[]),
+)
+EffectRegistry.register(
+    # "Discard the duplicate at the beginning of your next end step."
+    # (Spellchain Scatter, PAR-124) — the hand-zone sibling of
+    # `destroy_specific`/`sacrifice_specific`, same empty-default idiom.
+    "discard_specific",
+    lambda p: DiscardSpecificEffect(objects=[]),
 )
 EffectRegistry.register(
     # "Return that creature to its owner's hand at the beginning of the next

@@ -432,6 +432,17 @@ def group_selector_objects(
             o for o in battlefield
             if o.is_creature and o.controller_id == controller_id and _has_subtype(o, creature_type)
         ]
+    elif affects.startswith("creatures_you_control_of_color_"):
+        # "Untap all white creatures you control." (Battle Cry, PAR-124) —
+        # the colour-scoped sibling of `creatures_you_control_of_type_`
+        # just above; `GameObject.colors` is the layer-5 derived colour set
+        # (RULE 105), same accessor the count-selector/damage-filter
+        # colour checks elsewhere in this file already read.
+        letter = affects[len("creatures_you_control_of_color_"):].upper()
+        result = [
+            o for o in battlefield
+            if o.is_creature and o.controller_id == controller_id and letter in (o.colors or ())
+        ]
     elif affects == "nonland_permanents_you_control":
         # "Untap all nonland permanents you control." (Dramatic Reversal)
         result = [

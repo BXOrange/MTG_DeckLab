@@ -644,6 +644,17 @@ class CastingMixin:
         # TurnEffect`), independent of any keyword/condition on the object
         # itself.
         has_temp_flash = self.state.temp_flash_until_turn.get(player.id) == self.state.internal_turn.number
+        # PAR-124: "You may cast sorcery spells this turn as though they
+        # had flash." (Complete the Circuit) — the type-scoped sibling of
+        # the blanket grant just above (`GameState.temp_flash_until_turn_
+        # types`), checked against the object's own printed type words.
+        type_scoped_flash = self.state.temp_flash_until_turn_types.get(player.id)
+        if type_scoped_flash is not None:
+            grant_turn, grant_types = type_scoped_flash
+            if grant_turn == self.state.internal_turn.number and any(
+                t in (getattr(obj, "type_words", None) or set()) for t in grant_types
+            ):
+                has_temp_flash = True
         # Elsha of the Infinite-shaped: "you may cast [noncreature spells
         # cast this way] as though [they] had flash" — a standing grant
         # tied to the *permission*, not the object's own printed/granted

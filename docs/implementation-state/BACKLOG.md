@@ -80,9 +80,13 @@ its block back into the matching section here.
   > confirmed that PAR-63 had already removed every concrete cross-module
   > duplication, while `TARGET` is the wrong grammar for statics. `PAR-117`
   > is PAR-115's residue (the referent
-  > shapes PAR-115 didn't reach). First free id: **`PAR-125`**. A genuinely
+  > shapes PAR-115 didn't reach); `PAR-118` was ENG-47's `spell_watchers`
+  > retirement, `PAR-119…PAR-124` the composed-head/turn-scoped-trigger
+  > program (all closed), `PAR-125` is PAR-124's own controller-binding
+  > residue (Spiritualize). First free id: **`PAR-126`**. A genuinely
   > new engine primitive found along the way still files as its own
-  > `MEC-*` ticket — only the sweep itself stays out of this file.
+  > `MEC-*` ticket (next free id: **`MEC-102`**) — only the sweep itself
+  > stays out of this file.
   >
   > **Anti-proliferation note:** a 2-6 card cluster is not automatically its
   > own ticket. Bundle several independently-verified small fixes into one
@@ -219,30 +223,19 @@ its block back into the matching section here.
   `trigger_subject` mode. A bare "it" under a `self_or_group` subject stays refused by the
   composed head (Kappa Cannoneer's correct only because "~" is named first). Add each effect
   type as it is exercised, and execute the card, as `test_par123_group_pronoun.py` does.
-- **PAR-124 · Turn-scoped trigger residue.** `create_turn_trigger` /
-  `GameState.turn_scoped_triggers` exist and 16 spells use them, including the "when you next cast
-  an instant or sorcery spell this turn, copy that spell" family (Doublecast, Galvanic
-  Iteration, Teach by Example, Dual Strike, Storm King's Thunder's "X times", Howl of the Horde's
-  Raid-gated "an additional time") and `create_delayed_trigger`'s own `trigger_subject` capture
-  (Consuming Rage's "destroy that creature at end of combat", Rienne, Angel of Rebirth's "return
-  it to its owner's hand" from the graveyard — both closed together, see `Done_Backend.md`'s
-  PAR-124 residue entry). 14
-  instants and sorceries with "… this turn" / "until end of turn, whenever …" text are still
-  unclaimed: Complete the Circuit's "cast sorcery spells this turn as though
-  they had flash" line and Spellchain Scatter's "conjure a duplicate"; Descend on the Prey's own
-  "must be blocked this turn if able" tail (a bare self/trigger-subject form of the standing
-  `must_be_blocked` combat restriction — `GrantCombatRestrictionEffect` has no `trigger_subject`
-  mode yet, the same axis PAR-124's own closure just widened for `create_delayed_trigger`) and
-  Battle Cry's "untap all white creatures you control" (an ordinary `tap_selector` row, just
-  missing a colour-word slot); player-event heads that need PAR-119's
-  event work (Bubbling Muck / High Tide "whenever a player taps a land for mana … adds an
-  additional", False Cure "whenever a player gains life … for each 1 life they gained",
-  Spiritualize "whenever target creature deals damage"); and Consumed by History, Forth Eorlingas!,
-  Gaze of Pain, Graceful Reprieve, Pure Intentions, Theoretical Duplication (start with
-  `parser_probe.py card`). Nuka-Nuke Launcher still installs a filterless, *recurring*
-  `TemporaryPlayerTrigger` (not `this_turn`-scoped, so not a `create_turn_trigger` candidate);
-  Ruinous Waterbending's own `this_turn` instance moved onto it as part of ENG-47 and is no
-  longer hand-authored.
+- **PAR-125 · Spiritualize's own `create_turn_trigger.target_kind` controller residue.** "Until
+  end of turn, whenever target creature deals damage, you gain that much life." needs PAR-124's
+  own new `CreateTurnTriggerEffect.target_kind` mode (built for Graceful Reprieve) — binding the
+  ability's condition-check against the chosen target — but Graceful Reprieve's own implementation
+  also rebinds every *inner effect's* `source` to the target, correct for its own "return **that
+  card**" (self-referential to the target) but wrong here: "**you** gain life" must stay the
+  spell's controller, never the target's controller, and `GainLifeEffect`'s default "you" reads
+  `effect.source.controller_id` — the target's, once rebound. The two cards need different source
+  semantics for their own effect bodies from the same mechanism; closing this needs deciding how
+  an inner effect asks for "the captured target" vs. "the ability's own controller" once they stop
+  being the same object — not attempted here rather than risk a silent wrong-player bug (confirmed
+  live: an untargeted `gain_life` under the current binding reads the target's controller, not the
+  caster's, whenever the two differ).
 - **PAR-99 · Khans-of-Tarkir "choose khans or dragons" Siege cycle.** The
   ETB choice itself (`as ~ enters, choose khans or dragons.`) already
   parses — confirmed via `parser_probe.py blocked "as .* enters, choose
@@ -719,6 +712,43 @@ its block back into the matching section here.
 > `<name>`" is a *wrapper* hiding a quoted inner ability (decompose it
 > before counting it as a cluster — see PAR-109), and loyalty costs print a
 > Unicode minus (−), not an ASCII hyphen.**
+
+## MEC — Game mechanics
+
+- **MEC-98 · RULE 121.5 Perpetual effects.** Duskmourn's "perpetually gains/loses `<ability |
+  counter | P/T>`" duration survives *every* zone change (unlike every `temp_*` field/
+  `GameState.floating_statics` entry this project has, all cleared on a zone change per RULE
+  400.7 — `GameObject.reset_as_new_object`) and persists even onto a copy of the object. No
+  primitive exists at all (`grep -rn "perpetual" game/` finds only a comment noting the gap,
+  `handlers.py`'s own "it perpetually gets +1/+1" note on Alora, Cheerful Scout). Blocks Consumed
+  by History ("until end of turn, whenever a nontoken creature dies, it perpetually gains unearth
+  {5}.") and every other Duskmourn "perpetually" card. Needs a durable per-object modification
+  list `reset_as_new_object` does *not* clear, consulted by the layer engine/keyword union
+  alongside printed+intrinsic+granted.
+- **MEC-99 · A reflexive "have it deal damage equal to its power" grant + RULE 510's "assigns no
+  combat damage" flag.** Gaze of Pain ("whenever a creature you control attacks and isn't blocked,
+  you may choose to have it deal damage equal to its power to a target creature. if you do, it
+  assigns no combat damage this turn.") needs two new pieces: (1) a composed "you may have
+  `<trigger_subject>` deal damage equal to its power to target creature" optional effect (a
+  group-subject damage source + RULE 115 target, wrapped in an interactive yes/no choice,
+  `OptionalEffect`-shaped like PAR-124's own Magitek Scythe closure) and (2) a new `GameObject`
+  flag (e.g. `temp_assigns_no_combat_damage`) consulted by the combat-damage-assignment step to
+  zero out that creature's own combat damage for the turn. Neither exists yet.
+- **MEC-100 · RULE 723 Contraption crank event.** Every "whenever you crank this contraption"
+  trigger (Head Banger and the whole Unfinity Contraption sub-mechanic) is unbuilt — no
+  `EventType` fires when a Contraption is cranked, no crank action exists on `GameEngine`. A
+  prerequisite for any Contraption card; Head Banger's own payoff ("target creature must be
+  blocked this turn if able.") is itself already MODELED (PAR-124) — the crank trigger head is the
+  only remaining gap.
+- **MEC-101 · "Caused you to discard" event provenance.** Pure Intentions ("whenever a spell or
+  ability an opponent controls causes you to discard cards this turn, return those cards from your
+  graveyard to your hand." / "when a spell or ability an opponent controls causes you to discard
+  this card, return this card from your graveyard to your hand at the beginning of the next end
+  step.") needs `EventType.DISCARD_CARD` to carry *which player's* spell/ability caused the
+  discard — today it carries only the discarding player, not the cause — threaded through every
+  `discard`/`discard_specific`/`discard_choice` call site, plus a new "opponent-caused" trigger
+  condition and a "cards discarded this way" turn-scoped tracking selector for the reflexive
+  return.
 
 ## PLR — Player management
 

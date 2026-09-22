@@ -559,13 +559,18 @@ class StateBasedActionsMixin:
         return False
     def _remove_stranded_tokens(self) -> bool:
         """Remove any token that has left the battlefield (RULE 704.5d) —
-        except a prepared copy still exempt under RULE 722.3c, or a token
+        except a prepared copy still exempt under RULE 722.3c, a token
         with an open free-cast window (`GameState.free_cast_instance_ids`
         — Isochron Scepter's own imprinted-card copy, `CopyImprintedCard
         Effect`: a token placed straight into exile, never on the
         battlefield at all, that stays there only until it's either cast
         or its window closes at cleanup, at which point it's no longer in
-        that set and this sweeps it on the very next pass)."""
+        that set and this sweeps it on the very next pass), or a token
+        deliberately conjured straight into a hand (`GameObject.
+        conjured_into_hand`, RULE 707.9 — Spellchain Scatter's "conjure a
+        duplicate … into your hand", PAR-124), which — unlike a `copy_spell`
+        stack copy — is never meant to touch the battlefield at all before
+        being cast or discarded."""
         for player in self.state.players:
             for zone in Player.PERSONAL_ZONES:  # every non-battlefield zone
                 cards = player.zones[zone]
@@ -573,6 +578,11 @@ class StateBasedActionsMixin:
                     if (
                         obj.is_token
                         and not self._is_prepared_copy(obj)
+                        # Only exempt while it's still sitting in the hand it
+                        # was conjured into — once cast (leaves this sweep's
+                        # zones entirely) or discarded (moves to the
+                        # graveyard), it's an ordinary stranded token again.
+                        and not (zone == Zone.HAND and getattr(obj, "conjured_into_hand", False))
                         and obj.instance_id not in self.state.free_cast_instance_ids
                     ):
                         cards.remove(obj)

@@ -168,6 +168,9 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # Heliod, Sun-Crowned) — the two-type-union sibling of
         # `creature_you_control`, same "you control" scoping.
         "creature_or_enchantment_you_control",
+        # "target creature or land you control" (PAR-124, Vengeant Earth) —
+        # the land sibling of `creature_or_enchantment_you_control` above.
+        "creature_or_land_you_control",
         # "target creature you **don't** control" (Archdruid's Charm's second
         # mode) — the mirror image of `creature_you_control`.
         "creature_you_dont_control",
@@ -572,6 +575,7 @@ class TargetSpec:
             "creature_you_control": "Kreatur unter deiner Kontrolle",
             "other_creature_you_control": "andere Kreatur unter deiner Kontrolle",
             "creature_or_enchantment_you_control": "Kreatur oder Verzauberung unter deiner Kontrolle",
+            "creature_or_land_you_control": "Kreatur oder Land unter deiner Kontrolle",
             "non_human_creature_you_own": "Nicht-Mensch-Kreatur, die du besitzt",
             "creature_you_dont_control": "Kreatur, die du nicht kontrollierst",
             "artifact_you_dont_control": "Artefakt, das du nicht kontrollierst",
@@ -974,6 +978,9 @@ _FRAME_TYPE_PREDICATES: dict[str, Any] = {
         and not o.is_creature
     ),
     "creature_or_enchantment": lambda o: o.is_creature or bool(o.card.is_enchantment),
+    # "target creature or land you control" (PAR-124, Vengeant Earth) — the
+    # land sibling of `creature_or_enchantment` just above.
+    "creature_or_land": lambda o: o.is_creature or o.is_land,
     "creature_or_planeswalker": lambda o: o.is_creature or o.is_planeswalker,
     "creature_planeswalker_or_battle": lambda o: (
         o.is_creature or o.is_planeswalker or o.is_battle
@@ -1087,6 +1094,8 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     # --- type unions -----------------------------------------------------
     "creature_or_enchantment_you_control": TargetFrame(
         "creature_or_enchantment", SCOPE_YOU, exclude_source=False),
+    "creature_or_land_you_control": TargetFrame(
+        "creature_or_land", SCOPE_YOU, exclude_source=False),
     "artifact_or_enchantment": TargetFrame("artifact_or_enchantment"),
     "artifact_or_creature": TargetFrame("artifact_or_creature"),
     "artifact_or_creature_you_control": TargetFrame(

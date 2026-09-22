@@ -464,6 +464,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "copy_permanent": "copy_object",
     "copy_spell": "copy_object",
     "copy_self_spell": "copy_object",
+    "conjure_duplicate_into_hand": "copy_object",
     "create_emblem": "create",
     "create_token_for_linked_exile": "create",
     # ENG-37 re-derivation: not a `create`+`copy_object` weld. The "copy" is
@@ -478,6 +479,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "deal_damage_to_chosen_player": "deal_damage",
     "destroy_each_with_mana_value": "destroy",
     "destroy_specific": "destroy",
+    "discard_specific": "discard",
     "dig_until": "reveal",
     # ENG-37 B5: reveal a library top card + stash it as the `revealed`
     # referent; move that stashed card; cast it for free. Each is one

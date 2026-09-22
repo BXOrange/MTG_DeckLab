@@ -25,9 +25,43 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**49.0% covered — 17,069 / 34,811 — as of 2026-09-22, PARSER_VERSION 461.**
+**49.1% covered — 17,092 / 34,811 — as of 2026-09-22, PARSER_VERSION 462.**
 Commander-legal slice (the one the product actually plays): **51.6% —
-16,410 / 31,830** (measure with `--commander-legal-only`).
+16,432 / 31,830** (measure with `--commander-legal-only`).
+
+### PAR-124 residue, second batch: "must be blocked this turn if able", animate-land/flash/tap-selector, a group-subject copy (PARSER_VERSION 462)
+
+- **What:** five shapes all reuse the identical `"must_be_blocked"` flag-keyword grant (a bare
+  clause, a pump-clause "and must be blocked…" tail, a `previous_subject` pronoun tail, and a
+  group-subject pronoun tail) — no new engine code, only the missing parser rows; the animate-land
+  family gained a `you control`/`creature_or_land` target-kind axis plus a missing "dinosaur"
+  qualifier word; `GrantFlashUntilEndOfTurnEffect` gained a `card_types` filter for "cast `<type>`
+  spells this turn as though they had flash"; `continuous.group_selector_objects` gained a
+  colour-scoped `creatures_you_control_of_color_<letter>` branch for "untap all white creatures you
+  control"; and `CopyPermanentEffect.referent="trigger_event"` (already built for Ashling, the
+  Limitless) just needed a group-subject-gated parser row for "create a token that's a copy of
+  **that creature**." +23, 0 regressed.
+- **Lesson — a diagnosed-composed-head guard can reject a correct answer, not just a wrong one.**
+  `segmenter._group_it_would_hit_source` exists to catch a group-subject body whose effect has
+  `target_kind: None` and would therefore silently act on the ability's own *source* instead of the
+  trigger subject. It has no way to tell that apart from an effect that has *already* been
+  correctly retargeted through a different mechanism (`referent="trigger_event"` rather than
+  `target_kind`) — so widening `copy_permanent`'s own group-subject reach tripped the very guard
+  meant to prevent this class of bug, on a case where the bug didn't exist. Fixed with a narrow,
+  named exemption rather than loosening the guard's general shape. Any future group-subject
+  widening on an effect that resolves its referent through something *other* than `target_kind`
+  should check this guard first, the same way this one should have been checked before, not after,
+  writing the new row.
+- **Lesson — "it's still a `<land>`" reminder sentences aren't a small detail, they're a trap for
+  the generic connector-split.** The generic `previous_subject` pipeline (split on ".", parse each
+  part, thread the pronoun forward) can't claim a pure-reminder sentence on its own — nothing
+  builds an `EffectSpec` for "it's still a land" alone — so a three-sentence body (animate clause,
+  reminder, tail) fails the *whole* thing closed the moment the reminder sits between the clause
+  that creates the referent and the clause that needs it. Every animate-land row that might have a
+  reminder sentence in the middle has to fold a trailing pronoun tail into its *own* regex instead
+  of trusting the generic split — the same reasoning the already-shipped `_ANIMATE_SELF_LEADING_
+  EOT_RE` had already worked out for its self-form sibling, just not yet generalized to the target
+  form until this batch needed it.
 
 ### PAR-124 residue: "copy that spell X times", and a delayed trigger's own group pronoun (PARSER_VERSION 461)
 

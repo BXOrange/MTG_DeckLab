@@ -304,14 +304,21 @@ _PLAYER_TRIGGER_CONDITIONS: tuple[tuple[re.Pattern[str], Any], ...] = (
     # authored ``contributor_power_at_least`` cards (Tifa/Kediss); MEC-29's
     # `EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER` already fires for
     # this exact shape, only the oracle-text recognition was missing.
-    (re.compile(r"^1 or more creatures you control deal combat damage to a player$"),
+    # PAR-124: Forth Eorlingas! prints the recipient-side plural, "to 1 or
+    # more players", instead of the singular "to a player" — the same
+    # aggregate event either way (RULE 508.1's target is always exactly one
+    # player, "1 or more" on that side is just a wording variant, not a
+    # second qualifier to model).
+    (re.compile(r"^1 or more creatures you control deal combat damage to"
+                r" (?:a player|1 or more players)$"),
      "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"),
     # "…1 or more **nontoken** creatures you control…" (Feywild Visitor's
     # granted trigger) — same aggregate event, gated on the
     # ``contributor_any_nontoken`` flag the combat step now stamps (RULE
     # 111.9). Carried as a trailing filter marker `_player_trigger_event`'s
     # caller lifts onto the trigger dict.
-    (re.compile(r"^1 or more nontoken creatures you control deal combat damage to a player$"),
+    (re.compile(r"^1 or more nontoken creatures you control deal combat damage to"
+                r" (?:a player|1 or more players)$"),
      ("CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER", {"contributor_any_nontoken": True})),
     # RULE 701.30: "Whenever you clash, …" (Entangling Trap/Rebellion of the
     # Flamekin) and its favourable-outcome sibling "Whenever you win a
@@ -909,6 +916,20 @@ _CAST_SPELL_TRIGGER_NTH_RE = re.compile(
 _DRAW_CARD_TRIGGER_NTH_RE = re.compile(
     r"^whenever (?P<subj>you|an opponent|a player) draws? (?:your|their) "
     rf"(?P<ordinal>{'|'.join(_CAST_SPELL_ORDINAL_WORDS)}) card each turn,\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+
+#: RULE 605.1: "Whenever you/a player taps a `<land type>`/land for mana,
+#: <effect>." (Crypt Ghast/Wild Growth-shaped, hitherto only hand-authored
+#: — Bubbling Muck/High Tide's own symmetric, unscoped "a player" form).
+#: `EventType.TAPPED_FOR_MANA` already carries everything a RULE 603.1
+#: group-subject condition over the tapped *land* needs (`type`/`subtypes`/
+#: `controller`); "you" narrows to the ability's own controller the same
+#: way `_cast_spell_trigger_condition` does for cast/draw triggers, "a
+#: player" leaves it unscoped (any player's land).
+_TAP_FOR_MANA_TRIGGER_RE = re.compile(
+    r"^whenever (?P<subj>you|a player) taps? an? "
+    r"(?P<land>swamp|island|mountain|forest|plains|land) for mana,\s*(?P<body>.+)$",
     re.IGNORECASE | re.S,
 )
 
@@ -5019,7 +5040,12 @@ _CREATURE_TARGET_KINDS: frozenset[str] = frozenset(
      # creature one — the gate is about *whether the previous clause chose
      # something at all*, not about what type it chose.
      "land", "artifact", "permanent", "nonland_permanent",
-     "artifact_creature_or_land", "artifact_or_creature"}
+     "artifact_creature_or_land", "artifact_or_creature",
+     # PAR-124: "target land you control becomes a 4/4 … creature … **it**
+     # must be blocked this turn if able." (Disturbed Slumber/Elemental
+     # Uprising/Vengeant Earth) — the animate-land family's own target
+     # kinds, referred back to the same "it" way a bare "land" already is.
+     "land_you_control", "creature_or_land_you_control"}
 )
 
 
@@ -5418,7 +5444,17 @@ def _group_it_would_hit_source(
     if _BARE_PRONOUN_RE.search(body.lower()) is None:
         return False
     return any(
-        e.params.get("target_kind", "unset") is None
+        (
+            e.params.get("target_kind", "unset") is None
+            # PAR-124: `copy_permanent`'s own ``referent="trigger_event"``
+            # (Theoretical Duplication's "create a token that's a copy of
+            # **that creature**.") already reads the *firing object*, not
+            # the source, via `_COPY_PERMANENT_GROUP_RE`'s own group-
+            # subject-gated row — a correct resolution this guard would
+            # otherwise reject on the same ``target_kind: None`` shape a
+            # plain (wrongly source-falling-back) reading uses.
+            and not (e.type == "copy_permanent" and e.params.get("referent") == "trigger_event")
+        )
         or (e.type == "create_delayed_trigger" and e.params.get("capture") == "previous_or_self")
         for e in effects
     )
@@ -5477,6 +5513,17 @@ _TURN_TRIGGER_RE = re.compile(
 _NEXT_CAST_RE = re.compile(r"\byou next cast\b")
 
 
+#: PAR-124: "When **target creature** dies this turn, return that card to
+#: the battlefield under its owner's control." (Graceful Reprieve) — the
+#: chosen RULE 115 target, not a group condition, is the trigger's own
+#: subject: `_turn_trigger_segment` rewrites this to the ordinary
+#: self-subject phrasing ("~ `<verb>`") before the inner `segment_line`
+#: call, and stamps `target_kind="creature"` on the outer `create_turn_
+#: trigger` spec so `CreateTurnTriggerEffect` binds the ability with the
+#: chosen object itself as its source (see that class's own docstring).
+_TARGET_CREATURE_SUBJECT_RE = re.compile(r"^target creature (?P<verb>.+)$", re.IGNORECASE)
+
+
 def _turn_trigger_segment(
     line: str, *, provenance: ParserProvenance
 ) -> "Optional[Segment]":
@@ -5491,6 +5538,11 @@ def _turn_trigger_segment(
     once = _NEXT_CAST_RE.search(condition.lower()) is not None
     if once:
         condition = _NEXT_CAST_RE.sub("you cast", condition.lower())
+    target_creature = _TARGET_CREATURE_SUBJECT_RE.match(condition.strip())
+    target_kind = None
+    if target_creature is not None:
+        target_kind = "creature"
+        condition = f"~ {target_creature.group('verb')}"
     inner = segment_line(
         f"{keyword} {condition}, {m.group('body')}",
         allow_spell_effect=False, provenance=provenance,
@@ -5510,6 +5562,7 @@ def _turn_trigger_segment(
                 "effects": [e.to_dict() for e in spec.effects],
                 "optional": bool(spec.optional),
                 **({"once": True} if once else {}),
+                **({"target_kind": target_kind} if target_kind else {}),
                 "description": line.strip(),
             })],
             raw_text=line.strip(), parser=provenance,
@@ -6133,6 +6186,29 @@ def _segment_line_unsplit(
                 "condition": _cast_spell_trigger_condition(subj),
                 "is_nth_draw_this_turn": n,
             },
+            optional=optional,
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    tap_mana_trig = _TAP_FOR_MANA_TRIGGER_RE.match(raw)
+    if tap_mana_trig is not None:
+        subj = tap_mana_trig.group("subj").lower()
+        land = tap_mana_trig.group("land").lower()
+        body, optional = _peel_optional(tap_mana_trig.group("body"))
+        effects = parse_effect_body(body)
+        if effects is None:
+            return Segment(raw=raw)
+        condition: dict[str, Any] = {"subject": "group", "type": "land"}
+        if land != "land":
+            condition["subtypes"] = [land]
+        if subj == "you":
+            condition["controller"] = "you"
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={"event": "TAPPED_FOR_MANA", "condition": condition, "mana_ability": True},
             optional=optional,
             raw_text=raw,
             parser=provenance,

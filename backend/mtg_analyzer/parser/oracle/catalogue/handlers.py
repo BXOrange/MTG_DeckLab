@@ -649,6 +649,40 @@ def _copy_permanent_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("copy_permanent", params)]
 
 
+#: PAR-124: the RULE 603.1 group-subject sibling of `_COPY_PERMANENT_
+#: PREVIOUS_RE` above — "whenever a nontoken creature an opponent controls
+#: enters[ this turn], create a token that's a copy of **that creature**."
+#: (Theoretical Duplication). "That creature" here is whichever object
+#: satisfied the *trigger condition*, not an earlier clause's own RULE 115
+#: pick — `CopyPermanentEffect.referent="trigger_event"` already reads
+#: exactly this off `GameContext.trigger_event["instance_id"]` (built for
+#: Ashling, the Limitless's "…create a token that's a copy of **it**.",
+#: MEC-42), and every event this row's own trigger head reaches
+#: (`_subject_event_key`'s default) already keys the acting object the
+#: same way, so no new event-field threading is needed.
+_COPY_PERMANENT_GROUP_RE = _c(
+    r"create a (?P<ta>tapped and attacking |tapped |attacking )?"
+    r"token that'?s a copy of (?:it|that creature|that card)"
+    r"(?:, except (?P<except_tail>.+))?"
+)
+
+
+def _copy_permanent_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params: dict = {"target_kind": None, "referent": "trigger_event"}
+    ta = (m.groupdict().get("ta") or "").strip()
+    if "tapped" in ta:
+        params["tapped"] = True
+    if "attacking" in ta:
+        params["attacking"] = True
+    tail = m.groupdict().get("except_tail")
+    if tail:
+        extra = _parse_copy_except_tail(tail)
+        if extra is None:
+            return None
+        params.update(extra)
+    return [EffectSpec("copy_permanent", params)]
+
+
 #: "create a token that's [a] [tapped and attacking] copy of `<a specific
 #: named real card>`" (The Joiner of Cats' "…a tapped and attacking copy of
 #: Lurrus of the Dream-Den" — the else-branch of its `impulsive_look`). The
@@ -2556,6 +2590,25 @@ def _lose_life_per_spell_cast_this_turn(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("lose_life", {
         "amount": int(m.group("n")), "selector": "event_player",
         "amount_from_spells_cast_this_turn": True,
+    })]
+
+
+#: PAR-124: "Whenever a player gains life, **that player** loses N life for
+#: each 1 life they gained." (False Cure) — the same "event's own firing
+#: player" referent as `_lose_life`'s "they" row (`selector="event_player"`),
+#: just spelled "that player"; the magnitude is a live multiple of the
+#: `LIFE_GAINED` event's own ``amount`` field, read through the shared
+#: `effect_amounts` ``"trigger_event"`` operand's generic ``multiply``
+#: modifier (`ENG-47 b`) rather than a bespoke per-effect parameter.
+_LOSE_LIFE_PER_LIFE_GAINED_RE = _c(
+    r"that player loses (?P<n>\d+) life for each 1 life they gained"
+)
+
+
+def _lose_life_per_life_gained(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("lose_life", {
+        "amount": {"kind": "trigger_event", "field": "amount", "multiply": int(m.group("n"))},
+        "selector": "event_player",
     })]
 
 
@@ -5420,6 +5473,19 @@ def _look_at_target(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("look_at_cards", {"target_kind": "player"})]
 
 
+#: PAR-124: "When you next cast an instant or sorcery spell this turn,
+#: **conjure a duplicate of that spell into your hand**." (Spellchain
+#: Scatter) — the hand-zone sibling of `_COPY_THAT_SPELL_RE` just below:
+#: "that spell" is the identical RULE 603.1 firing-event referent
+#: (`ConjureDuplicateIntoHandEffect.spell_from_trigger_event`), just landing
+#: in hand rather than being copied onto the stack.
+_CONJURE_DUPLICATE_INTO_HAND_RE = _c(r"conjure a duplicate of that spell into your hand")
+
+
+def _conjure_duplicate_into_hand(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("conjure_duplicate_into_hand", {"spell_from_trigger_event": "instance_id"})]
+
+
 #: "When you next cast an instant or sorcery spell this turn, **copy that spell**. You may
 #: choose new targets for the copy." (Doublecast, Galvanic Iteration, Teach by Example, Dual
 #: Strike) — the copier is the trigger's controller and "that spell" is the one that fired it
@@ -6095,6 +6161,22 @@ def _add_mana_any_color(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("add_mana", {"colors": ["any"]})]
 
 
+#: PAR-124: "…, that player adds an additional {b}." (Bubbling Muck/High
+#: Tide's own "whenever a player taps a `<land>` for mana" body) — "that
+#: player" is RULE 605.1's tapper, not this ability's own controller,
+#: reading `GameContext.trigger_event["controller_id"]` via `AddManaEffect.
+#: recipient="event_controller"` (already built for Wild Growth's
+#: identical "its controller adds…" shape).
+_ADD_MANA_ADDITIONAL_EVENT_PLAYER_RE = _c(
+    rf"that player adds an additional (?P<syms>(?:{_MANA_SYMBOL}){{1,20}})"
+)
+
+
+def _add_mana_additional_event_player(m: re.Match[str]) -> list[EffectSpec]:
+    colors = [s.upper() for s in re.findall(r"\{([wubrgc])\}", m.group("syms"))]
+    return [EffectSpec("add_mana", {"colors": colors, "recipient": "event_controller"})]
+
+
 #: "Add `<sym>` / 1 mana of any color for each `<kind>` counter removed this
 #: way." (Coalition Relic/Ventifact Bottle, PAR-66) — `GameContext.
 #: counters_removed_this_way`'s own accumulator (bumped by a preceding
@@ -6327,6 +6409,12 @@ def _tap_another_untapped_you_control(m: re.Match[str]) -> list[EffectSpec]:
 _MAY_EFFECT_THEN_ANTECEDENT_PHRASES = (
     r"return (?:another|\d+ other) [a-z]+?s? you control to (?:its owner's|their owners') hand"
     r"|tap (?:another|\d+ other) untapped [a-z]+?s? you control"
+    # PAR-124 (Magitek Scythe): "you may attach it to target creature you
+    # control. if you do, `<effect>`." — see `_MAY_ATTACH_IF_YOU_DO_RE`'s
+    # own docstring for why this one *keeps* its RULE 115 target (unlike
+    # every other antecedent above, which are all targetless) instead of
+    # going through `_may_effect_then`'s target-rejecting composition.
+    r"|attach it to target creature you control"
 )
 
 
@@ -6350,6 +6438,41 @@ _MAY_EFFECT_THEN_ANTECEDENT_PHRASES = (
 _MAY_EFFECT_THEN_RE = _c(
     r"you may (?P<effect1>.+?)\.\s*if you do,\s*(?P<effect2>.+)"
 )
+
+
+#: PAR-124: "you may attach it to target creature you control. if you do,
+#: `<effect>`." (Magitek Scythe's own ETB) — unlike every `_may_effect_
+#: then` antecedent, this one keeps a real RULE 115 target: `AttachEffect`'s
+#: `target_kind="creature_you_control"` is announced normally when this
+#: triggered ability goes on the stack (RULE 601.2c), same as any other
+#: printed target — `_may_effect_then`'s own "no way to announce a target
+#: mid-resolution" reasoning doesn't apply here at all, since nothing is
+#: announced mid-resolution; only *whether* the optional body runs is
+#: decided at resolution (RULE 601.2b), which `OptionalEffect.target_specs`
+#: is explicitly built to support (its own docstring's Choking Tethers
+#: precedent — "you may tap target creature"). The follow-up's own "that
+#: creature" is the ordinary `previous_subject` referent onto the same
+#: chosen target (`_apply_effects_partitioned`'s shared "who did the
+#: previous clause act on" tracking, threaded through `OptionalEffect`'s own
+#: `_run`), exactly as if "attach" were any other targeted antecedent
+#: clause in an ordinary (non-optional) body.
+_MAY_ATTACH_IF_YOU_DO_RE = _c(
+    r"you may attach it to target creature you control\.\s*if you do,\s*(?P<effect2>.+)"
+)
+
+
+def _may_attach_if_you_do(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
+
+    second = parse_effect_body(m.group("effect2").strip(), previous_subject=True)
+    if not second:
+        return None
+    if any(s.params.get("target_kind") for s in second):
+        return None  # a second RULE 115 target has nowhere to be announced from
+    attach_spec = EffectSpec("attach", {"target_kind": "creature_you_control"})
+    return [EffectSpec("optional", {
+        "effects": [attach_spec.to_dict()] + [s.to_dict() for s in second],
+    })]
 
 
 def _may_effect_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -6594,6 +6717,30 @@ def _return_self_to_battlefield(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         if m.group("cn") != m.group("cn2"):
             return None  # not a real +N/+N counter kind — fail closed
         params["extra_counters"] = {"kind": f"+{m.group('cn')}/+{m.group('cn2')}", "count": 1}
+    return [EffectSpec("return_self_to_battlefield", params)]
+
+
+#: PAR-124: "When target creature dies this turn, return **that card** to
+#: the battlefield under its owner's control." (Graceful Reprieve) — a
+#: `create_turn_trigger` bound with the RULE 115 target itself as its
+#: source (`CreateTurnTriggerEffect.target_kind`), so "that card" here is
+#: the same self-referent `_RETURN_SELF_TO_BATTLEFIELD_RE` already reads —
+#: just spelled differently from "it"/"~"/"this card". Kept as its own,
+#: `self_subject_only`-gated row rather than folded into that ungated one:
+#: "that card" already means something *else* (PAR-18/30's own previous-
+#: clause pronoun) everywhere this dispatch isn't the target-bound-as-
+#: source shape, so it must only be offered when the caller has actually
+#: rewritten "target creature `<verb>`" into this self-subject form.
+_RETURN_TARGET_TO_BATTLEFIELD_SELF_RE = _c(
+    r"return that card to the battlefield(?P<tapped> tapped)? under "
+    r"(?P<whose>its owner'?s|your) control"
+)
+
+
+def _return_target_to_battlefield_self(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict = {"tapped": bool(m.group("tapped"))}
+    if m.group("whose").lower() == "your":
+        params["under_your_control"] = True
     return [EffectSpec("return_self_to_battlefield", params)]
 
 
@@ -6948,7 +7095,14 @@ def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
             return None  # unrecognised "with …" ability → fail-closed
         keywords, parametric_keywords = split
     params: dict = {
-        "count": count_of(m.group("n")),
+        # PAR-124: "create **X** 2/2 red Human Knight creature tokens with
+        # trample and haste." (Forth Eorlingas!) — `count_or_x_of`'s ``"x"``
+        # sentinel, resolved by the generic `_substitute_x` per-attr loop
+        # (`CreateTokenEffect.count`) the same way any other effect's own
+        # ``count``/``amount`` already is; every existing caller's own
+        # ``n`` group only ever captures a plain number/"a"/"an", so this is
+        # a no-op widening for them.
+        "count": count_or_x_of(m.group("n")),
         "power": int(m.group("p")),
         "toughness": int(m.group("t")),
         "colors": colors,
@@ -7911,10 +8065,18 @@ def _pump(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "power": _signed_int(m.group("p")),
         "toughness": _signed_int(m.group("t")),
     }
+    keywords: list[str] = []
     if m.groupdict().get("kw"):
-        keywords = _token_keywords(m.group("kw"))
-        if keywords is None:
+        parsed_kw = _token_keywords(m.group("kw"))
+        if parsed_kw is None:
             return None  # unmodeled granted ability → fail-closed
+        keywords.extend(parsed_kw)
+    if m.groupdict().get("must_blocked"):
+        # PAR-124: "…until end of turn and must be blocked this turn if
+        # able." (Compelled Duel/Emergent Growth/Joraga Invocation) — a
+        # plain flag keyword (RULE 509.1c), same as any other granted one.
+        keywords.append("must_be_blocked")
+    if keywords:
         params["keywords"] = keywords
     if target_kind:
         params["target_kind"] = target_kind
@@ -8059,6 +8221,11 @@ def _pump_keywords(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     flags, parametric = split
     if not flags and not parametric:
         return None
+    if m.groupdict().get("must_blocked"):
+        # PAR-124: "…gains deathtouch until end of turn and must be blocked
+        # this turn if able." (Deadly Allure) — same flag-keyword tail
+        # `_pump`'s own "and must be blocked…" suffix already grants.
+        flags = [*flags, "must_be_blocked"]
     params: dict = {}
     if flags:
         params["keywords"] = flags
@@ -8360,17 +8527,32 @@ def _group_pump_other_source_power(m: re.Match[str]) -> Optional[list[EffectSpec
 
 
 #: "Target creature gets +1/+1 until end of turn for each creature you
-#: control" (Friendly Neighborhood). The target and the count source are
-#: independent: the selected creature need not be controlled by the player.
+#: control" (Friendly Neighborhood) / "…gets +1/+1 for each creature you
+#: control and gains trample. It must be blocked this turn if able."
+#: (King Harald's Revenge, PAR-124 — the "for each" clause sits *before*
+#: an "and gains `<kw>`" tail instead of after "until end of turn", and the
+#: duration word can trail either the P/T delta or the whole sentence).
+#: The target and the count source are independent: the selected creature
+#: need not be controlled by the player.
 _PUMP_TARGET_PER_CREATURE_YOU_CONTROL_RE = _c(
-    r"target creature gets? \+1/\+1 until end of turn for each creature you control"
+    r"(?:until end of turn, )?target creature gets? \+1/\+1"
+    r"(?: until end of turn)? for each creature you control"
+    r"(?: and gains? (?P<kw>[a-z, ]+?))?"
+    r"(?: until end of turn)?"
 )
 
 
-def _pump_target_per_creature_you_control(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("pump", {
+def _pump_target_per_creature_you_control(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params: dict = {
         "target_kind": "creature", "amount_from_count_selector": "creatures_you_control",
-    })]
+    }
+    kw = m.groupdict().get("kw")
+    if kw:
+        keywords = _token_keywords(kw)
+        if keywords is None:
+            return None
+        params["keywords"] = keywords
+    return [EffectSpec("pump", params)]
 
 
 #: RULE 202.2f/700.6 "target creature gets +X/+X until end of turn, where X
@@ -9007,20 +9189,30 @@ def _grant_self_subject_kw(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 
 def _grant_group_subject_kw(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    """"Whenever a creature … attacks, it gains skulk until end of turn."
+    """"Whenever a creature … attacks, it gains skulk until end of turn
+    [and must be blocked this turn if able]."
 
     Here ``it`` is neither this ability's source nor a preceding RULE 115
     target: it is the particular RULE 603.1 group object that fired the
     trigger. `GrantKeywordToTriggerSubjectEffect` already owns that live
     event-reference behaviour (Tyvar Kell's emblem); this parser row merely
-    routes the ordinary creature-event spelling to it.
+    routes the ordinary creature-event spelling to it. PAR-124's own
+    "and must be blocked this turn if able" tail (Descend on the Prey) is
+    a second, independent flag keyword on the same trigger subject — this
+    effect type only ever carries one ``keyword``, so it's a second spec
+    rather than a list, both reading the identical event at resolution.
     """
     keywords = _token_keywords(m.group("kw"))
     if keywords is None or len(keywords) != 1:
         return None
-    return [EffectSpec("grant_keyword_to_trigger_subject", {
+    specs = [EffectSpec("grant_keyword_to_trigger_subject", {
         "keyword": keywords[0], "event_key": GROUP_SUBJECT_KEY_SENTINEL,
     })]
+    if m.groupdict().get("must_blocked"):
+        specs.append(EffectSpec("grant_keyword_to_trigger_subject", {
+            "keyword": "must_be_blocked", "event_key": GROUP_SUBJECT_KEY_SENTINEL,
+        }))
+    return specs
 
 
 def _pump_group_subject(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -11421,8 +11613,8 @@ _DELAYED_SAC_EXILE_TAIL_RE = _c(
     r"(?P<verb_double>destroy) (?P<obj_double>it) and (?P<obj_double_self>~)"
     r"|"
     r"(?:its controller (?P<verb_ctrl>sacrifices|exiles|destroys)"
-    r"|(?P<verb>sacrifice|exile|destroy)) "
-    r"(?:(?P<obj>it|that creature|that token|the tokens?|that permanent|that artifact|those tokens|them|all tokens created this way)|(?P<obj_self>~))"
+    r"|(?P<verb>sacrifice|exile|destroy|discard)) "
+    r"(?:(?P<obj>it|that creature|that token|the tokens?|that permanent|that artifact|those tokens|them|all tokens created this way|the duplicate)|(?P<obj_self>~))"
     # "Return that creature to its owner's hand" (Ilharg, Zara, Alora) — a
     # loan bounced end of turn; the object is the same `previous_or_self`
     # referent the sacrifice/exile forms use.
@@ -11438,6 +11630,7 @@ _DELAYED_TAIL_INNER = {
     "exile": "exile_specific",
     "destroy": "destroy_specific",  # Old Hob, Alleycat Blues
     "return": "return_specific_to_hand",  # Ilharg, Zara, Alora
+    "discard": "discard_specific",  # Spellchain Scatter
 }
 
 
@@ -11534,7 +11727,12 @@ _DELAYED_SAC_EXILE_WHEN_FIRST_RE = _c(
 #: objects` directly; "it"/"that creature"/"that permanent" stay on
 #: `previous_or_self` (target first, then created, then the source).
 _DELAYED_TAIL_TOKEN_SUBJECTS: frozenset[str] = frozenset(
-    {"that token", "those tokens", "the token", "the tokens", "all tokens created this way"}
+    {"that token", "those tokens", "the token", "the tokens", "all tokens created this way",
+     # PAR-124: "conjure a duplicate of that spell into your hand. …
+     # Discard the duplicate …" (Spellchain Scatter) — the same "this
+     # resolution's own created referent" idiom as the token subjects
+     # above, just not a permanent token.
+     "the duplicate"}
 )
 
 
@@ -11622,6 +11820,8 @@ def _pump_previous_targets_kw(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     keywords = _token_keywords(m.group("kw"))
     if keywords is None:
         return None
+    if m.groupdict().get("must_blocked"):
+        keywords = [*keywords, "must_be_blocked"]
     return [EffectSpec("pump", {"keywords": keywords, "previous_subject": True})]
 
 
@@ -11644,6 +11844,8 @@ _PUMP_PREV_SINGULAR_PT_RE = _c(
 )
 _PUMP_PREV_SINGULAR_KW_RE = _c(
     rf"{_PREV_SUBJECT_SINGULAR}(?: also)? gains? (?P<kw>[a-z][a-z, ]*?) until end of turn"
+    # PAR-124: "…and must be blocked this turn if able." (Magitek Scythe).
+    rf"(?P<must_blocked> and must be blocked this turn if able)?"
 )
 
 #: PAR-30 "Threaten / 'it gains haste' tails residue" — the *rich* leading-
@@ -11967,6 +12169,21 @@ def _x_targets_unblockable(m: re.Match[str]) -> list[EffectSpec]:
 
 def _cant_be_blocked_turn_previous(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("unblockable", {"previous_subject": True})]
+
+
+#: PAR-124: "`<earlier clause targeted/animated a creature>`. **It** must be
+#: blocked this turn if able." (Enlarge, King Harald's Revenge, Disturbed
+#: Slumber/Elemental Uprising/Vengeant Earth's animate-land family) — the
+#: "must" mirror of `_CANT_BE_BLOCKED_TURN_PREVIOUS_RE` just above.
+#: "must_be_blocked" is a plain flag keyword (`combat.has`, RULE 509.1c),
+#: so the same `PumpEffect.previous_subject`/``keywords`` idiom that already
+#: grants it via a standing static (Raphael, Ninja Destroyer) grants it here
+#: as a resolve-time temporary keyword instead — no new primitive.
+_MUST_BE_BLOCKED_TURN_PREVIOUS_RE = _c(rf"{_THEN}{_PREVIOUS_SUBJECT} must be blocked this turn if able")
+
+
+def _must_be_blocked_turn_previous(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("pump", {"previous_subject": True, "keywords": ["must_be_blocked"]})]
 
 
 #: PAR-98: "`<earlier clause targeted creatures>`. **They** can't be blocked
@@ -12301,6 +12518,29 @@ def _attacks_turn_if_able(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if kind not in ("creature", "creature_you_control", "creature_you_dont_control"):
         return None
     return [EffectSpec("pump", {"keywords": ["attacks_if_able"], "target_kind": kind})]
+
+
+#: "Target creature must be blocked this turn if able." (Irresistible Prey/
+#: Goldenhide Ox/Head Banger/Satyr Piper) / "~ must be blocked this turn if
+#: able." (Loathsome Catoblepas) — the bare (no P/T delta, no "and gains …"
+#: suffix) sibling of `_ATTACKS_TURN_IF_ABLE_RE` just above, same "flag
+#: keyword, no new engine code" reasoning (RULE 509.1c, `combat.has`).
+#: `_SUBJECT`/`_pump_target` resolve the same self/target shapes `_pump`/
+#: `_pump_keywords` already do.
+_MUST_BE_BLOCKED_TURN_RE = _c(rf"{_SUBJECT} must be blocked this turn if able")
+
+
+def _must_be_blocked_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    subject = _pump_target(m)
+    if subject is None:
+        return None
+    target_kind, selector = subject
+    params: dict = {"keywords": ["must_be_blocked"]}
+    if target_kind:
+        params["target_kind"] = target_kind
+    if selector:
+        params["selector"] = selector
+    return [EffectSpec("pump", params)]
 
 
 #: RULE 701.47/48 Amass "<Type> N" ("amass Orcs 1"/"amass Zombies 2" — this
@@ -12713,6 +12953,9 @@ _ANIMATE_QUALIFIER_SUBTYPES: frozenset[str] = frozenset({
     "dragon", "angel", "demon", "soldier", "knight", "warrior", "giant",
     "dwarf", "faerie", "sliver", "rogue", "cleric", "shaman", "druid", "construct",
     "beast", "bird", "cat", "dog", "insect", "snake", "treefolk", "wolf",
+    # PAR-124: Disturbed Slumber's own animate-land target ("4/4 dinosaur
+    # creature").
+    "dinosaur",
 })
 #: PAR-79 sixth increment: "~ becomes a 2/2 **blue and black** horror
 #: artifact creature …" (Dimir/Azorius/Boros/… Keyrune, Atarka/Dromoka
@@ -12852,12 +13095,31 @@ def _animate_self_leading_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: above — reusing the identical `_split_animate_qualifiers`/`extra_statics`
 #: machinery rather than a second copy.
 _ANIMATE_TARGET_RE = _c(
-    r"target (?:snow )?(?P<kind>land|mountain|forest|artifact|creature|enchantment) becomes "
+    r"target (?:snow )?(?P<kind>land|mountain|forest|artifact|creature|enchantment|creature or land)"
+    # PAR-124: "target creature or land you control becomes …" (Vengeant
+    # Earth) — the controller-scoped qualifier `resolve_target_kind` already
+    # resolves for every kind word here (``land_you_control``/
+    # ``creature_or_land_you_control``, …), just never threaded through this
+    # regex before.
+    r"(?P<you_control> you control)? becomes "
     r"an? (?P<p>\d+)/(?P<t>\d+) (?P<quals>(?:[a-z]+ )*?)creature"
-    r"(?: with (?P<kw>[a-z, ]+?))?(?P<eot> until end of turn)?"
+    r"(?: with (?P<kw>[a-z, ]+?))?"
+    # "…in addition to its other types until end of turn." (Vengeant
+    # Earth) — the same "printed type is never lost" reminder `_split_
+    # animate_qualifiers`'s ``add_types`` already encodes, just spelled as
+    # its own clause instead of the plain "it's still a `<kind>`" sentence.
+    r"(?: in addition to its other types)?(?P<eot> until end of turn)?"
     # A basic-land-subtype target (Mountain/Forest) still says merely
     # "it's still a land" in its reminder sentence.
     r"(?:\. it'?s still an? (?:snow )?(?:(?P=kind)|land))?"
+    # PAR-124: "…it's still a land. **it must be blocked this turn if
+    # able**." (Disturbed Slumber/Elemental Uprising) — folded in here
+    # rather than left to the generic `previous_subject` connector-split
+    # pipeline: that split would hand the *pure-reminder* "it's still a
+    # land" sentence its own unclaimed part first (nothing builds an
+    # `EffectSpec` for it alone), failing the whole body closed before this
+    # tail is ever reached.
+    r"(?P<must_blocked>\. it must be blocked this turn if able)?"
 )
 
 
@@ -12866,7 +13128,9 @@ def _animate_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if quals is None:
         return None
     colors, add_types, add_subtypes = quals
-    kind = resolve_target_kind("target " + m.group("kind"))
+    kind = resolve_target_kind(
+        "target " + m.group("kind") + (m.group("you_control") or "")
+    )
     if kind is None:
         return None
     static: dict[str, Any] = {
@@ -12886,11 +13150,73 @@ def _animate_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         if keywords is None:
             return None
         extra_statics.append({"type": "grant_keyword", "params": {"keywords": keywords}})
-    return [EffectSpec("grant_until", {
+    specs = [EffectSpec("grant_until", {
         "duration": "end_of_turn" if m.group("eot") else "rest_of_game",
         "target_kind": kind, "static": static,
         **({"extra_statics": extra_statics} if extra_statics else {}),
     })]
+    if m.groupdict().get("must_blocked"):
+        specs.append(EffectSpec("pump", {"previous_subject": True, "keywords": ["must_be_blocked"]}))
+    return specs
+
+
+#: PAR-124: the TARGET sibling of `_ANIMATE_SELF_LEADING_EOT_RE` — "Until
+#: end of turn, target land you control becomes a 4/4 dinosaur creature
+#: with reach and haste. It's still a land." (Disturbed Slumber/Elemental
+#: Uprising) puts the duration in front of "target …", unlike
+#: `_ANIMATE_TARGET_RE`'s trailing-``eot`` ordering. A trailing "it must be
+#: blocked this turn if able." sentence, when present, is folded into this
+#: same regex rather than left to the generic `previous_subject`
+#: connector-split pipeline — that split would hand the *pure-reminder*
+#: "it's still a land" sentence its own unclaimed part first (nothing
+#: builds an `EffectSpec` for it alone), failing the whole body closed
+#: before the tail is ever reached (see `_ANIMATE_TARGET_RE`'s identical
+#: reasoning).
+_ANIMATE_TARGET_LEADING_EOT_RE = _c(
+    r"until end of turn, target (?:snow )?"
+    r"(?P<kind>land|mountain|forest|artifact|creature|enchantment|creature or land)"
+    r"(?P<you_control> you control)? becomes "
+    r"an? (?P<p>\d+)/(?P<t>\d+) (?P<quals>(?:[a-z]+ )*?)creature"
+    r"(?: with (?P<kw>[a-z, ]+?))?"
+    r"(?:\. it'?s still an? (?:snow )?(?:(?P=kind)|land))?"
+    r"(?P<must_blocked>\. it must be blocked this turn if able)?"
+)
+
+
+def _animate_target_leading_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    quals = _split_animate_qualifiers(m.group("quals"))
+    if quals is None:
+        return None
+    colors, add_types, add_subtypes = quals
+    kind = resolve_target_kind(
+        "target " + m.group("kind") + (m.group("you_control") or "")
+    )
+    if kind is None:
+        return None
+    static: dict[str, Any] = {
+        "type": "type_change",
+        "params": {
+            "add_types": ["creature"] + add_types,
+            "power": int(m.group("p")), "toughness": int(m.group("t")),
+            **({"add_subtypes": add_subtypes} if add_subtypes else {}),
+        },
+    }
+    extra_statics = []
+    if colors:
+        extra_statics.append({"type": "color", "params": {"colors": colors, "set": True}})
+    kw = m.groupdict().get("kw")
+    if kw:
+        keywords = _token_keywords(kw)
+        if keywords is None:
+            return None
+        extra_statics.append({"type": "grant_keyword", "params": {"keywords": keywords}})
+    specs = [EffectSpec("grant_until", {
+        "duration": "end_of_turn", "target_kind": kind, "static": static,
+        **({"extra_statics": extra_statics} if extra_statics else {}),
+    })]
+    if m.groupdict().get("must_blocked"):
+        specs.append(EffectSpec("pump", {"previous_subject": True, "keywords": ["must_be_blocked"]}))
+    return specs
 
 
 # --- The table --------------------------------------------------------------
@@ -12950,6 +13276,15 @@ HANDLERS: list[EffectHandler] = [
         _COPY_PERMANENT_PREVIOUS_RE,
         _copy_permanent_previous,
         previous_subject_only=True,
+    ),
+    # PAR-124: "whenever a nontoken creature an opponent controls enters,
+    # create a token that's a copy of that creature." (Theoretical
+    # Duplication) — the RULE 603.1 group-subject sibling of the row above.
+    EffectHandler(
+        "copy_permanent_group",
+        _COPY_PERMANENT_GROUP_RE,
+        _copy_permanent_group,
+        group_subject_only=True,
     ),
     # "create a token that's a [tapped and attacking] copy of <named real
     # card>" (The Joiner of Cats' Lurrus else-branch) — after the target /
@@ -13692,6 +14027,12 @@ HANDLERS: list[EffectHandler] = [
         _LOSE_LIFE_PER_SPELL_CAST_THIS_TURN_RE,
         _lose_life_per_spell_cast_this_turn,
     ),
+    # "that player loses N life for each 1 life they gained." (False Cure).
+    EffectHandler(
+        "lose_life_per_life_gained",
+        _LOSE_LIFE_PER_LIFE_GAINED_RE,
+        _lose_life_per_life_gained,
+    ),
     # "you lose 2 life" / "target player loses 2 life" / "target opponent
     # loses 2 life" / "they lose 2 life" (the group-subject event's own
     # player — see `_lose_life`'s docstring).
@@ -14196,6 +14537,18 @@ HANDLERS: list[EffectHandler] = [
             "untap": m.group("verb").lower() == "untap",
         })],
     ),
+    # "Untap all white creatures you control." (Battle Cry, PAR-124) — the
+    # colour-scoped sibling of `tap_selector`, mirroring `tap_lands_of_type`'s
+    # own "all `<qualifier>` you control" shape; `_ANIMATE_COLOR_WORDS`
+    # (already built for the animate-target family) supplies the WUBRG letter.
+    EffectHandler(
+        "tap_creatures_of_color",
+        _c(rf"(?P<verb>tap|untap) all (?P<color>white|blue|black|red|green) creatures you control"),
+        lambda m: [EffectSpec("tap", {
+            "selector": "creatures_you_control_of_color_" + _ANIMATE_COLOR_WORDS[m.group("color").lower()],
+            "untap": m.group("verb").lower() == "untap",
+        })],
+    ),
     # "untap all attacking creatures" / "untap each attacking creature"
     # (Karlach, Fury of Avernus/Hexplate Wallbreaker) — tried above `tap_self`
     # too, same "specific mass phrase before the bare pronoun row" ordering.
@@ -14656,6 +15009,10 @@ HANDLERS: list[EffectHandler] = [
         _cant_be_blocked_turn_previous, previous_subject_only=True,
     ),
     EffectHandler(
+        "must_be_blocked_turn_previous", _MUST_BE_BLOCKED_TURN_PREVIOUS_RE,
+        _must_be_blocked_turn_previous, previous_subject_only=True,
+    ),
+    EffectHandler(
         "cant_be_blocked_except_previous", _CANT_BE_BLOCKED_EXCEPT_PREVIOUS_RE,
         _cant_be_blocked_except_previous, previous_subject_only=True,
     ),
@@ -14775,6 +15132,14 @@ HANDLERS: list[EffectHandler] = [
         _TAP_ANOTHER_UNTAPPED_YOU_CONTROL_RE,
         _tap_another_untapped_you_control,
     ),
+    # PAR-124: "you may attach it to target creature you control. if you
+    # do, <effect>." — tried before the generic `may_effect_then` row
+    # below, whose own builder explicitly rejects a targeted antecedent.
+    EffectHandler(
+        "may_attach_if_you_do",
+        _MAY_ATTACH_IF_YOU_DO_RE,
+        _may_attach_if_you_do,
+    ),
     # PAR-79 sixth increment: "You may <effect>. If you do, <effect2>." with
     # a resolving-effect antecedent rather than a cost — tried after both
     # cost-shaped rows above so a genuine cost antecedent keeps the more
@@ -14823,6 +15188,12 @@ HANDLERS: list[EffectHandler] = [
         "add_mana",
         _ADD_MANA_RE,
         _add_mana,
+    ),
+    # "that player adds an additional {b}." (Bubbling Muck/High Tide).
+    EffectHandler(
+        "add_mana_additional_event_player",
+        _ADD_MANA_ADDITIONAL_EVENT_PLAYER_RE,
+        _add_mana_additional_event_player,
     ),
     # "transform ~" / "transform it" / "transform this permanent"/"creature"
     # (RULE 712.8) — the self-transform shape a loyalty "[0]: Transform ~."
@@ -14873,6 +15244,14 @@ HANDLERS: list[EffectHandler] = [
         "return_self_to_battlefield",
         _RETURN_SELF_TO_BATTLEFIELD_RE,
         _return_self_to_battlefield,
+    ),
+    # "return that card to the battlefield under its owner's control"
+    # (Graceful Reprieve) — the self-subject-bound-target spelling.
+    EffectHandler(
+        "return_target_to_battlefield_self",
+        _RETURN_TARGET_TO_BATTLEFIELD_SELF_RE,
+        _return_target_to_battlefield_self,
+        self_subject_only=True,
     ),
     EffectHandler(
         "return_trigger_card_to_hand",
@@ -15201,6 +15580,13 @@ HANDLERS: list[EffectHandler] = [
         _ATTACKS_TURN_IF_ABLE_RE,
         _attacks_turn_if_able,
     ),
+    # "Target creature must be blocked this turn if able."/"~ must be
+    # blocked this turn if able." (RULE 509.1c, resolve-time, PAR-124).
+    EffectHandler(
+        "must_be_blocked_this_turn_if_able",
+        _MUST_BE_BLOCKED_TURN_RE,
+        _must_be_blocked_turn,
+    ),
     # "target <c1> or <c2> creature gets +N/+M / gains <kw> until end of
     # turn" (the Weaver cycle) — `TargetSpec.colors` OR narrowing; a
     # dedicated row since the shared `TARGET` macro has no colour slot.
@@ -15257,6 +15643,9 @@ HANDLERS: list[EffectHandler] = [
         _c(
             rf"{_SUBJECT} gets? {_PT_DELTA}"
             rf"(?: and gains? (?P<kw>[a-z, ]+?))? until end of turn"
+            # PAR-124: "…and must be blocked this turn if able." (Compelled
+            # Duel/Emergent Growth/Joraga Invocation).
+            rf"(?P<must_blocked> and must be blocked this turn if able)?"
         ),
         _pump,
     ),
@@ -15494,7 +15883,12 @@ HANDLERS: list[EffectHandler] = [
         # a "<name> <N>" entry off into ``parametric_keywords`` and
         # fail-closes on anything that isn't a FLAG or a grantable
         # parametric keyword.
-        _c(rf"{_SUBJECT} gains? (?P<kw>[a-z0-9, ]+?) until end of turn"),
+        _c(
+            rf"{_SUBJECT} gains? (?P<kw>[a-z0-9, ]+?) until end of turn"
+            # PAR-124: "…gains deathtouch until end of turn and must be
+            # blocked this turn if able." (Deadly Allure).
+            rf"(?P<must_blocked> and must be blocked this turn if able)?"
+        ),
         _pump_keywords,
     ),
     # "Each creature your opponents control gets -1/-1 until end of turn
@@ -15631,6 +16025,11 @@ HANDLERS: list[EffectHandler] = [
     ),
     EffectHandler("copy_that_spell", _COPY_THAT_SPELL_RE, _copy_that_spell),
     EffectHandler(
+        "conjure_duplicate_into_hand",
+        _CONJURE_DUPLICATE_INTO_HAND_RE,
+        _conjure_duplicate_into_hand,
+    ),
+    EffectHandler(
         "pump_group_subject",
         _c(
             rf"it gets? {_PT_DELTA}"
@@ -15641,7 +16040,12 @@ HANDLERS: list[EffectHandler] = [
     ),
     EffectHandler(
         "grant_group_subject_kw",
-        _c(r"it gains? (?P<kw>[a-z, ]+?) until end of turn"),
+        _c(
+            r"it gains? (?P<kw>[a-z, ]+?) until end of turn"
+            # PAR-124: "…and must be blocked this turn if able." (Descend
+            # on the Prey).
+            r"(?P<must_blocked> and must be blocked this turn if able)?"
+        ),
         _grant_group_subject_kw,
         group_subject_only=True,
     ),
@@ -16255,6 +16659,11 @@ HANDLERS: list[EffectHandler] = [
         _ANIMATE_TARGET_RE,
         _animate_target,
     ),
+    EffectHandler(
+        "animate_target_leading_eot",
+        _ANIMATE_TARGET_LEADING_EOT_RE,
+        _animate_target_leading_eot,
+    ),
     # "goad target creature [an opponent controls]" (RULE 701.15a).
     EffectHandler(
         "goad",
@@ -16502,7 +16911,7 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "create_token",
         _c(
-            rf"(?P<per_opp>for each opponent, )?(?:(?P<who>you|each player|each opponent) )?creates? {COUNT} "
+            rf"(?P<per_opp>for each opponent, )?(?:(?P<who>you|each player|each opponent) )?creates? {COUNT_X} "
             rf"(?P<tapped>tapped )?(?P<legendary>legendary )?(?P<p>\d+)/(?P<t>\d+) "
             rf"(?P<mid>[a-z ]*?)creature tokens?"
             # ``0-9`` in the keyword capture is ENG-31's "… token with
@@ -16577,19 +16986,19 @@ HANDLERS: list[EffectHandler] = [
         _RING_TEMPTS_YOU_RE,
         _ring_tempts_you,
     ),
-    # "[You may c]ast spells this turn as though they had flash." (Emergence
-    # Zone-shaped, MEC-12; the leading "you may" is already peeled off by
-    # `segmenter._peel_optional` before a clause ever reaches this table) —
-    # the unrestricted, "this turn" one-shot grant already shipped as
-    # `effects.GrantFlashUntilEndOfTurnEffect` (Borne Upon a Wind,
-    # hand-authored only until now). No type filter exists on that effect,
-    # so this row deliberately claims only the unqualified "spells"
-    # wording, not a "sorcery spells"/"creature spells" narrowed variant (a
-    # different, still-unmodeled shape — see PARSER_LONG_TAIL.md).
+    # "[You may c]ast [sorcery/creature ]spells this turn as though they had
+    # flash." (Emergence Zone-shaped, MEC-12; Complete the Circuit's own
+    # "sorcery spells" narrowing, PAR-124 — the leading "you may" is already
+    # peeled off by `segmenter._peel_optional` before a clause ever reaches
+    # this table) — `effects.GrantFlashUntilEndOfTurnEffect.card_types` now
+    # carries the optional type-word filter through to `GameState.temp_
+    # flash_until_turn_types`.
     EffectHandler(
         "grant_flash_until_eot",
-        _c(r"cast spells this turn as though they had flash"),
-        lambda m: [EffectSpec("grant_flash_until_eot", {})],
+        _c(r"cast (?:(?P<kind>sorcery|creature) )?spells this turn as though they had flash"),
+        lambda m: [EffectSpec("grant_flash_until_eot", (
+            {"card_types": [m.group("kind")]} if m.group("kind") else {}
+        ))],
     ),
     # PAR-72: Party generalized into a resolve-time amount (see the
     # dedicated section above `HANDLERS`) — one row per distinct verb the

@@ -117,6 +117,16 @@ class GameObject:
         #: cleanup only for as long as that source stays on the battlefield
         #: with `prepared` still set. None on every other object.
         self.prepared_source_id: Optional[int] = None
+        #: RULE 707.9 (PAR-124, Spellchain Scatter's "conjure a duplicate of
+        #: that spell into your hand"): a token deliberately created *in
+        #: hand* rather than on the stack or battlefield, meant to persist
+        #: there like any other card until cast or discarded — unlike a
+        #: `copy_spell` stack copy (reaped the instant it leaves the stack,
+        #: RULE 704.5d), this one's whole point is to survive off the
+        #: battlefield, so `_remove_stranded_tokens` exempts it the same way
+        #: `prepared_source_id`/`GameState.free_cast_instance_ids` already
+        #: exempt their own off-battlefield tokens.
+        self.conjured_into_hand: bool = False
         #: RULE 702.33b: how many times Kicker was paid when this spell was
         #: cast — 0 (not kicked), 1 for a plain Kicker, or 0..N for
         #: Multikicker. Set once at cast time by `GameEngine._cast_current_face`
@@ -1302,6 +1312,7 @@ class GameObject:
         self.adventure_castable = False
         self.prepared = False
         self.prepared_source_id = None
+        self.conjured_into_hand = False
         self.kicker_count = 0
         self.kicker_x_paid = 0
         self.buyback_paid = False

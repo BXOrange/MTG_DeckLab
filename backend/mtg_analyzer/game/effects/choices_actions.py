@@ -538,6 +538,20 @@ class CreateTurnTriggerEffect(GameEffect):
     ability's source and its controller as the ability's controller. The result is
     appended to `GameState.turn_scoped_triggers`. ``once`` makes it the one-shot "when
     you next cast …" variant.
+
+    ``target_kind`` (PAR-124, Graceful Reprieve — "When target creature dies
+    this turn, return that card to the battlefield under its owner's
+    control.") binds the ability with the *chosen RULE 115 target* as its
+    source instead of the spell: `_trigger_condition`'s ``{"subject":
+    "self"}`` branch (and every plain self-referential effect body,
+    ``target_kind=None``) already resolves against whatever object
+    `bind_ability` was given as ``source`` — no new condition kind or
+    referent needed, just binding to a different object. `GameObject`
+    identity survives the DIES zone change (RULE 400.7's ``instance_id``/
+    Python identity both persist through `reset_as_new_object`), so the
+    captured target is still the right object once the delayed check fires,
+    however many zones it's since moved through — the same guarantee
+    `ReturnSelfToBattlefieldEffect`'s own docstring already relies on.
     """
 
     def __init__(
@@ -548,6 +562,7 @@ class CreateTurnTriggerEffect(GameEffect):
         once: bool = False,
         description: str = "",
         source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.trigger = dict(trigger or {})
@@ -555,6 +570,7 @@ class CreateTurnTriggerEffect(GameEffect):
         self.optional = bool(optional)
         self.once = bool(once)
         self.description = str(description)
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..binding.core import bind_ability  # function-scoped: effects↔binder cycle
@@ -563,6 +579,11 @@ class CreateTurnTriggerEffect(GameEffect):
 
         if not self.trigger.get("event") or not self.inner_specs:
             return
+        bind_source = self.source
+        if self.target_spec is not None:
+            bind_source = targets[0] if targets else None
+            if bind_source is None:
+                return  # RULE 608.2b: fizzle — no legal target remained
         spec = AbilitySpec(
             "triggered",
             effects=[
@@ -574,7 +595,7 @@ class CreateTurnTriggerEffect(GameEffect):
             optional=self.optional,
             raw_text=self.description,
         )
-        ability = bind_ability(spec, source=self.source)
+        ability = bind_ability(spec, source=bind_source)
         controller = _controller_of(self.source, context)
         for one in ability if isinstance(ability, list) else [ability]:
             if controller is not None:
@@ -2176,6 +2197,34 @@ class DestroySpecificEffect(GameEffect):
         for obj in list(self.objects):
             if obj in context.state.battlefield:
                 context.engine.destroy(obj)
+
+
+class DiscardSpecificEffect(GameEffect):
+    """Discard the exact hand cards baked into this effect (RULE 701.8).
+
+    The hand-zone sibling of `SacrificeSpecificEffect`/`DestroySpecificEffect`
+    — "conjure a duplicate of that spell into your hand. … Discard **the
+    duplicate** at the beginning of your next end step." (Spellchain Scatter,
+    PAR-124), whose referent is `GameContext.created_objects` (baked in by
+    `CreateDelayedTriggerEffect`'s ``capture="created_objects"`` branch, which
+    special-cases any inner effect exposing an ``.objects`` list). Silently
+    skips anything no longer in its owner's hand by the time this resolves
+    (RULE 111.7 — already discarded, cast, or otherwise moved some other way).
+    """
+
+    def __init__(
+        self,
+        objects: list["GameObject"],
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.objects = objects
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        for obj in list(self.objects):
+            player = context.state.player_by_id(obj.owner_id)
+            if player is not None and obj in player.hand:
+                context.discard_specific(obj)
 
 
 class ReturnSpecificToHandEffect(GameEffect):

@@ -197,6 +197,12 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # "target Forest" (Arbor Elf) — a specific basic land subtype, above
     # the bare "target land" row so the longer/more specific phrase wins.
     (r"target forest", "forest"),
+    # "target creature or land you control" (PAR-124, Vengeant Earth's own
+    # animate-either spell) — a type union scoped to the controller, above
+    # the bare "target land you control" row so the longer phrase wins;
+    # mirrors `creature_or_enchantment_you_control`'s own union shape
+    # (targeting.py) but over creature/land instead of creature/enchantment.
+    (r"target creature or land you control", "creature_or_land_you_control"),
     # "target land you control" / "target land an opponent controls" (PAR-29
     # — Political Trickery/Vedalken Plotter's own exchange-control targets)
     # — the controller-scoped pair, above the bare "target land" row so the

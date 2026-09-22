@@ -2916,6 +2916,15 @@ def _vehicle_scope_params(m: "re.Match[str]") -> dict:
 #: whole clause unclaimed (fail-closed), which is why this list is ordered
 #: most-specific-first.
 _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
+    # PAR-124 (Spellchain Scatter): "if this spell wasn't/was kicked, …" —
+    # `static_conditions.py`'s own ``"kicked"`` kind (RULE 702.33b) already
+    # reads `GameObject.kicker_count`, built for the amount-override family
+    # (`amount_if_kicked`); only the oracle-text *condition-phrase*
+    # recognition (as opposed to an inline "…instead" override) was missing.
+    (re.compile(r"this spell wasn'?t kicked", re.I),
+     lambda m: {"kind": "kicked", "max": 0}),
+    (re.compile(r"this spell was kicked", re.I),
+     lambda m: {"kind": "kicked", "min": 1}),
     (re.compile(r"you control a legendary (?P<subtype>[a-z]+)", re.I),
      lambda m: {"kind": "control_legendary_subtype", "subtype": m.group("subtype").lower()}),
     # PAR-98: reused by conditional activation-cost reductions as well as

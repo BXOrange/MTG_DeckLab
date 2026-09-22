@@ -948,6 +948,14 @@ class GameState:
         #: bookkeeping (it simply stops matching once the turn advances,
         #: unlike the `temp_*` `GameObject` fields `_step_cleanup` clears).
         self.temp_flash_until_turn: dict[str, int] = {}
+        #: PAR-124: "You may cast **sorcery** spells this turn as though
+        #: they had flash." (Complete the Circuit) — the type-scoped sibling
+        #: of `temp_flash_until_turn` just above; kept as a separate field
+        #: rather than widening that one's value shape, since every existing
+        #: reader/writer of the unrestricted grant would otherwise need to
+        #: learn a new tuple shape for a case that never applies to them.
+        #: ``{player_id: (turn_number, (type_word, ...))}``.
+        self.temp_flash_until_turn_types: dict[str, tuple[int, tuple[str, ...]]] = {}
         #: RULE 116.2a-adjacent (MEC-35, Leonin Arbiter): "Any player may
         #: pay {2} for that player to ignore this effect until end of
         #: turn." — ``{player_id: internal_turn.number}``, the same "stops matching

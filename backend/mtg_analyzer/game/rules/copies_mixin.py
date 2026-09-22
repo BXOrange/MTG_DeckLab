@@ -309,6 +309,41 @@ class CopiesMixin:
             self.state.stack.append(copy_item)
             copies.append(copy_item)
         return copies
+    def conjure_duplicate_into_hand(
+        self, target: Any, controller_id: str,
+    ) -> Optional[GameObject]:
+        """"Conjure a duplicate of that spell into your hand." (Spellchain
+        Scatter, PAR-124) — the hand-zone sibling of `copy_spell` above: a
+        real, castable copy of a spell's own card, sitting in a hand rather
+        than resolving off the stack. RULE 707's "a copy of a card" mechanic
+        never actually distinguishes *where* the copy ends up (a token
+        permanent, a stack item, or — this project's first instance — a hand
+        card); only the destination zone differs from every other copy
+        primitive here.
+        """
+        item = self._stack_item_for(target)
+        if item is None or item.obj is None:
+            return None
+        from ..binding.core import bind_from_catalogue  # function-scoped: avoid cycle
+
+        copiable = getattr(item.obj, "_front_card", item.obj.card)
+        copy_obj = GameObject(copiable.as_copy(), owner_id=controller_id, zone=Zone.HAND)
+        copy_obj.is_token = True
+        copy_obj.is_copy = True
+        # RULE 704.5d exempts a token only while it stays a permanent; this
+        # one is deliberately created off the battlefield and meant to
+        # persist there (`GameObject.conjured_into_hand`, see its own
+        # docstring) — without this, `_remove_stranded_tokens` would reap it
+        # the instant the next SBA pass ran, before it could ever be cast or
+        # discarded.
+        copy_obj.conjured_into_hand = True
+        bind_from_catalogue(copy_obj)
+        player = self.state.player_by_id(controller_id)
+        if player is None:
+            return None
+        player.hand.append(copy_obj)
+        return copy_obj
+
     def copy_ability(
         self, target: Any, controller_id: str, new_targets: Optional[list[Any]] = None,
     ) -> Optional[StackItem]:

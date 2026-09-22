@@ -583,9 +583,19 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 49.0% (17,069 / 34,811) as of 2026-09-22, measured at
-PARSER_VERSION 461**; the Commander-legal slice is **51.6% (16,410 /
-31,830)**. v460 closes four cards of PAR-124's own residue (+4, 0 regressed): "copy that spell
+**Coverage: 49.1% (17,092 / 34,811) as of 2026-09-22, measured at
+PARSER_VERSION 462**; the Commander-legal slice is **51.6% (16,432 /
+31,830)**. v462 closes PAR-124's own "must be blocked this turn if able" cluster (a plain flag
+keyword grant reused across five shapes — a bare form, a pump-clause tail, and a `previous_subject`/
+group-subject pronoun tail: Compelled Duel, Deadly Allure, Descend on the Prey, Emergent Growth,
+Enlarge, Goldenhide Ox, Head Banger's sibling Irresistible Prey/Satyr Piper/Loathsome Catoblepas,
+Joraga Invocation), the animate-land family's "you control"/"or land" target-kind gap plus a
+missing "dinosaur" qualifier word (Disturbed Slumber, Elemental Uprising, Vengeant Earth, bonus
+Fountain of Ichor), a type-scoped "cast `<type>` spells this turn as though they had flash" grant
+(Complete the Circuit, bonus Winding Canyons), a colour-scoped mass tap/untap selector (Battle
+Cry), and a RULE 603.1 group-subject "copy that creature" reusing the existing `trigger_event`
+referent (Theoretical Duplication, bonus Impostor Syndrome/Necroduality) — +23, 0 regressed. v460
+closes four cards of PAR-124's own residue (+4, 0 regressed): "copy that spell
 X times"/"an additional time" (Storm King's Thunder, Howl of the Horde's Raid-gated second
 ability) widens the existing count-suffix row, with `_substitute_x` reaching one level deeper —
 into a `CreateTurnTriggerEffect`'s own `inner_specs`, raw dicts not yet built into real effects at

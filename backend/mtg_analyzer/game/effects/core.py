@@ -483,6 +483,11 @@ class GameContext:
     def copy_self_spell(self, obj: "GameObject", controller_id: str, targets: Optional[list] = None) -> None:
         self.engine.copy_self_spell(obj, controller_id, targets=targets)
 
+    def conjure_duplicate_into_hand(
+        self, target: Any, controller_id: str,
+    ) -> Optional["GameObject"]:
+        return self.engine.conjure_duplicate_into_hand(target, controller_id)
+
     def copy_ability(
         self, target: Any, controller_id: str, new_targets: Optional[list] = None,
     ) -> None:

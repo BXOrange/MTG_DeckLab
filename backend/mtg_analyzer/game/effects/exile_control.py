@@ -2349,12 +2349,32 @@ class GrantFlashUntilEndOfTurnEffect(GameEffect):
     timing gate; naturally expires once the turn number advances, no
     cleanup-step bookkeeping needed (unlike the `temp_*` `GameObject`
     fields `_step_cleanup` clears).
+
+    ``card_types`` (PAR-124, Complete the Circuit's "cast **sorcery**
+    spells this turn as though they had flash") narrows the grant to a
+    printed type word, stamped onto the sibling `GameState.
+    temp_flash_until_turn_types` field instead — kept apart from the
+    unrestricted grant above so a type-scoped instance is never mistaken
+    for a blanket one.
     """
+
+    def __init__(
+        self,
+        source: Optional["GameObject"] = None,
+        card_types: Optional[list[str]] = None,
+    ) -> None:
+        super().__init__(source)
+        self.card_types = list(card_types) if card_types else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
-        if player is not None:
-            context.state.temp_flash_until_turn[player.id] = context.state.internal_turn.number
+        if player is None:
+            return
+        turn = context.state.internal_turn.number
+        if self.card_types:
+            context.state.temp_flash_until_turn_types[player.id] = (turn, tuple(self.card_types))
+        else:
+            context.state.temp_flash_until_turn[player.id] = turn
 
 
 class ExileControllerSearchesBasicLandEffect(GameEffect):

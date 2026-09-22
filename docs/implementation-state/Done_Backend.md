@@ -7011,6 +7011,93 @@ measurement of why is the useful half of this work.
   (`parser_probe.py diff`, full `pytest -q`: 21 known-red unrelated to this change, 0 new). Coverage
   17,065 → 17,069, Commander-legal 51.5% → 51.6% (16,407 → 16,410).
 
+### PAR-124's own residue, second batch: the "must be blocked this turn if able" cluster, the animate-land/flash/tap-selector family, and a group-subject copy (PARSER_VERSION 462)
+
+- **"`<subject>` must be blocked this turn if able."** RULE 509.1c's `must_be_blocked` flag keyword
+  (already reachable via `combat.has`/`_enforce_block_requirements` for a standing static, Raphael,
+  Ninja Destroyer) had no resolve-time route at all: neither a bare form ("target creature must be
+  blocked this turn if able." — Irresistible Prey, Goldenhide Ox, Head Banger, Satyr Piper; "~ must
+  be blocked this turn if able." — Loathsome Catoblepas) nor a tail riding an existing pump/keyword
+  grant clause ("gets +N/+N … and must be blocked this turn if able." — Compelled Duel, Emergent
+  Growth, Joraga Invocation; "gains deathtouch … and must be blocked this turn if able." — Deadly
+  Allure) nor a `previous_subject`/group-subject pronoun tail ("`<earlier clause>`. it must be
+  blocked this turn if able." — Enlarge; "…it gains first strike … and must be blocked this turn if
+  able." — Descend on the Prey's own group-subject "it"). All five shapes reuse the identical
+  primitive: `"must_be_blocked"` is just another entry in `PumpEffect.keywords`/
+  `GrantKeywordToTriggerSubjectEffect.keyword`, exactly like any other granted flag — no new engine
+  code, only the missing parser rows (`_MUST_BE_BLOCKED_TURN_RE`, an `and must be blocked this turn
+  if able` suffix on `_pump`/`_pump_keywords`, `_MUST_BE_BLOCKED_TURN_PREVIOUS_RE`, and a second
+  `grant_keyword_to_trigger_subject` spec appended by `_grant_group_subject_kw` when the suffix is
+  present, since that effect only ever carries one keyword).
+- **The animate-land family's "you control"/"or land" gap.** `_ANIMATE_TARGET_RE` had never accepted
+  a controller-scoped or type-union target kind ("target land you control becomes …" — Disturbed
+  Slumber/Elemental Uprising; "target creature or land you control becomes …" — Vengeant Earth),
+  purely a recognition gap: `resolve_target_kind` already resolved `land_you_control` fine, the
+  regex just never threaded a `you control` qualifier through to it. A new
+  `creature_or_land_you_control` target kind (`targeting.py`, mirroring the existing
+  `creature_or_enchantment_you_control` union) and a new `_ANIMATE_TARGET_LEADING_EOT_RE` (the
+  TARGET sibling of the already-shipped `_ANIMATE_SELF_LEADING_EOT_RE`, for the "**until end of
+  turn**, target land …" word order Disturbed Slumber/Elemental Uprising print instead of the
+  trailing-eot form) close the base clause; a real card also surfaced a real gap in the qualifier
+  whitelist itself — "dinosaur" was missing from `_ANIMATE_QUALIFIER_SUBTYPES`, so Disturbed
+  Slumber's own "4/4 dinosaur creature" failed closed even once every other axis was fixed (bonus:
+  Fountain of Ichor, an unrelated card printing the identical "3/3 Dinosaur artifact creature"
+  phrase, closes for free). The trailing "it must be blocked this turn if able." sentence, when
+  present (Disturbed Slumber/Elemental Uprising/Vengeant Earth), is folded into the *same* regex
+  as a fourth optional group rather than left to the generic `previous_subject` connector-split
+  pipeline: that split hands the pure-reminder "it's still a land" sentence its own unclaimed part
+  first (nothing builds an `EffectSpec` for it alone), which fails the whole body closed before the
+  tail is ever reached — the same reasoning `_ANIMATE_SELF_LEADING_EOT_RE`'s own embedded discard
+  already establishes for a self-form card.
+- **A type-scoped "cast `<type>` spells this turn as though they had flash" grant.**
+  `GrantFlashUntilEndOfTurnEffect`'s existing blanket grant (`GameState.temp_flash_until_turn`,
+  Borne Upon a Wind) had no type filter, so "cast **sorcery** spells this turn as though they had
+  flash" (Complete the Circuit) and "cast **creature** spells this turn as though they had flash"
+  (Winding Canyons, an activated-ability sibling — bonus) stayed unclaimed by design (the row's own
+  comment said so). A sibling field, `GameState.temp_flash_until_turn_types` (`{player_id: (turn,
+  (type_word, …))}`, kept separate from the unrestricted grant rather than widening its value shape
+  so no existing reader/writer has to learn a new tuple), plus a `card_types` param on the effect
+  and a `type_words` check in `GameEngine.can_cast`'s timing gate, close both.
+- **A colour-scoped mass tap/untap selector.** "Untap all **white** creatures you control." (Battle
+  Cry) needed a `creatures_you_control_of_color_<letter>` branch on `continuous.
+  group_selector_objects` — the colour-scoped sibling of the existing `creatures_you_control_of_
+  type_<subtype>` branch, reading the same layer-5 `GameObject.colors` the count-selector/damage-
+  filter colour checks elsewhere already use — plus widening `TapEffect._is_valid_tap_selector`'s
+  whitelist and a new `tap_creatures_of_color` parser row (`_ANIMATE_COLOR_WORDS` supplies the WUBRG
+  letter).
+- **A RULE 603.1 group-subject "copy that creature."** "Whenever a nontoken creature an opponent
+  controls enters, create a token that's a copy of **that creature**." (Theoretical Duplication)
+  needed no new primitive: `CopyPermanentEffect.referent="trigger_event"` already reads exactly
+  this off `GameContext.trigger_event["instance_id"]` (built for Ashling, the Limitless's "…copy of
+  **it**.", MEC-42), and every event this trigger reaches already keys the acting object the same
+  way — only the parser row (`_COPY_PERMANENT_GROUP_RE`, `group_subject_only`-gated, the sibling of
+  the existing `previous_subject_only` "it"/"that card" row) was missing. Proving it end to end
+  surfaced a real false negative in `segmenter._group_it_would_hit_source` — the PAR-119 composed-
+  head guard that rejects a group-subject body whose effect has `target_kind: None` as "would
+  silently act on the source instead of the trigger subject": it had no way to know a `copy_
+  permanent` spec's `referent="trigger_event"` had *already* been correctly retargeted, and
+  rejected the whole clause on the same shape a wrongly-defaulted one uses. Fixed with a one-line
+  exemption rather than loosening the guard generally. +2 bonus cards share the same trigger/effect
+  shape outside Theoretical Duplication's own search phrase (Impostor Syndrome, Necroduality).
+- **Verification:** `engine_bench.py`-style direct `GameEngine`/`GameContext` runs, not just parse
+  verdicts — a `must_be_blocked` grant is confirmed via `combat.has(attacker, "must_be_blocked")`
+  after `recompute_continuous_effects()` (the same keyword-union path `_enforce_block_requirements`
+  reads); the colour-scoped tap selector untaps a white creature and leaves a black one tapped on a
+  real two-creature board; the type-scoped flash grant's own `type_words` check and `sorcery_speed`
+  boolean are traced directly (a full `can_cast` round-trip needs mana/priority fixtures out of
+  scope here, but the timing branch itself is exercised). Full suite green (`pytest -q`: 8,660
+  passed, 0 unrelated regressions besides the expected version-lock pin, which was re-bumped).
+  `parser_probe.py diff`: +23 total this batch (Battle Cry, Compelled Duel, Complete the Circuit,
+  Deadly Allure, Descend on the Prey, Disturbed Slumber, Elemental Uprising, Emergent Growth,
+  Enlarge, Fountain of Ichor, Goldenhide Ox, Impostor Syndrome, Irresistible Prey, Joraga
+  Invocation, Loathsome Catoblepas, Necroduality, Satyr Piper, Theoretical Duplication, Vengeant
+  Earth, Winding Canyons, + 3 more sharing the same shapes), 0 regressed. Coverage 17,069 → 17,092,
+  Commander-legal 51.6% → 51.6% (16,410 → 16,432). Spellchain Scatter's "conjure a duplicate into
+  your hand", Head Banger's Contraption-crank head, Magitek Scythe's "attach…if you do" composition,
+  King Harald's Revenge's own word-order variant, and the player-event heads (Bubbling Muck/High
+  Tide, False Cure, Spiritualize) stay open — each confirmed via direct `segment_line` checks as its
+  own distinct, unshared gap, not attempted this pass; see `BACKLOG.md`'s PAR-124 entry.
+
 ### PAR-123 / PAR-124: two wrong-but-modeled families closed (PARSER_VERSION 455)
 
 - **PAR-123 — a bare "it" under a group-subject trigger.** "Whenever a creature you control becomes

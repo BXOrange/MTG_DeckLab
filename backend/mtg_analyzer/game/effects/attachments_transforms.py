@@ -30,7 +30,8 @@ def _is_valid_tap_selector(selector: Optional[str]) -> bool:
     # already handle any such name; this just widens the whitelist to admit
     # them rather than growing `_TAP_SELECTORS` one subtype at a time.
     return bool(selector) and selector.startswith(
-        ("creatures_you_control_of_type_", "lands_you_control_of_type_")
+        ("creatures_you_control_of_type_", "lands_you_control_of_type_",
+         "creatures_you_control_of_color_")
     )
 
 

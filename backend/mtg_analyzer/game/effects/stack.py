@@ -243,6 +243,38 @@ class CopySpellEffect(GameEffect):
         return _count_selector(context.state, controller_id, self.count_selector, source=self.source)
 
 
+class ConjureDuplicateIntoHandEffect(GameEffect):
+    """"Conjure a duplicate of that spell into your hand." (Spellchain
+    Scatter, PAR-124) — the hand-zone sibling of `CopySpellEffect`'s
+    ``spell_from_trigger_event`` mode: "that spell" is RULE 603.1's own
+    firing-event referent (the spell this `create_turn_trigger` ability
+    fired for), not a RULE 115 target, resolved the identical way.
+    """
+
+    def __init__(
+        self,
+        spell_from_trigger_event: Optional[str] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.spell_from_trigger_event = spell_from_trigger_event
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.spell_from_trigger_event is None:
+            return
+        event = context.trigger_event or {}
+        instance_id = event.get(self.spell_from_trigger_event)
+        target = context.state.find_object(instance_id) if instance_id is not None else None
+        if target is None:
+            return
+        controller_id = getattr(self.source, "controller_id", None)
+        if controller_id is None:
+            return
+        duplicate = context.conjure_duplicate_into_hand(target, controller_id)
+        if duplicate is not None:
+            context.created_objects.append(duplicate)
+
+
 class CopyAbilityEffect(GameEffect):
     """Copy an activated ability on the stack (RULE 707.10 — Rings of
     Brighthearth's "you may pay {2}. If you do, copy that ability. You may
