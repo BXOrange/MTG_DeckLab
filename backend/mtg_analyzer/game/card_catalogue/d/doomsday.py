@@ -22,10 +22,8 @@ def _doomsday() -> list[AbilitySpec]:
     has full control over the final order simply by choosing which card
     to name each round (name the card that should be drawn last first,
     the one that should be drawn first last) — RULE 601.2c's "in any
-    order" falls out for free. The only genuinely new piece is
-    `LoseLifeEffect`'s new `amount_from_half_own_life` param — "half your
-    life, rounded up" (RULE 107.3) — reading this ability's own controller
-    at resolution.
+    order" falls out for free. The lose-life half is a `bind` over the
+    controller's life total halved, rounded up (RULE 107.3).
     """
     return [
         AbilitySpec(
@@ -39,7 +37,11 @@ def _doomsday() -> list[AbilitySpec]:
                     "zones": ["library", "graveyard"],
                     "exile_rest": True,
                 }),
-                EffectSpec("lose_life", {"amount_from_half_own_life": True}),
+                EffectSpec("bind", {
+                    "name": "half",
+                    "amount": {"kind": "resource", "resource": "life", "divide": 2, "round_up": True},
+                    "effects": [{"type": "lose_life", "params": {"amount": "$half"}}],
+                }),
             ],
         ),
     ]

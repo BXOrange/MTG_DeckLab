@@ -13,12 +13,11 @@ def _solitude() -> list[AbilitySpec]:
     Evoke — Exile a white card from your hand.
 
     — MEC-12 (cEDH staples 2). Flash/Lifelink are already-bound printed
-    keywords. The new `GainLifeEffect.recipient="target_controller"` reads
-    the same shared exile target `amount_from_target_power` already reads
-    (RULE 608.2 — one target requirement gathered once, both effects in
-    this trigger share it) — for *who* receives the life, not just how
-    much; without it an untargeted `gain_life` falls back to this
-    creature's own controller, not the exiled creature's. MEC-65 binds its
+    keywords. The life gain is a `bind` over the exiled creature's power
+    (RULE 608.2h, last-known information — it is gone by now), paid to that
+    creature's controller (`{"of": "previous_target", "as": "controller"}`):
+    without a recipient an untargeted `gain_life` falls back to this
+    creature's own controller. MEC-65 binds its
     printed exile-a-white-card Evoke cost through the shared RULE 702.74
     alternate-cast path. "Target
     creature" (unqualified by "you control"/"you don't control") already
@@ -31,8 +30,12 @@ def _solitude() -> list[AbilitySpec]:
             "triggered",
             [
                 EffectSpec("exile", {"target_kind": "creature", "optional": True}),
-                EffectSpec("gain_life", {
-                    "amount_from_target_power": True, "recipient": "target_controller",
+                EffectSpec("bind", {
+                    "name": "power",
+                    "amount": {"kind": "characteristic", "characteristic": "power", "of": "previous_target"},
+                    "effects": [{"type": "gain_life", "params": {
+                        "amount": "$power", "player": {"of": "previous_target", "as": "controller"},
+                    }}],
                 }),
             ],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},

@@ -97,7 +97,7 @@ def test_connive_zero_is_a_no_op_rule_701_50e():
     state.add_to_battlefield(source)
 
     ctx = GameContext(state, engine)
-    ConniveEffect(source=source, times_from_count_selector="attacking_creatures").apply(ctx)
+    ConniveEffect(source=source, times={"kind": "count_selector", "selector": "attacking_creatures"}).apply(ctx)
 
     assert len(p1.library) == 1  # nothing drawn
     assert source.counters.get("+1/+1", 0) == 0
@@ -118,7 +118,7 @@ def test_times_from_trigger_event_reads_the_firing_events_own_field():
 
     ctx = GameContext(state, engine)
     ctx.trigger_event = {"amount": 2}
-    ConniveEffect(source=source, times_from_trigger_event="amount").apply(ctx)
+    ConniveEffect(source=source, times={"kind": "trigger_event", "field": "amount"}).apply(ctx)
 
     assert not p1.library
     assert source.counters.get("+1/+1", 0) == 2

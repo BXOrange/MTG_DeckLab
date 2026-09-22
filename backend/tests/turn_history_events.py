@@ -77,3 +77,9 @@ def declared_attack(state: Any, player_id: str) -> None:
     """The ATTACKS event `declare_attackers` fires for a declared attacker."""
     _fire(state, EventType.ATTACKS, player_id=player_id, attacker="A", instance_id=0,
           object_types=["creature", "permanent"], declared=True)
+
+
+def begin_combat(state: Any, times: int = 1) -> None:
+    """``times`` combat phases have begun this turn."""
+    for _ in range(times):
+        _fire(state, EventType.STEP_BEGIN, step="begin_combat", phase="combat")

@@ -148,6 +148,9 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # "if you gained life this turn" (PAR-60) — reads
         # `GameState.life_gained_this_turn`; optional ``amount`` (default 1).
         "gained_life_this_turn",
+        # "if you descended this turn" (RULE 700.11 — a permanent card was put into your
+        # graveyard from anywhere: died, discarded or milled here; a countered spell is not seen) — reads `GameState.permanent_card_to_graveyard_this_turn`.
+        "descended_this_turn",
         # "if a card left your graveyard this turn" (Primary Research, Relic
         # Retriever, PAR-60) — reads `GameState.cards_left_graveyard_this_turn`.
         "card_left_graveyard_this_turn",
@@ -870,6 +873,8 @@ def condition_holds(
         # (default 1) for the rare "gained N or more life this turn" phrasing.
         gained = getattr(state, "life_gained_this_turn", None) or {}
         return int(gained.get(controller_id, 0) or 0) >= int(condition.get("amount", 1) or 1)
+    if kind == "descended_this_turn":
+        return controller_id in (getattr(state, "permanent_card_to_graveyard_this_turn", None) or set())
     if kind == "card_left_graveyard_this_turn":
         return controller_id in getattr(state, "cards_left_graveyard_this_turn", set())
     if kind == "graveyard_card_type_count_at_least":

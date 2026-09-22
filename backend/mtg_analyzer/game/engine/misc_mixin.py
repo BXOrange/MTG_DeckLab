@@ -105,9 +105,6 @@ class MiscMixin:
         if cost.symbols:
             life_spent = player.mana_pool.pay(cost, life_available=player.life)
             self.rules.lose_life(player, life_spent, cause="cost")
-        self.state.planar_die_rolls_this_turn[player.id] = (
-            self.state.planar_die_rolls_this_turn.get(player.id, 0) + 1
-        )
         face = self.rules.roll_planar_die(player)
         self.give_priority(player)  # RULE 117.3c, as for any other action
         return face

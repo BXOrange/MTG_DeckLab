@@ -457,9 +457,6 @@ class RulesEngine(
         # RULE 702.55: Haunt abilities function from exile, but only for the
         # creature instance their source is currently haunting.
         state.subscribe(self._collect_haunt_triggers)
-        # Consume a "when you next cast a spell matching X this turn, …"
-        # watcher (Dual Strike-shaped) — see `GameState.spell_watchers`.
-        state.subscribe(self._check_spell_watchers)
     def open_choice(self, choice: dict[str, Any]) -> None:
         """ENG-35: suspend and ask. The other half of `resolve_choice`.
 

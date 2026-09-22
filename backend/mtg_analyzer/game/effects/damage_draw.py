@@ -693,42 +693,13 @@ class DrawCardEffect(GameEffect):
         count_selector: Optional[str] = None,
         target_kind: Optional[str] = None,
         selector: Optional[str] = None,
-        amount_from_count_selector: Optional[str] = None,
-        count_from_trigger_event: Optional[str] = None,
-        count_from_trigger_event_counter: Optional[str] = None,
-        amount_from_subject: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: How many cards: a number, or an `effect_amounts` operand measured at resolution
+        #: ("draw cards equal to its power", "that many", "a card for each -1/-1 counter on it").
         self.count = count
-        #: "When ~ dies, draw cards equal to its power." (Lifeblood Hydra /
-        #: Return of the Wildspeaker-shaped) — a ``"<who>_<char>"`` reading
-        #: (`_characteristic_of_subject`), the same idiom
-        #: `GainLifeEffect.amount_from_subject` uses: ``trigger_subject_
-        #: power`` reads the firing event's RULE 400.7 snapshot for a DIES
-        #: trigger and a live re-lookup otherwise. Overrides ``count``.
-        self.amount_from_subject = amount_from_subject
-        #: "When ~ dies, draw a card **for each -1/-1 counter on it**."
-        #: (Dusk Urchins) — a named counter kind on the firing DIES event's
-        #: snapshotted ``counters`` dict (RULE 400.7 — the object is gone),
-        #: rather than a scalar payload field like ``count_from_trigger_
-        #: event``. Overrides ``count`` when set and non-zero.
-        self.count_from_trigger_event_counter = count_from_trigger_event_counter
         self.player = player
         self.count_selector = count_selector if count_selector in _DRAW_COUNT_SELECTORS else None
-        #: "Whenever you lose life, draw that many cards." (Vilis, Broker
-        #: of Blood, MEC-43) — "that many" is the firing `LIFE_LOST`
-        #: event's own ``amount`` field, the same "read this firing's own
-        #: payload" idiom `ImpulsiveDrawEffect.count_from_trigger_event`/
-        #: `CreateTokenEffect.count_from_trigger_event` already use.
-        #: Overrides ``count``/every other selector below when set.
-        self.count_from_trigger_event = count_from_trigger_event
-        #: "draw X cards, where X is the number of `<noun phrase>` you
-        #: control." (MEC-27's own draw-verb-family gap — Intelligence
-        #: Bobblehead-shaped) — the full `continuous.count_selector`
-        #: vocabulary (`subgrammars.DEVOTION`), unlike `count_selector`
-        #: above's small fixed whitelist; mirrors `LoseLifeEffect.
-        #: amount_from_count_selector`'s own "always read as you" scoping.
-        self.amount_from_count_selector = amount_from_count_selector
         self.selector = (
             selector
             if selector in ("each_player", "each_opponent", "attacking_player")
@@ -740,6 +711,7 @@ class DrawCardEffect(GameEffect):
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        count = self._measured(self.count, context, targets)
         if self.selector == "attacking_player":
             # "…that attacking player draws a card…" (Breena, the Demagogue)
             # — whoever the firing `PLAYER_ATTACKED` aggregate names as the
@@ -750,14 +722,14 @@ class DrawCardEffect(GameEffect):
             except (KeyError, ValueError):
                 drawer = None
             if drawer is not None:
-                context.draw(drawer, self.count)
+                context.draw(drawer, count)
             return
         if self.selector in ("each_player", "each_opponent"):
             controller_id = getattr(self.source, "controller_id", None)
             for p in context.state.living_players():
                 if self.selector == "each_opponent" and p.id == controller_id:
                     continue
-                context.draw(p, self.count)
+                context.draw(p, count)
             return
         # Like `GainLifeEffect`/`LoseLifeEffect`: only consume the shared
         # `targets` list when this effect actually declared a target_spec
@@ -769,28 +741,9 @@ class DrawCardEffect(GameEffect):
         # `RulesEngine.draw` as if it were a chosen player.
         player = self._resolve_target_or_controller(context, targets, explicit=self.player)
 
-        def _from_count_selector() -> int:
-            from .. import continuous  # avoid the continuous↔effects import cycle
-
-            controller_id = getattr(self.source, "controller_id", None)
-            return continuous.count_selector(
-                context.state, controller_id, self.amount_from_count_selector, source=self.source,
-            )
-
         count = self._resolve_amount_override(
-            self.count,
+            count,
             [
-                (
-                    bool(self.count_from_trigger_event),
-                    lambda: int((context.trigger_event or {}).get(self.count_from_trigger_event) or 0),
-                ),
-                (
-                    bool(self.count_from_trigger_event_counter),
-                    lambda: int(
-                        ((context.trigger_event or {}).get("counters") or {})
-                        .get(self.count_from_trigger_event_counter, 0)
-                    ),
-                ),
                 (
                     self.count_selector == "auras_and_equipment_attached_to_self",
                     lambda: _attached_auras_and_equipment_count(context, self.source),
@@ -803,11 +756,10 @@ class DrawCardEffect(GameEffect):
                     ),
                 ),
                 (
-                    # "…draw a card for each burden counter on The One Ring."
-                    # — read *after* this same activation's own
-                    # ``add_counters`` effect has already placed this turn's
-                    # counter (RULE 608.2b, effects in printed order), so
-                    # the count includes it.
+                    # "…draw a card for each burden counter on The One Ring." — read *after*
+                    # this same activation's own ``add_counters`` effect has already placed this
+                    # turn's counter (RULE 608.2b, effects in printed order), so the count
+                    # includes it.
                     self.count_selector == "burden_counters_on_self",
                     lambda: int((getattr(self.source, "counters", None) or {}).get("burden", 0)),
                 ),
@@ -815,13 +767,6 @@ class DrawCardEffect(GameEffect):
                     self.count_selector == "half_target_library_round_up",
                     # ceiling division (RULE 107.3 rounds up)
                     lambda: -(-len(getattr(player, "library", None) or []) // 2),
-                ),
-                (bool(self.amount_from_count_selector), _from_count_selector),
-                (
-                    bool(self.amount_from_subject),
-                    lambda: _characteristic_of_subject(
-                        context, self.source, self.amount_from_subject or ""
-                    ),
                 ),
             ],
             stop_at_first=True,
@@ -1134,7 +1079,6 @@ class DiscardEffect(GameEffect):
         whole_hand: bool = False,
         count_max: Optional[int] = None,
         then_draw_discarded: bool = False,
-        count_from_trigger_event: Optional[str] = None,
         filter: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
@@ -1159,7 +1103,6 @@ class DiscardEffect(GameEffect):
         #: `pending_choice` pause because it lives on the state).
         self.count_max = int(count_max) if count_max is not None else None
         self.then_draw_discarded = bool(then_draw_discarded)
-        self.count_from_trigger_event = count_from_trigger_event
         #: "…discards their hand…" (RULE 701.8f — the wheel family: Wheel of
         #: Fortune, Windfall, Timetwister). ``count`` is then whatever that
         #: player is holding when this effect reaches them, so a `scope`
@@ -1211,9 +1154,7 @@ class DiscardEffect(GameEffect):
                 mv = (context.trigger_event or {}).get("mana_value")
                 context.discard_matching(player, mana_value=mv)
             return
-        count = self.count
-        if self.count_from_trigger_event:
-            count = int((context.trigger_event or {}).get(self.count_from_trigger_event) or 0)
+        count = self._measured(self.count, context)
         if count <= 0:
             return
         if self.whole_hand:

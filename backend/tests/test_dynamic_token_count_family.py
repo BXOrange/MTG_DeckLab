@@ -69,7 +69,7 @@ def test_count_from_trigger_event_reads_the_firing_events_amount():
 
     effect = CreateTokenEffect(
         power=1, toughness=1, colors=["G"], subtypes=["Elf", "Warrior"],
-        count_from_trigger_event="amount", source=source,
+        count={"kind": "trigger_event", "field": "amount"}, source=source,
     )
     before = len(eng.state.battlefield)
     effect.apply(ctx)
@@ -89,7 +89,7 @@ def test_count_from_trigger_event_creates_nothing_at_zero_amount():
     ctx.trigger_event = GameEvent(EventType.DAMAGE, amount=0, is_player=True)
 
     effect = CreateTokenEffect(
-        power=1, toughness=1, subtypes=["Elf"], count_from_trigger_event="amount", source=source,
+        power=1, toughness=1, subtypes=["Elf"], count={"kind": "trigger_event", "field": "amount"}, source=source,
     )
     before = len(eng.state.battlefield)
     effect.apply(ctx)

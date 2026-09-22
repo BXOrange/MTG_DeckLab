@@ -136,6 +136,16 @@ def test_the_planar_die_is_free_the_first_time_and_costs_x_after():
     assert eng.can_roll_planar_die(player) is True
 
 
+def test_a_roll_a_card_caused_counts_toward_the_next_special_action_cost():
+    """RULE 901.6b counts *rolls*, not special actions: the tally is read off the roll events."""
+    eng = make_engine("planechase")
+    player = eng.state.player_by_id("p1")
+    eng.state.active_player_index = 0
+    eng.rules.roll_planar_die(player)          # e.g. an effect that rolls it for free
+    assert eng.state.planar_die_rolls_this_turn == {"p1": 1}
+    assert eng.planar_die_cost(player).converted_mana_cost == 1
+
+
 def test_the_roll_tally_resets_each_turn():
     eng = make_engine("planechase")
     player = eng.state.player_by_id("p1")

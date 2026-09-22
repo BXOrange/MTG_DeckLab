@@ -36,6 +36,7 @@ from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
+from tests.turn_history_events import begin_combat
 
 
 def make_engine(*player_ids):
@@ -80,7 +81,7 @@ def test_first_combat_phase_grants_untap_and_extra_combat():
     eng = make_engine("p1", "p2")
     vanguard = put(eng.state, attacker_card())
     _to_declare_attackers(eng)
-    eng.state.combats_this_turn = 1  # the (first) real combat phase this turn
+    begin_combat(eng.state, 1)  # the (first) real combat phase this turn
 
     eng.declare_attackers(eng.state.active_player, [vanguard])
     eng.resolve_until_stable()
@@ -93,7 +94,7 @@ def test_second_combat_phase_does_not_grant_a_third():
     eng = make_engine("p1", "p2")
     vanguard = put(eng.state, attacker_card())
     _to_declare_attackers(eng)
-    eng.state.combats_this_turn = 2  # simulate: already in the granted extra combat
+    begin_combat(eng.state, 2)  # simulate: already in the granted extra combat
 
     eng.declare_attackers(eng.state.active_player, [vanguard])
     eng.resolve_until_stable()
@@ -116,7 +117,7 @@ def test_combats_this_turn_increments_on_begin_combat_step():
 def test_combats_this_turn_resets_on_a_new_turn():
     eng = make_engine("p1", "p2")
     eng.begin_turn()
-    eng.state.combats_this_turn = 3
+    begin_combat(eng.state, 3)
     eng.begin_turn()
     assert eng.state.combats_this_turn == 0
 
@@ -161,7 +162,7 @@ def test_genji_glove_untaps_the_equipped_creature_not_the_equipment():
     glove = put(eng.state, genji_glove_card())
     glove.attached_to = bear.instance_id
     _to_declare_attackers(eng)
-    eng.state.combats_this_turn = 1  # the (first) real combat phase this turn
+    begin_combat(eng.state, 1)  # the (first) real combat phase this turn
 
     eng.declare_attackers(eng.state.active_player, [bear])
     eng.resolve_until_stable()

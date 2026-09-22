@@ -140,6 +140,7 @@ def test_real_cards_become_modeled():
         "Temur Ascendancy", "Territorial Boar", "Marketwatch Phantom",
         "Mentor of the Meek",
         "Life Finds a Way",  # head: PAR-119's composed object head; body: populate
+        "Subira, Tulzidi Caravanner",  # ENG-47: "until end of turn, whenever …" as a body sentence
     ):
         card = _db().get_card(name)
         result = parse_oracle(card)
@@ -149,7 +150,7 @@ def test_real_cards_become_modeled():
 def test_still_unmodeled_on_unrelated_gaps():
     for name in (
         "Cavalcade of Calamity",
-        "Raid Bombardment", "Subira, Tulzidi Caravanner", "Where Ancients Tread",
+        "Raid Bombardment", "Where Ancients Tread",
     ):
         card = _db().get_card(name)
         result = parse_oracle(card)

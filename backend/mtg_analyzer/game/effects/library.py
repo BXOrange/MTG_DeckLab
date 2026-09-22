@@ -371,27 +371,15 @@ class ImpulsiveDrawEffect(GameEffect):
         permission_player: Any = None,
         same_turn_only: bool = False,
         source: Optional["GameObject"] = None,
-        count_from_trigger_event: Optional[str] = None,
-        count_if_additional_cost_paid: Optional[int] = None,
     ) -> None:
         super().__init__(source)
+        #: How many: a number or an `effect_amounts` operand ("…you may exile that many cards from
+        #: the top of your library" — Virtue of Courage; "…three cards instead if the additional
+        #: cost was paid" — Burning Curiosity).
         self.count = count
         self.player = player
         self.permission_player = permission_player
         self.same_turn_only = same_turn_only
-        #: "Exile the top two cards … If this spell's additional cost was
-        #: paid, exile the top three cards instead." (Burning Curiosity) —
-        #: an *override* of ``count`` (RULE 614 "instead"), gated on
-        #: `GameObject.additional_cost_paid` (set at cast for an optional
-        #: additional cost — the same field `ConditionalEffect`'s own
-        #: ``additional_cost_paid`` key reads).
-        self.count_if_additional_cost_paid = count_if_additional_cost_paid
-        #: "…you may exile that many cards from the top of your library."
-        #: (Virtue of Courage — "that many" is the firing event's own
-        #: damage amount) — same "read this firing's own payload" idiom
-        #: `CreateTokenEffect.count_from_trigger_event` uses. Overrides
-        #: ``count`` when set.
-        self.count_from_trigger_event = count_from_trigger_event
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         # "you" is this ability's/spell's own controller, not whoever
@@ -412,16 +400,7 @@ class ImpulsiveDrawEffect(GameEffect):
         player = player or context.active_player
         permission_player = self.permission_player or player
         source_name = self.source.name if self.source is not None else None
-        count = self.count
-        if (
-            self.count_if_additional_cost_paid is not None
-            and self.source is not None
-            and getattr(self.source, "additional_cost_paid", False)
-        ):
-            count = self.count_if_additional_cost_paid
-        if self.count_from_trigger_event:
-            event = context.trigger_event
-            count = int((event or {}).get(self.count_from_trigger_event) or 0)
+        count = self._measured(self.count, context, targets)
         if count <= 0:
             return
         exiled = context.exile_with_play_permission(
@@ -626,40 +605,19 @@ class DiscoverEffect(GameEffect):
 
     def __init__(
         self,
-        mana_value: int = 0,
+        mana_value: Any = 0,
         player: Any = None,
         source: Optional["GameObject"] = None,
-        mana_value_from_trigger_event: Optional[str] = None,
-        mana_value_from_subject: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: The discover cap: a number or an `effect_amounts` operand ("Discover X, where X is that
+        #: spell's mana value" — Monstrous Vortex's cast trigger, Hurl into History's countered spell).
         self.mana_value = mana_value
         self.player = player
-        #: "Discover X, where X is that spell's mana value." (Monstrous
-        #: Vortex's cast trigger, PAR-71) — the discover-cap sibling of
-        #: `DealDamageEffect.amount_from_trigger_event`, read off the firing
-        #: `SPELL_CAST` event fresh at resolution. Overrides ``mana_value``
-        #: when set.
-        self.mana_value_from_trigger_event = mana_value_from_trigger_event
-        #: The identical printed tail after "Counter target spell." instead
-        #: of a cast trigger (Hurl into History) — "that spell" there is the
-        #: *countered* target, not an event; `_characteristic_of_subject`'s
-        #: ``"previous_subject_mana_value"`` (`GameContext.previous_targets`,
-        #: RULE 608.2h last-known information once the countered spell is
-        #: in a graveyard), the same referent `DrawCardEffect.
-        #: amount_from_subject`/`CreateTokenEffect.count_from_subject`
-        #: already read for their own "counter target spell. …" siblings.
-        self.mana_value_from_subject = mana_value_from_subject
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = self.player or context.active_player
-        mana_value = self.mana_value
-        if self.mana_value_from_trigger_event:
-            event = context.trigger_event
-            mana_value = int((event or {}).get(self.mana_value_from_trigger_event) or 0)
-        elif self.mana_value_from_subject:
-            mana_value = _characteristic_of_subject(context, self.source, self.mana_value_from_subject)
-        context.discover(player, mana_value)
+        context.discover(player, self._measured(self.mana_value, context, targets))
 
 
 # ---------------------------------------------------------------------------

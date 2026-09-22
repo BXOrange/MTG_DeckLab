@@ -1369,6 +1369,7 @@ class ActivationMixin:
             source=source,
         )
         self.state.stack.append(item)
+        self.rules._note_crime(item)
         self.state.fire_event(
             GameEvent(
                 EventType.ACTIVATED_ABILITY,

@@ -18,7 +18,11 @@ def _esper_sentinel() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("taxed_draw", {"amount_from_source_power": True})],
+            [EffectSpec("bind", {
+                "name": "power",
+                "amount": {"kind": "characteristic", "characteristic": "power", "of": "source"},
+                "effects": [{"type": "taxed_draw", "params": {"amount": "$power"}}],
+            })],
             trigger={
                 "event": EventType.SPELL_CAST,
                 "condition": {"subject": "group", "controller": "not_you"},

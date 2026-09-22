@@ -215,9 +215,10 @@ def test_domri_plus_one_produces_mana_and_protects_creature_spells_this_turn():
     p1.mana_pool.add_many({"G": 1, "C": 1})
     eng.cast_spell(p1, obj)
 
-    from mtg_analyzer.game.effects.core import CantBeCounteredEffect
-
-    assert any(isinstance(e, CantBeCounteredEffect) for e in obj.spell_effects)
+    assert eng.rules._is_cant_be_countered(obj)
+    instant = GameObject(Card(id="Bolt", name="Bolt", type_line="Instant", is_instant=True),
+                         owner_id="p1", zone=Zone.HAND)
+    assert not eng.rules._is_cant_be_countered(instant)   # Domri: creature spells only
 
 
 # ---------------------------------------------------------------------------

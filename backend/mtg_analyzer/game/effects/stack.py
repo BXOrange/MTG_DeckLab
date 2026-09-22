@@ -219,24 +219,28 @@ class CopySpellEffect(GameEffect):
             )
             if controller_id is None:
                 return
-            context.copy_spell(target, controller_id, self.count)
+            n = self._copies(context, controller_id)
+            if n > 0:
+                context.copy_spell(target, controller_id, n)
             return
         if not targets:
             return
         controller_id = getattr(self.source, "controller_id", None)
         if controller_id is None:
             return
-        n = self.count
-        if self.count_selector is not None:
-            from ..continuous import count_selector as _count_selector  # avoid import cycle
-
-            n = _count_selector(
-                context.state, controller_id, self.count_selector, source=self.source
-            )
-            if n <= 0:
-                return
+        n = self._copies(context, controller_id)
+        if n <= 0:
+            return
         for target in targets:
             context.copy_spell(target, controller_id, n)
+
+    def _copies(self, context: GameContext, controller_id: str) -> int:
+        """The fixed ``count``, or the live board/history count ``count_selector`` names."""
+        if self.count_selector is None:
+            return self.count
+        from ..continuous import count_selector as _count_selector  # avoid import cycle
+
+        return _count_selector(context.state, controller_id, self.count_selector, source=self.source)
 
 
 class CopyAbilityEffect(GameEffect):
@@ -663,17 +667,15 @@ class MarkCantBeCounteredEffect(GameEffect):
     of its own — as "can't be countered", by appending a
     `CantBeCounteredEffect` marker onto its `GameObject.spell_effects` so
     `RulesEngine._is_cant_be_countered`'s existing scan finds it with no new
-    consumer-side code. The `arm_spell_watcher`-driven resolve-time
-    counterpart to that class's own bind-time marker — "the next spell you
-    cast this turn can't be countered" (Mistrise Village) can't dock the
-    marker at bind time since the spell it protects hasn't been cast yet;
-    `GameState.spell_watchers` hands it over once one is.
+    consumer-side code — the resolve-time counterpart to that class's own
+    bind-time marker, for a spell that already exists (Vexing Shusher's
+    "Target spell can't be countered."). The "this turn" grants that cover
+    spells not yet cast are `CantBeCounteredThisTurnEffect`.
 
     ``target_kind`` (MEC-40, Vexing Shusher's own "{R/G}: Target spell
     can't be countered.") opts this effect into a genuine RULE 115 target
     of its own instead of relying on some other caller to hand a spell in
-    via ``targets[0]`` — ``None`` (the default) keeps the Mistrise
-    Village/`arm_spell_watcher` shape unchanged.
+    via ``targets[0]`` — ``None`` (the default) leaves that to the caller.
     """
 
     def __init__(
@@ -702,8 +704,8 @@ class MarkCantBeCounteredEffect(GameEffect):
 
 class GrantCantBeCounteredEffect(GameEffect):
     """A standing "Spells you control can't be countered." grant (Hexing
-    Squelcher-shaped) — unlike `MarkYourSpellsOnStackCantBeCounteredEffect`
-    (a *resolve-time*, "this turn" one-shot), this is a bind-time
+    Squelcher-shaped) — unlike `CantBeCounteredThisTurnEffect`
+    (a *resolve-time*, "this turn" grant), this is a bind-time
     `static_effects` marker on the granting permanent itself, scanned by
     `RulesEngine._is_cant_be_countered` for every spell as it's cast
     (never expires while the permanent is in play). ``scope`` is
@@ -796,26 +798,6 @@ class GrantSkipExtraTurnsEffect(GameEffect):
         return None
 
 
-class MarkYourSpellsOnStackCantBeCounteredEffect(GameEffect):
-    """"Spells you control can't be countered this turn." (Veil of
-    Summer) — the *immediate* half: every spell this effect's controller
-    already has on the stack right now (typically cast in response to an
-    opponent's counterspell, the card's own main use case) is marked the
-    same way `MarkCantBeCounteredEffect` marks one explicit target.
-    Future spells this turn are the separate, repeat-armed `arm_spell_
-    watcher` half — this effect only reaches the stack as it exists at
-    this moment.
-    """
-
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = _controller_of(self.source, context)
-        if player is None:
-            return
-        for item in context.state.stack:
-            if item.kind == "spell" and item.obj is not None and item.controller_id == player.id:
-                item.obj.spell_effects.append(CantBeCounteredEffect())
-
-
 class MillThenDamageEachOpponentByMvEffect(GameEffect):
     """"You mill a card[ for each past vote], then ~ deals damage to each
     opponent equal to the total mana value of cards milled this way."
@@ -900,19 +882,13 @@ class MillEffect(GameEffect):
         count_selector: Optional[str] = None,
         selector: Optional[str] = None,
         source: Optional["GameObject"] = None,
-        count_from_trigger_event: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: How many cards: a number or an `effect_amounts` operand ("target player mills X cards,
+        #: where X is that spell's mana value" — Cloudhoof Kirin).
         self.count = count
         self.count_selector = count_selector
         self.selector = selector
-        #: "target player mills X cards, where X is that spell's mana
-        #: value." (Cloudhoof Kirin, PAR-71) — the firing `SPELL_CAST`
-        #: event's own field, read fresh at resolution; the same
-        #: "read the firing event's own payload" idiom `DrawCardEffect.
-        #: count_from_trigger_event`/`CreateTokenEffect.
-        #: count_from_trigger_event` already use.
-        self.count_from_trigger_event = count_from_trigger_event
         if target_kind is not None:
             self.target_spec = TargetSpec(kind=target_kind)
 
@@ -974,7 +950,7 @@ class MillEffect(GameEffect):
             player = context.active_player
         if player is None:
             return
-        count = self.count
+        count = self._measured(self.count, context, targets)
         if self.count_selector:
             from .. import continuous  # function-scoped: avoid an import cycle
 
@@ -982,9 +958,6 @@ class MillEffect(GameEffect):
             count = continuous.count_selector(
                 context.state, controller_id, self.count_selector, source=self.source
             )
-        elif self.count_from_trigger_event:
-            event = context.trigger_event
-            count = int((event or {}).get(self.count_from_trigger_event) or 0)
         before = len(player.graveyard)
         context.mill(player, count)
         milled = player.graveyard[before:]

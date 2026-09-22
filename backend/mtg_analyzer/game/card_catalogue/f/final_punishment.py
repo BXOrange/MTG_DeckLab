@@ -18,17 +18,16 @@ def _final_punishment() -> list[AbilitySpec]:
     incremented at both of `RulesEngine.deal_damage`'s player-damage sites
     (the ordinary branch and the infect-diverted one, since 702.90b
     redirects the life-loss consequence but the damage is still "dealt"),
-    reset in `GameEngine.begin_turn`. `LoseLifeEffect`'s new
-    ``amount_from_damage_dealt_this_turn`` reads it for whichever player
-    this effect resolves against, the same "resolve the target first"
-    shape ``amount_from_half_target_life`` (Peer into the Abyss, MEC-43
-    round 2) already uses.
+    reset in `GameEngine.begin_turn`. The `damage_dealt_this_turn` amount kind
+    reads it for the bind's own target — the player the body then makes lose the life.
     """
     return [
         AbilitySpec(
             "spell_effect",
-            [EffectSpec("lose_life", {
-                "target_kind": "player", "amount_from_damage_dealt_this_turn": True,
+            [EffectSpec("bind", {
+                "name": "dealt",
+                "amount": {"kind": "damage_dealt_this_turn", "of": "target"},
+                "effects": [{"type": "lose_life", "params": {"target_kind": "player", "amount": "$dealt"}}],
             })],
         ),
     ]

@@ -9,11 +9,9 @@ def _peer_into_the_abyss() -> list[AbilitySpec]:
     their library and loses half their life. Round up each time.
 
     — MEC-43 round 2. `DrawCardEffect`'s new ``count_selector=
-    "half_target_library_round_up"`` and `LoseLifeEffect`'s new
-    ``amount_from_half_target_life`` are the *targeted* siblings of the
-    existing "half your own life" shapes (MEC-37's Doomsday), both scoped
-    to whichever player the single "target player" resolves to rather
-    than the caster. `LoseLifeEffect.previous_subject` reads that same
+    "half_target_library_round_up"`` and a `bind` over half the life of the `previous_player` (the same
+    "half" measurement Doomsday takes of its controller) are scoped to whichever player
+    the single "target player" resolves to rather than the caster. `LoseLifeEffect.previous_subject` reads that same
     resolved target back (`GameContext.previous_targets`) instead of
     declaring a second RULE 115 target of its own — the real card only
     targets once, for both verbs.
@@ -25,8 +23,13 @@ def _peer_into_the_abyss() -> list[AbilitySpec]:
                 EffectSpec("draw", {
                     "target_kind": "player", "count_selector": "half_target_library_round_up",
                 }),
-                EffectSpec("lose_life", {
-                    "previous_subject": True, "amount_from_half_target_life": True,
+                EffectSpec("bind", {
+                    "name": "half",
+                    "amount": {"kind": "resource", "resource": "life", "of": "previous_player",
+                               "divide": 2, "round_up": True},
+                    "effects": [{"type": "lose_life", "params": {
+                        "previous_subject": True, "amount": "$half",
+                    }}],
                 }),
             ],
         )

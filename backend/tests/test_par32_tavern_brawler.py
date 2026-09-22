@@ -34,8 +34,10 @@ def test_tavern_brawler_registered_with_both_clauses():
     assert grant.params["trigger_event"] == "STEP_BEGIN"
     assert grant.params["filter"] == {"step": "upkeep"}
     kinds = [e["type"] for e in grant.params["grant_effects"]]
-    assert kinds == ["impulsive_draw", "pump"]
-    assert grant.params["grant_effects"][1]["params"]["amount_from_created_object_mana_value"] is True
+    assert kinds == ["impulsive_draw", "bind"]
+    bind = grant.params["grant_effects"][1]["params"]
+    assert bind["amount"] == {"kind": "characteristic", "characteristic": "mana_value", "of": "created"}
+    assert [e["type"] for e in bind["effects"]] == ["pump"]
 
 
 def _engine():

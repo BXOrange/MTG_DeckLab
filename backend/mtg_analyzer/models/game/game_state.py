@@ -246,6 +246,39 @@ class DelayedTrigger:
         }
 
 
+class UncounterableGrant:
+    """A continuous effect of a resolved spell or ability: for the rest of the turn the
+    controller's spells (optionally only those of ``card_types``) can't be countered
+    (RULE 101.2 — "can't" beats "can", RULE 611.2a — it lasts a fixed time).
+
+    This is a *rule*, not a trigger: it applies to a spell already on the stack when the
+    effect resolves and to every one cast afterwards, and an opponent has no window to
+    respond to it — which a trigger on the cast event would have given them.
+    ``next_only`` is the "the next spell you cast" variant: it protects the first
+    qualifying spell cast after ``casts_before`` (the controller's cast count when the
+    effect resolved, read from the turn's own `SPELL_CAST` events), so nothing has to
+    watch for that cast. Deep-copies with `GameState.clone`.
+    """
+
+    def __init__(
+        self,
+        controller_id: str,
+        turn: int,
+        card_types: Optional[list[str]] = None,
+        next_only: bool = False,
+        casts_before: int = 0,
+    ) -> None:
+        self.controller_id = controller_id
+        self.turn = turn
+        self.card_types = list(card_types) if card_types else None
+        self.next_only = bool(next_only)
+        self.casts_before = int(casts_before)
+
+    def __repr__(self) -> str:
+        return (f"UncounterableGrant({self.controller_id}, turn={self.turn}, "
+                f"types={self.card_types}, next_only={self.next_only})")
+
+
 class TurnScopedTrigger:
     """A triggered ability that a resolving spell or ability creates and that lasts
     the rest of the turn (RULE 603.7a — "whenever a creature enters this turn, draw a
@@ -299,37 +332,19 @@ class TemporaryPlayerTrigger:
         effects: list[Any],
         install_turn: int,
         description: str = "",
-        duration: str = "defending_next_turn",
-        event_player_scope: str = "self",
     ) -> None:
         self.player_id = player_id
         self.event_type = event_type
         self.effects = effects
         self.install_turn = install_turn
-        #: ``"defending_next_turn"`` — the Nuka-Nuke Launcher shape: arm in
-        #: the ``"waiting"`` phase, go ``"active"`` when ``player_id``'s own
-        #: next turn begins, drop after it ends. ``"this_turn"`` (Ruinous
-        #: Waterbending's "whenever a creature dies **this turn**, you gain
-        #: 1 life") — armed ``"active"`` immediately, dropped at the next
-        #: `EventType.TURN_BEGIN` (anyone's).
-        self.duration = duration
-        #: How the installed trigger matches an event to ``player_id``:
-        #: ``"self"`` — only when the event names that player (`event.get(
-        #: "player_id")`, Nuka-Nuke's "whenever **they** cast a spell").
-        #: ``"any"`` — fire on every matching ``event_type`` regardless of
-        #: whose it is (Ruinous Waterbending's "whenever **a** creature
-        #: dies"); the effects still go to ``player_id`` (baked at install).
-        self.event_player_scope = event_player_scope
-        self.phase = "active" if duration == "this_turn" else "waiting"
-        self.active_since_turn: Optional[int] = (
-            install_turn if duration == "this_turn" else None
-        )
+        self.phase = "waiting"
+        self.active_since_turn: Optional[int] = None
         self.description = description
 
     def __repr__(self) -> str:
         return (
             f"TemporaryPlayerTrigger({self.player_id} @ {self.event_type!r}, "
-            f"phase={self.phase!r}, duration={self.duration!r})"
+            f"phase={self.phase!r})"
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -477,11 +492,6 @@ class GameState:
         #: aren't modeled: one shared deck is the common table setup and the
         #: only one that needs no "whose plane is this" bookkeeping.
         self.planar_deck: list[GameObject] = []
-        #: RULE 901.6b: how many times each player has rolled the planar die
-        #: this turn — the die's cost is {X} where X is exactly that count,
-        #: so it has to be tracked per player and reset each turn
-        #: (`GameEngine.begin_turn`, alongside `lands_played_this_turn`).
-        self.planar_die_rolls_this_turn: dict[str, int] = {}
         #: RULE 904.3: which player is the archenemy of an Archenemy game
         #: (the one with a scheme deck), or ``None``.
         self.archenemy_id: Optional[str] = None
@@ -867,14 +877,6 @@ class GameState:
         #: daybound/nightbound permanent (RULE 702.145) establishes it, then
         #: exactly one of ``"day"``/``"night"`` for the rest of the game.
         self.day_night: Optional[str] = None
-        #: How many combat phases this turn has had (RULE 603.4's "if it's
-        #: the first combat phase of the turn" intervening-if — Karlach,
-        #: Fury of Avernus/Finest Hour/Genji Glove-shaped extra-combat
-        #: guards). Incremented once per ``begin_combat`` step
-        #: (`GameEngine._run_step`, game-wide, not per-player — combat has
-        #: one shared count regardless of whose turn it is), reset in
-        #: `GameEngine.begin_turn`.
-        self.combats_this_turn: int = 0
         #: Defending players who have already submitted a `declare_blockers`
         #: action for the *current* combat (RULE 509.1a — declaring no
         #: blocks at all is itself a complete, legal answer, so an attacking
@@ -888,19 +890,11 @@ class GameState:
         #: `GameEngine._clear_combat` — at `begin_turn` (before the first
         #: combat) and at `_step_end_combat` (before any extra combat phase).
         self.declared_blockers_this_combat: set[str] = set()
-        #: "When you next cast an instant or sorcery spell with mana value
-        #: N or less this turn, `<effect>`." (Dual Strike-shaped) — a
-        #: one-shot watch for the *next* qualifying `SPELL_CAST` this turn,
-        #: consumed by `RulesEngine._check_spell_watchers` (a `SPELL_CAST`
-        #: subscriber, the same "one place covers every cast path" idiom
-        #: `_track_spell_cast` uses) rather than a `TriggeredAbility` (which
-        #: only ever fires off a *matching object's own* event) or RULE
-        #: 603.7's step-scoped `DelayedTrigger` (which waits for a future
-        #: *step*, not a future *event*). Each entry:
-        #: ``{"controller_id", "max_mana_value", "card_types", "then_specs",
-        #: "source_id", "expires_turn"}``; expired/consumed entries are
-        #: dropped, never swept separately.
-        self.spell_watchers: list[dict[str, Any]] = []
+        #: "Spells you control can't be countered this turn." / "The next spell you cast this
+        #: turn can't be countered." (Veil of Summer, Domri, Mistrise Village) — see
+        #: `UncounterableGrant`. Read by `RulesEngine._is_cant_be_countered`; a grant of an
+        #: earlier turn is ignored there and dropped when the next one is added.
+        self.uncounterable_grants: list["UncounterableGrant"] = []
         #: The previous turn's active player id + their final spell count,
         #: captured by `begin_turn` right before rotating so the *next*
         #: turn's untap step can apply RULE 731.2a/2b. ``None`` on turn 1
@@ -1355,6 +1349,16 @@ class GameState:
     # it is now a fresh read over `events_this_turn()` (`turn_history`), so it can never
     # drift from what actually fired and needs no reset. The reset scope is the same for
     # everyone: this turn, for every player.
+
+    @property
+    def combats_this_turn(self) -> int:
+        """Combat phases this turn so far (RULE 603.4's "first combat phase" intervening-if)."""
+        return turn_history.combats(self.events_this_turn())
+
+    @property
+    def planar_die_rolls_this_turn(self) -> dict[str, int]:
+        """How often each player rolled the planar die this turn (RULE 901.6b: the cost is {X})."""
+        return turn_history.planar_die_rolls(self.events_this_turn())
 
     @property
     def life_gained_this_turn(self) -> dict[str, int]:

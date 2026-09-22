@@ -7,8 +7,8 @@ from ...card_registry.core import register
 # ===========================================================================
 # Rousing Refrain (ritual off opponent's hand size) — PAR-60
 # ===========================================================================
-# Reuse of `AddManaEffect` (``target_kind="opponent"`` +
-# ``amount_from_target_hand_size``). Suspend folds in from the RULE 702
+# A `bind` over the target opponent's hand size around `AddManaEffect`
+# (``target_kind="opponent"``). Suspend folds in from the RULE 702
 # keyword catalogue. Documented simplification: "Until end of turn, you
 # don't lose this mana as steps and phases end" (an acknowledged engine
 # gap) and "Exile Rousing Refrain with three time counters on it" are
@@ -23,9 +23,12 @@ def _rousing_refrain() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "spell_effect",
-            [EffectSpec("add_mana", {
-                "color": "R", "target_kind": "opponent",
-                "amount_from_target_hand_size": True,
+            [EffectSpec("bind", {
+                "name": "n",
+                "amount": {"kind": "resource", "resource": "hand_size", "of": "target"},
+                "effects": [{"type": "add_mana", "params": {
+                    "color": "R", "target_kind": "opponent", "amount": "$n",
+                }}],
             })],
         ),
     ]

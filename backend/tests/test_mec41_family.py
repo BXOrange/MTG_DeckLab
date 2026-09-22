@@ -105,7 +105,9 @@ def test_autumns_veil_prevents_own_spells_from_being_countered():
     eng = make_engine([_named("Autumn's Veil"), _named("Lightning Bolt")], hand=2)
     p1 = eng.state.player_by_id("p1")
     _cast(eng, p1, {"G": 1}, name="Autumn's Veil")
-    assert eng.state.spell_watchers  # armed, repeat=True
+    assert eng.state.uncounterable_grants  # a this-turn rule, not a watcher
+    bolt = p1.hand[0]
+    assert eng.rules._is_cant_be_countered(bolt)
 
 
 # ---------------------------------------------------------------------------

@@ -220,9 +220,12 @@ _PERMANENT_CARD_TYPES = frozenset({"artifact", "battle", "creature", "enchantmen
 def _graveyard_arrivals(events: Events) -> "Iterable[tuple[str, list[str]]]":
     """``(owner id, card types)`` for every card that went to a graveyard this turn from the
     battlefield (DIES), the hand (DISCARD_CARD) or the library (MILLED_CARD) — each event
-    snapshots the card's types, since the card is no longer where it was (RULE 400.7)."""
+    snapshots the card's types, since the card is no longer where it was (RULE 400.7). A
+    token is not a card, so its DIES event does not count."""
     for event in events:
         if event.type == EventType.DIES:
+            if event.get("is_token"):
+                continue  # a token ceases to exist (RULE 111.7); no card reached the graveyard
             owner = event.get("owner_id")
         elif event.type == EventType.DISCARD_CARD:
             owner = event.get("player_id")
@@ -292,3 +295,15 @@ def players_attacked(events: Events) -> "set[str]":
     """Players who declared an attacker this turn (RULE 508.1a; Raid)."""
     return {e.get("player_id") for e in events
             if e.type == EventType.ATTACKS and e.get("declared") and e.get("player_id") is not None}
+
+
+def combats(events: Events) -> int:
+    """Combat phases this turn, game-wide (RULE 603.4 — "if it's the first combat phase of
+    the turn"): one per ``begin_combat`` step that actually began, so an extra combat phase is
+    the second whoever controls the effect that grants it."""
+    return sum(1 for e in events if e.type == EventType.STEP_BEGIN and e.get("step") == "begin_combat")
+
+
+def planar_die_rolls(events: Events) -> "defaultdict[str, int]":
+    """Times each player rolled the planar die this turn (RULE 901.6b)."""
+    return _tally(events, EventType.PLANAR_DIE_ROLLED, "player_id")

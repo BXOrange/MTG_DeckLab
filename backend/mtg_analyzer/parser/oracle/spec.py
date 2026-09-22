@@ -219,11 +219,31 @@ SELECTOR_DISTINCT: frozenset[str] = frozenset({"power", "toughness", "mana_value
 #: operands of an ENG-37 B5 `amount_compare`), and the type each must have.
 #: The ``kind`` vocabulary itself is `game/effect_amounts.py`'s (not
 #: importable here, docs/09); ``str`` fields are further shape-checked there.
+#: Per-effect amount parameters ENG-47 retired in favour of one operand (a `bind` over an
+#: `effect_amounts` measurement). The registry's factories read params with ``p.get``, so a spec
+#: that still carried one would silently resolve to the unmeasured default; validation refuses it
+#: instead. Each value says what replaces it.
+RETIRED_EFFECT_PARAMS: dict[str, str] = {
+    "amount_from_target_power": "bind{characteristic power of target}",
+    "amount_from_half_own_life": "bind{resource life, divide 2, round_up}",
+    "amount_from_half_target_life": "bind{resource life of target/previous_player, divide 2, round_up}",
+    "amount_from_damage_dealt_this_turn": "bind{damage_dealt_this_turn of target}",
+    "amount_from_source_power": "bind{characteristic power of source} over `taxed_draw.amount`",
+    "amount_from_created_object_mana_value": "bind{characteristic mana_value of created}",
+    "pt_from_count_selector": "bind{count_selector} into create_token power/toughness '$x'",
+    "amount_from_target_hand_size": "bind{resource hand_size of target} over add_mana.amount",
+    "amount_from_target_count_selector": "bind{count_selector of target} over add_mana.any_amount",
+    "amount_if_trigger_subject_subtype": "bind{if is_subtype ...} over add_counters.amount",
+    "amount_if_trigger_subject_subtype_value": "bind{if is_subtype ...} over add_counters.amount",
+    "count_if_additional_cost_paid": "bind{if additional_cost_paid} over the count",
+}
+
 _AMOUNT_SPEC_FIELDS: dict[str, type] = {
     "of": str, "characteristic": str, "counter": str, "selector": (str, dict),
     "tally": str, "scope": str, "resource": str, "field": str, "aggregate": str,
     "amount": int, "multiply": int, "divide": int, "plus": int, "minus": int,
     "minimum": int, "maximum": int, "round_up": bool,
+    "condition": dict, "then": (int, dict), "otherwise": (int, dict),
 }
 
 #: `AbilitySpec.conditional_flash`'s whitelisted keys — see that field's
@@ -1471,6 +1491,19 @@ class AbilitySpec:
             expected = _AMOUNT_SPEC_FIELDS.get(key)
             if expected is None:
                 raise SpecValidationError(f"unknown amount spec field {key!r}")
+            if key == "condition":
+                if not isinstance(value, dict):
+                    raise SpecValidationError("'condition' in an amount spec must be a dict")
+                AbilitySpec._validate_condition(value)
+                continue
+            if key in ("then", "otherwise"):
+                if isinstance(value, dict):
+                    AbilitySpec._validate_amount_spec(value, _depth + 1)
+                elif isinstance(value, bool) or not isinstance(value, int):
+                    raise SpecValidationError(f"{key!r} in an amount spec must be an int or an amount")
+                else:
+                    spec[key] = max(-MAX_EFFECT_MAGNITUDE, min(int(value), MAX_EFFECT_MAGNITUDE))
+                continue
             if key == "selector":
                 if isinstance(value, dict):
                     AbilitySpec._validate_selector(value)
@@ -1503,6 +1536,9 @@ class AbilitySpec:
         # (`GameEngine._combat_condition_met`), which is exactly why
         # `static_conditions.py` uses ``active_if`` for its own gate rather
         # than sharing the key.
+        for retired, replacement in RETIRED_EFFECT_PARAMS.items():
+            if retired in params:
+                raise SpecValidationError(f"{retired!r} is retired: use {replacement}")
         if _effect_type in _COMPOSITION_EFFECT_TYPES:
             node_condition = params.get("condition")
             if isinstance(node_condition, dict) and node_condition:

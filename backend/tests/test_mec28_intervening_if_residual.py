@@ -48,6 +48,7 @@ from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
+from tests.turn_history_events import begin_combat
 
 
 def make_engine(*player_ids):
@@ -317,7 +318,7 @@ def test_raph_and_leo_untaps_up_to_two_chosen_attackers_and_grants_extra_combat(
     ally1 = put(eng.state, bear_card("Ally 1"))
     ally2 = put(eng.state, bear_card("Ally 2"))
     _to_declare_attackers(eng)
-    eng.state.combats_this_turn = 1
+    begin_combat(eng.state, 1)
 
     eng.declare_attackers(eng.state.active_player, [raph, ally1, ally2])
     eng.resolve_until_stable()
@@ -364,7 +365,7 @@ def test_raph_and_leo_stopping_at_one_still_grants_extra_combat():
     ally1 = put(eng.state, bear_card("Ally 1"))
     ally2 = put(eng.state, bear_card("Ally 2"))
     _to_declare_attackers(eng)
-    eng.state.combats_this_turn = 1
+    begin_combat(eng.state, 1)
 
     eng.declare_attackers(eng.state.active_player, [raph, ally1, ally2])
     eng.resolve_until_stable()

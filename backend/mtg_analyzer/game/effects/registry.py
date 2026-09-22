@@ -73,10 +73,6 @@ EffectRegistry.register(
     lambda p: DrawCardEffect(
         count=p.get("count", 1), player=p.get("player"), count_selector=p.get("count_selector"),
         target_kind=p.get("target_kind"), selector=p.get("selector"),
-        amount_from_count_selector=p.get("amount_from_count_selector"),
-        count_from_trigger_event=p.get("count_from_trigger_event"),
-        count_from_trigger_event_counter=p.get("count_from_trigger_event_counter"),
-        amount_from_subject=p.get("amount_from_subject"),
     ),
 )
 EffectRegistry.register(
@@ -246,8 +242,6 @@ EffectRegistry.register(
         decline_leaves_untouched=bool(p.get("decline_leaves_untouched", False)),
         max_picks=int(p.get("max_picks", 1) or 1),
         max_picks_if_teamwork=p.get("max_picks_if_teamwork"),
-        count_from_count_selector=p.get("count_from_count_selector"),
-        count_plus=int(p.get("count_plus", 0) or 0),
     ),
 )
 EffectRegistry.register(
@@ -262,7 +256,6 @@ EffectRegistry.register(
         whole_hand=bool(p.get("whole_hand", False)),
         count_max=p.get("count_max"),
         then_draw_discarded=bool(p.get("then_draw_discarded", False)),
-        count_from_trigger_event=p.get("count_from_trigger_event"),
         filter=p.get("filter"),
     ),
 )
@@ -395,10 +388,6 @@ EffectRegistry.register(
     lambda p: GainLifeEffect(
         amount=p.get("amount", 0), player=p.get("player"), target_kind=p.get("target_kind"),
         count_selector=p.get("count_selector"),
-        amount_from_target_power=bool(p.get("amount_from_target_power", False)),
-        recipient=p.get("recipient"),
-        amount_from_subject=p.get("amount_from_subject"),
-        amount_from_trigger_event=p.get("amount_from_trigger_event"),
         count_selector_multiplier=int(p.get("count_selector_multiplier", 1) or 1),
     ),
 )
@@ -435,7 +424,6 @@ EffectRegistry.register(
         count=p.get("count", 1),
         optional=bool(p.get("optional", False)),
         divided=bool(p.get("divided", False)),
-        amount_if_kicked=p.get("amount_if_kicked"),
         self_only=bool(p.get("self_only", False)),
         watched_source_is_self=bool(p.get("watched_source_is_self", False)),
         recipient_is_activator=bool(p.get("recipient_is_activator", False)),
@@ -635,12 +623,6 @@ EffectRegistry.register(
     lambda p: LoseLifeEffect(
         amount=p.get("amount", 0), player=p.get("player"), selector=p.get("selector"),
         target_kind=p.get("target_kind"), player_id=p.get("player_id"),
-        amount_from_trigger_event=p.get("amount_from_trigger_event"),
-        amount_from_count_selector=p.get("amount_from_count_selector"),
-        amount_from_spells_cast_this_turn=bool(p.get("amount_from_spells_cast_this_turn", False)),
-        amount_from_half_own_life=bool(p.get("amount_from_half_own_life", False)),
-        amount_from_half_target_life=bool(p.get("amount_from_half_target_life", False)),
-        amount_from_damage_dealt_this_turn=bool(p.get("amount_from_damage_dealt_this_turn", False)),
         previous_subject=bool(p.get("previous_subject", False)),
     ),
 )
@@ -747,8 +729,7 @@ EffectRegistry.register(
     # bottom in a random order." (Ojer Kaslem, Deepest Growth)
     "reveal_top_then_creature_and_or_land_battlefield",
     lambda p: RevealTopThenCreatureAndOrLandBattlefieldEffect(
-        amount=int(p.get("amount", 0) or 0),
-        amount_from_trigger_event=p.get("amount_from_trigger_event"),
+        amount=p.get("amount", 0),
     ),
 )
 EffectRegistry.register(
@@ -819,9 +800,13 @@ EffectRegistry.register(
     lambda p: MarkCantBeCounteredEffect(target_kind=p.get("target_kind")),
 )
 EffectRegistry.register(
-    # "Spells you control can't be countered this turn." (Veil of Summer)
-    "mark_your_spells_on_stack_cant_be_countered",
-    lambda p: MarkYourSpellsOnStackCantBeCounteredEffect(),
+    # "Spells you control can't be countered this turn." (Veil of Summer), "Creature spells
+    # you cast this turn can't be countered." (Domri), "The next spell you cast this turn
+    # can't be countered." (Mistrise Village)
+    "cant_be_countered_this_turn",
+    lambda p: CantBeCounteredThisTurnEffect(
+        card_types=p.get("card_types"), next_only=bool(p.get("next_only", False)),
+    ),
 )
 EffectRegistry.register(
     "look_at_cards",  # "look at the top card of target player's library" (Mishra's Bauble)
@@ -831,7 +816,6 @@ EffectRegistry.register(
     "mill", lambda p: MillEffect(
         count=p.get("count", 1), target_kind=p.get("target_kind"),
         count_selector=p.get("count_selector"), selector=p.get("selector"),
-        count_from_trigger_event=p.get("count_from_trigger_event"),
     )
 )
 EffectRegistry.register(
@@ -871,7 +855,7 @@ EffectRegistry.register(
     "taxed_draw",
     lambda p: TaxedDrawEffect(
         cost=p.get("cost", ""),
-        amount_from_source_power=bool(p.get("amount_from_source_power", False)),
+        amount=p.get("amount"),
         count=int(p.get("count", 1) or 1),
     ),
 )
@@ -1191,15 +1175,6 @@ EffectRegistry.register(
     lambda p: ExileTopFromEachPlayerCastFreeEffect(until_nonland=bool(p.get("until_nonland", False))),
 )
 EffectRegistry.register(
-    "arm_spell_watcher",  # Dual Strike
-    lambda p: ArmSpellWatcherEffect(
-        then_specs=p.get("then_specs"),
-        max_mana_value=p.get("max_mana_value"),
-        card_types=p.get("card_types"),
-        repeat=bool(p.get("repeat", False)),
-    ),
-)
-EffectRegistry.register(
     "grant_die_to_exile_this_turn",  # Lava Coil/Smite the Deathless/Torch the Tower
     lambda p: GrantDieToExileThisTurnEffect(
         target=p.get("target"), target_kind=p.get("target_kind"),
@@ -1419,8 +1394,7 @@ EffectRegistry.register(
         amount_from_trigger_event=p.get("amount_from_trigger_event"),
         recipient=p.get("recipient", "controller"),
         target_kind=p.get("target_kind"),
-        amount_from_target_hand_size=bool(p.get("amount_from_target_hand_size", False)),
-        amount_from_target_count_selector=p.get("amount_from_target_count_selector"),
+        any_amount=p.get("any_amount"),
         once_per_turn_ability=bool(p.get("once_per_turn_ability", False)),
         color_from_source_chosen_color=bool(p.get("color_from_source_chosen_color", False)),
         color_from_source_noted_color=bool(p.get("color_from_source_noted_color", False)),
@@ -1463,9 +1437,6 @@ EffectRegistry.register(
         event_type=p.get("event_type", "SPELL_CAST"),
         effects=list(p.get("effects", [])),
         description=p.get("description", ""),
-        recipient=p.get("recipient", "defending_player"),
-        duration=p.get("duration", "defending_next_turn"),
-        event_player_scope=p.get("event_player_scope", "self"),
     ),
 )
 EffectRegistry.register(
@@ -2030,8 +2001,6 @@ EffectRegistry.register(
         count=p.get("count", 1),
         count_selector=p.get("count_selector"),
         times=int(p.get("times", 1) or 1),
-        times_from_count_selector=p.get("times_from_count_selector"),
-        times_from_trigger_event=p.get("times_from_trigger_event"),
         creature_filter=p.get("creature_filter"),
     ),
 )
@@ -2097,7 +2066,6 @@ EffectRegistry.register(
     "bolster",
     lambda p: BolsterEffect(
         amount=p.get("amount", p.get("count", 1)),
-        amount_from_count_selector=p.get("amount_from_count_selector"),
     ),
 )
 EffectRegistry.register(
@@ -2179,9 +2147,6 @@ EffectRegistry.register(
     lambda p: EarthbendEffect(
         amount=p.get("amount", p.get("count", 1)),
         previous_subject=bool(p.get("previous_subject")),
-        amount_from_count_selector=p.get("amount_from_count_selector"),
-        amount_multiplier=int(p.get("amount_multiplier", 1) or 1),
-        amount_from_trigger_event=p.get("amount_from_trigger_event"),
     ),
 )
 EffectRegistry.register(
@@ -2518,15 +2483,9 @@ EffectRegistry.register(
         subtypes=p.get("subtypes"),
         divided=bool(p.get("divided", False)),
         creature_filter=p.get("creature_filter"),
-        amount_from_trigger_event=p.get("amount_from_trigger_event"),
-        x_multiplier=p.get("x_multiplier"),
-        amount_from_count_selector=p.get("amount_from_count_selector"),
-        amount_if_trigger_subject_subtype=p.get("amount_if_trigger_subject_subtype"),
-        amount_if_trigger_subject_subtype_value=p.get("amount_if_trigger_subject_subtype_value"),
         ring_bearer=bool(p.get("ring_bearer", False)),
         previous_subject=bool(p.get("previous_subject", False)),
         distinct_from_others=bool(p.get("distinct_from_others", False)),
-        amount_if_full_party=p.get("amount_if_full_party"),
     ),
 )
 EffectRegistry.register(
@@ -2548,12 +2507,9 @@ EffectRegistry.register(
         count_max=p.get("target_count_max"),
         optional=bool(p.get("optional", False)),
         count_selector=p.get("count_selector"),
-        amount_from_trigger_event=p.get("amount_from_trigger_event"),
         per_recipient_controller_counter=p.get("per_recipient_controller_counter"),
-        amount_from_count_selector=p.get("amount_from_count_selector"),
-        amount_from_count_selector_negative=bool(p.get("amount_from_count_selector_negative", False)),
+        dynamic_amount=p.get("dynamic_amount"),
         amount_from_count_selector_axis=str(p.get("amount_from_count_selector_axis", "both")),
-        amount_from_created_object_mana_value=bool(p.get("amount_from_created_object_mana_value", False)),
         creature_filter=p.get("creature_filter"),
         previous_subject=bool(p.get("previous_subject", False)),
         subtypes=p.get("subtypes"),
@@ -2570,7 +2526,6 @@ EffectRegistry.register(
 EffectRegistry.register(
     "scry", lambda p: ScryEffect(
         count=p.get("count", p.get("amount", 1)),
-        count_from_count_selector=p.get("count_from_count_selector"),
     )
 )
 EffectRegistry.register(
@@ -2652,19 +2607,13 @@ EffectRegistry.register(
         tapped=bool(p.get("tapped", False)),
         attacking=bool(p.get("attacking", False)),
         legendary=bool(p.get("legendary", False)),
-        pt_from_trigger_event=p.get("pt_from_trigger_event"),
-        pt_from_count_selector=p.get("pt_from_count_selector"),
-        count_from_trigger_event=p.get("count_from_trigger_event"),
-        count_from_trigger_event_counter=p.get("count_from_trigger_event_counter"),
-        count_from_subject=p.get("count_from_subject"),
-        count_from_context=p.get("count_from_context"),
+        pt_amount=p.get("pt_amount"),
         extra_counters=p.get("extra_counters"),
         grant_self_anthem=p.get("grant_self_anthem"),
         is_artifact=bool(p.get("is_artifact", False)),
         parametric_keywords=p.get("parametric_keywords"),
         per_opponent=bool(p.get("per_opponent", False)),
         token_dies_gain_life=p.get("token_dies_gain_life"),
-        x_multiplier=p.get("x_multiplier"),
         oracle_text=str(p.get("oracle_text", "")),
     ),
 )
@@ -2694,8 +2643,6 @@ EffectRegistry.register(
         count=p.get("count", 1),
         target=p.get("target"),
         target_kind=p.get("target_kind", "creature"),
-        count_if_kicked=p.get("count_if_kicked"),
-        count_from_trigger_event=p.get("count_from_trigger_event"),
         count_selector=p.get("count_selector"),
         haste=bool(p.get("haste", False)),
         tapped=bool(p.get("tapped", False)),
@@ -2766,8 +2713,6 @@ EffectRegistry.register(
     "impulsive_draw",
     lambda p: ImpulsiveDrawEffect(
         count=p.get("count", 1), same_turn_only=bool(p.get("same_turn_only", False)),
-        count_from_trigger_event=p.get("count_from_trigger_event"),
-        count_if_additional_cost_paid=p.get("count_if_additional_cost_paid"),
     ),
 )
 EffectRegistry.register(
@@ -3004,8 +2949,6 @@ EffectRegistry.register(
     "discover",
     lambda p: DiscoverEffect(
         mana_value=p.get("mana_value", p.get("amount", 0)),
-        mana_value_from_trigger_event=p.get("mana_value_from_trigger_event"),
-        mana_value_from_subject=p.get("mana_value_from_subject"),
     ),
 )
 

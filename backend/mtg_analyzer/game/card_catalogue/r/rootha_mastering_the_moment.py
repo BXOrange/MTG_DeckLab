@@ -12,7 +12,7 @@ from ...card_registry.core import register
 # `_track_spell_cast`, reset in `begin_turn`) + the
 # ``greatest_instant_sorcery_mv_this_turn`` count_selector + a
 # ``cast_instant_or_sorcery_this_turn`` trigger intervening-if predicate.
-# `CreateTokenEffect.pt_from_count_selector` already exists.
+# The X/X is a `bind` over that count.
 
 
 def _rootha_mastering_the_moment() -> list[AbilitySpec]:
@@ -23,10 +23,14 @@ def _rootha_mastering_the_moment() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("create_token", {
-                "count": 1, "colors": ["U", "R"], "subtypes": ["Elemental"],
-                "keywords": ["flying", "haste"], "token_name": "Elemental",
-                "pt_from_count_selector": "greatest_instant_sorcery_mv_this_turn",
+            [EffectSpec("bind", {
+                "name": "x",
+                "amount": {"kind": "count_selector", "selector": "greatest_instant_sorcery_mv_this_turn"},
+                "effects": [{"type": "create_token", "params": {
+                    "count": 1, "colors": ["U", "R"], "subtypes": ["Elemental"],
+                    "keywords": ["flying", "haste"], "token_name": "Elemental",
+                    "power": "$x", "toughness": "$x",
+                }}],
             })],
             trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "begin_combat"},
                      "phase_relation": "you",

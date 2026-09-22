@@ -2960,6 +2960,10 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # "if you gained life this turn" (31).
     (re.compile(r"you(?:'ve| have)? gained life this turn", re.I),
      lambda m: {"kind": "gained_life_this_turn"}),
+    # "if you descended this turn" (Lost Caverns of Ixalan) — a permanent card was put into
+    # your graveyard from anywhere.
+    (re.compile(r"you(?:'ve| have)? descended this turn", re.I),
+     lambda m: {"kind": "descended_this_turn"}),
     # "if an opponent lost life this turn" (18) — "any one opponent", the
     # reading the kind itself documents.
     (re.compile(r"an opponent lost life this turn", re.I),

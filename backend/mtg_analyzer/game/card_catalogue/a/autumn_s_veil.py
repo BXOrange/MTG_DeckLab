@@ -17,8 +17,7 @@ def _autumns_veil() -> list[AbilitySpec]:
     damage/blocking/enchanting); see the effect's own docstring.
     **Documented simplification**: the first clause is modeled as
     unconditional "can't be countered this turn" (Veil of Summer's own
-    `mark_your_spells_on_stack_cant_be_countered`/`arm_spell_watcher
-    (repeat=True)` shape) rather than qualified by the countering spell's
+    `cant_be_countered_this_turn` shape) rather than qualified by the countering spell's
     own colour — `RulesEngine._is_cant_be_countered`'s RULE 118 check has
     no notion of *what* is doing the countering at all, only whether the
     target carries the marker, and this is a strict *widening* (protects
@@ -30,11 +29,7 @@ def _autumns_veil() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [
-                EffectSpec("mark_your_spells_on_stack_cant_be_countered", {}),
-                EffectSpec("arm_spell_watcher", {
-                    "then_specs": [{"type": "mark_cant_be_countered", "params": {}}],
-                    "repeat": True,
-                }),
+                EffectSpec("cant_be_countered_this_turn", {}),
                 EffectSpec("grant_cant_be_target_of_spell_color", {
                     "colors": ["U", "B"], "selector": "creatures_you_control",
                 }),

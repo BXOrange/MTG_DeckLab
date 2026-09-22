@@ -114,7 +114,8 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 #: "the first token made" and "the most recent" with nothing to validate the
 #: choice against would be a guess baked into a whitelisted vocabulary.
 EFFECT_SUBJECTS: frozenset[str] = frozenset(
-    {"target", "previous_target", "chosen", "entering", "counter_recipient", "revealed"}
+    {"target", "previous_target", "previous_player", "previous_subject", "created", "remembered",
+     "chosen", "entering", "trigger_subject", "self", "event_player", "counter_recipient", "revealed"}
 )
 
 #: Every referent a condition may name here, static-resolved ones included.
@@ -212,13 +213,40 @@ def subject_of(
     `static_conditions` resolve it), so a caller with no state vocabulary
     behind it still gets a complete answer.
     """
-    if of in ("source", "", None):
+    if of in ("source", "self", "", None):
         return source
+    if of == "event_player":
+        # The player the firing event itself names (whoever cast the spell / drew the card).
+        event = getattr(context, "trigger_event", None) or {}
+        return _player_by_id(context, event.get("player_id"))
+    if of == "previous_subject":
+        # `previous_target`, but whatever the earlier clause targeted *as it was* — a spell on
+        # the stack included (RULE 608.2h last-known information: "that spell's mana value").
+        previous = getattr(context, "previous_targets", None) or []
+        return previous[0] if previous else None
+    if of == "trigger_subject":
+        return subject_of("entering", context, source, targets)
     if of == "target":
         return targets[0] if targets else None
     if of == "previous_target":
         previous = getattr(context, "previous_targets", None) or []
         return _object_or_none(previous[0]) if previous else None
+    if of == "remembered":
+        # The trigger subject a `pay_cost_then(remember_trigger_subject)` stamped on its source,
+        # for the "if you do" branch that resolves after the trigger event's window has closed.
+        remembered = getattr(source, "remembered_instance_id", None)
+        return context.state.find_object(remembered) if remembered is not None else None
+    if of == "created":
+        # The object the latest clause of this resolution made available — a card an earlier
+        # clause exiled ("that card's mana value", Tavern Brawler), a token it created.
+        created = getattr(context, "created_objects", None) or []
+        return created[-1] if created else None
+    if of == "previous_player":
+        # The player an earlier clause of this resolution targeted ("Target player draws …
+        # and loses half their life" — the second clause reads the first one's player).
+        previous = getattr(context, "previous_targets", None) or []
+        first = previous[0] if previous else None
+        return first if first is not None and getattr(first, "instance_id", None) is None else None
     if of == "chosen":
         chosen = _object_or_none(targets[0]) if targets else None
         if chosen is not None:

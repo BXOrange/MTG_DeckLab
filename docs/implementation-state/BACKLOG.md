@@ -44,32 +44,34 @@ its block back into the matching section here.
 
 ## ENG — Game engine
 
-- **ENG-47 · Turn-history trackers and per-verb amount flags — remaining scope.** Built:
-  turn-stamped events, `event_this_turn`, and 31 counters derived from the log
-  (`models/game/turn_history.py`). **(a)** What is left of the 37 is not a straight swap:
-  `combats_this_turn` (turn-structure state, bumped in the step machinery),
-  `cards_left_graveyard_this_turn` (its `CARDS_LEFT_GRAVEYARD` event is batched and can fire late),
-  `mana_produced_this_turn` and `planar_die_rolls_this_turn` (no event to derive from),
-  `first_draw_replaced_this_turn` (a replacement flag), and `no_attack_pairs_this_turn` /
-  `declared_blockers_this_combat` (restrictions, not history). Events still missing for history
-  phrases: token creation ("you created a token"), "descended", "committed a crime". **The same
-  mechanism exists twice:** `GameState.spell_watchers` (`arm_spell_watcher` — Dual Strike, Domri,
-  Thunderclap Drake, Autumn's Veil, Veil of Summer, and the parser row at `handlers.py`'s "when you
-  next cast …") is a one-shot, turn-scoped `SPELL_CAST` trigger that runs its effects inline, i.e.
-  what `create_turn_trigger(once)` is (RULE 603.7a, PAR-124); fold it in — the copy-that-spell body
-  then goes on the stack above the spell like any trigger — and so is
-  `TemporaryPlayerTrigger`'s `this_turn` mode (Ruinous Waterbending). **(b) one amount operand** —
-  43 effect classes carry ~120 `amount_from_*`/`count_from_*`/`amount_if_*` parameters
-  (`DealDamageEffect` 18; `LoseLifeEffect`/`AddCountersEffect`/`PumpEffect` 10 each —
-  `amount_if_kicked`/`_raid`/`_bargained`/`_teamwork`/`_full_party`/`_cast_from_exile`, …) although
-  ENG-37's `bind` (measure X → substitute) and `if_else` (condition → A else B) express both once.
-  Three whose exact equivalent already existed were retired; each of the rest needs either a measure
-  kind `effect_amounts.py` lacks (damage dealt to *that* player this turn, half a player's life,
-  the target's hand size) or a `bind` rewrite of its hand-authored user, checked by an execute test
-  (a `bind` body's magnitude must be exactly one recognised param, and `previous_target` referents
-  read 0 when nothing was targeted; a composition node also does not hand its body's "… this way"
-  tallies to the sentence after it — see `_apply_effects_partitioned`'s restore). No coverage change
-  on its own (measure with `parser_probe.py diff` and the full suite).
+- **ENG-47 · Turn-history trackers — final residue.** 33 of the 37 counters are now derived
+  from the turn-stamped event log (`models/game/turn_history.py`), including `combats_this_turn`
+  and `planar_die_rolls_this_turn` (a new `PLANAR_DIE_ROLLED` event) picked up in the final pass.
+  Five stay hand-kept, each for a reason that won't go away on its own: `cards_left_graveyard_this_turn`
+  (its `CARDS_LEFT_GRAVEYARD` event is batched and can fire late), `mana_produced_this_turn`
+  (no event to derive from — `mana_potential.py` bumps it directly), `first_draw_replaced_this_turn`
+  (a replacement flag, not history), and `no_attack_pairs_this_turn` / `declared_blockers_this_combat`
+  (restrictions on what's still legal this combat, not a record of what happened). `GameState.
+  spell_watchers` is retired — "when you next cast …" (Dual Strike, Domri, Thunderclap Drake,
+  Autumn's Veil, Veil of Summer, Mistrise Village) and "can't be countered this turn" both now go
+  through `create_turn_trigger`/`UncounterableGrant`, and Dual Strike's hand-authored entry parses
+  on its own. The per-effect `amount_from_*`/`count_from_*`/`amount_if_*` parameter proliferation is
+  mostly retired too — draw/discard/mill/impulsive_draw/scry/inspect_top_choose/connive/gain_life/
+  lose_life/add_counters/pump/create_token/copy_permanent/bolster/earthbend/discover/
+  prevent_damage_shield/taxed_draw now take one `effect_amounts` operand per magnitude
+  (`GameEffect._measured`, `game/effects/operands.py`'s `rule()`/`lower()` rewriting the legacy
+  parameter spelling at bind time so the parser/hand-authored `EffectSpec` vocabulary is
+  unchanged), and a dozen-plus hand-authored cards (Solitude, Dazzling Reflection, Doomsday,
+  Final Punishment, Peer into the Abyss, Esper Sentinel, Tavern Brawler, Emiel the Blessed,
+  Burning Curiosity, Rousing Refrain, Jeska's Will, Carpet of Flowers, Rootha, Spoils of Blood)
+  moved onto a real `bind` instead. Left alone, deliberately: `DealDamageEffect`'s own `amount`
+  property (already one well-contained priority chain, not duplicated elsewhere — nothing to
+  retire); `PumpEffect.power_if_kicked`/`toughness_if_kicked`/`power_if_bargained`/
+  `toughness_if_bargained` (a closed 4-param vocabulary shared by only a few MEC-82 cards;
+  folding it in needs `_pump_one` to take `context`, a larger change for a small win);
+  `AddManaEffect.amount_selector`/`amount_from_context` (additive riders stacked on top of a
+  fixed-symbol production, not an override — a different shape); `EnterAsCopyReplacement.
+  max_mana_value_from_mana_spent` (a targeting-time legality gate, not a resolve-time magnitude).
 
 ## PAR — Parser
 

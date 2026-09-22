@@ -5372,15 +5372,36 @@ def _grant_flashback_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("grant_flashback_to_target", params)]
 
 
-#: "The next spell you cast this turn can't be countered." (Mistrise
-#: Village) — `arm_spell_watcher`'s existing "when you next cast a spell
-#: this turn, `<effect>`" mechanism (built for Dual Strike's "…copy it"),
-#: here with `MarkCantBeCounteredEffect` as the ``then_specs`` payload
-#: instead — no card-type/mana-value filter, since the printed line has
-#: neither.
-_NEXT_SPELL_CANT_BE_COUNTERED_RE = _c(
-    r"the next spell you cast this turn can'?t be countered"
+#: "The next [creature] spell you cast this turn can't be countered." (Mistrise Village,
+#: Insist, Overmaster) and "[Creature] spells you control|cast [this turn] can't be
+#: countered [this turn]." (Veil of Summer, Domri, Anarch of Bolas) — a continuous effect
+#: for the rest of the turn (`cant_be_countered_this_turn`, an `UncounterableGrant`), not a
+#: trigger on the cast: it also protects a spell already on the stack, and an opponent gets
+#: no window to respond to it. A bare "spells you control can't be countered." with no "this
+#: turn" is a static ability and stays out of this row.
+_UNCOUNTERABLE_TYPE_WORD = r"(?:creature|artifact|enchantment|instant|sorcery|planeswalker|land)"
+_UNCOUNTERABLE_TYPES = (
+    rf"{_UNCOUNTERABLE_TYPE_WORD}(?:(?:, | or | and |, or |, and ){_UNCOUNTERABLE_TYPE_WORD})*"
 )
+_UNCOUNTERABLE_THIS_TURN_RE = _c(
+    rf"(?:the next (?:(?P<next_types>{_UNCOUNTERABLE_TYPES}) )?spell you cast this turn"
+    rf"|(?:(?P<types_a>{_UNCOUNTERABLE_TYPES}) )?spells you control"
+    rf"|(?:(?P<types_b>{_UNCOUNTERABLE_TYPES}) )?spells you cast this turn)"
+    r"(?P<tail> this turn)? can'?t be countered(?: this turn)?"
+)
+
+
+def _cant_be_countered_this_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    next_only = m.group("next_types") is not None or m.group(0).lower().startswith("the next")
+    if not next_only and "this turn" not in m.group(0).lower():
+        return None
+    words = m.group("next_types") or m.group("types_a") or m.group("types_b")
+    params: dict = {}
+    if words:
+        params["card_types"] = re.findall(_UNCOUNTERABLE_TYPE_WORD, words.lower())
+    if next_only:
+        params["next_only"] = True
+    return [EffectSpec("cant_be_countered_this_turn", params)]
 
 
 #: "Look at the top card of target player's library." (Mishra's Bauble) /
@@ -5397,15 +5418,6 @@ _LOOK_AT_TARGET_RE = _c(
 
 def _look_at_target(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("look_at_cards", {"target_kind": "player"})]
-
-
-def _next_spell_cant_be_countered(m: re.Match[str]) -> list[EffectSpec]:
-    return [
-        EffectSpec(
-            "arm_spell_watcher",
-            {"then_specs": [{"type": "mark_cant_be_countered", "params": {}}]},
-        )
-    ]
 
 
 #: "When you next cast an instant or sorcery spell this turn, **copy that spell**. You may
@@ -14583,12 +14595,12 @@ HANDLERS: list[EffectHandler] = [
         _GRANT_FLASHBACK_TARGET_RE,
         _grant_flashback_target,
     ),
-    # "The next spell you cast this turn can't be countered." (Mistrise
-    # Village's own activated ability body).
+    # "The next [creature] spell you cast this turn can't be countered." (Mistrise Village,
+    # Insist, Overmaster) / "Spells you control can't be countered this turn." (Veil of Summer).
     EffectHandler(
-        "next_spell_cant_be_countered",
-        _NEXT_SPELL_CANT_BE_COUNTERED_RE,
-        _next_spell_cant_be_countered,
+        "cant_be_countered_this_turn",
+        _UNCOUNTERABLE_THIS_TURN_RE,
+        _cant_be_countered_this_turn,
     ),
     # "Look at the top card of target player's library."/"Look at a card at
     # random in target player's hand." (Mishra's/Urza's Bauble).

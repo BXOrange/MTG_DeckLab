@@ -2111,40 +2111,28 @@ class DamageThenInvestigateIfExcessEffect(GameEffect):
                     context.create_token(player.id, clue, 1)
 
 
-class ArmSpellWatcherEffect(GameEffect):
-    """"When you next cast an instant or sorcery spell with mana value N
-    or less this turn, `<effect>`." (Dual Strike) — the resolve-time
-    trigger for `RulesEngine.arm_spell_watcher`; see `GameState.
-    spell_watchers`'s docstring for the mechanism itself.
-    """
+class CantBeCounteredThisTurnEffect(GameEffect):
+    """"Spells you control can't be countered this turn." (Veil of Summer) / "Creature
+    spells you cast this turn can't be countered." (Domri, Anarch of Bolas) / "The next
+    spell you cast this turn can't be countered." (Mistrise Village) — records an
+    `UncounterableGrant`, which `RulesEngine._is_cant_be_countered` reads. A continuous
+    effect, not a trigger: it also covers a spell already on the stack."""
 
     def __init__(
         self,
-        then_specs: Optional[list[dict]] = None,
-        max_mana_value: Optional[int] = None,
         card_types: Optional[list[str]] = None,
-        repeat: bool = False,
+        next_only: bool = False,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
-        self.then_specs = list(then_specs or [])
-        self.max_mana_value = max_mana_value
         self.card_types = card_types
-        #: "**Spells you control** can't be countered this turn." (Veil of
-        #: Summer) — every matching spell for the rest of the turn, not
-        #: just the next one; see `RulesEngine.arm_spell_watcher`'s own
-        #: docstring.
-        self.repeat = repeat
+        self.next_only = next_only
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is None:
             return
-        context.engine.arm_spell_watcher(
-            player, self.then_specs, self.source,
-            max_mana_value=self.max_mana_value, card_types=self.card_types,
-            repeat=self.repeat,
-        )
+        context.engine._grant_uncounterable(player, self.card_types, self.next_only)
 
 
 class ExileHandEffect(GameEffect):

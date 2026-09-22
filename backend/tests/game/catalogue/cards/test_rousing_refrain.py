@@ -21,8 +21,10 @@ def test_registered_and_binds():
     assert is_registered("Rousing Refrain")
     spec = _REGISTRY["rousing refrain"]()[0]
     spec.validate()
-    assert spec.effects[0].type == "add_mana"
-    assert spec.effects[0].params["amount_from_target_hand_size"] is True
+    bind = spec.effects[0]
+    assert bind.type == "bind"
+    assert bind.params["amount"] == {"kind": "resource", "resource": "hand_size", "of": "target"}
+    assert [e["type"] for e in bind.params["effects"]] == ["add_mana"]
     src = GameObject(_rr_card(), owner_id="p1", zone=Zone.STACK)
     src.controller_id = "p1"
     bind_ability(spec, src)
@@ -46,9 +48,7 @@ def test_adds_red_mana_per_card_in_target_opponents_hand():
     src.controller_id = "p1"
 
     eng.rules._apply_effect_specs(
-        [{"type": "add_mana", "params": {"color": "R", "target_kind": "opponent",
-                                         "amount_from_target_hand_size": True}}],
-        src, targets=[p2],
+        [_REGISTRY["rousing refrain"]()[0].effects[0].to_dict()], src, targets=[p2],
     )
     eng.resolve_until_stable()
     assert p1.mana_pool.pool.get("R", 0) == 4

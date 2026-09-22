@@ -49,7 +49,6 @@ from . import dramatic_reversal  # noqa: F401
 from . import drana_and_linvala  # noqa: F401
 from . import dress_down  # noqa: F401
 from . import drumbellower  # noqa: F401
-from . import dual_strike  # noqa: F401
 from . import dualcaster_mage  # noqa: F401
 from . import dungeon_delver  # noqa: F401
 from . import dusk_urchins  # noqa: F401

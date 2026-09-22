@@ -6789,17 +6789,123 @@ measurement of why is the useful half of this work.
   cleared only for the incoming active player, so an opponent's total from *their* last turn was still
   readable during yours; every one is now "this turn, for every player". Tallies in an undo snapshot
   survive because `GameState.clone()` carries the current turn's events.
-- **Left as they were, deliberately:** `combats_this_turn` (turn-structure state, incremented in the step
-  machinery), `cards_left_graveyard_this_turn` (its event is batched and can fire late),
-  `mana_produced_this_turn` and `planar_die_rolls_this_turn` (no event), `first_draw_replaced_this_turn`
-  (a replacement flag), `no_attack_pairs_this_turn` and `declared_blockers_this_combat` (restrictions, not
-  history). Tests that assigned a counter now fire the event (`tests/turn_history_events.py`).
+- **Left as they were, deliberately:** `cards_left_graveyard_this_turn` (its event is batched and can
+  fire late), `mana_produced_this_turn` (no event), `first_draw_replaced_this_turn` (a replacement
+  flag), `no_attack_pairs_this_turn` and `declared_blockers_this_combat` (restrictions, not history).
+  `combats_this_turn` and `planar_die_rolls_this_turn`, listed here as left alone at the time, were
+  derived in the final slice below. Tests that assigned a counter now fire the event
+  (`tests/turn_history_events.py`).
 - **The amount flags (ENG-47 b):** only the cases with an exact existing equivalent were retired —
   `amount_from_life_gained_this_turn` and `amount_from_burden_counters_on_self` became the
   `amount_from_count_selector` names the same class already had, and
   `amount_from_trigger_source_toughness` the `amount_from_subject` reading `trigger_subject_toughness`
-  (whose referent now also resolves a DAMAGE event's ``source_id``). The other ~120 stay: each needs its
-  own measure kind or a `bind` rewrite, not a one-line swap.
+  (whose referent now also resolves a DAMAGE event's ``source_id``). The other ~120 were retired in the
+  final slice below.
+
+### ENG-47 (final slice): `spell_watchers` retired, three more history phrases, and one amount operand per effect (PARSER_VERSION 459)
+
+- **`combats_this_turn`/`planar_die_rolls_this_turn` join the derived set.** `turn_history.combats`
+  counts `STEP_BEGIN` events for `step="begin_combat"`; `turn_history.planar_die_rolls` tallies a new
+  `PLANAR_DIE_ROLLED` event (`RulesEngine.roll_planar_die` fires it on every roll, including a free one
+  from a card that rolls the die outright — RULE 901.6b counts rolls, not the paid special action).
+  Both `GameState` fields became read-only `@property`s; `GameEngine.begin_turn` needed no reset.
+- **`GameState.spell_watchers` retired.** "When you next cast an instant or sorcery spell [with mana
+  value N or less] this turn, `<effect>`" (Dual Strike, Thunderclap Drake) is a *triggered* ability
+  (RULE 603.7a) and now composes into the ordinary `create_turn_trigger(once)`, gaining a
+  `next_only`-shaped copy of the same `spell_filter` grammar PAR-119's cast-trigger head already
+  built — no bespoke mechanism needed. "Spells you control can't be countered this turn"
+  (Veil of Summer, Domri, Mistrise Village, Insist, Overmaster) is a *continuous effect* (RULE
+  101.2/611.2a), not a trigger on the cast — modelling it as one would give an opponent a response
+  window before the marker landed. It is now `cant_be_countered_this_turn`
+  (`CantBeCounteredThisTurnEffect`, `EffectHandler`/regex `_UNCOUNTERABLE_THIS_TURN_RE`), which
+  records a `GameState.UncounterableGrant` (controller, turn, optional `card_types`, optional
+  `next_only`) that `RulesEngine._is_cant_be_countered` reads directly — a grant from an earlier turn
+  is ignored, so nothing needs to sweep or reset it. `_next_only` protects exactly the first
+  qualifying cast made *after* the grant resolved, counted off `turn_history.spells_cast`'s own tally
+  at grant time rather than watching for the cast. Dual Strike's hand-authored `card_catalogue` entry
+  is deleted — the parser now claims it outright.
+- **Three more turn-history condition phrases** (`catalogue/history_phrase.py`,
+  `static_handlers.py`'s `_STATIC_CONDITION_RES`): "you descended this turn" (RULE 700.11 — a
+  permanent card reached your graveyard from anywhere; `turn_history.permanent_card_to_graveyard`
+  already excluded tokens — RULE 111.7, a token is not a card — so this needed no new derivation),
+  "you created a token this turn" (rewritten to "a token entered the battlefield under your control"
+  and read through the existing object-event grammar — a token is created under its creator's
+  control, so the two phrasings are the same fact), and "you committed a crime this turn" (RULE
+  700.13 — a new `CRIME_COMMITTED` event, fired by a new `RulesEngine._note_crime` at every site a
+  spell, activated ability or triggered ability is put on the stack, scanning its targets for an
+  opponent, a permanent an opponent controls, or a card in an opponent's graveyard).
+- **A phase trigger's own leading "if `<state>`,"** (RULE 603.4) is now read through the shared
+  `static_condition` vocabulary generally (a new `_PHASE_INTERVENING_IF_RE` fallback in
+  `segmenter.py`, tried only once a body fails to parse as it stands) instead of one regex per
+  phrase — this is what let "Celebration — At the beginning of `<phase>`, if two or more nonland
+  permanents entered the battlefield under your control this turn, `<effect>`" (the Bloomburrow
+  ability word) parse for free from the "you descended"/count-phrase machinery already in place, and
+  is the source of most of this version's new coverage.
+- **One `effect_amounts` operand per magnitude.** The ~120 remaining `amount_from_*`/`count_from_*`/
+  `amount_if_*` constructor parameters were a duplicated shape, not ~120 distinct ones: each is "read
+  a number from *there*, override this effect's own magnitude with it." `game/effects/operands.py`
+  gives every effect type a small declarative `rule(effect_type, (legacy_key, target_param, builder),
+  …)` table; `EffectRegistry.create` calls `operands.lower(effect_type, params)` before the factory
+  runs, rewriting each legacy key into an `effect_amounts` operand dict stored under its magnitude
+  parameter (`amount`/`count`/`power`/`toughness`/…) — the parser and every hand-authored
+  `EffectSpec` keep emitting the old spelling unchanged. `GameEffect._measured(value, context,
+  targets)` is the one read every converted `apply()` now calls: a plain `int`/`"x"` sentinel passes
+  through untouched, a dict is measured via `effect_amounts.amount_of`. Converted: `draw` (`count`),
+  `discard`/`mill`/`impulsive_draw` (`count`, "that many"/"X, where X is that spell's mana value"),
+  `scry`/`inspect_top_choose` (`count`), `connive` (`times`), `gain_life`/`lose_life` (`amount`,
+  including a new `damage_dealt_this_turn` and `spells_cast_this_turn` `effect_amounts` kind and a
+  `previous_player`/`event_player` referent), `add_counters` (`amount`, including a new
+  `FULL_PARTY`-gated `if` operand for "…instead if you have a full party"), `pump` (one
+  `dynamic_amount` operand replacing three separate trigger-event/count-selector/negative flags,
+  still axis-gated onto `power`/`toughness` the same way), `create_token` (`count`, `pt_amount`),
+  `copy_permanent` (`count`, including a `kicked`-gated `if`), `bolster`/`earthbend`/
+  `reveal_top_then_creature_and_or_land_battlefield` (`amount`), `discover` (`mana_value`, new
+  `trigger_subject`/`self` referent aliases and a `characteristic`-of-`"trigger_subject"` RULE 400.7
+  snapshot fallback), `prevent_damage_shield` (`amount`, a `kicked`-gated `if`), `taxed_draw`
+  (`amount`, replacing `amount_from_source_power`). A dozen-plus hand-authored cards that had wired a
+  fused flag by hand now build the equivalent `bind` instead: Solitude/Dazzling Reflection
+  (`characteristic power of target/previous_target`), Doomsday/Peer into the Abyss
+  (`resource life, divide 2, round_up`, the second scoped to `previous_player`), Final Punishment
+  (the new `damage_dealt_this_turn` kind), Esper Sentinel (`characteristic power of source` feeding
+  `taxed_draw.amount`), Tavern Brawler (`characteristic mana_value of created` — a new `created`
+  referent naming what a preceding clause's own zone-change just made available, generalizing what
+  had been `PumpEffect`'s own one-off `amount_from_created_object_mana_value`), Emiel the Blessed
+  (an `if is_subtype unicorn of remembered` — a new `remembered` referent reading
+  `GameObject.remembered_instance_id`, the deferred sibling of the trigger-event window once an
+  "if you do" branch has already closed it), Burning Curiosity (`if additional_cost_paid`),
+  Rousing Refrain/Jeska's Will/Carpet of Flowers (`resource hand_size`/`count_selector` of `target`
+  — `AddManaEffect` gained a plain `any_amount` int alongside its existing `colors=["ANY"]"` choice,
+  retiring `amount_from_target_hand_size`/`amount_from_target_count_selector`), Rootha/Spoils of
+  Blood (`count_selector` feeding a token's `power`/`toughness`, retiring
+  `CreateTokenEffect.pt_from_count_selector`).
+- **Left alone, deliberately — not the same shape.** `DealDamageEffect`'s own `amount` property is
+  already one well-contained priority chain (RULE 702.33b Kicker, Raid, Bargain, Teamwork, mana-color-
+  spent, full party, cast-from-exile, source subtype, target color — nine overrides in one place, no
+  hand-authored duplicate of any of them elsewhere) — retiring it into the generic operand vocabulary
+  would trade a working, well-tested chain for a deeply nested `if` tree with no duplication left to
+  remove. `PumpEffect.power_if_kicked`/`toughness_if_kicked`/`power_if_bargained`/
+  `toughness_if_bargained` stay as four plain parameters (MEC-82's own small, closed vocabulary,
+  shared by only a few cards) — folding them in would need `_pump_one` to take `context` on every
+  call site for a small win. `AddManaEffect.amount_selector`/`amount_from_context` are additive
+  riders stacked on top of a fixed-symbol mana production, not a magnitude override — a different
+  shape the operand vocabulary doesn't target. `EnterAsCopyReplacement.
+  max_mana_value_from_mana_spent` gates a RULE 115 target's *legality*, not a resolve-time magnitude.
+- **Verification:** `tests/test_eng47_turn_scoped_cast_effects.py` (Dual Strike parses and copies only
+  a spell within its mana-value cap; every `cant_be_countered_this_turn` shape parses to the right
+  `card_types`/`next_only`; the grant covers a spell already on the stack, is the caster's alone,
+  ends with the turn, is type-qualified correctly, protects exactly the next qualifying spell, and
+  survives an undo snapshot), `tests/test_eng47_turn_trigger_sentences.py` (a sentence-embedded turn
+  trigger carries its "if C," gate — Warhost's Frenzy draws only when kicked; a chapter ability and an
+  activated ability both create a real turn trigger — Dalkovan Encampment's tokens are tapped,
+  attacking, and sacrificed at end step without touching the attacker that triggered them; Golden
+  Guardian returns transformed only if it dies the turn it fought; a targeted body picks its target
+  when the trigger actually fires, not when it's created; Celebration counts only nonland permanents
+  entering under your control this turn; "you descended" excludes a dying token; targeting an
+  opponent/their permanent/a card in their graveyard is a crime and your own things are not; an
+  activated ability targeting your own creature is no crime; Slickshot Vault-Buster's +2/+0 comes and
+  goes with the turn). Full suite green against the HEAD baseline (21 known-red, 0 new), `--full-cache`
+  green (22 known-red incl. the pre-existing Geistwave failure, 0 new). Coverage 17,035 → 17,065
+  (+30, 0 regressed via `parser_probe.py diff`), Commander-legal 51.5% (16,377 → 16,407).
 
 ### PAR-119 (attack / block / player-event axes) and two wrong-but-modeled fixes (PARSER_VERSION 456)
 

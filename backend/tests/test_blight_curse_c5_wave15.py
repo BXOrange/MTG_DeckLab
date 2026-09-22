@@ -3,9 +3,8 @@
 
 * Optional ``blight 1`` additional cost (`additional_cost={"blight": 1}` +
   ``additional_cost_optional``).
-* ``impulsive_draw`` whose count is overridden 2 -> 3 by the new
-  ``count_if_additional_cost_paid`` param (RULE 614 "instead", gated on
-  `GameObject.additional_cost_paid`).
+* ``impulsive_draw`` whose count is a `bind` over an ``if`` amount, 2 -> 3 (RULE 614
+  "instead", gated on `GameObject.additional_cost_paid`).
 """
 
 from __future__ import annotations
@@ -56,9 +55,10 @@ def test_burning_curiosity_authored():
     assert len(specs) == 1
     assert specs[0].additional_cost == {"blight": 1}
     assert specs[0].additional_cost_optional is True
-    p = specs[0].effects[0].params
-    assert specs[0].effects[0].type == "impulsive_draw"
-    assert p["count"] == 2 and p["count_if_additional_cost_paid"] == 3
+    bind = specs[0].effects[0]
+    assert bind.type == "bind"
+    assert bind.params["amount"]["then"] == 3 and bind.params["amount"]["otherwise"] == 2
+    assert [e["type"] for e in bind.params["effects"]] == ["impulsive_draw"]
 
 
 def test_binds_the_optional_blight_additional_cost():
@@ -74,8 +74,7 @@ def test_exiles_two_when_the_cost_was_not_paid():
     src = _src(eng, additional_cost_paid=False)
     eng.begin_turn()
 
-    build_effects([EffectSpec("impulsive_draw", {"count": 2, "count_if_additional_cost_paid": 3})],
-                  src)[0].apply(GameContext(eng.state, eng.rules), targets=None)
+    build_effects(specs_for(BURNING_CURIOSITY)[0].effects, src)[0].apply(GameContext(eng.state, eng.rules), targets=None)
 
     assert len(p1.library) == 6
     assert len(p1.exile) == 2
@@ -87,8 +86,7 @@ def test_exiles_three_when_the_additional_cost_was_paid():
     src = _src(eng, additional_cost_paid=True)
     eng.begin_turn()
 
-    build_effects([EffectSpec("impulsive_draw", {"count": 2, "count_if_additional_cost_paid": 3})],
-                  src)[0].apply(GameContext(eng.state, eng.rules), targets=None)
+    build_effects(specs_for(BURNING_CURIOSITY)[0].effects, src)[0].apply(GameContext(eng.state, eng.rules), targets=None)
 
     assert len(p1.library) == 5
     assert len(p1.exile) == 3

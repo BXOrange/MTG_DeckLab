@@ -209,7 +209,7 @@ def test_bolster_dynamic_amount_reads_a_live_board_count():
     from mtg_analyzer.game.effects.core import BolsterEffect, GameContext
 
     ctx = GameContext(state, eng.rules)
-    BolsterEffect(source=a, amount_from_count_selector="tapped_creatures_you_control").apply(ctx)
+    BolsterEffect(source=a, amount={"kind": "count_selector", "selector": "tapped_creatures_you_control"}).apply(ctx)
 
     assert state.pending_choice is None
     assert a.plus_one_counters == 2  # 2 tapped creatures, least-toughness A gets both
@@ -224,7 +224,7 @@ def test_bolster_dynamic_amount_of_zero_is_a_no_op():
     from mtg_analyzer.game.effects.core import BolsterEffect, GameContext
 
     ctx = GameContext(state, eng.rules)
-    BolsterEffect(source=a, amount_from_count_selector="tapped_creatures_you_control").apply(ctx)
+    BolsterEffect(source=a, amount={"kind": "count_selector", "selector": "tapped_creatures_you_control"}).apply(ctx)
 
     assert a.plus_one_counters == 0
     assert state.pending_choice is None

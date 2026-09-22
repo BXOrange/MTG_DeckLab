@@ -3519,7 +3519,33 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: that fired it (`PumpEffect.trigger_subject`, +13) and a spell's "when you next cast an
 #: instant or sorcery spell this turn, copy that spell" is a one-shot turn trigger with
 #: `copy_spell` reading the cast event (+7).
-PARSER_VERSION = "457"
+#: v458 (ENG-47): "can't be countered this turn" is a rule, not a trigger on the cast —
+#: "spells you control can't be countered this turn" (Veil of Summer), "creature spells you
+#: cast this turn can't be countered" (Domri) and "the next `<type>` spell you cast this turn
+#: can't be countered" (Mistrise Village, Insist, Overmaster) are one `cant_be_countered_this_turn`
+#: effect recording an `UncounterableGrant`, so it also covers a spell already on the stack. A
+#: turn-long "whenever `<event>` this turn, `<effect>`" is now also a *sentence* of a larger body
+#: (after an "if C," gate — Ruinous Waterbending — or a first sentence), not only a whole line.
+#: v459 (ENG-47): three more turn-history condition phrases join "gained life"/"card left
+#: graveyard" — "you descended this turn" (RULE 700.11, a permanent card reaching your
+#: graveyard; a token dying does not count), "you created a token this turn", "you committed a
+#: crime this turn" (RULE 700.13, a new `CRIME_COMMITTED` event fired wherever a spell/ability
+#: is put on the stack targeting an opponent, their permanent, or a card in their graveyard).
+#: A phase trigger's own leading "if `<state>`," now reads through the shared
+#: `static_condition` vocabulary generally, not one regex per phrase (Celebration's "if two or
+#: more nonland permanents entered the battlefield under your control this turn", the source for
+#: most of this version's new coverage). Also folds `GameState.spell_watchers` into the ordinary
+#: `create_turn_trigger`/`UncounterableGrant` machinery (Dual Strike's hand-authored entry is
+#: retired — it now parses) and retires ~30 per-effect `amount_from_*`/`count_from_*`/
+#: `amount_if_*` constructor parameters across draw/discard/mill/scry/gain_life/lose_life/
+#: add_counters/pump/create_token/copy_permanent/bolster/earthbend/discover/prevent_damage/
+#: taxed_draw in favour of one `effect_amounts` operand per magnitude (`GameEffect._measured`,
+#: `game/effects/operands.py`) — no coverage change on its own, but real cards previously wired
+#: through a hand-authored fused flag now go through the shared `bind` node instead
+#: (Solitude, Doomsday, Final Punishment, Peer into the Abyss, Esper Sentinel, Tavern Brawler,
+#: Emiel the Blessed, Burning Curiosity, Rousing Refrain, Jeska's Will, Carpet of Flowers,
+#: Rootha, Spoils of Blood).
+PARSER_VERSION = "459"
 
 
 def parser_source_hash() -> str:

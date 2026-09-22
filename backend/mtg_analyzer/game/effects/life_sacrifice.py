@@ -170,13 +170,11 @@ class GainLifeEffect(GameEffect):
         target_kind: Optional[str] = None,
         creature_filter: Optional[dict] = None,
         count_selector: Optional[str] = None,
-        amount_from_target_power: bool = False,
-        recipient: Optional[str] = None,
-        amount_from_subject: Optional[str] = None,
-        amount_from_trigger_event: Optional[str] = None,
         count_selector_multiplier: int = 1,
     ) -> None:
         super().__init__(source)
+        #: How much: a number or an `effect_amounts` operand ("you gain that much life", "gain
+        #: life equal to its power" — El-Hajjâj, Bottle Golems, Angelic Chorus).
         self.amount = amount
         self.player = player
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
@@ -187,73 +185,12 @@ class GainLifeEffect(GameEffect):
         #: total); this multiplies it, the `PumpEffect.x_multiplier`
         #: sibling for a fixed count-selector scale rather than {X}.
         self.count_selector_multiplier = count_selector_multiplier
-        #: "Whenever ~ deals damage, you gain **that much** life." (El-Hajjâj
-        #: / Exalted Angel / Whip of Erebos-shaped, PAR-36) — the event
-        #: field name (``"amount"``) to read off `GameContext.trigger_event`
-        #: at resolution, the same "read this firing's own payload" idiom
-        #: `LoseLifeEffect.amount_from_trigger_event` (Sanguine Bond) and
-        #: `DealDamageEffect.amount_from_trigger_event` already use.
-        #: Overrides ``amount`` when set.
-        self.amount_from_trigger_event = amount_from_trigger_event
-        #: "You gain life equal to `<its / that creature's>` `<power /
-        #: toughness>`" where the creature isn't a RULE 115 target of *this*
-        #: effect (PAR-30, ~36 SOLO). A ``"<who>_<char>"`` string:
-        #: ``self_power``/``self_toughness`` ("When ~ dies, you gain life
-        #: equal to its power" — Bottle Golems), ``previous_subject_power``/
-        #: ``previous_subject_toughness`` ("Destroy target creature. …you
-        #: gain life equal to that creature's toughness" — Weed Strangle, a
-        #: clash card; RULE 608.2h last-known info, since the creature is
-        #: usually gone), ``trigger_subject_power``/``trigger_subject_
-        #: toughness`` ("Whenever a creature you control enters, you gain
-        #: life equal to its toughness" — Angelic Chorus; reads the firing
-        #: event's own ``instance_id``).
-        self.amount_from_subject = amount_from_subject
-        #: "You gain life equal to target creature's power." (Dazzling
-        #: Reflection, MEC-30) — reads a *shared* target this effect never
-        #: declares itself (no `target_spec` of its own here; a sibling
-        #: clause in the same ability — its own `prevent_damage_from_target`
-        #: — is what actually requests the "target creature," and
-        #: `_apply_effects_partitioned` hands the same resolved `targets`
-        #: list to every effect in the ability when there's only one real
-        #: targeting requirement to gather, RULE 608.2). The life-gain
-        #: sibling of `DealDamageEffect.amount_from_target_count_selector`.
-        self.amount_from_target_power = amount_from_target_power
-        #: "**That creature's controller** gains life equal to its power."
-        #: (MEC-12, Solitude) — ``"target_controller"`` reads the *same*
-        #: shared target `amount_from_target_power` already reads (a
-        #: sibling exile clause's own target, not this effect's own), but
-        #: for *who receives* the life rather than how much: without this,
-        #: an effect with no `target_kind` of its own falls back to
-        #: `_controller_of(self.source, ...)` — this ability's own
-        #: controller, which is wrong whenever the recipient is the
-        #: target's controller instead.
-        self.recipient = recipient
 
     def target_polarity(self) -> Optional[str]:
         return "beneficial"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        subject = targets[0] if targets else None
-        player = self.player
-        if player is None and self.recipient == "target_controller" and subject is not None:
-            controller_id = getattr(subject, "controller_id", None)
-            if controller_id is not None:
-                try:
-                    player = context.state.player_by_id(controller_id)
-                except (KeyError, ValueError):
-                    player = None
-        # Tail of the chain — this effect's own chosen target (if any), else
-        # its controller — is the same "explicit -> target -> controller"
-        # fallback `_resolve_target_or_controller` already implements; the
-        # ``recipient == "target_controller"`` branch above is this class's
-        # own extra step ahead of it (see the field's docstring), so it's
-        # threaded in as ``explicit`` rather than folded into the helper.
-        player = self._resolve_target_or_controller(context, targets, explicit=player)
-
-        def _from_subject() -> int:
-            return _characteristic_of_subject(
-                context, self.source, self.amount_from_subject or ""
-            )
+        player = self._resolve_target_or_controller(context, targets, explicit=self.player)
 
         def _from_count_selector() -> int:
             from .. import continuous  # avoid the continuous↔effects import cycle
@@ -263,19 +200,8 @@ class GainLifeEffect(GameEffect):
             )
 
         amount = self._resolve_amount_override(
-            self.amount,
+            self._measured(self.amount, context, targets),
             [
-                (
-                    bool(self.amount_from_trigger_event),
-                    lambda: int(
-                        (context.trigger_event or {}).get(self.amount_from_trigger_event) or 0
-                    ),
-                ),
-                (
-                    self.amount_from_target_power,
-                    lambda: int(subject.power or 0) if subject is not None else 0,
-                ),
-                (bool(self.amount_from_subject), _from_subject),
                 (
                     # "You gain life equal to the life lost this way." (Gray
                     # Merchant of Asphodel-shaped RULE 119 drain) — a
@@ -378,12 +304,11 @@ class PreventDamageEffect(GameEffect):
     same as-evenly-as-possible split) among whichever targets were chosen
     and each gets its own `RulesEngine.prevent_damage_to_target` shield,
     rather than the single fixed "you" shield the untargeted shape above
-    grants. ``amount_if_kicked`` is Pollen Remedy's own trailing "if this
-    spell was kicked, prevent the next N damage this way instead" —
-    an *override*, not an addition, so it's a param on this effect rather
-    than a generic kicked-conditional wrapper (RULE 702.33b already covers
-    the additive "if kicked, `<effect>`" shape via `ConditionalEffect`;
-    this is the narrower override some cards use instead).
+    grants. ``amount`` may itself be an `effect_amounts` ``if`` operand — Pollen Remedy's own
+    trailing "if this spell was kicked, prevent the next N damage this way instead" is an
+    *override*, not an addition, so it rides the amount rather than a generic kicked-conditional
+    wrapper (RULE 702.33b already covers the additive "if kicked, `<effect>`" shape via
+    `ConditionalEffect`; this is the narrower override some cards use instead).
     """
 
     def __init__(
@@ -396,7 +321,6 @@ class PreventDamageEffect(GameEffect):
         optional: bool = False,
         creature_filter: Optional[dict] = None,
         divided: bool = False,
-        amount_if_kicked: Optional[Union[int, str]] = None,
         self_only: bool = False,
         watched_source_is_self: bool = False,
         recipient_is_activator: bool = False,
@@ -442,7 +366,6 @@ class PreventDamageEffect(GameEffect):
         #: method's own docstring.
         self.recipient_creatures_scope = recipient_creatures_scope
         self.recipient_filter = recipient_filter
-        self.amount_if_kicked = amount_if_kicked
         self.divided = divided
         self.target = target
         #: Inkshield — "Prevent all **combat** damage that would be dealt to
@@ -479,12 +402,7 @@ class PreventDamageEffect(GameEffect):
         )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        kicker_count = getattr(self.source, "kicker_count", 0) or 0
-        amount = self._resolve_amount_override(
-            self.amount,
-            [(self.amount_if_kicked is not None and kicker_count > 0, lambda: self.amount_if_kicked)],
-            stop_at_first=True,
-        )
+        amount = self._measured(self.amount, context, targets)
         if self.attached_only:
             host_id = getattr(self.source, "attached_to", None)
             host = context.state.find_object(host_id) if host_id is not None else None
@@ -1530,23 +1448,13 @@ class LoseLifeEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = None,
         player_id: Optional[str] = None,
-        amount_from_trigger_event: Optional[str] = None,
-        amount_from_count_selector: Optional[str] = None,
-        amount_from_spells_cast_this_turn: bool = False,
-        amount_from_half_own_life: bool = False,
-        amount_from_half_target_life: bool = False,
-        amount_from_damage_dealt_this_turn: bool = False,
         previous_subject: bool = False,
     ) -> None:
         super().__init__(source)
+        #: How much: a number or an `effect_amounts` operand (Sanguine Bond's "that much life",
+        #: Throne of the God-Pharaoh's "equal to the number of tapped creatures you control",
+        #: Rug of Smothering's "for each spell they've cast this turn").
         self.amount = amount
-        #: "Target player loses life equal to the damage already dealt to
-        #: that player this turn." (Final Punishment, MEC-43) — reads
-        #: `GameState.damage_dealt_to_players_this_turn` for whichever
-        #: player this effect resolves against, the exact same "resolve
-        #: the target first, then read state off it" shape
-        #: ``amount_from_half_target_life`` uses just below.
-        self.amount_from_damage_dealt_this_turn = amount_from_damage_dealt_this_turn
         #: "Target player draws cards… **and loses** half their life."
         #: (MEC-43 round 2, Peer into the Abyss) — the same player
         #: `DrawCardEffect`'s own target requirement already picked
@@ -1555,36 +1463,6 @@ class LoseLifeEffect(GameEffect):
         #: `GrantUntilEffect` already use), not a second RULE 115 target of
         #: this effect's own — the real card only ever targets once.
         self.previous_subject = previous_subject
-        #: "You lose half your life, rounded up." (MEC-37, Doomsday) —
-        #: reads this effect's own controller's *current* life total at
-        #: resolution (RULE 107.3 rounds up), independently of the
-        #: selector/target resolution below since the real card never
-        #: prints one — always the caster themself.
-        self.amount_from_half_own_life = amount_from_half_own_life
-        #: "Target player… loses half their life. Round up." (MEC-43
-        #: round 2, Peer into the Abyss) — the *targeted* sibling of
-        #: ``amount_from_half_own_life`` above: reads whichever player the
-        #: ordinary target/``player``/controller resolution below picks,
-        #: not always the caster.
-        self.amount_from_half_target_life = amount_from_half_target_life
-        #: "…each opponent loses life equal to the number of tapped
-        #: creatures you control." (Throne of the God-Pharaoh) — a live
-        #: `continuous.count_selector` read, scoped to this effect's own
-        #: controller regardless of which player ends up losing the life
-        #: (unlike `PumpEffect.amount_from_count_selector`'s board-wide
-        #: reads, this one is always "you", matching every printed card
-        #: of this shape).
-        self.amount_from_count_selector = amount_from_count_selector
-        #: "Whenever a player casts a spell, they lose 1 life for each
-        #: spell they've cast this turn." (Rug of Smothering) — unlike
-        #: ``amount_from_count_selector`` above (always "you", the
-        #: ability's own controller), this reads `GameState.
-        #: spells_cast_this_turn` for the *casting* player named by the
-        #: firing `SPELL_CAST` event (``selector="event_player"``'s own
-        #: ``_event_player`` lookup), including the cast that triggered
-        #: this ability — `RulesEngine._track_spell_cast` increments the
-        #: counter before triggers are collected off the same event.
-        self.amount_from_spells_cast_this_turn = amount_from_spells_cast_this_turn
         self.player = player
         #: A specific player named by *id* rather than by object — the only
         #: form a serialized `EffectSpec` can carry (Professor Onyx's
@@ -1597,94 +1475,12 @@ class LoseLifeEffect(GameEffect):
         # only, so every existing untargeted/selector caller keeps reading
         # no shared ``targets`` list at all (see the class docstring).
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
-        #: "Whenever you gain life, target opponent loses that much life."
-        #: (Sanguine Bond-shaped) — the event field name (``"amount"``) to
-        #: read off `GameContext.trigger_event` at resolution, the same
-        #: "read this firing's own payload" idiom `AddManaEffect.
-        #: amount_from_trigger_event` uses. Overrides ``amount`` when set.
-        self.amount_from_trigger_event = amount_from_trigger_event
 
     def target_polarity(self) -> Optional[str]:
         return "harmful"
 
-    def _resolve_pre_selector_player(
-        self, context: GameContext, targets: Optional[list[Any]] = None,
-    ) -> Any:
-        """The ``self.player -> player_id -> previous_subject ->
-        target_spec -> controller`` prefix shared by
-        ``amount_from_half_target_life``/``amount_from_damage_dealt_this_
-        turn`` below (each needs to know *whose* life to read before
-        `context.lose_life` itself is ever called) — identical to, but a
-        strict prefix of, this `apply`'s own final player resolution just
-        below, which layers three more selector-based fallbacks (``"defending_
-        player"``/``"event_player"``/``"active_player"``) onto the same
-        chain before its own controller fallback. Not folded into that
-        richer chain, or into `GameEffect._resolve_target_or_controller`
-        (a plainer 3-step chain neither of this class's own chains matches)
-        — this is `LoseLifeEffect`'s own shape.
-        """
-        player = self._operand_player(context, targets, self.player) or (
-            None if isinstance(self.player, (str, dict)) else self.player
-        )
-        if player is None and self.player_id is not None:
-            player = context.state.player_by_id(self.player_id)
-        if player is None and self.previous_subject and context.previous_targets:
-            player = context.previous_targets[0]
-        if player is None and self.target_spec is not None and targets:
-            player = targets[0]
-        if player is None:
-            player = _controller_of(self.source, context)
-        return player
-
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        def _from_count_selector() -> int:
-            from .. import continuous  # avoid the continuous↔effects import cycle
-
-            controller_id = getattr(self.source, "controller_id", None)
-            return continuous.count_selector(
-                context.state, controller_id, self.amount_from_count_selector, source=self.source,
-            )
-
-        def _from_spells_cast_this_turn() -> int:
-            caster = _event_player(context, key="player_id")
-            count = context.state.spells_cast_this_turn.get(getattr(caster, "id", None), 0)
-            return self.amount * count
-
-        def _from_half_own_life() -> int:
-            controller = _controller_of(self.source, context)
-            life = getattr(controller, "life", 0)
-            return -(-life // 2)  # ceiling division (RULE 107.3 rounds up)
-
-        def _from_half_target_life() -> int:
-            # Resolved the same way the ordinary (no-amount-selector) path
-            # below picks its player — this just needs to know *before*
-            # `context.lose_life` which player's life to read.
-            target_player = self._resolve_pre_selector_player(context, targets)
-            life = getattr(target_player, "life", 0)
-            return -(-life // 2)  # ceiling division (RULE 107.3 rounds up)
-
-        def _from_damage_dealt_this_turn() -> int:
-            # Same "resolve the target first" shape as
-            # ``amount_from_half_target_life`` just above.
-            target_player = self._resolve_pre_selector_player(context, targets)
-            return context.state.damage_dealt_to_players_this_turn.get(
-                getattr(target_player, "id", None), 0
-            )
-
-        amount = self._resolve_amount_override(
-            self.amount,
-            [
-                (
-                    bool(self.amount_from_trigger_event),
-                    lambda: int((context.trigger_event or {}).get(self.amount_from_trigger_event) or 0),
-                ),
-                (bool(self.amount_from_count_selector), _from_count_selector),
-                (self.amount_from_spells_cast_this_turn, _from_spells_cast_this_turn),
-                (self.amount_from_half_own_life, _from_half_own_life),
-                (self.amount_from_half_target_life, _from_half_target_life),
-                (self.amount_from_damage_dealt_this_turn, _from_damage_dealt_this_turn),
-            ],
-        )
+        amount = self._measured(self.amount, context, targets)
         if amount <= 0:
             return
         if self.selector in _LOSE_LIFE_SELECTORS:
@@ -2378,21 +2174,21 @@ class TaxedDrawEffect(GameEffect):
     declining (or being unable to pay) draws a card for this ability's own
     controller (`DrawCardEffect`'s untargeted default).
 
-    ``amount_from_source_power`` (Esper Sentinel: "unless that player pays
-    {X}, where X is this creature's power") reads the cost's amount off the
-    source's own live power instead of a fixed printed value.
+    ``amount`` is a generic-mana cost of that many, for a tax that is *measured* rather than
+    printed (Esper Sentinel: "unless that player pays {X}, where X is this creature's power" —
+    a `bind` over the source's power supplies it).
     """
 
     def __init__(
         self,
         cost: str = "",
-        amount_from_source_power: bool = False,
+        amount: Optional[int] = None,
         count: int = 1,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.cost_text = str(cost or "")
-        self.amount_from_source_power = amount_from_source_power
+        self.amount = amount
         self.count = count
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -2410,10 +2206,7 @@ class TaxedDrawEffect(GameEffect):
                 break
         if payer is None:
             return
-        cost_text = self.cost_text
-        if self.amount_from_source_power:
-            power = getattr(source, "power", 0) or 0
-            cost_text = "{" + str(power) + "}"
+        cost_text = self.cost_text if self.amount is None else "{" + str(int(self.amount)) + "}"
         cost = parse_activation_cost(cost_text)
         if cost.is_free:
             return

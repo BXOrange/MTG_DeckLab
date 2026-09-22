@@ -229,15 +229,10 @@ class TurnLoopMixin:
         self.state.internal_turn.player_id = active.id
         active.lands_played_this_turn = 0
         active.extra_land_plays_this_turn = 0
-        # RULE 901.6b: the planar die costs {X} where X is how many times its
-        # roller has already rolled it *this turn*, so the tally resets with
-        # every other per-turn counter here.
-        self.state.planar_die_rolls_this_turn.clear()
         # ENG-47: the per-turn history counters (spells cast, life gained/lost, cards
         # drawn/discarded, creatures died, damage dealt, …) are derived from the
         # turn-stamped event log (`models/game/turn_history.py`) — a new turn is a new
         # window, so none of them is reset here.
-        self.state.combats_this_turn = 0
         self.state.cards_left_graveyard_this_turn.clear()
         # MEC-57: "the first time you would draw a card each turn, instead
         # …" (Scion of Halaster) — game-wide, same reason.
@@ -407,12 +402,6 @@ class TurnLoopMixin:
         if self.rules.should_skip_step(self.state.active_player, step.name):
             return
 
-        if step.name == "begin_combat":
-            # RULE 603.4: "if it's the first combat phase of the turn" —
-            # game-wide (not per-player), so an extra combat phase granted
-            # mid-turn is correctly the *second* one regardless of who
-            # controls the effect that grants it.
-            self.state.combats_this_turn += 1
         if step.name == "draw":
             # MEC-32: reset right as this player's own draw step begins, so
             # `RulesEngine._single_draw` can tell "the step's own first

@@ -89,29 +89,17 @@ class AddCountersEffect(GameEffect):
         subtypes: Optional[list[str]] = None,
         trigger_subject_key: Optional[str] = None,
         divided: bool = False,
-        amount_from_trigger_event: Optional[str] = None,
-        x_multiplier: Optional[int] = None,
-        amount_from_count_selector: Optional[str] = None,
-        amount_if_trigger_subject_subtype: Optional[list[str]] = None,
-        amount_if_trigger_subject_subtype_value: Optional[int] = None,
         creature_filter: Optional[dict] = None,
         count_selector: Optional[str] = None,
         ring_bearer: bool = False,
         previous_subject: bool = False,
         distinct_from_others: bool = False,
-        amount_if_full_party: Optional[int] = None,
     ) -> None:
         super().__init__(source)
+        #: How many counters: a number or an `effect_amounts` operand ("put that many counters",
+        #: "put X counters on ~ where X is the number of …", "twice X", "3 instead if you have a
+        #: full party").
         self.amount = amount
-        #: "…put a +1/+1 counter on target creature you control. If you
-        #: have a full party, put 3 +1/+1 counters on that creature
-        #: instead." (PAR-76, The Destined White Mage) — RULE 700.8's
-        #: already-shipped `"creatures_in_your_party"` count selector read
-        #: as a live threshold (>= 4, the cap that count can ever reach),
-        #: the same override-not-additive shape `DealDamageEffect.
-        #: amount_if_kicked`/`amount_if_raid` already establish for other
-        #: cast-time/board conditions.
-        self.amount_if_full_party = amount_if_full_party
         #: RULE 109.5 — "put N -1/-1 counters on **another** target creature"
         #: / "a **third** target creature" (Incremental Blight / Incremental
         #: Growth). Each escalating clause is its own `AddCountersEffect`
@@ -130,33 +118,6 @@ class AddCountersEffect(GameEffect):
         #: Ring-bearer" — no RULE 115 target, resolved fresh against
         #: `continuous.ring_bearer_of` for this effect's controller.
         self.ring_bearer = ring_bearer
-        #: MEC-27: "put X +1/+1 counters on ~, where X is the number of
-        #: `<noun phrase>` you control." — `subgrammars.DEVOTION`'s wider
-        #: RULE 613.7c reading, previously wired into damage/lose_life only.
-        #: Same `continuous.count_selector` lookup, resolved live at
-        #: resolution the same way `DealDamageEffect.amount_from_count_
-        #: selector` already does; deliberately only wired into the plain
-        #: self/single-target branch below, mirroring `amount_from_trigger_
-        #: event`'s own single-recipient scope just above.
-        self.amount_from_count_selector = amount_from_count_selector
-        #: "Whenever you gain life, put that many +1/+1 counters on ~/target
-        #: X." (Ageless Entity/Treebeard-shaped) — the event field name
-        #: (``"amount"``) to read off `GameContext.trigger_event` at
-        #: resolution, overriding ``amount`` when set. Same idiom as
-        #: `LoseLifeEffect.amount_from_trigger_event`; deliberately only
-        #: wired into the plain self/single-target branches below, since
-        #: "that many" is inherently a single recipient, never a mass
-        #: selector or an N>=2 multi-target pick.
-        self.amount_from_trigger_event = amount_from_trigger_event
-        #: "~ enters with twice X +1/+1 counters on it." (Banquet Guests) —
-        #: a self-only ETB trigger reading the *source's own* announced
-        #: {X} (`GameObject.x_paid`, RULE 107.3c — set at cast time,
-        #: already present by the time this same object's own ENTERS_
-        #: BATTLEFIELD trigger resolves) times this multiplier. Distinct
-        #: from `_substitute_x`'s ``"x"`` sentinel, which only rewrites a
-        #: *spell's own* resolution effects — a separately-fired triggered
-        #: ability has no `StackItem.x` of its own to substitute against.
-        self.x_multiplier = x_multiplier
         # PAR-15: "distribute N +1/+1 counters among any number of target
         # creatures" (Blessings of Nature/Jugan, the Rising Star/Verdurous
         # Gearhulk) — ``amount`` is then a *pool* split across whichever
@@ -182,18 +143,6 @@ class AddCountersEffect(GameEffect):
         #: _subject_event_key` resolves the trigger's own condition
         #: against, so the two always agree on which object "it" is.
         self.trigger_subject_key = trigger_subject_key
-        #: "…put a +1/+1 counter on it. If it's a Unicorn, put 2 +1/+1
-        #: counters on it instead." (Emiel the Blessed) — an "instead"
-        #: override on the *trigger subject*'s own subtype, checked only
-        #: alongside ``trigger_subject_key`` (the "it" both clauses share).
-        #: Not a general "if X, do A instead of B" primitive (that stays a
-        #: real open gap — see `BACKLOG.md`'s kicker "instead" note) — just
-        #: this one recurring "bonus for a named creature type" shape.
-        self.amount_if_trigger_subject_subtype = (
-            [s.lower() for s in amount_if_trigger_subject_subtype]
-            if amount_if_trigger_subject_subtype else None
-        )
-        self.amount_if_trigger_subject_subtype_value = amount_if_trigger_subject_subtype_value
         #: RULE 702.134a Mentor — "put a +1/+1 counter on target attacking
         #: creature with lesser power": a `matches_object_filter` dict
         #: (``{"attacking": True, "power_vs_reference": "less"}``) narrowing
@@ -235,16 +184,14 @@ class AddCountersEffect(GameEffect):
         context.recompute()
 
     def _place_counters(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.x_multiplier is not None:
-            x_paid = getattr(self.source, "x_paid", 0) or 0
-            self.amount = self.x_multiplier * x_paid
+        amount = self._measured(self.amount, context, targets)
         if self.ring_bearer:
             from ..continuous import ring_bearer_of  # avoid the continuous↔effects cycle
 
             controller = _controller_of(self.source, context)
             bearer = ring_bearer_of(context.state, controller) if controller is not None else None
             if bearer is not None:
-                context.add_counters(bearer, self.amount, self.kind, source=self.source)
+                context.add_counters(bearer, amount, self.kind, source=self.source)
             return
         if self.trigger_subject_key:
             if self.trigger_subject_key == "remembered":
@@ -256,11 +203,6 @@ class AddCountersEffect(GameEffect):
                 obj_id = (event or {}).get(self.trigger_subject_key)
             target = context.state.find_object(obj_id) if obj_id is not None else None
             if target is not None:
-                amount = self.amount
-                if self.amount_if_trigger_subject_subtype and self.amount_if_trigger_subject_subtype_value is not None:
-                    sub = target.card.type_line.partition("—")[2].strip().lower().split()
-                    if any(s in sub for s in self.amount_if_trigger_subject_subtype):
-                        amount = self.amount_if_trigger_subject_subtype_value
                 context.add_counters(target, amount, self.kind, source=self.source)
             return
         if self.selector in _ADD_COUNTERS_SELECTORS:
@@ -282,7 +224,7 @@ class AddCountersEffect(GameEffect):
                     obj, self.creature_filter, state=context.state
                 ):
                     continue
-                context.add_counters(obj, self.amount, self.kind, source=self.source)
+                context.add_counters(obj, amount, self.kind, source=self.source)
             return
         if self.target_spec is not None and (
             self.target_spec.count_selector or self.target_spec.effective_count != 1
@@ -303,11 +245,11 @@ class AddCountersEffect(GameEffect):
             if not chosen:
                 return
             if self.divided:
-                total = self.amount if isinstance(self.amount, int) else 0
+                total = amount if isinstance(amount, int) else 0
                 base, extra = divmod(total, len(chosen))
                 shares = [base + (1 if i < extra else 0) for i in range(len(chosen))]
             else:
-                shares = [self.amount] * len(chosen)
+                shares = [amount] * len(chosen)
             for target, share in zip(chosen, shares):
                 if share > 0:
                     context.add_counters(target, share, self.kind, source=self.source)
@@ -325,7 +267,7 @@ class AddCountersEffect(GameEffect):
             prev = [t for t in context.previous_targets if t is not None]
             if not prev:
                 return
-            total = self.amount if isinstance(self.amount, int) else 0
+            total = amount if isinstance(amount, int) else 0
             base, extra = divmod(total, len(prev))
             for i, one in enumerate(prev):
                 share = base + (1 if i < extra else 0)
@@ -342,48 +284,6 @@ class AddCountersEffect(GameEffect):
         else:
             target = self.source
 
-        def _from_count_selector() -> int:
-            from .. import continuous  # avoid the continuous↔effects import cycle
-
-            controller_id = getattr(self.source, "controller_id", None)
-            return continuous.count_selector(
-                context.state, controller_id, self.amount_from_count_selector, source=self.source,
-            )
-
-        full_party = False
-        if self.amount_if_full_party is not None:
-            from .. import continuous  # avoid the continuous↔effects import cycle
-
-            controller_id = getattr(self.source, "controller_id", None)
-            full_party = continuous.count_selector(
-                context.state, controller_id, "creatures_in_your_party", source=self.source,
-            ) >= 4
-
-        # Same override as the `trigger_subject_key` branch above, for a
-        # target reached the ordinary way instead — e.g. `targets` threaded
-        # in from a deferred `pay_cost_then` "if you do" branch (Emiel the
-        # Blessed), where `context.trigger_event`'s window has already
-        # closed by the time this resolves.
-        subtype_matches = False
-        if (
-            target is not None and self.amount_if_trigger_subject_subtype
-            and self.amount_if_trigger_subject_subtype_value is not None
-        ):
-            sub = target.card.type_line.partition("—")[2].strip().lower().split()
-            subtype_matches = any(s in sub for s in self.amount_if_trigger_subject_subtype)
-
-        amount = self._resolve_amount_override(
-            self.amount,
-            [
-                (
-                    bool(self.amount_from_trigger_event),
-                    lambda: int((context.trigger_event or {}).get(self.amount_from_trigger_event) or 0),
-                ),
-                (bool(self.amount_from_count_selector), _from_count_selector),
-                (subtype_matches, lambda: self.amount_if_trigger_subject_subtype_value),
-                (full_party, lambda: self.amount_if_full_party),
-            ],
-        )
         if target is not None and amount > 0:
             context.add_counters(target, amount, self.kind, source=self.source)
 
@@ -888,9 +788,8 @@ class RevealTopThenCreatureAndOrLandBattlefieldEffect(GameEffect):
     """"Reveal that many cards from the top of your library. You may put a
     creature card and/or a land card from among them onto the battlefield.
     Put the rest on the bottom in a random order." (Ojer Kaslem, Deepest
-    Growth's combat-damage trigger) — ``amount_from_trigger_event`` reads
-    "that many" off the firing DAMAGE event's own ``amount`` (`DealDamage
-    Effect`'s established idiom).
+    Growth's combat-damage trigger) — ``amount`` is the operand that reads "that many" off
+    the firing DAMAGE event's own ``amount``.
 
     Only one `GameState.pending_choice` can be open at a time (see its own
     docstring), so the "up to one creature *and* up to one land" pair can't
@@ -910,24 +809,15 @@ class RevealTopThenCreatureAndOrLandBattlefieldEffect(GameEffect):
     (`else_specs` also covers "no creature was even offered").
     """
 
-    def __init__(
-        self,
-        amount: int = 0,
-        amount_from_trigger_event: Optional[str] = None,
-        source: Optional["GameObject"] = None,
-    ) -> None:
+    def __init__(self, amount: Any = 0, source: Optional["GameObject"] = None) -> None:
         super().__init__(source)
         self.amount = amount
-        self.amount_from_trigger_event = amount_from_trigger_event
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is None or self.source is None:
             return
-        amount = self.amount
-        if self.amount_from_trigger_event:
-            event = context.trigger_event
-            amount = int((event or {}).get(self.amount_from_trigger_event) or 0)
+        amount = self._measured(self.amount, context, targets)
         if amount <= 0 or not player.library:
             return
         revealed = [player.library.pop() for _ in range(min(amount, len(player.library)))]
@@ -2010,12 +1900,9 @@ class PumpEffect(GameEffect):
         count_max: Optional[int] = None,
         optional: bool = False,
         count_selector: Optional[str] = None,
-        amount_from_trigger_event: Optional[str] = None,
         per_recipient_controller_counter: Optional[str] = None,
-        amount_from_count_selector: Optional[str] = None,
-        amount_from_count_selector_negative: bool = False,
+        dynamic_amount: Optional[dict] = None,
         amount_from_count_selector_axis: str = "both",
-        amount_from_created_object_mana_value: bool = False,
         creature_filter: Optional[dict] = None,
         previous_subject: bool = False,
         subtypes: Optional[list[str]] = None,
@@ -2086,29 +1973,13 @@ class PumpEffect(GameEffect):
         #: per-counter multiplier (``-1``) rather than a flat delta.
         #: ``selector``-only (no real card needs this on a single target).
         self.per_recipient_controller_counter = per_recipient_controller_counter
-        #: "Whenever you gain life, ~ gets +X/+X until end of turn, where X
-        #: is the amount of life you gained." (Field-Tested Frying Pan's
-        #: granted ability) — the event field name (``"amount"``) to read
-        #: off `GameContext.trigger_event` at resolution, overriding both
-        #: ``power`` and ``toughness`` with the same value (always a
-        #: symmetric "+X/+X" in practice). Same idiom as `LoseLifeEffect.
-        #: amount_from_trigger_event`.
-        self.amount_from_trigger_event = amount_from_trigger_event
-        #: "Creatures you control gain trample and get +X/+X until end of
-        #: turn, where X is the number of creatures you control."
-        #: (Craterhoof Behemoth-shaped) — one shared magnitude for the
-        #: whole group (unlike `per_recipient_controller_counter`'s
-        #: per-object scaling), computed live via `continuous.
-        #: count_selector` at resolve time rather than read off a firing
-        #: event (`amount_from_trigger_event`'s job) — there's no trigger
-        #: event to read here, this is the board state itself.
-        self.amount_from_count_selector = amount_from_count_selector
-        #: "…gets -X/-X until end of turn, where X is your devotion to
-        #: black." (Blight-Breath Catoblepas) — `amount_from_count_selector`
-        #: always reads a non-negative board count; this flips the sign
-        #: after reading it, the "-X/-X" sibling of that always-positive
-        #: "+X/+X" default rather than a second, duplicated param.
-        self.amount_from_count_selector_negative = amount_from_count_selector_negative
+        #: The dynamic "X" in "+X/+X"/"+X/+0" — an `effect_amounts` operand, measured once for
+        #: the whole group/target set this pump resolves against ("Whenever you gain life, ~ gets
+        #: +X/+X" — Field-Tested Frying Pan; "…trample and +X/+X, where X is the number of
+        #: creatures you control" — Craterhoof Behemoth; "-X/-X, where X is your devotion to
+        #: black" — Blight-Breath Catoblepas, its operand carrying ``"multiply": -1``).
+        #: ``amount_from_count_selector_axis`` says which of ``power``/``toughness`` it lands on.
+        self.dynamic_amount = dynamic_amount
         #: "…gets +X/+0 until end of turn, where X is …" (Dina, Soul Steeper;
         #: Renegade Bull; Surge to Victory) — a dynamic count that lands on
         #: only one axis. ``"power"`` / ``"toughness"`` / ``"both"`` (default,
@@ -2118,18 +1989,6 @@ class PumpEffect(GameEffect):
             if amount_from_count_selector_axis in ("both", "power", "toughness")
             else "both"
         )
-        #: MEC-58: "This creature gets +X/+0 until end of turn, where X is
-        #: that card's mana value." (Tavern Brawler, PAR-32) — "that card"
-        #: is whatever the resolution's own preceding clause just exiled
-        #: (`ImpulsiveDrawEffect` appends it to `GameContext.created_
-        #: objects`, the same "read what a previous clause made available"
-        #: idiom `LandOrFreeCastEffect`/`previous_subject` above already
-        #: use). Unlike `amount_from_trigger_event`/`amount_from_count_
-        #: selector` (which set *both* `power` and `toughness` to the same
-        #: magnitude), this only ever sets `power` — every printed instance
-        #: of this shape is "+X/+0", never symmetric, so `toughness` stays
-        #: whatever was passed in (0 by default).
-        self.amount_from_created_object_mana_value = bool(amount_from_created_object_mana_value)
         #: RULE 701.10/11 "double"/"triple target creature's power and
         #: toughness" (Dragonclaw Strike/Tifa's Limit Break) — a per-object
         #: amount unlike every ``amount_from_*`` above (each recipient's own
@@ -2285,40 +2144,13 @@ class PumpEffect(GameEffect):
                 self._pump_one(obj)
                 context.recompute()
             return
-        if self.amount_from_trigger_event:
-            event = context.trigger_event
-            amount = int((event or {}).get(self.amount_from_trigger_event) or 0)
-            if self.amount_from_count_selector_axis in ("both", "power"):
-                self.power = amount
-            if self.amount_from_count_selector_axis in ("both", "toughness"):
-                self.toughness = amount
-            if amount <= 0:
-                return
-        if self.amount_from_count_selector:
-            from .. import continuous  # avoid the continuous↔effects import cycle
-
-            controller_id = getattr(self.source, "controller_id", None)
-            # PAR-32: pass ``source`` so a source-relative selector
-            # ("where X is ~'s power" — Hardy Outlander's `source_power`)
-            # resolves; board-count selectors ignore it, unchanged.
-            amount = continuous.count_selector(
-                context.state, controller_id, self.amount_from_count_selector, self.source
-            )
-            if amount is None:
-                return
-            if self.amount_from_count_selector_negative:
-                amount = -amount
+        if self.dynamic_amount is not None:
+            amount = self._measured(self.dynamic_amount, context, targets)
             if self.amount_from_count_selector_axis in ("both", "power"):
                 self.power = amount
             if self.amount_from_count_selector_axis in ("both", "toughness"):
                 self.toughness = amount
             if amount == 0:
-                return
-        if self.amount_from_created_object_mana_value:
-            created = list(getattr(context, "created_objects", []))
-            amount = int(getattr(created[-1].card, "converted_mana_cost", 0) or 0) if created else 0
-            self.power = amount
-            if amount <= 0:
                 return
         if self.selector is not None:
             from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
@@ -2480,29 +2312,19 @@ class ScryEffect(GameEffect):
 
     def __init__(
         self,
-        count: int = 1,
+        count: Any = 1,
         source: Optional["GameObject"] = None,
-        count_from_count_selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: How many: a number or an `effect_amounts` operand ("Scry X, where X is the number of
+        #: creatures in your party" — Cascade Seer).
         self.count = count
-        #: "Scry X, where X is the number of creatures in your party."
-        #: (Cascade Seer, PAR-72) — a `continuous.count_selector` read live
-        #: at resolution, overriding ``count`` when set.
-        self.count_from_count_selector = count_from_count_selector
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is None:
             return
-        count = self.count
-        if self.count_from_count_selector:
-            from .. import continuous  # avoid the continuous↔effects import cycle
-
-            count = continuous.count_selector(
-                context.state, player.id, self.count_from_count_selector, source=self.source
-            )
-        context.scry(player, count, source=self.source)
+        context.scry(player, self._measured(self.count, context, targets), source=self.source)
 
 
 class SurveilEffect(GameEffect):
@@ -2782,27 +2604,16 @@ class CreateTokenEffect(GameEffect):
         tapped: bool = False,
         attacking: bool = False,
         legendary: bool = False,
-        pt_from_trigger_event: Optional[str] = None,
-        pt_from_count_selector: Optional[str] = None,
-        count_from_trigger_event: Optional[str] = None,
-        count_from_trigger_event_counter: Optional[str] = None,
-        count_from_context: Optional[str] = None,
-        count_from_subject: Optional[str] = None,
+        pt_amount: Optional[dict] = None,
         extra_counters: Optional[dict[str, Any]] = None,
         grant_self_anthem: Optional[dict[str, Any]] = None,
         is_artifact: bool = False,
         parametric_keywords: Optional[list[dict[str, Any]]] = None,
         per_opponent: bool = False,
         token_dies_gain_life: Optional[int] = None,
-        x_multiplier: Optional[int] = None,
         oracle_text: str = "",
     ) -> None:
         super().__init__(source)
-        #: "Create **twice X** … tokens" (Pest Infestation, PAR-60) — the
-        #: token-count sibling of `DealDamageEffect.x_multiplier`: the
-        #: spell's own announced {X} (`GameObject.x_paid`) times this
-        #: factor. Overrides ``count`` when set.
-        self.x_multiplier = int(x_multiplier) if x_multiplier is not None else None
         #: "…creature token with \"when ~ dies, you gain N life.\"" — the
         #: STX Pest token's own printed death trigger (Blight Mound, Feral
         #: Appetite, Pest Rescuer, Hunt for Specimens, …). A `dies` →
@@ -2831,6 +2642,10 @@ class CreateTokenEffect(GameEffect):
         #: permanent (no ``expires_turn``) since a token's granted ability
         #: is part of its own definition, not a turn-scoped grant.
         self.grant_self_anthem = dict(grant_self_anthem) if grant_self_anthem else None
+        #: How many tokens: a number, or an `effect_amounts` operand measured at resolution
+        #: ("create twice X tokens" — Pest Infestation; "that many" — Lathril, Blade of the
+        #: Elves; "a token for each +1/+1 counter on it" — Hangarback Walker; "…equal to its
+        #: power" — Goldvein Hydra; "…for each creature card exiled this way" — Midnight Ritual).
         self.count = count
         self.token_name = token_name
         #: Inline rules text makes this a specifically-authored token rather
@@ -2878,50 +2693,10 @@ class CreateTokenEffect(GameEffect):
         #: the same shape `_request_search`'s own ``extra_counters`` uses
         #: for a found card reaching the battlefield.
         self.extra_counters = dict(extra_counters) if extra_counters else None
-        # "…create an X/X blue Shark creature token with flying, where X is
-        # that spell's mana value." (Shark Typhoon-shaped) — an X/X token
-        # sized off the firing `SPELL_CAST` event's own field, read fresh at
-        # resolve time (same idiom as `PumpEffect.amount_from_trigger_event`)
-        # rather than a fixed ``power``/``toughness``. Always symmetric X/X
-        # in practice, so one field sets both.
-        self.pt_from_trigger_event = pt_from_trigger_event
-        #: "…an X/X black Horror creature token, where X is the number of
-        #: creatures that died this turn." (MEC-43 round 4C, Spoils of
-        #: Blood) — the board-count sibling of ``pt_from_trigger_event``:
-        #: reads a `continuous.count_selector` fresh at resolve time instead
-        #: of a firing event's own field, the same "X/X sized off a live
-        #: board count" idiom a characteristic-defining P/T static already
-        #: uses for a permanent (RULE 613.7c), applied here to a token being
-        #: created instead. Always symmetric X/X, same as ``pt_from_trigger_
-        #: event`` above.
-        self.pt_from_count_selector = pt_from_count_selector
-        #: "…create **that many** 1/1 green Elf Warrior creature tokens."
-        #: (Lathril, Blade of the Elves-shaped "whenever ~ deals combat
-        #: damage to a player" payoff — "that many" always refers back to
-        #: the firing event's own ``amount``, RULE 603.1) — the *count*
-        #: sibling of ``pt_from_trigger_event`` (a token's stats, not how
-        #: many get made). Overrides ``count``/``count_selector`` when set.
-        self.count_from_trigger_event = count_from_trigger_event
-        #: "When ~ dies, create a … token for each +1/+1 counter on it."
-        #: (Hangarback Walker, Pentavus-shaped) — a named counter kind on
-        #: the firing DIES event's snapshotted ``counters`` dict (RULE
-        #: 603.6d — the object is gone), the `DrawCardEffect.
-        #: count_from_trigger_event_counter` sibling. Overrides ``count``.
-        self.count_from_trigger_event_counter = count_from_trigger_event_counter
-        #: "When ~ dies, create a number of tapped Treasure tokens equal to
-        #: its power." (Goldvein Hydra) — a ``"<who>_<char>"`` reading
-        #: (`_characteristic_of_subject`), the DIES-snapshot-aware sibling
-        #: of ``count_from_trigger_event``; ``trigger_subject_power``.
-        self.count_from_subject = count_from_subject
-        #: "Exile X target creature cards from your graveyard. **For each
-        #: creature card exiled this way**, create a 2/2 black Zombie
-        #: creature token." (Midnight Ritual / Necromancer's Covenant /
-        #: Release to Memory — PAR-30 reanimator-token residue): the count is
-        #: a `GameContext` same-resolution accumulator, read fresh at resolve
-        #: time. Only ``"objects_exiled_this_way"`` today, the same
-        #: accumulator `_resolve_extra_counter_amount`'s own ``count_from_
-        #: context`` key reads (Sunfall's Incubate). Overrides ``count``.
-        self.count_from_context = count_from_context
+        #: "…create an X/X blue Shark creature token with flying, where X is that spell's mana
+        #: value." (Shark Typhoon-shaped) — an `effect_amounts` operand measured fresh at resolve
+        #: time, always symmetric X/X in practice, so one field sets both ``power``/``toughness``.
+        self.pt_amount = pt_amount
 
     def _resolve_extra_counter_amount(self, context: GameContext) -> int:
         """How many ``extra_counters`` to place on each created token.
@@ -2974,17 +2749,8 @@ class CreateTokenEffect(GameEffect):
         from ...services.token_database import default_token_database, synthesize_token_card
 
         power, toughness = self.power, self.toughness
-        if self.pt_from_trigger_event:
-            event = context.trigger_event
-            x = int((event or {}).get(self.pt_from_trigger_event) or 0)
-            power, toughness = x, x
-        elif self.pt_from_count_selector:
-            from .. import continuous  # function-scoped: avoid an import cycle
-
-            controller_id = getattr(self.source, "controller_id", None)
-            x = continuous.count_selector(
-                context.state, controller_id, self.pt_from_count_selector, source=self.source
-            )
+        if self.pt_amount is not None:
+            x = self._measured(self.pt_amount, context, targets)
             power, toughness = x, x
         card = None
         # A bare named token (no inline stats) → the curated catalogue, so it
@@ -3014,25 +2780,7 @@ class CreateTokenEffect(GameEffect):
             count = continuous.count_selector(
                 context.state, controller_id, self.count_selector, source=self.source
             )
-        if self.count_from_trigger_event:
-            event = context.trigger_event
-            count = int((event or {}).get(self.count_from_trigger_event) or 0)
-        if self.count_from_trigger_event_counter:
-            count = int(
-                ((context.trigger_event or {}).get("counters") or {})
-                .get(self.count_from_trigger_event_counter, 0)
-            )
-        if self.x_multiplier is not None:
-            count = self.x_multiplier * int(getattr(self.source, "x_paid", 0) or 0)
-        if self.count_from_subject:
-            count = _characteristic_of_subject(context, self.source, self.count_from_subject)
-        if self.count_from_context in _TOKEN_COUNT_CONTEXT_ACCUMULATORS:
-            from ...parser.oracle.spec import MAX_EFFECT_MAGNITUDE
-
-            count = max(0, min(
-                int(getattr(context, str(self.count_from_context), 0) or 0),
-                MAX_EFFECT_MAGNITUDE,
-            ))
+        count = self._measured(count, context, targets)
         # "For each opponent, [you] create …" — one token apiece, all under
         # this effect's controller; when ``attacking`` each is paired with a
         # distinct opponent as its defender below.
@@ -3174,12 +2922,10 @@ class CopyPermanentEffect(GameEffect):
 
     def __init__(
         self,
-        count: int = 1,
+        count: Any = 1,
         target: Any = None,
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = "creature",
-        count_if_kicked: Optional[int] = None,
-        count_from_trigger_event: Optional[str] = None,
         count_selector: Optional[str] = None,
         haste: bool = False,
         tapped: bool = False,
@@ -3263,18 +3009,6 @@ class CopyPermanentEffect(GameEffect):
         #: put_onto_battlefield_attacking`.
         self.enter_tapped = bool(tapped)
         self.enter_attacking = bool(attacking)
-        # RULE 702.33b's *override* kicked-conditional ("Create a token
-        # that's a copy of target creature. If this spell was kicked,
-        # create five of those tokens instead." — Rite of Replication) —
-        # same shape as `DealDamageEffect.amount_if_kicked`, just overriding
-        # ``count`` instead of ``amount``.
-        self.count_if_kicked = count_if_kicked
-        #: "…create that many tokens that are copies of equipped
-        #: creature." (Mirrormind Crown) — "that many" reads the firing
-        #: `CREATE_TOKENS` event's own ``amount``, the same "read this
-        #: firing's own payload" idiom `CreateTokenEffect.count_from_
-        #: trigger_event` uses. Overrides ``count`` when set.
-        self.count_from_trigger_event = count_from_trigger_event
         #: "…create a token that's a copy of ~ **for each card you've
         #: discarded this turn**." (Living Laser) — a `continuous.count_
         #: selector` name resolved at `apply`, overriding ``count`` (like
@@ -3428,11 +3162,7 @@ class CopyPermanentEffect(GameEffect):
             self.source.controller_id if self.source is not None
             else context.active_player.id
         )
-        kicker_count = getattr(self.source, "kicker_count", 0) or 0
-        count = self.count_if_kicked if (self.count_if_kicked is not None and kicker_count > 0) else self.count
-        if self.count_from_trigger_event:
-            event = context.trigger_event
-            count = int((event or {}).get(self.count_from_trigger_event) or 0)
+        count = self._measured(self.count, context, targets)
         if self.count_selector:
             from .. import continuous  # function-scoped: avoid an import cycle
 

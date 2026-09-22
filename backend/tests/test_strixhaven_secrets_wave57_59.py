@@ -3,7 +3,7 @@
 wave 57: Chaos Warp — new ``shuffle_target_into_library_reveal_top`` effect.
 wave 58: Thunderclap Drake — ``CopySpellEffect.count_selector`` (copy count
          from a `continuous.count_selector`) + the existing
-         ``arm_spell_watcher`` delayed "when you next cast" hook.
+         one-shot ``create_turn_trigger`` "when you next cast" hook.
 wave 59: Priest of Forgotten Gods — pure composition (lose_life /
          sacrifice ``selector="each_opponent"`` + add_mana + draw), cost
          ``sacrifice_count``.
@@ -123,7 +123,7 @@ def test_thunderclap_drake_copies_next_spell_per_commander_cast():
     for e in td.activated_abilities[0].effects:
         e.source = td
         e.apply(eng.rules.context)
-    assert len(eng.state.spell_watchers) == 1
+    assert len(eng.state.turn_scoped_triggers) == 1   # armed, one-shot
 
     spell = GameObject(card=Card(id="sp", name="Shock", type_line="Instant"),
                        owner_id=p1.id, zone=Zone.STACK)
@@ -135,6 +135,12 @@ def test_thunderclap_drake_copies_next_spell_per_commander_cast():
     eng.state.fire_event(GameEvent(EventType.SPELL_CAST, player_id=p1.id,
                                    object_types=["instant"],
                                    instance_id=spell.instance_id, mana_value=1))
+    # RULE 603.7a: the trigger goes on the stack above the spell; its copies (one per
+    # commander cast) are made when it resolves.
+    assert not eng.state.turn_scoped_triggers          # "next" — consumed by the cast
+    eng.rules.put_triggers_on_stack()
+    assert len(eng.state.stack) == 2 and eng.state.stack[-1].kind == "ability"
+    eng.rules.resolve_top_of_stack()
     assert len(eng.state.stack) == 3  # original + 2 copies
 
 

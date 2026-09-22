@@ -123,6 +123,21 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         # the revealed card" (Counterbalance) reads ``mana_value`` off the
         # `SPELL_CAST` event. Non-numeric / absent field → 0.
         "trigger_event",  # + ``field`` (the event key to read)
+        # "N, or M if <condition>" — the override every "…instead" card prints
+        # ("~ deals 2 damage. If this spell was kicked, it deals 4 damage instead.").
+        # The condition is an `effect_conditions` one, evaluated against the same source and
+        # targets as the amount; both branches are themselves amounts.
+        "if",  # + ``condition``, ``then``, ``otherwise``
+        # A named counter on the firing DIES event's snapshot (RULE 400.7 — the object is gone):
+        # "draw a card for each -1/-1 counter on it" (Dusk Urchins).
+        "trigger_event_counter",  # + ``counter``
+        # How many spells the ``of`` player has cast this turn, this one included —
+        # "they lose 1 life for each spell they've cast this turn" (Rug of Smothering).
+        "spells_cast_this_turn",  # + ``of`` (a player referent)
+        # RULE 120.3: the total damage dealt to the ``of`` player this turn, from any source,
+        # combat or not — "Target player loses life equal to the damage already dealt to that
+        # player this turn." (Final Punishment). Read off the turn's event log.
+        "damage_dealt_this_turn",  # + ``of`` (a player referent)
         # The total characteristic of cards a preceding zone-change moved:
         # "the total mana value of cards milled/exiled this way".
         "moved_sum",  # + ``characteristic`` (usually mana_value)
@@ -198,12 +213,24 @@ def _base(
         value = amount.get("amount", 0)
         return int(value) if isinstance(value, int) and not isinstance(value, bool) else 0
 
+    if kind == "if":
+        holds = effect_conditions.condition_holds(amount.get("condition"), context, source, targets)
+        return amount_of(amount.get("then") if holds else amount.get("otherwise"), context, source, targets)
+
     if kind == "count_selector":
         from .continuous import count_selector  # function-scoped: import cycle
 
         selector = amount.get("selector")
         if not selector:
             return 0
+        if amount.get("of"):
+            # "…the number of Islands **target opponent** controls" — the count is taken as
+            # that player, not as the ability's controller.
+            counted_for = _as_player(
+                context, effect_conditions.subject_of(str(amount["of"]), context, source, targets),
+                controller_id,
+            )
+            controller_id = getattr(counted_for, "id", None) or controller_id
         return int(
             count_selector(
                 context.state, controller_id,
@@ -228,6 +255,10 @@ def _base(
         if isinstance(raw, bool) or not isinstance(raw, int):
             return 0
         return int(raw)
+
+    if kind == "trigger_event_counter":
+        counters = (getattr(context, "trigger_event", None) or {}).get("counters") or {}
+        return int(counters.get(str(amount.get("counter", "")), 0) or 0)
 
     if kind == "moved_sum":
         characteristic = str(amount.get("characteristic", "mana_value"))
@@ -293,9 +324,27 @@ def _base(
             source=source,
         ) or 0)
 
+    if kind == "spells_cast_this_turn":
+        player = _as_player(context, subject, controller_id)
+        return int(context.state.spells_cast_this_turn.get(getattr(player, "id", None), 0))
+
+    if kind == "damage_dealt_this_turn":
+        player = _as_player(context, subject, controller_id)
+        return int(context.state.damage_dealt_to_players_this_turn.get(getattr(player, "id", None), 0))
+
     if kind == "characteristic":
         characteristic = str(amount.get("characteristic", ""))
-        if characteristic not in CHARACTERISTICS or subject is None:
+        if characteristic not in CHARACTERISTICS:
+            return 0
+        if str(amount.get("of")) == "trigger_subject" and characteristic in ("power", "toughness"):
+            # RULE 400.7: for a dies/leaves trigger the subject is gone by now, so its firing
+            # event's snapshot of ``power``/``toughness`` beats a stale re-lookup.
+            snapshot = (getattr(context, "trigger_event", None) or {}).get(characteristic)
+            if snapshot is not None:
+                return int(snapshot or 0)
+        if getattr(subject, "kind", None) == "spell":
+            subject = getattr(subject, "obj", None)  # a targeted spell is its `StackItem`
+        if subject is None:
             return 0
         if characteristic == "mana_value":
             # RULE 202.3 is read off the printed card, where the field is

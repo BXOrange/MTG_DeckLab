@@ -35,8 +35,7 @@ class AddManaEffect(GameEffect):
         amount_from_trigger_event: Optional[str] = None,
         recipient: str = "controller",
         target_kind: Optional[str] = None,
-        amount_from_target_hand_size: bool = False,
-        amount_from_target_count_selector: Optional[str] = None,
+        any_amount: Optional[int] = None,
         once_per_turn_ability: bool = False,
         color_from_source_chosen_color: bool = False,
         color_from_source_noted_color: bool = False,
@@ -80,14 +79,10 @@ class AddManaEffect(GameEffect):
         #: only if there are no charge counters" on the noting ability —
         #: already guarantees a note exists before this one can fire).
         self.color_from_source_noted_color = color_from_source_noted_color
-        #: "…add X mana of any one color, where X is the number of Islands
-        #: **target opponent** controls" (ENG-27, Carpet of Flowers) — a
-        #: `continuous.count_selector` evaluated for the *resolved target*
-        #: (``targets[0].id``), not this effect's own controller the way
-        #: ``amount_selector`` below always is. Only meaningful alongside
-        #: ``colors=["ANY"]``; scales that colour's own amount instead of
-        #: the fixed-``self.color`` slot.
-        self.amount_from_target_count_selector = amount_from_target_count_selector
+        #: How many mana of the one chosen colour a ``colors=["ANY"]`` offer makes — a number a
+        #: `bind` measured ("…add X mana of any one color, where X is the number of Islands
+        #: target opponent controls", Carpet of Flowers). Defaults to one.
+        self.any_amount = any_amount
         #: "…if you haven't added mana with this ability this turn, you may
         #: add …" (Carpet of Flowers) — the effect's own source gets the
         #: `GameObject.added_mana_with_ability_this_turn` flag (reset each
@@ -96,14 +91,10 @@ class AddManaEffect(GameEffect):
         #: trigger off the stack in the first place — the "you may" is
         #: still offered, it just does nothing if accepted anyway.
         self.once_per_turn_ability = once_per_turn_ability
-        #: "Add {R} for each card in target opponent's hand." (Jeska's
-        #: Will) — the one shape here that genuinely targets (RULE 601.2c
-        #: opts this effect into a real `target_spec`, unlike every other
-        #: untargeted form above); the produced amount is read off that
-        #: resolved target's own hand size at resolution, not a board-wide
-        #: `continuous.count_selector` scope.
+        #: "Add {R} for each card in target opponent's hand." (Jeska's Will) — the one shape
+        #: here that genuinely targets (RULE 601.2c opts this effect into a real `target_spec`,
+        #: unlike every other untargeted form above); a `bind` supplies the amount.
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
-        self.amount_from_target_hand_size = amount_from_target_hand_size
         #: "add that much {R}" (MEC-11's Raphael, Ninja Destroyer, an
         #: Enrage sibling — "whenever ~ is dealt damage, add that much
         #: {R}") — the event field name (``"amount"``) to read off
@@ -170,16 +161,8 @@ class AddManaEffect(GameEffect):
             colors = [noted] if noted else []
         for color in colors:
             if color == "ANY":
-                any_amount = 1
-                if self.amount_from_target_count_selector and targets:
-                    from .. import continuous  # function-scoped: avoid an import cycle
-
-                    target_player = targets[0]
-                    any_amount = continuous.count_selector(
-                        context.state, getattr(target_player, "id", None),
-                        self.amount_from_target_count_selector, source=self.source,
-                    )
-                elif self.any_amount_from_context:
+                any_amount = 1 if self.any_amount is None else int(self.any_amount)
+                if self.any_amount_from_context:
                     any_amount = int(getattr(context, self.any_amount_from_context, 0) or 0)
                 elif self.amount_selector:
                     # "Add X mana in any combination of {B} and/or {R},
@@ -217,10 +200,6 @@ class AddManaEffect(GameEffect):
             extra = continuous.count_selector(
                 context.state, player.id, self.amount_selector, source=self.source
             )
-            if extra > 0:
-                context.add_mana(player, self.color, extra)
-        if self.amount_from_target_hand_size and targets:
-            extra = len(getattr(targets[0], "hand", []) or [])
             if extra > 0:
                 context.add_mana(player, self.color, extra)
         if self.amount_from_context:
@@ -480,24 +459,11 @@ class InstallTemporaryPlayerTriggerEffect(GameEffect):
         effects: Optional[list[dict[str, Any]]] = None,
         description: str = "",
         source: Optional["GameObject"] = None,
-        recipient: str = "defending_player",
-        duration: str = "defending_next_turn",
-        event_player_scope: str = "self",
     ) -> None:
         super().__init__(source)
         self.event_type = str(event_type)
         self.inner_specs = list(effects or [])
         self.description = str(description)
-        #: Who the installed trigger's effects go to: ``"defending_player"``
-        #: (RULE 506.4 — Nuka-Nuke Launcher) or ``"controller"`` (this
-        #: effect's own source's controller — Ruinous Waterbending's "…you
-        #: gain 1 life").
-        self.recipient = recipient
-        #: Passed straight through to `TemporaryPlayerTrigger` — see its
-        #: docstring. ``"this_turn"`` + ``event_player_scope="any"`` is the
-        #: Ruinous Waterbending shape ("whenever a creature dies this turn").
-        self.duration = duration
-        self.event_player_scope = event_player_scope
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
@@ -510,10 +476,7 @@ class InstallTemporaryPlayerTriggerEffect(GameEffect):
             resolved = context.state.find_object(attached_to)
             if resolved is not None:
                 host = resolved
-        if self.recipient == "controller":
-            player = _controller_of(self.source, context)
-        else:
-            player = _defending_player_of(host, context)
+        player = _defending_player_of(host, context)
         if player is None:
             return
         inner = build_effects(
@@ -530,8 +493,6 @@ class InstallTemporaryPlayerTriggerEffect(GameEffect):
                 effects=inner,
                 install_turn=context.state.internal_turn.number,
                 description=self.description,
-                duration=self.duration,
-                event_player_scope=self.event_player_scope,
             )
         )
 
@@ -1201,16 +1162,14 @@ class ConniveEffect(GameEffect):
         optional: bool = False,
         count: Any = 1,
         count_selector: Optional[str] = None,
-        times: int = 1,
-        times_from_count_selector: Optional[str] = None,
-        times_from_trigger_event: Optional[str] = None,
+        times: Any = 1,
         creature_filter: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
         self.previous_subject = bool(previous_subject)
-        self.times = max(1, int(times))
-        self.times_from_count_selector = times_from_count_selector
-        self.times_from_trigger_event = times_from_trigger_event
+        #: How many times to connive: a number or an `effect_amounts` operand ("connive X, where X
+        #: is the number of …", "that many").
+        self.times = times if isinstance(times, dict) else max(1, int(times))
         self.target_spec = (
             TargetSpec(kind=target_kind, optional=optional,
                        count=count if isinstance(count, int) else 1,
@@ -1232,20 +1191,11 @@ class ConniveEffect(GameEffect):
     _resumed_times: int = 1
 
     def _resolve_times(self, context: GameContext) -> int:
-        if self.times_from_trigger_event:
-            event = context.trigger_event
-            value = (event or {}).get(self.times_from_trigger_event)
-            try:
-                return max(0, int(value))
-            except (TypeError, ValueError):
-                return 0
-        if self.times_from_count_selector:
-            from .. import continuous
-            controller_id = getattr(self.source, "controller_id", None)
-            return max(0, continuous.count_selector(
-                context.state, controller_id, self.times_from_count_selector, source=self.source,
-            ))
-        return self.times
+        times = self._measured(self.times, context)
+        try:
+            return max(0, int(times))
+        except (TypeError, ValueError):
+            return 0
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self._remaining_queue is not None:
@@ -1906,32 +1856,21 @@ class BolsterEffect(GameEffect):
     shape. `RulesEngine.bolster` owns the whole procedure, including the
     tie-break `pending_choice`.
 
-    ``amount_from_count_selector`` (PAR-29, Dragonscale General/Sunbringer's
-    Touch) is RULE 701.39a's dynamic "bolster X, where X is `<board
-    count>`" — read live via `continuous.count_selector` at resolution, the
-    same idiom `PumpEffect.amount_from_count_selector` uses. RULE 701.39e's
-    "bolster 0 does nothing" falls out for free: `RulesEngine.bolster`
-    already treats an amount of 0 as trivially satisfied (0 counters placed).
+    ``amount`` may be an `effect_amounts` operand (PAR-29, Dragonscale General/Sunbringer's
+    Touch: RULE 701.39a's dynamic "bolster X, where X is `<board count>`"), measured at
+    resolution. RULE 701.39e's "bolster 0 does nothing" falls out for free:
+    `RulesEngine.bolster` already treats an amount of 0 as trivially satisfied (0 counters placed).
     """
 
-    def __init__(
-        self, source: Optional["GameObject"] = None, amount: int = 1,
-        amount_from_count_selector: Optional[str] = None,
-    ) -> None:
+    def __init__(self, source: Optional["GameObject"] = None, amount: Any = 1) -> None:
         super().__init__(source)
-        self.amount = max(1, int(amount)) if amount_from_count_selector is None else int(amount)
-        self.amount_from_count_selector = amount_from_count_selector
+        self.amount = amount if isinstance(amount, dict) else max(1, int(amount))
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is None:
             return
-        amount = self.amount
-        if self.amount_from_count_selector:
-            from .. import continuous
-            amount = continuous.count_selector(
-                context.state, player.id, self.amount_from_count_selector, source=self.source,
-            )
+        amount = self._measured(self.amount, context, targets)
         if amount <= 0:
             return
         context.engine.bolster(player, amount, source=self.source)
@@ -2047,28 +1986,13 @@ class EarthbendEffect(GameEffect):
         amount: Any = 1,
         previous_subject: bool = False,
         source: Optional["GameObject"] = None,
-        amount_from_count_selector: Optional[str] = None,
-        amount_multiplier: int = 1,
-        amount_from_trigger_event: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: How many counters: a number, the ``"x"`` sentinel, or an `effect_amounts` operand
+        #: ("earthbend X, where X is that creature's power" — Beifong's Bounty Hunters — or "twice
+        #: the number of …").
         self.amount = amount
         self.previous_subject = previous_subject
-        #: RULE 701.66 dynamic "earthbend X, where X is **that creature's
-        #: power**" (Beifong's Bounty Hunters) — a field name read off
-        #: `GameContext.trigger_event` at resolution (``"power"``, the DIES
-        #: event's RULE 400.7 last-known-power snapshot), the same
-        #: "amount comes from the firing event's payload" idiom
-        #: `DealDamageEffect.amount_from_trigger_event` uses.
-        self.amount_from_trigger_event = amount_from_trigger_event
-        #: RULE 701.66's dynamic "earthbend X, where X is `<board count>`"
-        #: (Rockalanche/The Boulder, Ready to Rumble — PAR-30), read live via
-        #: `continuous.count_selector` at resolution, the same idiom
-        #: `BolsterEffect.amount_from_count_selector` uses. ``amount_
-        #: multiplier`` folds in a "**twice** the number of …" prefix
-        #: (Bumi's Feast Lecture).
-        self.amount_from_count_selector = amount_from_count_selector
-        self.amount_multiplier = max(1, int(amount_multiplier))
         self.target_spec = (
             None if previous_subject else TargetSpec(kind="land_you_control")
         )
@@ -2083,29 +2007,12 @@ class EarthbendEffect(GameEffect):
             lands = [t for t in (targets or []) if getattr(t, "instance_id", None) is not None]
         if not lands:
             return
-        if self.amount_from_trigger_event:
-            from ...parser.oracle.spec import MAX_EFFECT_MAGNITUDE
+        from ...parser.oracle.spec import MAX_EFFECT_MAGNITUDE
 
-            event = context.trigger_event or {}
-            raw = event.get(self.amount_from_trigger_event) or 0
-            try:
-                amount = max(0, min(int(raw), MAX_EFFECT_MAGNITUDE))
-            except (TypeError, ValueError):
-                amount = 0
-        elif self.amount_from_count_selector:
-            from .. import continuous  # function-scoped: avoid an import cycle
-            from ...parser.oracle.spec import MAX_EFFECT_MAGNITUDE
-
-            controller_id = getattr(self.source, "controller_id", None)
-            raw = continuous.count_selector(
-                context.state, controller_id, self.amount_from_count_selector, source=self.source,
-            ) * self.amount_multiplier
-            amount = max(0, min(int(raw), MAX_EFFECT_MAGNITUDE))
-        else:
-            try:
-                amount = int(self.amount)
-            except (TypeError, ValueError):
-                amount = 0  # unresolved "x" sentinel — nothing to add
+        try:
+            amount = max(0, min(int(self._measured(self.amount, context, targets)), MAX_EFFECT_MAGNITUDE))
+        except (TypeError, ValueError):
+            amount = 0  # unresolved "x" sentinel — nothing to add
         context.engine.earthbend(lands[0], max(0, amount), source=self.source)
 
 

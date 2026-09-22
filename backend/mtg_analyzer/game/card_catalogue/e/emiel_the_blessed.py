@@ -18,11 +18,9 @@ def _emiel_the_blessed() -> list[AbilitySpec]:
     ``other_creature_you_control`` (targeting already excludes the source
     regardless — "another" needs no separate kind). The trigger is
     `pay_cost_then` wrapping `add_counters`'s ``trigger_subject_key``
-    (targets whichever creature just entered — "it"), with the new
-    ``amount_if_trigger_subject_subtype``/``_value`` override for "if it's
-    a Unicorn, `<bigger effect>` instead" — a genuinely new, narrowly-
-    scoped param, not the general "if X, A instead of B" primitive
-    (`BACKLOG.md`'s kicker "instead" note is still open).
+    (targets whichever creature just entered — "it"), its count a `bind` over an `if`
+    amount — 2 when the remembered creature is a Unicorn, else 1 — for "if it's a
+    Unicorn, `<bigger effect>` instead".
     """
     return [
         AbilitySpec(
@@ -36,11 +34,17 @@ def _emiel_the_blessed() -> list[AbilitySpec]:
                 "cost": "{G/W}",
                 "remember_trigger_subject": True,
                 "effects": [{
-                    "type": "add_counters",
+                    "type": "bind",
                     "params": {
-                        "amount": 1, "kind": "+1/+1", "trigger_subject_key": "remembered",
-                        "amount_if_trigger_subject_subtype": ["unicorn"],
-                        "amount_if_trigger_subject_subtype_value": 2,
+                        "name": "n",
+                        "amount": {
+                            "kind": "if",
+                            "condition": {"kind": "is_subtype", "subtype": "unicorn", "of": "remembered"},
+                            "then": 2, "otherwise": 1,
+                        },
+                        "effects": [{"type": "add_counters", "params": {
+                            "amount": "$n", "kind": "+1/+1", "trigger_subject_key": "remembered",
+                        }}],
                     },
                 }],
             })],

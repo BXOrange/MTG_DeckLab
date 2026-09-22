@@ -44,6 +44,7 @@ _PLAYER_VERBS: dict[str, "str | list[str]"] = {
     "gained or lost life": ["LIFE_GAINED", "LIFE_LOST"],
     "attacked": "PLAYER_ATTACKED", "attack": "PLAYER_ATTACKED",
     "played a land": "LAND_PLAYED", "play a land": "LAND_PLAYED",
+    "committed a crime": "CRIME_COMMITTED", "commit a crime": "CRIME_COMMITTED",
 }
 _NEGATION = re.compile(r"^you (?:haven't|didn't|have not|did not) ")
 _YOU = re.compile(r"^you(?:'ve| have)? ")
@@ -119,6 +120,15 @@ def _singular_object(rest: str) -> Optional[str]:
 
 def _player_event(text: str, negated: bool) -> Optional[dict[str, Any]]:
     """``you <verb> …`` (already stripped of "you" and any negation) → a condition."""
+    if text in ("created a token", "create a token"):
+        # A token is created under its creator's control, so "you created a token" is "a token
+        # entered the battlefield under your control" (a token put onto the battlefield for
+        # someone else's benefit is the one place these differ — none in the pool).
+        condition = _object_event("a token entered the battlefield under your control")
+        if condition is not None and negated:
+            condition.pop("min", None)
+            condition["max"] = 0
+        return condition
     if text in _PLAYER_VERBS:
         trigger = {"event": _PLAYER_VERBS[text], "condition": {"subject": "you"}}
         return _condition(trigger, None if negated else 1, 0 if negated else None)

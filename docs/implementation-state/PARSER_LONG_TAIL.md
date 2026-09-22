@@ -25,9 +25,9 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**48.9% covered — 17,035 / 34,811 — as of 2026-09-21, PARSER_VERSION 457.**
+**49.0% covered — 17,065 / 34,811 — as of 2026-09-22, PARSER_VERSION 459.**
 Commander-legal slice (the one the product actually plays): **51.5% —
-**16,377 / 31,830** (measure with `--commander-legal-only`).
+**16,407 / 31,830** (measure with `--commander-legal-only`).
 
 ### PAR-119 at v455–456: attack / block / player-event heads, and what executing them found
 

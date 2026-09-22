@@ -26,7 +26,8 @@ from ...models.cards.card import Card
 from ...models.game.emblem import Emblem
 from ...models.game.events import EventType, GameEvent
 from ...models.game.game_object import GameObject, Zone
-from ...models.game.game_state import DelayedTrigger, GameState, StackItem
+from ...models.game import turn_history
+from ...models.game.game_state import DelayedTrigger, GameState, StackItem, UncounterableGrant
 from ...models.mana.mana_cost import ManaCost
 from ...models.game.player import Player
 from ...parser.oracle.catalogue.keywords import parse_keywords
@@ -1906,78 +1907,70 @@ class MiscSystemsMixin:
                         chapter=obj.lore,
                     )
                 )
-    def arm_spell_watcher(
+    def _note_crime(self, item: StackItem) -> None:
+        """RULE 700.13: fire `CRIME_COMMITTED` if ``item`` (a spell, or an activated or triggered
+        ability, just put on the stack) targets an opponent, a permanent an opponent controls, or a
+        spell, ability or card of an opponent's graveyard. "Opponent" is any other player."""
+        me = item.controller_id
+        for target in item.targets or []:
+            if isinstance(target, Player):
+                hostile = target.id != me
+            elif isinstance(target, StackItem):
+                hostile = target.controller_id != me
+            elif isinstance(target, GameObject):
+                if target.zone == Zone.GRAVEYARD:
+                    hostile = target.owner_id != me
+                else:  # battlefield, or a spell on the stack
+                    hostile = target.controller_id not in (None, me)
+            else:
+                continue
+            if hostile:
+                self.state.fire_event(GameEvent(EventType.CRIME_COMMITTED, player_id=me, controller_id=me))
+                return
+
+    def _grant_uncounterable(
         self,
         player: Player,
-        then_specs: list[dict],
-        source: Optional[GameObject],
-        max_mana_value: Optional[int] = None,
         card_types: Optional[list[str]] = None,
-        repeat: bool = False,
+        next_only: bool = False,
     ) -> None:
-        """"When you next cast an instant or sorcery spell with mana value
-        N or less this turn, `<effect>`." (Dual Strike) — see `GameState.
-        spell_watchers`'s docstring for why this is its own mechanism
-        rather than an ordinary triggered ability or RULE 603.7 delayed
-        trigger.
-
-        ``repeat=True`` (Veil of Summer's "**Spells you control** can't be
-        countered this turn" — every matching spell for the rest of the
-        turn, not just the next one) keeps the watcher armed after it
-        fires instead of consuming it — see `_check_spell_watchers`.
+        """"Spells you control can't be countered this turn." (Veil of Summer) / "Creature
+        spells you cast this turn can't be countered." (Domri) / "The next spell you cast
+        this turn can't be countered." (Mistrise Village) — see `UncounterableGrant`.
         """
-        self.state.spell_watchers.append({
-            "controller_id": player.id,
-            "max_mana_value": max_mana_value,
-            "card_types": list(card_types) if card_types else None,
-            "then_specs": [dict(spec) for spec in then_specs],
-            "source_id": source.instance_id if source is not None else None,
-            "expires_turn": self.state.internal_turn.number,
-            "repeat": repeat,
-        })
-
-    def _check_spell_watchers(self, event: GameEvent) -> None:
-        """`SPELL_CAST` subscriber running every matching entry in
-        `GameState.spell_watchers`, if any (`arm_spell_watcher`). Runs each
-        matched watcher's ``then_specs`` with the just-cast spell's own
-        stack item as ``targets[0]`` — `effects.CopySpellEffect.apply`
-        reads a plain ``targets[0]`` with no RULE 115 target selection of
-        its own, so this reuses it unmodified. A ``repeat`` watcher stays
-        armed after matching (Veil of Summer-shaped "for the rest of the
-        turn"); every other one is consumed on its first match, same as
-        before.
-        """
-        if event.type != EventType.SPELL_CAST or not self.state.spell_watchers:
-            return
         turn = self.state.internal_turn.number
-        player_id = event.get("player_id")
-        object_types = event.get("object_types") or []
-        instance_id = event.get("instance_id")
-        mana_value = event.get("mana_value")
-        remaining = []
-        matched = []
-        for watcher in self.state.spell_watchers:
-            if watcher["expires_turn"] != turn or watcher["controller_id"] != player_id:
-                remaining.append(watcher)
+        grants = [g for g in self.state.uncounterable_grants if g.turn == turn]
+        grants.append(UncounterableGrant(
+            player.id, turn, card_types, next_only,
+            casts_before=turn_history.spells_cast(self.state.events_this_turn())[player.id],
+        ))
+        self.state.uncounterable_grants = grants
+
+    def _covered_by_uncounterable_grant(self, obj: GameObject) -> bool:
+        """Is ``obj`` protected by a this-turn `UncounterableGrant` of its controller?"""
+        turn = self.state.internal_turn.number
+        types = getattr(obj, "type_words", None) or set()
+        for grant in self.state.uncounterable_grants:
+            if grant.turn != turn or grant.controller_id != obj.controller_id:
                 continue
-            if watcher["max_mana_value"] is not None and (mana_value or 0) > watcher["max_mana_value"]:
-                remaining.append(watcher)
+            if grant.card_types and not any(t in types for t in grant.card_types):
                 continue
-            if watcher["card_types"] and not any(t in object_types for t in watcher["card_types"]):
-                remaining.append(watcher)
+            if grant.next_only and obj.instance_id != self._next_cast_after(grant):
                 continue
-            matched.append(watcher)
-            if watcher.get("repeat"):
-                remaining.append(watcher)
-        self.state.spell_watchers = remaining
-        if not matched or instance_id is None:
-            return
-        item = self.state.find_object(instance_id)
-        if item is None:
-            return
-        for watcher in matched:
-            source = self._object_by_instance_id(watcher.get("source_id"))
-            self._apply_effect_specs(watcher["then_specs"], source, targets=[item])
+            return True
+        return False
+
+    def _next_cast_after(self, grant: "UncounterableGrant") -> Optional[int]:
+        """The instance id of the first spell of ``grant``'s types its controller cast after
+        the grant resolved — derived from the turn's `SPELL_CAST` events (oldest first)."""
+        casts = [
+            e for e in reversed(list(self.state.events_this_turn()))
+            if e.type == EventType.SPELL_CAST and e.get("player_id") == grant.controller_id
+        ]
+        for event in casts[grant.casts_before:]:
+            if not grant.card_types or any(t in (event.get("object_types") or []) for t in grant.card_types):
+                return event.get("instance_id")
+        return None
     def apply_day_night_turn_check(self) -> None:
         """RULE 731.2: as the second part of the untap step, maybe flip
         day/night based on how many spells the *previous* turn's active
@@ -2083,12 +2076,13 @@ class MiscSystemsMixin:
         Returns the face rolled: ``"chaos"`` (901.13 — the face-up plane's
         chaos ability triggers), ``"planeswalk"`` (901.14 — planeswalk right
         away) or ``"blank"`` (nothing happens, which is four of the six
-        faces). Paying the {X} cost and counting the roll is the *special
-        action*'s job (`GameEngine.roll_planar_die`); this is the roll
-        itself, so a test — or a card that rolls the die for free — can use
-        it directly.
+        faces). Paying the {X} cost is the *special action*'s job
+        (`GameEngine.roll_planar_die`); this is the roll itself, so a test — or a card
+        that rolls the die for free — can use it directly. Every roll fires
+        `PLANAR_DIE_ROLLED`, which is what the next roll's {X} counts (RULE 901.6b).
         """
         face = self.random_choice(list(variants.PLANAR_DIE_FACES))
+        self.state.fire_event(GameEvent(EventType.PLANAR_DIE_ROLLED, player_id=player.id, face=face))
         if face == "chaos":
             self.trigger_chaos(player)
         elif face == "planeswalk":
@@ -4299,6 +4293,8 @@ class MiscSystemsMixin:
         effects = list(getattr(obj, "spell_effects", []) or [])
         effects += list(getattr(obj, "static_effects", []) or [])
         if any(isinstance(e, CantBeCounteredEffect) for e in effects):
+            return True
+        if self._covered_by_uncounterable_grant(obj):
             return True
         is_creature = "creature" in (getattr(obj, "type_words", None) or set())
         is_enchantment = "enchantment" in (getattr(obj, "type_words", None) or set())

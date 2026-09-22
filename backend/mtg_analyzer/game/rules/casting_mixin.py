@@ -762,6 +762,7 @@ class CastingResolutionMixin:
             target_groups=target_groups,
         )
         self.state.stack.append(item)
+        self._note_crime(item)
         self.state.record_stat(
             player.id, "spell", cmc=obj.card.converted_mana_cost, name=obj.name
         )
@@ -867,6 +868,7 @@ class CastingResolutionMixin:
             target_groups=target_groups,
         )
         self.state.stack.append(item)
+        self._note_crime(item)
         self.state.fire_event(
             GameEvent(
                 EventType.SPELL_CAST,

@@ -16,10 +16,8 @@ def _domri_anarch_of_bolas() -> list[AbilitySpec]:
     The anthem and the fight ability are already parser-claimable as-is.
     The +1's mana half is the existing ``add_mana``/``colors=["ANY"]``
     single-choice shape narrowed to R/G; its "can't be countered" half
-    reuses `arm_spell_watcher` (RULE 118.3, Dual Strike-shaped) with
-    ``card_types=["creature"]`` and ``repeat=True`` (Veil of Summer's own
-    "for the rest of the turn" idiom) feeding `MarkCantBeCounteredEffect`
-    via ``then_specs`` — no new primitive needed at all.
+    is `cant_be_countered_this_turn` with ``card_types=["creature"]`` (an
+    `UncounterableGrant`, RULE 101.2) — no new primitive needed at all.
     """
     return [
         AbilitySpec(
@@ -30,11 +28,7 @@ def _domri_anarch_of_bolas() -> list[AbilitySpec]:
             "activated",
             [
                 EffectSpec("add_mana", {"colors": ["ANY"], "any_color_choices": ["R", "G"]}),
-                EffectSpec(
-                    "arm_spell_watcher",
-                    {"card_types": ["creature"], "repeat": True,
-                     "then_specs": [{"type": "mark_cant_be_countered", "params": {}}]},
-                ),
+                EffectSpec("cant_be_countered_this_turn", {"card_types": ["creature"]}),
             ],
             cost={"loyalty": 1},
         ),

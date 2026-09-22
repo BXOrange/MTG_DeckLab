@@ -12,7 +12,7 @@ def _jeskas_will() -> list[AbilitySpec]:
     turn.
 
     — Imodane deck batch. Mode 1 needed a genuinely new `AddManaEffect`
-    shape (``target_kind``/``amount_from_target_hand_size`` — every prior
+    shape (a targeted one, its amount a `bind` over the target's hand size — every prior
     use of that effect was untargeted); mode 2 is `ImpulsiveDrawEffect`
     unchanged (``count=3, same_turn_only=True`` — Ragavan, Nimble
     Pilferer's own shorter "this turn" window rather than Light Up the
@@ -30,8 +30,12 @@ def _jeskas_will() -> list[AbilitySpec]:
             modes={
                 "or_both": True,
                 "options": [
-                    [EffectSpec("add_mana", {
-                        "color": "R", "target_kind": "opponent", "amount_from_target_hand_size": True,
+                    [EffectSpec("bind", {
+                        "name": "n",
+                        "amount": {"kind": "resource", "resource": "hand_size", "of": "target"},
+                        "effects": [{"type": "add_mana", "params": {
+                            "color": "R", "target_kind": "opponent", "amount": "$n",
+                        }}],
                     })],
                     [EffectSpec("impulsive_draw", {"count": 3, "same_turn_only": True})],
                 ],

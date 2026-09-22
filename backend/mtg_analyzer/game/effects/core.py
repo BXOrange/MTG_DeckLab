@@ -1069,6 +1069,18 @@ class GameEffect(ABC):
 
         return effect_operands.player_for(operand, context, self.source, targets)
 
+    def _measured(
+        self, value: Any, context: "GameContext", targets: Optional[list[Any]] = None
+    ) -> Any:
+        """A magnitude parameter as a number: an ``int`` / ``"x"`` passes through untouched, an
+        `effect_amounts` operand (a dict — ENG-47's one operand for "how much") is measured now,
+        against this effect's source and the targets it is resolving with."""
+        if isinstance(value, dict):
+            from .. import effect_amounts  # function-scoped: effect_amounts imports effect_conditions
+
+            return effect_amounts.amount_of(value, context, self.source, targets)
+        return value
+
     def _resolve_amount_override(
         self,
         base: Union[int, str],
@@ -1854,7 +1866,9 @@ class EffectRegistry:
     def create(cls, effect_type: str, params: Optional[dict[str, Any]] = None) -> GameEffect:
         if effect_type not in cls._factories:
             raise ValueError(f"unknown effect type: {effect_type!r}")
-        return cls._factories[effect_type](params or {})
+        from . import operands  # function-scoped: operands is a leaf module beside this one
+
+        return cls._factories[effect_type](operands.lower(effect_type, params))
 
     @classmethod
     def is_registered(cls, effect_type: str) -> bool:

@@ -223,10 +223,12 @@ def test_carpet_of_flowers_is_registered_as_two_optional_targeted_triggers():
     for spec in specs:
         assert spec.optional is True
         assert spec.trigger["phase_relation"] == "you"
-        effect = spec.effects[0]
-        assert effect.type == "add_mana"
-        assert effect.params.get("target_kind") == "opponent"
-        assert effect.params.get("once_per_turn_ability") is True
-        assert effect.params.get("amount_from_target_count_selector") == (
-            "lands_you_control_of_type_island"
-        )
+        bind = spec.effects[0]
+        assert bind.type == "bind"
+        assert bind.params["amount"] == {
+            "kind": "count_selector", "selector": "lands_you_control_of_type_island", "of": "target",
+        }
+        (inner,) = bind.params["effects"]
+        assert inner["type"] == "add_mana"
+        assert inner["params"].get("target_kind") == "opponent"
+        assert inner["params"].get("once_per_turn_ability") is True

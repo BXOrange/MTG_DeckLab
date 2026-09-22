@@ -4204,6 +4204,13 @@ def parse_effect_body(
     if not body:
         return []
 
+    # "…, whenever `<event>` this turn, `<effect>`" as one sentence of a larger body — after an
+    # "if C," gate or a first sentence — creates the same turn-long trigger a whole line does.
+    if _TURN_TRIGGER_RE.match(body):
+        turn_trigger = _turn_trigger_segment(body, provenance=ParserProvenance())
+        if turn_trigger is not None and turn_trigger.claimed and turn_trigger.spec is not None:
+            return list(turn_trigger.spec.effects)
+
     return_then = re.fullmatch(r"(?P<before>return .+?)\. if you do, (?P<after>.+)", body, re.I | re.S)
     if return_then is not None:
         before_specs = parse_effect_body(return_then.group("before"), self_subject=self_subject)
@@ -5550,6 +5557,11 @@ def _while_condition_segment(
         return Segment(raw=line.strip())
     inner.spec.trigger = {**inner.spec.trigger, "requires_saddled": True}
     return inner
+
+
+#: "if `<state>`, `<effect>`" at the head of a phase trigger's body — the state is read by
+#: `static_condition`, so anything that vocabulary says is an intervening if.
+_PHASE_INTERVENING_IF_RE = re.compile(r"^if (?P<cond>[^,]+), (?P<rest>.+)$", re.IGNORECASE | re.S)
 
 
 def segment_line(
@@ -7332,6 +7344,16 @@ def _segment_line_unsplit(
                 effects = parse_effect_body(body)
         else:
             effects = parse_effect_body(body)
+        if effects is None and phase_active_if is None:
+            # RULE 603.4: any other leading "if `<state>`," of a phase trigger is an intervening
+            # if too — read through the shared state-predicate vocabulary (`static_condition`)
+            # rather than one regex per phrase. Only tried once the body failed as it stands, so
+            # a body some other row already reads (as a per-effect gate) is left as it was.
+            gate = _PHASE_INTERVENING_IF_RE.match(body)
+            gated = static_condition(gate.group("cond")) if gate is not None else None
+            if gated is not None:
+                phase_active_if = gated
+                effects = parse_effect_body(gate.group("rest").strip())
         if effects is None:
             return Segment(raw=raw)
         trigger: dict[str, Any] = {"event": "STEP_BEGIN", "filter": {"step": step}}

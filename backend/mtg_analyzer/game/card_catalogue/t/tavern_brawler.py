@@ -20,10 +20,10 @@ def _tavern_brawler() -> list[AbilitySpec]:
     `impulsive_draw` (`RulesEngine.exile_with_play_permission`,
     ``same_turn_only=True`` for "…this turn", not "…through your next
     turn") now also seeds `GameContext.created_objects` with the exiled
-    card, and `pump`'s new `amount_from_created_object_mana_value` flag
-    reads that card's mana value for the "+X/+0" — both changes land in
-    the shared primitives, not this card's own code, so any future card
-    needing either shape reuses them for free.
+    card, and the `pump`
+    is wrapped in a `bind` over that card's mana value (the `created` referent) for the
+    "+X/+0" — both changes land in the shared primitives, not this card's own code, so
+    any future card needing either shape reuses them for free.
     """
     return [
         AbilitySpec(
@@ -37,8 +37,12 @@ def _tavern_brawler() -> list[AbilitySpec]:
                     "grant_effects": [
                         {"type": "impulsive_draw",
                          "params": {"count": 1, "same_turn_only": True}},
-                        {"type": "pump",
-                         "params": {"amount_from_created_object_mana_value": True}},
+                        {"type": "bind", "params": {
+                            "name": "mv",
+                            "amount": {"kind": "characteristic", "characteristic": "mana_value",
+                                       "of": "created"},
+                            "effects": [{"type": "pump", "params": {"power": "$mv"}}],
+                        }},
                     ],
                 }),
             ],

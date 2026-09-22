@@ -74,7 +74,7 @@ def test_amount_from_count_selector_sizes_the_whole_group_by_one_shared_count():
 
     PumpEffect(
         keywords=["trample"], selector="creatures_you_control",
-        amount_from_count_selector="creatures_you_control", source=source,
+        dynamic_amount={"kind": "count_selector", "selector": "creatures_you_control"}, source=source,
     ).apply(ctx)
     eng.recompute_continuous_effects()
 

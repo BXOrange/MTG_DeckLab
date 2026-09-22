@@ -24,8 +24,8 @@ def _veil_of_summer() -> list[AbilitySpec]:
     ``opponent_cast_color_this_turn`` `ConditionalEffect` condition
     (`GameState.spell_colors_cast_this_turn`, tracked off `SPELL_CAST`
     the same way `cast_instant_or_sorcery_this_turn` already is) and the
-    new `mark_your_spells_on_stack_cant_be_countered` (immediate) +
-    `arm_spell_watcher`'s new ``repeat`` flag (for the rest of the turn).
+    new `cant_be_countered_this_turn` (an `UncounterableGrant` — a rule for
+    the rest of the turn, so it covers a spell already on the stack too).
     """
     return [
         AbilitySpec(
@@ -35,11 +35,7 @@ def _veil_of_summer() -> list[AbilitySpec]:
                     "draw", {"count": 1},
                     condition={"opponent_cast_color_this_turn": ["U", "B"]},
                 ),
-                EffectSpec("mark_your_spells_on_stack_cant_be_countered", {}),
-                EffectSpec("arm_spell_watcher", {
-                    "then_specs": [{"type": "mark_cant_be_countered", "params": {}}],
-                    "repeat": True,
-                }),
+                EffectSpec("cant_be_countered_this_turn", {}),
             ],
         ),
     ]

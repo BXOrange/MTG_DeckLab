@@ -398,6 +398,14 @@ class EventType:
     #: the rolling player as ``player_id``/``controller_id`` — the ability is
     #: controlled by whoever rolled (901.13a).
     CHAOS_ENSUED = "CHAOS_ENSUED"
+    #: RULE 901.6: a player rolled the planar die (any face). ``player_id`` is the roller and
+    #: ``face`` is ``"chaos"``/``"planeswalk"``/``"blank"``; the die's {X} cost reads how many
+    #: of these that player caused this turn (`turn_history.planar_die_rolls`).
+    PLANAR_DIE_ROLLED = "PLANAR_DIE_ROLLED"
+    #: RULE 700.13: a player committed a crime — cast a spell, activated an ability or put a
+    #: triggered ability on the stack that targets an opponent, a permanent an opponent
+    #: controls, or a spell, ability or card of an opponent's. ``player_id`` is who did.
+    CRIME_COMMITTED = "CRIME_COMMITTED"
     #: RULE 904.7: the archenemy set a scheme in motion (turned it face up),
     #: which is the trigger condition every scheme's own ability shares.
     #: Carries ``instance_id`` (the scheme) and ``player_id``.
