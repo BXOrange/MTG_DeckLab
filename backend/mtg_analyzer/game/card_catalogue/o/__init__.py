@@ -1,4 +1,5 @@
 """Hand-authored card entries whose name starts with 'o' (see game/card_registry for the registration mechanism: `register`/`register_family`/`specs_for`)."""
+from . import obstinate_baloth  # noqa: F401
 from . import of_herbs_and_stewed_rabbit  # noqa: F401
 from . import oft_nabbed_goat  # noqa: F401
 from . import ojer_axonil_deepest_might_temple_of_power  # noqa: F401

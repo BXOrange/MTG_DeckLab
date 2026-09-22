@@ -795,6 +795,80 @@ def _die_to_exile_replacement(params: dict[str, Any]) -> ReplacementEffect:
     return effect
 
 
+def _discard_to_battlefield_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """"If a spell or ability an opponent controls causes you to discard this
+    card, put it onto the battlefield [with N +1/+1 counters] instead of
+    putting it into your graveyard." (MEC-102 — Loxodon Smiter/Obstinate
+    Baloth/Nullhide Ferox/Dodecapod) — a self-only RULE 614.1 replacement on
+    `EventType.WOULD_DISCARD` (MEC-101's own pre-move pseudo-event, fired by
+    `RulesEngine.discard`/`discard_specific`/`discard_random` just before the
+    hand→graveyard move).
+
+    Unlike every other entry in this file, this one is never reached through
+    `RulesEngine._all_replacement_effects()` (battlefield-only by design,
+    RULE 616's ordinary replacement pool) — the card carrying this ability
+    is, by definition, still in hand at the moment its own discard would
+    happen, so nothing would ever find it there. `draw_discard_mixin.
+    _maybe_discard_to_battlefield` checks the discarded object's own
+    `GameObject.replacement_effects` directly instead — bound at creation
+    time regardless of zone, the same way `triggered_abilities` already is —
+    mirroring the self-contained shape `_maybe_madness` already uses for the
+    identical "an object's own printed ability intercepts its own discard"
+    problem (RULE 702.35a).
+
+    ``counters`` (Dodecapod's own "with two +1/+1 counters") stamps that
+    many +1/+1 counters before the object is spliced onto the battlefield —
+    present in the same event that puts it there, the convention
+    `GameState.add_to_battlefield` already uses for a Saga/Class/Battle/
+    planeswalker's own starting counters.
+    """
+    counters = int(params.get("counters", 0) or 0)
+    effect = ReplacementEffect(
+        event_type=EventType.WOULD_DISCARD,
+        replacement_fn=lambda e, c: e,
+        description=str(params.get("description", "")),
+    )
+
+    def _applies(event: GameEvent, _context: GameContext) -> bool:
+        src = effect.source
+        if src is None or event.get("instance_id") != getattr(src, "instance_id", None):
+            return False
+        cause_controller_id = event.get("cause_controller_id")
+        return cause_controller_id is not None and cause_controller_id != src.controller_id
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        # `_applies` is already checked by `can_replace()` (`effect.condition`
+        # below) before `replace()` is ever called — see `_die_to_exile_
+        # replacement`'s identical comment just below.
+        obj = effect.source
+        if obj is None:
+            return event
+        player = context.state.player_by_id(obj.owner_id)
+        # `RulesEngine.discard` has already popped `obj` off `player.hand`
+        # by the time it fires `WOULD_DISCARD` (only `obj.zone` itself is
+        # still "hand"); `discard_specific`/`discard_random` haven't yet —
+        # same dual calling convention `_maybe_madness` already handles.
+        if obj in player.hand:
+            player.remove_from_zone(obj, Zone.HAND)
+        if counters:
+            obj.counters["+1/+1"] = obj.counters.get("+1/+1", 0) + counters
+        context.state.add_to_battlefield(obj)
+        context.state.fire_event(
+            GameEvent(
+                EventType.ENTERS_BATTLEFIELD,
+                controller_id=obj.controller_id,
+                object=obj.name,
+                instance_id=obj.instance_id,
+                object_types=sorted(obj.type_words),
+            )
+        )
+        return None  # event consumed — the graveyard move is replaced
+
+    effect.replacement_fn = replace
+    effect.condition = _applies
+    return effect
+
+
 def _gain_life_replacement(params: dict[str, Any]) -> ReplacementEffect:
     """A life gain is rewritten instead (RULE 119.3/616.1) — the *additive*
     "you gain that much life plus N instead" (Angel of Vitality, ``plus``)
@@ -1235,5 +1309,6 @@ ReplacementRegistry.register("split_multi_draw", _split_multi_draw_replacement)
 ReplacementRegistry.register("steal_non_first_draw", _steal_non_first_draw_replacement)
 ReplacementRegistry.register("discard_instead_of_non_first_draw", _discard_instead_of_non_first_draw_replacement)
 ReplacementRegistry.register("first_draw_look_two", _first_draw_look_two_replacement)
+ReplacementRegistry.register("discard_to_battlefield", _discard_to_battlefield_replacement)
 
 register(globals())

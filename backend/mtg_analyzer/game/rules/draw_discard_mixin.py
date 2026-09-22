@@ -411,6 +411,40 @@ class DrawDiscardMixin:
         )
         return True
 
+    def _maybe_discard_to_battlefield(
+        self, player: Player, obj: GameObject, cause_controller_id: Optional[str],
+    ) -> bool:
+        """RULE 614.1 (MEC-102): "if a spell or ability an opponent controls
+        causes you to discard this card, put it onto the battlefield [with N
+        +1/+1 counters] instead of putting it into your graveyard." (Loxodon
+        Smiter/Obstinate Baloth/Nullhide Ferox/Dodecapod) — checked directly
+        against ``obj``'s own `GameObject.replacement_effects` rather than
+        through `RulesEngine._all_replacement_effects()` (battlefield-only),
+        since the card carrying this ability is, by definition, still in
+        hand right now — the same reason `_maybe_madness` above is its own
+        self-contained check rather than going through the general
+        replacement pipeline. See `effects/replacements.py`'s
+        `_discard_to_battlefield_replacement` for the actual zone move.
+
+        Returns ``True`` when it intercepted the move (the caller then skips
+        its own graveyard step, mirroring `_maybe_madness`'s own return
+        convention) — `DISCARD_CARD` still fires either way (RULE 614.1
+        changes *how* the discard happens, not *whether* it happened).
+        """
+        for effect in obj.replacement_effects:
+            if getattr(effect, "event_type", None) != EventType.WOULD_DISCARD:
+                continue
+            would_discard = GameEvent(
+                EventType.WOULD_DISCARD,
+                instance_id=obj.instance_id,
+                player_id=player.id,
+                cause_controller_id=cause_controller_id,
+            )
+            if effect.can_replace(would_discard, self.context):
+                effect.apply_replacement(would_discard, self.context)
+                return True
+        return False
+
     def _arm_miracle(self, player: Player, obj: GameObject) -> None:
         """RULE 702.94a-b: if ``obj`` (the first card ``player`` drew this
         turn) has Miracle, make it castable from hand for its miracle cost
@@ -448,7 +482,9 @@ class DrawDiscardMixin:
                 break
             obj = player.hand.pop()  # auto-choose (no chooser in MVP)
             madness = self._maybe_madness(player, obj)  # RULE 702.35a
-            if not madness:
+            if not madness and not self._maybe_discard_to_battlefield(  # RULE 614.1 (MEC-102)
+                player, obj, cause_controller_id,
+            ):
                 obj.zone = Zone.GRAVEYARD
                 player.graveyard.append(obj)
                 self._flag_commander_zone_choice(obj)  # RULE 903.9a
@@ -493,7 +529,9 @@ class DrawDiscardMixin:
             obj = random.choice(player.hand)
             player.hand.remove(obj)
             madness = self._maybe_madness(player, obj)  # RULE 702.35a
-            if not madness:
+            if not madness and not self._maybe_discard_to_battlefield(  # RULE 614.1 (MEC-102)
+                player, obj, cause_controller_id,
+            ):
                 obj.zone = Zone.GRAVEYARD
                 player.graveyard.append(obj)
                 self._flag_commander_zone_choice(obj)  # RULE 903.9a
@@ -640,7 +678,10 @@ class DrawDiscardMixin:
         ``source`` through here so a *forced* interactive discard still
         carries the causing ability."""
         player = self.state.player_by_id(obj.owner_id)
-        if not self._maybe_madness(player, obj):  # RULE 702.35a
+        cause_controller_id = getattr(cause, "controller_id", None)
+        if not self._maybe_madness(player, obj) and not self._maybe_discard_to_battlefield(
+            player, obj, cause_controller_id,  # RULE 614.1 (MEC-102)
+        ):
             player.remove_from_zone(obj, Zone.HAND)
             player.add_to_zone(obj, Zone.GRAVEYARD)
             self._flag_commander_zone_choice(obj)  # RULE 903.9a
@@ -648,7 +689,7 @@ class DrawDiscardMixin:
             GameEvent(
                 EventType.DISCARD_CARD, player_id=player.id, instance_id=obj.instance_id,
                 object_types=_main_type_words(obj.card),  # see `discard`'s own comment
-                cause_controller_id=getattr(cause, "controller_id", None),
+                cause_controller_id=cause_controller_id,
             )
         )
         self.state.fire_event(

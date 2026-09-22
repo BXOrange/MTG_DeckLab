@@ -26,5 +26,6 @@ from . import noble_heritage  # noqa: F401
 from . import notion_thief  # noqa: F401
 from . import noxious_revival  # noqa: F401
 from . import nuka_nuke_launcher  # noqa: F401
+from . import nullhide_ferox  # noqa: F401
 from . import nurturing_licid  # noqa: F401
 from . import nyxbloom_ancient  # noqa: F401

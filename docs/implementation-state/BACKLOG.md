@@ -746,18 +746,6 @@ its block back into the matching section here.
   {5}.") and every other Duskmourn "perpetually" card. Needs a durable per-object modification
   list `reset_as_new_object` does *not* clear, consulted by the layer engine/keyword union
   alongside printed+intrinsic+granted.
-- **MEC-102 · RULE 614 discard→battlefield replacement, opponent-caused.** "if a spell or ability
-  an opponent controls causes you to discard this card, put it onto the battlefield [with N +1/+1
-  counters] instead of putting it into your graveyard." (Dodecapod, Loxodon Smiter, Nullhide Ferox,
-  Obstinate Baloth) is a RULE 614.1 replacement on the discard's own destination, not a triggered
-  ability — MEC-101's `cause_controller_id` provenance (`EventType.DISCARD_CARD`, threaded through
-  every `discard`/`discard_specific`/`discard_random`/`discard_matching`/`discard_choice` call site)
-  answers "was this an opponent's doing", but nothing reads it at the point the card would land in
-  the graveyard. The only existing precedent for redirecting a discard's own destination is Madness
-  (`draw_discard_mixin._maybe_madness`), which is hardcoded in the discard methods themselves, not a
-  registered `ReplacementEffect`/`EffectRegistry` entry a card can opt into — needs a real primitive
-  (a self-subject discard-destination replacement, RULE 614.1, gated on `cause_controller_id` being
-  an opponent), not another special case bolted onto `_maybe_madness`.
 
 ## PLR — Player management
 

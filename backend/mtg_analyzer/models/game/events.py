@@ -103,6 +103,21 @@ class EventType:
     #: a real object to point at (`effects.ExileEffect`'s own
     #: ``target_kind="trigger_subject"``).
     DISCARD_CARD = "DISCARD_CARD"
+    #: A card (``instance_id``, its owner's ``player_id``) would be discarded
+    #: — put from hand into the graveyard (RULE 701.8a) — fired pre-emptively
+    #: by `RulesEngine.discard`/`discard_specific`/`discard_random` (MEC-102)
+    #: so a "put it onto the battlefield instead of putting it into your
+    #: graveyard" replacement (RULE 614.1, Loxodon Smiter/Obstinate Baloth/
+    #: Nullhide Ferox/Dodecapod) can redirect it before the zone move
+    #: happens, mirroring `WOULD_DIE` below. Also carries ``cause_
+    #: controller_id`` (MEC-101's discard-provenance field) so the
+    #: replacement's own "an opponent controls" gate reads it the same way
+    #: the *triggered*-ability family's `requires_opponent_caused_discard`
+    #: condition does. The card is still discarded either way (RULE 614.1
+    #: changes *how* an event happens, not whether it happened) — `DISCARD_
+    #: CARD`/`DISCARD` still fire normally afterward regardless of which
+    #: zone the card actually landed in.
+    WOULD_DISCARD = "WOULD_DISCARD"
     ENTERS_BATTLEFIELD = "ENTERS_BATTLEFIELD"
     LEAVES_BATTLEFIELD = "LEAVES_BATTLEFIELD"
     DIES = "DIES"

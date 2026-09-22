@@ -1530,6 +1530,74 @@ is in the rules-engine categories below them.
 - **Files:** `game/effects/core.py`.
 - **Bug fixed:** None of the 12 factories ever passed a `condition` to `ReplacementEffect`, so `can_replace` only ever checked event type — Gisela's two unrelated replacements (opponent-scoped doubling, self-scoped prevention) both reported "applicable" to every DAMAGE event regardless of direction, opening a pointless ordering choice on every single hit even though only one could ever actually change anything.
 
+### Discard-destination replacement, opponent-caused (MEC-102, RULE 614.1)
+
+- **What:** "If a spell or ability an opponent controls causes you to discard this
+  card, put it onto the battlefield [with N +1/+1 counters] instead of putting it
+  into your graveyard." (Loxodon Smiter, Obstinate Baloth, Nullhide Ferox,
+  Dodecapod) — the replacement-effect sibling of MEC-101's trigger-condition
+  primitive, on the same `DISCARD_CARD` provenance. New `EventType.WOULD_DISCARD`
+  pseudo-event, fired by `RulesEngine.discard`/`discard_specific`/`discard_random`
+  right before the hand→graveyard move — mirroring `WOULD_DIE`'s own
+  "fire-then-check-for-None" shape exactly (`_move_to_graveyard`'s existing "if ~
+  would die, exile it instead" interception) — carrying `instance_id`,
+  `player_id`, and MEC-101's `cause_controller_id`. New
+  `_discard_to_battlefield_replacement` (`game/effects/replacements.py`,
+  registered as `"discard_to_battlefield"`) consumes it: moves the object onto
+  the battlefield (stamping `counters` +1/+1 counters first, present in the same
+  event that puts it there, the same convention `GameState.add_to_battlefield`
+  already uses for a Saga/Class/Battle/planeswalker's own starting counters),
+  fires `ENTERS_BATTLEFIELD` (so the object's own ETB triggers — Obstinate
+  Baloth's 4 life — see it as a genuine RULE 400.7 new arrival), and returns
+  `None` to cancel the graveyard move. `DISCARD_CARD`/`DISCARD` still fire
+  normally afterward either way — RULE 614.1 changes *how* the discard happens,
+  not *whether* it happened, so any ordinary "whenever you discard a card"
+  ability still sees it.
+- **Never reached through the general replacement pool:** unlike every other
+  entry in this section, `RulesEngine._all_replacement_effects()` only scans
+  `state.permanents()` (RULE 616's ordinary pool) — but the card carrying this
+  ability is, by definition, still in *hand* at the moment its own discard would
+  happen, so the general scan would never find it. New
+  `draw_discard_mixin._maybe_discard_to_battlefield` checks the discarded
+  object's own `GameObject.replacement_effects` directly instead (bound at
+  creation time regardless of zone, same as `triggered_abilities`) — the same
+  self-contained shape `_maybe_madness` already uses for the identical "an
+  object's own ability intercepts its own discard" problem (RULE 702.35a), and
+  handles the same dual "already popped off `player.hand`, or not yet" calling
+  convention between `discard`'s auto-pick loop and `discard_specific`'s chosen-
+  card path that `_maybe_madness` already had to.
+- **The 4 cards, hand-authored, not parser-recognized:** the "if a spell/ability
+  an opponent controls causes you to discard this card, `<replacement>`" sentence
+  shape has no segmenter recognition at all yet (same gap **PAR-126** notes for
+  the sibling *trigger* family) — building it for exactly 4 cards was judged not
+  worth a new grammar row; hand-authoring is the sanctioned choice for a cluster
+  this size. Hand-authoring is all-or-nothing per card (`card_registry.
+  specs_for`), so every other clause had to be authored too, not just each
+  card's new replacement: Loxodon Smiter's pre-existing `cant_be_countered`;
+  Obstinate Baloth's ETB `gain_life` (copied verbatim from an isolated
+  `parse_oracle` run — it already parsed fine on its own, only the replacement
+  clause was unclaimed); Nullhide Ferox's Hexproof (folds in automatically, the
+  keyword catalogue always merges independent of registration), `player_cast_
+  restriction` for "can't cast noncreature spells," and its `{2}: loses all
+  abilities until end of turn, any player may activate` pressure valve, which
+  turned out to need **no new primitive at all** — an ordinary self-targeted
+  `grant_until(self_subject=True, static={"type": "remove_all_abilities"})`,
+  the exact composition Temur Sabertooth already uses for a different inner
+  static (`GrantUntilEffect`'s `chosen_ids`/`affects="objects"` override
+  unconditionally rescopes *any* inner static to the chosen object, so
+  `remove_all_abilities`'s own `all_creatures` default never applies here) —
+  plus the pre-existing `ActivationCost.any_player_may_activate` (MEC-30,
+  Mercenaries).
+- **Files:** `models/game/events.py` (`WOULD_DISCARD`), `game/effects/
+  replacements.py`, `game/rules/draw_discard_mixin.py`, `game/card_catalogue/
+  d/dodecapod.py`, `l/loxodon_smiter.py`, `n/nullhide_ferox.py`,
+  `o/obstinate_baloth.py`. **Tests:** `tests/
+  test_mec102_discard_to_battlefield.py` (redirect vs. normal graveyard vs.
+  own-controller-caused for both the `discard`/`discard_specific` calling
+  conventions, Dodecapod's counters, Obstinate Baloth's ETB firing off the
+  redirected entry, Nullhide Ferox's other abilities surviving the all-or-
+  nothing registration).
+
 ## Triggered Abilities & Trigger Ordering
 
 ### Trigger ordering within a controller (RULE 603.3b)
