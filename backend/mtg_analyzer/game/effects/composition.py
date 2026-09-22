@@ -350,6 +350,18 @@ class OptionalEffect(_CompositeEffect):
             )
         if chooser is None:
             return
+        if referent_subject_id is None:
+            # MEC-99: the *body* can need the RULE 603.1 group-subject firing
+            # object even when "you" (not "its controller") is who's asked —
+            # "whenever a creature you control attacks and isn't blocked, you
+            # may have **it** deal damage equal to its power to target
+            # creature." (Gaze of Pain) asks the controller, but the inner
+            # `dealer_kind`/`subject="trigger_subject"` effects still need to
+            # act as the attacker, not the ability's own (nonexistent, for a
+            # turn-scoped trigger) source. Same capture-now/restore-at-resume
+            # reasoning as the dict branch above, just not gated on ``player``
+            # being the referent that's asked.
+            referent_subject_id = (getattr(context, "trigger_event", None) or {}).get("instance_id")
         source_name = getattr(self.source, "name", None)
         prompt = self.prompt or (
             f"{source_name}: Effekt anwenden?" if source_name else "Effekt anwenden?"

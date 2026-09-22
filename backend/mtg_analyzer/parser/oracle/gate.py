@@ -3545,7 +3545,21 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (Solitude, Doomsday, Final Punishment, Peer into the Abyss, Esper Sentinel, Tavern Brawler,
 #: Emiel the Blessed, Burning Curiosity, Rousing Refrain, Jeska's Will, Carpet of Flowers,
 #: Rootha, Spoils of Blood).
-PARSER_VERSION = "463"
+#: v464 (MEC-99): "you may choose to have it deal damage equal to its power to `<target>`. if
+#: you do, it assigns no combat damage this turn." (Gaze of Pain's own turn-scoped trigger
+#: body) reuses `effects.DamageEqualToPowerEffect`'s existing subject vocabulary (a new
+#: ``"trigger_subject"`` implicit dealer, resolved off `GameContext.trigger_event` the way
+#: every other RULE 603.1 group-subject referent already is) plus a widened
+#: `PreventCombatDamageDealtEffect` (RULE 510.1e's "assigns no combat damage", previously
+#: only reachable as Loafing Giant's own self-only "~" form) — no new engine primitive, only
+#: recognition, +1. Fixes a real, previously-unreachable gap along the way:
+#: `OptionalEffect.apply` only ever captured the RULE 603.1 referent needed to *resume*
+#: correctly (`context.trigger_event`) when the referent was also who gets *asked* ("its
+#: controller may …"); a body needing that referent under a plain "you may" (this card's own
+#: shape — the controller is asked, but the body still has to act as the attacker) silently
+#: resolved against no trigger subject at all once the interactive choice came back. Now
+#: captured whenever `context.trigger_event` names one, regardless of who's asked.
+PARSER_VERSION = "464"
 
 
 def parser_source_hash() -> str:

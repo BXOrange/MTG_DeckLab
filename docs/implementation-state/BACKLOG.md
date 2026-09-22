@@ -718,15 +718,6 @@ its block back into the matching section here.
   {5}.") and every other Duskmourn "perpetually" card. Needs a durable per-object modification
   list `reset_as_new_object` does *not* clear, consulted by the layer engine/keyword union
   alongside printed+intrinsic+granted.
-- **MEC-99 · A reflexive "have it deal damage equal to its power" grant + RULE 510's "assigns no
-  combat damage" flag.** Gaze of Pain ("whenever a creature you control attacks and isn't blocked,
-  you may choose to have it deal damage equal to its power to a target creature. if you do, it
-  assigns no combat damage this turn.") needs two new pieces: (1) a composed "you may have
-  `<trigger_subject>` deal damage equal to its power to target creature" optional effect (a
-  group-subject damage source + RULE 115 target, wrapped in an interactive yes/no choice,
-  `OptionalEffect`-shaped like PAR-124's own Magitek Scythe closure) and (2) a new `GameObject`
-  flag (e.g. `temp_assigns_no_combat_damage`) consulted by the combat-damage-assignment step to
-  zero out that creature's own combat damage for the turn. Neither exists yet.
 - **MEC-100 · RULE 723 Contraption crank event.** Every "whenever you crank this contraption"
   trigger (Head Banger and the whole Unfinity Contraption sub-mechanic) is unbuilt — no
   `EventType` fires when a Contraption is cranked, no crank action exists on `GameEngine`. A

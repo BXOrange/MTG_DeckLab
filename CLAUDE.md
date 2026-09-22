@@ -583,9 +583,25 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 49.2% (17,132 / 34,811) as of 2026-09-22, measured at
-PARSER_VERSION 463**; the Commander-legal slice is **51.7% (16,471 /
-31,830)**. v463 **closes PAR-124 completely** (every card in its own original scope is MODELED):
+**Coverage: 49.2% (17,133 / 34,811) as of 2026-09-22, measured at
+PARSER_VERSION 464**; the Commander-legal slice is **51.7% (16,472 /
+31,830)**. v464 closes MEC-99 (Gaze of Pain): a reflexive "you may choose
+to have it deal damage equal to its power to target creature. if you do,
+it assigns no combat damage this turn." reuses `effects.
+DamageEqualToPowerEffect`'s existing subject vocabulary (a new
+`dealer_kind="trigger_subject"`, the RULE 603.1 group-subject firing
+object) and a `PreventCombatDamageDealtEffect` widened with a
+`subject="trigger_subject"` reading (RULE 510.1e's "assigns no combat
+damage", previously reachable only as Loafing Giant's self-only "~" form)
+— no new engine primitive, only recognition, +1. Found and fixed a real,
+previously-latent gap along the way: `OptionalEffect.apply` only captured
+the group-subject referent needed to resume correctly across its "you
+may…" pause when that referent was also *who gets asked* ("its controller
+may …", PAR-117); a body needing the same referent under a plain "you may"
+(the controller is asked, but the body still has to act as the attacker)
+silently lost it once the interactive choice came back — now captured
+whenever `GameContext.trigger_event` names one, regardless of who's asked.
+v463 **closes PAR-124 completely** (every card in its own original scope is MODELED):
 a symmetric "whenever a player taps a `<land>` for mana"/"gains life" player-event pair (Bubbling
 Muck/High Tide, False Cure), X-scaled token creation plus a recipient-plural monarch condition
 (Forth Eorlingas!), a pump's "for each" clause in front of its keyword tail (King Harald's

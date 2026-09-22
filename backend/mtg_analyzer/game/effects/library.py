@@ -2483,7 +2483,7 @@ class AttachChosenEffect(GameEffect):
         context.attach_to_target(what, host)
 
 
-#: Subject names that are *not* a RULE 115 target choice — the four ways a
+#: Subject names that are *not* a RULE 115 target choice — the five ways a
 #: fight/one-sided-damage clause can name a creature without announcing a
 #: requirement for it. Shared by `FightEffect` and
 #: `DamageEqualToPowerEffect`, which take exactly the same subject vocabulary
@@ -2502,9 +2502,16 @@ class AttachChosenEffect(GameEffect):
 #:   +1/+2 until end of turn. **It** fights target creature you don't
 #:   control." (Epic Confrontation) and "Choose target creature you control
 #:   and target creature you don't control. … Then **those creatures** fight
-#:   each other." (Ancient Animus).
+#:   each other." (Ancient Animus);
+#: * ``"trigger_subject"`` (MEC-99) — whichever object matched this ability's
+#:   own RULE 603.1 group-subject trigger condition, a different one every
+#:   firing ("whenever a creature you control attacks and isn't blocked, you
+#:   may have **it** deal damage equal to its power to target creature.",
+#:   Gaze of Pain) — `effect_conditions.subject_of`'s own referent, shared
+#:   with every other group-subject reading in this codebase rather than a
+#:   bespoke lookup here.
 _IMPLICIT_FIGHT_SUBJECTS: frozenset = frozenset(
-    {None, "attached_permanent", "previous_target", "previous_target_2"}
+    {None, "attached_permanent", "previous_target", "previous_target_2", "trigger_subject"}
 )
 
 
@@ -2514,6 +2521,10 @@ def _implicit_fight_subject(
     """Resolve one of `_IMPLICIT_FIGHT_SUBJECTS` against the live game."""
     if kind is None:
         return effect.source
+    if kind == "trigger_subject":
+        from .. import effect_conditions  # avoid the effect_conditions↔effects import cycle
+
+        return effect_conditions.subject_of("trigger_subject", context, effect.source, None)
     if kind == "attached_permanent":
         host_id = getattr(effect.source, "attached_to", None)
         return context.state.find_object(host_id) if host_id is not None else None
@@ -2535,9 +2546,10 @@ class FightEffect(GameEffect):
     ``fighter_kind``/``other_kind`` each name either a RULE 115 target kind —
     the printed two-target form ("target creature you control fights target
     creature …"), where `extra_target_specs` carries the second requirement
-    the same way `AttachChosenEffect` does — or one of the four implicit
+    the same way `AttachChosenEffect` does — or one of the implicit
     subjects `_IMPLICIT_FIGHT_SUBJECTS` documents (the source, an Aura's host,
-    or a pronoun pointing back at the previous clause's target). An implicit
+    a pronoun pointing back at the previous clause's target, or a RULE 603.1
+    group trigger's own firing object). An implicit
     subject announces no requirement at all, so "it fights target creature you
     don't control" is a *one*-target spell and "those creatures fight each
     other" is a zero-target one.

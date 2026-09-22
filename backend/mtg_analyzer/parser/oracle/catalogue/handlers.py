@@ -6397,7 +6397,7 @@ def _tap_another_untapped_you_control(m: re.Match[str]) -> list[EffectSpec]:
 
 
 #: Exported so `segmenter._PAY_ENERGY_THEN_PEEL_GUARD_RE` can protect these
-#: two antecedent shapes from `_peel_optional` the same way it already
+#: antecedent shapes from `_peel_optional` the same way it already
 #: protects `_MAY_COST_THEN_CLAUSE` (same "so this guard can never drift
 #: out of sync" reasoning that constant's own docstring gives). A plain
 #: (non-capturing) mirror of `_RETURN_ANOTHER_YOU_CONTROL_RE`/
@@ -6415,6 +6415,13 @@ _MAY_EFFECT_THEN_ANTECEDENT_PHRASES = (
     # every other antecedent above, which are all targetless) instead of
     # going through `_may_effect_then`'s target-rejecting composition.
     r"|attach it to target creature you control"
+    # MEC-99 (Gaze of Pain): "you may choose to have it deal damage equal to
+    # its power to a target creature. if you do, `<effect>`." — a plain
+    # (non-capturing) mirror of `_MAY_HAVE_IT_DEAL_DAMAGE_EQUAL_TO_POWER_RE`'s
+    # own target phrase, for the same reason the Magitek Scythe row above
+    # keeps its RULE 115 target un-peeled instead of going through `_may_
+    # effect_then`'s target-rejecting composition.
+    r"|choose to have it deal damage equal to its power to (?:a |up to (?:one|1) )?target [a-z]+"
 )
 
 
@@ -6472,6 +6479,42 @@ def _may_attach_if_you_do(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     attach_spec = EffectSpec("attach", {"target_kind": "creature_you_control"})
     return [EffectSpec("optional", {
         "effects": [attach_spec.to_dict()] + [s.to_dict() for s in second],
+    })]
+
+
+#: MEC-99: "you may choose to have it deal damage equal to its power to
+#: `<target>`. if you do, it assigns no combat damage this turn." (Gaze of
+#: Pain's own turn-scoped trigger body, RULE 510.1e) — a `damage_equal_to_
+#: power` dealer plus a `prevent_combat_damage_dealt` flag, both wrapped in
+#: one `optional`, and both reading "it" as the RULE 603.1 group-subject
+#: creature that fired this trigger (``dealer_kind="trigger_subject"``/
+#: ``subject="trigger_subject"``) rather than the ability's own source — a
+#: temporary triggered ability granted by a sorcery has no combat-relevant
+#: source of its own to flag. Narrowly matched rather than routed through
+#: the generic `_may_effect_then`/`_MAY_EFFECT_THEN_RE` composition: that
+#: recursion parses each half with ``self_subject=True``, never ``group_
+#: subject=True``, so it can reach neither the group-subject dealer nor the
+#: group-subject "it assigns no combat damage" clause — both primitives
+#: already exist (`effects.DamageEqualToPowerEffect`/`PreventCombatDamage
+#: DealtEffect`), this is only the recognition.
+_MAY_HAVE_IT_DEAL_DAMAGE_EQUAL_TO_POWER_RE = _c(
+    rf"you may choose to have it deal damage equal to its power to (?:a )?{TARGET}\.\s*"
+    r"if you do,\s*it assigns no combat damage this turn\.?"
+)
+
+
+def _may_have_it_deal_damage_equal_to_power(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    recipient = _power_recipient(m.group("target"))
+    if recipient is None:
+        return None
+    return [EffectSpec("optional", {
+        "effects": [
+            EffectSpec("damage_equal_to_power", {
+                "dealer_kind": "trigger_subject", "target_kind": recipient,
+                **_optional_param(m),
+            }).to_dict(),
+            EffectSpec("prevent_combat_damage_dealt", {"subject": "trigger_subject"}).to_dict(),
+        ],
     })]
 
 
@@ -15142,6 +15185,18 @@ HANDLERS: list[EffectHandler] = [
         "may_attach_if_you_do",
         _MAY_ATTACH_IF_YOU_DO_RE,
         _may_attach_if_you_do,
+    ),
+    # MEC-99: "you may choose to have it deal damage equal to its power to
+    # <target>. if you do, it assigns no combat damage this turn." (Gaze of
+    # Pain) — tried before the generic `may_effect_then` row below for the
+    # same reason `may_attach_if_you_do` is: only reachable under a RULE
+    # 603.1 group-subject trigger, which that generic row's own recursive
+    # `self_subject=True` parse can never unlock.
+    EffectHandler(
+        "may_have_it_deal_damage_equal_to_power",
+        _MAY_HAVE_IT_DEAL_DAMAGE_EQUAL_TO_POWER_RE,
+        _may_have_it_deal_damage_equal_to_power,
+        group_subject_only=True,
     ),
     # PAR-79 sixth increment: "You may <effect>. If you do, <effect2>." with
     # a resolving-effect antecedent rather than a cost — tried after both

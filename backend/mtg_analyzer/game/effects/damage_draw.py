@@ -10,11 +10,36 @@ install(globals())
 
 
 class PreventCombatDamageDealtEffect(GameEffect):
-    """Prevent all combat damage this effect's source would deal this turn."""
+    """Prevent all combat damage the named creature would deal this turn
+    (RULE 615) — Loafing Giant's own "prevent all combat damage ~ would
+    deal this turn", and RULE 510.1e's "assigns no combat damage this turn"
+    is a rules-distinct but observably identical shape (Gaze of Pain,
+    MEC-99), since `deal_damage`'s own check for this flag returns before
+    any `DAMAGE` event fires either way.
+
+    ``subject`` is `effect_conditions`'s referent vocabulary, defaulting to
+    ``None`` (the effect's own source, Loafing Giant's printed "~"); MEC-99
+    adds the group-subject reading — "**it** assigns no combat damage this
+    turn." where "it" is whichever creature matched this ability's own
+    RULE 603.1 group trigger, not the ability's source (a temporary
+    triggered ability granted by a sorcery has no combat-relevant source of
+    its own to flag).
+    """
+
+    def __init__(
+        self, subject: Optional[str] = None, source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.subject = subject
 
     def apply(self, context, targets=None) -> None:
-        if self.source is not None:
-            self.source.temp_prevent_combat_damage_dealt = True
+        obj = self.source
+        if self.subject:
+            from .. import effect_conditions  # avoid the effect_conditions↔effects import cycle
+
+            obj = effect_conditions.subject_of(self.subject, context, self.source, targets)
+        if obj is not None:
+            obj.temp_prevent_combat_damage_dealt = True
 
 class DealDamageEffect(GameEffect):
     """Deal ``amount`` damage to a target player or creature — or, with
