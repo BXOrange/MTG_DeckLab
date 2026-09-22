@@ -2231,7 +2231,7 @@ class DiscardSpecificEffect(GameEffect):
         for obj in list(self.objects):
             player = context.state.player_by_id(obj.owner_id)
             if player is not None and obj in player.hand:
-                context.discard_specific(obj)
+                context.discard_specific(obj, cause=self.source)
 
 
 class ReturnSpecificToHandEffect(GameEffect):

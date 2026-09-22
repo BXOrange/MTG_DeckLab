@@ -1883,6 +1883,25 @@ def _trigger_condition(
 
         predicates.append(_damage_to_opponent_ok)
 
+    # "Whenever a spell or ability an opponent controls causes you to
+    # discard `<X>`, …" (MEC-101 — Pure Intentions, Guerrilla Tactics,
+    # Gorilla Tactics, Mangara's Blessing and the rest of the RULE 603.1
+    # "caused discard" cycle). `RulesEngine.discard`/`discard_random`/
+    # `discard_specific`/`discard_matching` stamp `DISCARD_CARD`'s own
+    # ``cause_controller_id`` with whoever controls the responsible spell/
+    # ability (``None`` for RULE 514.2 cleanup or a cost the discarding
+    # player paid themself) — this only has to compare that against this
+    # ability's own controller, the same "is it someone other than me"
+    # shape `_damage_to_opponent_ok` just above already uses for a
+    # different event.
+    if trigger.get("requires_opponent_caused_discard"):
+        def _opponent_caused_discard_ok(event: Any, context: Any, src=source) -> bool:
+            cause_controller_id = event.get("cause_controller_id")
+            controller_id = getattr(src, "controller_id", None)
+            return cause_controller_id is not None and cause_controller_id != controller_id
+
+        predicates.append(_opponent_caused_discard_ok)
+
     # "Whenever you cast a creature spell of the chosen type, draw a card."
     # (Vanquisher's Banner) — unlike `spell_card_types`'s fixed-at-bind-time
     # word list, the wanted subtype is only known once RULE 601.2b's "as

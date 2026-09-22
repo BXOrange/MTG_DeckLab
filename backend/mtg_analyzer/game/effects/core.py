@@ -265,15 +265,21 @@ class GameContext:
     def draw(self, player: "Player", count: int = 1) -> None:
         self.engine.draw(player, count)
 
-    def discard(self, player: "Player", count: int = 1) -> None:
-        self.engine.discard(player, count)
+    def discard(
+        self, player: "Player", count: int = 1, cause: Optional["GameObject"] = None,
+    ) -> None:
+        self.engine.discard(player, count, cause=cause)
 
-    def discard_random(self, player: "Player", count: int = 1) -> None:
-        self.engine.discard_random(player, count)
+    def discard_random(
+        self, player: "Player", count: int = 1, cause: Optional["GameObject"] = None,
+    ) -> None:
+        self.engine.discard_random(player, count, cause=cause)
 
-    def discard_specific(self, target: "GameObject") -> None:
+    def discard_specific(
+        self, target: "GameObject", cause: Optional["GameObject"] = None,
+    ) -> None:
         """Discard one already-identified hand card (RULE 701.8)."""
-        self.engine.discard_specific(target)
+        self.engine.discard_specific(target, cause=cause)
 
     def discard_choice(
         self,
@@ -287,8 +293,11 @@ class GameContext:
             player, count, source=source, then_specs=then_specs, optional=optional
         )
 
-    def discard_matching(self, player: "Player", mana_value: Optional[int] = None) -> None:
-        self.engine.discard_matching(player, mana_value=mana_value)
+    def discard_matching(
+        self, player: "Player", mana_value: Optional[int] = None,
+        cause: Optional["GameObject"] = None,
+    ) -> None:
+        self.engine.discard_matching(player, mana_value=mana_value, cause=cause)
 
     def exile_hand_choice(
         self,

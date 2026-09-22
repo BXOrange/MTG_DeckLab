@@ -240,6 +240,7 @@ class TriggerCollectionMixin:
         self._collect_mill_return_from_graveyard_triggers(event)
         self._collect_graveyard_function_triggers(event)
         self._collect_cycled_triggers(event)
+        self._collect_discarded_triggers(event)
         self._collect_suspend_triggers(event)
         self._collect_last_time_counter_triggers(event)
     def _resolve_mana_trigger(self, ability: "TriggeredAbility", event: GameEvent) -> None:
@@ -1012,6 +1013,45 @@ class TriggerCollectionMixin:
                         continue
                     if isinstance(ability, TriggeredAbility) and ability.check_trigger(event, self.context):
                         self.pending_triggers.append((ability, event))
+
+    def _collect_discarded_triggers(self, event: GameEvent) -> None:
+        """RULE 603.1/701.8: "When a spell or ability an opponent controls
+        causes you to discard this card, `<effect>`." (MEC-101 — Pure
+        Intentions, Guerrilla Tactics, Mangara's Blessing and the rest of the
+        "caused discard" cycle) — a self-subject trigger that has to fire off
+        its *own* discard, so `_collect_triggers`'s main loop (`state.
+        permanents()`, battlefield-only) can never see it: by the time
+        `DISCARD_CARD` fires, `RulesEngine.discard`/`discard_specific` has
+        already moved the card into its owner's graveyard (unlike Cycling's
+        own graveyard-residence, this one wasn't put there *by* the ability;
+        the ability just has to still be watching once it lands there).
+        Scoped the same bare-event-identity way `_collect_cycled_triggers`
+        just above is: no real card prints a `DISCARD_CARD`-watching ability
+        anywhere but on the discarded card's own self-subject "this card"/
+        "~", so the event type alone is enough — `check_trigger`'s own
+        subject condition (an exact `instance_id` match) already guarantees
+        this only ever fires for the card that was actually just discarded,
+        never a bystander sitting in the same graveyard.
+
+        Skips any ability `TriggeredAbility.functions_from_graveyard` already
+        flagged (RULE 113.6a/PAR-16, `_collect_graveyard_function_triggers`
+        just above) — Pure Intentions' own second ability's inner body *is* a
+        "return this card from your graveyard" effect (wrapped in a delayed
+        trigger), so `binding.core`'s inference already marks it, and both
+        scans would otherwise queue the same firing twice.
+        """
+        if event.type != EventType.DISCARD_CARD:
+            return
+        for player in self.state.players:
+            for obj in player.graveyard:
+                for ability in obj.triggered_abilities:
+                    if getattr(ability, "trigger_event", None) != EventType.DISCARD_CARD:
+                        continue
+                    if getattr(ability, "functions_from_graveyard", False):
+                        continue
+                    if isinstance(ability, TriggeredAbility) and ability.check_trigger(event, self.context):
+                        self.pending_triggers.append((ability, event))
+
     def _collect_self_cast_triggers(self, event: GameEvent) -> None:
         """RULE 601.2i/603.2: "When you cast this spell, `<effect>`."
         (Kozilek, Butcher of Truth's "draw four cards", the Eldrazi titan

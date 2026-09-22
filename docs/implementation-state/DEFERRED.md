@@ -76,6 +76,19 @@ Never to be built — not gaps.
 - **Stickers (RULE 123) and Attractions (RULE 717).** `gate.parse_oracle`
   classifies mentions of the former `NEVER_SUPPORTED`, a verdict kept out
   of both the coverage count and the backlog ranking.
+- **Contraptions (Unfinity's "crank this contraption" sub-mechanic).**
+  Silver-border/Unstable only, like Stickers/Attractions — confirmed via
+  `PAR-93`'s legality audit: all 45 cards using the phrase are from
+  *Unstable*, `legalities.commander`/`legacy`/`vintage` all `not_legal`, and
+  the current Comprehensive Rules' RULE 723 is "Controlling Another Player",
+  not Contraptions (RULE 715 is Adventure) — Contraptions never had a real CR
+  number to begin with. `PAR-93` retired the parser side of this on
+  2026-09-20; `MEC-100` re-proposed the identical gap under a wrong RULE
+  723 citation and was retired the same way on 2026-09-22 without being
+  built — see `Done_Backend.md`'s PAR-93 entry. If this resurfaces a third
+  time, that is the signal to add a `NEVER_SUPPORTED` gate verdict
+  (`gate.py`'s `_mentions_stickers` pattern) rather than re-litigating the
+  legality question again.
 - **Conspiracy draft-matters.** Moved out of `BACKLOG.md`'s Bucket C
   2026-09-14 once traced card-by-card (`scripts/commander_tail_report.py`
   tags it 13 Commander-legal cards): every unclaimed clause is literally

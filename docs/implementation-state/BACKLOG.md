@@ -89,10 +89,11 @@ its block back into the matching section here.
   > [`instance_id_override`] instead of rebinding the whole ability's
   > `source` to it, so "you" in an untargeted effect body stays the
   > spell's controller regardless of who controls the target — see
-  > `Done_Backend.md`'s PAR-124 entry). First free id: **`PAR-126`**. A
-  > genuinely new engine primitive found along the way still files as its
-  > own `MEC-*` ticket (next free id: **`MEC-102`**) — only the sweep
-  > itself stays out of this file.
+  > `Done_Backend.md`'s PAR-124 entry). `PAR-126` is MEC-101's own parser
+  > follow-up (below); first free id: **`PAR-127`**. A genuinely new engine
+  > primitive found along the way still files as its own `MEC-*` ticket —
+  > `MEC-102` is MEC-101's own such follow-up; next free id: **`MEC-103`**
+  > — only the sweep itself stays out of this file.
   >
   > **Anti-proliferation note:** a 2-6 card cluster is not automatically its
   > own ticket. Bundle several independently-verified small fixes into one
@@ -151,8 +152,9 @@ its block back into the matching section here.
   per-player batches, "an opponent draws a card except the first N they draw in each of their draw
   steps", "you're dealt damage", proliferate, "taps a land for mana" (no event); **(e) cast
   leftovers** — ordinals ("your first spell during each opponent's turn"), "or copies", "that has
-  an adventure". Heads that need a *new event* (crank a Contraption, exploit, saddle,
-  expend, commit a crime, unlock a door/room) are `MEC-*` work, not composition. **Then
+  an adventure". Heads that need a *new event* (exploit, saddle,
+  expend, commit a crime, unlock a door/room) are `MEC-*` work, not composition. Contraption-crank
+  is deliberately not on this list — see `DEFERRED.md`'s permanent non-goals. **Then
   migrate the legacy rows onto the composed heads** (`_GROUP_SUBJECT_RE`,
   `_GROUP_SUBTYPE_SUBJECT_RE`, `_SELF_OR_GROUP_*`, `_DAMAGE_TRIGGER_RE`,
   `_DAMAGE_RECIPIENT_TRIGGER_RE`, `_BECOMES_TARGET_TRIGGER_RE`, the seven
@@ -706,6 +708,32 @@ its block back into the matching section here.
 > before counting it as a cluster — see PAR-109), and loyalty costs print a
 > Unicode minus (−), not an ASCII hyphen.**
 
+- **PAR-126 · "A spell or ability an opponent controls causes you to discard `<X>`" —
+  self-subject trigger family.** MEC-101 (closed) built the primitive this whole cluster
+  needs — `EventType.DISCARD_CARD`'s new `cause_controller_id` provenance, `binding.core`'s
+  `requires_opponent_caused_discard` trigger-condition predicate, and
+  `triggers_mixin._collect_discarded_triggers` (the hand-zone-departure scan a self-subject
+  discard trigger needs, since `_collect_triggers`'s main loop is battlefield-only) — and hand-
+  authored the first card onto it, Pure Intentions (`game/card_catalogue/p/pure_intentions.py`).
+  16 SOLO cards remain (`parser_probe.py blocked "causes you to discard"`, minus Pure Intentions
+  and the 4 RULE 614 replacement-shaped ones filed separately as MEC-102), needing pure parser
+  recognition, not new engine work: **(a)** a bare self-subject "~ is discarded"/"this card is
+  discarded" passive-voice verb has *no* recognition at all yet, even uncaused — confirmed via
+  `engine_bench.py inspect --text 'When this card is discarded, it deals 3 damage to any
+  target.'`, still UNCLAIMED — `_TRIGGER_VERBS` (segmenter.py) has no passive-voice row and its
+  self-subject noun list (`_SELF_MULTI_EVENT_RE` et al.) has no "card" option, only "creature/
+  artifact/enchantment/land/permanent/equipment"; **(b)** the "a spell or ability an opponent
+  controls causes you to discard `<referent>`" wrapper itself is a distinct sentence shape (the
+  grammatical subject is the *causing spell*, not the discarded object), not a bare "~ VERB" —
+  needs its own dispatch row emitting `{"event": "DISCARD_CARD", "condition": {"subject": "self"
+  | "you"}, "requires_opponent_caused_discard": True}`, mirroring `_DAMAGE_TRIGGER_RE`'s own
+  bespoke-regex precedent rather than trying to force it through the bare-verb table; **(c)**
+  Pure Intentions' own first ability ("…cards this turn, return those cards…") is a
+  `create_turn_trigger` composition (RULE 603.7a) that needs generalizing from its one
+  hand-authored instance to a parser row. Library of Leng ("if an **effect** causes you to
+  discard a card…") and Nephalia Academy (same "an effect" wording) are a **different,
+  broader** condition — not opponent-scoped — and don't belong in this cluster.
+
 ## MEC — Game mechanics
 
 - **MEC-98 · RULE 121.5 Perpetual effects.** Duskmourn's "perpetually gains/loses `<ability |
@@ -718,21 +746,18 @@ its block back into the matching section here.
   {5}.") and every other Duskmourn "perpetually" card. Needs a durable per-object modification
   list `reset_as_new_object` does *not* clear, consulted by the layer engine/keyword union
   alongside printed+intrinsic+granted.
-- **MEC-100 · RULE 723 Contraption crank event.** Every "whenever you crank this contraption"
-  trigger (Head Banger and the whole Unfinity Contraption sub-mechanic) is unbuilt — no
-  `EventType` fires when a Contraption is cranked, no crank action exists on `GameEngine`. A
-  prerequisite for any Contraption card; Head Banger's own payoff ("target creature must be
-  blocked this turn if able.") is itself already MODELED (PAR-124) — the crank trigger head is the
-  only remaining gap.
-- **MEC-101 · "Caused you to discard" event provenance.** Pure Intentions ("whenever a spell or
-  ability an opponent controls causes you to discard cards this turn, return those cards from your
-  graveyard to your hand." / "when a spell or ability an opponent controls causes you to discard
-  this card, return this card from your graveyard to your hand at the beginning of the next end
-  step.") needs `EventType.DISCARD_CARD` to carry *which player's* spell/ability caused the
-  discard — today it carries only the discarding player, not the cause — threaded through every
-  `discard`/`discard_specific`/`discard_choice` call site, plus a new "opponent-caused" trigger
-  condition and a "cards discarded this way" turn-scoped tracking selector for the reflexive
-  return.
+- **MEC-102 · RULE 614 discard→battlefield replacement, opponent-caused.** "if a spell or ability
+  an opponent controls causes you to discard this card, put it onto the battlefield [with N +1/+1
+  counters] instead of putting it into your graveyard." (Dodecapod, Loxodon Smiter, Nullhide Ferox,
+  Obstinate Baloth) is a RULE 614.1 replacement on the discard's own destination, not a triggered
+  ability — MEC-101's `cause_controller_id` provenance (`EventType.DISCARD_CARD`, threaded through
+  every `discard`/`discard_specific`/`discard_random`/`discard_matching`/`discard_choice` call site)
+  answers "was this an opponent's doing", but nothing reads it at the point the card would land in
+  the graveyard. The only existing precedent for redirecting a discard's own destination is Madness
+  (`draw_discard_mixin._maybe_madness`), which is hardcoded in the discard methods themselves, not a
+  registered `ReplacementEffect`/`EffectRegistry` entry a card can opt into — needs a real primitive
+  (a self-subject discard-destination replacement, RULE 614.1, gated on `cause_controller_id` being
+  an opponent), not another special case bolted onto `_maybe_madness`.
 
 ## PLR — Player management
 

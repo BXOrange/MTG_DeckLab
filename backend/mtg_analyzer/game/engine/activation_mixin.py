@@ -1144,14 +1144,14 @@ class ActivationMixin:
                 self.rules.put_hand_card_on_top_of_library(chosen[0])
         if cost.discard:
             if cost.discard == DISCARD_HAND:
-                self.rules.discard(player, len(player.hand))
+                self.rules.discard(player, len(player.hand), cause=source)
             else:
                 chosen = self._resolve_discard_cost(player, cost.discard, discard_choices)
                 for card in chosen or []:
-                    self.rules.discard_specific(card)
+                    self.rules.discard_specific(card, cause=source)
         if cost.discard_self:
             instance_id, controller_id, name = source.instance_id, player.id, source.name
-            self.rules.discard_specific(source)
+            self.rules.discard_specific(source, cause=source)
             if cost.is_cycling:
                 # RULE 702.28c: "when you cycle this card" — fired *after*
                 # the discard (the card is genuinely in the graveyard by

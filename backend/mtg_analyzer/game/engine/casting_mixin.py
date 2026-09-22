@@ -2024,7 +2024,7 @@ class CastingMixin:
             # RULE 702.81a: Retrace's "discard a land card" additional cost,
             # paid now that ``obj`` itself has left the graveyard (MEC-53).
             if graveyard_keyword == "retrace":
-                self._pay_retrace_discard(player)
+                self._pay_retrace_discard(player, cause=obj)
             # RULE 500.4-adjacent: record this use of a Lurrus-shaped
             # "once during each of your turns" standing permission against
             # its *granting* permanent, not the cast card — untapped again
@@ -2257,13 +2257,13 @@ class CastingMixin:
         discard_count = x if cost.discard == DISCARD_X else cost.discard
         if discard_count:
             if cost.discard == DISCARD_HAND:
-                self.rules.discard(player, len(player.hand))
+                self.rules.discard(player, len(player.hand), cause=obj)
             else:
                 chosen = self._resolve_discard_cost(
                     player, discard_count, discard_choices, exclude=obj
                 )
                 for card in chosen or []:
-                    self.rules.discard_specific(card)
+                    self.rules.discard_specific(card, cause=obj)
         if cost.pay_life:
             amount = x if cost.pay_life == PAY_LIFE_X else cost.pay_life
             self.rules.lose_life(player, amount, cause="cost")
@@ -2486,7 +2486,7 @@ class CastingMixin:
         if cost.discard_land_type:
             victim = self._discard_land_type_candidate(player, cost.discard_land_type, exclude=obj)
             if victim is not None:
-                self.rules.discard_specific(victim)
+                self.rules.discard_specific(victim, cause=obj)
         if cost.tap_others:
             count, subtype = cost.tap_others
             for tapped in self._resolve_tap_others(player, obj, count, subtype, None) or []:
@@ -2551,7 +2551,7 @@ class CastingMixin:
                 break
         return out
 
-    def _pay_retrace_discard(self, player: Player) -> None:
+    def _pay_retrace_discard(self, player: Player, cause: Optional[GameObject] = None) -> None:
         """RULE 702.81a: discard one land card from ``player``'s hand as an
         additional cost of casting via Retrace. Auto-picks the first land
         card — the same non-interactive MVP simplification
@@ -2559,7 +2559,7 @@ class CastingMixin:
         """
         victim = next((c for c in player.hand if getattr(c, "is_land", False)), None)
         if victim is not None:
-            self.rules.discard_specific(victim)
+            self.rules.discard_specific(victim, cause=cause)
 
     def _pay_escape_graveyard_cost(self, player: Player, count: int) -> None:
         """RULE 702.138b: exile ``count`` other cards from ``player``'s

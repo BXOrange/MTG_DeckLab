@@ -2000,6 +2000,62 @@ is in the rules-engine categories below them.
 - **Files:** `game/rules_engine.py`, `models/game_state.py`, `game/binding/core.py`, `game/effects/core.py`.
 - **Bug fixed:** Trigger-order bug meant `spells_cast_this_turn` was one cast stale when a SPELL_CAST trigger checked it.
 
+### "Caused you to discard" event provenance (MEC-101, RULE 603.1)
+
+- **What:** `EventType.DISCARD_CARD` gained `cause_controller_id` — whoever controls the
+  spell/ability *responsible* for a discard, distinct from `player_id` (who discarded).
+  `RulesEngine.discard`/`discard_random`/`discard_specific`/`discard_matching` all take a new
+  `cause: Optional[GameObject]` param stamping it (`GameContext`'s matching proxies in
+  `game/effects/core.py` forward it too); every real call site was threaded — `DiscardEffect`'s
+  own `self.source`, the interactive `discard_choice`/`_apply_chosen_object` path's existing
+  `source` param, Retrace/Cycling/Channel/additional-cast-cost discards (the spell/ability being
+  paid for), and Chains of Mephistopheles' replacement — while RULE 514.2's own cleanup discard
+  (`turn_loop_mixin._step_cleanup`) and `recruit`'s keyword-action discard (RULE 701.70, no
+  ability source available to thread without a larger refactor for a shape no real card needs
+  yet) deliberately pass none, so a trigger reading this field never mistakes them for a hostile
+  cause. `binding/core.py` gained a `requires_opponent_caused_discard` trigger-condition
+  predicate (mirroring `requires_damage_to_opponent`'s own "is it someone other than me" shape)
+  comparing `cause_controller_id` against the ability's own controller.
+- **New collector:** a self-subject "when a spell/ability an opponent controls causes you to
+  discard **this card**, `<effect>`" has to fire off its own departure from hand — but by the
+  time `DISCARD_CARD` fires, `discard`/`discard_specific` have already moved the card to its
+  owner's graveyard, and `_collect_triggers`'s main loop is battlefield-only
+  (`state.permanents()`). New `triggers_mixin._collect_discarded_triggers` scans every player's
+  graveyard for a `DISCARD_CARD`-watching ability, the same bare-event-identity idiom
+  `_collect_cycled_triggers` already uses for Cycling's own graveyard residence — except it
+  skips any ability `TriggeredAbility.functions_from_graveyard` already flagged (RULE 113.6a/
+  PAR-16 inference, keyed off the ability's own effect body mentioning a graveyard return),
+  since `_collect_graveyard_function_triggers` already covers those and the two scans would
+  otherwise queue the identical firing twice — caught by this ticket's own execute tests (a
+  card whose payoff *is* "return this card from your graveyard" satisfies both inferences at
+  once), not a hypothetical.
+- **First card:** Pure Intentions (`game/card_catalogue/p/pure_intentions.py`) — hand-authored
+  rather than parser-recognized (the parser front-end has no recognition at all yet for either
+  of its two paragraphs' sentence shapes; see `BACKLOG.md`'s **PAR-126** for the 16-card
+  generalization this primitive now unblocks, and **MEC-102** for the separate RULE 614
+  discard→battlefield replacement shape 4 more cluster cards need). Its own first ability
+  ("…cards this turn, return those cards…") turned out to need no new "cards discarded this
+  way" tracker at all — the ticket's own suggested design — once framed as an ordinary RULE
+  603.7a `create_turn_trigger` (the same primitive Thunderclap Drake/Bonus Round use) whose body
+  reads the firing `DISCARD_CARD` event's own object straight off `ReturnToHandEffect`'s
+  already-general `target_kind="trigger_subject"` (PAR-123) — `RulesEngine.return_to_hand`
+  already moves an object out of whatever zone it's in, graveyard included, so no per-firing
+  accumulation was needed, only the new trigger condition gating which discards it reacts to.
+  Its second ability is an ordinary `create_delayed_trigger` wrapping the pre-existing
+  `return_self_from_graveyard_to_hand` (PAR-16); no `capture` needed, since `build_effects`
+  already threads the outer ability's own source (the discarded card itself) into the delayed
+  effect, and RULE 400.7 instance-id stability across a zone change (this project deliberately
+  keeps `instance_id` stable for exactly this reason) means that reference is still valid once
+  the delayed trigger fires turns later.
+- **Files:** `game/rules/draw_discard_mixin.py`, `game/effects/core.py`, `game/effects/
+  damage_draw.py`, `game/effects/replacements.py`, `game/effects/choices_actions.py`,
+  `game/rules/misc_mixin.py`, `game/engine/activation_mixin.py`, `game/engine/casting_mixin.py`,
+  `game/binding/core.py`, `game/rules/triggers_mixin.py`, `game/card_catalogue/p/
+  pure_intentions.py`. **Tests:** `tests/test_mec101_opponent_caused_discard.py` (cause
+  provenance on a plain discard, RULE 514.2 cleanup carrying none, a self-paid cost's cause
+  correctly failing the "opponent" check, both of Pure Intentions' abilities end to end
+  including the negative "no cause → doesn't fire" case for each).
+
 ## Continuous Effects & Layer System
 
 ### Layer-6 grant of a non-keyword ability (RULE 613.7f)
@@ -6670,6 +6726,16 @@ measurement of why is the useful half of this work.
   not a parser-coverage increase, so `PARSER_VERSION` is unchanged.
 - **Verification:** Current rules source (`MagicCompRules 20260807.txt`,
   701.45a) and the raw Scryfall store's legalities for all 45 probe results.
+- **2026-09-22 update:** `BACKLOG.md` grew a duplicate — `MEC-100 · RULE 723
+  Contraption crank event`, citing a rule number that is actually "Controlling
+  Another Player" in the current CR (RULE 715 is Adventure, not Contraptions
+  either) — proposing the same engine work this entry already declined.
+  Re-verified against the live raw Scryfall store (`set_name`/`legalities`
+  for Head Banger, Buzz Buggy, Accessories to Murder): still *Unstable*,
+  still `not_legal` everywhere. Retired the same way — ticket deleted, no
+  engine/parser work done, `PARSER_VERSION` unchanged — and added a permanent
+  non-goal entry (`DEFERRED.md`) so a third re-proposal has something to
+  check against before restarting this investigation from scratch.
 
 ### PAR-94: Per-unit activation-cost reductions — increment (PARSER_VERSION 441)
 

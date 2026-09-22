@@ -3639,7 +3639,7 @@ class MiscSystemsMixin:
             # zone, but reading it off the still-in-hand object is the
             # more obviously-correct order.
             is_land = obj.is_land
-            self.discard_specific(obj)
+            self.discard_specific(obj, cause=source)
             if connive and not is_land and source is not None:
                 self.add_counters(source, 1, kind="+1/+1", source=source)
         elif action == "reveal":

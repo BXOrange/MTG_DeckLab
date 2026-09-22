@@ -1124,7 +1124,7 @@ def _discard_instead_of_non_first_draw_replacement(params: dict[str, Any]) -> Re
     def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
         player = context.state.player_by_id(event.get("player_id"))
         if player.hand:
-            context.discard(player, 1)
+            context.discard(player, 1, cause=effect.source)
             context.draw(player, 1)
         else:
             context.mill(player, 1)

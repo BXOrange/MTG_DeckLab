@@ -1177,13 +1177,13 @@ class DiscardEffect(GameEffect):
         if self.filter is not None:
             if self.filter.get("mana_value_from_trigger_event"):
                 mv = (context.trigger_event or {}).get("mana_value")
-                context.discard_matching(player, mana_value=mv)
+                context.discard_matching(player, mana_value=mv, cause=self.source)
             return
         count = self._measured(self.count, context)
         if count <= 0:
             return
         if self.whole_hand:
-            context.discard(player, len(player.hand))
+            context.discard(player, len(player.hand), cause=self.source)
             return
         if self.count_max is not None:
             if not player.hand:
@@ -1203,7 +1203,7 @@ class DiscardEffect(GameEffect):
             )
             return
         if self.random:
-            context.discard_random(player, count)
+            context.discard_random(player, count, cause=self.source)
         else:
             context.discard_choice(
                 player, count, source=self.source, then_specs=self._then_specs()
@@ -1568,7 +1568,7 @@ class RevealRandomHandCardIfNamedEffect(GameEffect):
             return
         revealed = random.choice(player.hand)
         if revealed.name.casefold() == self.named_card.casefold():
-            context.discard_specific(revealed)
+            context.discard_specific(revealed, cause=self.source)
 
 
 class RevealRandomHandCardEffect(GameEffect):

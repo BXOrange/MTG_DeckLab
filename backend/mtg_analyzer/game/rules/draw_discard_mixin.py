@@ -425,13 +425,24 @@ class DrawDiscardMixin:
         obj.miracle_armed = True
         self.state.miracle_armed_ids.add(obj.instance_id)
 
-    def discard(self, player: Player, count: int = 1) -> None:
+    def discard(self, player: Player, count: int = 1, cause: Optional[GameObject] = None) -> None:
         """Non-interactive discard: cost payment (`GameEngine._pay_activation_
         cost`/`_pay_additional_cast_cost`, ward, RULE 514.3 cleanup) pays a
         cost or resolves an SBA in one synchronous call, so it can't pause
         for a chooser — see `discard_choice` for the interactive, effect-
-        resolution version looting-shaped effects use instead."""
+        resolution version looting-shaped effects use instead.
+
+        ``cause`` (MEC-101) is the spell/ability *responsible* for this
+        discard — an effect's own `GameEffect.source`, or an activation/cast
+        cost's own source object — stamped onto `DISCARD_CARD` as
+        ``cause_controller_id`` so "a spell or ability **an opponent
+        controls** causes you to discard `<X>`" (Pure Intentions, Guerrilla
+        Tactics, the whole "caused discard" cycle) can tell a hostile
+        discard apart from RULE 514.2's own hand-size cleanup or a card's
+        own cost paid by its own controller, neither of which passes one.
+        """
         discarded = 0
+        cause_controller_id = getattr(cause, "controller_id", None)
         for _ in range(count):
             if not player.hand:
                 break
@@ -453,6 +464,7 @@ class DrawDiscardMixin:
                     # so a "permanent card" RULE 603.1 group condition can
                     # tell an instant/sorcery discard apart from the rest.
                     object_types=_main_type_words(obj.card),
+                    cause_controller_id=cause_controller_id,
                 )
             )
         if discarded:
@@ -460,7 +472,9 @@ class DrawDiscardMixin:
                 GameEvent(EventType.DISCARD, player_id=player.id, count=discarded)
             )
 
-    def discard_random(self, player: Player, count: int = 1) -> None:
+    def discard_random(
+        self, player: Player, count: int = 1, cause: Optional[GameObject] = None,
+    ) -> None:
         """"…discards a card at random." (RULE 701.8d — Black Cat / Bottomless
         Pit / Hypnotic Specter family). Non-interactive like `discard`, but
         the card is chosen uniformly at random from ``player``'s hand rather
@@ -468,9 +482,11 @@ class DrawDiscardMixin:
         be a real rules difference — a chosen random card can be a bomb the
         player would never have pitched). Fires the same per-card
         `DISCARD_CARD` + aggregate `DISCARD` events and honours Madness
-        (RULE 702.35a) exactly as `discard` does.
+        (RULE 702.35a) exactly as `discard` does. ``cause`` — see `discard`'s
+        own docstring (MEC-101).
         """
         discarded = 0
+        cause_controller_id = getattr(cause, "controller_id", None)
         for _ in range(count):
             if not player.hand:
                 break
@@ -486,6 +502,7 @@ class DrawDiscardMixin:
                 GameEvent(
                     EventType.DISCARD_CARD, player_id=player.id, instance_id=obj.instance_id,
                     object_types=_main_type_words(obj.card),
+                    cause_controller_id=cause_controller_id,
                 )
             )
         if discarded:
@@ -528,20 +545,24 @@ class DrawDiscardMixin:
             prompt="Wähle eine Karte zum Abwerfen", source=source, then_specs=then_specs,
         )
 
-    def discard_matching(self, player: Player, mana_value: Optional[int] = None) -> None:
+    def discard_matching(
+        self, player: Player, mana_value: Optional[int] = None,
+        cause: Optional[GameObject] = None,
+    ) -> None:
         """Non-interactive "discards all cards with `<X>` mana value" (PAR-74
         — Infernal Kirin: "target player reveals their hand and discards all
         cards with that spell's mana value."). RULE 601.2c's "all" leaves
         nothing to choose between, unlike `discard_choice`'s RULE 701.8 pick
         — every matching card leaves, via the same non-interactive
         `discard_specific` Channel/Cycling costs use, rather than opening a
-        chooser over a foregone conclusion.
+        chooser over a foregone conclusion. ``cause`` — see `discard`'s own
+        docstring (MEC-101).
         """
         if mana_value is None:
             return
         for obj in list(player.hand):
             if obj.card.converted_mana_cost == mana_value:
-                self.discard_specific(obj)
+                self.discard_specific(obj, cause=cause)
 
     def exile_hand_choice(
         self,
@@ -608,11 +629,16 @@ class DrawDiscardMixin:
         player = self.state.player_by_id(obj.owner_id)
         player.remove_from_zone(obj, Zone.HAND)
         player.add_to_zone(obj, Zone.LIBRARY)  # top of deck is the list end
-    def discard_specific(self, obj: GameObject) -> None:
+    def discard_specific(self, obj: GameObject, cause: Optional[GameObject] = None) -> None:
         """Discard ``obj`` itself out of its owner's hand — Channel (RULE
         702.29)/Cycling (RULE 702.28)'s own "Discard this card" cost, unlike
         `discard` (a player-scoped count with no chooser, RULE 701.8's
-        general form)."""
+        general form). ``cause`` — see `discard`'s own docstring (MEC-101);
+        Channel/Cycling's own cost payment passes none (the card's own
+        controller pays their own cost, never "an opponent's spell or
+        ability"), but `discard_choice`'s interactive path threads its own
+        ``source`` through here so a *forced* interactive discard still
+        carries the causing ability."""
         player = self.state.player_by_id(obj.owner_id)
         if not self._maybe_madness(player, obj):  # RULE 702.35a
             player.remove_from_zone(obj, Zone.HAND)
@@ -622,6 +648,7 @@ class DrawDiscardMixin:
             GameEvent(
                 EventType.DISCARD_CARD, player_id=player.id, instance_id=obj.instance_id,
                 object_types=_main_type_words(obj.card),  # see `discard`'s own comment
+                cause_controller_id=getattr(cause, "controller_id", None),
             )
         )
         self.state.fire_event(
