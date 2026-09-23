@@ -127,16 +127,21 @@ def test_each_creature_you_control_distributive_group_grant():
     # "Each creature you control gains X until end of turn." is the same
     # group as "creatures you control", just worded per-creature
     # (Avacyn and Griselbrand, Moonveil Dragon) — PAR-29 residue widening.
+    # PAR-120: both now resolve to the identical structured selector (the
+    # leading "each " is stripped before `parse_count_phrase` sees it).
+    creatures_you_control = {
+        "zone": "battlefield", "of": "you", "filter": {"card_type": "creature"},
+    }
     (spec,) = parse_effect_body(
         "each creature you control gains indestructible until end of turn"
     )
     assert spec.type == "pump"
     assert spec.params == {
         "keywords": ["indestructible"],
-        "selector": "creatures_you_control",
+        "selector": creatures_you_control,
     }
     (spec2,) = parse_effect_body(
         "each creature you control gets +1/+1 until end of turn"
     )
-    assert spec2.params["selector"] == "creatures_you_control"
+    assert spec2.params["selector"] == creatures_you_control
     assert spec2.params["power"] == 1 and spec2.params["toughness"] == 1

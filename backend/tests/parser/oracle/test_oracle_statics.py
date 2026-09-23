@@ -100,11 +100,14 @@ def test_for_each_artifact_you_control_is_claimed():
     # +N/+N for each <X>" anthem (Cranial Plating) — `_ATTACHED_ANTHEM_FOR_
     # EACH_RE` claims any "for each …" quantity with a wired
     # `continuous.count_selector`.
+    artifacts_you_control = {
+        "zone": "battlefield", "of": "you", "filter": {"card_type": "artifact"},
+    }
     assert static_effect_specs(
         "Equipped creature gets +1/+1 for each artifact you control."
     ) == [EffectSpec("anthem", {
         "affects": "attached_permanent", "power": 1, "toughness": 1,
-        "power_count": "artifacts_you_control", "toughness_count": "artifacts_you_control",
+        "power_count": artifacts_you_control, "toughness_count": artifacts_you_control,
     })]
 
 

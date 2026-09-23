@@ -60,11 +60,18 @@ def test_those_creatures_pronoun_parses_like_they():
 
 
 def test_group_selector_with_a_counter_parses():
+    # PAR-120: this phrase turned out already reachable through the shared
+    # grammar (its own `has_counter` filter key) once `_group_selector`
+    # tried it first — proven equivalent to the old `creatures_you_control_
+    # with_a_counter` string on a real board (`test_par120_count_phrase.py`).
     assert match_clause(
         "each creature you control with a counter on it gains firebending 2 until end of turn"
     ) == [EffectSpec("pump", {
         "parametric_keywords": [{"name": "firebending", "n": 2}],
-        "selector": "creatures_you_control_with_a_counter",
+        "selector": {
+            "zone": "battlefield", "of": "you",
+            "filter": {"card_type": "creature", "has_counter": True},
+        },
     })]
 
 

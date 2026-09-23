@@ -171,21 +171,29 @@ its block back into the matching section here.
   sample of the newly claimed cards — the parse verdict alone hid wrong-but-MODELED shapes at v450,
   v455 and v456 (see `PARSER_LONG_TAIL.md`).
 - **PAR-120 · Shared count / filter / condition vocabulary — remaining scope.**
-  **(a) retire the duplicates** — `_FOR_EACH_SELECTORS`, `_FOR_EACH_AMOUNTS`, `_PT_CDA_SELECTORS`,
-  `_GY_COST_COUNT_SELECTORS`, `_CONTROL_COUNT_SELECTORS`, `_SELF_ANTHEM_FOR_EACH_SELECTORS`,
-  `_PUMP_X_SELECTOR_PHRASES`, `_ACTIVATION_COST_REDUCTION_SELECTORS`, `_GROUP_SELECTORS` (106
-  entries collapsing to 59 selectors) and the ~100 named `continuous.count_selector` branches plus
-  its ~20 prefix parsers (`creatures_you_control_of_type_<word>` accepts *any* word as a type); an
-  equivalence test (`test_par120_count_phrase.py`) already pins 15 of them to their structured
-  form — extend it to each name before deleting it, then diff the whole cache; **(b) remaining
+  **(a) retire the duplicates** — done: `_PT_CDA_SELECTORS`/`_GY_COST_COUNT_SELECTORS`/
+  `_CONTROL_COUNT_SELECTORS`/`_FOR_EACH_SELECTORS`/`_GROUP_SELECTORS` closed;
+  `_ACTIVATION_COST_REDUCTION_SELECTORS` shrunk 14→8, `_FOR_EACH_AMOUNTS` shrunk to its two Domain
+  entries, `_SELF_ANTHEM_FOR_EACH_SELECTORS` shrunk 30→13 — every remaining entry across all three
+  confirmed (not assumed) genuinely outside `{zone, of, filter}`. The ~100 named `continuous.
+  count_selector` branches plus its ~20 prefix parsers (`creatures_you_control_of_type_<word>`
+  accepts *any* word as a type) stay, now provably dead for every phrase the retired tables
+  covered — a full sweep to confirm nothing else still emits them is unstarted. `_PUMP_X_SELECTOR_PHRASES`
+  attempted and reverted: 8 of its 9 entries are already shadowed by an *independent* closed
+  vocabulary inside `subgrammars.DEVOTION`'s own "the number of `<X>` you control" branch, but
+  "the amount of life you gained this turn" isn't — a bare delete regressed Fortifying Draught;
+  needs the `DEVOTION` branch reconciled with it first, not a like-for-like swap. A real bug found
+  (not fixed) shrinking `_SELF_ANTHEM_FOR_EACH_SELECTORS`: `characteristic_phrase._ALTERNATION`
+  splits a bare comma the same as "X, Y, or Z", so "noncreature, nonland card" — a conjunction —
+  wrongly parses as an OR (`matches_object_filter` confirms a creature and a land both "match");
+  needs the trailing-"or" cue the split currently discards. **(b) remaining
   condition shapes**: referent counter-state ("if it had a +1/+1 counter on it", "if it had no
   time counters on it" — needs the RULE 603.10a trigger-event counters snapshot fallback threaded
   through `previous_target`); per-card draw counts; damage-dealt histories ("`<name>` dealt damage
   to an opponent this turn", "a player lost N or more life"); "the second time this ability has
-  resolved this turn"; cast-cost provenance ("if `<cost>` was spent"); sum-based counts ("creatures
-  you control have total power N or greater"); and compounds ("a desert or a desert card in your
-  graveyard"); **(c) the other modifier axes** the probe measures: "you don't control / an
-  opponent controls" (247 sentences), "another/other" (588), scope words (284). **Absorbs PAR-101's
+  resolved this turn"; cast-cost provenance ("if `<cost>` was spent"); and compounds ("a desert or
+  a desert card in your graveyard"); **(c) the other modifier axes** the probe measures: "you don't
+  control / an opponent controls" (247 sentences), "another/other" (588), scope words (284). **Absorbs PAR-101's
   count phrases and PAR-110's three "costs less for each …" bullets** — implement those through
   this vocabulary, not as rows.
 - **PAR-121 · Subject-scope slot and per-verb connective de-duplication (no

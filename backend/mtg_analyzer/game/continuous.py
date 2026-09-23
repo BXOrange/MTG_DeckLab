@@ -219,7 +219,7 @@ def _has_color(obj: "GameObject", colors: list) -> bool:
 def group_selector_objects(
     state: "GameState",
     controller_id: Optional[str],
-    affects: str,
+    affects: "str | dict[str, Any]",
     params: Optional[dict[str, Any]] = None,
     src: Optional["GameObject"] = None,
 ) -> list["GameObject"]:
@@ -234,13 +234,26 @@ def group_selector_objects(
     ``controller_id``; with none given (a bare test fixture) those selectors
     match nothing. ``src`` is only needed for ``"self"``/``"attached_
     permanent"``/``"other_creatures_you_control"``/``exclude_self``.
+
+    ``affects`` is a named string (the vocabulary below) or, since
+    PARSER_VERSION 473, a structured ``{"zone", "of", "filter"}`` selector
+    (`_structured_selector_objects` — the same shape `count_selector`
+    already accepts, this function's own object-returning sibling). This
+    function is inherently battlefield-scoped (its own docstring), so a
+    structured selector naming any other zone matches nothing here rather
+    than reading that zone — a caller asking this function for "the group"
+    means the *battlefield* group.
     """
     params = params or {}
     # RULE 702.26c: a phased-out permanent is treated as though it doesn't
     # exist — invisible to every static-ability selector below.
     battlefield = state.permanents()
 
-    if affects == "objects":
+    if isinstance(affects, dict):
+        if affects.get("zone", "battlefield") != "battlefield":
+            return []
+        result = _structured_selector_objects(state, controller_id, affects, src)
+    elif affects == "objects":
         # A RULE 611 floating static aimed at *specific* permanents chosen
         # when it resolved ("target creature gains flying until your next
         # turn") — the ids travel on the ability, since a target isn't
@@ -817,25 +830,29 @@ _DISTINCT_KEYS: dict[str, Any] = {
 }
 
 
-def _count_structured(
+def _structured_selector_objects(
     state: "GameState", controller_id: Optional[str], spec: dict[str, Any],
     source: Optional["GameObject"] = None,
-) -> int:
-    """PAR-120: count the objects a structured selector describes.
+) -> list[Any]:
+    """PAR-120: the objects a structured selector describes.
 
     ``{"zone": "battlefield"|"graveyard"|"hand"|"exile"|"library", "of": "you"|
-    "opponents"|"any", "filter": <matches_object_filter dict>, "distinct": <key>}``
-    — one representation for "creatures you control", "creature cards in your
-    graveyard", "lands your opponents control", "cards in your hand", read through
-    the same filter every trigger head and target phrase uses, instead of one named
-    branch per phrase. ``of`` is relative to ``controller_id`` ("you" is that
-    player; a battlefield object is counted by its *controller*, a card in another
-    zone by its *owner*). ``distinct`` counts different values instead of objects.
+    "opponents"|"any", "filter": <matches_object_filter dict>}`` — one
+    representation for "creatures you control", "creature cards in your
+    graveyard", "lands your opponents control", "cards in your hand", read
+    through the same filter every trigger head and target phrase uses,
+    instead of one named branch per phrase. ``of`` is relative to
+    ``controller_id`` ("you" is that player; a battlefield object is picked
+    by its *controller*, a card in another zone by its *owner*). Shared by
+    `_count_structured` (which additionally counts/distinct-counts the
+    result) and `group_selector_objects` (PARSER_VERSION 473 — the same
+    selector shape naming an actual *group* to iterate over or apply a
+    static/one-shot effect to, not just a number).
     """
     from .combat import matches_object_filter  # local: combat imports models lazily too
 
     if controller_id is None:
-        return 0
+        return []
     scope = spec.get("of", "you")
     players = [
         p for p in state.players
@@ -852,10 +869,22 @@ def _count_structured(
         elif zone in COUNT_SELECTOR_ZONES:
             candidates = list(getattr(player, COUNT_SELECTOR_ZONES[zone]))
         else:
-            return 0
+            return []
         matched.extend(
             o for o in candidates if matches_object_filter(o, filt, reference=source, state=state)
         )
+    return matched
+
+
+def _count_structured(
+    state: "GameState", controller_id: Optional[str], spec: dict[str, Any],
+    source: Optional["GameObject"] = None,
+) -> int:
+    """PAR-120: count the objects a structured selector describes — see
+    `_structured_selector_objects`. ``distinct`` counts different values
+    instead of objects.
+    """
+    matched = _structured_selector_objects(state, controller_id, spec, source)
     distinct = spec.get("distinct")
     if distinct is not None:
         getter = _DISTINCT_KEYS.get(distinct)
@@ -1457,6 +1486,18 @@ def count_selector(
             int(o.power or 0) for o in bf
             if o.is_creature and o.controller_id == controller_id
         ))
+    if selector == "total_power_attacking_creatures_you_control":
+        # "if you attacked with creatures with total power N or greater this
+        # combat" (Gnoll Hunter and the rest of the Onslaught-block "Pack
+        # tactics" cluster, PAR-120) — the same sum-of-power reading as
+        # `total_power_creatures_you_control` above, scoped to `o.attacking`
+        # (RULE 508.1) the same way `attacking_creatures_you_control` scopes
+        # a plain count. Checked at the attack trigger's own resolution,
+        # after declare attackers, so the live flag is already correct.
+        return max(0, sum(
+            int(o.power or 0) for o in bf
+            if o.is_creature and o.attacking and o.controller_id == controller_id
+        ))
     if selector == "auras_you_control":
         # "for each Aura you control" (Eidolon of Countless Battles) and its
         # "…that's attached to a creature" narrowing (Sage's Reverie) —
@@ -1847,7 +1888,9 @@ def _equipment_attached_count(state: "GameState", obj: "GameObject") -> int:
     return _attached_subtype_count(state, obj, "equipment")
 
 
-def _pt_mod_count(state: "GameState", ability: StaticAbility, obj: "GameObject", selector: str) -> int:
+def _pt_mod_count(
+    state: "GameState", ability: StaticAbility, obj: "GameObject", selector: "str | dict[str, Any]"
+) -> int:
     """A layer-7d anthem's per-unit multiplier — either a per-object count
     (``"equipment_attached_to_self"``), the ability's own source's counters
     (``"plus_one_counters_on_self"`` — Lion Sash's "for each +1/+1 counter
@@ -2899,9 +2942,9 @@ def _apply_layer_7_pt(
             if obj.instance_id not in base:
                 continue
             if p_sel:
-                base[obj.instance_id][0] = _count_selector(state, ability, str(p_sel))
+                base[obj.instance_id][0] = _count_selector(state, ability, p_sel)
             if t_sel:
-                base[obj.instance_id][1] = _count_selector(state, ability, str(t_sel))
+                base[obj.instance_id][1] = _count_selector(state, ability, t_sel)
             p, t = base[obj.instance_id]
             _trace(obj, 7, _source_name(ability), f"defined as {p}/{t}", p, t)
 
@@ -2943,9 +2986,9 @@ def _apply_layer_7_pt(
         t_sel = ability.params.get("toughness_count")
         for obj in affected_objects(state, ability):
             if obj.instance_id in base:
-                power = d_power * _pt_mod_count(state, ability, obj, str(p_sel)) if p_sel else d_power
+                power = d_power * _pt_mod_count(state, ability, obj, p_sel) if p_sel else d_power
                 toughness = (
-                    d_toughness * _pt_mod_count(state, ability, obj, str(t_sel)) if t_sel else d_toughness
+                    d_toughness * _pt_mod_count(state, ability, obj, t_sel) if t_sel else d_toughness
                 )
                 base[obj.instance_id][0] += power
                 base[obj.instance_id][1] += toughness

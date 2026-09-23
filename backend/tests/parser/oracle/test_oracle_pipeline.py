@@ -725,14 +725,27 @@ def test_kenrith_targeted_draw_ability_is_fully_modeled():
     assert result.modeled
 
 
+#: PAR-120 (PARSER_VERSION 474): "creatures you control" now reaches
+#: `_group_selector` (`catalogue/handlers.py`) as a structured selector via
+#: the shared `count_phrase` grammar, not the retired `_GROUP_SELECTORS`
+#: string — proven equivalent on a real board (`test_par120_count_phrase.py`).
+_CREATURES_YOU_CONTROL_SELECTOR = {
+    "zone": "battlefield", "of": "you", "filter": {"card_type": "creature"},
+}
+
+
 def test_group_pump_handler_creatures_you_control():
     e = parse_effect_body("creatures you control get +2/+1 until end of turn")[0]
     assert e.type == "pump"
-    assert e.params == {"power": 2, "toughness": 1, "selector": "creatures_you_control"}
+    assert e.params == {
+        "power": 2, "toughness": 1, "selector": _CREATURES_YOU_CONTROL_SELECTOR,
+    }
     other = parse_effect_body("other creatures you control get +1/+1 until end of turn")[0]
     assert other.params["selector"] == "other_creatures_you_control"
     kw = parse_effect_body("creatures you control gain flying until end of turn")[0]
-    assert kw.params == {"keywords": ["flying"], "selector": "creatures_you_control"}
+    assert kw.params == {
+        "keywords": ["flying"], "selector": _CREATURES_YOU_CONTROL_SELECTOR,
+    }
 
 
 def test_pump_grant_handles_a_two_keyword_conjunction():
@@ -746,7 +759,7 @@ def test_pump_grant_handles_a_two_keyword_conjunction():
     assert e.params == {
         "power": 1, "toughness": 1,
         "keywords": ["trample", "infect"],
-        "selector": "creatures_you_control",
+        "selector": _CREATURES_YOU_CONTROL_SELECTOR,
     }
 
 
@@ -786,7 +799,7 @@ def test_saga_chapter_lines_are_modeled_as_saga_chapter_triggers():
     assert first.effects[0].type == "create_token"
     assert second.trigger == {"event": "SAGA_CHAPTER", "chapter": [3]}
     assert second.effects[0].type == "pump"
-    assert second.effects[0].params["selector"] == "creatures_you_control"
+    assert second.effects[0].params["selector"] == _CREATURES_YOU_CONTROL_SELECTOR
 
 
 def test_saga_chapter_grammar_does_not_misfire_on_a_non_saga_card():

@@ -7564,6 +7564,313 @@ measurement of why is the useful half of this work.
   Massacre Wurm draining a dying creature's own controller, and Calculating Lich draining the
   defender regardless of who controls the attacking creature). Full suite: 8,711 passed.
 
+### PAR-120: retiring `_PT_CDA_SELECTORS` (PARSER_VERSION 467)
+
+- **What:** RULE 604.3's characteristic-defining P/T family ("~'s power [and toughness] [is/are
+  each] equal to the number of `<X>`", `_PT_CDA_RE`/`_PT_CDA_SINGLE_RE`) tries the shared
+  `count_phrase` grammar first (`_pt_cda_selector`), falling back to a one-entry residual table
+  for the single genuinely special selector it can't express — RULE 700.8's party count, a
+  bipartite-matching count rather than a `{zone, of, filter}` selector. The other four entries the
+  old table carried ("cards in your hand", "lands you control", "cards in your graveyard",
+  "creatures you control") were never a different *kind* of gap, just inside a four-phrase
+  whitelist narrower than the grammar it duplicated — retiring it reached every phrase the grammar
+  already covers, not just those four (Islands/Forests you control, artifacts you control,
+  creature cards in your graveyard, cards in all graveyards, …). +58, 0 regressed.
+- **A real, previously-latent bug found on the way:** `continuous.recompute`'s own 7a `pt_cda`
+  pass called `str(p_sel)`/`str(t_sel)` before handing the selector to `count_selector` — dead
+  code for a plain name (`str` of a string is a no-op) but would have silently turned any
+  structured selector dict into its Python `repr()`, a selector `count_selector` would then match
+  against nothing. Never triggered before this migration, since nothing had ever emitted a
+  structured selector into `power_count`/`toughness_count`; caught by the new execute test before
+  it could ship broken.
+- **Verification:** `tests/test_par120_count_phrase.py`'s existing equivalence pins already
+  covered all four retired phrases, so no new pins were needed; a new execute test
+  (`test_pt_cda_reads_a_structured_selector_live`) proves the structured path end-to-end and would
+  have caught the `str()` bug on its own. `test_par20_pt_cda_family.py`/`test_par43_single_pt_cda.py`
+  updated: several of their own "stays unclaimed" pins were the same narrow-whitelist artifact and
+  now correctly parse; each keeps one genuinely-still-unmodeled phrase ("differently named `<X>`
+  you control") to prove the fail-closed path still holds. Full suite: 8,714 passed.
+
+### PAR-120: retiring `_GY_COST_COUNT_SELECTORS` (PARSER_VERSION 468)
+
+- **What:** RULE 601.2f's "this spell costs `<N>` less to cast for each `<type>` card in your
+  graveyard" (`_SELF_COST_REDUCTION_GY_RE`) gets the same treatment as `_PT_CDA_SELECTORS`
+  (`_gy_cost_selector`, same shared-grammar-first/residual-fallback shape) — but this one is pure
+  deduplication, +0 cards: the old table's six single-type words (creature/land/artifact/
+  enchantment/instant/sorcery) were already exactly the phrases the grammar covers, not a
+  narrower slice of them the way `_PT_CDA_SELECTORS` was. The grammar's *subtype* vocabulary does
+  reach further than the old table on its own, though — "cave card in your graveyard" now parses
+  too, previously impossible since the table only ever held six fixed card-type words. "Instant
+  and sorcery" stays its own one-entry residual: printed "and" meaning the union of two mutually
+  exclusive card types (RULE 400.1) is a real but narrow oracle-text idiom, distinct from both the
+  grammar's "X or Y" alternation and its "X Y" same-object conjunction — not something to
+  generalize the grammar for on the strength of one card.
+- **Verification:** `tests/test_strixhaven_secrets_wave16.py` updated (structured selectors for
+  the three single-type pins, a new subtype-coverage test, the fail-closed case narrowed to the
+  one filter shape — "artifact and/or creature" — that's still genuinely unmodeled). Full suite:
+  8,714 passed.
+
+### PAR-120: retiring `_CONTROL_COUNT_SELECTORS` (PARSER_VERSION 469)
+
+- **What:** "You control `<n>` or more `<X>`"/"you control a/an `<X>`" (`static_condition`'s own
+  generic dispatch) needed no new fallback wiring at all — `static_condition`'s loop only
+  `break`s out on a row that matched-but-declined, it doesn't return, so `parse_count_condition`
+  (the shared grammar, tried after the loop) was already reached for every phrase outside the old
+  six-word table before this change. Proven equivalent for all six entries
+  (`test_par120_count_phrase.py`'s existing pins), so both rows and `_control_count_condition`
+  were deleted outright with zero behavioural change — pure dead-code removal.
+  `_opponent_control_condition` (Ghostfire Slice's "an opponent controls a `<X>`") is a real
+  widening, not dedup: it now reads the grammar too, suffixing `<X>` with "you control" rather
+  than leaving it bare — `opponent_count`'s own evaluator (`static_conditions.py`) re-dispatches
+  the selector once per opponent with *that opponent's* id standing in for the controller, so the
+  selector must resolve `"of": "you"` (relative to whichever id gets passed in) rather than a bare
+  phrase's default `"of": "any"` (unscoped, every player) — the two only diverge with more than one
+  opponent at the table. Reaches filters the six-word table never could (Green Scarab's "an
+  opponent controls a **green** permanent"). +13, 0 regressed.
+- **Verification:** `tests/test_par62_connectives.py`'s three `if`/`unless` gate pins updated to
+  the structured selector shape. Full suite: 8,713 passed (one known-flaky, unrelated websocket
+  broadcast test excluded — passes in isolation).
+
+### PAR-120: shrinking `_ACTIVATION_COST_REDUCTION_SELECTORS` (PARSER_VERSION 470)
+
+- **What:** `_activation_cost_reduction_selector` (RULE 601.2f's per-unit activation discount)
+  tries the shared `count_phrase` grammar first, same shape as every other retirement this
+  session — but checked entry-by-entry against the grammar before touching anything, the lesson
+  from the `_PUMP_X_SELECTOR_PHRASES` attempt earlier the same session (below). Of the original 14
+  entries, 6 route through the grammar now (a plain creature/land-card-in-graveyard count, four
+  bare subtype existence checks) plus a redundant `island`-only land-subtype regex fallback that
+  duplicated what the grammar already does generically for *any* basic land type. The power-
+  qualified opponent-creature row switched from a bespoke `creatures_opponents_control_with_
+  power_ge_N` string to the grammar's own `min_power` filter key — proven to count identically on
+  a real board (`test_min_power_selector_counts_the_same_as_the_old_named_string`) before shipping,
+  not assumed. The remaining 8 entries stay named, each confirmed (not assumed) unreachable through
+  this entry point: a distinct-land-*type* count (not an object count), "instant and sorcery"'s
+  union-via-"and" idiom (RULE 400.1, same reasoning as `_gy_cost_selector`'s residual), a two-
+  card-type union, "other `<X>`"/"modified `<X>`" qualifiers (`not_reference`/a modified flag
+  aren't reachable through `parse_count_phrase` at all — checked directly, not inferred), and a
+  `+1/+1` counter *count* (a different measurement axis — how many counters, not how many objects).
+  +0 cards (pure dedup), 0 regressed.
+- **A second instance of the same `str()`-truncation bug** `_PT_CDA_SELECTORS`'s own retirement
+  found: `activation_mixin.py`'s dynamic-reduction reader called `str(selector)` before handing it
+  to `continuous.count_selector`, which already accepts a structured dict directly — dead code for
+  a plain name, but would have silently turned any structured selector into a garbage string.
+  Never triggered before, since nothing had emitted one into `cost.dynamic_reduction.count_
+  selector`; fixed alongside this migration's own first use, before it could ship broken.
+- **`_PUMP_X_SELECTOR_PHRASES` attempted and reverted, same session, before this entry:** all 9
+  entries looked byte-identical whether read through the retired table or `segmenter._where_x_
+  specs`'s generic "where X is the number of `<phrase>`" fallback — for 8 of them, only because a
+  *third*, independent closed vocabulary sits inside `subgrammars.DEVOTION`'s own "the number of
+  `<X>` you control" branch (an unrelated, earlier-built macro that happens to also recognize
+  those exact phrases). "The amount of life you gained this turn" isn't in `DEVOTION`'s vocabulary
+  either, so deleting the table outright regressed a real, previously-correct card (Fortifying
+  Draught: "You gain 2 life. Target creature gets +X/+X … where X is the amount of life you gained
+  this turn.") from MODELED to UNMODELED. Caught by the standard `parser_probe.py diff` step before
+  shipping, `handlers.py` reverted to its pre-attempt state via `git checkout`, the finding left as
+  scoped `BACKLOG.md` residue — reconciling three overlapping vocabularies for one table needs its
+  own pass, not a rushed fix. The concrete lesson applied to the `_ACTIVATION_COST_REDUCTION_
+  SELECTORS` work above: check every entry against the grammar individually before assuming a
+  handful of spot-checks prove the rest.
+- **Verification:** `tests/test_par94_activation_cost_reductions.py` — the six migrated entries'
+  structured shapes, the retired `island` fallback (any basic land type now, not just Island), and
+  a direct `continuous.count_selector` equivalence check for the `min_power` form. Full suite:
+  8,716 passed.
+
+### PAR-120: shrinking `_FOR_EACH_AMOUNTS` (PARSER_VERSION 471)
+
+- **What:** `_count_amount` (the `effect_amounts` reading of "for each `<phrase>`"/"the number of
+  `<phrase>`") already had its `parse_count_phrase` fallback wired in from the very first PAR-120
+  slice — this closure needed no new code at all, only recognizing that the fallback already
+  reached "card[s] in your hand"/"card[s] in your graveyard" (an unfiltered `{"zone": "hand"/
+  "graveyard", "of": "you"}` selector) and proving it counts identically to the `resource`/
+  `hand_size`/`graveyard_size` reading it duplicated (`len(player.hand)`/`len(player.graveyard)`).
+  RULE 702.42a Domain's two entries ("basic land type[s] among lands you control") stay: a
+  distinct-land-*type* count is a different measurement axis than a card/object count and was
+  never going to be a `count_phrase` selector shape. +0 cards (pure dedup), 0 regressed.
+- **Found, scoped, not attempted this pass:** `_FOR_EACH_SELECTORS` (the `for_each` *iteration*
+  sibling of this table) and `_GROUP_SELECTORS` both feed `continuous.group_selector_objects`,
+  which — unlike `count_selector` — is still typed `affects: str` with no structured-selector
+  branch at all. Retiring either needs that function widened first (a real engine change touching
+  every existing string-selector call site, not a lookup swap) plus, for `_GROUP_SELECTORS`
+  specifically, restructuring the `_GROUP` regex macro it's compiled into rather than just its
+  lookup table — sized but deliberately not started in the same sitting as a same-shape-looking
+  but much smaller closure. See `BACKLOG.md`'s PAR-120 entry.
+- **Verification:** `tests/test_par62_connectives.py`'s `for each card in your hand` bind-node
+  pin updated to the structured selector; the equivalence already pinned by
+  `test_par120_count_phrase.py`'s original 15-entry table covered this exact phrase, so no new
+  pin was needed. Full suite: 8,716 passed.
+
+### PAR-120: shrinking `_SELF_ANTHEM_FOR_EACH_SELECTORS` (PARSER_VERSION 472)
+
+- **What:** RULE 613's per-unit standing anthem ("~ gets +P/+T for each `<X>`", `_SELF_ANTHEM_
+  FOR_EACH_RE`/`_ATTACHED_ANTHEM_FOR_EACH_RE`, shared through `_for_each_count_selector`) shrinks
+  from 30 entries to 13 — every phrase checked individually against the grammar first (the
+  `_PUMP_X_SELECTOR_PHRASES`/`_ACTIVATION_COST_REDUCTION_SELECTORS` lesson applied a third time),
+  not assumed from a handful of spot-checks. The table is now checked *before* the grammar rather
+  than after (the opposite order from every other PAR-120 retirement this session) specifically to
+  protect one entry from a bug the grammar has (next bullet). +78 total (+7 real new cards on top
+  of what the `str()` fix below alone already counted; 0 regressed. Real cards spot-checked for
+  correctness past the parse verdict, not just coverage: Bearded Axe's "Dwarf, Equipment, and/or
+  Vehicle" (an explicit, well-formed Oxford "and/or" list) correctly resolves to `subtype_any`;
+  Helm of the Gods' "enchantment you control" to a plain `card_type` filter.
+- **A real bug found and deliberately not fixed:** `characteristic_phrase._ALTERNATION` splits a
+  bare comma the same way it splits "X, Y, or Z" (`r"\s*,\s*(?:(?:and/)?or\s+)?|\s+(?:and/)?or\s+"`)
+  — correct for an Oxford list ending in "or", wrong for two independently-negated adjectives
+  stacked before one noun with no trailing "or" at all ("noncreature, nonland card in your
+  graveyard"), which the CR means as a conjunction (a card that is neither), not an alternation.
+  `parse_count_phrase` resolves it to `{"any_of": [{"without_card_type": "creature"},
+  {"without_card_type": "land"}]}` — an OR, so a creature (which lacks the land type) and a land
+  (which lacks the creature type) both spuriously match, along with everything else. Confirmed via
+  a direct `matches_object_filter` call, not inferred from the shape alone. Not fixed here: the
+  disambiguation needs the trailing-"or" cue the current split throws away before it even reaches
+  `_alternation`/`_conjunction`, a change to shared grammar code serving many consumers, well past
+  this one table's scope. Kept the affected entry ("noncreature, nonland card in your graveyard")
+  in the *table*, and ordered the table's own lookup ahead of the grammar call specifically so this
+  known-bad phrase is never handed to `parse_count_phrase` at all — real prevention, not just a
+  comment. See `BACKLOG.md`'s PAR-120 entry.
+- **A third instance of the `pt_cda`/`activation_mixin.py` `str()`-truncation bug:**
+  `continuous.recompute`'s 7d `pt_mod` layer (anthems with a per-unit multiplier) forced
+  `str(p_sel)`/`str(t_sel)` before `_pt_mod_count` — the exact consumer this table's own migrated
+  entries feed — ever got a chance to read a structured dict. Fixed alongside this table's first
+  real use, the same way the 7a `pt_cda` layer and `activation_mixin.py`'s dynamic-reduction reader
+  already were earlier this session — three independent copies of the identical bug shape, none
+  triggered before now since nothing had ever emitted a structured selector into any of the three.
+- **Verification:** `tests/test_par43_self_anthem_for_each.py` and `tests/parser/oracle/
+  test_oracle_statics.py` — the migrated entries' structured shapes (including the subtype-filter
+  form a basic land type or "Equipment"/"Plains" now takes), all of which are also exercised live
+  by this file's own pre-existing execute tests (`test_anthem_scales_with_artifact_count_live`,
+  `test_attached_anthem_for_each_live`), so the `str()` fix above is proven correct end-to-end, not
+  just at the parse-spec level. Full suite: 8,716 passed.
+
+### PAR-120: `group_selector_objects` structured selectors, and retiring `_FOR_EACH_SELECTORS` (PARSER_VERSION 473)
+
+- **What:** `continuous.group_selector_objects` — the object-*returning* sibling of
+  `count_selector`, backing every one-shot group effect (`PumpEffect.selector`, goad, temporary
+  grants, …) and the `for_each` iteration node, not just anthems — gains the same structured-
+  selector dispatch `count_selector` already had. `_structured_selector_objects` is factored out
+  of `_count_structured` (which now just counts/distinct-counts what it returns) so both share one
+  implementation rather than two near-identical board scans; `group_selector_objects` itself stays
+  inherently battlefield-scoped (its own long-standing contract), so a structured selector naming
+  any other zone matches nothing there rather than silently reading that zone. With that in place,
+  `_FOR_EACH_SELECTORS` (the `for_each` sibling of the already-shrunk `_FOR_EACH_AMOUNTS`) retires
+  outright — all eleven entries route through the shared grammar, proven equivalent to the named
+  string each replaced on a real board (`test_par120_count_phrase.py`'s new `group_selector_objects`
+  test). This was sized larger than it turned out to be: `_for_each_specs`'s own regex
+  (`_FOR_EACH_SUFFIX_RE`) was already fully generic, capturing any group phrase and looking it up —
+  no regex restructuring needed, unlike `_GROUP_SELECTORS`' embedded fixed alternation (still open).
+- **The phrase *set* stays exactly the same eleven, deliberately not widened:** `_for_each_amount_
+  specs` already reaches the identical shared grammar for the unrelated *count* reading of "for
+  each `<X>`" (a `bind`-scaled single effect), and the two readings are not always interchangeable
+  even when they add up to the same total — a `for_each` node hands each selected object to the
+  body as its own target, while `bind` never targets anything the body didn't already announce.
+  Matching the grammar's full vocabulary here instead of the closed eleven would have silently
+  reclassified already-correct cards from one effect shape to the other. `_FOR_EACH_GROUP_PHRASES`
+  (a frozenset of just the phrase strings) gates which phrases reach `parse_count_phrase` at all,
+  preserving the exact branch-selection behaviour while dropping the hand-maintained string values.
+- **A fourth instance of the same `str()`-truncation bug**, found and fixed the same way as the
+  other three this session: `ForEachEffect._items` (`game/effects/composition.py`) forced
+  `str(selector)` before ever calling `group_selector_objects` — dead code for a plain name, would
+  have silently broken any structured selector reaching it. Every other `group_selector_objects`
+  call site (`PumpEffect`, goad, temporary-keyword/protection grants, `AddCountersEffect`, …)
+  already passed its own `self.selector` straight through with no such wrapping — checked
+  individually, not assumed, once the pattern's third repeat made it worth sweeping for.
+- **Verification:** a new `test_group_selector_objects_accepts_a_structured_selector` in
+  `test_par120_count_phrase.py` (the named and structured forms pick out identical objects on a
+  real board; a non-battlefield zone matches nothing). `tests/test_par62_connectives.py`'s
+  `for_each` pins updated to the structured shape, and its own security-boundary test
+  (`test_every_group_phrase_resolves_to_a_real_selector`) re-purposed to walk the new phrase
+  frozenset instead of the retired table's values. Full suite: 8,722 passed.
+
+### PAR-120: retiring `_GROUP_SELECTORS`, closing sub-item (a) (PARSER_VERSION 474)
+
+- **What:** `_GROUP_SELECTORS` (12 entries) shrinks to 4, via `catalogue.handlers._group_selector`
+  — the shared resolver `_pump_target` (itself used by every `_SUBJECT`-anchored pump/keyword-grant
+  handler in the file, dozens of rows) already funneled the matched group phrase through, so this
+  single change reaches Craterhoof-shaped group pumps, Saga chapters ("III — Creatures you control
+  get +2/+1…"), and `grant_until` ("Creatures your opponents control get -3/-0 until your next
+  turn") all at once. The deferral note from two ticks ago ("needs the `_GROUP` regex restructured,
+  not just its lookup table") turned out to be the wrong diagnosis on closer look: the regex
+  (`_GROUP`, compiled into `_SUBJECT`) only decides *which phrases are recognized as a group at
+  all* — a decision this closure doesn't touch, since the phrase set stays the same twelve — while
+  *resolving* a matched phrase to a selector was always `_pump_target`'s own separate step. No
+  regex change needed, only the resolution.
+- **The distributive-singular "each `<X>`" phrasing** (Avacyn/Griselbrand/Moonveil Dragon's "each
+  creature you control gains …") is retried with that prefix stripped before falling to the
+  grammar (`creature you control` already parses; `creatures` isn't required) — but never "each
+  **other**", since that "other" is a real RULE 109.5 exclusion the grammar's `not_reference` axis
+  still doesn't reach through this entry point (confirmed directly, the same gap found retiring
+  `_CONTROL_COUNT_SELECTORS`/`_SELF_ANTHEM_FOR_EACH_SELECTORS`). "Each creature you control **with
+  a counter on it**" (Iroh, Dragon of the West) turned out to already be fully covered by the
+  grammar's own `has_counter` filter key — no residual needed for it at all, closing on recognition
+  alone rather than the counter-filter exception it looked like at first glance. Four residual
+  entries remain, each confirmed unreachable rather than assumed: "other"/"each other" (the same
+  `not_reference` gap), "all creatures" (no "you control"/"in your graveyard" tail to anchor the
+  grammar on), and the negated "you don't control" phrasing (no negation reading at all — RULE-
+  equivalent to "your opponents control", already covered, but not worth an alias mechanism for
+  the one phrase that needs it). +0 cards (pure dedup, the phrase set is unchanged), 0 regressed.
+  Closes PAR-120 sub-item (a) — no duplicate selector table left with an unexamined remainder.
+- **A real bug found and fixed**, distinct from this session's four `str()`-truncation instances:
+  `_announces_group_selector` (MEC-28's "they" pronoun-chain detector, `segmenter.py`) checked
+  `value in <frozenset of selector name strings>` — the instant a structured selector reached it,
+  this **crashed** (`TypeError: unhashable type: 'dict'`), caught immediately by `parser_probe.py
+  diff` erroring out rather than silently misbehaving. Fixed with `_is_group_selector_value`, which
+  recognizes either the named string or the equivalent structured filter for both selectors this
+  whitelist cares about; Karlach, Fury of Avernus (the one real card exercising this path) reverified
+  end to end, its own trigger still using the untouched dedicated "untap all X" handler's plain
+  string while the "they" chain resolves correctly regardless of which form produced it.
+- **Verification:** `_group_selector`'s output checked individually against `parse_count_phrase`
+  for all twelve original phrases before any code changed (not batch-assumed), plus a direct
+  `group_selector_objects` board-equivalence check for the two non-obvious ones (the counter filter,
+  "attacking creatures"). Eight test files across the pump/keyword-grant/Saga/grant-until/PAR-30
+  families updated to the structured shapes their own parse-level pins exercise, all previously
+  passing execute-level tests (Iroh's counter-group grant, Craterhoof's board-wide pump, …) still
+  green — proving the `str()`-adjacent fix and the new resolver correct past the parse verdict, not
+  just at it. Full suite: 8,721 passed (one known-flaky, unrelated websocket broadcast test
+  excluded — passes in isolation).
+
+### PAR-120 (sub-item (b)): "total power" as a standing condition, all four surfaces, plus the combat-scoped sibling (PARSER_VERSION 475–476)
+
+- **What:** "Creatures you control have total power N or greater/less" (RULE 613.6/603.4) is now
+  recognized on every surface it appears on: a leading "if" on a phase trigger (Owlbear Shepherd), a
+  trigger "while" tail (Kirk, Enterprising Captain; La'An Noonien-Singh, Security), a trailing "if"
+  on a resolving effect (Cantankerous Captain), and "activate only if" on an activated ability
+  (Atarka Beastbreaker). +91, 0 regressed.
+- **No new engine primitive.** `continuous.count_selector`'s own
+  `"total_power_creatures_you_control"` branch already existed (PAR-60, built for Volcanic Salvo's
+  cost reduction), and `static_conditions.py`'s `control_count` condition kind already calls
+  `count_selector` generically for whatever selector name it's handed — a min/max threshold on a
+  *sum* needs no different condition kind than one on a plain count. The whole gap was recognition:
+  one new regex row in `static_handlers._STATIC_CONDITION_RES` (`static_condition()`, the single
+  function "as long as"/leading-"if"/trigger-"while" all hand their condition text to).
+- **A second row was needed, not a fallback.** "Activate only if …" doesn't route through
+  `static_condition()` at all — `catalogue.handlers._ACTIVATION_CONDITION_RES` is a genuinely
+  *separate*, narrower vocabulary that already duplicates a few of `_STATIC_CONDITION_RES`'s own
+  rows by hand rather than falling back to it. This is a real, pre-existing instance of the exact
+  duplication PAR-120 as a whole is about, confirmed but deliberately not fixed at the architecture
+  level here (out of scope for this small closure) — just given its own matching row for this one
+  phrase, same shape as the other three rows it already duplicates.
+- **Verification:** `tests/test_par120_total_power_condition.py` — the condition parses correctly
+  on both tables and fails closed on an unrelated phrase ("total toughness"); all five named real
+  cards parse `MODELED` end to end; and a full `GameEngine` run (Owlbear Shepherd) confirms the
+  trigger only draws once the board's total power actually crosses the threshold, not before. Full
+  suite: 8,728 passed, 0 regressed.
+- **v476 closes the combat-scoped sibling** — "you attacked with creatures with total power N or
+  greater[ this combat]" (the Onslaught-block "Pack tactics" cluster: Gnoll Hunter, Hobgoblin
+  Captain, Intrepid Outlander, Minion of the Mighty, Targ Nar, Demon-Fang Gnoll), an attack
+  trigger's leading "if" rather than a standing condition. Same `control_count` kind as the board-
+  wide row above — only `continuous.count_selector` needed a new branch,
+  `total_power_attacking_creatures_you_control`, scoped to `GameObject.attacking` (RULE 508.1) the
+  same way the pre-existing `attacking_creatures_you_control` count scopes a plain count. The
+  leading "if" on an ATTACKS trigger already falls back to `static_condition()` generically
+  (segmenter.py's `_GENERIC_IF_PREFIX_RE`), so one new regex row closed the whole cluster at once —
+  no new condition kind, no new trigger-recognition work. +5, 0 regressed
+  (`parser_probe.py diff`). Tiger-Tribe Hunter shares the identical condition but stays UNMODELED
+  on its own unrelated "you may sacrifice another creature. when you do, …" compound, confirmed via
+  `parser_probe.py card` rather than assumed. Verification:
+  `tests/test_par120_attacking_total_power_condition.py` — parses on both wordings (with/without
+  "this combat"), fails closed on an unrelated phrase, all five named cards parse `MODELED`, and a
+  `GameEngine` run (Gnoll Hunter) confirms the counter only lands once the attacking total actually
+  crosses the threshold. Full suite: 8,733 passed, 0 regressed.
+
 ### PAR-122: trigger doublers as a composed cause × subject (PARSER_VERSION 451)
 
 - **What:** "If a triggered ability of `<subject>` triggers, that ability triggers an

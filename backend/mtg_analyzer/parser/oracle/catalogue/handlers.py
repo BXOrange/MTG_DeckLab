@@ -6973,6 +6973,20 @@ _ACTIVATION_CONDITION_RES: list[tuple[re.Pattern[str], Callable[[re.Match[str]],
     # noncreature spell this turn" triggers (Franklin Richards) already read.
     (re.compile(r"you'?ve cast a noncreature spell this turn", re.I),
      lambda m: {"kind": "cast_noncreature_spell_this_turn"}),
+    # PAR-120: "creatures you control have total power N or greater/less"
+    # (Atarka Beastbreaker/Crater Elemental/Glade Watcher-shaped Formidable
+    # activation gates) — the same `total_power_creatures_you_control`
+    # `count_selector` reading, and the same `control_count` condition kind,
+    # `static_handlers._STATIC_CONDITION_RES` already carries for this
+    # phrase's other three surfaces (leading "if", trigger "while", RULE
+    # 613.6 "as long as"); this table's own entries above already duplicate
+    # a few of that one's rows by hand rather than falling back to it, so
+    # this row does the same rather than reopening that separate question.
+    (re.compile(r"creatures you control have total power (?P<n>\d+) or (?P<cmp>greater|less)", re.I),
+     lambda m: {
+         "kind": "control_count", "selector": "total_power_creatures_you_control",
+         ("min" if m.group("cmp") == "greater" else "max"): int(m.group("n")),
+     }),
 ]
 
 
@@ -8079,7 +8093,8 @@ def _pump_target(m: re.Match[str]) -> Optional[tuple[Optional[str], Optional[str
     if groupdict.get("selfref"):
         return (None, None)  # untargeted self-pump (an activated "~ gets +1/+0 …")
     if groupdict.get("group"):
-        return (None, _GROUP_SELECTORS[re.sub(r"'", "", groupdict["group"])])
+        selector = _group_selector(re.sub(r"'", "", groupdict["group"]))
+        return None if selector is None else (None, selector)
     if groupdict.get("attached"):
         return ("attached_permanent", None)  # "enchanted creature gains …" (Aura activated ability)
     kind = resolve_target_kind(m.group("target"))
@@ -11290,34 +11305,48 @@ _GROUP = (
 _SUBJECT = (
     rf"(?:{TARGET}|(?P<selfref>{re.escape(SELF)})|{_GROUP}|(?P<attached>{_ATTACHED_SUBJECT}))"
 )
-#: A matched ``group`` phrase → its `continuous.group_selector_objects` selector.
+#: A matched ``group`` phrase → its `continuous.group_selector_objects`
+#: selector, for the phrases `parse_count_phrase` doesn't reach (checked
+#: individually, not assumed — PAR-120, PARSER_VERSION 474): "other"/"each
+#: other" (`not_reference` isn't reachable through this entry point —
+#: confirmed directly, the same gap found retiring `_CONTROL_COUNT_
+#: SELECTORS`/`_SELF_ANTHEM_FOR_EACH_SELECTORS`), "all creatures" (no "you
+#: control"/"in your graveyard" tail for the grammar to anchor on), and the
+#: negated "you don't control" phrasing (the grammar has no negation
+#: reading — RULE-equivalent to "your opponents control", already covered,
+#: but not worth building an alias mechanism for the one phrase that needs
+#: it). "Each creature you control **with a counter on it**" turned out to
+#: already be covered too (the grammar's own `has_counter` filter key,
+#: proven equivalent to the old `creatures_you_control_with_a_counter`
+#: string on a real board) — no residual entry needed for it at all.
 _GROUP_SELECTORS: dict[str, str] = {
-    "creatures you control": "creatures_you_control",
-    # The distributive-singular phrasing ("Each creature you control gains
-    # indestructible until end of turn." — Avacyn and Griselbrand) is the
-    # same group, just worded per-creature.
-    "each creature you control": "creatures_you_control",
-    "each creature you control with a counter on it":
-        "creatures_you_control_with_a_counter",
     "other creatures you control": "other_creatures_you_control",
     "each other creature you control": "other_creatures_you_control",
     "all creatures": "all_creatures",
-    "creatures your opponents control": "creatures_opponents_control",
     "creatures you dont control": "creatures_opponents_control",
-    # "Permanents you control gain hexproof and indestructible until end of
-    # turn." (Heroic Intervention-shaped) — the non-creature-scoped sibling;
-    # `continuous.group_selector_objects`'s own "permanents_you_control"
-    # branch already existed for the layer-6 static grant family, just
-    # never reachable from a one-shot `PumpEffect`'s ``selector`` before.
-    "permanents you control": "permanents_you_control",
-    # "Elves you control get +2/+2 and gain deathtouch until end of turn."
-    # (Elvish Warmaster) / "Elf creatures you control get +3/+3 and gain
-    # trample until end of turn." (Ezuri, Renegade Leader) — the same
-    # subtype-scoped selector under both real phrasings.
-    "elves you control": "creatures_you_control_of_type_elf",
-    "elf creatures you control": "creatures_you_control_of_type_elf",
-    "attacking creatures": "attacking_creatures",
 }
+
+
+def _group_selector(phrase: str) -> "Optional[str | dict]":
+    """A matched ``group`` phrase (`_GROUP`) → a `group_selector_objects`
+    argument, structured or named. Tried before the residual table above;
+    "each `<X>`" is the distributive-singular of plain "`<X>`" ("each
+    creature you control gains …" reads the identical group as "creatures
+    you control" — Avacyn/Griselbrand), so it's retried with that prefix
+    stripped — but only a bare "each ", never "each other ", since that
+    "other" is a real exclusion the grammar doesn't express (residual
+    table, above).
+    """
+    from .count_phrase import parse_count_phrase
+
+    structured = parse_count_phrase(phrase)
+    if structured is not None:
+        return structured
+    if phrase.startswith("each ") and not phrase.startswith("each other "):
+        structured = parse_count_phrase(phrase[len("each "):])
+        if structured is not None:
+            return structured
+    return _GROUP_SELECTORS.get(phrase)
 #: A signed P/T delta, "+3/+3" / "-2/-2" / "+0/-1" (ASCII or unicode minus).
 _PT_DELTA = r"(?P<p>[+\-−]\d+)/(?P<t>[+\-−]\d+)"
 

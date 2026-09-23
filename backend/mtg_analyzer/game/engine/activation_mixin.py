@@ -408,7 +408,7 @@ class ActivationMixin:
                 selector = cost.dynamic_reduction.get("count_selector")
                 if selector:
                     reduction += per * continuous.count_selector(
-                        self.state, source.controller_id, str(selector), source=source
+                        self.state, source.controller_id, selector, source=source
                     )
                 else:
                     kind = cost.dynamic_reduction.get("kind", "rad")

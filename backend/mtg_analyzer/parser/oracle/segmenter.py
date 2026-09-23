@@ -1864,27 +1864,39 @@ _ACTIVATION_COST_REDUCTION_CONDITIONAL_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: PAR-120 (PARSER_VERSION 470): PAR-94's original 14-entry table shrunk to
+#: the six shapes the shared `count_phrase` grammar genuinely doesn't reach
+#: — a distinct-land-*type* count (not an object count), the "and" union
+#: idiom (RULE 400.1, same reasoning as `_gy_cost_selector`'s residual), a
+#: two-card-type union, and the "other `<X>`"/"modified `<X>`" qualifiers
+#: (`not_reference`/a modified flag aren't reachable through this entry
+#: point — confirmed via direct `parse_count_phrase` checks, not assumed).
+#: A `+1/+1 counter` *count* is a different measurement axis entirely (how
+#: many counters, not how many objects), so it was never going to be a
+#: `count_phrase` selector regardless. `_activation_cost_reduction_selector`
+#: below tries the grammar first for everything else — six of the original
+#: fourteen entries retired that way, plus the old `island`-only land
+#: fallback (the same subtype match the grammar already makes generically).
 _ACTIVATION_COST_REDUCTION_SELECTORS: dict[str, str] = {
     "basic land type among lands you control": "basic_land_types_among_lands_you_control",
-    "creature card in your graveyard": "creature_cards_in_your_graveyard",
     "instant and sorcery card in your graveyard": "instant_or_sorcery_cards_in_your_graveyard",
-    "legendary creature you control": "legendary_creatures_you_control",
     "legendary creature and planeswalker you control": "legendary_creatures_and_planeswalkers_you_control",
     "other artifact you control": "other_artifacts_you_control",
     "other equipment you control": "other_permanents_you_control_of_subtype_equipment",
-    "equipment you control": "equipment_you_control",
     "other town you control": "other_permanents_you_control_of_subtype_town",
-    "town you control": "permanents_you_control_of_subtype_town",
-    "shrine you control": "permanents_you_control_of_subtype_shrine",
-    "vampire you control": "creatures_you_control_of_type_vampire",
-    "+1/+1 counter on creatures you control": "plus_one_counters_on_creatures_you_control",
     "modified creature you control": "modified_creatures_you_control",
+    "+1/+1 counter on creatures you control": "plus_one_counters_on_creatures_you_control",
 }
 
 
-def _activation_cost_reduction_selector(what: str) -> Optional[str]:
-    """Map PAR-94's closed, per-unit discount vocabulary to live readers."""
+def _activation_cost_reduction_selector(what: str) -> "Optional[str | dict]":
+    """Map PAR-94's per-unit discount vocabulary to live readers."""
     normalized = " ".join(what.lower().split())
+    from .catalogue.count_phrase import parse_count_phrase
+
+    structured = parse_count_phrase(normalized)
+    if structured is not None:
+        return structured
     selector = _ACTIVATION_COST_REDUCTION_SELECTORS.get(normalized)
     if selector is not None:
         return selector
@@ -1899,9 +1911,6 @@ def _activation_cost_reduction_selector(what: str) -> Optional[str]:
     )
     if power is not None:
         return f"creatures_opponents_control_with_power_ge_{power.group('n')}"
-    land = re.fullmatch(r"(?P<kind>[a-z]+) you control", normalized)
-    if land is not None and land.group("kind") in {"island"}:
-        return f"lands_you_control_of_type_{land.group('kind')}"
     return None
 
 # An activated ability may end with its RULE 602 legality sentence rather
@@ -3712,13 +3721,15 @@ def _names_a_target(spec: "EffectSpec") -> bool:
 #: ``resource`` reading, and belongs on ENG-37's ``bind`` node (measure once,
 #: hand the number to the body) rather than on ``for_each``, which would
 #: iterate over objects that aren't on the battlefield at all.
+#:
+#: PAR-120 (PARSER_VERSION 471): "card[s] in your hand"/"card[s] in your
+#: graveyard" retired — `_count_amount`'s own `parse_count_phrase` fallback
+#: below already reaches an unfiltered hand/graveyard zone count (`{"zone":
+#: "hand"/"graveyard", "of": "you"}`), proven to count identically to
+#: `_resource_of`'s `len(player.hand/graveyard)` (`test_par120_count_
+#: phrase.py`). RULE 702.42a Domain stays: a *distinct-land-type* count, not
+#: an object/card count, so it was never a `count_phrase` selector shape.
 _FOR_EACH_AMOUNTS: dict[str, dict[str, Any]] = {
-    "card in your hand": {"kind": "resource", "resource": "hand_size"},
-    "cards in your hand": {"kind": "resource", "resource": "hand_size"},
-    "card in your graveyard": {"kind": "resource", "resource": "graveyard_size"},
-    "cards in your graveyard": {"kind": "resource", "resource": "graveyard_size"},
-    # MEC-83 / RULE 702.42a Domain — distinct basic land types (`effect_
-    # amounts` ``domain`` kind, deferring to the one board-count selector).
     "basic land type among lands you control": {"kind": "domain"},
     "basic land types among lands you control": {"kind": "domain"},
 }
@@ -3814,32 +3825,38 @@ def _bound_for_each_amount(
 #: PAR-62: "<effect> for each <group>" (`13_` 5.2's 5.9% connective) as an
 #: ENG-37 ``for_each`` node over `continuous.group_selector_objects`.
 #:
-#: Deliberately narrow, for two reasons the measurement made concrete.
-#: **(1)** Only *object-group* phrases belong on this node. The other frequent
-#: "for each" operands are counts, not battlefield groups — "for each card in
-#: your hand", "for each +1/+1 counter on it" — and those are an *amount*
+#: Deliberately narrow, for one reason the measurement made concrete: only
+#: *object-group* phrases belong on this node. The other frequent "for each"
+#: operands are counts, not battlefield groups — "for each card in your
+#: hand", "for each +1/+1 counter on it" — and those are an *amount*
 #: (`game/effect_amounts.py`), not an iteration; routing them here would
 #: iterate over nothing and silently do nothing at all.
-#: **(2)** `parser/oracle/` may not import `game/` (docs/09), so nothing here
-#: can check a selector name against the engine's vocabulary. An unknown name
-#: fails closed *inside* the node — which reads as a MODELED card that does
-#: nothing, the exact half-modeling the gate exists to stop. So the names are
-#: a short hand-verified list, and `tests/test_par62_connectives.py` asserts
-#: every one of them is a real `group_selector_objects` selector. Add a row
-#: only with a test that crosses that boundary for you.
-_FOR_EACH_SELECTORS: dict[str, str] = {
-    "creature you control": "creatures_you_control",
-    "creatures you control": "creatures_you_control",
-    "artifact you control": "artifacts_you_control",
-    "artifacts you control": "artifacts_you_control",
-    "land you control": "lands_you_control",
-    "lands you control": "lands_you_control",
-    "permanent you control": "permanents_you_control",
-    "permanents you control": "permanents_you_control",
-    "legendary creature you control": "legendary_creatures_you_control",
-    "attacking creature": "attacking_creatures",
-    "attacking creatures": "attacking_creatures",
-}
+#:
+#: PAR-120 (PARSER_VERSION 473): the eleven values this table used to
+#: hand-maintain are gone — `parse_count_phrase` resolves every one of them
+#: to an equivalent *structured* selector instead of a named string (proven
+#: equivalent to the `group_selector_objects` string each replaced,
+#: `test_par120_count_phrase.py`; `group_selector_objects` itself now
+#: accepts the structured form directly — see its own docstring). The
+#: *phrase set* stays exactly these eleven, though, not "whatever the shared
+#: grammar happens to recognize": the grammar is far more permissive than
+#: this table ever was, and `_for_each_amount_specs` below already reaches
+#: `parse_count_phrase` too, for the *count* reading of a "for each `<X>`"
+#: this node's own group/iteration reading isn't right for. Widening the
+#: phrase set here would silently steal phrases that must stay on the
+#: amount path — a `bind`-scaled single effect, not a `for_each` node
+#: repeating the body once per object — which are not always
+#: interchangeable even when they add up to the same total (`for_each`
+#: hands each object to the body as its own target, `bind` never targets
+#: anything the body didn't already announce).
+_FOR_EACH_GROUP_PHRASES: frozenset[str] = frozenset({
+    "creature you control", "creatures you control",
+    "artifact you control", "artifacts you control",
+    "land you control", "lands you control",
+    "permanent you control", "permanents you control",
+    "legendary creature you control",
+    "attacking creature", "attacking creatures",
+})
 
 _FOR_EACH_SUFFIX_RE = re.compile(
     # MEC-83 widened the group class to admit "+1/+1 counter on it" — digits
@@ -3876,7 +3893,7 @@ def _for_each_specs(
     if match is None:
         return None
     phrase = match.group("group").strip().lower()
-    selector = _FOR_EACH_SELECTORS.get(phrase)
+    selector = parse_count_phrase(phrase) if phrase in _FOR_EACH_GROUP_PHRASES else None
     if selector is None:
         return _for_each_amount_specs(
             match, phrase, self_subject=self_subject,
@@ -5132,7 +5149,25 @@ def _announces_creature_target(specs: list[EffectSpec]) -> bool:
 #: card (Karlach, Fury of Avernus) needs today, widened only as another
 #: card actually prints a different mass selector before this same "they"
 #: tail, matching this file's usual narrow-whitelist convention.
+#:
+#: PAR-120 (PARSER_VERSION 474): "attacking creatures"/"creatures your
+#: opponents control" now reach `group_selector_objects` as a *structured*
+#: selector (`catalogue.handlers._group_selector`) rather than always the
+#: named string here — a plain ``in`` check against this frozenset would
+#: both crash (a dict isn't hashable) and, even fixed to avoid that, still
+#: miss the structured spelling. `_is_group_selector_value` recognizes
+#: either form of the same two selectors.
 _GROUP_SELECTOR_VALUES: frozenset[str] = frozenset({"attacking_creatures", "creatures_opponents_control"})
+_GROUP_SELECTOR_STRUCTURED_FILTERS: tuple[dict, ...] = (
+    {"zone": "battlefield", "of": "any", "filter": {"attacking": True, "card_type": "creature"}},
+    {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}},
+)
+
+
+def _is_group_selector_value(value: object) -> bool:
+    if isinstance(value, dict):
+        return value in _GROUP_SELECTOR_STRUCTURED_FILTERS
+    return value in _GROUP_SELECTOR_VALUES
 
 
 def _announces_group_selector(specs: list[EffectSpec]) -> bool:
@@ -5145,12 +5180,13 @@ def _announces_group_selector(specs: list[EffectSpec]) -> bool:
         return False
     last = specs[-1]
     if last.type == "tap":
-        return last.params.get("selector") in _GROUP_SELECTOR_VALUES
+        return _is_group_selector_value(last.params.get("selector"))
     if last.type == "pump":
-        return last.params.get("selector") in _GROUP_SELECTOR_VALUES
+        return _is_group_selector_value(last.params.get("selector"))
     if last.type == "grant_until":
-        return (last.params.get("static", {}).get("params", {}).get("affects")
-                in _GROUP_SELECTOR_VALUES)
+        return _is_group_selector_value(
+            last.params.get("static", {}).get("params", {}).get("affects")
+        )
     return False
 
 

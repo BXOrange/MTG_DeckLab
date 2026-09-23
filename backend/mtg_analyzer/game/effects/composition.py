@@ -409,9 +409,9 @@ class ForEachEffect(_CompositeEffect):
 
     ``over`` names the items: ``{"players": "each_player"|"each_opponent"|
     "you"}`` (APNAP order, `GameState.living_players`), ``{"selector":
-    "<name>"}`` (the one `continuous.group_selector_objects` vocabulary — this
-    module defines no selectors of its own), or ``{"targets": true}`` (the
-    ability's own chosen targets).
+    "<name>"|<structured dict>}`` (the one `continuous.group_selector_objects`
+    vocabulary — this module defines no selectors of its own), or
+    ``{"targets": true}`` (the ability's own chosen targets).
 
     Each item is handed to the body **as its targets**, so an ordinary
     registered effect works as a loop body with no idea it is in a loop, and
@@ -451,7 +451,7 @@ class ForEachEffect(_CompositeEffect):
             return list(group_selector_objects(
                 context.state,
                 effect_conditions._controller_id(self.source, context),
-                str(selector), {}, src=self.source,
+                selector, {}, src=self.source,
             ))
         return []
 

@@ -7,6 +7,15 @@ for each <type> card in your graveyard**" — new
 plus a new `instant_or_sorcery_cards_in_your_graveyard` selector for the one
 compound real cards print. Single-type / "instant and sorcery" only.
 Narrows Furygale Flocking (Prismari deck) to a single remaining clause.
+
+PAR-120 (PARSER_VERSION 467) retired the rest of `_GY_COST_COUNT_SELECTORS`
+in favour of the shared `count_phrase` grammar (`_gy_cost_selector`) —
+"instant and sorcery" is the one entry left, since "and" meaning a union of
+two mutually-exclusive card types is a real but narrow oracle-text idiom the
+grammar's own "or"/same-object-conjunction shapes don't cover. Every single
+type word, plus any subtype the grammar already recognizes generically
+(a "cave card" — RULE 400.1 — now parses too), reaches a structured
+selector instead of a named string.
 """
 
 from __future__ import annotations
@@ -27,9 +36,9 @@ def _db():
 
 
 @pytest.mark.parametrize("word,selector", [
-    ("creature", "creature_cards_in_your_graveyard"),
-    ("land", "land_cards_in_your_graveyard"),
-    ("instant", "instant_cards_in_your_graveyard"),
+    ("creature", {"zone": "graveyard", "of": "you", "filter": {"card_type": "creature"}}),
+    ("land", {"zone": "graveyard", "of": "you", "filter": {"card_type": "land"}}),
+    ("instant", {"zone": "graveyard", "of": "you", "filter": {"card_type": "instant"}}),
     ("instant and sorcery", "instant_or_sorcery_cards_in_your_graveyard"),
 ])
 def test_gy_cost_reduction_claimed(word, selector):
@@ -40,12 +49,24 @@ def test_gy_cost_reduction_claimed(word, selector):
     assert specs[0].params == {"affects": "self", "generic": 1, "per": selector}
 
 
-@pytest.mark.parametrize("clause", [
-    "this spell costs {1} less to cast for each cave card in your graveyard",
-    "this spell costs {1} less to cast for each artifact and/or creature card in your graveyard",
-])
-def test_unmodeled_filters_stay_fail_closed(clause):
-    assert static_effect_specs(clause) is None
+def test_a_subtype_now_parses_via_the_shared_grammar():
+    # PAR-120: "cave card" used to be a different, unwired selector — the
+    # shared noun-phrase grammar reaches any subtype it knows generically.
+    specs = static_effect_specs(
+        "this spell costs {1} less to cast for each cave card in your graveyard")
+    assert specs is not None
+    assert specs[0].params["per"] == {
+        "zone": "graveyard", "of": "you", "filter": {"subtype": "cave"},
+    }
+
+
+def test_unmodeled_filters_stay_fail_closed():
+    # A *compound* filter ("artifact and/or creature") the shared grammar
+    # doesn't express — a genuinely different, unwired selector.
+    assert static_effect_specs(
+        "this spell costs {1} less to cast for each artifact and/or creature card "
+        "in your graveyard"
+    ) is None
 
 
 @pytest.mark.parametrize("name", [

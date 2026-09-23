@@ -9,8 +9,19 @@ plus the two adjacent phrases a real cache card prints in the exact same
 shape and that already have a selector. Any other quantity phrase fails
 closed.
 
-Reference: parser/oracle/catalogue/static_handlers.py (`_PT_CDA_RE`),
-game/continuous.py (`count_selector` — new `cards_in_your_hand`).
+PAR-120 (PARSER_VERSION 466) retired the small `_PT_CDA_SELECTORS` whitelist
+in favour of the shared `count_phrase` noun-phrase grammar — `<X>` now
+routes through `parse_count_phrase` first, emitting a structured
+`{zone, of, filter}` selector instead of a named string, before falling
+back to the one genuinely special selector the grammar can't express
+(RULE 700.8's party count). This widened what parses far past the original
+four-phrase whitelist (+58 cards cache-wide, 0 regressed) — several phrases
+this file used to pin as "stays unclaimed" now correctly parse, since they
+were never actually a different *kind* of gap, just outside the old
+narrow table.
+
+Reference: parser/oracle/catalogue/static_handlers.py (`_PT_CDA_RE`,
+`_pt_cda_selector`), game/continuous.py (`count_selector`).
 """
 
 from __future__ import annotations
@@ -35,31 +46,43 @@ def _cda(selector):
 def test_each_whitelisted_phrase_parses():
     assert static_effect_specs(
         "~'s power and toughness are each equal to the number of cards in your hand."
-    ) == _cda("cards_in_your_hand")
+    ) == _cda({"zone": "hand", "of": "you"})
     assert static_effect_specs(
         "~'s power and toughness are each equal to the number of lands you control."
-    ) == _cda("lands_you_control")
+    ) == _cda({"zone": "battlefield", "of": "you", "filter": {"card_type": "land"}})
     assert static_effect_specs(
         "~'s power and toughness are each equal to the number of cards in your graveyard."
-    ) == _cda("cards_in_your_graveyard")
+    ) == _cda({"zone": "graveyard", "of": "you"})
     assert static_effect_specs(
         "~'s power and toughness are each equal to the number of creatures you control."
-    ) == _cda("creatures_you_control")
+    ) == _cda({"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}})
 
 
-def test_unwhitelisted_quantity_phrases_stay_unclaimed():
-    # Each of these is a *different* selector that isn't wired — a CDA
-    # reading an unmodeled quantity would silently define the creature 0/0.
-    for what in (
-        "creature cards in your graveyard",
-        "Islands you control",
-        "cards in all graveyards",
-        "artifacts you control",
-        "differently named lands you control",
+def test_more_quantity_phrases_now_parse_via_the_shared_grammar():
+    # PAR-120: these used to be a different, unwired selector each; the
+    # shared noun-phrase grammar reaches all of them generically now.
+    for what, filter_ in (
+        ("creature cards in your graveyard", {"card_type": "creature"}),
+        ("Islands you control", {"subtype": "island"}),
+        ("artifacts you control", {"card_type": "artifact"}),
     ):
         assert static_effect_specs(
             f"~'s power and toughness are each equal to the number of {what}."
-        ) is None
+        ) == _cda({"zone": "battlefield" if "control" in what else "graveyard",
+                    "of": "you", "filter": filter_})
+    assert static_effect_specs(
+        "~'s power and toughness are each equal to the number of cards in all graveyards."
+    ) == _cda({"zone": "graveyard", "of": "any"})
+
+
+def test_unwhitelisted_quantity_phrases_stay_unclaimed():
+    # A *compound* qualifier ("differently named") the shared grammar
+    # doesn't express — a CDA reading an unmodeled quantity would silently
+    # define the creature 0/0, so this must still fail closed.
+    assert static_effect_specs(
+        "~'s power and toughness are each equal to the number of "
+        "differently named lands you control."
+    ) is None
 
 
 def test_real_card_maro_is_modeled_end_to_end():

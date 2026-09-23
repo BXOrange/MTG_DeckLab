@@ -3559,7 +3559,30 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: shape — the controller is asked, but the body still has to act as the attacker) silently
 #: resolved against no trigger subject at all once the interactive choice came back. Now
 #: captured whenever `context.trigger_event` names one, regardless of who's asked.
-PARSER_VERSION = "466"
+#: v475 closes PAR-120's "sum-based counts" item — "creatures you control have
+#: total power N or greater/less" as a standing condition (RULE 613.6/603.4)
+#: across all four surfaces (leading "if", trigger "while" tail, trailing
+#: "if", "activate only if"). No new engine primitive: `continuous.
+#: count_selector`'s own `total_power_creatures_you_control` branch already
+#: existed (PAR-60), and `static_conditions.py`'s `control_count` kind
+#: already calls `count_selector` generically for any selector name — a
+#: min/max threshold on a *sum* needs no new condition kind. Two new regex
+#: rows: `static_handlers._STATIC_CONDITION_RES` (covers three of the four
+#: surfaces) and `handlers._ACTIVATION_CONDITION_RES` (the separate,
+#: narrower "activate only if" vocabulary, which doesn't fall back to
+#: `static_condition()`). +91, 0 regressed.
+#: v476 closes PAR-120's combat-scoped "total power" sibling — "you attacked
+#: with creatures with total power N or greater this combat" (the Onslaught-
+#: block "Pack tactics" cluster: Gnoll Hunter, Hobgoblin Captain, Intrepid
+#: Outlander, Minion of the Mighty, Targ Nar, Demon-Fang Gnoll). Same
+#: `control_count` condition kind as v475's board-wide sibling; only
+#: `continuous.count_selector` needed a new selector,
+#: `total_power_attacking_creatures_you_control`, scoped to `GameObject.
+#: attacking` the way `attacking_creatures_you_control` scopes a plain
+#: count. The leading "if" on an ATTACKS trigger already falls back to the
+#: shared `static_condition()` vocabulary generically, so one new regex row
+#: closed the whole cluster at once. +5, 0 regressed.
+PARSER_VERSION = "476"
 
 
 def parser_source_hash() -> str:

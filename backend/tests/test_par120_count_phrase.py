@@ -519,3 +519,53 @@ def test_distinct_powers_counts_different_values_not_creatures():
     third.card.power = 3
     engine.recompute_continuous_effects()
     assert _life_change(engine, state, lambda: _fire_enter(engine, state, source)) == 6
+
+
+def test_pt_cda_reads_a_structured_selector_live():
+    # PAR-120: `_PT_CDA_SELECTORS`' four duplicate rows (cards in your hand /
+    # lands you control / cards in your graveyard / creatures you control)
+    # retired in favour of the shared `count_phrase` grammar, which now
+    # reaches `pt_cda`'s layer-7a pass as a `{zone, of, filter}` dict rather
+    # than a named string — `continuous.recompute`'s own `str(p_sel)` call
+    # would have silently stringified that dict into a garbage selector name
+    # (a real, previously-latent bug this migration surfaced and fixed).
+    engine, state = _engine()
+    state.current_step = "main1"
+    source = _put(
+        state, "~'s power and toughness are each equal to the number of Elves you control.",
+        types="Creature — Golem",
+    )
+    engine.recompute_continuous_effects()
+    assert (source.power, source.toughness) == (0, 0)
+    _put(state, "", "Elf A", types="Creature — Elf")
+    _put(state, "", "Elf B", types="Creature — Elf")
+    engine.recompute_continuous_effects()
+    assert (source.power, source.toughness) == (2, 2)
+
+
+def test_group_selector_objects_accepts_a_structured_selector():
+    # PAR-120 (PARSER_VERSION 473): `group_selector_objects` — the object-
+    # returning sibling of `count_selector`, backing `for_each`/`PumpEffect.
+    # selector`/every static's own `affects` — reads a structured selector
+    # directly now, the same shape `count_selector` already did. Proven
+    # against a real board, not just that it doesn't crash: the two forms
+    # must pick out the identical objects.
+    engine, state = _engine()
+    p1 = state.player_by_id("p1")
+    p2 = state.player_by_id("p2")
+    mine = _creature(state, "Mine")
+    _creature(state, "Theirs", owner="p2")
+    named = continuous.group_selector_objects(state, "p1", "creatures_you_control")
+    structured = continuous.group_selector_objects(
+        state, "p1",
+        {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
+    )
+    assert [o.name for o in named] == [o.name for o in structured] == ["Mine"]
+    assert structured[0] is mine
+
+    # A structured selector naming a non-battlefield zone matches nothing —
+    # this function is inherently battlefield-scoped (its own docstring),
+    # unlike `count_selector`, which reads any zone.
+    assert continuous.group_selector_objects(
+        state, "p1", {"zone": "hand", "of": "you"},
+    ) == []

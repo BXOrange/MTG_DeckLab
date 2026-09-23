@@ -149,11 +149,16 @@ def test_pump_until_your_next_turn_is_recognized():
 
 
 def test_pump_until_group_phrasing_your_opponents_control():
+    # PAR-120: "creatures your opponents control" now reaches the shared
+    # grammar's structured selector; "you don't control" below stays the
+    # retired named string (the grammar has no negation reading).
     (spec,) = match_clause(
         "creatures your opponents control get -3/-0 until your next turn"
     )
     assert spec.params["target_kind"] is None
-    assert spec.params["static"]["params"]["affects"] == "creatures_opponents_control"
+    assert spec.params["static"]["params"]["affects"] == {
+        "zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"},
+    }
 
 
 def test_pump_until_group_phrasing_you_dont_control():

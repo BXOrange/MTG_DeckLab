@@ -272,9 +272,9 @@ _CARD_TYPE_WORDS: frozenset[str] = frozenset(
 )
 
 #: The creature/artifact subtypes real "as long as enchanted `<x>` is a `<y>`"
-#: clauses actually name. Kept small and explicit for the same reason
-#: `_CONTROL_COUNT_SELECTORS` is: an open subtype vocabulary here would claim
-#: clauses whose word is really something else entirely. Moved above
+#: clauses actually name. Kept small and explicit: an open subtype
+#: vocabulary here would claim clauses whose word is really something else
+#: entirely. Moved above
 #: `_STATIC_CONDITION_RES` (PAR-120) once its own "it was a `<subtype>`" rows
 #: started referencing it inside that list literal at module-load time.
 _CONDITION_SUBTYPE_WORDS: frozenset[str] = frozenset(
@@ -311,28 +311,39 @@ _PT_CDA_SINGLE_RE = re.compile(
     re.IGNORECASE,
 )
 
-#: The `<X>` phrases `_PT_CDA_RE` accepts → their `continuous.count_selector`
-#: string. Deliberately exact-match and small: the two PAR-20 named
-#: ("cards in your hand", "lands you control") plus the two adjacent ones a
-#: real cache card prints in this exact shape and that already have a
-#: selector. "creature cards in your graveyard", "cards in all graveyards",
-#: "<type> you control" &c. are each a *different* selector and stay
-#: unclaimed until one is actually wired.
 #: PAR-72: see the ``static_effect_specs`` dispatch entry using this below.
 _BURAKOS_SELF_TYPES_RE = re.compile(
     r"~ is also a cleric, rogue, warrior, and wizard", re.IGNORECASE,
 )
 
+#: PAR-120: the `<X>` phrases `_PT_CDA_RE` accepts that the shared
+#: `count_phrase` noun-phrase grammar (below) doesn't cover — RULE 700.8's
+#: party count is a bipartite-matching special case, not a `{zone, of,
+#: filter}` selector, so it stays its own named string rather than a
+#: duplicate table entry. Every phrase the grammar *does* cover (the four
+#: this table used to also list: "cards in your hand", "lands you control",
+#: "cards in your graveyard", "creatures you control") now reaches
+#: `continuous.count_selector` as a structured selector instead, retiring
+#: those four rows — `_pt_cda_selector` below tries the grammar first.
 _PT_CDA_SELECTORS: dict[str, str] = {
-    "cards in your hand": "cards_in_your_hand",
-    "lands you control": "lands_you_control",
-    "cards in your graveyard": "cards_in_your_graveyard",
-    "creatures you control": "creatures_you_control",
     # PAR-72: "~'s power is equal to the number of creatures in your
     # party." (Archpriest of Iona) — same `creatures_in_your_party`
     # selector `_SELF_ANTHEM_FOR_EACH_SELECTORS` above now also carries.
     "creatures in your party": "creatures_in_your_party",
 }
+
+
+def _pt_cda_selector(what: str) -> "Optional[str | dict]":
+    """`<X>` from `_PT_CDA_RE`/`_PT_CDA_SINGLE_RE` → a `continuous.
+    count_selector` argument (structured dict or named string), or
+    ``None`` for an unwhitelisted quantity (fail-closed — RULE 604.3 must
+    never silently define a creature as 0/0)."""
+    from .count_phrase import parse_count_phrase
+
+    structured = parse_count_phrase(what)
+    if structured is not None:
+        return structured
+    return _PT_CDA_SELECTORS.get(what)
 
 # "Activated abilities of <type>[s] can't be activated."  (RULE 602 prohibition,
 # Collector Ouphe/Stony Silence/Null Rod) — global, not "you control"-scoped:
@@ -555,18 +566,31 @@ _SELF_GRAVEYARD_SHUFFLE_RE = re.compile(
     r"if ~ would be put into a graveyard from anywhere, reveal ~ and shuffle it into its owner'?s library instead",
     re.IGNORECASE,
 )
-#: The `<type>` words `_SELF_COST_REDUCTION_GY_RE` accepts, → the
-#: `continuous.count_selector` name. Kept explicit for the same reason
-#: `_SPELL_COST_SUBTYPE_WORDS` is.
+#: PAR-120: the one `<type>` phrase `_SELF_COST_REDUCTION_GY_RE` accepts
+#: that the shared `count_phrase` grammar doesn't cover — "instant **and**
+#: sorcery cards" prints "and" to mean the union (RULE 400.1: a card is
+#: never simultaneously both), a real oracle-text idiom distinct from the
+#: grammar's own "X **or** Y" alternation and its "X Y" same-object
+#: conjunction (`characteristic_phrase._conjunction`/`_alternation`), so a
+#: single fixed row is the whole diff rather than guessed-at generalization.
+#: Every other type word this handler used to also whitelist (creature/
+#: land/artifact/enchantment/instant/sorcery, each alone) is retired —
+#: `_gy_cost_selector` below tries the grammar first.
 _GY_COST_COUNT_SELECTORS: dict[str, str] = {
-    "creature": "creature_cards_in_your_graveyard",
-    "land": "land_cards_in_your_graveyard",
-    "artifact": "artifact_cards_in_your_graveyard",
-    "enchantment": "enchantment_cards_in_your_graveyard",
-    "instant": "instant_cards_in_your_graveyard",
-    "sorcery": "sorcery_cards_in_your_graveyard",
     "instant and sorcery": "instant_or_sorcery_cards_in_your_graveyard",
 }
+
+
+def _gy_cost_selector(word: str) -> "Optional[str | dict]":
+    """`<type>` from `_SELF_COST_REDUCTION_GY_RE` → a `continuous.
+    count_selector` argument, or ``None`` for an unwhitelisted filter
+    (fail-closed)."""
+    from .count_phrase import parse_count_phrase
+
+    structured = parse_count_phrase(f"{word} cards in your graveyard")
+    if structured is not None:
+        return structured
+    return _GY_COST_COUNT_SELECTORS.get(word)
 
 # "This spell costs {N} less to cast if `<condition>`." (RULE 601.2f,
 # Ghostfire Slice-shaped) — the self cost-reduction sibling of the above,
@@ -3083,19 +3107,51 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     (re.compile(r"you have a full party", re.I),
      lambda m: {"kind": "control_count", "selector": "creatures_in_your_party", "min": 4}),
     # -- Board counts, over `continuous.count_selector`'s own vocabulary.
-    (re.compile(r"you control (?P<n>\d+) or more (?P<what>[a-z ]+)", re.I),
-     lambda m: _control_count_condition(m.group("what"), int(m.group("n")))),
+    # PAR-120: "you control `<n>` or more `<X>`"/"you control a/an `<X>`"
+    # (both the plain existence check and the "N or more" threshold) no
+    # longer need a row here at all — `parse_count_condition` (tried below,
+    # once every named row above has declined) already reaches both shapes
+    # generically through the shared noun-phrase grammar, proven equivalent
+    # to the old `_CONTROL_COUNT_SELECTORS` table for all six of its
+    # entries (`test_par120_count_phrase.py`).
+    #
     # "you control a creature with power N or greater" (Bolt Bend and 50+
-    # other cache cards' cost-reduction/activation-condition gates) — a
-    # per-object power qualifier layered onto the plain existence count
-    # `_control_count_condition` handles; tried before that catch-all row
-    # (though it can never match this text anyway — its ``[a-z ]+`` can't
-    # span the digit).
+    # other cache cards' cost-reduction/activation-condition gates) stays
+    # its own row — a per-object power qualifier the plain existence count
+    # doesn't carry.
     (re.compile(r"you control a creature with power (?P<n>\d+) or greater", re.I),
      lambda m: {"kind": "control_count", "selector": "creatures_you_control",
                 "min": 1, "min_power": int(m.group("n"))}),
-    (re.compile(r"you control (?:a|an) (?P<what>[a-z ]+)", re.I),
-     lambda m: _control_count_condition(m.group("what"), 1)),
+    # PAR-120: "creatures you control have total power `<n>` or greater/
+    # less" (RULE 508.4/508.5-adjacent Ferocious-style threshold — Atarka
+    # Beastbreaker's activation gate, Owlbear Shepherd/Gimli's Reckless
+    # Might's leading "if", Kirk/La'An's trigger "while" tail — all three
+    # surfaces already hand their condition text to this same function).
+    # `total_power_creatures_you_control` is `continuous.count_selector`'s
+    # own already-shipped sum-of-power reading (PAR-60, Volcanic Salvo's
+    # cost reduction), reached here through the *same* generic
+    # `control_count` kind an object-existence check uses — a `min`/`max`
+    # threshold on a sum needs no different condition kind than one on a
+    # count, since `count_selector` is what actually supplies the number
+    # either way.
+    (re.compile(
+        r"creatures you control have total power (?P<n>\d+) or (?P<cmp>greater|less)", re.I,
+    ), lambda m: {
+        "kind": "control_count", "selector": "total_power_creatures_you_control",
+        ("min" if m.group("cmp") == "greater" else "max"): int(m.group("n")),
+    }),
+    # PAR-120: "you attacked with creatures with total power `<n>` or
+    # greater[ this combat]" (the Onslaught-block "Pack tactics" cluster —
+    # Gnoll Hunter and five siblings' attack-trigger leading "if") — the
+    # combat-scoped sibling of the row above, same `control_count` kind,
+    # `continuous.count_selector`'s new `total_power_attacking_creatures_
+    # you_control` branch supplying the sum.
+    (re.compile(
+        r"you attacked with creatures with total power (?P<n>\d+) or greater(?: this combat)?", re.I,
+    ), lambda m: {
+        "kind": "control_count", "selector": "total_power_attacking_creatures_you_control",
+        "min": int(m.group("n")),
+    }),
     (re.compile(r"there are (?P<n>\d+) or more cards in your graveyard", re.I),
      lambda m: {"kind": "control_count", "selector": "cards_in_your_graveyard",
                 "min": int(m.group("n"))}),
@@ -3274,38 +3330,25 @@ def _attached_characteristic(word: str) -> Optional[dict]:
 #: PAR-63: the shared map.
 _COLOR_CONDITION_WORDS = COLOR_LETTERS
 
-#: "you control an <what>" → the `count_selector` name, or ``None``
-#: (fail-closed) for a scope that has no selector. Deliberately small: only
-#: the selectors `continuous.count_selector` actually implements.
-_CONTROL_COUNT_SELECTORS: dict[str, str] = {
-    "artifact": "artifacts_you_control",
-    "artifacts": "artifacts_you_control",
-    "creature": "creatures_you_control",
-    "creatures": "creatures_you_control",
-    "land": "lands_you_control",
-    "lands": "lands_you_control",
-    "permanent": "permanents_you_control",
-    "permanents": "permanents_you_control",
-    "multicolored permanent": "multicolored_permanents_you_control",
-    "multicolored permanents": "multicolored_permanents_you_control",
-    "legendary creature": "legendary_creatures_you_control",
-    "legendary creatures": "legendary_creatures_you_control",
-}
-
-
-def _control_count_condition(what: str, minimum: int) -> Optional[dict]:
-    selector = _CONTROL_COUNT_SELECTORS.get(what.strip().lower())
-    return None if selector is None else {
-        "kind": "control_count", "selector": selector, "min": minimum
-    }
-
-
 def _opponent_control_condition(what: str) -> Optional[dict]:
     """"An opponent controls a/an `<filter>`." (Ghostfire Slice's own
-    `active_if`) — `opponent_count`'s sibling to `_control_count_condition`,
-    same selector dict, always ``min=1`` (a plain "controls a" has no count
-    of its own to carry, unlike "controls N or more `<x>`")."""
-    selector = _CONTROL_COUNT_SELECTORS.get(what.strip().lower())
+    `active_if`) — `opponent_count`'s sibling to the plain "you control
+    a/an `<X>`" existence check, always ``min=1`` (a plain "controls a" has
+    no count of its own to carry, unlike "controls N or more `<x>`").
+
+    PAR-120: routes through the same shared `count_phrase` grammar as every
+    other retired duplicate table — suffixing ``what`` with "you control"
+    rather than leaving it bare matters here: `opponent_count`'s own
+    evaluator (`static_conditions.py`) re-dispatches the selector once per
+    opponent with *that opponent's* id as the controller, so the selector
+    itself must read ``"of": "you"`` (resolved relative to whichever
+    controller_id the caller passes) rather than the bare noun phrase's
+    default ``"of": "any"`` (every player, unscoped) — the two only differ
+    once there's more than one opponent at the table.
+    """
+    from .count_phrase import parse_count_phrase
+
+    selector = parse_count_phrase(f"{what.strip()} you control")
     return None if selector is None else {
         "kind": "opponent_count", "selector": selector, "min": 1
     }
@@ -3587,49 +3630,48 @@ _ATTACHED_ANTHEM_FOR_EACH_RE = re.compile(
     r"(?: and has (?P<kw>[a-z][a-z, ]*?))?\.?",
     re.IGNORECASE,
 )
+#: PAR-120 (PARSER_VERSION 472): 17 of the original 30 entries retired —
+#: `_for_each_count_selector` tries the shared `count_phrase` grammar first
+#: now, and these were exactly the phrases it already covers (verified
+#: individually, not assumed; see below for the ones that looked coverable
+#: but weren't). What's left is genuinely outside `{zone, of, filter}`:
+#: per-object attachment counts (not a zone/filter scope at all), the
+#: open-vocabulary "other `<X>`" guesses the grammar's `not_reference`/
+#: "another" axis doesn't reach through this entry point, a DFC-state flag,
+#: two *player*-level counters (poison/experience — not object counts),
+#: Domain, a characteristic-defining self-read ("of its colors"), and RULE
+#: 700.8's party bipartite match.
+#:
+#: "noncreature, nonland card in your graveyard" deliberately was **not**
+#: migrated despite `parse_count_phrase` accepting it: it resolves to
+#: `{"any_of": [{"without_card_type": "creature"}, {"without_card_type":
+#: "land"}]}`, which is an OR — matching a card that lacks *either* type,
+#: i.e. every card (a creature lacks the land type and vice versa). A real
+#: bug in `characteristic_phrase._ALTERNATION`, which splits on a bare
+#: comma the same way it splits on "X, Y, or Z" — correct for that Oxford
+#: list, wrong for two independently-negated adjectives stacked before one
+#: noun, which is a conjunction. Confirmed via a direct `matches_object_
+#: filter` check (a creature, a land, and an instant all "matched"); not
+#: fixed here — the disambiguation needs the trailing-"or" cue the current
+#: split throws away, a change to shared grammar code well past this
+#: table's own scope. See `BACKLOG.md`'s PAR-120 entry.
 _SELF_ANTHEM_FOR_EACH_SELECTORS: dict[str, str] = {
-    "artifact you control": "artifacts_you_control",
     # "for each Equipment attached to it" / "for each Aura attached to it" /
     # both at once — the affected creature's *own* attachments (Nemata/Kor
     # Spiritdancer-adjacent), unlike the board-wide "Equipment you control"
-    # entry below.
+    # entry the grammar now reaches.
     "equipment attached to it": "equipment_attached_to_self",
     "aura attached to it": "auras_attached_to_self",
     "aura and equipment attached to it": "equipment_and_auras_attached_to_self",
-    "creature you control": "creatures_you_control",
-    "legendary creature you control": "legendary_creatures_you_control",
-    "land you control": "lands_you_control",
-    "permanent you control": "permanents_you_control",
-    "card in your hand": "cards_in_your_hand",
-    "artifact and/or enchantment you control": "artifacts_and_or_enchantments_you_control",
-    # PAR-43 additions below — one `count_selector` phrase per row, per the
-    # ticket's own "one new count_selector per phrase" scope.
-    "equipment you control": "equipment_you_control",
-    "aura on the battlefield": "auras_on_the_battlefield",
-    "enchantment on the battlefield": "enchantments_on_the_battlefield",
     "other enchantment on the battlefield": "other_enchantments_on_the_battlefield",
     "other creature you control": "other_creatures_you_control",
     "other artifact you control": "other_artifacts_you_control",
-    "creature your opponents control": "creatures_opponents_control",
-    "untapped permanent your opponents control": "untapped_permanents_opponents_control",
     "transformed permanent you control": "transformed_permanents_you_control",
     "poison counter your opponents have": "poison_counters_opponents_have",
     "experience counter you have": "experience_counters_you_have",
     "basic land type among lands you control": "basic_land_types_among_lands_you_control",
-    "permanent card in your graveyard": "permanent_cards_in_your_graveyard",
-    "artifact and/or enchantment card in your graveyard": "artifact_and_or_enchantment_cards_in_your_graveyard",
     "noncreature, nonland card in your graveyard": "noncreature_nonland_cards_in_your_graveyard",
-    "creature card in your opponents' graveyards": "creature_cards_in_your_opponents_graveyards",
     "of its colors": "source_colors_count",
-    # Land subtypes that aren't one of RULE 305.6's five basic types (so
-    # `_for_each_count_selector`'s basic-land-type fallback below can't
-    # derive them) but still have a `lands_you_control_of_type_` count.
-    "gate you control": "lands_you_control_of_type_gate",
-    # Creature subtypes named often enough in this cluster to enumerate
-    # directly rather than guess at from an unrecognised bare word (a wrong
-    # guess here — e.g. treating "gate"/"aura" as a *creature* subtype —
-    # would silently count zero forever rather than failing closed).
-    "elf you control": "creatures_you_control_of_type_elf",
     # PAR-72: "equipped creature gets +1/+0 for each creature in your party
     # and has menace." (Ravager's Mace) — `continuous.count_selector`'s
     # already-shipped `"creatures_in_your_party"` branch (PAR-53).
@@ -3640,9 +3682,9 @@ _BASIC_LAND_TYPES: frozenset[str] = frozenset(
 )
 
 
-def _for_each_count_selector(what: str, *, self_form: bool) -> Optional[str]:
+def _for_each_count_selector(what: str, *, self_form: bool) -> "Optional[str | dict]":
     """Resolve a "for each `<X>`" quantity to a `continuous.count_selector`
-    name, shared by `_SELF_ANTHEM_FOR_EACH_RE` and
+    argument (structured or named), shared by `_SELF_ANTHEM_FOR_EACH_RE` and
     `_ATTACHED_ANTHEM_FOR_EACH_RE`.
 
     ``self_form`` gates the bare "on it" counter phrasing: in a self-scoped
@@ -3655,9 +3697,20 @@ def _for_each_count_selector(what: str, *, self_form: bool) -> Optional[str]:
     recognised for the attached form; "on it" there fails closed rather
     than risk reading the wrong object's counters.
     """
+    # Checked *before* the shared grammar: `_SELF_ANTHEM_FOR_EACH_SELECTORS`
+    # deliberately still lists "noncreature, nonland card in your
+    # graveyard", which `parse_count_phrase` also accepts but resolves
+    # *wrong* (an `any_of` OR where the phrase means AND — see the table's
+    # own docstring) — this ordering is what keeps that entry reachable
+    # instead of being shadowed by the buggy grammar reading.
     selector = _SELF_ANTHEM_FOR_EACH_SELECTORS.get(what)
     if selector is not None:
         return selector
+    from .count_phrase import parse_count_phrase
+
+    structured = parse_count_phrase(what)
+    if structured is not None:
+        return structured
     if what.endswith(" you control"):
         land_type = what[: -len(" you control")]
         if land_type.startswith("basic "):
@@ -3974,7 +4027,7 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     # each equal to the number of <X>."  (see `_PT_CDA_RE`).
     m = _PT_CDA_RE.fullmatch(text)
     if m is not None:
-        selector = _PT_CDA_SELECTORS.get(m.group("what").strip().rstrip("."))
+        selector = _pt_cda_selector(m.group("what").strip().rstrip("."))
         if selector is None:
             return None  # fail-closed — an unwhitelisted quantity phrase
         return [EffectSpec("pt_cda", {
@@ -3985,7 +4038,7 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _PT_CDA_SINGLE_RE.fullmatch(text)
     if m is not None:
-        selector = _PT_CDA_SELECTORS.get(m.group("what").strip().rstrip("."))
+        selector = _pt_cda_selector(m.group("what").strip().rstrip("."))
         if selector is None:
             return None  # fail-closed
         key = "power_count" if m.group("char").lower() == "power" else "toughness_count"
@@ -4173,7 +4226,7 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _SELF_COST_REDUCTION_GY_RE.fullmatch(text)
     if m is not None:
-        selector = _GY_COST_COUNT_SELECTORS.get(m.group("word").lower())
+        selector = _gy_cost_selector(m.group("word").lower())
         if selector is None:
             return None  # fail-closed — a filter this doesn't model
         return [

@@ -8,6 +8,17 @@ Any quantity with no wired selector fails closed. Real cards: Akiri,
 Line-Slinger ("+1/+0 for each artifact you control"), Goblin Gaveleer /
 the Nim cycle ("+N/+0 for each Equipment attached to it"), Earth Servant
 ("+0/+1 for each Mountain you control").
+
+PAR-120 (PARSER_VERSION 472) retired 17 of the original 30
+`_SELF_ANTHEM_FOR_EACH_SELECTORS` entries in favour of the shared
+`count_phrase` grammar (checked before the table's own remaining 13 entries,
+so the one phrase the grammar resolves *wrong* — "noncreature, nonland card
+in your graveyard", a real bug in `characteristic_phrase._ALTERNATION`'s
+comma handling, see `static_handlers.py`'s own docstring — stays reachable
+through the table instead). Also fixed a second `str()`-truncation bug the
+first PAR-120 slice's own pattern predicted: `continuous.recompute`'s 7d
+`pt_mod` pass forced `str(p_sel)`/`str(t_sel)` before this table's own
+consumer (`_pt_mod_count`) ever got a chance to read a structured dict.
 """
 
 from __future__ import annotations
@@ -39,12 +50,15 @@ def _perm(state, name, type_line, pid="p1", **flags):
 # --- parse -----------------------------------------------------------------
 
 
+_ARTIFACTS_YOU_CONTROL = {"zone": "battlefield", "of": "you", "filter": {"card_type": "artifact"}}
+
+
 def test_for_each_artifact_you_control_parses():
     assert static_effect_specs("~ gets +1/+0 for each artifact you control") == [
         EffectSpec("anthem", {
             "affects": "self", "power": 1, "toughness": 0,
-            "power_count": "artifacts_you_control",
-            "toughness_count": "artifacts_you_control",
+            "power_count": _ARTIFACTS_YOU_CONTROL,
+            "toughness_count": _ARTIFACTS_YOU_CONTROL,
         })
     ]
 
@@ -56,9 +70,11 @@ def test_for_each_equipment_attached_to_it_parses():
 
 
 def test_for_each_basic_land_type_you_control_parses():
+    # PAR-120: now reaches the shared grammar's subtype filter rather than
+    # the retired `lands_you_control_of_type_mountain` named selector.
     assert static_effect_specs("~ gets +0/+1 for each mountain you control")[0].params[
         "toughness_count"
-    ] == "lands_you_control_of_type_mountain"
+    ] == {"zone": "battlefield", "of": "you", "filter": {"subtype": "mountain"}}
 
 
 def test_unwired_quantity_fails_closed():
@@ -74,7 +90,7 @@ def test_board_wide_equipment_you_control_parses():
     # each gets its own count_selector rather than collapsing into one.
     assert static_effect_specs("~ gets +1/+1 for each equipment you control")[0].params[
         "power_count"
-    ] == "equipment_you_control"
+    ] == {"zone": "battlefield", "of": "you", "filter": {"subtype": "equipment"}}
 
 
 def test_experience_counter_you_have_parses():
@@ -112,7 +128,7 @@ def test_attached_anthem_for_each_artifact_you_control():
         "Equipped creature gets +1/+0 for each artifact you control."
     ) == [EffectSpec("anthem", {
         "affects": "attached_permanent", "power": 1, "toughness": 0,
-        "power_count": "artifacts_you_control", "toughness_count": "artifacts_you_control",
+        "power_count": _ARTIFACTS_YOU_CONTROL, "toughness_count": _ARTIFACTS_YOU_CONTROL,
     })]
 
 
@@ -120,10 +136,11 @@ def test_attached_anthem_for_each_with_keyword_tail():
     specs = static_effect_specs(
         "Enchanted creature gets +1/+1 for each Plains you control and has flying."
     )
+    plains = {"zone": "battlefield", "of": "you", "filter": {"subtype": "plains"}}
     assert specs[0] == EffectSpec("anthem", {
         "affects": "attached_permanent", "power": 1, "toughness": 1,
-        "power_count": "lands_you_control_of_type_plains",
-        "toughness_count": "lands_you_control_of_type_plains",
+        "power_count": plains,
+        "toughness_count": plains,
     })
     assert specs[1] == EffectSpec("grant_keyword", {"keywords": ["flying"], "affects": "attached_permanent"})
 

@@ -583,9 +583,169 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 49.3% (17,160 / 34,811) as of 2026-09-23, measured at
-PARSER_VERSION 466**; the Commander-legal slice is **51.8% (16,499 /
-31,830)**. v465–466 close PAR-120's referent-state/cast-provenance residue.
+**Coverage: 49.6% (17,256 / 34,811) as of 2026-09-23, measured at
+PARSER_VERSION 476**; the Commander-legal slice is **52.1% (16,588 /
+31,830)**. v476 closes PAR-120's combat-scoped "total power" sibling — "you
+attacked with creatures with total power N or greater this combat" (the
+Onslaught-block "Pack tactics" cluster: Gnoll Hunter, Hobgoblin Captain,
+Intrepid Outlander, Minion of the Mighty, Targ Nar, Demon-Fang Gnoll). Same
+`control_count` condition kind as v475's board-wide sibling; only
+`continuous.count_selector` needed a new selector,
+`total_power_attacking_creatures_you_control`, scoped to `GameObject.
+attacking` the way `attacking_creatures_you_control` scopes a plain count.
+The leading "if" on an ATTACKS trigger already falls back to the shared
+`static_condition()` vocabulary generically, so one new regex row closed
+the whole cluster at once. +5, 0 regressed. Tiger-Tribe Hunter shares the
+identical condition but stays UNMODELED on its own unrelated "you may
+sacrifice another creature. when you do, …" compound. v475 opens PAR-120's sub-item (b) ("sum-based counts"): "creatures
+you control have total power N or greater/less" is recognized as a standing
+RULE 613.6/603.4 condition across all four surfaces it appears on (leading
+"if", trigger "while" tail, trailing "if", "activate only if"). No new
+engine primitive — `continuous.count_selector`'s own
+`total_power_creatures_you_control` branch already existed (PAR-60), and
+`static_conditions.py`'s `control_count` kind already calls `count_selector`
+generically for any selector name, so a min/max threshold on a *sum* needs no
+new condition kind. Two new regex rows: `static_handlers._STATIC_CONDITION_
+RES` (three of the four surfaces) and `handlers._ACTIVATION_CONDITION_RES` —
+a genuinely separate, narrower "activate only if" vocabulary that already
+duplicates a few of `_STATIC_CONDITION_RES`'s own rows by hand rather than
+falling back to it, so this phrase needed its own row there too. +91, 0
+regressed. v474 closes PAR-120's sub-item (a) entirely: `_GROUP_SELECTORS`
+(the last open duplicate table) shrinks from 12 entries to 4, via
+`catalogue.handlers._group_selector` — every `_SUBJECT`-based pump/keyword-
+grant handler's shared resolver, so the fix reaches Craterhoof-shaped group
+pumps, Saga chapters, and `grant_until` ("get -N/-N until your next turn")
+in one place rather than per handler. The regex itself (`_GROUP`, embedded
+in `_SUBJECT`) needed no restructuring at all — only its *value* lookup did
+— since the phrase-recognition step was always separate from the selector-
+resolution step; "restructure the regex" (the deferral two ticks ago) was
+the wrong diagnosis. The distributive-singular "each `<X>`" phrasing (Avacyn/
+Griselbrand's "each creature you control gains …") is retried with that
+prefix stripped before falling to the grammar, but never "each other" (a
+real exclusion the grammar can't express) — same referent care as the
+"that player"/`_PT_CDA_SELECTORS` work earlier. "Each creature you control
+**with a counter on it**" turned out to already be fully covered by the
+grammar's own `has_counter` filter, closing that one with zero residual
+needed, not the counter-filter exception it looked like at first glance.
+Four residual entries remain, each confirmed (not assumed) unreachable:
+"other"/"each other" (`not_reference`, the same recurring gap), "all
+creatures" (no "you control" tail to anchor on), and the negated "you don't
+control" phrasing. Found and fixed a different bug in the same family of
+"this code assumed a selector is always a plain string" mistakes:
+`_announces_group_selector` (MEC-28's "they" pronoun-chain detector) did
+`value in <frozenset-of-strings>`, which now throws `TypeError: unhashable
+type: 'dict'` the instant a structured selector reaches it — caught
+immediately by `parser_probe.py diff` crashing outright rather than
+silently misbehaving; fixed with a small helper recognizing either the
+named or structured form of the same two selectors. +0 cards (pure dedup,
+the phrase set is
+unchanged), 0 regressed. v473 retires PAR-120's `_FOR_EACH_SELECTORS` (the
+`for_each`
+iteration sibling of `_FOR_EACH_AMOUNTS`) — the real blocker turned out
+smaller than first sized: `continuous.group_selector_objects` (backing
+every one-shot group effect and `for_each` iteration, not just anthems)
+gained the same `{zone, of, filter}` structured-selector dispatch
+`count_selector` already had (`_structured_selector_objects`, factored out
+of `_count_structured` so both share one implementation), so only
+`_FOR_EACH_SELECTORS` itself — whose own regex was already fully generic,
+unlike `_GROUP_SELECTORS`' embedded fixed-phrase regex — needed touching
+this pass. All eleven entries route through the shared grammar now, but the
+*phrase set* stays exactly those eleven rather than widening to whatever
+the grammar recognizes: `_for_each_amount_specs` already reaches the same
+grammar for the unrelated *count* reading of "for each `<X>`", and the two
+readings aren't always interchangeable even when numerically equal (a
+`for_each` node hands each object to the body as its own target; `bind`
+never targets anything the body didn't already announce), so widening the
+group phrase set would have silently reclassified already-correct cards'
+effect shape. Found and fixed a fourth instance of the same `str()`-
+truncation bug this session's other three PAR-120 closures already caught:
+`ForEachEffect._items` forced `str(selector)` before ever reaching
+`group_selector_objects`. `_GROUP_SELECTORS` itself stays open — it still
+needs the `_GROUP` regex restructured, not just its lookup table, since
+unlike `_FOR_EACH_SELECTORS` its phrases are compiled directly into a fixed
+alternation. +0 cards (pure dedup, the phrase set is unchanged), 0
+regressed. v472 retires 17 of PAR-120's `_SELF_ANTHEM_FOR_EACH_SELECTORS`'
+30 entries ("~ gets +P/+T for each `<X>`", RULE 613's per-unit anthem
+family) — Akiri/Cranial Plating-shaped cards now read the shared
+`count_phrase` grammar for the common cases (a plain type/subtype/zone
+count) while the 13 genuinely-special ones (per-object attachment counts,
+open-vocabulary "other `<X>`" guesses, two player-level counters, Domain,
+RULE 700.8's party match, a characteristic-defining self-read) stay named.
++78 total (+7 real, the rest already counted by the `pt_cda`/`pt_mod`
+`str()` fix below), 0 regressed. **A real bug found and deliberately not
+fixed this pass:** `characteristic_phrase._ALTERNATION` splits a bare comma
+the same way it splits "X, Y, or Z" — correct for that Oxford list, wrong
+for two independently-negated adjectives ("noncreature, nonland card"),
+which is a conjunction, not an alternation; confirmed via a direct
+`matches_object_filter` check (a creature, a land, and an instant all
+"matched" the resulting `any_of` filter). Left that one phrase in its
+original named-selector form rather than migrate it, and left the grammar
+bug itself for a dedicated pass — see `BACKLOG.md`. Also fixed a second
+instance of the `pt_cda`/`activation_mixin.py` `str()`-truncation bug: RULE
+613's own `pt_mod` layer (7d, anthems) had the identical
+`str(p_sel)`/`str(t_sel)` call this table's structured selectors would have
+silently broken. v471 retires PAR-120's `_FOR_EACH_AMOUNTS`' four card-count
+entries ("card[s] in your hand"/"card[s] in your graveyard") — no new
+wiring needed at all, `_count_amount`'s own `parse_count_phrase` fallback
+already existed for exactly this shape and produces an unfiltered
+`{"zone": "hand"/"graveyard", "of": "you"}` selector proven to count
+identically to the retired `resource`/`hand_size`/`graveyard_size` reading
+(`len(player.hand)`, `test_par120_count_phrase.py`). RULE 702.42a Domain's
+two entries stay — a distinct-land-*type* count is a different measurement
+axis than a card count, never expressible as this grammar's selector shape.
++0 cards (pure dedup), 0 regressed. v470 shrinks PAR-120's `_ACTIVATION_COST_REDUCTION_SELECTORS`
+from 14 entries to 8 (pure dedup, +0, 0 regressed): six phrases and a
+redundant `island`-only land-subtype fallback now reach the shared
+`count_phrase` grammar instead, including the power-qualified opponent row
+switching from a bespoke `creatures_opponents_control_with_power_ge_N`
+string to the grammar's own `min_power` filter key (proven to count
+identically on a real board). Also fixed a second instance of the same
+`str()`-truncation bug `_PT_CDA_SELECTORS`'s retirement caught: `activation_
+mixin.py`'s dynamic-reduction reader forced `str(selector)` before calling
+`continuous.count_selector`, which would have silently broken any
+structured selector reaching it. The remaining 8 entries (a distinct
+land-*type* count, "instant and sorcery"'s union idiom, a two-card-type
+union, "other `<X>`"/"modified `<X>`" qualifiers, a `+1/+1` counter count)
+were checked individually against the grammar rather than assumed — a
+`_PUMP_X_SELECTOR_PHRASES` retirement attempt earlier the same session
+regressed a real card (Fortifying Draught) by skipping that check, reverted
+before shipping; see `BACKLOG.md`'s PAR-120 entry for what's still blocking
+it. v469 retires PAR-120's `_CONTROL_COUNT_SELECTORS` and its two
+"you control `<n>` or more/a `<X>`" rows entirely — both were already fully
+redundant with the shared grammar's own fallback (`static_condition`'s
+loop only `break`s past a declining row rather than returning, so
+`parse_count_condition` was reached for every phrase outside the old
+six-word table regardless), proven equivalent for all six via
+`test_par120_count_phrase.py`'s existing pins before deleting them. The
+opponent-scoped sibling, `_opponent_control_condition` (Ghostfire Slice's
+"an opponent controls a `<X>`"), gets a real widening rather than pure
+dedup — it now reads the grammar too (suffixing `<X>` with "you control" so
+`opponent_count`'s per-opponent re-dispatch resolves the selector against
+the right controller), reaching filters the six-word table never could
+(Green Scarab's "an opponent controls a **green** permanent"). +13, 0
+regressed. v468 retires PAR-120's `_GY_COST_COUNT_SELECTORS` the same way
+(RULE 601.2f's "this spell costs `<N>` less to cast for each `<type>` card
+in your graveyard") — pure deduplication this time (+0, 0 regressed): the
+old table's six single-type words were already the exact phrases the
+grammar covers, no wider than before, though the grammar's *subtype*
+vocabulary now also reaches "cave card"-shaped filters the old table never
+could. "Instant and sorcery" (RULE 400.1's "and" meaning a union of two
+mutually exclusive card types, not the grammar's own "or"/same-object
+"and") stays its own one-entry residual. v467 retires PAR-120's
+`_PT_CDA_SELECTORS` duplicate table: the
+RULE 604.3 "~'s power [and toughness] [is/are each] equal to the number of
+`<X>`" family now tries the shared `count_phrase` noun-phrase grammar
+before its own four-entry whitelist, emitting a structured selector
+`continuous.recompute`'s existing `pt_cda` layer already accepted generically
+— the old whitelist was never a different *kind* of gap, just a narrower
+vocabulary than the shared grammar already covers (Lord of Extinction,
+Pack Rat, Korlash, Nightmare, Master of Etherium and 53 more CDA creatures).
+Also fixed a real, previously-latent bug the migration surfaced:
+`continuous.recompute`'s own 7a pass called `str()` on the selector before
+reading it, which would have silently stringified any structured dict into
+a garbage selector name — never triggered before because nothing had ever
+emitted one into `power_count`/`toughness_count`. +58, 0 regressed.
+v465–466 close PAR-120's referent-state/cast-provenance residue.
 "If it was/wasn't a `<type/subtype>`[ card]" reads `previous_target`'s RULE
 400.7 last-known card type (`is_card_type`/`is_subtype` already read the
 immutable `Card` reference, so this is correct even once the referent has

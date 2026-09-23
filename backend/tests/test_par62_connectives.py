@@ -21,15 +21,14 @@ Measured across all 34,811 cached cards: +138 covered, **0 regressed**
 
 from __future__ import annotations
 
-import inspect
-
 import pytest
 
 from mtg_analyzer.game.continuous import group_selector_objects
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
-from mtg_analyzer.parser.oracle.segmenter import _FOR_EACH_SELECTORS, parse_effect_body
+from mtg_analyzer.parser.oracle.catalogue.count_phrase import parse_count_phrase
+from mtg_analyzer.parser.oracle.segmenter import _FOR_EACH_GROUP_PHRASES, parse_effect_body
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 from tests import turn_history_events as history
@@ -41,14 +40,18 @@ class TestIfGate:
         assert specs is not None
         assert [s.type for s in specs] == ["draw"]
         assert specs[0].condition == {
-            "kind": "control_count", "selector": "creatures_you_control", "min": 1,
+            "kind": "control_count",
+            "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
+            "min": 1,
         }
 
     def test_a_trailing_if_gates_it_too(self) -> None:
         specs = parse_effect_body("draw a card if you control a creature")
         assert specs is not None
         assert specs[0].condition == {
-            "kind": "control_count", "selector": "creatures_you_control", "min": 1,
+            "kind": "control_count",
+            "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
+            "min": 1,
         }
 
     def test_an_unrecognised_condition_fails_closed(self) -> None:
@@ -63,7 +66,9 @@ class TestIfGate:
         assert specs[0].condition == {
             "kind": "not",
             "condition": {
-                "kind": "control_count", "selector": "creatures_you_control", "min": 1,
+                "kind": "control_count",
+                "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
+                "min": 1,
             },
         }
 
@@ -107,10 +112,14 @@ class TestIfOtherwise:
 
 class TestForEach:
     def test_it_becomes_a_for_each_node(self) -> None:
+        # PAR-120: the group's own selector is now the shared grammar's
+        # structured form, not the retired `creatures_you_control` string.
         specs = parse_effect_body("you gain 1 life for each creature you control")
         assert specs is not None
         assert [s.type for s in specs] == ["for_each"]
-        assert specs[0].params["over"] == {"selector": "creatures_you_control"}
+        assert specs[0].params["over"] == {"selector": {
+            "zone": "battlefield", "of": "you", "filter": {"card_type": "creature"},
+        }}
         assert specs[0].params["effects"] == [
             {"type": "gain_life", "params": {"amount": 1}}
         ]
@@ -133,16 +142,16 @@ class TestForEach:
         assert specs is not None
         assert [s.type for s in specs] == ["bind"]
 
-    @pytest.mark.parametrize("selector", sorted(set(_FOR_EACH_SELECTORS.values())))
-    def test_every_emitted_selector_is_real(self, selector: str) -> None:
+    @pytest.mark.parametrize("phrase", sorted(_FOR_EACH_GROUP_PHRASES))
+    def test_every_group_phrase_resolves_to_a_real_selector(self, phrase: str) -> None:
         """The parser may not import ``game/`` (docs/09), so nothing in it can
-        check these names against the engine's vocabulary — and an unknown one
-        fails closed *inside* the node, i.e. a MODELED card that does nothing.
-        This test is the boundary crossing, done once, here.
+        check a structured selector against the engine's vocabulary — and an
+        unwired one fails closed *inside* the node, i.e. a MODELED card that
+        does nothing. This test is the boundary crossing, done once, here.
 
-        Asserted by *finding something*, not merely by not raising: an unknown
-        selector also returns an empty list, so an emptiness check would pass
-        for a typo and prove nothing.
+        Asserted by *finding something*, not merely by not raising: an
+        unwired selector also returns an empty list, so an emptiness check
+        would pass for a typo and prove nothing.
         """
         eng = GameEngine.new_game(
             [("p1", "A", []), ("p2", "B", [])], starting_life=20, starting_hand=0
@@ -157,14 +166,16 @@ class TestForEach:
             obj.summoning_sick = False
             eng.state.add_to_battlefield(obj)
 
+        selector = parse_count_phrase(phrase)
+        assert selector is not None, f"{phrase!r} no longer parses"
         found = group_selector_objects(eng.state, "p1", selector)
-        if selector == "attacking_creatures":
-            # Nothing is attacking outside combat; the name itself is still
-            # proven real by the vocabulary check below.
+        if phrase.startswith("attacking"):
+            # Nothing is attacking outside combat; the selector itself is
+            # still proven real by the filter shape it carries.
             assert found == []
-            assert f'"{selector}"' in inspect.getsource(group_selector_objects)
+            assert selector.get("filter", {}).get("attacking") is True
         else:
-            assert found, f"{selector!r} matched nothing on a board that has one"
+            assert found, f"{phrase!r} -> {selector!r} matched nothing on a board that has one"
 
 
 @pytest.mark.full_cache
@@ -321,12 +332,18 @@ class TestConditionWhitelistWidening:
 class TestForEachQuantity:
     def test_a_quantity_operand_becomes_a_bind_node(self) -> None:
         # "for each card in your hand" is measured once and handed to the
-        # body (ENG-37's `bind`), not iterated over.
+        # body (ENG-37's `bind`), not iterated over. PAR-120: this now
+        # reaches the shared `count_phrase` grammar's own unfiltered
+        # hand-zone selector rather than the retired `resource`/`hand_size`
+        # reading — proven to count identically
+        # (`test_par120_count_phrase.py`).
         specs = parse_effect_body("you gain 1 life for each card in your hand")
         assert specs is not None
         assert [s.type for s in specs] == ["bind"]
         params = specs[0].params
-        assert params["amount"] == {"kind": "resource", "resource": "hand_size"}
+        assert params["amount"] == {
+            "kind": "count_selector", "selector": {"zone": "hand", "of": "you"},
+        }
         assert params["effects"] == [
             {"type": "gain_life", "params": {"amount": "$n"}}
         ]

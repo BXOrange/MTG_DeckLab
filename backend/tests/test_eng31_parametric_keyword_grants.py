@@ -45,11 +45,13 @@ def test_pump_parametric_keyword_clause_parses():
 
 
 def test_group_pump_parametric_keyword_clause_parses():
+    # PAR-120: "creatures you control" now resolves to a structured
+    # selector, not the retired `_GROUP_SELECTORS` string.
     assert match_clause(
         "creatures you control gain firebending 1 until end of turn"
     ) == [EffectSpec("pump", {
         "parametric_keywords": [{"name": "firebending", "n": 1}],
-        "selector": "creatures_you_control",
+        "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
     })]
 
 
