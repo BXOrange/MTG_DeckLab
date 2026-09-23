@@ -3582,7 +3582,28 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: count. The leading "if" on an ATTACKS trigger already falls back to the
 #: shared `static_condition()` vocabulary generically, so one new regex row
 #: closed the whole cluster at once. +5, 0 regressed.
-PARSER_VERSION = "476"
+#: v477 closes PAR-120's mana-symbol sibling of Adamant's own condition —
+#: "if `<mana symbol[s]>` was spent to cast it/this spell" (Catharsis,
+#: Deceit, Emptiness, Gruul Scrapper, Ogre Savant, Shrieking Grotesque,
+#: Steamcore Weird, Tin Street Hooligan, plus 9 bonus cards sharing the same
+#: shape outside the original search). No new engine primitive:
+#: `GameObject.mana_by_color_spent_to_cast` and the `mana_color_spent_to_
+#: cast_at_least` condition kind both already existed (PAR-95, Adamant's own
+#: word-form "if at least N `<color>` mana was spent to cast it") — one new
+#: regex recognizing the printed-symbol spelling, one or two repeated pips
+#: of the *same* colour enforced via a backreference (a mixed pair like
+#: "{r}{g}" is a different, unclaimed shape, left open). +17, 0 regressed.
+#: v478 recognizes "you control your commander" (RULE 903.4 — the "Loyal"
+#: Commander-legends cycle's phase-trigger leading "if"): a new
+#: `commanders_you_control` selector on `continuous.count_selector`, read
+#: through the same `control_count` condition kind every board-existence
+#: check in this ticket has reused. Loyal Apprentice, Loyal Drake, Loyal
+#: Guardian, Loyal Subordinate, Skyhunter Strike Force, Tyrant's Familiar.
+#: The cycle's "as long as" static form (Angelic Field Marshal and three
+#: siblings) needs a separate, unrelated primitive — a self-pump-plus-
+#: group-grant compound body `static_effect_specs` doesn't recognize at all
+#: yet — left open. +6, 0 regressed.
+PARSER_VERSION = "478"
 
 
 def parser_source_hash() -> str:

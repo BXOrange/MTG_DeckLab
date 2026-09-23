@@ -7871,6 +7871,58 @@ measurement of why is the useful half of this work.
   `GameEngine` run (Gnoll Hunter) confirms the counter only lands once the attacking total actually
   crosses the threshold. Full suite: 8,733 passed, 0 regressed.
 
+### PAR-120: the mana-symbol sibling of Adamant's own condition (PARSER_VERSION 477)
+
+- **What:** "If `<mana symbol[s]>` was spent to cast it/this spell" — the printed-symbol spelling of
+  the same condition PAR-95's Adamant rows already read in word form ("if at least N `<color>` mana
+  was spent to cast it"). Catharsis, Deceit, Emptiness, Gruul Scrapper, Ogre Savant, Shrieking
+  Grotesque, Steamcore Weird, Tin Street Hooligan, plus 9 bonus cards sharing the same shape outside
+  the original search (Azorius Herald, Dryad's Caress, Patagia Viper, Plaxmanta, Ribbons of Night,
+  Rolling Spoil, Seed Spark, Squealing Devil, Vibrance). +17, 0 regressed.
+- **No new engine primitive.** `GameObject.mana_by_color_spent_to_cast` (Adamant's own per-colour
+  cast-payment diff, PAR-95) and the `mana_color_spent_to_cast_at_least` condition kind both already
+  existed — the whole gap was a second regex row in `static_handlers._STATIC_CONDITION_RES`
+  recognizing "{w}{w} was spent to cast it" the way the first recognizes "if at least 2 white mana
+  was spent to cast it". One or two repeated pips of the *same* symbol, enforced via a regex
+  backreference — a mixed pair like "{r}{g}" (Mythos of Illuna-shaped) is a genuinely different
+  shape and deliberately doesn't match, left open along with the "mana from a treasure" and generic
+  "at least N mana" siblings the same broader search surfaced (unrelated tracking, not attempted
+  here).
+- **Verification:** `tests/test_par120_mana_symbol_spent_condition.py` — a single symbol, a doubled
+  symbol, the colourless symbol, and a mixed pair failing closed; all eight named cards parse
+  `MODELED`; and a `GameEngine` run (Gruul Scrapper) confirms the haste grant only fires once red
+  mana actually paid part of the cost. Full suite: 8,738 passed (the one known-flaky websocket
+  broadcast test excluded — passes in isolation), 0 regressed.
+
+### PAR-120: "you control your commander" (PARSER_VERSION 478)
+
+- **What:** "You control your commander" (RULE 903.4) recognized as a standing condition — the
+  "Loyal" Commander-legends cycle's own gate, reached here through a phase trigger's leading "if"
+  (Loyal Apprentice, Loyal Drake, Loyal Guardian, Loyal Subordinate, plus bonus cards sharing the
+  same phrase — Skyhunter Strike Force, Tyrant's Familiar). +6, 0 regressed.
+- **No new condition kind.** `control_count` again — the same kind every board-existence/threshold
+  check this ticket has built has reused — with a new `commanders_you_control` selector on
+  `continuous.count_selector`: a plain existence count over `GameObject.is_commander` filtered to
+  the checking controller. RULE 108.4 means control only applies to a *battlefield* permanent, so a
+  commander sitting in the command zone deliberately doesn't count here — narrower than
+  `condition_query.free_cast_condition_holds`'s existing, differently-scoped `"control_commander"`
+  key (whether a commander is *available to cast* at all, command zone included, for a wholly
+  different caller — an alt-cost gate, not this standing condition); the two intentionally answer
+  different questions rather than sharing one reader.
+- **Real residue found and deliberately not attempted.** The cycle's other printed form, "as long as
+  you control your commander, `<X>` gets +N/+N and creatures you control have `<keyword>`" (Angelic
+  Field Marshal, Demon of Wailing Agonies, Stormsurge Kraken, Thunderfoot Baloth), fails on a
+  completely different, unrelated gap: `static_effect_specs` has no row at all for a compound body
+  whose two halves address *different* subjects (self pump + group keyword/quoted-ability grant, one
+  sentence) — confirmed directly (`static_effect_specs("~ gets +2/+2 and creatures you control have
+  vigilance")` returns `None` with the new condition row already in place). A real, separately-scoped
+  primitive gap, not this ticket's condition-recognition work; left open.
+- **Verification:** `tests/test_par120_control_your_commander_condition.py` — the condition parses
+  correctly and fails closed on an unrelated phrase ("an opponent's commander"); all six named cards
+  parse `MODELED`; and a `GameEngine` run (Loyal Drake) confirms the draw only fires once a commander
+  is actually on the battlefield under that player's control, not before. Full suite: 8,742 passed
+  (the one known-flaky websocket broadcast test excluded — passes in isolation), 0 regressed.
+
 ### PAR-122: trigger doublers as a composed cause × subject (PARSER_VERSION 451)
 
 - **What:** "If a triggered ability of `<subject>` triggers, that ability triggers an

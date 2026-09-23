@@ -1486,6 +1486,18 @@ def count_selector(
             int(o.power or 0) for o in bf
             if o.is_creature and o.controller_id == controller_id
         ))
+    if selector == "commanders_you_control":
+        # "as long as you control your commander"/"if you control your
+        # commander" (RULE 903.4 — Angelic Field Marshal, Loyal Drake and
+        # the rest of the "Loyal" Commander-legends cycle, PAR-120). RULE
+        # 108.4: control only applies to a battlefield permanent, so a
+        # commander sitting in the command zone doesn't count — unlike
+        # `condition_query.free_cast_condition_holds`'s looser
+        # ``"control_commander"`` key (whether a commander is *available* to
+        # cast at all, command zone included), this is the narrower "is it
+        # actually on the battlefield under your control right now" read
+        # the printed phrase means.
+        return sum(1 for o in bf if o.is_commander and o.controller_id == controller_id)
     if selector == "total_power_attacking_creatures_you_control":
         # "if you attacked with creatures with total power N or greater this
         # combat" (Gnoll Hunter and the rest of the Onslaught-block "Pack

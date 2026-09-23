@@ -3152,6 +3152,33 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
         "kind": "control_count", "selector": "total_power_attacking_creatures_you_control",
         "min": int(m.group("n")),
     }),
+    # PAR-120: "if `<mana symbols>` was spent to cast it/this spell" — the
+    # printed-mana-symbol sibling of Adamant's own word-form "if at least N
+    # `<color>` mana was spent to cast it" (`_ADAMANT_MANA_SPENT_IF_RE`,
+    # peeled before `match_clause` runs). One or two repeated pips of the
+    # *same* colour/colourless symbol (the backreference `(?P=sym)` enforces
+    # that — a mixed pair like "{w}{u}" is a different, unclaimed shape),
+    # reading the exact same `mana_color_spent_to_cast_at_least` kind and
+    # `GameObject.mana_by_color_spent_to_cast` dict Adamant already built
+    # (PAR-95) — no new engine primitive, just a second spelling of the same
+    # condition (Catharsis, Deceit, Emptiness, Drowner of Truth, Gruul
+    # Scrapper, Ogre Savant, Revenant Patriarch, Shrieking Grotesque,
+    # Steamcore Weird, Tin Street Hooligan).
+    (re.compile(
+        r"\{(?P<sym>[wubrgc])\}(?P<sym2>\{(?P=sym)\})? was spent to cast (?:it|this spell)", re.I,
+    ), lambda m: {
+        "kind": "mana_color_spent_to_cast_at_least",
+        "color": m.group("sym").upper(),
+        "amount": 2 if m.group("sym2") else 1,
+    }),
+    # PAR-120: "you control your commander" (RULE 903.4 — the "Loyal"
+    # Commander-legends cycle's own gate, both as a standing "as long as"
+    # condition and an attack/combat-trigger leading "if"). RULE 108.4:
+    # control only applies to a battlefield permanent, so this is a plain
+    # existence check over the new `commanders_you_control` selector, the
+    # same `control_count` kind an object-existence check always uses.
+    (re.compile(r"you control your commander", re.I),
+     lambda m: {"kind": "control_count", "selector": "commanders_you_control", "min": 1}),
     (re.compile(r"there are (?P<n>\d+) or more cards in your graveyard", re.I),
      lambda m: {"kind": "control_count", "selector": "cards_in_your_graveyard",
                 "min": int(m.group("n"))}),
