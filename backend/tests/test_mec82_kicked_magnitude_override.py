@@ -76,13 +76,20 @@ def test_bargain_sibling():
     ]
 
 
-def test_keyword_grant_rider_is_not_claimed_as_an_override():
+def test_keyword_grant_rider_is_a_branch_on_the_same_target():
     # Colossal Growth: "instead that creature gets +4/+4 and gains trample and
-    # haste" — magnitude *plus* a keyword grant, more than a RULE 614 override.
-    assert parse_effect_body(
+    # haste" — magnitude *plus* a keyword grant, so not a magnitude override:
+    # an `if_else` whose branches announce the one creature (PAR-120).
+    [spec] = parse_effect_body(
         "target creature gets +3/+3 until end of turn. if this spell was kicked, "
         "instead that creature gets +4/+4 and gains trample and haste until end of turn"
-    ) is None
+    )
+    assert spec.type == "if_else"
+    assert spec.params["condition"] == {"kind": "kicked", "min": 1}
+    assert spec.params["then"] == [{"type": "pump", "params": {
+        "power": 4, "toughness": 4, "keywords": ["trample", "haste"], "target_kind": "creature"}}]
+    assert spec.params["else"] == [{"type": "pump", "params": {
+        "power": 3, "toughness": 3, "target_kind": "creature"}}]
 
 
 def test_no_pump_to_override_fails_closed():

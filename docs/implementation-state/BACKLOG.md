@@ -187,22 +187,15 @@ its block back into the matching section here.
   `parser_probe.py composition heads --family <f>` and `parser_probe.py diff`, and **execute** a
   sample of the newly claimed cards — the parse verdict alone hid wrong-but-MODELED shapes at v450,
   v455 and v456 (see `PARSER_LONG_TAIL.md`).
-- **PAR-120 · Shared count / filter / condition vocabulary — remaining scope.**
-  **(b) CDA residue:** a CDA inside a quoted grant or "becomes"
-  (Druid Class, Beorn's Hospitality, Chimeric Mass, Svogthos, Seize the Storm,
-  Elephant Resurgence, Bonny Pall, The Goblin Sparring Grounds — the general grant path
-  doesn't route statics to `pt_cda`; plain created */* tokens now do);
-  Angry Mob's turn-split CDA.
-  **(c) "`<condition>`, `<effect>` instead":** a general magnitude/
-  effect override for targeted or unsupported bodies (Galvanize, Rowan ×2, Scythecat Cub,
-  Withering Curse, Jetmir's Fixer, Devour Intellect, Pirate's Landing) — `DealDamageEffect`
-  doesn't measure an `effect_amounts` operand, so `{"kind": "if"}` can't carry it yet; and
-  "otherwise" after an ordinal gate (Rose Room Treasurer, Zimone). **(d) leaving-counter bodies:**
-  a delayed token copy of the dying object (Ochre Jelly), an exiled-as-cost source
-  (Lost Isle Calling),
-  a destroyed target's counters at resolution (Rite of the Serpent).
-  **(e) remaining conditions:** "the first card you draw each turn" (Primitive Etchings, Rowen);
-  "if you gained life this turn" bodies (16 SOLO, each blocked by its own effect).
+- **PAR-120 · Shared count / filter / condition vocabulary — remaining scope. Next-up:
+  each item below needs its own engine primitive; hand-author if not built next batch.**
+  **(d) leaving-counter bodies:** a delayed token copy of the dying object entering with half
+  its counters (Ochre Jelly); RULE 608.2h last-known counters of a source exiled as a cost,
+  plus "draw a card for each `<kind>` counter on ~" itself (Lost Isle Calling).
+  **(e) remaining conditions/amounts:** "reveal the first card you draw each turn. Whenever you
+  reveal `<X>` this way, …" (Primitive Etchings, Rowen); a turn-long spell cost reduction by
+  "the amount of life you lost this turn" (Rowan, Scion of War). The "if you gained life this
+  turn" SOLO residue is each card's own effect, not the condition.
 - **PAR-128 · Target/group-grammar slots — residue.** The controller-scope, "another" and
   player-subject slots are in the shared target grammar; still failing on the same axes:
   **group** selectors with "other"/scope ("it deals 1 damage to each other creature",
@@ -216,7 +209,10 @@ its block back into the matching section here.
   an opponent controls", "… an opponent controls with power 2 or less"); "target creature or
   planeswalker" still collapses to `creature` (a `creature_or_planeswalker_you_dont_control` frame
   would fix both forms); "target opponent `<verb>` for each …" (Honden of Night's Reach, Bishop of
-  the Bloodstained). Measure with `parser_probe.py composition mods --axis "control|another|scope"`.
+  the Bloodstained); the Duress-family `reveal_hand_choose_discard` row collapses "target
+  opponent" to `player` (can target yourself), and its comma form ("…, you choose … from it,
+  then that player discards that card") is unclaimed — together they block Devour Intellect's
+  "instead" override. Measure with `parser_probe.py composition mods --axis "control|another|scope"`.
 - **PAR-121 · Subject-scope slot and per-verb connective de-duplication (no
   coverage change).** Roughly a third of the parser's regexes sit in
   near-duplicate clusters (`parser_probe`-style token-similarity clustering,
@@ -288,9 +284,8 @@ its block back into the matching section here.
   quote:
   - **(a) Plain printed-keyword tail — 86 SOLO, 29 also-blocked.** A
     keyword-list widening (`catalogue/keywords.py`'s word table +
-    the existing pump row's tail), the bulk of the cluster — e.g. Enlarge,
-    Colossal Growth (its kicker-conditional "instead" override is the
-    separate MEC-82 gap noted in CLAUDE.md). None of this ticket's original
+    the existing pump row's tail), the bulk of the cluster — e.g. Enlarge.
+    None of this ticket's original
     example cards were from this half; all six were from (b).
   - **(b) Quoted-ability tail — 18 SOLO, 5 also-blocked.** Not a
     per-ability row list: for most inner texts the segmenter already claims
@@ -699,18 +694,7 @@ its block back into the matching section here.
   discard a card…") and Nephalia Academy (same "an effect" wording) are a **different,
   broader** condition — not opponent-scoped — and don't belong in this cluster.
 
-## MEC — Game mechanics
-
-- **MEC-98 · RULE 121.5 Perpetual effects.** Duskmourn's "perpetually gains/loses `<ability |
-  counter | P/T>`" duration survives *every* zone change (unlike every `temp_*` field/
-  `GameState.floating_statics` entry this project has, all cleared on a zone change per RULE
-  400.7 — `GameObject.reset_as_new_object`) and persists even onto a copy of the object. No
-  primitive exists at all (`grep -rn "perpetual" game/` finds only a comment noting the gap,
-  `handlers.py`'s own "it perpetually gets +1/+1" note on Alora, Cheerful Scout). Blocks Consumed
-  by History ("until end of turn, whenever a nontoken creature dies, it perpetually gains unearth
-  {5}.") and every other Duskmourn "perpetually" card. Needs a durable per-object modification
-  list `reset_as_new_object` does *not* clear, consulted by the layer engine/keyword union
-  alongside printed+intrinsic+granted.
+## MEC — Game mechanic
 
 ## PLR — Player management
 

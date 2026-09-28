@@ -228,6 +228,21 @@ class IfElseEffect(_CompositeEffect):
         self.then_specs = _as_spec_dicts(then_effects)
         self.else_specs = _as_spec_dicts(else_effects)
 
+    @property
+    def target_specs(self) -> list[TargetSpec]:
+        """RULE 601.2c: announce only what *either* branch would target.
+
+        Not knowing which branch runs is why this node normally announces
+        nothing. "Put a +1/+1 counter on target creature … double the counters
+        on that creature instead" (Scythecat Cub) targets the same creature
+        either way, so identical requirements on both sides are announced.
+        """
+        then_targets = [spec for effect in _build(self.then_specs, self.source)
+                        for spec in effect.target_specs]
+        else_targets = [spec for effect in _build(self.else_specs, self.source)
+                        for spec in effect.target_specs]
+        return then_targets if then_targets == else_targets else []
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         state = effect_conditions.condition_state(
             self.condition, context, self.source, targets

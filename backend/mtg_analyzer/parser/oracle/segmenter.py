@@ -3828,16 +3828,163 @@ def _if_else_specs(
 
 _INSTEAD_OVERRIDE_RE = re.compile(
     r"^(?P<base>[^.]+)\.\s*if (?P<cond>[^,]{2,120}),\s*"
-    r"(?P<replacement>[^.]+?) instead\.?$", re.I | re.S,
+    r"(?:(?P<replacement>[^.]+?) instead|instead (?P<leading>[^.]+?))\.?$", re.I | re.S,
+)
+_DESTROY_TARGET_COUNTER_TOKEN_RE = re.compile(
+    r"^destroy target creature\.\s*if that creature had a \+1/\+1 counter on it, "
+    r"(?P<create>create [^.]+? creature token)\.?$", re.I | re.S,
+)
+_CREATED_TOKENS_HAVE_CDA_RE = re.compile(
+    r'^(?P<create>each player creates a [^.]+ creature token)\.\s*'
+    r'those creatures have "(?P<cda>(?:this token|this creature|~)\'s power[^\"]+)"\.?$',
+    re.I | re.S,
 )
 
 
+def _created_tokens_have_cda_specs(body: str) -> Optional[list[EffectSpec]]:
+    """Fuse a distributive create and its quoted token ability (RULE 111.5)."""
+    match = _CREATED_TOKENS_HAVE_CDA_RE.fullmatch(body)
+    if match is None:
+        return None
+    # In the created token's *own* ability, "your" means that token's
+    # controller. The source spell's controller is irrelevant (RULE 109.4).
+    oracle = match.group("cda").replace("its controller's graveyard", "your graveyard")
+    created = parse_effect_body(f'{match.group("create")} with "{oracle}"')
+    if not created or len(created) != 1 or created[0].type != "create_token":
+        return None
+    return created
+
+
+def _destroy_target_counter_token_specs(body: str) -> Optional[list[EffectSpec]]:
+    """Measure the target before destruction, then branch on that snapshot."""
+    match = _DESTROY_TARGET_COUNTER_TOKEN_RE.fullmatch(body)
+    if match is None:
+        return None
+    made = parse_effect_body(match.group("create"))
+    if not made or len(made) != 1 or made[0].type != "create_token":
+        return None
+    return [EffectSpec("bind", {
+        "name": "n", "amount": {"kind": "counters", "counter": "+1/+1", "of": "target"},
+        "effects": [
+            EffectSpec("destroy", {"target_kind": "creature"}).to_dict(),
+            EffectSpec("if_else", {
+                "condition": {"kind": "amount_compare",
+                              "left": {"kind": "fixed", "amount": "$n"},
+                              "right": {"kind": "fixed", "amount": 0}, "op": "gt"},
+                "then": [made[0].to_dict()], "else": [],
+            }).to_dict(),
+        ],
+    })]
+
+
+_OVERRIDE_NUMBER_RE = re.compile(r"\b\d+\b")
+_OVERRIDE_TARGET_RE = re.compile(
+    # A graveyard card, with its qualifiers: "target creature card with mana
+    # value 3 or less from your graveyard" (Doctor Jane Foster). First, so
+    # "target creature" doesn't claim its head.
+    r"\btarget (?:[a-z ]*?(?P<card>card)(?: with [^,.]+?)? from your graveyard"
+    r"|(?P<noun>creature|player|opponent|permanent)"
+    r"(?P<scope> you control| an opponent controls| you don't control)?\b)", re.I,
+)
+
+
+def _resolve_override_referents(base_text: str, replacement_text: str) -> str:
+    """Spell the replacement's back-reference as the base's own target phrase.
+
+    RULE 608.2c: "that creature" in "… instead" is the object the base
+    targeted, and "she"/"he"/"it" leading the sentence is its subject (~).
+    With exactly one target in the base the rewrite is unambiguous; with
+    none or several the text is returned unchanged and fails to match.
+    """
+    rewritten = re.sub(r"^(?:she|he|it)\b", "~", replacement_text.strip(), flags=re.I)
+    targets = list(_OVERRIDE_TARGET_RE.finditer(base_text))
+    if len(targets) != 1:
+        return rewritten
+    noun = (targets[0].group("noun") or targets[0].group("card")).lower()
+    that = "player" if noun in ("player", "opponent") else noun
+    # Only the first mention is the announced target; a later "that player"
+    # in the same sentence stays a back-reference to it (Devour Intellect).
+    return re.sub(rf"\bthat {that}\b", targets[0].group(0).lower(), rewritten,
+                  count=1, flags=re.I)
+
+
+#: Params that narrow *which* objects are legal targets or how many — two
+#: branches announcing one requirement must agree on all of them.
+_TARGET_SHAPE_KEYS: frozenset[str] = frozenset({
+    "count_max", "optional", "max_mana_value", "min_mana_value", "mana_value",
+    "color", "colors", "spell_filter", "creature_filter", "filter", "target_filter",
+    "max_power", "exclude_self", "another",
+})
+#: Effect types whose ``count`` is a quantity (cards, counters, tokens), never
+#: the number of targets — for every other type ``count`` shapes the target.
+_COUNT_IS_A_QUANTITY: frozenset[str] = frozenset({
+    "discard", "draw", "mill", "add_counters", "create_token", "scry", "surveil",
+})
+
+
+def _target_signature(specs: list["EffectSpec"]) -> list[tuple[str, Any]]:
+    """What a branch announces (RULE 601.2c), or ``[]`` when it targets nothing."""
+    signature: list[tuple[str, Any]] = []
+    for spec in specs:
+        if not _names_a_target(spec):
+            continue
+        keys = set(_TARGET_PARAM_KEYS | _TARGET_SHAPE_KEYS)
+        if spec.type not in _COUNT_IS_A_QUANTITY:
+            keys.add("count")
+        signature.extend((key, spec.params.get(key)) for key in sorted(keys)
+                         if spec.params.get(key) is not None)
+    return signature
+
+
+def _magnitude_override_specs(
+    base_text: str, replacement_text: str, condition: dict[str, Any], **flags: Any,
+) -> Optional[list[EffectSpec]]:
+    """"~ deals 3 damage to target creature. If `<cond>`, ~ deals 5 damage to
+    that creature instead." (Galvanize) — one effect, one target, two sizes.
+
+    The replacement must be the base with only its number changed, so the
+    target announced for the base is the one the bigger effect hits (RULE
+    115.1). A `bind` measures the size once and keeps the base's target.
+    """
+    base_numbers = _OVERRIDE_NUMBER_RE.findall(base_text)
+    new_numbers = _OVERRIDE_NUMBER_RE.findall(replacement_text)
+    if len(base_numbers) != 1 or len(new_numbers) != 1:
+        return None
+    rewritten = _resolve_override_referents(base_text, replacement_text)
+    if _OVERRIDE_NUMBER_RE.sub("#", rewritten).lower() != (
+            _OVERRIDE_NUMBER_RE.sub("#", base_text.strip()).lower()):
+        return None
+    base = parse_effect_body(base_text, **flags)
+    bigger = parse_effect_body(rewritten, **flags)
+    if not base or not bigger or len(base) != 1 or len(bigger) != 1:
+        return None
+    [base_spec], [bigger_spec] = base, bigger
+    keys = [key for key in _MAGNITUDE_PARAM_KEYS
+            if base_spec.params.get(key) == int(base_numbers[0])
+            and bigger_spec.params.get(key) == int(new_numbers[0])]
+    if (len(keys) != 1 or base_spec.type != bigger_spec.type
+            # A targeted ``count`` fixes how many targets are announced, which
+            # a resolution-time measurement cannot supply (RULE 601.2c).
+            or (keys[0] == "count" and _names_a_target(base_spec)
+                and base_spec.type not in _COUNT_IS_A_QUANTITY)
+            or base_spec.condition is not None
+            or {**base_spec.params, keys[0]: None} != {**bigger_spec.params, keys[0]: None}):
+        return None
+    return [EffectSpec("bind", {
+        "name": "n",
+        "amount": {"kind": "if", "condition": condition,
+                   "then": int(new_numbers[0]), "otherwise": int(base_numbers[0])},
+        "effects": [EffectSpec(base_spec.type, {**base_spec.params, keys[0]: "$n"}).to_dict()],
+    })]
+
+
 def _instead_override_specs(body: str, **flags: Any) -> Optional[list[EffectSpec]]:
-    """Replace a targetless effect under one shared condition (RULE 614.6).
+    """Replace an effect under one shared condition (RULE 614.6).
 
     The base must not resolve first: a second conditional effect after it
-    would scry *and* draw for Rumor Gatherer. Targeted replacements need
-    their announced target carried by the outer node, so they stay unclaimed.
+    would scry *and* draw for Rumor Gatherer. A targeted replacement is
+    claimed only when it targets exactly what the base did, so `if_else`
+    announces one requirement for whichever branch runs.
     """
     match = _INSTEAD_OVERRIDE_RE.fullmatch(body)
     if match is None:
@@ -3847,11 +3994,31 @@ def _instead_override_specs(body: str, **flags: Any) -> Optional[list[EffectSpec
                  else static_condition(match.group("cond")))
     if condition is None:
         return None
-    base = parse_effect_body(match.group("base"), **flags)
-    replacement = parse_effect_body(match.group("replacement"), **flags)
+    base_text = match.group("base")
+    replacement_text = match.group("replacement") or match.group("leading")
+    # "If a creature died this turn, A. If seven or more died, instead B."
+    # (Tallyman of Nurgle): the first gate covers the whole override — with
+    # it false there is no A for B to replace (RULE 614.6).
+    outer = re.fullmatch(r"if (?P<cond>[^,]{2,120}),\s*(?P<rest>.+)", base_text, re.I | re.S)
+    if outer is not None:
+        outer_condition = static_condition(outer.group("cond"))
+        inner = _instead_override_specs(
+            f"{outer.group('rest')}. {body[match.end('base') + 1:].strip()}", **flags)
+        if outer_condition is None or not inner or len(inner) != 1 or inner[0].condition:
+            return None
+        return [EffectSpec(inner[0].type, inner[0].params, condition=outer_condition)]
+    magnitude = _magnitude_override_specs(base_text, replacement_text, condition, **flags)
+    if magnitude is not None:
+        return magnitude
+    base = parse_effect_body(base_text, **flags)
+    replacement = parse_effect_body(
+        _resolve_override_referents(base_text, replacement_text), **flags)
     if (not base or not replacement
-            or any(spec.condition is not None or _names_a_target(spec)
-                   for spec in [*base, *replacement])):
+            or any(spec.condition is not None for spec in [*base, *replacement])
+            # Both branches must announce the same requirement (or none),
+            # the only case `if_else` can announce a target (RULE 601.2c).
+            or _target_signature(base) != _target_signature(replacement)
+            or (_target_signature(base) and (len(base) != 1 or len(replacement) != 1))):
         return None
     return [EffectSpec("if_else", {
         "condition": condition,
@@ -5024,6 +5191,14 @@ def parse_effect_body(
             follow,
         ]
 
+    distributed_cda = _created_tokens_have_cda_specs(body)
+    if distributed_cda is not None:
+        return distributed_cda
+
+    destroyed_counter_token = _destroy_target_counter_token_specs(body)
+    if destroyed_counter_token is not None:
+        return destroyed_counter_token
+
     direct = match_clause(
         body, self_subject=self_subject, previous_subject=previous_subject,
         group_subject=group_subject, previous_selector=previous_selector,
@@ -5117,6 +5292,17 @@ def parse_effect_body(
             # source (a counter on "~").
             carry_self = self_subject
             last_len = 0
+            # "Otherwise, you may pay {X}. When you do, …" (Rose Room
+            # Treasurer): the reflexive sentence belongs to the else branch
+            # (RULE 603.12), not to the clauses after the if_else.
+            merged: list[str] = []
+            for part in parts:
+                if (merged and _OTHERWISE_RE.match(merged[-1].strip())
+                        and re.match(r"^\s*(?:when|if) you do,", part, re.I)):
+                    merged[-1] = f"{merged[-1].rstrip()}. {part.strip()}"
+                else:
+                    merged.append(part)
+            parts = merged
             for idx, part in enumerate(parts):
                 # A period split retains the leading "then" from a printed
                 # "… . Then <effect>" sentence, unlike the explicit

@@ -3099,6 +3099,7 @@ class MiscSystemsMixin:
         {
             "tap", "sacrifice", "suspect", "return_to_hand", "return_from_graveyard", "soulbond_pair", "library_top", "discard",
             "library_to_hand", "sacrifice_for_descendants_fury",
+            "turn_face_up",  # Zimone — RULE 708.8 by an effect
             # Quandrix Command mode 4 ("target player shuffles up to three
             # target cards from their graveyard into their library") — the
             # pick moves from its owner's graveyard to its owner's library,
@@ -3808,6 +3809,8 @@ class MiscSystemsMixin:
                     description=label,
                 )
             )
+        elif action == "turn_face_up":
+            self.turn_face_up(obj)
         elif action == "choose_permanent" and source is not None:
             # MEC-26: Scheming Fence's own ETB pick — nothing happens to
             # ``obj`` itself, just a pointer stamped onto the source

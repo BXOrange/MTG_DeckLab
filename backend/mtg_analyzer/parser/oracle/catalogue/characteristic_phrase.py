@@ -87,6 +87,7 @@ KEYWORD_WORDS: dict[str, str] = {
     "deathtouch": "deathtouch", "lifelink": "lifelink", "trample": "trample",
     "vigilance": "vigilance", "double strike": "double strike", "infect": "infect",
     "persist": "persist", "undying": "undying", "changeling": "changeling",
+    "flashback": "flashback",
 }
 
 _ALTERNATION = re.compile(r"\s*,\s*(?:(?:and/)?or\s+|and\s+)?|\s+(?:(?:and/)?or|and)\s+")

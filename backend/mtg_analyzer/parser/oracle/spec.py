@@ -109,6 +109,7 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
         "source_is_renowned", "source_is_suspected", "attached_is_suspected", "sacrificed_cost_was_suspected", "shares_type_with_linked_exile", "source_was_cast",
         "source_was_cast_from_hand",  # PAR-120
         "source_entered_untapped", "cast_outside_sorcery_speed", "cast_via_escape",
+        "cast_during_your_main_phase",  # PAR-120, Addendum
         "cards_in_graveyard_at_least", "entering_object_unique_name",
         # MEC-43 round 4C: Dark Petition's Spell mastery (a graveyard-count
         # gate narrowed to instant/sorcery cards) and Poison the Cup's
@@ -1557,7 +1558,9 @@ class AbilitySpec:
             if expected is bool and not isinstance(value, bool):
                 raise SpecValidationError(f"{key!r} in an amount spec must be a bool")
             if expected is int and isinstance(value, str) and value in X_SENTINELS:
-                continue  # the announced {X} (RULE 107.3): `RulesEngine._substitute_x` makes it an int at cast
+                continue  # the announced {X} (RULE 107.3): substituted at cast
+            if expected is int and isinstance(value, str) and re.fullmatch(r"\$[a-z][a-z0-9_]{0,15}", value):
+                continue  # ENG-37 bind: substituted before this amount is evaluated
             if expected is int and (isinstance(value, bool) or not isinstance(value, int)):
                 raise SpecValidationError(f"{key!r} in an amount spec must be an int")
             if expected is str and not isinstance(value, str):

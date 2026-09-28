@@ -2808,6 +2808,11 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
             if residual:
                 _trace(obj, 6, "Until-EOT", "gains " + ", ".join(sorted(residual)),
                        duration="end_of_turn")
+        # MEC-98: perpetual keyword grants — same layer, never cleared.
+        if obj.perpetual_keywords:
+            obj._granted_keywords.update(obj.perpetual_keywords)
+            _trace(obj, 6, "Perpetual", "gains " + ", ".join(sorted(obj.perpetual_keywords)),
+                   duration="permanent")
 
     # Still layer 6, but reaching *hand* cards rather than battlefield
     # permanents (PAR-8) — see `_apply_hand_cycling_grants`.
@@ -2991,6 +2996,20 @@ def _apply_layer_7_pt(
             p, t = base[obj.instance_id]
             _trace(obj, 7, "Until-EOT",
                    f"{_signed(residual_p)}/{_signed(residual_t)}", p, t, duration="end_of_turn")
+
+    # 7d (cont.): MEC-98 Alchemy *perpetual* P/T changes — same sublayer as a
+    # resolved pump, but never cleared (see `GameObject.perpetual_power`).
+    for obj in state.battlefield:
+        if obj.instance_id not in base or not (obj.perpetual_power or obj.perpetual_toughness):
+            continue
+        base[obj.instance_id][0] += obj.perpetual_power
+        base[obj.instance_id][1] += obj.perpetual_toughness
+        p, t = base[obj.instance_id]
+        sources = sorted({e.get("source") or "Perpetual" for e in obj.perpetual_effects
+                          if e.get("power") or e.get("toughness")}) or ["Perpetual"]
+        _trace(obj, 7, ", ".join(sources),
+               f"{_signed(obj.perpetual_power)}/{_signed(obj.perpetual_toughness)}", p, t,
+               duration="permanent")
 
     # 7e: switch power and toughness (RULE 613.7e / 701.28). Applied last, so it
     # swaps the fully-computed values.

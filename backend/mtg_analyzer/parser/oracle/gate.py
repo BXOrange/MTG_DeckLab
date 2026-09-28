@@ -3675,7 +3675,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: through `target_kind_allowed`, "artifact or enchantment" is no longer any
 #: permanent, "If `<cond>`, A, then B" gates both halves, and "each player /
 #: each opponent / target opponent `<verb>`" is a player-subject slot.
-PARSER_VERSION = "492"
+#: 496 (PAR-120): targeted "instead" overrides (magnitude `bind` or a
+#: same-target `if_else`), Infusion/Addendum paragraph joins, animate-with-
+#: quoted-CDA, Angry Mob's turn-split CDA, and the Addendum / Treasure-
+#: activation / "gained N life" conditions.
+#: 497 (MEC-98): Alchemy "perpetually gets/gains" — the pump table re-used via
+#: an until-end-of-turn rewrite, plus "creature cards in your hand/library/
+#: graveyard" subjects (`handlers._perpetual_pump_specs`).
+PARSER_VERSION = "497"
 
 
 def parser_source_hash() -> str:
@@ -3780,6 +3787,13 @@ def _expand_ability_word_reminders(raw: str) -> str:
     """Promote known ability-word reminder text to real oracle text, before
     `normalize` strips every parenthetical (see `_FOR_MIRRODIN_RE`)."""
     return _FOR_MIRRODIN_RE.sub(lambda m: m.group("reminder"), raw)
+
+
+#: An ability-word paragraph that continues a spell's previous instruction
+#: (see `parse_oracle`): only after a sentence end, only a leading "If".
+_SPELL_RIDER_PARAGRAPH_RE = re.compile(
+    r"(?<=\.)\n(?:Infusion|Addendum) — (?P<rider>If )", re.I,
+)
 
 
 def _is_spell(card: Any) -> bool:
@@ -4098,6 +4112,11 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         # `NEVER_SUPPORTED`'s docstring above).
         return ParseResult(specs=list(keyword_specs), coverage=NEVER_SUPPORTED)
     raw = _expand_ability_word_reminders(raw)
+    if _is_spell(card):
+        # RULE 608.2c: on an instant or sorcery an "Infusion —"/"Addendum —"
+        # paragraph is the same spell ability's next instruction, so "that
+        # creature"/"… instead" must see the paragraph before it.
+        raw = _SPELL_RIDER_PARAGRAPH_RE.sub(r" \g<rider>", raw)
     normalized = normalize(raw, getattr(card, "name", None), getattr(card, "keywords", None))
     if not normalized:
         return ParseResult(specs=list(keyword_specs), coverage=MODELED)

@@ -202,3 +202,32 @@ def test_departed_sources_counters_go_on_its_created_token():
     engine.rules.resolve_top_of_stack()
     [fractal] = [obj for obj in state.battlefield if obj.name == "Fractal"]
     assert fractal.counters == {"+1/+1": 2, "shield": 1}
+
+
+def test_destroyed_targets_counter_is_measured_before_it_leaves():
+    card = Card(id="rite", name="Rite of the Serpent", type_line="Sorcery",
+                is_sorcery=True,
+                oracle_text=("Destroy target creature. If that creature had a +1/+1 "
+                             "counter on it, create a 1/1 green Snake creature token."))
+    parsed = parse_oracle(card)
+    assert parsed.modeled, parsed.unclaimed
+    [spec] = parsed.specs[0].effects
+    assert spec.type == "bind"
+    for marked in (False, True):
+        engine = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])],
+                                     starting_life=20, starting_hand=0)
+        state = engine.state
+        source = GameObject(card, owner_id="p1", zone=Zone.STACK)
+        source.controller_id = "p1"
+        target = GameObject(Card(id="bear", name="Bear", type_line="Creature — Bear",
+                                 is_creature=True, power=2, toughness=2),
+                            owner_id="p2", zone=Zone.BATTLEFIELD)
+        if marked:
+            target.counters["+1/+1"] = 1
+        state.add_to_battlefield(target)
+        effect = EffectRegistry.create(spec.type, spec.params)
+        effect.source = source
+        assert [target_spec.kind for target_spec in effect.target_specs] == ["creature"]
+        effect.apply(engine.rules.context, [target])
+        assert target.zone == Zone.GRAVEYARD
+        assert sum(obj.name == "Snake" for obj in state.battlefield) == int(marked)

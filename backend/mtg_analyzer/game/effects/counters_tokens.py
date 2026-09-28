@@ -1972,8 +1972,26 @@ class PumpEffect(GameEffect):
         toughness_if_bargained: Optional[int] = None,
         target_operand: Any = None,
         target_group_index: Optional[int] = None,
+        perpetual: bool = False,
+        card_zones: Optional[list[str]] = None,
+        card_type: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: MEC-98: Alchemy "perpetually gets +N/+N / gains <keyword>" — the
+        #: same addressing modes as an until-end-of-turn pump, but written to
+        #: the recipient's never-cleared `perpetual_*` fields instead of
+        #: `temp_*` (see `GameObject.perpetual_power`).
+        self.perpetual = perpetual
+        #: MEC-98: "creature cards in your hand/library/graveyard perpetually
+        #: get +1/+1" — cards the source's controller owns in these zones
+        #: (``"hand"``/``"library"``/``"graveyard"``), narrowed by
+        #: ``card_type`` (a `continuous.has_card_type` name, ``None`` = any
+        #: card) and ``subtypes``. Added to any ``selector`` group, so
+        #: "creatures you control and creature cards in your hand" is one
+        #: effect. Only a perpetual change can reach a card off the
+        #: battlefield — an until-end-of-turn one would be meaningless there.
+        self.card_zones = [z for z in (card_zones or []) if z in _PERPETUAL_CARD_ZONES]
+        self.card_type = card_type
         #: "target `<c1>` or `<c2>` creature gets/gains … until end of
         #: turn" (the Weaver cycle) — `TargetSpec.colors`' OR narrowing,
         #: checked at offer time by `targeting._color_ok`. WUBRG letters.
@@ -2138,6 +2156,20 @@ class PumpEffect(GameEffect):
             toughness = self._kicked_magnitude(
                 self.toughness, self.toughness_if_kicked, self.toughness_if_bargained
             )
+        if self.perpetual:
+            obj.perpetual_power += power
+            obj.perpetual_toughness += toughness
+            obj.perpetual_keywords.update(self.keywords)
+            if power or toughness or self.keywords:
+                obj.perpetual_effects.append(
+                    {
+                        "source": self.source.name if self.source is not None else "Effekt",
+                        "power": power,
+                        "toughness": toughness,
+                        "keywords": list(self.keywords),
+                    }
+                )
+            return
         obj.temp_power += power
         obj.temp_toughness += toughness
         obj.temp_keywords.update(self.keywords)
@@ -2206,6 +2238,14 @@ class PumpEffect(GameEffect):
             if self.amount_from_count_selector_axis in ("both", "toughness"):
                 self.toughness = amount
             if amount == 0:
+                return
+        if self.card_zones and self.perpetual:
+            # MEC-98: the off-battlefield half of a perpetual group ("… and
+            # creature cards in your hand, library, and graveyard").
+            for obj in self._zone_cards(context):
+                self._pump_one(obj)
+            if self.selector is None:
+                context.recompute()
                 return
         if self.selector is not None:
             from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
@@ -2304,6 +2344,29 @@ class PumpEffect(GameEffect):
         # Re-derive P/T now so a lethal -X/-X (toughness → 0) is caught by the
         # SBA pass the caller runs right after this resolution.
         context.recompute()
+
+    def _zone_cards(self, context: GameContext) -> list["GameObject"]:
+        from ..continuous import has_card_type  # avoid the continuous↔effects cycle
+
+        owner = context.state.player_by_id(getattr(self.source, "controller_id", None))
+        if owner is None:
+            return []
+        cards: list["GameObject"] = []
+        for zone in self.card_zones:
+            for obj in getattr(owner, zone, []):
+                if self.card_type and not has_card_type(obj, self.card_type):
+                    continue
+                if self.subtypes is not None and not any(
+                    s in obj.card.type_line.partition("—")[2].strip().lower().split()
+                    for s in self.subtypes
+                ):
+                    continue
+                cards.append(obj)
+        return cards
+
+
+#: MEC-98: the zones a perpetual pump's ``card_zones`` may name.
+_PERPETUAL_CARD_ZONES = ("hand", "library", "graveyard")
 
 
 class SwitchPowerToughnessEffect(GameEffect):
@@ -2535,6 +2598,37 @@ class ManifestDreadEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is not None:
             context._request_manifest_dread(player)
+
+
+class TurnFaceUpChosenEffect(GameEffect):
+    """"You may turn a permanent you control face up." (Zimone, Mystery
+    Unraveler) — an effect, not the RULE 116.2b special action, so no cost
+    is paid; the controller picks one of their face-down permanents.
+    `RulesEngine.turn_face_up` keeps an instant or sorcery face down (RULE
+    701.40g/701.58g)."""
+
+    def __init__(self, source: Optional["GameObject"] = None, optional: bool = True,
+                 creature_only: bool = False) -> None:
+        super().__init__(source)
+        self.optional = bool(optional)
+        self.creature_only = bool(creature_only)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        candidates = [
+            obj for obj in context.state.battlefield
+            if getattr(obj, "face_down", False)
+            and getattr(obj, "controller_id", None) == player.id
+            and (not self.creature_only or getattr(obj, "is_creature", False))
+        ]
+        if not candidates:
+            return
+        context.engine._request_choose_objects(
+            player, candidates, "turn_face_up", count=1, optional=self.optional,
+            source=self.source, prompt="Choose a face-down permanent to turn face up.",
+        )
 
 
 class CreateNamedCardTokenEffect(GameEffect):

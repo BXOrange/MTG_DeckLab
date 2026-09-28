@@ -65,6 +65,7 @@ _LEGACY_SAMPLES: dict[str, list[object]] = {
     "source_was_foretold": [True],
     "cast_via_escape": [True],
     "cast_outside_sorcery_speed": [True],
+    "cast_during_your_main_phase": [True],  # PAR-120, Addendum
     "source_is_renowned": [True, False],
     "previous_target_is_suspected": [True, False],
     "source_is_suspected": [True, False],
@@ -234,6 +235,7 @@ class TestTheCollapseIsReal:
             "source_was_cast_from_hand",  # PAR-120
             "source_was_foretold", "cast_via_escape",
             "cast_outside_sorcery_speed", "source_is_renowned",
+            "cast_during_your_main_phase",  # PAR-120, Addendum
             "previous_target_is_suspected", "teamwork_paid",
             # RULE 701.60c's `is_suspected` flag read off two more referents,
             # plus RULE 602.2b's sacrificed-cost-specific flag — always part of

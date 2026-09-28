@@ -255,6 +255,8 @@ INSTRUCTIONS: dict[str, Instruction] = {
         _ins("imprint", "702.61", ROLE_AGENT, ROLE_PATIENT),
         _ins("mutate", "702.140", ROLE_AGENT, ROLE_PATIENT),
         _ins("phase_out", "702.26", ROLE_AGENT, ROLE_PATIENT),
+        _ins("turn_face_up", "708.8", ROLE_AGENT, ROLE_PATIENT,
+             note="by an effect, not the RULE 116.2b special action — no cost"),
         _ins("chaos_ensues", "901.15", ROLE_AGENT,
              note="Planechase (RULE 901) — the chaos ability of the face-up "
                   "plane. Sibling of planeswalk/set_in_motion/abandon, which "
@@ -398,6 +400,7 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     "meld": "meld",
     "manifest": "manifest",
     "manifest_dread": "manifest_dread",
+    "turn_face_up_chosen": "turn_face_up",
     "mill": "mill",
     "monstrosity": "monstrosity",
     "move_counters": "move_counter",

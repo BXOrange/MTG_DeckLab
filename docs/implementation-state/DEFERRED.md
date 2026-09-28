@@ -67,12 +67,22 @@ it had lived in `BACKLOG.md`.
   reaching it from the UI follows the same already-shipped format-picker
   pattern the RULE 9 variants use (Done_Backend.md "PLR-13").
 
+- **MEC-98 · Perpetual effects: the residue past P/T + keywords.** (Alchemy; no CR rule.) Still
+  unclaimed: a perpetually granted quoted ability or parametric keyword ("ward {1}", "unearth
+  {5}", "this spell costs {1} less to cast"); perpetual type/base-P/T changes ("perpetually
+  becomes a `<type>`", "base power … perpetually becomes"); "choose a `<x>` card in your hand. it
+  perpetually …"; "this ability also triggers if ~ is in exile/your graveyard"; and the
+  random/topmost/seek/conjure/spellbook subjects. Extend `GameObject.perpetual_*` +
+  `handlers._perpetual_pump_specs`.
+
+
 ---
 
 ## Permanent non-goals
 
 Never to be built — not gaps.
 
+- **Alchemy only cards and mechanics**
 - **Stickers (RULE 123) and Attractions (RULE 717).** `gate.parse_oracle`
   classifies mentions of the former `NEVER_SUPPORTED`, a verdict kept out
   of both the coverage count and the backlog ranking.

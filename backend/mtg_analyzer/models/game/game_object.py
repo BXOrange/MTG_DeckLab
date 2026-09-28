@@ -196,6 +196,9 @@ class GameObject:
         #: enters trigger. The pool's source buckets make this an actual
         #: payment fact, not a guess from which permanents were tapped.
         self.mana_spent_to_cast_treasure: int = 0
+        #: The same fact for this permanent's most recent activation (Jetmir's
+        #: Fixer) — stamped at payment like `counters_removed_as_cost`.
+        self.mana_spent_to_activate_treasure: int = 0
         #: Whether this permanent actually went through `RulesEngine.
         #: cast_spell`/`cast_without_paying` (RULE 601.2), as opposed to
         #: being put onto the battlefield directly (a search/reanimation
@@ -229,6 +232,9 @@ class GameObject:
         #: answer) changes by the time anything reads it later; consumed by
         #: `EffectSpec.condition`'s ``"cast_outside_sorcery_speed"`` gate.
         self.cast_outside_sorcery_speed: bool = False
+        #: Addendum's "if you cast this spell during your main phase" (RULE
+        #: 505.1) — stamped beside `cast_outside_sorcery_speed`, stack or not.
+        self.cast_during_your_main_phase: bool = False
         #: RULE 702.94a Soulbond: the `instance_id` of the creature this one
         #: is paired with, held on **both** objects, or ``None`` when
         #: unpaired. A genuine piece of game state rather than a continuous
@@ -1220,6 +1226,23 @@ class GameObject:
         #: `temp_keywords`/`temp_power`.
         self.temp_granted_activated_abilities: list[Any] = []
 
+        #: MEC-98: Alchemy "perpetually gets +N/+N / gains <keyword>" — a
+        #: digital-only duration (not in the paper CR; MTG Arena's Alchemy
+        #: rules) that, unlike every ``temp_*`` field above, is *never*
+        #: forgotten: not at cleanup (RULE 514.2), not on a zone change
+        #: (`reset_as_new_object` deliberately leaves these alone, the one
+        #: exception to RULE 400.7's "effects are not retained"), and not by
+        #: `reset_derived`. It reaches cards in hand/library/graveyard too, so
+        #: the off-battlefield `power`/`toughness` fallback folds it in as
+        #: well as `continuous.recompute`'s layer 7d/layer 6 passes. Carried
+        #: onto a copy of the card (`copy_perpetual_from`).
+        #: ``perpetual_effects`` is the display-only per-source breakdown,
+        #: `temp_effects`' shape.
+        self.perpetual_power: int = 0
+        self.perpetual_toughness: int = 0
+        self.perpetual_keywords: set[str] = set()
+        self.perpetual_effects: list[dict[str, Any]] = []
+
         #: "Another target creature" a layer-1 conditional-copy static
         #: ability (Vesuvan Shapeshifter) should copy — read fresh every
         #: `continuous.recompute` pass, the same idiom `attached_to` uses.
@@ -1313,6 +1336,8 @@ class GameObject:
         `_granted_*`/`_derived_*` fields already get via the next
         `continuous.recompute` pass rather than an explicit clear here.
         """
+        # MEC-98: `perpetual_*` is deliberately *not* reset here — a
+        # perpetual change survives every zone change.
         # RULE 708.9: a face-down permanent is revealed as it changes zones,
         # so a new object is never still face down (and never keeps the old
         # object's stashed face-up bundle).
@@ -1337,8 +1362,10 @@ class GameObject:
         self.mana_by_color_spent_to_cast = {}
         self.mana_spent_to_cast_snow = 0
         self.mana_spent_to_cast_treasure = 0
+        self.mana_spent_to_activate_treasure = 0
         self.was_cast = False
         self.cast_outside_sorcery_speed = False
+        self.cast_during_your_main_phase = False
         self.sacrificed_cost_mana_value = None
         self.sacrificed_cost_was_suspected = False
         self.sacrificed_cost_power = None
@@ -1625,7 +1652,7 @@ class GameObject:
             return self._derived_power
         if self.card.power is None:
             return None
-        return self.card.power + self.plus_one_counters
+        return self.card.power + self.plus_one_counters + self.perpetual_power
 
     @property
     def toughness(self) -> Optional[int]:
@@ -1634,7 +1661,15 @@ class GameObject:
             return self._derived_toughness
         if self.card.toughness is None:
             return None
-        return self.card.toughness + self.plus_one_counters
+        return self.card.toughness + self.plus_one_counters + self.perpetual_toughness
+
+    def copy_perpetual_from(self, other: "GameObject") -> None:
+        """MEC-98: a copy of a card carries that card's perpetual changes
+        (Alchemy — "conjure a duplicate" keeps a perpetual +1/+1)."""
+        self.perpetual_power = other.perpetual_power
+        self.perpetual_toughness = other.perpetual_toughness
+        self.perpetual_keywords = set(other.perpetual_keywords)
+        self.perpetual_effects = [dict(e) for e in other.perpetual_effects]
 
     @property
     def granted_keywords(self) -> set[str]:

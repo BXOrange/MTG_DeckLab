@@ -583,12 +583,12 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 50.7% (17,641 / 34,811) as of 2026-09-28, measured at
-PARSER_VERSION 485** (parser-`MODELED` or hand-`AUTHORED`, measured against
+**Coverage: 51.0% (17,739 / 34,811) as of 2026-09-28, measured at
+PARSER_VERSION 497** (parser-`MODELED` or hand-`AUTHORED`, measured against
 the full ~35k-card Oracle universe from `scripts/import_bulk.py`). Re-measure
 with `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset that
-matters for Goldfisch/Deck-Analyzer — is **53.3% (16,968 / 31,830)**; measure
+matters for Goldfisch/Deck-Analyzer — is **53.6% (17,048 / 31,830)**; measure
 it with `scripts/coverage_report.py --commander-legal-only` (records a
 separate `…-commander` snapshot row) and segment the still-UNMODELED
 remainder by *cause* (wrapper re-measure / recurring template → `PAR-*` /
@@ -603,10 +603,8 @@ project non-goal** — the gate classifies any "sticker" card as
 `NEVER_SUPPORTED`, a verdict distinct from `UNMODELED` and kept out of both
 the covered count and the backlog ranking.
 
-**Notable open gaps** are tracked with exact scope in `BACKLOG.md`: a kicked
-spell's "if kicked, … instead" override that *also* grants a keyword
-(Colossal Growth — the plain magnitude override is shipped for both the
-damage and pump axes, MEC-82); Doomsday's "exile up to five cards in a pile";
+**Notable open gaps** are tracked with exact scope in `BACKLOG.md`:
+Doomsday's "exile up to five cards in a pile";
 the oracle
 coverage of the battle pool (the RULE 310 engine is done, ~12 of 39 cached
 battles MODELED); and assorted rough edges on already-shipped features.

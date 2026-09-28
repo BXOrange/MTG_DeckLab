@@ -2551,6 +2551,9 @@ EffectRegistry.register(
         power_if_bargained=p.get("power_if_bargained"),
         toughness_if_bargained=p.get("toughness_if_bargained"),
         target_operand=p.get("target_operand"),
+        perpetual=bool(p.get("perpetual", False)),  # MEC-98
+        card_zones=p.get("card_zones"),
+        card_type=p.get("card_type"),
     ),
 )
 EffectRegistry.register(
@@ -2590,6 +2593,14 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register("manifest_dread", lambda p: ManifestDreadEffect())
+EffectRegistry.register(
+    # RULE 708.8 by an effect: "you may turn a permanent you control face up".
+    "turn_face_up_chosen",
+    lambda p: TurnFaceUpChosenEffect(
+        optional=bool(p.get("optional", True)),
+        creature_only=bool(p.get("creature_only", False)),
+    ),
+)
 EffectRegistry.register(
     "top_library_permission",
     lambda p: TopLibraryPermissionEffect(

@@ -270,6 +270,7 @@ _NAMED_TERMS: dict[str, str] = {
     "your life total": "your_life_total",
     # `GameState.life_gained_this_turn` (Fortifying Draught) — a turn total, no noun phrase.
     "the amount of life you gained this turn": "life_gained_this_turn",
+    "the number of experience counters you have": "experience_counters_you_have",
 }
 #: "`<N>` plus …" (Allosaurus Rider) and "twice …" (Territorial Maro).
 _PLUS_PREFIX = re.compile(rf"^(?P<n>{_NUMBER}) plus (?P<rest>.+)$")

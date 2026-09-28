@@ -180,7 +180,12 @@ class CopiesMixin:
                 add_types=add_types, add_subtypes=add_subtypes, not_legendary=not_legendary,
                 set_power=set_power, set_toughness=set_toughness, set_colors=set_colors,
             )
-        return self.create_token(controller_id, copiable, count)
+        tokens = self.create_token(controller_id, copiable, count)
+        # MEC-98: a copy carries the original's perpetual changes (Alchemy).
+        for token in tokens:
+            token.copy_perpetual_from(source)
+        return tokens
+
     def _apply_populate_enter_state(
         self, tokens: list[GameObject], enter_state: Optional[dict]
     ) -> None:
@@ -337,6 +342,7 @@ class CopiesMixin:
         # the instant the next SBA pass ran, before it could ever be cast or
         # discarded.
         copy_obj.conjured_into_hand = True
+        copy_obj.copy_perpetual_from(item.obj)  # MEC-98: a duplicate keeps perpetual changes
         bind_from_catalogue(copy_obj)
         player = self.state.player_by_id(controller_id)
         if player is None:
@@ -662,6 +668,12 @@ class CopiesMixin:
         abilities don't trigger — the permanent has been on the battlefield
         all along — so the only event fired is `EventType.TURNED_FACE_UP`.
         """
+        # RULE 701.40g/701.58g: an instant or sorcery is revealed and stays
+        # face down, and nothing triggers.
+        hidden = obj.face_down and (obj._face_up_snapshot or {}).get("card")
+        if hidden is not None and (getattr(hidden, "is_instant", False)
+                                   or getattr(hidden, "is_sorcery", False)):
+            return False
         if not obj.turn_face_up():
             return False
         if megamorph:

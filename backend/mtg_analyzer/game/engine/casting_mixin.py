@@ -1817,6 +1817,9 @@ class CastingMixin:
             obj.cast_outside_sorcery_speed = not (
                 player is self.state.active_player and self._in_main_phase() and not self.state.stack
             )
+            obj.cast_during_your_main_phase = (
+                player is self.state.active_player and self._in_main_phase()
+            )
             # RULE 601.2h/702.194a: Teamwork's tap cost is paid here, ahead
             # of every cast-path branch below (rather than alongside the
             # other additional-cost bookkeeping further down, after `self.

@@ -297,6 +297,15 @@ _PT_CDA_RE = re.compile(
     r"~'?s power and toughness are each equal to (?P<what>.+)",
     re.IGNORECASE,
 )
+_TURN_SPLIT_FIXED_PT_RE = re.compile(
+    r"during turns other than yours, ~'?s power and toughness are each (?P<n>\d+)",
+    re.IGNORECASE,
+)
+_TURN_SPLIT_PT_RE = re.compile(
+    r"(?P<first>during your turn, ~'?s power and toughness are each equal to [^.]+)\.\s*"
+    r"(?P<second>during turns other than yours, ~'?s power and toughness are each \d+)",
+    re.IGNORECASE,
+)
 
 #: PAR-43: the *single-characteristic* CDA — "~'s power is equal to the
 #: number of `<X>`." (Ironroot Warlord / Kolaghan Forerunners / Suki, Kyoshi
@@ -2991,6 +3000,9 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # "if you gained life this turn" (31).
     (re.compile(r"you(?:'ve| have)? gained life this turn", re.I),
      lambda m: {"kind": "gained_life_this_turn"}),
+    # "if you gained 7 or more life this turn" (Aerith, Last Ancient).
+    (re.compile(rf"you(?:'ve| have)? gained (?P<n>{_NUMBER}) or more life this turn", re.I),
+     lambda m: {"kind": "gained_life_this_turn", "amount": _number(m.group("n").lower())}),
     # "if you descended this turn" (Lost Caverns of Ixalan) — a permanent card was put into
     # your graveyard from anywhere.
     (re.compile(r"you(?:'ve| have)? descended this turn", re.I),
@@ -3017,6 +3029,8 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
      lambda m: {"kind": "opponent_poison_at_least", "amount": _number(m.group("n").lower())}),
     (re.compile(r"mana from a treasure was spent to cast (?:it|this spell)", re.I),
      lambda m: {"kind": "treasure_mana_spent_to_cast"}),
+    (re.compile(r"mana from a treasure was spent to activate this ability", re.I),
+     lambda m: {"kind": "treasure_mana_spent_to_activate"}),
     # "if ~ is an enchantment" (22) — a live card-type read of the source,
     # which matters for the Cases/Sagas that change type mid-game. The five
     # alternatives are exactly the printed card types (`subgrammars.
@@ -3289,6 +3303,9 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # drop the stricter reading.
     (re.compile(r"you cast it from your hand", re.I),
      lambda m: {"kind": "flag", "flag": "was_cast_from_hand"}),
+    # Addendum — the spell's own cast-time stamp (RULE 505.1).
+    (re.compile(r"you cast this spell during your main phase", re.I),
+     lambda m: {"kind": "flag", "flag": "cast_during_your_main_phase"}),
     (re.compile(r"you cast it", re.I),
      lambda m: {"kind": "flag", "flag": "was_cast"}),
     # PAR-120: "if it was/wasn't a `<type>`[ card]" — RULE 400.7 referent
@@ -4034,6 +4051,23 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
                 params["affects"] = "self"
                 specs.append(EffectSpec(grant.type, params, condition=grant.condition))
             return specs
+
+    # RULE 604.3 + 613.6: a CDA split by whose turn it is (Angry Mob) — two
+    # sentences, each a self P/T definition gated on the opposite turn.
+    turn_halves = _TURN_SPLIT_PT_RE.fullmatch(text)
+    if turn_halves is not None:
+        first = static_effect_specs(turn_halves.group("first"))
+        second = static_effect_specs(turn_halves.group("second"))
+        if first and second and first[0].type == "pt_cda" and second[0].type == "pt_set":
+            return first + second
+        return None
+    turn_split = _TURN_SPLIT_FIXED_PT_RE.fullmatch(text)
+    if turn_split is not None:
+        n = int(turn_split.group("n"))
+        return [EffectSpec("pt_set", {
+            "affects": "self", "power": n, "toughness": n,
+            "active_if": {"kind": "not_your_turn"},
+        })]
 
     # RULE 613.6: "as long as <condition>, <static>" (either printed order) —
     # parse the gate, then re-enter with the bare static and hand every spec

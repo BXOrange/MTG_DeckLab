@@ -7295,7 +7295,7 @@ def _create_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 _CREATE_TOKEN_QUOTED_CDA_RE = _c(
     rf"(?P<who>each player |each opponent )?creates? {COUNT} "
-    r"(?P<mid>[a-z ]*?)creature tokens? with "
+    r"(?P<mid>[a-z ]*?)creature tokens? with (?:(?P<kw>[a-z ]+?) and )?"
     r'"(?P<cda>(?:this token|this creature|~)\'?s power[^\"]+)"'
 )
 
@@ -7319,12 +7319,42 @@ def _create_token_quoted_cda(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "colors": colors, "subtypes": subtypes,
         "token_name": " ".join(subtypes), "oracle_text": oracle,
     }
+    if m.group("kw"):
+        keywords = _token_keywords(m.group("kw"))
+        if keywords is None:
+            return None
+        params["keywords"] = keywords
     if is_artifact:
         params["is_artifact"] = True
     who = m.group("who") or ""
     if who:
         params["creators"] = "each_opponent" if "opponent" in who else "each_player"
     return [EffectSpec("create_token", params)]
+
+
+_CREATE_NAMED_TOKEN_QUOTED_CDA_RE = _c(
+    r"create (?P<name>[a-z][a-z' -]*), a legendary (?P<mid>[a-z ]*?)"
+    r'creature token with "(?P<cda>[^\"]+)"'
+)
+
+
+def _create_named_token_quoted_cda(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from .static_handlers import static_effect_specs  # function-scoped: static_handlers imports this module
+
+    name, oracle = m.group("name").strip(), m.group("cda")
+    normalized = re.sub(rf"^{re.escape(name)}'s", "~'s", oracle, flags=re.I)
+    parsed = static_effect_specs(normalized)
+    if not parsed or len(parsed) != 1 or parsed[0].type != "pt_cda":
+        return None
+    colors, subtypes, is_artifact = _split_token_mid_words(m.group("mid"))
+    if not subtypes:
+        return None
+    return [EffectSpec("create_token", {
+        "count": 1, "power": 0, "toughness": 0,
+        "colors": colors, "subtypes": subtypes, "token_name": name,
+        "oracle_text": oracle, "legendary": True,
+        **({"is_artifact": True} if is_artifact else {}),
+    })]
 
 
 #: "Create that many 1/1 green Elf Warrior creature tokens." (Lathril,
@@ -9815,6 +9845,15 @@ def _manifest(m: re.Match[str]) -> list[EffectSpec]:
 
 def _manifest_dread(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("manifest_dread", {})]
+
+
+# RULE 708.8 by an effect, untargeted: "you may turn a permanent you control
+# face up" (Zimone) / "… a face-down creature you control face up".
+def _turn_face_up_chosen(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("turn_face_up_chosen", {
+        "optional": bool(m.group("may")),
+        "creature_only": m.group("what") == "face-down creature",
+    })]
 
 
 # "Venture into the dungeon." (RULE 701.49) and its RULE 701.49d "venture
@@ -13092,7 +13131,7 @@ _ANIMATE_QUALIFIER_SUBTYPES: frozenset[str] = frozenset({
     "beast", "bird", "cat", "dog", "insect", "snake", "treefolk", "wolf",
     # PAR-124: Disturbed Slumber's own animate-land target ("4/4 dinosaur
     # creature").
-    "dinosaur",
+    "dinosaur", "bear",
 })
 #: PAR-79 sixth increment: "~ becomes a 2/2 **blue and black** horror
 #: artifact creature …" (Dimir/Azorius/Boros/… Keyrune, Atarka/Dromoka
@@ -13216,6 +13255,46 @@ def _animate_self_leading_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.group(0).lower().endswith("can't be blocked this turn"):
         specs.append(EffectSpec("unblockable", {"target_kind": None}))
     return specs
+
+
+_ANIMATE_QUOTED_CDA_RE = _c(
+    r"(?:(?P<eot>until end of turn), )?"
+    r"(?P<subject>~|target land you control|the goblin sparring grounds) becomes a "
+    r"(?P<quals>[a-z ]*?)creature "
+    r"(?:with|in addition to its other types and gains) "
+    r"(?:(?P<kw>haste) and )?"
+    r'"(?P<cda>~\'s power and toughness are each equal to [^\"]+)"'
+    r"(?: it'?s still a land)?"
+)
+
+
+def _animate_quoted_cda(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    """Animate once, granting the quoted P/T definition to that object."""
+    from .static_handlers import static_effect_specs  # local: imports handlers
+
+    parsed = static_effect_specs(m.group("cda"))
+    if not parsed or len(parsed) != 1 or parsed[0].type != "pt_cda":
+        return None
+    quals = _split_animate_qualifiers(m.group("quals"))
+    if quals is None:
+        return None
+    colors, add_types, add_subtypes = quals
+    extra = [parsed[0].to_dict()]
+    if colors:
+        extra.append({"type": "color", "params": {"colors": colors, "set": True}})
+    if m.group("kw"):
+        extra.append({"type": "grant_keyword", "params": {"keywords": ["haste"]}})
+    subject = m.group("subject").lower()
+    return [EffectSpec("grant_until", {
+        "duration": "end_of_turn" if m.group("eot") else "rest_of_game",
+        "target_kind": "land_you_control" if subject == "target land you control" else None,
+        "self_subject": subject != "target land you control",
+        "static": {"type": "type_change", "params": {
+            "add_types": ["creature", *add_types],
+            **({"add_subtypes": add_subtypes} if add_subtypes else {}),
+        }},
+        "extra_statics": extra,
+    })]
 
 
 #: The TARGET sibling — "target land becomes a 3/3 creature until end of
@@ -16791,6 +16870,11 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler("x_power_unblockable", _X_POWER_UNBLOCKABLE_RE, _x_power_unblockable),
     EffectHandler("x_targets_unblockable", _X_TARGETS_UNBLOCKABLE_RE, _x_targets_unblockable),
     EffectHandler(
+        "animate_quoted_cda",
+        _ANIMATE_QUOTED_CDA_RE,
+        _animate_quoted_cda,
+    ),
+    EffectHandler(
         "animate_self",
         _ANIMATE_SELF_RE,
         _animate_self,
@@ -16920,6 +17004,12 @@ HANDLERS: list[EffectHandler] = [
         "manifest_dread",
         _c(r"manifest dread"),
         _manifest_dread,
+    ),
+    EffectHandler(
+        "turn_face_up_chosen",
+        _c(r"(?P<may>you may )?turn a (?P<what>permanent|face-down permanent|face-down creature)"
+           r" you control face up"),
+        _turn_face_up_chosen,
     ),
     # "manifest the top card of your library" / "…the top two cards…" and
     # cloak's identical shape (RULE 701.40a/701.58a).
@@ -17078,6 +17168,11 @@ HANDLERS: list[EffectHandler] = [
         ),
         _create_token,
     ),
+    EffectHandler(
+        "create_named_token_quoted_cda",
+        _CREATE_NAMED_TOKEN_QUOTED_CDA_RE,
+        _create_named_token_quoted_cda,
+    ),
     # PAR-13: "Create <Name>, a legendary N/N ... creature token [with
     # <keywords>]." — Cradle of the Death God's own unique Atropal token.
     EffectHandler(
@@ -17229,4 +17324,87 @@ def match_clause(
         effects = handler.match(clause)
         if effects is not None:
             return effects
-    return None
+    return _perpetual_pump_specs(
+        clause, self_subject=self_subject, previous_subject=previous_subject,
+        group_subject=group_subject, previous_selector=previous_selector,
+        attached_subject=attached_subject,
+    )
+
+
+# -- MEC-98: Alchemy "perpetually" P/T + keyword changes ---------------------
+#
+# "<subject> perpetually gets +N/+N [and gains <kw>]" / "… perpetually gains
+# <kw>" is an until-end-of-turn pump in every respect but its duration, so
+# rather than duplicating the ~40 pump rows' subject/amount/keyword grammar
+# this rewrites the clause into its "… until end of turn" form, runs the
+# ordinary table on that, and flips the resulting `pump` specs to
+# ``perpetual``. Fail-closed: only a result made purely of plain pumps is
+# accepted (an "and can't be blocked this turn" rider has no perpetual
+# meaning). The off-battlefield subjects ("creature cards in your hand,
+# library, and graveyard") no pump row knows get their own grammar below,
+# borrowing only the amount/keyword half from the same rewrite.
+
+_PERPETUAL_RE = re.compile(
+    r"(?P<subj>.+?) perpetually (?P<verb>gets?|gains?) (?P<rest>.+?)\.?"
+)
+#: A trailing "where x is …" has to stay *after* the inserted duration.
+_PERPETUAL_WHERE_RE = re.compile(r"(?P<head>.+?)(?P<tail>,? where x is .+)")
+#: Pump params that have no perpetual reading — a spec carrying one is refused.
+_PERPETUAL_REFUSED_PARAMS = ("unblockable", "parametric_keywords")
+#: "creatures you control and creature cards in your hand, library, and
+#: graveyard" / "creature cards in your hand" / "each creature card in your
+#: graveyard".
+_PERPETUAL_ZONE_SUBJECT_RE = re.compile(
+    r"(?:(?P<bf>creatures you control) and )?(?:each )?creature cards? in your "
+    r"(?P<zones>(?:hand|library|graveyard)(?:(?:,| and|, and) (?:hand|library|graveyard))*)"
+)
+_PERPETUAL_ZONE_WORDS = ("hand", "library", "graveyard")
+
+
+def _perpetual_pump_specs(clause: str, **flags: bool) -> Optional[list[EffectSpec]]:
+    m = _PERPETUAL_RE.fullmatch(clause.strip())
+    if m is None:
+        return None
+    verb = m.group("verb")
+    if not verb.endswith("s"):
+        verb += "s"  # plural subject ("… cards perpetually get") → singular pump row
+    rest = m.group("rest")
+    where = _PERPETUAL_WHERE_RE.fullmatch(rest)
+    if where is not None:
+        rest_eot = f"{where.group('head')} until end of turn{where.group('tail')}"
+    else:
+        rest_eot = f"{rest} until end of turn"
+
+    zone = _PERPETUAL_ZONE_SUBJECT_RE.fullmatch(m.group("subj"))
+    if zone is not None:
+        body = match_clause(f"target creature {verb} {rest_eot}")
+        base = _perpetual_flip(body)
+        if base is None or len(base) != 1 or where is not None:
+            return None
+        params = {
+            k: v for k, v in base[0].params.items()
+            if k in ("power", "toughness", "keywords", "perpetual")
+        }
+        params["card_zones"] = [
+            w for w in _PERPETUAL_ZONE_WORDS if w in zone.group("zones")
+        ]
+        params["card_type"] = "creature"
+        if zone.group("bf"):
+            params["selector"] = "creatures_you_control"
+        return [EffectSpec("pump", params)]
+
+    subj = m.group("subj")
+    plural_verb = m.group("verb") in ("get", "gain")
+    rewritten = f"{subj} {m.group('verb') if plural_verb else verb} {rest_eot}"
+    return _perpetual_flip(match_clause(rewritten, **flags))
+
+
+def _perpetual_flip(specs: Optional[list[EffectSpec]]) -> Optional[list[EffectSpec]]:
+    if not specs:
+        return None
+    out: list[EffectSpec] = []
+    for spec in specs:
+        if spec.type != "pump" or any(spec.params.get(k) for k in _PERPETUAL_REFUSED_PARAMS):
+            return None
+        out.append(EffectSpec("pump", {**spec.params, "perpetual": True}))
+    return out

@@ -372,6 +372,148 @@ def test_created_token_binds_its_quoted_cda():
     assert (token.power, token.toughness) == (2, 2)
 
 
+def test_named_token_binds_its_own_quoted_cda():
+    engine, state = _engine()
+    [spec] = parse_effect_body(
+        'create Beau, a legendary blue Ox creature token with "Beau\'s power '
+        'and toughness are each equal to the number of lands you control."'
+    )
+    source = obj_on_battlefield(state, engine, Card(
+        id="bonny", name="Bonny Pall", type_line="Creature — Giant",
+        is_creature=True, power=6, toughness=5), controller="p1")
+    obj_on_battlefield(state, engine, Card(
+        id="forest", name="Forest", type_line="Basic Land — Forest", is_land=True,
+    ), controller="p1")
+    effect = EffectRegistry.create(spec.type, spec.params)
+    effect.source = source
+    effect.apply(engine.rules.context)
+    [beau] = [obj for obj in state.battlefield if obj.name == "Beau"]
+    engine.recompute_continuous_effects()
+    assert beau.is_token and (beau.power, beau.toughness) == (1, 1)
+
+
+def test_elephant_resurgence_tokens_count_each_controllers_graveyard():
+    engine, state = _engine()
+    oracle = ('Each player creates a green Elephant creature token. Those creatures have '
+              '"This token\'s power and toughness are each equal to the number of '
+              'creature cards in its controller\'s graveyard."')
+    assert parse_oracle(Card(id="elephant-spell", name="Elephant Resurgence",
+                             type_line="Sorcery", is_sorcery=True,
+                             oracle_text=oracle)).modeled
+    [spec] = parse_effect_body(oracle)
+    source = obj_on_battlefield(state, engine, Card(
+        id="resurgence", name="Elephant Resurgence", type_line="Sorcery"), controller="p1")
+    for owner, count in (("p1", 1), ("p2", 3)):
+        for n in range(count):
+            state.player_by_id(owner).graveyard.append(GameObject(
+                Card(id=f"{owner}-{n}", name="Bear", type_line="Creature — Bear",
+                     is_creature=True, power=2, toughness=2),
+                owner_id=owner, zone=Zone.GRAVEYARD))
+    effect = EffectRegistry.create(spec.type, spec.params)
+    effect.source = source
+    effect.apply(engine.rules.context)
+    engine.recompute_continuous_effects()
+    elephants = {obj.controller_id: obj for obj in state.battlefield if obj.is_token}
+    assert set(elephants) == {"p1", "p2"}
+    assert (elephants["p1"].power, elephants["p1"].toughness) == (1, 1)
+    assert (elephants["p2"].power, elephants["p2"].toughness) == (3, 3)
+
+
+def test_seize_the_storm_token_counts_flashback_in_exile_and_has_trample():
+    engine, state = _engine()
+    oracle = ('Create a red Elemental creature token with trample and "This token\'s '
+              'power and toughness are each equal to the number of instant and sorcery '
+              'cards in your graveyard plus the number of cards with flashback you own in exile."')
+    assert parse_oracle(Card(id="seize-spell", name="Seize the Storm",
+                             type_line="Sorcery", is_sorcery=True,
+                             oracle_text=oracle)).modeled
+    [spec] = parse_effect_body(oracle)
+    source = obj_on_battlefield(state, engine, Card(
+        id="seize", name="Seize the Storm", type_line="Sorcery"), controller="p1")
+    state.player_by_id("p1").graveyard.append(GameObject(
+        Card(id="bolt", name="Bolt", type_line="Instant", is_instant=True),
+        owner_id="p1", zone=Zone.GRAVEYARD))
+    state.player_by_id("p1").exile.append(GameObject(
+        Card(id="flash", name="Flash", type_line="Sorcery", is_sorcery=True,
+             oracle_text="Flashback {2}{R}"), owner_id="p1", zone=Zone.EXILE))
+    effect = EffectRegistry.create(spec.type, spec.params)
+    effect.source = source
+    effect.apply(engine.rules.context)
+    [token] = [obj for obj in state.battlefield if obj.is_token]
+    engine.recompute_continuous_effects()
+    from mtg_analyzer.game.combat import has
+    assert has(token, "trample")
+    assert (token.power, token.toughness) == (2, 2)
+
+
+@pytest.mark.parametrize("body, expected, targeted", [
+    ('~ becomes a Bear creature in addition to its other types and gains '
+     '"~\'s power and toughness are each equal to the number of lands you control."', 2, False),
+    ('Until end of turn, ~ becomes a Construct artifact creature with '
+     '"~\'s power and toughness are each equal to the number of charge counters on it."', 3, False),
+    ('Until end of turn, ~ becomes a black and green Plant Zombie creature with '
+     '"~\'s power and toughness are each equal to the number of creature cards '
+     'in your graveyard." It\'s still a land.', 2, False),
+    ('Until end of turn, The Goblin Sparring Grounds becomes a Goblin creature '
+     'in addition to its other types and gains "~\'s power and toughness are '
+     'each equal to the number of experience counters you have."', 4, False),
+    ('Target land you control becomes a creature with haste and "~\'s power '
+     'and toughness are each equal to the number of lands you control." '
+     'It\'s still a land.', 2, True),
+])
+def test_animated_permanent_receives_quoted_cda(body, expected, targeted):
+    engine, state = _engine()
+    source = obj_on_battlefield(state, engine, Card(
+        id="animator", name="Animator", type_line="Enchantment"), controller="p1")
+    source.counters["charge"] = 3
+    state.player_by_id("p1").counters["experience"] = 4
+    for n in range(2):
+        state.player_by_id("p1").graveyard.append(GameObject(
+            Card(id=f"creature-{n}", name="Bear", type_line="Creature — Bear",
+                 is_creature=True), owner_id="p1", zone=Zone.GRAVEYARD))
+    lands = [obj_on_battlefield(state, engine, Card(
+        id=f"land-{n}", name="Forest", type_line="Basic Land — Forest",
+        is_land=True), controller="p1") for n in range(2)]
+    [spec] = parse_effect_body(body)
+    effect = EffectRegistry.create(spec.type, spec.params)
+    effect.source = source
+    assert len(effect.target_specs) == int(targeted)
+    effect.apply(engine.rules.context, targets=[lands[0]] if targeted else None)
+    engine.recompute_continuous_effects()
+    subject = lands[0] if targeted else source
+    assert subject.is_creature
+    assert (subject.power, subject.toughness) == (expected, expected)
+    if targeted:
+        from mtg_analyzer.game.combat import has
+        assert has(subject, "haste")
+    if "charge counters" in body:
+        source.counters["charge"] = 5
+        engine.recompute_continuous_effects()
+        assert (source.power, source.toughness) == (5, 5)
+
+
+def test_angry_mob_turn_split_power_tracks_opposing_swamps():
+    engine, state = _engine()
+    mob = obj_on_battlefield(state, engine, Card(
+        id="mob", name="Angry Mob", type_line="Creature — Human",
+        is_creature=True, power=0, toughness=0,
+        oracle_text=("Trample\nDuring your turn, Angry Mob's power and toughness "
+                     "are each equal to 2 plus the number of Swamps your opponents "
+                     "control. During turns other than yours, Angry Mob's power and "
+                     "toughness are each 2.")), controller="p1")
+    bind_from_catalogue(mob)
+    assert parse_oracle(mob.card).modeled
+    for n in range(2):
+        obj_on_battlefield(state, engine, Card(
+            id=f"swamp-{n}", name="Swamp", type_line="Basic Land — Swamp",
+            is_land=True), controller="p2")
+    engine.recompute_continuous_effects()
+    assert (mob.power, mob.toughness) == (4, 4)
+    state.active_player_index = 1
+    engine.recompute_continuous_effects()
+    assert (mob.power, mob.toughness) == (2, 2)
+
+
 # ---------------------------------------------------------------------------
 # Equivalence with the legacy named selectors these replace
 # ---------------------------------------------------------------------------

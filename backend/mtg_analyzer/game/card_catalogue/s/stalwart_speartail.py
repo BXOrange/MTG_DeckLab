@@ -12,17 +12,20 @@ def _stalwart_speartail() -> list[AbilitySpec]:
     Whenever Stalwart Speartail attacks, Stalwart Speartail deals 1 damage
     to each creature and each planeswalker.
 
-    Simplified: only the second (attacks-trigger) ability is modeled. The
-    first is RULE 121's *perpetual* effect shape (a one-time, permanent
-    grant that outlives its source and reaches into hand/library, unlike
-    an ordinary "as long as ~ is on the battlefield" static) — genuinely
-    unsupported by this engine (`GrantUntilEffect`'s duration vocabulary,
-    `game/durations.py`, is turn/game-window-scoped, not "forever,
-    independent of the source"), so it's left out rather than
-    approximated as an always-on static, which would be a meaningfully
-    different, strictly *more* powerful card.
+    The enrage trigger is MEC-98's perpetual pump: ``card_zones`` reaches
+    the Dinosaur cards in hand and library, ``selector`` the other Dinosaurs
+    on the battlefield, ``subtypes`` narrows both.
     """
     return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("pump", {
+                "power": 1, "toughness": 1, "perpetual": True,
+                "selector": "other_creatures_you_control",
+                "card_zones": ["hand", "library"], "subtypes": ["dinosaur"],
+            })],
+            trigger={"event": "DAMAGE", "condition": {"subject": "self", "recipient": True}},
+        ),
         AbilitySpec(
             "triggered",
             [EffectSpec("damage", {"amount": 1, "selector": "each_creature_and_planeswalker"})],

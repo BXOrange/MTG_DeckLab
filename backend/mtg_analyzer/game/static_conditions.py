@@ -206,6 +206,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "drawn_cards_at_least",  # + ``amount``; optional ``scope`` (you/opponents)
         "mana_color_spent_to_cast_at_least",  # + ``color`` + ``amount`` (Adamant)
         "treasure_mana_spent_to_cast",  # actual source-tagged mana payment
+        "treasure_mana_spent_to_activate",  # the same, for the last activation
         # "…you've cast an instant or sorcery spell this turn" (PAR-10) —
         # `GameState.cast_instant_or_sorcery_this_turn`, reset for *every*
         # player each `begin_turn` (unlike `spells_cast_this_turn`'s
@@ -352,6 +353,7 @@ SUBJECT_FLAGS: frozenset[str] = frozenset(
         "cast_via_escape",  # RULE 702.139 — was ``cast_via_escape``
         # RULE 601.3a (Necromancy) — was ``cast_outside_sorcery_speed``.
         "cast_outside_sorcery_speed",
+        "cast_during_your_main_phase",  # Addendum (RULE 505.1)
         "renowned",  # RULE 702.111b — was ``source_is_renowned``
         "is_suspected",  # RULE 701.60c — was ``previous_target_is_suspected``
         # RULE 602.2b (an activated ability's sacrifice cost) — "if the sacrificed
@@ -913,6 +915,8 @@ def condition_holds(
         return int((getattr(source, "mana_by_color_spent_to_cast", None) or {}).get(color, 0)) >= int(condition.get("amount", 1))
     if kind == "treasure_mana_spent_to_cast":
         return int(getattr(source, "mana_spent_to_cast_treasure", 0) or 0) > 0
+    if kind == "treasure_mana_spent_to_activate":
+        return int(getattr(source, "mana_spent_to_activate_treasure", 0) or 0) > 0
     if kind == "cast_instant_or_sorcery_this_turn":
         cast = getattr(state, "cast_instant_or_sorcery_this_turn", None) or {}
         return bool(cast.get(controller_id, False))

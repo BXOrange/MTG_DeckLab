@@ -552,6 +552,7 @@ _FROM_LEGACY: dict[str, Callable[[Any], Optional[dict[str, Any]]]] = {
     "source_was_foretold": _flag("foretold"),
     "cast_via_escape": _flag("cast_via_escape"),
     "cast_outside_sorcery_speed": _flag("cast_outside_sorcery_speed"),
+    "cast_during_your_main_phase": _flag("cast_during_your_main_phase"),  # Addendum
     "source_is_renowned": _flag("renowned"),
     "source_is_suspected": _flag("is_suspected"),
     "attached_is_suspected": lambda v: _negated(

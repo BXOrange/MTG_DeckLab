@@ -1040,6 +1040,7 @@ class ActivationMixin:
                 self.rules.put_into_graveyard(obj)
         mana = cost.mana.with_x(x) if cost.mana.has_variable else cost.mana
         mana = self._reduced_activation_mana(source, mana, cost, is_mana_ability=is_mana_ability)
+        treasure_before = sum(player.mana_pool.pool_by_source.get("treasure", {}).values())
         if cost.spend_only_chosen_color:
             # See `_can_pay_activation_cost` — pay the whole cost as
             # `chosen_color` pips (Throne of Eldraine).
@@ -1068,6 +1069,9 @@ class ActivationMixin:
                 spent = player.mana_pool.last_payment_types
                 if spent:
                     source.noted_mana_color = next(iter(spent))
+        source.mana_spent_to_activate_treasure = (
+            treasure_before - sum(player.mana_pool.pool_by_source.get("treasure", {}).values())
+        )
         if cost.pay_life:
             self.rules.lose_life(player, cost.pay_life, cause="cost")
         if cost.pay_energy:

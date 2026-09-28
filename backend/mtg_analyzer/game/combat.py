@@ -645,7 +645,14 @@ def matches_object_filter(
         return False
     keyword = filt.get("keyword")
     if keyword is not None and not has(obj, str(keyword)):
-        return False
+        # Flashback is a spell ability, so it is deliberately absent from
+        # combat's keyword set. Count filters still need to see printed
+        # flashback on cards in graveyards or exile (Seize the Storm).
+        if keyword != "flashback" or not (
+            "Flashback" in (getattr(obj.card, "keywords", None) or [])
+            or re.search(r"(?im)^flashback(?:\s|$)", obj.card.oracle_text or "")
+        ):
+            return False
     # "destroy target creature **with a -1/-1 counter on it**" (Liliana,
     # Death Wielder's -3) / "…with a counter on it" (the kindless form) —
     # RULE 122: reads `GameObject.counters` directly, so a layer pass isn't
