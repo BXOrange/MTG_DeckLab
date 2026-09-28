@@ -550,15 +550,8 @@ its block back into the matching section here.
     (Manifold Key, Sonic Screwdriver).
   - "Equipped creature gets +`<n>`/+`<n>` and is every creature type." —
     2 cache-wide (Amorphous Axe, Runed Stalactite).
-- **PAR-110 · Small residue batch — board wipes & mass effects.** 10
+- **PAR-110 · Small residue batch — board wipes & mass effects.** 8
   independently-shaped clauses, each ≥2 cards cache-wide:
-  - "This spell costs `<cost>` less to cast for each creature that
-    attacked this turn." — **3 SOLO** (Rowdy Research, The Mary Janes,
-    Witchstalker Frenzy).
-  - "This spell costs `<cost>` less to cast for each creature that died
-    this turn." — **1 SOLO** (Diregraf Rebirth), 2 also-blocked (Blood for
-    the Blood God!, Death-Rattle Oni — each blocked by its own unrelated
-    second clause).
   - "`<name>` deals X damage to each creature." — 2 cache-wide (Savage
     Twister, Starstorm).
   - "Each player exiles all creature cards from their graveyard, then
@@ -584,28 +577,11 @@ its block back into the matching section here.
   - "Target player mills half their library, rounded down." — 2
     cache-wide (Cut Your Losses, Traumatize).
 
-  > **Atomic-decomposition note for this ticket's three "costs `<cost>`
-  > less to cast for each `<count phrase>`" bullets (attacked this turn /
-  > died this turn / opponents control):** `static_handlers.py` already
-  > carries four near-identical per-phrase rows for this template
-  > (`_SELF_COST_REDUCTION_ATTACKING_RE`, `_PARTY_RE`, `_GY_RE`,
-  > `_BASIC_LAND_TYPES_RE`) differing only in which `count_selector` name
-  > the phrase maps to. Do **not** add three more. Factor the "for each
-  > `<X>`" axis (**PAR-120**) into one row keyed by a phrase → selector table (a partial
-  > one, `_GY_COST_COUNT_SELECTORS`, already exists). `continuous.
-  > count_selector` **already has** `creatures_died_this_turn` and
-  > `creatures_opponents_control`, so two of the three are pure recognition
-  > with zero engine work; only "creature that attacked this turn" (a
-  > per-turn attack-history count, distinct from the live
-  > `attacking_creatures` selector) may need a new selector. PAR-114's
-  > "where X is the greatest power among creatures you control" cost
-  > reduction (out of this ticket's scope) targets the same self-cost
-  > primitive through a different grammar shape and is worth checking
-  > against the same table. The same "already-shipped rows are the
-  > phrase-variant antipattern" check applies to the mass-destroy/damage
-  > bullets above ("destroy all nonartifact creatures", "deals X damage to
-  > each creature"): confirm whether `object_filter`/`creature_filter`
-  > already reaches them before adding a dedicated row.
+  > For the remaining "costs `<cost>` less for each creature your opponents
+  > control" clause, reuse PAR-120's self-cost count-phrase route and the
+  > existing `creatures_opponents_control` selector. Check whether
+  > `object_filter`/`creature_filter` reaches the mass-destroy/damage
+  > clauses before adding dedicated rows.
 - **PAR-111 · Small residue batch — ETB/dies/leaves-the-battlefield
   triggers.** 6 independently-shaped clauses (excluding PAR-104, already
   split out), each ≥2 cards cache-wide:

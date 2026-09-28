@@ -2469,6 +2469,18 @@ def _trigger_condition(
             return int((event.get("counters") or {}).get(kind, 0)) > 0
         predicates.append(_dying_had_counter_ok)
 
+    event_counter_gate = trigger.get("event_counter_gate")
+    if isinstance(event_counter_gate, dict):
+        def _event_counters_ok(event: Any, context: Any, gate=event_counter_gate) -> bool:
+            counters = event.get("counters")
+            if counters is None:
+                return False
+            kind = gate.get("kind")
+            count = int(counters.get(kind, 0)) if kind else sum(int(v) for v in counters.values())
+            return (count >= int(gate.get("min", 0))
+                    and count <= int(gate.get("max", count)))
+        predicates.append(_event_counters_ok)
+
     if not predicates:
         return None
     if len(predicates) == 1:

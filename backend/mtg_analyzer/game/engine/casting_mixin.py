@@ -1188,7 +1188,7 @@ class CastingMixin:
         """
         reduction, _ = continuous.cost_reduction_for(self.state, player, obj, targets=targets)
         if obj is not None:
-            self_reduction, _ = continuous.self_cost_reduction_for(
+            self_reduction, self_contributors = continuous.self_cost_reduction_for(
                 obj, self.state, caster_id=player.id, targets=targets,
             )
             reduction += self_reduction
@@ -1196,6 +1196,10 @@ class CastingMixin:
             cost = cost.reduce_generic(reduction)
         elif reduction < 0:
             cost = cost.increase_generic(-reduction)
+        if obj is not None:
+            for contributor in self_contributors:
+                for color, amount in contributor.get("colored", {}).items():
+                    cost = cost.reduce_colored(color, amount)
         floor = continuous.cost_floor_for(self.state, player, obj)
         if floor > cost.converted_mana_cost:
             # RULE 601.2f's reminder text example is explicit: a {1}{B}

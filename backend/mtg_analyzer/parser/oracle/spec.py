@@ -191,7 +191,7 @@ _COMPOSITION_EFFECT_TYPES: frozenset[str] = frozenset(
 #: ``conditions``/``condition`` are the ``all``/``not`` combinators' operands
 #: and recurse instead of matching a type here.
 _STRUCTURED_CONDITION_FIELDS: dict[str, type] = {
-    "of": str, "flag": str, "subtype": str, "card_type": str, "color": str,
+    "of": str, "scope": str, "flag": str, "subtype": str, "card_type": str, "color": str,
     "counter": str, "selector": (str, dict), "name": str, "keyword": str,
     "op": str,
     "min": int, "max": int, "amount": int, "min_power": int,

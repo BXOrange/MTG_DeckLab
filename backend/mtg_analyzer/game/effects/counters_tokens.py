@@ -53,6 +53,25 @@ _ADD_COUNTERS_SELECTOR_AFFECTS: dict[str, str] = {
 }
 
 
+class TransferEventCountersEffect(GameEffect):
+    """Put each kind of counter from a departing object's snapshot on a target."""
+
+    def __init__(self, target_kind: str = "creature", optional: bool = False,
+                 source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind=target_kind, optional=optional)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = targets[0] if targets else None
+        if target is None:
+            return
+        counters = (context.trigger_event or {}).get("counters") or {}
+        for kind, amount in counters.items():
+            if int(amount) > 0:
+                context.add_counters(target, int(amount), kind, source=self.source)
+        context.recompute()
+
+
 class AddCountersEffect(GameEffect):
     """Put ``amount`` +1/+1 counters on a target creature — or on the source.
 

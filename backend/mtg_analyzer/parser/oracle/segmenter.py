@@ -1910,6 +1910,19 @@ _ACTIVATION_COST_REDUCTION_CONDITIONAL_RE = re.compile(
     r"(?P<condition>.+?)(?=\.?\s*(?:activate\b|$))",
     re.IGNORECASE,
 )
+_ACTIVATION_COST_REDUCTION_COLORED_RE = re.compile(
+    r"\s*\.?\s*this ability costs (?P<generic>\{\d+\})?"
+    r"(?P<symbols>(?:\{[WUBRG]\})+) less to activate if "
+    r"(?P<condition>.+?)(?=\.?\s*(?:activate\b|$))",
+    re.IGNORECASE,
+)
+
+_LEAVING_COUNTER_INTERVENING_RE = re.compile(
+    r"^if it had (?:(?P<no>no)|(?P<count>\d+) or more|(?P<article>a|an))?\s*"
+    r"(?P<kind>\+\d+/\+\d+|\-\d+/\-\d+|[a-z]+)?\s*"
+    r"counters? on it,\s*(?P<rest>.+)$",
+    re.IGNORECASE | re.S,
+)
 
 #: PAR-120 (PARSER_VERSION 470): PAR-94's original 14-entry table shrunk to
 #: the six shapes the shared `count_phrase` grammar genuinely doesn't reach
@@ -7401,6 +7414,18 @@ def _segment_line_unsplit(
                     },
                 }
             else:
+                colored_reduction = _ACTIVATION_COST_REDUCTION_COLORED_RE.search(effect_text)
+                if colored_reduction is not None:
+                    active_if = static_condition(colored_reduction.group("condition"))
+                    symbols = re.findall(r"\{([WUBRG])\}", colored_reduction.group("symbols"), re.I)
+                    colors = {symbol.upper() for symbol in symbols}
+                    if active_if is not None and len(colors) == 1:
+                        effect_text = _ACTIVATION_COST_REDUCTION_COLORED_RE.sub("", effect_text).strip()
+                        cost_dict["dynamic_reduction"] = {
+                            "generic_per": int((colored_reduction.group("generic") or "{0}")[1:-1]),
+                            "colored": {colors.pop(): len(symbols)},
+                            "active_if": active_if,
+                        }
                 conditional_reduction = _ACTIVATION_COST_REDUCTION_CONDITIONAL_RE.search(effect_text)
                 if conditional_reduction is not None:
                     active_if = static_condition(conditional_reduction.group("condition"))
@@ -7940,6 +7965,19 @@ def _segment_line_unsplit(
                 event, condition, head_trigger = head.event, head.condition, head.trigger
                 composed_head = True
         body, optional = _peel_optional(trig.group("body"))
+        event_counter_gate: Optional[dict[str, Any]] = None
+        if event in ("DIES", "LEAVES_BATTLEFIELD"):
+            counter_if = _LEAVING_COUNTER_INTERVENING_RE.match(body)
+            if counter_if is not None:
+                kind = counter_if.group("kind")
+                if kind in (None, "+1/+1", "-1/-1", "time", "loyalty", "lore", "finality"):
+                    event_counter_gate = {
+                        **({"kind": kind} if kind else {}),
+                        "max" if counter_if.group("no") else "min": (
+                            0 if counter_if.group("no") else int(counter_if.group("count") or 1)
+                        ),
+                    }
+                    body = counter_if.group("rest").strip()
         # PAR-98: Meanders Guide's optional tap is the antecedent for a
         # following "When you do" trigger.  Keep the pair together before
         # the ordinary optional wrapper can turn it into two unrelated
@@ -8033,6 +8071,8 @@ def _segment_line_unsplit(
                    if attacked_lowest_life else {}),
                 **({"attacked_player_has_most_life": True}
                    if defender_most_life else {}),
+                **({"event_counter_gate": event_counter_gate}
+                   if event_counter_gate is not None else {}),
                 **head_trigger,
             },
             optional=optional,

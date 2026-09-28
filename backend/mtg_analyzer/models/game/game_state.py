@@ -1352,6 +1352,16 @@ class GameState:
                 break
             yield event
 
+    def events_last_turn(self) -> "Iterator[GameEvent]":
+        """Events from the immediately preceding turn, newest first (RULE 500.1)."""
+        previous = self.internal_turn.number - 1
+        for event in reversed(self.event_log):
+            if event.turn > previous:
+                continue
+            if event.turn < previous:
+                break
+            yield event
+
     # -- Per-turn history, derived from the event log (ENG-47) -------------------
     # Each of these was a counter bumped at one site and reset in `GameEngine.begin_turn`;
     # it is now a fresh read over `events_this_turn()` (`turn_history`), so it can never

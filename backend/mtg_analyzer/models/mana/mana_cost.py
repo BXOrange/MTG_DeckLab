@@ -306,6 +306,23 @@ class ManaCost:
                 reduced.append(symbol)
         return ManaCost(reduced, raw=ManaCost(reduced).render())
 
+    def reduce_colored(self, color: str, amount: int) -> "ManaCost":
+        """Remove up to ``amount`` exact pips of one color from this cost.
+
+        A reduction written ``{U}{U}{U}`` removes blue symbols only. Hybrid,
+        Phyrexian and generic symbols retain their payment choices.
+        """
+        if color not in _COLORS or amount <= 0:
+            return ManaCost(list(self.symbols), raw=self.raw)
+        remaining = amount
+        reduced: list[ManaSymbol] = []
+        for symbol in self.symbols:
+            if remaining and symbol.kind == COLOR and symbol.color == color:
+                remaining -= 1
+            else:
+                reduced.append(symbol)
+        return ManaCost(reduced, raw=ManaCost(reduced).render())
+
     def reduce_generic_and_x(self, amount: int) -> "ManaCost":
         """`reduce_generic`'s own sibling for a cost carrying ``{X}``
         (March of Swirling Mist, MEC-42): reduces any printed generic pips

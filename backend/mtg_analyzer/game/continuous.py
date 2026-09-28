@@ -1968,6 +1968,14 @@ def count_selector(
         # "sum across every player" shape `total_rad_counters_among_players`
         # just above uses.
         return sum(state.creatures_died_this_turn.values())
+    if selector == "creatures_attacked_this_turn":
+        # RULE 508.1a/508.4: a creature put onto the battlefield attacking
+        # did not attack. Count each declared attacker's object once even if
+        # another combat phase let it attack again this turn.
+        return len({event.get("instance_id") for event in state.events_this_turn()
+                    if event.type == "ATTACKS" and event.get("declared")
+                    and event.get("instance_id") is not None
+                    and "creature" in (event.get("object_types") or ())})
     return 0
 
 
@@ -4060,11 +4068,16 @@ def self_cost_reduction_for(
             continue
         signed = _cost_static_amount(ability, state, controller_id)
         net += signed
+        colored = ability.params.get("colored")
         contributors.append(
             {
                 "source": _source_name(ability),
                 "amount": signed,
-                "description": f"Costs {{{abs(signed)}}} {'more' if signed < 0 else 'less'} to cast",
+                **({"colored": colored} if colored else {}),
+                "description": (
+                    "Costs " + "".join(f"{{{c}}}" * n for c, n in colored.items()) + " less to cast"
+                    if colored else f"Costs {{{abs(signed)}}} {'more' if signed < 0 else 'less'} to cast"
+                ),
             }
         )
     return net, contributors

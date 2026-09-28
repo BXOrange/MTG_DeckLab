@@ -399,25 +399,29 @@ class ActivationMixin:
         reduction, floor = continuous.activation_cost_reduction_for(
             self.state, source, is_mana_ability=is_mana_ability
         )
+        colored_reduction: dict[str, int] = {}
         if cost is not None and cost.dynamic_reduction:
             active_if = cost.dynamic_reduction.get("active_if")
             if not active_if or static_conditions.condition_holds(
                 active_if, self.state, source, source.controller_id
             ):
+                colored_reduction = cost.dynamic_reduction.get("colored", {})
                 per = int(cost.dynamic_reduction.get("generic_per", 1))
                 selector = cost.dynamic_reduction.get("count_selector")
                 if selector:
                     reduction += per * continuous.count_selector(
                         self.state, source.controller_id, selector, source=source
                     )
-                else:
-                    kind = cost.dynamic_reduction.get("kind", "rad")
+                elif cost.dynamic_reduction.get("kind"):
+                    kind = cost.dynamic_reduction["kind"]
                     try:
                         player = self.state.player_by_id(source.controller_id)
                     except (KeyError, ValueError):
                         player = None
                     if player is not None:
                         reduction += per * player.counters.get(kind, 0)
+                else:
+                    reduction += per
         if (
             cost is not None
             and getattr(cost, "powerup_cost_reduction", False)
@@ -428,12 +432,14 @@ class ActivationMixin:
             # source's own printed mana value (RULE 202.3).
             reduction += int(getattr(source.card, "converted_mana_cost", 0) or 0)
         if reduction < 0:
-            return mana.increase_generic(-reduction)
-        if reduction == 0:
-            return mana
-        if floor and mana.converted_mana_cost - reduction < floor:
-            reduction = max(0, mana.converted_mana_cost - floor)
-        return mana.reduce_generic(reduction)
+            mana = mana.increase_generic(-reduction)
+        elif reduction > 0:
+            mana = mana.reduce_generic(reduction)
+        for color, amount in colored_reduction.items():
+            mana = mana.reduce_colored(color, amount)
+        if floor and mana.converted_mana_cost < floor:
+            mana = mana.increase_generic(floor - mana.converted_mana_cost)
+        return mana
     def _can_pay_activation_cost(
         self,
         player: Player,

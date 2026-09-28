@@ -2511,6 +2511,13 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    "transfer_event_counters",
+    lambda p: TransferEventCountersEffect(
+        target_kind=p.get("target_kind", "creature"),
+        optional=bool(p.get("optional", False)),
+    ),
+)
+EffectRegistry.register(
     "class_level",  # RULE 716.2c: activating "Level N: <cost>" sets class level to N
     lambda p: ClassLevelEffect(level=p.get("level", 1)),
 )
@@ -3827,6 +3834,7 @@ EffectRegistry.register(
         affects=p.get("affects", "your_spells"),
         params={
             "generic": p.get("generic", 1),
+            **({"colored": p["colored"]} if p.get("colored") else {}),
             "increase": bool(p.get("increase", False)),
             # Delve/Affinity-shaped "{N} less for each <count_selector>"
             # (`affects="self"`, printed on the spell itself) — see

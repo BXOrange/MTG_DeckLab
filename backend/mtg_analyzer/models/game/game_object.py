@@ -191,6 +191,11 @@ class GameObject:
         #: cast"`` entry. 0, same as `mana_spent_to_cast`, for a free/
         #: alternative-cost cast.
         self.mana_spent_to_cast_snow: int = 0
+        #: Mana from a Treasure used for this cast (RULE 601.2h). Read by
+        #: PAR-120's Treasure payment condition on the resolving spell or its
+        #: enters trigger. The pool's source buckets make this an actual
+        #: payment fact, not a guess from which permanents were tapped.
+        self.mana_spent_to_cast_treasure: int = 0
         #: Whether this permanent actually went through `RulesEngine.
         #: cast_spell`/`cast_without_paying` (RULE 601.2), as opposed to
         #: being put onto the battlefield directly (a search/reanimation
@@ -1322,6 +1327,7 @@ class GameObject:
         self.colors_spent_to_cast = frozenset()
         self.mana_by_color_spent_to_cast = {}
         self.mana_spent_to_cast_snow = 0
+        self.mana_spent_to_cast_treasure = 0
         self.was_cast = False
         self.cast_outside_sorcery_speed = False
         self.sacrificed_cost_mana_value = None

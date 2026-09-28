@@ -7044,6 +7044,18 @@ def _sorcery_speed_and_condition(m: re.Match[str]) -> Optional[list[EffectSpec]]
 
 
 _ACTIVATE_ONLY_IF_RE = _c(r"activate (?:this ability )?only if (?P<cond>.+)")
+_ACTIVATE_DURING_YOUR_TURN_AND_IF_RE = _c(
+    r"activate (?:this ability )?only during your turn and only if (?P<cond>.+)"
+)
+
+
+def _activate_during_your_turn_and_if(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    condition = _activation_condition_dict(m.group("cond"))
+    if condition is None:
+        return None
+    return [EffectSpec(ACTIVATION_CONDITION_MARKER, {"condition": {
+        "kind": "all", "conditions": [{"kind": "your_turn"}, condition],
+    }})]
 
 
 def _activate_only_if(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -7707,6 +7719,18 @@ def _add_counters(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind, mag = _counter_kind_and_multiplier(m.group("ckind"))
     params: dict = {"count": count_of(m.group("n")) * mag, "kind": kind}
     return _add_counters_target_params(m, params)
+
+
+_TRANSFER_EVENT_COUNTERS_RE = _c(
+    r"put (?:those|its) counters on (?P<optional>up to 1 )?target creature(?P<you> you control)?"
+)
+
+
+def _transfer_event_counters(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("transfer_event_counters", {
+        "target_kind": "creature_you_control" if m.group("you") else "creature",
+        "optional": bool(m.group("optional")),
+    })]
 
 
 #: PAR-117: "whenever a `<type>` [you control] deals damage, put a `<kind>`
@@ -15440,6 +15464,11 @@ HANDLERS: list[EffectHandler] = [
     # "Activate only if `<condition>`." (no sorcery-speed restriction) —
     # Potioner's Trove-shaped.
     EffectHandler(
+        "activate_during_your_turn_and_if",
+        _ACTIVATE_DURING_YOUR_TURN_AND_IF_RE,
+        _activate_during_your_turn_and_if,
+    ),
+    EffectHandler(
         "activate_only_if",
         _ACTIVATE_ONLY_IF_RE,
         _activate_only_if,
@@ -15507,6 +15536,8 @@ HANDLERS: list[EffectHandler] = [
         ),
         _add_counters,
     ),
+    EffectHandler("transfer_event_counters", _TRANSFER_EVENT_COUNTERS_RE,
+                  _transfer_event_counters),
     # "put a spore counter on ~" (Deathspore Thallid/Elvish Farmer-shaped)
     # / "…on target fungus" (Fungal Bloom) — the named-counter sibling of
     # the P/T-only row just above.

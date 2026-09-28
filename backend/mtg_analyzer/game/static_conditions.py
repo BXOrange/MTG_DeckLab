@@ -203,8 +203,9 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # `condition_query.entered_this_turn` makes). No per-turn tracker
         # needed — the per-object entry flag already exists.
         "another_subtype_entered_this_turn",  # + ``subtype``
-        "drawn_cards_at_least",  # + ``amount`` — "…you've drawn N cards this turn"
+        "drawn_cards_at_least",  # + ``amount``; optional ``scope`` (you/opponents)
         "mana_color_spent_to_cast_at_least",  # + ``color`` + ``amount`` (Adamant)
+        "treasure_mana_spent_to_cast",  # actual source-tagged mana payment
         # "…you've cast an instant or sorcery spell this turn" (PAR-10) —
         # `GameState.cast_instant_or_sorcery_this_turn`, reset for *every*
         # player each `begin_turn` (unlike `spells_cast_this_turn`'s
@@ -292,6 +293,11 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # "if an opponent lost N or more life this turn" — any one opponent,
         # the same "an opponent" reading as ``opponent_count`` above.
         "opponent_lost_life_this_turn",  # + ``min``/``max``
+        "life_lost_this_turn",  # + ``scope`` (you/any), ``min``/``max``
+        "life_lost_last_turn",  # + ``scope`` (you/opponents), ``min``/``max``
+        "source_dealt_damage_to_opponent_this_turn",
+        "source_damage_received_this_turn",  # + ``min``; includes damage before dying
+        "opponent_poison_at_least",  # + ``amount`` — any one opponent
         # "if you don't control a Food" — a controller-scoped count of a
         # printed *subtype* word, which neither ``control_count`` (selector
         # vocabulary) nor ``control_named`` (a specific card name) can spell.
@@ -895,10 +901,18 @@ def condition_holds(
         # reset per turn by the same bookkeeping, so this is a read, not a new
         # counter.
         drawn = getattr(state, "cards_drawn_this_turn", None) or {}
-        return int(drawn.get(controller_id, 0) or 0) >= int(condition.get("amount", 0))
+        amount = int(condition.get("amount", 0))
+        if condition.get("scope") == "opponents":
+            return any(
+                int(drawn.get(p.id, 0) or 0) >= amount
+                for p in state.living_players() if p.id != controller_id
+            )
+        return int(drawn.get(controller_id, 0) or 0) >= amount
     if kind == "mana_color_spent_to_cast_at_least":
         color = str(condition.get("color", "")).upper()
         return int((getattr(source, "mana_by_color_spent_to_cast", None) or {}).get(color, 0)) >= int(condition.get("amount", 1))
+    if kind == "treasure_mana_spent_to_cast":
+        return int(getattr(source, "mana_spent_to_cast_treasure", 0) or 0) > 0
     if kind == "cast_instant_or_sorcery_this_turn":
         cast = getattr(state, "cast_instant_or_sorcery_this_turn", None) or {}
         return bool(cast.get(controller_id, False))
@@ -1079,6 +1093,47 @@ def condition_holds(
             for p in state.living_players()
             if p.id != controller_id
         )
+    if kind == "life_lost_this_turn":
+        lost = getattr(state, "life_lost_this_turn", None) or {}
+        if condition.get("scope") == "you":
+            return _within(int(lost.get(controller_id, 0) or 0), condition)
+        if condition.get("scope") == "any":
+            return any(_within(int(lost.get(p.id, 0) or 0), condition)
+                       for p in state.living_players())
+        return False
+    if kind == "life_lost_last_turn":
+        lost: dict[str, int] = {}
+        for event in state.events_last_turn():
+            if event.type == "LIFE_LOST":
+                pid = event.get("player_id")
+                if pid is not None:
+                    lost[pid] = lost.get(pid, 0) + int(event.get("amount") or 0)
+        if condition.get("scope") == "you":
+            return _within(lost.get(controller_id, 0), condition, default_min=1)
+        if condition.get("scope") == "opponents":
+            return any(_within(lost.get(p.id, 0), condition, default_min=1)
+                       for p in state.living_players() if p.id != controller_id)
+        return False
+    if kind == "source_dealt_damage_to_opponent_this_turn":
+        source_id = getattr(source, "instance_id", None)
+        return source_id is not None and any(
+            event.type == "DAMAGE" and event.get("source_id") == source_id
+            and event.get("is_player") and event.get("target_id") != event.get("source_controller_id")
+            and int(event.get("amount") or 0) > 0
+            for event in state.events_this_turn()
+        )
+    if kind == "source_damage_received_this_turn":
+        source_id = getattr(source, "instance_id", None)
+        if source_id is None:
+            return False
+        total = sum(int(event.get("amount") or 0) for event in state.events_this_turn()
+                    if event.type == "DAMAGE" and not event.get("is_player")
+                    and event.get("target_id") == source_id)
+        return _within(total, condition)
+    if kind == "opponent_poison_at_least":
+        amount = int(condition.get("amount", 0))
+        return any(int(getattr(p, "poison", 0) or 0) >= amount
+                   for p in state.living_players() if p.id != controller_id)
     if kind == "controls_subtype":
         # A live battlefield scan for the controller's own permanents whose
         # printed *subtype* portion carries the word — the same word-list

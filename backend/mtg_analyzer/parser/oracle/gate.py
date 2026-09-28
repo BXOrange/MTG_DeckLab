@@ -3653,7 +3653,9 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: v482 completes PAR-120's P/T-CDA arithmetic: shared amount phrases now
 #: cover sums, multipliers, offsets, card-type unions, mana-value aggregates,
 #: counters on the source, and the Lhurgoyf "that number plus 1" form.
-PARSER_VERSION = "482"
+#: v483 extends PAR-120's shared condition vocabulary with turn histories,
+#: opponent poison, Treasure-sourced cast mana, and attacked/died cost counts.
+PARSER_VERSION = "483"
 
 
 def parser_source_hash() -> str:

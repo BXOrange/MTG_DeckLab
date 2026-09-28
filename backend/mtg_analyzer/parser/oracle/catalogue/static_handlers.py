@@ -61,6 +61,7 @@ from .handlers import (
     _split_keywords_with_parametric,
 )
 from .replacements import replacement_clause_specs
+from .count_phrase import _NUMBER, _number
 from .keywords import KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
 from .subgrammars import (
     CANT_BE_COUNTERED_RE,
@@ -533,6 +534,15 @@ _SELF_COST_REDUCTION_ATTACKING_RE = re.compile(
     r"(?P<yours> you control)?",
     re.IGNORECASE,
 )
+_SELF_COST_REDUCTION_HISTORY_RE = re.compile(
+    r"this spell costs \{(?P<n>\d+)\} less to cast for each creature that "
+    r"(?P<event>attacked|died) this turn",
+    re.IGNORECASE,
+)
+_HISTORY_COST_SELECTORS = {
+    "attacked": "creatures_attacked_this_turn",
+    "died": "creatures_died_this_turn",
+}
 
 # "This spell costs {N} less to cast for each creature in your party."
 # (RULE 700.8/702.129, Zendikar Rising's Party mechanic, PAR-53) — the exact
@@ -604,7 +614,11 @@ def _gy_cost_selector(word: str) -> "Optional[str | dict]":
 # (`static_condition`) instead of a `per`-scaled count, so it reuses that
 # same evaluator rather than growing a second one.
 _SELF_COST_REDUCTION_IF_RE = re.compile(
-    r"this spell costs \{(?P<n>\d+)\} less to cast if (?P<cond>.+)",
+    r"this spell costs \{(?P<n>\d+)\} less to cast (?:if|as long as) (?P<cond>.+)",
+    re.IGNORECASE,
+)
+_SELF_COST_REDUCTION_COLORED_RE = re.compile(
+    r"this spell costs (?P<symbols>(?:\{[WUBRG]\})+) less to cast if (?P<cond>.+)",
     re.IGNORECASE,
 )
 
@@ -3027,6 +3041,24 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # reading the kind itself documents.
     (re.compile(r"an opponent lost life this turn", re.I),
      lambda m: {"kind": "opponent_lost_life_this_turn", "min": 1}),
+    (re.compile(r"a player lost (?P<n>\d+) or more life this turn", re.I),
+     lambda m: {"kind": "life_lost_this_turn", "scope": "any", "min": int(m.group("n"))}),
+    (re.compile(r"you(?:'ve| have)? lost (?P<n>\d+) or more life this turn", re.I),
+     lambda m: {"kind": "life_lost_this_turn", "scope": "you", "min": int(m.group("n"))}),
+    (re.compile(r"you lost life last turn", re.I),
+     lambda m: {"kind": "life_lost_last_turn", "scope": "you", "min": 1}),
+    (re.compile(r"an opponent lost life last turn", re.I),
+     lambda m: {"kind": "life_lost_last_turn", "scope": "opponents", "min": 1}),
+    (re.compile(r"~ dealt damage to an opponent this turn", re.I),
+     lambda m: {"kind": "source_dealt_damage_to_opponent_this_turn"}),
+    (re.compile(r"(?P<n>\d+) or more damage was dealt to it this turn", re.I),
+     lambda m: {"kind": "source_damage_received_this_turn", "min": int(m.group("n"))}),
+    (re.compile(r"(?:a card|(?:one|1) or more cards) left your graveyard this turn", re.I),
+     lambda m: {"kind": "card_left_graveyard_this_turn"}),
+    (re.compile(rf"an opponent has (?P<n>{_NUMBER}) or more poison counters", re.I),
+     lambda m: {"kind": "opponent_poison_at_least", "amount": _number(m.group("n").lower())}),
+    (re.compile(r"mana from a treasure was spent to cast (?:it|this spell)", re.I),
+     lambda m: {"kind": "treasure_mana_spent_to_cast"}),
     # "if ~ is an enchantment" (22) — a live card-type read of the source,
     # which matters for the Cases/Sagas that change type mid-game. The five
     # alternatives are exactly the printed card types (`subgrammars.
@@ -3224,8 +3256,11 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # "as long as you've drawn two or more cards this turn" — read off
     # `GameState.cards_drawn_this_turn`, which already exists for the
     # draw-limit permission.
-    (re.compile(r"you'?ve drawn (?P<n>\d+) or more cards this turn", re.I),
-     lambda m: {"kind": "drawn_cards_at_least", "amount": int(m.group("n"))}),
+    (re.compile(rf"you'?ve drawn (?P<n>{_NUMBER}) or more cards this turn", re.I),
+     lambda m: {"kind": "drawn_cards_at_least", "amount": _number(m.group("n").lower())}),
+    (re.compile(rf"an opponent has drawn (?P<n>{_NUMBER}) or more cards this turn", re.I),
+     lambda m: {"kind": "drawn_cards_at_least", "scope": "opponents",
+                "amount": _number(m.group("n").lower())}),
     # "as long as an opponent has eight or more cards in their graveyard" —
     # `control_count`'s opponent-scoped sibling; "an opponent" means *any*
     # one of them satisfies it.
@@ -4284,6 +4319,13 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             )
         ]
 
+    m = _SELF_COST_REDUCTION_HISTORY_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("cost_reduction", {
+            "affects": "self", "generic": int(m.group("n")),
+            "per": _HISTORY_COST_SELECTORS[m.group("event").lower()],
+        })]
+
     m = _SELF_COST_REDUCTION_PARTY_RE.fullmatch(text)
     if m is not None:
         return [
@@ -4317,6 +4359,20 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         return [EffectSpec("cost_reduction", {
             "affects": "your_spells", "generic": int(m.group("n")),
             "active_if": {"kind": "spells_cast_this_turn", "min": 1, "max": 1},
+        })]
+
+    m = _SELF_COST_REDUCTION_COLORED_RE.fullmatch(text)
+    if m is not None:
+        condition = static_condition(m.group("cond"))
+        if condition is None:
+            return None
+        symbols = re.findall(r"\{([WUBRG])\}", m.group("symbols"), re.I)
+        colors = {symbol.upper() for symbol in symbols}
+        if len(colors) != 1:
+            return None
+        return [EffectSpec("cost_reduction", {
+            "affects": "self", "generic": 0,
+            "colored": {colors.pop(): len(symbols)}, "active_if": condition,
         })]
 
     m = _SELF_COST_REDUCTION_IF_RE.fullmatch(text)

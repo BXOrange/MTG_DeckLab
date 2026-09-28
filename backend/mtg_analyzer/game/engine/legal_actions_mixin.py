@@ -440,11 +440,12 @@ class LegalActionsMixin:
             floor = continuous.cost_floor_for(self.state, player, obj)
             tax = self.commander_tax(player, obj)
             if (
-                reduction or tax or graveyard_keyword or floor > cost.converted_mana_cost or modal_extra_cost
+                reduction or any(c.get("colored") for c in self_contributors)
+                or tax or graveyard_keyword or floor > cost.converted_mana_cost or modal_extra_cost
             ) and cost.raw:
                 action["base_cost"] = cost.raw
                 action["effective_cost"] = self.effective_cast_cost(player, obj, mode=mode).raw
-                if reduction:
+                if reduction or any(c.get("colored") for c in self_contributors):
                     action["cost_reduction"] = contributors
                 if tax:
                     action["commander_tax"] = tax
