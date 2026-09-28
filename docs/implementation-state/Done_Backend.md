@@ -1090,6 +1090,7 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 
 - **What:** `GameState.delayed_triggers` + `DelayedTrigger` + a `create_delayed_trigger` effect let a resolving spell arm a trigger for a future step, fired at `STEP_BEGIN`…
 - **Files:** `models/game_state.py`, `game/game_engine.py`, `game/effects/core.py`
+- **ENG-50 (2026-09-28):** Mana Drain's delayed `{C}` resolved to 0 — PAR-124's nested-`inner_specs` X substitution in `_substitute_x` (built for Storm King's Thunder's `CreateTurnTriggerEffect`) also walked `CreateDelayedTriggerEffect.inner_specs` and filled the `"x"` sentinel with Mana Drain's own announced X (0) before `capture="target_mana_value"` could. Effects whose `capture` owns the sentinel (`casting_mixin._X_OWNING_CAPTURES`) are now skipped. Hand-authoring stays the path: the parser still reports Mana Drain `UNMODELED`.
 
 ### Reflexive "When you do, `<targeted payoff>`." after an optional cost (RULE 603.11, PARSER_VERSION 206)
 
@@ -1573,6 +1574,7 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 
 - **What:** `static_conditions.condition_holds` resolves a subject first (`source` default, `attached`, `affected`), so every existing `source_*` condition kind works on an…
 - **Files:** `game/static_conditions.py`
+- **`is_you` on an object (ENG-50, 2026-09-28):** `is_you` only compared a *player's* id, so the atomized Geistwave (`{"kind": "is_you", "of": "previous_target"}`, which replaced the retired `return_to_hand_draw_if_controlled` fusion) never drew. An object subject (has `instance_id`) now compares its `controller_id` — "if you control(led) that permanent", RULE 109.4. Correct for a stolen permanent (controller ≠ owner) too, since the bounce doesn't reset `controller_id` before the rider resolves. Geistwave stays hand-authored (parser: `UNMODELED`).
 
 ### Dynamic Threshold on a Group Scope
 

@@ -664,6 +664,11 @@ def condition_holds(
     if kind == "is_you":
         if subject is None or controller_id is None:
             return False
+        if getattr(subject, "instance_id", None) is not None:
+            # An object subject reads its controller — "if you controlled
+            # that permanent" (Geistwave), RULE 109.4. A player has no
+            # ``instance_id``, the same test `is_player` uses.
+            return getattr(subject, "controller_id", None) == controller_id
         return getattr(subject, "id", None) == controller_id
     if kind == "is_player":
         # A `Player` has no ``instance_id``; that absence is what the

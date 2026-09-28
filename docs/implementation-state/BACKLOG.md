@@ -55,9 +55,6 @@ its block back into the matching section here.
   refused in the segmenter (Copper-Leaf Angel, Krav the Unredeemed, Springjack Pasture); build
   the variable-count sacrifice cost, then audit which covered cards carry any other silently
   dropped fragment (make the parser report leftovers and fail the ability closed).
-- **ENG-50 · Two red full-cache tests, red since before PAR-120 B1 (`e7143168`).** Mana Drain's
-  delayed `add_mana` resolves to 0 (`test_cube_batch_22`); Geistwave's "if you controlled that
-  permanent, draw a card" never draws (`test_cube_batch_b3`).
 
 ## PAR — Parser
 

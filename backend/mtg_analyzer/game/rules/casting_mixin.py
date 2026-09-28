@@ -212,6 +212,10 @@ _BASIC_LAND_TYPE_OPTIONS: list[str] = ["Plains", "Island", "Swamp", "Mountain", 
 _X_MAGNITUDE_ATTRS: tuple[str, ...] = ("amount", "count", "power", "toughness", "times")
 #: The mana-value bounds it rewrites inside a ``filter``/``criteria`` dict.
 _X_MANA_VALUE_KEYS: tuple[str, ...] = ("max_mana_value", "min_mana_value")
+#: `CreateDelayedTriggerEffect` captures that write their own value into the
+#: ``"x"`` sentinel of their nested ``inner_specs`` — `_substitute_x` must
+#: leave those nested sentinels alone rather than fill them with this spell's X.
+_X_OWNING_CAPTURES: frozenset[str] = frozenset({"target_mana_value"})
 
 
 def _restore_x_sentinels(effect: Any) -> None:
@@ -1397,7 +1401,13 @@ class CastingResolutionMixin:
             # "params"}` dicts, built into a real effect only once its own trigger fires
             # (`CreateTurnTriggerEffect.apply`) — long after this spell's own `x` is gone.
             # Substituted here, at this earlier point where `x` is still known, the same way
-            # every other sentinel on this spell's effects is.
+            # every other sentinel on this spell's effects is. Skipped when the
+            # effect's own ``capture`` fills that sentinel with a *different*
+            # number at its own resolution (Mana Drain's "that spell's mana
+            # value", `CreateDelayedTriggerEffect`) — this spell's X would
+            # otherwise overwrite it first (ENG-50).
+            if getattr(effect, "capture", None) in _X_OWNING_CAPTURES:
+                continue
             for inner_spec in getattr(effect, "inner_specs", None) or []:
                 params = inner_spec.get("params") if isinstance(inner_spec, dict) else None
                 if not isinstance(params, dict):

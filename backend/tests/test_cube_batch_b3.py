@@ -509,6 +509,30 @@ def test_geistwave_no_draw_when_bouncing_an_opponents_permanent():
     assert len(p1.hand) == hand_before
 
 
+def test_geistwave_draws_when_bouncing_a_stolen_permanent():
+    # ENG-50: "if you controlled" reads the permanent's controller, not its
+    # owner — a stolen permanent goes to its owner's hand and still draws.
+    art = Card(id="GWArt3", name="GWArt3", type_line="Artifact",
+               mana_cost_string="{1}", converted_mana_cost=1)
+    eng = _engine(p1_cards=[_card("Geistwave")])
+    state = eng.state
+    p1 = state.active_player
+    p2 = state.players[1]
+    for i in range(5):
+        lib = Card(id=f"GWLibC{i}", name=f"GWLibC{i}", type_line="Creature", is_creature=True)
+        p1.library.append(GameObject(lib, owner_id="p1", zone=Zone.LIBRARY))
+    stolen = _battlefield(state, art, controller="p2")
+    stolen.controller_id = "p1"
+
+    library_before = len(p1.library)
+    p1.mana_pool.add_many({"U": 1, "C": 1})  # {1}{U}
+    eng.cast_spell(p1, p1.hand[0], targets=[stolen])
+    eng.resolve_until_stable()
+
+    assert stolen in p2.hand
+    assert len(p1.library) == library_before - 1
+
+
 # ---------------------------------------------------------------------------
 # 14. Paradigm Shift — exile library, shuffle graveyard in
 # ---------------------------------------------------------------------------
