@@ -773,25 +773,10 @@ class CombatMixin:
             if exert:
                 # RULE 702.19b: "doesn't untap during its controller's next
                 # untap step" — a one-time consequence consumed by
-                # `_step_untap`, not the sticky `skip_untap` toggle.
-                obj.skip_next_untap = True
-                # Read *before* setting: Combat Celebrant's own "if ~ hasn't
-                # been exerted this turn" guard (RULE 603.4-style intervening
-                # if, `ConditionalEffect`'s ``not_already_exerted`` key) needs
-                # whether this is a *repeat* exert this turn, which the flag
-                # itself can't answer once it's been set.
-                already_exerted = obj.exerted_this_turn
-                obj.exerted_this_turn = True
-                self.state.fire_event(
-                    GameEvent(
-                        EventType.EXERTED,
-                        attacker=obj.name,
-                        player_id=player.id,
-                        instance_id=obj.instance_id,
-                        object_types=sorted(obj.type_words),
-                        already_exerted=already_exerted,
-                    )
-                )
+                # `_step_untap`, not the sticky `skip_untap` toggle. Shared
+                # with an "Exert ~" activation cost (`exert_permanent`), which
+                # also snapshots Combat Celebrant's "already exerted" guard.
+                self.exert_permanent(player, obj)
             # RULE 702.107: Dethrone's own per-firing dynamic check — see
             # `RulesEngine.check_dethrone` for why this can't go through the
             # ordinary annihilator/afflict/bushido `TriggeredAbility` path.

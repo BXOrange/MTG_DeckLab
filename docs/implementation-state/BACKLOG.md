@@ -44,17 +44,7 @@ its block back into the matching section here.
 
 ## ENG — Game engine
 
-- **ENG-48 · `pay_cost_then` announces no X.** "you may pay {X}. If you do, `<X effect>`" pays
-  {X} as 0 and substitutes nothing, so the payoff is always empty: Decree of Justice, Flameblast
-  Dragon, Squealing Devil, Taj-Nar Swordsmith, Vigil for the Lost (MODELED, silently zero); Hero
-  of Leina Tower, Wildborn Preserver (refused in `_pay_cost_then_general` until this lands — lift
-  that guard). Needs an X choice in the `pay_cost_then` prompt (engine + board UI) and `x` on the
-  branch effects.
-- **ENG-49 · `costs.parse_activation_cost` drops unrecognized cost fragments.** A cost part it
-  can't read vanishes, so the ability is claimed cheaper than printed. "Sacrifice X `<things>`" is
-  refused in the segmenter (Copper-Leaf Angel, Krav the Unredeemed, Springjack Pasture); build
-  the variable-count sacrifice cost, then audit which covered cards carry any other silently
-  dropped fragment (make the parser report leftovers and fail the ability closed).
+No open tickets.
 
 ## PAR — Parser
 

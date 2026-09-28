@@ -488,8 +488,19 @@ class ManaAbility:
     self_rad_counters: int = 0
     min_level: Optional[int] = None
     max_level: Optional[int] = None
+    #: RULE 702.184 Station: a "N+ | {T}: Add …" tier ability works only while
+    #: its source has N or more charge counters (Evendo, Waking Haven). ENG-51
+    #: — until then the "12+ |" prefix was an unread cost fragment, and the
+    #: ability was usable at any charge.
+    min_charge: Optional[int] = None
     restriction: Optional[dict[str, Any]] = None
     any_combination: bool = False
+    #: ENG-51 (Springjack Pasture): "Add X mana of any one color" — each
+    #: option is scaled by the X announced when the ability is activated
+    #: (`GameEngine.tap_for_mana`'s ``x``); ``gain_life_x`` is its "You gain
+    #: X life." rider.
+    x_scaled: bool = False
+    gain_life_x: bool = False
     #: "Add N mana of the chosen color" (Throne of Eldraine, RULE 601.2b) —
     #: the colour isn't printed, it's the object's own "as ~ enters, choose a
     #: color" ETB pick (`GameObject.chosen_color`). ``"chosen_color"`` marks
@@ -537,8 +548,30 @@ def _selector_from_subject(subject: str) -> Optional[dict[str, Any]]:
     return None
 
 
+#: "Add X mana of any one color[. You gain X life.]" — ENG-51's announced-X
+#: mana ability shape (Springjack Pasture). Mirrored by the segmenter's
+#: `_MANA_ABILITY_X_SUPPORTED_RE` (the parser can't import `game/`).
+_ADD_X_ANY_ONE_COLOR_RE = re.compile(
+    r"add x mana of any (?:one|1) colou?r\.?(?:\s*you gain x life\.?)?", re.IGNORECASE
+)
+#: A Station tier line, "12+ | {G}, {T}: Add {G}{G}." (RULE 702.184).
+_STATION_TIER_RE = re.compile(r"^(?P<n>\d+)\+\s*\|\s*(?P<body>.+)$")
+#: A planeswalker loyalty cost as printed ("+1", "−2", "0", "-X").
+_LOYALTY_COST_RE = re.compile(r"\s*[+\-−]?\s*(?:\d+|x)\s*", re.IGNORECASE)
+
+
+def _self_named_as_tilde(cost_text: str, card_name: Optional[str]) -> str:
+    """``cost_text`` with the card's own name (or its short form) as "~"."""
+    for form in sorted(_self_name_forms(card_name), key=len, reverse=True):
+        if form:
+            cost_text = re.sub(re.escape(form), "~", cost_text, flags=re.IGNORECASE)
+    return cost_text
+
+
 def _self_name_forms(card_name: Optional[str]) -> set:
     name = (card_name or "").strip()
+    if name.startswith("A-"):
+        name = name[len("A-"):]  # an Alchemy rebalance prints the original name
     forms = {name.lower()} if name else set()
     if "," in name:
         forms.add(name.split(",")[0].strip().lower())
@@ -808,6 +841,12 @@ def _parse_mana_ability_lines(
     abilities: list[ManaAbility] = []
     for line in text.split("\n"):
         line = line.strip()
+        station = _STATION_TIER_RE.match(line)
+        if station is not None:
+            for ability in _parse_mana_ability_lines(station.group("body"), name, want_hand_exile):
+                ability.min_charge = int(station.group("n"))
+                abilities.append(ability)
+            continue
         if '"' in line:
             # A granted-ability description quoted inside another line
             # ("Each creature you control with a counter on it has '{T}:
@@ -820,6 +859,9 @@ def _parse_mana_ability_lines(
         cost_text, sep, effect_text = line.partition(":")
         if not sep:
             continue
+        # ENG-51: the cost grammar reads the source as "~" ("{T}, Exile Black
+        # Tulip" → "Exile ~"), the way the oracle normalizer spells it.
+        cost_text = _self_named_as_tilde(cost_text, name)
         effect_text = effect_text.strip()
         if _TARGET_RE.search(effect_text) or _TARGET_RE.search(cost_text):
             continue  # RULE 605.1a — a targeted ability is never a mana ability
@@ -911,6 +953,20 @@ def _parse_mana_ability_lines(
                 restriction=_parse_restriction(effect_text),
             ))
             continue
+        if _ADD_X_ANY_ONE_COLOR_RE.fullmatch(effect_text.strip()):
+            # ENG-51: "{T}, Sacrifice X Goats: Add X mana of any one color.
+            # You gain X life." (Springjack Pasture) — X is announced on
+            # activation, sizing both the sacrifice and the mana.
+            cost = parse_activation_cost(cost_text)
+            if cost.exile_self_from_hand != want_hand_exile:
+                continue
+            abilities.append(ManaAbility(
+                cost=cost,
+                options=[{color: 1} for color in _ALL_COLORS],
+                x_scaled=True,
+                gain_life_x="gain x life" in effect_text.lower(),
+            ))
+            continue
         add_match = _ADD_CLAUSE_RE.search(effect_text)
         if add_match is None:
             continue
@@ -974,7 +1030,13 @@ def _parse_mana_ability_lines(
             self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
             restriction=_parse_restriction(effect_text),
         ))
-    return abilities
+    # ENG-51: a cost part the grammar can't read would never be charged, so
+    # the mana ability would be cheaper than printed — refuse it instead. A
+    # planeswalker's "+1: Add {R}{R}" line is a loyalty ability, read elsewhere.
+    return [
+        ability for ability in abilities
+        if not ability.cost.unrecognized or _LOYALTY_COST_RE.fullmatch(ability.cost.raw or "")
+    ]
 
 
 #: A Leveler tier header ("LEVEL 1-4"/"LEVEL 5+"), matched case-insensitively
@@ -1050,6 +1112,10 @@ def _leveler_tier_active(obj: Any, ability: ManaAbility) -> bool:
     Leveler tier (RULE 711.4c) — unconditionally ``True`` for a non-Leveler
     ability (``min_level``/``max_level`` both ``None``). Mirrors
     `game/continuous.py`'s identical static-effect gate."""
+    if ability.min_charge is not None:
+        charge = obj.counters.get("charge", 0) if hasattr(obj, "counters") else 0
+        if charge < ability.min_charge:
+            return False
     if ability.min_level is None and ability.max_level is None:
         return True
     n = obj.counters.get("level", 0) if hasattr(obj, "counters") else 0
@@ -1124,6 +1190,8 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
             restriction=ability.restriction,
             any_combination=ability.any_combination,
             color_selector=ability.color_selector,
+            x_scaled=ability.x_scaled,
+            gain_life_x=ability.gain_life_x,
         )
         for ability in parse_mana_abilities(obj.card)
         if _leveler_tier_active(obj, ability)

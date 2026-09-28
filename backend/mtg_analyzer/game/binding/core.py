@@ -16,6 +16,8 @@ anything derived from card text: the security boundary from docs/09.
 
 from __future__ import annotations
 
+import logging
+
 from typing import Any, Callable, Optional, Union
 
 from ...models.game.events import EventType
@@ -71,6 +73,8 @@ from ..effects.core import (
     StaticAbility,
     TriggeredAbility,
 )
+
+logger = logging.getLogger(__name__)
 
 #: Ability kinds `bind_ability` realizes into `GameEffect` objects. Keyword
 #: abilities don't produce effects — flag keywords dock onto the object's
@@ -4012,6 +4016,16 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
             else:
                 obj.triggered_abilities.append(bound)
         elif spec.ability_kind == "activated":
+            if bound.cost.unrecognized:
+                # ENG-49: part of the printed cost was never read, so it would
+                # never be charged — refuse the ability rather than bind it
+                # cheaper than printed (the parser already refuses such a
+                # line; this catches a hand-authored cost text).
+                logger.warning(
+                    "%s: activated ability not bound — unrecognized cost %r",
+                    getattr(obj, "name", "?"), bound.cost.unrecognized,
+                )
+                continue
             obj.activated_abilities.append(bound)
         elif spec.ability_kind == "static":
             obj.static_effects.extend(bound)

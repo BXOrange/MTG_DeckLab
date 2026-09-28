@@ -35,6 +35,7 @@ from ..costs import (
     PAY_LIFE_X,
     REMOVE_COUNTERS_ANY,
     REMOVE_COUNTERS_X,
+    SACRIFICE_COUNT_X,
     ActivationCost,
     parse_activation_cost,
 )
@@ -149,7 +150,9 @@ class LegalActionsMixin:
         remove_counters_x = ability.cost.remove_counters is not None and ability.cost.remove_counters[1] in (
             REMOVE_COUNTERS_X, REMOVE_COUNTERS_ANY,
         )
-        if mana.has_variable or remove_counters_x:
+        # ENG-49: "Sacrifice X lands" announces X too (Copper-Leaf Angel).
+        sacrifice_x = bool(ability.cost.sacrifice_count) and ability.cost.sacrifice_count[0] == SACRIFICE_COUNT_X
+        if mana.has_variable or remove_counters_x or sacrifice_x:
             action["has_x"] = True
             action["max_x"] = self._max_x_for_activation_cost(player, source, ability.cost)
         requirements = self._ability_target_requirements(player, ability, source, mode=mode)
@@ -174,7 +177,7 @@ class LegalActionsMixin:
             # RULE 602.1: which permanent pays a "Sacrifice a <type>" cost is
             # the player's own choice — offer the pool so the UI can prompt
             # instead of the engine auto-picking (see `_sacrifice_candidate`).
-            action["sacrifice_cost"] = self._sacrifice_cost_choice(player, ability.cost)
+            action["sacrifice_cost"] = self._sacrifice_cost_choice(player, ability.cost, source)
         return action
     def _activate_actions_for(
         self, player: Player, source: GameObject, index: int, ability: ActivatedAbility
@@ -1159,6 +1162,11 @@ class LegalActionsMixin:
                         for i, opt in enumerate(ability.options)
                     ],
                 }
+                if ability.x_scaled:
+                    # ENG-51: "Add X mana …" (Springjack Pasture) — the board
+                    # asks for X like an {X} activated ability.
+                    action["has_x"] = True
+                    action["max_x"] = self._max_x_for_activation_cost(player, source, ability.cost)
                 if ability.any_combination:
                     # RULE 605.1a "any combination of colours" (Flamebraider/
                     # Gwenna/Smokebraider/Selvala) — the player may split
@@ -1175,7 +1183,7 @@ class LegalActionsMixin:
                     # RULE 602.1: same cost choice as `_activate_action`'s,
                     # for a mana ability whose cost is a sacrifice (Ashnod's
                     # Altar-shaped).
-                    action["sacrifice_cost"] = self._sacrifice_cost_choice(player, ability.cost)
+                    action["sacrifice_cost"] = self._sacrifice_cost_choice(player, ability.cost, source)
                 actions.append(action)
 
         for source in list(player.hand):

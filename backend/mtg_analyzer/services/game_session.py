@@ -950,6 +950,7 @@ class GameSession:
         self.engine.tap_for_mana(
             active, self._object(action), option_index, ability_index, tap_choices,
             color_split=color_split, sacrifice_choice=sacrifice_choice,
+            x=int(action.get("x", 0) or 0),
         )
 
     def _dispatch_activate_hand_mana(self, action: dict[str, Any], active: Player) -> None:

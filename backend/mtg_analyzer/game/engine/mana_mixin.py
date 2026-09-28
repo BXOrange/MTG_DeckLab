@@ -83,6 +83,7 @@ class ManaMixin:
         tap_choices: Optional[list[Any]] = None,
         color_split: Optional[dict[str, int]] = None,
         sacrifice_choice: Optional[int] = None,
+        x: int = 0,
     ) -> dict[str, int]:
         """Activate one of a permanent's mana abilities (RULE 605) — the
         fast, no-stack path.
@@ -108,6 +109,8 @@ class ManaMixin:
         parameter existed. ``sacrifice_choice`` is the same cost choice
         `activate_ability` takes, for a "Sacrifice a creature: Add …"-shaped
         mana ability (Ashnod's Altar); ``None`` falls back to an auto-pick.
+        ``x`` is the announced X of an "Add X mana" ability (ENG-51 —
+        Springjack Pasture's "Sacrifice X Goats"); ignored by any other.
         Returns the mana added.
         """
         if source not in self.state.battlefield or source.controller_id != player.id:
@@ -124,6 +127,7 @@ class ManaMixin:
             raise ValueError(f"{source.name} has no mana ability #{ability_index}")
         ability = abilities[ability_index]
         cost = ability.cost
+        x = max(int(x or 0), 0) if ability.x_scaled else 0
         # RULE 602.5d, printed on a mana ability itself (Vivi Ornitier's
         # "Activate only during your turn and only once each turn.") — the
         # stack-based `can_activate`'s own checks
@@ -134,7 +138,7 @@ class ManaMixin:
         if cost.once_per_turn and ability_index in source.mana_abilities_activated_this_turn:
             raise ValueError(f"{source.name}'s mana ability has already been activated this turn")
         if not self._can_pay_activation_cost(
-            player, source, cost, x=0, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice,
+            player, source, cost, x=x, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice,
             is_mana_ability=True,
         ):
             raise ValueError(f"cannot pay {source.name}'s mana ability cost")
@@ -153,9 +157,14 @@ class ManaMixin:
                 raise ValueError(f"invalid mana option {option_index} for {source.name}")
             produced = dict(ability.options[option_index])
         self._pay_activation_cost(
-            player, source, cost, x=0, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice,
+            player, source, cost, x=x, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice,
             is_mana_ability=True,
         )
+        if ability.x_scaled:
+            # ENG-51: "Add X mana of any one color" — the chosen colour, X times.
+            produced = {color: amount * x for color, amount in produced.items()}
+            if ability.gain_life_x and x:
+                self.rules.gain_life(player, x)
         if cost.once_per_turn:
             source.mana_abilities_activated_this_turn.add(ability_index)
         if cost.exile_creature:

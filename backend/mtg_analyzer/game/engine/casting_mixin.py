@@ -2549,8 +2549,11 @@ class CastingMixin:
         `_pay_escape_graveyard_cost` already makes.
         """
         out: list[GameObject] = []
+        # ENG-51: an either-type filter ("instant_or_sorcery") — any half.
+        words = filter_word.split("_or_") if filter_word else []
         for card_obj in player.graveyard:
-            if filter_word and filter_word not in card_obj.card.type_line.lower():
+            type_line = card_obj.card.type_line.lower()
+            if words and not any(word in type_line for word in words):
                 continue
             out.append(card_obj)
             if len(out) >= count:

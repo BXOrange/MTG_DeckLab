@@ -78,6 +78,44 @@ from ..effects.core import (
 from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_targets
 from .. import continuations
 
+#: ENG-48: the highest {X} a resolve-time "you may pay {X}" offers. Payment
+#: comes from the payer's mana pool only (`_can_pay_player_cost`), so the real
+#: bound is almost always the pool itself; this only stops the affordability
+#: scan (and the one-button-per-value prompt) from running away on a combo's
+#: effectively unbounded pool — 30 is past any X a fair game ever pays.
+PAY_COST_THEN_MAX_X = 30
+
+#: ENG-48: the option-id prefix a `pay_cost_then` choice uses for "pay with
+#: X = n" (``"pay_x:3"``); a bare ``"pay"`` still answers, as the largest X.
+PAY_X_OPTION_PREFIX = "pay_x:"
+
+
+def _cost_with_x(cost: ActivationCost, x: int) -> ActivationCost:
+    """``cost`` with its mana's ``{X}`` announced as ``x`` (RULE 107.3a)."""
+    from dataclasses import replace  # function-scoped: only this helper needs it
+
+    return replace(cost, mana=cost.mana.with_x(x))
+
+
+def _substitute_x_specs(specs: list[dict], x: Optional[int]) -> list[dict]:
+    """Serialized branch `EffectSpec` dicts with the ``"x"`` sentinel bound to
+    a resolve-time payment's announced X (ENG-48). ``x=None`` — the cost had
+    no {X} — leaves them untouched, so a branch whose "X" means the *spell's*
+    own announced X (`GameObject.x_paid`) still reads that at apply time."""
+    if x is None:
+        return specs
+    from ..effects.composition import _resolve_x  # function-scoped: effects↔rules cycle
+
+    return [{**d, "params": _resolve_x(dict(d.get("params") or {}), x)} for d in specs]
+
+
+def _substitute_x_modes(modes: dict[str, Any], x: int) -> dict[str, Any]:
+    """`_substitute_x_specs` over a reflexive modal payoff's option lists."""
+    if not modes.get("options"):
+        return modes
+    return {**modes, "options": [_substitute_x_specs(list(opt), x) for opt in modes["options"]]}
+
+
 def _saga_final_chapter(card: Card) -> int:
     """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
 
@@ -136,6 +174,11 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
         # payer's own choice of *type*, not "any permanent" (which would
         # wrongly also license sacrificing an enchantment/planeswalker).
         return obj.is_creature or obj.card.is_artifact or obj.is_land
+    if "_" in what:
+        # ENG-49/ENG-51: `costs.parse_activation_cost`'s permanent-phrase
+        # encoding — "an artifact or creature", "a nonland permanent" —
+        # read by the same matcher the activation cost path uses.
+        return continuous.matches_permanent_word(obj, what)
     return True  # unknown type word → any permanent, so the cost is payable
 
 
@@ -272,8 +315,13 @@ class MiscSystemsMixin:
         else_specs = [dict(d) for d in (else_effect_specs or [])]
         then_trigger = [dict(d) for d in (then_trigger_specs or [])]
         modal_trigger = dict(then_trigger_modes or {})
+        # ENG-48 / RULE 107.3a: "you may pay {X}" — the payer announces X as
+        # part of paying, so the offer is one option per affordable value.
+        x_max = self._max_payable_x(player, cost) if cost.mana.has_variable else None
         if not self._can_pay_player_cost(player, cost):
-            self._apply_effect_specs(else_specs, source, targets)
+            self._apply_effect_specs(
+                _substitute_x_specs(else_specs, None if x_max is None else 0), source, targets,
+            )
             return
         self._pending_pay_cost_then = {
             "player_id": player.id,
@@ -286,17 +334,49 @@ class MiscSystemsMixin:
             "then_trigger_modes": modal_trigger,
             "then_trigger_event": then_trigger_event,
             "captured_previous": list(captured_previous) if captured_previous else None,
+            "x_max": x_max,
         }
         cost_label = cost.label()
+        if x_max is None:
+            pay_options = [{"id": "pay", "label": f"{cost_label} bezahlen"}]
+        else:
+            # Largest X first: it's almost always the reason to pay at all.
+            pay_options = [
+                {"id": f"{PAY_X_OPTION_PREFIX}{x}", "label": f"X = {x}: {cost_label} bezahlen", "x": x}
+                for x in range(x_max, -1, -1)
+            ]
         self.open_choice({
             "kind": "pay_cost_then",
             "player_id": player.id,
             "prompt": prompt or f"{cost_label} bezahlen?",
-            "options": [
-                {"id": "pay", "label": f"{cost_label} bezahlen"},
-                {"id": "decline", "label": "Nicht bezahlen"},
-            ],
+            "options": [*pay_options, {"id": "decline", "label": "Nicht bezahlen"}],
         })
+
+    def _max_payable_x(self, player: Player, cost: ActivationCost) -> int:
+        """The largest X (up to `PAY_COST_THEN_MAX_X`) ``player`` can pay
+        ``cost`` with — 0 when only X = 0 is affordable. Affordability is
+        monotone in X, so the scan stops at the first miss."""
+        best = 0
+        for x in range(1, PAY_COST_THEN_MAX_X + 1):
+            if not self._can_pay_player_cost(player, _cost_with_x(cost, x)):
+                break
+            best = x
+        return best
+
+    @staticmethod
+    def _pay_cost_then_x(answer: Optional[str], x_max: int) -> Optional[int]:
+        """The X a `pay_cost_then` answer announces, or ``None`` for a
+        malformed/out-of-range one (treated as declining). A bare ``"pay"``
+        means the largest X offered."""
+        if answer == "pay":
+            return x_max
+        if not answer or not answer.startswith(PAY_X_OPTION_PREFIX):
+            return None
+        try:
+            x = int(answer[len(PAY_X_OPTION_PREFIX):])
+        except ValueError:
+            return None
+        return x if 0 <= x <= x_max else None
     @continuations.choice("pay_cost_then", answer=continuations.ANSWER_STR, rule="118.3")
     def _resume_pay_cost_then(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `pay_cost_then` choice. ``answer == "pay"``
@@ -319,11 +399,30 @@ class MiscSystemsMixin:
                 self._apply_effect_specs(specs, pending["source"], targets)
             finally:
                 self.context.previous_targets = saved
-        if answer != "pay" or not self._can_pay_player_cost(player, pending["cost"]):
-            # Re-checked: the board can have changed since the offer was made.
-            apply_branch(pending["else_effect_specs"])
+        cost = pending["cost"]
+        x_max = pending.get("x_max")
+        x: Optional[int] = None
+        if x_max is not None:
+            # ENG-48: the announced X prices the cost and is substituted into
+            # whichever branch runs (RULE 107.3a) — the declined branch sees 0.
+            x = self._pay_cost_then_x(answer, x_max)
+            paying = x is not None
+            if paying:
+                cost = _cost_with_x(cost, x)
         else:
-            self._pay_player_cost(player, pending["cost"])
+            paying = answer == "pay"
+        if not paying or not self._can_pay_player_cost(player, cost):
+            # Re-checked: the board can have changed since the offer was made.
+            apply_branch(_substitute_x_specs(pending["else_effect_specs"], None if x_max is None else 0))
+        else:
+            self._pay_player_cost(player, cost)
+            if x is not None:
+                pending = {
+                    **pending,
+                    "effect_specs": _substitute_x_specs(pending["effect_specs"], x),
+                    "then_trigger_specs": _substitute_x_specs(pending["then_trigger_specs"], x),
+                    "then_trigger_modes": _substitute_x_modes(pending["then_trigger_modes"], x),
+                }
             apply_branch(pending["effect_specs"])
             self._enqueue_pay_cost_then_trigger(pending)
         # PAR-13: if this single-player choice is one leg of a mass

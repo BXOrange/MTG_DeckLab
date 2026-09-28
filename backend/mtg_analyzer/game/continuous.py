@@ -192,6 +192,60 @@ def has_card_type(obj: "GameObject", card_type: str) -> bool:
     return _has_card_type(obj, card_type)
 
 
+#: ENG-51: the colour words a cost may qualify a permanent by ("sacrifice a
+#: black creature") → the WUBRG letter `GameObject.colors` carries.
+_COST_COLOR_WORDS: dict[str, str] = {
+    "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G",
+}
+#: Supertypes a cost may qualify a permanent by ("sacrifice a basic land").
+_COST_SUPERTYPE_WORDS: frozenset[str] = frozenset({"basic", "snow", "legendary", "world"})
+
+
+def matches_permanent_word(obj: "GameObject", word: str) -> bool:
+    """Whether ``obj`` fits a cost's permanent phrase (ENG-51).
+
+    ``word`` is `costs.parse_activation_cost`'s encoding of a phrase like
+    "an artifact or creature" (``artifact_or_creature`` — either half), "a
+    noncreature artifact" (``noncreature_artifact`` — every part), or a
+    single word: a card type, colour, supertype, "token"/"non<type>", a
+    tapped state, "defender"/"flying", else a subtype (RULE 205.3). "other"
+    always matches here — excluding the ability's own source is the
+    caller's job, since only it knows the source."""
+    if "_or_" in word:
+        return any(matches_permanent_word(obj, part) for part in word.split("_or_"))
+    if "_" in word:
+        return all(matches_permanent_word(obj, part) for part in word.split("_"))
+    if word in ("permanent", "other", "another"):
+        return True
+    if word == "creature":
+        return obj.is_creature
+    if word == "land":
+        return obj.is_land
+    if word in _CARD_TYPE_ATTRS:
+        return _has_card_type(obj, word)
+    if word in _COST_COLOR_WORDS:
+        return _COST_COLOR_WORDS[word] in (obj.colors or ())
+    if word == "colorless":
+        return not obj.colors
+    if word == "multicolored":
+        return len(obj.colors or ()) > 1
+    if word in _COST_SUPERTYPE_WORDS:
+        return word in (obj.card.type_line or "").lower().split("—")[0]
+    if word == "token":
+        return bool(getattr(obj, "is_token", False))
+    if word == "nontoken":
+        return not getattr(obj, "is_token", False)
+    if word.startswith("non") and len(word) > len("non"):
+        return not matches_permanent_word(obj, word[len("non"):])
+    if word in ("tapped", "untapped"):
+        return bool(obj.tapped) == (word == "tapped")
+    if word in ("defender", "flying"):
+        from . import combat  # function-scoped: combat imports continuous
+
+        return combat.has_defender(obj) if word == "defender" else combat.has_flying(obj)
+    return _has_subtype(obj, word)
+
+
 def _is_nonbasic(obj: "GameObject") -> bool:
     """RULE 205.4a: a land with no "Basic" supertype (the same substring
     check `game/targeting.py`'s "nonbasic land" filter already uses)."""

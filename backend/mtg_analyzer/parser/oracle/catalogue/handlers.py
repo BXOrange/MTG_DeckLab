@@ -6332,15 +6332,6 @@ def _pay_cost_then_general(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     sub = parse_effect_body(m.group("effect").strip(), self_subject=True)
     if not sub:
         return None  # follow-up not modeled → whole clause unclaimed
-    if "{x}" in m.group("cost").lower() and any(
-        s.type == "add_counters" and s.params.get("count") == "x" for s in sub
-    ):
-        # "you may pay {X}. If you do, put X +1/+1 counters on ~" (Hero of
-        # Leina Tower, Wildborn Preserver): `PayCostThenEffect` announces no X,
-        # so {X} is paid as 0 and the payoff resolves to nothing. Refused
-        # rather than claimed broken; the gain-life/token/search/pump/damage
-        # payoffs already claimed before this share the gap (ENG-48).
-        return None
     if any(s.params.get("target_kind") for s in sub):
         # RULE 603.11: a *targeted* "When you do, <payoff>." is a reflexive
         # triggered ability — it goes on the stack as its own ability with

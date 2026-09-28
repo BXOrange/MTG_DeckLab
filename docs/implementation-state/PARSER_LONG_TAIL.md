@@ -25,9 +25,9 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**51.0% covered — 17,763 / 34,811 — as of 2026-09-28, PARSER_VERSION 498.**
+**51.0% covered — 17,748 / 34,811 — as of 2026-09-28, PARSER_VERSION 500** (ENG-49 un-claimed ~119 cards whose activation cost was never fully charged; ENG-51 won 94 back by charging the common shapes).
 Commander-legal slice (the one the product actually plays): **53.6% —
-17,069 / 31,830** (measure with `--commander-legal-only`).
+17,055 / 31,830** (measure with `--commander-legal-only`).
 
 ### PAR-124 closes completely: player-events, X-tokens, a targeted delayed trigger, a hand-zone duplicate, an optional-attach composition — and the controller-binding bug the targeted variant first exposed (PARSER_VERSION 463)
 
@@ -589,6 +589,7 @@ document's own standing rule, and it has now caught itself.
 | Saddle referent | "whenever ~ attacks **while saddled**, choose a nonlegendary creature that saddled it this turn" | Calamity, Galloping Inferno |
 | Compound attack-trigger conditions | "whenever ~ attacks, **if** a nonland permanent left the battlefield this turn **or** a spell was warped this turn, …" | Alpharael, Stonechosen |
 | Misc singletons | "another target creature" (the `other_creature` kind is not engine-wired); "**if it was a Gideon planeswalker**" conditional tail | Arwen, Mortal Queen · Gideon's Defeat |
+| Unread activation-cost fragments (ENG-51 residue, v500) | an activated line whose cost `catalogue/cost_text.scan_cost_text` doesn't read completely stays unclaimed: three-colour sacrifices ("a red creature, a green creature, and a white creature"), "of the chosen type", "untap N tapped creatures you control", "exile 1 or more …", "sacrifice ~ and a creature you control", "discard a card with mana value X", an Aura/Equipment "attached to ~"; plus Un-set and Alchemy one-offs | the Herald cycle · Doom Cannon · Halo Fountain · Corpseweft · Great Hall of Starnheim · Knollspine Invocation · Faunsbane Troll |
 
 ## Lessons that keep recurring
 

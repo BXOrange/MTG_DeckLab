@@ -224,19 +224,23 @@ def test_a_cast_trigger_uses_the_cast_spells_x():
 # -- costs the engine can't charge are refused ---------------------------------
 
 
-def test_variable_sacrifice_cost_is_refused():
+def test_variable_sacrifice_cost_is_claimed():
+    """ENG-49: "Sacrifice X lands" is charged now (`ActivationCost.
+    sacrifice_count`), so the line is no longer refused."""
     card = Card(id="angel", name="Leaf Test", type_line="Creature — Angel", is_creature=True,
                 power=2, toughness=2,
                 oracle_text="Flying\n{T}, Sacrifice X lands: Put X +1/+1 counters on this creature.")
-    assert not parse_oracle(card).modeled
+    assert parse_oracle(card).modeled
 
 
-def test_pay_x_then_x_counters_is_refused():
+def test_pay_x_then_x_counters_is_claimed():
+    """ENG-48: the `pay_cost_then` choice announces X now, so the payoff
+    scales and the line is no longer refused."""
     card = Card(id="hero", name="Hero Test", type_line="Creature — Human Warrior",
                 is_creature=True, power=1, toughness=1,
                 oracle_text=("Whenever you cast a spell that targets this creature, you may pay {X}. "
                              "If you do, put X +1/+1 counters on this creature."))
-    assert not parse_oracle(card).modeled
+    assert parse_oracle(card).modeled
 
 
 # -- two more characteristic-defining amounts ----------------------------------

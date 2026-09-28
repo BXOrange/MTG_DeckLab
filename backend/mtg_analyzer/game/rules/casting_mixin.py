@@ -1405,8 +1405,13 @@ class CastingResolutionMixin:
             # effect's own ``capture`` fills that sentinel with a *different*
             # number at its own resolution (Mana Drain's "that spell's mana
             # value", `CreateDelayedTriggerEffect`) — this spell's X would
-            # otherwise overwrite it first (ENG-50).
-            if getattr(effect, "capture", None) in _X_OWNING_CAPTURES:
+            # otherwise overwrite it first (ENG-50) — and likewise when the
+            # effect announces an X of its own at resolution ("you may pay
+            # {X}. If you do, …", `PayCostThenEffect.owns_x_sentinel`, ENG-48).
+            if (
+                getattr(effect, "capture", None) in _X_OWNING_CAPTURES
+                or getattr(effect, "owns_x_sentinel", False)
+            ):
                 continue
             for inner_spec in getattr(effect, "inner_specs", None) or []:
                 params = inner_spec.get("params") if isinstance(inner_spec, dict) else None

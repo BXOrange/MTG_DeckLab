@@ -162,7 +162,16 @@ def _auto_tappable_candidates(engine: Any, player: Player) -> list[_Candidate]:
     return [
         c for c in _all_candidates(engine, player)
         if c.kind != "hand" and not c.ability.cost.sacrifice
+        and not _spends_more_than_a_tap(c.ability.cost)
     ]
+
+
+def _spends_more_than_a_tap(cost: Any) -> bool:
+    """ENG-51's resource-consuming mana-ability costs, kept out of auto-tap
+    for the same reason a sacrifice is: milling (Deranged Assistant),
+    exiling a hand card (Cadaverous Bloom), exerting (Arena of Glory) or
+    sacrificing a counted group is a decision, not bookkeeping."""
+    return bool(cost.mill or cost.exile_hand_cards or cost.exert_self or cost.sacrifice_count)
 
 
 def _is_net_positive_converter(ability: ManaAbility) -> bool:

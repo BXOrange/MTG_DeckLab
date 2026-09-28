@@ -881,6 +881,14 @@ class PayCostThenEffect(GameEffect):
         #: back on the deferred side.
         self.remember_trigger_stack_id = remember_trigger_stack_id
 
+    @property
+    def owns_x_sentinel(self) -> bool:
+        """ENG-48: a "you may pay {X}" cost announces its own X when the
+        choice is answered (RULE 107.3a), so the branch specs' ``"x"`` is
+        *that* X — `RulesEngine._substitute_x` must not fill it with the
+        enclosing spell/ability's (usually 0) first."""
+        return isinstance(self.cost_data, str) and "{x}" in self.cost_data.lower()
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..costs import parse_activation_cost  # function-scoped: import cycle
 

@@ -3686,7 +3686,22 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: Rowen), turn-scoped spell cost reductions (Rowan, Scion of War; the "next
 #: spell" family), Ochre Jelly's delayed split copy, "for each … counter on
 #: ~", and a cost-paid source's "if it had N counters" (Lost Isle Calling).
-PARSER_VERSION = "498"
+#: 499 (ENG-48/ENG-49): "you may pay {X}. If you do, put X counters" is claimed
+#: again (the choice now announces X); an activated ability's cost is read by
+#: `catalogue.cost_text.scan_cost_text` — the grammar `game/costs` charges
+#: from — and a line with any unread cost fragment is left unclaimed instead
+#: of claimed cheaper than printed. The grammar gained "Sacrifice X/N
+#: `<type>s`", "an artifact or creature", typed/random discards, graveyard
+#: exiles, "Exile this card from your graveyard" and "Return ~ to its
+#: owner's hand".
+#: 500 (ENG-51): the cost grammar reads qualified/"another" sacrifices, counters
+#: removed from another permanent or of any kind, exert, mill, "discard another
+#: card named ~", typed graveyard exiles, qualified tap-others, returning N
+#: lands, half your life, "tap enchanted creature"; a text the grammar reads
+#: completely counts as a cost even without a symbol the lexical sniff keys
+#: on; "`<cost>` or `<cost>`:" becomes two abilities; Springjack Pasture's
+#: announced-X mana line is claimed.
+PARSER_VERSION = "500"
 
 
 def parser_source_hash() -> str:

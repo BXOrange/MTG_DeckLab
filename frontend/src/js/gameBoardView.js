@@ -2325,6 +2325,13 @@ export function createGameBoardView(opts = {}) {
       });
     });
 
+    root.querySelectorAll('[data-tap-x]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const { iid, ability_index, option_index } = JSON.parse(el.dataset.tapX);
+        act({ type: 'tap_for_mana', instance_id: iid, ability_index, option_index, x: readX(iid, null) });
+      });
+    });
+
     root.querySelectorAll('[data-activate-x]').forEach((el) => {
       el.addEventListener('click', () => {
         const { iid, ability_index } = JSON.parse(el.dataset.activateX);
@@ -3387,6 +3394,22 @@ export function createGameBoardView(opts = {}) {
         // {G}, Gnarlroot Trapper's life payment, Birchlore Rangers' "tap two
         // other Elves") shows its full cost instead of a bare "Tappen".
         const extraCost = a.cost_label && a.cost_label !== '{T}';
+        if (a.has_x) {
+          // ENG-51: "Sacrifice X Goats: Add X mana of any one color"
+          // (Springjack Pasture) — X is announced with the activation, so one
+          // X field serves every colour button.
+          const colorButtons = optsList.map((opt) => {
+            const info = JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index, option_index: opt.index });
+            return `<button type="button" class="gf-card-action" data-tap-x='${escapeAttr(info)}'>⟳ ${escapeHtml(a.cost_label || '')} → X·${opt.label || '⟳'}</button>`;
+          }).join('');
+          buttons.push(`
+            <div class="gf-cast-x">
+              <input type="number" min="0" max="${a.max_x}" value="${a.max_x}" data-x-input="${a.instance_id}" />
+              ${colorButtons}
+            </div>
+          `);
+          continue;
+        }
         for (const opt of optsList) {
           const glyph = opt.label || '⟳';
           const text = extraCost

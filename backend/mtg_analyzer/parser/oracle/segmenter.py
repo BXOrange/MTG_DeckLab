@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 from .catalogue.object_trigger_head import parse_object_trigger_head
+from .catalogue.cost_text import scan_cost_text
 from .catalogue.count_phrase import parse_count_phrase
 from .catalogue.spell_phrase import parse_spell_phrase
 from .catalogue.subtype_vocabulary import SUBTYPES
@@ -1869,6 +1870,30 @@ _SELF_OR_GROUP_SUBJECT_RE = re.compile(
     rf"(?:{_VERB_ALT})(?:\s+the\s+battlefield)?(?:\s+alone)?$"
 )
 
+def _is_activation_cost(cost: str) -> bool:
+    """Whether the text left of a colon is an activation cost (RULE 602.1):
+    the lexical `_COST_LOOKS_REAL` sniff, or (ENG-51) a text the cost
+    grammar reads *completely* — "Tap enchanted creature", "Pay half your
+    life, rounded up", "Exile the top card of your graveyard" name no symbol
+    the sniff keys on, yet nothing in them is left unread."""
+    if _COST_LOOKS_REAL.search(cost):
+        return True
+    scan = scan_cost_text(cost)
+    return scan.leftover is None and bool(set(scan.hits) - {"ability_word"})
+
+
+#: ENG-51: "`<cost>` or `<cost>`: …" — two alternative costs, each starting
+#: with a mana/tap symbol ("{3}, {T} or {U}, {T}", Crystal Shard).
+_ALTERNATIVE_COST_RE = re.compile(r"(?P<a>\{[^:]*?\})\s+or\s+(?P<b>\{[^:]*)", re.IGNORECASE)
+
+#: The one announced-X mana effect the engine scales — mirrors `game/
+#: mana_abilities._ADD_X_ANY_ONE_COLOR_RE` (the front-end can't import it).
+_MANA_ABILITY_X_SUPPORTED_RE = re.compile(
+    r"add x mana of any (?:one|1) colou?r\.?(?:\s*you gain x life\.?)?", re.IGNORECASE
+)
+#: A "Sacrifice X `<things>`" cost on a *mana* ability — see its guard.
+_MANA_ABILITY_SACRIFICE_X_RE = re.compile(r"\bsacrifice x\b", re.IGNORECASE)
+
 #: An activated-ability wrapper: "<cost>: <effect>" (RULE 602.1). The cost is
 #: everything before the first colon. Excludes `"` from the cost group too —
 #: a real cost never contains a literal quote, but a quoted-ability-grant
@@ -1876,8 +1901,6 @@ _SELF_OR_GROUP_SUBJECT_RE = re.compile(
 #: colon isn't this line's own cost/effect boundary; without this guard the
 #: quote-blind ``[^:]+`` swallows straight through to that inner colon
 #: first, so the grant is never reached by `static_effect_specs` below.
-#: A "Sacrifice X `<things>`" activation cost — see the guard at its use.
-_UNPAYABLE_VARIABLE_SACRIFICE_RE = re.compile(r"\bsacrifice x\b", re.IGNORECASE)
 _ACTIVATED_RE = re.compile(r'^(?P<cost>[^:"]+):\s*(?P<effect>.+)$', re.S)
 
 #: Throne of Eldraine's colour-lock rider on its second ability — a trailing
@@ -7854,12 +7877,31 @@ def _segment_line_unsplit(
     # cases since a colon unambiguously marks it (RULE 602.1). A trigger has no
     # colon, so this never steals one.
     act = _ACTIVATED_RE.match(raw)
-    if act is not None and _COST_LOOKS_REAL.search(act.group("cost")):
-        if _UNPAYABLE_VARIABLE_SACRIFICE_RE.search(act.group("cost")):
-            # "{T}, Sacrifice X lands: …" (Copper-Leaf Angel, Krav): `costs.
-            # parse_activation_cost` has no variable-count sacrifice and drops
-            # the fragment, so the ability would cost only {T}. Unclaimed until
-            # it can be charged (ENG-49).
+    if act is not None and _is_activation_cost(act.group("cost")):
+        alternative = _ALTERNATIVE_COST_RE.fullmatch(act.group("cost").strip())
+        if alternative is not None:
+            # ENG-51: "{3}, {T} or {U}, {T}: …" (the Shards) — two costs for
+            # one ability; either pays it. Modeled as two activated abilities
+            # sharing the effect, the Pemmin's Aura idiom (`extra_specs`):
+            # picking which to activate *is* picking the cost.
+            halves = [
+                _segment_line_unsplit(
+                    f"{alternative.group(half)}: {act.group('effect')}",
+                    allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga,
+                )
+                for half in ("a", "b")
+            ]
+            if not all(half.claimed and half.spec is not None for half in halves):
+                return Segment(raw=raw)
+            return Segment(
+                raw=raw, spec=halves[0].spec, claimed=True,
+                extra_specs=[*halves[0].extra_specs, halves[1].spec, *halves[1].extra_specs],
+            )
+        if scan_cost_text(act.group("cost")).leftover is not None:
+            # ENG-49: a cost fragment no recognizer reads would never be
+            # charged, so the ability would be claimed cheaper than printed
+            # ("{G}, {T}, Discard a historic card"). Unclaimed instead — the
+            # same grammar `game/costs.parse_activation_cost` charges from.
             return Segment(raw=raw)
         effect_text = act.group("effect").strip()
         if (
@@ -7867,6 +7909,14 @@ def _segment_line_unsplit(
             or _COLORS_AMONG_PERMANENTS_MANA_RE.match(effect_text)
             or _DEVOTION_CHOSEN_COLOR_MANA_RE.match(effect_text)
         ):
+            if _MANA_ABILITY_SACRIFICE_X_RE.search(act.group("cost")) and not (
+                _MANA_ABILITY_X_SUPPORTED_RE.fullmatch(effect_text)
+            ):
+                # A mana ability announces X only for "Add X mana of any one
+                # color[. You gain X life.]" (ENG-51, Springjack Pasture —
+                # `ManaAbility.x_scaled`); any other X-sized mana effect would
+                # neither scale its sacrifice nor its amount, so stays unclaimed.
+                return Segment(raw=raw)
             # Mana ability — covered by the engine's mana model, no spec here.
             return Segment(raw=raw, claimed=True)
         cost_dict: dict[str, Any] = {"text": act.group("cost").strip()}
