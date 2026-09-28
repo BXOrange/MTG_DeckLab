@@ -1505,8 +1505,7 @@ class TriggerCollectionMixin:
         if kind == "card_types_in_graveyard_at_least":
             types: set[str] = set()
             for card in player.graveyard:
-                types |= card.type_words
-            types.discard("permanent")
+                types |= continuous.card_types_of(card)  # RULE 205.2a: no supertypes
             active = len(types) >= int(condition.get("amount", 0))
         elif kind == "life_total_exactly":
             active = player.life == int(condition.get("amount", -1))

@@ -53,7 +53,7 @@ def test_subtype_and_tail_forms_are_folded_without_claiming_unknown_forms():
     }
     assert _parse(
         "This ability costs {1} less to activate for each other Town you control."
-    ) == {"count_selector": "other_permanents_you_control_of_subtype_town", "generic_per": 1}
+    ) == {"count_selector": {"zone": "battlefield", "of": "you", "filter": {"subtype": "town", "not_reference": True}}, "generic_per": 1}
     assert _parse(
         "This ability costs {1} less to activate for each modified creature you control."
     ) == {"count_selector": "modified_creatures_you_control", "generic_per": 1}

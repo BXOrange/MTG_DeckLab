@@ -22,6 +22,7 @@ from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle import parse_oracle
 from mtg_analyzer.parser.oracle.catalogue.count_phrase import (
+    parse_amount_phrase,
     parse_count_condition,
     parse_count_phrase,
 )
@@ -36,6 +37,7 @@ from mtg_analyzer.parser.oracle.spec import (
 
 from tests.test_par119_cast_trigger_grammar import _engine
 from tests.test_par119_object_trigger_head import _fire_enter, _named
+from tests.support.game import make_engine, obj_on_battlefield
 
 # ---------------------------------------------------------------------------
 # Grammar
@@ -159,8 +161,78 @@ def test_spec_validation_rejects_a_bad_selector():
 
 def test_the_spec_vocabularies_match_the_engines():
     assert SELECTOR_ZONES == {"battlefield"} | set(continuous.COUNT_SELECTOR_ZONES)
-    assert SELECTOR_DISTINCT == set(continuous._DISTINCT_KEYS)
+    assert SELECTOR_DISTINCT == set(continuous._DISTINCT_KEYS) | set(continuous._DISTINCT_SET_KEYS)
     assert SELECTOR_SCOPES == {"you", "opponents", "any"}
+
+
+def test_cda_amount_expressions_and_distinct_values_execute():
+    state = _board()
+    forest = {"zone": "battlefield", "of": "you", "filter": {"subtype": "forest"}}
+    treefolk = {"zone": "battlefield", "of": "you", "filter": {"subtype": "treefolk"}}
+    assert parse_amount_phrase(
+        "the number of forests you control plus the number of treefolk you control"
+    ) == {"terms": [forest, treefolk]}
+    assert count_selector(state, "p1", {"terms": [forest, treefolk]}) == 1
+    card_types = parse_amount_phrase("the number of card types among cards in all graveyards")
+    assert card_types is not None
+    assert count_selector(state, "p1", card_types) == 3  # creature, instant, artifact
+    mana_value = parse_amount_phrase("the greatest mana value among creatures you control")
+    assert mana_value is not None
+    assert count_selector(state, "p1", mana_value) == 0
+    assert count_selector(state, "p1", parse_amount_phrase("your life total")) == 20
+    assert count_selector(state, "p1", parse_amount_phrase(
+        "the number of instant and sorcery cards in your graveyard"
+    )) == 1
+    assert count_selector(state, "p1", parse_count_phrase(
+        "noncreature, nonland cards in your graveyard"
+    )) == 2
+    source = GameObject(Card(id="ooze", name="Ooze", type_line="Creature", is_creature=True),
+                        owner_id="p1", zone=Zone.BATTLEFIELD)
+    source.counters["age"] = 3
+    assert count_selector(state, "p1", parse_amount_phrase(
+        "1 plus twice the number of age counters on it"
+    ), source=source) == 7
+    spec = AbilitySpec("spell_effect", [EffectSpec("bind", {
+        "name": "n", "amount": {"kind": "count_selector", "selector": card_types},
+        "effects": [{"type": "draw", "params": {"count": "$n"}}],
+    })])
+    spec.validate()
+
+
+@pytest.mark.parametrize("name, oracle", [
+    ("Lhurgoyf", "Lhurgoyf's power is equal to the number of creature cards in all graveyards and its toughness is equal to that number plus 1."),
+    ("Dauntless Dourbark", "Dauntless Dourbark's power and toughness are each equal to the number of Forests you control plus the number of Treefolk you control."),
+    ("Abomination of Llanowar", "Abomination of Llanowar's power and toughness are each equal to the number of Elves you control plus the number of Elf cards in your graveyard."),
+    ("Mwonvuli Ooze", "Mwonvuli Ooze's power and toughness are each equal to 1 plus twice the number of age counters on it."),
+    ("Enigma Drake", "Enigma Drake's power is equal to the number of instant and sorcery cards in your graveyard."),
+    ("Haughty Djinn", "Haughty Djinn's power is equal to the number of instant and sorcery cards in your graveyard."),
+])
+def test_real_cda_expression_cards_parse(name, oracle):
+    result = parse_oracle(Card(
+        id=name, name=name, type_line="Creature", is_creature=True,
+        power=0, toughness=0, oracle_text=oracle,
+    ))
+    assert result.modeled, (name, result.unclaimed)
+    assert any(effect.type == "pt_cda" for ability in result.specs for effect in ability.effects)
+
+
+def test_lhurgoyf_count_and_offset_recompute_from_graveyards():
+    engine = make_engine([], hand=0)
+    state = engine.state
+    lhurgoyf = obj_on_battlefield(state, engine, Card(
+        id="lhurgoyf", name="Lhurgoyf", type_line="Creature — Lhurgoyf",
+        is_creature=True, power=0, toughness=1,
+        oracle_text="Lhurgoyf's power is equal to the number of creature cards in all graveyards and its toughness is equal to that number plus 1.",
+    ), controller="p1")
+    bind_from_catalogue(lhurgoyf)
+    engine.recompute_continuous_effects()
+    assert (lhurgoyf.power, lhurgoyf.toughness) == (0, 1)
+    state.player_by_id("p1").graveyard.append(GameObject(
+        Card(id="bear", name="Bear", type_line="Creature — Bear", is_creature=True),
+        owner_id="p1", zone=Zone.GRAVEYARD,
+    ))
+    engine.recompute_continuous_effects()
+    assert (lhurgoyf.power, lhurgoyf.toughness) == (1, 2)
 
 
 # ---------------------------------------------------------------------------

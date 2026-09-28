@@ -3603,7 +3603,57 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: siblings) needs a separate, unrelated primitive — a self-pump-plus-
 #: group-grant compound body `static_effect_specs` doesn't recognize at all
 #: yet — left open. +6, 0 regressed.
-PARSER_VERSION = "478"
+#: v479 closes PAR-120's "that player has N or fewer/no cards in hand"
+#: phase-trigger cluster — "at the beginning of each opponent's/each
+#: player's `<step>`, if that player has …, `<effect>`" (Asylum Visitor,
+#: Davriel Rogue Shadowmage, Ghirapur Orrery, Hellfire Mongrel, Hollowborn
+#: Barghest, Lavaborn Muse, Paupers' Cage, Shrieking Affliction). "That
+#: player"/"they" is whoever's step just began (RULE 502.1's active
+#: player) — a new `static_conditions.py` kind,
+#: `active_player_cards_in_hand_at_most`, since the existing
+#: `cards_in_hand_at_most` always reads the ability's own controller, the
+#: wrong player for this per-opponent trigger shape. Kept phase-trigger-
+#: only (not folded into the shared `static_condition()` table) since an
+#: activated ability's own "that player" means something else entirely
+#: (Nezumi Shortfang's previously-targeted opponent) — a shared row would
+#: have silently misread it. The effect bodies ("they lose N life", "that
+#: player draws N cards") needed no new engine primitive at all:
+#: `effect_operands.PLAYER_SCOPES`'s existing `"active_player"` scope
+#: string already resolves generically through `DrawCardEffect.player`/
+#: `LoseLifeEffect.player`. +8, 0 regressed.
+#: v480 gives `static_conditions.py`'s own evaluator the `any` (OR)
+#: combinator `effect_conditions.py` already had for the resolution-time
+#: vocabulary — a static's "as long as …" `active_if` and an "activate only
+#: if" gate call `static_conditions.condition_holds` directly, bypassing
+#: `effect_conditions.py` entirely, so a `{"kind": "any", ...}` condition
+#: had nowhere to be evaluated for either surface no matter how well
+#: `static_condition()` recognized the phrase. `static_condition()` also
+#: gained a generic "`<A>` or `<B>`" fallback (split on the first " or ",
+#: recurse both halves, build the combinator only if both independently
+#: resolve — fails closed on a non-disjunctive "or" the same way an
+#: unrecognized condition always has). First real use: "you control a
+#: desert or there is a desert card in your graveyard" (Desert's Hold, Earth
+#: Rumble Wrestlers, Gilded Cerodon, Sidewinder Naga, Solitary Camel,
+#: Unquenchable Thirst, Wall of Forgotten Pharaohs, Wretched Camel). +8, 0
+#: regressed.
+#: v481 closes the real architectural duplication PAR-120 has flagged at
+#: each of this session's earlier "activate only if" additions (commander,
+#: total power, the desert compound) without ever fixing:
+#: `catalogue.handlers._activation_condition_dict` now falls back to
+#: `static_handlers.static_condition()` once its own closed table declines,
+#: instead of gaining one more hand-copied row per phrase. Every existing
+#: row's own kind spelling is preserved exactly (tried first, unchanged),
+#: so this is zero behaviour change for an already-shipped card — only a
+#: phrase genuinely new to *both* tables reaches the shared vocabulary for
+#: the first time. Also fixed a stale test pin
+#: (`test_par10_activation_conditions.py`) that had documented "activate
+#: only if you control a Plains" as deliberately unrecognized tail work —
+#: it now correctly resolves via the shared count-phrase grammar, same as
+#: "as long as you control a Plains" already did. +59, 0 regressed.
+#: v482 completes PAR-120's P/T-CDA arithmetic: shared amount phrases now
+#: cover sums, multipliers, offsets, card-type unions, mana-value aggregates,
+#: counters on the source, and the Lhurgoyf "that number plus 1" form.
+PARSER_VERSION = "482"
 
 
 def parser_source_hash() -> str:

@@ -105,7 +105,7 @@ def test_other_creature_type_you_control_excludes_self():
     # `creatures_you_control_of_type_<type>`.
     assert static_effect_specs("~ gets +2/+0 for each other goblin you control")[0].params[
         "power_count"
-    ] == "other_creatures_you_control_of_type_goblin"
+    ] == {"zone": "battlefield", "of": "you", "filter": {"subtype": "goblin", "not_reference": True}}
 
 
 def test_aura_attached_to_it_parses():

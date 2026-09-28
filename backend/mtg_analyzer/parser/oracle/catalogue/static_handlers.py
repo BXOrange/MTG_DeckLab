@@ -293,7 +293,7 @@ _CONDITION_SUBTYPE_WORDS: frozenset[str] = frozenset(
 # since a CDA reading an unmodeled quantity would silently define the creature
 # as 0/0.
 _PT_CDA_RE = re.compile(
-    r"~'?s power and toughness are each equal to the number of (?P<what>.+)",
+    r"~'?s power and toughness are each equal to (?P<what>.+)",
     re.IGNORECASE,
 )
 
@@ -307,7 +307,11 @@ _PT_CDA_RE = re.compile(
 #: "creatures you control" is claimed; the "forests you control" / "basic
 #: land types" toughness cards stay UNMODELED until those selectors exist).
 _PT_CDA_SINGLE_RE = re.compile(
-    r"~'?s (?P<char>power|toughness) is equal to the number of (?P<what>.+)",
+    r"~'?s (?P<char>power|toughness) is equal to (?P<what>.+)",
+    re.IGNORECASE,
+)
+_PT_CDA_THAT_NUMBER_RE = re.compile(
+    r"~'?s power is equal to (?P<what>.+?) and its toughness is equal to that number plus (?P<plus>\d+)\.?",
     re.IGNORECASE,
 )
 
@@ -338,12 +342,14 @@ def _pt_cda_selector(what: str) -> "Optional[str | dict]":
     count_selector` argument (structured dict or named string), or
     ``None`` for an unwhitelisted quantity (fail-closed — RULE 604.3 must
     never silently define a creature as 0/0)."""
-    from .count_phrase import parse_count_phrase
+    from .count_phrase import parse_amount_phrase
 
-    structured = parse_count_phrase(what)
+    structured = parse_amount_phrase(what)
     if structured is not None:
         return structured
-    return _PT_CDA_SELECTORS.get(what)
+    if what.startswith("the number of "):
+        return _PT_CDA_SELECTORS.get(what[len("the number of "):])
+    return None
 
 # "Activated abilities of <type>[s] can't be activated."  (RULE 602 prohibition,
 # Collector Ouphe/Stony Silence/Null Rod) — global, not "you control"-scoped:
@@ -3419,7 +3425,31 @@ def static_condition(text: str) -> Optional[dict]:
     # turn-stamped event log (`event_this_turn`) instead of a tracker per phrase.
     from .history_phrase import parse_history_condition
 
-    return parse_history_condition(stripped)
+    single = parse_history_condition(stripped)
+    if single is not None:
+        return single
+    # PAR-120: "`<condition A>` or `<condition B>`" (Desert's Hold and the
+    # rest of the Amonkhet Desert-payoff cluster's "you control a desert or
+    # there is a desert card in your graveyard") — tried only once every
+    # single-condition reading above has declined, and only if BOTH halves
+    # independently resolve through this same function: a non-disjunctive
+    # "or" inside an already-claimed phrase ("total power 8 **or** greater")
+    # never reaches here at all (a row above always claims the whole string
+    # first), and a genuine non-disjunctive miss (an "or" that isn't a
+    # condition-vocabulary split, e.g. inside an unrelated unmodeled phrase)
+    # fails closed the same way a single unrecognized condition always has —
+    # neither half resolves, so nothing is built. Splits on the *first* " or
+    # " only: every cached instance of this shape is a two-way compound, and
+    # a naive `str.split(" or ")` would wrongly fragment a right-hand
+    # condition that itself contains the word (none does today, but the
+    # narrower split costs nothing).
+    if " or " in stripped:
+        left, right = stripped.split(" or ", 1)
+        left_cond = static_condition(left)
+        right_cond = static_condition(right)
+        if left_cond is not None and right_cond is not None:
+            return {"kind": "any", "conditions": [left_cond, right_cond]}
+    return None
 
 
 #: "As long as <cond>, <static>." and "<static> as long as <cond>." The inner
@@ -4061,6 +4091,18 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             "affects": "self",
             "power_count": selector,
             "toughness_count": selector,
+        })]
+
+    # Lhurgoyf and its relatives reuse the power's count for toughness with
+    # an offset. Both values remain characteristic-defining (RULE 604.3).
+    m = _PT_CDA_THAT_NUMBER_RE.fullmatch(text)
+    if m is not None:
+        selector = _pt_cda_selector(m.group("what").strip())
+        if selector is None:
+            return None
+        return [EffectSpec("pt_cda", {
+            "affects": "self", "power_count": selector,
+            "toughness_count": {"terms": [selector], "plus": int(m.group("plus"))},
         })]
 
     m = _PT_CDA_SINGLE_RE.fullmatch(text)

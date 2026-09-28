@@ -3383,6 +3383,10 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 
 - **What:** `catalogue.handlers._activation_condition_dict` — the separate, narrower "activate only
 
+### PAR-120: P/T-CDA amount expressions (PARSER_VERSION 482)
+
+- **What:** `count_phrase.parse_amount_phrase` and `continuous.count_selector` now evaluate sums, twice-counts, offsets, counters on the source, distinct card types/colors and maximum or total mana values for RULE 604.3 characteristic-defining power/toughness. The Lhurgoyf "that number plus 1" form shares the power selector. Positive "instant and sorcery" lists count either type; stacked "noncreature, nonland" exclusions require both. The full-cache measurement rose from 17,354 to 17,428 covered cards with no coverage regression.
+
 ### PAR-122: trigger doublers as a composed cause × subject (PARSER_VERSION 451)
 
 - **What:** "If a triggered ability of `<subject>` triggers, that ability triggers an
@@ -4138,4 +4142,3 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 ### PAR-82 / PAR-106 — redundant parser-ticket audit (PARSER_VERSION 429)
 
 - **What:** Retired two tickets whose stated shared parser work was already
-

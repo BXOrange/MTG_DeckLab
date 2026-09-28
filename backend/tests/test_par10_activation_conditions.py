@@ -97,11 +97,19 @@ def test_activate_only_if_cast_instant_or_sorcery_is_recognized():
     assert spec.params["condition"] == {"kind": "cast_instant_or_sorcery_this_turn"}
 
 
-def test_unrecognized_activation_condition_stays_unclaimed():
-    # The other ~150 "Activate only if …" phrasings in the cache (`you
-    # control a Plains`, `this creature is attacking`, …) are real,
-    # standing tail work — not silently guessed at.
-    assert match_clause("activate only if you control a Plains") is None
+def test_activation_condition_falls_back_to_the_shared_static_vocabulary():
+    # PAR-120: `_activation_condition_dict` now falls back to
+    # `static_handlers.static_condition()` once its own closed table
+    # declines — "you control a Plains" was never a *different* concept,
+    # just a phrase this table hadn't copied by hand; it reaches the shared
+    # count-phrase grammar the same way "as long as you control a Plains"
+    # already did. A genuinely unmodeled phrase (`this creature is
+    # attacking` — no `static_condition()` row for that exact wording
+    # either) still fails closed.
+    (spec,) = match_clause("activate only if you control a Plains")
+    assert spec.params["condition"] == {
+        "kind": "control_count", "selector": "lands_you_control_of_type_plains", "min": 1,
+    }
     assert match_clause(
         "activate only as a sorcery and only if this creature is attacking"
     ) is None

@@ -182,17 +182,12 @@ its block back into the matching section here.
   attempted and reverted: 8 of its 9 entries are already shadowed by an *independent* closed
   vocabulary inside `subgrammars.DEVOTION`'s own "the number of `<X>` you control" branch, but
   "the amount of life you gained this turn" isn't — a bare delete regressed Fortifying Draught;
-  needs the `DEVOTION` branch reconciled with it first, not a like-for-like swap. A real bug found
-  (not fixed) shrinking `_SELF_ANTHEM_FOR_EACH_SELECTORS`: `characteristic_phrase._ALTERNATION`
-  splits a bare comma the same as "X, Y, or Z", so "noncreature, nonland card" — a conjunction —
-  wrongly parses as an OR (`matches_object_filter` confirms a creature and a land both "match");
-  needs the trailing-"or" cue the split currently discards. **(b) remaining
+  needs the `DEVOTION` branch reconciled with it first, not a like-for-like swap. **(b) remaining
   condition shapes**: referent counter-state ("if it had a +1/+1 counter on it", "if it had no
   time counters on it" — needs the RULE 603.10a trigger-event counters snapshot fallback threaded
   through `previous_target`); per-card draw counts; damage-dealt histories ("`<name>` dealt damage
   to an opponent this turn", "a player lost N or more life"); "the second time this ability has
-  resolved this turn"; cast-cost provenance ("if `<cost>` was spent"); and compounds ("a desert or
-  a desert card in your graveyard"); **(c) the other modifier axes** the probe measures: "you don't
+  resolved this turn"; **(c) the other modifier axes** the probe measures: "you don't
   control / an opponent controls" (247 sentences), "another/other" (588), scope words (284). **Absorbs PAR-101's
   count phrases and PAR-110's three "costs less for each …" bullets** — implement those through
   this vocabulary, not as rows.

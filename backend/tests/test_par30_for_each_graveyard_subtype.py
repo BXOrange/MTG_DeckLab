@@ -57,10 +57,13 @@ def test_for_each_subtype_anthem_parses():
     assert static_effect_specs(
         "~ gets +1/+1 for each land card in your graveyard"
     )[0].params["toughness_count"] == "land_cards_in_your_graveyard"
-    # a multi-word "instant and sorcery card" phrase is NOT claimed here
+    # PAR-120: a positive "and" type list counts either card type.
     assert static_effect_specs(
         "~ gets +1/+0 for each instant and sorcery card in your graveyard"
-    ) is None
+    )[0].params["power_count"] == {
+        "zone": "graveyard", "of": "you",
+        "filter": {"card_type_any": ["instant", "sorcery"]},
+    }
 
 
 def test_unless_additional_cost_paid_suffix_binds_to_its_own_clause():

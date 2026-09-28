@@ -829,6 +829,46 @@ _DISTINCT_KEYS: dict[str, Any] = {
     "mana_value": lambda o: o.card.converted_mana_cost, "name": lambda o: o.name,
 }
 
+#: The card types of RULE 205.2a an object can carry in a real game ("kindred"
+#: and its pre-rename spelling "tribal" included). `GameObject.type_words` also
+#: returns supertypes ("legendary", "snow", "basic") and the synthetic
+#: "permanent" marker, none of which is a card type — "the number of card types
+#: among cards in all graveyards" (Tarmogoyf) must not count them.
+CARD_TYPE_WORDS: frozenset[str] = frozenset({
+    "artifact", "battle", "creature", "enchantment", "instant", "kindred", "land",
+    "planeswalker", "sorcery", "tribal",
+})
+
+
+def card_types_of(obj: "GameObject") -> set[str]:
+    """``obj``'s card types (RULE 205.2a), supertypes and "permanent" excluded."""
+    return set(getattr(obj, "type_words", None) or ()) & CARD_TYPE_WORDS
+
+
+#: A ``distinct`` key whose value is a *set* per object — "the number of card
+#: types among cards in your graveyard" (Tarmogoyf) and "the number of colors
+#: among permanents you control" (Squawkroaster) count the union, since one
+#: artifact creature contributes two card types.
+_DISTINCT_SET_KEYS: dict[str, Any] = {
+    "card_type": card_types_of,
+    "color": lambda o: set(getattr(o, "colors", None) or ()),
+}
+
+#: What an ``aggregate`` selector measures on each matched object —
+#: "the greatest mana value among creatures you control" (Dodgy Jalopy),
+#: "the total mana value of other creatures you control" (Ancient Ooze),
+#: "the number of +1/+1 counters on lands you control" (Toph; ``counters``
+#: reads ``counter_kind``, or every kind when that is absent).
+_AGGREGATE_VALUES: dict[str, Any] = {
+    "mana_value": lambda o, _k: int(getattr(o.card, "converted_mana_cost", 0) or 0),
+    "power": lambda o, _k: int(o.power or 0),
+    "toughness": lambda o, _k: int(o.toughness or 0),
+    "counters": lambda o, k: (
+        int((getattr(o, "counters", None) or {}).get(k, 0) or 0) if k
+        else sum(int(v or 0) for v in (getattr(o, "counters", None) or {}).values())
+    ),
+}
+
 
 def _structured_selector_objects(
     state: "GameState", controller_id: Optional[str], spec: dict[str, Any],
@@ -887,9 +927,54 @@ def _count_structured(
     matched = _structured_selector_objects(state, controller_id, spec, source)
     distinct = spec.get("distinct")
     if distinct is not None:
+        set_getter = _DISTINCT_SET_KEYS.get(distinct)
+        if set_getter is not None:
+            values: set[Any] = set()
+            for o in matched:
+                values |= set_getter(o)
+            return len(values)
         getter = _DISTINCT_KEYS.get(distinct)
         return len({getter(o) for o in matched}) if getter else 0
+    aggregate = spec.get("aggregate")
+    if aggregate is not None:
+        measure = _AGGREGATE_VALUES.get(spec.get("value", ""))
+        if measure is None:
+            return 0
+        values_list = [measure(o, spec.get("counter_kind")) for o in matched]
+        if aggregate == "max":
+            return max(values_list, default=0)  # an empty group's greatest value is 0
+        if aggregate == "sum":
+            return sum(values_list)
+        return 0
     return len(matched)
+
+
+def _count_expression(
+    state: "GameState", controller_id: Optional[str], spec: dict[str, Any],
+    source: Optional["GameObject"] = None,
+) -> int:
+    """PAR-120: arithmetic over count selectors — ``{"terms": [<selector>, …],
+    "times": k, "plus": n}`` is ``k × Σ terms + n``. "1 plus twice the number
+    of age counters on it" (Mwonvuli Ooze), "the number of Forests you control
+    plus the number of Treefolk you control" (Dauntless Dourbark), and a
+    Lhurgoyf's toughness, "that number plus 1". A term is any selector
+    `count_selector` accepts, named or structured."""
+    total = sum(count_selector(state, controller_id, term, source) for term in spec.get("terms", ()))
+    return total * int(spec.get("times", 1)) + int(spec.get("plus", 0))
+
+
+def _counters_on_source(spec: dict[str, Any], source: Optional["GameObject"]) -> int:
+    """``{"counters_on": "source", "kind": <kind>}`` — "the number of fade
+    counters on it" (Rusting Golem): read straight off the source object's own
+    counters (RULE 122.1; they aren't a continuous effect). Every kind is
+    summed when ``kind`` is absent; ``0`` without a source."""
+    if source is None:
+        return 0
+    counters = getattr(source, "counters", None) or {}
+    kind = spec.get("kind")
+    if kind:
+        return int(counters.get(kind, 0) or 0)
+    return sum(int(v or 0) for v in counters.values())
 
 
 def count_selector(
@@ -901,7 +986,9 @@ def count_selector(
     """Evaluate a "number of X" count selector, scoped to ``controller_id``.
 
     ``selector`` is a *named* selector (the string vocabulary below) or, since
-    PAR-120, a structured ``{"zone", "of", "filter"}`` dict (`_count_structured`).
+    PAR-120, a structured ``{"zone", "of", "filter"}`` dict (`_count_structured`),
+    an arithmetic ``{"terms", "times", "plus"}`` expression over selectors
+    (`_count_expression`), or ``{"counters_on": "source"}`` (`_counters_on_source`).
 
     The vocabulary a layer-7a characteristic-defining P/T (RULE 613.7c/604.3
     — a ``*/*`` creature like Nightmare's Swamps, a graveyard-count beater)
@@ -916,6 +1003,10 @@ def count_selector(
     callers without a source in hand can keep omitting it.
     """
     if isinstance(selector, dict):
+        if "terms" in selector:
+            return _count_expression(state, controller_id, selector, source)
+        if selector.get("counters_on") == "source":
+            return _counters_on_source(selector, source)
         return _count_structured(state, controller_id, selector, source)
     bf = state.battlefield
     _source_card_name = getattr(source, "name", None)
@@ -1146,6 +1237,11 @@ def count_selector(
                     if _has_subtype(permanent, land_type)
                 )
         return len(present)
+    if selector == "your_life_total":
+        if controller_id is None:
+            return 0
+        player = state.player_by_id(controller_id)
+        return player.life if player is not None else 0
     if selector == "creatures_you_control":
         return sum(1 for o in bf if o.is_creature and o.controller_id == controller_id)
     if selector.startswith("greatest_") and selector.endswith("_you_control") and "_among_" in selector:

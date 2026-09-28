@@ -145,6 +145,14 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "opponent_life_at_most",
         "cards_in_hand_at_least",
         "cards_in_hand_at_most",
+        # "at the beginning of each opponent's upkeep, if that player has N or
+        # fewer cards in hand, …" (Davriel/Hellfire Mongrel/Shrieking
+        # Affliction, PAR-120) — "that player" is whoever's step just began
+        # (RULE 502.1's active player), not this ability's own controller;
+        # `cards_in_hand_at_most`'s ``player = _controller(state,
+        # controller_id)`` read would answer the wrong player's hand size for
+        # this per-opponent trigger shape.
+        "active_player_cards_in_hand_at_most",
         # "if you gained life this turn" (PAR-60) — reads
         # `GameState.life_gained_this_turn`; optional ``amount`` (default 1).
         "gained_life_this_turn",
@@ -308,6 +316,16 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # and stay as they are — every shipped spec spells them that way —
         # but a new predicate needs only its positive form now.
         "not",
+        # PAR-120: the OR sibling of ``all`` — "you control a desert or there
+        # is a desert card in your graveyard" (Desert's Hold and the rest of
+        # the Amonkhet Desert-payoff cluster), reached on a static's own "as
+        # long as"/an activation condition, not just the resolution-time
+        # vocabulary `effect_conditions.py`'s own ``any`` already had (ENG-36)
+        # — that module recurses through *this* one for every referent-free
+        # sub-condition, so one combinator here now covers both surfaces
+        # rather than needing a second. + ``conditions`` — true when *any one*
+        # holds.
+        "any",
     }
 )
 
@@ -521,6 +539,15 @@ def condition_holds(
         # Recurses before touching ``subject`` below — a combinator has no
         # subject of its own, only the sub-conditions it ANDs together.
         return all(
+            condition_holds(sub, state, source, controller_id, affected)
+            for sub in (condition.get("conditions") or [])
+        )
+    if kind == "any":
+        # The OR sibling of ``all`` above — true the moment one sub-condition
+        # holds. An empty list is fail-closed (no disjunct to satisfy), the
+        # same direction ``all``'s own vacuous-true reading doesn't need to
+        # guard against a printed card never producing.
+        return any(
             condition_holds(sub, state, source, controller_id, affected)
             for sub in (condition.get("conditions") or [])
         )
@@ -929,6 +956,11 @@ def condition_holds(
         return any(
             len(getattr(p, "hand", [])) <= n for p in getattr(state, "players", [])
         )
+    if kind == "active_player_cards_in_hand_at_most":
+        active = getattr(state, "active_player", None)
+        if active is None:
+            return False
+        return len(getattr(active, "hand", [])) <= int(condition.get("amount", 0))
     if kind == "opponent_controls_more_lands":
         from .continuous import count_selector
         mine = count_selector(state, controller_id, "lands_you_control")
@@ -1007,17 +1039,17 @@ def condition_holds(
                 return True
         return False
     if kind == "card_types_in_graveyard_at_least":
-        # RULE 702.137's "Delirium" — count *distinct printed card types*
-        # among cards in your graveyard (Dragon's Rage Channeler/Winter,
-        # Misanthropic Guide-shaped). `GameObject.type_words` always
-        # includes the synthetic "permanent" marker (RULE 110.1) — not a
-        # real card type, so it's excluded from the count the same way a
-        # land/instant/sorcery card in the graveyard (not itself a
-        # permanent) still counts toward delirium.
+        # RULE 702.137's "Delirium" — count *distinct card types* (RULE
+        # 205.2a) among cards in your graveyard (Dragon's Rage Channeler/
+        # Winter, Misanthropic Guide-shaped). `continuous.card_types_of`
+        # drops what `GameObject.type_words` carries that isn't a card type:
+        # the synthetic "permanent" marker and every supertype — a Legendary
+        # Sorcery used to count as two types here.
+        from .continuous import card_types_of  # local: continuous imports this module
+
         types: set[str] = set()
         for obj in getattr(player, "graveyard", []):
-            types |= obj.type_words
-        types.discard("permanent")
+            types |= card_types_of(obj)
         return len(types) >= int(condition.get("amount", 0))
     if kind == "graveyard_count":
         # RULE 702.19 Threshold's raw card count, unlike
@@ -1130,6 +1162,9 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
     if kind == "all":
         parts = [describe(sub).removeprefix("solange ") for sub in (condition.get("conditions") or [])]
         return "solange " + " und ".join(p for p in parts if p) if parts else "bedingt"
+    if kind == "any":
+        parts = [describe(sub).removeprefix("solange ") for sub in (condition.get("conditions") or [])]
+        return "solange " + " oder ".join(p for p in parts if p) if parts else "bedingt"
     if kind == "not":
         inner = describe(condition.get("condition")).removeprefix("solange ")
         return f"solange nicht {inner}" if inner else "bedingt"

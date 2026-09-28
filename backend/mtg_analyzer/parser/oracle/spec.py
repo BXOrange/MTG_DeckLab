@@ -214,7 +214,9 @@ GROUP_SUBJECT_KEY_SENTINEL = "__group_subject__"
 #: asserts they stay equal to `continuous`'s own).
 SELECTOR_ZONES: frozenset[str] = frozenset({"battlefield", "graveyard", "hand", "exile", "library"})
 SELECTOR_SCOPES: frozenset[str] = frozenset({"you", "opponents", "any"})
-SELECTOR_DISTINCT: frozenset[str] = frozenset({"power", "toughness", "mana_value", "name"})
+SELECTOR_DISTINCT: frozenset[str] = frozenset({"power", "toughness", "mana_value", "name", "card_type", "color"})
+SELECTOR_AGGREGATES: frozenset[str] = frozenset({"max", "sum"})
+SELECTOR_VALUES: frozenset[str] = frozenset({"mana_value", "power", "toughness", "counters"})
 
 #: Non-``kind`` keys an `effect_amounts` measurement spec may carry (the
 #: operands of an ENG-37 B5 `amount_compare`), and the type each must have.
@@ -1434,8 +1436,34 @@ class AbilitySpec:
             trigger[key] = check(trigger[key], _depth + 1)
 
     @staticmethod
-    def _validate_selector(selector: dict[str, Any]) -> None:
+    def _validate_selector(selector: dict[str, Any], _depth: int = 0) -> None:
         """Shape-check a structured count selector (PAR-120) and clamp its numbers."""
+        if _depth > AbilitySpec.MAX_SPEC_DEPTH:
+            raise SpecValidationError("count selector nested too deeply")
+        if "terms" in selector:
+            if set(selector) - {"terms", "times", "plus"}:
+                raise SpecValidationError("unknown count expression field")
+            terms = selector["terms"]
+            if not isinstance(terms, list) or not terms:
+                raise SpecValidationError("count expression needs terms")
+            for term in terms:
+                if isinstance(term, dict):
+                    AbilitySpec._validate_selector(term, _depth + 1)
+                elif not isinstance(term, str):
+                    raise SpecValidationError("count expression term must be a selector")
+            for key in ("times", "plus"):
+                if key in selector:
+                    value = selector[key]
+                    if isinstance(value, bool) or not isinstance(value, int):
+                        raise SpecValidationError(f"count expression {key!r} must be an int")
+                    selector[key] = max(-MAX_EFFECT_MAGNITUDE, min(value, MAX_EFFECT_MAGNITUDE))
+            return
+        if "counters_on" in selector:
+            if selector["counters_on"] != "source" or set(selector) - {"counters_on", "kind"}:
+                raise SpecValidationError("bad counters-on-source selector")
+            if "kind" in selector and (not isinstance(selector["kind"], str) or not selector["kind"]):
+                raise SpecValidationError("counter kind must be a non-empty string")
+            return
         for key, value in selector.items():
             if key == "zone":
                 ok = isinstance(value, str) and value in SELECTOR_ZONES
@@ -1443,6 +1471,12 @@ class AbilitySpec:
                 ok = isinstance(value, str) and value in SELECTOR_SCOPES
             elif key == "distinct":
                 ok = isinstance(value, str) and value in SELECTOR_DISTINCT
+            elif key == "aggregate":
+                ok = isinstance(value, str) and value in SELECTOR_AGGREGATES
+            elif key == "value":
+                ok = isinstance(value, str) and value in SELECTOR_VALUES
+            elif key == "counter_kind":
+                ok = isinstance(value, str) and bool(value)
             elif key == "filter":
                 ok = isinstance(value, dict)
                 if ok:
@@ -1451,6 +1485,8 @@ class AbilitySpec:
                 raise SpecValidationError(f"unknown count selector field {key!r}")
             if not ok:
                 raise SpecValidationError(f"bad {key!r} in a count selector: {value!r}")
+        if "aggregate" in selector and "value" not in selector:
+            raise SpecValidationError("aggregate count selector needs a value")
 
     @staticmethod
     def _validate_filter(filt: dict[str, Any], _depth: int = 0) -> None:

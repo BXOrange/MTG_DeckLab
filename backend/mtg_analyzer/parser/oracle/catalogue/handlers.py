@@ -6987,6 +6987,19 @@ _ACTIVATION_CONDITION_RES: list[tuple[re.Pattern[str], Callable[[re.Match[str]],
          "kind": "control_count", "selector": "total_power_creatures_you_control",
          ("min" if m.group("cmp") == "greater" else "max"): int(m.group("n")),
      }),
+    # PAR-120: "you control a desert or there is a desert card in your
+    # graveyard" (Wall of Forgotten Pharaohs) — the same `any`-combined
+    # compound `static_handlers.static_condition`'s own generic "`<A>` or
+    # `<B>`" fallback already builds for the other three surfaces this
+    # phrase reaches; this table doesn't share that fallback (see the
+    # module-level note on `_ACTIVATION_CONDITION_RES` duplicating
+    # `_STATIC_CONDITION_RES` by hand), so it gets its own matching row.
+    (re.compile(r"you control a desert or there is a desert card in your graveyard", re.I),
+     lambda m: {"kind": "any", "conditions": [
+         {"kind": "control_count",
+          "selector": {"zone": "battlefield", "of": "you", "filter": {"subtype": "desert"}}, "min": 1},
+         {"kind": "subtype_in_graveyard", "subtype": "desert"},
+     ]}),
 ]
 
 
@@ -6996,7 +7009,23 @@ def _activation_condition_dict(text: str) -> Optional[dict[str, Any]]:
         match = pattern.fullmatch(stripped)
         if match is not None:
             return build(match)
-    return None
+    # PAR-120: every row above is a hand-copied duplicate of a phrase
+    # `static_handlers._STATIC_CONDITION_RES`/`static_condition()` already
+    # recognizes for this same condition's other three surfaces (leading
+    # "if", trigger "while", "as long as") — this table's own module note
+    # has said so at each of this session's four additions to it (commander,
+    # total power twice, the desert compound) without ever taking the actual
+    # architectural step. Tried only once every row above has declined, so
+    # an existing row's own kind spelling (`control_legendary_subtype` vs.
+    # `control_count`/`legendary_creatures_you_control`, the dedicated
+    # `cast_noncreature_spell_this_turn` flag vs. the newer generic
+    # `event_this_turn` reading) is preserved exactly for any phrase this
+    # table already recognized — zero behaviour change for an already-
+    # shipped card — and only a phrase genuinely new to *both* tables reaches
+    # the shared vocabulary for the first time.
+    from .static_handlers import static_condition
+
+    return static_condition(stripped)
 
 
 _SORCERY_SPEED_AND_CONDITION_RE = _c(

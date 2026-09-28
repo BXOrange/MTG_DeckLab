@@ -587,6 +587,12 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         "not_reference",
         # RULE 205.4a supertype: "basic lands you control" / "nonbasic land".
         "basic", "nonbasic",
+        # RULE 205.4g supertype: "the number of **snow** permanents you control"
+        # (Abominable Treefolk, PAR-120).
+        "snow",
+        # RULE 201.2: "the number of creatures **named ~** on the battlefield"
+        # (Plague Rats) — the same English name as the *reference* object.
+        "named_as_reference",
     }
 )
 
@@ -668,8 +674,10 @@ def matches_object_filter(
     # "target non-Angel creature" (Restoration Angel-shaped) — the negated
     # sibling of ``subtype`` above, same ``without_card_type`` idiom.
     without_subtype = filt.get("without_subtype")
-    if without_subtype is not None and _has_subtype(obj, str(without_subtype)):
-        return False
+    if without_subtype is not None:
+        excluded_subs = without_subtype if isinstance(without_subtype, list) else [without_subtype]
+        if any(_has_subtype(obj, str(s)) for s in excluded_subs):
+            return False
     # "target attacking Elf you control gains deathtouch until end of
     # turn." (Gnarlroot Trapper-shaped) — RULE 506.4's own attacker status,
     # composing with the subtype/"you control" filters above rather than
@@ -771,10 +779,11 @@ def matches_object_filter(
     # colour-hoser adjective negated) — the negated sibling of ``color``
     # above, same ``without_card_type`` idiom.
     without_color = filt.get("without_color")
-    if without_color is not None and str(without_color).upper() in {
-        str(c).upper() for c in (getattr(obj, "colors", None) or set())
-    }:
-        return False
+    if without_color is not None:
+        excluded_cols = without_color if isinstance(without_color, (list, set, tuple)) else [without_color]
+        obj_colors = {str(c).upper() for c in (getattr(obj, "colors", None) or set())}
+        if any(str(c).upper() in obj_colors for c in excluded_cols):
+            return False
     card_type = filt.get("card_type")
     if card_type is not None and str(card_type).lower() not in {
         str(w).lower() for w in (getattr(obj, "type_words", None) or set())
@@ -782,12 +791,13 @@ def matches_object_filter(
         return False
     # "destroy target **nonartifact** creature" (Go for the Throat-shaped) —
     # the negated sibling of ``card_type`` above, same ``without_keyword``
-    # idiom.
+    # idiom. A list excludes every named type ("a noncreature, nonland card").
     without_card_type = filt.get("without_card_type")
-    if without_card_type is not None and str(without_card_type).lower() in {
-        str(w).lower() for w in (getattr(obj, "type_words", None) or set())
-    }:
-        return False
+    if without_card_type is not None:
+        excluded = without_card_type if isinstance(without_card_type, list) else [without_card_type]
+        words = {str(w).lower() for w in (getattr(obj, "type_words", None) or set())}
+        if any(str(t).lower() in words for t in excluded):
+            return False
     relation = filt.get("power_vs_reference")
     if relation is not None:
         if reference is None:
@@ -856,6 +866,10 @@ def matches_object_filter(
         if filt.get("nonbasic") and is_basic:
             return False
     if filt.get("not_reference") and reference is not None and obj is reference:
+        return False
+    if filt.get("snow") and "snow" not in str(getattr(obj.card, "type_line", "") or "").lower().split("—")[0].split():
+        return False
+    if filt.get("named_as_reference") and (reference is None or getattr(obj, "name", None) != reference.name):
         return False
     if filt.get("not_owned_by_you"):
         if reference is None or getattr(obj, "owner_id", None) == reference.controller_id:

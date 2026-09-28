@@ -37,6 +37,8 @@ _ZONE_SUFFIXES: list[tuple[str, dict[str, str]]] = [
     (" in each opponent's graveyard", {"zone": "graveyard", "of": "opponents"}),
     (" in your hand", {"zone": "hand", "of": "you"}),
     (" in your library", {"zone": "library", "of": "you"}),
+    (" in all players' hands", {"zone": "hand", "of": "any"}),
+    (" you own in exile", {"zone": "exile", "of": "you"}),
     (" in exile", {"zone": "exile", "of": "any"}),
 ]
 
@@ -45,7 +47,15 @@ _DIFFERENT = re.compile(r"\s+with different (?P<what>powers|toughnesses|names|ma
 _DISTINCT_KEYS = {
     "powers": "power", "toughnesses": "toughness", "names": "name", "mana values": "mana_value",
 }
-_ON_BATTLEFIELD = re.compile(r"\s+on the battlefield$")
+#: "on the battlefield" names every player's permanents; it sits either last
+#: ("zombies on the battlefield") or before a tail ("creatures on the battlefield
+#: with shadow" — Dauthi Warlord).
+_ON_BATTLEFIELD = re.compile(r"\s+on the battlefield(?=\s|$)")
+#: "creatures **named ~**" (Plague Rats) — the reference object's own name.
+_NAMED_SOURCE = re.compile(r"\s+named ~(?=\s|$)")
+#: "permanents you control **that are Spirits and/or enchantments**" (Katilda) —
+#: a relative clause restating the head as a plural type list.
+_THAT_ARE = re.compile(r"\s+that are (?P<what>[a-z/, ]+)$")
 
 _NUMBER_WORDS = {
     "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
@@ -64,6 +74,23 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
     if not text:
         return None  # an empty phrase would count every permanent
     selector: dict[str, Any] = {}
+    extra: dict[str, Any] = {}
+    if text.startswith("other "):
+        # "the number of other Rats on the battlefield" (Pestilence Rats): the
+        # counting object's own source is excluded (the `another` idiom).
+        extra["not_reference"] = True
+        text = text[len("other "):]
+    named = _NAMED_SOURCE.search(text)
+    if named is not None:
+        extra["named_as_reference"] = True
+        text = (text[: named.start()] + text[named.end():]).strip()
+    that_are = _THAT_ARE.search(text)
+    if that_are is not None:
+        restated = parse_object_phrase(that_are.group("what"), plural=True)
+        if restated is None or restated[1] is not None:
+            return None
+        extra.update(restated[0])
+        text = text[: that_are.start()].strip()
     different = _DIFFERENT.search(text)
     if different is not None:
         selector["distinct"] = _DISTINCT_KEYS[different.group("what")]
@@ -74,18 +101,33 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
             if parsed is None or parsed[1] is not None:
                 return None  # a controller tail contradicts the zone's owner
             selector.update(keys)
-            if parsed[0]:
-                selector["filter"] = parsed[0]
+            filt = _merge_filters(parsed[0], extra)
+            if filt is None:
+                return None
+            if filt:
+                selector["filter"] = filt
             return selector
-    text = _ON_BATTLEFIELD.sub("", text)
+    text = _ON_BATTLEFIELD.sub("", text, count=1)
     parsed = parse_object_phrase(text, plural=True)
     if parsed is None:
         return None
     filt, controller = parsed
+    filt = _merge_filters(filt, extra)
+    if filt is None:
+        return None
     selector.update({"zone": "battlefield", "of": _OF_FOR_CONTROLLER.get(controller or "", "any")})
     if filt:
         selector["filter"] = filt
     return selector
+
+
+def _merge_filters(base: dict[str, Any], extra: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """AND two filter fragments, or ``None`` when they constrain the same key
+    ("creatures that are Fungi" is fine; "creatures that are artifacts" would
+    need both a ``card_type`` and a ``card_type_any`` — refuse rather than guess)."""
+    if any(k in base for k in extra):
+        return None
+    return {**base, **extra}
 
 
 #: The quantity words before the counted noun → the comparison bounds they mean.
@@ -163,3 +205,107 @@ def parse_count_condition(text: str) -> Optional[dict[str, Any]]:
     if high is not None:
         condition["max"] = high
     return condition
+
+
+#: A term of an amount expression that is not "the number of `<count phrase>`":
+#: values *among* a group rather than how many objects it holds.
+_AMONG_DISTINCT = re.compile(
+    r"^the number of (?P<what>card types|colors) among (?P<phrase>.+)$"
+)
+_DISTINCT_AMONG_KEYS = {"card types": "card_type", "colors": "color"}
+_AGGREGATE = re.compile(
+    r"^the (?P<agg>greatest|total) (?P<value>mana value|power|toughness) "
+    r"(?:among|of) (?P<phrase>.+)$"
+)
+_AGGREGATE_KEYS = {"greatest": "max", "total": "sum"}
+_COUNTERS_ON = re.compile(
+    r"^the number of (?:(?P<kind>\+1/\+1|-1/-1|[a-z]+) )?counters on (?P<on>.+)$"
+)
+_NUMBER_OF = re.compile(r"^the (?:total )?number of (?P<phrase>.+)$")
+_DEVOTION_TERM = re.compile(r"^your devotion to (?P<color>white|blue|black|red|green)$")
+#: Terms with no noun phrase to parse → the named `continuous.count_selector`
+#: they already are.
+_NAMED_TERMS: dict[str, str] = {
+    "the number of basic land types among lands you control": "basic_land_types_among_lands_you_control",
+    "your life total": "your_life_total",
+}
+#: "`<N>` plus …" (Allosaurus Rider) and "twice …" (Territorial Maro).
+_PLUS_PREFIX = re.compile(rf"^(?P<n>{_NUMBER}) plus (?P<rest>.+)$")
+_TWICE_PREFIX = "twice "
+#: Where one term ends and the next begins: "X plus the number of Y".
+_TERM_SPLIT = re.compile(r" plus (?=the |your )")
+
+
+def parse_amount_term(text: str) -> "Optional[str | dict[str, Any]]":
+    """One quantity — "the number of `<count phrase>`", "the greatest mana value
+    among `<phrase>`", "the number of fade counters on it", "your life total" —
+    → a `continuous.count_selector` argument, or ``None``."""
+    text = text.strip().lower()
+    if text in _NAMED_TERMS:
+        return _NAMED_TERMS[text]
+    m = _DEVOTION_TERM.match(text)
+    if m is not None:
+        return f"devotion_to_{m.group('color')}"
+    m = _AMONG_DISTINCT.match(text)
+    if m is not None:
+        selector = parse_count_phrase(m.group("phrase"))
+        if selector is None or "distinct" in selector:
+            return None
+        return {**selector, "distinct": _DISTINCT_AMONG_KEYS[m.group("what")]}
+    m = _AGGREGATE.match(text)
+    if m is not None:
+        selector = parse_count_phrase(m.group("phrase"))
+        if selector is None or "distinct" in selector:
+            return None
+        return {
+            **selector,
+            "aggregate": _AGGREGATE_KEYS[m.group("agg")],
+            "value": m.group("value").replace(" ", "_"),
+        }
+    m = _COUNTERS_ON.match(text)
+    if m is not None:
+        kind = m.group("kind")
+        if m.group("on") in ("it", "~"):
+            return {"counters_on": "source", **({"kind": kind} if kind else {})}
+        selector = parse_count_phrase(m.group("on"))
+        if selector is None or "distinct" in selector:
+            return None
+        selector.update({"aggregate": "sum", "value": "counters"})
+        if kind:
+            selector["counter_kind"] = kind
+        return selector
+    m = _NUMBER_OF.match(text)
+    if m is not None:
+        return parse_count_phrase(m.group("phrase"))
+    return None
+
+
+def parse_amount_phrase(text: str) -> "Optional[str | dict[str, Any]]":
+    """A whole "equal to …" amount → a `continuous.count_selector` argument.
+
+    ``amount := [<N> "plus "] ["twice "] term (" plus " term)*`` — a lone term is
+    returned as-is (so every phrase the plain count grammar already covered keeps
+    its exact selector); anything with arithmetic becomes ``{"terms": [...],
+    "times": k, "plus": n}`` (`continuous._count_expression`). ``None`` if any
+    term is unknown — a characteristic-defining ability reading an unmodeled
+    quantity would silently define the creature as 0/0.
+    """
+    text = text.strip().lower().rstrip(".")
+    plus = 0
+    m = _PLUS_PREFIX.match(text)
+    if m is not None:
+        plus, text = _number(m.group("n")), m.group("rest")
+    times = 1
+    if text.startswith(_TWICE_PREFIX):
+        times, text = 2, text[len(_TWICE_PREFIX):]
+    terms = [parse_amount_term(part) for part in _TERM_SPLIT.split(text)]
+    if not terms or any(term is None for term in terms):
+        return None
+    if len(terms) == 1 and times == 1 and plus == 0:
+        return terms[0]
+    expression: dict[str, Any] = {"terms": terms}
+    if times != 1:
+        expression["times"] = times
+    if plus:
+        expression["plus"] = plus
+    return expression

@@ -1370,8 +1370,55 @@ _PHASE_STEP_ALT = "|".join(
 #: on the event at all — a body-only regex has no way to know which
 #: pronoun meaning applies outside this specific wrapper.
 _PHASE_DAMAGE_TO_THEM_RE = re.compile(
-    r"^(?:~|it) deals (?P<n>\d+) damage to them\.?\s*$", re.IGNORECASE,
+    r"^(?:~|it) deals (?P<n>\d+) damage to (?:them|that player)\.?\s*$", re.IGNORECASE,
 )
+
+#: PAR-120: "at the beginning of each opponent's/each player's `<step>`, if
+#: that player has `<N or fewer>`/no cards in hand, `<effect>`." (Davriel,
+#: Rogue Shadowmage; the Shrieking Affliction/Hellfire Mongrel/Lavaborn Muse
+#: "hellbent-punisher" cluster) — "that player" is the same whoever's-step-
+#: it-is referent `_PHASE_DAMAGE_TO_THEM_RE` already reads, one clause
+#: earlier: a phase-trigger-only peel (not folded into the shared
+#: `static_condition()` table `_GENERIC_IF_PREFIX_RE` also reaches) because
+#: the identical wording means something else entirely off this surface —
+#: an activated ability's own "target opponent discards a card. then if
+#: **that player** has no cards in hand, …" (Nezumi Shortfang) means the
+#: just-targeted opponent, not whoever's turn it is.
+_THAT_PLAYER_HAND_IF_RE = re.compile(
+    r"^if that player has (?:no cards|(?P<n>\d+) or fewer cards) in hand,\s*(?P<rest>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+#: The handful of effect-verb shapes this cluster's bodies use, each aimed
+#: at the same "that player"/"them" referent (`effect_operands.PLAYER_
+#: SCOPES`' own ``"active_player"`` string, already resolved generically by
+#: `DrawCardEffect.player`/`LoseLifeEffect.player`'s ENG-37 operand path —
+#: no new engine code needed for either). The damage shape is
+#: `_PHASE_DAMAGE_TO_THEM_RE` above, tried by the caller first.
+_ACTIVE_PLAYER_DRAWS_RE = re.compile(
+    r"^that player draws (?P<n>\d+) cards?\.?\s*$", re.IGNORECASE,
+)
+_ACTIVE_PLAYER_LOSES_LIFE_RE = re.compile(
+    r"^(?:they|that player) lose[s]? (?P<n>\d+) life\.?\s*$", re.IGNORECASE,
+)
+
+
+def _active_player_phase_body(rest: str) -> Optional[list[EffectSpec]]:
+    """The known effect-verb shapes an "if that player has …, `<rest>`."
+    phase-trigger body takes — see `_THAT_PLAYER_HAND_IF_RE`. ``None`` if
+    ``rest`` isn't one of them (the caller falls back to `parse_effect_body`,
+    correct for a card whose own effect doesn't name "that player"/"they" at
+    all, e.g. Asylum Visitor's "you draw a card and you lose 1 life.")."""
+    m = _PHASE_DAMAGE_TO_THEM_RE.match(rest)
+    if m is not None:
+        return [EffectSpec("damage", {"amount": int(m.group("n")), "selector": "active_player"})]
+    m = _ACTIVE_PLAYER_DRAWS_RE.match(rest)
+    if m is not None:
+        return [EffectSpec("draw", {"count": int(m.group("n")), "player": "active_player"})]
+    m = _ACTIVE_PLAYER_LOSES_LIFE_RE.match(rest)
+    if m is not None:
+        return [EffectSpec("lose_life", {"amount": int(m.group("n")), "player": "active_player"})]
+    return None
 
 #: MEC-46 (Galadriel, Elven-Queen) — the RULE 603.4 intervening-if a phase
 #: trigger's body can lead with: "if another `<subtype>` entered the
@@ -7447,6 +7494,7 @@ def _segment_line_unsplit(
         noncreature_if = re.match(
             r"^if you'?ve cast a noncreature spell this turn,\s*(?P<rest>.+)$", body, re.I | re.S,
         )
+        that_player_hand_if = _THAT_PLAYER_HAND_IF_RE.match(body)
         if harnessed_if is not None:  # MEC-79 / RULE 701.64b
             phase_active_if = {"kind": "source_harnessed"}
             body = harnessed_if.group("rest").strip()
@@ -7479,6 +7527,13 @@ def _segment_line_unsplit(
                 "max": 0,
             }
             body = no_subtype_if.group("rest").strip()
+        elif that_player_hand_if is not None:
+            n = that_player_hand_if.group("n")
+            phase_active_if = {
+                "kind": "active_player_cards_in_hand_at_most",
+                "amount": int(n) if n else 0,
+            }
+            body = that_player_hand_if.group("rest").strip()
         if relation is None:
             them_damage = _PHASE_DAMAGE_TO_THEM_RE.match(body)
             if them_damage is not None:
@@ -7486,9 +7541,9 @@ def _segment_line_unsplit(
                     "amount": int(them_damage.group("n")), "selector": "active_player",
                 })]
             else:
-                effects = parse_effect_body(body)
+                effects = _active_player_phase_body(body) or parse_effect_body(body)
         else:
-            effects = parse_effect_body(body)
+            effects = _active_player_phase_body(body) or parse_effect_body(body)
         if effects is None and phase_active_if is None:
             # RULE 603.4: any other leading "if `<state>`," of a phase trigger is an intervening
             # if too — read through the shared state-predicate vocabulary (`static_condition`)

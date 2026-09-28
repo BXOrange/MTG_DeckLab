@@ -741,7 +741,9 @@ def test_group_pump_handler_creatures_you_control():
         "power": 2, "toughness": 1, "selector": _CREATURES_YOU_CONTROL_SELECTOR,
     }
     other = parse_effect_body("other creatures you control get +1/+1 until end of turn")[0]
-    assert other.params["selector"] == "other_creatures_you_control"
+    assert other.params["selector"] == {
+        "zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True},
+    }
     kw = parse_effect_body("creatures you control gain flying until end of turn")[0]
     assert kw.params == {
         "keywords": ["flying"], "selector": _CREATURES_YOU_CONTROL_SELECTOR,

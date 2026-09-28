@@ -39,7 +39,7 @@ def _db():
     ("creature", {"zone": "graveyard", "of": "you", "filter": {"card_type": "creature"}}),
     ("land", {"zone": "graveyard", "of": "you", "filter": {"card_type": "land"}}),
     ("instant", {"zone": "graveyard", "of": "you", "filter": {"card_type": "instant"}}),
-    ("instant and sorcery", "instant_or_sorcery_cards_in_your_graveyard"),
+    ("instant and sorcery", {"zone": "graveyard", "of": "you", "filter": {"card_type_any": ["instant", "sorcery"]}}),
 ])
 def test_gy_cost_reduction_claimed(word, selector):
     specs = static_effect_specs(

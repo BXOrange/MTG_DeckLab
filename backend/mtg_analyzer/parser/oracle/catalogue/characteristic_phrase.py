@@ -65,6 +65,7 @@ FLAG_WORDS: dict[str, dict[str, Any]] = {
     "untapped": {"tapped": False},
     "basic": {"basic": True},
     "nonbasic": {"nonbasic": True},
+    "snow": {"snow": True},
     "attacking": {"attacking": True},
     "blocking": {"blocking": True},
     # RULE 903.3: a commander is a designation, not a type or subtype.
@@ -88,7 +89,14 @@ KEYWORD_WORDS: dict[str, str] = {
     "persist": "persist", "undying": "undying", "changeling": "changeling",
 }
 
-_ALTERNATION = re.compile(r"\s*,\s*(?:(?:and/)?or\s+)?|\s+(?:and/)?or\s+")
+_ALTERNATION = re.compile(r"\s*,\s*(?:(?:and/)?or\s+|and\s+)?|\s+(?:(?:and/)?or|and)\s+")
+#: What makes a word list an OR rather than stacked adjectives: an explicit
+#: "or"/"and/or" connective, or — for a *plural* count noun only — "and"
+#: ("instant and sorcery cards", "Soldiers and Warriors you control" name every
+#: card that is either). A comma list with no connective at all ("noncreature,
+#: nonland card") is stacked adjectives, i.e. AND.
+_OR_CONNECTIVE = re.compile(r"\s(?:and/)?or\s")
+_PLURAL_AND_CONNECTIVE = re.compile(r"\sand\s")
 _WITH_MANA_VALUE = re.compile(r"^mana value (?P<n>\d+) or (?P<dir>greater|less)$")
 _WITH_STAT = re.compile(r"^(?P<stat>power|toughness) (?P<n>\d+) or (?P<dir>greater|less)$")
 _WITH_COUNTER = re.compile(r"^an? (?:(?P<kind>\+1/\+1|-1/-1|[a-z]+) )?counter on it$")
@@ -104,6 +112,8 @@ def _singulars(word: str) -> list[str]:
     """The singular forms a plural noun could be ("elves" → elf, "wolves" → wolf,
     "lands" → land), most specific first."""
     out: list[str] = []
+    if word.endswith("i"):
+        out.append(word[:-1] + "us")  # "fungi" → fungus
     if word.endswith("ies"):
         out.append(word[:-3] + "y")
     if word.endswith("ves"):
@@ -165,6 +175,14 @@ def _conjunction(
         if fragment.get("card_type"):
             card_types.append(fragment["card_type"])
             continue
+        if "without_card_type" in fragment and "without_card_type" in filt:
+            # "noncreature, nonland" — stacked exclusions, every one applies.
+            previous = filt["without_card_type"]
+            previous = previous if isinstance(previous, list) else [previous]
+            if fragment["without_card_type"] in previous:
+                return None
+            filt["without_card_type"] = previous + [fragment["without_card_type"]]
+            continue
         if any(k in filt for k in fragment):
             return None  # two subtypes / two colours / a repeated word: not one object's phrase
         filt.update(fragment)
@@ -194,6 +212,17 @@ def _alternation(parts: list[str], plural: bool = False) -> Optional[dict[str, A
         return {"color_any": [f["color"] for f in fragments]}
     if all(set(f) == {"subtype"} for f in fragments):
         return {"subtype_any": [f["subtype"] for f in fragments]}
+    if all(all(k.startswith("without_") for k in f) for f in fragments):
+        merged: dict[str, Any] = {}
+        for f in fragments:
+            for k, v in f.items():
+                if k in merged:
+                    prev = merged[k]
+                    prev = prev if isinstance(prev, list) else [prev]
+                    merged[k] = prev + [v]
+                else:
+                    merged[k] = v
+        return merged
     return {"any_of": fragments}
 
 
@@ -213,10 +242,10 @@ def parse_head(head: str, plural: bool = False) -> Optional[dict[str, Any]]:
         head, card_noun = "", True
     if not head:
         return {}
-    parts = [p for p in _ALTERNATION.split(head) if p]
-    if len(parts) > 1:
+    if _OR_CONNECTIVE.search(head) or (plural and _PLURAL_AND_CONNECTIVE.search(head)):
+        parts = [p for p in _ALTERNATION.split(head) if p]
         return _alternation(parts, plural=plural)
-    return _conjunction(parts[0].split(), card_noun=card_noun, plural=plural)
+    return _conjunction(head.replace(",", " ").split(), card_noun=card_noun, plural=plural)
 
 
 def parse_qualifier(qualifier: str) -> Optional[dict[str, Any]]:
