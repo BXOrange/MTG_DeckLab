@@ -112,7 +112,7 @@ _ABILITY_WORD_RE = re.compile(
     # gone. Confirmed safe for this one row too (PAR-68): every cached
     # "Teamwork —" line's body is a plain trigger the ability-word strip
     # alone doesn't need to interpret.
-    r"|teamwork|corrupted)\s*—\s*",
+    r"|teamwork|corrupted|chroma|alliance)\s*—\s*",
     re.MULTILINE,
 )
 

@@ -76,13 +76,10 @@ def test_more_quantity_phrases_now_parse_via_the_shared_grammar():
 
 
 def test_unwhitelisted_quantity_phrases_stay_unclaimed():
-    # A referent the shared grammar doesn't express ("the chosen player") —
-    # a CDA reading an unmodeled quantity would silently define the creature
-    # 0/0, so this must still fail closed. ("differently named", the former
-    # pin here, is `distinct: name` since PAR-120 v484.)
+    # A still-unmodeled quantity must not silently define a creature as 0/0.
     assert static_effect_specs(
         "~'s power and toughness are each equal to the number of "
-        "cards in the chosen player's hand."
+        "frobnicators in the chosen player's hand."
     ) is None
 
 

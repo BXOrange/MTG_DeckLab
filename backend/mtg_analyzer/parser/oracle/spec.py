@@ -213,10 +213,10 @@ GROUP_SUBJECT_KEY_SENTINEL = "__group_subject__"
 #: because this package cannot import `game/`; `tests/test_par120_count_phrase.py`
 #: asserts they stay equal to `continuous`'s own).
 SELECTOR_ZONES: frozenset[str] = frozenset({"battlefield", "graveyard", "hand", "exile", "library"})
-SELECTOR_SCOPES: frozenset[str] = frozenset({"you", "opponents", "any"})
+SELECTOR_SCOPES: frozenset[str] = frozenset({"you", "opponents", "any", "chosen"})
 SELECTOR_DISTINCT: frozenset[str] = frozenset({"power", "toughness", "mana_value", "name", "card_type", "color"})
 SELECTOR_AGGREGATES: frozenset[str] = frozenset({"max", "sum"})
-SELECTOR_VALUES: frozenset[str] = frozenset({"mana_value", "power", "toughness", "counters"})
+SELECTOR_VALUES: frozenset[str] = frozenset({"mana_value", "power", "toughness", "counters", "mana_symbols"})
 
 #: Non-``kind`` keys an `effect_amounts` measurement spec may carry (the
 #: operands of an ENG-37 B5 `amount_compare`), and the type each must have.
@@ -1477,6 +1477,8 @@ class AbilitySpec:
                 ok = isinstance(value, str) and value in SELECTOR_VALUES
             elif key == "counter_kind":
                 ok = isinstance(value, str) and bool(value)
+            elif key == "color":
+                ok = isinstance(value, str) and value in "WUBRG" and len(value) == 1
             elif key == "filter":
                 ok = isinstance(value, dict)
                 if ok:
@@ -1487,6 +1489,10 @@ class AbilitySpec:
                 raise SpecValidationError(f"bad {key!r} in a count selector: {value!r}")
         if "aggregate" in selector and "value" not in selector:
             raise SpecValidationError("aggregate count selector needs a value")
+        if (selector.get("value") == "mana_symbols") != ("color" in selector):
+            raise SpecValidationError("mana-symbol selector needs exactly one color")
+        if selector.get("value") == "mana_symbols" and selector.get("aggregate") != "sum":
+            raise SpecValidationError("mana-symbol selector must be a sum")
 
     @staticmethod
     def _validate_filter(filt: dict[str, Any], _depth: int = 0) -> None:

@@ -17,7 +17,8 @@ import pytest
 
 from mtg_analyzer.game import continuous
 from mtg_analyzer.game.binding.core import bind_from_catalogue
-from mtg_analyzer.game.continuous import count_selector
+from mtg_analyzer.game.continuous import count_selector, self_cost_reduction_for
+from mtg_analyzer.game.effects.core import EffectRegistry
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle import parse_oracle
@@ -64,9 +65,23 @@ from tests.support.game import make_engine, obj_on_battlefield
         ("creature cards in your graveyard",
          {"zone": "graveyard", "of": "you", "filter": {"card_type": "creature"}}),
         ("cards in your hand", {"zone": "hand", "of": "you"}),
+        ("cards in the chosen player's hand", {"zone": "hand", "of": "chosen"}),
+        ("green creature cards in the chosen player's graveyard",
+         {"zone": "graveyard", "of": "chosen", "filter": {"color": "G", "card_type": "creature"}}),
+        ("nonbasic lands the chosen player controls",
+         {"zone": "battlefield", "of": "chosen", "filter": {
+             "nonbasic": True, "card_type": "land"}}),
         ("cards in all graveyards", {"zone": "graveyard", "of": "any"}),
         ("creature cards in your opponents' graveyards",
          {"zone": "graveyard", "of": "opponents", "filter": {"card_type": "creature"}}),
+        ("untapped artifacts, creatures, and lands you control",
+         {"zone": "battlefield", "of": "you", "filter": {
+             "card_type_any": ["artifact", "creature", "land"], "tapped": False}}),
+        ("instant and sorcery cards you own in exile and in your graveyard",
+         {"terms": [
+             {"zone": "exile", "of": "you", "filter": {"card_type_any": ["instant", "sorcery"]}},
+             {"zone": "graveyard", "of": "you", "filter": {"card_type_any": ["instant", "sorcery"]}},
+         ]}),
         ("creatures you control with different powers",
          {"distinct": "power", "zone": "battlefield", "of": "you",
           "filter": {"card_type": "creature"}}),
@@ -83,6 +98,7 @@ def test_count_phrase_parses(phrase, expected):
         "creatures you control you control",
         "creature cards you control in your graveyard",   # a controller tail contradicts the zone
         "goblin warriors you control",                    # two subtypes are not one object phrase
+        "instant cards in exile and in exile",              # same zone would double-count
         "",
     ],
 )
@@ -162,7 +178,7 @@ def test_spec_validation_rejects_a_bad_selector():
 def test_the_spec_vocabularies_match_the_engines():
     assert SELECTOR_ZONES == {"battlefield"} | set(continuous.COUNT_SELECTOR_ZONES)
     assert SELECTOR_DISTINCT == set(continuous._DISTINCT_KEYS) | set(continuous._DISTINCT_SET_KEYS)
-    assert SELECTOR_SCOPES == {"you", "opponents", "any"}
+    assert SELECTOR_SCOPES == {"you", "opponents", "any", "chosen"}
 
 
 def test_cda_amount_expressions_and_distinct_values_execute():
@@ -233,6 +249,127 @@ def test_lhurgoyf_count_and_offset_recompute_from_graveyards():
     ))
     engine.recompute_continuous_effects()
     assert (lhurgoyf.power, lhurgoyf.toughness) == (1, 2)
+
+
+def test_two_zone_cda_counts_only_owned_matching_cards():
+    engine, state = _engine()
+    drake = obj_on_battlefield(state, engine, Card(
+        id="drake", name="Crackling Drake", type_line="Creature — Drake",
+        is_creature=True, power=0, toughness=4,
+        oracle_text="Crackling Drake's power is equal to the total number of instant and sorcery cards you own in exile and in your graveyard.",
+    ), controller="p1")
+    bind_from_catalogue(drake)
+    for owner, zone, kind in (
+        ("p1", Zone.EXILE, "Instant"), ("p1", Zone.GRAVEYARD, "Sorcery"),
+        ("p1", Zone.GRAVEYARD, "Creature"), ("p2", Zone.EXILE, "Instant"),
+    ):
+        obj = GameObject(Card(id=f"{owner}-{zone}-{kind}", name=kind,
+                              type_line=kind), owner_id=owner, zone=zone)
+        player = state.player_by_id(owner)
+        (player.exile if zone == Zone.EXILE else player.graveyard).append(obj)
+    engine.recompute_continuous_effects()
+    assert drake.power == 2
+
+
+def test_two_zone_count_reduces_a_spell_cost():
+    engine, state = _engine()
+    swarm = GameObject(Card(
+        id="swarm", name="Huskburster Swarm", type_line="Creature — Horror",
+        is_creature=True, mana_cost_string="{8}{B}",
+        oracle_text="This spell costs {1} less to cast for each creature card you own in exile and in your graveyard.",
+    ), owner_id="p1", zone=Zone.HAND)
+    bind_from_catalogue(swarm)
+    for zone in (Zone.EXILE, Zone.GRAVEYARD):
+        obj = GameObject(Card(id=f"bear-{zone}", name="Bear",
+                              type_line="Creature — Bear", is_creature=True),
+                         owner_id="p1", zone=zone)
+        player = state.player_by_id("p1")
+        (player.exile if zone == Zone.EXILE else player.graveyard).append(obj)
+    assert self_cost_reduction_for(swarm, state, caster_id="p1")[0] == 2
+
+
+def test_maraxus_cda_filters_tap_state_across_every_card_type():
+    engine = make_engine([], hand=0)
+    state = engine.state
+    maraxus = obj_on_battlefield(state, engine, Card(
+        id="maraxus", name="Maraxus of Keld", type_line="Legendary Creature — Human Warrior",
+        is_creature=True, power=0, toughness=0,
+        oracle_text="Maraxus's power and toughness are each equal to the number of untapped artifacts, creatures, and lands you control.",
+    ), controller="p1")
+    bind_from_catalogue(maraxus)
+    for kind, tapped in (("Artifact", False), ("Creature", False), ("Land", False),
+                         ("Land", True)):
+        obj = obj_on_battlefield(state, engine, Card(
+            id=f"{kind}-{tapped}", name=kind, type_line=kind,
+            is_creature=kind == "Creature", is_land=kind == "Land",
+        ), controller="p1")
+        obj.tapped = tapped
+    engine.recompute_continuous_effects()
+    assert (maraxus.power, maraxus.toughness) == (4, 4)
+
+
+def test_chosen_player_hand_cda_follows_the_enter_choice():
+    engine, state = _engine()
+    specter = obj_on_battlefield(state, engine, Card(
+        id="specter", name="Entropic Specter", type_line="Creature — Specter",
+        is_creature=True, power=0, toughness=0,
+        oracle_text="As this creature enters, choose an opponent.\nEntropic Specter's power and toughness are each equal to the number of cards in the chosen player's hand.",
+    ), controller="p1")
+    bind_from_catalogue(specter)
+    state.player_by_id("p2").hand.append(GameObject(
+        Card(id="card", name="Card", type_line="Sorcery"), owner_id="p2", zone=Zone.HAND))
+    specter.chosen_player_id = "p2"
+    engine.recompute_continuous_effects()
+    assert (specter.power, specter.toughness) == (1, 1)
+    chosen_lands = parse_count_phrase("nonbasic lands the chosen player controls")
+    assert chosen_lands is not None
+    assert count_selector(state, "p1", chosen_lands, specter) == 0
+    obj_on_battlefield(state, engine, Card(
+        id="wastes", name="Wastes", type_line="Land", is_land=True,
+    ), controller="p2")
+    assert count_selector(state, "p1", chosen_lands, specter) == 1
+    specter.chosen_player_id = None
+    engine.recompute_continuous_effects()
+    assert (specter.power, specter.toughness) == (0, 0)
+
+
+def test_graveyard_mana_symbols_count_hybrid_pips():
+    engine = make_engine([], hand=0)
+    state = engine.state
+    stalker = obj_on_battlefield(state, engine, Card(
+        id="stalker", name="Umbra Stalker", type_line="Creature — Elemental",
+        is_creature=True, power=0, toughness=0,
+        oracle_text="Chroma — Umbra Stalker's power and toughness are each equal to the number of black mana symbols in the mana costs of cards in your graveyard.",
+    ), controller="p1")
+    bind_from_catalogue(stalker)
+    assert parse_oracle(stalker.card).modeled
+    for name, mana in (("Black", "{B}{B}"), ("Hybrid", "{W/B}"),
+                       ("White", "{W}")):
+        state.player_by_id("p1").graveyard.append(GameObject(
+            Card(id=name, name=name, type_line="Sorcery", mana_cost_string=mana),
+            owner_id="p1", zone=Zone.GRAVEYARD))
+    engine.recompute_continuous_effects()
+    assert (stalker.power, stalker.toughness) == (3, 3)
+
+
+def test_created_token_binds_its_quoted_cda():
+    engine, state = _engine()
+    body = ('create a white Spirit Cleric creature token with "This token\'s power '
+            'and toughness are each equal to the number of Spirits you control."')
+    [spec] = parse_effect_body(body)
+    source = obj_on_battlefield(state, engine, Card(
+        id="haunting", name="Haunting", type_line="Enchantment"), controller="p1")
+    effect = EffectRegistry.create(spec.type, spec.params)
+    effect.source = source
+    effect.apply(engine.rules.context)
+    [token] = [obj for obj in state.battlefield if obj.is_token]
+    engine.recompute_continuous_effects()
+    assert (token.power, token.toughness) == (1, 1)
+    obj_on_battlefield(state, engine, Card(
+        id="spirit", name="Spirit", type_line="Creature — Spirit", is_creature=True,
+        power=1, toughness=1), controller="p1")
+    engine.recompute_continuous_effects()
+    assert (token.power, token.toughness) == (2, 2)
 
 
 # ---------------------------------------------------------------------------

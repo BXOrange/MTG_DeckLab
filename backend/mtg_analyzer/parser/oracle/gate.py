@@ -3675,7 +3675,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: through `target_kind_allowed`, "artifact or enchantment" is no longer any
 #: permanent, "If `<cond>`, A, then B" gates both halves, and "each player /
 #: each opponent / target opponent `<verb>`" is a player-subject slot.
-PARSER_VERSION = "485"
+PARSER_VERSION = "492"
 
 
 def parser_source_hash() -> str:

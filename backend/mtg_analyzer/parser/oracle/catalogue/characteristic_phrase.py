@@ -199,9 +199,15 @@ def _conjunction(
 def _alternation(parts: list[str], plural: bool = False) -> Optional[dict[str, Any]]:
     """The OR of several single-word parts: "instant or sorcery", "goblin or wizard"."""
     if any(len(p.split()) != 1 for p in parts):
-        # Whether a leading adjective distributes over every alternative
-        # ("nontoken artifact creature or vehicle") is not decidable from the
-        # words — refuse rather than guess.
+        # A leading tap-state word applies to every type in an enumerated list
+        # ("untapped artifacts, creatures, and lands", Maraxus of Keld).
+        # Keep this narrow: a general adjective's distribution is ambiguous.
+        first = parts[0].split()
+        if (len(first) == 2 and first[0] in ("tapped", "untapped")
+                and all(len(p.split()) == 1 for p in parts[1:])):
+            base = _alternation([first[1], *parts[1:]], plural=plural)
+            if base is not None and "tapped" not in base:
+                return {**base, "tapped": first[0] == "tapped"}
         return None
     fragments = [_word_fragment(p, plural=plural) for p in parts]
     if any(f is None or not f for f in fragments):

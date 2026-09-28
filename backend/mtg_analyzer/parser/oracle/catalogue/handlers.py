@@ -7238,6 +7238,17 @@ def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
         params["parametric_keywords"] = parametric_keywords
     if protection_text:
         params["oracle_text"] = protection_text
+    quoted_cda = m.groupdict().get("quoted_cda")
+    if quoted_cda:
+        # RULE 604.3: a token owns its quoted CDA. Validate the whole ability
+        # before preserving it as the new card's oracle text.
+        from .static_handlers import static_effect_specs  # function-scoped: static_handlers imports this module
+
+        normalized = re.sub(r"^(?:this token|this creature)'s", "~'s", quoted_cda, flags=re.I)
+        parsed = static_effect_specs(normalized)
+        if not parsed or len(parsed) != 1 or parsed[0].type != "pt_cda":
+            return None
+        params["oracle_text"] = "\n".join(filter(None, (protection_text, quoted_cda)))
     if m.groupdict().get("dies_life"):
         # STX Pest — "with \"when ~ dies, you gain N life.\""
         params["token_dies_gain_life"] = int(m.group("dies_life"))
@@ -7279,6 +7290,40 @@ def _create_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params = _inline_create_token_params(m)
     if params is None:
         return None
+    return [EffectSpec("create_token", params)]
+
+
+_CREATE_TOKEN_QUOTED_CDA_RE = _c(
+    rf"(?P<who>each player |each opponent )?creates? {COUNT} "
+    r"(?P<mid>[a-z ]*?)creature tokens? with "
+    r'"(?P<cda>(?:this token|this creature|~)\'?s power[^\"]+)"'
+)
+
+
+def _create_token_quoted_cda(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    # A */* token prints its P/T only in the quoted characteristic-defining
+    # ability. Zero is a placeholder; the bound CDA defines both values in
+    # layer 7a as soon as the token enters (RULE 604.3/613.7).
+    from .static_handlers import static_effect_specs  # function-scoped: static_handlers imports this module
+
+    oracle = m.group("cda")
+    normalized = re.sub(r"^(?:this token|this creature)'s", "~'s", oracle, flags=re.I)
+    parsed = static_effect_specs(normalized)
+    if not parsed or len(parsed) != 1 or parsed[0].type != "pt_cda":
+        return None
+    colors, subtypes, is_artifact = _split_token_mid_words(m.group("mid"))
+    if not subtypes:
+        return None
+    params: dict[str, Any] = {
+        "count": count_of(m.group("n")), "power": 0, "toughness": 0,
+        "colors": colors, "subtypes": subtypes,
+        "token_name": " ".join(subtypes), "oracle_text": oracle,
+    }
+    if is_artifact:
+        params["is_artifact"] = True
+    who = m.group("who") or ""
+    if who:
+        params["creators"] = "each_opponent" if "opponent" in who else "each_player"
     return [EffectSpec("create_token", params)]
 
 
@@ -8153,6 +8198,8 @@ def _add_counters_selector(m: re.Match[str]) -> list[EffectSpec]:
     }[m.group("selector")]
     amount = count_or_x_of(m.group("n"))
     params: dict = {"kind": _counter_sign(m.group("ckind")), "selector": selector}
+    if m.groupdict().get("has_counter"):
+        params["creature_filter"] = {"has_counter_kind": "+1/+1"}
     if amount == "x":
         # RULE 107.3c: an X in a resolving spell reads that spell's announced X.
         params["x_multiplier"] = 1
@@ -15578,6 +15625,7 @@ HANDLERS: list[EffectHandler] = [
             rf"put {COUNT_X} (?P<ckind>[+\-−]1/[+\-−]1) counters? on "
             r"(?P<selector>each other planeswalker you control|each other creature you control"
             r"|each creature your opponents control|each other creature|each creature you control|each creature)"
+            r"(?P<has_counter> that has a \+1/\+1 counter on it)?"
         ),
         _add_counters_selector,
     ),
@@ -17007,6 +17055,11 @@ HANDLERS: list[EffectHandler] = [
     # "create a 1/1 white Soldier creature token" / "create two 2/2 green Bear
     # creature tokens with trample" — inline creature tokens (fully modeled).
     EffectHandler(
+        "create_token_quoted_cda",
+        _CREATE_TOKEN_QUOTED_CDA_RE,
+        _create_token_quoted_cda,
+    ),
+    EffectHandler(
         "create_token",
         _c(
             rf"(?P<per_opp>for each opponent, )?(?:(?P<who>you|each player|each opponent|target player|target opponent) )?creates? {COUNT_X} "
@@ -17020,6 +17073,7 @@ HANDLERS: list[EffectHandler] = [
             # Feral Appetite, Pest Rescuer, Hunt for Specimens, …). Baked
             # onto each token via `CreateTokenEffect.token_dies_gain_life`.
             rf'(?: with "when (?:~|it) dies, you gain (?P<dies_life>\d+) life\.?")?'
+            + rf'(?: (?:with|and) "(?P<quoted_cda>(?:this token|this creature|~)\'?s power[^\"]+)")?'
             + _TOKEN_TAPPED_ATTACKING
         ),
         _create_token,

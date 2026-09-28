@@ -74,10 +74,10 @@ def test_an_and_or_type_list_is_a_union():
 
 
 def test_unmodeled_filters_stay_fail_closed():
-    # Two zones summed in one phrase is outside the grammar.
+    # An unsupported third zone must not be dropped from a two-zone phrase.
     assert static_effect_specs(
         "this spell costs {1} less to cast for each creature card you own in exile "
-        "and in your graveyard"
+        "and in your library"
     ) is None
 
 

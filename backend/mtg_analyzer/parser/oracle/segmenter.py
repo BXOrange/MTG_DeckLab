@@ -1933,6 +1933,22 @@ _LEAVING_COUNTER_WHERE_X_RE = re.compile(
     r"counters (?:it had )?on (?:that creature|that permanent|it)\.?$",
     re.IGNORECASE | re.DOTALL,
 )
+_LEAVING_COUNTER_COPY_RE = re.compile(
+    r"^create (?P<count>\d+) tokens? that are copies of it\.?$", re.IGNORECASE,
+)
+_LEAVING_COUNTER_RETURN_LOSE_RE = re.compile(
+    r"^return it to the battlefield under its owner'?s control and "
+    r"it loses all abilities\.?$", re.I,
+)
+_LEAVING_COUNTER_IF_ELSE_RE = re.compile(
+    r"^exile it if it had a (?P<kind>[a-z]+) counter on it\.\s*"
+    r"otherwise,? return it to the battlefield under your control and "
+    r"put a (?P=kind) counter on it\.?$", re.I | re.S,
+)
+_LEAVING_COUNTER_CREATE_TRANSFER_RE = re.compile(
+    r"^(?P<create>create a 0/0 [^.]+? creature token),? then "
+    r"put ~'s counters on that token\.?$", re.I | re.S,
+)
 
 _LEAVING_COUNTER_INTERVENING_RE = re.compile(
     r"^if it had (?:(?P<no>no)|(?P<count>\d+) or more|(?P<article>a|an))?\s*"
@@ -3810,6 +3826,40 @@ def _if_else_specs(
     })]
 
 
+_INSTEAD_OVERRIDE_RE = re.compile(
+    r"^(?P<base>[^.]+)\.\s*if (?P<cond>[^,]{2,120}),\s*"
+    r"(?P<replacement>[^.]+?) instead\.?$", re.I | re.S,
+)
+
+
+def _instead_override_specs(body: str, **flags: Any) -> Optional[list[EffectSpec]]:
+    """Replace a targetless effect under one shared condition (RULE 614.6).
+
+    The base must not resolve first: a second conditional effect after it
+    would scry *and* draw for Rumor Gatherer. Targeted replacements need
+    their announced target carried by the outer node, so they stay unclaimed.
+    """
+    match = _INSTEAD_OVERRIDE_RE.fullmatch(body)
+    if match is None:
+        return None
+    ordinal = re.fullmatch(_RESOLUTION_TIME, match.group("cond"), re.I)
+    condition = (_resolution_count_condition(ordinal) if ordinal is not None
+                 else static_condition(match.group("cond")))
+    if condition is None:
+        return None
+    base = parse_effect_body(match.group("base"), **flags)
+    replacement = parse_effect_body(match.group("replacement"), **flags)
+    if (not base or not replacement
+            or any(spec.condition is not None or _names_a_target(spec)
+                   for spec in [*base, *replacement])):
+        return None
+    return [EffectSpec("if_else", {
+        "condition": condition,
+        "then": [spec.to_dict() for spec in replacement],
+        "else": [spec.to_dict() for spec in base],
+    })]
+
+
 #: The param keys an `EffectSpec` names a RULE 115 requirement under — the
 #: same "differently-named keys" `_CREATURE_TARGET_KINDS` documents, read here
 #: to answer "does this clause announce a target at all".
@@ -5000,6 +5050,13 @@ def parse_effect_body(
     )
     if if_else is not None:
         return if_else
+
+    override = _instead_override_specs(
+        body, self_subject=self_subject, previous_subject=previous_subject,
+        group_subject=group_subject, previous_selector=previous_selector,
+    )
+    if override is not None:
+        return override
 
     # "If `<cond>`, `<A>` and|, then `<B>`." — one sentence, one gate over *both* effects. The
     # connector split below would hand `<B>` over on its own, ungated (Unholy Annex: "If you
@@ -8170,6 +8227,26 @@ def _segment_line_unsplit(
                 event, condition, head_trigger = head.event, head.condition, head.trigger
                 composed_head = True
         body, optional = _peel_optional(trig.group("body"))
+        death_counter_branch = (
+            _LEAVING_COUNTER_IF_ELSE_RE.fullmatch(body)
+            if event == "DIES" and (condition or {}).get("subject") == "self"
+            else None
+        )
+        if death_counter_branch is not None:
+            kind = death_counter_branch.group("kind").lower()
+            effects = [EffectSpec("if_else", {
+                "condition": {"kind": "trigger_event_counters", "counter": kind, "min": 1},
+                "then": [EffectSpec("exile", {"target_kind": None}).to_dict()],
+                "else": [EffectSpec("return_self_to_battlefield", {
+                    "under_your_control": True,
+                    "extra_counters": {"kind": kind, "count": 1},
+                }).to_dict()],
+            })]
+            return Segment(raw=raw, spec=AbilitySpec(
+                "triggered", effects=effects,
+                trigger={"event": event, "condition": condition},
+                raw_text=raw, parser=provenance,
+            ), claimed=True)
         event_counter_gate: Optional[dict[str, Any]] = None
         if event in ("DIES", "LEAVES_BATTLEFIELD"):
             counter_if = _LEAVING_COUNTER_INTERVENING_RE.match(body)
@@ -8267,11 +8344,44 @@ def _segment_line_unsplit(
         # (``controller``/``type``/…) alongside it, so this reads the key
         # rather than requiring an exact dict match the way ``self_subject``
         # does above.
-        effects = parse_effect_body(
-            body, self_subject=(condition or {}).get("subject") == "self",
-            group_subject=(condition or {}).get("subject") == "group",
-            attached_subject=(condition or {}).get("subject") == "attached_permanent",
+        copy_departed = (
+            _LEAVING_COUNTER_COPY_RE.fullmatch(body)
+            if event_counter_gate is not None else None
         )
+        create_transfer = (
+            _LEAVING_COUNTER_CREATE_TRANSFER_RE.fullmatch(body)
+            if event_counter_gate is not None and (condition or {}).get("subject") == "self"
+            else None
+        )
+        return_without_abilities = (
+            _LEAVING_COUNTER_RETURN_LOSE_RE.fullmatch(body)
+            if event_counter_gate is not None and (condition or {}).get("subject") == "self"
+            else None
+        )
+        if create_transfer is not None:
+            created = parse_effect_body(create_transfer.group("create"))
+            if not created or len(created) != 1 or created[0].type != "create_token":
+                return Segment(raw=raw)
+            effects = [*created, EffectSpec("transfer_event_counters", {
+                "target_kind": "created",
+            })]
+        elif return_without_abilities is not None:
+            effects = [EffectSpec("return_self_to_battlefield", {
+                "lose_all_abilities": True,
+            })]
+        elif copy_departed is not None:
+            # RULE 400.7: a dying object's snapshot is the copy referent;
+            # the ability source may have changed zones before resolution.
+            effects = [EffectSpec("copy_permanent", {
+                "count": int(copy_departed.group("count")), "target_kind": None,
+                "referent": "trigger_event",
+            })]
+        else:
+            effects = parse_effect_body(
+                body, self_subject=(condition or {}).get("subject") == "self",
+                group_subject=(condition or {}).get("subject") == "group",
+                attached_subject=(condition or {}).get("subject") == "attached_permanent",
+            )
         if effects is None:
             return Segment(raw=raw)
         if event_counter_amount is not None:

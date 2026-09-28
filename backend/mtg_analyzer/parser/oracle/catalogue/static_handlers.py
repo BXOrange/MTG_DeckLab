@@ -304,9 +304,7 @@ _PT_CDA_RE = re.compile(
 #: rarer toughness form (Traproot Kami). `continuous.recompute`'s 7a
 #: `pt_cda` pass already applies `power_count` / `toughness_count`
 #: independently, so a spec with only one of them is enough — no engine
-#: change. Same `_PT_CDA_SELECTORS` whitelist as `_PT_CDA_RE` (so today only
-#: "creatures you control" is claimed; the "forests you control" / "basic
-#: land types" toughness cards stay UNMODELED until those selectors exist).
+#: change. Both forms read the shared count phrase grammar.
 _PT_CDA_SINGLE_RE = re.compile(
     r"~'?s (?P<char>power|toughness) is equal to (?P<what>.+)",
     re.IGNORECASE,

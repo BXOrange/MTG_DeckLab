@@ -3417,6 +3417,19 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 - **Player subject.** "each player / each opponent `<verb>`" parses the verb as "target player `<verb>`" and iterates it with `for_each {"players": …}` (every effect must target exactly that player); "target opponent `<verb>`" narrows the target to `opponent`. The token rows' `who` slot takes "target player/opponent" (`creators: target`, the Hunted cycle).
 - **Yield** (with batch 6): 17,515 → 17,641 (+126, 0 regressed); Commander-legal 53.3%. Open residue is PAR-128 in `BACKLOG.md`.
 
+### PAR-120: count vocabulary, departing copy, token CDA, and targetless override (PARSER_VERSION 486–492)
+
+- `parse_count_phrase` composes disjoint exile/graveyard counts as one existing `terms` expression (Crackling Drake, Huskburster Swarm); the adjective in "untapped artifacts, creatures, and lands" applies to every member of Maraxus's type list. The distribution rule is limited to tap state so ambiguous adjective lists still fail closed.
+- `chosen` is a structured selector scope, resolved through the source's existing `chosen_player_id`. Hand, graveyard and battlefield phrases now share it (Entropic Specter, Haunting Apparition, Lost Order of Jarkeld, Pallimud, Skyshroud War Beast). Without a recorded choice, the count is zero. The PAR-120 backlog retains only the other CDA forms and its remaining non-CDA work.
+- A structured sum now counts colour-specific mana symbols in cards in a zone (Umbra Stalker); it reuses `ManaCost`'s hybrid-symbol colours. `Chroma —` is stripped as a RULE 207.2c ability word so the CDA body reaches the shared amount grammar.
+- A counter-gated death trigger can copy its departed subject from the event's instance id (Chronozoa). This uses `CopyPermanentEffect`'s existing `trigger_event` referent and count; the live test resolves the death trigger after the original has reached the graveyard.
+- Inline */* tokens whose quoted text defines their power and toughness carry that text on the synthesized token card. The normal token binder installs its own `pt_cda` at entry, so subsequent count changes update it (Kalonian Twingrove, Gutter Grime, Hallowed Haunting, Voice of Resurgence, Consuming Blob). The parser validates the quoted body through `static_effect_specs` before claiming it; the runtime test checks the token grows when another Spirit enters.
+- The mass `add_counters` clause accepts "each creature you control that has a +1/+1 counter on it" (Slurrk), using its existing `creature_filter` at resolution. It leaves unmarked creatures untouched.
+- A targetless "A. If `<condition>`, B instead" body becomes one `if_else` node, evaluating the gate before either branch. Rumor Gatherer now draws on the second resolution instead of also scrying. Targeted variants stay unclaimed until the conditional node can announce their targets correctly.
+- Retched Wretch's counter-gated death trigger now returns its own card and attaches a permanent layer-6 ability-removal static to the new object. A second death with the same counter no longer triggers it.
+- Bogardan Phoenix branches once on the DIES event's last-known `death` counter: a marked source is exiled; an unmarked one returns with a death counter. The new effect-only `trigger_event_counters` condition is three-valued, so a missing event runs neither branch. The live test follows the first and second deaths.
+- Ambitious Augmenter now creates its Fractal and transfers every counter kind from the dying source's event snapshot to the created token. `TransferEventCountersEffect` gained a `created` referent; a live death test checks both +1/+1 and shield counters.
+
 ### PAR-122: trigger doublers as a composed cause × subject (PARSER_VERSION 451)
 
 - **What:** "If a triggered ability of `<subject>` triggers, that ability triggers an

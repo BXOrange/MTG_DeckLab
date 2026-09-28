@@ -189,22 +189,18 @@ its block back into the matching section here.
   v455 and v456 (see `PARSER_LONG_TAIL.md`).
 - **PAR-120 · Shared count / filter / condition vocabulary — remaining scope.**
   **(b) CDA residue:** a CDA inside a quoted grant or "becomes"
-  (Druid Class, Beorn's Hospitality, Kalonian Twingrove, Chimeric Mass, Svogthos, Gutter Grime,
-  Hallowed Haunting, Seize the Storm, Voice of Resurgence, Elephant Resurgence, Consuming Blob,
-  Bonny Pall, The Goblin Sparring Grounds — the grant path doesn't route statics to `pt_cda`);
-  "the chosen player" (Entropic Specter, Haunting Apparition, Lost Order of Jarkeld, Pallimud,
-  Skyshroud War Beast); a leading adjective over a type list (Maraxus of Keld); two zones in one
-  count (Crackling Drake, Huskburster Swarm's cost); mana symbols in a graveyard (Umbra Stalker);
-  Angry Mob's turn-split CDA. **(c) "`<condition>`, `<effect>` instead":** a general magnitude/
-  effect override for any condition (Galvanize, Rowan ×2, Rumor Gatherer, Scythecat Cub,
+  (Druid Class, Beorn's Hospitality, Chimeric Mass, Svogthos, Seize the Storm,
+  Elephant Resurgence, Bonny Pall, The Goblin Sparring Grounds — the general grant path
+  doesn't route statics to `pt_cda`; plain created */* tokens now do);
+  Angry Mob's turn-split CDA.
+  **(c) "`<condition>`, `<effect>` instead":** a general magnitude/
+  effect override for targeted or unsupported bodies (Galvanize, Rowan ×2, Scythecat Cub,
   Withering Curse, Jetmir's Fixer, Devour Intellect, Pirate's Landing) — `DealDamageEffect`
   doesn't measure an `effect_amounts` operand, so `{"kind": "if"}` can't carry it yet; and
   "otherwise" after an ordinal gate (Rose Room Treasurer, Zimone). **(d) leaving-counter bodies:**
-  a token copy of the dying object (Chronozoa, Ochre Jelly), "return it … and it loses all
-  abilities" (Retched Wretch), "exile it if it had a death counter" (Bogardan Phoenix — the gate's
-  kind whitelist and the suffix form), "each creature you control that has a +1/+1 counter on it"
-  (Slurrk), an exiled-as-cost source (Lost Isle Calling), a destroyed target's counters at
-  resolution (Rite of the Serpent), "put ~'s counters on that token" (Ambitious Augmenter).
+  a delayed token copy of the dying object (Ochre Jelly), an exiled-as-cost source
+  (Lost Isle Calling),
+  a destroyed target's counters at resolution (Rite of the Serpent).
   **(e) remaining conditions:** "the first card you draw each turn" (Primitive Etchings, Rowen);
   "if you gained life this turn" bodies (16 SOLO, each blocked by its own effect).
 - **PAR-128 · Target/group-grammar slots — residue.** The controller-scope, "another" and

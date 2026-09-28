@@ -2,6 +2,7 @@
 
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import EffectRegistry
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle import parse_oracle
@@ -79,3 +80,125 @@ def test_iron_apprentice_passes_every_counter_kind_from_death_snapshot():
     engine.rules.resolve_top_of_stack()
     assert target.counters["+1/+1"] == 2
     assert target.counters["shield"] == 1
+
+
+def test_dying_counter_gate_copies_the_departed_object():
+    card = Card(id="chronozoa", name="Chronozoa", type_line="Creature — Illusion",
+                is_creature=True, power=3, toughness=3,
+                oracle_text="When this creature dies, if it had no time counters on it, create two tokens that are copies of it.")
+    parsed = parse_oracle(card)
+    assert parsed.modeled, parsed.unclaimed
+    engine = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])],
+                                 starting_life=20, starting_hand=0)
+    state = engine.state
+    source = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    state.add_to_battlefield(source)
+    bind_from_catalogue(source)
+    engine.rules.put_into_graveyard(source)
+    assert engine.rules.put_triggers_on_stack() == 1
+    engine.rules.resolve_top_of_stack()
+    copies = [obj for obj in state.battlefield if obj.name == "Chronozoa"]
+    assert len(copies) == 2 and all(obj.is_token for obj in copies)
+
+
+def test_mass_counter_effect_filters_creatures_with_counters():
+    card = Card(id="slurrk", name="Slurrk, All-Ingesting", type_line="Legendary Creature — Ooze",
+                is_creature=True, power=0, toughness=0,
+                oracle_text=("Slurrk enters with five +1/+1 counters on it.\n"
+                             "Whenever Slurrk or another creature you control dies, if it had a +1/+1 counter on it, "
+                             "put a +1/+1 counter on each creature you control that has a +1/+1 counter on it.\n"
+                             "Partner"))
+    parsed = parse_oracle(card)
+    assert parsed.modeled, parsed.unclaimed
+    [spec] = [effect for ability in parsed.specs for effect in ability.effects
+              if effect.type == "add_counters"]
+    engine = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])],
+                                 starting_life=20, starting_hand=0)
+    state = engine.state
+    source = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    state.add_to_battlefield(source)
+    marked = GameObject(Card(id="marked", name="Marked", type_line="Creature", is_creature=True),
+                        owner_id="p1", zone=Zone.BATTLEFIELD)
+    plain = GameObject(Card(id="plain", name="Plain", type_line="Creature", is_creature=True),
+                       owner_id="p1", zone=Zone.BATTLEFIELD)
+    marked.counters["+1/+1"] = 1
+    state.add_to_battlefield(marked)
+    state.add_to_battlefield(plain)
+    effect = EffectRegistry.create(spec.type, spec.params)
+    effect.source = source
+    effect.apply(engine.rules.context)
+    assert marked.counters["+1/+1"] == 2
+    assert plain.counters.get("+1/+1", 0) == 0
+
+
+def test_returned_creature_permanently_loses_its_abilities():
+    card = Card(id="wretch", name="Retched Wretch", type_line="Creature — Zombie",
+                is_creature=True, power=3, toughness=3,
+                oracle_text=("When this creature dies, if it had a -1/-1 counter on it, "
+                             "return it to the battlefield under its owner's control "
+                             "and it loses all abilities."))
+    parsed = parse_oracle(card)
+    assert parsed.modeled, parsed.unclaimed
+    engine = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])],
+                                 starting_life=20, starting_hand=0)
+    state = engine.state
+    source = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    source.counters["-1/-1"] = 1
+    state.add_to_battlefield(source)
+    bind_from_catalogue(source)
+    engine.rules.put_into_graveyard(source)
+    assert engine.rules.put_triggers_on_stack() == 1
+    engine.rules.resolve_top_of_stack()
+    engine.recompute_continuous_effects()
+    assert source.zone == Zone.BATTLEFIELD
+    assert source.loses_all_abilities
+    source.counters["-1/-1"] = 1
+    engine.rules.put_into_graveyard(source)
+    assert engine.rules.put_triggers_on_stack() == 0
+
+
+def test_death_counter_branches_between_return_and_exile():
+    card = Card(id="phoenix", name="Bogardan Phoenix", type_line="Creature — Phoenix",
+                is_creature=True, power=3, toughness=3,
+                oracle_text=("Flying\nWhen this creature dies, exile it if it had a death "
+                             "counter on it. Otherwise, return it to the battlefield "
+                             "under your control and put a death counter on it."))
+    parsed = parse_oracle(card)
+    assert parsed.modeled, parsed.unclaimed
+    engine = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])],
+                                 starting_life=20, starting_hand=0)
+    state = engine.state
+    source = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    state.add_to_battlefield(source)
+    bind_from_catalogue(source)
+    engine.rules.put_into_graveyard(source)
+    assert engine.rules.put_triggers_on_stack() == 1
+    engine.rules.resolve_top_of_stack()
+    assert source.zone == Zone.BATTLEFIELD
+    assert source.counters.get("death") == 1
+    engine.rules.put_into_graveyard(source)
+    assert engine.rules.put_triggers_on_stack() == 1
+    engine.rules.resolve_top_of_stack()
+    assert source.zone == Zone.EXILE
+
+
+def test_departed_sources_counters_go_on_its_created_token():
+    card = Card(id="augmenter", name="Ambitious Augmenter", type_line="Creature — Human",
+                is_creature=True, power=2, toughness=2,
+                oracle_text=("When this creature dies, if it had one or more counters on it, "
+                             "create a 0/0 green and blue Fractal creature token, then "
+                             "put this creature's counters on that token."))
+    parsed = parse_oracle(card)
+    assert parsed.modeled, parsed.unclaimed
+    engine = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])],
+                                 starting_life=20, starting_hand=0)
+    state = engine.state
+    source = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    source.counters.update({"+1/+1": 2, "shield": 1})
+    state.add_to_battlefield(source)
+    bind_from_catalogue(source)
+    engine.rules.put_into_graveyard(source)
+    assert engine.rules.put_triggers_on_stack() == 1
+    engine.rules.resolve_top_of_stack()
+    [fractal] = [obj for obj in state.battlefield if obj.name == "Fractal"]
+    assert fractal.counters == {"+1/+1": 2, "shield": 1}

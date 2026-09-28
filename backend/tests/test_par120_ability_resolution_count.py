@@ -18,6 +18,7 @@ from __future__ import annotations
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.continuous import self_cost_reduction_for
 from mtg_analyzer.game.game_engine import GameEngine
+from mtg_analyzer.game.effects.core import EffectRegistry
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle import parse_oracle
@@ -89,6 +90,28 @@ def test_first_or_second_time_is_a_range():
     assert result.modeled, result.unclaimed
     [effect] = [e for spec in result.specs for e in spec.effects]
     assert effect.condition == {"kind": "ability_resolution_count", "min": 1, "max": 2}
+
+
+def test_second_resolution_replaces_scry_with_draw():
+    card = Card(id="rumor", name="Rumor Gatherer", type_line="Creature — Elf Wizard",
+                is_creature=True, power=2, toughness=1,
+                oracle_text=("Alliance — Whenever another creature you control enters, scry 1. "
+                             "If this is the second time this ability has resolved this turn, "
+                             "draw a card instead."))
+    parsed = parse_oracle(card)
+    assert parsed.modeled, parsed.unclaimed
+    [ability] = parsed.specs
+    [spec] = ability.effects
+    assert spec.type == "if_else"
+    engine, state = _engine()
+    source = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    state.add_to_battlefield(source)
+    effect = EffectRegistry.create(spec.type, spec.params)
+    effect.source = source
+    engine.rules.context.ability_resolution_count = 2
+    effect.apply(engine.rules.context)
+    assert len(state.player_by_id("p1").hand) == 1
+    assert state.pending_choice is None  # scry was replaced, not also executed
 
 
 def test_a_static_can_not_claim_the_effect_only_gate():

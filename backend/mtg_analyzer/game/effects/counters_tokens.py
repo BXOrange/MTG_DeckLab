@@ -59,10 +59,12 @@ class TransferEventCountersEffect(GameEffect):
     def __init__(self, target_kind: str = "creature", optional: bool = False,
                  source: Optional["GameObject"] = None) -> None:
         super().__init__(source)
-        self.target_spec = TargetSpec(kind=target_kind, optional=optional)
+        self.created = target_kind == "created"
+        self.target_spec = None if self.created else TargetSpec(kind=target_kind, optional=optional)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        target = targets[0] if targets else None
+        target = ((context.created_objects or [None])[-1] if self.created
+                  else (targets[0] if targets else None))
         if target is None:
             return
         counters = (context.trigger_event or {}).get("counters") or {}
@@ -792,6 +794,7 @@ class ReturnSelfToBattlefieldEffect(GameEffect):
         self, tapped: bool = False, source: Optional["GameObject"] = None,
         under_your_control: bool = False, extra_counters: Optional[dict[str, Any]] = None,
         target_kind: Optional[str] = None, trigger_event_key: Optional[str] = None,
+        lose_all_abilities: bool = False,
     ) -> None:
         super().__init__(source)
         self.tapped = tapped
@@ -803,6 +806,7 @@ class ReturnSelfToBattlefieldEffect(GameEffect):
         #: ``{"kind", "count"}`` shape `_request_search`'s own
         #: ``extra_counters`` uses, put on the object right after it lands.
         self.extra_counters = dict(extra_counters) if extra_counters else None
+        self.lose_all_abilities = bool(lose_all_abilities)
         self._trigger_subject_mode = target_kind == "trigger_subject"
         self.trigger_event_key = trigger_event_key or "instance_id"
 
@@ -826,6 +830,13 @@ class ReturnSelfToBattlefieldEffect(GameEffect):
             kind = str(self.extra_counters.get("kind", "+1/+1"))
             count = int(self.extra_counters.get("count", 1) or 1)
             context.add_counters(obj, count, kind, source=self.source)
+        if self.lose_all_abilities:
+            # RULE 400.7: the returned object is new. Attach a persistent
+            # layer-6 effect to *that* object after its zone change.
+            obj.static_effects.append(StaticAbility(
+                "ability", affects="self", params={"lose_all_abilities": True},
+                source=obj,
+            ))
 
 
 class RevealTopThenCreatureAndOrLandBattlefieldEffect(GameEffect):

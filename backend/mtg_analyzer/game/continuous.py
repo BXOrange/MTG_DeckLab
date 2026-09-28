@@ -899,6 +899,8 @@ def _structured_selector_objects(
         if scope == "any"
         or (scope == "you" and p.id == controller_id)
         or (scope == "opponents" and p.id != controller_id)
+        or (scope == "chosen" and source is not None
+            and p.id == getattr(source, "chosen_player_id", None))
     ]
     zone = spec.get("zone", "battlefield")
     filt = spec.get("filter") or None
@@ -937,6 +939,15 @@ def _count_structured(
         return len({getter(o) for o in matched}) if getter else 0
     aggregate = spec.get("aggregate")
     if aggregate is not None:
+        if spec.get("value") == "mana_symbols":
+            from ..models.mana.mana_cost import ManaCost  # function-scoped model import
+
+            colour = spec.get("color")
+            return sum(
+                1 for obj in matched
+                for symbol in ManaCost.parse(obj.card.mana_cost_string).symbols
+                if colour in symbol.colors
+            )
         measure = _AGGREGATE_VALUES.get(spec.get("value", ""))
         if measure is None:
             return 0

@@ -167,6 +167,9 @@ CONTEXT_CONDITION_KINDS: frozenset[str] = frozenset(
         # ``min``/``max`` bound it ("the first or second time"). Unanswerable
         # outside an ability's resolution.
         "ability_resolution_count",
+        # RULE 400.7: the dying object's counters survive in the firing
+        # event's last-known snapshot, even after it reaches the graveyard.
+        "trigger_event_counters",
     }
 )
 
@@ -399,6 +402,16 @@ def _context_holds(
             return None
         low = condition.get("min")
         high = condition.get("max")
+        return (low is None or count >= int(low)) and (high is None or count <= int(high))
+
+    if kind == "trigger_event_counters":
+        event = getattr(context, "trigger_event", None)
+        if event is None or event.get("counters") is None:
+            return None
+        counters = event.get("counters") or {}
+        counter = condition.get("counter")
+        count = int(counters.get(counter, 0)) if counter else sum(int(v) for v in counters.values())
+        low, high = condition.get("min"), condition.get("max")
         return (low is None or count >= int(low)) and (high is None or count <= int(high))
 
     if kind == "did_all_bends_this_turn":

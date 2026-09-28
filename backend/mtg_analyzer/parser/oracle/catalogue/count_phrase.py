@@ -30,12 +30,14 @@ from .characteristic_phrase import parse_object_phrase
 #: and "all" scopes are sums over those players' zones.
 _ZONE_SUFFIXES: list[tuple[str, dict[str, str]]] = [
     (" in your graveyard", {"zone": "graveyard", "of": "you"}),
+    (" in the chosen player's graveyard", {"zone": "graveyard", "of": "chosen"}),
     (" in all graveyards", {"zone": "graveyard", "of": "any"}),
     (" in each graveyard", {"zone": "graveyard", "of": "any"}),
     (" in your opponents' graveyards", {"zone": "graveyard", "of": "opponents"}),
     (" in opponents' graveyards", {"zone": "graveyard", "of": "opponents"}),
     (" in each opponent's graveyard", {"zone": "graveyard", "of": "opponents"}),
     (" in your hand", {"zone": "hand", "of": "you"}),
+    (" in the chosen player's hand", {"zone": "hand", "of": "chosen"}),
     (" in your library", {"zone": "library", "of": "you"}),
     (" in all players' hands", {"zone": "hand", "of": "any"}),
     (" you own in exile", {"zone": "exile", "of": "you"}),
@@ -56,6 +58,13 @@ _NAMED_SOURCE = re.compile(r"\s+named ~(?=\s|$)")
 #: "permanents you control **that are Spirits and/or enchantments**" (Katilda) —
 #: a relative clause restating the head as a plural type list.
 _THAT_ARE = re.compile(r"\s+that are (?P<what>[a-z/, ]+)$")
+# One noun phrase can name two disjoint zones (Crackling Drake / Huskburster
+# Swarm). Each half keeps the same filter; summing is safe because an object
+# cannot be in exile and a graveyard at the same time (RULE 400.1).
+_TWO_ZONES = re.compile(
+    r"^(?P<head>.+?) (?P<first>you own in exile|in exile|in your graveyard)"
+    r" and (?P<second>in exile|in your graveyard)$"
+)
 
 _NUMBER_WORDS = {
     "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
@@ -73,6 +82,14 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
     text = text.strip().lower()
     if not text:
         return None  # an empty phrase would count every permanent
+    two_zones = _TWO_ZONES.fullmatch(text)
+    if two_zones is not None:
+        head = two_zones.group("head")
+        first = parse_count_phrase(f"{head} {two_zones.group('first')}")
+        second = parse_count_phrase(f"{head} {two_zones.group('second')}")
+        if first is None or second is None or first.get("zone") == second.get("zone"):
+            return None
+        return {"terms": [first, second]}
     selector: dict[str, Any] = {}
     extra: dict[str, Any] = {}
     if text.startswith("other "):
@@ -107,6 +124,15 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
             if filt:
                 selector["filter"] = filt
             return selector
+    chosen_control_tail = " the chosen player controls"
+    if text.endswith(chosen_control_tail):
+        parsed = parse_object_phrase(text[:-len(chosen_control_tail)], plural=True)
+        if parsed is None or parsed[1] is not None:
+            return None
+        filt = _merge_filters(parsed[0], extra)
+        if filt is None:
+            return None
+        return {"zone": "battlefield", "of": "chosen", **({"filter": filt} if filt else {})}
     text = _ON_BATTLEFIELD.sub("", text, count=1)
     parsed = parse_object_phrase(text, plural=True)
     if parsed is None:
@@ -229,6 +255,11 @@ _MANA_SYMBOLS_TERM = re.compile(
     r"^the number of (?P<color>white|blue|black|red|green) mana symbols in the mana costs "
     r"of permanents you control$"
 )
+_MANA_SYMBOLS_IN_ZONE = re.compile(
+    r"^the number of (?P<color>white|blue|black|red|green) mana symbols in the mana costs "
+    r"of (?P<phrase>.+)$"
+)
+_MANA_COLOR_LETTERS = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}
 #: "the number of differently named lands you control" (Awakened Amalgam) —
 #: the ``distinct: name`` reading "lands you control with different names" has.
 _DIFFERENTLY_NAMED = re.compile(r"^the number of differently named (?P<phrase>.+)$")
@@ -257,6 +288,13 @@ def parse_amount_term(text: str) -> "Optional[str | dict[str, Any]]":
     m = _DEVOTION_TERM.match(text) or _MANA_SYMBOLS_TERM.match(text)
     if m is not None:
         return f"devotion_to_{m.group('color')}"
+    m = _MANA_SYMBOLS_IN_ZONE.match(text)
+    if m is not None:
+        selector = parse_count_phrase(m.group("phrase"))
+        if selector is None or "terms" in selector:
+            return None
+        return {**selector, "aggregate": "sum", "value": "mana_symbols",
+                "color": _MANA_COLOR_LETTERS[m.group("color")]}
     m = _DIFFERENTLY_NAMED.match(text)
     if m is not None:
         selector = parse_count_phrase(m.group("phrase"))
