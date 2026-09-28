@@ -77,3 +77,25 @@ def test_unenchanted_creature_attacks_eriette_freely():
     ogre.summoning_sick = False
     eng.recompute_continuous_effects()
     assert eng._can_attack(p2, ogre, p1) is True
+
+
+def test_end_step_drain_counts_auras_not_aura_creatures():
+    """X is the number of Auras you control — enchantments, which a creature-only
+    count would always read as 0."""
+    from mtg_analyzer.game.effects.core import EffectRegistry
+
+    eng = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])],
+                              starting_hand=0, starting_life=20)
+    p1, p2 = eng.state.players
+    eri = _bf(eng, "Eriette of the Charmed Apple", p1.id,
+              type_line="Legendary Creature — Human Warlock",
+              is_creature=True, power=2, toughness=4)
+    for n in range(2):
+        _bf(eng, f"Aura {n}", p1.id, type_line="Enchantment — Aura")
+    drain = _REGISTRY["eriette of the charmed apple"]()[1]
+    for spec in drain.effects:
+        eff = EffectRegistry.create(spec.type, spec.params)
+        eff.source = eri
+        eff.apply(eng.rules.context)
+    assert p2.life == 18
+    assert p1.life == 22

@@ -96,7 +96,7 @@ def test_greatest_mana_value_among_permanents_parses():
         "name": "px",
         "amount": {
             "kind": "count_selector",
-            "selector": "greatest_mana_value_among_permanents_you_control",
+            "selector": {"zone": "battlefield", "of": "you", "aggregate": "max", "value": "mana_value"},
         },
         "effects": [{"type": "pump", "params": {
             "power": "$px", "toughness": "$px", "target_kind": "creature",
@@ -114,8 +114,10 @@ def test_offset_plus_count_selector_parses():
         "name": "px",
         "amount": {
             "kind": "count_selector",
-            "selector": "cards_named_source_in_all_graveyards",
-            "plus": 3,
+            "selector": {
+                "terms": [{"zone": "graveyard", "of": "any", "filter": {"named_as_reference": True}}],
+                "plus": 3,
+            },
         },
         "effects": [{"type": "pump", "params": {
             "power": "$px", "toughness": "$px", "target_kind": "creature",

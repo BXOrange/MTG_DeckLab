@@ -179,6 +179,12 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # "target artifact you don't control" (Vandalblast) — the same
         # mirror-image shape as `creature_you_dont_control`, for artifacts.
         "artifact_you_dont_control",
+        # PAR-128: the rest of the "an opponent controls / you don't control"
+        # scope over a permanent-type pool, composed by the parser's target
+        # grammar (`subgrammars.NOT_YOU_TARGET_KINDS`) rather than per phrase.
+        "enchantment_you_dont_control",
+        "artifact_or_enchantment_you_dont_control",
+        "artifact_or_creature_you_dont_control",
         # "target permanent an opponent controls" (Assassin's Trophy/
         # Geomancer's Gambit) — the same mirror-image shape, unscoped by
         # permanent type (unlike the narrower `nonland_permanent_you_dont_
@@ -579,6 +585,11 @@ class TargetSpec:
             "non_human_creature_you_own": "Nicht-Mensch-Kreatur, die du besitzt",
             "creature_you_dont_control": "Kreatur, die du nicht kontrollierst",
             "artifact_you_dont_control": "Artefakt, das du nicht kontrollierst",
+            "enchantment_you_dont_control": "Verzauberung, die du nicht kontrollierst",
+            "artifact_or_enchantment_you_dont_control":
+                "Artefakt oder Verzauberung, das du nicht kontrollierst",
+            "artifact_or_creature_you_dont_control":
+                "Artefakt oder Kreatur, das du nicht kontrollierst",
             "artifact_or_enchantment": "Artefakt oder Verzauberung",
             "artifact_or_creature": "Artefakt oder Kreatur",
             "artifact_or_creature_you_control": "Artefakt oder Kreatur unter deiner Kontrolle",
@@ -1084,6 +1095,13 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     "attacking_or_blocking_creature": TargetFrame("attacking_or_blocking_creature"),
     "artifact_you_dont_control": TargetFrame(
         "artifact", SCOPE_NOT_YOU, exclude_source=False),
+    "enchantment_you_dont_control": TargetFrame(
+        "enchantment", SCOPE_NOT_YOU, exclude_source=False,
+        apply_color=True, apply_max_mana_value=True),
+    "artifact_or_enchantment_you_dont_control": TargetFrame(
+        "artifact_or_enchantment", SCOPE_NOT_YOU, exclude_source=False),
+    "artifact_or_creature_you_dont_control": TargetFrame(
+        "artifact_or_creature", SCOPE_NOT_YOU, exclude_source=False),
     "land_you_dont_control": TargetFrame(
         "land", SCOPE_NOT_YOU, exclude_source=False),
     "nonbasic_land_you_dont_control": TargetFrame(

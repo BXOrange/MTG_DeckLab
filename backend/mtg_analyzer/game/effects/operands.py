@@ -39,8 +39,10 @@ def event_field(field: str) -> dict[str, Any]:
     return {"kind": "trigger_event", "field": str(field)}
 
 
-def counted(selector: str, **modifiers: Any) -> dict[str, Any]:
-    return {"kind": "count_selector", "selector": str(selector), **modifiers}
+def counted(selector: "str | dict[str, Any]", **modifiers: Any) -> dict[str, Any]:
+    # A structured PAR-120 selector (``{"zone", "of", "filter"}``) passes through as-is.
+    selector = selector if isinstance(selector, dict) else str(selector)
+    return {"kind": "count_selector", "selector": selector, **modifiers}
 
 
 #: One rewrite: ``(legacy key, magnitude param it feeds, builder(value, params) → operand)``.

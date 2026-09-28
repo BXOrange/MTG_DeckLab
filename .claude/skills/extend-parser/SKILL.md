@@ -53,6 +53,7 @@ python $PROBE composition summary            # H-B+ = trigger head is the ONLY g
 python $PROBE composition families           # ...by event family (cast / attack / enter…)
 python $PROBE composition heads --family cast --top 40
 python $PROBE composition mods               # which modifier axis ("if", "for each"…) repairs how many
+python $PROBE composition mods --axis other   # every failing sentence one axis would repair, with cards
 python $PROBE composition conds              # the leading-"if" conditions, by shape
 ```
 

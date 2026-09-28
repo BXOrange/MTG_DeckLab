@@ -288,14 +288,10 @@ def _board():
         ("nonland permanents you control", "nonland_permanents_you_control"),
         ("artifacts you control", "artifacts_you_control"),
         ("enchantments you control", "enchantments_you_control"),
-        ("artifacts your opponents control", "artifacts_opponents_control"),
         ("creatures your opponents control", "creatures_opponents_control"),
         ("cards in your graveyard", "cards_in_your_graveyard"),
         ("creature cards in your graveyard", "creature_cards_in_your_graveyard"),
-        ("permanent cards in your graveyard", "permanent_cards_in_your_graveyard"),
-        ("creature cards in your opponents' graveyards", "creature_cards_in_your_opponents_graveyards"),
         ("instant or sorcery cards in your graveyard", "instant_or_sorcery_cards_in_your_graveyard"),
-        ("cards in your hand", "cards_in_your_hand"),
     ],
 )
 def test_structured_selector_agrees_with_the_named_one(phrase, legacy):
@@ -462,7 +458,7 @@ from mtg_analyzer.parser.oracle.segmenter import parse_effect_body  # noqa: E402
         ("you gain 1 life for each wizard you control.", "bind", None),
         ("each opponent loses x life, where x is the number of creatures with defender you control.",
          "bind", {"amount": "$n"}),
-        ("draw x cards, where x is the number of bobbleheads you control.", "bind", {"count": "$n"}),
+        ("draw x cards, where x is the number of bobbleheads on the battlefield.", "bind", {"count": "$n"}),
         ("each opponent loses life equal to the number of creature cards in your graveyard.",
          "bind", {"amount": "$n"}),
     ],

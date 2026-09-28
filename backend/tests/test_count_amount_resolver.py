@@ -93,7 +93,11 @@ def test_tapped_creatures_you_control():
 
 
 def test_a_single_subtype_word():
-    assert _resolve("the number of zombies you control") == "creatures_you_control_of_type_zombie"
+    assert _resolve("the number of zombies you control") == {
+        "zone": "battlefield", "of": "you", "filter": {"subtype": "zombie"},
+    }
+    # PAR-120: the shared count grammar knows irregular plurals.
+    assert _resolve("the number of elves you control")["filter"] == {"subtype": "elf"}
 
 
 def test_legendary_creatures_compound():
@@ -149,15 +153,13 @@ def test_tapped_and_or_two_bare_words():
     )
 
 
-def test_noncreature_subtype_word_stays_unresolved():
-    # "Bobbleheads"/"Shrines" are real cards' artifact-/enchantment-subtype
-    # noun phrases, not creature types — the bare `count_subtype` catch-all
-    # must not guess `creatures_you_control_of_type_bobblehead` (always 0)
-    # for them. Found while sizing MEC-27's draw-verb widening: Charisma/
-    # Strength Bobblehead had been silently mis-modeled this way since the
-    # counter/token devotion rows shipped, always creating/counting 0.
-    assert _resolve("the number of bobbleheads you control") is None
-    assert _resolve("the number of shrines you control") is None
+def test_noncreature_subtype_word_counts_permanents_not_creatures():
+    # "Bobbleheads"/"Shrines" are artifact-/enchantment-subtypes. The old
+    # catch-all guessed `creatures_you_control_of_type_<word>` (always 0) and
+    # a denylist then refused these two; PAR-120's shared count grammar reads
+    # a subtype on any permanent, so they resolve — correctly.
+    assert _resolve("the number of bobbleheads you control")["filter"] == {"subtype": "bobblehead"}
+    assert _resolve("the number of shrines you control")["filter"] == {"subtype": "shrine"}
 
 
 # -- an existing target-pump handler picks up the new reading for free -----
@@ -225,15 +227,14 @@ def test_bag_end_porter_scales_with_legendary_creatures_you_control():
 
 def test_add_counters_devotion_clause_parses():
     effects = parse_effect_body(
-        # "goblins" (regular plural) rather than "elves" (irregular) — the
-        # `_singularize` gap only strips a trailing "s", a documented,
-        # pre-existing limitation this test isn't about.
         "put x +1/+1 counters on target creature you control, where x is the number of goblins you control"
     )
     assert effects is not None
     assert len(effects) == 1
     assert effects[0].type == "add_counters"
-    assert effects[0].params.get("amount_from_count_selector") == "creatures_you_control_of_type_goblin"
+    assert effects[0].params.get("amount_from_count_selector") == {
+        "zone": "battlefield", "of": "you", "filter": {"subtype": "goblin"},
+    }
     assert effects[0].params.get("target_kind") == "creature_you_control"
 
 

@@ -237,6 +237,8 @@ _DIFFERENTLY_NAMED = re.compile(r"^the number of differently named (?P<phrase>.+
 _NAMED_TERMS: dict[str, str] = {
     "the number of basic land types among lands you control": "basic_land_types_among_lands_you_control",
     "your life total": "your_life_total",
+    # `GameState.life_gained_this_turn` (Fortifying Draught) — a turn total, no noun phrase.
+    "the amount of life you gained this turn": "life_gained_this_turn",
 }
 #: "`<N>` plus …" (Allosaurus Rider) and "twice …" (Territorial Maro).
 _PLUS_PREFIX = re.compile(rf"^(?P<n>{_NUMBER}) plus (?P<rest>.+)$")

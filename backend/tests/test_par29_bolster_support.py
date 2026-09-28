@@ -39,7 +39,9 @@ def test_bolster_and_support_parse():
 def test_dynamic_amounts_parse():
     # RULE 701.39a/701.41 dynamic X — PAR-29's "Parser-shaped only" residue.
     assert match_clause("bolster x, where x is the number of tapped creatures you control") == [
-        EffectSpec("bolster", {"amount_from_count_selector": "tapped_creatures_you_control"})
+        EffectSpec("bolster", {"amount_from_count_selector": {
+            "zone": "battlefield", "of": "you", "filter": {"tapped": True, "card_type": "creature"},
+        }})
     ]
     assert match_clause("support x") == [
         EffectSpec("add_counters", {

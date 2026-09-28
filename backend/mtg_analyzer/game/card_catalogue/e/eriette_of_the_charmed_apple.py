@@ -16,6 +16,11 @@ from ...card_registry.core import register
 # ``has_counter_kind`` / ``has_any_counter``).
 
 
+#: "the number of Auras you control" — Aura is an enchantment subtype, so this
+#: counts permanents, not creatures (the parser's shared count grammar's reading).
+_AURAS_YOU_CONTROL = {"zone": "battlefield", "of": "you", "filter": {"subtype": "aura"}}
+
+
 def _eriette_of_the_charmed_apple() -> list[AbilitySpec]:
     """Each creature that's enchanted by an Aura you control can't attack you
     or planeswalkers you control.
@@ -35,10 +40,9 @@ def _eriette_of_the_charmed_apple() -> list[AbilitySpec]:
         AbilitySpec(
             "triggered",
             [EffectSpec("lose_life", {
-                "amount_from_count_selector": "creatures_you_control_of_type_aura",
+                "amount_from_count_selector": _AURAS_YOU_CONTROL,
                 "selector": "each_opponent"}),
-             EffectSpec("gain_life", {
-                "count_selector": "creatures_you_control_of_type_aura"})],
+             EffectSpec("gain_life", {"count_selector": _AURAS_YOU_CONTROL})],
             trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "end"},
                      "phase_relation": "you"},
         ),

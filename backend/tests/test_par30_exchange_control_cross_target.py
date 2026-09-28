@@ -143,7 +143,8 @@ def test_real_exchange_control_residue_cards_modeled():
     expected = {
         "Role Reversal": {"target_kind": "permanent", "count": 2, "shares_type": "card"},
         "Shifting Loyalties": {"target_kind": "permanent", "count": 2, "shares_type": "card"},
-        "Legerdemain": {"first_target_kind": "permanent", "target_kind": "permanent",
+        # "target artifact or creature" — its own pool since PAR-128, not any permanent.
+        "Legerdemain": {"first_target_kind": "artifact_or_creature", "target_kind": "permanent",
                         "shares_type": "card"},
         "Daring Thief": {"first_target_kind": "nonland_permanent_you_control",
                          "target_kind": "permanent_you_dont_control", "shares_type": "card"},

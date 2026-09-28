@@ -500,6 +500,9 @@ def cmd_composition(args):
     if args.view == "mods":
         present: Counter[str] = Counter()
         repaired: dict[str, dict] = {}
+        # A failing body can hold sentences that parse on their own; only the
+        # failing ones say anything about a missing modifier axis.
+        sentences = {s: i for s, i in sentences.items() if not sentence_ok(s.strip(" ."))}
         for sentence, info in sentences.items():
             for axis, rx in _MODIFIER_AXES.items():
                 if not re.search(rx, sentence):
@@ -507,9 +510,19 @@ def cmd_composition(args):
                 present[axis] += 1
                 shorter = re.sub(rx, "", sentence, count=1).strip(" ,.")
                 if shorter and shorter != sentence and sentence_ok(shorter):
-                    slot = repaired.setdefault(axis, {"n": 0, "solo": set(), "ex": sentence[:110]})
+                    slot = repaired.setdefault(axis, {"n": 0, "solo": set(), "ex": sentence[:110], "all": []})
                     slot["n"] += 1
                     slot["solo"] |= info["solo"]
+                    slot["all"].append((len(info["solo"]), sentence, sorted(info["solo"] or info["cards"])[:3]))
+        if args.axis:
+            pattern = re.compile(args.axis, re.IGNORECASE)
+            for axis, v in repaired.items():
+                if not pattern.search(axis):
+                    continue
+                print(f"== {axis}: {v['n']} repaired sentences, {len(v['solo'])} solo cards")
+                for solo, sentence, names in sorted(v["all"], key=lambda t: (-t[0], t[1])):
+                    print(f"  {solo:3d}  {sentence}   [{'; '.join(names)}]")
+            return
         print(f"{len(sentences)} distinct failing effect sentences (trigger bodies, head parses)")
         print(f"{'modifier axis':46s} present  repaired  solo-cards")
         for axis, v in sorted(repaired.items(), key=lambda kv: -len(kv[1]["solo"])):
@@ -563,6 +576,7 @@ def main() -> None:
     p = sub.add_parser("composition", help="head-vs-body split of unclaimed trigger/activated clauses")
     p.add_argument("view", choices=["summary", "heads", "families", "mods", "conds"], nargs="?", default="summary")
     p.add_argument("--family", default=None, help="heads view: only heads matching this regex")
+    p.add_argument("--axis", default=None, help="mods view: list every repaired sentence of the axes matching this regex")
     p.add_argument("--top", type=int, default=40)
     p.set_defaults(func=cmd_composition)
 

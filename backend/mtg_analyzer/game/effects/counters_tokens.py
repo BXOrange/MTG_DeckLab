@@ -2786,7 +2786,7 @@ class CreateTokenEffect(GameEffect):
 
             controller_id = getattr(self.source, "controller_id", None)
             raw = continuous.count_selector(
-                context.state, controller_id, str(ec["count_from_count_selector"]),
+                context.state, controller_id, ec["count_from_count_selector"],
                 source=self.source,
             )
         else:

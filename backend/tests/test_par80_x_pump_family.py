@@ -83,64 +83,68 @@ def test_bare_x_with_keyword_tail_parses():
 # ---------------------------------------------------------------------------
 
 
+def _bound_pump(selector, toughness="$px"):
+    """PAR-120: one `bind` over the shared amount vocabulary for every quantity."""
+    return EffectSpec("bind", {
+        "name": "px", "amount": {"kind": "count_selector", "selector": selector},
+        "effects": [{"type": "pump", "params": {
+            "power": "$px", "toughness": toughness, "target_kind": "creature",
+        }}],
+    })
+
+
 def test_selector_phrase_power_axis_only_parses():
     assert parse_effect_body(
         "target creature gets +x/+0 until end of turn, where x is the "
         "number of creatures you control."
-    ) == [
-        EffectSpec("pump", {
-            "amount_from_count_selector": "creatures_you_control",
-            "amount_from_count_selector_axis": "power",
-            "target_kind": "creature",
-        }),
-    ]
+    ) == [_bound_pump(
+        {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, toughness=0,
+    )]
 
 
 def test_selector_phrase_both_axes_parses():
     assert parse_effect_body(
         "target creature gets +x/+x until end of turn, where x is the "
         "number of creature cards in your graveyard."
-    ) == [
-        EffectSpec("pump", {
-            "amount_from_count_selector": "creature_cards_in_your_graveyard",
-            "target_kind": "creature",
-        }),
-    ]
+    ) == [_bound_pump({"zone": "graveyard", "of": "you", "filter": {"card_type": "creature"}})]
 
 
 def test_selector_phrase_land_type_parses():
     assert parse_effect_body(
         "target creature gets +x/+0 until end of turn, where x is the "
         "number of mountains you control."
-    ) == [
-        EffectSpec("pump", {
-            "amount_from_count_selector": "lands_you_control_of_type_mountain",
-            "amount_from_count_selector_axis": "power",
-            "target_kind": "creature",
-        }),
-    ]
+    ) == [_bound_pump(
+        {"zone": "battlefield", "of": "you", "filter": {"subtype": "mountain"}}, toughness=0,
+    )]
 
 
 def test_selector_phrase_life_gained_two_clause_body_parses():
+    # Fortifying Draught — the turn total that retired `_PUMP_X_SELECTOR_PHRASES`.
     assert parse_effect_body(
         "you gain 2 life. target creature gets +x/+x until end of turn, "
         "where x is the amount of life you gained this turn."
     ) == [
         EffectSpec("gain_life", {"amount": 2}),
-        EffectSpec("pump", {
-            "amount_from_count_selector": "life_gained_this_turn",
-            "target_kind": "creature",
-        }),
+        _bound_pump("life_gained_this_turn"),
     ]
 
 
-def test_unrecognized_selector_phrase_stays_unclaimed():
-    # A referent in neither this file's own closed selector table nor the
-    # second increment's amount-phrase table (test_par80_pump_amount_family.py)
-    # must still fail closed rather than guess.
+def test_aggregate_phrase_is_read_by_the_shared_vocabulary():
     assert parse_effect_body(
         "target creature gets +x/+x until end of turn, where x is the "
         "greatest toughness among creatures you control."
+    ) == [_bound_pump({
+        "zone": "battlefield", "of": "you", "filter": {"card_type": "creature"},
+        "aggregate": "max", "value": "toughness",
+    })]
+
+
+def test_unrecognized_selector_phrase_stays_unclaimed():
+    # A quantity the shared amount vocabulary can't read must fail closed
+    # rather than guess.
+    assert parse_effect_body(
+        "target creature gets +x/+x until end of turn, where x is the "
+        "number of xyzzies you control."
     ) is None
 
 

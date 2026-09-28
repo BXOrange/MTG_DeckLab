@@ -3664,7 +3664,18 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: create/manifest re-pointed off the source; devotion spelled as mana
 #: symbols and "differently named". Refuses "sacrifice X" costs and "pay {X}.
 #: If you do, put X counters", neither of which the engine can charge.
-PARSER_VERSION = "484"
+#: v485 is PAR-120 batch 6 plus PAR-128. Batch 6: every "the number of `<word>`
+#: you control" emitter reads the shared count grammar (Beacon of Creation,
+#: Avenger of Zendikar, Basilisk Gate, Nomads' Assembly … had counted
+#: *creatures* typed Forest/land/Gate/creature — always 0); one sentence-wide
+#: "where X is" binds both "deals X … and gains X"; the pump-X and bolster-X
+#: phrase tables became the shared amount vocabulary; Kutzil's Flanker reaches
+#: MEC-84's left-battlefield count. PAR-128: the controller scope and "another"
+#: are slots of the shared target grammar, verbs read their kind whitelists
+#: through `target_kind_allowed`, "artifact or enchantment" is no longer any
+#: permanent, "If `<cond>`, A, then B" gates both halves, and "each player /
+#: each opponent / target opponent `<verb>`" is a player-subject slot.
+PARSER_VERSION = "485"
 
 
 def parser_source_hash() -> str:

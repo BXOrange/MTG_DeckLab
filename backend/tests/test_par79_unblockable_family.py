@@ -76,16 +76,13 @@ def test_bare_unblockable_with_power_filter_parses():
 
 
 def test_another_target_attacking_creature_unblockable_parses():
-    # Since the consolidation onto `object_filter`'s general flag-word
-    # recognition (see `static_handlers._OBJECT_FILTER_FLAG_WORDS`), the
-    # bare "creature" head noun following the "attacking" flag recurses
-    # through `object_filter` too and picks up its own (harmless, always-
-    # true here since `target_kind` is already "creature") `card_type`
-    # key — same shape `object_filter("creature")` alone already returns.
+    # PAR-128: "another" is the shared target grammar's slot, so the phrase
+    # resolves through `resolve_target_creature_state_filter` like every
+    # other "target attacking creature" (no redundant `card_type` key).
     specs = match_clause("another target attacking creature can't be blocked this turn")
     assert specs == [EffectSpec("unblockable", {
         "target_kind": "creature",
-        "creature_filter": {"attacking": True, "card_type": "creature"},
+        "creature_filter": {"attacking": True},
     })]
 
 

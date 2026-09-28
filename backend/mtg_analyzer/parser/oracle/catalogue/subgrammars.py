@@ -15,7 +15,7 @@ resolved kind straight into an effect's params.
 from __future__ import annotations
 
 import re
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 #: The canonical vocabulary of nouns that name a permanent type/group,
 #: singular, concrete types first then the two abstract/negated readings
@@ -175,6 +175,11 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # ``"permanent"`` branch offers every permanent regardless of type, not
     # just the printed subset — the same simplification the 2-way row below
     # already ships).
+    # PAR-128: the two-type unions the engine has a dedicated pool for sit
+    # *above* the N-way row — it matches a two-word "X or Y" too, and used to
+    # turn Naturalize's "target artifact or enchantment" into any permanent.
+    (r"target artifact or enchantment", "artifact_or_enchantment"),
+    (r"target (?:artifact or creature|creature or artifact)", "artifact_or_creature"),
     (rf"target (?:{CARD_TYPE_WORD_ALT})"
      rf"(?:, (?:{CARD_TYPE_WORD_ALT}))*"
      rf",? or (?:{CARD_TYPE_WORD_ALT})", "permanent"),
@@ -294,7 +299,17 @@ UP_TO_ONE = r"(?:up to (?:one|1) )?"
 #: anchored itself. The optional ``up_to_one`` group sits *outside* ``target``
 #: so `resolve_target_kind` keeps seeing exactly the row text it already
 #: matches against.
-_TARGET_ALT = "|".join(f"(?:{frag})" for frag, _ in _TARGET_ROWS)
+#: PAR-128: the controller scope ("an opponent controls" / "you don't control")
+#: is a slot after *any* row, not a row per type × scope. `resolve_target_kind`
+#: composes it onto the row's kind through `NOT_YOU_TARGET_KINDS`; a row that
+#: already names its own scope still wins (it is tried first, full-match).
+NOT_YOU_TAIL = r" (?:an opponent controls|you don't control)"
+#: PAR-128: RULE 109.5's "another"/"other" is the same kind of slot, before any row.
+OTHER_PREFIX = r"(?:another|other) "
+_TARGET_ALT = (
+    f"(?:{OTHER_PREFIX})?"
+    "(?:" + "|".join(f"(?:{frag})" for frag, _ in _TARGET_ROWS) + f")(?:{NOT_YOU_TAIL})?"
+)
 TARGET = (
     r"(?P<up_to_one>" + UP_TO_ONE + r")"
     r"(?P<target>" + _TARGET_ALT + r")"
@@ -374,26 +389,12 @@ _DEVOTION_WEDGE_WORDS: frozenset[str] = frozenset({"abzan", "jeskai", "mardu", "
 #: `tapped_creatures_you_control` name every existing caller/test already
 #: expects). Still fail-closed on anything wider — a toughness qualifier, or
 #: a power qualifier on anything but the bare "creatures" word — same as
-#: every other row here. The type-word branch only strips a trailing "s"
-#: (`_singularize`) — a real but rarer gap on irregular plurals ("Elves",
-#: "Wolves") than building a full pluralization table is worth for now.
+#: every other row here. The single-word branch is read by the shared count
+#: grammar (`subtype_count_selector`), which knows irregular plurals and
+#: non-creature subtypes.
 _COUNT_PHRASE_BARE_WORDS: frozenset[str] = frozenset(
     {"creatures", "permanents", "artifacts", "lands", "enchantments", "planeswalkers"}
 )
-#: Single-word noun phrases the `count_subtype` catch-all must *not* guess as
-#: a creature subtype — real cards printing "the number of `<X>` you
-#: control" where `<X>` is an artifact-subtype (Bobblehead) or enchantment-
-#: subtype (Shrine) token name, found while sizing MEC-27's own "draw"/
-#: "life-gain" verb-family widening: `devotion_selector`'s catch-all always
-#: emits `creatures_you_control_of_type_<word>`, which is simply wrong for
-#: these (no card's Shrine/Bobblehead is also a creature), so the count
-#: would always read 0 rather than the printed value — the same
-#: "guessing produces a card that resolves to nothing" failure this file's
-#: fail-closed convention exists to avoid. A denylist rather than an
-#: allowlist of real creature types, matching `static_handlers.
-#: _NONCREATURE_TYPES`'s own idiom: this module has no card database to
-#: validate a subtype word against, only specific words already known bad.
-_COUNT_PHRASE_NONCREATURE_SUBTYPE_WORDS: frozenset[str] = frozenset({"shrines", "bobbleheads"})
 #: Two-word compound noun phrases with their own dedicated
 #: `continuous.count_selector` entry, rather than the bare-word ``_you_
 #: control`` suffix pattern above (Eiganjo, Seat of the Empire/Ghostfire
@@ -430,7 +431,7 @@ DEVOTION = (
 )
 
 
-def devotion_selector(m: "re.Match[str]") -> Optional[str]:
+def devotion_selector(m: "re.Match[str]") -> "Optional[str | dict[str, Any]]":
     """A `DEVOTION` match's groups → `continuous.count_selector`'s name, or
     ``None`` if somehow no group fired. Named for its original, narrower
     devotion-only purpose; also resolves the wider "the number of `<noun
@@ -495,13 +496,79 @@ def devotion_selector(m: "re.Match[str]") -> Optional[str]:
             parts.append(_tapped_part(tapped2))
         return f"tapped_{'_and_or_'.join(parts)}_you_control"
     subtype = m.groupdict().get("count_subtype")
-    if (
-        subtype
-        and subtype not in _COUNT_PHRASE_BARE_WORDS
-        and subtype not in _COUNT_PHRASE_NONCREATURE_SUBTYPE_WORDS
-    ):
-        return f"creatures_you_control_of_type_{_singularize(subtype)}"
+    if subtype and subtype not in _COUNT_PHRASE_BARE_WORDS:
+        # "the number of `<word>` you control": the shared count grammar reads
+        # the word — a subtype on any permanent (Gates, Auras, Shrines, Forests),
+        # a card type ("lands"), an irregular plural ("Elves") — and refuses a
+        # word it doesn't know, rather than guessing a creature type.
+        return subtype_count_selector(subtype)
     return None
+
+
+def subtype_count_selector(word: str) -> Optional[dict[str, Any]]:
+    """ "`<word>` you control" → the structured count selector, or ``None``."""
+    from .count_phrase import parse_count_phrase  # function-scoped: count_phrase is a sibling grammar
+
+    return parse_count_phrase(f"{word.lower()} you control")
+
+
+#: PAR-128: a target kind → the same pool scoped to permanents you don't
+#: control (`targeting.TARGET_FRAMES`' ``SCOPE_NOT_YOU`` over that kind's type
+#: pool; `tests/test_par128_target_scope.py` keeps the two in step — this
+#: module can't import `game/`). A kind missing here has no scoped engine
+#: kind, so its scoped phrase stays unclaimed.
+NOT_YOU_TARGET_KINDS: dict[str, str] = {
+    "creature": "creature_you_dont_control",
+    "permanent": "permanent_you_dont_control",
+    "nonland_permanent": "nonland_permanent_you_dont_control",
+    "land": "land_you_dont_control",
+    "nonbasic_land": "nonbasic_land_you_dont_control",
+    "artifact": "artifact_you_dont_control",
+    "enchantment": "enchantment_you_dont_control",
+    "artifact_or_enchantment": "artifact_or_enchantment_you_dont_control",
+    "artifact_or_creature": "artifact_or_creature_you_dont_control",
+}
+#: PAR-128: kinds whose engine pool already leaves out the ability's own source
+#: (`targeting.TARGET_FRAMES`' ``exclude_source``, and the plain ``creature``/
+#: ``permanent`` branches), so "another target `<X>`" is the same kind. A kind
+#: that includes its source has an "other" sibling here or fails closed.
+SOURCE_EXCLUDED_TARGET_KINDS: frozenset[str] = frozenset({
+    "creature", "permanent", "nonland_permanent", "artifact", "enchantment", "land",
+    "nonbasic_land", "artifact_or_creature", "artifact_or_enchantment",
+    "attacking_or_blocking_creature", "permanent_you_control", "permanent_you_dont_control",
+    "nonland_permanent_you_control", "nonland_permanent_you_dont_control",
+    "other_creature_you_control",
+})
+OTHER_TARGET_KINDS: dict[str, str] = {"creature_you_control": "other_creature_you_control"}
+#: A controller-/"another"-scoped kind → the unscoped kind whose pool it
+#: narrows (RULE 109.5/115.1). A verb that can act on the unscoped kind can act
+#: on any narrowing of it, so `target_kind_allowed` reads a verb's whitelist
+#: through this instead of every verb listing every scope.
+SCOPED_TARGET_BASE: dict[str, str] = {
+    **{scoped: base for base, scoped in NOT_YOU_TARGET_KINDS.items()},
+    "creature_you_control": "creature",
+    "other_creature_you_control": "creature",
+    "permanent_you_control": "permanent",
+    "nonland_permanent_you_control": "nonland_permanent",
+    "land_you_control": "land",
+    "artifact_or_creature_you_control": "artifact_or_creature",
+    # a type union is a narrowing of "any permanent"
+    "artifact_or_enchantment": "permanent",
+    "artifact_or_creature": "permanent",
+}
+
+
+def target_kind_allowed(kind: Optional[str], allowed: "Iterable[str]") -> bool:
+    """Whether a verb whose whitelist is ``allowed`` can take a ``kind`` target —
+    the kind itself, or a scoped narrowing of an allowed kind."""
+    if kind is None:
+        return False
+    allowed = allowed if isinstance(allowed, (set, frozenset, dict)) else tuple(allowed)
+    while kind is not None:
+        if kind in allowed:
+            return True
+        kind = SCOPED_TARGET_BASE.get(kind)
+    return False
 
 
 def resolve_target_kind(phrase: str) -> Optional[str]:
@@ -514,6 +581,16 @@ def resolve_target_kind(phrase: str) -> Optional[str]:
     for pattern, kind in _TARGET_LOOKUP:
         if pattern.match(text):
             return kind
+    tail = re.search(NOT_YOU_TAIL + r"\Z", text, re.IGNORECASE)
+    if tail is not None:
+        base = resolve_target_kind(text[: tail.start()])
+        return NOT_YOU_TARGET_KINDS.get(base) if base is not None else None
+    other = re.match(OTHER_PREFIX, text, re.IGNORECASE)
+    if other is not None:
+        base = resolve_target_kind(text[other.end():])
+        if base in SOURCE_EXCLUDED_TARGET_KINDS:
+            return base
+        return OTHER_TARGET_KINDS.get(base) if base is not None else None
     return None
 
 
@@ -534,7 +611,8 @@ def resolve_target_kind(phrase: str) -> Optional[str]:
 #: confirmed via `inspect-db` against the real cache — a live rules bug, not
 #: a coverage gap), just one layer up from where that fix landed.
 _TARGET_COMBAT_STATE_RE = re.compile(
-    r"target (attacking|blocking|tapped|untapped) creature", re.IGNORECASE,
+    r"(?:" + OTHER_PREFIX + r")?target (attacking|blocking|tapped|untapped) creature(?:" + NOT_YOU_TAIL + r")?",
+    re.IGNORECASE,
 )
 
 

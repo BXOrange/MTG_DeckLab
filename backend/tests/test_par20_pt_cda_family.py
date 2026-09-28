@@ -100,13 +100,13 @@ def test_real_card_maro_is_modeled_end_to_end():
 def test_count_selector_cards_in_your_hand():
     eng = make_engine([land()], hand=0)
     p1 = eng.state.player_by_id("p1")
-    assert continuous.count_selector(eng.state, "p1", "cards_in_your_hand") == 0
+    assert continuous.count_selector(eng.state, "p1", {"zone": "hand", "of": "you"}) == 0
     for i in range(3):
         p1.hand.append(
             GameObject(Card(id=f"h{i}", name=f"h{i}", type_line="Instant", is_instant=True),
                        owner_id="p1", zone=Zone.HAND)
         )
-    assert continuous.count_selector(eng.state, "p1", "cards_in_your_hand") == 3
+    assert continuous.count_selector(eng.state, "p1", {"zone": "hand", "of": "you"}) == 3
 
 
 def test_pt_cda_hand_count_tracks_live():

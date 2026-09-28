@@ -3708,20 +3708,6 @@ _ATTACHED_ANTHEM_FOR_EACH_RE = re.compile(
 #: two *player*-level counters (poison/experience — not object counts),
 #: Domain, a characteristic-defining self-read ("of its colors"), and RULE
 #: 700.8's party bipartite match.
-#:
-#: "noncreature, nonland card in your graveyard" deliberately was **not**
-#: migrated despite `parse_count_phrase` accepting it: it resolves to
-#: `{"any_of": [{"without_card_type": "creature"}, {"without_card_type":
-#: "land"}]}`, which is an OR — matching a card that lacks *either* type,
-#: i.e. every card (a creature lacks the land type and vice versa). A real
-#: bug in `characteristic_phrase._ALTERNATION`, which splits on a bare
-#: comma the same way it splits on "X, Y, or Z" — correct for that Oxford
-#: list, wrong for two independently-negated adjectives stacked before one
-#: noun, which is a conjunction. Confirmed via a direct `matches_object_
-#: filter` check (a creature, a land, and an instant all "matched"); not
-#: fixed here — the disambiguation needs the trailing-"or" cue the current
-#: split throws away, a change to shared grammar code well past this
-#: table's own scope. See `BACKLOG.md`'s PAR-120 entry.
 _SELF_ANTHEM_FOR_EACH_SELECTORS: dict[str, str] = {
     # "for each Equipment attached to it" / "for each Aura attached to it" /
     # both at once — the affected creature's *own* attachments (Nemata/Kor
@@ -3737,18 +3723,12 @@ _SELF_ANTHEM_FOR_EACH_SELECTORS: dict[str, str] = {
     "poison counter your opponents have": "poison_counters_opponents_have",
     "experience counter you have": "experience_counters_you_have",
     "basic land type among lands you control": "basic_land_types_among_lands_you_control",
-    "noncreature, nonland card in your graveyard": "noncreature_nonland_cards_in_your_graveyard",
     "of its colors": "source_colors_count",
     # PAR-72: "equipped creature gets +1/+0 for each creature in your party
     # and has menace." (Ravager's Mace) — `continuous.count_selector`'s
     # already-shipped `"creatures_in_your_party"` branch (PAR-53).
     "creature in your party": "creatures_in_your_party",
 }
-_BASIC_LAND_TYPES: frozenset[str] = frozenset(
-    {"plains", "island", "swamp", "mountain", "forest"}
-)
-
-
 def _for_each_count_selector(what: str, *, self_form: bool) -> "Optional[str | dict]":
     """Resolve a "for each `<X>`" quantity to a `continuous.count_selector`
     argument (structured or named), shared by `_SELF_ANTHEM_FOR_EACH_RE` and
@@ -3764,12 +3744,8 @@ def _for_each_count_selector(what: str, *, self_form: bool) -> "Optional[str | d
     recognised for the attached form; "on it" there fails closed rather
     than risk reading the wrong object's counters.
     """
-    # Checked *before* the shared grammar: `_SELF_ANTHEM_FOR_EACH_SELECTORS`
-    # deliberately still lists "noncreature, nonland card in your
-    # graveyard", which `parse_count_phrase` also accepts but resolves
-    # *wrong* (an `any_of` OR where the phrase means AND — see the table's
-    # own docstring) — this ordering is what keeps that entry reachable
-    # instead of being shadowed by the buggy grammar reading.
+    # Checked *before* the shared grammar: the table's "other `<X>`" rows
+    # would otherwise be shadowed by the grammar's `not_reference` reading.
     selector = _SELF_ANTHEM_FOR_EACH_SELECTORS.get(what)
     if selector is not None:
         return selector
@@ -3778,24 +3754,6 @@ def _for_each_count_selector(what: str, *, self_form: bool) -> "Optional[str | d
     structured = parse_count_phrase(what)
     if structured is not None:
         return structured
-    if what.endswith(" you control"):
-        land_type = what[: -len(" you control")]
-        if land_type.startswith("basic "):
-            land_type = land_type[len("basic "):]
-        if land_type in _BASIC_LAND_TYPES:
-            return f"lands_you_control_of_type_{land_type}"
-    if what.endswith(" your opponents control"):
-        land_type = what[: -len(" your opponents control")]
-        if land_type in _BASIC_LAND_TYPES:
-            return f"lands_opponents_control_of_type_{land_type}"
-    if what.startswith("other ") and what.endswith(" you control"):
-        inner = what[len("other "): -len(" you control")]
-        if inner and " " not in inner and inner.isalpha():
-            return f"other_creatures_you_control_of_type_{inner}"
-    if what.startswith("other ") and what.endswith(" on the battlefield"):
-        inner = what[len("other "): -len(" on the battlefield")]
-        if inner and " " not in inner and inner.isalpha():
-            return f"other_creatures_of_type_{inner}"
     m = re.fullmatch(r"([a-z][a-z]*) counters? on ~", what)
     if m:
         return f"source_{m.group(1)}_counters"
@@ -4638,12 +4596,15 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     # "for each …" scaling.
     m = _SELF_ANTHEM_FOR_EACH_GY_SUBTYPE_RE.fullmatch(text)
     if m is not None:
-        selector = f"{m.group('sub').lower()}_cards_in_your_graveyard"
-        return [EffectSpec("anthem", {
-            "affects": "self",
-            "power": int(m.group("p")), "toughness": int(m.group("t")),
-            "power_count": selector, "toughness_count": selector,
-        })]
+        from .count_phrase import parse_count_phrase
+
+        selector = parse_count_phrase(f"{m.group('sub').lower()} cards in your graveyard")
+        if selector is not None:
+            return [EffectSpec("anthem", {
+                "affects": "self",
+                "power": int(m.group("p")), "toughness": int(m.group("t")),
+                "power_count": selector, "toughness_count": selector,
+            })]
 
     # PAR-43: "~ gets +P/+T for each <X>" — general standing self-anthem
     # whose per-unit +P/+T scales by a `continuous.count_selector` value.

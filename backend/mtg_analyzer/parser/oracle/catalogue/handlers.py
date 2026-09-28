@@ -27,6 +27,8 @@ from ..normalize import SELF
 from ..spec import GROUP_SUBJECT_KEY_SENTINEL, EffectSpec, ParserProvenance
 from .keywords import KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
 from .subgrammars import (
+    target_kind_allowed,
+    subtype_count_selector,
     CANT_BE_COUNTERED_RE,
     COLOR_LETTERS,
     COLOR_WORD_ALT,
@@ -2682,12 +2684,12 @@ _LOSE_LIFE_SELECTOR_SUBTYPE_RE = _c(
 )
 
 
-def _lose_life_selector_subtype(m: re.Match[str]) -> list[EffectSpec]:
+def _lose_life_selector_subtype(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     selector = _SELECTOR_WORD_MAP[m.group("selector")]
-    subtype = m.group("subtype").rstrip("s")
-    return [EffectSpec("lose_life", {
-        "amount_from_count_selector": f"creatures_you_control_of_type_{subtype}", "selector": selector,
-    })]
+    counted = subtype_count_selector(m.group("subtype"))
+    if counted is None:
+        return None
+    return [EffectSpec("lose_life", {"amount_from_count_selector": counted, "selector": selector})]
 
 
 #: MEC-27's own residual: the "draw"/"you gain life"/"you lose life" verb
@@ -2948,7 +2950,7 @@ _SINGLE_TYPE_PERMANENT_KINDS: tuple[str, ...] = (
 
 def _destroy(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind is None or kind not in (
+    if not target_kind_allowed(kind, (
         "creature", "attacking_or_blocking_creature", "permanent", "permanent_you_dont_control",
         # "destroy target nonland permanent [an opponent controls]"
         # (Binding the Old Gods' chapter I, Assassin's Trophy-adjacent) —
@@ -2956,7 +2958,7 @@ def _destroy(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "nonland_permanent", "nonland_permanent_you_control",
         "nonland_permanent_you_dont_control",
         *_SINGLE_TYPE_PERMANENT_KINDS,
-    ):
+    )):
         return None
     color = resolve_color_word(m.groupdict().get("cond_color"))
     params: dict = {"target_kind": kind, **_optional_param(m)}
@@ -3062,7 +3064,7 @@ def _destroy_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     # honours `max_mana_value`, so this was a plain oversight, not a missing
     # engine primitive.
     kind = resolve_target_kind(m.group("target"))
-    if kind is None or kind not in ("creature", "permanent", "nonland_permanent"):
+    if not target_kind_allowed(kind, ("creature", "permanent", "nonland_permanent")):
         return None
     return [EffectSpec("destroy", {"target_kind": kind, "max_mana_value": int(m.group("mv"))})]
 
@@ -3453,7 +3455,7 @@ def _exile_all(m: re.Match[str]) -> list[EffectSpec]:
 
 def _regenerate(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind is None or kind not in ("creature", "permanent"):
+    if not target_kind_allowed(kind, ("creature", "permanent")):
         return None
     return [EffectSpec("regenerate", {"target_kind": kind})]
 
@@ -3654,9 +3656,9 @@ def _exile(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     # ``nonland_permanent`` ("exile target nonland permanent" — Excise the
     # Imperfect) is a real `targeting.legal_targets` kind (RULE 115.1c),
     # just never previously reachable from the plain exile handler.
-    if kind is None or kind not in (
+    if not target_kind_allowed(kind, (
         "creature", "attacking_or_blocking_creature", "permanent", "nonland_permanent", *_SINGLE_TYPE_PERMANENT_KINDS
-    ):
+    )):
         return None
     params: dict = {"target_kind": kind, **_optional_param(m)}
     # See `_destroy`'s own comment: "exile target tapped creature" needs the
@@ -3698,7 +3700,7 @@ _TAP_TARGET_KINDS = (
 
 def _tap(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind is None or kind not in _TAP_TARGET_KINDS:
+    if not target_kind_allowed(kind, _TAP_TARGET_KINDS):
         return None
     untap = m.group("verb").lower() == "untap"
     params: dict = {"target_kind": kind, "untap": untap, **_optional_param(m)}
@@ -4029,7 +4031,7 @@ _RETURN_TO_HAND_KINDS: frozenset[str] = frozenset(
 
 def _return_to_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind is None or kind not in _RETURN_TO_HAND_KINDS:
+    if not target_kind_allowed(kind, _RETURN_TO_HAND_KINDS):
         return None
     params: dict = {"target_kind": kind, **_optional_param(m)}
     # See `_destroy`'s own comment: "return target tapped creature to its
@@ -4067,7 +4069,7 @@ def _return_all_nonland(m: re.Match[str]) -> list[EffectSpec]:
 #: is `return_to_hand`'s library-destination sibling.
 def _return_to_library(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind is None or kind not in _RETURN_TO_HAND_KINDS:
+    if not target_kind_allowed(kind, _RETURN_TO_HAND_KINDS):
         return None
     position = "bottom" if m.group("pos") == "bottom" else "top"
     return [
@@ -4139,7 +4141,7 @@ def _return_self_and_two_color(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: generalized to N>=2) — the plural sibling of `_return_to_hand`.
 def _return_to_hand_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params = _multi_target_params(m)
-    if params is None or params["target_kind"] not in _RETURN_TO_HAND_KINDS:
+    if params is None or not target_kind_allowed(params["target_kind"], _RETURN_TO_HAND_KINDS):
         return None
     return [EffectSpec("return_to_hand", params)]
 
@@ -5224,9 +5226,9 @@ _GAIN_CONTROL_EOT_RE = _c(
 
 def _gain_control_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind is None or kind not in (
+    if not target_kind_allowed(kind, (
         "creature", "creature_you_dont_control", "permanent", "artifact",
-    ):
+    )):
         return None
     params: dict = {"target_kind": kind, **_optional_param(m)}
     if m.group("mv"):
@@ -5566,7 +5568,7 @@ def _shuffle_enchanted_into_library(m: re.Match[str]) -> list[EffectSpec]:
 #: `AttachEffect` already exists for Equip's activated ability, reused here).
 def _attach(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind is None or kind not in ("permanent", "creature", "creature_you_control"):
+    if not target_kind_allowed(kind, ("permanent", "creature", "creature_you_control")):
         return None
     return [EffectSpec("attach", {"target_kind": kind})]
 
@@ -5611,7 +5613,7 @@ _ANOTHER_B = r"(?P<another_b>another )?"
 
 def _fight_kind(phrase: str) -> Optional[str]:
     kind = resolve_target_kind(phrase)
-    return kind if kind in _FIGHT_TARGET_KINDS else None
+    return kind if target_kind_allowed(kind, _FIGHT_TARGET_KINDS) else None
 
 
 def _another_kind(kind: str) -> str:
@@ -5730,7 +5732,7 @@ _EXCHANGE_CONTROL_TARGET_KINDS = frozenset(
 
 def _exchange_control_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind not in _EXCHANGE_CONTROL_TARGET_KINDS:
+    if not target_kind_allowed(kind, _EXCHANGE_CONTROL_TARGET_KINDS):
         return None
     return [EffectSpec("exchange_control", {
         "target_kind": kind, **_optional_param(m),
@@ -5766,7 +5768,8 @@ def _exchange_xtarget_params(m: re.Match[str]) -> dict:
 def _exchange_control_two_explicit(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     first = resolve_target_kind(m.group("target"))
     second = resolve_target_kind(m.group("target_b"))
-    if first not in _EXCHANGE_CONTROL_TARGET_KINDS or second not in _EXCHANGE_CONTROL_TARGET_KINDS:
+    if not (target_kind_allowed(first, _EXCHANGE_CONTROL_TARGET_KINDS)
+            and target_kind_allowed(second, _EXCHANGE_CONTROL_TARGET_KINDS)):
         return None
     return [EffectSpec("exchange_control", {
         "first_target_kind": first, "target_kind": second,
@@ -5983,7 +5986,7 @@ _DEALS_POWER = r"deals? damage equal to its power to"
 
 def _power_recipient(phrase: str) -> Optional[str]:
     kind = resolve_target_kind(phrase)
-    return kind if kind in _DAMAGE_RECIPIENT_KINDS else None
+    return kind if target_kind_allowed(kind, _DAMAGE_RECIPIENT_KINDS) else None
 
 
 def _damage_equal_to_power(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -7253,6 +7256,11 @@ def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
         # phrasings mean everyone; a captured "you" is the ordinary
         # controller-scoped default, not a `creators` override.
         params["creators"] = "each_opponent" if "opponent" in who else "each_player"
+    elif who.startswith("target "):
+        # "**Target opponent** creates …" (the Hunted cycle) — the chosen
+        # player makes the tokens under their own control.
+        params["creators"] = "target"
+        params["target_kind"] = "opponent" if who == "target opponent" else "player"
     if m.groupdict().get("per_opp"):
         # "**For each opponent**, [you] create a … token[ that's tapped and
         # attacking that opponent]." (Endless Foot Assault, Stampede Surfer)
@@ -7315,11 +7323,15 @@ def _create_token_that_many(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: Promenade-shaped) and "…for each attacking creature" (Embercleave's own
 #: cost-reduction wording, reused here for a token count). A count-selector
 #: word not in this table stays unclaimed rather than guessed at.
-def _count_selector_for_phrase(subtype: Optional[str], attacking: Optional[str]) -> Optional[str]:
+def _count_selector_for_phrase(
+    subtype: Optional[str], attacking: Optional[str],
+) -> "Optional[str | dict[str, Any]]":
     if attacking:
         return "attacking_creatures"
     if subtype:
-        return f"creatures_you_control_of_type_{subtype}"
+        # "for each Forest / land / creature / Elf you control" — the shared
+        # count grammar, so a land or card type isn't read as a creature type.
+        return subtype_count_selector(subtype)
     return None
 
 
@@ -7327,7 +7339,7 @@ def _count_selector_for_phrase(subtype: Optional[str], attacking: Optional[str])
 #: (Elvish Promenade-shaped) — the trailing-count-selector sibling of the
 #: plain `create_token` row above.
 _CREATE_TOKEN_FOR_EACH_RE = _c(
-    rf"(?:(?P<who>you|each player|each opponent) )?creates? {COUNT} "
+    rf"(?:(?P<who>you|each player|each opponent|target player|target opponent) )?creates? {COUNT} "
     rf"(?P<tapped>tapped )?(?P<legendary>legendary )?(?P<p>\d+)/(?P<t>\d+) "
     rf"(?P<mid>[a-z ]*?)creature tokens?"
     rf"(?: with (?P<kw>[a-z, ]+))?"
@@ -7517,7 +7529,7 @@ _NAMED_TOKEN_WORDS: dict[str, str] = {"treasure": "Treasure", "clue": "Clue", "f
 _NAMED_TOKEN_CREATOR: dict[str, str] = {
     "": "you", "you ": "you",
     "each opponent ": "each_opponent", "each player ": "each_player",
-    "target player ": "target",
+    "target player ": "target", "target opponent ": "target",
 }
 
 
@@ -7533,7 +7545,7 @@ def _create_named_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if creator != "you":
         params["creators"] = creator
     if creator == "target":
-        params["target_kind"] = "player"
+        params["target_kind"] = "opponent" if who == "target opponent " else "player"
     return [EffectSpec("create_token", params)]
 
 
@@ -7683,10 +7695,10 @@ def _add_counters_target_params(
     if m.groupdict().get("selfref"):
         return [EffectSpec("add_counters", params)]
     kind = resolve_target_kind(m.group("target"))
-    if kind not in (
+    if not target_kind_allowed(kind, (
         "creature", "permanent", "creature_you_control", "other_creature_you_control",
         *_SINGLE_TYPE_PERMANENT_KINDS,
-    ):
+    )):
         return None
     params["target_kind"] = kind
     if include_optional:
@@ -7717,7 +7729,7 @@ _ADD_COUNTERS_SPELL_MV_RE = _c(
 
 def _add_counters_spell_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind not in ("creature", "permanent", "creature_you_control", *_SINGLE_TYPE_PERMANENT_KINDS):
+    if not target_kind_allowed(kind, ("creature", "permanent", "creature_you_control", *_SINGLE_TYPE_PERMANENT_KINDS)):
         return None
     return [EffectSpec("add_counters", {
         "kind": "+1/+1", "target_kind": kind, "amount_from_trigger_event": "mana_value",
@@ -8172,10 +8184,10 @@ def _pump_target(m: re.Match[str]) -> Optional[tuple[Optional[str], Optional[str
     # control` is RULE 109.5 "another target creature you control", source
     # excluded). Anything else (a player, a spell) has no P/T to modify, so
     # it stays fail-closed.
-    if kind not in (
+    if not target_kind_allowed(kind, (
         "creature", "permanent", "creature_you_control", "creature_you_dont_control",
         "other_creature_you_control", "attacking_or_blocking_creature",
-    ):
+    )):
         return None
     return (kind, None)
 
@@ -8463,7 +8475,7 @@ def _double_pt_of(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.groupdict().get("each_group"):
         return [EffectSpec("pump", {"selector": "creatures_you_control", "self_multiplier": mult})]
     kind = resolve_target_kind(m.group("target"))
-    if kind not in _DOUBLE_PT_TARGET_KINDS:
+    if not target_kind_allowed(kind, _DOUBLE_PT_TARGET_KINDS):
         return None
     return [EffectSpec("pump", {
         "target_kind": kind, "self_multiplier": mult, **_optional_param(m),
@@ -8477,7 +8489,7 @@ def _double_pt_possessive(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.groupdict().get("selfposs"):
         return [EffectSpec("pump", {"self_multiplier": mult})]
     kind = resolve_target_kind(m.group("target"))
-    if kind not in _DOUBLE_PT_TARGET_KINDS:
+    if not target_kind_allowed(kind, _DOUBLE_PT_TARGET_KINDS):
         return None
     return [EffectSpec("pump", {
         "target_kind": kind, "self_multiplier": mult, **_optional_param(m),
@@ -8815,104 +8827,24 @@ def _pump_target_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 
 #: PAR-80: "target creature gets +X/+0[/+X] until end of turn, where X is
-#: `<board-state count>`." — the sibling of `_PUMP_MANA_VALUE_RE` above for
-#: a plain `continuous.count_selector` referent instead of a trigger
-#: event's mana value; every phrase here already has a real selector
-#: (`PAR-78`'s `lands_you_control_of_type_<land>`, MEC-27's
-#: `creature_cards_in_your_graveyard`/`cards_in_your_hand`, the mass-pump
-#: family's own `creatures_you_control`, and `life_gained_this_turn`
-#: — `GameState.life_gained_this_turn`, bumped by `RulesEngine.gain_life`,
-#: already read by `LoseLifeEffect.amount_from_life_gained_this_turn`),
-#: so this is a closed phrase table rather than a new amount kind.
-_PUMP_X_SELECTOR_PHRASES: dict[str, str] = {
-    "the number of creatures you control": "creatures_you_control",
-    "the number of creature cards in your graveyard": "creature_cards_in_your_graveyard",
-    "the number of cards in your hand": "cards_in_your_hand",
-    "the amount of life you gained this turn": "life_gained_this_turn",
-    "the number of mountains you control": "lands_you_control_of_type_mountain",
-    "the number of islands you control": "lands_you_control_of_type_island",
-    "the number of swamps you control": "lands_you_control_of_type_swamp",
-    "the number of forests you control": "lands_you_control_of_type_forest",
-    "the number of plains you control": "lands_you_control_of_type_plains",
-}
-_PUMP_X_SELECTOR_ALT = "|".join(re.escape(p) for p in _PUMP_X_SELECTOR_PHRASES)
-_PUMP_TARGET_X_SELECTOR_RE = _c(
-    rf"{TARGET} gets? \+x/(?P<taxis>\+x|\+0) until end of turn, "
-    rf"where x is (?P<phrase>{_PUMP_X_SELECTOR_ALT})"
-)
-
-
-def _pump_target_x_selector(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    subject = _pump_target(m)
-    if subject is None:
-        return None
-    target_kind, selector = subject
-    count_selector = _PUMP_X_SELECTOR_PHRASES.get(m.group("phrase"))
-    if count_selector is None:
-        return None
-    params: dict = {"amount_from_count_selector": count_selector}
-    if m.group("taxis") == "+0":
-        params["amount_from_count_selector_axis"] = "power"
-    if target_kind:
-        params["target_kind"] = target_kind
-    if selector:
-        params["selector"] = selector
-    state_filter = _pump_target_creature_filter(m)
-    if state_filter:
-        params["creature_filter"] = {**(params.get("creature_filter") or {}), **state_filter}
-    return [EffectSpec("pump", params)]
-
-
-#: PAR-80 second increment: "target creature gets +X/+<N> until end of
-#: turn, where X is `<phrase>`." for referents beyond a plain
-#: `continuous.count_selector` board count — reuses ENG-37's general
-#: `bind`/`effect_amounts` measurement (`game/effect_amounts.py`) instead of
-#: growing `PumpEffect` a new ``amount_from_*`` boolean per referent, the
-#: exact "25 distinct amount_from_* names" duplication that module's own
-#: docstring documents fixing. Each phrase maps to a full amount spec
-#: rather than a bare selector key, since several of these referents aren't
-#: board counts at all: the target's *own* current power (``of: "target"``,
-#: read before this same effect's pump applies — the identical `bind`
-#: pattern already proven for Drain Life's "equal to the damage dealt, but
-#: not more than the target's toughness"), the most recent `RollDieEffect`
-#: total (``"die_result"``), and two board counts that only need a new
-#: `continuous.count_selector` row, not a new amount kind. An optional
-#: leading "`<N>` plus " (Muscle Burst's "3 plus the number of cards named
-#: ~ in all graveyards") threads straight into the ``amount_of`` general
-#: ``plus`` modifier — no new arithmetic, just recognizing the prefix.
-_PUMP_X_AMOUNT_PHRASES: dict[str, dict] = {
+#: `<quantity>`." — ENG-37's general `bind`/`effect_amounts` measurement,
+#: not a `PumpEffect` ``amount_from_*`` parameter per referent. PAR-120: a
+#: count or aggregate ("the number of Mountains you control", "the greatest
+#: power among creatures you control", "the amount of life you gained this
+#: turn", "3 plus the number of cards named ~ in all graveyards") is read by
+#: the shared amount vocabulary (`count_phrase.parse_amount_phrase`); only
+#: the referents that aren't a quantity of the board stay a table — the
+#: target's *own* current power (``of: "target"``, read before this same
+#: effect's pump applies, Drain Life's proven `bind` pattern) and the most
+#: recent `RollDieEffect` total.
+_PUMP_X_REFERENT_AMOUNTS: dict[str, dict] = {
     "its power": {"kind": "characteristic", "characteristic": "power", "of": "target"},
     "that creature's power": {"kind": "characteristic", "characteristic": "power", "of": "target"},
     "the result": {"kind": "die_result"},
-    "the greatest mana value among permanents you control": {
-        "kind": "count_selector", "selector": "greatest_mana_value_among_permanents_you_control",
-    },
-    "the greatest power among creatures you control": {
-        "kind": "count_selector", "selector": "greatest_power_among_creatures_you_control",
-    },
-    "the number of counters on permanents you control": {
-        "kind": "count_selector", "selector": "counters_on_permanents_you_control",
-    },
-    "the number of elves on the battlefield": {
-        "kind": "count_selector", "selector": "elves_on_battlefield",
-    },
-    "the number of artifacts your opponents control": {
-        "kind": "count_selector", "selector": "artifacts_opponents_control",
-    },
-    "the number of verse counters on ~": {
-        # War Dance: this permanent only ever carries verse counters, so the
-        # already-shipped "every counter kind on source" reader is exactly
-        # a verse-counter count here — no new named-counter selector.
-        "kind": "count_selector", "selector": "total_counters_on_source",
-    },
-    "the number of cards named ~ in all graveyards": {
-        "kind": "count_selector", "selector": "cards_named_source_in_all_graveyards",
-    },
 }
-_PUMP_X_AMOUNT_ALT = "|".join(re.escape(p) for p in _PUMP_X_AMOUNT_PHRASES)
 _PUMP_TARGET_X_AMOUNT_RE = _c(
     rf"{TARGET} gets? \+x/(?P<taxis>\+x|\+0) until end of turn, "
-    rf"where x is (?:(?P<offset>\d+) plus )?(?P<phrase>{_PUMP_X_AMOUNT_ALT})"
+    r"where x is (?P<phrase>.+)"
 )
 
 
@@ -8921,10 +8853,17 @@ def _pump_target_x_amount(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if subject is None:
         return None
     target_kind, selector = subject
-    amount_spec = dict(_PUMP_X_AMOUNT_PHRASES[m.group("phrase")])
-    offset = m.groupdict().get("offset")
-    if offset:
-        amount_spec["plus"] = int(offset)
+    phrase = m.group("phrase")
+    referent = _PUMP_X_REFERENT_AMOUNTS.get(phrase)
+    if referent is not None:
+        amount_spec = dict(referent)
+    else:
+        from .count_phrase import parse_amount_phrase
+
+        counted = parse_amount_phrase(phrase)
+        if counted is None:
+            return None
+        amount_spec = {"kind": "count_selector", "selector": counted}
     pump_params: dict = {
         "power": "$px", "toughness": "$px" if m.group("taxis") == "+x" else 0,
     }
@@ -9034,7 +8973,7 @@ def _return_creatures_die_result(m: re.Match[str]) -> list[EffectSpec]:
 #: turn, where X is the result." (Growth Spurt) needs no dedicated handler
 #: of its own for the first sentence — "Roll a `<n>`-sided die." already
 #: parses standalone (``roll_die``) — only the second sentence's "the
-#: result" referent, added to `_PUMP_X_AMOUNT_PHRASES` above.
+#: result" referent, in `_PUMP_X_REFERENT_AMOUNTS` above.
 #:
 #: "target creature gets +X/+<N> until end of turn, where X is a number
 #: from A to B chosen at random." (Hapato's Might) is a *different*
@@ -9220,7 +9159,7 @@ _SWITCH_PT_TARGET_RE = _c(
 
 def _switch_pt_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind not in ("creature", "permanent"):
+    if not target_kind_allowed(kind, ("creature", "permanent")):
         return None
     return [EffectSpec("switch_power_toughness", {"target_kind": kind})]
 
@@ -9482,7 +9421,7 @@ def _pump_until(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: selector for those would be wrong more often than right.
 def _pump_and_grant_indefinite(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind not in ("creature", "permanent"):
+    if not target_kind_allowed(kind, ("creature", "permanent")):
         return None
     keywords = _token_keywords(m.group("kw"))
     if keywords is None:
@@ -9513,7 +9452,7 @@ _CANT_ATTACK_OR_BLOCK_UNTIL_RE = _c(
 
 def _cant_attack_or_block_until(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind not in ("creature", "permanent"):
+    if not target_kind_allowed(kind, ("creature", "permanent")):
         return None
     duration = _GRANT_DURATIONS.get(m.group("dur").strip().lower())
     if duration is None:
@@ -9929,7 +9868,7 @@ _CONNIVE_TARGET_KINDS = frozenset(
 
 def _connive_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind not in _CONNIVE_TARGET_KINDS:
+    if not target_kind_allowed(kind, _CONNIVE_TARGET_KINDS):
         return None
     params: dict = {"target_kind": kind, **_optional_param(m), **_connive_amount_params(m)}
     # "target attacking creature connives X" (Raffine, Scheming Seer) — see
@@ -10122,7 +10061,7 @@ def _explore_previous(m: re.Match[str]) -> list[EffectSpec]:
 
 def _explore_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind not in ("creature", "creature_you_control", "creature_you_dont_control"):
+    if not target_kind_allowed(kind, ("creature", "creature_you_control", "creature_you_dont_control")):
         return None  # only a creature explores on a real card (RULE 701.44)
     return [EffectSpec("explore", {"target_kind": kind, **_optional_param(m)})]
 
@@ -10154,7 +10093,7 @@ def _endure_previous(m: re.Match[str]) -> list[EffectSpec]:
 
 def _endure_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind not in ("creature", "creature_you_control", "creature_you_dont_control"):
+    if not target_kind_allowed(kind, ("creature", "creature_you_control", "creature_you_dont_control")):
         return None
     return [EffectSpec("endure", {
         "amount": int(m.group("n")), "target_kind": kind, **_optional_param(m),
@@ -10838,24 +10777,12 @@ def _bolster(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("bolster", {"amount": int(m.group("n"))})]
 
 
-# "Bolster X, where X is `<board count>`." (PAR-29) — the three phrases real
-# cards print, each onto `continuous.count_selector`'s matching entry.
-# A dedicated small map rather than routing through the shared `DEVOTION`
-# macro: only one of the three ("tapped creatures you control") overlaps
-# its vocabulary at all, and the other two ("cards in your hand", the
-# distinct-name artifact-token count) are single-card phrasings not worth
-# widening a general grammar for.
-_BOLSTER_AMOUNT_SELECTORS: dict[str, str] = {
-    "the number of tapped creatures you control": "tapped_creatures_you_control",
-    "the number of cards in your hand": "cards_in_your_hand",
-    "the number of differently named artifact tokens you control":
-        "distinct_named_artifact_tokens_you_control",
-}
-_BOLSTER_AMOUNT_ALT = "|".join(re.escape(phrase) for phrase in _BOLSTER_AMOUNT_SELECTORS)
-
-
+# "Bolster X, where X is `<quantity>`." (PAR-29) — PAR-120: the quantity is
+# read by the shared amount vocabulary (`count_phrase.parse_amount_phrase`).
 def _bolster_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    selector = _BOLSTER_AMOUNT_SELECTORS.get(m.group("selector"))
+    from .count_phrase import parse_amount_phrase
+
+    selector = parse_amount_phrase(m.group("selector"))
     if selector is None:
         return None
     return [EffectSpec("bolster", {"amount_from_count_selector": selector})]
@@ -11095,7 +11022,7 @@ def _suspect_other_then_remove_self(m: re.Match[str]) -> list[EffectSpec]:
 
 def _suspect_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind not in _SUSPECT_TARGET_KINDS:
+    if not target_kind_allowed(kind, _SUSPECT_TARGET_KINDS):
         return None  # only a creature can be suspected (RULE 701.60a)
     return [EffectSpec("suspect", {"target_kind": kind, **_optional_param(m)})]
 
@@ -11143,7 +11070,7 @@ _DETAIN_WORD_N = {"two": 2, "three": 3, "2": 2, "3": 3}
 
 def _detain(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind not in _DETAIN_TARGET_KINDS:
+    if not target_kind_allowed(kind, _DETAIN_TARGET_KINDS):
         return None
     return [EffectSpec("detain", {"target_kind": kind, **_optional_param(m)})]
 
@@ -11160,7 +11087,7 @@ def _detain_multi(m: re.Match[str]) -> list[EffectSpec]:
 # ("…target creature an opponent controls"), off the shared `TARGET` rows.
 def _goad(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind not in ("creature", "creature_you_control", "creature_you_dont_control"):
+    if not target_kind_allowed(kind, ("creature", "creature_you_control", "creature_you_dont_control")):
         # Goaded is only ever a creature designation (RULE 701.15b) — a
         # non-creature target row here means the clause isn't what it looks
         # like, so leave it unclaimed.
@@ -11573,7 +11500,7 @@ _GRANT_PROT_CHOICE_KINDS = frozenset({"creature", "creature_you_control", "perma
 
 def _grant_prot_choice_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind not in _GRANT_PROT_CHOICE_KINDS:
+    if not target_kind_allowed(kind, _GRANT_PROT_CHOICE_KINDS):
         return None
     return [EffectSpec("grant_protection", {"target_kind": kind})]
 
@@ -12154,9 +12081,9 @@ def _pump_unblockable(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     # Runner) and the bare `_cant_be_blocked_turn` row, both of which
     # treat "you control"/"you don't control" as ordinary legal unblockable
     # subjects; this row had simply never been widened to match.
-    if target_kind is not None and target_kind not in (
+    if target_kind is not None and not target_kind_allowed(target_kind, (
         "creature", "permanent", "creature_you_control", "creature_you_dont_control",
-    ):
+    )):
         return None
     params: dict = {
         "power": _signed_int(m.group("p")), "toughness": _signed_int(m.group("t")),
@@ -12235,10 +12162,10 @@ def _cant_be_blocked_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         # "another … you control" resolves to `other_creature_you_control`
         # (`subgrammars.py`), the same kind `_pump_target`'s own broader
         # allowed set already accepts.
-        if kind not in (
+        if not target_kind_allowed(kind, (
             "creature", "permanent", "creature_you_control", "creature_you_dont_control",
             "other_creature_you_control",
-        ):
+        )):
             return None
         params["target_kind"] = kind
     quality_filter = _creature_quality_filter(m)
@@ -12461,9 +12388,9 @@ def _pump_keyword_unblockable(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     # control"/"…don't control" are legal unblockable-grant subjects too
     # (Apocalypse Runner); unlike `_pump_unblockable`, this handler has no
     # P/T delta to worry about conflicting with a non-creature target.
-    if target_kind is not None and target_kind not in (
+    if target_kind is not None and not target_kind_allowed(target_kind, (
         "creature", "permanent", "creature_you_control", "creature_you_dont_control",
-    ):
+    )):
         return None
     split = _split_keywords_with_parametric(m.group("kw"))
     if split is None:
@@ -12561,7 +12488,7 @@ _CANT_BLOCK_TURN_GROUP_RE = _c(
 
 def _cant_block_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind not in ("creature", "creature_you_control", "creature_you_dont_control"):
+    if not target_kind_allowed(kind, ("creature", "creature_you_control", "creature_you_dont_control")):
         return None
     return [EffectSpec("cant_block_this_turn", {"target_kind": kind, **_optional_param(m)})]
 
@@ -12613,7 +12540,7 @@ def _cant_be_blocked_by_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params: dict = {"restriction": {"kind": "cant_be_blocked_by", "filter": filt}}
     if not m.group("selfref"):
         kind = resolve_target_kind(m.group("target"))
-        if kind not in ("creature", "creature_you_control"):
+        if not target_kind_allowed(kind, ("creature", "creature_you_control")):
             return None
         params["target_kind"] = kind
     return [EffectSpec("combat_restriction_this_turn", params)]
@@ -12646,7 +12573,7 @@ _BLOCKS_SOURCE_TURN_IF_ABLE_RE = _c(rf"{TARGET} blocks (?:~|it|this creature) th
 
 def _cant_block_source_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind not in ("creature", "creature_you_control", "creature_you_dont_control"):
+    if not target_kind_allowed(kind, ("creature", "creature_you_control", "creature_you_dont_control")):
         return None
     return [EffectSpec("combat_restriction_this_turn", {
         "target_kind": kind,
@@ -12657,7 +12584,7 @@ def _cant_block_source_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 def _blocks_source_turn_if_able(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind not in ("creature", "creature_you_control", "creature_you_dont_control"):
+    if not target_kind_allowed(kind, ("creature", "creature_you_control", "creature_you_dont_control")):
         return None
     return [EffectSpec("combat_restriction_this_turn", {
         "target_kind": kind,
@@ -12678,7 +12605,7 @@ _ATTACKS_TURN_IF_ABLE_RE = _c(rf"{TARGET} attacks this turn if able")
 
 def _attacks_turn_if_able(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind not in ("creature", "creature_you_control", "creature_you_dont_control"):
+    if not target_kind_allowed(kind, ("creature", "creature_you_control", "creature_you_dont_control")):
         return None
     return [EffectSpec("pump", {"keywords": ["attacks_if_able"], "target_kind": kind})]
 
@@ -16133,19 +16060,8 @@ HANDLERS: list[EffectHandler] = [
         "pump_target_source_power", _PUMP_TARGET_SOURCE_POWER_RE, _pump_target_source_power
     ),
     # PAR-80: "target creature gets +X/+0[/+X] until end of turn, where X
-    # is <board-state count>." — tried before the bare `pump_target_x` row
-    # below so the longer "where x is…" phrasing wins (the bare row's own
-    # regex requires "until end of turn" to be the whole clause's end, so
-    # it can never match this row's text anyway, but keeping the more
-    # specific row first matches this file's own convention).
-    EffectHandler(
-        "pump_target_x_selector", _PUMP_TARGET_X_SELECTOR_RE, _pump_target_x_selector
-    ),
-    # PAR-80 second increment: "…, where X is <phrase>" for a referent
-    # beyond a plain board count (the target's own power, a die-roll
-    # result, an existing selector plus a flat offset, …) — tried
-    # alongside `pump_target_x_selector` above, same reasoning for going
-    # before the bare `pump_target_x` row below.
+    # is <quantity>." — kept before the bare `pump_target_x` row below by
+    # this file's more-specific-first convention.
     EffectHandler(
         "pump_target_x_amount", _PUMP_TARGET_X_AMOUNT_RE, _pump_target_x_amount
     ),
@@ -16699,7 +16615,7 @@ HANDLERS: list[EffectHandler] = [
     # "bolster x, where x is <board count>" (PAR-29).
     EffectHandler(
         "bolster_x",
-        _c(rf"bolster x, where x is (?P<selector>{_BOLSTER_AMOUNT_ALT})"),
+        _c(r"bolster x, where x is (?P<selector>.+)"),
         _bolster_x,
     ),
     # "blight N" (Bloomburrow) — N -1/-1 counters on a creature you control.
@@ -17093,7 +17009,7 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "create_token",
         _c(
-            rf"(?P<per_opp>for each opponent, )?(?:(?P<who>you|each player|each opponent) )?creates? {COUNT_X} "
+            rf"(?P<per_opp>for each opponent, )?(?:(?P<who>you|each player|each opponent|target player|target opponent) )?creates? {COUNT_X} "
             rf"(?P<tapped>tapped )?(?P<legendary>legendary )?(?P<p>\d+)/(?P<t>\d+) "
             rf"(?P<mid>[a-z ]*?)creature tokens?"
             # ``0-9`` in the keyword capture is ENG-31's "… token with

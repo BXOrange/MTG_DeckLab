@@ -42,12 +42,15 @@ def test_pump_x_claimed(clause, tk, kw):
     assert p.get("keywords") == kw
 
 
-def test_dynamic_board_count_x_stays_fail_closed():
-    # "where X is <board count>" is a different family (amount_from_count_selector).
-    assert not match_clause(
+def test_dynamic_board_count_x_is_a_measured_bind():
+    # "where X is <board count>" is a different family from the bare +X/+X row:
+    # PAR-120 reads it through the shared amount vocabulary into a `bind`.
+    [spec] = match_clause(
         "target creature gets +x/+x until end of turn, where x is the number "
         "of card types among cards in all graveyards"
     )
+    assert spec.type == "bind"
+    assert spec.params["amount"]["selector"] == {"zone": "graveyard", "of": "any", "distinct": "card_type"}
 
 
 def test_plain_digit_pump_unchanged():

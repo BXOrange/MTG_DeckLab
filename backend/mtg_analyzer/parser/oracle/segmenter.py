@@ -46,7 +46,7 @@ from .catalogue.static_handlers import (
     static_condition,
     static_effect_specs,
 )
-from .catalogue.subgrammars import COLOR_WORD_ALT, resolve_color_word
+from .catalogue.subgrammars import COLOR_WORD_ALT, resolve_color_word, target_kind_allowed
 from .spec import GROUP_SUBJECT_KEY_SENTINEL, AbilitySpec, EffectSpec, ParserProvenance
 
 #: RULE 603.1's object-subject trigger *verbs*, longest phrase first, each
@@ -3841,6 +3841,14 @@ def _names_a_target(spec: "EffectSpec") -> bool:
 _FOR_EACH_AMOUNTS: dict[str, dict[str, Any]] = {
     "basic land type among lands you control": {"kind": "domain"},
     "basic land types among lands you control": {"kind": "domain"},
+    # MEC-84's turn history (Kutzil's Flanker) — the creatures are gone, so no zone
+    # count can see them; `GameState.creatures_left_battlefield_this_turn` can.
+    "creature that left the battlefield under your control this turn": {
+        "kind": "count_selector", "selector": "creatures_that_left_battlefield_this_turn",
+    },
+    "creatures that left the battlefield under your control this turn": {
+        "kind": "count_selector", "selector": "creatures_that_left_battlefield_this_turn",
+    },
 }
 
 #: The params an effect states its own magnitude in. A ``bind`` body has to
@@ -3970,7 +3978,7 @@ _FOR_EACH_GROUP_PHRASES: frozenset[str] = frozenset({
 _FOR_EACH_SUFFIX_RE = re.compile(
     # MEC-83 widened the group class to admit "+1/+1 counter on it" — digits
     # and `+`/`/` — alongside the plain "creatures you control" phrasings.
-    r"^(?P<rest>.+?),?\s+for each (?P<group>[a-z0-9+/ -]{3,45})$", re.IGNORECASE)
+    r"^(?P<rest>.+?),?\s+for each (?P<group>[a-z0-9+/ -]{3,70})$", re.IGNORECASE)
 
 #: MEC-83: "<effect> for each `<X>` counter on (it|~|this <type>)" — a named
 #: counter read (`effect_amounts` ``counters`` kind), the amount sibling of
@@ -4042,9 +4050,11 @@ _X_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "power", "toughness")
 
 def _where_x_specs(
     body: str, *, self_subject: bool, previous_subject: bool,
-    group_subject: bool, previous_selector: bool,
+    group_subject: bool, previous_selector: bool, several: bool = False,
 ) -> "Optional[list[EffectSpec]]":
-    """See `_WHERE_X_RE`; ``None`` unless exactly one recognised param holds the X."""
+    """See `_WHERE_X_RE`; ``None`` unless the body parses to one effect holding the X — or,
+    with ``several``, to several effects that share it ("~ deals X damage to target
+    creature and you gain X life, where X is …" — one X for the whole sentence)."""
     text = body.strip().rstrip(".").strip()
     m = _WHERE_X_RE.match(text)
     if m is not None:
@@ -4063,18 +4073,74 @@ def _where_x_specs(
         rest.strip(), self_subject=self_subject, previous_subject=previous_subject,
         group_subject=group_subject, previous_selector=previous_selector,
     )
-    if not inner or len(inner) != 1:
+    if not inner or (len(inner) != 1 and not several):
         return None
-    params = dict(inner[0].params)
-    holders = [k for k in _X_PARAM_KEYS if params.get(k) == "x"]
-    if not holders or any(v == "-x" for v in params.values()):
+    effects: list[dict[str, Any]] = []
+    bound_any = False
+    for spec in inner:
+        params = dict(spec.params)
+        if any(v == "-x" for v in params.values()):
+            return None
+        holders = [k for k in _X_PARAM_KEYS if params.get(k) == "x"]
+        if several and not holders:
+            # "put a +1/+1 counter on ~, then create X tokens, where X is the number of
+            # counters on ~" (Anim Pakal) measures *after* the first effect; a bind
+            # measures once, before all of them. Only a sentence whose every effect
+            # takes the X is one shared measurement.
+            return None
+        for key in holders:
+            params[key] = "$n"
+        bound_any = bound_any or bool(holders)
+        entry = {"type": spec.type, "params": params}
+        if spec.condition is not None:
+            entry["condition"] = dict(spec.condition)
+        effects.append(entry)
+    if not bound_any:
         return None
-    for key in holders:
-        params[key] = "$n"
-    return [EffectSpec("bind", {
-        "name": "n",
-        "amount": amount,
-        "effects": [{"type": inner[0].type, "params": params}],
+    return [EffectSpec("bind", {"name": "n", "amount": amount, "effects": effects})]
+
+
+#: PAR-128: the player-subject slot. "each player mills 3 cards", "each opponent gains 10
+#: life", "target opponent becomes the monarch" — the verb's own grammar already reads
+#: "target player `<verb>`" (one player target, nothing else), so the subject is a
+#: slot over that reading rather than a word in every verb's row: "each player / each
+#: opponent" iterates the body over those players (`for_each` hands each one to it as
+#: its target, APNAP order, RULE 101.4), and "target opponent" narrows the target.
+_PLAYER_SCOPE_SUBJECT_RE = re.compile(
+    r"^(?P<who>each player|each opponent|target opponent) (?P<rest>.+)$", re.IGNORECASE
+)
+_PLAYER_SCOPE_ITERATION = {"each player": "each_player", "each opponent": "each_opponent"}
+
+
+def _player_scope_specs(
+    body: str, *, self_subject: bool, previous_subject: bool,
+    group_subject: bool, previous_selector: bool,
+) -> "Optional[list[EffectSpec]]":
+    """See `_PLAYER_SCOPE_SUBJECT_RE`; ``None`` unless every effect of the "target
+    player" reading targets exactly that one player and nothing else."""
+    m = _PLAYER_SCOPE_SUBJECT_RE.match(body.strip())
+    if m is None:
+        return None
+    inner = parse_effect_body(
+        f"target player {m.group('rest')}", self_subject=self_subject,
+        previous_subject=previous_subject, group_subject=group_subject,
+        previous_selector=previous_selector,
+    )
+    if not inner:
+        return None
+    for spec in inner:
+        named = [spec.params[k] for k in _TARGET_PARAM_KEYS if spec.params.get(k) is not None]
+        if named != ["player"] or spec.type in ("for_each", "bind", "if_else", "seq"):
+            return None
+    who = m.group("who").lower()
+    if who == "target opponent":
+        return [
+            EffectSpec(spec.type, {**spec.params, "target_kind": "opponent"}, condition=spec.condition)
+            for spec in inner
+        ]
+    return [EffectSpec("for_each", {
+        "over": {"players": _PLAYER_SCOPE_ITERATION[who]},
+        "effects": [spec.to_dict() for spec in inner],
     })]
 
 
@@ -4935,14 +5001,14 @@ def parse_effect_body(
     if if_else is not None:
         return if_else
 
-    # "If `<cond>`, `<A>` and `<B>`." — one sentence, one gate over *both* effects. The
+    # "If `<cond>`, `<A>` and|, then `<B>`." — one sentence, one gate over *both* effects. The
     # connector split below would hand `<B>` over on its own, ungated (Unholy Annex: "If you
     # control a Demon, each opponent loses 2 life and you gain 2 life" gained the life
     # whether or not you did). A body with a period is several sentences and keeps its
     # per-clause gating.
     one_gate = _GENERIC_IF_PREFIX_RE.match(body)
     if one_gate is not None and "." not in one_gate.group("rest") and re.search(
-        r"\s+and\s+", one_gate.group("rest")
+        r"\s+and\s+|,?\s+then\s+", one_gate.group("rest")
     ):
         gate = static_condition(one_gate.group("cond"))
         gated_inner = (
@@ -4955,6 +5021,20 @@ def parse_effect_body(
         )
         if gated_inner and all(spec.condition is None for spec in gated_inner):
             return [EffectSpec(spec.type, dict(spec.params), condition=gate) for spec in gated_inner]
+
+    # "`<A>` and `<B>`, where X is the number of …" — one X for the whole sentence. The
+    # connector split below would hand the tail to `<B>` alone and leave `<A>`'s X as
+    # the (unpaid) spell X (Tendrils of Corruption dealt 0 damage and gained the life).
+    one_x = _WHERE_X_RE.match(body.strip().rstrip(".").strip())
+    if one_x is not None and "." not in one_x.group("rest") and re.search(
+        r"\s+and\s+", one_x.group("rest")
+    ):
+        shared_x = _where_x_specs(
+            body, self_subject=self_subject, previous_subject=previous_subject,
+            group_subject=group_subject, previous_selector=previous_selector, several=True,
+        )
+        if shared_x is not None:
+            return shared_x
 
     for sep in _CONNECTORS:
         parts = [p for p in re.split(sep, body) if p.strip()]
@@ -5091,6 +5171,13 @@ def parse_effect_body(
     )
     if where_x is not None:
         return where_x
+
+    player_scope = _player_scope_specs(
+        body, self_subject=self_subject, previous_subject=previous_subject,
+        group_subject=group_subject, previous_selector=previous_selector,
+    )
+    if player_scope is not None:
+        return player_scope
 
     matched, peeled = _peel_condition(
         body, _GENERIC_CONDITION_ROWS, self_subject=self_subject,
@@ -5307,7 +5394,7 @@ def _announces_creature_target(specs: list[EffectSpec]) -> bool:
         values.extend(value if isinstance(value, list) else [value])
     return any(
         isinstance(v, str) and (
-            v in _CREATURE_TARGET_KINDS
+            target_kind_allowed(v, _CREATURE_TARGET_KINDS)
             or v.startswith(("graveyard_", "any_graveyard_", "opponent_graveyard_"))
         )
         for v in values

@@ -188,15 +188,7 @@ its block back into the matching section here.
   sample of the newly claimed cards — the parse verdict alone hid wrong-but-MODELED shapes at v450,
   v455 and v456 (see `PARSER_LONG_TAIL.md`).
 - **PAR-120 · Shared count / filter / condition vocabulary — remaining scope.**
-  **(a) retire the duplicates:** the 8 named `continuous.count_selector` branches no parser/catalogue
-  source names literally (`artifact_and_or_enchantment_cards_in_your_graveyard`,
-  `auras_on_the_battlefield`, `creature_cards_in_your_opponents_graveyards`,
-  `creatures_that_left_battlefield_this_turn`, `enchantments_on_the_battlefield`,
-  `permanent_cards_in_your_graveyard`, `station_tapped_power`, `untapped_permanents_opponents_control`
-  — confirm none is built dynamically, then delete) and the ~20 prefix parsers
-  (`creatures_you_control_of_type_<word>` accepts any word); `_PUMP_X_SELECTOR_PHRASES` once
-  "the amount of life you gained this turn" is in the shared amount vocabulary (a bare delete
-  regresses Fortifying Draught). **(b) CDA residue:** a CDA inside a quoted grant or "becomes"
+  **(b) CDA residue:** a CDA inside a quoted grant or "becomes"
   (Druid Class, Beorn's Hospitality, Kalonian Twingrove, Chimeric Mass, Svogthos, Gutter Grime,
   Hallowed Haunting, Seize the Storm, Voice of Resurgence, Elephant Resurgence, Consuming Blob,
   Bonny Pall, The Goblin Sparring Grounds — the grant path doesn't route statics to `pt_cda`);
@@ -214,10 +206,21 @@ its block back into the matching section here.
   (Slurrk), an exiled-as-cost source (Lost Isle Calling), a destroyed target's counters at
   resolution (Rite of the Serpent), "put ~'s counters on that token" (Ambitious Augmenter).
   **(e) remaining conditions:** "the first card you draw each turn" (Primitive Etchings, Rowen);
-  "if you gained life this turn" bodies (16 SOLO, each blocked by its own effect). **(f) the other
-  modifier axes** the probe measures: "you don't control / an opponent controls" (56 repaired
-  sentences), "another/other" (58), scope words (49) — filter/scope slots on the shared target and
-  group grammars, not rows.
+  "if you gained life this turn" bodies (16 SOLO, each blocked by its own effect).
+- **PAR-128 · Target/group-grammar slots — residue.** The controller-scope, "another" and
+  player-subject slots are in the shared target grammar; still failing on the same axes:
+  **group** selectors with "other"/scope ("it deals 1 damage to each other creature",
+  "other attacking creatures get +1/+0", "all other creatures get -2/-2", "destroy all creatures
+  your opponents control", "each creature with flying your opponents control", "each other player
+  sacrifices"); the hand-rolled **graveyard** target grammar ("return another target artifact
+  card from your graveyard to your hand" — Junk Diver ×3, Deadwood Treefolk ×2, Gixian
+  Puppeteer, Carrion Thrash); **plural multi-target** scope ("tap up to 2 target creatures your
+  opponents control", "… divided among any number of target creatures and/or planeswalkers your
+  opponents control"); a **quality filter before the scope** ("destroy target creature with flying
+  an opponent controls", "… an opponent controls with power 2 or less"); "target creature or
+  planeswalker" still collapses to `creature` (a `creature_or_planeswalker_you_dont_control` frame
+  would fix both forms); "target opponent `<verb>` for each …" (Honden of Night's Reach, Bishop of
+  the Bloodstained). Measure with `parser_probe.py composition mods --axis "control|another|scope"`.
 - **PAR-121 · Subject-scope slot and per-verb connective de-duplication (no
   coverage change).** Roughly a third of the parser's regexes sit in
   near-duplicate clusters (`parser_probe`-style token-similarity clustering,
@@ -546,8 +549,6 @@ its block back into the matching section here.
   - "`<cost>`: Dragons you control get +`<n>`/+`<n>` until end of turn."
     — 2 cache-wide: **1 SOLO** (Lathliss, Dragon Queen), 1 also-blocked
     (Ran and Shaw, blocked by its own conditional token-copy trigger).
-  - "`<cost>`, `<cost>`: untap another target artifact." — 2 cache-wide
-    (Manifold Key, Sonic Screwdriver).
   - "Equipped creature gets +`<n>`/+`<n>` and is every creature type." —
     2 cache-wide (Amorphous Axe, Runed Stalactite).
 - **PAR-110 · Small residue batch — board wipes & mass effects.** 7

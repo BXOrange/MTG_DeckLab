@@ -1,8 +1,8 @@
 """PAR-30 — Katara, Seeking Revenge's two remaining clauses (PARSER_VERSION 158).
 
 - "~ gets +P/+T for each `<subtype>` card in your graveyard" → a self
-  `anthem` scaled by `continuous.count_selector`'s new
-  `<subtype>_cards_in_your_graveyard` prefix (a live type-line scan). Also
+  `anthem` scaled by a structured graveyard count (PAR-120 — originally a
+  `<subtype>_cards_in_your_graveyard` name that accepted any word). Also
   reached Knight of the Reliquary ("land card"), Liliana's Elite /
   Fiend Artisan ("creature card"), Salvage Slasher ("artifact card"), …
 - "`<effect>` unless `<its>` additional cost was paid" → the negative,
@@ -37,6 +37,10 @@ def _gy(state, name, type_line, owner="p1", **flags):
     return obj
 
 
+_GY_LESSON = {"zone": "graveyard", "of": "you", "filter": {"subtype": "lesson"}}
+_GY_LAND = {"zone": "graveyard", "of": "you", "filter": {"card_type": "land"}}
+
+
 # --- parse ---------------------------------------------------------------------
 
 
@@ -46,17 +50,19 @@ def test_for_each_subtype_anthem_parses():
     ) == [
         EffectSpec("anthem", {
             "affects": "self", "power": 1, "toughness": 1,
-            "power_count": "lesson_cards_in_your_graveyard",
-            "toughness_count": "lesson_cards_in_your_graveyard",
+            "power_count": _GY_LESSON,
+            "toughness_count": _GY_LESSON,
         })
     ]
     # asymmetric P/T (Salvage Slasher) and a main-type word (land)
     assert static_effect_specs(
         "~ gets +1/+0 for each artifact card in your graveyard"
-    )[0].params["power_count"] == "artifact_cards_in_your_graveyard"
+    )[0].params["power_count"] == {"zone": "graveyard", "of": "you", "filter": {"card_type": "artifact"}}
     assert static_effect_specs(
         "~ gets +1/+1 for each land card in your graveyard"
-    )[0].params["toughness_count"] == "land_cards_in_your_graveyard"
+    )[0].params["toughness_count"] == _GY_LAND
+    # PAR-120: a word the shared grammar doesn't know is refused, not scanned for.
+    assert static_effect_specs("~ gets +1/+1 for each xyzzy card in your graveyard") is None
     # PAR-120: a positive "and" type list counts either card type.
     assert static_effect_specs(
         "~ gets +1/+0 for each instant and sorcery card in your graveyard"
@@ -107,13 +113,11 @@ def test_count_selector_scans_graveyard_type_lines():
     _gy(state, "Lesson One", "Sorcery — Lesson", is_sorcery=True)
 
     # count_selector(state, controller_id, selector)
-    assert continuous.count_selector(state, "p1", "land_cards_in_your_graveyard") == 2
-    assert continuous.count_selector(state, "p1", "lesson_cards_in_your_graveyard") == 1
+    assert continuous.count_selector(state, "p1", _GY_LAND) == 2
+    assert continuous.count_selector(state, "p1", _GY_LESSON) == 1
     # opponent's graveyard doesn't count
     _gy(state, "Plains", "Basic Land — Plains", owner="p2", is_land=True)
-    assert continuous.count_selector(state, "p1", "land_cards_in_your_graveyard") == 2
-    # unknown word → 0, never a crash
-    assert continuous.count_selector(state, "p1", "wombat_cards_in_your_graveyard") == 0
+    assert continuous.count_selector(state, "p1", _GY_LAND) == 2
 
 
 def test_for_each_subtype_anthem_scales_live():
