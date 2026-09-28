@@ -378,6 +378,9 @@ class CopiesMixin:
             targets=list(item.targets) if new_targets is None else list(new_targets),
             x=item.x,
             target_groups=item.target_groups if new_targets is None else None,
+            # A copy of "this ability" counts toward its resolutions too
+            # (Ashling the Pilgrim's ruling: Rings of Brighthearth's copy counts).
+            ability_key=item.ability_key,
         )
         self.state.stack.append(copy_item)
         return copy_item

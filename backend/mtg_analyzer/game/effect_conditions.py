@@ -161,6 +161,12 @@ CONTEXT_CONDITION_KINDS: frozenset[str] = frozenset(
         # only predicate here that reads a *number* off two referents rather
         # than asking a yes/no about one.
         "amount_compare",
+        # PAR-120 — "if this is the second time this ability has resolved
+        # this turn": `GameContext.ability_resolution_count`, set by
+        # `resolve_top_of_stack` for the ability now resolving (1 = first).
+        # ``min``/``max`` bound it ("the first or second time"). Unanswerable
+        # outside an ability's resolution.
+        "ability_resolution_count",
     }
 )
 
@@ -386,6 +392,14 @@ def _context_holds(
             for card in getattr(player, "graveyard", []) or []
         )
         return not shares
+
+    if kind == "ability_resolution_count":
+        count = getattr(context, "ability_resolution_count", None)
+        if count is None:
+            return None
+        low = condition.get("min")
+        high = condition.get("max")
+        return (low is None or count >= int(low)) and (high is None or count <= int(high))
 
     if kind == "did_all_bends_this_turn":
         done = context.state.bends_this_turn.get(_controller_id(source, context), set())

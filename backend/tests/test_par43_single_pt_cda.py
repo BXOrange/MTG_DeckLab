@@ -66,10 +66,11 @@ def test_a_basic_land_subtype_now_parses_via_the_shared_grammar():
 
 
 def test_unwhitelisted_quantity_fails_closed():
-    # A *compound* qualifier ("differently named") the shared grammar
-    # doesn't express — still a genuinely different, unwired selector.
+    # "the chosen player" is a referent the shared grammar doesn't express
+    # — still a genuinely different, unwired selector ("differently named",
+    # the former pin, reads as `distinct: name` since PAR-120 v484).
     assert static_effect_specs(
-        "~'s power is equal to the number of differently named creatures you control"
+        "~'s power is equal to the number of tapped lands the chosen player controls"
     ) is None
 
 

@@ -42,6 +42,23 @@ its block back into the matching section here.
 
 ---
 
+## ENG — Game engine
+
+- **ENG-48 · `pay_cost_then` announces no X.** "you may pay {X}. If you do, `<X effect>`" pays
+  {X} as 0 and substitutes nothing, so the payoff is always empty: Decree of Justice, Flameblast
+  Dragon, Squealing Devil, Taj-Nar Swordsmith, Vigil for the Lost (MODELED, silently zero); Hero
+  of Leina Tower, Wildborn Preserver (refused in `_pay_cost_then_general` until this lands — lift
+  that guard). Needs an X choice in the `pay_cost_then` prompt (engine + board UI) and `x` on the
+  branch effects.
+- **ENG-49 · `costs.parse_activation_cost` drops unrecognized cost fragments.** A cost part it
+  can't read vanishes, so the ability is claimed cheaper than printed. "Sacrifice X `<things>`" is
+  refused in the segmenter (Copper-Leaf Angel, Krav the Unredeemed, Springjack Pasture); build
+  the variable-count sacrifice cost, then audit which covered cards carry any other silently
+  dropped fragment (make the parser report leftovers and fail the ability closed).
+- **ENG-50 · Two red full-cache tests, red since before PAR-120 B1 (`e7143168`).** Mana Drain's
+  delayed `add_mana` resolves to 0 (`test_cube_batch_22`); Geistwave's "if you controlled that
+  permanent, draw a card" never draws (`test_cube_batch_b3`).
+
 ## PAR — Parser
 
 - **PAR-12 · The indefinite long tail (methodology pointer, not a closeable
@@ -171,26 +188,36 @@ its block back into the matching section here.
   sample of the newly claimed cards — the parse verdict alone hid wrong-but-MODELED shapes at v450,
   v455 and v456 (see `PARSER_LONG_TAIL.md`).
 - **PAR-120 · Shared count / filter / condition vocabulary — remaining scope.**
-  **(a) retire the duplicates** — done: `_PT_CDA_SELECTORS`/`_GY_COST_COUNT_SELECTORS`/
-  `_CONTROL_COUNT_SELECTORS`/`_FOR_EACH_SELECTORS`/`_GROUP_SELECTORS` closed;
-  `_ACTIVATION_COST_REDUCTION_SELECTORS` shrunk 14→8, `_FOR_EACH_AMOUNTS` shrunk to its two Domain
-  entries, `_SELF_ANTHEM_FOR_EACH_SELECTORS` shrunk 30→13 — every remaining entry across all three
-  confirmed (not assumed) genuinely outside `{zone, of, filter}`. The ~100 named `continuous.
-  count_selector` branches plus its ~20 prefix parsers (`creatures_you_control_of_type_<word>`
-  accepts *any* word as a type) stay, now provably dead for every phrase the retired tables
-  covered — a full sweep to confirm nothing else still emits them is unstarted. `_PUMP_X_SELECTOR_PHRASES`
-  attempted and reverted: 8 of its 9 entries are already shadowed by an *independent* closed
-  vocabulary inside `subgrammars.DEVOTION`'s own "the number of `<X>` you control" branch, but
-  "the amount of life you gained this turn" isn't — a bare delete regressed Fortifying Draught;
-  needs the `DEVOTION` branch reconciled with it first, not a like-for-like swap. **(b) remaining
-  condition shapes**: referent counter-state ("if it had a +1/+1 counter on it", "if it had no
-  time counters on it" — needs the RULE 603.10a trigger-event counters snapshot fallback threaded
-  through `previous_target`); per-card draw counts; damage-dealt histories ("`<name>` dealt damage
-  to an opponent this turn", "a player lost N or more life"); "the second time this ability has
-  resolved this turn"; **(c) the other modifier axes** the probe measures: "you don't
-  control / an opponent controls" (247 sentences), "another/other" (588), scope words (284). **Absorbs PAR-101's
-  count phrases and PAR-110's three "costs less for each …" bullets** — implement those through
-  this vocabulary, not as rows.
+  **(a) retire the duplicates:** the 8 named `continuous.count_selector` branches no parser/catalogue
+  source names literally (`artifact_and_or_enchantment_cards_in_your_graveyard`,
+  `auras_on_the_battlefield`, `creature_cards_in_your_opponents_graveyards`,
+  `creatures_that_left_battlefield_this_turn`, `enchantments_on_the_battlefield`,
+  `permanent_cards_in_your_graveyard`, `station_tapped_power`, `untapped_permanents_opponents_control`
+  — confirm none is built dynamically, then delete) and the ~20 prefix parsers
+  (`creatures_you_control_of_type_<word>` accepts any word); `_PUMP_X_SELECTOR_PHRASES` once
+  "the amount of life you gained this turn" is in the shared amount vocabulary (a bare delete
+  regresses Fortifying Draught). **(b) CDA residue:** a CDA inside a quoted grant or "becomes"
+  (Druid Class, Beorn's Hospitality, Kalonian Twingrove, Chimeric Mass, Svogthos, Gutter Grime,
+  Hallowed Haunting, Seize the Storm, Voice of Resurgence, Elephant Resurgence, Consuming Blob,
+  Bonny Pall, The Goblin Sparring Grounds — the grant path doesn't route statics to `pt_cda`);
+  "the chosen player" (Entropic Specter, Haunting Apparition, Lost Order of Jarkeld, Pallimud,
+  Skyshroud War Beast); a leading adjective over a type list (Maraxus of Keld); two zones in one
+  count (Crackling Drake, Huskburster Swarm's cost); mana symbols in a graveyard (Umbra Stalker);
+  Angry Mob's turn-split CDA. **(c) "`<condition>`, `<effect>` instead":** a general magnitude/
+  effect override for any condition (Galvanize, Rowan ×2, Rumor Gatherer, Scythecat Cub,
+  Withering Curse, Jetmir's Fixer, Devour Intellect, Pirate's Landing) — `DealDamageEffect`
+  doesn't measure an `effect_amounts` operand, so `{"kind": "if"}` can't carry it yet; and
+  "otherwise" after an ordinal gate (Rose Room Treasurer, Zimone). **(d) leaving-counter bodies:**
+  a token copy of the dying object (Chronozoa, Ochre Jelly), "return it … and it loses all
+  abilities" (Retched Wretch), "exile it if it had a death counter" (Bogardan Phoenix — the gate's
+  kind whitelist and the suffix form), "each creature you control that has a +1/+1 counter on it"
+  (Slurrk), an exiled-as-cost source (Lost Isle Calling), a destroyed target's counters at
+  resolution (Rite of the Serpent), "put ~'s counters on that token" (Ambitious Augmenter).
+  **(e) remaining conditions:** "the first card you draw each turn" (Primitive Etchings, Rowen);
+  "if you gained life this turn" bodies (16 SOLO, each blocked by its own effect). **(f) the other
+  modifier axes** the probe measures: "you don't control / an opponent controls" (56 repaired
+  sentences), "another/other" (58), scope words (49) — filter/scope slots on the shared target and
+  group grammars, not rows.
 - **PAR-121 · Subject-scope slot and per-verb connective de-duplication (no
   coverage change).** Roughly a third of the parser's regexes sit in
   near-duplicate clusters (`parser_probe`-style token-similarity clustering,
@@ -250,28 +277,6 @@ its block back into the matching section here.
   Academy Loremaster, Anvil of Bogardan, Dictate of Kruphix, Font of
   Mythos, Howling Mine, Kami of the Crescent Moon, Nekusar, the Mindrazer,
   Rites of Flourishing, Spiteful Visions, Teferi's Puzzle Box.
-- **PAR-101 · CDA "power (and toughness) is equal to the number of `<X>`"
-  family.** A characteristic-defining-ability (RULE 604.3) reading a flat
-  board/graveyard count into base power (optionally toughness too) —
-  distinct from the already-shipped "+1/+1 for each" anthem-style CDAs.
-  Check first whether `continuous.py`'s existing `count_selector` machinery
-  (built for PAR-72's Party) reaches this directly, making it pure parser
-  recognition. Four related shapes, confirmed via `parser_probe.py
-  blocked`: "power is equal to the number of artifacts you control" (**4
-  SOLO, 1 also-blocked** — Bronze Guardian, Brotherhood Vertibird,
-  Cephalopod Sentry, Filigree Attendant; also blocked: Mendicant Core,
-  Guidelight); "power is equal to the number of instant and sorcery cards
-  in your graveyard" (**3 SOLO, 2 also-blocked** — Enigma Drake, Haughty
-  Djinn, Spellheart Chimera; also blocked: Kinetic Augur, Smoldering
-  Stagecoach); "power and toughness are each equal to the number of
-  artifacts you control" (**3 SOLO** — Broodstar, Darksteel Juggernaut,
-  Master of Etherium); "power is equal to the greatest mana value among
-  creatures you control" (**2 SOLO** — Dodgy Jalopy, Towering Gibbon);
-  "power is equal to the number of land cards in your graveyard" (**2
-  SOLO** — Uurg, Spawn of Turg and its Alchemy rebalance). These five are
-  one axis — the count phrase — so build a single phrase → `count_selector`
-  table (the `_GY_COST_COUNT_SELECTORS` idiom in `static_handlers.py`) — **build
-  it under PAR-120**, not as five rows.
 - **PAR-102 · Pump + arbitrary keyword/quoted-ability grant in one
   sentence (general form).** "Target/that creature gets +N/+N and gains
   `<keyword>`/"`<quoted ability>`" until end of turn" — PAR-79's own
@@ -359,8 +364,6 @@ its block back into the matching section here.
     Ilharg, the Raze-Boar), 3 also-blocked (God-Eternal Bontu/Kefnet/
     Rhonas — each by its own second clause: a sacrifice-draw ETB, a
     reveal-first-draw copy trigger, a double-power ETB).
-  - CDA "power is equal to the number of instant and sorcery cards in your
-    graveyard" — 5 cache-wide — **see PAR-101, already split out.**
   - "You may cast this card from your graveyard." (plain, no named
     keyword ability) — 3 cache-wide (Hogaak Arisen Necropolis, Skaab
     Ruinator, Their Number Is Legion).
@@ -397,9 +400,6 @@ its block back into the matching section here.
     land card with a basic land type, reveal it, put it into your hand,
     then shuffle." — 2 cache-wide (Sprouting Goblin + its Alchemy
     rebalance).
-  - "`<name>`'s power is equal to the number of land cards in your
-    graveyard." — 2 cache-wide (Uurg, Spawn of Turg + its Alchemy
-    rebalance) — **see PAR-101, already split out.**
   - "When `<name>` enters, target creature an opponent controls gets
     -X/-X until end of turn, where X is the number of permanent cards in
     your graveyard." — 2 cache-wide (Chupacabra Echo, Cloud of Darkness).
@@ -550,7 +550,7 @@ its block back into the matching section here.
     (Manifold Key, Sonic Screwdriver).
   - "Equipped creature gets +`<n>`/+`<n>` and is every creature type." —
     2 cache-wide (Amorphous Axe, Runed Stalactite).
-- **PAR-110 · Small residue batch — board wipes & mass effects.** 8
+- **PAR-110 · Small residue batch — board wipes & mass effects.** 7
   independently-shaped clauses, each ≥2 cards cache-wide:
   - "`<name>` deals X damage to each creature." — 2 cache-wide (Savage
     Twister, Starstorm).
@@ -569,19 +569,14 @@ its block back into the matching section here.
     blocked by its own unrelated conditional cost reduction).
   - "Destroy all nonartifact creatures." — 2 cache-wide (Organic
     Extinction, Their Name Is Death).
-  - "This spell costs `<cost>` less to cast for each creature your
-    opponents control." — 2 cache-wide (Primeval Protector, Wall Off).
   - "Each opponent sacrifices a creature or planeswalker with the
     greatest mana value among creatures and planeswalkers they control."
     — 2 cache-wide (Flare of Malice, Soul Shatter).
   - "Target player mills half their library, rounded down." — 2
     cache-wide (Cut Your Losses, Traumatize).
 
-  > For the remaining "costs `<cost>` less for each creature your opponents
-  > control" clause, reuse PAR-120's self-cost count-phrase route and the
-  > existing `creatures_opponents_control` selector. Check whether
-  > `object_filter`/`creature_filter` reaches the mass-destroy/damage
-  > clauses before adding dedicated rows.
+  > Check whether `object_filter`/`creature_filter` reaches the
+  > mass-destroy/damage clauses before adding dedicated rows.
 - **PAR-111 · Small residue batch — ETB/dies/leaves-the-battlefield
   triggers.** 6 independently-shaped clauses (excluding PAR-104, already
   split out), each ≥2 cards cache-wide:
@@ -610,8 +605,7 @@ its block back into the matching section here.
     control." — **1 SOLO** (Mithril Coat), 1 also-blocked (Mjölnir, Storm
     Hammer, blocked by its own unrelated tap/stun-counter attack trigger).
 - **PAR-112 · Small residue batch — counters, tokens & CDA formulas.** 5
-  independently-shaped clauses (excluding PAR-101's own sub-items, already
-  split out), each ≥2 cards cache-wide:
+  independently-shaped clauses, each ≥2 cards cache-wide:
   - "Create X `<n>`/`<n>` white Angel creature tokens with flying." —
     **1 SOLO** (Entreat the Angels), 1 also-blocked (Decree of Justice,
     blocked by its own unrelated cycling trigger).

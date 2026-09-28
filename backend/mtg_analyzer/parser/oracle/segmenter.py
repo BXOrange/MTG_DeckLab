@@ -1866,6 +1866,8 @@ _SELF_OR_GROUP_SUBJECT_RE = re.compile(
 #: colon isn't this line's own cost/effect boundary; without this guard the
 #: quote-blind ``[^:]+`` swallows straight through to that inner colon
 #: first, so the grant is never reached by `static_effect_specs` below.
+#: A "Sacrifice X `<things>`" activation cost — see the guard at its use.
+_UNPAYABLE_VARIABLE_SACRIFICE_RE = re.compile(r"\bsacrifice x\b", re.IGNORECASE)
 _ACTIVATED_RE = re.compile(r'^(?P<cost>[^:"]+):\s*(?P<effect>.+)$', re.S)
 
 #: Throne of Eldraine's colour-lock rider on its second ability — a trailing
@@ -1917,6 +1919,21 @@ _ACTIVATION_COST_REDUCTION_COLORED_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: PAR-120: the quantity a counter-gated leaving trigger goes on to use —
+#: "…if it had 1 or more +1/+1 counters on it, you may put **that many**
+#: +1/+1 counters on target creature" (Reyhan), "…if it had counters on it,
+#: create x … tokens, **where x is the number of counters on that
+#: creature**" (Felisa). Both name the departing object's counters, which only
+#: the event's RULE 400.7 snapshot still holds (`effect_amounts`'
+#: ``trigger_event_counter``). Recognized only behind that gate, where "that
+#: many" can mean nothing else.
+_LEAVING_COUNTER_THAT_MANY_RE = re.compile(r"\bthat (?:many|number of)\b", re.IGNORECASE)
+_LEAVING_COUNTER_WHERE_X_RE = re.compile(
+    r"^(?P<rest>.+?),\s*where x is the number of (?:(?P<kind>\+1/\+1|-1/-1|[a-z]+) )?"
+    r"counters (?:it had )?on (?:that creature|that permanent|it)\.?$",
+    re.IGNORECASE | re.DOTALL,
+)
+
 _LEAVING_COUNTER_INTERVENING_RE = re.compile(
     r"^if it had (?:(?P<no>no)|(?P<count>\d+) or more|(?P<article>a|an))?\s*"
     r"(?P<kind>\+\d+/\+\d+|\-\d+/\-\d+|[a-z]+)?\s*"
@@ -1927,7 +1944,7 @@ _LEAVING_COUNTER_INTERVENING_RE = re.compile(
 #: PAR-120 (PARSER_VERSION 470): PAR-94's original 14-entry table shrunk to
 #: the six shapes the shared `count_phrase` grammar genuinely doesn't reach
 #: — a distinct-land-*type* count (not an object count), the "and" union
-#: idiom (RULE 400.1, same reasoning as `_gy_cost_selector`'s residual), a
+#: idiom (RULE 400.1, same reasoning as `static_handlers._SELF_COST_PER_PHRASES`), a
 #: two-card-type union, and the "other `<X>`"/"modified `<X>`" qualifiers
 #: (`not_reference`/a modified flag aren't reachable through this entry
 #: point — confirmed via direct `parse_count_phrase` checks, not assumed).
@@ -2187,6 +2204,38 @@ _LIFE_GAINED_THIS_TURN_CONDITION_RE = re.compile(
 #: "wrap the rest, tag the condition" idiom as `_KICKED_CONDITION_RE`, onto
 #: `effects.ConditionalEffect`'s new ``"is_first_combat_phase"`` key
 #: (`GameState.combats_this_turn`).
+#: PAR-120: "…if this is the second time this ability has resolved this
+#: turn" (Rumor Gatherer, Elrond, Tannuk) and the ladder that continues it —
+#: "`<effect>` if this is the first time …. if it's the second time,
+#: `<effect>`. if it's the third time, `<effect>`." (Omnath, Locus of
+#: Creation; Belladonna Took; Vito). The bare "it's the second time" only
+#: ever prints as such a ladder's continuation, naming the same count. Read
+#: off `GameContext.ability_resolution_count` (the resolution now happening
+#: included — "the third time" is exactly the third, never the fourth, per
+#: the cards' rulings), so it is an effect-time gate only: deliberately not
+#: in `static_condition()`, where an "as long as" static could claim it.
+_RESOLUTION_ORDINALS: dict[str, int] = {
+    "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5,
+}
+_RESOLUTION_TIME = (
+    r"(?:this is|it'?s|it is) the (?P<ord>first|second|third|fourth|fifth)"
+    r"(?: or (?P<ord2>second|third|fourth|fifth))? time"
+    r"(?: this ability has resolved this turn)?"
+)
+_RESOLUTION_COUNT_PREFIX_RE = re.compile(
+    rf"^if {_RESOLUTION_TIME},\s*(?P<rest>.+)$", re.IGNORECASE | re.DOTALL,
+)
+_RESOLUTION_COUNT_SUFFIX_RE = re.compile(
+    rf"^(?P<rest>.+?),?\s+if {_RESOLUTION_TIME}\.?$", re.IGNORECASE | re.DOTALL,
+)
+
+
+def _resolution_count_condition(match: "re.Match[str]") -> dict[str, Any]:
+    low = _RESOLUTION_ORDINALS[match.group("ord").lower()]
+    high = _RESOLUTION_ORDINALS[(match.group("ord2") or match.group("ord")).lower()]
+    return {"kind": "ability_resolution_count", "min": low, "max": high}
+
+
 _FIRST_COMBAT_PHASE_CONDITION_RE = re.compile(
     r"^if it'?s the first combat phase of the turn,\s*(?P<rest>.+)$", re.IGNORECASE,
 )
@@ -4029,6 +4078,26 @@ def _where_x_specs(
     })]
 
 
+def _bind_x(effects: list[EffectSpec], amount: dict[str, Any]) -> "Optional[list[EffectSpec]]":
+    """Bind the single X-holding param of a one-effect body to ``amount``
+    (the `_where_x_specs` idiom, for a caller that already has the amount).
+    ``None`` unless exactly one effect carries an X — the measured number
+    must have exactly one unambiguous place to go."""
+    if len(effects) != 1:
+        return None
+    params = dict(effects[0].params)
+    holders = [k for k in _X_PARAM_KEYS if params.get(k) == "x"]
+    if not holders or any(v == "-x" for v in params.values()):
+        return None
+    for key in holders:
+        params[key] = "$n"
+    return [EffectSpec("bind", {
+        "name": "n",
+        "amount": amount,
+        "effects": [{"type": effects[0].type, "params": params}],
+    }, condition=effects[0].condition)]
+
+
 #: PAR-62 (`14_` S4): the generic RULE 603.4 gate. Every row above names one
 #: printed phrasing; these two name the *shape* and hand the condition text to
 #: `static_handlers.static_condition` — the same whitelisted recognizer the
@@ -4169,6 +4238,8 @@ _CONDITION_PREFIXES: tuple[_ConditionPrefix, ...] = (
 #: they are purely additive — the same placement rule the mid-body "you may"
 #: node follows.
 _GENERIC_CONDITION_ROWS: tuple[_ConditionPrefix, ...] = (
+    _ConditionPrefix(_RESOLUTION_COUNT_PREFIX_RE, _resolution_count_condition),
+    _ConditionPrefix(_RESOLUTION_COUNT_SUFFIX_RE, _resolution_count_condition),
     _ConditionPrefix(_GENERIC_IF_PREFIX_RE, _generic_condition),
     _ConditionPrefix(_GENERIC_UNLESS_PREFIX_RE, _generic_negated_condition),
     _ConditionPrefix(_GENERIC_IF_SUFFIX_RE, _generic_condition),
@@ -4933,6 +5004,8 @@ def parse_effect_body(
                 if sub is None:
                     ok = False
                     break
+                if referent:
+                    sub = _stamp_counters_on_referent(part, sub)
                 last_len = len(sub)
                 collected.extend(sub)
                 prev_referent, prev_referent_selector = referent, referent_selector
@@ -5146,6 +5219,45 @@ _CREATURE_TARGET_KINDS: frozenset[str] = frozenset(
 )
 
 
+#: "…put N +1/+1 counters on **it**." ending a clause whose predecessor chose
+#: or created an object.
+_COUNTERS_ON_IT_RE = re.compile(r"\bcounters? on it\.?$", re.IGNORECASE)
+#: The `add_counters` params that already say where the counters go.
+_ADD_COUNTERS_PLACEMENT_KEYS = (
+    "target_kind", "selector", "trigger_subject_key", "previous_subject", "ring_bearer",
+)
+
+
+def _stamp_counters_on_referent(part: str, specs: list[EffectSpec]) -> list[EffectSpec]:
+    """PAR-120: "Create a 0/0 Fractal creature token. Put three +1/+1
+    counters on **it**." — `handlers._add_counters` reads a bare "it" as the
+    ability's own source (its `_SELF_SUBJECT` alternation), which put the
+    counters on Additive Evolution itself and let the 0/0 token die. When the
+    previous clause chose or created an object, "it" is that object (RULE
+    608.2c), so the spec is re-pointed at it (``previous_subject``, which
+    `AddCountersEffect` resolves from `previous_targets`, else
+    `created_objects`). An explicit "~"/"this creature" never matches."""
+    if len(specs) != 1 or not _COUNTERS_ON_IT_RE.search(part.split(", where x is")[0]):
+        return specs
+    spec = specs[0]
+    if spec.type == "bind":
+        # "Put X +1/+1 counters on it, where X is …" — the measured sibling.
+        inner = spec.params.get("effects") or []
+        if len(inner) != 1 or inner[0].get("type") != "add_counters":
+            return specs
+        inner_params = inner[0].get("params") or {}
+        if any(inner_params.get(key) for key in _ADD_COUNTERS_PLACEMENT_KEYS):
+            return specs
+        restamped = {**inner[0], "params": {**inner_params, "previous_subject": True}}
+        return [EffectSpec("bind", {**spec.params, "effects": [restamped]}, condition=spec.condition)]
+    if spec.type != "add_counters":
+        return specs
+    if any(spec.params.get(key) for key in _ADD_COUNTERS_PLACEMENT_KEYS):
+        return specs
+    return [EffectSpec("add_counters", {**spec.params, "previous_subject": True},
+                       condition=spec.condition)]
+
+
 def _announces_creature_target(specs: list[EffectSpec]) -> bool:
     """Whether the last of ``specs`` picks a permanent (or a graveyard card,
     or — PAR-71 — a countered spell) the next clause can refer back to as
@@ -5178,7 +5290,7 @@ def _announces_creature_target(specs: list[EffectSpec]) -> bool:
     # fallback). ``copy_permanent``/``become_copy`` included since the
     # reanimator-token grammar routes "a token that's a copy of that card"
     # through them.
-    if last.type in ("create_token", "copy_permanent", "become_copy"):
+    if last.type in ("create_token", "copy_permanent", "become_copy", "manifest"):
         return True
     # "Counter target spell. Discover X, where X is that spell's mana
     # value." (Hurl into History/Access Denied/Overwhelming Intellect/Spell
@@ -7369,6 +7481,12 @@ def _segment_line_unsplit(
     # colon, so this never steals one.
     act = _ACTIVATED_RE.match(raw)
     if act is not None and _COST_LOOKS_REAL.search(act.group("cost")):
+        if _UNPAYABLE_VARIABLE_SACRIFICE_RE.search(act.group("cost")):
+            # "{T}, Sacrifice X lands: …" (Copper-Leaf Angel, Krav): `costs.
+            # parse_activation_cost` has no variable-count sacrifice and drops
+            # the fragment, so the ability would cost only {T}. Unclaimed until
+            # it can be charged (ENG-49).
+            return Segment(raw=raw)
         effect_text = act.group("effect").strip()
         if (
             _MANA_EFFECT_RE.match(effect_text)
@@ -7978,6 +8096,29 @@ def _segment_line_unsplit(
                         ),
                     }
                     body = counter_if.group("rest").strip()
+        # PAR-120: "that many"/"where x is the number of counters on that
+        # creature" behind the gate — see `_LEAVING_COUNTER_THAT_MANY_RE`.
+        event_counter_amount: Optional[dict[str, Any]] = None
+        if event_counter_gate is not None:
+            # The measured body is bound as one effect (`_bind_x`), so a
+            # "you may" behind the gate becomes the ability's own optional —
+            # only then; an unmeasured body keeps its parse unchanged.
+            measured, measured_optional = (
+                _peel_optional(body) if not optional else (body, optional)
+            )
+            where_x = _LEAVING_COUNTER_WHERE_X_RE.match(measured)
+            if where_x is not None:
+                counter = where_x.group("kind") or ""
+                body, optional = where_x.group("rest").strip(), measured_optional
+                event_counter_amount = {"kind": "trigger_event_counter",
+                                        **({"counter": counter} if counter else {})}
+            elif _LEAVING_COUNTER_THAT_MANY_RE.search(measured):
+                body = _LEAVING_COUNTER_THAT_MANY_RE.sub("x", measured, count=1)
+                optional = measured_optional
+                # "that many" names what the gate counted: its own kind, or all.
+                counter = event_counter_gate.get("kind") or ""
+                event_counter_amount = {"kind": "trigger_event_counter",
+                                        **({"counter": counter} if counter else {})}
         # PAR-98: Meanders Guide's optional tap is the antecedent for a
         # following "When you do" trigger.  Keep the pair together before
         # the ordinary optional wrapper can turn it into two unrelated
@@ -8046,6 +8187,10 @@ def _segment_line_unsplit(
         )
         if effects is None:
             return Segment(raw=raw)
+        if event_counter_amount is not None:
+            effects = _bind_x(effects, event_counter_amount)
+            if effects is None:
+                return Segment(raw=raw)
         stamped = _stamp_group_pronoun(condition, body, effects)
         if stamped is None:
             return Segment(raw=raw)

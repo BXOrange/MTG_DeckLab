@@ -6329,6 +6329,15 @@ def _pay_cost_then_general(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     sub = parse_effect_body(m.group("effect").strip(), self_subject=True)
     if not sub:
         return None  # follow-up not modeled → whole clause unclaimed
+    if "{x}" in m.group("cost").lower() and any(
+        s.type == "add_counters" and s.params.get("count") == "x" for s in sub
+    ):
+        # "you may pay {X}. If you do, put X +1/+1 counters on ~" (Hero of
+        # Leina Tower, Wildborn Preserver): `PayCostThenEffect` announces no X,
+        # so {X} is paid as 0 and the payoff resolves to nothing. Refused
+        # rather than claimed broken; the gain-life/token/search/pump/damage
+        # payoffs already claimed before this share the gap (ENG-48).
+        return None
     if any(s.params.get("target_kind") for s in sub):
         # RULE 603.11: a *targeted* "When you do, <payoff>." is a reflexive
         # triggered ability — it goes on the stack as its own ability with
@@ -7717,7 +7726,13 @@ def _add_counters_spell_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 def _add_counters(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind, mag = _counter_kind_and_multiplier(m.group("ckind"))
-    params: dict = {"count": count_of(m.group("n")) * mag, "kind": kind}
+    count = count_or_x_of(m.group("n"))
+    if count == "x":
+        if mag != 1:
+            return None  # "X +2/+2 counters" — no printed card; don't guess the product
+        params: dict = {"count": "x", "kind": kind}
+    else:
+        params = {"count": count * mag, "kind": kind}
     return _add_counters_target_params(m, params)
 
 
@@ -11346,6 +11361,10 @@ _GROUP = (
     # control" row below so "other" isn't swallowed by it.
     r"|each other creature you control"
     r"|each creature you control"
+    # "all creatures you control gain deathtouch until end of turn" (Venom
+    # Connoisseur) — the same group as "creatures you control", with the
+    # emphatic "all"; tried before the unscoped "all creatures" below.
+    r"|all creatures you control"
     r"|creatures you control|all creatures"
     r"|creatures your opponents control|creatures you don'?t control"
     r"|permanents you control|elves you control|elf creatures you control"
@@ -11399,6 +11418,10 @@ def _group_selector(phrase: str) -> "Optional[str | dict]":
         structured = parse_count_phrase(phrase[len("each "):])
         if structured is not None:
             return structured
+    if phrase == "all creatures you control":
+        # The emphatic "all" names the same group; bare "all creatures" (no
+        # controller tail) stays the residual table's unscoped selector.
+        return parse_count_phrase(phrase[len("all "):])
     return _GROUP_SELECTORS.get(phrase)
 #: A signed P/T delta, "+3/+3" / "-2/-2" / "+0/-1" (ASCII or unicode minus).
 _PT_DELTA = r"(?P<p>[+\-−]\d+)/(?P<t>[+\-−]\d+)"
@@ -15531,7 +15554,7 @@ HANDLERS: list[EffectHandler] = [
             # "+1/+1" / "-1/-1" — and "+N/+N" for N>1 (Baron Sengir's
             # "+2/+2 counter"), modeled as N +1/+1 counters (see
             # `_counter_kind_and_multiplier`).
-            rf"put {COUNT} (?P<ckind>[+\-−]\d/[+\-−]\d) counters? on "
+            rf"put {COUNT_X} (?P<ckind>[+\-−]\d/[+\-−]\d) counters? on "
             rf"(?:{TARGET}|(?P<selfref>{_SELF_SUBJECT}))"
         ),
         _add_counters,

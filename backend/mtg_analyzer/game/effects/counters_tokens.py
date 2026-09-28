@@ -296,7 +296,13 @@ class AddCountersEffect(GameEffect):
         if self.target_spec is not None:
             target = targets[0] if targets else None
         elif self.previous_subject:
-            prev = list(context.previous_targets)
+            # The previous clause's chosen object, or — when that clause
+            # created rather than chose — what it made: "Create a 0/0 Fractal
+            # creature token. Put three +1/+1 counters on **it**." (Additive
+            # Evolution). `PumpEffect.previous_subject`'s identical fallback.
+            prev = list(context.previous_targets) or list(
+                getattr(context, "created_objects", None) or []
+            )
             target = prev[0] if prev else None
             if target is None:
                 return
@@ -2494,7 +2500,11 @@ class ManifestEffect(GameEffect):
             if controller_id is not None:
                 player = context.state.player_by_id(controller_id)
         if player is not None:
-            context.manifest(player, self.count, kind=self.kind)
+            # "Manifest the top card of your library, then put X +1/+1
+            # counters on **it**." (Wildcall) — the manifested permanent is
+            # the next clause's referent, the same `created_objects` a token
+            # maker fills.
+            context.created_objects.extend(context.manifest(player, self.count, kind=self.kind))
 
 
 class ManifestDreadEffect(GameEffect):

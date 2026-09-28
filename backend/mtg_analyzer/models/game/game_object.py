@@ -541,6 +541,14 @@ class GameObject:
         #: permanent's "Activate only once" abilities already activated this
         #: game. Never reset (per-game, not per-turn).
         self.used_once_per_game_abilities: set[str] = set()
+        #: "…if this is the second time this ability has resolved this turn"
+        #: (Omnath, Locus of Creation; Rumor Gatherer, PAR-120): per ability
+        #: of *this object*, ``key → (turn_number, resolutions)``. Stamped with
+        #: the turn instead of cleared at each turn start, so a stale entry
+        #: simply reads as zero. Counts resolutions, not activations or
+        #: triggers, whoever controlled them, copies included (the cards'
+        #: rulings); a new object (RULE 400.7) starts from zero.
+        self.ability_resolutions: dict[str, tuple[int, int]] = {}
         #: Whether a loyalty ability of this planeswalker has been activated
         #: this turn (RULE 606.3: only one per turn). Reset each untap step.
         self.activated_loyalty_this_turn: bool = False
@@ -1318,6 +1326,7 @@ class GameObject:
         self.prepared = False
         self.prepared_source_id = None
         self.conjured_into_hand = False
+        self.ability_resolutions = {}
         self.kicker_count = 0
         self.kicker_x_paid = 0
         self.buyback_paid = False

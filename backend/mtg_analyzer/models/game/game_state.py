@@ -104,6 +104,7 @@ class StackItem:
         source: Optional[GameObject] = None,
         target_groups: Optional[list[list[Any]]] = None,
         trigger_event: Optional[GameEvent] = None,
+        ability_key: Optional[str] = None,
     ) -> None:
         self.stack_id: int = next(_stack_id_counter)
         self.kind = kind
@@ -124,6 +125,13 @@ class StackItem:
         self.x = x
         self.category = category or self._derive_category()
         self.source = source
+        #: Which ability of ``source`` this item is, for the per-ability
+        #: resolution count ("the second time this ability has resolved this
+        #: turn" — `GameObject.ability_resolutions`). The ability's printed
+        #: text: stable across the undo deep copy (an ``id()`` would not be)
+        #: and distinct between an object's different abilities. ``None`` for
+        #: a spell, or an ability placed without one (it simply isn't counted).
+        self.ability_key = ability_key
 
     def _derive_category(self) -> str:
         """Classify the item for display without importing `game/` types.

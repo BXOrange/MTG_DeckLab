@@ -129,8 +129,10 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         # targets as the amount; both branches are themselves amounts.
         "if",  # + ``condition``, ``then``, ``otherwise``
         # A named counter on the firing DIES event's snapshot (RULE 400.7 — the object is gone):
-        # "draw a card for each -1/-1 counter on it" (Dusk Urchins).
-        "trigger_event_counter",  # + ``counter``
+        # "draw a card for each -1/-1 counter on it" (Dusk Urchins). Without ``counter``, every
+        # kind summed — "put that number of +1/+1 counters on target creature" after "if it
+        # had one or more counters on it" (Yuna, Grand Summoner, PAR-120).
+        "trigger_event_counter",  # + ``counter`` (optional)
         # How many spells the ``of`` player has cast this turn, this one included —
         # "they lose 1 life for each spell they've cast this turn" (Rug of Smothering).
         "spells_cast_this_turn",  # + ``of`` (a player referent)
@@ -258,7 +260,9 @@ def _base(
 
     if kind == "trigger_event_counter":
         counters = (getattr(context, "trigger_event", None) or {}).get("counters") or {}
-        return int(counters.get(str(amount.get("counter", "")), 0) or 0)
+        if not amount.get("counter"):
+            return sum(int(value or 0) for value in counters.values())
+        return int(counters.get(str(amount["counter"]), 0) or 0)
 
     if kind == "moved_sum":
         characteristic = str(amount.get("characteristic", "mana_value"))

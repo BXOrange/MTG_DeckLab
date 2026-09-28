@@ -1893,6 +1893,11 @@ class TriggerCollectionMixin:
             target_groups=target_groups,
             source=ability.source,
             trigger_event=event,
+            ability_key=ability.description or None,
+            # A cast trigger never announces an X of its own, so an X in its
+            # text is the cast spell's (Zaxara, the Exemplary's ruling).
+            x=int((event or {}).get("x_paid", 0) or 0)
+            if getattr(event, "type", None) == EventType.SPELL_CAST else 0,
         )
         self.state.stack.append(item)
         self._note_crime(item)

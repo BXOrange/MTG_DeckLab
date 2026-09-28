@@ -3655,7 +3655,16 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: counters on the source, and the Lhurgoyf "that number plus 1" form.
 #: v483 extends PAR-120's shared condition vocabulary with turn histories,
 #: opponent poison, Treasure-sourced cast mana, and attacked/died cost counts.
-PARSER_VERSION = "483"
+#: v484 finishes PAR-120 batches 2–4 around that vocabulary: the effect-only
+#: "the Nth time this ability has resolved this turn" gate (and its "if it's
+#: the second time" ladder); one "costs {N} less for each `<count phrase>`"
+#: row replacing five per-phrase rows; "that many"/"where X is the number of
+#: counters it had" behind a leaving-counter gate; "all creatures you
+#: control"; "you control an X and a Y"; X in "put X counters"; "it" after
+#: create/manifest re-pointed off the source; devotion spelled as mana
+#: symbols and "differently named". Refuses "sacrifice X" costs and "pay {X}.
+#: If you do, put X counters", neither of which the engine can charge.
+PARSER_VERSION = "484"
 
 
 def parser_source_hash() -> str:

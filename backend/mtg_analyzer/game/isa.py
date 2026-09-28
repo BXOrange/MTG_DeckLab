@@ -425,6 +425,7 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     "tap": "tap",
     "the_ring_tempts_you": "ring_tempts_you",
     "time_travel": "time_travel",
+    "transfer_event_counters": "put_counter",  # the departed object's snapshot counters (PAR-120)
     "transform": "transform",
     "untap_self": "untap",
     "venture": "venture",

@@ -208,6 +208,69 @@ _BASIC_LAND_TYPE_OPTIONS: list[str] = ["Plains", "Island", "Swamp", "Mountain", 
 
 
 
+#: The magnitude attributes `_substitute_x` rewrites in place.
+_X_MAGNITUDE_ATTRS: tuple[str, ...] = ("amount", "count", "power", "toughness", "times")
+#: The mana-value bounds it rewrites inside a ``filter``/``criteria`` dict.
+_X_MANA_VALUE_KEYS: tuple[str, ...] = ("max_mana_value", "min_mana_value")
+
+
+def _restore_x_sentinels(effect: Any) -> None:
+    """Put back the ``"x"``-style sentinels `_substitute_x` overwrote on an
+    earlier resolution, or record them the first time round.
+
+    `_substitute_x` writes the announced number into the effect object
+    itself, and an activated or triggered ability's effects are the same
+    objects on every resolution: "{X}: You gain X life." activated for 3 and
+    then for 5 gained 3 both times, and Zaxara's second Hydra copied the first
+    one's X. Snapshotting what was printed before the first rewrite, and
+    restoring it before every later one, makes each resolution see its own X
+    (RULE 107.3c/601.2b) without changing how a single resolution substitutes.
+    """
+    saved = getattr(effect, "_x_sentinels", None)
+    if saved is not None:
+        for attr, value in saved["attrs"].items():
+            setattr(effect, attr, value)
+        for dict_attr, values in saved["maps"].items():
+            mapping = getattr(effect, dict_attr, None)
+            if isinstance(mapping, dict):
+                mapping.update(values)
+        if saved["target_spec"] is not None:
+            effect.target_spec = saved["target_spec"]
+        for index, values in saved["inner"].items():
+            inner = (getattr(effect, "inner_specs", None) or [])[index]
+            inner["params"].update(values)
+        return
+    attrs = {
+        attr: getattr(effect, attr) for attr in _X_MAGNITUDE_ATTRS
+        if isinstance(getattr(effect, attr, None), str)
+    }
+    maps: dict[str, dict[str, Any]] = {}
+    for dict_attr in ("filter", "criteria"):
+        mapping = getattr(effect, dict_attr, None)
+        if isinstance(mapping, dict):
+            strings = {k: mapping[k] for k in _X_MANA_VALUE_KEYS if isinstance(mapping.get(k), str)}
+            if strings:
+                maps[dict_attr] = strings
+    target_spec = getattr(effect, "target_spec", None)
+    keep_spec = target_spec if target_spec is not None and any(
+        isinstance(getattr(target_spec, k, None), str) for k in _X_MANA_VALUE_KEYS
+    ) else None
+    inner_saved: dict[int, dict[str, Any]] = {}
+    for index, inner in enumerate(getattr(effect, "inner_specs", None) or []):
+        params = inner.get("params") if isinstance(inner, dict) else None
+        if isinstance(params, dict):
+            strings = {k: params[k] for k in _X_MAGNITUDE_ATTRS if isinstance(params.get(k), str)}
+            if strings:
+                inner_saved[index] = strings
+    if attrs or maps or keep_spec is not None or inner_saved:
+        try:
+            effect._x_sentinels = {
+                "attrs": attrs, "maps": maps, "target_spec": keep_spec, "inner": inner_saved,
+            }
+        except AttributeError:  # an effect with __slots__ — nothing to remember on
+            pass
+
+
 class CastingResolutionMixin:
     """Casting a spell onto the stack and resolving it, incl. RULE 614.1 entry-tapped/counters and every ETB interactive choice."""
 
@@ -787,6 +850,11 @@ class CastingResolutionMixin:
                 # already resolved and left the stack by the time a
                 # triggered ability referencing it does.
                 mana_value=obj.card.converted_mana_cost,
+                # "Whenever you cast a spell with {X} in its mana cost, create a
+                # 0/0 Hydra token, then put X +1/+1 counters on it." (Zaxara, the
+                # Exemplary) — its ruling: X is the cast spell's X. Carried on
+                # the event so the trigger resolves with it (`_place_trigger`).
+                x_paid=int(getattr(obj, "x_paid", 0) or 0),
                 # "Whenever you cast a spell with {X} in its mana cost, …"
                 # (Elementalist's Palette, the Quandrix {X}-first-spell
                 # cluster, PAR-60) — read off the printed mana cost string
@@ -1232,6 +1300,7 @@ class CastingResolutionMixin:
             effect = wrapper
             while hasattr(effect, "inner"):
                 effect = effect.inner
+            _restore_x_sentinels(effect)
             for dict_attr in ("filter", "criteria"):
                 mapping = getattr(effect, dict_attr, None)
                 if not isinstance(mapping, dict):
@@ -1347,13 +1416,35 @@ class CastingResolutionMixin:
         # because resolving one item can recursively resolve another.
         outer_trigger_event = self.context.trigger_event
         outer_resolving_controller_id = self.context.resolving_controller_id
+        outer_resolution_count = self.context.ability_resolution_count
         self.context.trigger_event = item.trigger_event
         self.context.resolving_controller_id = item.controller_id
+        self.context.ability_resolution_count = self._count_ability_resolution(item)
         try:
             return self._apply_stack_item(item)
         finally:
             self.context.trigger_event = outer_trigger_event
             self.context.resolving_controller_id = outer_resolving_controller_id
+            self.context.ability_resolution_count = outer_resolution_count
+
+    def _count_ability_resolution(self, item: StackItem) -> Optional[int]:
+        """Record that ``item`` (an ability) is resolving and return which
+        resolution of that ability of that object this turn it is — the one
+        now resolving included, so the first resolution is 1 ("if this is the
+        second time this ability has resolved this turn"; the rulings count
+        resolutions, not activations, whoever controlled them, copies
+        included). ``None`` for a spell or an unkeyed ability."""
+        source = item.source
+        if item.kind != "ability" or item.ability_key is None or source is None:
+            return None
+        resolutions = getattr(source, "ability_resolutions", None)
+        if resolutions is None:
+            return None
+        turn = self.state.turn_nr
+        stamped_turn, count = resolutions.get(item.ability_key, (turn, 0))
+        count = (count if stamped_turn == turn else 0) + 1
+        resolutions[item.ability_key] = (turn, count)
+        return count
     #: `GameState.deferred_effects` frame kinds (ENG-35).
     #:
     #: ``"tail"`` is the original and still the overwhelmingly common shape:

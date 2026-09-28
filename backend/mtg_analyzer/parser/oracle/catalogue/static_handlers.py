@@ -521,59 +521,45 @@ _ACTIVATION_COST_REDUCTION_TYPE_RE = re.compile(
     re.IGNORECASE,
 )
 
-# "This spell costs {N} less to cast for each attacking creature [you
-# control]."  (RULE 601.2f self-scoped discount printed on the spell itself
-# — Embercleave/Ancient Stone Idol-shaped, MEC-6) — unlike `_SPELL_COST_TAX_RE`
-# above (a battlefield permanent taxing *other* spells), this is `affects=
-# "self"` with a `per` count-selector, the same "cost {N} less for each
-# <board count>" shape Delve/Affinity already exercise via `continuous.
-# self_cost_reduction_for`/`_cost_static_amount` — only the selector
-# (`attacking_creatures_you_control`/`attacking_creatures`) is new.
-_SELF_COST_REDUCTION_ATTACKING_RE = re.compile(
-    r"this spell costs \{(?P<n>\d+)\} less to cast for each attacking creature"
-    r"(?P<yours> you control)?",
+# "This spell costs {N} less to cast for each `<X>`."  (RULE 601.2f
+# self-scoped discount printed on the spell itself — Embercleave, Ghoultree,
+# Primeval Protector, Vanquish the Horde) — ``affects="self"`` with a `per`
+# count selector, the "cost {N} less for each <board count>" shape Delve/
+# Affinity already exercise via `continuous.self_cost_reduction_for`. PAR-120:
+# one row for every `<X>`; the phrase is read by the shared `count_phrase`
+# grammar, and `_SELF_COST_PER_PHRASES` keeps the phrases that grammar can't
+# express (a per-turn history, RULE 700.8's party matching, basic land types)
+# plus the ones earlier per-phrase rows already emitted as named selectors —
+# kept verbatim so no already-covered card's spec changes. This replaces five
+# near-identical rows (attacking / history / party / graveyard / basic land
+# types) that differed only in which selector their phrase mapped to.
+_SELF_COST_REDUCTION_FOR_EACH_RE = re.compile(
+    r"this spell costs \{(?P<n>\d+)\} less to cast for each (?P<phrase>.+?)\.?",
     re.IGNORECASE,
 )
-_SELF_COST_REDUCTION_HISTORY_RE = re.compile(
-    r"this spell costs \{(?P<n>\d+)\} less to cast for each creature that "
-    r"(?P<event>attacked|died) this turn",
-    re.IGNORECASE,
-)
-_HISTORY_COST_SELECTORS = {
-    "attacked": "creatures_attacked_this_turn",
-    "died": "creatures_died_this_turn",
+_SELF_COST_PER_PHRASES: dict[str, str] = {
+    "attacking creature": "attacking_creatures",
+    "attacking creature you control": "attacking_creatures_you_control",
+    # RULE 508.1a: declared attackers this turn, not the live attacking set.
+    "creature that attacked this turn": "creatures_attacked_this_turn",
+    "creature that died this turn": "creatures_died_this_turn",
+    # RULE 700.8: a bipartite Cleric/Rogue/Warrior/Wizard matching.
+    "creature in your party": "creatures_in_your_party",
+    "basic land type among lands you control": "basic_land_types_among_lands_you_control",
 }
 
-# "This spell costs {N} less to cast for each creature in your party."
-# (RULE 700.8/702.129, Zendikar Rising's Party mechanic, PAR-53) — the exact
-# same `per`-scaled self cost-reduction shape as the attacking-count row
-# above; only the selector (`creatures_in_your_party`, `continuous.
-# count_selector`'s existing RULE 700.8 bipartite Cleric/Rogue/Warrior/
-# Wizard matcher — built but never wired to any parser row until now) is new.
-_SELF_COST_REDUCTION_PARTY_RE = re.compile(
-    r"this spell costs \{(?P<n>\d+)\} less to cast for each creature in your party",
-    re.IGNORECASE,
-)
 
-# "This spell costs {N} less to cast for each <type> card in your
-# graveyard."  (RULE 601.2f, Ghoultree / Molderhulk / Cryptic Serpent /
-# Tolarian Terror-shaped, MEC-6's graveyard sibling of the attacking-count
-# discount above) — ``affects="self"`` with a `per` count-selector
-# `continuous.count_selector` already resolves (`creature_cards_in_your_
-# graveyard`, the generic `<word>_cards_in_your_graveyard` type-line scan,
-# and the new `instant_or_sorcery_cards_in_your_graveyard` for the one
-# compound real cards print). Single-type/`instant and sorcery` only —
-# any other filter ("artifact and/or creature", "…you own in exile and in
-# your graveyard", "cave you control and…") stays fail-closed.
-_SELF_COST_REDUCTION_GY_RE = re.compile(
-    r"this spell costs \{(?P<n>\d+)\} less to cast for each "
-    r"(?P<word>[a-z]+(?: and sorcery)?) cards? in your graveyard",
-    re.IGNORECASE,
-)
-_SELF_COST_REDUCTION_BASIC_LAND_TYPES_RE = re.compile(
-    r"this spell costs \{(?P<n>\d+)\} less to cast for each basic land type among lands you control",
-    re.IGNORECASE,
-)
+def _self_cost_per(phrase: str) -> "Optional[str | dict]":
+    """`<X>` of "costs {N} less to cast for each `<X>`" → a `continuous.
+    count_selector` argument, or ``None`` (fail-closed)."""
+    from .count_phrase import parse_count_phrase
+
+    phrase = phrase.strip().lower()
+    if phrase in _SELF_COST_PER_PHRASES:
+        return _SELF_COST_PER_PHRASES[phrase]
+    return parse_count_phrase(phrase)
+
+
 _SECOND_SPELL_COST_REDUCTION_RE = re.compile(
     r"the second spell you cast each turn costs \{(?P<n>\d+)\} less to cast",
     re.IGNORECASE,
@@ -582,32 +568,6 @@ _SELF_GRAVEYARD_SHUFFLE_RE = re.compile(
     r"if ~ would be put into a graveyard from anywhere, reveal ~ and shuffle it into its owner'?s library instead",
     re.IGNORECASE,
 )
-#: PAR-120: the one `<type>` phrase `_SELF_COST_REDUCTION_GY_RE` accepts
-#: that the shared `count_phrase` grammar doesn't cover — "instant **and**
-#: sorcery cards" prints "and" to mean the union (RULE 400.1: a card is
-#: never simultaneously both), a real oracle-text idiom distinct from the
-#: grammar's own "X **or** Y" alternation and its "X Y" same-object
-#: conjunction (`characteristic_phrase._conjunction`/`_alternation`), so a
-#: single fixed row is the whole diff rather than guessed-at generalization.
-#: Every other type word this handler used to also whitelist (creature/
-#: land/artifact/enchantment/instant/sorcery, each alone) is retired —
-#: `_gy_cost_selector` below tries the grammar first.
-_GY_COST_COUNT_SELECTORS: dict[str, str] = {
-    "instant and sorcery": "instant_or_sorcery_cards_in_your_graveyard",
-}
-
-
-def _gy_cost_selector(word: str) -> "Optional[str | dict]":
-    """`<type>` from `_SELF_COST_REDUCTION_GY_RE` → a `continuous.
-    count_selector` argument, or ``None`` for an unwhitelisted filter
-    (fail-closed)."""
-    from .count_phrase import parse_count_phrase
-
-    structured = parse_count_phrase(f"{word} cards in your graveyard")
-    if structured is not None:
-        return structured
-    return _GY_COST_COUNT_SELECTORS.get(word)
-
 # "This spell costs {N} less to cast if `<condition>`." (RULE 601.2f,
 # Ghostfire Slice-shaped) — the self cost-reduction sibling of the above,
 # gated by RULE 613.6's own "as long as `<condition>`" whitelist
@@ -3432,6 +3392,12 @@ def _count_word(text: str) -> int:
     return 1 if text.strip().lower() in ("a", "an") else int(text)
 
 
+#: "you control `<an X>` and `<an Y>`" — two single-object control counts.
+_CONTROL_BOTH_RE = re.compile(
+    r"you control (?P<left>an? [a-z ]+?) and (?P<right>an? [a-z ]+)", re.IGNORECASE
+)
+
+
 def static_condition(text: str) -> Optional[dict]:
     """A condition phrase ("~ is monstrous") → an ``active_if`` dict.
 
@@ -3478,6 +3444,15 @@ def static_condition(text: str) -> Optional[dict]:
     # a naive `str.split(" or ")` would wrongly fragment a right-hand
     # condition that itself contains the word (none does today, but the
     # narrower split costs nothing).
+    # PAR-120: "you control an artifact and an enchantment" (Kami of Terrible
+    # Secrets, Naomi, Okiba Salvage) — "you control" distributes over both
+    # objects, so each half is its own control count and both must hold.
+    both = _CONTROL_BOTH_RE.fullmatch(stripped)
+    if both is not None:
+        left_cond = parse_count_condition(f"you control {both.group('left')}")
+        right_cond = parse_count_condition(f"you control {both.group('right')}")
+        if left_cond is not None and right_cond is not None:
+            return {"kind": "all", "conditions": [left_cond, right_cond]}
     if " or " in stripped:
         left, right = stripped.split(" or ", 1)
         left_cond = static_condition(left)
@@ -4309,50 +4284,13 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             params["min_total"] = int(m.group("floor"))
         return [EffectSpec("cost_reduction", params)]
 
-    m = _SELF_COST_REDUCTION_ATTACKING_RE.fullmatch(text)
+    m = _SELF_COST_REDUCTION_FOR_EACH_RE.fullmatch(text)
     if m is not None:
-        selector = "attacking_creatures_you_control" if m.group("yours") else "attacking_creatures"
-        return [
-            EffectSpec(
-                "cost_reduction",
-                {"affects": "self", "generic": int(m.group("n")), "per": selector},
-            )
-        ]
-
-    m = _SELF_COST_REDUCTION_HISTORY_RE.fullmatch(text)
-    if m is not None:
-        return [EffectSpec("cost_reduction", {
-            "affects": "self", "generic": int(m.group("n")),
-            "per": _HISTORY_COST_SELECTORS[m.group("event").lower()],
-        })]
-
-    m = _SELF_COST_REDUCTION_PARTY_RE.fullmatch(text)
-    if m is not None:
-        return [
-            EffectSpec(
-                "cost_reduction",
-                {"affects": "self", "generic": int(m.group("n")), "per": "creatures_in_your_party"},
-            )
-        ]
-
-    m = _SELF_COST_REDUCTION_GY_RE.fullmatch(text)
-    if m is not None:
-        selector = _gy_cost_selector(m.group("word").lower())
-        if selector is None:
-            return None  # fail-closed — a filter this doesn't model
-        return [
-            EffectSpec(
-                "cost_reduction",
-                {"affects": "self", "generic": int(m.group("n")), "per": selector},
-            )
-        ]
-
-    m = _SELF_COST_REDUCTION_BASIC_LAND_TYPES_RE.fullmatch(text)
-    if m is not None:
-        return [EffectSpec("cost_reduction", {
-            "affects": "self", "generic": int(m.group("n")),
-            "per": "basic_land_types_among_lands_you_control",
-        })]
+        selector = _self_cost_per(m.group("phrase"))
+        if selector is not None:
+            return [EffectSpec("cost_reduction", {
+                "affects": "self", "generic": int(m.group("n")), "per": selector,
+            })]
 
     m = _SECOND_SPELL_COST_REDUCTION_RE.fullmatch(text)
     if m is not None:

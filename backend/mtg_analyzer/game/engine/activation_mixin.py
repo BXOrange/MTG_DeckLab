@@ -1373,6 +1373,7 @@ class ActivationMixin:
             target_groups=target_groups,
             x=x,
             source=source,
+            ability_key=ability.description or None,
         )
         self.state.stack.append(item)
         self.rules._note_crime(item)

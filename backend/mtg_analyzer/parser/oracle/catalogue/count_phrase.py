@@ -223,6 +223,15 @@ _COUNTERS_ON = re.compile(
 )
 _NUMBER_OF = re.compile(r"^the (?:total )?number of (?P<phrase>.+)$")
 _DEVOTION_TERM = re.compile(r"^your devotion to (?P<color>white|blue|black|red|green)$")
+#: RULE 700.5: devotion *is* the count of a colour's mana symbols in the mana
+#: costs of permanents you control — Primalcrux prints the definition.
+_MANA_SYMBOLS_TERM = re.compile(
+    r"^the number of (?P<color>white|blue|black|red|green) mana symbols in the mana costs "
+    r"of permanents you control$"
+)
+#: "the number of differently named lands you control" (Awakened Amalgam) —
+#: the ``distinct: name`` reading "lands you control with different names" has.
+_DIFFERENTLY_NAMED = re.compile(r"^the number of differently named (?P<phrase>.+)$")
 #: Terms with no noun phrase to parse → the named `continuous.count_selector`
 #: they already are.
 _NAMED_TERMS: dict[str, str] = {
@@ -243,9 +252,15 @@ def parse_amount_term(text: str) -> "Optional[str | dict[str, Any]]":
     text = text.strip().lower()
     if text in _NAMED_TERMS:
         return _NAMED_TERMS[text]
-    m = _DEVOTION_TERM.match(text)
+    m = _DEVOTION_TERM.match(text) or _MANA_SYMBOLS_TERM.match(text)
     if m is not None:
         return f"devotion_to_{m.group('color')}"
+    m = _DIFFERENTLY_NAMED.match(text)
+    if m is not None:
+        selector = parse_count_phrase(m.group("phrase"))
+        if selector is None or "distinct" in selector:
+            return None
+        return {**selector, "distinct": "name"}
     m = _AMONG_DISTINCT.match(text)
     if m is not None:
         selector = parse_count_phrase(m.group("phrase"))

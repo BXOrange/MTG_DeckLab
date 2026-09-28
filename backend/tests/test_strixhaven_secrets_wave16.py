@@ -60,12 +60,24 @@ def test_a_subtype_now_parses_via_the_shared_grammar():
     }
 
 
-def test_unmodeled_filters_stay_fail_closed():
-    # A *compound* filter ("artifact and/or creature") the shared grammar
-    # doesn't express — a genuinely different, unwired selector.
-    assert static_effect_specs(
+def test_an_and_or_type_list_is_a_union():
+    # PAR-120: "artifact and/or creature card" names every card that is
+    # either — the shared grammar reads the list as `card_type_any`, now that
+    # the self cost reduction takes any count phrase.
+    specs = static_effect_specs(
         "this spell costs {1} less to cast for each artifact and/or creature card "
         "in your graveyard"
+    )
+    assert specs[0].params["per"] == {
+        "zone": "graveyard", "of": "you", "filter": {"card_type_any": ["artifact", "creature"]},
+    }
+
+
+def test_unmodeled_filters_stay_fail_closed():
+    # Two zones summed in one phrase is outside the grammar.
+    assert static_effect_specs(
+        "this spell costs {1} less to cast for each creature card you own in exile "
+        "and in your graveyard"
     ) is None
 
 

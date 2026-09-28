@@ -83,6 +83,11 @@ class GameContext:
         #: the permanent's own controller — read by `PreventDamageEffect`'s
         #: opt-in ``recipient_is_activator``.
         self.resolving_controller_id: Optional[str] = None
+        #: Which resolution this turn of the ability now resolving this is
+        #: (1 = first), set by `RulesEngine.resolve_top_of_stack` for exactly
+        #: that window — the ``ability_resolution_count`` condition reads it.
+        #: ``None`` outside an ability's resolution.
+        self.ability_resolution_count: Optional[int] = None
         #: ENG-35: the item the enclosing `for_each`-style loop is currently
         #: on, or ``None`` outside one. Set and restored by
         #: `RulesEngine._resume_iteration` around each pass of a parked loop
@@ -393,9 +398,9 @@ class GameContext:
         # RULE 309.6/309.7.
         self.engine.complete_dungeon(player)
 
-    def manifest(self, player: "Player", count: int = 1, kind: str = "manifest") -> None:
+    def manifest(self, player: "Player", count: int = 1, kind: str = "manifest") -> list[Any]:
         # RULE 701.40a manifest / RULE 701.58a cloak.
-        self.engine.manifest(player, count, kind=kind)
+        return self.engine.manifest(player, count, kind=kind) or []
 
     def _request_manifest_dread(self, player: "Player") -> None:
         # RULE 701.40a's look-at-two variant.
