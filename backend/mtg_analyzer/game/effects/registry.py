@@ -2692,6 +2692,8 @@ EffectRegistry.register(
         add_subtypes=p.get("add_subtypes"),
         not_legendary=bool(p.get("not_legendary", False)),
         referent=p.get("referent", "source"),
+        target_instance_id=p.get("target_instance_id"),
+        enter_counters=p.get("enter_counters"),
         target_count=int(p.get("target_count", 1) or 1),
         target_count_max=p.get("target_count_max"),
         target_optional=bool(p.get("target_optional", False)),
@@ -3831,6 +3833,18 @@ EffectRegistry.register(
             "min_amount": int(p.get("min_amount", 2) or 2),
             "to": p.get("to", "C"),
         },
+    ),
+)
+EffectRegistry.register(
+    # RULE 601.2f for the rest of the turn, owned by a player (Rowan, Scion of
+    # War; Hardened Berserker's "the next spell") — `GameState.turn_cost_reductions`.
+    "reduce_spell_costs_this_turn",
+    lambda p: ReduceSpellCostsThisTurnEffect(
+        amount=p.get("amount", 0),
+        spell_type=p.get("spell_type"),
+        spell_colors=p.get("spell_colors"),
+        face_down=bool(p.get("face_down", False)),
+        next_only=bool(p.get("next_only", False)),
     ),
 )
 EffectRegistry.register(

@@ -1,5 +1,7 @@
 """PAR-120: intervening counter conditions use the departing object's snapshot."""
 
+import pytest
+
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.effects.core import EffectRegistry
@@ -231,3 +233,46 @@ def test_destroyed_targets_counter_is_measured_before_it_leaves():
         effect.apply(engine.rules.context, [target])
         assert target.zone == Zone.GRAVEYARD
         assert sum(obj.name == "Snake" for obj in state.battlefield) == int(marked)
+
+
+OCHRE_JELLY = Card(
+    id="ochre-jelly", name="Ochre Jelly", type_line="Creature — Ooze", is_creature=True,
+    power=0, toughness=0,
+    oracle_text=("Trample\nOchre Jelly enters with X +1/+1 counters on it.\nSplit — When Ochre "
+                 "Jelly dies, if it had two or more +1/+1 counters on it, create a token that's a "
+                 "copy of it at the beginning of the next end step. The token enters with half "
+                 "that many +1/+1 counters on it, rounded down."))
+
+
+def _drain(engine):
+    while engine.rules.put_triggers_on_stack() or engine.state.stack:
+        engine.rules.resolve_top_of_stack()
+
+
+@pytest.mark.parametrize("counters, token_counters", [(5, 2), (1, None)])
+def test_ochre_jelly_splits_into_a_delayed_copy_with_half_its_counters(counters, token_counters):
+    parsed = parse_oracle(OCHRE_JELLY)
+    assert parsed.modeled, parsed.unclaimed
+    engine = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])],
+                                 starting_life=20, starting_hand=0)
+    state = engine.state
+    jelly = GameObject(OCHRE_JELLY, owner_id="p1", zone=Zone.BATTLEFIELD)
+    jelly.controller_id = "p1"
+    jelly.counters["+1/+1"] = counters
+    state.add_to_battlefield(jelly)
+    bind_from_catalogue(jelly)
+    engine.rules.put_into_graveyard(jelly)
+    _drain(engine)
+    # RULE 603.7: nothing yet — the copy waits for the next end step.
+    assert not any(obj.is_token for obj in state.battlefield)
+    engine._fire_delayed_triggers("end")
+    _drain(engine)
+    tokens = [obj for obj in state.battlefield if obj.is_token]
+    if token_counters is None:
+        assert tokens == []
+        return
+    [token] = tokens
+    engine.recompute_continuous_effects()
+    assert token.name == "Ochre Jelly"
+    assert token.counters.get("+1/+1") == token_counters
+    assert (token.power, token.toughness) == (token_counters, token_counters)

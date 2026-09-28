@@ -1178,6 +1178,13 @@ def count_selector(
             return 0
         left = getattr(state, "creatures_left_battlefield_this_turn", None) or {}
         return int(left.get(controller_id, 0) or 0)
+    if selector == "life_lost_this_turn":
+        # "…where X is the amount of life you lost this turn." (Rowan, Scion
+        # of War) — derived from this turn's events (RULE 119.3).
+        if controller_id is None:
+            return 0
+        lost = getattr(state, "life_lost_this_turn", None) or {}
+        return int(lost.get(controller_id, 0) or 0)
     if selector == "life_gained_this_turn":
         # "…where X is the amount of life you gained this turn." (Defiling
         # Daemogoth, Blossoming Bogbeast, PAR-60) — `GameState.
@@ -3318,6 +3325,36 @@ def _spell_type_matches(obj: "GameObject", spell_type: Union[str, list]) -> bool
     return _has_card_type(obj, spell_type)
 
 
+def turn_cost_reduction_applies(entry: dict[str, Any], obj: Optional["GameObject"]) -> bool:
+    """Whether a `GameState.turn_cost_reductions` entry discounts ``obj``.
+
+    A filtered entry needs the spell itself; with ``obj=None`` (an offer-time
+    probe) only an unfiltered one applies, like the static filters below.
+    """
+    filtered = entry.get("spell_type") or entry.get("spell_colors") or entry.get("face_down")
+    if obj is None:
+        return not filtered
+    if entry.get("spell_type") and not _spell_type_matches(obj, entry["spell_type"]):
+        return False
+    colors = entry.get("spell_colors")
+    if colors and not set(colors) & set(obj.colors or set()):
+        return False  # "that are black and/or red": either colour is enough
+    if entry.get("face_down") and not getattr(obj, "face_down", False):
+        return False
+    return True
+
+
+def consume_next_spell_cost_reductions(
+    state: "GameState", player_id: str, obj: "GameObject"
+) -> None:
+    """Use up every "the next spell you cast this turn" discount ``obj`` got."""
+    state.turn_cost_reductions = [
+        entry for entry in getattr(state, "turn_cost_reductions", None) or []
+        if not (entry.get("next_only") and entry.get("player_id") == player_id
+                and turn_cost_reduction_applies(entry, obj))
+    ]
+
+
 def cost_reduction_for(
     state: "GameState", player: "Player", obj: Optional["GameObject"] = None,
     targets: Optional[list[Any]] = None,
@@ -3443,6 +3480,16 @@ def cost_reduction_for(
                 "description": f"Spells cost {{{abs(signed)}}} {'more' if signed < 0 else 'less'}",
             }
         )
+    for entry in getattr(state, "turn_cost_reductions", None) or []:
+        if entry.get("player_id") != player.id or not turn_cost_reduction_applies(entry, obj):
+            continue
+        amount = max(0, int(entry.get("amount", 0) or 0))
+        net += amount
+        contributors.append({
+            "source": str(entry.get("source") or ""),
+            "amount": amount,
+            "description": f"Spells cost {{{amount}}} less this turn",
+        })
     return net, contributors
 
 

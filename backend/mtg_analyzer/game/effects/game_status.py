@@ -1239,4 +1239,39 @@ class ChaosEnsuesEffect(GameEffect):
 
 
 
+class ReduceSpellCostsThisTurnEffect(GameEffect):
+    """"Spells you cast this turn [that are `<colours>`] cost {N} less" and
+    "the next `<type>` spell you cast this turn costs {N} less" (RULE
+    601.2f) — a player-scoped discount in `GameState.turn_cost_reductions`,
+    not a permanent's static, so it outlives its source for the turn. An X
+    ("where X is … as this ability resolves") arrives already measured by
+    the enclosing `bind`."""
+
+    def __init__(self, source: Optional["GameObject"] = None, amount: Any = 0,
+                 spell_type: Any = None, spell_colors: Optional[list[str]] = None,
+                 face_down: bool = False, next_only: bool = False) -> None:
+        super().__init__(source)
+        self.amount = amount if isinstance(amount, int) and not isinstance(amount, bool) else 0
+        self.spell_type = spell_type
+        self.spell_colors = [str(c).upper() for c in (spell_colors or [])]
+        self.face_down = bool(face_down)
+        self.next_only = bool(next_only)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None or self.amount <= 0:
+            return
+        entry: dict[str, Any] = {
+            "player_id": player.id, "amount": self.amount, "next_only": self.next_only,
+            "source": getattr(self.source, "name", ""),
+        }
+        if self.spell_type:
+            entry["spell_type"] = self.spell_type
+        if self.spell_colors:
+            entry["spell_colors"] = self.spell_colors
+        if self.face_down:
+            entry["face_down"] = True
+        context.state.turn_cost_reductions.append(entry)
+
+
 register(globals())

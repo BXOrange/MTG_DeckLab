@@ -9847,6 +9847,48 @@ def _manifest_dread(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("manifest_dread", {})]
 
 
+#: RULE 601.2f for the rest of the turn: "spells you cast this turn that are
+#: black and/or red cost {X} less to cast, where X is …" (Rowan/Will, Scion
+#: of …) and "the next instant or sorcery spell you cast this turn costs {1}
+#: less to cast" (Hardened Berserker, Kaza, Spellbinding Soprano).
+_REDUCE_COSTS_COLORS = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}
+_REDUCE_COSTS_THIS_TURN_RE = _c(
+    r"(?P<next>the next )?(?P<types>instant or sorcery |instant and sorcery |face-down |)"
+    r"spells? you cast this turn(?: that (?:is|are) (?P<c1>white|blue|black|red|green)"
+    r"(?: and/or (?P<c2>white|blue|black|red|green))?)? costs? \{(?P<n>\d+|x)\} less to cast"
+    r"(?:, where x is (?P<x>.+?)(?: as this ability resolves)?)?"
+)
+
+
+def _reduce_costs_this_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from .count_phrase import parse_amount_phrase  # function-scoped, as elsewhere here
+
+    params: dict[str, Any] = {"next_only": bool(m.group("next"))}
+    types = m.group("types").strip()
+    if types == "face-down":
+        params["face_down"] = True
+    elif types:
+        params["spell_type"] = ["instant", "sorcery"]
+    colors = [_REDUCE_COSTS_COLORS[c] for c in (m.group("c1"), m.group("c2")) if c]
+    if colors:
+        params["spell_colors"] = colors
+    if m.group("n") != "x":
+        if m.group("x"):
+            return None
+        return [EffectSpec("reduce_spell_costs_this_turn", {**params, "amount": int(m.group("n"))})]
+    phrase = (m.group("x") or "").strip()
+    if phrase == "~'s power":
+        amount: dict[str, Any] = {"kind": "characteristic", "characteristic": "power", "of": "source"}
+    else:
+        selector = parse_amount_phrase(phrase)
+        if selector is None:
+            return None
+        amount = {"kind": "count_selector", "selector": selector}
+    return [EffectSpec("bind", {"name": "n", "amount": amount, "effects": [
+        EffectSpec("reduce_spell_costs_this_turn", {**params, "amount": "$n"}).to_dict(),
+    ]})]
+
+
 # RULE 708.8 by an effect, untargeted: "you may turn a permanent you control
 # face up" (Zimone) / "… a face-down creature you control face up".
 def _turn_face_up_chosen(m: re.Match[str]) -> list[EffectSpec]:
@@ -17004,6 +17046,11 @@ HANDLERS: list[EffectHandler] = [
         "manifest_dread",
         _c(r"manifest dread"),
         _manifest_dread,
+    ),
+    EffectHandler(
+        "reduce_spell_costs_this_turn",
+        _REDUCE_COSTS_THIS_TURN_RE,
+        _reduce_costs_this_turn,
     ),
     EffectHandler(
         "turn_face_up_chosen",

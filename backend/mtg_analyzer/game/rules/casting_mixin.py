@@ -778,6 +778,9 @@ class CastingResolutionMixin:
                 treasure_before - sum(player.mana_pool.pool_by_source.get("treasure", {}).values())
             )
         self.lose_life(player, life_spent, cause="cost")
+        # "The next spell you cast this turn costs {N} less" is used up by
+        # this cast, whether or not the discount mattered (RULE 601.2f).
+        continuous.consume_next_spell_cost_reductions(self.state, player.id, obj)
         if free_cast:
             self.state.free_cast_instance_ids.discard(obj.instance_id)
             self.state.free_cast_ignore_timing_instance_ids.discard(obj.instance_id)

@@ -875,6 +875,8 @@ class TurnLoopMixin:
         # RULE 615 (MEC-30): "Damage can't be prevented this turn." also
         # lapses here, the same window every other "this turn" flag clears.
         self.state.damage_prevention_disabled = False
+        # "… you cast this turn cost {N} less" ends with the turn too.
+        self.state.turn_cost_reductions = []
         # MEC-46 (RULE 701.38f): "You choose how each player votes this
         # turn." (Illusion of Choice) lapses on the same RULE 514.2 window.
         self.state.forced_vote_controller_id = None

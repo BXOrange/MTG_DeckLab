@@ -106,6 +106,11 @@ _ADD_COUNTER_COST_RE = re.compile(
 _EXILE_FROM_HAND_RE = re.compile(
     r"exile this \w+ from your hand", re.IGNORECASE
 )
+#: "Exile ~" / "Exile this `<type>`" paid from the battlefield (Lost Isle
+#: Calling) — the hand-zone form above is a different cost.
+_EXILE_SELF_RE = re.compile(
+    r"\bexile (?:~|this (?!card\b)\w+)(?! from)(?=\s*(?:,|$))", re.IGNORECASE
+)
 #: RULE 702.138b — Escape's own cost component: "Exile N other cards from
 #: your graveyard". ``N`` may be a digit or a spelled-out number word.
 _EXILE_GRAVEYARD_RE = re.compile(
@@ -459,6 +464,9 @@ class ActivationCost:
     #: activation path); recognised so the ability is never treated as a
     #: free battlefield tap (see `game/mana_abilities.py`).
     exile_self_from_hand: bool = False
+    #: "Exile ~" as a battlefield activation cost (RULE 602.2b) — the
+    #: permanent goes to exile as the cost is paid.
+    exile_self: bool = False
     #: "Spend only mana of the chosen color to activate this ability" (Throne
     #: of Eldraine's second ability, RULE 601.2b/106.6) — a colour-lock on
     #: *this ability's own* mana cost (as opposed to a spend restriction on
@@ -685,6 +693,7 @@ class ActivationCost:
             or self.sacrifice_count
             or self.add_counters_cost
             or self.exile_self_from_hand
+            or self.exile_self
             or self.return_to_hand
             or self.return_to_hand_count
             or self.sacrifice_filter
@@ -760,6 +769,8 @@ class ActivationCost:
             parts.append(f"Put {count} {kind} counter(s) on this")
         if self.exile_self_from_hand:
             parts.append("Exile this card from your hand")
+        if self.exile_self:
+            parts.append("Exile ~")
         if self.return_to_hand:
             parts.append(f"Return a {self.return_to_hand.capitalize()} you control to its owner's hand")
         if self.return_to_hand_count:
@@ -808,6 +819,7 @@ class ActivationCost:
             "sacrifice_count": list(self.sacrifice_count) if self.sacrifice_count else None,
             "add_counters_cost": list(self.add_counters_cost) if self.add_counters_cost else None,
             "exile_self_from_hand": self.exile_self_from_hand,
+            "exile_self": self.exile_self,
             "return_to_hand": self.return_to_hand,
             "return_to_hand_count": list(self.return_to_hand_count) if self.return_to_hand_count else None,
             "sacrifice_filter": dict(self.sacrifice_filter) if self.sacrifice_filter else None,
@@ -930,6 +942,8 @@ def parse_activation_cost(
         parsed.sacrifice_or_discard = bool(cost["sacrifice_or_discard"])
     if "exile_self_from_hand" in cost:
         parsed.exile_self_from_hand = bool(cost["exile_self_from_hand"])
+    if "exile_self" in cost:
+        parsed.exile_self = bool(cost["exile_self"])
     if "spend_only_chosen_color" in cost:
         parsed.spend_only_chosen_color = bool(cost["spend_only_chosen_color"])
     if "any_player_may_activate" in cost:
@@ -1113,6 +1127,8 @@ def _parse_text(text: str) -> ActivationCost:
 
     if _EXILE_FROM_HAND_RE.search(cost_text):
         cost.exile_self_from_hand = True
+    elif _EXILE_SELF_RE.search(cost_text):
+        cost.exile_self = True
 
     return_to_hand = _RETURN_TO_HAND_RE.search(cost_text)
     if return_to_hand:

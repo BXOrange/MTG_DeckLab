@@ -3682,7 +3682,11 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: 497 (MEC-98): Alchemy "perpetually gets/gains" — the pump table re-used via
 #: an until-end-of-turn rewrite, plus "creature cards in your hand/library/
 #: graveyard" subjects (`handlers._perpetual_pump_specs`).
-PARSER_VERSION = "497"
+#: 498 (PAR-120 close): first-draw reveal triggers (Primitive Etchings,
+#: Rowen), turn-scoped spell cost reductions (Rowan, Scion of War; the "next
+#: spell" family), Ochre Jelly's delayed split copy, "for each … counter on
+#: ~", and a cost-paid source's "if it had N counters" (Lost Isle Calling).
+PARSER_VERSION = "498"
 
 
 def parser_source_hash() -> str:

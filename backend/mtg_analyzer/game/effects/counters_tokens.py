@@ -3086,6 +3086,8 @@ class CopyPermanentEffect(GameEffect):
         add_types: Optional[list[str]] = None,
         add_subtypes: Optional[list[str]] = None,
         not_legendary: bool = False,
+        target_instance_id: Any = None,
+        enter_counters: Optional[dict[str, Any]] = None,
         referent: str = "source",
         target_count: int = 1,
         target_count_max: Optional[int] = None,
@@ -3117,6 +3119,17 @@ class CopyPermanentEffect(GameEffect):
         #: target), this is the trigger's *subject itself*, already gone
         #: from the battlefield by the time a SACRIFICE/DIES trigger
         #: resolves.
+        #: A departed object pinned by id (Ochre Jelly's delayed copy — the
+        #: end-step trigger has no DIES event to read), and counters the copy
+        #: enters with ("the token enters with half that many +1/+1 counters").
+        self.target_instance_id = (
+            target_instance_id if isinstance(target_instance_id, int)
+            and not isinstance(target_instance_id, bool) else None
+        )
+        self.enter_counters = {
+            str(kind): n for kind, n in (enter_counters or {}).items()
+            if isinstance(n, int) and not isinstance(n, bool) and n > 0
+        }
         self.referent = (
             referent
             if referent in (
@@ -3294,6 +3307,8 @@ class CopyPermanentEffect(GameEffect):
         if self._attached_mode:
             attached_to = getattr(self.source, "attached_to", None)
             target = context.state.find_object(attached_to) if attached_to is not None else None
+        elif target is None and self.target_instance_id is not None:
+            target = context.state.find_object(self.target_instance_id)
         elif target is None and self.target_spec is None:
             if self.referent == "previous":
                 prev = list(context.previous_targets)
@@ -3341,6 +3356,11 @@ class CopyPermanentEffect(GameEffect):
             for kw in self.extra_temp_keywords:
                 for obj in made:
                     obj.temp_keywords.add(kw)
+            # "The token enters with N counters" — placed as it's made,
+            # before any state-based-action check sees a 0/0 (RULE 122.6).
+            for kind, n in self.enter_counters.items():
+                for obj in made:
+                    obj.counters[kind] = obj.counters.get(kind, 0) + n
             self._apply_enter_state(context, made)
 
     def _apply_enter_state(self, context: GameContext, made: list[Any]) -> None:

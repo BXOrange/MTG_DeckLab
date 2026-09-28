@@ -116,7 +116,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 EFFECT_SUBJECTS: frozenset[str] = frozenset(
     {"target", "previous_target", "previous_player", "previous_subject", "created", "remembered",
      "chosen", "entering", "trigger_subject", "self", "event_player", "counter_recipient", "revealed",
-     "attacked_player"}
+     "attacked_player", "first_drawn_this_turn"}
 )
 
 #: Every referent a condition may name here, static-resolved ones included.
@@ -312,6 +312,12 @@ def subject_of(
         return _player_by_id(context, event.get("recipient_controller_id"))
     if of == "revealed":
         return getattr(context, "revealed_card", None)
+    if of == "first_drawn_this_turn":
+        # "the first card you draw each turn" (Primitive Etchings, RULE 121):
+        # the controller's first draw, wherever that card is now.
+        controller_id = _controller_id(source, context)
+        drawn = (context.state.cards_drawn_this_turn_ids or {}).get(controller_id) or []
+        return context.state.find_object(drawn[0]) if drawn else None
     return None
 
 

@@ -782,6 +782,17 @@ class GameState:
         #: RULE 514.2 window every other "this turn" flag clears in.
         self.damage_prevention_disabled: bool = False
 
+        #: RULE 601.2f discounts that last "this turn" and belong to a player,
+        #: not a permanent: "spells you cast this turn that are black and/or
+        #: red cost {X} less" (Rowan, Scion of War), "the next spell you cast
+        #: this turn costs {1} less" (Hardened Berserker). Each entry is plain
+        #: data — ``player_id``, ``amount``, optional ``spell_type``/
+        #: ``spell_colors``/``face_down`` filters, ``next_only`` and a
+        #: ``source`` name — read by `continuous.cost_reduction_for`; a
+        #: ``next_only`` entry is used up by the next matching cast. Reset at
+        #: cleanup (`GameEngine._step_cleanup`, RULE 514.2).
+        self.turn_cost_reductions: list[dict[str, Any]] = []
+
         #: MEC-46 (RULE 701.38f): "You choose how each player votes this
         #: turn." (Illusion of Choice) — the id of the player who answers
         #: *every* seat's `vote` / `vote_object` choice for the rest of the

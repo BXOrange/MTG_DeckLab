@@ -187,15 +187,6 @@ its block back into the matching section here.
   `parser_probe.py composition heads --family <f>` and `parser_probe.py diff`, and **execute** a
   sample of the newly claimed cards — the parse verdict alone hid wrong-but-MODELED shapes at v450,
   v455 and v456 (see `PARSER_LONG_TAIL.md`).
-- **PAR-120 · Shared count / filter / condition vocabulary — remaining scope. Next-up:
-  each item below needs its own engine primitive; hand-author if not built next batch.**
-  **(d) leaving-counter bodies:** a delayed token copy of the dying object entering with half
-  its counters (Ochre Jelly); RULE 608.2h last-known counters of a source exiled as a cost,
-  plus "draw a card for each `<kind>` counter on ~" itself (Lost Isle Calling).
-  **(e) remaining conditions/amounts:** "reveal the first card you draw each turn. Whenever you
-  reveal `<X>` this way, …" (Primitive Etchings, Rowen); a turn-long spell cost reduction by
-  "the amount of life you lost this turn" (Rowan, Scion of War). The "if you gained life this
-  turn" SOLO residue is each card's own effect, not the condition.
 - **PAR-128 · Target/group-grammar slots — residue.** The controller-scope, "another" and
   player-subject slots are in the shared target grammar; still failing on the same axes:
   **group** selectors with "other"/scope ("it deals 1 damage to each other creature",
@@ -223,8 +214,8 @@ its block back into the matching section here.
   tap/exile/phase-out; **(b) connectives** — the `_X_THEN_WHEN_YOU_DO_
   RE` family re-matches an antecedent the normal clause parser already handles
   (`_TAP_THEN_WHEN_YOU_DO_RE` hard-codes one card's whole text). Also the 32
-  `*_DEVOTION_*` rows, which are verb × one count phrase (fold into PAR-120's
-  table). Measured 2026-09-21: only 1 clause fails as a whole when every
+  `*_DEVOTION_*` rows, which are verb × one count phrase (fold into the shared
+  `count_phrase` grammar). Measured 2026-09-21: only 1 clause fails as a whole when every
   sentence parses, so this is maintainability and future-recombination work —
   do it when touching a verb, and never as a large batch (handler-recipe.md's
   v408 lesson: audit shipped rows, delete strict subsets).

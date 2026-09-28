@@ -214,6 +214,9 @@ INSTRUCTIONS: dict[str, Instruction] = {
         _ins("move_counter", "122.2", ROLE_PATIENT, ROLE_AMOUNT),
         _ins("add_mana", "106.1", ROLE_AGENT, ROLE_AMOUNT),
         _ins("pay_cost", "118", ROLE_AGENT, ROLE_AMOUNT),
+        _ins("reduce_costs", "601.2f", ROLE_AGENT, ROLE_AMOUNT, ROLE_DURATION,
+             note="a resolving instruction leaving a player-owned discount "
+                  "for the rest of the turn, not a permanent's cost static"),
         _ins("move_object", "400.7", ROLE_PATIENT, ROLE_SOURCE_ZONE, ROLE_DEST_ZONE,
              note="the general zone change every zone-specific instruction "
                   "above is a rules-named special case of"),
@@ -401,6 +404,7 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     "manifest": "manifest",
     "manifest_dread": "manifest_dread",
     "turn_face_up_chosen": "turn_face_up",
+    "reduce_spell_costs_this_turn": "reduce_costs",
     "mill": "mill",
     "monstrosity": "monstrosity",
     "move_counters": "move_counter",

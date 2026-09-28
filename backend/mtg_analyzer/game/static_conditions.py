@@ -117,6 +117,9 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # is legendary" (Ringwraiths) is the only printed phrasing so far —
         # no ``of`` default beyond the usual "source".
         "is_legendary",
+        # RULE 205.4a's basic supertype, off the printed type line (a `Card`
+        # has no flag for it) — "a basic land card" (Rowen, PAR-120).
+        "is_basic",
         # PAR-117: "that creature wasn't dealt damage this turn" (Faller's
         # Faithful) — RULE 514.2 only clears `GameObject.damage_marked` at
         # cleanup, so nonzero marked damage at any other point in the same
@@ -702,6 +705,10 @@ def condition_holds(
 
     if kind == "is_legendary":
         return subject is not None and bool(getattr(subject, "is_legendary", False))
+    if kind == "is_basic":
+        card = getattr(subject, "card", None)
+        supertypes = str(getattr(card, "type_line", "") or "").split("—")[0].lower().split()
+        return "basic" in supertypes
     if kind == "was_dealt_damage_this_turn":
         return subject is not None and int(getattr(subject, "damage_marked", 0) or 0) > 0
 

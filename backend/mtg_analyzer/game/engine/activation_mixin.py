@@ -504,6 +504,8 @@ class ActivationMixin:
                 return False
         if cost.discard_self and source not in player.hand:
             return False
+        if cost.exile_self and source not in self.state.battlefield:
+            return False
         if cost.put_hand_card_on_library:
             if self._resolve_put_hand_card_cost(player, hand_card_choices) is None:
                 return False
@@ -1079,6 +1081,10 @@ class ActivationMixin:
             # (`Player.counters["energy"]`), same generic dict "rad"/
             # "poison" already use.
             self.rules.add_player_counters(player, -cost.pay_energy, "energy")
+        if cost.exile_self:
+            # RULE 602.2b: exiled as the cost is paid; the ability still
+            # resolves, reading ~'s last-known information (RULE 608.2h).
+            self.rules.exile(source)
         if cost.sacrifice:
             victim = self._sacrifice_candidate(
                 player, source, cost.sacrifice, chosen_id=sacrifice_choice

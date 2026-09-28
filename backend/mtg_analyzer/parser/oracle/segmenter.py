@@ -918,6 +918,16 @@ _DRAW_CARD_TRIGGER_NTH_RE = re.compile(
     rf"(?P<ordinal>{'|'.join(_CAST_SPELL_ORDINAL_WORDS)}) card each turn,\s*(?P<body>.+)$",
     re.IGNORECASE | re.S,
 )
+#: "Reveal the first card you draw each turn. Whenever you reveal a
+#: `<type>` card this way, …" (Primitive Etchings, Rowen): the reveal has no
+#: game effect of its own here, so it is the first-draw trigger above with
+#: its body gated on that card's type.
+_REVEAL_FIRST_DRAW_RE = re.compile(
+    r"^reveal the first card you draw each turn\.\s*whenever you reveal an? "
+    r"(?P<basic>basic )?(?P<type>artifact|creature|enchantment|instant|land|planeswalker|sorcery)"
+    r" card this way,\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
 
 #: RULE 605.1: "Whenever you/a player taps a `<land type>`/land for mana,
 #: <effect>." (Crypt Ghast/Wild Growth-shaped, hitherto only hand-authored
@@ -1945,11 +1955,22 @@ _LEAVING_COUNTER_IF_ELSE_RE = re.compile(
     r"otherwise,? return it to the battlefield under your control and "
     r"put a (?P=kind) counter on it\.?$", re.I | re.S,
 )
+#: "…, create a token that's a copy of it at the beginning of the next end
+#: step. The token enters with half that many +1/+1 counters on it, rounded
+#: down." (Ochre Jelly's Split). "That many" may already read "x" here.
+_LEAVING_COUNTER_DELAYED_COPY_RE = re.compile(
+    r"^create a token that's a copy of it at the beginning of the next end step\.\s*"
+    r"the token enters with half (?:that many|x) (?P<kind>\+1/\+1|[a-z]+) counters on it,"
+    r" rounded down\.?$", re.I | re.S,
+)
 _LEAVING_COUNTER_CREATE_TRANSFER_RE = re.compile(
     r"^(?P<create>create a 0/0 [^.]+? creature token),? then "
     r"put ~'s counters on that token\.?$", re.I | re.S,
 )
 
+_COST_PAID_SOURCE_HAD_RE = re.compile(
+    r"\bif it had (?P<n>\d+) or more (?P<kind>\+1/\+1|[a-z]+) counters on it,", re.I,
+)
 _LEAVING_COUNTER_INTERVENING_RE = re.compile(
     r"^if it had (?:(?P<no>no)|(?P<count>\d+) or more|(?P<article>a|an))?\s*"
     r"(?P<kind>\+\d+/\+\d+|\-\d+/\-\d+|[a-z]+)?\s*"
@@ -4194,8 +4215,9 @@ _FOR_EACH_GROUP_PHRASES: frozenset[str] = frozenset({
 
 _FOR_EACH_SUFFIX_RE = re.compile(
     # MEC-83 widened the group class to admit "+1/+1 counter on it" — digits
-    # and `+`/`/` — alongside the plain "creatures you control" phrasings.
-    r"^(?P<rest>.+?),?\s+for each (?P<group>[a-z0-9+/ -]{3,70})$", re.IGNORECASE)
+    # and `+`/`/` — alongside the plain "creatures you control" phrasings;
+    # PAR-120 adds `~` ("for each verse counter on ~", Lost Isle Calling).
+    r"^(?P<rest>.+?),?\s+for each (?P<group>[a-z0-9+/ ~-]{3,70})$", re.IGNORECASE)
 
 #: MEC-83: "<effect> for each `<X>` counter on (it|~|this <type>)" — a named
 #: counter read (`effect_amounts` ``counters`` kind), the amount sibling of
@@ -6728,6 +6750,28 @@ def _segment_line_unsplit(
         )
         return Segment(raw=raw, spec=spec, claimed=True)
 
+    reveal_first = _REVEAL_FIRST_DRAW_RE.match(raw)
+    if reveal_first is not None:
+        body, optional = _peel_optional(reveal_first.group("body"))
+        effects = parse_effect_body(body)
+        if effects is None or any(effect.condition for effect in effects):
+            return Segment(raw=raw)
+        gate: dict[str, Any] = {"kind": "is_card_type", "of": "first_drawn_this_turn",
+                                "card_type": reveal_first.group("type").lower()}
+        if reveal_first.group("basic"):
+            gate = {"kind": "all", "conditions": [
+                gate, {"kind": "is_basic", "of": "first_drawn_this_turn"}]}
+        spec = AbilitySpec(
+            "triggered",
+            effects=[EffectSpec(e.type, e.params, condition=gate) for e in effects],
+            trigger={"event": "DRAW", "condition": _cast_spell_trigger_condition("you"),
+                     "is_nth_draw_this_turn": 1},
+            optional=optional,
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
     draw_trig_nth = _DRAW_CARD_TRIGGER_NTH_RE.match(raw)
     if draw_trig_nth is not None:
         subj = draw_trig_nth.group("subj").lower()
@@ -7894,6 +7938,12 @@ def _segment_line_unsplit(
             if activation_tail.group("once"):
                 tail_markers.append(EffectSpec(ACTIVATE_ONLY_ONCE_MARKER, {}))
             effect_text = effect_text[:activation_tail.start()].strip()
+        if re.search(r"\b(?:exile|sacrifice) ~(?:,|$)", raw.split(":", 1)[0].strip(), re.I):
+            # RULE 608.2h: with ~ paid as the cost, "it had N counters on it"
+            # is ~'s last-known count — `source_counters` reads what the
+            # departed object still carries (Lost Isle Calling).
+            effect_text = _COST_PAID_SOURCE_HAD_RE.sub(r"if ~ has \g<n> or more \g<kind> counters on it,",
+                                                       effect_text)
         body, optional = _peel_optional(effect_text)
         effects = parse_effect_body(body, self_subject=True)
         if effects is None:
@@ -8534,6 +8584,11 @@ def _segment_line_unsplit(
             _LEAVING_COUNTER_COPY_RE.fullmatch(body)
             if event_counter_gate is not None else None
         )
+        delayed_copy = (
+            _LEAVING_COUNTER_DELAYED_COPY_RE.fullmatch(body)
+            if event_counter_gate is not None and (condition or {}).get("subject") == "self"
+            else None
+        )
         create_transfer = (
             _LEAVING_COUNTER_CREATE_TRANSFER_RE.fullmatch(body)
             if event_counter_gate is not None and (condition or {}).get("subject") == "self"
@@ -8555,6 +8610,26 @@ def _segment_line_unsplit(
             effects = [EffectSpec("return_self_to_battlefield", {
                 "lose_all_abilities": True,
             })]
+        elif delayed_copy is not None:
+            # The end-step trigger no longer sees the DIES event, so this
+            # ability pins the departed object and half its counters now
+            # (RULE 603.7c, RULE 107.2 rounding down) for the delayed copy.
+            kind = delayed_copy.group("kind")
+            effects = [EffectSpec("bind", {
+                "name": "id", "amount": {"kind": "trigger_event", "field": "instance_id"},
+                "effects": [EffectSpec("bind", {
+                    "name": "half",
+                    "amount": {"kind": "trigger_event_counter", "counter": kind, "divide": 2},
+                    "effects": [EffectSpec("create_delayed_trigger", {
+                        "step": "end", "scope": "any",
+                        "effects": [EffectSpec("copy_permanent", {
+                            "count": 1, "target_kind": None, "target_instance_id": "$id",
+                            "enter_counters": {kind: "$half"},
+                        }).to_dict()],
+                    }).to_dict()],
+                }).to_dict()],
+            })]
+            event_counter_amount = None  # measured here, not by `_bind_x`
         elif copy_departed is not None:
             # RULE 400.7: a dying object's snapshot is the copy referent;
             # the ability source may have changed zones before resolution.
