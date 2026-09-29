@@ -315,6 +315,27 @@ def _damage(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("damage", params)]
 
 
+def _damage_that_much(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    """Damage equal to the amount carried by this ability's antecedent.
+
+    The parser layer cannot assume which trigger/event supplied the value.
+    ``gate._that_much_antecedent_ok`` replaces the private sentinel with the
+    event's concrete payload field and fail-closes spells/activations or a
+    trigger without a numeric antecedent.
+    """
+    kind = resolve_target_kind(m.group("target"))
+    if kind is None:
+        return None
+    params: dict = {
+        "amount_from_trigger_event": "that_much", "target_kind": kind,
+        **_optional_param(m),
+    }
+    state_filter = resolve_target_creature_state_filter(m.group("target"))
+    if state_filter:
+        params["creature_filter"] = state_filter
+    return [EffectSpec("damage", params)]
+
+
 def _damage_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if kind is None:
@@ -1259,6 +1280,7 @@ _SELECTOR_WORD_MAP: dict[str, str] = {
     # functionally identical to "each opponent" in this engine (no
     # team-variant life sharing, RULE 809/810/811 — PLR-14, still unbuilt).
     "each other player": "each_opponent",
+    "each other opponent": "each_other_opponent",
     # "whenever a player casts a spell, ~ deals 2 damage to that player."
     # (Spellshock-shaped) — the player named by the trigger's own firing
     # event (`effects.DealDamageEffect`'s ``"event_player"`` selector), not
@@ -1299,6 +1321,13 @@ def _damage_target_two_color(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 def _damage_selector(m: re.Match[str]) -> list[EffectSpec]:
     selector = _SELECTOR_WORD_MAP[m.group("selector")]
     return [EffectSpec("damage", {"amount": int(m.group("n")), "selector": selector})]
+
+
+def _damage_that_much_selector(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("damage", {
+        "amount_from_trigger_event": "that_much",
+        "selector": _SELECTOR_WORD_MAP[m.group("selector")],
+    })]
 
 
 #: "This creature deals 2 damage to you for each Treasure you control."
@@ -5258,6 +5287,44 @@ def _gain_control_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("gain_control_until_eot", params)]
 
 
+#: PAR-130: the **no-duration** steal — "gain control of target artifact"
+#: (Keiga, Ritual of the Machine, Souvenir Snatcher), "for each opponent, gain
+#: control of target permanent that player controls" (Blatant Thievery) —
+#: RULE 611.2's indefinite control change, the ``duration="permanent"`` mode of
+#: the same effect (untap/haste off; built for Entrancing Melody). An "Untap
+#: it." restatement right after it turns the untap on (Invoke the Winds). A
+#: duration ("until end of turn", "for as long as …") never reaches this row:
+#: the full match leaves it unclaimed for its own row.
+_GAIN_CONTROL_PERMANENT_RE = _c(
+    rf"gain control of (?P<another>another )?{TARGET}"
+    r"(?: with power (?P<pn>\d+) or (?P<pcmp>less|greater))?"
+    r"(?: with mana value (?P<mv>\d+) or less)?"
+    r"(?P<untap>\.\s*untap (?:it|that (?:creature|permanent|artifact|land)))?"
+)
+#: What a permanent steal may take — permanents only (a spell is
+#: `gain_control_of_spell`'s), incl. any controller-scoped narrowing.
+_GAIN_CONTROL_PERMANENT_KINDS = (
+    "permanent", "nonland_permanent", "creature", "creature_or_planeswalker", "artifact",
+    "enchantment", "land", "artifact_or_creature", "artifact_or_enchantment",
+)
+
+
+def _gain_control_permanent(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if not target_kind_allowed(kind, _GAIN_CONTROL_PERMANENT_KINDS):
+        return None
+    params: dict = {
+        "target_kind": kind, **_optional_param(m),
+        "duration": "permanent", "haste": False, "untap": bool(m.group("untap")),
+    }
+    if m.group("mv"):
+        params["max_mana_value"] = int(m.group("mv"))
+    if m.group("pn"):
+        key = "max_power" if m.group("pcmp") == "less" else "min_power"
+        params["creature_filter"] = {key: int(m.group("pn"))}
+    return [EffectSpec("gain_control_until_eot", params)]
+
+
 #: The untargeted mass sibling — "Untap all creatures and gain control of
 #: them until end of turn. They gain haste until end of turn." (Insurrection)
 #: — RULE 601.2c's "all creatures" over the same `GainControlUntilEndOfTurnEffect`,
@@ -5715,6 +5782,21 @@ def _choose_targets_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("choose_targets", {"kinds": [kind], **params})]
 
 
+def _choose_target_single(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    """A bare target announcement consumed by a following pronoun clause.
+
+    PAR-130's per-player bodies print this as "choose [up to one] target X
+    that player controls"; the per-player wrapper stamps the resulting
+    requirement exactly like it does an ordinary destroy/exile effect.
+    """
+    kind = resolve_target_kind(m.group("target"))
+    if kind is None:
+        return None
+    return [EffectSpec("choose_targets", {
+        "kinds": [kind], "optional": target_is_optional(m),
+    })]
+
+
 # RULE 701.10 "exchange control of `<X>` and `<Y>`" (PAR-29) — three
 # distinct printed shapes, each onto `effects.ExchangeControlEffect`'s own
 # matching mode: this permanent plus one target (`_exchange_control_self`,
@@ -5973,6 +6055,7 @@ _CHOOSE_TARGETS_GROUP_RE = _c(
     rf"choose {_MULTI_TARGET_QUANTIFIER}(?P<target>{_MULTI_TARGET_ALT})"
     rf"{_MULTI_TARGET_DISTINCT_CONTROLLERS}"
 )
+_CHOOSE_TARGET_SINGLE_RE = _c(rf"choose {TARGET}")
 
 
 # --- The one-sided fight ("deals damage equal to its power") ----------------
@@ -13630,6 +13713,16 @@ HANDLERS: list[EffectHandler] = [
             "amount": int(m.group("n")), "target_kind": "creature_blocking_source",
         })],
     ),
+    # "Whenever ~ is dealt damage, it deals **that much** damage to any
+    # target." (Boros Reckoner and the wider reflection family). The amount
+    # is antecedent-dependent, so the gate validates and resolves the
+    # ``that_much`` sentinel against the enclosing trigger before a card may
+    # become MODELED; a spell/activation with the same words stays refused.
+    EffectHandler(
+        "damage_that_much",
+        _c(rf"{SELF_SUBJECT_PREFIX}deals? that much damage to {TARGET}"),
+        _damage_that_much,
+    ),
     # "~ deals 3 damage to any target" / "deal 2 damage to target creature" /
     # "it deals 2 damage to target opponent" (a triggered-ability body's own
     # "it"/"this creature"/"this land"/"this permanent" subject — cosmetic,
@@ -13860,6 +13953,19 @@ HANDLERS: list[EffectHandler] = [
         "damage_to_you_unless_pay",
         _DAMAGE_TO_YOU_UNLESS_PAY_RE,
         _damage_to_you_unless_pay,
+    ),
+    # The mass/self recipient sibling of ``damage_that_much`` above:
+    # Amarant Coral/Hydra Omnivore (each other opponent), Coalhauler Swine
+    # (each player), and Firedrinker Satyr/Jackal Pup (you). The same gate
+    # resolves/refuses the antecedent amount.
+    EffectHandler(
+        "damage_that_much_selector",
+        _c(
+            rf"{SELF_SUBJECT_PREFIX}deals? that much damage to "
+            r"(?P<selector>each creature and each player|each creature and each planeswalker|"
+            r"each creature|each player|each opponent|each other opponent|you)"
+        ),
+        _damage_that_much_selector,
     ),
     EffectHandler(
         "skip_your_draw_step_this_turn",
@@ -15173,6 +15279,13 @@ HANDLERS: list[EffectHandler] = [
         _GAIN_CONTROL_EOT_RE,
         _gain_control_eot,
     ),
+    # "gain control of target <permanent> [. untap it]" with no duration —
+    # the RULE 611.2 indefinite steal (Keiga, Blatant Thievery; PAR-130).
+    EffectHandler(
+        "gain_control_permanent",
+        _GAIN_CONTROL_PERMANENT_RE,
+        _gain_control_permanent,
+    ),
     # "Untap all creatures and gain control of them until end of turn. They
     # gain haste until end of turn." (Insurrection's own mass threaten).
     EffectHandler(
@@ -15309,6 +15422,7 @@ HANDLERS: list[EffectHandler] = [
     # — the quantified-group announcement `_return_previous_group` (below)
     # reads back via "those creatures".
     EffectHandler("choose_targets_group", _CHOOSE_TARGETS_GROUP_RE, _choose_targets_group),
+    EffectHandler("choose_target_single", _CHOOSE_TARGET_SINGLE_RE, _choose_target_single),
     # RULE 701.10 "exchange control of `<X>` and `<Y>`" (PAR-29) — three
     # printed shapes, longest/most-specific first (the file's usual
     # convention): two fully-named independent targets, then "N target
@@ -17415,11 +17529,19 @@ def match_clause(
 # ``per_player`` onto the requirement(s) it scoped with "that player". Refused
 # when the body names another player before "that player" (that player would be
 # that one), or when nothing in it is "that player"-scoped. Only a triggered
-# ability gathers its targets per round, so `gate._that_player_antecedent_ok`
-# refuses the stamp anywhere else.
-_PER_PLAYER_RE = re.compile(r"for each (?P<who>opponent|player), (?P<body>.+)")
+# ability or a spell gathers its targets per round (`targeting.
+# spell_target_rounds`), so `gate._that_player_antecedent_ok` refuses the
+# stamp anywhere else.
+_PER_PLAYER_RE = re.compile(
+    r"for (?P<who>each opponent|each player|any number of opponents), (?P<body>.+)"
+)
 _PER_PLAYER_BODY_RIVAL_RE = re.compile(r"\b(?:players?|opponents?)\b")
-_PER_PLAYER_SCOPE = {"opponent": "opponents", "player": "players"}
+#: "for any number of opponents" (Windgrace's Judgment) is the opponent
+#: rounds with each one declinable.
+_PER_PLAYER_SCOPE = {
+    "each opponent": "opponents", "each player": "players",
+    "any number of opponents": "any_opponents",
+}
 
 
 def _stamp_per_player(node: Any, scope: str) -> int:
@@ -17432,6 +17554,9 @@ def _stamp_per_player(node: Any, scope: str) -> int:
         return 0
     stamped = 0
     if str(node.get("target_kind") or "").endswith("_that_player_controls"):
+        node["per_player"] = scope
+        stamped += 1
+    if any(str(kind).endswith("_that_player_controls") for kind in (node.get("kinds") or [])):
         node["per_player"] = scope
         stamped += 1
     for key, val in node.items():

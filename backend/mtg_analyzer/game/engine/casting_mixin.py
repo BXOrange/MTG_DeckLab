@@ -57,6 +57,8 @@ from ..targeting import (
     all_requirements_satisfiable,
     legal_targets,
     partition_targets,
+    per_player_groups,
+    validate_that_player_groups,
     requirements_with_targets,
     resolved_count,
     spell_target_specs,
@@ -1786,8 +1788,13 @@ class CastingMixin:
             # that can *decline* an optional requirement must still send
             # explicit groups — `partition_targets` returns None rather than
             # guess which slot was skipped.
+            # PAR-130: a "for each opponent, … target `<X>` that player
+            # controls" requirement was offered as one round per player;
+            # validate those picks and merge them back per requirement.
+            target_groups = per_player_groups(self.state, player.id, obj, targets, target_groups)
             if target_groups is None:
                 target_groups = partition_targets(spell_target_specs(obj), targets)
+            validate_that_player_groups(spell_target_specs(obj), target_groups, obj.name)
             # RULE 903.8: record this command-zone cast so the next one is
             # taxed {2} more. Read *before* the cast moves the card off the
             # command zone.

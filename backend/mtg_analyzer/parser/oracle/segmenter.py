@@ -4517,6 +4517,30 @@ def parse_effect_body(
     if not body:
         return []
 
+    # PAR-130: a per-player target announcement followed by the clause(s)
+    # acting on "that/those/the chosen" objects. The generic connector split
+    # cannot discover the first half because the per-player wrapper used to
+    # expect the whole body to be one effect; split this printed boundary,
+    # retain the announced targets as the following clause's referent, and
+    # fail closed unless both halves independently parse.
+    per_player_choose = re.fullmatch(
+        r"(?P<choose>for each (?:opponent|player), choose (?:up to 1 )?"
+        r"(?:another |other )?target .+? that player controls)"
+        r"(?:\.|,\s*then)\s*(?P<after>.+)",
+        body, re.IGNORECASE | re.DOTALL,
+    )
+    if per_player_choose is not None:
+        before_specs = parse_effect_body(per_player_choose.group("choose"))
+        if not before_specs or not all(spec.type == "choose_targets" for spec in before_specs):
+            return None
+        after_specs = parse_effect_body(
+            per_player_choose.group("after"), previous_subject=True,
+            group_subject=group_subject,
+        )
+        if after_specs is None:
+            return None
+        return before_specs + after_specs
+
     # "…, whenever `<event>` this turn, `<effect>`" as one sentence of a larger body — after an
     # "if C," gate or a first sentence — creates the same turn-long trigger a whole line does.
     if _TURN_TRIGGER_RE.match(body):
@@ -5885,7 +5909,7 @@ def _bind_attack_count(
         result = {}
         for key, item in value.items():
             if key in _EVENT_READS:
-                if item != "amount" or key == "pt_from_trigger_event":
+                if item not in ("amount", "that_much") or key == "pt_from_trigger_event":
                     raise ValueError("Not an attacker count")
                 reads_count = True
                 result[key.removesuffix("_from_trigger_event")] = "$attack_count"
@@ -8774,5 +8798,18 @@ def _peel_optional(body: str) -> tuple[str, bool]:
         return body, False
     m = re.match(r"^you may\s+(?P<rest>.+)$", body, re.S)
     if m is not None:
-        return m.group("rest"), True
+        rest = m.group("rest")
+        # PAR-130: the causative spelling "you may **have it deal** N/that
+        # much damage …" (Mordant Dragon / Skirk Commando family) changes
+        # neither source nor effect. Once the optional wrapper is recorded,
+        # fold it to the ordinary self-subject "it deal…" body every damage
+        # handler already understands. Narrow to this verb so an unrelated
+        # "have <player/object> <do something>" choice stays fail-closed.
+        causative_damage = re.match(
+            r"^have\s+(?P<subject>it|~|this creature|this permanent)\s+"
+            r"(?P<deal>deals?\s+.+)$", rest, re.S,
+        )
+        if causative_damage is not None:
+            rest = f"{causative_damage.group('subject')} {causative_damage.group('deal')}"
+        return rest, True
     return body, False

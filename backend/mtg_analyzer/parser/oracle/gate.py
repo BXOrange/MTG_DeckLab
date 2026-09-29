@@ -3728,7 +3728,15 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: 511 (PAR-119 migration): the four per-adjective group rows are the composed head,
 #: translated to their flat keys (`legacy_condition`); head verbs gained the legacy
 #: object events; "put into your graveyard from the battlefield" keeps its owner scope.
-PARSER_VERSION = "512"
+#: 512 (PAR-130 a): the "target `<X>` that player controls" slot, antecedent-checked against
+#: the trigger head (`_that_player_antecedent_ok`), and a trigger's per-player rounds.
+#: 513 (PAR-130 b): a spell's "for each opponent/player" gathers per-player rounds at cast
+#: time (`targeting.spell_target_rounds`), "for any number of opponents" (declinable
+#: rounds), and the no-duration "gain control of target `<permanent>` [. untap it]".
+#: 514 (PAR-130 close): activated-ability per-player rounds; a prior target's player/
+#: controller as antecedent; antecedent-gated "that much damage"; generic target-choice
+#: announcements and the optional "have it deal" causative normalization.
+PARSER_VERSION = "514"
 
 
 def parser_source_hash() -> str:
@@ -4149,6 +4157,12 @@ _THAT_PLAYER_BODY_RIVAL_RE = re.compile(r"\b(?:players?|opponents?)\b")
 def _that_player_head_ok(event: str, filt: Any, text: str) -> bool:
     """Whether a trigger (``event`` + recipient ``filt``, printed as ``text``)
     names the player a "that player" in its body refers to."""
+    before_that = text.lower().split("that player", 1)[0]
+    if re.search(
+        r"\btarget (?:opponent|player)\b|\btarget [^.]+? (?:an opponent controls|you don'?t control)\b",
+        before_that,
+    ):
+        return True
     player_damage = event == "DAMAGE" and isinstance(filt, dict) and filt.get("is_player")
     if event not in _THAT_PLAYER_EVENTS and not player_damage:
         return False
@@ -4156,6 +4170,13 @@ def _that_player_head_ok(event: str, filt: Any, text: str) -> bool:
     if not sep or not _THAT_PLAYER_HEAD_RE.search(head):
         return False
     return not _THAT_PLAYER_BODY_RIVAL_RE.search(body.split("that player", 1)[0])
+
+
+#: `TargetSpec.per_player`'s vocabulary, mirrored here (no `game/` imports).
+_PER_PLAYER_SCOPES = ("opponents", "players", "any_opponents")
+#: The context a spell/activated ability's effects are walked under: no trigger
+#: head names "that player", but per-player rounds and a prior target can.
+_SPELL_CONTEXT: tuple[str, Any, str] = ("PRIOR_TARGET", None, "")
 
 
 def _that_player_tree_ok(node: Any, context: Optional[tuple[str, Any, str]], text: str) -> bool:
@@ -4174,9 +4195,18 @@ def _that_player_tree_ok(node: Any, context: Optional[tuple[str, Any, str]], tex
         context = (node["trigger_event"], node.get("filter"), quoted.group(1) if quoted else "")
     for key, val in node.items():
         if key.endswith("kind") and isinstance(val, str) and val.endswith("_that_player_controls"):
-            if node.get("per_player") in ("opponents", "players"):
+            if node.get("per_player") in _PER_PLAYER_SCOPES:
                 # "for each opponent/player, …" is its own antecedent, but
-                # only a triggered ability gathers its targets per round.
+                # only a triggered ability or a spell (`targeting.
+                # spell_target_rounds`) gathers its targets per round.
+                if context is None:
+                    return False
+            elif context is None or not _that_player_head_ok(*context):
+                return False
+        elif key == "kinds" and isinstance(val, list) and any(
+            isinstance(kind, str) and kind.endswith("_that_player_controls") for kind in val
+        ):
+            if node.get("per_player") in _PER_PLAYER_SCOPES:
                 if context is None:
                     return False
             elif context is None or not _that_player_head_ok(*context):
@@ -4189,16 +4219,55 @@ def _that_player_tree_ok(node: Any, context: Optional[tuple[str, Any, str]], tex
 def _that_player_antecedent_ok(spec: AbilitySpec) -> bool:
     """PAR-130: a ``…_that_player_controls`` target is only sound under a
     trigger head that names that player (RULE 603.2's firing event is what
-    `targeting.trigger_player_antecedent` reads). Everything else — a spell,
-    an activated ability, a "for each opponent" body, a prior "target
-    opponent" — fails closed here rather than resolving against the wrong
+    `targeting.trigger_player_antecedent` reads), or under a "for each
+    opponent/player" or after an earlier player/opponent-controlled target.
+    Everything else fails closed rather than resolving against the wrong
     player or none."""
     text = spec.raw_text or ""
-    context = None
+    context = (
+        (_SPELL_CONTEXT[0], _SPELL_CONTEXT[1], text)
+        if spec.ability_kind in ("spell_effect", "activated") else None
+    )
     if spec.ability_kind == "triggered" and spec.trigger:
         unquoted = re.sub(r'"[^"]*"', '""', text)
         context = (str(spec.trigger.get("event") or ""), spec.trigger.get("filter"), unquoted)
     return _that_player_tree_ok([spec.effects, spec.modes, spec.target], context, text)
+
+
+#: Numeric payloads a printed "that much" may safely read from a firing
+#: event. Keep this parser-side (no ``game/`` import across the boundary).
+#: The first increment deliberately admits only event families whose emitted
+#: payload is already the exact referenced quantity; sequence-local values
+#: such as "counters removed this way" need their own context operand.
+_THAT_MUCH_TRIGGER_FIELDS: dict[str, str] = {
+    "DAMAGE": "amount",
+    "DISCARD": "count",
+    "LIFE_GAINED": "amount",
+    "LIFE_LOST": "amount",
+    "COUNTER": "amount",
+}
+
+
+def _resolve_that_much_tree(node: Any, field: Optional[str]) -> bool:
+    """Resolve the private handler sentinel, or reject an unsafe antecedent."""
+    if isinstance(node, EffectSpec):
+        return _resolve_that_much_tree(node.params, field)
+    if isinstance(node, (list, tuple)):
+        return all(_resolve_that_much_tree(item, field) for item in node)
+    if not isinstance(node, dict):
+        return True
+    if node.get("amount_from_trigger_event") == "that_much":
+        if field is None:
+            return False
+        node["amount_from_trigger_event"] = field
+    return all(_resolve_that_much_tree(value, field) for value in node.values())
+
+
+def _that_much_antecedent_ok(spec: AbilitySpec) -> bool:
+    event = str((spec.trigger or {}).get("event") or "") if spec.ability_kind == "triggered" else ""
+    return _resolve_that_much_tree(
+        [spec.effects, spec.modes, spec.target], _THAT_MUCH_TRIGGER_FIELDS.get(event)
+    )
 
 
 def _parse_oracle_uncached(card: Any) -> ParseResult:
@@ -4940,6 +5009,9 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
 
     for spec in effect_specs:
         if not _that_player_antecedent_ok(spec):
+            all_claimed = False
+            unclaimed.append(spec.raw_text)
+        if not _that_much_antecedent_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
 

@@ -27,6 +27,8 @@ from mtg_analyzer.parser.oracle.catalogue.subgrammars import (
     THAT_PLAYER_TARGET_KINDS,
     resolve_target_kind,
 )
+from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
+from mtg_analyzer.parser.oracle.spec import EffectSpec
 
 
 def _named(name):
@@ -113,10 +115,8 @@ def test_every_composed_kind_has_a_that_player_frame():
     # No antecedent at all.
     "Destroy target creature that player controls.",
     "At the beginning of your upkeep, tap target creature that player controls.",
-    # The body names another player first — "that player" is that one.
-    "When Foo enters, choose target opponent. Destroy target creature that player controls.",
-    "Whenever Foo deals combat damage to a player, target opponent loses 1 life "
-    "and you destroy target creature that player controls.",
+    # Merely mentioning a player is not a target antecedent.
+    "When Foo enters, each opponent loses 1 life. Destroy target creature that player controls.",
 ])
 def test_slot_fails_closed_without_a_trigger_antecedent(oracle):
     card = _card("Foo", "Creature — Test", oracle_text=oracle)
@@ -350,8 +350,212 @@ def test_linked_exile_returns_every_card_it_took():
     assert {"P2 Bear", "P3 Bear"} <= returned
 
 
-def test_per_player_stamp_needs_a_triggered_ability():
-    # The cast path doesn't gather targets per round, so a spell stays unclaimed.
-    card = _card("Foo", "Sorcery", oracle_text=(
-        "For each opponent, gain control of up to one target artifact that player controls."))
+# ---------------------------------------------------------------------------
+# The cast path: a spell offers one requirement per player round
+# ---------------------------------------------------------------------------
+
+
+def _sorcery(state, oracle, controller="p1"):
+    card = _card("Heist", "Sorcery", oracle_text=oracle, is_sorcery=True,
+                 mana_cost_string="{U}", converted_mana_cost=1)
+    assert parse_oracle(card).modeled, parse_oracle(card).unclaimed
+    obj = GameObject(card, owner_id=controller, zone=Zone.HAND)
+    bind_from_catalogue(obj)
+    player = state.player_by_id(controller)
+    player.add_to_zone(obj, Zone.HAND)
+    player.mana_pool.add("U", 1)
+    state.current_step = "main1"
+    return obj, player
+
+
+def _offer(engine, player, spell):
+    action = next(a for a in engine.legal_actions(player)
+                  if a["type"] == "cast_spell" and a.get("instance_id") == spell.instance_id)
+    return [{o["instance_id"] for o in req["options"]} for req in action.get("targets", [])]
+
+
+_THIEVERY = "For each opponent, gain control of target permanent that player controls."
+
+
+def test_spell_offers_one_scoped_round_per_opponent():
+    engine, state = _engine()
+    b2 = _bear("P2 Bear", "p2", state)
+    b3 = _bear("P3 Bear", "p3", state)
+    _bear("My Bear", "p1", state)
+    spell, p1 = _sorcery(state, _THIEVERY)
+
+    assert _offer(engine, p1, spell) == [{b2.instance_id}, {b3.instance_id}]
+    engine.cast_spell(p1, spell, target_groups=[[b2], [b3]])
+    engine.resolve_until_stable()
+
+    # RULE 611.2: no duration — the steal outlives the turn.
+    assert b2.controller_id == "p1" and b3.controller_id == "p1"
+    engine._step_cleanup()
+    assert b2.controller_id == "p1"
+
+
+def test_spell_rejects_two_picks_from_one_opponent():
+    engine, state = _engine()
+    b2 = _bear("P2 Bear", "p2", state)
+    c2 = _bear("P2 Cub", "p2", state)
+    _bear("P3 Bear", "p3", state)
+    spell, p1 = _sorcery(state, _THIEVERY)
+
+    with pytest.raises(ValueError):
+        engine.cast_spell(p1, spell, target_groups=[[b2], [c2]])
+
+
+def test_spell_with_one_live_round_takes_a_flat_target_list():
+    # p2 controls nothing: their round isn't offered and the flat list is p3's.
+    engine, state = _engine()
+    b3 = _bear("P3 Bear", "p3", state)
+    spell, p1 = _sorcery(state, _THIEVERY)
+
+    assert _offer(engine, p1, spell) == [{b3.instance_id}]
+    engine.cast_spell(p1, spell, targets=[b3])
+    engine.resolve_until_stable()
+    assert b3.controller_id == "p1"
+
+
+def test_any_number_of_opponents_rounds_are_declinable():
+    engine, state = _engine()
+    b2 = _bear("P2 Bear", "p2", state)
+    b3 = _bear("P3 Bear", "p3", state)
+    spell, p1 = _sorcery(
+        state, "For any number of opponents, destroy target nonland permanent that player controls.")
+
+    engine.cast_spell(p1, spell, target_groups=[[], [b3]])
+    engine.resolve_until_stable()
+    assert b2.zone == Zone.BATTLEFIELD and b3.zone == Zone.GRAVEYARD
+
+
+def test_activated_ability_offers_and_validates_one_round_per_opponent():
+    engine, state = _engine()
+    device = _card(
+        "Recall Device", "Artifact",
+        oracle_text=("{T}: For each opponent, return up to one target artifact or creature "
+                     "that player controls to its owner's hand."),
+    )
+    result = parse_oracle(device)
+    assert result.modeled, result.unclaimed
+    source = _bf(state, device)
+    b2 = _bear("P2 Bear", "p2", state)
+    b3 = _bear("P3 Bear", "p3", state)
+
+    action = next(
+        a for a in engine.legal_actions(state.player_by_id("p1"))
+        if a.get("type") == "activate_ability" and a.get("instance_id") == source.instance_id
+    )
+    assert [{o["instance_id"] for o in req["options"]} for req in action["targets"]] == [
+        {b2.instance_id}, {b3.instance_id},
+    ]
+    with pytest.raises(ValueError, match="legal target"):
+        engine.activate_ability(
+            state.player_by_id("p1"), source, target_groups=[[b2], [b2]],
+        )
+
+    engine.activate_ability(
+        state.player_by_id("p1"), source, target_groups=[[b2], [b3]],
+    )
+    engine.resolve_until_stable()
+    assert b2.zone == Zone.HAND and b3.zone == Zone.HAND
+
+
+def test_scoped_round_keeps_the_mana_value_cap():
+    engine, state = _engine()
+    small = _bf(state, _card("P2 Small", "Creature — Bear", is_creature=True, power=1,
+                             toughness=1, converted_mana_cost=2), "p2")
+    _bf(state, _card("P2 Big", "Creature — Bear", is_creature=True, power=5,
+                     toughness=5, converted_mana_cost=5), "p2")
+    spell, p1 = _sorcery(state, (
+        "For each opponent, gain control of up to one target creature or planeswalker "
+        "that player controls with mana value 3 or less."))
+
+    assert _offer(engine, p1, spell) == [{small.instance_id}]
+
+
+def test_plain_that_player_still_needs_an_antecedent_on_a_spell():
+    card = _card("Foo", "Sorcery", oracle_text="Gain control of target artifact that player controls.")
     assert not parse_oracle(card).modeled
+
+
+def test_prior_target_controller_is_the_antecedent_and_is_server_validated():
+    engine, state = _engine()
+    dealer = _bf(state, _card(
+        "P2 Giant", "Creature — Giant", is_creature=True, power=4, toughness=4,
+    ), "p2")
+    same = _bear("P2 Bear", "p2", state)
+    other = _bear("P3 Bear", "p3", state)
+    spell, p1 = _sorcery(state, (
+        "Target creature an opponent controls deals damage equal to its power to another "
+        "target creature that player controls. The Ring tempts you."
+    ))
+
+    with pytest.raises(ValueError, match="that player"):
+        engine.cast_spell(p1, spell, target_groups=[[dealer], [other]])
+
+    engine.cast_spell(p1, spell, target_groups=[[dealer], [same]])
+    engine.resolve_until_stable()
+    assert same.zone == Zone.GRAVEYARD
+
+
+@pytest.mark.parametrize("name", [
+    "Blatant Thievery", "Bilbo's Burglaring", "Tempted by the Oriq", "Windgrace's Judgment",
+    "Keiga, the Tide Star", "Invoke the Winds", "Riptide Entrancer",
+])
+def test_real_steals_are_modeled(name):
+    assert parse_oracle(_named(name)).modeled
+
+
+def test_gain_control_with_a_duration_is_not_the_permanent_row():
+    permanent = match_clause("gain control of target artifact. untap it")
+    assert permanent[0].params["duration"] == "permanent" and permanent[0].params["untap"]
+    assert match_clause("gain control of target spell") is None or all(
+        s.params.get("duration") != "permanent" for s in match_clause("gain control of target spell"))
+    eot = match_clause("gain control of target creature until end of turn")
+    assert eot[0].params.get("duration", "end_of_turn") == "end_of_turn"
+
+
+# ---------------------------------------------------------------------------
+# Antecedent amount used by a that-player damage body
+# ---------------------------------------------------------------------------
+
+
+def test_that_much_damage_requires_an_amount_carrying_trigger():
+    specs = match_clause("it deals that much damage to target creature")
+    assert specs == [EffectSpec("damage", {
+        "amount_from_trigger_event": "that_much", "target_kind": "creature",
+    })]
+    assert not parse_oracle(_card(
+        "Unsafe", "Sorcery", is_sorcery=True,
+        oracle_text="Unsafe deals that much damage to target creature.",
+    )).modeled
+
+
+@pytest.mark.parametrize("name", [
+    "Mordant Dragon", "Skirk Commando", "Snapping Thragg", "Spark Mage",
+])
+def test_optional_have_it_deal_damage_uses_the_plain_damage_body(name):
+    result = parse_oracle(_named(name))
+    assert result.modeled, result.unclaimed
+
+
+def test_that_much_damage_executes_from_damage_event_and_keeps_that_player_scope():
+    engine, state = _engine()
+    card = _card(
+        "Reflector", "Creature — Test", is_creature=True, power=2, toughness=2,
+        oracle_text=("Whenever Reflector deals combat damage to a player, it deals that much "
+                     "damage to target creature that player controls."),
+    )
+    result = parse_oracle(card)
+    assert result.modeled, result.unclaimed
+    reflector = _bf(state, card)
+    hit = _bf(state, _card("Hit", "Creature — Bear", is_creature=True, power=2, toughness=5), "p2")
+    _bf(state, _card("Elsewhere", "Creature — Bear", is_creature=True, power=2, toughness=5), "p3")
+
+    engine.rules.deal_damage(state.player_by_id("p2"), 3, source=reflector, combat=True)
+    engine.rules.put_triggers_on_stack()
+    assert _pick(engine, state, hit) == {hit.instance_id}
+    _resolve(engine)
+
+    assert hit.damage_marked == 3

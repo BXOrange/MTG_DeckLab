@@ -65,6 +65,9 @@ from ..targeting import (
     legal_targets,
     partition_targets,
     requirements_with_targets,
+    per_player_target_groups,
+    target_rounds,
+    validate_that_player_groups,
     resolved_count,
     spell_target_specs,
 )
@@ -302,7 +305,7 @@ class ActivationMixin:
             else ability_target_specs(ability)
         )
         out: list[dict[str, Any]] = []
-        for spec in specs:
+        for spec in target_rounds(self.state, player.id, source, specs)[0]:
             entry = {
                 "kind": spec.kind,
                 "optional": spec.optional,
@@ -1553,12 +1556,17 @@ class ActivationMixin:
             raise ValueError(f"{source.name} has no activated ability #{ability_index}")
         ability = abilities[ability_index]
         resolved_effects = self._resolve_activation_mode(ability, mode)
+        resolved_specs = effects_target_specs(resolved_effects)
+        target_groups = per_player_target_groups(
+            self.state, player.id, source, resolved_specs, targets, target_groups,
+        )
         if target_groups is None:
             # RULE 115.1, same derivation the cast path makes: an ability
             # announcing 2+ requirements needs its flat picks split per
             # targeting effect (Ulvenwald Tracker's "target creature you
             # control fights another target creature").
-            target_groups = partition_targets(effects_target_specs(resolved_effects), targets)
+            target_groups = partition_targets(resolved_specs, targets)
+        validate_that_player_groups(resolved_specs, target_groups, source.name)
         if target_groups is not None and targets is None:
             # Same derivation `RulesEngine.cast_spell` does: every flat-
             # ``targets`` consumer (ward, the stack display) still needs to

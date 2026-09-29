@@ -2829,16 +2829,17 @@ class ChooseTargetsEffect(GameEffect):
         count: Optional[int] = None,
         distinct_controllers: bool = False,
         optional: bool = False,
+        per_player: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         kinds = kinds or []
         if len(kinds) == 1 and count:
             specs = [TargetSpec(
                 kind=kinds[0], count=count, distinct_controllers=distinct_controllers,
-                optional=optional,
+                optional=optional, per_player=per_player,
             )]
         else:
-            specs = [TargetSpec(kind=kind) for kind in kinds]
+            specs = [TargetSpec(kind=kind, optional=optional, per_player=per_player) for kind in kinds]
         if specs:
             self.target_spec = specs[0]
             self.extra_target_specs = tuple(specs[1:])

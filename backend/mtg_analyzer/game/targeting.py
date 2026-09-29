@@ -573,6 +573,10 @@ class TargetSpec:
     #: The player one expanded `per_player` round is scoped to — read by the
     #: ``SCOPE_THAT_PLAYER`` frames ahead of the trigger event's antecedent.
     scoped_player_id: Optional[str] = None
+    #: A preceding target requirement supplies this spec's "that player"
+    #: antecedent.  This is stamped only after the full ordered requirement
+    #: list is known; a standalone spec therefore remains fail-closed.
+    prior_target_antecedent: bool = False
 
     @property
     def effective_count(self) -> int:
@@ -701,7 +705,7 @@ def spell_target_specs(obj: GameObject) -> list[TargetSpec]:
                 polarity=_aura_enchant_polarity(obj),
             )
         )
-    return specs
+    return _mark_prior_target_antecedents(specs)
 
 
 def _with_polarity(spec: TargetSpec, polarity: Optional[str]) -> TargetSpec:
@@ -934,8 +938,9 @@ SCOPE_THAT_PLAYER = "that_player"
 
 #: `TargetSpec.per_player` vocabulary (PAR-130): whose permanents each round
 #: of a "for each opponent/player, … target `<X>` that player controls"
-#: requirement is scoped to.
-PER_PLAYER_SCOPES: frozenset[str] = frozenset({"opponents", "players"})
+#: requirement is scoped to. ``any_opponents`` is "for **any number of**
+#: opponents, …" (Windgrace's Judgment): the opponent rounds, each declinable.
+PER_PLAYER_SCOPES: frozenset[str] = frozenset({"opponents", "players", "any_opponents"})
 #: The resolve-time slicing cap for a `per_player` requirement
 #: (`TargetSpec.effective_count`): one pick per round, and the number of
 #: rounds is the number of players, known only at announce time. Any value at
@@ -1316,6 +1321,7 @@ def _legal_from_frame(
     operands now carried by ``frame``.
     """
     scoped_player_id: Optional[str] = None
+    deferred_that_player_scope = False
     if frame.scope in (SCOPE_DEFENDING, SCOPE_THAT_PLAYER):
         event = trigger_event or {}
         if frame.scope == SCOPE_DEFENDING:
@@ -1324,9 +1330,15 @@ def _legal_from_frame(
             # A `per_player` round names its player outright (PAR-130).
             scoped_player_id = spec.scoped_player_id or trigger_player_antecedent(state, event)
         if scoped_player_id is None:
-            # No event in hand means no player to scope to — fail closed
-            # rather than guessing a fixed role.
-            return []
+            if frame.scope == SCOPE_THAT_PLAYER and spec.prior_target_antecedent:
+                # A spell/activation may establish "that player" with an
+                # earlier player target. Offer the union here; the finalized
+                # target groups are cross-validated by
+                # ``validate_that_player_groups`` below. Parser gating means
+                # a context-free standalone phrase never reaches the engine.
+                deferred_that_player_scope = True
+            else:
+                return []
 
     type_ok = _FRAME_TYPE_PREDICATES[frame.types]
     hosts: set[int] = set()
@@ -1341,7 +1353,10 @@ def _legal_from_frame(
     for obj in state.permanents():
         if not type_ok(obj):
             continue
-        if not _frame_scope_ok(obj, frame, controller_id, scoped_player_id):
+        if deferred_that_player_scope:
+            if obj.controller_id is None:
+                continue
+        elif not _frame_scope_ok(obj, frame, controller_id, scoped_player_id):
             continue
         if frame.exclude_source and obj is source:
             continue
@@ -1965,7 +1980,8 @@ def expand_counts(
             start = next((i for i, p in enumerate(players) if p.id == controller_id), 0)
             rounds = [
                 replace(spec, per_player=None, scoped_player_id=p.id, count=1,
-                        count_max=None, count_selector=None)
+                        count_max=None, count_selector=None,
+                        optional=spec.optional or spec.per_player == "any_opponents")
                 for p in players[start:] + players[:start]
                 if spec.per_player == "players" or p.id != controller_id
             ]
@@ -2017,7 +2033,36 @@ def effects_target_specs(effects: Any) -> list[TargetSpec]:
     for effect in effects or []:
         polarity = effect.target_polarity()
         specs.extend(_with_polarity(spec, polarity) for spec in (getattr(effect, "target_specs", None) or []))
-    return specs
+    return _mark_prior_target_antecedents(specs)
+
+
+def _mark_prior_target_antecedents(specs: list[TargetSpec]) -> list[TargetSpec]:
+    """Mark dependent requirements backed by the immediately prior target.
+
+    The parser gate admits only printed shapes where the preceding target is
+    a player/opponent or an opponent-controlled permanent.  Keeping the same
+    structural check here makes a bare ``TargetSpec`` unable to broaden its
+    own scope merely because its kind contains ``that_player``.
+    """
+    marked: list[TargetSpec] = []
+    for index, spec in enumerate(specs):
+        frame = TARGET_FRAMES.get(spec.kind)
+        previous = specs[index - 1] if index else None
+        previous_frame = TARGET_FRAMES.get(previous.kind) if previous else None
+        has_antecedent = bool(
+            frame is not None
+            and frame.scope == SCOPE_THAT_PLAYER
+            and previous is not None
+            and (
+                previous.kind in {"player", "opponent"}
+                or (
+                    previous_frame is not None
+                    and previous_frame.scope in {SCOPE_NOT_YOU, SCOPE_NOT_YOU_STRICT}
+                )
+            )
+        )
+        marked.append(replace(spec, prior_target_antecedent=True) if has_antecedent else spec)
+    return marked
 
 
 def ability_target_specs(ability: Any) -> list[TargetSpec]:
@@ -2029,12 +2074,129 @@ def ability_target_specs(ability: Any) -> list[TargetSpec]:
     return effects_target_specs(getattr(ability, "effects", None) or [])
 
 
+def target_rounds(
+    state: GameState, controller_id: str, source: GameObject, specs: list[TargetSpec]
+) -> tuple[list[TargetSpec], list[int]]:
+    """Requirements as offered to a player, plus a span per original spec.
+
+    PAR-130: a `per_player` requirement ("for each opponent, gain control of
+    target permanent that player controls") is announced as one round per
+    player, each scoped to that player — shared by casts and activated
+    abilities, and sibling to the trigger path's
+    `_continue_trigger_multi_target` rounds. A round whose player
+    controls nothing legal is left out (RULE 601.2c: no target is chosen for
+    that player), so it never locks the spell. Every other requirement is
+    offered as-is; its "up to N" rounds stay the client's own expansion.
+    """
+    rounds: list[TargetSpec] = []
+    spans: list[int] = []
+    for spec in specs:
+        if spec.per_player not in PER_PLAYER_SCOPES:
+            rounds.append(spec)
+            spans.append(1)
+            continue
+        expanded, _ = expand_counts([spec], state, controller_id, source)
+        live = []
+        for round_spec in expanded:
+            if not legal_targets(state, controller_id, round_spec, source=source):
+                continue
+            player = state.player_by_id(round_spec.scoped_player_id)
+            name = getattr(player, "name", None) or round_spec.scoped_player_id
+            live.append(replace(round_spec, description=f"{round_spec.label()} ({name})"))
+        rounds.extend(live)
+        spans.append(len(live))
+    return rounds, spans
+
+
+def spell_target_rounds(
+    state: GameState, controller_id: str, obj: GameObject
+) -> tuple[list[TargetSpec], list[int]]:
+    """``obj``'s cast requirements expanded by :func:`target_rounds`."""
+    return target_rounds(state, controller_id, obj, spell_target_specs(obj))
+
+
+def per_player_groups(
+    state: GameState,
+    controller_id: str,
+    obj: GameObject,
+    targets: Optional[list[Any]],
+    target_groups: Optional[list[list[Any]]],
+) -> Optional[list[list[Any]]]:
+    """The cast path's picks for a spell with a `per_player` requirement,
+    validated round by round and merged back to one group per
+    `spell_target_specs` entry (PAR-130).
+
+    The caster answers the requirements `requirements_with_targets` offered —
+    one per *round* — either as ``target_groups`` (one group per round) or,
+    when only one round was offered or an "up to 1" round was declined, as the
+    flat ``targets`` list. Each `per_player` round takes at most one pick,
+    legal for that round (so controlled by that round's player); the rounds
+    are then collapsed so the effect receives one flat list of its picks.
+    Returns ``target_groups`` untouched for a spell with no `per_player`
+    requirement.
+    """
+    return per_player_target_groups(
+        state, controller_id, obj, spell_target_specs(obj), targets, target_groups,
+    )
+
+
+def per_player_target_groups(
+    state: GameState,
+    controller_id: str,
+    source: GameObject,
+    specs: list[TargetSpec],
+    targets: Optional[list[Any]],
+    target_groups: Optional[list[list[Any]]],
+) -> Optional[list[list[Any]]]:
+    """General cast/activation implementation behind ``per_player_groups``."""
+    if not any(spec.per_player in PER_PLAYER_SCOPES for spec in specs):
+        return target_groups
+    rounds, spans = target_rounds(state, controller_id, source, specs)
+    name = source.name
+    if target_groups is None and len(specs) == 1:
+        # The only requirement: the flat list is its picks, from any rounds.
+        picks = list(targets or [])
+        owners = [
+            next((r for r in rounds if getattr(p, "instance_id", None) in _round_ids(state, controller_id, source, r)), None)
+            for p in picks
+        ]
+        if any(owner is None for owner in owners) or len({id(o) for o in owners}) != len(owners):
+            raise ValueError(f"{name}: one legal target per player")
+        missing = [r for r in rounds if not r.optional and not any(o is r for o in owners)]
+        if missing:
+            raise ValueError(f"{name}: a target is required for {missing[0].label()}")
+        return [picks]
+    if target_groups is None and len(rounds) <= 1:
+        target_groups = [list(targets or [])] if rounds else []
+    elif target_groups is None:
+        target_groups = partition_targets(rounds, targets)
+    if target_groups is None or len(target_groups) != len(rounds):
+        raise ValueError(f"{name}: send one target group per offered requirement")
+    for round_spec, group in zip(rounds, target_groups):
+        if round_spec.scoped_player_id is None:
+            continue
+        if len(group) > 1:
+            raise ValueError(f"{name}: one target per player")
+        legal = _round_ids(state, controller_id, source, round_spec)
+        if any(getattr(pick, "instance_id", None) not in legal for pick in group):
+            raise ValueError(f"{name}: illegal target for {round_spec.label()}")
+        if not group and not round_spec.optional:
+            raise ValueError(f"{name}: a target is required for {round_spec.label()}")
+    return collapse_groups(target_groups, spans)
+
+
+def _round_ids(state: GameState, controller_id: str, obj: GameObject, spec: TargetSpec) -> set[Any]:
+    """The instance ids one requirement round may legally pick."""
+    return {o.get("instance_id") for o in legal_targets(state, controller_id, spec, source=obj)}
+
+
 def requirements_with_targets(
     state: GameState, controller_id: str, obj: GameObject
 ) -> list[dict[str, Any]]:
-    """Each of ``obj``'s target requirements paired with its legal options."""
+    """Each of ``obj``'s target requirements paired with its legal options
+    (a `per_player` requirement as one entry per round — `spell_target_rounds`)."""
     out: list[dict[str, Any]] = []
-    for spec in spell_target_specs(obj):
+    for spec in spell_target_rounds(state, controller_id, obj)[0]:
         entry = {
             "kind": spec.kind,
             "optional": spec.optional,
@@ -2088,6 +2250,37 @@ def partition_targets(
         groups.append(list(targets[index:index + take]))
         index += take
     return groups
+
+
+def validate_that_player_groups(
+    specs: list[TargetSpec], target_groups: Optional[list[list[Any]]], source_name: str,
+) -> None:
+    """Validate a prior player target as a later ``that player`` scope.
+
+    The offer for the dependent requirement is necessarily the union of all
+    players' matching permanents. RULE 601.2c finalization is the point at
+    which both choices are known, so reject a permanent not controlled by
+    the immediately preceding target's player/controller.
+    """
+    if target_groups is None:
+        return
+    for index, (spec, group) in enumerate(zip(specs, target_groups)):
+        if not spec.prior_target_antecedent:
+            continue
+        if not group:
+            # An "up to one" dependent requirement may be declined; there
+            # is then no controller relation to validate.
+            continue
+        previous = target_groups[index - 1] if index else []
+        antecedent_id: Optional[str] = None
+        if len(previous) == 1:
+            antecedent_id = getattr(previous[0], "id", None)
+            if antecedent_id is None:
+                antecedent_id = getattr(previous[0], "controller_id", None)
+        if antecedent_id is None or any(
+            getattr(target, "controller_id", None) != antecedent_id for target in group
+        ):
+            raise ValueError(f"{source_name}: target is not controlled by that player")
 
 
 def all_requirements_satisfiable(requirements: list[dict[str, Any]]) -> bool:

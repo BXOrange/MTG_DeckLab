@@ -25,9 +25,9 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**51.5% covered — 17,914 / 34,811 — as of 2026-09-29, PARSER_VERSION 512** (PAR-130: the "that player controls" target scope under a player-naming trigger head or a "for each opponent/player" iteration — +32 since v511).
-Commander-legal slice (the one the product actually plays): **54.0% —
-17,204 / 31,830** (measure with `--commander-legal-only`).
+**51.7% covered — 17,988 / 34,811 — as of 2026-09-29, PARSER_VERSION 514** (PAR-130 close-out: antecedent-gated "that much damage", prior-target and activated per-player targeting, plus the optional causative form — +62 since v513, 0 regressed).
+Commander-legal slice (the one the product actually plays): **54.3% —
+17,276 / 31,830** (measure with `--commander-legal-only`).
 
 ### PAR-124 closes completely: player-events, X-tokens, a targeted delayed trigger, a hand-zone duplicate, an optional-attach composition — and the controller-binding bug the targeted variant first exposed (PARSER_VERSION 463)
 
@@ -545,6 +545,33 @@ rules, not one:
   check yourself.
 
 ## Known-open clusters
+
+### PAR-132 calibration: dependent bodies around an already-complete target scope
+
+PAR-130 completed the `that player controls` scope itself: event, per-player and prior-target
+antecedents now reach trigger, spell and activated-ability targeting. The cards still blocked in
+that search are separate body/referent families, bundled as PAR-132 rather than left as false
+PAR-130 residue:
+
+- a `choose [up to] one target …, then` announcement followed by a chosen-object body (Decoy
+  Gambit, Mega Flare, Shellshock, Disorienting Choice, Guff Rewrites History, Vaevictis Asmadi,
+  Kitesail Larcenist);
+- follow-ups over the selected set or objects affected "this way" (Elminster's Simulacrum,
+  Hideous Taskmaster, Riptide Gearhulk, Luminate Primordial, Juvenile Mist Dragon, Olinda,
+  Sontaran General, Sylvan Primordial, King Solomon's Frogs, Unexplained Absence, Demonic Junker,
+  Battle at the Helvault);
+- prior-target group bodies beyond the now-shipped two-target controller validation (Alpha Brawl,
+  Deputy of Detention, Legions to Ashes; Down for Repairs additionally names an Attraction);
+- missing trigger heads around otherwise-supported bodies: beginning of combat on each opponent's
+  turn, a Dragon becoming a target, damage thresholds, defending-player combat damage, and damage
+  from an instant or sorcery spell;
+- sequence-local `that much` operands outside a firing event, the quoted-grant wrapper on Commando
+  Raid, and finite/permanent-control durations tied to the source remaining on the battlefield
+  (Sower of Temptation, Master Thief, Dragonlord Silumgar, Mind Flayer, Possession Engine, Giant's
+  Grasp, Rangers of Ithilien).
+
+Each row must be re-sized before implementation; this list records shared shapes and examples, not
+a promise that every named card has no second blocker.
 
 Long-tail residue that no open ticket names — salvaged when the per-version
 changelog was removed, because most of it had been filed under `PAR-30`,

@@ -100,8 +100,9 @@ No open tickets.
   > `Done_Backend.md`'s PAR-124 entry). `PAR-126` is MEC-101's own parser
   > follow-up (below), `PAR-127` PAR-128's split-out "creature or
   > planeswalker" frame (closed), `PAR-129` the Exhaust keyword-line swallow;
-  > `PAR-130` the "that player controls" target scope, `PAR-131` PAR-119's legacy-row
-  > migration; first free id: **`PAR-132`**. A genuinely new engine
+  > `PAR-130` the "that player controls" target scope (closed), `PAR-131` PAR-119's
+  > legacy-row migration, `PAR-132` the dependent-body follow-up batch; first free id:
+  > **`PAR-133`**. A genuinely new engine
   > primitive found along the way still files as its own `MEC-*` ticket —
   > `MEC-102` is MEC-101's own such follow-up; next free id: **`MEC-103`**
   > — only the sweep itself stays out of this file.
@@ -118,7 +119,9 @@ No open tickets.
   > own close-out did), triage it the same way before filing: sweep for an
   > existing ticket it already belongs under, size each shape against the
   > full cache, then batch the small ones rather than opening one ticket
-  > per shape.
+  > per shape. Such a batch ticket stays here only while nobody has started
+  > it; once a run starts it, it gets a `workingOn.md` block and whatever that
+  > run leaves open is recorded there as residue, not here.
 
 - **PAR-118 · "Exile a card from your hand with N time counters on it, it gains suspend."** Alaundo the Seer's
   "{T}: draw a card, then exile a card from your hand and put a number of
@@ -143,9 +146,9 @@ No open tickets.
 
 - **PAR-131 · Retire the remaining legacy trigger rows onto the composed heads (refactor).**
   Pure maintainability — no coverage gain; the remaining legacy rows and a small head gap.
-- **PAR-130 · "target `<X>` that player controls" beyond trigger antecedents.** The slot
-  still fails on spells' "for each opponent", a prior-target antecedent, and some trigger
-  heads/bodies around it.
+- **PAR-132 · Dependent target/body follow-up batch.** Finish the distinct effect-body,
+  trigger-head and duration clusters exposed while closing PAR-130; target-scope plumbing itself
+  is complete, and the calibrated clusters live in `PARSER_LONG_TAIL.md`.
 - **PAR-129 · A line starting with "Exhaust" is swallowed as a keyword line (wrong-but-MODELED).**
   11 parser-MODELED cards lose an ability: the first line that begins with the word
   "Exhaust" is claimed as the bare Exhaust keyword (Scryfall lists it in `keywords`), so no

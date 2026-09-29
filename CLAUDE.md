@@ -583,12 +583,12 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 51.5% (17,914 / 34,811) as of 2026-09-29, measured at
-PARSER_VERSION 512** (parser-`MODELED` or hand-`AUTHORED`, measured against
+**Coverage: 51.7% (17,988 / 34,811) as of 2026-09-29, measured at
+PARSER_VERSION 514** (parser-`MODELED` or hand-`AUTHORED`, measured against
 the full ~35k-card Oracle universe from `scripts/import_bulk.py`). Re-measure
 with `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset that
-matters for Goldfisch/Deck-Analyzer — is **54.0% (17,204 / 31,830)**; measure
+matters for Goldfisch/Deck-Analyzer — is **54.3% (17,276 / 31,830)**; measure
 it with `scripts/coverage_report.py --commander-legal-only` (records a
 separate `…-commander` snapshot row) and segment the still-UNMODELED
 remainder by *cause* (wrapper re-measure / recurring template → `PAR-*` /
@@ -775,7 +775,10 @@ English and German.
   "residue" lists, no progress notes), and what is still open — the
   remaining card clusters, blockers, the exact next step — goes into the
   ticket's block in `docs/implementation-state/workingOn.md`, which stays
-  until that residue is done. Finished detail or residue left in the
+  until that residue is done. A "small residue batch" ticket (the
+  anti-proliferation bundle `BACKLOG.md`'s preamble describes) is an
+  ordinary open point and stays in `BACKLOG.md` until a run starts it;
+  from then on the same rule applies. Finished detail or residue left in the
   backlog defeats the split and taxes every future read.
 - **No half-implementations — close the loop, don't let a deferred item
   silently roll over.** Every batch/session prioritizes by real

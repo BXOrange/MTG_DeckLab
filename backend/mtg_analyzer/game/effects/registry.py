@@ -1606,6 +1606,7 @@ EffectRegistry.register(
         count=p.get("count"),
         distinct_controllers=bool(p.get("distinct_controllers", False)),
         optional=bool(p.get("optional", False)),
+        per_player=p.get("per_player"),
     ),
 )
 EffectRegistry.register(

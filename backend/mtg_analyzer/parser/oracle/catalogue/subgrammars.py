@@ -258,6 +258,11 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # N-way row above, the same precision this file already accepts there).
     (r"(?:another|other) target permanent", "permanent"),
     (r"target spell", "spell"),
+    # The opponent-only sibling is already a real engine pool (built for
+    # the Enrage reflection family); keep it distinct from the broader
+    # "player or planeswalker" row below so its player half cannot choose
+    # the controller.
+    (r"target opponent or planeswalker", "opponent_or_planeswalker"),
     (r"target player or planeswalker", "player"),
     (r"target opponent", "player"),
     (r"target player", "player"),
@@ -279,7 +284,7 @@ _TARGET_ROWS: list[tuple[str, str]] = [
 #: stripped the same way. Was hand-typed identically at many separate call
 #: sites in `handlers.py`'s damage family before this existed (docs/09
 #: "Factor shared sub-grammars"; PAR-61's port of the `81c3320` prototype).
-SELF_SUBJECT_PREFIX = r"(?:(?:~|it|this creature|this land|this permanent) )?"
+SELF_SUBJECT_PREFIX = r"(?:(?:~|it|he|she|this creature|this land|this permanent) )?"
 
 #: An optional "up to one "/"up to 1 " prefix (RULE 115.1a) a TARGET phrase
 #: may carry — "destroy up to one target creature" is the same choice as
