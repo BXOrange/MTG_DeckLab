@@ -300,7 +300,7 @@ def test_cast_from_exile_regrant_carries_the_gate():
     assert specs is not None and len(specs) == 1
     p = specs[0].params
     assert p["trigger_event"] == "SPELL_CAST"
-    assert p["spell_from_exile"] is True
+    assert p["spell_cast_from"] == ["exile"]  # PAR-131: the composed cast-zone key
     assert p["grant_effects"][0]["params"]["amount_from_trigger_event"] == "mana_value"
 
 
@@ -333,11 +333,13 @@ def test_passionate_archaeologist_regrant_fires_on_cast_from_exile():
     from mtg_analyzer.models.game.events import EventType, GameEvent
     # from a hand cast → the "from exile" gate rejects it
     st.fire_event(GameEvent(EventType.SPELL_CAST, player_id="p1", instance_id=1,
-                            spell="X", mana_value=2, from_exile=False, from_hand=True))
+                            spell="X", mana_value=2, from_exile=False, from_hand=True,
+                            from_zone="hand"))
     assert eng.rules.put_triggers_on_stack() == 0
     # from exile → it fires
     st.fire_event(GameEvent(EventType.SPELL_CAST, player_id="p1", instance_id=2,
-                            spell="Y", mana_value=3, from_exile=True, from_hand=False))
+                            spell="Y", mana_value=3, from_exile=True, from_hand=False,
+                            from_zone="exile"))
     assert eng.rules.put_triggers_on_stack() == 1
 
 
@@ -368,13 +370,15 @@ def test_feywild_visitor_nontoken_batch_combat_damage():
     assert specs is not None and len(specs) == 1
     p = specs[0].params
     assert p["trigger_event"] == "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"
-    assert p["filter"] == {"contributor_any_nontoken": True}
+    # PAR-131: the composed batch head — a group filter on the contributors.
+    assert p["contributors"] == {"min": 1}
+    assert p["group_condition"]["filter"] == {"card_type": "creature", "nontoken": True}
     # the bare form has no such filter
     bare = static_effect_specs(
         'commander creatures you own have "whenever 1 or more creatures you '
         'control deal combat damage to a player, draw a card."'
     )
-    assert bare is not None and "filter" not in bare[0].params
+    assert bare is not None and "nontoken" not in bare[0].params["group_condition"]["filter"]
 
 
 # --- slice 6: end-step intervening-if conditions (new per-turn trackers) ---

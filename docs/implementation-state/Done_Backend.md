@@ -3564,6 +3564,51 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
   `test_par117_group_subject_blocks_this_turn.py` (stale "this turn" pin — PAR-124 moved
   that tail onto the turn-trigger wrapper).
 
+### PAR-131: the remaining legacy trigger rows retired onto the composed heads (PARSER_VERSION 515)
+
+- **What:** every per-phrase trigger row PAR-119 left behind is deleted from
+  `segmenter.py` (−1,180 lines): the nine cast rows (`_CAST_SPELL_TRIGGER_RE`, `_NEG_`,
+  `_PLAIN_`, `_MV_`, `_MV_AT_LEAST_`, `_X_`, `_FIRST_X_`, `_HISTORIC_`, `_NTH_`),
+  `_DAMAGE_TRIGGER_RE`, `_DAMAGE_RECIPIENT_TRIGGER_RE`, `_BECOMES_TARGET_TRIGGER_RE`,
+  `_BATCH_ATTACK_TRIGGER_RE` and the `_PLAYER_TRIGGER_CONDITIONS` table (also the trigger
+  doublers' cause path, `trigger_condition_dict`). Their shapes now come from
+  `object_trigger_head.py` (new recipient "is dealt damage", "becomes the target of …" and
+  "one or more `<creatures>` attack" heads), `player_event_head.py` (scry/surveil, clash,
+  forage, collect evidence, dice, "the Ring tempts you", the compound "cycle or discard"
+  / "scry or surveil" as one event list) and `spell_phrase.py` ("with {X} in its mana
+  cost", "your first spell with {X} …"). +16 cards (Thunderbreak Regent, Scalelord
+  Reckoner, Diffusion Sliver, Blood Hound, Kavu Predator, Presence of the Master, …),
+  each executed in a real engine.
+- **Spec shape:** flat cast keys became the composed ``spell_filter`` (a
+  `matches_object_filter` dict read off the spell on the stack) and ``spell_from_exile``
+  became ``spell_cast_from``; group subjects on DAMAGE / BECOMES_TARGET / the combat-damage
+  aggregate moved from flat keys to ``condition.filter``. Unlike PAR-119's dies/leaves rows
+  this is safe to rewrite: none of those events is a departure, so the acting object is
+  still there when the condition is read. Proven with a whole-cache spec diff against the
+  pre-change tree: 0 lost; every changed spec is a rename or one of the fixes below.
+- **Fixes the migration surfaced:** (1) a re-granted trigger dropped its spell filter —
+  Black Mage's Rod / Red Mage's Rapier fired on creature spells, since the registry never
+  passed ``spell_exclude_card_types`` through — now `binding/core.spell_filter_predicate`
+  / `spell_cast_from_predicate` are shared by printed and re-granted triggers. (2) The old
+  player-event row rebuilt effects without their ``condition``, so Karlach's "if it's
+  the first combat phase" gate was silently lost; kept now, which needed
+  `_apply_effects_partitioned` to see the selector through a `ConditionalEffect` for "they".
+  (3) A self/attached DAMAGE subject's recipient ("to an opponent", "to you", "to a
+  creature") used to widen to "a player"/"not a player"; it is a trigger-level
+  ``recipient_relation`` / ``recipient_filter`` gate now (printed and re-granted —
+  Curiosity, Hypnotic Specter, Kaldra Compleat; 40 cards). (4) `BECOMES_TARGET` stamps
+  its acting player as ``player_id``, so "that player" resolves (Thunderbreak Regent).
+  (5) "This ability triggers only once each turn" on a composed cast head is ``limit``,
+  not a stray marker (Basim, Glóin, Sarah Jane).
+- **Files:** `parser/oracle/segmenter.py`, `catalogue/object_trigger_head.py`,
+  `catalogue/player_event_head.py`, `catalogue/spell_phrase.py`,
+  `catalogue/static_handlers.py`, `game/binding/core.py`, `game/continuous.py`,
+  `game/effects/core.py`, `game/effects/registry.py`, `game/rules/misc_mixin.py`; tests
+  `test_par131_legacy_row_retirement.py` plus ~30 shape pins re-pointed at the composed
+  keys. `tests/api/test_game_ws.py`'s broadcast test now shares one TestClient portal —
+  two portals put the sockets on two event loops, and a cross-loop send does not wake a
+  receiver that is already waiting (an intermittent 20 s hang, ~1 run in 4).
+
 ### PAR-124's own residue: "copy that spell X times" and a delayed trigger's own group pronoun (PARSER_VERSION 460)
 
 ### PAR-124 closes completely: the mana-tap/life-gain player-event pair, X-token creation, a for-each pump variant, a targeted delayed DIES trigger, an optional targeted-antecedent composition, a hand-zone spell duplicate, and the controller-binding fix that makes the targeted variant generally safe (PARSER_VERSION 463)

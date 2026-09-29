@@ -139,7 +139,7 @@ def test_mana_value_at_least_cast_trigger_parses():
     assert seg.claimed
     assert seg.spec.trigger["event"] == "SPELL_CAST"
     assert seg.spec.trigger["condition"] == {"subject": "you"}
-    assert seg.spec.trigger["spell_mana_value_at_least"] == 4
+    assert seg.spec.trigger["spell_filter"] == {"min_mana_value": 4}
 
 
 def test_mana_value_at_least_cast_trigger_subject_scoping():
@@ -176,7 +176,9 @@ def test_historic_spell_cast_trigger_parses():
     seg = _segment("whenever you cast a historic spell, draw a card")
     assert seg.claimed
     assert seg.spec.trigger["event"] == "SPELL_CAST"
-    assert seg.spec.trigger["spell_is_historic"] is True
+    assert seg.spec.trigger["spell_filter"] == {
+        "any_of": [{"card_type": "artifact"}, {"legendary": True}, {"subtype": "saga"}]
+    }
 
 
 def test_historic_spell_cast_trigger_picks_up_the_once_per_turn_tail():
@@ -203,7 +205,7 @@ def test_etb_and_cast_trigger_splits_into_two_specs():
     kinds = {seg.spec.trigger["event"], seg.extra_specs[0].trigger["event"]}
     assert kinds == {"ENTERS_BATTLEFIELD", "SPELL_CAST"}
     cast_spec = seg.spec if seg.spec.trigger["event"] == "SPELL_CAST" else seg.extra_specs[0]
-    assert cast_spec.trigger["spell_exclude_card_types"] == ["creature"]
+    assert cast_spec.trigger["spell_filter"] == {"without_card_type": "creature"}
 
 
 def test_etb_and_cast_trigger_accepts_whenever_for_the_etb_half():
@@ -458,7 +460,7 @@ def test_mana_spent_at_least_intervening_if_parses():
         "blocked this turn"
     )
     assert seg.claimed
-    assert seg.spec.trigger["spell_exclude_card_types"] == ["creature"]
+    assert seg.spec.trigger["spell_filter"] == {"without_card_type": "creature"}
     assert seg.spec.trigger["spell_mana_spent_at_least"] == 4
 
 

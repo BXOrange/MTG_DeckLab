@@ -83,6 +83,17 @@ _DAMAGE_HEAD = re.compile(
     r"^(?P<subject>.+?)\s+deals\s+(?P<kind>combat |noncombat )?damage"
     r"(?:\s+to\s+(?P<recipient>.+?))?(?P<tail>\s+during .+)?$"
 )
+_DAMAGE_RECIPIENT_HEAD = re.compile(
+    r"^(?P<subject>.+?)\s+is dealt\s+(?P<kind>combat |noncombat )?damage$"
+)
+_BECOMES_TARGET_HEAD = re.compile(
+    r"^(?P<subject>.+?)\s+becomes the target of an? "
+    r"(?P<item_kind>spell or ability|spell|ability)"
+    r"(?P<caster> an opponent controls| you control)?$"
+)
+_GROUP_ATTACK_HEAD = re.compile(
+    r"^(?:1|one) or more (?P<phrase>.+?) attack(?: a player)?$"
+)
 _ATTACHED_SUBJECT = re.compile(r"^(?:enchanted|equipped)\s+(?:creature|permanent|land|artifact)$")
 _ACTOR_HEAD = re.compile(
     r"^(?P<actor>you|an opponent|each opponent|a player|each player|1 or more players)\s+"
@@ -143,7 +154,10 @@ def _subject(text: str) -> Optional[dict[str, Any]]:
 
 def _damage_recipient(text: str) -> Optional[tuple[dict[str, Any], dict[str, Any]]]:
     """The words after "damage to" → ``(event filter keys, condition keys)``."""
-    if text in ("a player", "each player"):
+    if text in ("a player", "each player", "a player or battle"):
+        # DAMAGE does not yet distinguish battles from other non-player
+        # permanents here; retain the legacy family's documented player-side
+        # simplification for the printed "player or battle" union.
         return {"is_player": True}, {}
     if text in ("an opponent", "one of your opponents", "1 of your opponents"):
         return {"is_player": True}, {"recipient_is_opponent": True}
@@ -181,13 +195,23 @@ def _parse_damage_head(cond: str) -> Optional[ObjectHead]:
         recipient = _damage_recipient(m.group("recipient").strip())
         if recipient is None:
             return None
-        if recipient[1] and condition["subject"] != "group":
-            # Only the group subject's predicate reads the recipient scope keys;
-            # emitting them on a self/attached subject would silently over-fire.
-            return None
         event_filter.update(recipient[0])
-        condition.update(recipient[1])
     trigger: dict[str, Any] = {"filter": event_filter}
+    if m.group("recipient") and recipient[1]:
+        if condition["subject"] == "group":
+            # The group predicate reads the recipient keys itself.
+            condition.update(recipient[1])
+        else:
+            # A self/attached subject has no group predicate: the recipient
+            # scope becomes a trigger-level gate the binder applies to every
+            # subject ("whenever enchanted creature deals damage to an
+            # opponent" — Curiosity; "…to you").
+            if recipient[1].get("recipient_is_opponent"):
+                trigger["recipient_relation"] = "opponent"
+            if recipient[1].get("recipient_is_you"):
+                trigger["recipient_relation"] = "you"
+            if recipient[1].get("recipient_filter"):
+                trigger["recipient_filter"] = dict(recipient[1]["recipient_filter"])
     tail = (m.group("tail") or "").strip()
     if tail:
         phase, rest = consume(tail, PHASE_TAILS)
@@ -195,6 +219,85 @@ def _parse_damage_head(cond: str) -> Optional[ObjectHead]:
             return None
         trigger.update(phase)
     return ObjectHead("DAMAGE", condition, trigger)
+
+
+def _parse_damage_recipient_head(cond: str) -> Optional[ObjectHead]:
+    """Recipient-side DAMAGE head (Enrage / Rite of Passage family)."""
+    m = _DAMAGE_RECIPIENT_HEAD.match(cond)
+    if m is None:
+        return None
+    subject = m.group("subject").strip()
+    if subject == "~":
+        condition: Optional[dict[str, Any]] = {"subject": "self"}
+    elif _ATTACHED_SUBJECT.match(subject):
+        condition = {"subject": "attached_permanent"}
+    else:
+        condition = _subject(subject)
+    if condition is None or condition["subject"] == "self_or_group":
+        return None
+    condition["recipient"] = True
+    event_filter: dict[str, Any] = {}
+    kind = (m.group("kind") or "").strip()
+    if kind:
+        event_filter["combat"] = kind == "combat"
+    return ObjectHead("DAMAGE", condition, {"filter": event_filter})
+
+
+def _parse_becomes_target_head(cond: str) -> Optional[ObjectHead]:
+    """RULE 115 object target-event head (Ward-style ordinary triggers)."""
+    m = _BECOMES_TARGET_HEAD.match(cond)
+    if m is None:
+        return None
+    subject = m.group("subject").strip()
+    if subject == "~":
+        condition: Optional[dict[str, Any]] = {"subject": "self"}
+    elif _ATTACHED_SUBJECT.match(subject):
+        condition = {"subject": "attached_permanent"}
+    else:
+        condition = _subject(subject)
+    if condition is None or condition["subject"] == "self_or_group":
+        return None
+    trigger: dict[str, Any] = {}
+    item_kind = m.group("item_kind")
+    if item_kind != "spell or ability":
+        trigger["filter"] = {"item_kind": item_kind}
+    caster = (m.group("caster") or "").strip()
+    if caster == "an opponent controls":
+        trigger["caster_relation"] = "opponent"
+    elif caster == "you control":
+        trigger["caster_relation"] = "you"
+    return ObjectHead("BECOMES_TARGET", condition, trigger)
+
+
+def _parse_group_attack_head(cond: str) -> Optional[ObjectHead]:
+    """RULE 508.3a's once-per-combat "one or more creatures attack" head."""
+    m = _GROUP_ATTACK_HEAD.match(cond)
+    if m is None:
+        return None
+    parsed = parse_object_phrase(m.group("phrase"), plural=True)
+    if parsed is None or parsed[1] != "you":
+        return None
+    filt = dict(parsed[0])
+    group_filter: dict[str, Any] = {}
+    card_type = filt.pop("card_type", None)
+    card_types = filt.pop("card_type_all", None)
+    if card_type != "creature":
+        if not card_types or "creature" not in card_types or len(card_types) != 2:
+            return None
+        group_filter["type"] = next(kind for kind in card_types if kind != "creature")
+    excluded = filt.pop("without_subtype", None)
+    if excluded:
+        group_filter["excluded_subtypes"] = (
+            list(excluded) if isinstance(excluded, list) else [excluded]
+        )
+    if filt.pop("is_suspected", False):
+        group_filter["is_suspected"] = True
+    if filt:
+        return None
+    condition: dict[str, Any] = {"subject": "you"}
+    if group_filter:
+        condition["group_filter"] = group_filter
+    return ObjectHead("PLAYER_ATTACKED", condition)
 
 
 def _parse_actor_head(cond: str) -> Optional[ObjectHead]:
@@ -350,7 +453,9 @@ def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
     if player is not None:
         return ObjectHead(*player)
     actor = (
-        _parse_actor_head(cond) or _parse_damage_head(cond) or _parse_attack_batch_head(cond)
+        _parse_actor_head(cond) or _parse_damage_head(cond) or _parse_damage_recipient_head(cond)
+        or _parse_becomes_target_head(cond) or _parse_group_attack_head(cond)
+        or _parse_attack_batch_head(cond)
         or _parse_block_relation_head(cond) or _parse_batch_quantity_head(cond)
         or _parse_combat_damage_batch_head(cond) or _parse_graveyard_arrival_head(cond)
     )
@@ -498,6 +603,8 @@ def _parse_combat_damage_batch_head(cond: str) -> Optional[ObjectHead]:
         return None
     filt, controller = parsed
     recipient_text = m.group("recipient").strip()
+    if "battle" in recipient_text:
+        return None  # the batch event counts only damage dealt to players
     recipient = _damage_recipient(_PLURAL_PLAYER_RECIPIENTS.get(recipient_text, recipient_text))
     if recipient is None or recipient[0] != {"is_player": True}:
         return None

@@ -370,19 +370,92 @@ def defender_has_most_life_predicate() -> Callable[[Any, Any], bool]:
     return _ok
 
 
+def spell_filter_predicate(filt: dict[str, Any], source: Any = None) -> Callable[[Any, Any], bool]:
+    """PAR-119's composed spell filter: a `combat.matches_object_filter` dict
+    read against the cast object (still on the stack when ``SPELL_CAST``
+    fires). ``source`` is the ability's own source — "of the chosen color/
+    type" reads its ETB choice. Shared by printed and re-granted triggers."""
+
+    def _spell_filter_ok(event: Any, context: Any, f=dict(filt), src=source) -> bool:
+        from ..combat import matches_object_filter  # function-scoped: see combat.py
+
+        state = getattr(context, "state", None)
+        instance_id = (event or {}).get("instance_id")
+        if state is None or instance_id is None:
+            return False
+        obj = state.find_object(instance_id)
+        return obj is not None and matches_object_filter(obj, f, reference=src, state=state)
+
+    return _spell_filter_ok
+
+
+def spell_cast_from_predicate(zones: Any) -> Callable[[Any, Any], bool]:
+    """RULE 601.2a: the zone a spell was cast from (``from_zone`` on the
+    ``SPELL_CAST`` event) is one of ``zones``."""
+    wanted = tuple(str(z).lower() for z in zones)
+
+    def _spell_cast_from_ok(event: Any, context: Any, w=wanted) -> bool:
+        return str((event or {}).get("from_zone") or "").lower() in w
+
+    return _spell_cast_from_ok
+
+
+def recipient_relation_predicate(relation: str, source: Any = None) -> Callable[[Any, Any], bool]:
+    """RULE 120.3: a DAMAGE event's player recipient is ``source``'s
+    controller (``"you"``) or another player (``"opponent"``) — "~ deals
+    combat damage to an opponent", "enchanted creature deals damage to you".
+    Read at firing time, so a control change is honoured."""
+
+    def _recipient_relation_ok(event: Any, context: Any, rel=relation, src=source) -> bool:
+        target_id = (event or {}).get("target_id")
+        if not (event or {}).get("is_player") or target_id is None:
+            return False
+        you = getattr(src, "controller_id", None)
+        return target_id == you if rel == "you" else target_id != you
+
+    return _recipient_relation_ok
+
+
+def recipient_filter_predicate(filt: dict[str, Any], source: Any = None) -> Callable[[Any, Any], bool]:
+    """A DAMAGE event's object recipient matches ``filt`` ("~ deals damage
+    to a creature" — a planeswalker or battle is not one)."""
+
+    def _recipient_filter_ok(event: Any, context: Any, f=dict(filt), src=source) -> bool:
+        from ..combat import matches_object_filter  # function-scoped: see combat.py
+
+        state = getattr(context, "state", None)
+        target_id = (event or {}).get("target_id")
+        if state is None or (event or {}).get("is_player") or target_id is None:
+            return False
+        recipient = state.find_object(target_id)
+        return recipient is not None and matches_object_filter(recipient, f, reference=src, state=state)
+
+    return _recipient_filter_ok
+
+
 def regrant_trigger_gate_predicate(
-    key: str, controller_id: Optional[str], source: Any = None
+    key: str, controller_id: Optional[str], source: Any = None, value: Any = None
 ) -> Optional[Callable[[Any, Any], bool]]:
     """A firing-event gate for a *re-granted* trigger (PAR-32 — "Commander
     creatures you own have 'Whenever …'"), by the trigger-dict key that
     carried it. `continuous._apply_layer_6_ability` ANDs the result onto the
     granted `TriggeredAbility.condition`; each gate is the same event-field
     read the printed-trigger path uses in `_trigger_condition`. ``source``
-    is the granted-to permanent, for the source-relative keys."""
+    is the granted-to permanent, for the source-relative keys; ``value`` is
+    the key's own payload for the valued keys (``spell_filter`` /
+    ``spell_cast_from`` / ``recipient_relation`` / ``recipient_filter``)."""
     if key == "attacked_player_has_lowest_life":
         return attacked_player_lowest_life_predicate(controller_id)
     if key == "spell_from_exile":
         return lambda event, context: bool((event or {}).get("from_exile"))
+    if key == "spell_filter" and isinstance(value, dict):
+        return spell_filter_predicate(value, source)
+    if key == "spell_cast_from" and isinstance(value, (list, tuple)):
+        return spell_cast_from_predicate(value)
+    if key == "recipient_relation" and value in ("you", "opponent"):
+        return recipient_relation_predicate(value, source)
+    if key == "recipient_filter" and isinstance(value, dict):
+        return recipient_filter_predicate(value, source)
     if key == "spell_exclude_card_types":
         def _not_creature_spell(event: Any, context: Any) -> bool:
             state = getattr(context, "state", None)
@@ -422,8 +495,8 @@ def regrant_active_if_predicate(active_if: dict[str, Any], source: Any) -> Calla
 
 def _subject_event_key(trigger: dict[str, Any]) -> str:
     # RULE 603.1's *recipient*-side damage trigger (MEC-11, Enrage-shaped
-    # "whenever ~ is dealt damage" — `parser/oracle/segmenter.py`'s
-    # `_DAMAGE_RECIPIENT_TRIGGER_RE`) needs the *other* end of the same
+    # "whenever ~ is dealt damage" — `parser/oracle/catalogue/
+    # object_trigger_head.py`'s recipient head) needs the *other* end of the same
     # `DAMAGE` event: who was hit, not who hit them. The segmenter marks
     # this with ``condition["recipient"] = True`` rather than a second
     # `EventType`, since it's still the same event, just read from the
@@ -510,7 +583,7 @@ def _subject_condition(
         # RULE 508.3a batch attack: "one or more <filter> creatures you
         # control attack" — the `PLAYER_ATTACKED` aggregate carries only the
         # attacking player, so the ``<filter>`` (a negated creature subtype
-        # or a main type, `segmenter._batch_attack_group_filter`) is checked
+        # or a main type, `object_trigger_head._parse_group_attack_head`) is checked
         # against the live attacking group, which is still on the battlefield
         # when triggers are put on the stack (RULE 508.3).
         group_filter = condition.get("group_filter") or None
@@ -617,7 +690,7 @@ def _build_group_ok(
     subject kinds (`_subject_condition`), since "self_or_group" is just this
     same filter OR-ed with the self check.
 
-    ``type`` (`_GROUP_TYPE_WORDS`, a main card type) and ``subtypes``/
+    ``type`` (a main card type) and ``subtypes``/
     ``nontoken`` (a creature-subtype tribal filter, The Ghoul Gunslinger's
     "another nontoken Zombie or Mutant you control dies") are mutually
     exclusive per condition dict (the segmenter only ever emits one or the
@@ -1147,9 +1220,9 @@ def _any_attacking_matches(
     context: Any, controller_id: Any, group_filter: dict[str, Any]
 ) -> bool:
     """RULE 508.3a: does ``controller_id`` have at least one *currently
-    attacking* creature matching ``group_filter`` (`segmenter.
-    _batch_attack_group_filter`'s ``{"excluded_subtypes": [...]}`` /
-    ``{"type": ...}`` shape)? — the live check for a batch attack trigger
+    attacking* creature matching ``group_filter`` (`object_trigger_head.
+    _parse_group_attack_head`'s ``{"excluded_subtypes": [...]}`` /
+    ``{"type": ...}`` / ``{"is_suspected": True}`` shape)? — the live check for a batch attack trigger
     whose `PLAYER_ATTACKED` aggregate names only the attacking player."""
     state = getattr(context, "state", None)
     if state is None:
@@ -2174,31 +2247,23 @@ def _trigger_condition(
     # the object: where it was cast from, whose card it is, what it targets.
     spell_filter = trigger.get("spell_filter")
     if spell_filter:
-        def _spell_filter_ok(event: Any, context: Any, filt=spell_filter, src=source) -> bool:
-            from ..combat import matches_object_filter  # function-scoped: see combat.py
-
-            state = getattr(context, "state", None)
-            instance_id = event.get("instance_id")
-            if state is None or instance_id is None:
-                return False
-            obj = state.find_object(instance_id)
-            # ``reference`` = the ability's own source: "of the chosen color/
-            # type" reads its ETB choice (`color_from_source`/`subtype_from_source`).
-            return obj is not None and matches_object_filter(obj, filt, reference=src, state=state)
-
-        predicates.append(_spell_filter_ok)
+        predicates.append(spell_filter_predicate(spell_filter, source))
 
     # "…a spell **from your graveyard**" / "**from exile**" / "**from anywhere
     # other than your hand**" (RULE 601.2a) — the cast-from zone snapshot
     # `cast_spell` stamps as ``from_zone``.
     spell_cast_from = trigger.get("spell_cast_from")
     if spell_cast_from:
-        wanted_zones = tuple(str(z).lower() for z in spell_cast_from)
+        predicates.append(spell_cast_from_predicate(spell_cast_from))
 
-        def _spell_cast_from_ok(event: Any, context: Any, zones=wanted_zones) -> bool:
-            return str(event.get("from_zone") or "").lower() in zones
-
-        predicates.append(_spell_cast_from_ok)
+    # RULE 120.3: the DAMAGE recipient's scope on a self/attached subject
+    # ("~ deals combat damage to an opponent", "enchanted creature deals
+    # damage to you") — the group subject reads the same scope in
+    # `_build_group_ok`. "You" is the ability's controller at firing time.
+    if trigger.get("recipient_relation") in ("you", "opponent"):
+        predicates.append(recipient_relation_predicate(trigger["recipient_relation"], source))
+    if isinstance(trigger.get("recipient_filter"), dict) and trigger["recipient_filter"]:
+        predicates.append(recipient_filter_predicate(trigger["recipient_filter"], source))
 
     if trigger.get("spell_not_cast_from_hand"):
         def _spell_not_from_hand_ok(event: Any, context: Any) -> bool:

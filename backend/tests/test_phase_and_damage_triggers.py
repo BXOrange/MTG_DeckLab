@@ -163,7 +163,7 @@ def test_group_subject_damage_trigger_is_modeled():
     assert result.unclaimed == []
     (spec,) = [s for s in result.specs if s.ability_kind == "triggered"]
     assert spec.trigger["condition"] == {
-        "subject": "group", "type": "creature", "other": False, "controller": "you",
+        "subject": "group", "filter": {"card_type": "creature"}, "other": False, "controller": "you",
     }
     assert spec.trigger["filter"] == {"is_player": True, "combat": True}
 

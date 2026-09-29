@@ -217,7 +217,7 @@ def test_typed_cast_trigger_subtype_color_branches_still_work():
         "whenever you cast an elf spell, draw a card.",
         allow_spell_effect=False, provenance=prov,
     )
-    assert seg.claimed and seg.spec.trigger["spell_subtype_any"] == ["elf"]
+    assert seg.claimed and seg.spec.trigger["spell_filter"] == {"subtype": "elf"}
 
 
 # ---------------------------------------------------------------------------

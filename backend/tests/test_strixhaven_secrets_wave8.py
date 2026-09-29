@@ -24,7 +24,7 @@ def test_curiosity_crafter_modeled_with_token_filter():
     r = parse_oracle(_db().get_card("Curiosity Crafter"))
     assert r.coverage != UNMODELED, r.unclaimed
     trig = [s for s in r.specs if s.trigger and s.trigger["event"] == "DAMAGE"][0].trigger
-    assert trig["condition"]["is_token"] is True
+    assert trig["condition"]["filter"] == {"token": True, "card_type": "creature"}
     assert trig["condition"]["controller"] == "you"
     assert trig["filter"] == {"is_player": True, "combat": True}
 

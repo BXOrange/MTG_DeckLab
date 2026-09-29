@@ -8,7 +8,7 @@ permanent **dealing** damage. Three small, general changes closed it:
 
 1. `normalize._ABILITY_WORD_RE` strips the "Enrage — " label (RULE 207.2c —
    no rules meaning of its own).
-2. `segmenter._DAMAGE_RECIPIENT_TRIGGER_RE` recognizes "whenever ~/a
+2. the composed recipient head (née `segmenter._DAMAGE_RECIPIENT_TRIGGER_RE`) recognizes "whenever ~/a
    `<type>` [you control]/enchanted-or-equipped `<type>` is dealt [combat]
    damage, …", marking its condition ``{"recipient": True}``.
 3. `effect_binder._subject_event_key`/`_build_group_ok` read that marker to
@@ -51,7 +51,8 @@ from mtg_analyzer.models.game.game_state import GameState
 from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.normalize import normalize
-from mtg_analyzer.parser.oracle.segmenter import _DAMAGE_RECIPIENT_TRIGGER_RE, segment_line, ParserProvenance
+from mtg_analyzer.parser.oracle.catalogue.object_trigger_head import parse_object_trigger_head
+from mtg_analyzer.parser.oracle.segmenter import segment_line, ParserProvenance
 
 
 # ---------------------------------------------------------------------------
@@ -115,35 +116,33 @@ def test_enrage_label_is_stripped():
 # ---------------------------------------------------------------------------
 
 
-def test_recipient_trigger_regex_self():
-    m = _DAMAGE_RECIPIENT_TRIGGER_RE.match("whenever ~ is dealt damage, draw a card.")
-    assert m is not None
-    assert m.group("self") == "~"
+# PAR-131: the recipient side is the composed object head's
+# `_parse_damage_recipient_head` (the legacy `_DAMAGE_RECIPIENT_TRIGGER_RE`
+# row is retired).
 
 
-def test_recipient_trigger_regex_group_you_control():
-    m = _DAMAGE_RECIPIENT_TRIGGER_RE.match(
-        "whenever a creature you control is dealt damage, put a +1/+1 counter on it."
-    )
-    assert m is not None
-    assert m.group("type") == "creature"
-    assert m.group("yours") == " you control"
+def test_recipient_head_self():
+    head = parse_object_trigger_head("~ is dealt damage")
+    assert head.event == "DAMAGE"
+    assert head.condition == {"subject": "self", "recipient": True}
 
 
-def test_recipient_trigger_regex_attached():
-    m = _DAMAGE_RECIPIENT_TRIGGER_RE.match(
-        "whenever enchanted creature is dealt damage, destroy it."
-    )
-    assert m is not None
-    assert m.group("attached") == "enchanted creature"
+def test_recipient_head_group_you_control():
+    head = parse_object_trigger_head("a creature you control is dealt damage")
+    assert head.condition == {
+        "subject": "group", "controller": "you", "other": False,
+        "filter": {"card_type": "creature"}, "recipient": True,
+    }
 
 
-def test_recipient_trigger_regex_combat_qualifier():
-    m = _DAMAGE_RECIPIENT_TRIGGER_RE.match(
-        "whenever ~ is dealt combat damage, you gain that much life."
-    )
-    assert m is not None
-    assert m.group("combat") == "combat "
+def test_recipient_head_attached():
+    head = parse_object_trigger_head("enchanted creature is dealt damage")
+    assert head.condition == {"subject": "attached_permanent", "recipient": True}
+
+
+def test_recipient_head_combat_qualifier():
+    head = parse_object_trigger_head("~ is dealt combat damage")
+    assert head.trigger == {"filter": {"combat": True}}
 
 
 def test_segment_line_self_recipient_produces_recipient_condition():
@@ -196,7 +195,8 @@ def test_source_side_damage_trigger_is_unaffected_by_the_recipient_addition():
     p1, p2 = state.players
     dealer = _bf(state, _creature("Dealer", 2, 2))
     victim = _bf(state, _creature("Victim2", 2, 2), controller="p2")
-    seg = _segment("Whenever ~ deals damage to a creature, you gain 1 life.")
+    # Normalized (lower-case) text, as `normalize` hands it to the segmenter.
+    seg = _segment("whenever ~ deals damage to a creature, you gain 1 life.")
     assert seg.claimed and seg.spec is not None
     from mtg_analyzer.game.binding.core import attach_to_object
 

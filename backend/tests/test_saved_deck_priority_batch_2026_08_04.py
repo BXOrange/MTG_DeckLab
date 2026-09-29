@@ -271,7 +271,7 @@ def test_cast_instant_or_sorcery_spell_trigger_full_card_is_modeled():
     assert spec.trigger == {
         "event": "SPELL_CAST",
         "condition": {"subject": "you"},
-        "spell_card_types": ["instant", "sorcery"],
+        "spell_filter": {"card_type_any": ["instant", "sorcery"]},
     }
     assert spec.effects[0].type == "draw"
 
@@ -301,12 +301,15 @@ def test_cast_spell_trigger_executes_and_draws_a_card():
     p1.library.append(GameObject(_creature("Topdeck"), owner_id="p1", zone=Zone.LIBRARY))
     before = len(p1.hand)
 
-    state.fire_event(
-        GameEvent(
-            EventType.SPELL_CAST, player_id="p1", card_id="Test Bolt", spell="Test Bolt",
-            instance_id="fake-bolt", object_types=["instant"],
-        )
+    # A real cast: the composed ``spell_filter`` reads the spell object on
+    # the stack, not the event's type snapshot (PAR-131).
+    bolt = GameObject(
+        Card(id="Test Bolt", name="Test Bolt", type_line="Instant", is_instant=True),
+        owner_id="p1", zone=Zone.HAND,
     )
+    p1.hand.append(bolt)
+    before = len(p1.hand) - 1
+    eng.rules.cast_without_paying(p1, bolt)
     placed = eng.rules.put_triggers_on_stack()
     assert placed == 1
     eng.rules.resolve_top_of_stack()

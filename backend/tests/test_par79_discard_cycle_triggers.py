@@ -18,7 +18,7 @@ Front-End" PAR-79 entry.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_ability, bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
@@ -88,17 +88,19 @@ def test_cycle_another_card_parses_the_same():
 
 
 def test_cycle_or_discard_compound_parses_as_two_abilities():
+    # PAR-131: one spec with an event list; `bind_ability` binds one
+    # `TriggeredAbility` per listed event.
     spec, extra = _trigger("whenever you cycle or discard a card, draw a card.")
-    assert spec.trigger == {"event": "CYCLED", "condition": {"subject": "you"}}
-    assert len(extra) == 1
-    assert extra[0].trigger == {"event": "DISCARD_CARD", "condition": {"subject": "you"}}
+    assert spec.trigger == {"event": ["CYCLED", "DISCARD_CARD"], "condition": {"subject": "you"}}
+    assert extra == []
+    bound = bind_ability(spec)
+    assert [a.trigger_event for a in bound] == ["CYCLED", "DISCARD_CARD"]
 
 
 def test_discard_or_cycle_reverse_order_parses():
     spec, extra = _trigger("whenever you discard or cycle a card, draw a card.")
-    assert spec.trigger == {"event": "DISCARD_CARD", "condition": {"subject": "you"}}
-    assert len(extra) == 1
-    assert extra[0].trigger == {"event": "CYCLED", "condition": {"subject": "you"}}
+    assert spec.trigger == {"event": ["DISCARD_CARD", "CYCLED"], "condition": {"subject": "you"}}
+    assert extra == []
 
 
 def test_self_scoped_cycle_trigger_is_unaffected():

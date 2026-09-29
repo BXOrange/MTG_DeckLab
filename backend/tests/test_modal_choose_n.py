@@ -217,7 +217,7 @@ def test_triggered_modal_accepts_any_trigger_segment_line_claims():
     assert r2.coverage == MODELED
     (spec2,) = r2.specs
     assert spec2.trigger["event"] == "SPELL_CAST"
-    assert spec2.trigger.get("spell_exclude_card_types") == ["creature"]
+    assert spec2.trigger.get("spell_filter") == {"without_card_type": "creature"}
 
 
 def test_triggered_modal_binds_one_ability_per_event_in_a_list():

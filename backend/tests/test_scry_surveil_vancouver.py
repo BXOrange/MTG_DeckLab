@@ -21,7 +21,7 @@ from mtg_analyzer.models.game.events import EventType
 from mtg_analyzer.models.game.game_object import GameObject
 from mtg_analyzer.models.game.game_state import GameState, Zone
 from mtg_analyzer.models.game.player import Player
-from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_ability, bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.game_session import (
@@ -295,9 +295,13 @@ class TestScrySurveilTriggers:
             "Whenever you scry or surveil, draw a card.",
         )
         assert res.coverage == "MODELED"
-        assert [s.trigger["event"] for s in res.specs] == ["SCRY", "SURVEIL"]
-        # Each ability gets its *own* effect instances, never a shared list.
-        assert res.specs[0].effects[0] is not res.specs[1].effects[0]
+        # PAR-131: one spec with an event list; `bind_ability` binds one
+        # `TriggeredAbility` per event, each with its own effect instances.
+        (spec,) = res.specs
+        assert spec.trigger["event"] == ["SCRY", "SURVEIL"]
+        first, second = bind_ability(spec)
+        assert (first.trigger_event, second.trigger_event) == ("SCRY", "SURVEIL")
+        assert first.effects[0] is not second.effects[0]
 
     def test_a_once_per_turn_qualifier_is_now_modeled(self):
         """Whispering Snitch's "for the first time each turn" (PAR-14)

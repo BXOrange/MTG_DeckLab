@@ -239,144 +239,6 @@ _VARIANT_TRIGGER_CONDITIONS: tuple[tuple[re.Pattern[str], Any], ...] = (
     ),
 )
 
-#: RULE 603.1 trigger conditions whose subject is **the controller**, not an
-#: object: "whenever *you* scry", "whenever *you* surveil". No object-verb
-#: grammar above can express these — `_TRIGGER_VERBS` is a table of things a
-#: *permanent* does, and its whole scoping discipline (a verb earns a row
-#: only if the engine fires an event carrying an `instance_id` for it) is
-#: about matching the acting object. These events carry a ``player_id``
-#: instead, and the scoping question is "was it *me* who scried?".
-#:
-#: So they get their own table, emitting ``{"subject": "you"}`` for
-#: `effect_binder._subject_condition` — which is real scoping, unlike
-#: `_VARIANT_TRIGGER_CONDITIONS` (a plane's abilities are only ever
-#: collected for the face-up plane, so those need none). Without it, Dimir
-#: Spybug would grow a counter when an *opponent* surveiled.
-#:
-#: Matched against the *condition* text `_TRIGGER_RE` peels out — the
-#: leading "when"/"whenever" already stripped. Anchored end-to-end on
-#: purpose: "whenever you surveil **for the first time each turn**"
-#: (Whispering Snitch) is a once-per-turn qualifier the engine can't
-#: express, so it must fail to match and leave the card `UNMODELED` rather
-#: than bind an over-firing trigger.
-#:
-#: The compound "whenever you scry **or** surveil" (Matoya, Archon Elder;
-#: Planetarium of Wan Shi Tong) maps to a *list* of two events, handled the
-#: same way `_SELF_MULTI_EVENT_RE` and the compound plane template are: one
-#: `AbilitySpec` per event, each with its own freshly-bound effects.
-_PLAYER_TRIGGER_CONDITIONS: tuple[tuple[re.Pattern[str], Any], ...] = (
-    (re.compile(r"^you scry or surveil$"), ["SCRY", "SURVEIL"]),
-    (re.compile(r"^you surveil or scry$"), ["SURVEIL", "SCRY"]),
-    (re.compile(r"^you scry$"), "SCRY"),
-    (re.compile(r"^you surveil$"), "SURVEIL"),
-    # "Whenever you gain life, …" (RULE 119.3 — Ajani's Pridemate/Archangel
-    # of Thune-shaped lifegain payoffs). `EventType.LIFE_GAINED` already
-    # exists as the post-replacement trigger source (`LIFE_GAIN` is the
-    # pre-emptive, replaceable half — see its own docstring); only this
-    # oracle-text recognition and the matching `effect_binder`
-    # `_GROUP_CONTROLLER_EVENT_KEYS` entry were missing.
-    (re.compile(r"^you gain life$"), "LIFE_GAINED"),
-    # "Whenever you lose life, …" (RULE 118/119, Vilis, Broker of Blood-
-    # shaped, MEC-43) — `LIFE_GAINED`'s own loss-side sibling; `LIFE_LOST`
-    # already exists as the post-replacement trigger source (`RulesEngine.
-    # lose_life`'s single choke point for every cause of life loss,
-    # including combat/noncombat damage), so only this oracle-text
-    # recognition and the matching `effect_binder` `_GROUP_CONTROLLER_
-    # EVENT_KEYS` entry were missing.
-    (re.compile(r"^you lose life$"), "LIFE_LOST"),
-    # "Whenever the Ring tempts you, …" (RULE 701.51a, Tales of Middle-earth
-    # — Aragorn, Company Leader/Galadriel of Lothlórien/Sméagol, Helpful
-    # Guide-shaped). `EventType.RING_TEMPTED` fires from `RulesEngine.
-    # the_ring_tempts_you` once the Ring-bearer choice is settled.
-    (re.compile(r"^the ring tempts you$"), "RING_TEMPTED"),
-    # RULE 506.4's "whenever you attack, …" (MEC-28, Karlach, Fury of
-    # Avernus-shaped) — the bare form and "whenever you attack **a player**"
-    # (Soaring Lightbringer), which only names the defender kind the
-    # PLAYER_ATTACKED event doesn't refine (RULE 508.1 — an attack is always
-    # at a player or their planeswalker). "whenever you attack with
-    # `<qualifier>`" (a much bigger, still-unbuilt family —
-    # `parser_probe.py blocked "^whenever you attack\\b"`, 97+ SOLO cards)
-    # needs its own count/filter grammar and is out of scope.
-    (re.compile(r"^you attack(?: a player)?$"), "PLAYER_ATTACKED"),
-    # RULE 603.1's "whenever one or more creatures you control deal combat
-    # damage to a player, …" (Professional Face-Breaker-shaped Treasure
-    # payoffs) — the bare (no power-threshold) sibling of the hand-
-    # authored ``contributor_power_at_least`` cards (Tifa/Kediss); MEC-29's
-    # `EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER` already fires for
-    # this exact shape, only the oracle-text recognition was missing.
-    # PAR-124: Forth Eorlingas! prints the recipient-side plural, "to 1 or
-    # more players", instead of the singular "to a player" — the same
-    # aggregate event either way (RULE 508.1's target is always exactly one
-    # player, "1 or more" on that side is just a wording variant, not a
-    # second qualifier to model).
-    (re.compile(r"^1 or more creatures you control deal combat damage to"
-                r" (?:a player|1 or more players)$"),
-     "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"),
-    # "…1 or more **nontoken** creatures you control…" (Feywild Visitor's
-    # granted trigger) — same aggregate event, gated on the
-    # ``contributor_any_nontoken`` flag the combat step now stamps (RULE
-    # 111.9). Carried as a trailing filter marker `_player_trigger_event`'s
-    # caller lifts onto the trigger dict.
-    (re.compile(r"^1 or more nontoken creatures you control deal combat damage to"
-                r" (?:a player|1 or more players)$"),
-     ("CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER", {"contributor_any_nontoken": True})),
-    # RULE 701.30: "Whenever you clash, …" (Entangling Trap/Rebellion of the
-    # Flamekin) and its favourable-outcome sibling "Whenever you win a
-    # clash, …" (Marvo, Deep Operative) / "Whenever you clash and win, …"
-    # (Sylvan Echoes — the same WON_CLASH condition, just phrased as the
-    # procedure plus its result). `EventType.CLASHED` / `EventType.WON_CLASH`
-    # fire from `RulesEngine.clash`; the `CLASHED`/`WON_CLASH` split
-    # (mirroring `LIFE_GAIN`/`LIFE_GAINED`) means "win a clash" needs no
-    # event ``filter``.
-    (re.compile(r"^you clash$"), "CLASHED"),
-    (re.compile(r"^you (?:win a clash|clash and win)$"), "WON_CLASH"),
-    # RULE 701.59b: "Whenever you collect evidence, …" (Evidence Examiner/
-    # Surveillance Monitor). `RulesEngine.collect_evidence` fires
-    # `EventType.COLLECTED_EVIDENCE` per-player, same `player_id` convention.
-    (re.compile(r"^you collect evidence$"), "COLLECTED_EVIDENCE"),
-    # RULE 701.61b: "Whenever you forage, …" (Corpseberry Cultivator/Euru,
-    # Acorn Scrounger). `RulesEngine.forage` fires `EventType.FORAGED`
-    # per-player.
-    (re.compile(r"^you forage$"), "FORAGED"),
-    # RULE 701.4b: "Whenever you behold …". No card in the current pool
-    # triggers on beholding, but the row keeps the keyword-action family's
-    # per-player `player_id` convention ready for one that does.
-    (re.compile(r"^you behold(?: an?\s+\w+)?$"), "BEHELD"),
-    # RULE 706: "Whenever you roll one or more dice, …" (Farideh, Devil's
-    # Chosen / Vrondiss, Rage of Ancients / Barbarian Class level 2) —
-    # `RulesEngine.roll_die` fires `EventType.DICE_ROLLED` once per roll
-    # instruction (RULE 706.3b), keyed by ``player_id``, the same
-    # per-player convention as SCRY/SURVEIL/CLASHED above. "one or more"
-    # has already been normalised to "1 or more"; the bare "roll a die"
-    # spelling is folded in for completeness though no cached card prints
-    # a trigger on exactly one die yet.
-    (re.compile(r"^you roll (?:a die|1 or more dice)$"), "DICE_ROLLED"),
-    # PAR-79 residue: RULE 701.8's "Whenever you discard a card, …"
-    # (All-Seeing Arbiter/Hobgoblin, Mantled Marauder-shaped) —
-    # `EventType.DISCARD_CARD` already exists and already fires once per
-    # discarded card, carrying `player_id` (its own docstring names this
-    # exact trigger shape as the reason it's a per-card sibling of the
-    # aggregate `DISCARD`); only the oracle-text recognition was missing.
-    # "another" (Curator of Mysteries) is the identical event for a
-    # battlefield permanent's own ability — it can never itself be the
-    # discarded card — so both spellings collapse to one row.
-    (re.compile(r"^you discard (?:a|another) card$"), "DISCARD_CARD"),
-    # RULE 702.28c's *unscoped* form — "Whenever you cycle a card, …"
-    # (Jo Grant/Crystalline Resonance) or "…another card" (Drannith
-    # Healer/Benalish Partisan) — the sibling of `_CYCLE_TRIGGER_RE`
-    # above, which only ever claims the *self*-scoped "When you cycle
-    # this card,". `EventType.CYCLED` already fires with `controller_id`
-    # for exactly this; same "another can't be this ability's own card"
-    # collapse as the discard row just above.
-    (re.compile(r"^you cycle (?:a|another) card$"), "CYCLED"),
-    # The compound "Whenever you cycle or discard a[nother] card, …"
-    # (Cunning Survivor/Flameblade Adept/Drake Haven-shaped — the single
-    # highest-yield row in this whole addition) and its reverse ordering,
-    # mirroring the "you scry or surveil"/"you surveil or scry" pair
-    # above: one `AbilitySpec` per event, both already-shipped.
-    (re.compile(r"^you cycle or discard (?:a|another) card$"), ["CYCLED", "DISCARD_CARD"]),
-    (re.compile(r"^you discard or cycle (?:a|another) card$"), ["DISCARD_CARD", "CYCLED"]),
-)
 
 #: A triggered-ability wrapper: "When/Whenever/At <condition>, <body>".
 _TRIGGER_RE = re.compile(r"^(?:when|whenever|at)\b(?P<cond>[^,]*),\s*(?P<body>.+)$", re.S)
@@ -456,50 +318,12 @@ _ATTACK_MELD_TRIGGER_RE = re.compile(
     re.IGNORECASE,
 )
 
-#: RULE 603.1's "Whenever you cast a/an <type>[, <type>, or <type>] spell,
-#: <effect>." (Baral, Chief of Compliance/Archmage of Runes/Young Pyromancer-
-#: adjacent spellslinger payoffs) — a player-subject trigger whose event
-#: needs a card-type filter, so — like `_MAGECRAFT_RE`/`_DAMAGE_TRIGGER_RE`
-#: — it gets its own dedicated whole-line recognizer rather than
-#: `_PLAYER_TRIGGER_CONDITIONS`'s bare event-name table. `effect_binder`'s
-#: ``spell_card_types`` predicate already exists (built for the hand-
-#: authored Wandering Archaic) — only the oracle-text recognition was
-#: missing. Deliberately narrow to ``you`` as the subject (RULE 603.1's by
-#: far most common printed scope for a *typed* filter) — extending it to
-#: "an opponent"/"a player" too would need `effect_binder`'s existing group
-#: scoping *plus* a card-type filter on a non-permanent event, which no
-#: card in scope has needed yet; `_CAST_SPELL_TRIGGER_PLAIN_RE` below is the
-#: sibling that already covers all three subjects for the untyped case.
-#: Creature *subtypes* ("wizard spell", "elf spell")
-#: aren't in `_SPELL_CAST_TYPE_WORDS` — `GameObject.type_words` only ever
-#: carries main card types — so a compound naming one fails closed
-#: correctly rather than silently dropping the subtype qualifier.
-_SPELL_CAST_TYPE_WORDS: frozenset[str] = frozenset(
-    {"creature", "artifact", "enchantment", "instant", "sorcery", "planeswalker", "land", "battle"}
-)
-#: ``subj`` alternation added 2026-08-10 (Bonus Round/Hive Mind's own
-#: "whenever **a player** casts an instant or sorcery spell, …" needed it
-#: — 354 SOLO cards on this widening alone, `parser_probe.py blocked`,
-#: the single biggest template blocker found to date): the untyped sibling
-#: (`_CAST_SPELL_TRIGGER_PLAIN_RE`) already proved the "an opponent"/"a
-#: player" subjects need no new engine primitive (`effect_binder`'s
-#: existing group/controller scoping over `SPELL_CAST`), so this is purely
-#: widening the *typed* row's own subject the same way.
-#:
-#: Cast-or-copy heads use the composed grammar and both events (RULE 707.10).
-_CAST_SPELL_TRIGGER_RE = re.compile(
-    r"^whenever (?P<subj>you|an opponent|a player) casts? (?:an?|another) "
-    r"(?P<types>[a-z][a-z,\s]*?) spell,\s*(?P<body>.+)$",
-    re.IGNORECASE | re.S,
-)
-
 
 def _cast_spell_trigger_condition(subj: str) -> dict[str, Any]:
     """``{"subject": …}`` for a cast-spell/draw-card trigger's ``you``/``an
-    opponent``/``a player`` subject — shared by every widened row below so
-    the three-way mapping (`_CAST_SPELL_TRIGGER_RE`/`_CAST_SPELL_TRIGGER_NEG_RE`/
-    `_CAST_SPELL_TRIGGER_PLAIN_RE`/`_CAST_SPELL_TRIGGER_MV_RE`/
-    `_DRAW_TRIGGER_PLAIN_RE`) lives in exactly one place."""
+    opponent``/``a player`` subject — shared by the composed cast head
+    (`_CAST_TRIGGER_COMPOSED_RE`), `_DRAW_TRIGGER_PLAIN_RE` and the remaining
+    bespoke cast rows, so the three-way mapping lives in exactly one place."""
     subj = subj.lower()
     if subj == "you":
         return {"subject": "you"}
@@ -511,9 +335,9 @@ def _cast_spell_trigger_condition(subj: str) -> dict[str, Any]:
 #: that `catalogue.spell_phrase.parse_spell_phrase` builds from shared word
 #: tables (characteristic adjectives, ``with`` qualifiers, cast-from zone,
 #: ownership, targets). One row for what used to be one regex *and* one ~25-line
-#: dispatch block per adjective combination (`_CAST_SPELL_TRIGGER_MV_RE`,
-#: `_..._HISTORIC_RE`, …). Tried only after every legacy row declined, so it
-#: can only add coverage, never change a spec a legacy row already emits.
+#: dispatch block per adjective combination. PAR-131 retired those rows
+#: (`_CAST_SPELL_TRIGGER_RE`, `_NEG_`, `_PLAIN_`, `_MV_`, `_HISTORIC_`, …): this
+#: head now owns every plain "you/an opponent/a player cast(s) a <phrase> spell".
 _CAST_TRIGGER_COMPOSED_RE = re.compile(
     r"^(?:whenever|when) (?P<subj>you|an opponent|a player) casts? "
     r"(?P<copies>or (?:copy|copies) )?"
@@ -546,35 +370,39 @@ def _cast_trigger_segment(
             for threshold, effects in riders
         ]
         return Segment(raw=raw, spec=base_spec, extra_specs=rider_specs, claimed=True)
+    rider_parts = _cast_mana_rider_parts(body, self_subject=True)
+    if rider_parts is not None:
+        base_effects, threshold, rider_effects, replaces = rider_parts
+        if replaces:
+            low = AbilitySpec("triggered", effects=base_effects,
+                trigger={**trigger, "spell_mana_spent_less_than": threshold}, optional=optional,
+                raw_text=raw, parser=provenance)
+            high = AbilitySpec("triggered", effects=rider_effects,
+                trigger={**trigger, "spell_mana_spent_at_least": threshold}, optional=optional,
+                raw_text=raw, parser=provenance)
+            return Segment(raw=raw, spec=low, extra_specs=[high], claimed=True)
+        base_spec = AbilitySpec("triggered", effects=base_effects, trigger=trigger,
+            optional=optional, raw_text=raw, parser=provenance)
+        rider_spec = AbilitySpec("triggered", effects=rider_effects,
+            trigger={**trigger, "spell_mana_spent_at_least": threshold}, optional=optional,
+            raw_text=raw, parser=provenance)
+        return Segment(raw=raw, spec=base_spec, extra_specs=[rider_spec], claimed=True)
     body, mana_spent_at_least = _peel_spell_mana_spent_at_least(body)
-    effects = parse_effect_body(body, self_subject=True)
+    effects = _counter_triggering_spell_effects(body) or parse_effect_body(body, self_subject=True)
     if effects is None:
         return Segment(raw=raw)
+    # RULE 603.2: "This ability triggers only once each turn." (Basim Ibn Ishaq).
+    effects, body_limit = _strip_trigger_once_per_turn_marker(effects)
+    if not effects:
+        return Segment(raw=raw)
+    if body_limit:
+        trigger = {**trigger, "limit": True}
     if mana_spent_at_least is not None:
         trigger = {**trigger, "spell_mana_spent_at_least": mana_spent_at_least}
     spec = AbilitySpec("triggered", effects=effects, trigger=trigger,
         optional=optional, raw_text=raw, parser=provenance)
     return Segment(raw=raw, spec=spec, claimed=True)
 
-
-#: The negated sibling — "Whenever you cast a **noncreature** spell, …"
-#: (Young Pyromancer/Shark Typhoon/dozens of "spells matter" payoffs —
-#: found to be the single biggest ranked template blocker in the cache,
-#: ~92 cards on this shape alone). RULE 603.1 excludes one main card type
-#: rather than naming several to include, so it's `effect_binder`'s own
-#: predicate (``spell_exclude_card_types``, the mirror of the existing
-#: ``spell_card_types`` OR-match) rather than reusing that key with a
-#: "negate" flag — the two would otherwise need a third param just to tell
-#: them apart. Only ever one excluded type on a real card so far (a
-#: compound "noncreature, nonland spell" hasn't been seen) — extend the
-#: capture group to a list the day one is.
-#: ``subj`` alternation added alongside `_CAST_SPELL_TRIGGER_RE`'s own
-#: widening (Cindervines/Kambal, Consul of Allocation-shaped — 67 more SOLO
-#: cards): same reasoning, same shared `_cast_spell_trigger_condition`.
-_CAST_SPELL_TRIGGER_NEG_RE = re.compile(
-    r"^whenever (?P<subj>you|an opponent|a player) casts? an? non(?P<type>[a-z]+) spell,\s*(?P<body>.+)$",
-    re.IGNORECASE | re.S,
-)
 
 _CAST_TWO_COLOR_SPELL_TRIGGER_RE = re.compile(
     r"^whenever (?P<subj>you|an opponent|a player) casts? a spell that'?s both "
@@ -719,33 +547,6 @@ _DOCTOR_OR_COMPANION_CREATURE_CAST_TRIGGER_RE = re.compile(
     re.IGNORECASE | re.S,
 )
 
-#: The *untyped* sibling of `_CAST_SPELL_TRIGGER_RE` — "Whenever you/an
-#: opponent/a player casts a spell, <effect>." with no card-type filter at
-#: all (Spellshock/Eidolon of the Great Revel-shaped punishers). Doesn't
-#: overlap with the typed regex above: that one requires a real word between
-#: "a" and "spell" (`(?P<types>[a-z][a-z,\s]*?) spell`), which "a spell"
-#: alone never supplies. Unlike the two regexes above, this one also covers
-#: the "an opponent"/"a player" subjects — `effect_binder`'s existing
-#: ``{"subject": "group", "controller": "not_you"/None}`` scoping already
-#: handles any player-keyed event (`_GROUP_CONTROLLER_EVENT_KEYS` maps
-#: `SPELL_CAST` to ``"player_id"``, proven working by Smothering Tithe's own
-#: `DRAW`-event use of the identical shape), so no new engine primitive is
-#: needed here — purely a missing recognizer.
-_CAST_SPELL_TRIGGER_PLAIN_RE = re.compile(
-    r"^whenever (?P<subj>you|an opponent|a player) casts? a spell"
-    # "…from exile" (Passionate Archaeologist's granted trigger) — RULE
-    # 601.2a's cast zone, read off the `SPELL_CAST` event's ``from_exile``
-    # key (`effect_binder`'s ``spell_from_exile`` predicate), the same
-    # "gate the cast trigger on an event field" idiom as the mana-value /
-    # ``from_hand`` rows.
-    r"(?P<from_exile> from exile)?"
-    # "…during an opponent's turn" (Fire Nation Occupation) — the caster
-    # isn't the active player, i.e. the trigger's own ``not_controllers_
-    # turn`` gate (`effect_binder`, RULE 603.4). "during your turn" has no
-    # matching engine gate, so it's deliberately left out (fail-closed).
-    r"(?P<opp_turn> during an opponent'?s turn)?,\s*(?P<body>.+)$",
-    re.IGNORECASE | re.S,
-)
 
 #: "Whenever you cast a spell that targets one or more permanents,
 #: `<effect>`." (Tiller of Flesh) — a RULE 608.2b targeting filter on the
@@ -890,11 +691,6 @@ _DRAW_TRIGGER_PLAIN_RE = re.compile(
 #: Jace, Unraveler emblem body and the "casts their first spell each turn"
 #: cluster (Mind's Dilation, The Lord of Pain, Pain Distributor).
 _CAST_SPELL_ORDINAL_WORDS: dict[str, int] = {"first": 1, "second": 2, "third": 3, "fourth": 4}
-_CAST_SPELL_TRIGGER_NTH_RE = re.compile(
-    r"^whenever (?P<subj>you|an opponent|a player) casts? (?:your|their) "
-    rf"(?P<ordinal>{'|'.join(_CAST_SPELL_ORDINAL_WORDS)}) spell each turn,\s*(?P<body>.+)$",
-    re.IGNORECASE | re.S,
-)
 
 #: "Whenever you draw your second card each turn, …" / "Whenever an opponent
 #: draws their second card each turn, …" (Faerie Mastermind / Bard the
@@ -938,67 +734,6 @@ _TAP_FOR_MANA_TRIGGER_RE = re.compile(
     re.IGNORECASE | re.S,
 )
 
-#: The mana-value-filtered sibling — "Whenever a player casts a spell with
-#: mana value N or less, <effect>." (Eidolon of the Great Revel/Pyrostatic
-#: Pillar-shaped). `SPELL_CAST` already carries ``mana_value`` on the event
-#: (`_track_spell_cast`'s own read), so `effect_binder`'s
-#: ``spell_mana_value_at_most`` predicate is the only new piece.
-_CAST_SPELL_TRIGGER_MV_RE = re.compile(
-    r"^whenever (?P<subj>you|an opponent|a player) casts? a spell with "
-    r"mana value (?P<n>\d+) or less,\s*(?P<body>.+)$",
-    re.IGNORECASE | re.S,
-)
-
-#: PAR-79 fifth increment: the ``>=`` mirror of `_CAST_SPELL_TRIGGER_MV_RE`
-#: just above — "Whenever you cast a spell with mana value N or greater,
-#: <effect>." (Angry Rabble/Enraged Flamecaster/Etherium Spinner-shaped).
-#: `effect_binder`'s ``spell_mana_value_at_least`` predicate (built for
-#: PAR-60's "…with mana value 5 or greater" *card-type-qualified* row —
-#: `_CAST_SPELL_TRIGGER_RE`'s own ``types`` slot already threads it through
-#: a *typed* cast trigger) already existed with **no bare, untyped
-#: recognizer at all** — this row is exactly that missing piece, the same
-#: gap `spell_has_x`/`first_x_spell` turned out to have below. Deliberately
-#: narrow to the untyped "a spell" shape (like `_CAST_SPELL_TRIGGER_MV_RE`'s
-#: own "or less" sibling); a typed "an instant or sorcery spell with mana
-#: value N or greater" already reaches the threshold through
-#: `_CAST_SPELL_TRIGGER_RE`'s own dispatch (see the mana-value branch added
-#: there), not this row.
-_CAST_SPELL_TRIGGER_MV_AT_LEAST_RE = re.compile(
-    r"^whenever (?P<subj>you|an opponent|a player) casts? a spell with "
-    r"mana value (?P<n>\d+) or greater,\s*(?P<body>.+)$",
-    re.IGNORECASE | re.S,
-)
-
-#: PAR-79 fifth increment: "Whenever you cast a spell with {X} in its mana
-#: cost, <effect>." (Matterbending Mage/Zaxara, the Exemplary/Geometer's
-#: Arthropod-shaped) — `effect_binder`'s ``spell_has_x`` predicate already
-#: existed (built for PAR-60's Elementalist's Palette/Quandrix {X}-first-
-#: spell cluster) with no oracle-text recognizer reaching it at all; same
-#: gap shape as the mana-value row above. The ordinal "your first spell
-#: with {X} in its mana cost each turn" sibling reads the same-vintage
-#: ``first_x_spell`` predicate and is recognized separately below.
-_CAST_SPELL_TRIGGER_X_RE = re.compile(
-    r"^whenever (?P<subj>you|an opponent|a player) casts? a spell with "
-    r"\{x\} in its mana cost,\s*(?P<body>.+)$",
-    re.IGNORECASE | re.S,
-)
-_CAST_SPELL_TRIGGER_FIRST_X_RE = re.compile(
-    r"^whenever (?P<subj>you|an opponent|a player) casts? (?:your|their) first "
-    r"spell with \{x\} in its mana cost each turn,\s*(?P<body>.+)$",
-    re.IGNORECASE | re.S,
-)
-
-#: PAR-79 fifth increment: "Whenever you cast a historic spell, <effect>."
-#: (RULE 700.13 — an artifact, legendary, or Saga spell; Jhoira, Weatherlight
-#: Captain/Cabal Paladin/Artificer's Assistant-shaped Kaladesh/Dominaria
-#: payoffs) — same dead-primitive shape as the {X} rows just above:
-#: `effect_binder`'s ``spell_is_historic`` predicate already existed with no
-#: segmenter regex reaching it at all.
-_CAST_SPELL_TRIGGER_HISTORIC_RE = re.compile(
-    r"^whenever (?P<subj>you|an opponent|a player) casts? a historic spell,"
-    r"\s*(?P<body>.+)$",
-    re.IGNORECASE | re.S,
-)
 
 #: PAR-79 fifth increment: "When ~ enters and whenever you cast <cast-
 #: trigger clause>, <effect>." (Hraesvelgr of the First Brood/Brinelin, the
@@ -1025,29 +760,6 @@ _ETB_AND_CAST_TRIGGER_RE = re.compile(
     re.IGNORECASE | re.S,
 )
 
-#: A curated whitelist of real creature subtypes for "Whenever you cast an
-#: Elf spell, …"-shaped triggers (Lys Alana Huntmaster/Leaf-Crowned
-#: Visionary, tribal "spells matter" payoffs — ranked the single biggest
-#: template blocker in the whole cache at ~181 cards on the wider "cast a
-#: `<word>` spell" shape; this is the safe creature-subtype slice of it).
-#: Deliberately a fixed list rather than "any word": `effect_binder`'s
-#: `spell_subtype_any` predicate is a bare substring check against the
-#: cast object's printed type line, which would *silently* misfire on a
-#: non-subtype adjective that happens to appear in some other card's type
-#: line ("legendary") or simply never fire on one that never does
-#: ("historic"/"kicked"/"multicolored"/"party") — both wrong, and neither
-#: caught by the coverage gate, so only genuine creature types go in this
-#: list (extend it as a real card needs one, rather than trying to
-#: enumerate the ~300-entry official creature-type list up front — no
-#: canonical list of those exists in this codebase, per
-#: `catalogue.handlers._creature_type_options`'s own docstring).
-_CAST_SPELL_SUBTYPE_WORDS: frozenset[str] = frozenset({
-    "elf", "goblin", "zombie", "human", "wizard", "merfolk", "vampire",
-    "dragon", "angel", "demon", "spirit", "soldier", "knight", "warrior",
-    "elemental", "giant", "dwarf", "faerie", "sliver", "rogue", "cleric",
-    "shaman", "druid", "beast", "bird", "cat", "dog", "insect", "snake",
-    "treefolk", "wolf",
-})
 
 #: "Whenever you cast a **red** spell, …" (Balefire Liege, Runaway Steam-Kin)
 #: — a single colour word in `_CAST_SPELL_TRIGGER_RE`'s ``types`` slot maps
@@ -1141,177 +853,6 @@ _EXERT_PLAYER_TRIGGER_RE = re.compile(
     r"^whenever you exert a creature,\s*(?P<body>.+)$", re.IGNORECASE | re.S,
 )
 
-
-def _parse_cast_spell_types(text: str) -> Optional[list[str]]:
-    """``text`` (e.g. "instant or sorcery", "creature, artifact, or
-    enchantment") → its card-type word list, or ``None`` if any token isn't
-    a recognised main card type (fail-closed)."""
-    tokens = [t for t in re.split(r"[,\s]+", text.strip().lower()) if t and t != "or"]
-    if not tokens or any(t not in _SPELL_CAST_TYPE_WORDS for t in tokens):
-        return None
-    return tokens
-
-#: The card-type words a "group" trigger condition can scope to (RULE 613.6-
-#: adjacent vocabulary shared with `catalogue.static_handlers`'s anthem
-#: selectors) — deliberately small: only what `models/game_object.py`'s
-#: `type_words` can check without a subtype grammar. Used by `_DAMAGE_TRIGGER_RE`
-#: (RULE 120.3's damage shape) below.
-_GROUP_TYPE_WORDS = ("creature", "artifact", "enchantment", "land", "permanent")
-
-#: RULE 120.3's "deals combat damage to a player" (Sword-cycle/Bloodforged
-#: Battle-Axe-shaped self-subject trigger) and its "deals combat damage to a
-#: creature" (Kaldra Compleat-shaped) sibling — `EventType.DAMAGE` filtered to
-#: ``{"combat": bool, "is_player": bool}``, mirroring exactly what
-#: `effect_binder._trigger_condition`'s ``"filter"`` docstring already
-#: documents for the hand-authored Sword-cycle entries; only the parser
-#: recognition was missing. A dedicated bypass (checked before the generic
-#: `_TRIGGER_RE` dispatch, like `_MAGECRAFT_RE` above) since neither the
-#: verb phrase nor its filter fit the single-word `_TRIGGER_EVENTS`/
-#: `_trigger_condition` vocabulary. Two subject shapes:
-#:
-#: * ``~`` (folded from the card's own name/"this creature" by `normalize`)
-#:   — an ordinary ``{"subject": "self"}`` condition.
-#: * "a/an/another <type> [you control]" (Bident of Thassa/Deepfathom
-#:   Skulker/Cazur-shaped) — RULE 603.1's ``{"subject": "group"}``, the same
-#:   closed `_GROUP_TYPE_WORDS` vocabulary, with "you control" optional. Every *qualified*
-#:   variant ("a **modified**/**renowned**/**historic** creature you
-#:   control", "a creature you control **with deathtouch**") stays
-#:   unclaimed — the type word is a closed list and the regex is anchored,
-#:   so the qualifier simply fails to match (fail-closed).
-#: * "enchanted/equipped <noun>" (the Sword-of-X-and-Y cycle) — RULE
-#:   303.4/301.5's ``{"subject": "attached_permanent"}``, the same subject
-#:   `_ATTACHED_SUBJECT_RE` maps for the enters/dies/attacks/blocks verbs.
-#:   Previously these cards reached the engine only through the
-#:   hand-authored catalogue.
-#:
-#: DAMAGE's subject key is ``source_id`` and its group-controller key is
-#: ``source_controller_id`` (`effect_binder._SUBJECT_EVENT_KEYS`/
-#: `_GROUP_CONTROLLER_EVENT_KEYS`) — the damage event names its *source*, not
-#: an `instance_id`/`controller_id` the way the RULE 603.1 object-subject
-#: events do.
-_DAMAGE_TRIGGER_RE = re.compile(
-    r"^whenever (?:"
-    r"(?P<self>~)"
-    r"|(?P<attached>(?:enchanted|equipped) (?:creature|permanent|land|artifact))"
-    r"|(?P<article>another|an|a) (?P<goaded>goaded )?(?:(?P<type>"
-    + "|".join(_GROUP_TYPE_WORDS) + r")"
-    # PAR-117 (group-subject residue, Essence/Brood/Synapse Sliver-shaped:
-    # "whenever a **Sliver** deals [combat ]damage[ to a player], …") — a
-    # creature *subtype* standing in for `_GROUP_TYPE_WORDS`'s closed main-
-    # type list, the "any lowercase word, no whitelist" shape the retired
-    # tribal group row accepted for the ENTERS/DIES/ATTACKS/BLOCKS family
-    # (fail-safe: a non-subtype word just never
-    # matches any real object, so this never over-fires). Tried only after
-    # the closed `type` alternative above, so "a **creature** deals damage"
-    # keeps matching that one first.
-    r"|(?P<subtype>[a-z]+))"
-    # "a creature **token** you control deals combat damage to a player"
-    # (Curiosity Crafter / Reconnaissance Mission-for-tokens) — RULE 111.9's
-    # is-a-token filter on the acting object.
-    r"(?P<token> token)?"
-    r"(?P<yours> you control)?"
-    # RULE 310: "…to a player or battle" (Furnace Reins-shaped) — the battle
-    # case rides the same ``{"is_player": true}`` DAMAGE filter (a documented
-    # simplification: the far commoner player-damage firing is exact; battle
-    # damage as an extra trigger source isn't separately modelled). The whole
-    # "to <recipient>" is optional: a bare "deals damage" (Shackles of
-    # Treachery's granted trigger) matches *any* damage instance, so the
-    # dispatch below omits the ``is_player`` key entirely in that case.
-    r") deals (?P<combat>combat )?damage"
-    r"(?: to (?:an?|1 of your) (?P<recipient>player|opponent|creature)s?"
-    r"(?P<or_planeswalker> or planeswalker)?(?: or battle)?)?,"
-    r"\s*(?P<body>.+)$",
-    re.IGNORECASE,
-)
-
-#: RULE 603.1's *recipient* side of a damage trigger (MEC-11, Enrage-shaped:
-#: "Enrage — Whenever ~ is dealt damage, …", the ability-word label already
-#: stripped by `normalize._strip_ability_words` before this ever runs) —
-#: `_DAMAGE_TRIGGER_RE`'s mirror image, same subject grammar (self/attached/
-#: group over `_GROUP_TYPE_WORDS`), opposite direction: the object *taking*
-#: the damage, not dealing it. Far more cards use this shape than print the
-#: "Enrage —" label (Boros Reckoner/Brash Taunter/Fungusaur-shaped self
-#: triggers, Rite of Passage's "a creature you control", a Sword-cycle-
-#: adjacent "equipped creature" family) — the grammar is general RULE 603.1
-#: recognition, not an Enrage-specific carve-out, so it's not gated on the
-#: label at all. No recipient-side "to a player/opponent" analogue exists
-#: (nothing prints "whenever a player is dealt damage" — that would be a
-#: player-subject condition, a different, unbuilt vocabulary — so unlike
-#: `_DAMAGE_TRIGGER_RE` there is no ``recipient`` group here to parse).
-#: The ``condition["recipient"] = True`` marker is what tells
-#: `effect_binder._subject_event_key`/`_group_controller_event_key` to read
-#: `target_id`/`target_controller_id` off the `DAMAGE` event instead of the
-#: `source_id`/`source_controller_id` the "deals damage" family above reads.
-_DAMAGE_RECIPIENT_TRIGGER_RE = re.compile(
-    r"^whenever (?:"
-    r"(?P<self>~)"
-    r"|(?P<attached>(?:enchanted|equipped) (?:creature|permanent|land|artifact))"
-    r"|(?P<article>another|an|a) (?P<type>"
-    + "|".join(_GROUP_TYPE_WORDS) + r")"
-    r"(?P<yours> you control)?"
-    r") is dealt (?P<combat>combat )?damage,\s*(?P<body>.+)$",
-    re.IGNORECASE,
-)
-
-#: MEC-19/RULE 115/601.2c's "becomes the target of a spell/ability" trigger
-#: condition (`EventType.BECOMES_TARGET`) — Goldspan Dragon/Tectonic Giant's
-#: own "attacks or becomes the target of a spell", and, far more numerously,
-#: a ~150-card cycle that prints Ward's exact RULE 702.21a outcome
-#: ("counter it unless that player pays `<cost>`") as an ordinary triggered
-#: ability instead of the Ward keyword — those cards have no "Ward" word
-#: anywhere in their text, so the keyword catalogue can never reach them.
-#: Same self/attached/group subject grammar as `_DAMAGE_TRIGGER_RE` above,
-#: plus two qualifiers this family always prints and that shape never needs:
-#:
-#: * ``item_kind`` — "of a spell"/"of a spell or ability"/"of an ability",
-#:   fed straight to the ordinary ``"filter"`` exact-match mechanism
-#:   (`BECOMES_TARGET`'s own ``item_kind`` payload) rather than a bespoke
-#:   predicate. A more specific object ("of an Aura spell", "of an instant
-#:   or sorcery spell", "of a backup ability") isn't in this closed
-#:   alternation on purpose — matching it here would require re-deriving
-#:   the *cast* object's own card-type/subtype at `BECOMES_TARGET`-fire
-#:   time, a genuinely separate lookup `cast_of_color`/`spell_card_types`
-#:   need a live `state.find_object` for; those clauses stay unclaimed
-#:   (fail-closed) rather than guessed at.
-#: * ``caster_relation`` — "an opponent controls"/"you control", optional
-#:   (unscoped when absent) — `effect_binder._trigger_condition`'s new
-#:   ``caster_relation`` predicate, comparing `BECOMES_TARGET`'s
-#:   ``controller_id`` (the *caster*, not the target) against the ability's
-#:   own source.
-#:
-#: A trailing "**for the first time each turn**" (Angelic Cub/Heartfire
-#: Hero-shaped) is RULE 603.2's per-source once-a-turn cap — the exact
-#: primitive `TRIGGER_ONCE_PER_TURN_MARKER` already folds into
-#: `TriggeredAbility.once_per_turn` for a *trailing-sentence* phrasing;
-#: here the qualifier is embedded in the condition clause itself, so it's
-#: set directly as ``trigger["limit"]`` rather than round-tripped through
-#: that marker.
-#:
-#: Deliberately excludes the player-subject/compound "you or a permanent
-#: you control becomes the target…" shape (Leovold, Rayne, Surrak, Unsettled
-#: Mariner, Parnesse) — a genuinely different, unbuilt compound-subject
-#: grammar (BACKLOG.md) — and any group subject qualified by a *subtype*
-#: word rather than `_GROUP_TYPE_WORDS`'s closed main-type list ("a Dragon
-#: you control becomes the target…", Thunderbreak Regent/Dragon's
-#: Disciple/Scalelord Reckoner/Svyelun-shaped): those stay unclaimed.
-_BECOMES_TARGET_TRIGGER_RE = re.compile(
-    # "When" and "whenever" are interchangeable here — the ~19-card
-    # Illusion cycle (Phantasmal Bear, Frost Walker, Skulking Ghost, …)
-    # prints "When ~ becomes the target …, sacrifice it.", and a
-    # self-sacrifice on becoming a target behaves identically either way
-    # (the permanent is gone after the first firing).
-    r"^when(?:ever)? (?:"
-    r"(?P<self>~)"
-    r"|(?P<attached>(?:enchanted|equipped) (?:creature|permanent|land|artifact))"
-    r"|(?P<article>another|an|a) (?P<type>"
-    + "|".join(_GROUP_TYPE_WORDS) + r")"
-    r"(?P<yours> you control)?"
-    r") becomes the target of an? (?P<item_kind>spell or ability|spell|ability)"
-    r"(?P<caster_rel> an opponent controls| you control)?"
-    r"(?P<once> for the first time each turn)?"
-    r",\s*(?P<body>.+)$",
-    re.IGNORECASE,
-)
 
 #: RULE 500.7's "at the beginning of the [upkeep/draw/end/…] step" turn-
 #: structure trigger family — a genuinely common template distinct from
@@ -1563,22 +1104,6 @@ _ATTACKS_OPPONENT_THAT_PLAYER_LIFE_RE = re.compile(
     r"^that player (?P<verb>loses|gains) (?P<n>\d+) life\.?$", re.IGNORECASE,
 )
 
-#: RULE 508.3a's batch attack trigger: "whenever **one or more** [<filter>]
-#: creatures you control attack[ a player], …" (Winota / A-Winota, Angelic
-#: Guardian, Ancestor Dragon, Alibou, …). Fires once per combat, not per
-#: attacker — the engine's `EventType.PLAYER_ATTACKED` aggregate already has
-#: exactly that shape (one firing per (attacking player, defender) group),
-#: so this maps onto ``{"subject": "you"}`` with an optional ``group_filter``
-#: the binder checks against the live attacking group (`effect_binder.
-#: _subject_condition`). The ``<filter>`` is parsed by
-#: `_batch_attack_group_filter` — bare, a negated creature subtype
-#: ("non-Human"/"non-Toy"), or a main type ("artifact") — anything else
-#: (RULE 701.48 "modified", "suspected") fails the match closed.
-_BATCH_ATTACK_TRIGGER_RE = re.compile(
-    r"^(?:1|one) or more (?P<filt>[a-z][a-z-]*(?:\s[a-z][a-z-]*)?\s)?"
-    r"creatures you control attack(?: a player)?$"
-)
-
 
 _CREATURE_EXPLORES_TRIGGER_RE = re.compile(
     r"^a creature you control explores(?: a (?P<result>land|nonland) card)?$",
@@ -1630,25 +1155,6 @@ _ONE_CARD_MILLED_TO_YOUR_GRAVEYARD_TRIGGER_RE = re.compile(
     r"is put into your graveyard from your library$"
 )
 
-
-def _batch_attack_group_filter(filt: Optional[str]) -> Optional[dict[str, Any]]:
-    """The optional ``<filter>`` before "creatures you control attack" in a
-    `_BATCH_ATTACK_TRIGGER_RE` match → a ``group_filter`` dict (empty for the
-    bare form), or ``None`` to fail the whole trigger match closed for an
-    un-modelled qualifier ("modified", "suspected")."""
-    f = (filt or "").strip().lower()
-    if not f:
-        return {}
-    if f.startswith("non-") and f[4:].isalpha():
-        return {"excluded_subtypes": [f[4:]]}
-    if f in _GROUP_TYPE_WORDS:
-        return {"type": f}
-    if f == "suspected":
-        # RULE 701.60 (Clandestine Meddler) — "whenever one or more
-        # suspected creatures you control attack, …". Checked against the
-        # live attacking group by `effect_binder._any_attacking_matches`.
-        return {"is_suspected": True}
-    return None
 
 #: RULE 303.4/301.5's "enchanted/equipped creature" trigger subject (Acquired
 #: Mutation's "whenever enchanted creature attacks", a Sword's "whenever
@@ -3411,17 +2917,6 @@ def _variant_trigger_event(condition: str) -> Any:
     return None
 
 
-def _player_trigger_event(condition: str) -> Any:
-    """A player-subject trigger condition ("whenever you scry/surveil") → its
-    `EventType`, a *list* of two for the "scry or surveil" compound, or
-    ``None`` for anything else (`_PLAYER_TRIGGER_CONDITIONS`)."""
-    cond = condition.strip()
-    for pattern, event in _PLAYER_TRIGGER_CONDITIONS:
-        if pattern.match(cond):
-            return list(event) if isinstance(event, list) else event
-    return None
-
-
 def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
     """RULE 603.1's condition *subject* → the `AbilitySpec.trigger["condition"]` dict.
 
@@ -3497,18 +2992,10 @@ def trigger_condition_dict(cond_text: str) -> Optional[dict[str, Any]]:
 
     For a caller that needs the condition on its own — a trigger doubler's cause
     ("a creature you control attacks") — through the same three recognisers
-    `segment_line` uses for an ordinary trigger: player events, the per-adjective
-    object subjects, then the composed object head.
+    `segment_line` uses for an ordinary trigger: the per-adjective object
+    subjects, then the composed object head (which owns the player events).
     """
     cond = cond_text.strip()
-    player_event = _player_trigger_event(cond)
-    if player_event is not None:
-        extra: dict[str, Any] = {}
-        if isinstance(player_event, tuple):
-            player_event, event_filter = player_event
-            if event_filter:
-                extra["filter"] = dict(event_filter)
-        return {"event": player_event, "condition": {"subject": "you"}, **extra}
     event = _trigger_event(cond)
     if event is not None:
         condition = _trigger_condition(cond)
@@ -6223,9 +5710,9 @@ def _segment_line_unsplit(
     # PAR-79 fifth increment: see `_ETB_AND_CAST_TRIGGER_RE`'s own docstring
     # — split before any single-trigger regex gets a look, so a compound
     # "enters and whenever you cast" line always goes through this path
-    # rather than falling through to `_CAST_SPELL_TRIGGER_RE` et al. (whose
-    # own ``^whenever`` anchors wouldn't match this line's leading "when ~
-    # enters and " anyway, but the ordering is deliberate for readability).
+    # rather than falling through to the composed cast head (whose own
+    # ``^(?:whenever|when) <actor>`` anchor wouldn't match this line's leading
+    # "when ~ enters and " anyway, but the ordering is deliberate).
     etb_and_cast = _ETB_AND_CAST_TRIGGER_RE.match(raw)
     if etb_and_cast is not None:
         body = etb_and_cast.group("body").strip()
@@ -6294,119 +5781,6 @@ def _segment_line_unsplit(
         )
         return Segment(raw=raw, spec=spec, claimed=True)
 
-    cast_spell_trig_mv = _CAST_SPELL_TRIGGER_MV_RE.match(raw)
-    if cast_spell_trig_mv is not None:
-        subj = cast_spell_trig_mv.group("subj").lower()
-        body, optional = _peel_optional(cast_spell_trig_mv.group("body"))
-        effects = parse_effect_body(body, self_subject=True)
-        if effects is None:
-            return Segment(raw=raw)
-        if subj == "you":
-            mv_condition: dict[str, Any] = {"subject": "you"}
-        elif subj == "an opponent":
-            mv_condition = {"subject": "group", "controller": "not_you"}
-        else:
-            mv_condition = {"subject": "group"}
-        spec = AbilitySpec(
-            "triggered",
-            effects=effects,
-            trigger={
-                "event": "SPELL_CAST",
-                "condition": mv_condition,
-                "spell_mana_value_at_most": int(cast_spell_trig_mv.group("n")),
-            },
-            optional=optional,
-            raw_text=raw,
-            parser=provenance,
-        )
-        return Segment(raw=raw, spec=spec, claimed=True)
-
-    cast_spell_trig_mv_at_least = _CAST_SPELL_TRIGGER_MV_AT_LEAST_RE.match(raw)
-    if cast_spell_trig_mv_at_least is not None:
-        subj = cast_spell_trig_mv_at_least.group("subj")
-        body, optional = _peel_optional(cast_spell_trig_mv_at_least.group("body"))
-        effects = parse_effect_body(body, self_subject=True)
-        if effects is None:
-            return Segment(raw=raw)
-        spec = AbilitySpec(
-            "triggered",
-            effects=effects,
-            trigger={
-                "event": "SPELL_CAST",
-                "condition": _cast_spell_trigger_condition(subj),
-                "spell_mana_value_at_least": int(cast_spell_trig_mv_at_least.group("n")),
-            },
-            optional=optional,
-            raw_text=raw,
-            parser=provenance,
-        )
-        return Segment(raw=raw, spec=spec, claimed=True)
-
-    cast_spell_trig_x = _CAST_SPELL_TRIGGER_X_RE.match(raw)
-    if cast_spell_trig_x is not None:
-        subj = cast_spell_trig_x.group("subj")
-        body, optional = _peel_optional(cast_spell_trig_x.group("body"))
-        effects = parse_effect_body(body, self_subject=True)
-        if effects is None:
-            return Segment(raw=raw)
-        spec = AbilitySpec(
-            "triggered",
-            effects=effects,
-            trigger={
-                "event": "SPELL_CAST",
-                "condition": _cast_spell_trigger_condition(subj),
-                "spell_has_x": True,
-            },
-            optional=optional,
-            raw_text=raw,
-            parser=provenance,
-        )
-        return Segment(raw=raw, spec=spec, claimed=True)
-
-    cast_spell_trig_first_x = _CAST_SPELL_TRIGGER_FIRST_X_RE.match(raw)
-    if cast_spell_trig_first_x is not None:
-        subj = cast_spell_trig_first_x.group("subj")
-        body, optional = _peel_optional(cast_spell_trig_first_x.group("body"))
-        effects = parse_effect_body(body, self_subject=True)
-        if effects is None:
-            return Segment(raw=raw)
-        spec = AbilitySpec(
-            "triggered",
-            effects=effects,
-            trigger={
-                "event": "SPELL_CAST",
-                "condition": _cast_spell_trigger_condition(subj),
-                "first_x_spell": True,
-            },
-            optional=optional,
-            raw_text=raw,
-            parser=provenance,
-        )
-        return Segment(raw=raw, spec=spec, claimed=True)
-
-    cast_spell_trig_historic = _CAST_SPELL_TRIGGER_HISTORIC_RE.match(raw)
-    if cast_spell_trig_historic is not None:
-        subj = cast_spell_trig_historic.group("subj")
-        body, optional = _peel_optional(cast_spell_trig_historic.group("body"))
-        effects = parse_effect_body(body, self_subject=True)
-        if effects is None:
-            return Segment(raw=raw)
-        effects, body_limit = _strip_trigger_once_per_turn_marker(effects)
-        spec = AbilitySpec(
-            "triggered",
-            effects=effects,
-            trigger={
-                "event": "SPELL_CAST",
-                "condition": _cast_spell_trigger_condition(subj),
-                "spell_is_historic": True,
-                **({"limit": True} if body_limit else {}),
-            },
-            optional=optional,
-            raw_text=raw,
-            parser=provenance,
-        )
-        return Segment(raw=raw, spec=spec, claimed=True)
-
     if _COUNTER_FREE_SPELL_RE.match(raw):
         spec = AbilitySpec(
             "triggered",
@@ -6416,28 +5790,6 @@ def _segment_line_unsplit(
                 "condition": {"subject": "group"},
                 "spell_no_mana_spent": True,
             },
-            raw_text=raw,
-            parser=provenance,
-        )
-        return Segment(raw=raw, spec=spec, claimed=True)
-
-    cast_spell_trig_nth = _CAST_SPELL_TRIGGER_NTH_RE.match(raw)
-    if cast_spell_trig_nth is not None:
-        subj = cast_spell_trig_nth.group("subj").lower()
-        n = _CAST_SPELL_ORDINAL_WORDS[cast_spell_trig_nth.group("ordinal").lower()]
-        body, optional = _peel_optional(cast_spell_trig_nth.group("body"))
-        effects = _counter_triggering_spell_effects(body) or parse_effect_body(body)
-        if effects is None:
-            return Segment(raw=raw)
-        spec = AbilitySpec(
-            "triggered",
-            effects=effects,
-            trigger={
-                "event": "SPELL_CAST",
-                "condition": _cast_spell_trigger_condition(subj),
-                "is_nth_spell_cast_this_turn": n,
-            },
-            optional=optional,
             raw_text=raw,
             parser=provenance,
         )
@@ -6610,33 +5962,6 @@ def _segment_line_unsplit(
         }, optional=optional, raw_text=raw, parser=provenance)
         return Segment(raw=raw, spec=spec, claimed=True)
 
-    cast_spell_trig_plain = _CAST_SPELL_TRIGGER_PLAIN_RE.match(raw)
-    if cast_spell_trig_plain is not None:
-        subj = cast_spell_trig_plain.group("subj").lower()
-        body, optional = _peel_optional(cast_spell_trig_plain.group("body"))
-        # "~ deals damage equal to that spell's mana value …" (Passionate
-        # Archaeologist) — a bare "~" in the body is this ability's own
-        # source, unambiguous for a player-subject cast trigger.
-        effects = parse_effect_body(body, self_subject=True)
-        if effects is None:
-            return Segment(raw=raw)
-        trig: dict[str, Any] = {
-            "event": "SPELL_CAST", "condition": _cast_spell_trigger_condition(subj),
-        }
-        if cast_spell_trig_plain.group("opp_turn"):
-            trig["phase_relation"] = "not_you"
-        if cast_spell_trig_plain.group("from_exile"):
-            trig["spell_from_exile"] = True
-        spec = AbilitySpec(
-            "triggered",
-            effects=effects,
-            trigger=trig,
-            optional=optional,
-            raw_text=raw,
-            parser=provenance,
-        )
-        return Segment(raw=raw, spec=spec, claimed=True)
-
     cast_this_spell_trig = _CAST_THIS_SPELL_TRIGGER_RE.match(raw)
     if cast_this_spell_trig is not None:
         body, optional = _peel_optional(cast_this_spell_trig.group("body"))
@@ -6737,11 +6062,6 @@ def _segment_line_unsplit(
         )
         return Segment(raw=raw, spec=spec, claimed=True)
 
-    # Tried before the positive `_CAST_SPELL_TRIGGER_RE` below: that
-    # pattern's own ``types`` group (bare ``[a-z][a-z,\s]*?``) is generic
-    # enough to also swallow "noncreature" as if it were a types list —
-    # failing `_parse_cast_spell_types` and returning unclaimed *before*
-    # this negated form ever got a chance to match the same line.
     two_color_cast = _CAST_TWO_COLOR_SPELL_TRIGGER_RE.match(raw)
     if two_color_cast is not None:
         body, optional = _peel_optional(two_color_cast.group("body"))
@@ -6757,48 +6077,6 @@ def _segment_line_unsplit(
             "condition": _cast_spell_trigger_condition(two_color_cast.group("subj")),
             "cast_of_all_colors": colors,
         }, optional=optional, raw_text=raw, parser=provenance)
-        return Segment(raw=raw, spec=spec, claimed=True)
-
-    cast_spell_trig_neg = _CAST_SPELL_TRIGGER_NEG_RE.match(raw)
-    if cast_spell_trig_neg is not None:
-        excluded = cast_spell_trig_neg.group("type").lower()
-        if excluded not in _SPELL_CAST_TYPE_WORDS:
-            return Segment(raw=raw)
-        neg_subj = cast_spell_trig_neg.group("subj")
-        body, optional = _peel_optional(cast_spell_trig_neg.group("body"))
-        trigger = {
-            "event": "SPELL_CAST",
-            "condition": _cast_spell_trigger_condition(neg_subj),
-            "spell_exclude_card_types": [excluded],
-        }
-        two_rider_parts = _cast_mana_two_rider_parts(body, self_subject=True)
-        if two_rider_parts is not None:
-            base_effects, riders = two_rider_parts
-            base_spec = AbilitySpec("triggered", effects=base_effects, trigger=trigger,
-                optional=optional, raw_text=raw, parser=provenance)
-            rider_specs = [
-                AbilitySpec("triggered", effects=effects,
-                    trigger={**trigger, "spell_mana_spent_at_least": threshold}, optional=optional,
-                    raw_text=raw, parser=provenance)
-                for threshold, effects in riders
-            ]
-            return Segment(raw=raw, spec=base_spec, extra_specs=rider_specs, claimed=True)
-        body, mana_spent_at_least = _peel_spell_mana_spent_at_least(body)
-        effects = parse_effect_body(body, self_subject=True)
-        if effects is None:
-            return Segment(raw=raw)
-        spec = AbilitySpec(
-            "triggered",
-            effects=effects,
-            trigger={
-                **trigger,
-                **({"spell_mana_spent_at_least": mana_spent_at_least}
-                   if mana_spent_at_least is not None else {}),
-            },
-            optional=optional,
-            raw_text=raw,
-            parser=provenance,
-        )
         return Segment(raw=raw, spec=spec, claimed=True)
 
     doctor_or_companion_trig = _DOCTOR_OR_COMPANION_CREATURE_CAST_TRIGGER_RE.match(raw)
@@ -6833,133 +6111,6 @@ def _segment_line_unsplit(
             parser=provenance,
         )
         return Segment(raw=raw, spec=doctor_spec, extra_specs=[companion_spec], claimed=True)
-
-    # PAR-74: a bare "~" in the body is this ability's own source, the same
-    # unambiguous reading `_CAST_SPELL_TRIGGER_PLAIN_RE`'s dispatch already
-    # passes `self_subject=True` for (Passionate Archaeologist) — this typed
-    # sibling was missing it, so any typed/color/subtype cast trigger whose
-    # own source reacts ("~ gains protection …", "~ becomes a 4/4 …", "~
-    # gains forestwalk …") failed closed on an otherwise-modelable body.
-    cast_spell_trig = _CAST_SPELL_TRIGGER_RE.match(raw)
-    if cast_spell_trig is not None:
-        pos_subj = cast_spell_trig.group("subj")
-        raw_types = cast_spell_trig.group("types")
-        types = _parse_cast_spell_types(raw_types)
-        # "Whenever you cast an Elf spell, …" (Lys Alana Huntmaster-shaped) —
-        # the same captured word list read as a *subtype* instead of a main
-        # card type when it isn't one (`_CAST_SPELL_SUBTYPE_WORDS`'s curated
-        # whitelist) — tried here, in the same branch, rather than a
-        # separate regex row: `_CAST_SPELL_TRIGGER_RE`'s own generic
-        # ``types`` group already matches "elf" just as happily as
-        # "creature", so a standalone subtype row placed after this one
-        # would never be reached, and placed before it would just invert
-        # the same problem onto genuine main-type cards.
-        single_word = raw_types.strip().lower()
-        if types is None and single_word in _CAST_SPELL_COLOR_WORDS:
-            # "Whenever you cast a red spell, …" (Balefire Liege) — the
-            # colour sibling of the subtype branch just below; reuses
-            # `effect_binder`'s existing ``cast_of_color`` predicate.
-            body, optional = _peel_optional(cast_spell_trig.group("body"))
-            effects = parse_effect_body(body, self_subject=True)
-            if effects is None:
-                return Segment(raw=raw)
-            spec = AbilitySpec(
-                "triggered",
-                effects=effects,
-                trigger={
-                    "event": "SPELL_CAST",
-                    "condition": _cast_spell_trigger_condition(pos_subj),
-                    "cast_of_color": _CAST_SPELL_COLOR_WORDS[single_word],
-                },
-                optional=optional,
-                raw_text=raw,
-                parser=provenance,
-            )
-            return Segment(raw=raw, spec=spec, claimed=True)
-        subtype_words = [
-            word for word in re.split(r"[,\s]+", raw_types.strip().lower())
-            if word and word != "or"
-        ]
-        if types is None and subtype_words and all(
-            word in _CAST_SPELL_SUBTYPE_WORDS or word == "arcane"
-            for word in subtype_words
-        ):
-            body, optional = _peel_optional(cast_spell_trig.group("body"))
-            effects = parse_effect_body(body, self_subject=True)
-            if effects is None:
-                return Segment(raw=raw)
-            spec = AbilitySpec(
-                "triggered",
-                effects=effects,
-                trigger={
-                    "event": "SPELL_CAST",
-                    "condition": _cast_spell_trigger_condition(pos_subj),
-                    "spell_subtype_any": subtype_words,
-                },
-                optional=optional,
-                raw_text=raw,
-                parser=provenance,
-            )
-            return Segment(raw=raw, spec=spec, claimed=True)
-        if types is None:
-            # Not a bare type/colour/subtype list: decline (rather than fail
-            # closed) so the composed cast-trigger row below can read the phrase.
-            cast_spell_trig = None
-    if cast_spell_trig is not None:
-        body, optional = _peel_optional(cast_spell_trig.group("body"))
-        two_rider_parts = _cast_mana_two_rider_parts(body, self_subject=True)
-        if two_rider_parts is not None:
-            base_effects, riders = two_rider_parts
-            trigger = {
-                "event": "SPELL_CAST", "condition": _cast_spell_trigger_condition(pos_subj),
-                "spell_card_types": types,
-            }
-            base_spec = AbilitySpec("triggered", effects=base_effects, trigger=trigger,
-                optional=optional, raw_text=raw, parser=provenance)
-            rider_specs = [
-                AbilitySpec("triggered", effects=effects,
-                    trigger={**trigger, "spell_mana_spent_at_least": threshold}, optional=optional,
-                    raw_text=raw, parser=provenance)
-                for threshold, effects in riders
-            ]
-            return Segment(raw=raw, spec=base_spec, extra_specs=rider_specs, claimed=True)
-        rider_parts = _cast_mana_rider_parts(body, self_subject=True)
-        if rider_parts is not None:
-            base_effects, threshold, rider_effects, replaces = rider_parts
-            trigger = {
-                "event": "SPELL_CAST", "condition": _cast_spell_trigger_condition(pos_subj),
-                "spell_card_types": types,
-            }
-            if replaces:
-                low = AbilitySpec("triggered", effects=base_effects,
-                    trigger={**trigger, "spell_mana_spent_less_than": threshold}, optional=optional,
-                    raw_text=raw, parser=provenance)
-                high = AbilitySpec("triggered", effects=rider_effects,
-                    trigger={**trigger, "spell_mana_spent_at_least": threshold}, optional=optional,
-                    raw_text=raw, parser=provenance)
-                return Segment(raw=raw, spec=low, extra_specs=[high], claimed=True)
-            base_spec = AbilitySpec("triggered", effects=base_effects, trigger=trigger,
-                optional=optional, raw_text=raw, parser=provenance)
-            rider_spec = AbilitySpec("triggered", effects=rider_effects,
-                trigger={**trigger, "spell_mana_spent_at_least": threshold}, optional=optional,
-                raw_text=raw, parser=provenance)
-            return Segment(raw=raw, spec=base_spec, extra_specs=[rider_spec], claimed=True)
-        effects = parse_effect_body(body, self_subject=True)
-        if effects is None:
-            return Segment(raw=raw)
-        spec = AbilitySpec(
-            "triggered",
-            effects=effects,
-            trigger={
-                "event": "SPELL_CAST",
-                "condition": _cast_spell_trigger_condition(pos_subj),
-                "spell_card_types": types,
-            },
-            optional=optional,
-            raw_text=raw,
-            parser=provenance,
-        )
-        return Segment(raw=raw, spec=spec, claimed=True)
 
     composed_cast = _CAST_TRIGGER_COMPOSED_RE.match(raw)
     if composed_cast is not None:
@@ -7060,238 +6211,6 @@ def _segment_line_unsplit(
                 "event": "LEAVES_BATTLEFIELD",
                 "controls_none_of_type": land_type,
             },
-            raw_text=raw,
-            parser=provenance,
-        )
-        return Segment(raw=raw, spec=spec, claimed=True)
-
-    damage_trig = _DAMAGE_TRIGGER_RE.match(raw)
-    if damage_trig is not None:
-        body, optional = _peel_optional(damage_trig.group("body"))
-        # "Enrage — whenever ~ is dealt damage, **it** fights …": the source is
-        # the trigger's own subject, so a bare "it" in the body is the source
-        # (`parse_effect_body`'s ``self_subject``). "whenever enchanted
-        # creature deals damage, its controller loses that much life."
-        # (Visions of Brutality, PAR-117) is the attached sibling. A "group"
-        # condition (Edric, Spymaster of Trest/Essence Sliver-shaped: "…, its
-        # controller `<verb>` …") is the group-subject sibling PAR-117's own
-        # `group_its_controller_*` handlers already model for every other
-        # RULE 603.1 event — this dispatch had just never passed the flag
-        # that unlocks them for `DAMAGE`.
-        #
-        # A group condition whose recipient is "a **creature**" (Sosuke, Son
-        # of Seshiro/Toxin Sliver-shaped: "…deals combat damage to a
-        # creature, destroy **that creature**.") introduces a *second*
-        # antecedent object the body's own pronoun could mean — the one
-        # damaged, not the one dealing it — which `delayed_sac_exile_tail`
-        # (`_DELAYED_SAC_EXILE_TAIL_RE`'s bare "it"/"that creature"/"them"
-        # alternative, ``capture="previous_or_self"``) can't tell apart from
-        # the group subject; being ungated (it also answers a bare
-        # self-subject "sacrifice it"), it would still match and fall back
-        # to this ability's own source, silently destroying e.g. Sosuke
-        # itself rather than the creature it just fought. Reading the
-        # *recipient's* own object (RULE 603.1's real "that creature" here)
-        # needs a referent this project doesn't have yet — a real gap, not
-        # attempted here. Refused narrowly, by pre-checking this one
-        # handler's own ambiguous-pronoun branch (not its ``obj_self``
-        # "~" branch, which stays exactly as unambiguous as ever — Quest
-        # for the Gemblades' "put a quest counter on **~**" keeps working)
-        # rather than withholding the whole clause, so every other reading
-        # of a creature-recipient group trigger is untouched.
-        delayed_tail_pronoun = _DELAYED_SAC_EXILE_TAIL_RE.fullmatch(
-            body.strip().rstrip(".").strip()
-        )
-        if (
-            damage_trig.group("recipient") == "creature"
-            and not (damage_trig.group("self") or damage_trig.group("attached"))
-            and delayed_tail_pronoun is not None
-            and delayed_tail_pronoun.group("obj")
-        ):
-            return Segment(raw=raw)
-        effects = parse_effect_body(
-            body, self_subject=bool(damage_trig.group("self")),
-            attached_subject=bool(damage_trig.group("attached")),
-            group_subject=bool(damage_trig.group("article")),
-        )
-        if effects is None:
-            return Segment(raw=raw)
-        # "deals combat damage" requires the ``combat`` flag; a bare "deals
-        # damage" (no "combat") is unqualified — it must match *any* damage
-        # instance, combat or not, so the filter omits the key entirely
-        # rather than pinning it to ``False`` (which would wrongly exclude
-        # real combat damage from an unqualified trigger).
-        # "…to **one of your opponents**" (The Rani) is the same recipient
-        # kind as "…to a player" as far as the damage event is concerned —
-        # the "yours" narrowing is a separate question this filter's
-        # ``is_player`` key doesn't express, and no shipped card's behaviour
-        # differs on it, so both spell it the same way.
-        damage_filter: dict[str, Any] = {}
-        if damage_trig.group("recipient"):
-            damage_filter["is_player"] = (
-                damage_trig.group("recipient") in ("player", "opponent")
-            )
-        if damage_trig.group("or_planeswalker"):
-            # ``is_player`` alone cannot express this union: planeswalker
-            # damage uses the same False value as creature damage.  Binding
-            # resolves the target's live type for this narrow printed form.
-            damage_filter.pop("is_player", None)
-            damage_filter["player_or_planeswalker"] = True
-        if damage_trig.group("combat"):
-            damage_filter["combat"] = True
-        if damage_trig.group("self"):
-            condition: dict[str, Any] = {"subject": "self"}
-        elif damage_trig.group("attached"):
-            condition = {"subject": "attached_permanent"}
-        else:
-            condition = {"subject": "group", "other": damage_trig.group("article").lower() == "another"}
-            if damage_trig.group("type"):
-                condition["type"] = damage_trig.group("type").lower()
-            else:
-                # PAR-117: "a **Sliver** deals damage" — the creature-
-                # subtype sibling of the ``type`` branch above, same
-                # ``subtypes`` list shape the group conditions use
-                # (`_build_group_ok` doesn't care which event supplied it).
-                condition["subtypes"] = [damage_trig.group("subtype").lower()]
-            if damage_trig.group("yours"):
-                condition["controller"] = "you"
-            if damage_trig.group("goaded"):  # RULE 701.15b — see `_GOADED_SUBJECT_RE`
-                condition["goaded"] = True
-            if damage_trig.group("token"):  # "a creature token you control …"
-                condition["is_token"] = True
-        spec = AbilitySpec(
-            "triggered",
-            effects=effects,
-            trigger={
-                "event": "DAMAGE",
-                "condition": condition,
-                "filter": damage_filter,
-            },
-            optional=optional,
-            raw_text=raw,
-            parser=provenance,
-        )
-        return Segment(raw=raw, spec=spec, claimed=True)
-
-    damage_recipient_trig = _DAMAGE_RECIPIENT_TRIGGER_RE.match(raw)
-    if damage_recipient_trig is not None:
-        body, optional = _peel_optional(damage_recipient_trig.group("body"))
-        # "Enrage — whenever ~ is dealt damage, **it** fights …": the source
-        # is the trigger's own subject, so a bare "it" in the body is the
-        # source (`parse_effect_body`'s ``self_subject``) — same idiom as
-        # the "deals damage" family above.
-        is_self_subject = bool(damage_recipient_trig.group("self"))
-        is_attached_subject = bool(damage_recipient_trig.group("attached"))
-        effects = parse_effect_body(
-            body, self_subject=is_self_subject, attached_subject=is_attached_subject,
-        )
-        if effects is None:
-            return Segment(raw=raw)
-        if not is_self_subject:
-            # "…a creature you control is dealt damage, put a +1/+1 counter
-            # on **it**." (Rite of Passage) — a bare "it" here means
-            # whichever group member the event actually names, *not* this
-            # ability's own source the way `self_subject` everywhere else
-            # in this module means: Rite of Passage is an Enchantment, and
-            # silently landing the counter on it instead of the damaged
-            # creature would be a wrong-but-MODELED card, strictly worse
-            # than leaving it unclaimed. `add_counters` with no explicit
-            # `target_kind` is the one shape real cards actually print this
-            # way (`AddCountersEffect.trigger_subject_key`, resolved
-            # against the same event key `_subject_event_key` uses for this
-            # trigger's own condition). Default-deny otherwise: an effect
-            # with neither a real RULE 115 ``target_kind`` nor a mass
-            # ``selector`` implicitly acts on "self" in every other
-            # context this parser builds, and there's no cached card yet
-            # to say what "self" should mean for a non-self subject here —
-            # fail closed rather than guess.
-            rewritten: list[EffectSpec] = []
-            for effect_spec in effects:
-                if effect_spec.type == "add_counters" and not effect_spec.params.get("target_kind"):
-                    params = dict(effect_spec.params)
-                    params["trigger_subject_key"] = "target_id"
-                    rewritten.append(EffectSpec(effect_spec.type, params, condition=effect_spec.condition))
-                elif (
-                    effect_spec.params.get("target_kind")
-                    or effect_spec.params.get("selector")
-                    # "its controller loses N/that much life" (PAR-117,
-                    # Ragged Veins) — an ``attached_subject``-gated row
-                    # already names a resolved referent via ``player``, so
-                    # this isn't an ambiguous implicit-self "it" the rewrite
-                    # above exists to catch; let it through unchanged.
-                    or effect_spec.params.get("player")
-                ):
-                    rewritten.append(effect_spec)
-                else:
-                    return Segment(raw=raw)
-            effects = rewritten
-        damage_filter = {}
-        if damage_recipient_trig.group("combat"):
-            damage_filter["combat"] = True
-        if damage_recipient_trig.group("self"):
-            condition = {"subject": "self", "recipient": True}
-        elif damage_recipient_trig.group("attached"):
-            condition = {"subject": "attached_permanent", "recipient": True}
-        else:
-            condition = {
-                "subject": "group",
-                "type": damage_recipient_trig.group("type").lower(),
-                "other": damage_recipient_trig.group("article").lower() == "another",
-                "recipient": True,
-            }
-            if damage_recipient_trig.group("yours"):
-                condition["controller"] = "you"
-        spec = AbilitySpec(
-            "triggered",
-            effects=effects,
-            trigger={
-                "event": "DAMAGE",
-                "condition": condition,
-                "filter": damage_filter,
-            },
-            optional=optional,
-            raw_text=raw,
-            parser=provenance,
-        )
-        return Segment(raw=raw, spec=spec, claimed=True)
-
-    becomes_target_trig = _BECOMES_TARGET_TRIGGER_RE.match(raw)
-    if becomes_target_trig is not None:
-        body, optional = _peel_optional(becomes_target_trig.group("body"))
-        is_self_subject = bool(becomes_target_trig.group("self"))
-        effects = parse_effect_body(body, self_subject=is_self_subject)
-        if effects is None:
-            return Segment(raw=raw)
-        if becomes_target_trig.group("self"):
-            condition = {"subject": "self"}
-        elif becomes_target_trig.group("attached"):
-            condition = {"subject": "attached_permanent"}
-        else:
-            condition = {
-                "subject": "group",
-                "type": becomes_target_trig.group("type").lower(),
-                "other": becomes_target_trig.group("article").lower() == "another",
-            }
-            if becomes_target_trig.group("yours"):
-                condition["controller"] = "you"
-        trigger: dict[str, Any] = {"event": "BECOMES_TARGET", "condition": condition}
-        item_kind = becomes_target_trig.group("item_kind").lower()
-        if item_kind != "spell or ability":
-            # The event's ``item_kind`` is "spell" or "ability"; "a spell or
-            # ability" is both, i.e. no filter (PAR-130: as an exact-match
-            # value it never fired).
-            trigger["filter"] = {"item_kind": item_kind}
-        caster_rel = (becomes_target_trig.group("caster_rel") or "").strip()
-        if caster_rel == "an opponent controls":
-            trigger["caster_relation"] = "opponent"
-        elif caster_rel == "you control":
-            trigger["caster_relation"] = "you"
-        if becomes_target_trig.group("once"):
-            trigger["limit"] = True
-        spec = AbilitySpec(
-            "triggered",
-            effects=effects,
-            trigger=trigger,
-            optional=optional,
             raw_text=raw,
             parser=provenance,
         )
@@ -8068,37 +6987,6 @@ def _segment_line_unsplit(
         if limit_suffix_m is not None:
             cond_text = limit_suffix_m.group("base")
 
-        # RULE 508.3a batch attack: "one or more [<filter>] creatures you
-        # control attack" → a single `PLAYER_ATTACKED` (once-per-combat)
-        # trigger with an optional group filter (`_subject_condition`).
-        batch_atk = _BATCH_ATTACK_TRIGGER_RE.match(cond_text.strip())
-        if batch_atk is not None:
-            group_filter = _batch_attack_group_filter(batch_atk.group("filt"))
-            if group_filter is None:
-                return Segment(raw=raw)  # un-modelled qualifier → unclaimed
-            body, optional = _peel_optional(trig.group("body"))
-            effects = parse_effect_body(body, group_subject=True)
-            if effects is None:
-                return Segment(raw=raw)
-            effects, body_limit = _strip_trigger_once_per_turn_marker(effects)
-            limit = limit or body_limit
-            condition = {"subject": "you"}
-            if group_filter:
-                condition["group_filter"] = group_filter
-            spec = AbilitySpec(
-                "triggered",
-                effects=effects,
-                trigger={
-                    "event": "PLAYER_ATTACKED",
-                    "condition": condition,
-                    **({"limit": True} if limit else {}),
-                },
-                optional=optional,
-                raw_text=raw,
-                parser=provenance,
-            )
-            return Segment(raw=raw, spec=spec, claimed=True)
-
         creature_explores = _CREATURE_EXPLORES_TRIGGER_RE.match(cond_text.strip())
         if creature_explores is not None:
             body, optional = _peel_optional(trig.group("body"))
@@ -8292,52 +7180,6 @@ def _segment_line_unsplit(
                 extra_specs=variant_specs[1:],
                 claimed=True,
             )
-        player_event = _player_trigger_event(cond_text)
-        if player_event is not None:
-            # RULE 603.1 with a *player* subject ("whenever you scry") — the
-            # same one-spec-per-event shape as the compound above, but every
-            # spec carries the ``{"subject": "you"}`` scoping that makes it
-            # this controller's scry rather than anybody's.
-            # A `(event_name, filter_dict)` tuple carries an aggregate-event
-            # gate ("1 or more **nontoken** creatures …" — Feywild Visitor).
-            player_event_filter: Optional[dict[str, Any]] = None
-            if isinstance(player_event, tuple):
-                player_event, player_event_filter = player_event
-            body, optional = _peel_optional(trig.group("body"))
-            # "Whenever you gain life, **~** gets +X/+X …" (Field-Tested
-            # Frying Pan's granted ability, Ageless Entity) — a player-
-            # subject trigger introduces no group of objects, so a bare
-            # "it"/"~" in the body is unambiguous: the ability's own source,
-            # same reasoning as the object self-subject branch below.
-            effects = parse_effect_body(body, self_subject=True)
-            if effects is None:
-                return Segment(raw=raw)
-            effects, body_limit = _strip_trigger_once_per_turn_marker(effects)
-            limit = limit or body_limit
-            player_specs = [
-                AbilitySpec(
-                    "triggered",
-                    effects=[EffectSpec(e.type, dict(e.params)) for e in effects],
-                    trigger={
-                        "event": event_name,
-                        "condition": {"subject": "you"},
-                        **({"limit": True} if limit else {}),
-                        **({"filter": dict(player_event_filter)} if player_event_filter else {}),
-                    },
-                    optional=optional,
-                    raw_text=raw,
-                    parser=provenance,
-                )
-                for event_name in (
-                    player_event if isinstance(player_event, list) else [player_event]
-                )
-            ]
-            return Segment(
-                raw=raw,
-                spec=player_specs[0],
-                extra_specs=player_specs[1:],
-                claimed=True,
-            )
         defender_lands_min: Optional[int] = None
         head_trigger: dict[str, Any] = {}
         composed_head = False
@@ -8383,6 +7225,21 @@ def _segment_line_unsplit(
                 event, condition, head_trigger = head.event, head.condition, head.trigger
                 composed_head = True
         body, optional = _peel_optional(trig.group("body"))
+        # A group DAMAGE head aimed at a creature introduces two object
+        # referents: the dealer and the recipient.  The delayed-sacrifice
+        # body's bare "it"/"that creature" means the recipient on cards such
+        # as Sosuke, but the current referent model can only capture the firing
+        # subject.  Preserve the legacy row's fail-closed guard during the
+        # PAR-131 migration rather than silently destroying the dealer.
+        damage_pronoun = (
+            _DELAYED_SAC_EXILE_TAIL_RE.fullmatch(body.strip().rstrip(".").strip())
+            if composed_head and event == "DAMAGE"
+            and (condition or {}).get("subject") == "group"
+            and head_trigger.get("filter", {}).get("is_player") is False
+            else None
+        )
+        if damage_pronoun is not None and damage_pronoun.group("obj"):
+            return Segment(raw=raw)
         death_counter_branch = (
             _LEAVING_COUNTER_IF_ELSE_RE.fullmatch(body)
             if event == "DIES" and (condition or {}).get("subject") == "self"
@@ -8561,7 +7418,7 @@ def _segment_line_unsplit(
             # A batch (RULE 603.2c) has no one firing object, so its body gets no
             # single-object pronoun reading at all ("it" stays unclaimed).
             body_flags = {
-                "self_subject": (condition or {}).get("subject") == "self",
+                "self_subject": (condition or {}).get("subject") in ("self", "you", "player"),
                 "group_subject": (condition or {}).get("subject") == "group"
                 and event != "EVENT_BATCH",
                 "attached_subject": (condition or {}).get("subject") == "attached_permanent",

@@ -3736,7 +3736,12 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: 514 (PAR-130 close): activated-ability per-player rounds; a prior target's player/
 #: controller as antecedent; antecedent-gated "that much damage"; generic target-choice
 #: announcements and the optional "have it deal" causative normalization.
-PARSER_VERSION = "514"
+#: 515 (PAR-131): the legacy cast / damage / damage-recipient / becomes-target / batch-
+#: attack / player-event trigger rows are retired onto the composed heads (flat keys →
+#: ``spell_filter`` / ``spell_cast_from`` / ``condition.filter``; compound player events
+#: as one event list); a self/attached DAMAGE subject's recipient ("to an opponent", "to
+#: a creature") is a trigger-level gate; regranted triggers carry the composed keys.
+PARSER_VERSION = "515"
 
 
 def parser_source_hash() -> str:

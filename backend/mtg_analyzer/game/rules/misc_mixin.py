@@ -4683,6 +4683,10 @@ class MiscSystemsMixin:
                 target_controller_id=target_controller_id,
                 is_player=is_player,
                 controller_id=item.controller_id,
+                # The acting player — "…becomes the target of a spell an
+                # opponent controls, ~ deals 3 damage to **that player**"
+                # (Thunderbreak Regent): `event_player` reads ``player_id``.
+                player_id=item.controller_id,
                 item_kind=item.kind,
                 stack_id=item.stack_id,
             ))

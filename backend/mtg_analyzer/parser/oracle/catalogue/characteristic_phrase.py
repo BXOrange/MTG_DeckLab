@@ -70,6 +70,7 @@ FLAG_WORDS: dict[str, dict[str, Any]] = {
     "blocking": {"blocking": True},
     # RULE 701.15b / 708.2: a designation and a status (PAR-119).
     "goaded": {"goaded": True},
+    "suspected": {"is_suspected": True},
     "face-down": {"face_down": True},
     # RULE 903.3: a commander is a designation, not a type or subtype.
     "commander": {"is_commander": True},

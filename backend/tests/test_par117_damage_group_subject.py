@@ -234,17 +234,26 @@ def _damage_event(source, target_id, *, amount=3, is_player=True, combat=True):
 
 
 def test_edric_asks_the_damaged_creatures_controller_not_edrics_own():
-    eng, state, p1, p2 = _engine()
+    eng = GameEngine.new_game(
+        [("p1", "Alice", []), ("p2", "Bob", []), ("p3", "Cleo", [])],
+        starting_life=20, starting_hand=0,
+    )
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    state = eng.state
+    p1, p2, p3 = state.players
     edric = _put(eng, _db().get_card("Edric, Spymaster of Trest"), controller="p1")
-    # A creature controlled by p2 deals the damage — Edric (p1's own
-    # permanent) must ask *p2*, the attacker's own controller, not p1.
+    # A creature controlled by p2 deals the damage to p3 — one of *Edric's
+    # controller's* opponents (PAR-131: the composed head enforces "one of
+    # your opponents") — and Edric (p1's own permanent) must ask *p2*, the
+    # attacker's own controller, not p1.
     raider = _put(eng, _creature("Raider"), controller="p2")
     p2.library.append(GameObject(
         Card(id="L", name="L", type_line="Plains", is_land=True),
         owner_id="p2", zone=Zone.LIBRARY,
     ))
 
-    state.fire_event(_damage_event(raider, target_id="p1"))
+    state.fire_event(_damage_event(raider, target_id="p3"))
     placed = eng.rules.put_triggers_on_stack()
     assert placed == 1
     eng.rules.resolve_top_of_stack()

@@ -277,8 +277,10 @@ def test_battle_mammoth_is_fully_modeled_with_group_subject_and_caster_relation(
     triggered = [s for s in result.specs if s.ability_kind == "triggered"]
     assert any(s.trigger.get("event") == "BECOMES_TARGET" for s in triggered)
     mammoth_trig = next(s for s in triggered if s.trigger.get("event") == "BECOMES_TARGET")
+    # PAR-131: "a permanent" composes to no filter at all (every group
+    # subject of a BECOMES_TARGET event is already a permanent).
     assert mammoth_trig.trigger["condition"] == {
-        "subject": "group", "type": "permanent", "other": False, "controller": "you",
+        "subject": "group", "other": False, "controller": "you",
     }
     assert mammoth_trig.trigger.get("caster_relation") == "opponent"
 

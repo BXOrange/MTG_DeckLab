@@ -2681,7 +2681,15 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                 granted = state._granted_ability_cache.get(key)
                 if granted is None:
                     group_condition = ability.params.get("group_condition")
-                    if group_condition:
+                    if ability.params.get("contributors"):
+                        from .binding.core import _contributor_condition
+
+                        cond = _contributor_condition({
+                            "event": trigger_event,
+                            "condition": group_condition or {"subject": "you"},
+                            "contributors": ability.params["contributors"],
+                        }, obj)
+                    elif group_condition:
                         # PAR-32: "X have 'Whenever an artifact or creature
                         # you control dies, …'" (Agent of the Iron Throne).
                         # Reuse `effect_binder`'s printed-trigger group
@@ -2710,9 +2718,13 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                     )
 
                     _gates = [
-                        regrant_trigger_gate_predicate(_k, obj.controller_id, obj)
+                        regrant_trigger_gate_predicate(
+                            _k, obj.controller_id, obj, ability.params.get(_k)
+                        )
                         for _k in ("attacked_player_has_lowest_life", "spell_from_exile",
-                                   "spell_shares_creature_type_with_source", "spell_exclude_card_types")
+                                   "spell_shares_creature_type_with_source", "spell_exclude_card_types",
+                                   "spell_filter", "spell_cast_from",
+                                   "recipient_relation", "recipient_filter")
                         if ability.params.get(_k)
                     ]
                     if isinstance(ability.params.get("active_if"), dict):

@@ -3420,6 +3420,7 @@ EffectRegistry.register(
             # the *granted-to* permanent as the source, so "you control" /
             # "other" re-scope to it.
             **({"group_condition": dict(p["group_condition"])} if p.get("group_condition") else {}),
+            **({"contributors": dict(p["contributors"])} if p.get("contributors") else {}),
             # PAR-32: firing-event gate flags on a re-granted trigger
             # ("Commander creatures you own have 'Whenever ~ attacks a
             # player, if no opponent has more life than that player, …'" —
@@ -3429,6 +3430,19 @@ EffectRegistry.register(
             **({"attacked_player_has_lowest_life": True}
                if p.get("attacked_player_has_lowest_life") else {}),
             **({"spell_from_exile": True} if p.get("spell_from_exile") else {}),
+            # PAR-131: the composed cast-trigger keys ("Whenever you cast a
+            # noncreature spell" — Black Mage's Rod; "… from exile" —
+            # Passionate Archaeologist) re-granted verbatim.
+            **({"spell_filter": dict(p["spell_filter"])}
+               if isinstance(p.get("spell_filter"), dict) else {}),
+            **({"spell_cast_from": [str(z) for z in p["spell_cast_from"]]}
+               if isinstance(p.get("spell_cast_from"), (list, tuple)) else {}),
+            # PAR-131: a DAMAGE recipient scope ("whenever this creature deals
+            # combat damage to a creature/an opponent" — Kaldra Compleat).
+            **({"recipient_relation": p["recipient_relation"]}
+               if p.get("recipient_relation") in ("you", "opponent") else {}),
+            **({"recipient_filter": dict(p["recipient_filter"])}
+               if isinstance(p.get("recipient_filter"), dict) else {}),
             **({"spell_shares_creature_type_with_source": True}
                if p.get("spell_shares_creature_type_with_source") else {}),
             # PAR-32: a re-granted phase trigger's RULE 603.4 intervening-if

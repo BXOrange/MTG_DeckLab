@@ -939,7 +939,7 @@ def test_red_mages_rapier_quoted_trigger_and_wizard_type_are_both_granted():
     )
     assert specs is not None
     assert specs[0].params == {"affects": "attached_permanent", "add_subtypes": ["Wizard"]}
-    assert specs[1].params["spell_exclude_card_types"] == ["creature"]
+    assert specs[1].params["spell_filter"] == {"without_card_type": "creature"}
 
 
 def test_idolized_quoted_attack_alone_pump_counts_nonland_permanents():
@@ -1020,7 +1020,7 @@ def test_black_mages_rod_combines_anthem_quoted_trigger_and_subtype_grant():
     )
     assert specs is not None
     assert [spec.type for spec in specs] == ["anthem", "type_change", "grant_triggered_ability"]
-    assert specs[2].params["spell_exclude_card_types"] == ["creature"]
+    assert specs[2].params["spell_filter"] == {"without_card_type": "creature"}
 
 
 def test_avarice_amulet_combines_anthem_keyword_and_quoted_upkeep_trigger():

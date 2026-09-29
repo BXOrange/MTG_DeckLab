@@ -40,7 +40,13 @@ class TestGameWebSocket:
     def test_player_action_is_applied_and_broadcast_to_other_client_in_same_game(self):
         manager = _setup()
         game_id = _replay_session_id(manager)
-        with client.websocket_connect(f"/ws/game/{game_id}") as player_one:
+        # One shared portal (`with client:`) so both sockets' server handlers
+        # run on the *same* event loop: without it Starlette's TestClient gives
+        # each `websocket_connect` its own loop thread, and a broadcast from
+        # player_one's handler into player_two's receive stream crosses loops
+        # — it does not wake a receiver that is already waiting, so the
+        # `receive_json` below could hang until the pytest-timeout.
+        with client, client.websocket_connect(f"/ws/game/{game_id}") as player_one:
             with client.websocket_connect(f"/ws/game/{game_id}") as player_two:
                 # `websocket_connect` returns as soon as the *handshake* is
                 # accepted, which is one step earlier than the server adding

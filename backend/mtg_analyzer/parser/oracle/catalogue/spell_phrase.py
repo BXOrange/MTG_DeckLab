@@ -35,6 +35,9 @@ _ORDINALS = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5}
 _ORDINAL_SPELL = re.compile(
     rf"^(?:your|their) (?P<n>{'|'.join(_ORDINALS)}) spell (?P<tail>.+)$"
 )
+_FIRST_X_SPELL = re.compile(
+    r"^(?:your|their) first spell with \{x\} in its mana cost each turn$"
+)
 
 #: Everything a card can target that is a permanent (RULE 110.1).
 _PERMANENT_TYPES = sorted(CARD_TYPES - {"instant", "sorcery"})
@@ -88,6 +91,8 @@ def _targets_filter(what: str, yours: bool) -> Optional[dict[str, Any]]:
 def parse_spell_phrase(phrase: str) -> Optional[dict[str, Any]]:
     """``phrase`` (the words between "cast" and the comma) → trigger keys, or ``None``."""
     phrase = phrase.strip().lower()
+    if _FIRST_X_SPELL.fullmatch(phrase):
+        return {"first_x_spell": True, "spell_has_x": True}
     ordinal = _ORDINAL_SPELL.fullmatch(phrase)
     ordinal_keys: dict[str, Any] = {}
     if ordinal:
@@ -107,6 +112,12 @@ def parse_spell_phrase(phrase: str) -> Optional[dict[str, Any]]:
     keys: dict[str, Any] = dict(ordinal_keys)
     tail = m.group("tail").strip()
     while tail:
+        if tail.startswith("with {x} in its mana cost"):
+            if "spell_has_x" in keys:
+                return None
+            keys["spell_has_x"] = True
+            tail = tail[len("with {x} in its mana cost"):].strip()
+            continue
         q = _QUALIFIER.match(tail)
         if q is not None:
             extra = parse_qualifier(q.group("q"))

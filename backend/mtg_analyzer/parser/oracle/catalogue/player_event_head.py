@@ -27,12 +27,27 @@ _ACTORS: dict[str, dict[str, Any]] = {
 
 #: Verb phrase (after the actor, either conjugation) → `EventType`.
 _VERBS: dict[str, str] = {
+    "scry": "SCRY", "surveil": "SURVEIL",
     "gain life": "LIFE_GAINED", "gains life": "LIFE_GAINED",
     "lose life": "LIFE_LOST", "loses life": "LIFE_LOST",
     "cycle a card": "CYCLED", "cycles a card": "CYCLED",
+    "cycle another card": "CYCLED", "cycles another card": "CYCLED",
     "play a land": "LAND_PLAYED", "plays a land": "LAND_PLAYED",
     "draw a card": "DRAW", "draws a card": "DRAW",
     "proliferate": "PROLIFERATED", "proliferates": "PROLIFERATED",
+    "attack": "PLAYER_ATTACKED", "attack a player": "PLAYER_ATTACKED",
+    "clash": "CLASHED", "win a clash": "WON_CLASH", "clash and win": "WON_CLASH",
+    "collect evidence": "COLLECTED_EVIDENCE", "forage": "FORAGED",
+    "roll a die": "DICE_ROLLED", "roll 1 or more dice": "DICE_ROLLED",
+    "discard a card": "DISCARD_CARD", "discard another card": "DISCARD_CARD",
+}
+_COMPOUND_VERBS: dict[str, list[str]] = {
+    "scry or surveil": ["SCRY", "SURVEIL"],
+    "surveil or scry": ["SURVEIL", "SCRY"],
+    "cycle or discard a card": ["CYCLED", "DISCARD_CARD"],
+    "cycle or discard another card": ["CYCLED", "DISCARD_CARD"],
+    "discard or cycle a card": ["DISCARD_CARD", "CYCLED"],
+    "discard or cycle another card": ["DISCARD_CARD", "CYCLED"],
 }
 _ORDINALS = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5}
 _NTH_DRAW = re.compile(
@@ -52,6 +67,8 @@ _HEAD = re.compile(r"^(?P<actor>you|an opponent|each opponent|a player)\s+(?P<re
 def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], dict[str, Any]]]:
     """``(event, condition, trigger keys)`` for a player-event head, or ``None``."""
     cond = cond.strip().lower()
+    if cond == "the ring tempts you":
+        return "RING_TEMPTED", {"subject": "you"}, {}
     if cond.startswith("you're "):
         cond = "you are " + cond[len("you're "):]
     m = _HEAD.match(cond)
@@ -63,6 +80,10 @@ def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], di
     if rest.endswith(" " + _ONCE):
         trigger["limit"] = True
         rest = rest[: -len(_ONCE) - 1].strip()
+    if m.group("actor") == "you" and rest in _COMPOUND_VERBS:
+        return _COMPOUND_VERBS[rest], condition, trigger
+    if m.group("actor") == "you" and re.fullmatch(r"behold(?: an?\s+\w+)?", rest):
+        return "BEHELD", condition, trigger
     for phrase, keys in PHASE_TAILS:
         if rest.endswith(" " + phrase):
             trigger.update(keys)
@@ -95,7 +116,10 @@ def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], di
         trigger["is_nth_draw_this_turn"] = _ORDINALS[nth.group("n")]
         return "DRAW", condition, trigger
     for phrase, event in _VERBS.items():
-        if rest == phrase or rest.startswith(phrase + " "):
+        if rest == phrase:
+            return event, condition, trigger
+    for phrase, event in _VERBS.items():
+        if rest.startswith(phrase + " "):
             tail = rest[len(phrase):].strip()
             if tail:
                 phase, left = consume(tail, PHASE_TAILS)

@@ -550,6 +550,17 @@ def test_group_subject_delayed_pronoun_tail_is_now_modeled():
          {"subject": "group", "controller": "you", "other": False,
           "filter": {"card_type": "creature"}},
          {"filter": {"combat": True, "is_player": True}, "phase_relation": "you"}),
+        # PAR-131: a self/attached subject carries the recipient scope as a
+        # trigger-level gate (the group subject keeps it in its predicate).
+        ("~ deals combat damage to an opponent",
+         {"subject": "self"},
+         {"filter": {"combat": True, "is_player": True}, "recipient_relation": "opponent"}),
+        ("enchanted creature deals damage to you",
+         {"subject": "attached_permanent"},
+         {"filter": {"is_player": True}, "recipient_relation": "you"}),
+        ("~ deals damage to a creature",
+         {"subject": "self"},
+         {"filter": {"is_player": False}, "recipient_filter": {"card_type": "creature"}}),
     ],
 )
 def test_damage_head_parses(cond, condition, trigger):
@@ -562,8 +573,6 @@ def test_damage_head_parses(cond, condition, trigger):
     "cond",
     [
         "a creature deals damage to a creature you control",  # a recipient controller scope
-        "~ deals combat damage to an opponent",  # self subject cannot carry recipient scope keys
-        "enchanted creature deals damage to you",  # nor can an attached one
         "a frobnicator deals combat damage to a player",
         "a creature deals combat damage to a frobnicator",
     ],

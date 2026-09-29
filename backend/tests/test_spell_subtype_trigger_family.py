@@ -41,7 +41,7 @@ def test_cast_elf_spell_trigger_is_recognized_as_a_subtype_condition():
     assert seg.spec.trigger == {
         "event": "SPELL_CAST",
         "condition": {"subject": "you"},
-        "spell_subtype_any": ["elf"],
+        "spell_filter": {"subtype": "elf"},
     }
     assert seg.spec.optional is True  # a plain "you may <effect>" IS peeled
 
@@ -54,8 +54,7 @@ def test_cast_creature_spell_trigger_still_uses_the_main_type_path():
         allow_spell_effect=False, provenance=ParserProvenance(),
     )
     assert seg.claimed
-    assert seg.spec.trigger["spell_card_types"] == ["creature"]
-    assert "spell_subtype_any" not in seg.spec.trigger
+    assert seg.spec.trigger["spell_filter"] == {"card_type": "creature"}
 
 
 def test_cast_unrecognized_word_spell_trigger_stays_unclaimed():
@@ -85,7 +84,7 @@ def test_cast_historic_spell_trigger_is_modeled():
         allow_spell_effect=False, provenance=ParserProvenance(),
     )
     assert seg.claimed
-    assert seg.spec.trigger["spell_is_historic"] is True
+    assert seg.spec.trigger["spell_filter"] == {"any_of": [{"card_type": "artifact"}, {"legendary": True}, {"subtype": "saga"}]}
 
 
 def test_lys_alana_huntmaster_is_fully_modeled():
@@ -122,7 +121,7 @@ def test_leaf_crowned_visionary_is_fully_modeled_with_no_double_optional():
     assert seg.spec.trigger == {
         "event": "SPELL_CAST",
         "condition": {"subject": "you"},
-        "spell_subtype_any": ["elf"],
+        "spell_filter": {"subtype": "elf"},
     }
     (effect,) = seg.spec.effects
     assert effect.type == "pay_cost_then"

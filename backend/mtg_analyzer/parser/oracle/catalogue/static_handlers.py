@@ -105,7 +105,8 @@ _GRANTABLE_TRIGGER_EVENTS = frozenset(
 #: composes onto the re-granted trigger's condition.
 _REGRANT_PASSTHROUGH_TRIGGER_KEYS = frozenset(
     {"attacked_player_has_lowest_life", "spell_from_exile",
-     "spell_shares_creature_type_with_source", "spell_exclude_card_types"}
+     "spell_shares_creature_type_with_source", "spell_exclude_card_types", "contributors",
+     "spell_filter", "spell_cast_from", "recipient_relation", "recipient_filter"}
 )
 
 #: MEC-55: inner-static `affects` scopes that can't be re-granted to a
@@ -122,7 +123,7 @@ _REGRANT_UNSUPPORTED_AFFECTS = frozenset({"self", "attached_permanent"})
 #: this ability's own source's history — `crewed_by_self`,
 #: `damaged_by_source_this_turn`, …) fails closed for the whole body.
 _REGRANT_SAFE_GROUP_KEYS = frozenset(
-    {"subject", "type", "subtypes", "excluded_subtypes", "nontoken", "nonland",
+    {"subject", "type", "subtypes", "excluded_subtypes", "nontoken", "nonland", "filter",
      "nonbasic", "controller", "owner", "other", "goaded", "in_combat", "is_player", "combat"}
 )
 

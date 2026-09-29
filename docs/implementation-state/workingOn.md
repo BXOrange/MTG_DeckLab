@@ -46,32 +46,38 @@ Block template (copy below the line, fill in):
 
 ## PAR-131 · Retire the remaining legacy trigger rows onto the composed heads (refactor)
 
-- **Started / last update:** — / 2026-09-29 (residue migrated from `BACKLOG.md`)
-- **Goal of this run:** retire the rows below; pure maintainability, no coverage gain.
-- **Done (built + tested):** the four group-subject rows
-  (`object_trigger_head.legacy_group_condition` translates the composed head back into their
-  flat keys).
+- **Started / last update:** 2026-09-29 / 2026-09-29 (legacy rows retired, PARSER_VERSION 515)
+- **Goal of this run:** retire every legacy trigger row — done; the residue below is left.
+- **Done (built + tested):** all legacy trigger rows deleted from `segmenter.py` (cast ×9,
+  damage, damage-recipient, becomes-target, batch-attack, `_PLAYER_TRIGGER_CONDITIONS` incl.
+  the doubler cause path) — narrative in `Done_Backend.md` → "PAR-131". Full pytest and
+  `--full-cache` green; coverage 18,004 / 34,811 (+16, all executed).
 - **In progress:** —
-- **Next step:** take one row below; bar per row: emit the legacy keys from the composed head,
-  whole-cache spec diff identical (normalised for the parser version), then delete the row.
-- **Decisions:** —
-- **Baselines / artefacts:** each row measured by disabling it alone (lost / changed specs).
+- **Next step:** migrate the five hand-authored `contributor_*` flag users
+  (`card_catalogue/`: tifa_martial_artist, malcolm_keen_eyed_navigator,
+  kediss_emberclaw_familiar, kutzil_malamet_exemplar, primo_the_unbounded) onto
+  ``contributors`` + ``condition.filter`` (what the composed batch head emits), executing each.
+- **Decisions:** "permanent" subject dropping `type` is fine (binder treats `type: permanent`
+  as no-op). Event lists (`["CYCLED","DISCARD_CARD"]`) bind one ability per event = same as
+  the old two specs. The batch head fails closed on "…or battle" (the aggregate counts
+  players only); the single-object DAMAGE head keeps the legacy player-only reading of it.
+- **Baselines / artefacts:** `/tmp/par131-base.json` (PARSER_VERSION 514, 17,988 covered);
+  HEAD worktree `/tmp/par131-head` for spec diffs (scratchpad `specdump.py`); remove the
+  worktree (`git worktree remove /tmp/par131-head`) once the ticket closes.
 - **Known failures:** —
 - **Residue:**
-  - `_DAMAGE_TRIGGER_RE` 40 / 34, `_DAMAGE_RECIPIENT_TRIGGER_RE` 39 / 0 (needs an "is dealt
-    damage" head), `_BECOMES_TARGET_TRIGGER_RE` 55 / 0 (needs a "becomes the target" head),
-    `_BATCH_ATTACK_TRIGGER_RE` 4 / 0.
-  - Cast rows: `_CAST_SPELL_TRIGGER_RE` 9 / 225, `_NEG_` 0 / 90, `_HISTORIC_` 0 / 16,
-    `_MV_AT_LEAST_` 0 / 15, `_PLAIN_` and `_MV_` 0 / 3 each, `_X_` 3 / 0, `_NTH_` 1 / 0,
-    `_FIRST_X_` 0 / 0 (no cached card; still the only reader of its wording).
-  - The `_PLAYER_TRIGGER_CONDITIONS` "you …" rows (incl. the two bare combat-damage rows and
-    the hand-authored ``contributor_*`` flags → ``contributors``).
+  - Hand-authored ``contributor_*`` flags → ``contributors`` (the five cards above).
   - Fold MEC-78's `graveyard_exit_batch` into `GameState.simultaneous`.
   - Small head gaps: compound "`<A>` dies or `<B>` is put into …" heads (Dreadhound, Syr
     Konrad ×2, the artifact pair), "a spirit card or a card with disturb", "to 1 or more of
-    your opponents" as one trigger per step, "to a player or battle", reflexive "when you
-    sacrifice 1 or more X this way" (Nyssa, Ravenous Rotbelly, Swashbuckler Extraordinaire).
+    your opponents" as one trigger per step, "to a player or battle" (batch head),
+    reflexive "when you sacrifice 1 or more X this way" (Nyssa, Ravenous Rotbelly,
+    Swashbuckler Extraordinaire).
 - **Log:** 2026-09-29 — residue migrated from `BACKLOG.md`.
+  2026-09-29 17:21 — full-cache baseline snapshot captured; began `_DAMAGE_TRIGGER_RE` migration.
+  2026-09-29 — all rows probed off; whole-cache spec diff; 5 regressions fixed (regrant
+  filters, Karlach gate, recipient scope, BECOMES_TARGET player, once-per-turn marker).
+  2026-09-29 — rows + orphans deleted, PARSER_VERSION 515, docs synced.
 
 ## PAR-128 · Target/group-grammar slots
 
@@ -112,8 +118,10 @@ Block template (copy below the line, fill in):
 - **Goal of this run:** close the fail-closed doubler shapes below.
 - **Done (built + tested):** the composed `trigger_doubler` (cause × subject).
 - **In progress:** —
-- **Next step:** the player-event causes wait on their heads in a composed head (PAR-131);
-  start with a compound subject.
+- **Next step:** PAR-131 put "becomes the target of …" and "is dealt damage" into the
+  composed object head (`trigger_condition_dict` reads both); Valiant Emberkin's / Wayta's
+  causes print the gerund ("becoming the target", "being dealt damage"), so they need only a
+  gerund → finite rewrite in front of it. "Turning … face up" still lacks a head.
 - **Decisions:** —
 - **Baselines / artefacts:** —
 - **Known failures:** —

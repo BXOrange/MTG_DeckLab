@@ -13,7 +13,7 @@ def test_spirit_or_arcane_cast_trigger_parses_with_both_subtypes():
     result = parse_oracle(card)
     assert result.coverage == MODELED
     [ability] = result.effect_specs
-    assert ability.trigger["spell_subtype_any"] == ["spirit", "arcane"]
+    assert ability.trigger["spell_filter"] == {"subtype_any": ["spirit", "arcane"]}
 
 
 def test_teamwork_rider_is_a_cast_state_condition():

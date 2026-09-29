@@ -145,7 +145,7 @@ No open tickets.
   per-owner "remove a time counter from each other card" sweep.
 
 - **PAR-131 · Retire the remaining legacy trigger rows onto the composed heads (refactor).**
-  Pure maintainability — no coverage gain; the remaining legacy rows and a small head gap.
+  Hand-authored ``contributor_*`` flags, MEC-78's graveyard-exit batch, and small head gaps.
 - **PAR-132 · Dependent target/body follow-up batch.** Finish the distinct effect-body,
   trigger-head and duration clusters exposed while closing PAR-130; target-scope plumbing itself
   is complete, and the calibrated clusters live in `PARSER_LONG_TAIL.md`.

@@ -37,8 +37,7 @@ def test_color_cast_trigger_claimed(clause, color):
     seg = _seg(clause)
     assert seg.claimed, clause
     assert seg.spec.trigger["event"] == "SPELL_CAST"
-    assert seg.spec.trigger["cast_of_color"] == color
-    assert "spell_card_types" not in seg.spec.trigger
+    assert seg.spec.trigger["spell_filter"] == {"color": color}
 
 
 def test_colorless_spell_cast_is_not_folded_into_cast_of_color():
@@ -54,20 +53,19 @@ def test_colorless_spell_cast_is_not_folded_into_cast_of_color():
 def test_main_type_cast_trigger_unchanged():
     seg = _seg("whenever you cast a creature spell, you gain 1 life")
     assert seg.claimed
-    assert seg.spec.trigger.get("spell_card_types") == ["creature"]
-    assert "cast_of_color" not in seg.spec.trigger
+    assert seg.spec.trigger.get("spell_filter") == {"card_type": "creature"}
 
 
 def test_balefire_liege_modeled():
     r = parse_oracle(_db().get_card("Balefire Liege"))
     assert r.coverage != UNMODELED, r.unclaimed
     trigs = [s.trigger for s in r.specs if s.trigger]
-    colors = {t.get("cast_of_color") for t in trigs}
+    colors = {(t.get("spell_filter") or {}).get("color") for t in trigs if t.get("event") == "SPELL_CAST"}
     assert colors == {"R", "W"}
 
 
 def test_emberstrike_duo_two_color_triggers():
     r = parse_oracle(_db().get_card("Emberstrike Duo"))
     assert r.coverage != UNMODELED, r.unclaimed
-    colors = sorted(s.trigger["cast_of_color"] for s in r.specs if s.trigger)
+    colors = sorted(s.trigger["spell_filter"]["color"] for s in r.specs if s.trigger)
     assert colors == ["B", "R"]

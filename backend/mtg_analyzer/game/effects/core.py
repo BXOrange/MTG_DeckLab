@@ -1323,10 +1323,19 @@ def _apply_effects_partitioned(
                 used = list(targets or [])
             if specs and used:
                 context.previous_targets = list(used)
-            if isinstance(effect, _PREVIOUS_SELECTOR_EFFECT_TYPES):
-                selector = getattr(effect, "selector", None)
+            # A RULE 603.4-gated clause ("if it's the first combat phase …,
+            # untap all attacking creatures. They gain …" — Karlach) is a
+            # `ConditionalEffect` around the selector effect; "they" still
+            # names the inner selector.
+            selecting = effect
+            while not isinstance(selecting, _PREVIOUS_SELECTOR_EFFECT_TYPES) and isinstance(
+                getattr(selecting, "condition", None), dict
+            ) and isinstance(getattr(selecting, "inner", None), GameEffect):
+                selecting = selecting.inner
+            if isinstance(selecting, _PREVIOUS_SELECTOR_EFFECT_TYPES):
+                selector = getattr(selecting, "selector", None)
                 if selector is None:
-                    selector = (getattr(effect, "static", {}) or {}).get("params", {}).get("affects")
+                    selector = (getattr(selecting, "static", {}) or {}).get("params", {}).get("affects")
                 if selector:
                     context.previous_selector = selector
             if state is None or position + 1 >= len(effects):

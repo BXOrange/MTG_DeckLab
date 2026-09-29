@@ -714,7 +714,8 @@ def test_goaded_damage_trigger_subject_is_recognised():
         "you draw a card."
     )
     assert segment.claimed
-    assert segment.spec.trigger["condition"]["goaded"] is True
+    assert segment.spec.trigger["condition"]["filter"]["goaded"] is True
+    assert segment.spec.trigger["condition"]["recipient_is_opponent"] is True
     assert segment.spec.trigger["filter"]["is_player"] is True
 
 
