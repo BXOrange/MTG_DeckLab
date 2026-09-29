@@ -3713,7 +3713,22 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: 503 (PAR-119 a): "you discard `<n>` or more [`<type>`] cards" is a DISCARD_CARD batch.
 #: 504 (PAR-119 a): "`<n>` or more `<creatures>` deal combat damage to `<a player>`" is a
 #: head over the combat-damage aggregate; "ninja or rogue creatures" shares its noun.
-PARSER_VERSION = "504"
+#: 505 (PAR-119 c): "`<a card>` is put into `<whose>` graveyard [from `<origin>`]" and its
+#: "N or more … are put into" batch — `PUT_INTO_GRAVEYARD`, detected per arrival.
+#: 506 (PAR-119 d): "[that player] add(s) one mana of any type that land produced"
+#: (`mirror_produced_mana` + player operand), a mana-only `TAPPED_FOR_MANA` body is a RULE
+#: 605.1b mana ability on the composed head too, "that land doesn't untap …" = event land.
+#: 507 (PAR-119 a): "`<player>` sacrifice(s) 1 or more [other] `<permanents>`" is a SACRIFICE
+#: batch (cost payments are one scope); "1 or more players" is an actor.
+#: 508 (PAR-119 a): "for each of them, …" under a batch head iterates its matched members.
+#: 509 (PAR-119 a): "leave(s) the battlefield without dying" (LEAVES_BATTLEFIELD ``to_zone``),
+#: "enter … without being played" (a played land's ``played``), "under an opponent's control".
+#: 510 (PAR-119 a): subject qualifiers "goaded", "face-down" (new `matches_object_filter`
+#: keys) and "that entered [the battlefield] this turn" in the shared noun-phrase grammar.
+#: 511 (PAR-119 migration): the four per-adjective group rows are the composed head,
+#: translated to their flat keys (`legacy_condition`); head verbs gained the legacy
+#: object events; "put into your graveyard from the battlefield" keeps its owner scope.
+PARSER_VERSION = "511"
 
 
 def parser_source_hash() -> str:

@@ -542,6 +542,8 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # RULE 111.9 — "a **nontoken** blue creature" (Flare of Denial-
         # shaped RULE 118.9 alternative cost).
         "nontoken",
+        # RULE 701.15b goaded / RULE 708.2 face-down (PAR-119).
+        "goaded", "face_down",
         # Engine-internal only — never produced by the oracle-text parser
         # (which can't know a specific game object's id), only computed at
         # resolve time by `GrantCombatRestrictionEffect`'s ``restrict_to_source``
@@ -720,6 +722,12 @@ def matches_object_filter(
     if filt.get("nontoken") and getattr(obj, "is_token", False):
         return False
     if filt.get("token") and not getattr(obj, "is_token", False):
+        return False
+    # RULE 701.15b / 708.2: "**goaded** creatures", "**face-down** creatures you control"
+    # (PAR-119) — a designation and a status, read off the live object.
+    if filt.get("goaded") and not is_goaded(obj):
+        return False
+    if filt.get("face_down") and not getattr(obj, "face_down", False):
         return False
     # "exchange control of two target **nonlegendary** creatures" (RULE
     # 205.4a, PAR-30 — Djinn of Infinite Deceits) — reads `Card.is_legendary`

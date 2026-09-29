@@ -808,6 +808,8 @@ class GameSession:
         # rules-illegal — position can be constructed. Allowed at any time.
         if kind.startswith("edit_"):
             self._edit_dispatch(action)
+            # A card placed by hand didn't "arrive" in a graveyard (RULE 603.6c).
+            self.engine.state.resync_graveyard_watch()
             return
 
         # Setup phase (UC3: mulligan before the game proper starts): only

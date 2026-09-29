@@ -1577,11 +1577,14 @@ class ActivationMixin:
         ):
             raise ValueError(f"cannot activate {source.name}'s ability")
 
-        self._pay_activation_cost(
-            player, source, ability.cost, x, tap_choices=tap_choices,
-            sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
-            hand_card_choices=hand_card_choices,
-        )
+        # RULE 602.2b/601.2h: the total cost is paid in one step, so what it sacrifices or
+        # discards is one event (RULE 603.2c).
+        with self.state.simultaneous():
+            self._pay_activation_cost(
+                player, source, ability.cost, x, tap_choices=tap_choices,
+                sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+                hand_card_choices=hand_card_choices,
+            )
         # RULE 107.3c/601.2b: remember the announced X on the ability's own
         # source, mirroring `RulesEngine.cast_spell`'s `obj.x_paid` stamp —
         # every existing X-reading effect (`AddCountersEffect.x_multiplier`,

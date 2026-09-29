@@ -303,6 +303,14 @@ class EventType:
     #: aggregate shape makes Quintorius-style "one or more" triggers fire
     #: once for a mass move, not once per card.
     CARDS_LEFT_GRAVEYARD = "CARDS_LEFT_GRAVEYARD"
+    #: A card (or token) arrived in a graveyard from any zone — RULE 603.6c's "is put
+    #: into a graveyard from anywhere", never a leaves-the-battlefield event. Detected by
+    #: `GameState` when a simultaneity scope closes (the engine has no single graveyard
+    #: choke point), one per arrival: ``instance_id``, ``owner_id`` / ``controller_id``
+    #: (both the graveyard's owner, the group-subject key), ``from_zone`` (where it was
+    #: at the previous check), ``object_types`` / ``subtypes`` / ``colors`` /
+    #: ``is_token``. Batched like the other per-object events (PAR-119).
+    PUT_INTO_GRAVEYARD = "PUT_INTO_GRAVEYARD"
     #: RULE 603.2c: one event with many occurrences. Fired by `GameState` once per
     #: simultaneity scope (`GameState.simultaneous`) and per batched per-object type
     #: (`GameState.BATCHED_EVENT_TYPES`), with ``batch_of`` (that type's name) and

@@ -1928,11 +1928,12 @@ class CastingMixin:
             # later countered. Paid *after* the mana cost (just above) so a
             # Phyrexian-mana payment reads the player's life before any
             # "pay N life" additional cost reduces it.
-            self._pay_additional_cast_cost(
-                player, obj, getattr(obj, "additional_cast_cost", None), x,
-                sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
-                pay_additional=pay_additional,
-            )
+            with self.state.simultaneous():  # RULE 601.2h: one payment, one event (603.2c)
+                self._pay_additional_cast_cost(
+                    player, obj, getattr(obj, "additional_cast_cost", None), x,
+                    sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+                    pay_additional=pay_additional,
+                )
             # RULE 601.2b (PAR-30): record whether the additional cost was
             # paid — a *mandatory* one always (it was), an *optional* "you
             # may <…>" one only when the caller chose the `pay_additional`

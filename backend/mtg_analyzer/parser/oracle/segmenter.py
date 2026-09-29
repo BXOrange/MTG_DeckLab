@@ -20,11 +20,10 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
-from .catalogue.object_trigger_head import parse_object_trigger_head
+from .catalogue.object_trigger_head import legacy_group_condition, parse_object_trigger_head
 from .catalogue.cost_text import scan_cost_text
 from .catalogue.count_phrase import parse_count_phrase
 from .catalogue.spell_phrase import parse_spell_phrase
-from .catalogue.subtype_vocabulary import SUBTYPES
 from .catalogue.handlers import (
     ACTIVATE_ONLY_ONCE_MARKER,
     ACTIVATION_CONDITION_MARKER,
@@ -929,6 +928,10 @@ _REVEAL_FIRST_DRAW_RE = re.compile(
 #: `controller`); "you" narrows to the ability's own controller the same
 #: way `_cast_spell_trigger_condition` does for cast/draw triggers, "a
 #: player" leaves it unscoped (any player's land).
+#: Effect types that add mana — a `TAPPED_FOR_MANA` trigger whose body is only these is a
+#: RULE 605.1b triggered mana ability.
+_MANA_ADDING_EFFECTS: frozenset[str] = frozenset({"add_mana", "mirror_produced_mana"})
+
 _TAP_FOR_MANA_TRIGGER_RE = re.compile(
     r"^whenever (?P<subj>you|a player) taps? an? "
     r"(?P<land>swamp|island|mountain|forest|plains|land) for mana,\s*(?P<body>.+)$",
@@ -1151,8 +1154,7 @@ def _parse_cast_spell_types(text: str) -> Optional[list[str]]:
 #: The card-type words a "group" trigger condition can scope to (RULE 613.6-
 #: adjacent vocabulary shared with `catalogue.static_handlers`'s anthem
 #: selectors) — deliberately small: only what `models/game_object.py`'s
-#: `type_words` can check without a subtype grammar. Used by both
-#: `_GROUP_SUBJECT_RE` (the object-subject events) and `_DAMAGE_TRIGGER_RE`
+#: `type_words` can check without a subtype grammar. Used by `_DAMAGE_TRIGGER_RE`
 #: (RULE 120.3's damage shape) below.
 _GROUP_TYPE_WORDS = ("creature", "artifact", "enchantment", "land", "permanent")
 
@@ -1171,8 +1173,7 @@ _GROUP_TYPE_WORDS = ("creature", "artifact", "enchantment", "land", "permanent")
 #:   — an ordinary ``{"subject": "self"}`` condition.
 #: * "a/an/another <type> [you control]" (Bident of Thassa/Deepfathom
 #:   Skulker/Cazur-shaped) — RULE 603.1's ``{"subject": "group"}``, the same
-#:   closed `_GROUP_TYPE_WORDS` vocabulary `_GROUP_SUBJECT_RE` uses, with
-#:   "you control" optional exactly as it is there. Every *qualified*
+#:   closed `_GROUP_TYPE_WORDS` vocabulary, with "you control" optional. Every *qualified*
 #:   variant ("a **modified**/**renowned**/**historic** creature you
 #:   control", "a creature you control **with deathtouch**") stays
 #:   unclaimed — the type word is a closed list and the regex is anchored,
@@ -1197,9 +1198,9 @@ _DAMAGE_TRIGGER_RE = re.compile(
     # PAR-117 (group-subject residue, Essence/Brood/Synapse Sliver-shaped:
     # "whenever a **Sliver** deals [combat ]damage[ to a player], …") — a
     # creature *subtype* standing in for `_GROUP_TYPE_WORDS`'s closed main-
-    # type list, the identical "any lowercase word, no whitelist" shape
-    # `_GROUP_SUBTYPE_SUBJECT_RE` already accepts for the ENTERS/DIES/
-    # ATTACKS/BLOCKS family (fail-safe: a non-subtype word just never
+    # type list, the "any lowercase word, no whitelist" shape the retired
+    # tribal group row accepted for the ENTERS/DIES/ATTACKS/BLOCKS family
+    # (fail-safe: a non-subtype word just never
     # matches any real object, so this never over-fires). Tried only after
     # the closed `type` alternative above, so "a **creature** deals damage"
     # keeps matching that one first.
@@ -1676,88 +1677,6 @@ _ATTACHED_MULTI_EVENT_RE = re.compile(
     rf"(?P<v2>{_VERB_ALT})(?:\s+the\s+battlefield)?$"
 )
 
-#: RULE 603.1's condition subject — a *group* of objects, not just the
-#: source itself: "a"/"another" <type> [you control], then the trigger verb,
-#: optionally "the battlefield" (enters) and/or "under your control" (the
-#: older enters-battlefield templating). Examples this claims: "a creature
-#: enters the battlefield under your control", "another creature you control
-#: enters", "a creature dies", "another creature you control dies", "a
-#: creature you control attacks".
-_GROUP_SUBJECT_RE = re.compile(
-    r"^(?P<article>another|an|a)\s+(?P<nonland>nonland\s+)?"
-    # "a **non-Human** creature you control attacks" (Winota) — a negated
-    # creature subtype on the acting object, `effect_binder._build_group_ok`'s
-    # ``excluded_subtypes`` (checked against the event's live subtypes).
-    r"(?P<negsub>non-[a-z]+\s+)?"
-    # PAR-117 (group-subject residue, Bereavement-shaped: "whenever a
-    # **green** creature dies"): a colour on the acting object, the RTR
-    # "Denizen" cycle's own trigger shape ("whenever another `<color>`
-    # creature you control enters"). `_build_group_ok`'s new ``color`` key,
-    # read off the DIES/LEAVES_BATTLEFIELD event's snapshotted ``colors``
-    # (RULE 400.7 — the object is gone by the time a DIES trigger checks)
-    # with the same live-board fallback every other characteristic filter
-    # here already uses for a verb that keeps the object around.
-    r"(?:(?P<color>" + COLOR_WORD_ALT + r")\s+)?"
-    # A single main type, or an "X or Y[ or Z]" list of them ("an artifact
-    # or creature you control dies" — Agent of the Iron Throne). Each word
-    # is from the closed `_GROUP_TYPE_WORDS` vocabulary; `_group_subject_
-    # condition` splits the list and `effect_binder._build_group_ok`
-    # already ORs a `type` list.
-    r"(?P<type>(?:" + "|".join(_GROUP_TYPE_WORDS) + r")"
-    r"(?:,? or (?:" + "|".join(_GROUP_TYPE_WORDS) + r"))*)"
-    # "you control" or its mirror "an opponent controls" (Necroskitter /
-    # The Reaper, King No More — `_build_group_ok` maps the latter to the
-    # existing ``controller="not_you"`` scope).
-    r"(?:(?P<you_a> you control)|(?P<opp> an opponent controls))?"
-    # PAR-117 (group-subject residue, Kavu Lair-shaped: "whenever a creature
-    # with power 4 or greater enters"/"whenever a creature you control with
-    # power 2 or less attacks") — the same "with power `<n>` or `<less/
-    # greater>`" fragment several one-shot handlers already share
-    # (`handlers.py`'s target/damage-filter rows), reused here as a
-    # qualifier on the acting object itself. `_build_group_ok`'s new
-    # ``min_power``/``max_power`` keys read the event's live power (every
-    # verb this can appear on — ENTERS_BATTLEFIELD, ATTACKS — keeps the
-    # object on the battlefield when the condition is checked, RULE 508.3/
-    # 508.1, unlike DIES's colour filter which needed a snapshot).
-    r"(?:\s+with power (?P<power_n>\d+) or (?P<power_cmp>less|greater))?"
-    # "…**with a -1/-1 counter on it**" / "…with a +1/+1 counter on it" /
-    # the kindless "…with a counter on it" (the whole -1/-1 & +1/+1
-    # aristocrats archetype — Skyclave Shadowcat, Gladehart Cavalry,
-    # Necroskitter, The Scorpion God, …). Read off the DIES event's
-    # snapshotted ``counters`` (RULE 400.7) / live for other verbs —
-    # `effect_binder._build_group_ok`'s ``has_counter``/``has_counter_kind``.
-    r"(?P<ctr>\s+with an?\s+(?:(?P<ctrkind>-1/-1|\+1/\+1)\s+)?counter on it)?"
-    rf"\s+(?:{_VERB_ALT})"
-    # "Whenever a creature blocks **this turn**" (Mage Hunters'
-    # Onslaught) — on a trigger condition this is a tautological time tail,
-    # not a duration the resulting ability has to remember: the BLOCKS event
-    # necessarily occurred during the current turn. Consume it rather than
-    # leaving an otherwise ordinary RULE 603.1 group condition unclaimed.
-    r"(?:\s+this turn)?"
-    r"(?:\s+the\s+battlefield)?(?:\s+alone)?"
-    # PAR-117 (group-subject residue, Hissing Miasma/Blood Reckoning-shaped:
-    # "whenever a creature attacks **you [or a planeswalker you control]**")
-    # — RULE 508.1b's defending-player scope. The ATTACKS event's own
-    # ``defending_player_id`` is the player directly attacked or, for a
-    # planeswalker defender, that planeswalker's controller; `_build_group_ok`
-    # compares it to this ability's controller. The longer spelling is kept
-    # distinct: attacking a battle protected by that player does not satisfy
-    # a printed "you or a planeswalker you control" condition.
-    r"(?P<attacks_you_or_planeswalker>\s+you or a planeswalker you control)?"
-    r"(?P<attacks_you>\s+you)?"
-    # PAR-120: "whenever a creature attacks 1/one of your opponents, …"
-    # (Calculating Lich) — RULE 506.4's *any*-opponent scope, distinct from
-    # ``attacks_you`` (a specific player: the controller). The ATTACKS
-    # event's ``defending_player_id`` just needs to be a living opponent of
-    # this ability's controller, not equal to any one fixed player.
-    r"(?P<attacks_opponent>\s+(?:1|one) of your opponents)?"
-    # Curse of the Forsaken: the group subject is the attacking creature,
-    # while "enchanted player" is this Aura's player attachment. Kept apart
-    # from ``attached_permanent`` — a player has no GameObject identity.
-    r"(?P<attacks_enchanted_player>\s+enchanted player)?"
-    r"(?P<you_b> under your control)?$"
-)
-
 #: RULE 603.1's condition subject scoped by a **designation** instead of a
 #: characteristic: "whenever a **goaded** creature attacks" (Vengeful
 #: Ancestor), "whenever a **goaded attacking or blocking** creature dies"
@@ -1795,53 +1714,6 @@ _OWN_GRAVEYARD_DIES_SUBJECT_RE = re.compile(
 #: `_build_group_ok`.
 _DAMAGED_BY_SOURCE_SUBJECT_RE = re.compile(
     r"^a\s+creature\s+dealt\s+damage\s+by\s+(?P<by>~|enchanted creature)\s+this\s+turn\s+dies$"
-)
-
-#: RULE 603.1's condition subject, scoped by a **creature subtype** instead
-#: of `_GROUP_TYPE_WORDS`'s closed main-type vocabulary (The Ghoul,
-#: Gunslinger: "another nontoken Zombie or Mutant you control dies" — a
-#: real, broader gap: tribal "dies"/"enters"/"attacks" triggers are common
-#: beyond this one card). One or more capitalized subtype words joined by
-#: "or", an optional leading "nontoken" (RULE 111.9's "isn't a token"),
-#: always "you control" in practice (no real card leaves this bare for a
-#: subtype-scoped trigger) — checked against `EventType`'s own ``subtypes``/
-#: ``is_token`` payload (`effect_binder._subject_condition`, since a DIES
-#: event's object has already left the battlefield by the time a trigger
-#: check runs — RULE 400.7 — so a live lookup can't see its subtypes).
-_GROUP_SUBTYPE_SUBJECT_RE = re.compile(
-    r"^(?P<article>another|an|a)\s+(?P<nontoken>nontoken\s+)?"
-    r"(?P<subtypes>[a-z]+(?:\s+or\s+[a-z]+)*)\s+you control\s+"
-    rf"(?:{_VERB_ALT})(?:\s+the\s+battlefield)?(?:\s+alone)?$"
-)
-
-#: The "~ or another <subject>" merge (The Ghoul, Gunslinger's own actual
-#: printed condition: "The Ghoul or another nontoken Zombie or Mutant you
-#: control dies") — this ability's own source *or* any matching battlefield
-#: object, not either alone. A dedicated subject (``"self_or_group"``)
-#: rather than composing "self"/"group" as two independent predicates,
-#: since RULE 603.1 wants their **union** (either firing condition puts the
-#: trigger on the stack) — a plain AND-composition (`_trigger_condition`'s
-#: usual multi-predicate style) would wrongly require *both* at once.
-_SELF_OR_GROUP_SUBTYPE_RE = re.compile(
-    r"^~ or another\s+(?P<nontoken>nontoken\s+)?"
-    r"(?P<subtypes>[a-z]+(?:\s+or\s+[a-z]+)*)\s+you control\s+"
-    rf"(?:{_VERB_ALT})(?:\s+the\s+battlefield)?(?:\s+alone)?$"
-)
-
-#: The plain **main-type** sibling of `_SELF_OR_GROUP_SUBTYPE_RE` (Blood
-#: Artist/Falkenrath Noble's own printed condition: "whenever ~ or another
-#: creature dies, …") — no subtype filter, and "you control" is optional
-#: rather than mandatory (Blood Artist's trigger fires on *any* creature
-#: dying, not just the controller's own — the aristocrats payoff's whole
-#: point). Tried before `_SELF_OR_GROUP_SUBTYPE_RE` for the same reason
-#: `_GROUP_SUBJECT_RE` is tried before `_GROUP_SUBTYPE_SUBJECT_RE`: a bare
-#: main-type word like "creature" would otherwise also match the subtype
-#: grammar's permissive ``[a-z]+`` and be misread as a one-word tribal
-#: filter.
-_SELF_OR_GROUP_SUBJECT_RE = re.compile(
-    r"^~ or another\s+(?P<type>" + "|".join(_GROUP_TYPE_WORDS) + r")"
-    r"(?P<you> you control)?\s+"
-    rf"(?:{_VERB_ALT})(?:\s+the\s+battlefield)?(?:\s+alone)?$"
 )
 
 def _is_activation_cost(cost: str) -> bool:
@@ -3550,14 +3422,6 @@ def _player_trigger_event(condition: str) -> Any:
     return None
 
 
-def _all_subtypes(words: str) -> bool:
-    """Whether every word of an "X or Y" list is a real card subtype. The tribal
-    rows accept ``[a-z]+`` so they can name any creature type; without this check
-    "a land or Bird you control" or "a planeswalker you control" became a
-    *subtype* filter no object could ever match — claimed, but never firing."""
-    return all(w.strip() in SUBTYPES for w in words.split(" or "))
-
-
 def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
     """RULE 603.1's condition *subject* → the `AbilitySpec.trigger["condition"]` dict.
 
@@ -3589,26 +3453,9 @@ def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
             "subject": "group", "type": m.group("type"), "nontoken": bool(m.group("nontoken")),
             "controller": "any", "owner": "you", "other": False,
         }
-    m = _SELF_OR_GROUP_SUBJECT_RE.match(cond)
-    if m is not None:
-        return {
-            "subject": "self_or_group",
-            "type": m.group("type"),
-            "controller": "you" if m.group("you") else "any",
-            "other": True,
-        }
-    m = _SELF_OR_GROUP_SUBTYPE_RE.match(cond)
-    if m is not None and _all_subtypes(m.group("subtypes")):
-        return {
-            "subject": "self_or_group",
-            "subtypes": [w.strip() for w in m.group("subtypes").split(" or ")],
-            "nontoken": bool(m.group("nontoken")),
-            "controller": "you",
-            "other": True,
-        }
     # MEC-49 — "a creature dealt damage by ~ / enchanted creature this turn
-    # dies" (before `_GROUP_SUBJECT_RE`, which would stop at "creature" and
-    # choke on the "dealt damage by …" tail).
+    # dies" (before the composed group head below, which has no "dealt damage
+    # by …" tail).
     dbs = _DAMAGED_BY_SOURCE_SUBJECT_RE.match(cond)
     if dbs is not None:
         out = {
@@ -3621,9 +3468,8 @@ def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
         if dbs.group("by") == "enchanted creature":
             out["via_attached"] = True
         return out
-    # Before `_GROUP_SUBJECT_RE`, which would otherwise fail on the "goaded"
-    # word entirely (it isn't in `_GROUP_TYPE_WORDS`) and leave the clause
-    # unclaimed.
+    # Before the composed group head below: its "goaded" filter reads the live
+    # object, where this row's keys read the DIES snapshot (RULE 400.7).
     m = _GOADED_SUBJECT_RE.match(cond)
     if m is not None:
         return {
@@ -3634,85 +3480,14 @@ def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
             "goaded": True,
             "in_combat": bool(m.group("combat")),
         }
-    # Tried before the subtype variant below: a bare main-type word
-    # ("creature"/"artifact"/…) matches *both* regexes (`[a-z]+` is
-    # unavoidably as permissive as the closed `_GROUP_TYPE_WORDS` list it
-    # overlaps with) — `_GROUP_SUBJECT_RE`'s exact-vocabulary match must win
-    # so "a creature you control enters" keeps its ``"type"`` shape instead
-    # of being misread as a one-word tribal filter with no real subtype.
-    m = _GROUP_SUBJECT_RE.match(cond)
-    if m is not None:
-        type_words = [w for w in re.split(r",?\s+or\s+", m.group("type")) if w]
-        if m.group("you_a") or m.group("you_b"):
-            controller = "you"
-        elif m.group("opp"):
-            controller = "not_you"  # "an opponent controls" — reuse the mirror scope
-        else:
-            controller = "any"
-        out = {
-            "subject": "group",
-            "type": type_words if len(type_words) > 1 else type_words[0],
-            "controller": controller,
-            "other": m.group("article") == "another",
-        }
-        if m.group("ctr"):
-            if m.group("ctrkind"):
-                out["has_counter_kind"] = m.group("ctrkind")
-            else:
-                out["has_counter"] = True
-        if m.group("nonland"):
-            # RULE 111 / 205: "a **nonland** creature/permanent you control
-            # dies" (Beifong's Bounty Hunters) — a negated main type on the
-            # acting object, checked against the DIES event's snapshotted
-            # ``object_types`` (`effect_binder._build_group_ok`'s
-            # ``want_nonland``), the same shape ``nontoken`` already uses.
-            out["nonland"] = True
-        if m.group("negsub"):
-            # "a **non-Human** creature you control attacks" (Winota) — a
-            # negated creature subtype, `_build_group_ok`'s
-            # ``excluded_subtypes`` (the mirror of the positive ``subtypes``
-            # tribal filter below).
-            out["excluded_subtypes"] = [m.group("negsub").strip()[4:]]
-        if m.group("color"):
-            # "whenever a **green** creature dies" (Bereavement, the RTR
-            # Denizen cycle) — `_build_group_ok`'s new ``color`` key.
-            out["color"] = resolve_color_word(m.group("color"))
-        if m.group("power_n"):
-            # "whenever a creature with power `<n>` or `<less/greater>`
-            # `<verb>`" (Kavu Lair) — `_build_group_ok`'s new
-            # ``min_power``/``max_power`` keys.
-            key = "min_power" if m.group("power_cmp") == "greater" else "max_power"
-            out[key] = int(m.group("power_n"))
-        if m.group("attacks_you"):
-            # "whenever a creature attacks **you**" (Hissing Miasma) —
-            # `_build_group_ok`'s new ``attacks_you`` key.
-            out["attacks_you"] = True
-        if m.group("attacks_you_or_planeswalker"):
-            # "whenever a creature attacks you or a planeswalker you
-            # control" (Blood Reckoning, Revenge of Ravens, …). The engine
-            # stamps the planeswalker's controller in ATTACKS'
-            # ``defending_player_id``; a separate key deliberately keeps
-            # this wider printed scope distinct from bare "attacks you".
-            out["attacks_you_or_planeswalker"] = True
-        if m.group("attacks_enchanted_player"):
-            out["attacks_enchanted_player"] = True
-        if m.group("attacks_opponent"):
-            # "whenever a creature attacks 1 of your opponents" (Calculating
-            # Lich) — `_build_group_ok`'s new ``attacks_opponent`` key.
-            out["attacks_opponent"] = True
-        return out
-    # Only reached once the exact main-type vocabulary above has already
-    # failed to match — a genuine tribal filter ("another nontoken Zombie
-    # or Mutant you control dies", The Ghoul Gunslinger-shaped).
-    m = _GROUP_SUBTYPE_SUBJECT_RE.match(cond)
-    if m is not None and _all_subtypes(m.group("subtypes")):
-        return {
-            "subject": "group",
-            "subtypes": [w.strip() for w in m.group("subtypes").split(" or ")],
-            "nontoken": bool(m.group("nontoken")),
-            "controller": "you",
-            "other": m.group("article") == "another",
-        }
+    # PAR-119: the four per-adjective group rows (`_GROUP_SUBJECT_RE`,
+    # `_GROUP_SUBTYPE_SUBJECT_RE`, `_SELF_OR_GROUP_SUBJECT_RE`, `_SELF_OR_GROUP_SUBTYPE_RE`)
+    # are the composed object head now, translated back into the flat keys they printed
+    # (`object_trigger_head.legacy_condition`), so every spec they claimed is unchanged.
+    # Its event must agree with `_trigger_event`'s, which the caller pairs with it.
+    composed = legacy_group_condition(cond)
+    if composed is not None and composed[0] == _trigger_event(cond):
+        return composed[1]
     return None
 
 
@@ -4400,9 +4175,17 @@ def _leading_for_each_object_specs(body: str) -> "Optional[list[EffectSpec]]":
     m = _LEADING_FOR_EACH_OBJECT_RE.match(body.strip())
     if m is None:
         return None
-    selector = parse_count_phrase(m.group("group"))
-    if selector is None or selector.get("zone") != "battlefield" or "terms" in selector:
-        return None
+    over: dict[str, Any]
+    if m.group("group") == "of them":
+        # PAR-119: "whenever 1 or more tokens … enter, for each of them, …" (Kambal) — the
+        # members of the firing batch that matched its head (``matching_ids``); the
+        # segmenter keeps it off any head that isn't a batch.
+        over = {"batch_members": True}
+    else:
+        selector = parse_count_phrase(m.group("group"))
+        if selector is None or selector.get("zone") != "battlefield" or "terms" in selector:
+            return None
+        over = {"selector": selector}
     inner = parse_effect_body(m.group("rest").strip(), previous_subject=True)
     if not inner:
         return None
@@ -4416,7 +4199,7 @@ def _leading_for_each_object_specs(body: str) -> "Optional[list[EffectSpec]]":
         if spec.condition is not None:
             entry["condition"] = dict(spec.condition)
         effects.append(entry)
-    return [EffectSpec("for_each", {"over": {"selector": selector}, "effects": effects})]
+    return [EffectSpec("for_each", {"over": over, "effects": effects})]
 
 
 def _bind_x(effects: list[EffectSpec], amount: dict[str, Any]) -> "Optional[list[EffectSpec]]":
@@ -7342,9 +7125,8 @@ def _segment_line_unsplit(
             else:
                 # PAR-117: "a **Sliver** deals damage" — the creature-
                 # subtype sibling of the ``type`` branch above, same
-                # ``subtypes`` list shape `_GROUP_SUBTYPE_SUBJECT_RE`'s own
-                # dispatch uses (`_build_group_ok` doesn't care which event
-                # supplied it).
+                # ``subtypes`` list shape the group conditions use
+                # (`_build_group_ok` doesn't care which event supplied it).
                 condition["subtypes"] = [damage_trig.group("subtype").lower()]
             if damage_trig.group("yours"):
                 condition["controller"] = "you"
@@ -8782,6 +8564,8 @@ def _segment_line_unsplit(
             effects = _bind_attack_count(effects)
             if effects is None:
                 return Segment(raw=raw)
+        if event != "EVENT_BATCH" and "'batch_members'" in repr(effects):
+            return Segment(raw=raw)  # "them" names a batch only under a batch head
         if event == "EVENT_BATCH":
             if "trigger_subject" in repr(effects) or "__group_subject__" in repr(effects):
                 return Segment(raw=raw)  # no single firing object to name
@@ -8808,6 +8592,11 @@ def _segment_line_unsplit(
                 **({"event_counter_gate": event_counter_gate}
                    if event_counter_gate is not None else {}),
                 **head_trigger,
+                # RULE 605.1b: a trigger off a mana ability whose body only adds mana is
+                # itself a mana ability — it resolves at once, never on the stack.
+                **({"mana_ability": True}
+                   if event == "TAPPED_FOR_MANA" and effects
+                   and all(e.type in _MANA_ADDING_EFFECTS for e in effects) else {}),
             },
             optional=optional,
             raw_text=raw,

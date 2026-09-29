@@ -170,7 +170,14 @@ def players_for(
         subject = effect_conditions.subject_of(
             str(operand.get("of") or "source"), context, source, targets
         )
-        player = _derive(context, subject, str(operand.get("as") or "controller"))
+        derivation = str(operand.get("as") or "controller")
+        player = _derive(context, subject, derivation)
+        if player is None and subject is None and operand.get("of") == "entering":
+            # RULE 608.2h: the event's object is gone (a token that died ceased to
+            # exist, RULE 704.5d) — its last known controller/owner is on the event.
+            event = getattr(context, "trigger_event", None) or {}
+            key = "controller_id" if derivation == "controller" else "owner_id"
+            player = _player_by_id(context, event.get(key))
         return [player] if player is not None else []
     return []
 

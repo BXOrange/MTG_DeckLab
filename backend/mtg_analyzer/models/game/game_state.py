@@ -1351,7 +1351,7 @@ class GameState:
     #: Per-object events a "one or more" / "N or more" trigger counts (RULE 603.2c).
     BATCHED_EVENT_TYPES: frozenset[str] = frozenset({
         EventType.ENTERS_BATTLEFIELD, EventType.LEAVES_BATTLEFIELD, EventType.DIES,
-        EventType.DISCARD_CARD,
+        EventType.DISCARD_CARD, EventType.PUT_INTO_GRAVEYARD, EventType.SACRIFICE,
     })
 
     @contextmanager
@@ -1367,9 +1367,65 @@ class GameState:
         try:
             yield
         finally:
+            if self._batch_depth == 1 and not getattr(self, "_batch_hold", False):
+                # Still inside the scope, so the arrivals join this batch.
+                self.announce_graveyard_arrivals()
             self._batch_depth -= 1
             if self._batch_depth == 0 and not getattr(self, "_batch_hold", False):
                 self._flush_batches()
+
+    def _zone_map(self) -> dict[int, tuple[str, str]]:
+        """Every card's current zone, as ``instance_id → (zone, owner id)``."""
+        where: dict[int, tuple[str, str]] = {}
+        for obj in self.battlefield:
+            where[obj.instance_id] = ("battlefield", obj.owner_id)
+        for item in self.stack:
+            if getattr(item, "obj", None) is not None:
+                where[item.obj.instance_id] = ("stack", item.obj.owner_id)
+        for player in self.players:
+            for zone, objects in player.zones.items():
+                for obj in objects:
+                    where[obj.instance_id] = (str(getattr(zone, "value", zone)), player.id)
+        return where
+
+    def announce_graveyard_arrivals(self) -> None:
+        """Fire `PUT_INTO_GRAVEYARD` for each card that reached a graveyard since the last check.
+
+        RULE 603.2/603.3: a trigger condition is met when the event happens, and the
+        ability goes on the stack the next time a player would receive priority. Every
+        instruction and every SBA sweep closes a `simultaneous` scope, so checking there
+        sees each arrival before anyone gets priority, whichever of the engine's many
+        graveyard writes made it. The first check only takes the baseline.
+        """
+        now = self._zone_map()
+        before = getattr(self, "_zones_seen", None)
+        self._zones_seen = now
+        if before is None:
+            return
+        for player in self.players:
+            for obj in player.graveyard:
+                was = before.get(obj.instance_id)
+                if was is not None and was[0] == "graveyard":
+                    continue
+                # RULE 108.4a: a card in a graveyard has no controller — its owner answers
+                # for it, not whoever last controlled the permanent.
+                obj.controller_id = player.id
+                self.fire_event(GameEvent(
+                    EventType.PUT_INTO_GRAVEYARD,
+                    object=obj.name,
+                    instance_id=obj.instance_id,
+                    owner_id=player.id,
+                    controller_id=player.id,
+                    from_zone=was[0] if was is not None else None,
+                    object_types=sorted(obj.type_words),
+                    subtypes=sorted(obj.card.type_line.lower().partition("—")[2].split()),
+                    colors=list(getattr(obj.card, "colors", None) or []),
+                    is_token=bool(getattr(obj, "is_token", False)),
+                ))
+
+    def resync_graveyard_watch(self) -> None:
+        """Re-baseline `announce_graveyard_arrivals` without firing (a direct board edit)."""
+        self._zones_seen = self._zone_map()
 
     def hold_batches(self) -> None:
         """Keep the current batch open past this call (an interactive multi-pick)."""

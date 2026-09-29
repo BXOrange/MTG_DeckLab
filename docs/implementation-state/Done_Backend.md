@@ -3405,7 +3405,7 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
   Its one red pin (`~ enters` "must fail closed") was stale: a bare "~ `<verb>`" is a legal
   object-head subject, with the same spec as the legacy self row plus an origin.
 
-### PAR-119 (a): RULE 603.2c object batches — `EVENT_BATCH` and the quantity head (PARSER_VERSION 502–504)
+### PAR-119 (a): RULE 603.2c object batches — `EVENT_BATCH` and the quantity head (PARSER_VERSION 502–508)
 
 - **What:** "Whenever one / N or more `<objects>` enter / die / leave the battlefield" is
   one trigger per *simultaneous* batch. `GameState.simultaneous()` is a nesting scope:
@@ -3444,8 +3444,18 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
   applies each pick as it is answered, so `GameState.hold_batches` keeps the batch open
   until `_resume_choose_objects` completes the choice (`release_batches`) — without it an
   interactive "discard two cards" or "sacrifice two creatures" was two batches (the tests
-  check both fail without the hold). "Sacrifice N or more" still fails closed: sacrifices
-  paid as costs are not scoped yet.
+  check both fail without the hold).
+- **Sacrifice batches (PARSER_VERSION 507):** "`<you | 1 or more players>` sacrifice(s) 1
+  or more [other] `<permanents>`" (Forge Boss, Blood Hypnotist, Evin, Hostile Investigator;
+  +5). SACRIFICE joined `BATCHED_EVENT_TYPES`, and the whole cost payment is one scope —
+  `activate_ability` around `_pay_activation_cost`, the cast around `_pay_additional_cast_
+  cost` (RULE 601.2h / 602.2b pay the total cost in one step) — so "Sacrifice two
+  creatures: …" is one batch (the test checks it is two without the scope). The slice-2
+  fail-closed pin on "you sacrifice 2 or more creatures" moved to the positive table.
+- **"For each of them" (PARSER_VERSION 508):** under a batch head, "for each of them,
+  `<body>`" is `for_each` over ``{"batch_members": true}`` — the captured ``matching_ids``
+  (`ForEachEffect._items`), the body parsed with the pronoun reading like the leading
+  object `for_each` (Kambal, Profiteering Mayor). Off a batch head it fails closed.
 - **Combat-damage batches (PARSER_VERSION 504):** "whenever `<n>` or more `<creatures>`
   deal combat damage to `<a player | an opponent | you | 1 or more players>`" is
   `object_trigger_head._parse_combat_damage_batch_head` over the existing
@@ -3466,7 +3476,10 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
   Invasion Tactics, Keeper of Fables, Olivia, Opulent Outlaw, Prosperous Thief ×2, Thopter
   Spy Network), whole-cache spec diff: 0 lost, 0 changed. Of the head's 28 remaining SOLO
   cards most are body gaps — chiefly "target `<X>` that player controls" (PAR-130).
-  Tests: `tests/test_par119_combat_damage_batch.py`.
+  Tests: `tests/test_par119_combat_damage_batch.py`. The subject grammar later gained
+  "goaded", "face-down" and "that entered this turn" (see the next entry). "To 1 or more
+  of your opponents" stays closed on purpose: it triggers once per step, the aggregate
+  once per damaged player.
 - **Files:** `models/game/events.py`, `models/game/game_state.py`, `game/effects/core.py`,
   `game/rules/sba_mixin.py`, `game/binding/core.py`, `game/rules/casting_mixin.py`,
   `game/effects/counters_tokens.py`, `parser/oracle/catalogue/object_trigger_head.py`,
@@ -3475,7 +3488,81 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
   `game/engine/activation_mixin.py`, `game/engine/casting_mixin.py`,
   `game/engine/combat_mixin.py`, `parser/oracle/catalogue/characteristic_phrase.py`,
   `tests/test_par119_batch_quantity.py`, `tests/test_strixhaven_secrets_wave7.py`,
-  `tests/test_par119_combat_damage_batch.py`
+  `tests/test_par119_combat_damage_batch.py`, `tests/test_par119_sacrifice_batch.py`,
+  `game/effects/composition.py`
+
+### PAR-119 (c/d): graveyard arrivals, land-tap mana bodies, zone tails, subject qualifiers (PARSER_VERSION 505–510)
+
+- **What — graveyard arrivals (505, +16):** "`<a card>` is put into `<a | your | an
+  opponent's>` graveyard [from anywhere | a library | your hand | anywhere other than the
+  battlefield]" and the batch form "`<n>` or more `<cards>` are put into …" (The Gitrog
+  Monster, Profane Memento, Serra Avatar, Worldspine Wurm, Skola Grovedancer, Patron of the
+  Nezumi, …). New `EventType.PUT_INTO_GRAVEYARD`, batched. The engine writes graveyards in
+  ~17 places with no choke point, so `GameState.announce_graveyard_arrivals` diffs the zone
+  map when the outermost `simultaneous` scope closes — every instruction and every SBA
+  sweep, i.e. before anyone gets priority (RULE 603.3) — and fires one event per new
+  arrival with ``from_zone`` (where it was at the previous check). `resync_graveyard_watch`
+  re-baselines without firing: at `new_game`, after `build_replay_engine`, and after every
+  `edit_*` action. Measured cost: none (suite time unchanged).
+- **Why those choices:** RULE 603.6c — "from anywhere" is never a leaves-the-battlefield
+  ability, so it needs no look-back; RULE 113.6k — "when ~ is put into a graveyard" can't
+  trigger from the battlefield, so the binder sets `functions_from_graveyard` for that self
+  trigger. A "card" subject adds ``nontoken`` (RULE 111.1); a non-card subject ("a
+  permanent is put into …") has no other origin than the battlefield (RULE 110.1). RULE
+  108.4a: an arriving card's ``controller_id`` becomes its owner (a stolen creature that
+  died kept the thief as controller, so "that player" hit the wrong player). A token that
+  died and ceased to exist (RULE 704.5d) still names its player: `effect_operands.
+  players_for` falls back to the event's last-known controller/owner for the ``entering``
+  referent (RULE 608.2h). `test_par30_exchange_control_bespoke`'s Confusion in the Ranks
+  test used 0-toughness creatures that died after the exchange; given real toughness.
+- **Land-tap mana bodies (506, +9):** "[that player] add(s) one mana of any type that land
+  produced" is `mirror_produced_mana` (Kinnan's effect) with a new ``player`` operand
+  (Mana Flare, Heartbeat of Spring, Mirari's Wake, Zendikar Resurgent, Lavaleaper, …). A
+  `TAPPED_FOR_MANA` trigger whose body only adds mana (`_MANA_ADDING_EFFECTS`) is a RULE
+  605.1b mana ability on the composed head too. "That land doesn't untap …" with no
+  earlier referent is the firing event's land (`skip_next_untap_event_object`; Vorinclex,
+  Winter's Night).
+- **Zone tails (509, +3):** LEAVES_BATTLEFIELD stamps ``to_zone`` on its five emitters, so
+  "leave(s) the battlefield without dying" is ``to_zone_not: graveyard`` (Dour Port-Mage,
+  Imperial Cosmographer, Three Tree Scribe); `play_land`'s ENTERS stamps ``played``
+  (RULE 305.1), so "enter … without being played" is ``not_played``; "under an opponent's
+  control" joined the tails.
+- **Subject qualifiers (510, +7):** "goaded" and "face-down" are flag words over new
+  `matches_object_filter` keys, "that entered [the battlefield] this turn" a phrase tail
+  (Goro-Goro and Satoru, Glitch Interpreter, Primal Whisperer, Threats Around Every
+  Corner, …).
+- **Files:** `models/game/events.py`, `models/game/game_state.py`, `game/binding/core.py`,
+  `game/effect_operands.py`, `game/effects/library.py`, `game/effects/registry.py`,
+  `game/combat.py`, `game/rules/damage_death_mixin.py`, `game/engine/lands_mixin.py`,
+  `game/engine/turn_loop_mixin.py`, `services/replay.py`, `services/game_session.py`,
+  `parser/oracle/catalogue/object_trigger_head.py`, `parser/oracle/catalogue/
+  characteristic_phrase.py`, `parser/oracle/catalogue/handlers.py`, `parser/oracle/
+  segmenter.py`; tests `test_par119_graveyard_arrival.py`, `test_par119_land_mana_
+  triggers.py`, `test_par119_zone_tails.py`.
+
+### PAR-119 closing: the per-adjective group rows onto the composed head (PARSER_VERSION 511)
+
+- **What:** `_GROUP_SUBJECT_RE`, `_GROUP_SUBTYPE_SUBJECT_RE`, `_SELF_OR_GROUP_SUBJECT_RE`
+  and `_SELF_OR_GROUP_SUBTYPE_RE` are deleted. `_trigger_condition` asks
+  `object_trigger_head.legacy_group_condition` instead: the composed head, translated by
+  `legacy_condition` back into the flat keys those rows printed (``type`` / ``subtypes`` /
+  ``color`` / ``min_power`` / ``excluded_subtypes`` / ``nonland`` / counters). The head
+  gained the object verbs only those rows named (turned face up, becomes blocked / tapped /
+  untapped, mutates, becomes monstrous, specializes, "is put into your graveyard from the
+  battlefield"), "attacks 1 of your opponents", and a leading "nontoken" over an
+  alternation. +4 (Lifeblood, Lifetap, Thoughtleech, Prowess of the Fair).
+- **Why translate instead of switching to ``filter``:** the flat keys read the event's
+  last-known snapshot, the ``filter`` path looks the object up live and gives up if it is
+  gone — rewriting them would change behaviour, not spelling. Every spec the rows claimed
+  is unchanged except two intended fixes: the old row dropped "your" in "put into your
+  graveyard from the battlefield", so Scrapheap and Nether Traitor counted opponents'
+  permanents; they now carry ``owner: you``. 21 cards the rows had missed ("another elf",
+  "creature or artifact" in the "~ or another" form) moved from the composed ``filter`` to
+  the flat keys. The remaining rows are PAR-131.
+- **Files:** `parser/oracle/segmenter.py`, `parser/oracle/catalogue/object_trigger_head.py`,
+  `parser/oracle/catalogue/characteristic_phrase.py`; tests `test_par119_zone_tails.py`,
+  `test_par117_group_subject_blocks_this_turn.py` (stale "this turn" pin — PAR-124 moved
+  that tail onto the turn-trigger wrapper).
 
 ### PAR-124's own residue: "copy that spell X times" and a delayed trigger's own group pronoun (PARSER_VERSION 460)
 

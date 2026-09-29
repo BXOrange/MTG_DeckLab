@@ -785,12 +785,22 @@ class MirrorProducedManaEffect(GameEffect):
     prompt, which is the overwhelmingly common case.
     """
 
-    def __init__(self, count: int = 1, source: Optional["GameObject"] = None) -> None:
+    def __init__(
+        self, count: int = 1, player: Any = None, source: Optional["GameObject"] = None
+    ) -> None:
         super().__init__(source)
         self.count = count
+        #: Who adds it — "**that player** adds …" (Mana Flare, PAR-119) is an operand
+        #: (`effect_operands`); ``None`` is the ability's controller (Kinnan).
+        self.player = player
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = _controller_of(self.source, context)
+        if self.player is None:
+            player = _controller_of(self.source, context)
+        else:
+            from ..effect_operands import player_for  # function-scoped: import cycle
+
+            player = player_for(self.player, context, self.source, targets)
         event = context.trigger_event
         if player is None or event is None:
             return

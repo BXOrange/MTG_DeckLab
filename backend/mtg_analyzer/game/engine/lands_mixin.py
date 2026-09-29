@@ -179,6 +179,8 @@ class LandsMixin:
                     object=obj.name,
                     instance_id=obj.instance_id,
                     object_types=sorted(obj.type_words),
+                    # RULE 305.1: played, not put — "enter without being played" (PAR-119).
+                    played=True,
                 )
             )
             # RULE 117.3c: taking an action reclaims priority for its taker.

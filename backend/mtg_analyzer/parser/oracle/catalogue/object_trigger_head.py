@@ -43,8 +43,24 @@ _VERBS: dict[str, str] = {
     "attacks": "ATTACKS",
     "blocks": "BLOCKS",
     "leaves the battlefield": "LEAVES_BATTLEFIELD",
+    # RULE 708.8 / 509.5 / 701.21b / 701.22 / 702.140c / 701.37a — the object events
+    # the legacy `segmenter._TRIGGER_VERBS` rows named (PAR-119 migration).
+    "is turned face up": "TURNED_FACE_UP",
+    "becomes blocked": "BECOMES_BLOCKED",
+    "becomes tapped": "TAPPED",
+    "becomes untapped": "UNTAPPED",
+    "mutates": "MUTATES",
+    "becomes monstrous": "BECAME_MONSTROUS",
+    "specializes": "SPECIALIZED",
+    # RULE 700.4's long spelling of "dies"; "your" scopes the owner (`_OWN_GRAVEYARD`).
+    "is put into your graveyard from the battlefield": "DIES",
 }
-_VERB_ALT = r"(?:enters(?: the battlefield)?|dies|attacks|blocks|leaves the battlefield)"
+_OWN_GRAVEYARD = "is put into your graveyard from the battlefield"
+_VERB_ALT = (
+    r"(?:enters(?: the battlefield)?|dies|attacks|blocks|leaves the battlefield|is turned face up|"
+    r"becomes (?:blocked|tapped|untapped|monstrous)|mutates|specializes|"
+    r"is put into your graveyard from the battlefield)"
+)
 _HEAD = re.compile(
     rf"^(?P<subject>.+?)\s+(?P<v1>{_VERB_ALT})(?:\s+or\s+(?P<v2>{_VERB_ALT}))?(?P<tail>\s.*)?$"
 )
@@ -58,7 +74,7 @@ _ACTOR_VERBS: dict[str, str] = {
 }
 _ACTOR_SCOPE: dict[str, str] = {
     "you": "you", "an opponent": "not_you", "each opponent": "not_you", "a player": "any",
-    "each player": "any",
+    "each player": "any", "1 or more players": "any",
 }
 #: "<subject> deals [combat|noncombat] damage [to <recipient>]" — RULE 120.3. The
 #: DAMAGE event names its *source* (``source_id``/``source_controller_id``), so
@@ -69,7 +85,7 @@ _DAMAGE_HEAD = re.compile(
 )
 _ATTACHED_SUBJECT = re.compile(r"^(?:enchanted|equipped)\s+(?:creature|permanent|land|artifact)$")
 _ACTOR_HEAD = re.compile(
-    r"^(?P<actor>you|an opponent|each opponent|a player|each player)\s+"
+    r"^(?P<actor>you|an opponent|each opponent|a player|each player|1 or more players)\s+"
     r"(?P<verb>sacrifices?|discards?)\s+(?P<object>.+)$"
 )
 #: "<n> or more <plural object phrase>" after an actor verb (a batch, RULE 603.2c).
@@ -83,6 +99,7 @@ _ATTACK_TAILS: list[tuple[str, dict[str, Any]]] = [
     ("you or a planeswalker you control", {"attacks_you_or_planeswalker": True}),
     ("you", {"attacks_you": True}),
     ("enchanted player", {"attacks_enchanted_player": True}),
+    ("1 of your opponents", {"attacks_opponent": True}),
 ]
 
 
@@ -194,16 +211,18 @@ def _parse_actor_head(cond: str) -> Optional[ObjectHead]:
             break
     condition: Optional[dict[str, Any]]
     quantity = _ACTOR_QUANTITY.match(text)
-    if quantity is not None and event != "DISCARD_CARD":
-        return None  # only discards are batched (`GameState.BATCHED_EVENT_TYPES`); a sacrifice isn't yet
     if quantity is not None:
-        # "you discard 1 or more [artifact] cards" (RULE 603.2c) — a batch of the same
-        # per-object event, counted by `EVENT_BATCH` (`_parse_batch_quantity_head`).
-        parsed = parse_object_phrase(quantity.group("phrase"), plural=True)
+        # "you discard / sacrifice 1 or more [other] [artifact] cards" (RULE 603.2c) — a
+        # batch of the same per-object event, counted by `EVENT_BATCH`
+        # (`_parse_batch_quantity_head`). A cost's sacrifices are one batch too
+        # (`GameEngine` scopes the whole payment).
+        phrase = quantity.group("phrase")
+        other = phrase.startswith("other ")
+        parsed = parse_object_phrase(phrase.removeprefix("other "), plural=True)
         if parsed is None or parsed[1] is not None:
             return None
         condition = {"subject": "group", "controller": _ACTOR_SCOPE[m.group("actor")],
-                     "other": False, **({"filter": parsed[0]} if parsed[0] else {})}
+                     "other": other, **({"filter": parsed[0]} if parsed[0] else {})}
         trigger["batch"] = {"of": event, "min": int(quantity.group("n"))}
         return ObjectHead("EVENT_BATCH", condition, trigger)
     if text == "~":
@@ -333,7 +352,7 @@ def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
     actor = (
         _parse_actor_head(cond) or _parse_damage_head(cond) or _parse_attack_batch_head(cond)
         or _parse_block_relation_head(cond) or _parse_batch_quantity_head(cond)
-        or _parse_combat_damage_batch_head(cond)
+        or _parse_combat_damage_batch_head(cond) or _parse_graveyard_arrival_head(cond)
     )
     if actor is not None:
         return actor
@@ -350,6 +369,10 @@ def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
     events = [_event_name(m.group("v1"))]
     if m.group("v2"):
         events.append(_event_name(m.group("v2")))
+    if _OWN_GRAVEYARD in (m.group("v1"), m.group("v2")):
+        if m.group("v2") or condition["subject"] == "self":
+            return None  # the self form is the legacy self row's; no compound needs it
+        condition["owner"] = "you"
     trigger: dict[str, Any] = {}
     events = _consume_tails((m.group("tail") or "").strip(), events, condition, trigger)
     if events is None:
@@ -380,6 +403,22 @@ def _consume_tails(
             if condition.get("controller", "any") != "any":
                 return None
             condition["controller"], tail = "you", tail[len("under your control"):].strip()
+            continue
+        if tail.startswith("under an opponent's control") and events == ["ENTERS_BATTLEFIELD"]:
+            if condition.get("controller", "any") != "any":
+                return None
+            condition["controller"] = "not_you"
+            tail = tail[len("under an opponent's control"):].strip()
+            continue
+        if tail.startswith("without dying") and events == ["LEAVES_BATTLEFIELD"]:
+            if "to_zone_not" in trigger:
+                return None
+            trigger["to_zone_not"], tail = "graveyard", tail[len("without dying"):].strip()
+            continue
+        if tail.startswith("without being played") and events == ["ENTERS_BATTLEFIELD"]:
+            if "not_played" in trigger:
+                return None
+            trigger["not_played"], tail = True, tail[len("without being played"):].strip()
             continue
         phase, rest = consume(tail, PHASE_TAILS)
         if phase is not None:
@@ -470,3 +509,132 @@ def _parse_combat_damage_batch_head(cond: str) -> Optional[ObjectHead]:
         "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER", condition,
         {"contributors": {"min": int(m.group("n"))}},
     )
+
+
+#: RULE 603.6c: "`<subject>` is put into `<whose>` graveyard [from `<origin>`]" and its
+#: batch form "`<n>` or more `<cards>` are put into …" — `EventType.PUT_INTO_GRAVEYARD`,
+#: fired per arrival from any zone. "From the battlefield" stays with the dies/leaves
+#: rows: a leaves-the-battlefield ability looks back in time (RULE 603.10a), this doesn't.
+_GRAVEYARD_ARRIVAL = re.compile(
+    r"^(?:(?P<n>\d+) or more (?P<plural>.+?) are|(?P<single>.+?) is) put into "
+    r"(?P<whose>a|your|an opponent's) graveyard"
+    r"(?: from (?P<origin>anywhere other than the battlefield|anywhere|a library|your library|"
+    r"your hand))?(?P<tail>\s.*)?$"
+)
+_GRAVEYARD_OWNER = {"a": "any", "your": "you", "an opponent's": "not_you"}
+
+
+def _parse_graveyard_arrival_head(cond: str) -> Optional[ObjectHead]:
+    m = _GRAVEYARD_ARRIVAL.match(cond)
+    if m is None:
+        return None
+    event = "PUT_INTO_GRAVEYARD"
+    owner = _GRAVEYARD_OWNER[m.group("whose")]
+    condition: Optional[dict[str, Any]]
+    if m.group("plural") is not None:
+        parsed = parse_object_phrase(m.group("plural"), plural=True)
+        if parsed is None or parsed[1] is not None:
+            return None
+        condition = {"subject": "group", "controller": owner, "other": False,
+                     **({"filter": parsed[0]} if parsed[0] else {})}
+    elif m.group("single") in ("~", "this card"):
+        if owner == "not_you":
+            return None  # a card only ever goes to its owner's graveyard
+        condition = {"subject": "self"}
+    else:
+        condition = _subject(m.group("single"))
+        if condition is None or condition["subject"] != "group" or condition["controller"] != "any":
+            return None  # the graveyard names whose it is; a second scope is not modelled
+        condition["controller"] = owner
+    subject_text = m.group("plural") or m.group("single") or ""
+    names_card = bool(re.search(r"\bcards?\b", subject_text)) or condition["subject"] == "self"
+    if names_card and condition["subject"] != "self":
+        condition["nontoken"] = True  # a token is never a card (RULE 111.1)
+    trigger: dict[str, Any] = {}
+    # "a permanent / a creature is put into a graveyard" names an object that only exists
+    # on the battlefield (RULE 110.1), so the unstated origin is the battlefield.
+    origin = m.group("origin") or ("anywhere" if names_card else "the battlefield")
+    if origin == "anywhere other than the battlefield":
+        trigger["from_zone_not"] = "battlefield"
+    elif origin != "anywhere":
+        trigger["filter"] = {"from_zone": origin.split()[-1]}
+    events = _consume_tails((m.group("tail") or "").strip(), [event], condition, trigger)
+    if events != [event]:
+        return None
+    if m.group("n") is not None:
+        trigger["batch"] = {"of": event, "min": int(m.group("n"))}
+        return ObjectHead("EVENT_BATCH", condition, trigger)
+    return ObjectHead(event, condition, trigger)
+
+
+#: Condition keys other than the subject scope that pass through `legacy_condition`
+#: unchanged — the RULE 506.4 defender scopes the attack tails add.
+_LEGACY_PASSTHROUGH = frozenset({
+    "attacks_you", "attacks_you_or_planeswalker", "attacks_enchanted_player", "attacks_opponent",
+    "owner",
+})
+
+
+def legacy_condition(condition: dict[str, Any], phrase: str = "") -> Optional[dict[str, Any]]:
+    """A composed group condition in the flat keys the binder has always read, or ``None``.
+
+    PAR-119's migration keeps every `AbilitySpec` the retired per-adjective rows emitted
+    byte-identical: those keys (``type`` / ``subtypes`` / ``color`` / …) read the event's
+    last-known snapshot where the ``filter`` form reads the live object, so rewriting
+    them would change behaviour, not only spelling. Only a shape those rows could print
+    translates; anything richer keeps its ``filter`` (``None`` here). ``phrase`` is the
+    subject noun phrase — "permanent" has no filter key of its own.
+    """
+    if condition.get("subject") not in ("group", "self_or_group"):
+        return None
+    base = {k: condition[k] for k in ("subject", "controller", "other") if k in condition}
+    extra = set(condition) - {"subject", "controller", "other", "filter"}
+    if extra - _LEGACY_PASSTHROUGH:
+        return None
+    base.update({k: condition[k] for k in extra})
+    f = dict(condition.get("filter") or {})
+    nontoken = bool(f.pop("nontoken", False))
+    if "subtype" in f or "subtype_any" in f:
+        subtypes = [f.pop("subtype")] if "subtype" in f else list(f.pop("subtype_any"))
+        if f or extra - {"owner"}:
+            return None
+        return {**base, "subtypes": subtypes, "nontoken": nontoken}
+    if nontoken:
+        return None
+    if "card_type" in f:
+        base["type"] = f.pop("card_type")
+    elif "card_type_any" in f:
+        base["type"] = list(f.pop("card_type_any"))
+    elif re.search(r"\bpermanents?\b", phrase):
+        base["type"] = "permanent"
+    else:
+        return None
+    if f.pop("without_card_type", None) == "land":
+        base["nonland"] = True
+    if "without_subtype" in f:
+        base["excluded_subtypes"] = [f.pop("without_subtype")]
+    if f.pop("goaded", False):
+        base.update({"goaded": True, "in_combat": False})
+    for key in ("color", "min_power", "max_power", "has_counter", "has_counter_kind"):
+        if key in f:
+            base[key] = f.pop(key)
+    return None if f else base
+
+
+def legacy_group_condition(cond: str) -> Optional[tuple[str, dict[str, Any]]]:
+    """``(event, condition)`` for a plain one-verb group head in the flat legacy keys.
+
+    What the retired `segmenter` rows `_GROUP_SUBJECT_RE` / `_GROUP_SUBTYPE_SUBJECT_RE` /
+    `_SELF_OR_GROUP_SUBJECT_RE` / `_SELF_OR_GROUP_SUBTYPE_RE` returned, now derived from
+    the composed head (`legacy_condition`). A head with a tail, a batch or two verbs is
+    not one of theirs and stays with the composed path.
+    """
+    cond = cond.strip().lower()
+    head = parse_object_trigger_head(cond)
+    if head is None or head.trigger or not isinstance(head.event, str):
+        return None
+    m = _HEAD.match(cond)
+    if m is None:
+        return None
+    translated = legacy_condition(head.condition, m.group("subject"))
+    return None if translated is None else (head.event, translated)

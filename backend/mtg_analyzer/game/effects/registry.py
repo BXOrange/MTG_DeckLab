@@ -1421,7 +1421,7 @@ EffectRegistry.register(
     # "Add one mana of any type that permanent produced." (Kinnan) — RULE
     # 605.1b triggered-mana-ability body; the type comes from the firing.
     "mirror_produced_mana",
-    lambda p: MirrorProducedManaEffect(count=int(p.get("count", 1) or 1)),
+    lambda p: MirrorProducedManaEffect(count=int(p.get("count", 1) or 1), player=p.get("player")),
 )
 EffectRegistry.register(
     # "Tap all lands that player controls that could produce any type of

@@ -278,3 +278,32 @@ def test_an_interactive_two_creature_sacrifice_is_one_death_batch():
     _answer_all(engine)
     assert len(you.graveyard) == 2
     assert len(you.hand) == 1
+
+
+# ---------------------------------------------------------------------------
+# "for each of them" — the batch's matched members (Kambal, Profiteering Mayor)
+# ---------------------------------------------------------------------------
+
+EACH_OF_THEM = ("Whenever one or more tokens you control enter, for each of them, create a "
+                "tapped token that's a copy of it. This ability triggers only once each turn.")
+
+
+def test_for_each_of_them_copies_each_matched_member_once():
+    engine = _engine()
+    _listener(engine.state, EACH_OF_THEM)
+    _cast(engine, "Create two 1/1 white Soldier creature tokens.")
+    soldiers = [o for o in engine.state.battlefield if o.card.name == "Soldier"]
+    assert len(soldiers) == 4
+    assert sum(1 for o in soldiers if o.tapped) == 2
+
+
+def test_for_each_of_them_needs_a_batch_head():
+    card = Card(id="X", name="X", type_line="Enchantment",
+                oracle_text="Whenever a token you control enters, for each of them, create a "
+                            "token that's a copy of it.")
+    assert not _parse(card).modeled
+
+
+@pytest.mark.full_cache
+def test_kambal_is_modeled():
+    assert parse_oracle(CardDatabase(DB_PATH).get_card("Kambal, Profiteering Mayor")).modeled

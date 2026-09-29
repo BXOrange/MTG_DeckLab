@@ -1366,6 +1366,32 @@ def _trigger_condition(
 
         predicates.append(_during_your_turn_ok)
 
+    # "…is put into a graveyard from anywhere **other than the battlefield**" (Syr
+    # Konrad, Disa) — the negated origin of `PUT_INTO_GRAVEYARD`'s ``from_zone``.
+    not_from_zone = trigger.get("from_zone_not")
+    if not_from_zone:
+        def _not_from_zone_ok(event: Any, context: Any, zone=str(not_from_zone)) -> bool:
+            return event.get("from_zone") != zone
+
+        predicates.append(_not_from_zone_ok)
+
+    # "…leaves the battlefield **without dying**" (Dour Port-Mage) — LEAVES_BATTLEFIELD's
+    # ``to_zone`` isn't the graveyard; a move that doesn't stamp one isn't a death either.
+    not_to_zone = trigger.get("to_zone_not")
+    if not_to_zone:
+        def _not_to_zone_ok(event: Any, context: Any, zone=str(not_to_zone)) -> bool:
+            return event.get("to_zone") != zone
+
+        predicates.append(_not_to_zone_ok)
+
+    # "…enter **without being played**" (Deep Gnome Terramancer) — RULE 305.1: only
+    # `play_land` stamps ``played``; every other way onto the battlefield is "put".
+    if trigger.get("not_played"):
+        def _not_played_ok(event: Any, context: Any) -> bool:
+            return not event.get("played")
+
+        predicates.append(_not_played_ok)
+
     filt = trigger.get("filter")
     if filt:
         # ``by_you`` (Hapatra, Vizier of Poisons — "whenever **you** put one
@@ -2892,6 +2918,12 @@ def bind_ability(
                 # shape `graveyard_zone` uses below for the activated half.
                 functions_from_graveyard=any(
                     _returns_self_from_graveyard(e) for e in own_effects
+                ) or (
+                    # RULE 113.6k / 603.6c: "when ~ is put into a graveyard from
+                    # anywhere" can't trigger from the battlefield, so it functions
+                    # from the graveyard it was put into (it never looks back).
+                    event == EventType.PUT_INTO_GRAVEYARD
+                    and (spec.trigger.get("condition") or {}).get("subject") == "self"
                 ),
                 # RULE 601.2i (MEC-43): "When you cast this spell, …" is
                 # the one trigger shape genuinely meant to fire while its

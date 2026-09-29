@@ -123,6 +123,8 @@ class TurnLoopMixin:
             # cards its controller starts with, so it has to be settled
             # before the opening hand is drawn.
             player.draw(max(0, starting_hand + player.hand_size_modifier))
+        # Baseline for `GameState.announce_graveyard_arrivals` (RULE 603.6c).
+        state.resync_graveyard_watch()
         return engine
     def _setup_variants(self, fmt: "GameFormat", archenemy_id: Optional[str]) -> None:
         """Put the RULE 9 variants' command-zone cards in place for a new game."""

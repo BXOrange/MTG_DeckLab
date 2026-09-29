@@ -15992,6 +15992,14 @@ HANDLERS: list[EffectHandler] = [
         "skip_next_untap_prev", _SKIP_UNTAP_PREV_RE, _skip_untap_prev,
         previous_subject_only=True,
     ),
+    # With no earlier clause to refer back to, "that land" is the object the firing
+    # event names (Vorinclex's "whenever an opponent taps a land for mana, that land
+    # doesn't untap …", PAR-119) — nothing outside a trigger.
+    EffectHandler(
+        "skip_next_untap_event_object",
+        _c(rf"that (?:land|permanent){_DONT_UNTAP_SUFFIX}"),
+        lambda m: [EffectSpec("skip_next_untap", {"target_operand": {"of": "entering"}})],
+    ),
     EffectHandler(
         "skip_next_untap_self", _SKIP_UNTAP_SELF_RE, _skip_untap_self,
         self_subject_only=True,
@@ -16871,6 +16879,18 @@ HANDLERS: list[EffectHandler] = [
         "goad_that_player",
         _c(r"goad target creature that player controls"),
         lambda m: [EffectSpec("goad", {"target_kind": "creature_that_player_controls"})],
+    ),
+    # RULE 605.1b: "[that player] add(s) one mana of any type that land produced" (Mana
+    # Flare, Mirari's Wake, PAR-119) — the type is read off the firing `TAPPED_FOR_MANA`
+    # event's ``produced``; "that player" is whoever tapped the land.
+    EffectHandler(
+        "mirror_produced_mana",
+        _c(r"(?P<that>that player adds|add) 1 mana of any type that (?:land|permanent) produced"),
+        lambda m: [EffectSpec("mirror_produced_mana", {
+            "count": 1,
+            **({"player": {"of": "event_player", "as": "controller"}}
+               if m.group("that").startswith("that") else {}),
+        })],
     ),
     # "~ becomes a copy of [another] target creature[ until end of turn]."
     # (Cursed Mirror's EOT form; Shameless Charlatan's granted permanent

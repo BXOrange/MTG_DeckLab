@@ -28,9 +28,13 @@ def _permanent(name, type_line, controller, *, creature=False):
 
 
 def test_blocks_this_turn_is_the_same_group_condition():
-    assert _trigger_condition("a creature blocks this turn") == {
+    # "… this turn" is a trigger created at resolution (RULE 603.7a): the turn-trigger
+    # wrapper strips it before any head sees the condition (PAR-124), so the head itself
+    # reads only the bare form — and stays closed on the tail (PAR-119 migration).
+    assert _trigger_condition("a creature blocks") == {
         "subject": "group", "type": "creature", "controller": "any", "other": False,
     }
+    assert _trigger_condition("a creature blocks this turn") is None
 
 
 def test_mage_hunters_onslaught_becomes_modeled():

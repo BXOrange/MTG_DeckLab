@@ -71,8 +71,10 @@ def test_confusion_in_the_ranks_chooser_is_the_entering_permanents_controller():
     ring = _spec_source("Confusion in the Ranks", controller="p1")
     state.add_to_battlefield(ring)
 
-    entering = _permanent("Entering Beast", "p2", "Creature — Bear")
-    theirs = _permanent("Sharing", "p1", "Creature — Bear")
+    # Real toughness: a 0-toughness creature dies to SBAs (RULE 704.5f) and a card in a
+    # graveyard answers to its owner (RULE 108.4a), which would hide the exchange.
+    entering = _permanent("Entering Beast", "p2", "Creature — Bear", power=2, toughness=2)
+    theirs = _permanent("Sharing", "p1", "Creature — Bear", power=2, toughness=2)
     state.add_to_battlefield(theirs)
     state.add_to_battlefield(entering)
     state.fire_event(GameEvent(

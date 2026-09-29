@@ -106,8 +106,8 @@ def test_combat_damage_batch_head(cond, condition, minimum):
     "1 or more dragons you control deal combat damage to a player or battle",
     # Noncombat damage is not a combat-damage batch.
     "1 or more creatures you control deal damage to a player",
-    # Tails the per-creature grammar doesn't know stay unclaimed.
-    "1 or more creatures you control that entered this turn deal combat damage to a player",
+    # Once per step across every opponent — the aggregate is per damaged player.
+    "1 or more zombies you control deal combat damage to 1 or more of your opponents",
 ])
 def test_combat_damage_batch_head_fails_closed(cond):
     assert parse_object_trigger_head(cond) is None
@@ -196,6 +196,42 @@ def test_the_captured_event_names_only_the_matching_contributors():
     assert captured.get("matching_amount") == 3
 
 
+@pytest.mark.parametrize("phrase, filt", [
+    ("creatures you control that entered this turn", {"card_type": "creature", "entered_this_turn": True}),
+    ("goaded creatures", {"goaded": True, "card_type": "creature"}),
+    ("face-down creatures you control", {"face_down": True, "card_type": "creature"}),
+])
+def test_state_qualifiers_on_the_subject(phrase, filt):
+    head = parse_object_trigger_head(f"1 or more {phrase} deal combat damage to a player")
+    assert head is not None and head.condition["filter"] == filt
+
+
+def test_entered_this_turn_counts_only_new_creatures():
+    engine = _engine()
+    _listener(engine.state, "Whenever one or more creatures you control that entered this turn "
+                            "deal combat damage to a player, draw a card.")
+    veteran = _creature(engine.state, "Veteran")
+    veteran.turn_entered = engine.state.internal_turn.number - 1
+    _hit(engine, "p2", veteran)
+    assert _hand(engine) == 0
+    rookie = _creature(engine.state, "Rookie")
+    rookie.turn_entered = engine.state.internal_turn.number
+    _hit(engine, "p2", rookie)
+    assert _hand(engine) == 1
+
+
+def test_a_face_down_hitter_counts():
+    engine = _engine()
+    _listener(engine.state, "Whenever one or more face-down creatures you control deal combat "
+                            "damage to a player, draw a card.")
+    hidden = _creature(engine.state, "Hidden")
+    _hit(engine, "p2", hidden)
+    assert _hand(engine) == 0
+    engine.rules.turn_face_down(hidden, "morph")
+    _hit(engine, "p2", hidden)
+    assert _hand(engine) == 1
+
+
 # ---------------------------------------------------------------------------
 # Real cards
 # ---------------------------------------------------------------------------
@@ -205,7 +241,7 @@ def test_the_captured_event_names_only_the_matching_contributors():
 @pytest.mark.parametrize("name", [
     "Alela, Cunning Conqueror", "Automated Assembly Line", "Haliya, Ascendant Cadet",
     "Invasion Tactics", "Keeper of Fables", "Olivia, Opulent Outlaw", "Prosperous Thief",
-    "Thopter Spy Network",
+    "Thopter Spy Network", "Goro-Goro and Satoru", "Glitch Interpreter",
 ])
 def test_real_cards_are_modeled(name):
     assert parse_oracle(CardDatabase(DB_PATH).get_card(name)).modeled

@@ -333,6 +333,8 @@ def build_replay_engine(
     engine = GameEngine(state)
     engine.resume_at(cursor_after(state.current_step))
     continuous.recompute(state)
+    # An assembled graveyard is where the position starts, not a card arriving there.
+    state.resync_graveyard_watch()
     return engine
 
 

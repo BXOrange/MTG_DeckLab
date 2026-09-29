@@ -635,6 +635,8 @@ class DamageDeathMixin:
             self.state.fire_event(
                 GameEvent(
                     EventType.LEAVES_BATTLEFIELD,
+                    # Where it went — "leaves the battlefield without dying" (PAR-119).
+                    to_zone="exile",
                     object=obj.name,
                     owner_id=obj.owner_id,
                     controller_id=obj.controller_id,
@@ -696,6 +698,8 @@ class DamageDeathMixin:
             self.state.fire_event(
                 GameEvent(
                     EventType.LEAVES_BATTLEFIELD,
+                    # Where it went — "leaves the battlefield without dying" (PAR-119).
+                    to_zone="hand",
                     object=obj.name,
                     owner_id=obj.owner_id,
                     controller_id=obj.controller_id,
@@ -741,6 +745,8 @@ class DamageDeathMixin:
             self.state.fire_event(
                 GameEvent(
                     EventType.LEAVES_BATTLEFIELD,
+                    # Where it went — "leaves the battlefield without dying" (PAR-119).
+                    to_zone="library",
                     object=obj.name,
                     owner_id=obj.owner_id,
                     controller_id=obj.controller_id,
@@ -783,6 +789,8 @@ class DamageDeathMixin:
             self.state.fire_event(
                 GameEvent(
                     EventType.LEAVES_BATTLEFIELD,
+                    # Where it went — "leaves the battlefield without dying" (PAR-119).
+                    to_zone="library",
                     object=obj.name,
                     owner_id=obj.owner_id,
                     controller_id=obj.controller_id,
@@ -2023,6 +2031,8 @@ class DamageDeathMixin:
             self.state.fire_event(
                 GameEvent(
                     EventType.LEAVES_BATTLEFIELD,
+                    # Where it went — "leaves the battlefield without dying" (PAR-119).
+                    to_zone="graveyard",
                     object=obj.name,
                     owner_id=obj.owner_id,
                     controller_id=obj.controller_id,

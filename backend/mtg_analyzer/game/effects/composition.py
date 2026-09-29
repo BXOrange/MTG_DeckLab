@@ -425,8 +425,9 @@ class ForEachEffect(_CompositeEffect):
     ``over`` names the items: ``{"players": "each_player"|"each_opponent"|
     "you"}`` (APNAP order, `GameState.living_players`), ``{"selector":
     "<name>"|<structured dict>}`` (the one `continuous.group_selector_objects`
-    vocabulary — this module defines no selectors of its own), or
-    ``{"targets": true}`` (the ability's own chosen targets).
+    vocabulary — this module defines no selectors of its own),
+    ``{"targets": true}`` (the ability's own chosen targets), or ``{"batch_members":
+    true}`` (the matched members of the firing RULE 603.2c batch).
 
     Each item is handed to the body **as its targets**, so an ordinary
     registered effect works as a loop body with no idea it is in a loop, and
@@ -448,6 +449,12 @@ class ForEachEffect(_CompositeEffect):
     def _items(self, context: GameContext, targets: Optional[list[Any]]) -> list[Any]:
         if self.over.get("targets"):
             return list(targets or [])
+        if self.over.get("batch_members"):
+            # RULE 603.2c (PAR-119): "for each of them" — the firing batch's members that
+            # matched the head, as captured when it triggered (`matching_ids`).
+            event = getattr(context, "trigger_event", None) or {}
+            found = (context.state.find_object(i) for i in event.get("matching_ids") or [])
+            return [obj for obj in found if obj is not None]
         scope = self.over.get("players")
         if scope is not None:
             if scope not in PLAYER_SCOPES:

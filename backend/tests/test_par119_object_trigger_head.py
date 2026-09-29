@@ -157,7 +157,6 @@ def test_object_head_parses(cond, event, condition, trigger):
         "a creature attacks alone or dies",  # "alone" is only valid after a lone attack verb
         "a minotaur attacks this turn",   # a delayed trigger (RULE 603.7), not a standing one
         "you sacrifice a creature you control",   # the actor already says whose
-        "you sacrifice 2 or more creatures",      # a batch quantity: not an object phrase
         "an opponent sacrifices ~",               # only its controller can sacrifice this permanent
         "you discard ~",                          # a discarded source is in the graveyard already
     ],

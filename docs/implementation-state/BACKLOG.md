@@ -97,7 +97,8 @@ No open tickets.
   > `Done_Backend.md`'s PAR-124 entry). `PAR-126` is MEC-101's own parser
   > follow-up (below), `PAR-127` PAR-128's split-out "creature or
   > planeswalker" frame (closed), `PAR-129` the Exhaust keyword-line swallow;
-  > `PAR-130` the "that player controls" target scope; first free id: **`PAR-131`**. A genuinely new engine
+  > `PAR-130` the "that player controls" target scope, `PAR-131` PAR-119's legacy-row
+  > migration; first free id: **`PAR-132`**. A genuinely new engine
   > primitive found along the way still files as its own `MEC-*` ticket —
   > `MEC-102` is MEC-101's own such follow-up; next free id: **`MEC-103`**
   > — only the sweep itself stays out of this file.
@@ -137,35 +138,24 @@ No open tickets.
   (its own trigger is `LAST_TIME_COUNTER_REMOVED`, which exists) and a
   per-owner "remove a time counter from each other card" sweep.
 
-- **PAR-119 · Composed trigger-head grammar (event × actor × subject × quantity ×
-  qualifier) — remaining axes.** Built: the cast, object, player-event and attack-batch
-  heads, "X and/or whenever Y" splits, and the RULE 603.2c batches (`EVENT_BATCH`:
-  "one / N or more `<objects>` enter / die / leave the battlefield", "you discard N or more
-  cards", typed graveyard exits; "N or more `<creatures>` deal combat damage to a player"
-  over the combat-damage aggregate); a "sacrifice N or more" batch (cost-path sacrifices are
-  not yet scoped) is also open;
-  current state and next step in [workingOn.md](workingOn.md). Still open:
-  **(a) batch quantity** — combat-damage subjects the phrase grammar lacks ("that entered
-  this turn", "goaded", "face-down"), "to 1 or more of your opponents" as a count of damaged
-  players, "to a player or battle"; most of that head's 28 remaining SOLO cards are body
-  gaps instead (PAR-130); "for each of them, … a copy of it"
-  over a batch's members (Kambal, Mythweaver Poq, Twilight Diviner), "leave the battlefield
-  without dying", "enter without being played"; **(c) zone origin** — "is put into a
-  graveyard from anywhere/a library" (Worldspine Wurm, PAR-103); **(d)** "taps a land for
-  mana" beyond the mana event's own shape, if any card still needs it. Heads that need a
-  *new event* (exploit, saddle, expend, commit a crime, unlock a door/room — the room
-  unlock alone blocks 11 cards) are `MEC-*` work, not composition. Contraption-crank is
-  deliberately not on this list — see `DEFERRED.md`'s permanent non-goals. **Then migrate
-  the legacy rows onto the composed heads** (`_GROUP_SUBJECT_RE`, `_GROUP_SUBTYPE_SUBJECT_RE`,
-  `_SELF_OR_GROUP_*`, `_DAMAGE_TRIGGER_RE`, `_DAMAGE_RECIPIENT_TRIGGER_RE`,
-  `_BECOMES_TARGET_TRIGGER_RE`, the seven `_CAST_SPELL_TRIGGER_*` rows,
-  `_BATCH_ATTACK_TRIGGER_RE`, the `_PLAYER_TRIGGER_CONDITIONS` "you …" rows): emit the
-  legacy condition keys from the composed head so the `AbilitySpec`s are identical, diff
-  the whole cache, delete the row; also fold MEC-78's own `graveyard_exit_batch` scope
-  into `GameState.simultaneous`. Measure each step with `parser_probe.py composition heads
-  --family <f>` and a whole-cache spec diff, and **execute** a sample of the newly claimed
-  cards — the parse verdict alone hid wrong-but-MODELED shapes at v450, v455 and v456
-  (see `PARSER_LONG_TAIL.md`).
+- **PAR-131 · Retire the remaining legacy trigger rows onto the composed heads (refactor).**
+  Pure maintainability — no coverage gain. Done so far: the four group-subject rows
+  (`object_trigger_head.legacy_group_condition` translates the composed head back into
+  their flat keys). Open, each measured by disabling the row alone (lost / changed specs):
+  `_DAMAGE_TRIGGER_RE` 40 / 34, `_DAMAGE_RECIPIENT_TRIGGER_RE` 39 / 0 (needs an "is dealt
+  damage" head), `_BECOMES_TARGET_TRIGGER_RE` 55 / 0 (needs a "becomes the target" head),
+  `_BATCH_ATTACK_TRIGGER_RE` 4 / 0, the cast rows `_CAST_SPELL_TRIGGER_RE` 9 / 225, `_NEG_`
+  0 / 90, `_HISTORIC_` 0 / 16, `_MV_AT_LEAST_` 0 / 15, `_PLAIN_` and `_MV_` 0 / 3 each,
+  `_X_` 3 / 0, `_NTH_` 1 / 0, `_FIRST_X_` 0 / 0 (no cached card; still the only reader of
+  its wording), the `_PLAYER_TRIGGER_CONDITIONS` "you …" rows (incl. the two bare
+  combat-damage rows and the hand-authored ``contributor_*`` flags → ``contributors``);
+  fold MEC-78's `graveyard_exit_batch` into `GameState.simultaneous`. Bar per row: emit the
+  legacy keys from the composed head, whole-cache spec diff identical (normalised for the
+  parser version), then delete the row. Also open, small head residue: compound
+  "`<A>` dies or `<B>` is put into …" heads (Dreadhound, Syr Konrad ×2, the artifact pair),
+  "a spirit card or a card with disturb", "to 1 or more of your opponents" as one trigger
+  per step, "to a player or battle", reflexive "when you sacrifice 1 or more X this way"
+  (Nyssa, Ravenous Rotbelly, Swashbuckler Extraordinaire).
 - **PAR-130 · "target `<X>` that player controls" as a target-scope slot.** 102 SOLO cards
   are blocked only by it (`parser_probe.py blocked "target [a-z ,]+ that player controls"`;
   e.g. Feline Sovereign, Dreadmaw's Ire, the "whenever ~ deals combat damage to a player,
@@ -218,7 +208,7 @@ No open tickets.
 - **PAR-122 · Trigger-doubler residue.** The composed `trigger_doubler` (cause × subject) is
   built; what still fails closed is a *player-event cause* ("turning a face-down permanent face up" — Panoptic Projektor, "a creature you control becoming
   the target of …" — Valiant Emberkin, "being dealt damage" — Wayta; each needs its head in
-  PAR-119's player-event axis first), a *compound subject* ("~ or an Equipment attached to it" —
+  a composed head first — PAR-131), a *compound subject* ("~ or an Equipment attached to it" —
   Cloud, "another colorless permanent or a colorless spell" — Echoes of Eternity, "while you
   control six or more Shrines" — Sanctum of All), The Fish Brewer's tap-for-extra-copies and
   The Masamune's granted quoted doubler.

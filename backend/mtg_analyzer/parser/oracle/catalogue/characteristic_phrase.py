@@ -68,6 +68,9 @@ FLAG_WORDS: dict[str, dict[str, Any]] = {
     "snow": {"snow": True},
     "attacking": {"attacking": True},
     "blocking": {"blocking": True},
+    # RULE 701.15b / 708.2: a designation and a status (PAR-119).
+    "goaded": {"goaded": True},
+    "face-down": {"face_down": True},
     # RULE 903.3: a commander is a designation, not a type or subtype.
     "commander": {"is_commander": True},
     # RULE 205.3m's collective terms: one word standing for several creature types
@@ -211,6 +214,13 @@ def _alternation(parts: list[str], plural: bool = False) -> Optional[dict[str, A
             base = _alternation([first[1], *parts[1:]], plural=plural)
             if base is not None and "tapped" not in base:
                 return {**base, "tapped": first[0] == "tapped"}
+        # "another **nontoken** Elf or Berserker" (PAR-119) — RULE 111.9's token status
+        # applies to the whole list, like a leading tap state.
+        if (len(first) == 2 and first[0] == "nontoken"
+                and all(len(p.split()) == 1 for p in parts[1:])):
+            base = _alternation([first[1], *parts[1:]], plural=plural)
+            if base is not None and "nontoken" not in base:
+                return {**base, "nontoken": True}
         # A trailing card-type noun is shared by every subtype before it
         # ("ninja or rogue creatures", Prosperous Thief) — narrow to subtypes
         # alone, since a shared noun after other adjectives is ambiguous.
@@ -301,15 +311,20 @@ def parse_characteristic_phrase(text: str) -> Optional[dict[str, Any]]:
 #: Where a noun phrase's head ends and its tails begin: a controller phrase, a
 #: "with <qualifier>", or an "of the chosen <color|type>".
 _TAIL_MARKER = re.compile(
-    r"\s(?=(?:" + "|".join(re.escape(t) for t, _ in CONTROLLER_TAILS) + r"|with|of the chosen)\b)"
+    r"\s(?=(?:" + "|".join(re.escape(t) for t, _ in CONTROLLER_TAILS)
+    + r"|with|of the chosen|that entered)\b)"
 )
 _TAIL_QUALIFIER = re.compile(
     r"^with (?P<q>.+?)(?=\s+(?:" + "|".join(re.escape(t) for t, _ in CONTROLLER_TAILS)
-    + r"|of the chosen)\b|$)"
+    + r"|of the chosen|that entered)\b|$)"
 )
 _CHOSEN_TAILS = {
     "of the chosen color": {"color_from_source": True},
     "of the chosen type": {"subtype_from_source": True},
+    # "creatures you control **that entered this turn**" (Goro-Goro and Satoru, PAR-119)
+    # — `combat.matches_object_filter`'s ``entered_this_turn``.
+    "that entered the battlefield this turn": {"entered_this_turn": True},
+    "that entered this turn": {"entered_this_turn": True},
 }
 
 
