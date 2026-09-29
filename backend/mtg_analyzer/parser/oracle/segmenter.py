@@ -487,19 +487,9 @@ _SPELL_CAST_TYPE_WORDS: frozenset[str] = frozenset(
 #: existing group/controller scoping over `SPELL_CAST`), so this is purely
 #: widening the *typed* row's own subject the same way.
 #:
-#: ``(?:or copy )?`` (2026-09-07) folds in RULE ~702.153 **Magecraft** —
-#: "Magecraft — Whenever you cast **or copy** an instant or sorcery spell,
-#: …" (Archmage Emeritus / Veyran / Storm-Kiln Artist / Prismari Pianist-
-#: adjacent). The old `_MAGECRAFT_RE` whole-line recognizer is unreachable
-#: now that `normalize._strip_unregistered_keyword_labels` peels the
-#: "Magecraft — " ability-word label (it isn't a registered RULE 702
-#: keyword), leaving exactly this shape; the engine still has no spell-copy
-#: event bus, so — as that recognizer's own docstring notes — only the
-#: "cast" half binds (`EventType.SPELL_CAST`) and the "copy" branch is
-#: unreachable by any state the engine can currently produce, not silently
-#: wrong.
+#: Cast-or-copy heads use the composed grammar and both events (RULE 707.10).
 _CAST_SPELL_TRIGGER_RE = re.compile(
-    r"^whenever (?P<subj>you|an opponent|a player) casts? (?:or copy )?(?:an?|another) "
+    r"^whenever (?P<subj>you|an opponent|a player) casts? (?:an?|another) "
     r"(?P<types>[a-z][a-z,\s]*?) spell,\s*(?P<body>.+)$",
     re.IGNORECASE | re.S,
 )
@@ -527,7 +517,8 @@ def _cast_spell_trigger_condition(subj: str) -> dict[str, Any]:
 #: can only add coverage, never change a spec a legacy row already emits.
 _CAST_TRIGGER_COMPOSED_RE = re.compile(
     r"^(?:whenever|when) (?P<subj>you|an opponent|a player) casts? "
-    r"(?P<phrase>(?:an?|another) [^,]*?\bspell\b[^,]*),\s*(?P<body>.+)$",
+    r"(?P<copies>or (?:copy|copies) )?"
+    r"(?P<phrase>(?:an?|another|your|their) [^,]*?\bspell\b[^,]*),\s*(?P<body>.+)$",
     re.IGNORECASE | re.S,
 )
 
@@ -5138,9 +5129,19 @@ def parse_effect_body(
     mill_land_this_way = _MILL_LAND_THIS_WAY_RE.match(body)
     if mill_land_this_way is not None:
         before_specs = parse_effect_body(mill_land_this_way.group("before"))
-        after_specs = parse_effect_body(mill_land_this_way.group("after"))
+        branches = re.split(r"\.\s*otherwise,?\s+", mill_land_this_way.group("after"), maxsplit=1)
+        after_specs = parse_effect_body(branches[0], self_subject=self_subject)
         if before_specs is None or after_specs is None or not any(s.type == "mill" for s in before_specs):
             return None
+        if len(branches) > 1:
+            otherwise = parse_effect_body(branches[1], self_subject=self_subject)
+            if otherwise is None:
+                return None
+            return before_specs + [EffectSpec("if_else", {
+                "condition": {"kind": "milled_land_this_way"},
+                "then": [s.to_dict() for s in after_specs],
+                "else": [s.to_dict() for s in otherwise],
+            })]
         return before_specs + [
             EffectSpec(s.type, dict(s.params), condition={"kind": "milled_land_this_way"})
             for s in after_specs
@@ -6023,15 +6024,61 @@ def _retarget_block_relation(
     return out
 
 
-def _batch_attack_body_unresolvable(effects: "list[EffectSpec]") -> bool:
-    """Whether a batch-attack ("you attack with …" / "~ and at least N other creatures
-    attack") body reads something the event cannot say: "that many" / "that much", or a
-    delayed effect that falls back to the source for "that creature"."""
-    return any(
-        any(key in e.params for key in _EVENT_READS)
-        or (e.type == "create_delayed_trigger" and e.params.get("capture") == "previous_or_self")
-        for e in effects
-    )
+def _bind_attack_count(effects: "list[EffectSpec]") -> "Optional[list[EffectSpec]]":
+    """Bind 'that many/much' to this head's own count (RULE 508.3a).
+
+    Walk compositions too: an optional/conditional draw has the same referent.
+    Other event fields and an unresolved 'that creature' still fail closed.
+    """
+    # An adjacent library choice supplies 'that creature'; run the delayed
+    # instruction only for the selected hit, including after an interactive pause.
+    linked = []
+    for effect in effects:
+        if (effect.type == "create_delayed_trigger"
+                and effect.params.get("capture") == "previous_or_self"
+                and linked and linked[-1].type == "impulsive_look"
+                and linked[-1].params.get("hit_destination", "").startswith("battlefield")
+                and effect.condition is None):
+            look = linked.pop()
+            delayed = EffectSpec(effect.type, {**effect.params, "capture": "created_objects"})
+            linked.append(EffectSpec(look.type, {
+                **look.params,
+                "hit_effect_specs": [*look.params.get("hit_effect_specs", []), delayed.to_dict()],
+            }, condition=look.condition))
+        else:
+            linked.append(effect)
+    effects = linked
+    reads_count = False
+
+    def rewrite(value):
+        nonlocal reads_count
+        if isinstance(value, list):
+            return [rewrite(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        if value.get("type") == "create_delayed_trigger" and (
+            value.get("params", {}).get("capture") == "previous_or_self"
+        ):
+            raise ValueError("No creature referent in an attack count")
+        result = {}
+        for key, item in value.items():
+            if key in _EVENT_READS:
+                if item != "amount" or key == "pt_from_trigger_event":
+                    raise ValueError("Not an attacker count")
+                reads_count = True
+                result[key.removesuffix("_from_trigger_event")] = "$attack_count"
+            else:
+                result[key] = rewrite(item)
+        return result
+
+    try:
+        rewritten = rewrite([effect.to_dict() for effect in effects])
+    except ValueError:
+        return None
+    if not reads_count:
+        return effects
+    return [EffectSpec("bind", {"name": "attack_count", "amount": {"kind": "attackers_declared"},
+                               "effects": rewritten})]
 
 
 def _group_it_would_hit_source(
@@ -6727,7 +6774,7 @@ def _segment_line_unsplit(
             "event": "SPELL_CAST", "condition": _cast_spell_trigger_condition(subj),
         }
         if cast_spell_trig_plain.group("opp_turn"):
-            trig["not_controllers_turn"] = True
+            trig["phase_relation"] = "not_you"
         if cast_spell_trig_plain.group("from_exile"):
             trig["spell_from_exile"] = True
         spec = AbilitySpec(
@@ -7068,6 +7115,8 @@ def _segment_line_unsplit(
     if composed_cast is not None:
         composed_keys = parse_spell_phrase(composed_cast.group("phrase"))
         if composed_keys is not None:
+            if composed_cast.group("copies"):
+                composed_keys["event"] = ["SPELL_CAST", "SPELL_COPIED"]
             return _cast_trigger_segment(
                 raw, composed_cast.group("subj"), composed_keys, composed_cast.group("body"), provenance
             )
@@ -8705,8 +8754,10 @@ def _segment_line_unsplit(
         effects = stamped
         if composed_head and _group_it_would_hit_source(condition, body, effects):
             return Segment(raw=raw)
-        if event == "ATTACKERS_DECLARED" and _batch_attack_body_unresolvable(effects):
-            return Segment(raw=raw)
+        if event == "ATTACKERS_DECLARED":
+            effects = _bind_attack_count(effects)
+            if effects is None:
+                return Segment(raw=raw)
         if composed_head:
             effects = _retarget_block_relation(event, head_trigger, effects)
         effects, body_limit = _strip_trigger_once_per_turn_marker(effects)

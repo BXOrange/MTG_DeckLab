@@ -143,6 +143,7 @@ class LandsMixin:
         # ``obj.zone`` is always accurate (set on creation/every zone move),
         # the same "read the object's own zone" idiom
         # `RulesEngine._remove_from_current_zone` uses for casting.
+        from_zone = obj.zone.value
         player.remove_from_zone(obj, obj.zone)
 
         def _finish() -> None:
@@ -173,6 +174,7 @@ class LandsMixin:
             self.state.fire_event(
                 GameEvent(
                     EventType.ENTERS_BATTLEFIELD,
+                    from_zone=from_zone,
                     controller_id=player.id,
                     object=obj.name,
                     instance_id=obj.instance_id,

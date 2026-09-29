@@ -158,8 +158,8 @@ def test_no_reflexive_trigger_when_the_cost_is_declined():
 
 def test_mana_cost_variant_surgespanner_bounce():
     # the primitive is not collect-evidence-specific: "you may pay {1}{U}.
-    # If you do, return target permanent to its owner's hand." is the same
-    # reflexive-trigger shape, and the widest real family it unlocks.
+    # If you do, return target permanent to its owner's hand." announces
+    # its target before payment; unlike "When you do", it is not reflexive.
     eng = _engine()
     st = eng.state
     p1, p2 = st.players
@@ -176,15 +176,18 @@ def test_mana_cost_variant_surgespanner_bounce():
     p1.mana_pool.add("U", 1)
     p1.mana_pool.add("C", 1)
 
-    trig = next(s for s in parse_oracle(src.card).specs if s.ability_kind == "triggered")
-    _apply_effects_partitioned(build_effects(trig.effects, src), eng.rules.context, None, None, source=src)
+    build_effects([EffectSpec("tap", {"target_kind": "creature"})], src)[0].apply(
+        eng.rules.context, [src],
+    )
+    eng.rules.put_triggers_on_stack()
+    assert st.pending_choice and st.pending_choice["kind"] == "trigger_target"
+    eng.rules.resolve_choice(victim.instance_id)
+    eng.resolve_until_stable()
     assert st.pending_choice and st.pending_choice["kind"] == "pay_cost_then"
     eng.rules.resolve_choice("pay")
     eng.resolve_until_stable()
 
-    assert st.pending_choice and st.pending_choice["kind"] == "trigger_target"
-    eng.rules.resolve_choice(victim.instance_id)
-    eng.resolve_until_stable()
+    assert st.pending_choice is None
     assert victim in p2.hand and victim not in st.battlefield
 
 

@@ -1922,6 +1922,7 @@ class CastingResolutionMixin:
             self.state.fire_event(
                 GameEvent(
                     EventType.ENTERS_BATTLEFIELD,
+                    from_zone=Zone.STACK.value,
                     controller_id=obj.controller_id,
                     card_id=obj.card.id,
                     object=obj.name,

@@ -4050,6 +4050,33 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 
 ### MEC-40/41/42/43 coverage note
 
+### Residue sub-items closed as a side effect of PAR-120/ENG-48–51 (audit 2026-09-29, PARSER_VERSION 500)
+
+- **What:** A re-check of every card named in the open `PAR-*` tickets found nine sub-items
+  already MODELED by the composed-grammar work (PAR-119/120's heads and count phrases, ENG-51's
+  cost grammar), with no ticket of their own: PAR-107's "if an opponent controls more lands than
+  you, search for a basic Plains" (Loyal Warhound, Scouting Hawk); PAR-108's "cast a spell from
+  anywhere other than your hand" (Vega, the Watcher); PAR-111's "a creature an opponent controls
+  dies, that player loses N life" (Assault Intercessor, Massacre Wurm) and "destroy target
+  artifact or enchantment an opponent controls" (Rambunctious Mutt, Witch Enchanter); PAR-112's
+  X Angel tokens (Entreat the Angels), "target opponent gets an emblem" (Ob Nixilis Reignited)
+  and "whenever you sacrifice a permanent" (Juri, Master of the Revue); PAR-113's "attacks while
+  you control a creature with power N or greater" (Nighthowl Pursuer, Ruby, Daring Tracker);
+  PAR-123's delayed return to hand (Rienne, Angel of Rebirth).
+- **Why:** Removed from `BACKLOG.md` only after **executing** each card against a real
+  `GameEngine` (the parse verdict alone has hidden wrong-but-MODELED shapes before): the
+  Intercessor/Wurm drain hits the dying creature's controller and ignores your own; Vega draws
+  for a graveyard cast and not a hand cast; the Ob Nixilis emblem lands on the target opponent
+  and drains *them* on every player's draw; Juri gets its counter from a sacrificed creature;
+  the Pursuer/Ruby pump fires only with a power-4 creature out; Rienne returns a dead
+  multicolored creature from the graveyard at the end step and leaves a monocolored one;
+  Warhound fetches a tapped Plains only when behind on lands; Mutt offers only the opponent's
+  artifact. One known imprecision kept: Warhound/Scouting Hawk carry their "if" as a
+  resolution-time effect condition, not a RULE 603.4 intervening-if on the trigger, so the
+  trigger still goes on the stack when the condition is false (it then does nothing).
+- **Also found:** "target creature or planeswalker" parses on 83 cards but drops the
+  planeswalker half of the target — filed as `PAR-127`.
+
 ## Player Assets & Identity
 
 ### Favorite decks + multiplayer default settings (PLR-13)

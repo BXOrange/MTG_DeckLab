@@ -818,6 +818,7 @@ class CombatMixin:
         self.state.fire_event(
             GameEvent(
                 EventType.ENTERS_BATTLEFIELD, controller_id=ninja.controller_id,
+                from_zone=Zone.HAND.value,
                 card_id=ninja.card.id, object=ninja.name, instance_id=ninja.instance_id,
                 object_types=sorted(ninja.type_words),
             )

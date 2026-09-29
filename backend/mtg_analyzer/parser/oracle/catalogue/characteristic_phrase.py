@@ -100,7 +100,9 @@ _OR_CONNECTIVE = re.compile(r"\s(?:and/)?or\s")
 _PLURAL_AND_CONNECTIVE = re.compile(r"\sand\s")
 _WITH_MANA_VALUE = re.compile(r"^mana value (?P<n>\d+) or (?P<dir>greater|less)$")
 _WITH_STAT = re.compile(r"^(?P<stat>power|toughness) (?P<n>\d+) or (?P<dir>greater|less)$")
-_WITH_COUNTER = re.compile(r"^an? (?:(?P<kind>\+1/\+1|-1/-1|[a-z]+) )?counter on it$")
+_WITH_COUNTER = re.compile(
+    r"^(?:an? )?(?:(?P<kind>\+1/\+1|-1/-1|[a-z]+) )?counters? on (?:it|them)$"
+)
 _NON_SUBTYPE = re.compile(r"^non-?(?P<sub>[a-z]+)$")
 
 

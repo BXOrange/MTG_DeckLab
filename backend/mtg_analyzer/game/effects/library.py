@@ -320,6 +320,7 @@ class ImpulsiveLookEffect(GameEffect):
         source: Optional["GameObject"] = None,
         hit_grant_keywords: Optional[list[str]] = None,
         miss_effect_specs: Optional[list[dict]] = None,
+        hit_effect_specs: Optional[list[dict]] = None,
     ) -> None:
         super().__init__(source)
         self.count = count
@@ -335,6 +336,9 @@ class ImpulsiveLookEffect(GameEffect):
         #: (The Joiner of Cats) — serialized `EffectSpec` dicts applied when
         #: the look places nothing (declined, or nothing eligible).
         self.miss_effect_specs = list(miss_effect_specs or [])
+        # Instructions about 'that card' run after the player chooses it, with
+        # that exact object as their referent (PAR-119, Arthur).
+        self.hit_effect_specs = list(hit_effect_specs or [])
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = self.player or context.active_player
@@ -343,6 +347,7 @@ class ImpulsiveLookEffect(GameEffect):
             self.hit_destination, self.miss_destination, self.optional,
             hit_grant_keywords=self.hit_grant_keywords or None,
             miss_effect_specs=self.miss_effect_specs or None,
+            hit_effect_specs=self.hit_effect_specs or None,
             source=self.source,
         )
 
@@ -3001,6 +3006,7 @@ class GainControlOfAllCommandersEffect(GameEffect):
                 context.fire_event(
                     GameEvent(
                         EventType.ENTERS_BATTLEFIELD,
+                        from_zone=Zone.COMMAND.value,
                         instance_id=obj.instance_id,
                         controller_id=obj.controller_id,
                         object_types=sorted(obj.type_words),

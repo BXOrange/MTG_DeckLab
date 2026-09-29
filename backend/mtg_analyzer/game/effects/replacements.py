@@ -856,6 +856,7 @@ def _discard_to_battlefield_replacement(params: dict[str, Any]) -> ReplacementEf
         context.state.fire_event(
             GameEvent(
                 EventType.ENTERS_BATTLEFIELD,
+                from_zone=Zone.HAND.value,
                 controller_id=obj.controller_id,
                 object=obj.name,
                 instance_id=obj.instance_id,

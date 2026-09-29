@@ -1,10 +1,7 @@
 """Secrets of Strixhaven — playability batch, wave 2.
 
-Wave 2: RULE 702.153 **Magecraft**. `normalize._strip_unregistered_keyword_
-labels` peels the "Magecraft — " ability-word label, so the recognizer that
-matters is `segmenter._CAST_SPELL_TRIGGER_RE` widened with an optional
-`(?:or copy )?` — "Whenever you cast or copy an instant or sorcery spell, …".
-Only the "cast" half binds (no spell-copy event bus yet).
+Magecraft (RULE 207.2c's ability word): the composed trigger head listens to
+both SPELL_CAST and SPELL_COPIED, with the same instant/sorcery filter.
 """
 
 from __future__ import annotations
@@ -45,11 +42,11 @@ def test_magecraft_trigger_shape():
     card = _db().get_card("Archmage Emeritus")
     specs = parse_oracle(card).specs
     trig = [s for s in specs if s.trigger][0].trigger
-    assert trig["event"] == "SPELL_CAST"
-    assert trig.get("spell_card_types") == ["instant", "sorcery"]
+    assert trig["event"] == ["SPELL_CAST", "SPELL_COPIED"]
+    assert trig["spell_filter"] == {"card_type_any": ["instant", "sorcery"]}
 
 
-def test_magecraft_binds_one_triggered_ability_and_draws_on_instant_cast():
+def test_magecraft_binds_both_events_and_draws_once_on_instant_cast():
     eng = GameEngine.new_game([("p1", "Alice", []), ("p2", "Bob", [])],
                               starting_hand=0, starting_life=20)
     p1 = eng.state.active_player
@@ -59,7 +56,7 @@ def test_magecraft_binds_one_triggered_ability_and_draws_on_instant_cast():
     emeritus.summoning_sick = False
     eng.state.add_to_battlefield(emeritus)
     bind_from_catalogue(emeritus)
-    assert len(emeritus.triggered_abilities) == 1
+    assert {ability.trigger_event for ability in emeritus.triggered_abilities} == {"SPELL_CAST", "SPELL_COPIED"}
 
     # A known card on top of the library for magecraft to draw.
     drawn = GameObject(Card(id="isl", name="Island", type_line="Basic Land — Island",
@@ -79,7 +76,7 @@ def test_magecraft_binds_one_triggered_ability_and_draws_on_instant_cast():
 
 
 def test_magecraft_does_not_fire_on_sorcery_speed_noninstant_cast():
-    # The trigger's own filter is `spell_card_types == ["instant", "sorcery"]`
+    # The trigger's own filter accepts only instant/sorcery spells
     # (see test_magecraft_trigger_shape); at runtime a Wizardcycling-style
     # artifact cast leaves the top card in the library.
     eng = GameEngine.new_game([("p1", "Alice", []), ("p2", "Bob", [])],

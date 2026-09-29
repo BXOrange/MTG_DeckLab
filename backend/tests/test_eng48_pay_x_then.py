@@ -84,9 +84,13 @@ def test_pay_x_cards_are_modeled(name):
 def test_offer_lists_every_affordable_x_largest_first():
     eng, p1 = two_player_engine()
     devil = battlefield(eng, "Squealing Devil")
+    bear = battlefield(eng, "Grizzly Bears")
     p1.mana_pool.add("R", 3)
 
     fire_etb(eng, devil)
+    assert eng.state.pending_choice["kind"] == "trigger_target"
+    eng.resolve_pending_choice(bear.instance_id)
+    eng.resolve_until_stable()
 
     choice = eng.state.pending_choice
     assert choice["kind"] == "pay_cost_then"
@@ -101,14 +105,12 @@ def test_squealing_devil_pumps_its_target_by_the_announced_x():
     p1.mana_pool.add("R", 3)
 
     fire_etb(eng, devil)
+    # "If you do" targets with the original ETB trigger, before paying X.
+    assert eng.state.pending_choice["kind"] == "trigger_target"
+    eng.resolve_pending_choice(bear.instance_id)
+    eng.resolve_until_stable()
     eng.resolve_pending_choice("pay_x:2")
-    # The reflexive "when you do" trigger (RULE 603.11) targets on placement.
-    eng.rules.put_triggers_on_stack()
-    while eng.state.pending_choice is not None:
-        pending = eng.state.pending_choice
-        pick = next(o for o in pending["options"] if o.get("instance_id") == bear.instance_id)
-        eng.resolve_pending_choice(pick["id"])
-    eng.rules.resolve_top_of_stack()
+    eng.resolve_until_stable()
     eng.recompute_continuous_effects()
 
     assert p1.mana_pool.total() == 1  # X = 2 charged, not 0 and not all 3
@@ -187,6 +189,8 @@ def test_colored_part_of_the_cost_still_gates_the_offer():
         EventType.ATTACKS, instance_id=dragon.instance_id, controller_id="p1",
     ))
     eng.rules.put_triggers_on_stack()
+    assert eng.state.pending_choice["kind"] == "trigger_target"
+    eng.resolve_pending_choice("p2")
     eng.rules.resolve_top_of_stack()
 
     assert eng.state.pending_choice is None

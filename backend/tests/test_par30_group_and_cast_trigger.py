@@ -75,7 +75,7 @@ def test_group_selector_with_a_counter_parses():
     })]
 
 
-def test_cast_spell_during_opponents_turn_sets_not_controllers_turn():
+def test_cast_spell_during_opponents_turn_sets_controller_relative_phase():
     c = Card(id="bc", name="Brineborn Cutthroat", type_line="Creature — Merfolk Rogue",
              is_creature=True, power=2, toughness=1,
              oracle_text=("Whenever you cast a spell during an opponent's turn, "
@@ -84,7 +84,7 @@ def test_cast_spell_during_opponents_turn_sets_not_controllers_turn():
     assert r.coverage != UNMODELED, r.unclaimed
     trig = r.specs[0].trigger
     assert trig["event"] == "SPELL_CAST"
-    assert trig["not_controllers_turn"] is True
+    assert trig["phase_relation"] == "not_you"
 
 
 def test_cast_spell_during_your_turn_is_modeled():

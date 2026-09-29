@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
+from .characteristic_phrase import parse_object_phrase
 from .trigger_context import PHASE_TAILS, consume
 
 #: Actor words → the condition that scopes the acting player. "You" keeps the long-standing
@@ -31,19 +32,29 @@ _VERBS: dict[str, str] = {
     "cycle a card": "CYCLED", "cycles a card": "CYCLED",
     "play a land": "LAND_PLAYED", "plays a land": "LAND_PLAYED",
     "draw a card": "DRAW", "draws a card": "DRAW",
+    "proliferate": "PROLIFERATED", "proliferates": "PROLIFERATED",
 }
 _ORDINALS = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5}
 _NTH_DRAW = re.compile(
     rf"^(?:draw|draws) (?:your|their) (?P<n>{'|'.join(_ORDINALS)}) card (?:each turn|in a turn)$"
 )
 _ONCE = "for the first time each turn"
+_DRAW_EXCEPT = re.compile(
+    r"^(?:draw|draws) a card except the first (?P<n>\d+|one) "
+    r"(?:they|you) draw in each of (?:their|your) draw steps$"
+)
+_DAMAGE = re.compile(r"^(?:are|is) dealt (?P<kind>combat |noncombat )?damage$")
+_MANA_TAP = re.compile(r"^taps? (?:an?|another) (?P<object>.+) for mana$")
 
 _HEAD = re.compile(r"^(?P<actor>you|an opponent|each opponent|a player)\s+(?P<rest>.+)$")
 
 
 def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], dict[str, Any]]]:
     """``(event, condition, trigger keys)`` for a player-event head, or ``None``."""
-    m = _HEAD.match(cond.strip().lower())
+    cond = cond.strip().lower()
+    if cond.startswith("you're "):
+        cond = "you are " + cond[len("you're "):]
+    m = _HEAD.match(cond)
     if m is None:
         return None
     condition = dict(_ACTORS[m.group("actor")])
@@ -52,6 +63,33 @@ def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], di
     if rest.endswith(" " + _ONCE):
         trigger["limit"] = True
         rest = rest[: -len(_ONCE) - 1].strip()
+    for phrase, keys in PHASE_TAILS:
+        if rest.endswith(" " + phrase):
+            trigger.update(keys)
+            rest = rest[: -len(phrase) - 1].strip()
+            break
+    excluded = _DRAW_EXCEPT.fullmatch(rest)
+    if excluded:
+        n = excluded.group("n")
+        trigger["skip_first_draws_in_draw_step"] = 1 if n == "one" else int(n)
+        return "DRAW", condition, trigger
+    damage = _DAMAGE.fullmatch(rest)
+    if damage:
+        condition["recipient"] = True
+        trigger["filter"] = {"is_player": True}
+        if damage.group("kind"):
+            trigger["filter"]["combat"] = damage.group("kind").strip() == "combat"
+        return "DAMAGE", condition, trigger
+    mana = _MANA_TAP.fullmatch(rest)
+    if mana:
+        parsed = parse_object_phrase(mana.group("object"))
+        if parsed is None or parsed[1] is not None:
+            return None
+        controller = "you" if condition["subject"] == "you" else condition["scope"]
+        return "TAPPED_FOR_MANA", {
+            "subject": "group", "controller": controller, "filter": parsed[0],
+            "other": rest.startswith("tap another ") or rest.startswith("taps another "),
+        }, trigger
     nth = _NTH_DRAW.match(rest)
     if nth is not None:
         trigger["is_nth_draw_this_turn"] = _ORDINALS[nth.group("n")]

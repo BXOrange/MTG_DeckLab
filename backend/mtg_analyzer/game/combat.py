@@ -564,6 +564,7 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # RULE 903.4's designation, not a subtype/colour word, so it needs
         # its own key rather than reusing ``subtype``.
         "is_commander",
+        "has_adventure",
         # "…each green creature that **entered this turn**." (Oran-Rief, the
         # Vastwood, PAR-60) — `GameObject.turn_entered` vs the current turn
         # number; needs ``state`` (like ``power_lt_count_selector``), so
@@ -709,6 +710,8 @@ def matches_object_filter(
     # "Equip commander {N}" (RULE 702.6e, Commander's Plate, MEC-43) — the
     # target of this Equip cost must be a commander (RULE 903.4).
     if filt.get("is_commander") and not getattr(obj, "is_commander", False):
+        return False
+    if filt.get("has_adventure") and not getattr(obj.card, "is_adventure", False):
         return False
     # "sacrifice a **nontoken** blue creature" (Flare of Denial's own RULE
     # 118.9 alternative cost) — RULE 111.9's token/nontoken distinction,

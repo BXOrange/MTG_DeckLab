@@ -94,7 +94,8 @@ No open tickets.
   > `source` to it, so "you" in an untargeted effect body stays the
   > spell's controller regardless of who controls the target — see
   > `Done_Backend.md`'s PAR-124 entry). `PAR-126` is MEC-101's own parser
-  > follow-up (below); first free id: **`PAR-127`**. A genuinely new engine
+  > follow-up (below), `PAR-127` PAR-128's split-out "creature or
+  > planeswalker" frame; first free id: **`PAR-129`**. A genuinely new engine
   > primitive found along the way still files as its own `MEC-*` ticket —
   > `MEC-102` is MEC-101's own such follow-up; next free id: **`MEC-103`**
   > — only the sweep itself stays out of this file.
@@ -174,6 +175,18 @@ No open tickets.
   `parser_probe.py composition heads --family <f>` and `parser_probe.py diff`, and **execute** a
   sample of the newly claimed cards — the parse verdict alone hid wrong-but-MODELED shapes at v450,
   v455 and v456 (see `PARSER_LONG_TAIL.md`).
+- **PAR-127 · "Target creature or planeswalker" is MODELED as `creature` (wrong-but-MODELED).**
+  83 parser-MODELED cards print "target creature or planeswalker" and none can target a
+  planeswalker: the shared target grammar drops the "or planeswalker" to `creature` (54),
+  `creature_you_dont_control` (18, "… you don't control" / "… an opponent controls") or a
+  multi-target pair (Domri's Ambush, Hunter's Mark, Ready to Rumble, Rip Apart, Brokers Charm,
+  …). `targeting.py` already has `creature_or_planeswalker` (+ `_you_control`,
+  `_that_player_controls`; used by hand-authored cards only); missing is a
+  `creature_or_planeswalker_you_dont_control` frame and the grammar emitting both. Diff the whole
+  cache — every changed spec should be a `target_kind` swap — and execute a sample against a
+  planeswalker. Not a coverage cluster: the 71 cards `parser_probe.py blocked "target creature
+  or planeswalker"` reports as SOLO are each blocked by their own rider in the same sentence
+  ("exile it instead", "for each of its colors", "where X is …"), not by the target phrase.
 - **PAR-128 · Target/group-grammar slots — residue.** The controller-scope, "another" and
   player-subject slots are in the shared target grammar; still failing on the same axes:
   **group** selectors with "other"/scope ("it deals 1 damage to each other creature",
@@ -184,9 +197,7 @@ No open tickets.
   Puppeteer, Carrion Thrash); **plural multi-target** scope ("tap up to 2 target creatures your
   opponents control", "… divided among any number of target creatures and/or planeswalkers your
   opponents control"); a **quality filter before the scope** ("destroy target creature with flying
-  an opponent controls", "… an opponent controls with power 2 or less"); "target creature or
-  planeswalker" still collapses to `creature` (a `creature_or_planeswalker_you_dont_control` frame
-  would fix both forms); "target opponent `<verb>` for each …" (Honden of Night's Reach, Bishop of
+  an opponent controls", "… an opponent controls with power 2 or less"); "target opponent `<verb>` for each …" (Honden of Night's Reach, Bishop of
   the Bloodstained); the Duress-family `reveal_hand_choose_discard` row collapses "target
   opponent" to `player` (can target yourself), and its comma form ("…, you choose … from it,
   then that player discards that card") is unclaimed — together they block Devour Intellect's
@@ -220,10 +231,7 @@ No open tickets.
   amount forms of that pump ("it gets +X/+X where X …", "+1/+0 for each …" — Angelic Exaltation,
   Asari Captain, Shared Animosity, Thoughtweft Imbuer; a `bind` over the trigger subject), "it
   fights …" (Boxing Ring), "it deals damage equal to its power" (Stalking Vengeance, Warstorm
-  Surge), `copy_permanent`, and the delayed return in Rienne, Angel of Rebirth ("return it to
-  its owner's hand at the beginning of the next end step" — `create_delayed_trigger`'s
-  `previous_or_self` capture falls back to the source and `return_specific_to_hand` is
-  battlefield-only, so it needs a graveyard-to-hand variant). One wrong claim is known and small:
+  Surge) and `copy_permanent`. One wrong claim is known and small:
   Dragon Tempest's "**it** deals X damage" is dealt by the Enchantment, not the entering Dragon
   (visible only through lifelink / deathtouch / protection); the `damage` dealer needs the same
   `trigger_subject` mode. A bare "it" under a `self_or_group` subject stays refused by the
@@ -319,10 +327,11 @@ No open tickets.
 > as every other ranked count in this file.**
 
 - **PAR-107 · Small residue batch — graveyard/library/exile
-  interactions.** 26 independently-shaped clauses (each ≥2 cards
+  interactions.** 21 independently-shaped clauses (each ≥2 cards
   cache-wide, confirmed via `commander_tail_report.py --min-cluster 2`
   cross-referenced against the 56 saved decks) sharing only a broad theme,
-  bundled as one ticket rather than 26 — same convention as PAR-92/PAR-98.
+  bundled as one ticket rather than 21 — same convention as PAR-92/PAR-98;
+  the first two bullets only point at their split-out tickets.
   Work each sub-item independently; a template's own card count is cited
   cache-wide, not deck-only:
   - "When `<name>` is put into a graveyard from anywhere, shuffle it into
@@ -345,10 +354,6 @@ No open tickets.
   - "`<cost>`: target player exiles a card from their graveyard." — 3
     cache-wide (Merrow Bonegnawer, Relic of Progenitus, Scrabbling
     Claws).
-  - "When `<name>` enters, if an opponent controls more lands than you,
-    search your library for a basic Plains card, put it onto the
-    battlefield tapped, then shuffle." — 2 cache-wide (Loyal Warhound,
-    Scouting Hawk).
   - "Exile target permanent with mana value `<n>` or greater." — 2
     cache-wide (Despark, Kin-Tree Severance).
   - "When `<name>` dies, put it on the bottom of its owner's library." —
@@ -463,8 +468,6 @@ No open tickets.
     Blast, Spell Burst).
   - "Whenever you tap a creature for mana, add an additional `<cost>`." —
     2 cache-wide (Badgermole Cub, Leyline of Abundance).
-  - "Whenever you cast a spell from anywhere other than your hand, draw a
-    card." — 2 cache-wide (Vega the Watcher + its Alchemy rebalance).
   - "Look at target player's hand." — 2 cache-wide (Clairvoyance, Peek).
 - **PAR-109 · Small residue batch — static/activated abilities &
   mana.** 9 independently-shaped clauses, each ≥2 cards cache-wide:
@@ -548,7 +551,7 @@ No open tickets.
   > Check whether `object_filter`/`creature_filter` reaches the
   > mass-destroy/damage clauses before adding dedicated rows.
 - **PAR-111 · Small residue batch — ETB/dies/leaves-the-battlefield
-  triggers.** 6 independently-shaped clauses (excluding PAR-104, already
+  triggers.** 5 independently-shaped clauses (excluding PAR-104, already
   split out), each ≥2 cards cache-wide:
   - "When `<name>` dies, if it was a creature, return it to the
     battlefield under its owner's control. It's an enchantment." (the
@@ -564,35 +567,19 @@ No open tickets.
   - "Whenever a creature an opponent controls enters, you may have that
     player lose `<n>` life." — 2 cache-wide (Blood Seeker, Suture
     Priest).
-  - "Whenever a creature an opponent controls dies, that player loses
-    `<n>` life." — 2 cache-wide (Assault Intercessor, Massacre Wurm).
   - "When `<name>` exploits a creature, scry `<n>`, then draw a card." —
     2 cache-wide (Stitched Assistant + its Alchemy rebalance).
-  - "When `<name>` enters, destroy target artifact or enchantment an
-    opponent controls." — 2 cache-wide (Rambunctious Mutt, Witch
-    Enchanter // Witch-Blessed Meadow).
   - "When `<name>` enters, attach it to target legendary creature you
     control." — **1 SOLO** (Mithril Coat), 1 also-blocked (Mjölnir, Storm
     Hammer, blocked by its own unrelated tap/stun-counter attack trigger).
-- **PAR-112 · Small residue batch — counters, tokens & CDA formulas.** 5
-  independently-shaped clauses, each ≥2 cards cache-wide:
-  - "Create X `<n>`/`<n>` white Angel creature tokens with flying." —
-    **1 SOLO** (Entreat the Angels), 1 also-blocked (Decree of Justice,
-    blocked by its own unrelated cycling trigger).
-  - "−`<n>`: target opponent gets an emblem with `<name>`" — **1 SOLO**
-    (Ob Nixilis Reignited), 1 also-blocked (Garruk, Apex Predator, blocked
-    by its own two other unrelated loyalty abilities). Note the loyalty
-    cost prints a Unicode minus (−), not an ASCII hyphen — a
-    `parser_probe.py blocked` regex must use `−`.
-  - "Whenever you sacrifice a permanent, put a +`<n>`/+`<n>` counter on
-    `<name>`." — **1 SOLO** (Juri, Master of the Revue), 1 also-blocked
-    (Blood Aspirant, blocked by its own unrelated activated ability).
+- **PAR-112 · Small residue batch — counters, tokens & CDA formulas.** 1
+  clause left, 2 cards cache-wide:
   - "At the beginning of your end step, if you gained life this turn,
     create a `<n>`/`<n>` white Cat creature token. Then if you have the
     city's blessing, for each token you control that entered this turn,
     create a token that's a copy of it." — 2 cache-wide (Ocelot Pride +
     its Alchemy rebalance).
-- **PAR-113 · Small residue batch — combat triggers.** 6
+- **PAR-113 · Small residue batch — combat triggers.** 5
   independently-shaped clauses, each ≥2 cards cache-wide:
   - "Whenever `<name>` deals combat damage to a player, you get that many
     `<cost>`." — **2 SOLO** (Empyreal Voyager, Peema Trailblazer), 1
@@ -607,9 +594,6 @@ No open tickets.
   - "Whenever `<name>` attacks, add `<cost>`. Until end of turn, you
     don't lose this mana as steps and phases end." — **2 SOLO**
     (Brazen Collector, Savage Ventmaw).
-  - "Whenever `<name>` attacks while you control a creature with power
-    `<n>` or greater, `<name>` gets +`<n>`/+`<n>` until end of turn." —
-    **2 SOLO** (Nighthowl Pursuer, Ruby, Daring Tracker).
   - "Whenever `<name>` attacks, it gets +`<n>`/+`<n>` until end of turn
     for each other attacking Goblin." — **1 SOLO** (Goblin Piledriver), 1
     also-blocked (Goblin Rabblemaster, blocked by its own unrelated

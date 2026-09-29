@@ -103,6 +103,86 @@ def test_the_third_card_drawn_in_a_turn_fires_once():
     assert source.counters.get("+1/+1") == 1
 
 
+def test_player_damage_heads_scope_the_recipient_not_the_source():
+    engine, state = _engine()
+    listener = _put(state, "Whenever you're dealt damage, put a +1/+1 counter on this creature.",
+                    name="Recipient", types="Creature — Bear")
+    dealer = _put(state, "", name="Dealer", owner="p2")
+    engine.rules.deal_damage(state.player_by_id("p1"), 3, source=dealer)
+    engine.resolve_until_stable()
+    assert listener.counters.get("+1/+1") == 1
+    # The same source hitting a creature or the other player doesn't trigger it.
+    engine.rules.deal_damage(dealer, 1, source=dealer)
+    engine.rules.deal_damage(state.player_by_id("p2"), 1, source=dealer)
+    engine.resolve_until_stable()
+    assert listener.counters.get("+1/+1") == 1
+
+
+def test_opponent_combat_damage_head_checks_player_and_damage_kind():
+    engine, state = _engine()
+    listener = _put(state, "Whenever an opponent is dealt combat damage, you gain that much life.",
+                    name="Watcher", types="Enchantment")
+    dealer = _put(state, "", name="Dealer")
+    engine.rules.deal_damage(state.player_by_id("p2"), 3, source=dealer, combat=True)
+    engine.resolve_until_stable()
+    assert state.player_by_id("p1").life == 23
+    engine.rules.deal_damage(state.player_by_id("p2"), 2, source=dealer, combat=False)
+    engine.resolve_until_stable()
+    assert state.player_by_id("p1").life == 23
+
+
+def test_proliferating_twice_triggers_twice_even_when_no_counters_exist():
+    from mtg_analyzer.game.effects.core import ProliferateEffect
+
+    engine, state = _engine()
+    listener = _put(state, "Whenever you proliferate, you gain 1 life.", types="Enchantment")
+    theirs = _put(state, "", name="Their Source", owner="p2")
+    ProliferateEffect(times=2, source=listener).apply(engine.rules.context)
+    engine.resolve_until_stable()
+    assert state.player_by_id("p1").life == 22
+    ProliferateEffect(source=theirs).apply(engine.rules.context)
+    engine.resolve_until_stable()
+    assert state.player_by_id("p1").life == 22
+
+
+def test_tapping_a_land_for_mana_uses_the_existing_mana_event():
+    engine, state = _engine()
+    _put(state, "Whenever an opponent taps a land for mana, you gain 1 life.", types="Enchantment")
+    land = _put(state, "{T}: Add {G}.", name="Their Land", owner="p2", types="Land", is_land=True)
+    engine.tap_for_mana(state.player_by_id("p2"), land)
+    engine.resolve_until_stable()
+    assert state.player_by_id("p1").life == 21
+    rock = _put(state, "{T}: Add {G}.", name="Their Rock", owner="p2", types="Artifact")
+    engine.tap_for_mana(state.player_by_id("p2"), rock)
+    engine.resolve_until_stable()
+    assert state.player_by_id("p1").life == 21
+
+
+def test_draw_exclusions_reset_each_draw_step_and_only_apply_to_own_draw_step():
+    engine, state = _engine()
+    _put(state, "Whenever an opponent draws a card except the first two they draw in each of their draw steps, you gain 1 life.",
+         name="Draw Watcher", types="Enchantment")
+    p2 = state.player_by_id("p2")
+    p2.library.extend(history.GameObject(history.Card(id=f"D{i}", name=f"D{i}", type_line="Land"),
+                                        owner_id="p2", zone=history.Zone.LIBRARY) for i in range(12))
+    state.active_player_index = 1
+    state.current_step = "draw"
+    state.fire_event(history.GameEvent("STEP_BEGIN", step="draw"))
+    engine.rules.draw(p2, 3)
+    engine.resolve_until_stable()
+    assert state.player_by_id("p1").life == 21
+    # A second draw step in the same turn has its own first two draws.
+    state.fire_event(history.GameEvent("STEP_BEGIN", step="draw"))
+    engine.rules.draw(p2, 2)
+    engine.resolve_until_stable()
+    assert state.player_by_id("p1").life == 21
+    # Drawing during somebody else's draw step never gets the exemption.
+    state.active_player_index = 0
+    engine.rules.draw(p2, 2)
+    engine.resolve_until_stable()
+    assert state.player_by_id("p1").life == 23
+
+
 # ---------------------------------------------------------------------------
 # "otherwise" negates the gate of the clause before it, decided once
 # ---------------------------------------------------------------------------

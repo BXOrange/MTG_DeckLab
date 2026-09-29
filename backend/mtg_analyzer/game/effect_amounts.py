@@ -123,6 +123,8 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         # the revealed card" (Counterbalance) reads ``mana_value`` off the
         # `SPELL_CAST` event. Non-numeric / absent field → 0.
         "trigger_event",  # + ``field`` (the event key to read)
+        # RULE 508.3a: this trigger head's filtered count, captured at declaration.
+        "attackers_declared",
         # "N, or M if <condition>" — the override every "…instead" card prints
         # ("~ deals 2 damage. If this spell was kicked, it deals 4 damage instead.").
         # The condition is an `effect_conditions` one, evaluated against the same source and
@@ -248,6 +250,9 @@ def _base(
         if tally not in THIS_WAY_TALLIES:
             return 0
         return int(getattr(context, tally, 0) or 0)
+
+    if kind == "attackers_declared":
+        return int((getattr(context, "trigger_event", None) or {}).get("matching_attacker_count", 0))
 
     if kind == "trigger_event":
         field = str(amount.get("field", ""))

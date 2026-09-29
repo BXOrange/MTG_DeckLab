@@ -211,16 +211,11 @@ def test_look_at_top_any_time_and_the_permission_clause_are_both_claimed():
 
 
 def test_witherbloom_apprentice_modeled():
-    """Magecraft — Whenever you cast or copy an instant or sorcery spell,
-    <effect>." A dedicated whole-line recognizer (`segmenter._MAGECRAFT_RE`)
-    peels the "Magecraft — " ability-word label and binds a `SPELL_CAST`
-    trigger filtered to instant/sorcery via the existing `spell_subtype_any`
-    predicate; "or copy" is unreachable today (no spell-copy event bus
-    anywhere in the engine) — a cross-cutting gap, not a card-specific one."""
+    """Magecraft composes both event kinds with the instant/sorcery filter."""
     result = parse_oracle(_card("Witherbloom Apprentice"))
     assert result.modeled, result.unclaimed
     obj = _bound("Witherbloom Apprentice")
-    assert len(obj.triggered_abilities) == 1
+    assert {a.trigger_event for a in obj.triggered_abilities} == {"SPELL_CAST", "SPELL_COPIED"}
     ability = obj.triggered_abilities[0]
     assert isinstance(ability, TriggeredAbility)
     assert ability.trigger_event == "SPELL_CAST"

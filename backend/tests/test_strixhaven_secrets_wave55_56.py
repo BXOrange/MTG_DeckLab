@@ -29,7 +29,7 @@ def test_quandrix_apprentice_magecraft_impulsive_look():
     qa.controller_id = p1.id
     eng.state.add_to_battlefield(qa)
     bind_from_catalogue(qa)
-    assert len(qa.triggered_abilities) == 1
+    assert {ability.trigger_event for ability in qa.triggered_abilities} == {"SPELL_CAST", "SPELL_COPIED"}
 
     for nm, tl in [("Forest", "Basic Land — Forest"), ("Bolt", "Instant"),
                    ("Wrath", "Sorcery")]:

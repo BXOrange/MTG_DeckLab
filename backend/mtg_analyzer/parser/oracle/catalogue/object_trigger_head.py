@@ -218,6 +218,11 @@ _ATTACK_WITH = re.compile(
     r"(?P<phrase>.+)$"
 )
 _SELF_AND_OTHERS_ATTACK = re.compile(r"^~ and at least (?P<n>\d+) other (?P<phrase>.+) attack$")
+_SELF_AND_ANOTHER_ATTACK = re.compile(
+    r"^(?:~ and another (?P<subject>.+) attack|you attack with ~ and another (?P<with>.+))$"
+)
+_TOTAL_POWER = re.compile(r"^(?P<phrase>.+) with total power (?P<n>\d+) or greater$")
+_ENTRY_ORIGIN = re.compile(r"^from (?:a )?(?P<zone>graveyard|exile|hand|library)(?:\s+|$)")
 
 
 def _attackers_spec(
@@ -225,6 +230,9 @@ def _attackers_spec(
 ) -> Optional[ObjectHead]:
     other = other or phrase.startswith("other ")
     phrase = phrase.removeprefix("other ")
+    total = _TOTAL_POWER.fullmatch(phrase)
+    if total:
+        phrase = total.group("phrase")
     parsed = parse_object_phrase(phrase, plural=True)
     if parsed is None:
         return None
@@ -232,6 +240,8 @@ def _attackers_spec(
     if controller not in (None, "you"):
         return None  # only your own creatures can attack for you
     spec: dict[str, Any] = {"filter": filt}
+    if total:
+        spec["min_total_power"] = int(total.group("n"))
     if low is not None:
         spec["min"] = low
     if high is not None:
@@ -254,6 +264,16 @@ def _parse_attack_batch_head(cond: str) -> Optional[ObjectHead]:
     m = _SELF_AND_OTHERS_ATTACK.match(cond)
     if m is not None:
         return _attackers_spec(m.group("phrase"), int(m.group("n")), None, other=True, includes_source=True)
+    m = _SELF_AND_ANOTHER_ATTACK.fullmatch(cond)
+    if m is not None:
+        return _attackers_spec(m.group("subject") or m.group("with"), 1, None,
+                               other=True, includes_source=True)
+    if cond == "you attack with your commander":
+        return _attackers_spec("commander", 1, None, other=False, includes_source=False)
+    if cond.startswith("you attack with "):
+        phrase = cond.removeprefix("you attack with ")
+        if _TOTAL_POWER.fullmatch(phrase):
+            return _attackers_spec(phrase, 1, None, other=False, includes_source=False)
     return None
 
 
@@ -305,7 +325,7 @@ def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
     if m is None:
         return None
     subject_text = m.group("subject").strip()
-    if subject_text == "~" and (m.group("tail") or "").strip() == "and isn't blocked":
+    if subject_text == "~":
         condition: Optional[dict[str, Any]] = {"subject": "self"}  # the source itself
     else:
         condition = _subject(subject_text)
@@ -317,6 +337,13 @@ def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
     trigger: dict[str, Any] = {}
     tail = (m.group("tail") or "").strip()
     while tail:
+        origin = _ENTRY_ORIGIN.match(tail) if events == ["ENTERS_BATTLEFIELD"] else None
+        if origin is not None:
+            if "from_zone" in trigger.get("filter", {}):
+                return None
+            trigger.setdefault("filter", {})["from_zone"] = origin.group("zone")
+            tail = tail[origin.end():].strip()
+            continue
         if tail.startswith("alone") and events == ["ATTACKS"]:
             events, tail = ["ATTACKS_ALONE"], tail[len("alone"):].strip()
             continue

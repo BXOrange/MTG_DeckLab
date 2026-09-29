@@ -693,7 +693,10 @@ def test_goaded_dies_trigger_only_fires_for_a_goaded_creature():
     eng.rules.goad(goaded, "p1")
 
     library = eng.state.player_by_id("p1").library
-    library.extend([_creature(f"Card{i}") for i in range(4)])
+    library.extend([
+        GameObject(_creature(f"Card{i}"), owner_id="p1", zone=Zone.LIBRARY)
+        for i in range(4)
+    ])
 
     before = len(eng.state.player_by_id("p1").hand)
     eng.rules.destroy(plain)

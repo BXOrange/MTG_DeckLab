@@ -208,7 +208,8 @@ class TriggerCollectionMixin:
                         self.state, obj, event=event, context=self.context
                     )
                     for _ in range(copies):
-                        self.pending_triggers.append((ability, event))
+                        captured = ability.capture_event(event, self.context) if ability.capture_event else event
+                        self.pending_triggers.append((ability, captured))
         # RULE 114.4: an emblem's abilities function in the command zone —
         # scanned the same way as a permanent's, just off `Player.emblems`
         # instead of the battlefield (see `models/emblem.py`).
@@ -216,7 +217,8 @@ class TriggerCollectionMixin:
             for emblem in player.emblems:
                 for ability in emblem.triggered_abilities:
                     if ability.check_trigger(event, self.context):
-                        self.pending_triggers.append((ability, event))
+                        captured = ability.capture_event(event, self.context) if ability.capture_event else event
+                        self.pending_triggers.append((ability, captured))
         # RULE 901.7/902.4/904.9: likewise for the casual variants' own
         # command-zone cards — the face-up plane's planeswalk/chaos
         # abilities, a scheme's "when you set this scheme in motion", a
@@ -226,7 +228,8 @@ class TriggerCollectionMixin:
                 if isinstance(ability, TriggeredAbility) and ability.check_trigger(
                     event, self.context
                 ):
-                    self.pending_triggers.append((ability, event))
+                    captured = ability.capture_event(event, self.context) if ability.capture_event else event
+                    self.pending_triggers.append((ability, captured))
         self._collect_inherent_triggers(event)
         self._collect_self_cast_triggers(event)
         self._collect_impulsive_draw_triggers(event)

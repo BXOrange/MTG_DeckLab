@@ -77,6 +77,8 @@ class EventType:
 
     # Object/zone movement.
     DRAW = "DRAW"
+    #: RULE 701.34: a player proliferated (even if no counters were chosen).
+    PROLIFERATED = "PROLIFERATED"
     #: A player would draw ``count`` cards as one instruction (RULE 120.3 —
     #: by default each card in a multi-card draw is its own independent
     #: instance of "drawing a card," so an ordinary replacement (a doubler,
@@ -328,6 +330,9 @@ class EventType:
     # object itself as `GameObject.mana_spent_to_cast`, since a resolving
     # effect can need it after the spell has left the stack.
     SPELL_CAST = "SPELL_CAST"
+    #: RULE 707.10: a spell copy was put on the stack, without being cast.
+    #: The copier is player_id; instance_id/stack_id name the new copy.
+    SPELL_COPIED = "SPELL_COPIED"
     SPELL_RESOLVED = "SPELL_RESOLVED"
     LAND_PLAYED = "LAND_PLAYED"
     #: RULE 702.28c: a card was cycled (its Cycling cost paid, discarding

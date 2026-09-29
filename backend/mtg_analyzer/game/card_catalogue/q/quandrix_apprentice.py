@@ -16,10 +16,7 @@ def _quandrix_apprentice() -> list[AbilitySpec]:
     """Magecraft — Whenever you cast or copy an instant or sorcery spell,
     look at the top three cards of your library. You may reveal a land card
     from among them and put that card into your hand. Put the rest on the
-    bottom of your library in any order.
-
-    Documented simplification: like the parser's own magecraft modeling,
-    "or copy" is treated as just the cast."""
+    bottom of your library in any order."""
     return [
         AbilitySpec(
             "triggered",
@@ -29,7 +26,7 @@ def _quandrix_apprentice() -> list[AbilitySpec]:
                 "miss_destination": "library_bottom_random",
                 "optional": True,
             })],
-            trigger={"event": EventType.SPELL_CAST,
+            trigger={"event": [EventType.SPELL_CAST, EventType.SPELL_COPIED],
                      "condition": {"subject": "group", "controller": "you"},
                      "spell_card_types": ["instant", "sorcery"]},
         ),

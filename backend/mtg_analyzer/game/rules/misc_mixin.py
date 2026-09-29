@@ -296,9 +296,9 @@ class MiscSystemsMixin:
         which the branch effects would otherwise never see, since they are
         built fresh at answer time rather than sitting on the stack item.
 
-        ``then_trigger_specs`` is RULE 603.11's "**When you do**, `<targeted
-        payoff>`." — instead of resolving off the stack like ``effect_specs``
-        (which can never choose a RULE 115 target), a paid cost enqueues
+        ``then_trigger_specs`` is RULE 603.12's "**When you do**, `<targeted
+        payoff>`." — instead of continuing the original resolution with
+        its announced targets like ``effect_specs``, a paid cost enqueues
         these as their own `TriggeredAbility` on `pending_triggers`, so the
         ordinary placement path gathers targets and it goes on the stack.
         ``then_trigger_event`` is the *outer* trigger's event, carried so a
@@ -319,9 +319,15 @@ class MiscSystemsMixin:
         # part of paying, so the offer is one option per affordable value.
         x_max = self._max_payable_x(player, cost) if cost.mana.has_variable else None
         if not self._can_pay_player_cost(player, cost):
-            self._apply_effect_specs(
-                _substitute_x_specs(else_specs, None if x_max is None else 0), source, targets,
-            )
+            saved = self.context.previous_targets
+            if captured_previous is not None:
+                self.context.previous_targets = list(captured_previous)
+            try:
+                self._apply_effect_specs(
+                    _substitute_x_specs(else_specs, None if x_max is None else 0), source, targets,
+                )
+            finally:
+                self.context.previous_targets = saved
             return
         self._pending_pay_cost_then = {
             "player_id": player.id,
@@ -1737,6 +1743,7 @@ class MiscSystemsMixin:
             self.state.fire_event(
                 GameEvent(
                     EventType.ENTERS_BATTLEFIELD,
+                    from_zone=Zone.HAND.value,
                     controller_id=player.id,
                     object=obj.name,
                     instance_id=obj.instance_id,
@@ -1809,6 +1816,7 @@ class MiscSystemsMixin:
             self.state.fire_event(
                 GameEvent(
                     EventType.ENTERS_BATTLEFIELD,
+                    from_zone=None,  # RULE 111.2: created, not moved from a zone
                     controller_id=controller_id,
                     card_id=token_card.id,
                     object=token.name,

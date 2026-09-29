@@ -1020,6 +1020,7 @@ class PutRevealedCardEffect(GameEffect):
             context.state.add_to_battlefield(card)
             context.state.fire_event(GameEvent(
                 EventType.ENTERS_BATTLEFIELD, controller_id=player.id, object=card.name,
+                from_zone=Zone.LIBRARY.value,
                 instance_id=card.instance_id, object_types=sorted(card.type_words),
             ))
         else:

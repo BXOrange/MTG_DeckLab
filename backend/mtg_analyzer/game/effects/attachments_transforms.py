@@ -1246,6 +1246,7 @@ class PutSelfOntoBattlefieldFromHandEffect(GameEffect):
         context.state.fire_event(
             GameEvent(
                 EventType.ENTERS_BATTLEFIELD,
+                from_zone=Zone.HAND.value,
                 controller_id=self.source.controller_id,
                 object=self.source.name,
                 instance_id=self.source.instance_id,

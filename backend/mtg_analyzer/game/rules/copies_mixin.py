@@ -258,6 +258,21 @@ class CopiesMixin:
             made = self.copy_permanent(player.id, chosen)
             self._apply_populate_enter_state(made, choice.get("enter_state"))
         self.check_state_based_actions()
+    def _fire_spell_copied(self, item: StackItem) -> None:
+        """RULE 707.10: copying triggers Magecraft, but never cast/storm history."""
+        obj = item.obj
+        if obj is None:
+            return
+        self.state.fire_event(GameEvent(
+            EventType.SPELL_COPIED, player_id=item.controller_id,
+            instance_id=obj.instance_id, stack_id=item.stack_id,
+            object_types=sorted(obj.type_words), card_id=obj.card.id, spell=obj.name,
+            mana_value=obj.card.converted_mana_cost, x_paid=item.x,
+            target_instance_ids=[getattr(target, "instance_id", None)
+                                 for target in item.targets or []
+                                 if getattr(target, "instance_id", None) is not None],
+        ))
+
     def copy_spell(
         self,
         target: Any,
@@ -291,7 +306,9 @@ class CopiesMixin:
         item = self._stack_item_for(target)
         if item is None or item.obj is None:
             return []
-        copiable = getattr(item.obj, "_front_card", item.obj.card)
+        # RULE 707.10 / 715.3c: copy the spell's characteristics on the stack,
+        # including an Adventure half rather than the card's creature face.
+        copiable = item.obj.card
         copies: list[StackItem] = []
         for _ in range(count):
             copy_obj = GameObject(
@@ -312,6 +329,7 @@ class CopiesMixin:
                 target_groups=item.target_groups if new_targets is None else None,
             )
             self.state.stack.append(copy_item)
+            self._fire_spell_copied(copy_item)
             copies.append(copy_item)
         return copies
     def conjure_duplicate_into_hand(
@@ -414,7 +432,7 @@ class CopiesMixin:
         """
         from ..binding.core import bind_from_catalogue  # function-scoped: avoid cycle
 
-        copiable = getattr(obj, "_front_card", obj.card)
+        copiable = obj.card
         copy_obj = GameObject(copiable.as_copy(), owner_id=controller_id, zone=Zone.STACK)
         copy_obj.is_token = True
         copy_obj.is_copy = True
@@ -428,6 +446,7 @@ class CopiesMixin:
             targets=list(targets or []),
         )
         self.state.stack.append(copy_item)
+        self._fire_spell_copied(copy_item)
         return copy_item
     def make_prepared(self, obj: GameObject) -> None:
         """``obj`` becomes prepared (RULE 722.3a — a preparation card's

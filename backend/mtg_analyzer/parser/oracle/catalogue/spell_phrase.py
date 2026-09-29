@@ -31,6 +31,10 @@ from .trigger_context import PHASE_TAILS, consume
 _SPELL_PHRASE = re.compile(
     r"^(?:an?|another)\s+(?P<head>.*?)\s*\bspell\b\s*(?P<tail>.*)$", re.IGNORECASE | re.S
 )
+_ORDINALS = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5}
+_ORDINAL_SPELL = re.compile(
+    rf"^(?:your|their) (?P<n>{'|'.join(_ORDINALS)}) spell (?P<tail>.+)$"
+)
 
 #: Everything a card can target that is a permanent (RULE 110.1).
 _PERMANENT_TYPES = sorted(CARD_TYPES - {"instant", "sorcery"})
@@ -61,6 +65,7 @@ _CONTEXT_TAILS: list[tuple[str, dict[str, Any]]] = [
 _FILTER_TAILS: list[tuple[str, dict[str, Any]]] = [
     ("of the chosen color", {"color_from_source": True}),
     ("of the chosen type", {"subtype_from_source": True}),
+    ("that has an adventure", {"has_adventure": True}),
 ]
 
 
@@ -82,13 +87,24 @@ def _targets_filter(what: str, yours: bool) -> Optional[dict[str, Any]]:
 
 def parse_spell_phrase(phrase: str) -> Optional[dict[str, Any]]:
     """``phrase`` (the words between "cast" and the comma) → trigger keys, or ``None``."""
-    m = _SPELL_PHRASE.match(phrase.strip().lower())
+    phrase = phrase.strip().lower()
+    ordinal = _ORDINAL_SPELL.fullmatch(phrase)
+    ordinal_keys: dict[str, Any] = {}
+    if ordinal:
+        tail = ordinal.group("tail")
+        if tail in ("each turn", "in a turn"):
+            tail = ""
+        elif not any(tail == text for text, _ in PHASE_TAILS):
+            return None
+        ordinal_keys["is_nth_spell_cast_this_turn"] = _ORDINALS[ordinal.group("n")]
+        phrase = "a spell " + tail
+    m = _SPELL_PHRASE.match(phrase)
     if m is None:
         return None
     obj_filter = parse_characteristic_phrase(m.group("head"))
     if obj_filter is None:
         return None
-    keys: dict[str, Any] = {}
+    keys: dict[str, Any] = dict(ordinal_keys)
     tail = m.group("tail").strip()
     while tail:
         q = _QUALIFIER.match(tail)

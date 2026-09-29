@@ -679,12 +679,14 @@ class GameContext:
         optional: bool = True,
         hit_grant_keywords: Optional[list[str]] = None,
         miss_effect_specs: Optional[list[dict]] = None,
+        hit_effect_specs: Optional[list[dict]] = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         self.engine._request_impulsive_look(
             player, count, criteria, hit_destination, miss_destination, optional,
             hit_grant_keywords=hit_grant_keywords,
             miss_effect_specs=miss_effect_specs, source=source,
+            hit_effect_specs=hit_effect_specs,
         )
 
     def exile_with_play_permission(
@@ -1599,6 +1601,7 @@ class TriggeredAbility(GameEffect):
         functions_from_graveyard: bool = False,
         functions_from_stack: bool = False,
         controller_from_trigger_event: bool = False,
+        capture_event: Optional[Callable[[GameEvent, GameContext], GameEvent]] = None,
     ) -> None:
         super().__init__(source)
         #: RULE 113.6a (PAR-16): whether this ability fires while its own
@@ -1645,6 +1648,9 @@ class TriggeredAbility(GameEffect):
         #: `pending_triggers`.
         self.mana_ability = mana_ability
         self.trigger_event = trigger_event
+        # Per-firing measurements belong to the pending trigger, not this reused
+        # ability or the shared event (RULE 603.2, PAR-119).
+        self.capture_event = capture_event
         self.effects = effects
         self.condition = condition
         self.optional = optional

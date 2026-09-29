@@ -1424,7 +1424,7 @@ class ClassLevelEffect(GameEffect):
 
 
 class ProliferateEffect(GameEffect):
-    """RULE 701.30: give an additional counter of each kind already there to
+    """RULE 701.34: give an additional counter of each kind already there to
     any number of permanents and/or players.
 
     RULE 701.30a's per-permanent/per-player "choose any number" is a real
@@ -1459,6 +1459,10 @@ class ProliferateEffect(GameEffect):
                 for kind in list(player.counters.keys()):
                     if player.counters.get(kind, 0) > 0:
                         context.add_player_counters(player, 1, kind, source=self.source)
+            # Proliferating is an action even if the set of recipients is empty.
+            controller = _controller_of(self.source, context)
+            if controller is not None:
+                context.state.fire_event(GameEvent(EventType.PROLIFERATED, player_id=controller.id))
 
 
 class RemoveCountersEffect(GameEffect):

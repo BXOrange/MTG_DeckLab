@@ -42,6 +42,14 @@ def _spec(cond):
          {"filter": {"card_type": "creature"}, "min": 2, "other": True, "includes_source": True}),
         ("~ and at least 1 other warriors attack",
          {"filter": {"subtype": "warrior"}, "min": 1, "other": True, "includes_source": True}),
+        ("you attack with your commander", {"filter": {"is_commander": True}, "min": 1}),
+        ("you attack with creatures with total power 6 or greater",
+         {"filter": {"card_type": "creature"}, "min": 1, "min_total_power": 6}),
+        ("you attack with ~ and another legendary creature",
+         {"filter": {"legendary": True, "card_type": "creature"}, "min": 1,
+          "other": True, "includes_source": True}),
+        ("you attack with 2 or more creatures with counters on them",
+         {"filter": {"card_type": "creature", "has_counter": True}, "min": 2}),
     ],
 )
 def test_the_attack_batch_grammar(cond, expected):
@@ -53,8 +61,8 @@ def test_the_attack_batch_grammar(cond, expected):
     [
         "you attack with 3 or more frobnicators",
         "you attack with 2 or more creatures an opponent controls",
-        "you attack with creatures with total power 6 or greater",
-        "you attack with your commander",
+        "you attack with creatures with total power many or greater",
+        "you attack with an opponent's commander",
     ],
 )
 def test_the_attack_batch_grammar_fails_closed(cond):
@@ -72,10 +80,8 @@ def test_real_cards_are_modeled(name):
 
 
 @pytest.mark.parametrize("name", ["Lulu, Curious Hollyphant", "Amazing Alliance", "Arthur, Marigold Knight"])
-def test_bodies_the_shared_event_cannot_answer_stay_unclaimed(name):
-    # "that many" / "that much" and "that creature" would read the wrong thing: the count
-    # depends on this head's own filter, and the event is shared by every listener.
-    assert parse_oracle(_named(name)).modeled is False
+def test_attack_count_bodies_are_modeled(name):
+    assert parse_oracle(_named(name)).modeled
 
 
 # ---------------------------------------------------------------------------
@@ -87,7 +93,7 @@ def _attackers(state, specs, owner="p1"):
     out = []
     for name, types, kw in specs:
         card = Card(id=name, name=name, type_line=types, is_creature=True, power=2, toughness=2,
-                    keywords=list(kw))
+                    keywords=list(kw), is_legendary="Legendary" in types)
         obj = GameObject(card, owner_id=owner, zone=Zone.BATTLEFIELD)
         obj.controller_id = owner
         obj.summoning_sick = False
@@ -190,6 +196,111 @@ def test_an_other_filter_never_counts_the_source():
     source.summoning_sick = False
     source.card.keywords.append("Flying")
     assert _drawn(state, lambda: _attack(engine, state, [source])) == 0
+
+
+def test_attack_counts_are_per_ability_and_survive_changed_attackers():
+    engine, state = _stocked()
+    lulu = _put(state, _named("Lulu, Curious Hollyphant").oracle_text,
+                name="Lulu, Curious Hollyphant", types="Creature — Elephant", keywords=["Flying"])
+    _put(state, _named("Amazing Alliance").oracle_text, name="Amazing Alliance", types="Enchantment")
+    lulu.summoning_sick = False
+    others = _attackers(state, [
+        ("Legend", "Legendary Creature — Bird", ("Flying",)),
+        ("Bird", "Creature — Bird", ("Flying",)),
+        ("Bear", "Creature — Bear", ()),
+    ])
+    state.current_step = "declare_attackers"
+    engine.declare_attackers(state.active_player, [lulu, *others])
+    engine._fire_player_attacked_events()
+    events = [event for _, event in engine.rules.pending_triggers
+              if event.type == "ATTACKERS_DECLARED"]
+    assert sorted(event.get("matching_attacker_count") for event in events) == [1, 2]
+    assert all(event.get("matching_attacker_count") is None
+               for event in state.event_log if event.type == "ATTACKERS_DECLARED")
+    # Removing an attacker after triggering must not change either stored count.
+    engine.rules.destroy(others[0])
+    p1 = state.player_by_id("p1")
+    before_life = p1.life
+    engine.resolve_until_stable()
+    assert state.pending_choice["action"] == "discard"
+    engine.resolve_pending_choice(p1.hand[0].instance_id)
+    assert len(p1.hand) == 1  # two drawn, one discarded
+    assert p1.life == before_life + 1
+
+
+@pytest.mark.parametrize("power, expected", [([4, 2], 1), ([4, 1], 0), ([7, -2], 0)])
+def test_total_power_uses_the_sum_including_negative_power(power, expected):
+    engine, state = _stocked()
+    _put(state, "Whenever you attack with creatures with total power 6 or greater, draw a card.",
+         types="Enchantment")
+    attackers = _attackers(state, [(str(n), "Creature — Bear", ()) for n in range(len(power))])
+    for obj, value in zip(attackers, power):
+        obj.card.power = value
+    assert _drawn(state, lambda: _attack(engine, state, attackers)) == expected
+
+
+def test_attack_with_commander_requires_the_designated_attacker():
+    engine, state = _stocked()
+    _put(state, "Whenever you attack with your commander, draw a card.", types="Enchantment")
+    attackers = _attackers(state, [("Ordinary Legend", "Legendary Creature — Bear", ())])
+    assert _drawn(state, lambda: _attack(engine, state, attackers)) == 0
+    attackers[0].is_commander = True
+    attackers[0].tapped = False
+    attackers[0].attacking = False
+    assert _drawn(state, lambda: _attack(engine, state, attackers)) == 1
+
+
+def test_attack_with_counters_filters_each_creature():
+    engine, state = _stocked()
+    _put(state, "Whenever you attack with two or more creatures with counters on them, draw a card.",
+         types="Enchantment")
+    attackers = _attackers(state, [(str(n), "Creature — Bear", ()) for n in range(3)])
+    attackers[0].counters["charge"] = 1
+    assert _drawn(state, lambda: _attack(engine, state, attackers)) == 0
+    attackers[1].counters["shield"] = 1
+    for obj in attackers:
+        obj.tapped = False
+        obj.attacking = False
+    assert _drawn(state, lambda: _attack(engine, state, attackers)) == 1
+
+
+def test_source_and_another_legendary_creature_both_have_to_attack():
+    engine, state = _stocked()
+    source = _put(state, "Whenever you attack with ~ and another legendary creature, draw a card.",
+                  name="Pair", types="Legendary Creature — Human")
+    source.summoning_sick = False
+    others = _attackers(state, [("Legend", "Legendary Creature — Bird", ())])
+    assert _drawn(state, lambda: _attack(engine, state, others)) == 0
+    others[0].tapped = False
+    others[0].attacking = False
+    assert _drawn(state, lambda: _attack(engine, state, [source, *others])) == 1
+
+
+@pytest.mark.parametrize("choice", ["take", "decline", "no_hit"])
+def test_arthur_returns_only_the_chosen_creature_at_end_of_combat(choice):
+    engine, state = _stocked()
+    state.current_phase = "combat"
+    arthur = _put(state, _named("Arthur, Marigold Knight").oracle_text,
+                  name="Arthur, Marigold Knight", types="Legendary Creature — Mouse Knight")
+    arthur.summoning_sick = False
+    companion = _attackers(state, [("Companion", "Creature — Bear", ())])[0]
+    p1 = state.player_by_id("p1")
+    hit = GameObject(Card(id="Hit", name="Hit", type_line="Creature — Bear",
+                          is_creature=True, power=3, toughness=3), owner_id="p1", zone=Zone.LIBRARY)
+    if choice != "no_hit":
+        p1.library.append(hit)
+    _attack(engine, state, [arthur, companion])
+    if choice != "no_hit":
+        assert state.pending_choice["kind"] == "impulsive_look"
+        engine.resolve_pending_choice(hit.instance_id if choice == "take" else None)
+    if choice == "take":
+        assert hit in state.battlefield and hit.attacking and hit.tapped
+    else:
+        assert not state.delayed_triggers
+    _end_combat(engine, state)
+    assert arthur in state.battlefield and companion in state.battlefield
+    assert (hit in p1.hand) == (choice == "take")
+    assert not state.pending_choice
 
 
 # ---------------------------------------------------------------------------

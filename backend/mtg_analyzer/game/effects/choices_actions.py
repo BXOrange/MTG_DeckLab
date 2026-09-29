@@ -826,10 +826,10 @@ class PayCostThenEffect(GameEffect):
         self.inner_specs = list(effects or [])
         self.else_specs = list(else_effects or [])
         #: "You may `<cost>`. **When you do**, `<targeted payoff>`." (Sample
-        #: Collector, Curious Forager, Warren Torchmaster) — RULE 603.11's
-        #: reflexive triggered ability. Unlike ``effects`` (applied off the
-        #: stack the moment the choice is answered, so a RULE 115 target
-        #: could never be chosen), these serialized `EffectSpec` dicts go on
+        #: Collector, Curious Forager, Warren Torchmaster) — RULE 603.12's
+        #: reflexive triggered ability. Unlike ``effects`` (continuing the
+        #: enclosing resolution with its already announced targets), these
+        #: serialized `EffectSpec` dicts go on
         #: the stack as their *own* triggered ability once the cost is paid,
         #: with full target selection — see `RulesEngine.
         #: _resume_pay_cost_then`. Mutually exclusive with
@@ -882,6 +882,18 @@ class PayCostThenEffect(GameEffect):
         self.remember_trigger_stack_id = remember_trigger_stack_id
 
     @property
+    def target_specs(self) -> list[TargetSpec]:
+        # RULE 601.2c: "If you do, target ..." still announces its target
+        # with the enclosing spell, before payment is offered. A "When you
+        # do" payoff lives in then_trigger_specs and announces nothing here.
+        from .composition import _build
+
+        return super().target_specs + [
+            spec for effect in _build(self.inner_specs, self.source)
+            for spec in effect.target_specs
+        ]
+
+    @property
     def owns_x_sentinel(self) -> bool:
         """ENG-48: a "you may pay {X}" cost announces its own X when the
         choice is answered (RULE 107.3a), so the branch specs' ``"x"`` is
@@ -892,6 +904,26 @@ class PayCostThenEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..costs import parse_activation_cost  # function-scoped: import cycle
 
+        # RULE 608.2b: an optional payment does not happen if its sole
+        # announced target has become illegal. The branch is built only
+        # after payment, so its own effect cannot guard that earlier action.
+        if self.target_spec is None and len(self.target_specs) == 1 and targets:
+            from ..targeting import legal_targets
+
+            controller = _controller_of(self.source, context)
+            options = legal_targets(
+                context.state, controller.id, self.target_specs[0],
+                source=self.source, trigger_event=context.trigger_event,
+            )
+            legal_ids = {
+                option.get("instance_id", option.get("player_id", option.get("stack_id")))
+                for option in options
+            }
+            targets = [target for target in targets if
+                       getattr(target, "instance_id", getattr(target, "id", getattr(target, "stack_id", None)))
+                       in legal_ids]
+            if not targets:
+                return
         if self.remember_trigger_subject and self.source is not None:
             event = context.trigger_event
             self.source.remembered_instance_id = (event or {}).get("instance_id")
@@ -967,7 +999,12 @@ class PayCostThenEffect(GameEffect):
             # names it ("that player", "defending player's graveyard") can
             # read it back off its own `StackItem.trigger_event`.
             then_trigger_event=context.trigger_event,
-            captured_previous=(list(context.previous_targets) if self.capture_previous else None),
+            # "Otherwise, that creature ..." refers to the target already
+            # chosen even though the paid branch never executes.
+            captured_previous=(
+                list(targets or []) if self.target_specs and self.target_spec is None
+                else list(context.previous_targets) if self.capture_previous else None
+            ),
         )
 
 

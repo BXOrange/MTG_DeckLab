@@ -271,22 +271,25 @@ class DrawDiscardMixin:
                 if self.state.cards_drawn_this_turn.get(player.id, 0) == 0:
                     self._arm_miracle(player, drawn[0])
                 self.state.record_stat(player.id, "draw", amount=len(drawn))
-                self.state.fire_event(
-                    GameEvent(
-                        EventType.DRAW, player_id=player.id, count=len(drawn),
-                        # `GameState.cards_drawn_this_turn(_ids)` are derived from this.
-                        instance_ids=[o.instance_id for o in drawn if getattr(o, "instance_id", None) is not None],
-                        # MEC-42: this is the event trigger-collection
-                        # actually sees — `first_in_draw_step` was
-                        # previously only ever threaded into the *input*
-                        # event `apply_replacements` reads (MEC-32,
-                        # Notion Thief/Chains of Mephistopheles), never
-                        # forwarded here, so no trigger's own "except the
-                        # first ... draw step" condition (Orcish
-                        # Bowmasters-shaped) could ever actually read it.
-                        first_in_draw_step=first_in_draw_step,
-                    )
-                )
+                # RULE 121.2: drawing several cards is several individual draws.
+                # Snapshot the ordinal within this player's own draw step; an
+                # extra draw step starts a fresh range at its STEP_BEGIN event.
+                ordinal = None
+                if self.state.current_step == "draw" and self.state.active_player.id == player.id:
+                    ordinal = 0
+                    for prior in self.state.events_this_turn():
+                        if prior.type == EventType.STEP_BEGIN:
+                            break
+                        if (prior.type == EventType.DRAW and prior.get("player_id") == player.id
+                                and prior.get("draw_step_ordinal") is not None):
+                            ordinal += int(prior.get("count", 1))
+                for index, card in enumerate(drawn):
+                    self.state.fire_event(GameEvent(
+                        EventType.DRAW, player_id=player.id, count=1,
+                        instance_ids=[card.instance_id],
+                        first_in_draw_step=first_in_draw_step and index == 0,
+                        draw_step_ordinal=None if ordinal is None else ordinal + index + 1,
+                    ))
 
         self.apply_replacements(event, on_resolved=_finish)
     def _maybe_offer_dredge(self, player: Player) -> bool:

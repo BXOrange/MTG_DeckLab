@@ -198,6 +198,8 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # convention `ATTACKS`/`BLOCKS` use), not ``controller_id``.
     "BECOMES_BLOCKED": "player_id",
     "SPELL_CAST": "player_id",
+    "SPELL_COPIED": "player_id",
+    "PROLIFERATED": "player_id",
     # "When you play another land, …" (City of Traitors) / "Untap all
     # permanents you control during each other player's untap step."
     # (Seedborn Muse) — both fire per-player events keyed by ``player_id``
@@ -495,6 +497,8 @@ def _subject_condition(
         controller_key = _GROUP_CONTROLLER_EVENT_KEYS.get(
             trigger.get("event"), "controller_id"
         )
+        if trigger.get("event") == "DAMAGE" and condition.get("recipient"):
+            controller_key = "target_id"
         # RULE 508.3a batch attack: "one or more <filter> creatures you
         # control attack" — the `PLAYER_ATTACKED` aggregate carries only the
         # attacking player, so the ``<filter>`` (a negated creature subtype
@@ -520,6 +524,8 @@ def _subject_condition(
         # opponent loses life", "whenever a player cycles a card". The same actor key as
         # the "you" subject, compared against this ability's controller by ``scope``.
         actor_key = _GROUP_CONTROLLER_EVENT_KEYS.get(trigger.get("event"), "controller_id")
+        if trigger.get("event") == "DAMAGE" and condition.get("recipient"):
+            actor_key = "target_id"
         scope = condition.get("scope", "any")
 
         def _player_ok(event: Any, context: Any, src=source, key=actor_key, wanted=scope) -> bool:
@@ -1541,22 +1547,17 @@ def _trigger_condition(
         def _attackers_declared_ok(
             event: Any, context: Any, spec=declared_attackers, src=source
         ) -> bool:
-            from ..combat import matches_object_filter  # function-scoped: see combat.py
+            from ..trigger_quantities import matching_attackers
 
-            state = getattr(context, "state", None)
-            ids = list(event.get("attacker_ids") or [])
-            if state is None:
+            if spec.get("includes_source") and getattr(src, "instance_id", None) not in (
+                event.get("attacker_ids") or []
+            ):
                 return False
-            src_id = getattr(src, "instance_id", None)
-            if spec.get("includes_source") and src_id not in ids:
-                return False
-            matching = 0
-            for iid in ids:
-                obj = state.find_object(iid)
-                if obj is None or (spec.get("other") and iid == src_id):
-                    continue
-                if matches_object_filter(obj, spec.get("filter"), reference=src, state=state):
-                    matching += 1
+            attackers = matching_attackers(event, context, spec, src)
+            matching = len(attackers)
+            if "min_total_power" in spec:
+                if sum(int(obj.power or 0) for obj in attackers) < int(spec["min_total_power"]):
+                    return False
             low, high = spec.get("min"), spec.get("max")
             return (low is None or matching >= int(low)) and (high is None or matching <= int(high))
 
@@ -1702,6 +1703,14 @@ def _trigger_condition(
             return total - count < n <= total
 
         predicates.append(_nth_draw_ok)
+
+    excluded_draws = trigger.get("skip_first_draws_in_draw_step")
+    if excluded_draws is not None:
+        def _after_excluded_draws(event: Any, context: Any, n=int(excluded_draws)) -> bool:
+            ordinal = event.get("draw_step_ordinal")
+            return ordinal is None or int(ordinal) > n
+
+        predicates.append(_after_excluded_draws)
 
     # "Whenever a player casts their **second** spell each turn, …"
     # (Hearthborn Battler) — `is_nth_draw_this_turn`'s own `SPELL_CAST`
@@ -2720,8 +2729,16 @@ def bind_ability(
             # dict, never off the original (possibly list-valued) ``event``
             # key, which `_SUBJECT_EVENT_KEYS.get(...)` can't hash anyway.
             single_trigger = {**spec.trigger, "event": event}
+            capture_event = None
+            if spec.trigger.get("attackers_declared"):
+                from ..trigger_quantities import capture_attackers
+
+                def capture_event(firing_event, context, head=spec.trigger["attackers_declared"], src=source):
+                    return capture_attackers(firing_event, context, head, src)
+
             return TriggeredAbility(
                 trigger_event=event,
+                capture_event=capture_event,
                 effects=own_effects,
                 modes=modes,
                 modes_or_both=bool(spec.modes.get("or_both", False)) if spec.modes else False,

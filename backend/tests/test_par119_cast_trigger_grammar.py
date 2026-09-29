@@ -18,7 +18,7 @@ from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.events import EventType, GameEvent
 from mtg_analyzer.models.game.game_object import GameObject, Zone
-from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.game_state import GameState, StackItem
 from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.catalogue.characteristic_phrase import (
     parse_characteristic_phrase,
@@ -63,6 +63,10 @@ from mtg_analyzer.services.card_database import CardDatabase
           "spell_targets": {"card_type": "creature"}}),
         ("a spell that targets a creature you control",
          {"spell_targets": {"card_type": "creature", "you_control": True}}),
+        ("a creature spell that has an adventure",
+         {"spell_filter": {"card_type": "creature", "has_adventure": True}}),
+        ("your first spell during each opponent's turn",
+         {"is_nth_spell_cast_this_turn": 1, "phase_relation": "not_you"}),
     ],
 )
 def test_phrase_parses(phrase, expected):
@@ -73,7 +77,7 @@ def test_phrase_parses(phrase, expected):
     "phrase",
     [
         "a frobnicator spell",                     # not a word in any vocabulary
-        "a creature spell that has an adventure",  # unknown tail
+        "a creature spell that has a quest",      # unknown tail
         "your first spell",                        # ordinal: not a phrase this grammar owns
         "a spell from mars",
         "a red blue spell",                        # two colours in one object phrase
@@ -238,6 +242,75 @@ def test_cast_from_zone_and_not_from_hand():
     assert _life_after(from_gy, lambda s: _spell(s), from_zone="hand") == 0
     assert _life_after(not_hand, lambda s: _spell(s), from_zone="exile") == 1
     assert _life_after(not_hand, lambda s: _spell(s), from_zone="hand") == 0
+
+
+def test_opponents_turn_is_relative_to_the_ability_controller_not_the_caster():
+    text = "Whenever an opponent casts a spell during an opponent's turn, you gain 1 life."
+    # p2 casts on p1's turn: not an opponent's turn for the p1 listener.
+    assert _life_after(text, lambda s: _spell(s, controller="p2"), caster="p2") == 0
+    engine, state = _engine()
+    state.active_player_index = 1
+    _listener(state, text)
+    _cast_event(engine, state, _spell(state, controller="p2"), caster="p2")
+    assert state.player_by_id("p1").life == 21
+
+
+def test_first_spell_on_each_opponents_turn_uses_cast_history():
+    engine, state = _engine()
+    state.active_player_index = 1
+    _listener(state, "Whenever you cast your first spell during each opponent's turn, you gain 1 life.")
+    _cast_event(engine, state, _spell(state))
+    _cast_event(engine, state, _spell(state))
+    assert state.player_by_id("p1").life == 21
+    state.internal_turn.number += 1
+    _cast_event(engine, state, _spell(state))
+    assert state.player_by_id("p1").life == 22
+    state.internal_turn.number += 1
+    state.active_player_index = 0
+    _cast_event(engine, state, _spell(state))
+    assert state.player_by_id("p1").life == 22
+
+
+def test_adventure_characteristic_composes_with_creature_spell_filter():
+    text = "Whenever you cast a creature spell that has an Adventure, you gain 1 life."
+    assert _life_after(text, lambda s: _spell(s, types="Creature", layout="adventure")) == 1
+    assert _life_after(text, lambda s: _spell(s, types="Creature")) == 0
+    assert _life_after(text, lambda s: _spell(s, types="Instant", layout="adventure")) == 0
+
+
+@pytest.mark.parametrize("self_copy", [False, True])
+def test_magecraft_copies_trigger_without_being_cast(self_copy):
+    engine, state = _engine()
+    _listener(state, "Whenever you cast or copy an instant or sorcery spell, you gain 1 life.")
+    _listener(state, "Whenever you cast an instant or sorcery spell, you gain 5 life.")
+    spell = _spell(state)
+    spell.zone = Zone.STACK
+    state.player_by_id("p1").hand.remove(spell)
+    item = StackItem(kind="spell", controller_id="p1", obj=spell, effects=[], targets=[])
+    if self_copy:
+        copies = [engine.rules.copy_self_spell(spell, "p1")]
+    else:
+        state.stack.append(item)
+        copies = engine.rules.copy_spell(item, "p1", count=2)
+    assert len(engine.rules.pending_triggers) == len(copies)
+    assert state.spells_cast_this_turn.get("p1", 0) == 0
+    engine.resolve_until_stable()
+    assert state.player_by_id("p1").life == 20 + len(copies)
+    assert all(event.type != EventType.SPELL_CAST for event in state.event_log)
+
+
+def test_magecraft_copy_is_scoped_to_copier_and_spell_type():
+    engine, state = _engine()
+    _listener(state, "Whenever an opponent casts or copies an instant or sorcery spell, you gain 1 life.")
+    spell = _spell(state, types="Instant")
+    item = StackItem(kind="spell", controller_id="p1", obj=spell, effects=[], targets=[])
+    state.stack.append(item)
+    engine.rules.copy_spell(item, "p1")
+    assert not engine.rules.pending_triggers
+    engine.rules.copy_spell(item, "p2")
+    assert len(engine.rules.pending_triggers) == 1
+    engine.resolve_until_stable()
+    assert state.player_by_id("p1").life == 21
 
 
 def test_spell_targets_a_creature_you_control():

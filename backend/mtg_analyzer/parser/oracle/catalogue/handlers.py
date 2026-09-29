@@ -6265,11 +6265,9 @@ def _pay_energy_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: `{E}` symbol on purpose — `_can_pay_player_cost`/`_pay_player_cost` don't
 #: charge `ActivationCost.pay_energy` at all (that's `pay_energy_then`'s own
 #: job, tried above and first-match-wins), so letting it through here would
-#: silently make an energy antecedent free. A *targeted* follow-up is
-#: rejected for the same reason `_pay_energy_then` rejects one:
-#: `PayCostThenEffect`'s branch effects resolve off-stack with no
-#: target-gathering step of their own (RULE 601.2c targets are announced
-#: with the spell/ability, and this clause isn't one).
+#: silently make an energy antecedent free. A targeted "If you do" payoff
+#: announces targets with the enclosing spell/ability (RULE 601.2c);
+#: "When you do" instead creates a reflexive trigger (RULE 603.12).
 #:
 #: Exported (not module-private in spirit, just in naming convention) so
 #: `segmenter._PAY_ENERGY_THEN_PEEL_GUARD_RE` can protect the exact same
@@ -6288,8 +6286,7 @@ def _pay_energy_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: handler's `_can_pay_player_cost` gate can genuinely fail an antecedent
 #: (no legal permanent of the named type/no cards in hand), which is real
 #: and worth being interactive about for a *typed* sacrifice/discard/life
-#: payment — but it also rejects a targeted follow-up outright, which the
-#: self-sacrifice cases don't need to risk.
+#: payment. Self-sacrifice is handled by that separate antecedent path.
 _MAY_COST_THEN_CLAUSE = (
     r"pay (?:\{[wubrgcx0-9/]+\})+"
     r"|sacrifice an? \w+"
@@ -6308,7 +6305,7 @@ _MAY_COST_THEN_CLAUSE = (
     r"|blight \d+"
 )
 _PAY_COST_THEN_GENERAL_RE = _c(
-    r"you may (?P<cost>" + _MAY_COST_THEN_CLAUSE + r")\.\s*(?:if|when) you do,?\s*(?P<effect>.+)"
+    r"you may (?P<cost>" + _MAY_COST_THEN_CLAUSE + r")\.\s*(?P<link>if|when) you do,?\s*(?P<effect>.+)"
 )
 #: RULE 603.5's *negative* antecedent: "you may `<cost>`. If you don't,
 #: `<effect>`." (Chaos Spewer, Gutsplitter Gang, Scuzzback Scrounger — the
@@ -6322,26 +6319,29 @@ _PAY_COST_THEN_OR_ELSE_RE = _c(
 
 
 def _pay_cost_then_general(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
+    from ..segmenter import parse_effect_body, _announces_creature_target
 
-    # PAR-29: "it endures N" (Descendant of Storms) needs `self_subject=True`
-    # to unlock `self_subject_only` rows — safe here because a target-bearing
-    # follow-up is rejected below anyway (the only pronoun shape left is the
-    # ability's own source), and RULE 603.5's "if you do, <effect>" always
-    # continues the *same* triggered ability's subject, never introduces one.
-    sub = parse_effect_body(m.group("effect").strip(), self_subject=True)
+    parts = re.split(r"\.\s*otherwise,?\s+", m.group("effect").strip(), maxsplit=1)
+    sub = parse_effect_body(parts[0], self_subject=True)
     if not sub:
         return None  # follow-up not modeled → whole clause unclaimed
-    if any(s.params.get("target_kind") for s in sub):
-        # RULE 603.11: a *targeted* "When you do, <payoff>." is a reflexive
-        # triggered ability — it goes on the stack as its own ability with
-        # full RULE 115 target selection, not off-stack like `effects`.
-        # (Sample Collector, Curious Forager, Warren Torchmaster.)
+    if m.group("link") == "when" and any(s.params.get("target_kind") for s in sub):
+        # RULE 603.12: only "When you do" creates a reflexive trigger.
+        # "If you do" uses the enclosing spell/ability's announced targets.
+        if len(parts) > 1:
+            return None  # an otherwise rider on a reflexive trigger is ambiguous
         return [EffectSpec("pay_cost_then", {
             "cost": m.group("cost"),
             "then_trigger": [s.to_dict() for s in sub],
         })]
     params: dict = {"cost": m.group("cost"), "effects": [s.to_dict() for s in sub]}
+    if len(parts) > 1:
+        otherwise = parse_effect_body(
+            parts[1], self_subject=True, previous_subject=_announces_creature_target(sub),
+        )
+        if not otherwise or any(s.params.get("target_kind") for s in otherwise):
+            return None
+        params["else_effects"] = [s.to_dict() for s in otherwise]
     if any(s.params.get("trigger_subject_key") == "remembered" for s in sub):
         params["remember_trigger_subject"] = True
     return [EffectSpec("pay_cost_then", params)]

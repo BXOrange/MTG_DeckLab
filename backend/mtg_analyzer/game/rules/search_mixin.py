@@ -1667,6 +1667,7 @@ class SearchMixin:
         self, player: Player, obj: GameObject, destination: str,
         chooser_id: Optional[str] = None,
     ) -> None:
+        from_zone = obj.zone.value
         if destination in ("battlefield", "battlefield_tapped", "battlefield_attacking", "battlefield_attacking_triggering"):
             obj.summoning_sick = True
             # RULE 614.1: a permanent's own "enters with" replacement applies
@@ -1699,6 +1700,7 @@ class SearchMixin:
             self.state.fire_event(
                 GameEvent(
                     EventType.ENTERS_BATTLEFIELD,
+                    from_zone=from_zone,
                     controller_id=player.id,
                     object=obj.name,
                     instance_id=obj.instance_id,
@@ -1795,6 +1797,7 @@ class SearchMixin:
         hit_grant_keywords: Optional[list[str]] = None,
         miss_effect_specs: Optional[list[dict]] = None,
         source: Optional[GameObject] = None,
+        hit_effect_specs: Optional[list[dict]] = None,
     ) -> None:
         """"Look at the top N cards, take one matching ``criteria``, put the
         rest into ``miss_destination``" (Grisly Salvage/Commune with the
@@ -1838,6 +1841,7 @@ class SearchMixin:
         self._pending_impulsive_look = {
             "source": source,
             "miss_effect_specs": [dict(d) for d in (miss_effect_specs or [])],
+            "hit_effect_specs": [dict(d) for d in (hit_effect_specs or [])],
         }
         self.open_choice({
             "kind": "impulsive_look",
@@ -1884,6 +1888,8 @@ class SearchMixin:
                 self._put_searched_card(player, hit, choice["hit_destination"])
                 self._apply_impulsive_look_hit_grants(hit, choice.get("hit_grant_keywords"))
             self._bottom_remaining(player, miss_ids)
+            if chosen_id is not None:
+                self._apply_impulsive_look_hit_effects(hit, pending_else)
             self._apply_impulsive_look_miss_branch(chosen_id, pending_else)
             return
         for obj in exiled:
@@ -1893,7 +1899,22 @@ class SearchMixin:
             self._put_searched_card(player, obj, destination)
             if is_hit:
                 self._apply_impulsive_look_hit_grants(obj, choice.get("hit_grant_keywords"))
+        if chosen_id is not None:
+            self._apply_impulsive_look_hit_effects(
+                next(obj for obj in exiled if obj.instance_id == chosen_id), pending_else
+            )
         self._apply_impulsive_look_miss_branch(chosen_id, pending_else)
+
+    def _apply_impulsive_look_hit_effects(self, hit: GameObject, pending: Optional[dict]) -> None:
+        """RULE 608.2: subsequent instructions about the library choice's own card."""
+        if not pending or not pending.get("hit_effect_specs"):
+            return
+        from ..binding.core import build_effects
+        from ...parser.oracle.spec import EffectSpec
+
+        source = pending.get("source")
+        effects = build_effects([EffectSpec.from_dict(spec) for spec in pending["hit_effect_specs"]], source)
+        _apply_effects_partitioned(effects, self.context, None, None, source=source, created_objects=[hit])
 
     def _apply_impulsive_look_miss_branch(
         self, chosen_id: Optional[int], pending_else: Optional[dict]
@@ -2745,6 +2766,7 @@ class SearchMixin:
             # never fired for a card a dig put onto the battlefield.
             self.state.fire_event(GameEvent(
                 EventType.ENTERS_BATTLEFIELD, controller_id=player.id, object=obj.name,
+                from_zone=Zone.EXILE.value,
                 instance_id=obj.instance_id, object_types=sorted(obj.type_words),
             ))
             return

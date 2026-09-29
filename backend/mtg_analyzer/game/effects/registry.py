@@ -2750,6 +2750,7 @@ EffectRegistry.register(
         optional=p.get("optional", True),
         hit_grant_keywords=p.get("hit_grant_keywords"),
         miss_effect_specs=p.get("miss_effect_specs"),
+        hit_effect_specs=p.get("hit_effect_specs"),
     ),
 )
 EffectRegistry.register(

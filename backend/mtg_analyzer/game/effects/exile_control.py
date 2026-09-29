@@ -509,12 +509,14 @@ class LandOrFreeCastEffect(GameEffect):
         if player is None:
             return
         if obj.card.is_land:
+            from_zone = obj.zone.value
             obj.summoning_sick = True
             context.engine._remove_from_current_zone(player, obj)
             context.state.add_to_battlefield(obj)
             context.state.fire_event(
                 GameEvent(
                     EventType.ENTERS_BATTLEFIELD,
+                    from_zone=from_zone,
                     controller_id=player.id,
                     object=obj.name,
                     instance_id=obj.instance_id,
@@ -1085,6 +1087,7 @@ class ShuffleTargetIntoLibraryRevealTopEffect(GameEffect):
             context.state.add_to_battlefield(top)
             context.state.fire_event(GameEvent(
                 EventType.ENTERS_BATTLEFIELD, controller_id=owner.id, object=top.name,
+                from_zone=Zone.LIBRARY.value,
                 instance_id=top.instance_id, object_types=sorted(top.type_words),
             ))
 
