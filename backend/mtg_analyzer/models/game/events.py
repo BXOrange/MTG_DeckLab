@@ -303,6 +303,13 @@ class EventType:
     #: aggregate shape makes Quintorius-style "one or more" triggers fire
     #: once for a mass move, not once per card.
     CARDS_LEFT_GRAVEYARD = "CARDS_LEFT_GRAVEYARD"
+    #: RULE 603.2c: one event with many occurrences. Fired by `GameState` once per
+    #: simultaneity scope (`GameState.simultaneous`) and per batched per-object type
+    #: (`GameState.BATCHED_EVENT_TYPES`), with ``batch_of`` (that type's name) and
+    #: ``members`` (the original per-object events, in order). What a "whenever one
+    #: or more / N or more `<objects>` enter / die / …" trigger listens to (PAR-119),
+    #: so a board wipe fires it once instead of once per creature.
+    EVENT_BATCH = "EVENT_BATCH"
     #: The Ring tempted a player (RULE 701.51a, Tales of Middle-earth) —
     #: fired by `RulesEngine.the_ring_tempts_you` after the emblem levels up
     #: and the Ring-bearer choice resolves, for "whenever the Ring tempts

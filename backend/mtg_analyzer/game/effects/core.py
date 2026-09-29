@@ -25,6 +25,7 @@ their own replacement/trigger consequences.
 
 from __future__ import annotations
 
+import contextlib
 import random
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Callable, Optional, Union
@@ -1151,6 +1152,14 @@ class GameEffect(ABC):
         return amount
 
 
+def _simultaneous(state: Any) -> Any:
+    """RULE 603.2c: one instruction's events happen at once — the objects "create two
+    tokens" makes or "destroy all creatures" kills are one batch (`GameState.
+    simultaneous`); a bare fixture without a real state gets a no-op scope."""
+    scope = getattr(state, "simultaneous", None)
+    return scope() if scope is not None else contextlib.nullcontext()
+
+
 def _apply_effects_partitioned(
     effects: list["GameEffect"],
     context: GameContext,
@@ -1305,10 +1314,12 @@ def _apply_effects_partitioned(
                     if group_index < len(target_groups):
                         group.extend(target_groups[group_index])
                     group_index += 1
-                effect.apply(context, group)
+                with _simultaneous(state):
+                    effect.apply(context, group)
                 used = group
             else:
-                effect.apply(context, targets)
+                with _simultaneous(state):
+                    effect.apply(context, targets)
                 used = list(targets or [])
             if specs and used:
                 context.previous_targets = list(used)

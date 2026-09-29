@@ -1012,6 +1012,9 @@ class CastingResolutionMixin:
             "mana_value": int(getattr(obj.card, "converted_mana_cost", 0) or 0),
             "owner_id": obj.owner_id,
             "graveyard_owner_id": obj.owner_id,
+            # "one or more **creature** cards leave your graveyard" (PAR-119) — the
+            # card's types as it last existed there (RULE 603.10, look back in time).
+            "object_types": sorted(obj.type_words),
         }
         # RULE 603.3f per-turn tracker for "if a card left your graveyard
         # this turn" intervening-ifs (reset each `begin_turn`).

@@ -2268,8 +2268,9 @@ class CastingMixin:
                 chosen = self._resolve_discard_cost(
                     player, discard_count, discard_choices, exclude=obj
                 )
-                for card in chosen or []:
-                    self.rules.discard_specific(card, cause=obj)
+                with self.state.simultaneous():  # RULE 603.2c: one cost, one event
+                    for card in chosen or []:
+                        self.rules.discard_specific(card, cause=obj)
         if cost.pay_life:
             amount = x if cost.pay_life == PAY_LIFE_X else cost.pay_life
             self.rules.lose_life(player, amount, cause="cost")

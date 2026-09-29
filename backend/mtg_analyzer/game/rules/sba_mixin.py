@@ -154,7 +154,9 @@ class StateBasedActionsMixin:
         """
         any_action = False
         while True:
-            acted = self._sba_pass()
+            # RULE 704.3: each sweep's actions happen simultaneously, as one event.
+            with self.state.simultaneous():
+                acted = self._sba_pass()
             if not acted:
                 break
             any_action = True

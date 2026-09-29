@@ -1372,8 +1372,9 @@ class ActivationMixin:
                     player, count, discard_choices, exclude=source,
                     filter_word=cost.discard_filter, name=source.name,
                 )
-                for card in chosen or []:
-                    self.rules.discard_specific(card, cause=source)
+                with self.state.simultaneous():  # RULE 603.2c: one cost, one event
+                    for card in chosen or []:
+                        self.rules.discard_specific(card, cause=source)
         exile_count = x if cost.exile_from_graveyard == EXILE_FROM_GRAVEYARD_X else cost.exile_from_graveyard
         if exile_count:
             for victim in self._activation_graveyard_exile_candidates(player, source, exile_count, cost):

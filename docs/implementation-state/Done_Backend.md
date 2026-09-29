@@ -3382,6 +3382,101 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 
 ### PAR-119 (attack / block / player-event axes) and two wrong-but-modeled fixes (PARSER_VERSION 456)
 
+
+### PAR-119: attack leftovers, entry origin, player-event and cast leftovers, "otherwise" (commit `d2967b79`, PARSER_VERSION 501)
+
+- **What:** Axis (b) — "you attack with your commander", "~ and another legendary
+  creature", "creatures with total power N or greater", "creatures with counters on them"
+  and "that many" off an attack batch: `game/trigger_quantities.py` captures each
+  ability's own matching attackers when it triggers (RULE 603.2, so a later change to the
+  attackers can't alter the count); Arthur's end-of-combat return. Axis (c) — "enters from
+  a graveyard / exile" (every ENTERS emitter supplies an origin, `from_zone`). Axis (d) —
+  "you're dealt damage", the opponent combat-damage head, proliferate, "taps a land for
+  mana" on the existing mana event, "except the first N … in each draw step". Axis (e) —
+  ordinals ("your first spell during each opponent's turn", from cast history), magecraft
+  "or copies", "that has an adventure"; "during an opponent's turn" on a cast trigger is
+  now controller-relative (RULE 102.2), the migration's named defect. The "otherwise"
+  residue: Insatiable Appetite / Pippin's Bravery (a targeted then-branch with an else) and
+  Lorehold Excavation (branches on what was actually milled).
+- **Why:** Shipped as an intermediate commit without ticket or worklog update; recorded
+  here from its tests (`test_par119_attack_batch_head.py`, `test_par119_zone_origin.py`,
+  `test_par119_player_event_head.py`, `test_par119_cast_trigger_grammar.py`,
+  `test_par119_otherwise.py`). That gap is what `workingOn.md` now exists to prevent.
+  Its one red pin (`~ enters` "must fail closed") was stale: a bare "~ `<verb>`" is a legal
+  object-head subject, with the same spec as the legacy self row plus an origin.
+
+### PAR-119 (a): RULE 603.2c object batches — `EVENT_BATCH` and the quantity head (PARSER_VERSION 502–504)
+
+- **What:** "Whenever one / N or more `<objects>` enter / die / leave the battlefield" is
+  one trigger per *simultaneous* batch. `GameState.simultaneous()` is a nesting scope:
+  batched per-object events (`BATCHED_EVENT_TYPES` — enters, leaves, dies, discard) fired
+  inside it are re-announced when the outermost scope closes as one `EventType.EVENT_BATCH`
+  per type, ``{"batch_of", "members": [the original events]}``; an event outside every
+  scope is its own one-member batch. The scope wraps each instruction's `apply`
+  (`effects/core._apply_effects_partitioned`) — so "create two tokens" / "destroy all
+  creatures" is one batch and two separate "create a token" sentences are two — and each
+  SBA sweep (RULE 704.3). A batch trigger is ``{"event": "EVENT_BATCH", "batch": {"of",
+  "min"}, "condition": <the ordinary per-object condition>}``: `binding.core._batch_members`
+  runs the normal per-object `_trigger_condition` for ``of`` over the members and counts;
+  the batch `capture_event` stamps ``matching_count`` / ``matching_ids`` per ability.
+  Parser: `object_trigger_head._parse_batch_quantity_head` (plural noun phrase + the head's
+  shared tail loop, `_consume_tails`); "that many/much" on a counting head is read as X and
+  bound to the head's count (`_bind_x`), not one row per verb; typed "one or more
+  `<type>` cards leave your graveyard" (snapshots now carry `object_types`). +29 cards
+  (Great Fierce Bee, Vengeful Townsfolk, Welcoming Vampire, Woodland Champion, Elvish
+  Warmaster, Chalk Outline, Cyan, Desecrated Tomb, …), no regression.
+- **Why:** The legacy rows modelled a batch as per-object events: `_BATCH_ENTER_TRIGGER_RE`
+  made Frantic Scapegoat trigger once per entering creature, and `_BATCH_DIES_TRIGGER_RE`
+  claimed only cards whose "triggers only once each turn" hid the over-firing. Both rows
+  are deleted; the six once-per-turn DIES cards keep their `limit` on the real batch.
+  Merging pending triggers instead was rejected: two instructions of one resolution are two
+  events (RULE 608.2c) and must not merge, which only an emission-side scope can tell. A
+  batch has no single firing object, so its body gets no "it = the firing object" reading;
+  Frantic Scapegoat's "suspect one of the other creatures" reads the batch's
+  ``matching_ids`` in `SuspectEffect`. MEC-78's `graveyard_exit_batch` is the older,
+  graveyard-only instance of the same idea — folding it in is open under PAR-119.
+- **Discard batches and the multi-pick hold (PARSER_VERSION 503):** "you discard `<n>` or
+  more [`<type>`] cards" is the actor head's quantity form over DISCARD_CARD (+10: Mishra,
+  Rielle, Cryptcaller Chariot, Tinybones, …). Discards happen outside effect resolution
+  too, so `draw_discard_mixin._one_event` scopes `discard` / `discard_random` /
+  `discard_matching` (costs, "discard your hand", the RULE 514.1 cleanup discard) and the
+  discard-cost loops are scoped. An interactive multi-pick (`choose_objects`, count > 1)
+  applies each pick as it is answered, so `GameState.hold_batches` keeps the batch open
+  until `_resume_choose_objects` completes the choice (`release_batches`) — without it an
+  interactive "discard two cards" or "sacrifice two creatures" was two batches (the tests
+  check both fail without the hold). "Sacrifice N or more" still fails closed: sacrifices
+  paid as costs are not scoped yet.
+- **Combat-damage batches (PARSER_VERSION 504):** "whenever `<n>` or more `<creatures>`
+  deal combat damage to `<a player | an opponent | you | 1 or more players>`" is
+  `object_trigger_head._parse_combat_damage_batch_head` over the existing
+  `CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER` aggregate, which already fires once per
+  (contributors' controller, damaged player) — the RULE 510.2 batch, so no new event. The
+  trigger is ``{"contributors": {"min": N}, "condition": <per-creature condition>}``;
+  `binding.core._contributor_members` re-reads each ``contributor_ids`` entry as the
+  per-creature combat `DAMAGE` event it stands for and runs the ordinary `_trigger_
+  condition` over it, so every subject filter and recipient scope the singular damage head
+  knows applies unchanged (the contributors are still on the battlefield: the aggregate
+  fires before SBAs). `_apply_combat_damage` now also stamps ``contributor_amounts``; the
+  capture adds ``matching_ids``/``matching_count``/``matching_amount`` for "those
+  creatures" / "that damage" bodies. The old per-flag hand rows (``contributor_subtype``
+  etc.) and the two bare segmenter rows stay: player-event rows run first, so no modelled
+  spec changes. Also `characteristic_phrase._alternation` shares a trailing type noun
+  across subtypes ("ninja or rogue creatures"; subtypes only — "red or blue creatures"
+  stays ambiguous). +9 (Alela, Cunning Conqueror, Automated Assembly Line, Haliya,
+  Invasion Tactics, Keeper of Fables, Olivia, Opulent Outlaw, Prosperous Thief ×2, Thopter
+  Spy Network), whole-cache spec diff: 0 lost, 0 changed. Of the head's 28 remaining SOLO
+  cards most are body gaps — chiefly "target `<X>` that player controls" (PAR-130).
+  Tests: `tests/test_par119_combat_damage_batch.py`.
+- **Files:** `models/game/events.py`, `models/game/game_state.py`, `game/effects/core.py`,
+  `game/rules/sba_mixin.py`, `game/binding/core.py`, `game/rules/casting_mixin.py`,
+  `game/effects/counters_tokens.py`, `parser/oracle/catalogue/object_trigger_head.py`,
+  `parser/oracle/segmenter.py`, `parser/oracle/catalogue/handlers.py`,
+  `game/rules/draw_discard_mixin.py`, `game/rules/misc_mixin.py`,
+  `game/engine/activation_mixin.py`, `game/engine/casting_mixin.py`,
+  `game/engine/combat_mixin.py`, `parser/oracle/catalogue/characteristic_phrase.py`,
+  `tests/test_par119_batch_quantity.py`, `tests/test_strixhaven_secrets_wave7.py`,
+  `tests/test_par119_combat_damage_batch.py`
+
 ### PAR-124's own residue: "copy that spell X times" and a delayed trigger's own group pronoun (PARSER_VERSION 460)
 
 ### PAR-124 closes completely: the mana-tap/life-gain player-event pair, X-token creation, a for-each pump variant, a targeted delayed DIES trigger, an optional targeted-antecedent composition, a hand-zone spell duplicate, and the controller-binding fix that makes the targeted variant generally safe (PARSER_VERSION 463)

@@ -3457,14 +3457,15 @@ class MiscSystemsMixin:
             # Forced: every candidate is taken anyway, so asking would be
             # theatre. (An *optional* one still asks — declining matters.)
             commander_taken = False
-            for obj in pool:
-                commander_taken = commander_taken or obj.is_commander
-                self._apply_chosen_object(
-                    player, obj, action, source, remember=remember,
-                    track_exiled_with=track_exiled_with, prevent_shield=prevent_shield,
-                    redirect_shield=redirect_shield, connive=connive,
-                    control_recipient_id=control_recipient_id,
-                )
+            with self.state.simultaneous():  # RULE 603.2c: every forced pick is one event
+                for obj in pool:
+                    commander_taken = commander_taken or obj.is_commander
+                    self._apply_chosen_object(
+                        player, obj, action, source, remember=remember,
+                        track_exiled_with=track_exiled_with, prevent_shield=prevent_shield,
+                        redirect_shield=redirect_shield, connive=connive,
+                        control_recipient_id=control_recipient_id,
+                    )
             if rest_destination and rest_ids:
                 taken_ids = {o.instance_id for o in pool}
                 unpicked_rest = [iid for iid in rest_ids if iid not in taken_ids]
@@ -3601,6 +3602,10 @@ class MiscSystemsMixin:
         # or sacrificing one permanent can change what the remaining
         # candidates even are (RULE 608.2's "as the effect resolves").
         commander_taken = bool(choice.get("commander_taken"))
+        if int(choice.get("count") or 1) > 1:
+            # RULE 603.2c: the picks of one multi-pick choice are one event; the batch
+            # stays open until the choice completes (`release_batches` below).
+            self.state.hold_batches()
         if chosen is not None and player is not None:
             commander_taken = commander_taken or chosen.is_commander
             self._apply_chosen_object(
@@ -3628,6 +3633,7 @@ class MiscSystemsMixin:
             ]
         if declined or len(picked) >= choice["count"] or not remaining_pool:
             self.state.pending_choice = None
+            self.state.release_batches()
             if choice.get("rest_destination") and choice.get("rest_ids"):
                 if declined and choice.get("decline_leaves_untouched"):
                     pass

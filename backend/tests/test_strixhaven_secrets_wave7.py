@@ -1,10 +1,10 @@
 """Secrets of Strixhaven — playability batch, wave 7.
 
 Wave 7: RULE 603.3f "1 or more [other] [nontoken] creatures [you control]
-die" batch-death triggers (`segmenter._BATCH_DIES_TRIGGER_RE`). Modeled as a
-per-object DIES group trigger, claimed ONLY when the body also carries
-"This ability triggers only once each turn." (→ `limit`), so the per-object
-firing collapses to the right once-per-turn net.
+die" batch-death triggers. Originally a per-object DIES group trigger claimed
+only with "This ability triggers only once each turn."; since PAR-119 (a) a
+real RULE 603.2c batch (`EventType.EVENT_BATCH`), so the once-per-turn cards
+keep their `limit` and the unlimited ones (Great Fierce Bee) are modeled too.
 """
 
 from __future__ import annotations
@@ -33,18 +33,23 @@ def test_batch_dies_once_per_turn_cards_modeled(name):
         pytest.skip(f"{name} not cached")
     r = parse_oracle(c)
     assert r.coverage != UNMODELED, (name, r.unclaimed)
-    trig = [s for s in r.specs if s.trigger and s.trigger["event"] == "DIES"][0].trigger
+    trig = [s for s in r.specs if s.trigger and s.trigger["event"] == "EVENT_BATCH"][0].trigger
+    assert trig["batch"] == {"of": "DIES", "min": 1}
     assert trig["condition"]["subject"] == "group"
-    assert trig["condition"]["type"] == "creature"
+    assert trig["condition"]["filter"]["card_type"] == "creature"
     assert trig["limit"] is True
 
 
 @pytest.mark.parametrize("name", ["Great Fierce Bee", "Vengeful Townsfolk"])
-def test_unlimited_batch_dies_stays_unmodeled(name):
+def test_unlimited_batch_dies_is_modeled_as_a_real_batch(name):
     c = _db().get_card(name)
     if c is None:
         pytest.skip(f"{name} not cached")
-    assert parse_oracle(c).coverage == UNMODELED
+    r = parse_oracle(c)
+    assert r.coverage != UNMODELED, r.unclaimed
+    trig = [s for s in r.specs if s.trigger and s.trigger["event"] == "EVENT_BATCH"][0].trigger
+    assert trig["batch"] == {"of": "DIES", "min": 1}
+    assert "limit" not in trig
 
 
 def test_morbid_opportunist_draws_once_per_turn_on_multiple_deaths():

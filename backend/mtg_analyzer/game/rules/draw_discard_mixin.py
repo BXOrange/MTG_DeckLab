@@ -18,6 +18,7 @@ engine is the toolbox that loop drives.
 
 from __future__ import annotations
 
+import functools
 import random
 import re
 from typing import Any, Callable, Optional, Union
@@ -173,6 +174,18 @@ def _dredge_value(obj: Any) -> Optional[int]:
     except (TypeError, ValueError):
         return None
     return n if n > 0 else None
+
+
+def _one_event(method):
+    """RULE 603.2c: every card one call discards is discarded at once (one
+    `EVENT_BATCH`) — a cost, a "discard your hand", the cleanup-step discard."""
+
+    @functools.wraps(method)
+    def wrapped(self, *args, **kwargs):
+        with self.state.simultaneous():
+            return method(self, *args, **kwargs)
+
+    return wrapped
 
 
 class DrawDiscardMixin:
@@ -462,6 +475,7 @@ class DrawDiscardMixin:
         obj.miracle_armed = True
         self.state.miracle_armed_ids.add(obj.instance_id)
 
+    @_one_event
     def discard(self, player: Player, count: int = 1, cause: Optional[GameObject] = None) -> None:
         """Non-interactive discard: cost payment (`GameEngine._pay_activation_
         cost`/`_pay_additional_cast_cost`, ward, RULE 514.3 cleanup) pays a
@@ -511,6 +525,7 @@ class DrawDiscardMixin:
                 GameEvent(EventType.DISCARD, player_id=player.id, count=discarded)
             )
 
+    @_one_event
     def discard_random(
         self, player: Player, count: int = 1, cause: Optional[GameObject] = None,
     ) -> None:
@@ -586,6 +601,7 @@ class DrawDiscardMixin:
             prompt="Wähle eine Karte zum Abwerfen", source=source, then_specs=then_specs,
         )
 
+    @_one_event
     def discard_matching(
         self, player: Player, mana_value: Optional[int] = None,
         cause: Optional[GameObject] = None,

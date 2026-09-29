@@ -25,6 +25,10 @@ finest-grained/most current detail:
   `ENG`/`PAR`/`MEC`/`PLR`/`VIS`/`DB`/`ANA`). Open scope only: closing
   a ticket means deleting it here and filing its narrative into the
   matching subsystem entry of the matching `Done_*.md` catalogue.
+- **In progress**: [`implementation-state/workingOn.md`](implementation-state/workingOn.md)
+  — working memory of the ticket being built right now (done / next step /
+  decisions), so a new session resumes instead of re-deriving the state.
+  Emptied back to its template when the ticket closes.
 - **Examples / calibration**: [`implementation-state/PARSER_LONG_TAIL.md`](implementation-state/PARSER_LONG_TAIL.md)
   — the standing strategy for the indefinite oracle-parser tail, the
   recurring lessons, and enumerated worked samples. Neither a backlog nor a

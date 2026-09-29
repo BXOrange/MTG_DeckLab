@@ -533,11 +533,12 @@ class CombatMixin:
                 entry = player_hits.setdefault(
                     key, {
                         "max_power": 0, "amount": 0, "subtypes": set(), "is_commander": False,
-                        "power_gt_base": False, "any_nontoken": False, "contributor_ids": [],
+                        "power_gt_base": False, "any_nontoken": False, "contributor_ids": [], "contributor_amounts": [],
                         "any_base_power_0": False, "base_power_0_amount": 0,
                     }
                 )
                 entry["contributor_ids"].append(source.instance_id)
+                entry["contributor_amounts"].append(amount)
                 entry["max_power"] = max(entry["max_power"], source.power or 0)
                 # "…creatures you control **with base power 0**…" (Primo, the
                 # Unbounded, PAR-60) — "base power" is the printed/copied
@@ -615,6 +616,9 @@ class CombatMixin:
                     contributor_power_gt_base=entry["power_gt_base"],
                     contributor_any_nontoken=entry["any_nontoken"],
                     contributor_ids=entry["contributor_ids"],
+                    # Parallel to ``contributor_ids``: what each one dealt this
+                    # player ("the damage those creatures dealt", PAR-119).
+                    contributor_amounts=entry["contributor_amounts"],
                     any_base_power_0=entry["any_base_power_0"],
                     base_power_0_amount=entry["base_power_0_amount"],
                 )

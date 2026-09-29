@@ -113,6 +113,11 @@ def test_subtype_vocabulary_comes_from_the_card_cache():
         ("you sacrifice another permanent", "SACRIFICE",
          {"subject": "group", "controller": "you", "other": True}, {}),
         ("you sacrifice ~", "SACRIFICE", {"subject": "self"}, {}),
+        # A bare self subject reads the same as the legacy self row (the migration's
+        # direction); the composed head is what adds the entry origin to it.
+        ("~ enters", "ENTERS_BATTLEFIELD", {"subject": "self"}, {}),
+        ("~ enters from a graveyard", "ENTERS_BATTLEFIELD", {"subject": "self"},
+         {"filter": {"from_zone": "graveyard"}}),
         ("you sacrifice ~ or another creature", "SACRIFICE",
          {"subject": "self_or_group", "controller": "you", "other": True,
           "filter": {"card_type": "creature"}}, {}),
@@ -148,7 +153,6 @@ def test_object_head_parses(cond, event, condition, trigger):
         "a frobnicator dies",
         "another creature you control dies during frobnication",
         "a creature you control enters tapped and untapped",
-        "~ enters",                       # self subjects belong to the legacy self row
         "you frobnicate a card",          # not an event the grammar knows
         "a creature attacks alone or dies",  # "alone" is only valid after a lone attack verb
         "a minotaur attacks this turn",   # a delayed trigger (RULE 603.7), not a standing one

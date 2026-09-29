@@ -3,7 +3,7 @@
 **The single list of open work, backend and frontend.** Replaces the former
 per-half `ToDo_Backend.md` / `ToDo_Frontend.md`, which no longer exist.
 
-Four kinds of document, kept strictly apart — put a new line in the right
+Five kinds of document, kept strictly apart — put a new line in the right
 one:
 
 | Kind | Lives in | Rule |
@@ -12,6 +12,7 @@ one:
 | **Worklogs** | [Done_Backend.md](Done_Backend.md), [Done_Frontend.md](Done_Frontend.md) | Append-only. What shipped and *why it was built that way*. |
 | **Examples** | [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md) | Calibration samples + strategy for the indefinite parser tail. |
 | **Singleton queue** | [singletons.md](singletons.md) | Genuinely one-off cards confirmed (via `parser_probe.py blocked`) to share no cluster with any other cached card — not a ticket, a queue for the `hand-author-card` skill. Never batch these into a `PAR-*`/`MEC-*` ticket; if a later sweep finds a second card sharing one's shape, promote that pair out into a real ticket instead. |
+| **Working memory** | [workingOn.md](workingOn.md) | Resumable state of the ticket in progress (done / next step / decisions), one block per ticket. Read first when resuming, update at every milestone, delete the block on close. |
 
 **Closing a ticket = deleting it from this file** and appending its narrative
 to the matching `Done_*.md` section. Never leave a `[x]`, a "shipped" note,
@@ -96,7 +97,7 @@ No open tickets.
   > `Done_Backend.md`'s PAR-124 entry). `PAR-126` is MEC-101's own parser
   > follow-up (below), `PAR-127` PAR-128's split-out "creature or
   > planeswalker" frame (closed), `PAR-129` the Exhaust keyword-line swallow;
-  > first free id: **`PAR-130`**. A genuinely new engine
+  > `PAR-130` the "that player controls" target scope; first free id: **`PAR-131`**. A genuinely new engine
   > primitive found along the way still files as its own `MEC-*` ticket —
   > `MEC-102` is MEC-101's own such follow-up; next free id: **`MEC-103`**
   > — only the sweep itself stays out of this file.
@@ -137,45 +138,42 @@ No open tickets.
   per-owner "remove a time counter from each other card" sweep.
 
 - **PAR-119 · Composed trigger-head grammar (event × actor × subject × quantity ×
-  qualifier) — remaining axes.** `parser_probe.py composition summary` at PARSER_VERSION
-  456: about 560 distinct trigger heads still block cards whose body parses alone (mostly
-  one-card heads). Built: the cast head (`catalogue/spell_phrase.py`), the object head
-  (`catalogue/object_trigger_head.py`: enters / dies / attacks / blocks / leaves, deals
-  [combat|noncombat] damage [to …], sacrifices / discards `<object>`, attack batches over
-  `ATTACKERS_DECLARED`, "isn't blocked", "while `<state>`", the block relation over `related_ids`),
-  the player-event head (`catalogue/player_event_head.py`), and "X and/or whenever Y" splits, over
-  `catalogue/characteristic_phrase.py` and `catalogue/trigger_context.py`. Still open: **(a) batch
-  quantity** — "N or more X enter / leave / are discarded / are put into a graveyard / deal
-  combat damage" (three event-specific `_BATCH_*_TRIGGER_RE` rows exist; the engine fires one event
-  per object, so a batch needs simultaneous-event grouping, RULE 603.2c, not just a parser row);
-  **(b) attack leftovers** — "attacks with your commander", "~ and another legendary creature",
-  "creatures with total power N or greater", "creatures with counters on them" (need a per-attacker
-  state filter or a sum over the declaration) and a body reading "that many" off an attack batch
-  (a new `attackers_declared` amount kind measuring the head's own filter — Lulu, Amazing Alliance,
-  Arthur); **(c) zone origin** — "enters from a graveyard/exile", "is put into a graveyard from
-  anywhere/a library" (`from_zone` is stamped on `SPELL_CAST` only; the ENTERS event has thirteen
-  hand-written fire sites); **(d) player-event leftovers** — "you discard N or more cards" and other
-  per-player batches, "an opponent draws a card except the first N they draw in each of their draw
-  steps", "you're dealt damage", proliferate, "taps a land for mana" (no event); **(e) cast
-  leftovers** — ordinals ("your first spell during each opponent's turn"), "or copies", "that has
-  an adventure". Heads that need a *new event* (exploit, saddle,
-  expend, commit a crime, unlock a door/room) are `MEC-*` work, not composition. Contraption-crank
-  is deliberately not on this list — see `DEFERRED.md`'s permanent non-goals. **Then
-  migrate the legacy rows onto the composed heads** (`_GROUP_SUBJECT_RE`,
-  `_GROUP_SUBTYPE_SUBJECT_RE`, `_SELF_OR_GROUP_*`, `_DAMAGE_TRIGGER_RE`,
-  `_DAMAGE_RECIPIENT_TRIGGER_RE`, `_BECOMES_TARGET_TRIGGER_RE`, the seven
-  `_CAST_SPELL_TRIGGER_*` rows, `_BATCH_ATTACK_TRIGGER_RE`, the `_PLAYER_TRIGGER_CONDITIONS` "you …"
-  rows): emit the legacy condition keys from the composed head so the `AbilitySpec`s are identical,
-  diff the whole cache, delete the row. Known defect to fix in that migration:
-  `_CAST_SPELL_TRIGGER_PLAIN_RE`'s "during an opponent's turn" tail is caster-relative
-  (`not_controllers_turn`), while RULE 102.2 and the composed head's `phase_relation` are
-  controller-relative. Also open from the "otherwise" fix: Insatiable Appetite / Pippin's Bravery
-  ("you may sacrifice a Food. If you do, X. Otherwise, Y" — a *targeted* then-branch with an else,
-  which `pay_cost_then` cannot carry) and Lorehold Excavation ("if a land card was milled this way …
-  otherwise …" — the milled-card rider row does not take an else). Measure each step with
-  `parser_probe.py composition heads --family <f>` and `parser_probe.py diff`, and **execute** a
-  sample of the newly claimed cards — the parse verdict alone hid wrong-but-MODELED shapes at v450,
-  v455 and v456 (see `PARSER_LONG_TAIL.md`).
+  qualifier) — remaining axes.** Built: the cast, object, player-event and attack-batch
+  heads, "X and/or whenever Y" splits, and the RULE 603.2c batches (`EVENT_BATCH`:
+  "one / N or more `<objects>` enter / die / leave the battlefield", "you discard N or more
+  cards", typed graveyard exits; "N or more `<creatures>` deal combat damage to a player"
+  over the combat-damage aggregate); a "sacrifice N or more" batch (cost-path sacrifices are
+  not yet scoped) is also open;
+  current state and next step in [workingOn.md](workingOn.md). Still open:
+  **(a) batch quantity** — combat-damage subjects the phrase grammar lacks ("that entered
+  this turn", "goaded", "face-down"), "to 1 or more of your opponents" as a count of damaged
+  players, "to a player or battle"; most of that head's 28 remaining SOLO cards are body
+  gaps instead (PAR-130); "for each of them, … a copy of it"
+  over a batch's members (Kambal, Mythweaver Poq, Twilight Diviner), "leave the battlefield
+  without dying", "enter without being played"; **(c) zone origin** — "is put into a
+  graveyard from anywhere/a library" (Worldspine Wurm, PAR-103); **(d)** "taps a land for
+  mana" beyond the mana event's own shape, if any card still needs it. Heads that need a
+  *new event* (exploit, saddle, expend, commit a crime, unlock a door/room — the room
+  unlock alone blocks 11 cards) are `MEC-*` work, not composition. Contraption-crank is
+  deliberately not on this list — see `DEFERRED.md`'s permanent non-goals. **Then migrate
+  the legacy rows onto the composed heads** (`_GROUP_SUBJECT_RE`, `_GROUP_SUBTYPE_SUBJECT_RE`,
+  `_SELF_OR_GROUP_*`, `_DAMAGE_TRIGGER_RE`, `_DAMAGE_RECIPIENT_TRIGGER_RE`,
+  `_BECOMES_TARGET_TRIGGER_RE`, the seven `_CAST_SPELL_TRIGGER_*` rows,
+  `_BATCH_ATTACK_TRIGGER_RE`, the `_PLAYER_TRIGGER_CONDITIONS` "you …" rows): emit the
+  legacy condition keys from the composed head so the `AbilitySpec`s are identical, diff
+  the whole cache, delete the row; also fold MEC-78's own `graveyard_exit_batch` scope
+  into `GameState.simultaneous`. Measure each step with `parser_probe.py composition heads
+  --family <f>` and a whole-cache spec diff, and **execute** a sample of the newly claimed
+  cards — the parse verdict alone hid wrong-but-MODELED shapes at v450, v455 and v456
+  (see `PARSER_LONG_TAIL.md`).
+- **PAR-130 · "target `<X>` that player controls" as a target-scope slot.** 102 SOLO cards
+  are blocked only by it (`parser_probe.py blocked "target [a-z ,]+ that player controls"`;
+  e.g. Feline Sovereign, Dreadmaw's Ire, the "whenever ~ deals combat damage to a player,
+  destroy target `<type>` that player controls" family). `targeting.SCOPE_THAT_PLAYER`
+  exists but only on two kinds; the parser composes only "an opponent controls / you don't
+  control" (`subgrammars.NOT_YOU_TARGET_KINDS`). "That player" is antecedent-dependent —
+  the damaged/triggering player, the "for each opponent" iteration player, or a prior
+  "target player" — so the slot may only compose where the antecedent is known.
 - **PAR-129 · A line starting with "Exhaust" is swallowed as a keyword line (wrong-but-MODELED).**
   11 parser-MODELED cards lose an ability: the first line that begins with the word
   "Exhaust" is claimed as the bare Exhaust keyword (Scryfall lists it in `keywords`), so no

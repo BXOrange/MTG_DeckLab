@@ -1578,30 +1578,6 @@ _BATCH_ATTACK_TRIGGER_RE = re.compile(
     r"creatures you control attack(?: a player)?$"
 )
 
-#: RULE 603.3f's "one or more <X> die" batch death trigger (Morbid
-#: Opportunist / Sengir Connoisseur / Vraan / Dramatic Finale / Ghoulish
-#: Procession / Homicide Investigator …). The engine fires a per-object
-#: `DIES` event, not a per-batch aggregate, so this is modeled as an
-#: ordinary `{"subject": "group", "type": "creature"}` DIES trigger — but
-#: **only claimed when the body also carries "This ability triggers only
-#: once each turn."** (`_TRIGGER_ONCE_PER_TURN_RE` → `limit`), which makes
-#: the per-object firing collapse to the once-per-turn net behaviour the
-#: real card has. The handful of un-limited "1 or more … die" cards (Great
-#: Fierce Bee, Vengeful Townsfolk) stay unclaimed — a per-object model
-#: would over-fire on a board wipe (that needs a real batch aggregate —
-#: MEC, see PAR-60).
-_BATCH_DIES_TRIGGER_RE = re.compile(
-    r"^(?:1|one) or more (?P<other>other )?(?P<nontoken>nontoken )?"
-    r"creatures(?P<yours> you control)? die$"
-)
-
-#: "Whenever one or more other creatures you control enter, …" (Frantic
-#: Scapegoat).  The event dispatcher exposes each entering object, so the
-#: group predicate supplies the precise controller/type/other filter; a
-#: simultaneous entry is still represented by its individual entry events.
-_BATCH_ENTER_TRIGGER_RE = re.compile(
-    r"^(?:1|one) or more other creatures you control enter$"
-)
 
 _CREATURE_EXPLORES_TRIGGER_RE = re.compile(
     r"^a creature you control explores(?: a (?P<result>land|nonland) card)?$",
@@ -1612,8 +1588,15 @@ _CREATURE_EXPLORES_TRIGGER_RE = re.compile(
 #: zone-change event, whether one card is flashback-cast or many are returned
 #: together. The optional timing tail is an intervening trigger condition.
 _CARDS_LEAVE_YOUR_GRAVEYARD_TRIGGER_RE = re.compile(
-    r"^(?:1|one) or more cards leave your graveyard(?P<during> during your turn)?$"
+    r"^(?:1|one) or more (?:(?P<types>[a-z]+(?:(?: and/or | or )[a-z]+)*) )?cards leave "
+    r"your graveyard(?P<during> during your turn)?$"
 )
+#: The card-type words a typed graveyard exit may name ("creature cards", "artifact
+#: and/or creature cards") — RULE 205.2a's card types, nothing else.
+_GRAVEYARD_EXIT_TYPES = frozenset({
+    "artifact", "battle", "creature", "enchantment", "instant", "land", "planeswalker",
+    "sorcery", "kindred",
+})
 
 #: PAR-97 / RULE 701.13: a milling instruction moves a batch, so “one or
 #: more [<type>] cards are put into your graveyard from your library” must
@@ -6067,8 +6050,21 @@ def _retarget_block_relation(
     return out
 
 
-def _bind_attack_count(effects: "list[EffectSpec]") -> "Optional[list[EffectSpec]]":
-    """Bind 'that many/much' to this head's own count (RULE 508.3a).
+#: What "that many" measures for a counting head: the attack batch (RULE 508.3a, captured
+#: by `trigger_quantities.capture_attackers`) or an object batch (RULE 603.2c, captured by
+#: `binding.core`'s batch capture as the event's ``matching_count``).
+_ATTACK_COUNT_AMOUNT: dict[str, Any] = {"kind": "attackers_declared"}
+_BATCH_COUNT_AMOUNT: dict[str, Any] = {"kind": "trigger_event", "field": "matching_count"}
+_HEAD_COUNT_AMOUNTS: dict[str, dict[str, Any]] = {
+    "ATTACKERS_DECLARED": _ATTACK_COUNT_AMOUNT, "EVENT_BATCH": _BATCH_COUNT_AMOUNT,
+}
+_THAT_MANY_RE = re.compile(r"\bthat (?:many|much)\b", re.IGNORECASE)
+
+
+def _bind_attack_count(
+    effects: "list[EffectSpec]", amount: Optional[dict[str, Any]] = None,
+) -> "Optional[list[EffectSpec]]":
+    """Bind 'that many/much' to this head's own count (RULE 508.3a / 603.2c).
 
     Walk compositions too: an optional/conditional draw has the same referent.
     Other event fields and an unresolved 'that creature' still fail closed.
@@ -6120,7 +6116,8 @@ def _bind_attack_count(effects: "list[EffectSpec]") -> "Optional[list[EffectSpec
         return None
     if not reads_count:
         return effects
-    return [EffectSpec("bind", {"name": "attack_count", "amount": {"kind": "attackers_declared"},
+    return [EffectSpec("bind", {"name": "attack_count",
+                               "amount": dict(amount or _ATTACK_COUNT_AMOUNT),
                                "effects": rewritten})]
 
 
@@ -8294,54 +8291,6 @@ def _segment_line_unsplit(
             )
             return Segment(raw=raw, spec=spec, claimed=True)
 
-        # RULE 603.3f "1 or more [other] [nontoken] [artifact] creatures
-        # [you control] die" — modeled as a per-object DIES group trigger,
-        # claimed ONLY when the body's own "this ability triggers only once
-        # each turn." marker makes that collapse to the correct net. See
-        # `_BATCH_DIES_TRIGGER_RE`.
-        batch_dies = _BATCH_DIES_TRIGGER_RE.match(cond_text.strip())
-        if batch_dies is not None:
-            body, optional = _peel_optional(trig.group("body"))
-            effects = parse_effect_body(body, group_subject=True)
-            if effects is None:
-                return Segment(raw=raw)
-            effects, body_limit = _strip_trigger_once_per_turn_marker(effects)
-            if not (limit or body_limit):
-                # No once-per-turn marker — a per-object model would
-                # over-fire on simultaneous deaths. Fail closed.
-                return Segment(raw=raw)
-            condition = {"subject": "group", "type": "creature",
-                         "other": bool(batch_dies.group("other"))}
-            if batch_dies.group("yours"):
-                condition["controller"] = "you"
-            if batch_dies.group("nontoken"):
-                condition["nontoken"] = True
-            spec = AbilitySpec(
-                "triggered",
-                effects=effects,
-                trigger={"event": "DIES", "condition": condition, "limit": True},
-                optional=optional,
-                raw_text=raw,
-                parser=provenance,
-            )
-            return Segment(raw=raw, spec=spec, claimed=True)
-
-        batch_enters = _BATCH_ENTER_TRIGGER_RE.match(cond_text.strip())
-        if batch_enters is not None:
-            body, optional = _peel_optional(trig.group("body"))
-            effects = parse_effect_body(body, self_subject=True)
-            if effects is None:
-                return Segment(raw=raw)
-            spec = AbilitySpec(
-                "triggered", effects=effects,
-                trigger={
-                    "event": "ENTERS_BATTLEFIELD",
-                    "condition": {"subject": "group", "type": "creature", "controller": "you", "other": True},
-                },
-                optional=optional, raw_text=raw, parser=provenance,
-            )
-            return Segment(raw=raw, spec=spec, claimed=True)
-
         creature_explores = _CREATURE_EXPLORES_TRIGGER_RE.match(cond_text.strip())
         if creature_explores is not None:
             body, optional = _peel_optional(trig.group("body"))
@@ -8441,6 +8390,11 @@ def _segment_line_unsplit(
                 "event": "CARDS_LEFT_GRAVEYARD",
                 "graveyard_owner": "you",
             }
+            if graveyard_exit.group("types"):
+                types = re.split(r" and/or | or ", graveyard_exit.group("types"))
+                if not set(types) <= _GRAVEYARD_EXIT_TYPES:
+                    return Segment(raw=raw)
+                trigger["left_graveyard_types"] = types
             if graveyard_exit.group("during"):
                 trigger["during_your_turn"] = True
             spec = AbilitySpec(
@@ -8796,11 +8750,22 @@ def _segment_line_unsplit(
                 "referent": "trigger_event",
             })]
         else:
-            effects = parse_effect_body(
-                body, self_subject=(condition or {}).get("subject") == "self",
-                group_subject=(condition or {}).get("subject") == "group",
-                attached_subject=(condition or {}).get("subject") == "attached_permanent",
-            )
+            # A batch (RULE 603.2c) has no one firing object, so its body gets no
+            # single-object pronoun reading at all ("it" stays unclaimed).
+            body_flags = {
+                "self_subject": (condition or {}).get("subject") == "self",
+                "group_subject": (condition or {}).get("subject") == "group"
+                and event != "EVENT_BATCH",
+                "attached_subject": (condition or {}).get("subject") == "attached_permanent",
+            }
+            effects = parse_effect_body(body, **body_flags)
+            count_amount = _HEAD_COUNT_AMOUNTS.get(event) if isinstance(event, str) else None
+            if effects is None and count_amount is not None and _THAT_MANY_RE.search(body):
+                # "put that many +1/+1 counters on ~" off a counting head: the body read
+                # with a literal X (every X-capable verb already takes one), X bound to
+                # the head's own count — not one "that many" row per verb.
+                x_effects = parse_effect_body(_THAT_MANY_RE.sub("x", body), **body_flags)
+                effects = _bind_x(x_effects, count_amount) if x_effects else None
         if effects is None:
             return Segment(raw=raw)
         if event_counter_amount is not None:
@@ -8815,6 +8780,12 @@ def _segment_line_unsplit(
             return Segment(raw=raw)
         if event == "ATTACKERS_DECLARED":
             effects = _bind_attack_count(effects)
+            if effects is None:
+                return Segment(raw=raw)
+        if event == "EVENT_BATCH":
+            if "trigger_subject" in repr(effects) or "__group_subject__" in repr(effects):
+                return Segment(raw=raw)  # no single firing object to name
+            effects = _bind_attack_count(effects, _BATCH_COUNT_AMOUNT)
             if effects is None:
                 return Segment(raw=raw)
         if composed_head:

@@ -15,6 +15,7 @@ GameState stays serializable for the WebSocket wire protocol.
 from __future__ import annotations
 
 import copy
+from contextlib import contextmanager
 import itertools
 import uuid
 from dataclasses import dataclass
@@ -1009,6 +1010,14 @@ class GameState:
         self.event_log: list[GameEvent] = []
         #: Observer callbacks invoked for every fired event.
         self._subscribers: list[Callable[[GameEvent], None]] = []
+        #: RULE 603.2c simultaneity scope (`simultaneous`): nesting depth, and the
+        #: batched per-object events fired inside it, flushed as `EVENT_BATCH`es.
+        self._batch_depth: int = 0
+        self._batch_buffer: list[GameEvent] = []
+        #: Held open across an interactive multi-pick (`hold_batches`): the picks of one
+        #: "sacrifice two creatures" / "discard two cards" are one event, answered one
+        #: pick at a time.
+        self._batch_hold: bool = False
 
     # -- Players ---------------------------------------------------------
 
@@ -1339,6 +1348,48 @@ class GameState:
             self._subscribers, self.event_log = subscribers, log
         return clone
 
+    #: Per-object events a "one or more" / "N or more" trigger counts (RULE 603.2c).
+    BATCHED_EVENT_TYPES: frozenset[str] = frozenset({
+        EventType.ENTERS_BATTLEFIELD, EventType.LEAVES_BATTLEFIELD, EventType.DIES,
+        EventType.DISCARD_CARD,
+    })
+
+    @contextmanager
+    def simultaneous(self) -> "Iterator[None]":
+        """Everything fired inside happens at once (RULE 603.2c / 704.3).
+
+        Batched per-object events (`BATCHED_EVENT_TYPES`) are collected and, when the
+        outermost scope closes, re-announced as one `EVENT_BATCH` per type. Nested
+        scopes merge into the outermost; an event fired outside every scope is its own
+        one-member batch (`fire_event`).
+        """
+        self._batch_depth = getattr(self, "_batch_depth", 0) + 1
+        try:
+            yield
+        finally:
+            self._batch_depth -= 1
+            if self._batch_depth == 0 and not getattr(self, "_batch_hold", False):
+                self._flush_batches()
+
+    def hold_batches(self) -> None:
+        """Keep the current batch open past this call (an interactive multi-pick)."""
+        self._batch_hold = True
+
+    def release_batches(self) -> None:
+        """End a `hold_batches`: the picks made so far become one batch."""
+        if getattr(self, "_batch_hold", False):
+            self._batch_hold = False
+            if getattr(self, "_batch_depth", 0) == 0:
+                self._flush_batches()
+
+    def _flush_batches(self) -> None:
+        buffered, self._batch_buffer = list(getattr(self, "_batch_buffer", [])), []
+        by_type: dict[str, list[GameEvent]] = {}
+        for event in buffered:
+            by_type.setdefault(event.type, []).append(event)
+        for batch_of, members in by_type.items():
+            self.fire_event(GameEvent(EventType.EVENT_BATCH, batch_of=batch_of, members=members))
+
     def fire_event(self, event: GameEvent) -> GameEvent:
         """Record ``event`` and notify subscribers. Returns the event.
 
@@ -1357,6 +1408,12 @@ class GameState:
         self.event_log.append(event)
         for subscriber in list(self._subscribers):
             subscriber(event)
+        if event.type in self.BATCHED_EVENT_TYPES:
+            if getattr(self, "_batch_depth", 0) > 0 or getattr(self, "_batch_hold", False):
+                self._batch_buffer.append(event)
+            else:
+                self.fire_event(GameEvent(EventType.EVENT_BATCH, batch_of=event.type,
+                                          members=[event]))
         return event
 
     def events_this_turn(self) -> "Iterator[GameEvent]":

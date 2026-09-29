@@ -1188,6 +1188,12 @@ class SuspectEffect(GameEffect):
                 and getattr(obj, "controller_id", None) == controller.id
                 and getattr(obj, "instance_id", None) != getattr(self.source, "instance_id", None)
             ]
+            # "Whenever one or more other creatures you control enter, … suspect one of
+            # the other creatures" (Frantic Scapegoat): only the batch that triggered it
+            # (RULE 603.2c, the count `binding.core` captured on the event).
+            batch_ids = (getattr(context, "trigger_event", None) or {}).get("matching_ids")
+            if batch_ids is not None:
+                candidates = [obj for obj in candidates if obj.instance_id in set(batch_ids)]
             context.engine._request_choose_objects(
                 controller, candidates, "suspect", count=self.count,
                 optional=self.optional, source=self.source,

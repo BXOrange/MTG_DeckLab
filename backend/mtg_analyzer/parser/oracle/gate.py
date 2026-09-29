@@ -3706,7 +3706,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: Mercadia); count phrases read "that entered this turn"; a multi-sentence phase
 #: trigger's leading "if" is the ability's RULE 603.4 intervening-if; "target
 #: creature or planeswalker [you don't control]" keeps its planeswalker half.
-PARSER_VERSION = "501"
+#: 502 (PAR-119 a): "whenever one / N or more `<objects>` enter / die / leave the
+#: battlefield" is a RULE 603.2c batch head (`EVENT_BATCH`) — the per-object
+#: `_BATCH_DIES`/`_BATCH_ENTER` rows are gone; "that many" off a counting head binds X;
+#: typed "one or more creature cards leave your graveyard".
+#: 503 (PAR-119 a): "you discard `<n>` or more [`<type>`] cards" is a DISCARD_CARD batch.
+#: 504 (PAR-119 a): "`<n>` or more `<creatures>` deal combat damage to `<a player>`" is a
+#: head over the combat-damage aggregate; "ninja or rogue creatures" shares its noun.
+PARSER_VERSION = "504"
 
 
 def parser_source_hash() -> str:

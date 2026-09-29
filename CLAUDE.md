@@ -583,12 +583,12 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 51.1% (17,793 / 34,811) as of 2026-09-29, measured at
-PARSER_VERSION 501** (parser-`MODELED` or hand-`AUTHORED`, measured against
+**Coverage: 51.2% (17,837 / 34,811) as of 2026-09-29, measured at
+PARSER_VERSION 504** (parser-`MODELED` or hand-`AUTHORED`, measured against
 the full ~35k-card Oracle universe from `scripts/import_bulk.py`). Re-measure
 with `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset that
-matters for Goldfisch/Deck-Analyzer — is **53.7% (17,093 / 31,830)**; measure
+matters for Goldfisch/Deck-Analyzer — is **53.8% (17,132 / 31,830)**; measure
 it with `scripts/coverage_report.py --commander-legal-only` (records a
 separate `…-commander` snapshot row) and segment the still-UNMODELED
 remainder by *cause* (wrapper re-measure / recurring template → `PAR-*` /
@@ -617,8 +617,9 @@ front-end can't express yet) goes in `game/card_catalogue/` — see
 [docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md)
 for the field-by-field how-to and the full `EffectSpec`/layer whitelist.
 
-Implementation state is four kinds of document, kept strictly apart —
-**open points**, **worklogs**, **examples**, **singleton queue** — all under
+Implementation state is five kinds of document, kept strictly apart —
+**open points**, **worklogs**, **examples**, **singleton queue**, **working
+memory** — all under
 `docs/implementation-state/`:
 
 | Kind | File | Rule |
@@ -628,6 +629,7 @@ Implementation state is four kinds of document, kept strictly apart —
 | Worklogs | `Done_Backend.md`, `Done_Frontend.md` | Catalogues, organized by game-mechanic/app-area (not chronologically) — what shipped and *why it was built that way*, one entry per feature/primitive under a subsystem heading. Entry headings are the stable, searchable unit now (not the whole file being append-only); closing a ticket means filing its narrative under the matching subsystem entry, merging into it if one already covers the same primitive, rather than appending at the end. |
 | Examples | `PARSER_LONG_TAIL.md` | Standing strategy + recurring lessons + enumerated worked samples for the indefinite parser tail. Neither backlog nor worklog. |
 | Singleton queue | `singletons.md` | Cards confirmed (via `parser_probe.py blocked`) to share their exact gap with no other cached card — real work, but not ticket-worthy on their own. A queue for `hand-author-card`, not a ticket; promote a row into a real ticket the moment a second card is found sharing its shape. |
+| Working memory | `workingOn.md` | The resumable state of the ticket **being built right now** — done / in progress / exact next step / decisions / baselines / known red tests, one block per ticket. **Read it first** when starting or resuming ticket work and continue from its *Next step* instead of re-deriving the state; **update it at every milestone** (sub-step built + tested, decision, before a long run or a commit) so a crash, an expired prompt cache or an update loses nothing. On closing the ticket delete its block — only the empty header/template stays (no ticket id, no log). |
 
 (The former `backend/ToDo_Backend.md` and `frontend/ToDo_Frontend.md` are
 gone — merged into `BACKLOG.md`.) The plan to finish is
@@ -844,6 +846,7 @@ English and German.
 | Player-uploaded token art / card-back sleeves | `backend/mtg_analyzer/services/player_assets.py`, `api/player_assets.py`, `frontend/src/js/profileView.js` (upload UI + player name), `gameBoardView.js` (`resolveImageUrl`/`setAssets`) |
 | Default art for a vanilla ("1/1 white Soldier") token | `backend/mtg_analyzer/services/token_database.py` (`TokenArtLibrary`, keyed by exact name/power/toughness/colors — a token name is reprinted at multiple stat lines across sets), `data/token_art.json`, `scripts/build_token_art_library.py` (rebuild from a fresh Scryfall bulk dump); consumed by `synthesize_token_card` and `services/replay.py`'s `_token_card` |
 | Engine coverage doc (user-facing) | `frontend/src/js/implementationStatusView.js` |
+| Resuming a ticket someone (or a crashed session) was building | [docs/implementation-state/workingOn.md](docs/implementation-state/workingOn.md) — its block's *Next step*; update it as you go, delete the block on close |
 | What's still open (any area) | [docs/implementation-state/BACKLOG.md](docs/implementation-state/BACKLOG.md) — tickets by category; parked/low-priority + non-goals in [DEFERRED.md](docs/implementation-state/DEFERRED.md) |
 | Why shipped work looks the way it does | [Done_Backend.md](docs/implementation-state/Done_Backend.md) / [Done_Frontend.md](docs/implementation-state/Done_Frontend.md) |
 | Parser-tail strategy, lessons, worked samples | [docs/implementation-state/PARSER_LONG_TAIL.md](docs/implementation-state/PARSER_LONG_TAIL.md) |

@@ -20,7 +20,7 @@ import logging
 
 from typing import Any, Callable, Optional, Union
 
-from ...models.game.events import EventType
+from ...models.game.events import EventType, GameEvent
 from ...models.mana.mana_cost import ManaCost
 from ...parser.oracle.catalogue.handlers import (
     ACTIVATE_ONLY_ONCE_MARKER,
@@ -1168,6 +1168,89 @@ def _any_attacking_matches(
     return False
 
 
+def _batch_members(
+    trigger: dict[str, Any], source: Optional[Any]
+) -> Callable[[Any, Any], list[Any]]:
+    """RULE 603.2c: the members of an `EVENT_BATCH` this batch trigger counts.
+
+    ``trigger["batch"]`` is ``{"of": <per-object EventType name>, "min": N}``; every
+    other key is the ordinary per-object trigger ("a creature you control dies", its
+    filters and tails), so the member test is exactly `_trigger_condition` for that
+    event — a batch head adds a count, never a second vocabulary.
+    """
+    batch = trigger["batch"]
+    of = str(batch.get("of", ""))
+    member_trigger = {k: v for k, v in trigger.items() if k != "batch"}
+    member_trigger["event"] = of
+    member_ok = _trigger_condition(member_trigger, source)
+
+    def _members(event: Any, context: Any, of=of, ok=member_ok) -> list[Any]:
+        if event.get("batch_of") != of:
+            return []
+        return [m for m in (event.get("members") or []) if ok is None or ok(m, context)]
+
+    return _members
+
+
+def _batch_condition(
+    trigger: dict[str, Any], source: Optional[Any]
+) -> Callable[[Any, Any], bool]:
+    """"Whenever one / N or more `<objects>` `<verb>`" — at least ``min`` members match."""
+    members = _batch_members(trigger, source)
+    need = max(1, int(trigger["batch"].get("min", 1) or 1))
+
+    def _batch_ok(event: Any, context: Any, members=members, need=need) -> bool:
+        return len(members(event, context)) >= need
+
+    return _batch_ok
+
+
+def _contributor_members(
+    trigger: dict[str, Any], source: Optional[Any]
+) -> Callable[[Any, Any], list[Any]]:
+    """RULE 510.2 / 603.2c: the creatures of one combat-damage batch this trigger counts.
+
+    `EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER` names its contributors
+    (``contributor_ids``/``contributor_amounts``); each is re-read as the per-creature
+    ``DAMAGE`` event it stands for ("a creature you control deals combat damage to a
+    player"), so the head's condition and filters are exactly the single-creature
+    trigger's — the same "a batch adds a count, never a second vocabulary" rule as
+    `_batch_members`. The contributors are still on the battlefield: the aggregate
+    fires after the step's damage, before state-based actions (RULE 510.2/704.3).
+    """
+    member_trigger = {k: v for k, v in trigger.items() if k != "contributors"}
+    member_trigger["event"] = "DAMAGE"
+    member_trigger["filter"] = {"combat": True, "is_player": True}
+    member_ok = _trigger_condition(member_trigger, source)
+
+    def _members(event: Any, context: Any, ok=member_ok) -> list[Any]:
+        ids = event.get("contributor_ids") or []
+        amounts = event.get("contributor_amounts") or [None] * len(ids)
+        members = [
+            GameEvent(
+                "DAMAGE", source_id=iid, source_controller_id=event.get("player_id"),
+                target_id=event.get("target_id"), is_player=True, combat=True, amount=amount,
+            )
+            for iid, amount in zip(ids, amounts)
+        ]
+        return [m for m in members if ok is None or ok(m, context)]
+
+    return _members
+
+
+def _contributor_condition(
+    trigger: dict[str, Any], source: Optional[Any]
+) -> Callable[[Any, Any], bool]:
+    """"Whenever `<n>` or more `<creatures>` deal combat damage to a player"."""
+    members = _contributor_members(trigger, source)
+    need = max(1, int(trigger["contributors"].get("min", 1) or 1))
+
+    def _contributors_ok(event: Any, context: Any, members=members, need=need) -> bool:
+        return len({m.get("source_id") for m in members(event, context)}) >= need
+
+    return _contributors_ok
+
+
 def _trigger_condition(
     trigger: dict[str, Any], source: Optional[Any]
 ) -> Optional[Callable[[Any, Any], bool]]:
@@ -1203,6 +1286,11 @@ def _trigger_condition(
       ``copy_with`` comment) — a hand-built/older event missing a filtered
       key fails closed (``None != True``), never over-fires.
     """
+    if trigger.get("batch"):
+        return _batch_condition(trigger, source)
+    if trigger.get("contributors"):
+        return _contributor_condition(trigger, source)
+
     predicates: list[Callable[[Any, Any], bool]] = []
 
     subject_ok = _subject_condition(trigger, source)
@@ -1210,10 +1298,15 @@ def _trigger_condition(
         predicates.append(subject_ok)
 
     if trigger.get("graveyard_owner") == "you":
-        def _your_graveyard_exit_ok(event: Any, context: Any, src=source) -> bool:
+        # "one or more [creature | artifact and/or creature] cards leave your
+        # graveyard" — one card must be both yours and of a named type (PAR-119).
+        left_types = frozenset(trigger.get("left_graveyard_types") or ())
+
+        def _your_graveyard_exit_ok(event: Any, context: Any, src=source, types=left_types) -> bool:
             controller_id = getattr(src, "controller_id", None)
             return controller_id is not None and any(
                 card.get("graveyard_owner_id") == controller_id
+                and (not types or bool(types & set(card.get("object_types") or ())))
                 for card in (event.get("cards") or [])
             )
 
@@ -2730,6 +2823,29 @@ def bind_ability(
             # key, which `_SUBJECT_EVENT_KEYS.get(...)` can't hash anyway.
             single_trigger = {**spec.trigger, "event": event}
             capture_event = None
+            if spec.trigger.get("batch"):
+                # RULE 603.2: "that many" is the count when it triggered, per ability.
+                def capture_event(firing_event, context, members=_batch_members(single_trigger, source)):
+                    matched = members(firing_event, context)
+                    captured = firing_event.copy_with(
+                        matching_count=len(matched),
+                        matching_ids=[m.get("instance_id") for m in matched],
+                    )
+                    captured.turn = firing_event.turn
+                    return captured
+            if spec.trigger.get("contributors"):
+                # RULE 603.2: "those creatures" / "that damage" are the matching
+                # contributors as of when it triggered, per ability.
+                def capture_event(firing_event, context, members=_contributor_members(single_trigger, source)):
+                    matched = members(firing_event, context)
+                    ids = list(dict.fromkeys(m.get("source_id") for m in matched))
+                    captured = firing_event.copy_with(
+                        matching_count=len(ids),
+                        matching_ids=ids,
+                        matching_amount=sum(int(m.get("amount") or 0) for m in matched),
+                    )
+                    captured.turn = firing_event.turn
+                    return captured
             if spec.trigger.get("attackers_declared"):
                 from ..trigger_quantities import capture_attackers
 

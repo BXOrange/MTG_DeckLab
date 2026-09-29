@@ -72,6 +72,8 @@ _ACTOR_HEAD = re.compile(
     r"^(?P<actor>you|an opponent|each opponent|a player|each player)\s+"
     r"(?P<verb>sacrifices?|discards?)\s+(?P<object>.+)$"
 )
+#: "<n> or more <plural object phrase>" after an actor verb (a batch, RULE 603.2c).
+_ACTOR_QUANTITY = re.compile(r"^(?P<n>\d+) or more (?P<phrase>.+)$")
 _SUBJECT_ARTICLE = re.compile(r"^(?P<article>another|an|a)\s+(?P<phrase>.+)$")
 _SELF_OR_ANOTHER = re.compile(r"^~ or another\s+(?P<phrase>.+)$")
 
@@ -191,6 +193,19 @@ def _parse_actor_head(cond: str) -> Optional[ObjectHead]:
             text = text[: -len(phase_text)].strip()
             break
     condition: Optional[dict[str, Any]]
+    quantity = _ACTOR_QUANTITY.match(text)
+    if quantity is not None and event != "DISCARD_CARD":
+        return None  # only discards are batched (`GameState.BATCHED_EVENT_TYPES`); a sacrifice isn't yet
+    if quantity is not None:
+        # "you discard 1 or more [artifact] cards" (RULE 603.2c) — a batch of the same
+        # per-object event, counted by `EVENT_BATCH` (`_parse_batch_quantity_head`).
+        parsed = parse_object_phrase(quantity.group("phrase"), plural=True)
+        if parsed is None or parsed[1] is not None:
+            return None
+        condition = {"subject": "group", "controller": _ACTOR_SCOPE[m.group("actor")],
+                     "other": False, **({"filter": parsed[0]} if parsed[0] else {})}
+        trigger["batch"] = {"of": event, "min": int(quantity.group("n"))}
+        return ObjectHead("EVENT_BATCH", condition, trigger)
     if text == "~":
         condition = {"subject": "self"}
     else:
@@ -317,7 +332,8 @@ def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
         return ObjectHead(*player)
     actor = (
         _parse_actor_head(cond) or _parse_damage_head(cond) or _parse_attack_batch_head(cond)
-        or _parse_block_relation_head(cond)
+        or _parse_block_relation_head(cond) or _parse_batch_quantity_head(cond)
+        or _parse_combat_damage_batch_head(cond)
     )
     if actor is not None:
         return actor
@@ -335,7 +351,20 @@ def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
     if m.group("v2"):
         events.append(_event_name(m.group("v2")))
     trigger: dict[str, Any] = {}
-    tail = (m.group("tail") or "").strip()
+    events = _consume_tails((m.group("tail") or "").strip(), events, condition, trigger)
+    if events is None:
+        return None
+    return ObjectHead(events[0] if len(events) == 1 else events, condition, trigger)
+
+
+def _consume_tails(
+    tail: str, events: list[str], condition: dict[str, Any], trigger: dict[str, Any]
+) -> Optional[list[str]]:
+    """Read a head's trailing words into ``condition``/``trigger`` (in place).
+
+    Returns the — possibly narrowed ("attacks alone", "attacks and isn't blocked") —
+    event list, or ``None`` if any tail is unknown or repeated.
+    """
     while tail:
         origin = _ENTRY_ORIGIN.match(tail) if events == ["ENTERS_BATTLEFIELD"] else None
         if origin is not None:
@@ -369,4 +398,75 @@ def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
                 tail = rest
                 continue
         return None
-    return ObjectHead(events[0] if len(events) == 1 else events, condition, trigger)
+    return events
+
+
+#: RULE 603.2c batch quantity: "whenever `<n>` or more [other] `<objects>` enter / die /
+#: leave the battlefield" — one trigger per simultaneous batch (`EventType.EVENT_BATCH`,
+#: fired by `GameState.simultaneous`) when at least ``n`` of its members match the
+#: ordinary per-object condition. Number words are digits after `normalize`.
+_BATCH_QUANTITY = re.compile(
+    r"^(?P<n>\d+) or more (?P<other>other )?(?P<phrase>.+?)\s+"
+    r"(?P<verb>enter(?: the battlefield)?|die|leave the battlefield)(?P<tail>\s.*)?$"
+)
+_PLURAL_VERBS: dict[str, str] = {
+    "enter": "ENTERS_BATTLEFIELD", "enter the battlefield": "ENTERS_BATTLEFIELD",
+    "die": "DIES", "leave the battlefield": "LEAVES_BATTLEFIELD",
+}
+
+
+def _parse_batch_quantity_head(cond: str) -> Optional[ObjectHead]:
+    m = _BATCH_QUANTITY.match(cond)
+    if m is None:
+        return None
+    parsed = parse_object_phrase(m.group("phrase"), plural=True)
+    if parsed is None:
+        return None
+    filt, controller = parsed
+    condition: dict[str, Any] = {
+        "subject": "group", "controller": controller or "any", "other": bool(m.group("other")),
+    }
+    if filt:
+        condition["filter"] = filt
+    of = _PLURAL_VERBS[m.group("verb")]
+    trigger: dict[str, Any] = {}
+    events = _consume_tails((m.group("tail") or "").strip(), [of], condition, trigger)
+    if events != [of]:
+        return None
+    trigger["batch"] = {"of": of, "min": int(m.group("n"))}
+    return ObjectHead("EVENT_BATCH", condition, trigger)
+
+
+#: RULE 510.2 / 603.2c: "whenever `<n>` or more `<creatures>` deal combat damage to
+#: `<a player>`" — combat damage is dealt simultaneously, so the step's hits on one
+#: player are one batch: `EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER`, fired
+#: once per (contributors' controller, damaged player) by `_apply_combat_damage`.
+#: The subject is the ordinary per-creature DAMAGE condition, checked against each
+#: contributor (`binding.core._contributor_condition`) — a quantity, not a new
+#: vocabulary. Only player recipients: the aggregate never names a permanent.
+_COMBAT_DAMAGE_BATCH = re.compile(
+    r"^(?P<n>\d+) or more (?P<phrase>.+?) deal combat damage to (?P<recipient>.+)$"
+)
+_PLURAL_PLAYER_RECIPIENTS = {"1 or more players": "a player"}
+
+
+def _parse_combat_damage_batch_head(cond: str) -> Optional[ObjectHead]:
+    m = _COMBAT_DAMAGE_BATCH.match(cond)
+    if m is None:
+        return None
+    parsed = parse_object_phrase(m.group("phrase"), plural=True)
+    if parsed is None:
+        return None
+    filt, controller = parsed
+    recipient_text = m.group("recipient").strip()
+    recipient = _damage_recipient(_PLURAL_PLAYER_RECIPIENTS.get(recipient_text, recipient_text))
+    if recipient is None or recipient[0] != {"is_player": True}:
+        return None
+    condition: dict[str, Any] = {"subject": "group", "controller": controller or "any", "other": False}
+    if filt:
+        condition["filter"] = filt
+    condition.update(recipient[1])
+    return ObjectHead(
+        "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER", condition,
+        {"contributors": {"min": int(m.group("n"))}},
+    )

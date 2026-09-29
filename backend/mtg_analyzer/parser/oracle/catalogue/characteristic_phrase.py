@@ -211,6 +211,15 @@ def _alternation(parts: list[str], plural: bool = False) -> Optional[dict[str, A
             base = _alternation([first[1], *parts[1:]], plural=plural)
             if base is not None and "tapped" not in base:
                 return {**base, "tapped": first[0] == "tapped"}
+        # A trailing card-type noun is shared by every subtype before it
+        # ("ninja or rogue creatures", Prosperous Thief) — narrow to subtypes
+        # alone, since a shared noun after other adjectives is ambiguous.
+        last = parts[-1].split()
+        if len(last) == 2 and all(len(p.split()) == 1 for p in parts[:-1]):
+            noun = _word_fragment(last[1], plural=plural)
+            subs = _alternation([*parts[:-1], last[0]], plural=plural)
+            if noun and set(noun) == {"card_type"} and subs and set(subs) == {"subtype_any"}:
+                return {**subs, **noun}
         return None
     fragments = [_word_fragment(p, plural=plural) for p in parts]
     if any(f is None or not f for f in fragments):

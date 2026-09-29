@@ -16992,11 +16992,12 @@ HANDLERS: list[EffectHandler] = [
         _c(r"suspect enchanted creature"),
         _suspect_attached,
     ),
+    # Frantic Scapegoat: "the other creatures" are the ones its batch trigger counted
+    # (PAR-119, `SuspectEffect` reads the event's ``matching_ids``); "~" is explicit.
     EffectHandler(
         "suspect_other_then_remove_self",
         _c(r"you may suspect 1 of the other creatures\. if you do, ~ is no longer suspected"),
         _suspect_other_then_remove_self,
-        self_subject_only=True,
     ),
     # "suspect [up to N] target creature [an opponent controls]" (RULE 701.60a).
     EffectHandler(
