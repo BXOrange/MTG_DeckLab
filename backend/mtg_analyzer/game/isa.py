@@ -667,6 +667,7 @@ _ALIAS_TYPES: dict[str, str] = {
     # Killing Wave's own per-creature "unless" iteration item — already
     # selected by the surrounding untargeted loop, no fresh target/choice.
     "sacrifice_target": "sacrifice",
+    "sacrifice_chosen_then": "sacrifice",
     # The subject's controller sacrifices a permanent of their own choosing —
     # same instruction, the "of their choice" idiom RULE 601.2c already covers
     # generically rather than opening a fresh continuation.

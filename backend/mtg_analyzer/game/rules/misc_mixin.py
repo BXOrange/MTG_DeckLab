@@ -3349,6 +3349,7 @@ class MiscSystemsMixin:
         rest_destination: Optional[str] = None,
         decline_leaves_untouched: bool = False,
         total_mana_value_budget: Optional[int] = None,
+        then_that_many: Optional[dict] = None,
     ) -> None:
         """Open a "choose N of these objects" decision (RULE 601.2c-style).
 
@@ -3438,6 +3439,15 @@ class MiscSystemsMixin:
         moves to ``player``, the chooser), this hands each pick to whichever
         player's id is carried here instead — the caster picks, but someone
         *else* receives.
+
+        ``then_that_many`` (MEC-103, RULE 603.12 — "sacrifice up to three
+        Zombies. When you sacrifice one or more Zombies this way, each
+        opponent sacrifices **that many** creatures") is ``{"effects": […],
+        "trigger": […]}``: serialized specs whose ``"x"`` sentinel is bound
+        to how many objects were actually picked (`_substitute_x_specs`).
+        ``effects`` resolve at once; ``trigger`` becomes the reflexive
+        trigger (`enqueue_reflexive_trigger`), so it may carry targets. Only
+        fires when something was picked, like ``then_specs``.
         """
         if action not in self.CHOOSE_OBJECT_ACTIONS:
             raise ValueError(f"unknown choose-objects action {action!r}")
@@ -3471,7 +3481,8 @@ class MiscSystemsMixin:
                 unpicked_rest = [iid for iid in rest_ids if iid not in taken_ids]
                 self._handle_rest_inspected(player, unpicked_rest, rest_destination)
             self._apply_choose_objects_tail(
-                source, then_specs, then_specs_if_commander, commander_taken
+                source, then_specs, then_specs_if_commander, commander_taken,
+                then_that_many, len(pool),
             )
             return
         self.open_choice(self._choose_objects_choice(
@@ -3486,6 +3497,7 @@ class MiscSystemsMixin:
             rest_ids=rest_ids, rest_destination=rest_destination,
             decline_leaves_untouched=decline_leaves_untouched,
             total_mana_value_budget=total_mana_value_budget,
+            then_that_many=then_that_many,
         ))
     def _apply_choose_objects_tail(
         self,
@@ -3493,11 +3505,21 @@ class MiscSystemsMixin:
         then_specs: Optional[list[dict]],
         then_specs_if_commander: Optional[list[dict]],
         commander_taken: bool,
+        then_that_many: Optional[dict] = None,
+        picked_count: int = 0,
     ) -> None:
         """Apply a `choose_objects` decision's "if you do" follow-up."""
         self._apply_effect_specs(list(then_specs or []), source)
         if commander_taken:
             self._apply_effect_specs(list(then_specs_if_commander or []), source)
+        if then_that_many and picked_count > 0:
+            # MEC-103: "that many" = how many were picked, bound like ENG-48's X.
+            self._apply_effect_specs(
+                _substitute_x_specs(list(then_that_many.get("effects") or []), picked_count), source,
+            )
+            self.enqueue_reflexive_trigger(
+                _substitute_x_specs(list(then_that_many.get("trigger") or []), picked_count), source,
+            )
     def _choose_objects_choice(
         self,
         player: Player,
@@ -3521,6 +3543,7 @@ class MiscSystemsMixin:
         rest_destination: Optional[str] = None,
         decline_leaves_untouched: bool = False,
         total_mana_value_budget: Optional[int] = None,
+        then_that_many: Optional[dict] = None,
     ) -> dict[str, Any]:
         """Build the serializable `choose_objects` `pending_choice`."""
         options = [
@@ -3582,6 +3605,7 @@ class MiscSystemsMixin:
             "rest_destination": rest_destination,
             "decline_leaves_untouched": decline_leaves_untouched,
             "total_mana_value_budget": total_mana_value_budget,
+            "then_that_many": dict(then_that_many) if then_that_many else None,
         }
     @continuations.choice("choose_objects", answer=continuations.ANSWER_INT, rule="601.2b")
     def _resume_choose_objects(self, choice: dict[str, Any], instance_id: Optional[int]) -> None:
@@ -3646,6 +3670,7 @@ class MiscSystemsMixin:
                 self._apply_choose_objects_tail(
                     source, choice.get("then_specs"),
                     choice.get("then_specs_if_commander"), commander_taken,
+                    choice.get("then_that_many"), len(picked),
                 )
             elif choice.get("else_specs"):
                 # "If you don't, incubate 3." (Traumatic Revelation) — the
@@ -3668,6 +3693,7 @@ class MiscSystemsMixin:
             rest_destination=choice.get("rest_destination"),
             decline_leaves_untouched=bool(choice.get("decline_leaves_untouched")),
             total_mana_value_budget=choice.get("total_mana_value_budget"),
+            then_that_many=choice.get("then_that_many"),
         )
         next_choice["commander_taken"] = commander_taken
         self.open_choice(next_choice)

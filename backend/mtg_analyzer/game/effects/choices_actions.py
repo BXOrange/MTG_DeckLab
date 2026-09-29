@@ -41,6 +41,7 @@ class AddManaEffect(GameEffect):
         color_from_source_noted_color: bool = False,
         any_color_choices: Optional[list[str]] = None,
         any_amount_from_context: Optional[str] = None,
+        any_amount_multiplier: int = 1,
         amount_from_context: Optional[str] = None,
     ) -> None:
         super().__init__(source)
@@ -63,6 +64,10 @@ class AddManaEffect(GameEffect):
         #: same-resolution-accumulator idiom `life_lost_this_way` already
         #: established.
         self.any_amount_from_context = any_amount_from_context
+        #: "Add **three** mana of the chosen color for each artifact sacrificed"
+        #: (Radiant Lotus, MEC-103) — ``any_amount`` (an ``"x"`` sentinel, bound
+        #: to the announced X like any other) times this fixed factor.
+        self.any_amount_multiplier = int(any_amount_multiplier)
         #: "…adds an additional one mana of **the chosen color**." (Utopia
         #: Sprawl-shaped RULE 601.2b "as ~ enters, choose a color" Auras) —
         #: reads this effect's own source's `GameObject.chosen_color`
@@ -143,6 +148,9 @@ class AddManaEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.recipient == "event_controller":
             player = _event_player(context)
+        elif self.recipient == "target_player":
+            # "Target player adds …" (Radiant Lotus, MEC-103) — the chosen RULE 115 player target.
+            player = targets[0] if targets else None
         else:
             player = _controller_of(self.source, context)
         if player is None:
@@ -162,6 +170,7 @@ class AddManaEffect(GameEffect):
         for color in colors:
             if color == "ANY":
                 any_amount = 1 if self.any_amount is None else int(self.any_amount)
+                any_amount *= self.any_amount_multiplier
                 if self.any_amount_from_context:
                     any_amount = int(getattr(context, self.any_amount_from_context, 0) or 0)
                 elif self.amount_selector:

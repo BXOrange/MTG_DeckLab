@@ -1308,15 +1308,25 @@ def _contributor_members(
     member_trigger["filter"] = {"combat": True, "is_player": True}
     member_ok = _trigger_condition(member_trigger, source)
 
+    opponents_batch = bool(trigger.get("opponents_batch"))
+
     def _members(event: Any, context: Any, ok=member_ok) -> list[Any]:
         ids = event.get("contributor_ids") or []
         amounts = event.get("contributor_amounts") or [None] * len(ids)
+        if opponents_batch:
+            # MEC-104: "…to one or more of your opponents" counts the step's hits on every
+            # opponent of this ability's controller, not only the pair this event names.
+            me = getattr(source, "controller_id", None)
+            hits = [h for h in (event.get("hits") or []) if h.get("target_id") not in (None, me)]
+        else:
+            hits = [{"target_id": event.get("target_id"), "ids": ids, "amounts": amounts}]
         members = [
             GameEvent(
                 "DAMAGE", source_id=iid, source_controller_id=event.get("player_id"),
-                target_id=event.get("target_id"), is_player=True, combat=True, amount=amount,
+                target_id=hit["target_id"], is_player=True, combat=True, amount=amount,
             )
-            for iid, amount in zip(ids, amounts)
+            for hit in hits
+            for iid, amount in zip(hit["ids"], hit["amounts"])
         ]
         return [m for m in members if ok is None or ok(m, context)]
 
@@ -1330,8 +1340,14 @@ def _contributor_condition(
     members = _contributor_members(trigger, source)
     need = max(1, int(trigger["contributors"].get("min", 1) or 1))
 
+    opponents_batch = bool(trigger.get("opponents_batch"))
+
     def _contributors_ok(event: Any, context: Any, members=members, need=need) -> bool:
-        return len({m.get("source_id") for m in members(event, context)}) >= need
+        matched = members(event, context)
+        if len({m.get("source_id") for m in matched}) < need:
+            return False
+        # MEC-104: one trigger for the step — only the pair naming the first opponent hit passes.
+        return not opponents_batch or event.get("target_id") == matched[0].get("target_id")
 
     return _contributors_ok
 
@@ -2883,6 +2899,8 @@ def bind_ability(
                         matching_count=len(ids),
                         matching_ids=ids,
                         matching_amount=sum(int(m.get("amount") or 0) for m in matched),
+                        # MEC-104: "the number of opponents dealt damage this way".
+                        matching_opponents=len({m.get("target_id") for m in matched}),
                     )
                     captured.turn = firing_event.turn
                     return captured

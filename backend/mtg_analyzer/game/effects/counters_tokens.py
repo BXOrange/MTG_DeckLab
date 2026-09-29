@@ -1057,7 +1057,9 @@ class GoadEffect(GameEffect):
     printed default of "until your next turn".
     """
 
-    _SELECTORS = frozenset({"creatures_opponents_control"})
+    #: ``"suspected_creatures"`` — "goad all suspected creatures" (Nelly Borca, MEC-104): every
+    #: creature on the battlefield carrying the RULE 701.60 designation, whoever controls it.
+    _SELECTORS = frozenset({"creatures_opponents_control", "suspected_creatures"})
     _REFERENTS = frozenset({"previous", "created"})
 
     def __init__(
@@ -1099,6 +1101,10 @@ class GoadEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         goader_id = getattr(self.source, "controller_id", None)
         if goader_id is None:
+            return
+        if self.selector == "suspected_creatures":
+            for obj in [o for o in context.state.battlefield if o.is_creature and o.is_suspected]:
+                context.goad(obj, goader_id, permanent=self.permanent)
             return
         if self.selector is not None:
             from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle

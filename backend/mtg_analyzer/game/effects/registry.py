@@ -1414,6 +1414,7 @@ EffectRegistry.register(
         color_from_source_noted_color=bool(p.get("color_from_source_noted_color", False)),
         any_color_choices=p.get("any_color_choices"),
         any_amount_from_context=p.get("any_amount_from_context"),
+        any_amount_multiplier=int(p.get("any_amount_multiplier", 1) or 1),
         amount_from_context=p.get("amount_from_context"),
     ),
 )
@@ -1629,6 +1630,17 @@ EffectRegistry.register(
         selector=p.get("selector"),
         greatest_power=bool(p.get("greatest_power", False)),
         target_kind=p.get("target_kind"),
+    ),
+)
+EffectRegistry.register(
+    # MEC-103: "you may sacrifice up to N `<what>`. When you do, … that many …"
+    # (Ravenous Rotbelly, Nyssa of Traken).
+    "sacrifice_chosen_then",
+    lambda p: SacrificeChosenThenEffect(
+        what=str(p.get("what", "permanent")),
+        count=p.get("count", "any") if p.get("count") == "any" else int(p.get("count", 1) or 1),
+        effects=list(p.get("effects") or []),
+        trigger=list(p.get("trigger") or []),
     ),
 )
 EffectRegistry.register(

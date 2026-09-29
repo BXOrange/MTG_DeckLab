@@ -1,4 +1,5 @@
 """Hand-authored card entries whose name starts with 'r' (see game/card_registry for the registration mechanism: `register`/`register_family`/`specs_for`)."""
+from . import radiant_lotus  # noqa: F401
 from . import raffine_s_guidance  # noqa: F401
 from . import ragavan_nimble_pilferer  # noqa: F401
 from . import raging_ravine  # noqa: F401

@@ -106,11 +106,19 @@ def test_combat_damage_batch_head(cond, condition, minimum):
     "1 or more dragons you control deal combat damage to a player or battle",
     # Noncombat damage is not a combat-damage batch.
     "1 or more creatures you control deal damage to a player",
-    # Once per step across every opponent — the aggregate is per damaged player.
-    "1 or more zombies you control deal combat damage to 1 or more of your opponents",
 ])
 def test_combat_damage_batch_head_fails_closed(cond):
     assert parse_object_trigger_head(cond) is None
+
+
+def test_combat_damage_batch_head_across_all_opponents_is_one_trigger():
+    # MEC-104: once per step across every opponent hit (`binding.core._contributor_condition`).
+    head = parse_object_trigger_head(
+        "1 or more zombies you control deal combat damage to 1 or more of your opponents"
+    )
+    assert head is not None and head.event == "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"
+    assert head.trigger["opponents_batch"] is True
+    assert "opponents_batch" not in head.condition
 
 
 @pytest.mark.parametrize("phrase, expected", [

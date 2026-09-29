@@ -208,7 +208,7 @@ _BASIC_LAND_TYPE_OPTIONS: list[str] = ["Plains", "Island", "Swamp", "Mountain", 
 
 
 #: The magnitude attributes `_substitute_x` rewrites in place.
-_X_MAGNITUDE_ATTRS: tuple[str, ...] = ("amount", "count", "power", "toughness", "times")
+_X_MAGNITUDE_ATTRS: tuple[str, ...] = ("amount", "count", "power", "toughness", "times", "any_amount")
 #: The mana-value bounds it rewrites inside a ``filter``/``criteria`` dict.
 _X_MANA_VALUE_KEYS: tuple[str, ...] = ("max_mana_value", "min_mana_value")
 #: `CreateDelayedTriggerEffect` captures that write their own value into the
@@ -1347,7 +1347,7 @@ class CastingResolutionMixin:
                         updates[mv_key] = -x
                 if updates:
                     effect.target_spec = dataclasses.replace(target_spec, **updates)
-            for attr in ("amount", "count", "power", "toughness", "times"):
+            for attr in _X_MAGNITUDE_ATTRS:
                 value = getattr(effect, attr, None)
                 if value == "x":
                     setattr(effect, attr, x)
@@ -1399,7 +1399,7 @@ class CastingResolutionMixin:
                 params = inner_spec.get("params") if isinstance(inner_spec, dict) else None
                 if not isinstance(params, dict):
                     continue
-                for attr in ("amount", "count", "power", "toughness", "times"):
+                for attr in _X_MAGNITUDE_ATTRS:
                     value = params.get(attr)
                     if value == "x":
                         params[attr] = x

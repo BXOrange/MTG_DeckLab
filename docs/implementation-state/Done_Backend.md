@@ -504,6 +504,13 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 - **What:** RULE 704.5m/n (an illegally-attached Aura/Equipment) had only ever been checked when a host *left* the battlefield.
 - **Files:** `game/rules/sba_mixin.py`, `game/combat.py`
 
+### Sacrifice a Chosen Number, Then "That Many" (MEC-103)
+
+- **What:** "[you may] sacrifice up to N / any number of `<type>`. When you sacrifice one or more this way, `<payoff>`" (Ravenous Rotbelly, Nyssa of Traken) — new `sacrifice_chosen_then` effect (`SacrificeChosenThenEffect`, `game/effects/life_sacrifice.py`). The controller picks through the ordinary `choose_objects` chooser (untargeted, `continuous.matches_permanent_word` so a subtype word like "zombie" never falls through to "any permanent"); `RulesEngine._request_choose_objects` gained `then_that_many` (`{"effects", "trigger"}`), carried on the choice so it survives the undo `clone()`. When something was picked, `_apply_choose_objects_tail` binds the picked count into those specs' `"x"` sentinel — `_substitute_x_specs`, the same ENG-48 binder a paid `{X}` uses, no second sentinel — and queues `trigger` as a real RULE 603.12 reflexive trigger (`enqueue_reflexive_trigger`), so the payoff may itself target ("tap up to that many target creatures"). Nothing fires when nothing was sacrificed.
+- **Parser:** `handlers._sacrifice_chosen_then` (`_SACRIFICE_CHOSEN_THEN_RE`). The payoff body is parsed by the ordinary `parse_effect_body` after "that many" is rewritten to a placeholder count, then mapped back to `"x"` (`_bind_that_many`); a payoff containing any other digit fails closed. PARSER_VERSION 517.
+- **Radiant Lotus (hand-authored, `card_catalogue/r/radiant_lotus.py`):** "sacrifice one or more artifacts" is Grim Hireling's announced-X sacrifice cost (`costs.SACRIFICE_COUNT_X`), so "each artifact sacrificed" is X. `AddManaEffect` gained `any_amount_multiplier` (3 × X of one chosen colour) and `recipient="target_player"`; `"any_amount"` joined `casting_mixin._X_MAGNITUDE_ATTRS` (both substitution loops now read that one tuple). Simplification: X = 0 is not refused (the printed "one or more" minimum) — it only lets the Lotus be tapped for nothing.
+- **Files:** `game/effects/life_sacrifice.py`, `game/effects/registry.py`, `game/effects/choices_actions.py`, `game/rules/misc_mixin.py`, `game/rules/casting_mixin.py`, `game/isa.py`, `parser/oracle/catalogue/handlers.py`, `parser/oracle/gate.py`; test `test_mec103_sacrifice_that_many.py`.
+
 ### ENG-2: Interactive Sacrifice Choice for `SacrificeEffect`
 
 - **What:** RULE 701.17's "player sacrifices N permanents matching `<type>`" (Annihilator) now funnels through `request_choose_objects` instead of auto-picking the first ma…
@@ -1448,6 +1455,13 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 - **What:** New `EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER`, fired once per (contributing creatures' controller, player hit) pair per damage step — not once per qua…
 - **Files:** `game/engine/combat_mixin.py`, `game/binding/core.py`.
 - **Why:** Mirrors the existing `EventType.PLAYER_ATTACKED` shape (built for "a player attacks you with one or more creatures"), the same "one or more X `<verb>`" template…
+
+### One Damage Trigger Per Step Across All Opponents (MEC-104)
+
+- **What:** "… deal(s) [combat] damage to **one or more of your opponents**" is one trigger for the whole simultaneous batch, whereas "to an opponent" fires once per opponent (RULE 603.2c). `_apply_combat_damage` still fires the MEC-29 aggregate once per (contributors' controller, player hit) pair but now stamps each with `hits` — `{target_id, ids, amounts}` for *every* player that controller damaged. A trigger head carrying `opponents_batch` (`object_trigger_head._damage_recipient`'s new "1 or more of your opponents" phrase) makes `binding.core._contributor_members` count the contributors across every opponent of the ability's controller, and `_contributor_condition` passes only the pair naming the first matching opponent, so the step's other pairs (and hits on the controller) don't refire. The per-ability capture also stamps `matching_opponents` — "the number of opponents dealt damage this way", exact even when a non-matching creature hit a different opponent.
+- **Non-combat form (Molten Lavamancer):** a plain per-hit `DAMAGE` event has no batch to dedupe, so the phrase is only sound with "this ability triggers only once each turn" — `gate._opponents_batch_ok` fails closed for the `DAMAGE` form without the `limit` marker.
+- **Cards:** Hordewing Skaab (`handlers._draw_opponents_damaged_discard`: `draw`/`discard` with `count_from_trigger_event="matching_opponents"`), Molten Lavamancer (parser), Nelly Borca (hand-authored `card_catalogue/n/nelly_borca_impulsive_accuser.py`; `GoadEffect` `selector="suspected_creatures"` for "goad all suspected creatures", `DrawCardEffect` `selector="event_player"` for "the controller of those creatures"). Per-creature "to an opponent" wording is unchanged.
+- **Files:** `game/engine/combat_mixin.py`, `game/binding/core.py`, `game/effects/counters_tokens.py`, `game/effects/damage_draw.py`, `parser/oracle/catalogue/object_trigger_head.py`, `parser/oracle/catalogue/handlers.py`, `parser/oracle/gate.py`; tests `test_mec104_opponents_damage_batch.py`, `test_par119_combat_damage_batch.py`.
 
 ### Aggregate Combat-Damage Event Widened: Subtypes/Amount/Commander (MEC-12)
 

@@ -1778,6 +1778,60 @@ class SacrificeEffect(GameEffect):
             context.put_into_graveyard(victim)  # RULE 701.16c: sacrifice
 
 
+class SacrificeChosenThenEffect(GameEffect):
+    """"You may sacrifice up to N / any number of / one or more `<what>`.
+    When you sacrifice one or more of them this way, `<payoff>` [with "that
+    many"]." (MEC-103 — Ravenous Rotbelly, Nyssa of Traken.)
+
+    The controller picks which permanents go through the ordinary
+    `_request_choose_objects` chooser (RULE 701.21, untargeted — a *choice*,
+    not a RULE 115 target). ``count`` is the ceiling: an int, or ``"any"`` for
+    every matching permanent. What happened is then read back from the
+    chooser: ``then_that_many`` carries the follow-up specs, whose ``"x"``
+    sentinel is bound to the number actually sacrificed (`RulesEngine.
+    _apply_choose_objects_tail`); ``trigger`` becomes a real RULE 603.12
+    reflexive trigger, so its payoff may itself target ("tap up to that many
+    target creatures"). Nothing fires when nothing was sacrificed.
+
+    ``what`` is a type or subtype word (`continuous.matches_permanent_word` —
+    a subtype word never falls through to "any permanent").
+    """
+
+    def __init__(
+        self,
+        what: str = "permanent",
+        count: "int | str" = "any",
+        effects: Optional[list[dict[str, Any]]] = None,
+        trigger: Optional[list[dict[str, Any]]] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.what = what
+        self.count = count
+        self.effects = list(effects or [])
+        self.trigger = list(trigger or [])
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from .. import continuous  # function-scoped: effects↔continuous cycle
+
+        controller_id = getattr(self.source, "controller_id", None)
+        if controller_id is None:
+            return
+        player = context.state.player_by_id(controller_id)
+        pool = [
+            o for o in context.state.permanents_controlled_by(player.id)
+            if continuous.matches_permanent_word(o, self.what) and not o.cant_be_sacrificed_this_turn
+        ]
+        count = len(pool) if self.count == "any" else min(int(self.count), len(pool))
+        if count <= 0:
+            return
+        context.engine._request_choose_objects(
+            player, pool, "sacrifice", count=count, optional=True, source=self.source,
+            prompt="Wähle Permanents zum Opfern",
+            then_that_many={"effects": self.effects, "trigger": self.trigger},
+        )
+
+
 class SacrificeSelfEffect(GameEffect):
     """"Sacrifice ~."/"Sacrifice this enchantment." (Dress Down/Underworld
     Breach-shaped standing end-step self-sac) — the effect's own source

@@ -156,6 +156,10 @@ def _subject(text: str) -> Optional[dict[str, Any]]:
     return condition
 
 
+#: MEC-104: `_damage_recipient`'s marker for "…to one or more of your opponents".
+_OPPONENTS_BATCH = "opponents_batch"
+
+
 def _damage_recipient(text: str) -> Optional[tuple[dict[str, Any], dict[str, Any]]]:
     """The words after "damage to" → ``(event filter keys, condition keys)``."""
     if text in ("a player", "each player", "a player or battle"):
@@ -165,6 +169,10 @@ def _damage_recipient(text: str) -> Optional[tuple[dict[str, Any], dict[str, Any
         return {"is_player": True}, {}
     if text in ("an opponent", "one of your opponents", "1 of your opponents"):
         return {"is_player": True}, {"recipient_is_opponent": True}
+    if text in ("1 or more of your opponents", "1 or more opponents"):
+        # MEC-104: one trigger for the whole simultaneous batch of hits on opponents — the
+        # marker moves out of the condition into the trigger (`_OPPONENTS_BATCH`).
+        return {"is_player": True}, {"recipient_is_opponent": True, _OPPONENTS_BATCH: True}
     if text == "you":
         return {"is_player": True}, {"recipient_is_you": True}
     if text in ("a player or planeswalker", "a player or a planeswalker"):
@@ -207,6 +215,8 @@ def _parse_damage_head(cond: str) -> Optional[ObjectHead]:
         if condition["subject"] == "group":
             # The group predicate reads the recipient keys itself.
             condition.update(recipient[1])
+            if condition.pop(_OPPONENTS_BATCH, False):
+                trigger[_OPPONENTS_BATCH] = True
         else:
             # A self/attached subject has no group predicate: the recipient
             # scope becomes a trigger-level gate the binder applies to every
@@ -624,10 +634,10 @@ def _parse_combat_damage_batch_head(cond: str) -> Optional[ObjectHead]:
     if filt:
         condition["filter"] = filt
     condition.update(recipient[1])
-    return ObjectHead(
-        "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER", condition,
-        {"contributors": {"min": int(m.group("n"))}},
-    )
+    trigger: dict[str, Any] = {"contributors": {"min": int(m.group("n"))}}
+    if condition.pop(_OPPONENTS_BATCH, False):
+        trigger[_OPPONENTS_BATCH] = True
+    return ObjectHead("CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER", condition, trigger)
 
 
 #: RULE 603.6c: "`<subject>` is put into `<whose>` graveyard [from `<origin>`]" and its

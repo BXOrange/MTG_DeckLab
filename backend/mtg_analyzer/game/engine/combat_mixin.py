@@ -568,6 +568,15 @@ class CombatMixin:
                     entry["subtypes"].update(
                         source.card.type_line.lower().partition("—")[2].split()
                     )
+        # MEC-104: what each contributing controller dealt to *every* player it hit this step, so
+        # an "…to one or more of your opponents" trigger fires once for the whole step rather than
+        # once per (controller, player) pair (`binding.core._contributor_members`).
+        hits_by_controller: dict[Optional[str], list[dict[str, Any]]] = {}
+        for (controller_id, target_id), entry in player_hits.items():
+            hits_by_controller.setdefault(controller_id, []).append({
+                "target_id": target_id, "ids": entry["contributor_ids"],
+                "amounts": entry["contributor_amounts"],
+            })
         for (controller_id, target_id), entry in player_hits.items():
             self.state.fire_event(
                 GameEvent(
@@ -585,6 +594,7 @@ class CombatMixin:
                     # player ("the damage those creatures dealt", PAR-119).
                     contributor_amounts=entry["contributor_amounts"],
                     base_power_0_amount=entry["base_power_0_amount"],
+                    hits=hits_by_controller[controller_id],
                 )
             )
     def _resolve_combat_defender(self, spec: Optional[dict[str, Any]]) -> Optional[Any]:

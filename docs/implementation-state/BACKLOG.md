@@ -104,7 +104,7 @@ No open tickets.
   > legacy-row migration (closed), `PAR-132` the dependent-body follow-up batch, `PAR-133`
   > Powerstone tokens; first free id: **`PAR-134`**. A genuinely new engine
   > primitive found along the way still files as its own `MEC-*` ticket —
-  > `MEC-102` is MEC-101's own such follow-up, `MEC-103`/`MEC-104` came out of PAR-131;
+  > `MEC-102` is MEC-101's own such follow-up;
   > next free id: **`MEC-105`**
   > — only the sweep itself stays out of this file.
   >
@@ -594,13 +594,6 @@ No open tickets.
   broader** condition — not opponent-scoped — and don't belong in this cluster.
 
 ## MEC — Game mechanic
-
-- **MEC-103 · Sacrifice a chosen number, then "that many".** "sacrifice up to N / any number
-  of / 1 or more `<X>`" with the count sacrificed as the "that many" of a following reflexive
-  trigger or effect (Nyssa of Traken, Ravenous Rotbelly, Radiant Lotus).
-- **MEC-104 · One damage trigger per step across all opponents.** "… deal(s) [combat] damage
-  to 1 or more of your opponents" needs an aggregate over every opponent hit, not one per
-  (controller, opponent) pair (Hordewing Skaab, Molten Lavamancer, Nelly Borca).
 
 ## PLR — Player management
 

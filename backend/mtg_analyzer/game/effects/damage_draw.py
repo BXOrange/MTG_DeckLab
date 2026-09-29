@@ -727,7 +727,7 @@ class DrawCardEffect(GameEffect):
         self.count_selector = count_selector if count_selector in _DRAW_COUNT_SELECTORS else None
         self.selector = (
             selector
-            if selector in ("each_player", "each_opponent", "attacking_player")
+            if selector in ("each_player", "each_opponent", "attacking_player", "event_player")
             else None
         )
         # "Target player draws N cards" (Sign in Blood-shaped) — a genuine
@@ -737,6 +737,18 @@ class DrawCardEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         count = self._measured(self.count, context, targets)
+        if self.selector == "event_player":
+            # "…you and the controller of those creatures each draw a card." (Nelly Borca,
+            # MEC-104) — the player the firing event names (``player_id``: the combat-damage
+            # aggregate's contributing creatures' controller).
+            eid = (context.trigger_event or {}).get("player_id")
+            try:
+                drawer = context.state.player_by_id(eid) if eid is not None else None
+            except (KeyError, ValueError):
+                drawer = None
+            if drawer is not None:
+                context.draw(drawer, count)
+            return
         if self.selector == "attacking_player":
             # "…that attacking player draws a card…" (Breena, the Demagogue)
             # — whoever the firing `PLAYER_ATTACKED` aggregate names as the

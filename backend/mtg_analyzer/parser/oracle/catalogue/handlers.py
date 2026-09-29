@@ -6446,6 +6446,70 @@ def _pay_cost_then_general(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("pay_cost_then", params)]
 
 
+#: MEC-103 (RULE 701.21, 603.12): "[you may] sacrifice any number of / up to N
+#: `<type>`. When you sacrifice one or more `<type>` this way, `<payoff>`" — the
+#: payoff reads "that many", the count actually sacrificed (Ravenous Rotbelly,
+#: Nyssa of Traken). Kept apart from `pay_cost_then_general`, whose cost is a
+#: fixed "sacrifice a `<type>`": here the *number* is the player's choice.
+#: `<what>` is one bare (plural) type/subtype word, singularized below.
+_SACRIFICE_CHOSEN_THEN_RE = _c(
+    r"(?:you may )?sacrifice (?:any number of|up to (?P<n>\d+)) (?P<what>[a-z]+?)s?\.\s*"
+    r"when you sacrifice (?:1|one) or more [a-z]+ this way,?\s*(?P<effect>[^.]+\.?)"
+)
+#: "that many" bound to a placeholder count the parsed body is rewritten from.
+_THAT_MANY_PLACEHOLDER = 2
+_THAT_MANY_COUNT_KEYS = ("count", "count_max", "amount")
+
+
+def _bind_that_many(value: Any) -> Any:
+    """Turn the placeholder count back into the ``"x"`` sentinel (bound to the
+    sacrificed count at resolve time, `RulesEngine._apply_choose_objects_tail`)."""
+    if isinstance(value, dict):
+        return {
+            k: ("x" if k in _THAT_MANY_COUNT_KEYS and v == _THAT_MANY_PLACEHOLDER else _bind_that_many(v))
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [_bind_that_many(v) for v in value]
+    return value
+
+
+def _sacrifice_chosen_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
+
+    effect = m.group("effect").strip()
+    if "that many" not in effect or re.search(r"\d", effect):
+        return None  # only the "that many" payoff; any other number would be rewritten wrongly
+    sub = parse_effect_body(
+        effect.replace("that many", str(_THAT_MANY_PLACEHOLDER)), self_subject=True,
+    )
+    if not sub:
+        return None
+    params: dict = {
+        "what": m.group("what"),
+        "count": int(m.group("n")) if m.group("n") else "any",
+        "trigger": [_bind_that_many(s.to_dict()) for s in sub],
+    }
+    return [EffectSpec("sacrifice_chosen_then", params)]
+
+
+#: MEC-104: "draw cards equal to the number of opponents dealt damage this way. If you do,
+#: discard that many cards." (Hordewing Skaab) — the count is the trigger's own
+#: ``matching_opponents`` (`binding.core`'s contributor capture); the "you may" is the ability's.
+_DRAW_OPPONENTS_DAMAGED_DISCARD_RE = _c(
+    r"draw cards equal to the number of opponents dealt damage this way\.\s*"
+    r"if you do,? discard that many cards\.?"
+)
+
+
+def _draw_opponents_damaged_discard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    field = "matching_opponents"
+    return [
+        EffectSpec("draw", {"count_from_trigger_event": field}),
+        EffectSpec("discard", {"count_from_trigger_event": field}),
+    ]
+
+
 def _pay_cost_then_or_else(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     """"you may `<cost>`. If you don't, `<effect>`." — the else-branch
     sibling of `_pay_cost_then_general` (PAR-29 Blight batch)."""
@@ -15488,6 +15552,20 @@ HANDLERS: list[EffectHandler] = [
         "pay_cost_then_general",
         _PAY_COST_THEN_GENERAL_RE,
         _pay_cost_then_general,
+    ),
+    # MEC-103: "sacrifice up to N / any number of <type>. When you sacrifice
+    # one or more this way, <payoff with "that many">."
+    EffectHandler(
+        "sacrifice_chosen_then",
+        _SACRIFICE_CHOSEN_THEN_RE,
+        _sacrifice_chosen_then,
+    ),
+    # MEC-104: Hordewing Skaab's "draw cards equal to the number of opponents dealt damage this
+    # way. If you do, discard that many cards."
+    EffectHandler(
+        "draw_opponents_damaged_discard",
+        _DRAW_OPPONENTS_DAMAGED_DISCARD_RE,
+        _draw_opponents_damaged_discard,
     ),
     # PAR-29 (Blight batch): the "If you don't, <effect>." else-branch
     # sibling — same clause shape, opposite antecedent, into

@@ -3745,7 +3745,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: per head when no event can satisfy both; "is put into exile from the battlefield"
 #: (LEAVES_BATTLEFIELD ``to_zone``); "`<phrase>` or a `<phrase>`" noun unions
 #: (``any_of``); "with disturb"; "~ or another …" on the DAMAGE head.
-PARSER_VERSION = "516"
+PARSER_VERSION = "517"
 
 
 def parser_source_hash() -> str:
@@ -4223,6 +4223,17 @@ def _that_player_tree_ok(node: Any, context: Optional[tuple[str, Any, str]], tex
         elif not _that_player_tree_ok(val, context, text):
             return False
     return True
+
+
+def _opponents_batch_ok(spec: AbilitySpec) -> bool:
+    """MEC-104: "…deals damage to one or more of your opponents" is one trigger per simultaneous
+    batch. The combat aggregate dedupes that itself (`binding.core._contributor_condition`); a
+    plain per-hit ``DAMAGE`` trigger cannot, so it is only sound with "this ability triggers
+    only once each turn" (Molten Lavamancer) — otherwise fail closed."""
+    trigger = spec.trigger or {}
+    if spec.ability_kind != "triggered" or not trigger.get("opponents_batch"):
+        return True
+    return trigger.get("event") != "DAMAGE" or bool(trigger.get("limit"))
 
 
 def _that_player_antecedent_ok(spec: AbilitySpec) -> bool:
@@ -5021,6 +5032,9 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             all_claimed = False
             unclaimed.append(spec.raw_text)
         if not _that_much_antecedent_ok(spec):
+            all_claimed = False
+            unclaimed.append(spec.raw_text)
+        if not _opponents_batch_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
 
