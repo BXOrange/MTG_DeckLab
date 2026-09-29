@@ -52,11 +52,19 @@ Block template (copy below the line, fill in):
   damage, damage-recipient, becomes-target, batch-attack, `_PLAYER_TRIGGER_CONDITIONS` incl.
   the doubler cause path) — narrative in `Done_Backend.md` → "PAR-131". Full pytest and
   `--full-cache` green; coverage 18,004 / 34,811 (+16, all executed).
-- **In progress:** —
-- **Next step:** migrate the five hand-authored `contributor_*` flag users
-  (`card_catalogue/`: tifa_martial_artist, malcolm_keen_eyed_navigator,
-  kediss_emberclaw_familiar, kutzil_malamet_exemplar, primo_the_unbounded) onto
-  ``contributors`` + ``condition.filter`` (what the composed batch head emits), executing each.
+- **In progress:** head gaps (uncommitted, NOT yet version-bumped): compound "`<A>` or `<B>`"
+  heads (`segmenter._compound_trigger_heads`/`_compound_trigger_segment`, disjointness guard
+  `_CO_FIRING_EVENTS`), verb "is put into exile from the battlefield" (LEAVES_BATTLEFIELD +
+  `to_zone`, binder gate), "`<phrase>` or a/an `<phrase>`" noun union (`_ARTICLE_UNION` →
+  `any_of`), printed-only keyword "disturb" (`combat._PRINTED_ONLY_KEYWORDS`), DAMAGE head
+  accepts "~ or another …" (binder self half now keyed by the event's own field).
+  `parser_probe.py diff /tmp/par131-heads-base.json`: +8 / -0 (Dreadhound, Psychomancer,
+  Millicent, Tyranid Harridan, Shipwreck Sifters ×2, Kumena's Speaker, Long Feng — the last
+  two verified in engine).
+- **Next step:** execute Millicent / Psychomancer / Dreadhound / Sifters / Harridan (scratchpad
+  `exec16.py` helpers), add tests to `test_par131_legacy_row_retirement.py`, full pytest,
+  bump PARSER_VERSION 516 + lock, coverage_report, sync numbers. Then file the two
+  non-head gaps as tickets (see Residue) and close PAR-131.
 - **Decisions:** "permanent" subject dropping `type` is fine (binder treats `type: permanent`
   as no-op). Event lists (`["CYCLED","DISCARD_CARD"]`) bind one ability per event = same as
   the old two specs. The batch head fails closed on "…or battle" (the aggregate counts
@@ -66,18 +74,22 @@ Block template (copy below the line, fill in):
   worktree (`git worktree remove /tmp/par131-head`) once the ticket closes.
 - **Known failures:** —
 - **Residue:**
-  - Hand-authored ``contributor_*`` flags → ``contributors`` (the five cards above).
-  - Fold MEC-78's `graveyard_exit_batch` into `GameState.simultaneous`.
-  - Small head gaps: compound "`<A>` dies or `<B>` is put into …" heads (Dreadhound, Syr
-    Konrad ×2, the artifact pair), "a spirit card or a card with disturb", "to 1 or more of
-    your opponents" as one trigger per step, "to a player or battle" (batch head),
-    reflexive "when you sacrifice 1 or more X this way" (Nyssa, Ravenous Rotbelly,
-    Swashbuckler Extraordinaire).
+  - Not head gaps — file as tickets, then close PAR-131: (a) MEC-103 "sacrifice up to N /
+    any number of / 1 or more X" + "that many" = the number sacrificed (Nyssa of Traken,
+    Ravenous Rotbelly, Radiant Lotus); (b) a per-step damage aggregate across *all*
+    opponents for "to 1 or more of your opponents" (Hordewing Skaab, Molten Lavamancer,
+    Nelly Borca) — the combat aggregate fires per (controller, opponent) pair.
+  - Remaining bodies on compound-head cards (not PAR-131): Slagstone Refinery "create a
+    tapped powerstone token", Scrap Trawler "…with lesser mana value".
+  - "to a player or battle" (batch head) fails closed — the aggregate counts players only.
 - **Log:** 2026-09-29 — residue migrated from `BACKLOG.md`.
   2026-09-29 17:21 — full-cache baseline snapshot captured; began `_DAMAGE_TRIGGER_RE` migration.
   2026-09-29 — all rows probed off; whole-cache spec diff; 5 regressions fixed (regrant
   filters, Karlach gate, recipient scope, BECOMES_TARGET player, once-per-turn marker).
   2026-09-29 — rows + orphans deleted, PARSER_VERSION 515, docs synced.
+  2026-09-29 — ``contributor_*`` flags gone (Tifa/Malcolm/Kutzil/Primo on ``contributors``,
+  Kediss's entry deleted → parser); full-cache green.
+  2026-09-29 — MEC-78 graveyard-exit batch folded into `GameState.simultaneous`; green.
 
 ## PAR-128 · Target/group-grammar slots
 

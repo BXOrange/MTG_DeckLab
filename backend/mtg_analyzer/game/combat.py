@@ -522,6 +522,10 @@ COMBAT_RESTRICTIONS: frozenset[str] = frozenset(
 #: keys are an OR *within* themselves ("creatures with flying or reach").
 #: ``power_vs_reference`` is the one relative key ("creatures with greater
 #: power" — greater than the *attacker*, supplied as ``reference``).
+#: Keywords a "with <keyword>" filter reads off the printed card rather than
+#: `has` (they are cast permissions, not combat keywords).
+_PRINTED_ONLY_KEYWORDS: frozenset[str] = frozenset({"flashback", "disturb"})
+
 _FILTER_KEYS: frozenset[str] = frozenset(
     {
         "min_power", "max_power", "min_toughness", "max_toughness",
@@ -596,6 +600,9 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # RULE 201.2: "the number of creatures **named ~** on the battlefield"
         # (Plague Rats) — the same English name as the *reference* object.
         "named_as_reference",
+        # RULE 707.2 base power: "with base power 0" (Primo) and "with power
+        # greater than its base power" (Kutzil).
+        "base_power", "power_gt_base",
     }
 )
 
@@ -640,6 +647,17 @@ def matches_object_filter(
     max_power = filt.get("max_power")
     if max_power is not None and (obj.power or 0) > max_power:
         return False
+    # "…with **base power 0**" (Primo, the Unbounded) / "…each with power
+    # **greater than its base power**" (Kutzil, Malamet Exemplar): base power
+    # is the printed/copied value (`Card.power`, RULE 707.2), not the derived
+    # `obj.power` (counters and static boosts).
+    base_power = filt.get("base_power")
+    if base_power is not None and int(getattr(obj.card, "power", 0) or 0) != base_power:
+        return False
+    if filt.get("power_gt_base") and not (
+        (obj.power or 0) > int(getattr(obj.card, "power", 0) or 0)
+    ):
+        return False
     min_toughness = filt.get("min_toughness")
     if min_toughness is not None and (obj.toughness or 0) < min_toughness:
         return False
@@ -648,12 +666,14 @@ def matches_object_filter(
         return False
     keyword = filt.get("keyword")
     if keyword is not None and not has(obj, str(keyword)):
-        # Flashback is a spell ability, so it is deliberately absent from
-        # combat's keyword set. Count filters still need to see printed
-        # flashback on cards in graveyards or exile (Seize the Storm).
-        if keyword != "flashback" or not (
-            "Flashback" in (getattr(obj.card, "keywords", None) or [])
-            or re.search(r"(?im)^flashback(?:\s|$)", obj.card.oracle_text or "")
+        # Flashback and disturb are cast-permission abilities, so they are
+        # deliberately absent from combat's keyword set. Filters still need to
+        # see them printed on cards in graveyards or exile (Seize the Storm;
+        # Shipwreck Sifters' "a card with disturb").
+        word = str(keyword)
+        if word not in _PRINTED_ONLY_KEYWORDS or not (
+            word.title() in (getattr(obj.card, "keywords", None) or [])
+            or re.search(rf"(?im)^{re.escape(word)}(?:\s|$)", obj.card.oracle_text or "")
         ):
             return False
     # "destroy target creature **with a -1/-1 counter on it**" (Liliana,

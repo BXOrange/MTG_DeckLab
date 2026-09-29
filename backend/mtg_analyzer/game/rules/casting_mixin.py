@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import dataclasses
 import re
-from contextlib import contextmanager
 from typing import Any, Callable, Optional, Union
 
 from ...models.cards import card_query
@@ -984,23 +983,6 @@ class CastingResolutionMixin:
         )
         self.check_ward(item, player)
         return item
-    @contextmanager
-    def graveyard_exit_batch(self):
-        """Group simultaneous graveyard exits into one RULE 603.3f event."""
-        depth = getattr(self, "_graveyard_exit_batch_depth", 0)
-        if depth == 0:
-            self._graveyard_exit_batch_cards: list[dict[str, Any]] = []
-        self._graveyard_exit_batch_depth = depth + 1
-        try:
-            yield
-        finally:
-            self._graveyard_exit_batch_depth -= 1
-            if self._graveyard_exit_batch_depth == 0:
-                cards = self._graveyard_exit_batch_cards
-                self._graveyard_exit_batch_cards = []
-                if cards:
-                    self.state.fire_event(GameEvent(EventType.CARDS_LEFT_GRAVEYARD, cards=cards))
-
     def _note_graveyard_exit(self, obj: GameObject) -> None:
         """Record a card leaving its owner's graveyard before it becomes new.
 
@@ -1019,10 +1001,7 @@ class CastingResolutionMixin:
         # RULE 603.3f per-turn tracker for "if a card left your graveyard
         # this turn" intervening-ifs (reset each `begin_turn`).
         self.state.cards_left_graveyard_this_turn.add(obj.owner_id)
-        if getattr(self, "_graveyard_exit_batch_depth", 0):
-            self._graveyard_exit_batch_cards.append(card)
-        else:
-            self.state.fire_event(GameEvent(EventType.CARDS_LEFT_GRAVEYARD, cards=[card]))
+        self.state.note_graveyard_exit(card)
 
     def _remove_from_current_zone(self, player: Player, obj: GameObject) -> None:
         """Pull ``obj`` out of whichever zone currently holds it.

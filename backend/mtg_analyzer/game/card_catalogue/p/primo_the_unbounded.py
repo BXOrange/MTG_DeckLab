@@ -10,9 +10,9 @@ from ...card_registry.core import register
 # combat-damage Fractal) — PAR-60
 # ===========================================================================
 # Clause 1 reuses `AddCountersEffect.x_multiplier` (Banquet Guests). Clause
-# 2 reuses `EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER` with a new
-# ``contributor_base_power_zero`` predicate + a `base0_combat_damage_fractal`
-# effect. Trample folds in from the RULE 702 keyword catalogue.
+# 2 reuses `EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER` with the
+# composed batch head's ``contributors`` + a ``base_power`` filter (PAR-131)
+# and a `base0_combat_damage_fractal` effect. Trample folds in from the RULE 702 keyword catalogue.
 
 
 def _primo_the_unbounded() -> list[AbilitySpec]:
@@ -32,8 +32,11 @@ def _primo_the_unbounded() -> list[AbilitySpec]:
             [EffectSpec("base0_combat_damage_fractal", {})],
             trigger={
                 "event": EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER,
-                "condition": {"subject": "you"},
-                "contributor_base_power_zero": True,
+                # PAR-131: the composed batch head's shape; "with base power 0"
+                # is a per-contributor filter.
+                "condition": {"subject": "group", "controller": "you", "other": False,
+                              "filter": {"card_type": "creature", "base_power": 0}},
+                "contributors": {"min": 1},
             },
         ),
     ]

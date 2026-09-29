@@ -34,13 +34,11 @@ def _tifa_martial_artist() -> list[AbilitySpec]:
     Built the combat-damage sibling the same way:
     `EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER`
     (`GameEngine._apply_combat_damage`), fired once per (contributing
-    creatures' controller, player hit) pair after a damage step, carrying
-    ``max_power`` — the highest power among that pair's contributors — for
-    a new `"contributor_power_at_least"` trigger-condition threshold
-    (`effect_binder._trigger_condition`, mirroring the existing
-    ``spell_mana_value_at_most`` idiom) to check: the aggregate event names
-    no single acting object a `"group"` condition's own per-object
-    ``min_power`` filter could read off the board.
+    creatures' controller, player hit) pair after a damage step, naming its
+    contributors. Since PAR-131 the trigger uses the composed batch head's
+    shape (``contributors`` + a ``condition.filter`` with ``min_power``):
+    each contributor is re-read as its own per-creature damage event, so
+    the ordinary group filter applies (`binding.core._contributor_members`).
 
     Hand-authored rather than left to the oracle-text parser: this
     "one or more `<type>` you control with power `<n>` or greater deal
@@ -64,8 +62,11 @@ def _tifa_martial_artist() -> list[AbilitySpec]:
             ],
             trigger={
                 "event": "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER",
-                "condition": {"subject": "you"},
-                "contributor_power_at_least": 7,
+                # PAR-131: the composed batch head's shape — each contributor is
+                # read as its own "a creature you control deals combat damage".
+                "condition": {"subject": "group", "controller": "you", "other": False,
+                              "filter": {"card_type": "creature", "min_power": 7}},
+                "contributors": {"min": 1},
             },
         ),
     ]

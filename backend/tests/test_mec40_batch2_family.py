@@ -503,14 +503,27 @@ def test_kutzil_draws_when_boosted_creature_deals_combat_damage():
     p1.library.append(GameObject(_land("Deck Filler"), owner_id="p1", zone=Zone.LIBRARY))
     _put(eng.state, _named("Kutzil, Malamet Exemplar"), controller="p1")
 
+    # PAR-131: the contributors are real creatures, each read through the
+    # composed per-contributor ``power_gt_base`` filter.
+    plain = _put(eng.state, Card(id="Plain", name="Plain", type_line="Creature — Bear",
+                                 is_creature=True, power=2, toughness=2), controller="p1")
+    boosted = _put(eng.state, Card(id="Boosted", name="Boosted", type_line="Creature — Bear",
+                                   is_creature=True, power=2, toughness=2), controller="p1")
+    boosted.counters["+1/+1"] = 1
+    eng.recompute_continuous_effects()
+
+    def _hit(contributor):
+        eng.state.fire_event(GameEvent(
+            EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER,
+            player_id="p1", target_id="p2", amount=2, subtypes=[],
+            contributor_ids=[contributor.instance_id], contributor_amounts=[2],
+        ))
+        eng.resolve_until_stable()
+
     before = len(p1.library)
-    event = GameEvent(
-        EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER,
-        player_id="p1", target_id="p2", max_power=5, amount=5, subtypes=[],
-        contributor_is_commander=False, contributor_power_gt_base=True,
-    )
-    eng.state.fire_event(event)
-    eng.resolve_until_stable()
+    _hit(plain)  # power 2 = its base power: no draw
+    assert len(p1.library) == before
+    _hit(boosted)
     assert len(p1.library) == before - 1
 
 

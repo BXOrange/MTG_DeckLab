@@ -3433,8 +3433,8 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
   events (RULE 608.2c) and must not merge, which only an emission-side scope can tell. A
   batch has no single firing object, so its body gets no "it = the firing object" reading;
   Frantic Scapegoat's "suspect one of the other creatures" reads the batch's
-  ``matching_ids`` in `SuspectEffect`. MEC-78's `graveyard_exit_batch` is the older,
-  graveyard-only instance of the same idea — folding it in is open under PAR-119.
+  ``matching_ids`` in `SuspectEffect`. MEC-78's graveyard-only `graveyard_exit_batch`
+  was folded into this scope under PAR-131 (see that entry).
 - **Discard batches and the multi-pick hold (PARSER_VERSION 503):** "you discard `<n>` or
   more [`<type>`] cards" is the actor head's quantity form over DISCARD_CARD (+10: Mishra,
   Rielle, Cryptcaller Chariot, Tinybones, …). Discards happen outside effect resolution
@@ -3600,6 +3600,23 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
   its acting player as ``player_id``, so "that player" resolves (Thunderbreak Regent).
   (5) "This ability triggers only once each turn" on a composed cast head is ``limit``,
   not a stray marker (Basim, Glóin, Sarah Jane).
+- **The aggregate combat-damage flags:** the hand-authored ``contributor_power_at_least``
+  / ``contributor_subtype`` / ``contributor_is_commander`` / ``contributor_power_gt_base``
+  / ``contributor_base_power_zero`` trigger keys (and the event fields only they read)
+  are gone. Tifa, Malcolm, Kutzil and Primo use the composed batch head's shape
+  (``contributors`` + ``condition.filter``), which reads each contributor as its own
+  per-creature damage event; `matches_object_filter` gained ``base_power`` and
+  ``power_gt_base`` (RULE 707.2's printed/copied power). Kediss's entry is deleted — the
+  parser already modeled it per commander hit, which is also more correct: the old
+  aggregate summed every contributor's damage once any commander was among them.
+- **MEC-78's graveyard-exit batch folded into `GameState.simultaneous`:** the engine's
+  private `graveyard_exit_batch` depth/list is gone; `GameState.note_graveyard_exit`
+  buffers exits while a RULE 603.2c scope (or an interactive `hold_batches` multi-pick) is
+  open and `_flush_batches` announces them as one ``CARDS_LEFT_GRAVEYARD``. The event
+  keeps its ``cards`` shape, so its consumers (Quintorius, Spirit of Resilience, Advanced
+  Reconstruction, the parser's "cards leave your graveyard" row) are unchanged; every
+  instruction and SBA sweep now batches exits without an explicit scope, and a held
+  multi-pick batches them for the first time.
 - **Files:** `parser/oracle/segmenter.py`, `catalogue/object_trigger_head.py`,
   `catalogue/player_event_head.py`, `catalogue/spell_phrase.py`,
   `catalogue/static_handlers.py`, `game/binding/core.py`, `game/continuous.py`,

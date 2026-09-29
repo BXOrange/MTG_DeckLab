@@ -17,7 +17,7 @@ so the front-end stays import-pure.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Optional
 
 from .catalogue.object_trigger_head import legacy_group_condition, parse_object_trigger_head
@@ -3005,6 +3005,87 @@ def trigger_condition_dict(cond_text: str) -> Optional[dict[str, Any]]:
     if head is not None:
         return {"event": head.event, "condition": head.condition, **head.trigger}
     return None
+
+
+#: RULE 603.2 events that one occurrence fires *together*: a dying permanent is also
+#: put into a graveyard and also leaves the battlefield. Two compound heads on such a
+#: pair would both trigger unless a zone tells them apart (`_compound_heads_disjoint`).
+_CO_FIRING_EVENTS = frozenset({
+    frozenset({"DIES", "PUT_INTO_GRAVEYARD"}), frozenset({"DIES", "LEAVES_BATTLEFIELD"}),
+})
+
+
+def _compound_heads_disjoint(first: dict[str, Any], second: dict[str, Any]) -> bool:
+    """Whether no single event can satisfy both heads (so "A or B" triggers once)."""
+    a, b = first.get("event"), second.get("event")
+    if not isinstance(a, str) or not isinstance(b, str):
+        return False
+    if a != b:
+        if frozenset({a, b}) not in _CO_FIRING_EVENTS:
+            return True
+        other = first if a != "DIES" else second
+        if other.get("event") == "PUT_INTO_GRAVEYARD":
+            origin = (other.get("filter") or {}).get("from_zone")
+            return origin is not None and origin != "battlefield"
+        return other.get("to_zone") not in (None, "graveyard")
+    # The same event: only "~ … or another … " names two disjoint objects.
+    subjects = {(first.get("condition") or {}).get("subject"),
+                (second.get("condition") or {}).get("subject")}
+    if subjects != {"self", "group"}:
+        return False
+    group = first if (first.get("condition") or {}).get("subject") == "group" else second
+    return bool(group["condition"].get("other"))
+
+
+def _compound_trigger_heads(cond: str) -> Optional[list[str]]:
+    """RULE 603.1's "`<A>` or `<B>`" trigger condition → its two heads, or ``None``.
+
+    Either two whole heads ("a creature dies or a creature card is put into a graveyard
+    from a library" — Dreadhound; "~ dies or another artifact you control dies") or one
+    subject with a second verb ("~ or another nontoken artifact you control dies or is
+    put into exile from the battlefield" — Psychomancer). After "dies", a bare "is put
+    into exile" is the battlefield departure it pairs with (Syr Vondam).
+    """
+    cond = cond.strip()
+    for sep in re.finditer(r"\s+or\s+", cond):
+        left, right = cond[:sep.start()], cond[sep.end():]
+        first = trigger_condition_dict(left)
+        if first is None:
+            continue
+        second_text = right
+        second = trigger_condition_dict(second_text)
+        if second is None:
+            subject = re.fullmatch(r"(?P<subject>.+?)\s+dies", left)
+            if subject is None:
+                continue
+            verb = "is put into exile from the battlefield" if right == "is put into exile" else right
+            second_text = f"{subject.group('subject')} {verb}"
+            second = trigger_condition_dict(second_text)
+            if second is None:
+                continue
+        return [left, second_text] if _compound_heads_disjoint(first, second) else None
+    return None
+
+
+def _compound_trigger_segment(
+    raw: str, cond: str, body: str, *, allow_spell_effect: bool, provenance: ParserProvenance
+) -> Optional[Segment]:
+    """One ability per head of a compound "`<A>` or `<B>`" trigger, sharing its body —
+    each re-segmented as its own line, so every head gets its own body reading."""
+    heads = _compound_trigger_heads(cond)
+    keyword = re.match(r"^(?:when|whenever)\b", raw)
+    if heads is None or keyword is None:
+        return None
+    specs: list[AbilitySpec] = []
+    for head in heads:
+        part = _segment_line_unsplit(
+            f"{keyword.group(0)} {head}, {body}",
+            allow_spell_effect=allow_spell_effect, provenance=provenance,
+        )
+        if not part.claimed or part.spec is None or part.keyword_line:
+            return None
+        specs.extend(replace(spec, raw_text=raw) for spec in [part.spec, *part.extra_specs])
+    return Segment(raw=raw, spec=specs[0], extra_specs=specs[1:], claimed=True)
 
 
 #: A RULE 603.4 intervening-if / RULE 601.2b cost gate, as data (ENG-36).
@@ -7221,7 +7302,14 @@ def _segment_line_unsplit(
                 # line they already claim changes.
                 head = parse_object_trigger_head(cond_text)
                 if head is None:
-                    return Segment(raw=raw)  # unrecognised trigger/scope → unclaimed (fail-closed)
+                    compound = (
+                        None if limit else _compound_trigger_segment(
+                            raw, cond_text, trig.group("body"),
+                            allow_spell_effect=allow_spell_effect, provenance=provenance,
+                        )
+                    )
+                    # unrecognised trigger/scope → unclaimed (fail-closed)
+                    return compound if compound is not None else Segment(raw=raw)
                 event, condition, head_trigger = head.event, head.condition, head.trigger
                 composed_head = True
         body, optional = _peel_optional(trig.group("body"))

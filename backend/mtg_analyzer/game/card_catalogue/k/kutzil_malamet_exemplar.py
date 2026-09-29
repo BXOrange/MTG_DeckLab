@@ -13,9 +13,8 @@ def _kutzil_malamet_exemplar() -> list[AbilitySpec]:
 
     The first static is already parser-claimable (``cast_prohibition``
     with an ``active_if: your_turn`` RULE 613.6 gate). The trigger is the
-    new ``contributor_power_gt_base`` aggregate-event qualifier (MEC-40,
-    `EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER`'s own sibling to
-    MEC-29's ``contributor_power_at_least``/``contributor_subtype``).
+    MEC-29 aggregate combat-damage event with the composed batch head's
+    ``contributors`` + a per-contributor ``power_gt_base`` filter (PAR-131).
     """
     return [
         AbilitySpec(
@@ -27,8 +26,11 @@ def _kutzil_malamet_exemplar() -> list[AbilitySpec]:
             [EffectSpec("draw", {"count": 1})],
             trigger={
                 "event": "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER",
-                "condition": {"subject": "you"},
-                "contributor_power_gt_base": True,
+                # PAR-131: the composed batch head's shape; "each with power
+                # greater than its base power" is a per-contributor filter.
+                "condition": {"subject": "group", "controller": "you", "other": False,
+                              "filter": {"card_type": "creature", "power_gt_base": True}},
+                "contributors": {"min": 1},
             },
         ),
     ]

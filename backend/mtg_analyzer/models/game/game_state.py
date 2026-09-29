@@ -1018,6 +1018,9 @@ class GameState:
         #: "sacrifice two creatures" / "discard two cards" are one event, answered one
         #: pick at a time.
         self._batch_hold: bool = False
+        #: RULE 603.3f: the cards that left a graveyard inside the open scope — one
+        #: `CARDS_LEFT_GRAVEYARD` names them all when it closes (`note_graveyard_exit`).
+        self._graveyard_exits: list[dict[str, Any]] = []
 
     # -- Players ---------------------------------------------------------
 
@@ -1445,6 +1448,24 @@ class GameState:
             by_type.setdefault(event.type, []).append(event)
         for batch_of, members in by_type.items():
             self.fire_event(GameEvent(EventType.EVENT_BATCH, batch_of=batch_of, members=members))
+        exits, self._graveyard_exits = list(getattr(self, "_graveyard_exits", [])), []
+        if exits:
+            self.fire_event(GameEvent(EventType.CARDS_LEFT_GRAVEYARD, cards=exits))
+
+    def note_graveyard_exit(self, card: dict[str, Any]) -> None:
+        """RULE 603.3f: a card left its owner's graveyard (``card`` is its snapshot).
+
+        Cards that leave at once — one instruction, one SBA sweep, one interactive
+        multi-pick — are one `CARDS_LEFT_GRAVEYARD` ("one or more cards leave your
+        graveyard" triggers once), collected by the same `simultaneous` scope that
+        batches the per-object events; outside every scope the card is its own event.
+        """
+        if getattr(self, "_batch_depth", 0) > 0 or getattr(self, "_batch_hold", False):
+            if not hasattr(self, "_graveyard_exits"):
+                self._graveyard_exits = []
+            self._graveyard_exits.append(card)
+        else:
+            self.fire_event(GameEvent(EventType.CARDS_LEFT_GRAVEYARD, cards=[card]))
 
     def fire_event(self, event: GameEvent) -> GameEvent:
         """Record ``event`` and notify subscribers. Returns the event.

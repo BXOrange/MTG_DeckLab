@@ -43,7 +43,7 @@ class ReturnMilledCardsEffect(GameEffect):
                 )
             return
         destination = "battlefield_tapped" if self.tapped else "battlefield"
-        with context.engine.graveyard_exit_batch():
+        with context.state.simultaneous():
             for obj in candidates:
                 context.return_from_graveyard(obj, destination)
 
@@ -582,7 +582,7 @@ class ReturnFromGraveyardEffect(GameEffect):
                 (o for o in reversed(player.graveyard) if o.card.is_creature), None
             )
             if creature is not None:
-                with context.engine.graveyard_exit_batch():
+                with context.state.simultaneous():
                     self._apply_one(context, creature)
                 # RULE 608.2's referent for a trailing "that creature …"
                 # clause — `_apply_one` already appended it to
@@ -603,7 +603,7 @@ class ReturnFromGraveyardEffect(GameEffect):
                 players = list(context.state.living_players())
             kind = getattr(self.target_spec, "kind", "graveyard_creature")
             want_creature = "creature" in (kind or "")
-            with context.engine.graveyard_exit_batch():
+            with context.state.simultaneous():
                 for player in players:
                     cards = [
                         o for o in list(player.graveyard)
@@ -640,7 +640,7 @@ class ReturnFromGraveyardEffect(GameEffect):
                 if self.count_selector and targets is not None
                 else self.target_spec.effective_count
             )
-            with context.engine.graveyard_exit_batch():
+            with context.state.simultaneous():
                 for target in _chosen_targets(targets, cap, self.target):
                     self._apply_one(context, target)
             return
@@ -690,7 +690,7 @@ class ReturnChosenCreatureTypeFromGraveyardEffect(GameEffect):
             if obj.card.is_creature and chosen in obj.card.type_line.lower().split()
         ]
         if getattr(self.source, "foretold", False):
-            with context.engine.graveyard_exit_batch():
+            with context.state.simultaneous():
                 for obj in cards:
                     context.return_from_graveyard(obj, "battlefield")
             return
@@ -1261,11 +1261,10 @@ class Base0CombatDamageFractalEffect(GameEffect):
     create a 0/0 green and blue Fractal creature token. Put a number of
     +1/+1 counters on it equal to the damage dealt."
 
-    The base-power-0 filter is a trigger predicate on `EventType.CREATURES_
-    DEALT_COMBAT_DAMAGE_TO_PLAYER`'s new ``any_base_power_0`` /
-    ``base_power_0_amount`` aggregate fields (stamped by
-    `combat_mixin._apply_combat_damage` alongside ``max_power``). This
-    effect reads ``base_power_0_amount`` for the counter count — the combat
+    The base-power-0 filter is the trigger's per-contributor ``base_power``
+    filter (PAR-131). This effect reads `EventType.CREATURES_DEALT_COMBAT_
+    DAMAGE_TO_PLAYER`'s ``base_power_0_amount`` (stamped by
+    `combat_mixin._apply_combat_damage`) for the counter count — the combat
     damage those base-power-0 creatures dealt to that player this step.
     """
 

@@ -54,12 +54,16 @@ _VERBS: dict[str, str] = {
     "specializes": "SPECIALIZED",
     # RULE 700.4's long spelling of "dies"; "your" scopes the owner (`_OWN_GRAVEYARD`).
     "is put into your graveyard from the battlefield": "DIES",
+    # RULE 406.3 / 603.6c: a permanent exiled from the battlefield leaves it —
+    # LEAVES_BATTLEFIELD with ``to_zone: exile`` (Psychomancer, Slagstone Refinery).
+    "is put into exile from the battlefield": "LEAVES_BATTLEFIELD",
 }
 _OWN_GRAVEYARD = "is put into your graveyard from the battlefield"
+_TO_EXILE = "is put into exile from the battlefield"
 _VERB_ALT = (
     r"(?:enters(?: the battlefield)?|dies|attacks|blocks|leaves the battlefield|is turned face up|"
     r"becomes (?:blocked|tapped|untapped|monstrous)|mutates|specializes|"
-    r"is put into your graveyard from the battlefield)"
+    r"is put into your graveyard from the battlefield|is put into exile from the battlefield)"
 )
 _HEAD = re.compile(
     rf"^(?P<subject>.+?)\s+(?P<v1>{_VERB_ALT})(?:\s+or\s+(?P<v2>{_VERB_ALT}))?(?P<tail>\s.*)?$"
@@ -185,7 +189,7 @@ def _parse_damage_head(cond: str) -> Optional[ObjectHead]:
         condition = {"subject": "attached_permanent"}
     else:
         condition = _subject(subject)
-    if condition is None or condition["subject"] == "self_or_group":
+    if condition is None:
         return None
     event_filter: dict[str, Any] = {}
     kind = (m.group("kind") or "").strip()
@@ -198,6 +202,8 @@ def _parse_damage_head(cond: str) -> Optional[ObjectHead]:
         event_filter.update(recipient[0])
     trigger: dict[str, Any] = {"filter": event_filter}
     if m.group("recipient") and recipient[1]:
+        if condition["subject"] == "self_or_group":
+            return None  # only the group half would read the recipient scope
         if condition["subject"] == "group":
             # The group predicate reads the recipient keys itself.
             condition.update(recipient[1])
@@ -479,6 +485,12 @@ def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
             return None  # the self form is the legacy self row's; no compound needs it
         condition["owner"] = "you"
     trigger: dict[str, Any] = {}
+    if _TO_EXILE in (m.group("v1"), m.group("v2")):
+        if m.group("v2"):
+            # "dies or is put into exile …": the zone key belongs to one event only,
+            # so the segmenter splits the compound into one head per verb.
+            return None
+        trigger["to_zone"] = "exile"
     events = _consume_tails((m.group("tail") or "").strip(), events, condition, trigger)
     if events is None:
         return None

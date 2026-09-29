@@ -91,7 +91,7 @@ KEYWORD_WORDS: dict[str, str] = {
     "deathtouch": "deathtouch", "lifelink": "lifelink", "trample": "trample",
     "vigilance": "vigilance", "double strike": "double strike", "infect": "infect",
     "persist": "persist", "undying": "undying", "changeling": "changeling",
-    "flashback": "flashback",
+    "flashback": "flashback", "disturb": "disturb",
 }
 
 _ALTERNATION = re.compile(r"\s*,\s*(?:(?:and/)?or\s+|and\s+)?|\s+(?:(?:and/)?or|and)\s+")
@@ -101,6 +101,9 @@ _ALTERNATION = re.compile(r"\s*,\s*(?:(?:and/)?or\s+|and\s+)?|\s+(?:(?:and/)?or|
 #: card that is either). A comma list with no connective at all ("noncreature,
 #: nonland card") is stacked adjectives, i.e. AND.
 _OR_CONNECTIVE = re.compile(r"\s(?:and/)?or\s")
+#: "<phrase> or a/an <phrase>": the article repeats, so each side is a whole noun
+#: phrase with its own tails, not one head's word list.
+_ARTICLE_UNION = re.compile(r"(?P<a>.+?)\s+or\s+an?\s+(?P<b>.+)")
 _PLURAL_AND_CONNECTIVE = re.compile(r"\sand\s")
 _WITH_MANA_VALUE = re.compile(r"^mana value (?P<n>\d+) or (?P<dir>greater|less)$")
 _WITH_STAT = re.compile(r"^(?P<stat>power|toughness) (?P<n>\d+) or (?P<dir>greater|less)$")
@@ -342,6 +345,15 @@ def parse_object_phrase(
     fails the whole phrase.
     """
     text = text.strip().lower()
+    union = _ARTICLE_UNION.fullmatch(text)
+    if union is not None:
+        # "a Spirit card **or a** card with disturb" (Shipwreck Sifters): two whole
+        # noun phrases, each with its own tails — an OR of two filters.
+        first = parse_object_phrase(union.group("a"), plural=plural)
+        second = parse_object_phrase(union.group("b"), plural=plural)
+        if first is None or second is None or first[1] != second[1]:
+            return None
+        return {"any_of": [first[0], second[0]]}, first[1]
     marker = _TAIL_MARKER.search(text)
     head, rest = (text[: marker.start()], text[marker.start():].strip()) if marker else (text, "")
     filt = parse_head(head, plural=plural)

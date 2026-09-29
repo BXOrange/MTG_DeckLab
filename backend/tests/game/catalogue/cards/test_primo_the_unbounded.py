@@ -53,19 +53,40 @@ def test_base_power_zero_combat_damage_makes_sized_fractal():
     src = GameObject(_primo_card(), owner_id="p1", zone=Zone.BATTLEFIELD)
     src.controller_id = "p1"
     eng.state.add_to_battlefield(src)
+    src.counters["+1/+1"] = 2  # Primo is a printed 0/0 (RULE 704.5f)
     specs = _REGISTRY["primo, the unbounded"]()
     for s in specs:
         bound = bind_ability(s, src)
         for ab in (bound if isinstance(bound, list) else [bound]):
             src.triggered_abilities.append(ab)
 
-    eng.state.fire_event(GameEvent(
-        EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER,
-        player_id="p1", target_id="p2", is_player=True,
-        any_base_power_0=True, base_power_0_amount=4, amount=4,
-        contributor_ids=[], max_power=0,
-    ))
-    eng.resolve_until_stable()
-    fractals = [o for o in eng.state.battlefield if o.card.name == "Fractal"]
+    def _creature(name, power):
+        obj = GameObject(Card(id=name, name=name, type_line="Creature — Fractal",
+                              is_creature=True, power=power, toughness=1),
+                         owner_id="p1", zone=Zone.BATTLEFIELD)
+        obj.controller_id = "p1"
+        eng.state.add_to_battlefield(obj)
+        return obj
+
+    def _hit(contributor, amount):
+        eng.state.fire_event(GameEvent(
+            EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER,
+            player_id="p1", target_id="p2", is_player=True,
+            base_power_0_amount=amount if contributor.card.power == 0 else 0, amount=amount,
+            contributor_ids=[contributor.instance_id], contributor_amounts=[amount],
+        ))
+        eng.resolve_until_stable()
+
+    def _fractals():
+        return [o for o in eng.state.battlefield if o.card.name == "Fractal"]
+
+    # PAR-131: the composed per-contributor ``base_power: 0`` filter.
+    _hit(_creature("Printed Two", 2), 2)
+    assert _fractals() == []
+    zero = _creature("Printed Zero", 0)
+    zero.counters["+1/+1"] = 4
+    eng.recompute_continuous_effects()
+    _hit(zero, 4)
+    fractals = _fractals()
     assert len(fractals) == 1
     assert fractals[0].counters.get("+1/+1", 0) == 4

@@ -672,7 +672,11 @@ def _subject_condition(
         # composition `_trigger_condition` builds every other predicate
         # from, since RULE 603.1 wants *either* firing condition to place
         # the trigger, not both simultaneously.
-        self_ok = _subject_condition({"condition": {"subject": "self"}}, source)
+        # The self half reads the same event field the group half does (a DAMAGE
+        # event names its dealer as ``source_id``, not ``instance_id``).
+        self_ok = _subject_condition(
+            {"event": trigger.get("event"), "condition": {"subject": "self"}}, source
+        )
 
         def _self_or_group_ok(event: Any, context: Any, self_check=self_ok, group_check=group_ok) -> bool:
             return self_check(event, context) or group_check(event, context)
@@ -1456,6 +1460,15 @@ def _trigger_condition(
 
         predicates.append(_not_from_zone_ok)
 
+    # "…is put into exile from the battlefield" (Psychomancer) — LEAVES_BATTLEFIELD's
+    # ``to_zone`` is exactly this zone.
+    to_zone = trigger.get("to_zone")
+    if to_zone:
+        def _to_zone_ok(event: Any, context: Any, zone=str(to_zone)) -> bool:
+            return event.get("to_zone") == zone
+
+        predicates.append(_to_zone_ok)
+
     # "…leaves the battlefield **without dying**" (Dour Port-Mage) — LEAVES_BATTLEFIELD's
     # ``to_zone`` isn't the graveyard; a move that doesn't stamp one isn't a death either.
     not_to_zone = trigger.get("to_zone_not")
@@ -1809,78 +1822,6 @@ def _trigger_condition(
             return any((attacked.life or 0) > (p.life or 0) for p in others)
 
         predicates.append(_defending_opp_leads_ok)
-
-    # "Whenever one or more creatures you control with power 7 or greater
-    # deal combat damage to a player, …" (MEC-29, Tifa, Martial Artist) — a
-    # threshold on `EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER`'s own
-    # aggregated ``max_power`` field, the same "checked against a numeric
-    # field the event itself stamps" idiom `spell_mana_value_at_most` uses
-    # for `SPELL_CAST`. A `"group"` condition's own ``min_power``-style
-    # filter can't be reused here: that reads *one* acting object's live
-    # power off the board, but this event is an aggregate over however many
-    # creatures connected this step and names none of them individually.
-    contributor_power_at_least = trigger.get("contributor_power_at_least")
-    if contributor_power_at_least is not None:
-        threshold = int(contributor_power_at_least)
-
-        def _contributor_power_ok(event: Any, context: Any, n=threshold) -> bool:
-            power = event.get("max_power")
-            return power is not None and power >= n
-
-        predicates.append(_contributor_power_ok)
-
-    # "Whenever one or more **Pirates** you control deal combat damage to a
-    # player, …" (Malcolm, Keen-Eyed Navigator) — the tribal-filter sibling
-    # of ``contributor_power_at_least`` just above, off the same aggregate
-    # event's own ``subtypes`` field (the union of every contributing
-    # creature's subtypes that step, stamped by `GameEngine.
-    # _apply_combat_damage`) rather than a live per-object lookup, for the
-    # same "no single acting object to check" reason.
-    contributor_subtype = trigger.get("contributor_subtype")
-    if contributor_subtype is not None:
-        word = str(contributor_subtype).lower()
-
-        def _contributor_subtype_ok(event: Any, context: Any, w=word) -> bool:
-            subtypes = event.get("subtypes")
-            return bool(subtypes) and w in subtypes
-
-        predicates.append(_contributor_subtype_ok)
-
-    # "Whenever a **commander** you control deals combat damage to an
-    # opponent, …" (Kediss, Emberclaw Familiar) — the RULE 903-designation
-    # sibling of ``contributor_subtype`` just above, off the same
-    # aggregate event's own ``contributor_is_commander`` flag (stamped by
-    # `GameEngine._apply_combat_damage`), for the same "no single acting
-    # object to check `_build_group_ok`'s live-board `is_commander` filter
-    # against" reason.
-    if trigger.get("contributor_is_commander"):
-        def _contributor_is_commander_ok(event: Any, context: Any) -> bool:
-            return bool(event.get("contributor_is_commander"))
-
-        predicates.append(_contributor_is_commander_ok)
-
-    # "Whenever one or more creatures you control **each with power
-    # greater than its base power** deals combat damage to a player, …"
-    # (Kutzil, Malamet Exemplar, MEC-40) — the per-contributor qualifier
-    # sibling of ``contributor_is_commander`` just above, off the same
-    # aggregate event's own ``contributor_power_gt_base`` flag (stamped by
-    # `GameEngine._apply_combat_damage`).
-    if trigger.get("contributor_power_gt_base"):
-        def _contributor_power_gt_base_ok(event: Any, context: Any) -> bool:
-            return bool(event.get("contributor_power_gt_base"))
-
-        predicates.append(_contributor_power_gt_base_ok)
-
-    # "Whenever one or more creatures you control **with base power 0** deal
-    # combat damage to a player, …" (Primo, the Unbounded, PAR-60) — the
-    # printed-power sibling of ``contributor_power_gt_base`` just above, off
-    # the same aggregate event's own ``any_base_power_0`` flag (stamped by
-    # `combat_mixin._apply_combat_damage`).
-    if trigger.get("contributor_base_power_zero"):
-        def _contributor_base_power_zero_ok(event: Any, context: Any) -> bool:
-            return bool(event.get("any_base_power_0"))
-
-        predicates.append(_contributor_base_power_zero_ok)
 
     # "Whenever an opponent draws their **second** card each turn, …"
     # (Faerie Mastermind) — an ordinal on `GameState.cards_drawn_this_

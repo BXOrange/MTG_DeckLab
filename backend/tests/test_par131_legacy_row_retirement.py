@@ -162,3 +162,80 @@ def test_becomes_target_that_player_is_the_targeting_spells_controller():
     assert eng.rules.put_triggers_on_stack() == 1
     eng.rules.resolve_top_of_stack()
     assert p2.life == 17
+
+
+# ---------------------------------------------------------------------------
+# The hand-authored aggregate flags (``contributor_power_at_least`` /
+# ``contributor_subtype`` / …) became the composed batch head's shape:
+# ``contributors`` + a per-contributor ``condition.filter``.
+# ---------------------------------------------------------------------------
+
+from mtg_analyzer.game.card_registry import _REGISTRY  # noqa: E402
+from mtg_analyzer.game.binding.core import bind_ability  # noqa: E402
+from mtg_analyzer.models.game.events import EventType, GameEvent  # noqa: E402
+
+
+def _bind_registered(eng, name, card):
+    """Put ``card`` on the battlefield with the catalogue entry registered as ``name``."""
+    obj = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    obj.controller_id = "p1"
+    obj.summoning_sick = False
+    eng.state.add_to_battlefield(obj)
+    for spec in _REGISTRY[name.lower()]():
+        bound = bind_ability(spec, obj)
+        for ability in bound if isinstance(bound, list) else [bound]:
+            obj.triggered_abilities.append(ability)
+    return obj
+
+
+def _combat_hit(eng, contributor, target="p2", amount=2):
+    eng.state.fire_event(GameEvent(
+        EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER,
+        player_id=contributor.controller_id, target_id=target, is_player=True, amount=amount,
+        contributor_ids=[contributor.instance_id], contributor_amounts=[amount],
+    ))
+    return eng.rules.put_triggers_on_stack()
+
+
+def test_tifa_counts_only_a_power_seven_contributor():
+    eng = _engine()
+    _bind_registered(eng, "Tifa, Martial Artist", _creature("Tifa", 4, 4))
+    assert _combat_hit(eng, _put(eng, _creature("Small", 6, 6))) == 0
+    assert _combat_hit(eng, _put(eng, _creature("Big", 7, 7))) == 1
+
+
+def test_malcolm_counts_a_pirate_hitting_an_opponent():
+    eng = _engine()
+    _bind_registered(eng, "Malcolm, Keen-Eyed Navigator", _creature("Malcolm", 2, 2))
+    pirate = _put(eng, Card(id="Pirate", name="Pirate", type_line="Creature — Human Pirate",
+                            is_creature=True, power=2, toughness=2))
+    assert _combat_hit(eng, _put(eng, _creature("Bear", 2, 2))) == 0
+    assert _combat_hit(eng, pirate, target="p1") == 0  # "your opponents" only
+    assert _combat_hit(eng, pirate) == 1
+
+
+def test_kediss_is_parser_modeled_per_commander_hit():
+    # The catalogue entry is gone: the composed head reads Kediss per damage
+    # event, so "that much damage" is that commander's own damage.
+    eng = GameEngine.new_game(
+        [("p1", "A", []), ("p2", "B", []), ("p3", "C", [])], starting_life=20, starting_hand=0,
+    )
+    kediss = Card(
+        id="Test Kediss", name="Test Kediss", type_line="Legendary Creature — Elemental Lizard",
+        is_creature=True, power=1, toughness=3,
+        oracle_text="Whenever a commander you control deals combat damage to an opponent, "
+                    "it deals that much damage to each other opponent.",
+    )
+    assert parse_oracle(kediss).coverage == MODELED
+    _put(eng, kediss)
+    commander = _put(eng, _creature("Commander", 3, 3))
+    commander.is_commander = True
+    bear = _put(eng, _creature("Bear", 5, 5))
+    p1, p2, p3 = eng.state.players
+
+    eng.rules.deal_damage(p2, 5, source=bear, combat=True)
+    assert eng.rules.put_triggers_on_stack() == 0
+    eng.rules.deal_damage(p2, 3, source=commander, combat=True)
+    assert eng.rules.put_triggers_on_stack() == 1
+    eng.rules.resolve_top_of_stack()
+    assert (p1.life, p2.life, p3.life) == (20, 12, 17)

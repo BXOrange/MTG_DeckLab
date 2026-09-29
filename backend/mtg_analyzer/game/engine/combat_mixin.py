@@ -505,10 +505,10 @@ class CombatMixin:
         # fired once per (contributing controller, player hit) pair after
         # the loop.
         # ``subtypes`` per pair is the union of every contributing creature's
-        # own subtypes ("whenever one or more **Pirates** you control deal
-        # combat damage to a player" — Malcolm, Keen-Eyed Navigator) — an
-        # aggregate-condition characteristic alongside ``max_power``, not a
-        # per-hit one, same reasoning as the docstring above.
+        # own subtypes. A trigger's per-creature qualifiers ("with power 7 or
+        # greater", "Pirates", "with base power 0") are *not* stamped here: the
+        # composed batch head re-reads each of ``contributor_ids`` as its own
+        # per-creature damage event (`binding.core._contributor_members`).
         player_hits: dict[tuple[Optional[str], Any], dict[str, Any]] = {}
         for target, amount, source in assignments:
             # Protection prevents the damage from a source of the named quality
@@ -532,46 +532,22 @@ class CombatMixin:
                 key = (source.controller_id, target.id)
                 entry = player_hits.setdefault(
                     key, {
-                        "max_power": 0, "amount": 0, "subtypes": set(), "is_commander": False,
-                        "power_gt_base": False, "any_nontoken": False, "contributor_ids": [], "contributor_amounts": [],
-                        "any_base_power_0": False, "base_power_0_amount": 0,
+                        "amount": 0, "subtypes": set(), "contributor_ids": [], "contributor_amounts": [],
+                        "base_power_0_amount": 0,
                     }
                 )
                 entry["contributor_ids"].append(source.instance_id)
                 entry["contributor_amounts"].append(amount)
-                entry["max_power"] = max(entry["max_power"], source.power or 0)
                 # "…creatures you control **with base power 0**…" (Primo, the
                 # Unbounded, PAR-60) — "base power" is the printed/copied
                 # value (`Card.power`, RULE 707.2), not the derived
-                # `source.power` (counters + statics), the same distinction
-                # ``power_gt_base`` just below draws. ``base_power_0_amount``
-                # is the combat damage those base-power-0 creatures dealt to
-                # this player this step (Primo's "the damage dealt").
+                # `source.power`. ``base_power_0_amount`` is the combat damage
+                # those creatures dealt to this player this step (Primo's "the
+                # damage dealt"), read by `base0_combat_damage_fractal`.
                 if int(getattr(source.card, "power", 0) or 0) == 0:
-                    entry["any_base_power_0"] = True
                     entry["base_power_0_amount"] += amount
-                # "whenever **1 or more nontoken creatures** you control deal
-                # combat damage to a player" (Feywild Visitor's granted
-                # trigger) — true once any contributor to this pair is a
-                # nontoken creature (RULE 111.9).
-                if not getattr(source, "is_token", False):
-                    entry["any_nontoken"] = True
-                # "…each with power greater than its base power…" (Kutzil,
-                # Malamet Exemplar, MEC-40) — "base power" is the printed
-                # value (`Card.power`, already the *copied* value for a
-                # token/copy — RULE 707.2 rebases it there), unlike the
-                # current derived `source.power` (counters + static
-                # boosts). An "or greater" aggregate can't reuse
-                # ``max_power`` here: that's a single number, not "was
-                # *this* contributor's power above *its own* base".
-                if (source.power or 0) > (source.card.power or 0):
-                    entry["power_gt_base"] = True
-                # "…it deals **that much damage** to each other opponent."
-                # (Kediss, Emberclaw Familiar) — the actual combat damage
-                # total dealt to this opponent this step, distinct from
-                # ``max_power`` (a *threshold* `contributor_power_at_least`
-                # reads, not a summed amount — the two only coincide for
-                # the common single-unblocked-attacker case).
+                # The actual combat damage total dealt to this player this
+                # step ("…the damage those creatures dealt").
                 entry["amount"] += amount
                 # `GameObject.type_words` is *main* types only ("creature",
                 # "legendary permanent") — a tribal filter needs the actual
@@ -592,13 +568,6 @@ class CombatMixin:
                     entry["subtypes"].update(
                         source.card.type_line.lower().partition("—")[2].split()
                     )
-                # "whenever a **commander** you control deals combat damage
-                # to an opponent, …" (Kediss, Emberclaw Familiar) — same
-                # aggregate-characteristic reasoning as ``subtypes``: RULE
-                # 903's designation, read off whichever contributor(s) had
-                # it, since this event names none of them individually.
-                if getattr(source, "is_commander", False):
-                    entry["is_commander"] = True
         for (controller_id, target_id), entry in player_hits.items():
             self.state.fire_event(
                 GameEvent(
@@ -609,17 +578,12 @@ class CombatMixin:
                     # so a "target … that player controls" target kind
                     # (`targeting`) can scope to it (Popular Entertainer).
                     is_player=True,
-                    max_power=entry["max_power"],
                     amount=entry["amount"],
                     subtypes=sorted(entry["subtypes"]),
-                    contributor_is_commander=entry["is_commander"],
-                    contributor_power_gt_base=entry["power_gt_base"],
-                    contributor_any_nontoken=entry["any_nontoken"],
                     contributor_ids=entry["contributor_ids"],
                     # Parallel to ``contributor_ids``: what each one dealt this
                     # player ("the damage those creatures dealt", PAR-119).
                     contributor_amounts=entry["contributor_amounts"],
-                    any_base_power_0=entry["any_base_power_0"],
                     base_power_0_amount=entry["base_power_0_amount"],
                 )
             )

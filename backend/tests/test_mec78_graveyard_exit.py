@@ -47,7 +47,8 @@ def test_mass_graveyard_exit_is_one_batch_trigger():
     eng, p1 = _engine_with_quintorius()
     first = _graveyard_card(eng, p1, "Lightning Bolt")
     second = _graveyard_card(eng, p1, "Opt")
-    with eng.rules.graveyard_exit_batch():
+    # PAR-131: the RULE 603.2c `simultaneous` scope batches graveyard exits too.
+    with eng.state.simultaneous():
         eng.rules.return_from_graveyard(first, "hand")
         eng.rules.return_from_graveyard(second, "hand")
     events = [e for e in eng.state.event_log if e.type == "CARDS_LEFT_GRAVEYARD"]
@@ -55,3 +56,17 @@ def test_mass_graveyard_exit_is_one_batch_trigger():
     assert [c["instance_id"] for c in events[0]["cards"]] == [first.instance_id, second.instance_id]
     eng.resolve_until_stable()
     assert len([o for o in eng.state.battlefield if o.name == "Spirit"]) == 1
+
+
+def test_held_multi_pick_graveyard_exit_is_one_batch():
+    # An interactive multi-pick holds the batch open between picks.
+    eng, p1 = _engine_with_quintorius()
+    first = _graveyard_card(eng, p1, "Lightning Bolt")
+    second = _graveyard_card(eng, p1, "Opt")
+    eng.state.hold_batches()
+    eng.rules.return_from_graveyard(first, "hand")
+    eng.rules.return_from_graveyard(second, "hand")
+    assert not [e for e in eng.state.event_log if e.type == "CARDS_LEFT_GRAVEYARD"]
+    eng.state.release_batches()
+    events = [e for e in eng.state.event_log if e.type == "CARDS_LEFT_GRAVEYARD"]
+    assert len(events) == 1 and len(events[0]["cards"]) == 2
