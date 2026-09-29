@@ -257,7 +257,8 @@ def test_damage_target_from_party():
         "it deals x damage to target creature or planeswalker, "
         "where x is the number of creatures in your party"
     ) == [EffectSpec("damage", {
-        "target_kind": "creature", "amount_from_count_selector": "creatures_in_your_party",
+        "target_kind": "creature_or_planeswalker",
+        "amount_from_count_selector": "creatures_in_your_party",
     })]
 
 

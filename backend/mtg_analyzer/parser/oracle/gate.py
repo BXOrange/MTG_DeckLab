@@ -3701,7 +3701,12 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: completely counts as a cost even without a symbol the lexical sniff keys
 #: on; "`<cost>` or `<cost>`:" becomes two abilities; Springjack Pasture's
 #: announced-X mana line is claimed.
-PARSER_VERSION = "500"
+#: 501 (PAR-112/PAR-127): a leading "for each `<count phrase>`, `<body>`" iterates
+#: objects (the body's "it" is the loop item — Ocelot Pride, Chief Magistrate of
+#: Mercadia); count phrases read "that entered this turn"; a multi-sentence phase
+#: trigger's leading "if" is the ability's RULE 603.4 intervening-if; "target
+#: creature or planeswalker [you don't control]" keeps its planeswalker half.
+PARSER_VERSION = "501"
 
 
 def parser_source_hash() -> str:

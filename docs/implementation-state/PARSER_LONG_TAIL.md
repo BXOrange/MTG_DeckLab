@@ -25,9 +25,9 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**51.0% covered — 17,748 / 34,811 — as of 2026-09-28, PARSER_VERSION 500** (ENG-49 un-claimed ~119 cards whose activation cost was never fully charged; ENG-51 won 94 back by charging the common shapes).
-Commander-legal slice (the one the product actually plays): **53.6% —
-17,055 / 31,830** (measure with `--commander-legal-only`).
+**51.1% covered — 17,793 / 34,811 — as of 2026-09-29, PARSER_VERSION 501** (PAR-119's committed intermediate step plus PAR-112's leading object "for each"; PAR-127 changed 74 already-MODELED cards' targets without changing the count).
+Commander-legal slice (the one the product actually plays): **53.7% —
+17,093 / 31,830** (measure with `--commander-legal-only`).
 
 ### PAR-124 closes completely: player-events, X-tokens, a targeted delayed trigger, a hand-zone duplicate, an optional-attach composition — and the controller-binding bug the targeted variant first exposed (PARSER_VERSION 463)
 

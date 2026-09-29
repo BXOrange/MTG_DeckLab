@@ -5979,6 +5979,10 @@ _DAMAGE_RECIPIENT_KINDS: frozenset[str] = frozenset(
         # Sinstriker's Will: the combat-qualified creature is still a
         # creature recipient, with its legality supplied by TargetFrame.
         "attacking_or_blocking_creature",
+        # PAR-127: "… to target creature or planeswalker [you don't control]"
+        # (Bite Down, Domri's Ambush) — damage to a planeswalker removes
+        # loyalty (RULE 120.3c) through the same `deal_damage`.
+        "creature_or_planeswalker",
     }
 )
 _DEALS_POWER = r"deals? damage equal to its power to"

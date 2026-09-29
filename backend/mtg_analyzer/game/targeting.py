@@ -318,6 +318,10 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # Tower, a hugely common modern removal-spell template) — the
         # two-kind union idiom `artifact_or_enchantment` already uses.
         "creature_or_planeswalker",
+        # "target creature or planeswalker you don't control" / "… an opponent
+        # controls" (Bite Down, Dreadbore's scoped siblings — PAR-127) — the
+        # opponent-scoped sibling of the bare union just above.
+        "creature_or_planeswalker_you_dont_control",
         # "a creature or planeswalker you control" (Spark Double's own
         # enter-as-copy candidate pool) — the controller-scoped sibling of
         # the bare union kind just above.
@@ -604,6 +608,8 @@ class TargetSpec:
             "artifact_creature_enchantment_or_planeswalker":
                 "Artefakt, Kreatur, Verzauberung oder Planeswalker",
             "creature_or_planeswalker": "Kreatur oder Planeswalker",
+            "creature_or_planeswalker_you_dont_control":
+                "Kreatur oder Planeswalker, die du nicht kontrollierst",
             "creature_or_planeswalker_you_control":
                 "Kreatur oder Planeswalker unter deiner Kontrolle",
             "creature_or_planeswalker_that_player_controls":
@@ -1124,7 +1130,14 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
         "artifact_creature_enchantment_or_planeswalker"),
     "artifact_enchantment_or_nonbasic_land": TargetFrame(
         "artifact_enchantment_or_nonbasic_land"),
-    "creature_or_planeswalker": TargetFrame("creature_or_planeswalker"),
+    # PAR-127: the mana-value bound applies ("destroy target creature or
+    # planeswalker with mana value 3 or less" — Bloodchief's Thirst-shaped),
+    # as it does on the plain `creature` branch these kinds replaced.
+    "creature_or_planeswalker": TargetFrame(
+        "creature_or_planeswalker", apply_max_mana_value=True),
+    "creature_or_planeswalker_you_dont_control": TargetFrame(
+        "creature_or_planeswalker", SCOPE_NOT_YOU, exclude_source=False,
+        apply_max_mana_value=True),
     "creature_planeswalker_or_battle": TargetFrame("creature_planeswalker_or_battle"),
     # RULE 614.12 enter-as-copy candidate pool, not a RULE 115 target —
     # which is why targetability filtering is off.

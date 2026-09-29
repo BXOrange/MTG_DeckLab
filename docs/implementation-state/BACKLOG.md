@@ -95,7 +95,8 @@ No open tickets.
   > spell's controller regardless of who controls the target — see
   > `Done_Backend.md`'s PAR-124 entry). `PAR-126` is MEC-101's own parser
   > follow-up (below), `PAR-127` PAR-128's split-out "creature or
-  > planeswalker" frame; first free id: **`PAR-129`**. A genuinely new engine
+  > planeswalker" frame (closed), `PAR-129` the Exhaust keyword-line swallow;
+  > first free id: **`PAR-130`**. A genuinely new engine
   > primitive found along the way still files as its own `MEC-*` ticket —
   > `MEC-102` is MEC-101's own such follow-up; next free id: **`MEC-103`**
   > — only the sweep itself stays out of this file.
@@ -175,18 +176,17 @@ No open tickets.
   `parser_probe.py composition heads --family <f>` and `parser_probe.py diff`, and **execute** a
   sample of the newly claimed cards — the parse verdict alone hid wrong-but-MODELED shapes at v450,
   v455 and v456 (see `PARSER_LONG_TAIL.md`).
-- **PAR-127 · "Target creature or planeswalker" is MODELED as `creature` (wrong-but-MODELED).**
-  83 parser-MODELED cards print "target creature or planeswalker" and none can target a
-  planeswalker: the shared target grammar drops the "or planeswalker" to `creature` (54),
-  `creature_you_dont_control` (18, "… you don't control" / "… an opponent controls") or a
-  multi-target pair (Domri's Ambush, Hunter's Mark, Ready to Rumble, Rip Apart, Brokers Charm,
-  …). `targeting.py` already has `creature_or_planeswalker` (+ `_you_control`,
-  `_that_player_controls`; used by hand-authored cards only); missing is a
-  `creature_or_planeswalker_you_dont_control` frame and the grammar emitting both. Diff the whole
-  cache — every changed spec should be a `target_kind` swap — and execute a sample against a
-  planeswalker. Not a coverage cluster: the 71 cards `parser_probe.py blocked "target creature
-  or planeswalker"` reports as SOLO are each blocked by their own rider in the same sentence
-  ("exile it instead", "for each of its colors", "where X is …"), not by the target phrase.
+- **PAR-129 · A line starting with "Exhaust" is swallowed as a keyword line (wrong-but-MODELED).**
+  11 parser-MODELED cards lose an ability: the first line that begins with the word
+  "Exhaust" is claimed as the bare Exhaust keyword (Scryfall lists it in `keywords`), so no
+  spec is emitted for it. Mostly the card's only "Exhaust — `<cost>`: `<effect>`" ability
+  (Liliana the Repentant, Mai, Jaded Edge, Marshals' Pathcruiser, Redshift, Rocketeer Chief,
+  Rocketeer Boostbuggy, Sita Varma, Skyserpent Seeker, Spire Mechcycle, Trackhand Trainer;
+  one of three on Audacious Knuckleblade); on Boom Scholar the static "Exhaust abilities of
+  other permanents you control cost {2} less to activate" is eaten instead and the exhaust
+  ability is lost too. The same lines segment correctly on their own (`segment_line` →
+  `activated` + `activate_only_once_marker`), so the fault is in the card-level keyword pass;
+  Loot, the Pathfinder only escapes because its swallowed line is a mana ability.
 - **PAR-128 · Target/group-grammar slots — residue.** The controller-scope, "another" and
   player-subject slots are in the shared target grammar; still failing on the same axes:
   **group** selectors with "other"/scope ("it deals 1 damage to each other creature",
@@ -572,13 +572,6 @@ No open tickets.
   - "When `<name>` enters, attach it to target legendary creature you
     control." — **1 SOLO** (Mithril Coat), 1 also-blocked (Mjölnir, Storm
     Hammer, blocked by its own unrelated tap/stun-counter attack trigger).
-- **PAR-112 · Small residue batch — counters, tokens & CDA formulas.** 1
-  clause left, 2 cards cache-wide:
-  - "At the beginning of your end step, if you gained life this turn,
-    create a `<n>`/`<n>` white Cat creature token. Then if you have the
-    city's blessing, for each token you control that entered this turn,
-    create a token that's a copy of it." — 2 cache-wide (Ocelot Pride +
-    its Alchemy rebalance).
 - **PAR-113 · Small residue batch — combat triggers.** 5
   independently-shaped clauses, each ≥2 cards cache-wide:
   - "Whenever `<name>` deals combat damage to a player, you get that many

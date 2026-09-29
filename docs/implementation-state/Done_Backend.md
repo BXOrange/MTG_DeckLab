@@ -675,6 +675,25 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 - **What:** `TargetSpec.kind` was 59 opaque strings dispatched by **58**
 - **Files:** `game/targeting.py`, `tests/test_target_frames.py` (153 tests)
 
+### "Target creature or planeswalker" keeps its planeswalker half (PAR-127, PARSER_VERSION 501)
+
+- **What:** The shared TARGET rows mapped "target creature or planeswalker [you don't
+  control | an opponent controls]" to `creature` / `creature_you_dont_control`, so 83
+  parser-MODELED cards (Hero's Downfall, Dreadbore, Eliminate, Bite Down, the Charms …)
+  could never target a planeswalker. They now resolve to `creature_or_planeswalker` and a
+  new `creature_or_planeswalker_you_dont_control` frame; both apply the mana-value bound the
+  plain `creature` branch did (Eliminate, Long Goodbye). For the verb whitelists the union
+  is a narrowing of `permanent` (`subgrammars.SCOPED_TARGET_BASE`, the idiom
+  `artifact_or_creature` uses) and the scoped kind is in `NOT_YOU_TARGET_KINDS`;
+  `_DAMAGE_RECIPIENT_KINDS` admits it for the "bite" family.
+- **Why:** A whole-cache spec diff showed 74 changed cards, every one a pure `target_kind`
+  swap, and no coverage change — the first cut lost 38 cards to per-verb whitelists, which
+  is why the base mapping matters. The 71 "SOLO" cards `parser_probe.py blocked "target
+  creature or planeswalker"` reports were never blocked by the target phrase, only by
+  riders in the same sentence.
+- **Files:** `parser/oracle/catalogue/subgrammars.py`, `parser/oracle/catalogue/handlers.py`,
+  `game/targeting.py`, `tests/test_par127_creature_or_planeswalker.py`
+
 ### Generalized graveyard-card targeting and Deathrite Shaman
 
 - **What:** The Regrowth/Reanimate recursion family generalized to the full real-card vocabulary (card type × graveyard scope — own/any/an opponent's).
@@ -1385,6 +1404,18 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 
 - **What:** New `GameState.combats_this_turn` counter (incremented per `begin_combat`, reset each turn) backs a new `ConditionalEffect` key `is_first_combat_phase`, closing…
 - **Files:** `models/game_state.py`, `game/effects/core.py`, `parser/oracle/segmenter.py`.
+
+### Intervening-if of a multi-sentence phase trigger gates the whole ability (RULE 603.4, PARSER_VERSION 501)
+
+- **What:** "At the beginning of `<step>`, if `<state>`, A. Then B." used to carry the
+  condition on A alone (the per-effect gate path), so B ran when the condition was false.
+  When a phase trigger's body runs past its first sentence, a leading "if `<state>`," that
+  `static_condition` reads now becomes the trigger's own ``active_if``; a one-sentence body
+  keeps its per-effect gate (same outcome, no churn). 17 already-MODELED cards changed, each
+  checked: e.g. Wary Zone Guard's "~ perpetually gets +1/+1" was ungated, Loyal Apprentice's
+  haste grant, Marit Lage's Slumber, Planar Collapse, Tallyman of Nurgle, Ocelot Pride.
+- **Files:** `parser/oracle/segmenter.py` (`_NEXT_SENTENCE_RE`),
+  `tests/test_par112_for_each_object_copy.py`, `tests/test_par120_instead_override.py`
 
 ### Attached-Permanent "It" Retargeting for Self-Acting Effects (ENG-29)
 
@@ -3191,6 +3222,29 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 
 - **What:** `game/effects/composition.py` — `seq`, `if_else`, `optional`,
 - **Files:** `game/effects/composition.py`, `game/effect_amounts.py`,
+
+### Leading object "for each" — the loop item as "it" (PAR-112, PARSER_VERSION 501)
+
+- **What:** "For each `<count phrase>`, `<body>`" at the *front* of a clause now iterates
+  battlefield objects (`segmenter._leading_for_each_object_specs`, after the player-subject
+  slot): the group is the shared `count_phrase` grammar, the body is parsed with the pronoun
+  reading on, and every effect that names its object through ``referent: "previous"`` is
+  re-pointed at ``referent: "iteration"`` — `GameContext.iteration_item`, which `for_each`
+  already set but nothing read. `CopyPermanentEffect` is the first reader. `count_phrase`
+  gained the "that entered [the battlefield] this turn" tail (`entered_this_turn`, already
+  in `combat.matches_object_filter`). Closed PAR-112's last item: Ocelot Pride (+ Alchemy),
+  plus Chief Magistrate of Mercadia and Renewed Solidarity.
+- **Why:** The trailing "`<effect>` for each `<group>`" connective hands each item over as a
+  *target*, which is wrong for a pronoun ("a copy of it" is no target). A body that targets,
+  or uses a pronoun no effect reads through ``referent``, fails closed, so the connective
+  cannot claim a clause it would run wrongly. `CopyPermanentEffect`'s referent whitelist
+  silently maps an unknown value to ``"source"`` — the first run copied Ocelot Pride itself
+  per item until ``"iteration"`` was added there; a new referent must be whitelisted in the
+  effect, not only emitted by the parser. Still open on the same shape: Saheeli, the Gifted
+  and Red Sun's Twilight (a trailing "those tokens gain haste. exile them …"), March of
+  Progress and Battle for Bretagard ("for each creature chosen this way" / "for each of them").
+- **Files:** `parser/oracle/segmenter.py`, `parser/oracle/catalogue/count_phrase.py`,
+  `game/effects/counters_tokens.py`, `tests/test_par112_for_each_object_copy.py`
 
 ### The operand axis, and the first fusions retired (ENG-37, `14_` axis 4)
 

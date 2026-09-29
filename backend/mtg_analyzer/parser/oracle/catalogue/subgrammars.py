@@ -109,12 +109,12 @@ _TARGET_ROWS: list[tuple[str, str]] = [
      "artifact_creature_planeswalker_or_opponent"),
     # "target creature or planeswalker you don't control" (Bite Down) — the
     # controller-scoped sibling of the bare row just below, and above it by
-    # the longest-first convention. Both drop the planeswalker half (this
-    # engine's ``creature`` kinds are creature-only): a *narrowing*, never a
-    # widening, and the same simplification the unscoped row already makes.
+    # the longest-first convention. PAR-127: both used to drop the
+    # planeswalker half onto a ``creature`` kind (83 MODELED cards that could
+    # never target a planeswalker); they now name the real two-type unions.
     (r"target creature or planeswalker (?:an opponent controls|you don't control)",
-     "creature_you_dont_control"),
-    (r"target creature or planeswalker", "creature"),
+     "creature_or_planeswalker_you_dont_control"),
+    (r"target creature or planeswalker", "creature_or_planeswalker"),
     (r"target attacking or blocking creature", "attacking_or_blocking_creature"),
     (r"target (?:attacking|blocking|tapped|untapped) creature", "creature"),
     (r"target werewolf creature", "werewolf_creature"),
@@ -527,6 +527,7 @@ NOT_YOU_TARGET_KINDS: dict[str, str] = {
     "enchantment": "enchantment_you_dont_control",
     "artifact_or_enchantment": "artifact_or_enchantment_you_dont_control",
     "artifact_or_creature": "artifact_or_creature_you_dont_control",
+    "creature_or_planeswalker": "creature_or_planeswalker_you_dont_control",
 }
 #: PAR-128: kinds whose engine pool already leaves out the ability's own source
 #: (`targeting.TARGET_FRAMES`' ``exclude_source``, and the plain ``creature``/
@@ -537,7 +538,7 @@ SOURCE_EXCLUDED_TARGET_KINDS: frozenset[str] = frozenset({
     "nonbasic_land", "artifact_or_creature", "artifact_or_enchantment",
     "attacking_or_blocking_creature", "permanent_you_control", "permanent_you_dont_control",
     "nonland_permanent_you_control", "nonland_permanent_you_dont_control",
-    "other_creature_you_control",
+    "other_creature_you_control", "creature_or_planeswalker",
 })
 OTHER_TARGET_KINDS: dict[str, str] = {"creature_you_control": "other_creature_you_control"}
 #: A controller-/"another"-scoped kind → the unscoped kind whose pool it
@@ -555,6 +556,7 @@ SCOPED_TARGET_BASE: dict[str, str] = {
     # a type union is a narrowing of "any permanent"
     "artifact_or_enchantment": "permanent",
     "artifact_or_creature": "permanent",
+    "creature_or_planeswalker": "permanent",
 }
 
 

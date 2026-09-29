@@ -4397,6 +4397,45 @@ def _player_scope_specs(
     })]
 
 
+#: PAR-112: the object-scope sibling of the player-subject slot above — a *leading*
+#: "for each `<count phrase>`, `<body>`" whose body names the iterated object as "it"
+#: ("for each token you control that entered this turn, create a token that's a copy of
+#: it" — Ocelot Pride, Chief Magistrate of Mercadia, Saheeli the Gifted). RULE 101.4:
+#: one pass per object, each a separate instruction. The body is parsed with the
+#: pronoun reading on, and only effects that name their object through a ``referent``
+#: are accepted — each is re-pointed at `GameContext.iteration_item`. Anything else (a
+#: body that targets, or a pronoun some other effect family reads) fails closed.
+_LEADING_FOR_EACH_OBJECT_RE = re.compile(
+    r"^for each (?P<group>[a-z0-9+/ '~-]{3,80}?), (?P<rest>.+)$", re.IGNORECASE
+)
+#: The ``referent`` values that are the pronoun "it" — re-pointed at the loop item.
+_ITERATION_REFERENTS = frozenset({"previous"})
+
+
+def _leading_for_each_object_specs(body: str) -> "Optional[list[EffectSpec]]":
+    """See `_LEADING_FOR_EACH_OBJECT_RE`."""
+    m = _LEADING_FOR_EACH_OBJECT_RE.match(body.strip())
+    if m is None:
+        return None
+    selector = parse_count_phrase(m.group("group"))
+    if selector is None or selector.get("zone") != "battlefield" or "terms" in selector:
+        return None
+    inner = parse_effect_body(m.group("rest").strip(), previous_subject=True)
+    if not inner:
+        return None
+    effects = []
+    for spec in inner:
+        if spec.params.get("referent") not in _ITERATION_REFERENTS or _names_a_target(spec):
+            return None
+        entry: dict[str, Any] = {
+            "type": spec.type, "params": {**spec.params, "referent": "iteration"},
+        }
+        if spec.condition is not None:
+            entry["condition"] = dict(spec.condition)
+        effects.append(entry)
+    return [EffectSpec("for_each", {"over": {"selector": selector}, "effects": effects})]
+
+
 def _bind_x(effects: list[EffectSpec], amount: dict[str, Any]) -> "Optional[list[EffectSpec]]":
     """Bind the single X-holding param of a one-effect body to ``amount``
     (the `_where_x_specs` idiom, for a caller that already has the amount).
@@ -5468,6 +5507,10 @@ def parse_effect_body(
     if player_scope is not None:
         return player_scope
 
+    each_object = _leading_for_each_object_specs(body)
+    if each_object is not None:
+        return each_object
+
     matched, peeled = _peel_condition(
         body, _GENERIC_CONDITION_ROWS, self_subject=self_subject,
         previous_subject=previous_subject, group_subject=group_subject,
@@ -6278,6 +6321,9 @@ def _while_condition_segment(
 #: "if `<state>`, `<effect>`" at the head of a phase trigger's body — the state is read by
 #: `static_condition`, so anything that vocabulary says is an intervening if.
 _PHASE_INTERVENING_IF_RE = re.compile(r"^if (?P<cond>[^,]+), (?P<rest>.+)$", re.IGNORECASE | re.S)
+#: A second sentence after the first one — what makes a leading phase-trigger "if"
+#: an ability-wide gate rather than one effect's (see its use in `segment_line`).
+_NEXT_SENTENCE_RE = re.compile(r"\.\s+\S")
 
 
 def segment_line(
@@ -8156,6 +8202,19 @@ def _segment_line_unsplit(
                 "amount": int(n) if n else 0,
             }
             body = that_player_hand_if.group("rest").strip()
+        if phase_active_if is None:
+            # RULE 603.4: a leading "if `<state>`," gates the *whole* ability, not just its
+            # first sentence. Read as a per-effect gate (the path below), "if you gained
+            # life this turn, A. Then B." (Ocelot Pride) would still do B when the
+            # condition is false; so when the body runs on past its first sentence, the
+            # gate is the trigger's own `active_if`. A one-sentence body keeps its
+            # established per-effect reading (same outcome, no churn).
+            gate = _PHASE_INTERVENING_IF_RE.match(body)
+            if gate is not None and _NEXT_SENTENCE_RE.search(gate.group("rest")):
+                gated = static_condition(gate.group("cond"))
+                if gated is not None:
+                    phase_active_if = gated
+                    body = gate.group("rest").strip()
         if relation is None:
             them_damage = _PHASE_DAMAGE_TO_THEM_RE.match(body)
             if them_damage is not None:

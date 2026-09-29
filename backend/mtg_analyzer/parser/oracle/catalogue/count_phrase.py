@@ -58,6 +58,10 @@ _NAMED_SOURCE = re.compile(r"\s+named ~(?=\s|$)")
 #: "permanents you control **that are Spirits and/or enchantments**" (Katilda) —
 #: a relative clause restating the head as a plural type list.
 _THAT_ARE = re.compile(r"\s+that are (?P<what>[a-z/, ]+)$")
+#: "tokens you control **that entered this turn**" (Ocelot Pride, Renewed
+#: Solidarity) — the `entered_this_turn` filter key `combat.matches_object_filter`
+#: already reads off `GameObject.entered_turn`. Always the last tail.
+_ENTERED_THIS_TURN = re.compile(r"\s+that entered (?:the battlefield )?this turn$")
 # One noun phrase can name two disjoint zones (Crackling Drake / Huskburster
 # Swarm). Each half keeps the same filter; summing is safe because an object
 # cannot be in exile and a graveyard at the same time (RULE 400.1).
@@ -101,6 +105,10 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
     if named is not None:
         extra["named_as_reference"] = True
         text = (text[: named.start()] + text[named.end():]).strip()
+    entered = _ENTERED_THIS_TURN.search(text)
+    if entered is not None:
+        extra["entered_this_turn"] = True
+        text = text[: entered.start()].strip()
     that_are = _THAT_ARE.search(text)
     if that_are is not None:
         restated = parse_object_phrase(that_are.group("what"), plural=True)

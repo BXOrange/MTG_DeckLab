@@ -3123,6 +3123,10 @@ class CopyPermanentEffect(GameEffect):
         #: target), this is the trigger's *subject itself*, already gone
         #: from the battlefield by the time a SACRIFICE/DIES trigger
         #: resolves.
+        #: ``referent="iteration"`` (PAR-112, Ocelot Pride — "for each token
+        #: you control that entered this turn, create a token that's a copy of
+        #: **it**") is the object a `for_each` loop is on right now
+        #: (`GameContext.iteration_item`, RULE 101.4: one copy per pass).
         #: A departed object pinned by id (Ochre Jelly's delayed copy — the
         #: end-step trigger has no DIES event to read), and counters the copy
         #: enters with ("the token enters with half that many +1/+1 counters").
@@ -3138,7 +3142,7 @@ class CopyPermanentEffect(GameEffect):
             referent
             if referent in (
                 "source", "previous", "previous_each", "trigger_event", "linked_exile",
-                "attachments_each",
+                "attachments_each", "iteration",
             )
             else "source"
         )
@@ -3317,6 +3321,8 @@ class CopyPermanentEffect(GameEffect):
             if self.referent == "previous":
                 prev = list(context.previous_targets)
                 target = prev[0] if prev else None
+            elif self.referent == "iteration":
+                target = getattr(context, "iteration_item", None)
             elif self.referent == "trigger_event":
                 event = context.trigger_event
                 iid = (event or {}).get("instance_id")

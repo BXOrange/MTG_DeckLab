@@ -519,10 +519,10 @@ def test_the_one_sided_family_parses_off_real_cards():
     for name, params in [
         ("Rabid Bite", {"dealer_kind": "creature_you_control",
                         "target_kind": "creature_you_dont_control"}),
-        # "target creature or planeswalker you don't control" — the
-        # planeswalker half is dropped, as the unscoped row already does.
+        # "target creature or planeswalker you don't control" — both halves
+        # of the union kept (PAR-127).
         ("Bite Down", {"dealer_kind": "creature_you_control",
-                       "target_kind": "creature_you_dont_control"}),
+                       "target_kind": "creature_or_planeswalker_you_dont_control"}),
     ]:
         result = parse_oracle(_named(name))
         assert result.modeled, name
