@@ -152,8 +152,10 @@ python -m pytest -q                       # whole suite, fast, keep it green
       at some point, so grep for the string rather than trusting a line number).
 - [ ] **Backlog discipline**: closing a ticket = *deleting* it from
       `BACKLOG.md` and appending the narrative to `Done_Backend.md`. No `[x]`,
-      no "shipped" note, no pointer left behind. If only part is done, keep
-      only the part that isn't.
+      no "shipped" note, no pointer left behind. If only part is done, the
+      **residue goes into the ticket's `workingOn.md` block** (what's left,
+      which cards, next step), never into `BACKLOG.md` — the backlog keeps
+      only the ticket's terse open point (id, title, one-clause scope).
 - [ ] **Sweep for what else your new primitive closes.** If this batch built a
       new engine primitive, grep `BACKLOG.md` for other tickets that same
       primitive would now close or narrow, and update them in this pass. This

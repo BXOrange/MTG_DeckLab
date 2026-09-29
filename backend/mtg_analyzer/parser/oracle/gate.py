@@ -3728,7 +3728,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: 511 (PAR-119 migration): the four per-adjective group rows are the composed head,
 #: translated to their flat keys (`legacy_condition`); head verbs gained the legacy
 #: object events; "put into your graveyard from the battlefield" keeps its owner scope.
-PARSER_VERSION = "511"
+PARSER_VERSION = "512"
 
 
 def parser_source_hash() -> str:
@@ -4126,6 +4126,79 @@ def parse_oracle(card: Any) -> ParseResult:
         cached = _parse_oracle_uncached(card)
         _PARSE_CACHE[key] = cached
     return copy.deepcopy(cached)
+
+
+#: PAR-130: trigger events whose firing names the player a "that player"
+#: target scope resolves to (`targeting.trigger_player_antecedent`). A
+#: ``DAMAGE`` head only counts when its recipient filter is a player.
+_THAT_PLAYER_EVENTS: frozenset[str] = frozenset({
+    "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER", "ATTACKS", "PLAYER_ATTACKED",
+    "BECOMES_TARGET", "STEP_BEGIN",
+})
+#: The head must name that player itself — the event alone isn't enough ("at
+#: the beginning of **your** upkeep" is a `STEP_BEGIN` with no other player).
+_THAT_PLAYER_HEAD_RE = re.compile(
+    r"\b(?:a player|an opponent|each opponent's|each player's|defending player|"
+    r"1 of your opponents|an opponent controls)\b"
+)
+#: …and the body mustn't name another player first, or "that player" is that
+#: one instead (a prior "target opponent", a "for each opponent" iteration).
+_THAT_PLAYER_BODY_RIVAL_RE = re.compile(r"\b(?:players?|opponents?)\b")
+
+
+def _that_player_head_ok(event: str, filt: Any, text: str) -> bool:
+    """Whether a trigger (``event`` + recipient ``filt``, printed as ``text``)
+    names the player a "that player" in its body refers to."""
+    player_damage = event == "DAMAGE" and isinstance(filt, dict) and filt.get("is_player")
+    if event not in _THAT_PLAYER_EVENTS and not player_damage:
+        return False
+    head, sep, body = text.lower().partition(", ")
+    if not sep or not _THAT_PLAYER_HEAD_RE.search(head):
+        return False
+    return not _THAT_PLAYER_BODY_RIVAL_RE.search(body.split("that player", 1)[0])
+
+
+def _that_player_tree_ok(node: Any, context: Optional[tuple[str, Any, str]], text: str) -> bool:
+    """Walk a spec tree; every ``…_that_player_controls`` kind must sit under
+    a trigger whose head names that player. A granted trigger (a dict with
+    ``trigger_event`` — `grant_triggered_ability`) is its own context, read
+    against the quoted ability text it was parsed from."""
+    if isinstance(node, EffectSpec):
+        return _that_player_tree_ok(node.params, context, text)
+    if isinstance(node, (list, tuple)):
+        return all(_that_player_tree_ok(item, context, text) for item in node)
+    if not isinstance(node, dict):
+        return True
+    if isinstance(node.get("trigger_event"), str):
+        quoted = re.search(r'"([^"]*)"', text)
+        context = (node["trigger_event"], node.get("filter"), quoted.group(1) if quoted else "")
+    for key, val in node.items():
+        if key.endswith("kind") and isinstance(val, str) and val.endswith("_that_player_controls"):
+            if node.get("per_player") in ("opponents", "players"):
+                # "for each opponent/player, …" is its own antecedent, but
+                # only a triggered ability gathers its targets per round.
+                if context is None:
+                    return False
+            elif context is None or not _that_player_head_ok(*context):
+                return False
+        elif not _that_player_tree_ok(val, context, text):
+            return False
+    return True
+
+
+def _that_player_antecedent_ok(spec: AbilitySpec) -> bool:
+    """PAR-130: a ``…_that_player_controls`` target is only sound under a
+    trigger head that names that player (RULE 603.2's firing event is what
+    `targeting.trigger_player_antecedent` reads). Everything else — a spell,
+    an activated ability, a "for each opponent" body, a prior "target
+    opponent" — fails closed here rather than resolving against the wrong
+    player or none."""
+    text = spec.raw_text or ""
+    context = None
+    if spec.ability_kind == "triggered" and spec.trigger:
+        unquoted = re.sub(r'"[^"]*"', '""', text)
+        context = (str(spec.trigger.get("event") or ""), spec.trigger.get("filter"), unquoted)
+    return _that_player_tree_ok([spec.effects, spec.modes, spec.target], context, text)
 
 
 def _parse_oracle_uncached(card: Any) -> ParseResult:
@@ -4864,6 +4937,11 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             for e in spec.effects:
                 if e.type == "exile" and not e.params.get("selector"):
                     e.params["remember"] = True
+
+    for spec in effect_specs:
+        if not _that_player_antecedent_ok(spec):
+            all_claimed = False
+            unclaimed.append(spec.raw_text)
 
     return ParseResult(
         specs=list(keyword_specs) + effect_specs,

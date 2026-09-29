@@ -16,6 +16,7 @@ anything derived from card text: the security boundary from docs/09.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 
 from typing import Any, Callable, Optional, Union
@@ -34,6 +35,7 @@ from ...parser.oracle.catalogue.handlers import (
 from ...parser.oracle.spec import GROUP_SUBJECT_KEY_SENTINEL, AbilitySpec, EffectSpec
 from ..costs import ActivationCost, parse_activation_cost
 from ..static_conditions import condition_holds
+from ..targeting import PER_PLAYER_SCOPES
 from ..effects.core import (
     ActivatedAbility,
     AddCountersEffect,
@@ -113,6 +115,12 @@ def build_effects(effects: list[EffectSpec], source: Optional[Any] = None) -> li
             raise BindError(f"no registered effect for type {spec.type!r}")
         effect = EffectRegistry.create(spec.type, dict(spec.params))
         effect.source = source
+        per_player = spec.params.get("per_player")
+        if per_player in PER_PLAYER_SCOPES and getattr(effect, "target_spec", None) is not None:
+            # PAR-130: "for each opponent/player, … target `<X>` that player
+            # controls" — stamped here once rather than threaded through every
+            # verb's factory; `targeting.expand_counts` does the rest.
+            effect.target_spec = dataclasses.replace(effect.target_spec, per_player=per_player)
         if spec.condition is not None:
             effect = ConditionalEffect(spec.condition, effect, source=source)
         built.append(effect)

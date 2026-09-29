@@ -8,17 +8,20 @@ one:
 
 | Kind | Lives in | Rule |
 | --- | --- | --- |
-| **Open points** | this file | Only open scope. No history. |
+| **Open points** | this file | Only open scope. No history, no residue. |
 | **Worklogs** | [Done_Backend.md](Done_Backend.md), [Done_Frontend.md](Done_Frontend.md) | Append-only. What shipped and *why it was built that way*. |
 | **Examples** | [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md) | Calibration samples + strategy for the indefinite parser tail. |
 | **Singleton queue** | [singletons.md](singletons.md) | Genuinely one-off cards confirmed (via `parser_probe.py blocked`) to share no cluster with any other cached card — not a ticket, a queue for the `hand-author-card` skill. Never batch these into a `PAR-*`/`MEC-*` ticket; if a later sweep finds a second card sharing one's shape, promote that pair out into a real ticket instead. |
-| **Working memory** | [workingOn.md](workingOn.md) | Resumable state of the ticket in progress (done / next step / decisions), one block per ticket. Read first when resuming, update at every milestone, delete the block on close. |
+| **Working memory** | [workingOn.md](workingOn.md) | Resumable state of the ticket in progress (done / next step / decisions), one block per ticket — including a partly done ticket's **residue**. Read first when resuming, update at every milestone, delete the block on close. |
 
 **Closing a ticket = deleting it from this file** and appending its narrative
 to the matching `Done_*.md` section. Never leave a `[x]`, a "shipped" note,
 or a "moved to Done" pointer here — this file is read in full, often, so
-anything finished that stays costs every future read. If only part of a
-ticket is done, keep only the part that isn't.
+anything finished that stays costs every future read. **If only part of a
+ticket is done, its residue goes into the ticket's block in
+[workingOn.md](workingOn.md), not here** — this file keeps just the ticket's
+terse open point (id, title, one-clause scope), with no residue list and no
+progress notes.
 
 Ticket ids are stable; reuse a retired id only for the same subject.
 Plan-level sequencing lives in
@@ -156,14 +159,9 @@ No open tickets.
   "a spirit card or a card with disturb", "to 1 or more of your opponents" as one trigger
   per step, "to a player or battle", reflexive "when you sacrifice 1 or more X this way"
   (Nyssa, Ravenous Rotbelly, Swashbuckler Extraordinaire).
-- **PAR-130 · "target `<X>` that player controls" as a target-scope slot.** 102 SOLO cards
-  are blocked only by it (`parser_probe.py blocked "target [a-z ,]+ that player controls"`;
-  e.g. Feline Sovereign, Dreadmaw's Ire, the "whenever ~ deals combat damage to a player,
-  destroy target `<type>` that player controls" family). `targeting.SCOPE_THAT_PLAYER`
-  exists but only on two kinds; the parser composes only "an opponent controls / you don't
-  control" (`subgrammars.NOT_YOU_TARGET_KINDS`). "That player" is antecedent-dependent —
-  the damaged/triggering player, the "for each opponent" iteration player, or a prior
-  "target player" — so the slot may only compose where the antecedent is known.
+- **PAR-130 · "target `<X>` that player controls" beyond trigger antecedents.** The slot
+  still fails on spells' "for each opponent", a prior-target antecedent, and some trigger
+  heads/bodies around it.
 - **PAR-129 · A line starting with "Exhaust" is swallowed as a keyword line (wrong-but-MODELED).**
   11 parser-MODELED cards lose an ability: the first line that begins with the word
   "Exhaust" is claimed as the bare Exhaust keyword (Scryfall lists it in `keywords`), so no
@@ -265,8 +263,8 @@ No open tickets.
     per-ability row list: for most inner texts the segmenter already claims
     the ability standalone (verified: "when ~ dies, return it to the
     battlefield tapped…", "…and suspect it", "whenever ~ deals combat
-    damage to a player, draw a card" all claim; Dreadmaw's Ire's "destroy
-    target artifact that player controls" does not), so the fix is the
+    damage to a player, draw a card" all claim, and since PAR-130 so does
+    Dreadmaw's Ire's "…, destroy target artifact that player controls"), so the fix is the
     shell **recursing into the standard ability grammar** (as
     `_QUOTED_GRANT_RE`/`_ATTACHED_QUOTED_GRANT_RE` already do for static
     grants). Measured by abstracted inner text: 8 of the SOLO cards ride

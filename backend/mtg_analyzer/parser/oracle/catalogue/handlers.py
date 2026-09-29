@@ -19,6 +19,7 @@ Pure regex + data — **no `game/` imports** (front-end security boundary).
 
 from __future__ import annotations
 
+import copy
 import re
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
@@ -27,6 +28,7 @@ from ..normalize import SELF
 from ..spec import GROUP_SUBJECT_KEY_SENTINEL, EffectSpec, ParserProvenance
 from .keywords import KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
 from .subgrammars import (
+    THAT_PLAYER_TAIL,
     target_kind_allowed,
     subtype_count_selector,
     CANT_BE_COUNTERED_RE,
@@ -2992,11 +2994,14 @@ def _destroy_equipment_attached_to_it(m: re.Match[str]) -> list[EffectSpec]:
 #: subtype rather than a card type, so it deliberately is not part of the
 #: broad ``TARGET`` grammar used by the ordinary destroy row.  The targeting
 #: layer already has the precise subtype predicate.
-_DESTROY_EQUIPMENT_RE = _c(r"destroy target equipment")
+_DESTROY_EQUIPMENT_RE = _c(rf"destroy target equipment(?P<that_player>{THAT_PLAYER_TAIL})?")
 
 
 def _destroy_equipment(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("destroy", {"target_kind": "equipment"})]
+    # PAR-130: "… that player controls" (Rustmouth Ogre's sibling Goblin
+    # Gaveleer-shaped heads) — the trigger-scoped equipment pool.
+    kind = "equipment_that_player_controls" if m.group("that_player") else "equipment"
+    return [EffectSpec("destroy", {"target_kind": kind})]
 
 
 #: "exile target `<c1>` or `<c2>` creature/permanent[ you don't control]"
@@ -3006,6 +3011,7 @@ def _destroy_equipment(m: re.Match[str]) -> list[EffectSpec]:
 _EXILE_TARGET_TWO_COLOR_RE = _c(
     rf"exile target (?P<c1>{COLOR_WORD_ALT}) or (?P<c2>{COLOR_WORD_ALT}) "
     rf"(?P<noun>creature|permanent)(?P<yc> (?:you don't control|an opponent controls))?"
+    rf"(?P<that_player>{THAT_PLAYER_TAIL})?"
 )
 
 
@@ -3049,6 +3055,8 @@ def _exile_target_two_color(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = "permanent" if noun == "permanent" else "creature"
     if m.groupdict().get("yc"):
         kind = "permanent_you_dont_control" if noun == "permanent" else "creature_you_dont_control"
+    elif m.groupdict().get("that_player"):
+        kind = f"{kind}_that_player_controls"  # PAR-130
     return [EffectSpec("exile", {"target_kind": kind, "colors": colors})]
 
 
@@ -3202,13 +3210,17 @@ _NEG_CREATURE_FILTER_WORDS: dict[str, tuple[str, str]] = {
 _DESTROY_NON_CREATURE_RE = _c(
     rf"destroy target non(?P<neg>{'|'.join(_NEG_CREATURE_FILTER_WORDS)})"
     rf"(?:, non(?P<second_neg>{'|'.join(_NEG_CREATURE_FILTER_WORDS)}))? creature"
+    rf"(?P<that_player>{THAT_PLAYER_TAIL})?"
     r"(?P<no_regen>\. it can'?t be regenerated)?"
 )
 
 
 def _destroy_non_creature(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     key, value = _NEG_CREATURE_FILTER_WORDS[m.group("neg")]
-    params: dict = {"target_kind": "creature", "creature_filter": {key: value}}
+    # PAR-130: "… that player controls" (Tooth Collector-shaped heads) —
+    # `gate._that_player_antecedent_ok` checks the trigger names that player.
+    kind = "creature_that_player_controls" if m.group("that_player") else "creature"
+    params: dict = {"target_kind": kind, "creature_filter": {key: value}}
     # Terror/Shriekmaw's two independent negatives ("nonartifact,
     # nonblack") compose two already-supported target filters.  Do not accept
     # a duplicate filter key yet: no real card needs e.g. two colors here,
@@ -17387,11 +17399,61 @@ def match_clause(
         effects = handler.match(clause)
         if effects is not None:
             return effects
-    return _perpetual_pump_specs(
-        clause, self_subject=self_subject, previous_subject=previous_subject,
+    flags = dict(
+        self_subject=self_subject, previous_subject=previous_subject,
         group_subject=group_subject, previous_selector=previous_selector,
         attached_subject=attached_subject,
     )
+    return _perpetual_pump_specs(clause, **flags) or _per_player_target_specs(clause, **flags)
+
+
+# -- PAR-130: "for each opponent/player, <verb> target <X> that player controls"
+#
+# The iteration is the antecedent of "that player": one RULE 115 requirement per
+# player, each scoped to that player's permanents (`targeting.TargetSpec.
+# per_player`). The body is whatever the ordinary table claims; this only stamps
+# ``per_player`` onto the requirement(s) it scoped with "that player". Refused
+# when the body names another player before "that player" (that player would be
+# that one), or when nothing in it is "that player"-scoped. Only a triggered
+# ability gathers its targets per round, so `gate._that_player_antecedent_ok`
+# refuses the stamp anywhere else.
+_PER_PLAYER_RE = re.compile(r"for each (?P<who>opponent|player), (?P<body>.+)")
+_PER_PLAYER_BODY_RIVAL_RE = re.compile(r"\b(?:players?|opponents?)\b")
+_PER_PLAYER_SCOPE = {"opponent": "opponents", "player": "players"}
+
+
+def _stamp_per_player(node: Any, scope: str) -> int:
+    """Stamp ``per_player`` on every params dict holding a "that player" kind."""
+    if isinstance(node, EffectSpec):
+        return _stamp_per_player(node.params, scope)
+    if isinstance(node, list):
+        return sum(_stamp_per_player(item, scope) for item in node)
+    if not isinstance(node, dict):
+        return 0
+    stamped = 0
+    if str(node.get("target_kind") or "").endswith("_that_player_controls"):
+        node["per_player"] = scope
+        stamped += 1
+    for key, val in node.items():
+        if key != "target_kind":
+            stamped += _stamp_per_player(val, scope)
+    return stamped
+
+
+def _per_player_target_specs(clause: str, **flags: bool) -> Optional[list[EffectSpec]]:
+    m = _PER_PLAYER_RE.fullmatch(clause.strip())
+    if m is None:
+        return None
+    body = m.group("body")
+    if _PER_PLAYER_BODY_RIVAL_RE.search(body.split("that player", 1)[0]):
+        return None
+    specs = match_clause(body, **flags)
+    if not specs:
+        return None
+    specs = copy.deepcopy(specs)
+    if not _stamp_per_player(specs, _PER_PLAYER_SCOPE[m.group("who")]):
+        return None
+    return specs
 
 
 # -- MEC-98: Alchemy "perpetually" P/T + keyword changes ---------------------

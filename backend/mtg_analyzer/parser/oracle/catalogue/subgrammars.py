@@ -304,11 +304,18 @@ UP_TO_ONE = r"(?:up to (?:one|1) )?"
 #: composes it onto the row's kind through `NOT_YOU_TARGET_KINDS`; a row that
 #: already names its own scope still wins (it is tried first, full-match).
 NOT_YOU_TAIL = r" (?:an opponent controls|you don't control)"
+#: PAR-130: "that player controls" is the same kind of slot, scoped to a
+#: player the *trigger head* names (the damaged/attacked/active player, the
+#: controller of a targeting spell). The slot itself can't see its antecedent,
+#: so `gate` rejects any ability that carries a ``THAT_PLAYER_TARGET_KINDS``
+#: kind without such a head (`gate._that_player_antecedent_ok`).
+THAT_PLAYER_TAIL = r" that player controls"
 #: PAR-128: RULE 109.5's "another"/"other" is the same kind of slot, before any row.
 OTHER_PREFIX = r"(?:another|other) "
 _TARGET_ALT = (
     f"(?:{OTHER_PREFIX})?"
-    "(?:" + "|".join(f"(?:{frag})" for frag, _ in _TARGET_ROWS) + f")(?:{NOT_YOU_TAIL})?"
+    "(?:" + "|".join(f"(?:{frag})" for frag, _ in _TARGET_ROWS) + ")"
+    f"(?:{NOT_YOU_TAIL}|{THAT_PLAYER_TAIL})?"
 )
 TARGET = (
     r"(?P<up_to_one>" + UP_TO_ONE + r")"
@@ -529,6 +536,16 @@ NOT_YOU_TARGET_KINDS: dict[str, str] = {
     "artifact_or_creature": "artifact_or_creature_you_dont_control",
     "creature_or_planeswalker": "creature_or_planeswalker_you_dont_control",
 }
+#: PAR-130: a target kind → the same pool scoped to "that player"
+#: (`targeting.TARGET_FRAMES`' ``SCOPE_THAT_PLAYER`` rows). Same contract as
+#: `NOT_YOU_TARGET_KINDS`: a kind missing here stays unclaimed.
+THAT_PLAYER_TARGET_KINDS: dict[str, str] = {
+    base: f"{base}_that_player_controls" for base in (
+        "creature", "creature_or_planeswalker", "permanent", "nonland_permanent", "land",
+        "nonbasic_land", "artifact", "enchantment", "artifact_or_enchantment",
+        "artifact_or_creature",
+    )
+}
 #: PAR-128: kinds whose engine pool already leaves out the ability's own source
 #: (`targeting.TARGET_FRAMES`' ``exclude_source``, and the plain ``creature``/
 #: ``permanent`` branches), so "another target `<X>`" is the same kind. A kind
@@ -547,6 +564,7 @@ OTHER_TARGET_KINDS: dict[str, str] = {"creature_you_control": "other_creature_yo
 #: through this instead of every verb listing every scope.
 SCOPED_TARGET_BASE: dict[str, str] = {
     **{scoped: base for base, scoped in NOT_YOU_TARGET_KINDS.items()},
+    **{scoped: base for base, scoped in THAT_PLAYER_TARGET_KINDS.items()},
     "creature_you_control": "creature",
     "other_creature_you_control": "creature",
     "permanent_you_control": "permanent",
@@ -587,6 +605,10 @@ def resolve_target_kind(phrase: str) -> Optional[str]:
     if tail is not None:
         base = resolve_target_kind(text[: tail.start()])
         return NOT_YOU_TARGET_KINDS.get(base) if base is not None else None
+    tail = re.search(THAT_PLAYER_TAIL + r"\Z", text, re.IGNORECASE)
+    if tail is not None:
+        base = resolve_target_kind(text[: tail.start()])
+        return THAT_PLAYER_TARGET_KINDS.get(base) if base is not None else None
     other = re.match(OTHER_PREFIX, text, re.IGNORECASE)
     if other is not None:
         base = resolve_target_kind(text[other.end():])

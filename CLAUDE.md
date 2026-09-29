@@ -583,12 +583,12 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 51.4% (17,882 / 34,811) as of 2026-09-29, measured at
-PARSER_VERSION 511** (parser-`MODELED` or hand-`AUTHORED`, measured against
+**Coverage: 51.5% (17,914 / 34,811) as of 2026-09-29, measured at
+PARSER_VERSION 512** (parser-`MODELED` or hand-`AUTHORED`, measured against
 the full ~35k-card Oracle universe from `scripts/import_bulk.py`). Re-measure
 with `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset that
-matters for Goldfisch/Deck-Analyzer — is **54.0% (17,175 / 31,830)**; measure
+matters for Goldfisch/Deck-Analyzer — is **54.0% (17,204 / 31,830)**; measure
 it with `scripts/coverage_report.py --commander-legal-only` (records a
 separate `…-commander` snapshot row) and segment the still-UNMODELED
 remainder by *cause* (wrapper re-measure / recurring template → `PAR-*` /
@@ -624,12 +624,12 @@ memory** — all under
 
 | Kind | File | Rule |
 | --- | --- | --- |
-| Open points | `BACKLOG.md` | The *single* backlog, backend **and** frontend, as categorized tickets (`ENG` game engine, `PAR` parser, `MEC` game mechanics, `PLR` player management, `VIS` visuals, `DB` database, `ANA` deck analysis — the former `TYP` card-types category is retired, RULE 300–315 being complete). Open scope only — no history. **Up-for-scheduling work only**; parked/low-priority tickets and permanent non-goals move to `DEFERRED.md` so this file stays cheap to read in full. |
+| Open points | `BACKLOG.md` | The *single* backlog, backend **and** frontend, as categorized tickets (`ENG` game engine, `PAR` parser, `MEC` game mechanics, `PLR` player management, `VIS` visuals, `DB` database, `ANA` deck analysis — the former `TYP` card-types category is retired, RULE 300–315 being complete). Open scope only — no history, and no *residue*: a partly done ticket stays here only as its terse open point (id, title, one-clause scope). **Up-for-scheduling work only**; parked/low-priority tickets and permanent non-goals move to `DEFERRED.md` so this file stays cheap to read in full. |
 | Parked / non-goals | `DEFERRED.md` | Low-priority or large-and-unscheduled tickets pulled out of `BACKLOG.md` (they keep their id + full write-up), plus the "never to be built" guardrails (Stickers, Attractions, Vanguard avatars). Same open-scope-only discipline. Promote by moving a block back into `BACKLOG.md`. |
 | Worklogs | `Done_Backend.md`, `Done_Frontend.md` | Catalogues, organized by game-mechanic/app-area (not chronologically) — what shipped and *why it was built that way*, one entry per feature/primitive under a subsystem heading. Entry headings are the stable, searchable unit now (not the whole file being append-only); closing a ticket means filing its narrative under the matching subsystem entry, merging into it if one already covers the same primitive, rather than appending at the end. |
 | Examples | `PARSER_LONG_TAIL.md` | Standing strategy + recurring lessons + enumerated worked samples for the indefinite parser tail. Neither backlog nor worklog. |
 | Singleton queue | `singletons.md` | Cards confirmed (via `parser_probe.py blocked`) to share their exact gap with no other cached card — real work, but not ticket-worthy on their own. A queue for `hand-author-card`, not a ticket; promote a row into a real ticket the moment a second card is found sharing its shape. |
-| Working memory | `workingOn.md` | The resumable state of the ticket **being built right now** — done / in progress / exact next step / decisions / baselines / known red tests, one block per ticket. **Read it first** when starting or resuming ticket work and continue from its *Next step* instead of re-deriving the state; **update it at every milestone** (sub-step built + tested, decision, before a long run or a commit) so a crash, an expired prompt cache or an update loses nothing. On closing the ticket delete its block — only the empty header/template stays (no ticket id, no log). |
+| Working memory | `workingOn.md` | The resumable state of the ticket **being built right now** — done / in progress / exact next step / decisions / baselines / known red tests, one block per ticket — including a **partly done ticket's residue** (exactly what is still open, and the next step), which lives here rather than in `BACKLOG.md` and keeps the block alive until the residue is done. **Read it first** when starting or resuming ticket work and continue from its *Next step* instead of re-deriving the state; **update it at every milestone** (sub-step built + tested, decision, before a long run or a commit) so a crash, an expired prompt cache or an update loses nothing. On closing the ticket delete its block — only the empty header/template stays (no ticket id, no log). |
 
 (The former `backend/ToDo_Backend.md` and `frontend/ToDo_Frontend.md` are
 gone — merged into `BACKLOG.md`.) The plan to finish is
@@ -769,8 +769,13 @@ English and German.
   (a saved-deck/cube playability push) gets one short entry under `##
   Deck/Cube Playability Batches` instead, naming what closed and pointing
   at the primitive entries it used. Never leave a `[x]`, a "shipped" note,
-  or even a "moved to Done_*.md" pointer in `BACKLOG.md`; if only part of a
-  ticket is done, keep only the part that isn't. Finished detail left in the
+  or even a "moved to Done_*.md" pointer in `BACKLOG.md`. **If only part of
+  a ticket is done, its residue does not go into `BACKLOG.md`**: the backlog
+  keeps just the ticket's terse open point (id, title, one-clause scope, no
+  "residue" lists, no progress notes), and what is still open — the
+  remaining card clusters, blockers, the exact next step — goes into the
+  ticket's block in `docs/implementation-state/workingOn.md`, which stays
+  until that residue is done. Finished detail or residue left in the
   backlog defeats the split and taxes every future read.
 - **No half-implementations — close the loop, don't let a deferred item
   silently roll over.** Every batch/session prioritizes by real

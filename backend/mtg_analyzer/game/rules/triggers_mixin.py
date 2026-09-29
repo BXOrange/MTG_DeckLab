@@ -1349,7 +1349,7 @@ class TriggerCollectionMixin:
             controller_id = self._trigger_controller_id(ability, event)
             options = legal_targets(self.state, controller_id, spec, source=ability.source, trigger_event=event)
             if not options:
-                if spec.optional:
+                if spec.optional or spec.scoped_player_id is not None:
                     # RULE 115.1a: "up to one target" is satisfied by
                     # choosing *zero* targets, so an empty board doesn't
                     # stop the ability going on the stack — it resolves with
@@ -1462,7 +1462,9 @@ class TriggerCollectionMixin:
         if picked:
             options = [o for o in options if o.get("instance_id") not in picked]
         if not options:
-            if spec.optional:
+            # A `per_player` round (PAR-130) whose player controls nothing
+            # legal is skipped: no target is chosen for that player.
+            if spec.optional or spec.scoped_player_id is not None:
                 return self._continue_trigger_multi_target(
                     ability, override, queue, specs, groups + [[]], event, spans
                 )

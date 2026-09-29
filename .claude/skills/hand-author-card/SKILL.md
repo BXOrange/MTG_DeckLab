@@ -146,7 +146,9 @@ python -m pytest -q
       on a card's canonical name shows you every alias an existing entry
       already carries).
 - [ ] If this card closes a `BACKLOG.md` ticket: **delete** the ticket, don't
-      tick it, and append the narrative to `Done_Backend.md`.
+      tick it, and append the narrative to `Done_Backend.md`. If it closes only
+      part of one, the residue goes into the ticket's `workingOn.md` block, not
+      `BACKLOG.md`.
 - [ ] Commits only when asked; branch first if on `main`.
 
 ## Hard rules (from the guide, worth repeating)

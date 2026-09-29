@@ -25,9 +25,9 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**51.4% covered — 17,882 / 34,811 — as of 2026-09-29, PARSER_VERSION 511** (PAR-119 closed: RULE 603.2c batches, graveyard arrivals, land-tap mana bodies, zone tails, subject qualifiers, the group rows onto the composed head — +89 since v501).
+**51.5% covered — 17,914 / 34,811 — as of 2026-09-29, PARSER_VERSION 512** (PAR-130: the "that player controls" target scope under a player-naming trigger head or a "for each opponent/player" iteration — +32 since v511).
 Commander-legal slice (the one the product actually plays): **54.0% —
-17,175 / 31,830** (measure with `--commander-legal-only`).
+17,204 / 31,830** (measure with `--commander-legal-only`).
 
 ### PAR-124 closes completely: player-events, X-tokens, a targeted delayed trigger, a hand-zone duplicate, an optional-attach composition — and the controller-binding bug the targeted variant first exposed (PARSER_VERSION 463)
 

@@ -638,7 +638,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Temur War Shaman | `Whenever a permanent you control is turned face up, if it's a creature, you may have it fight target creature you don't control.` |  |
 | Thunderfoot Baloth | `As long as you control your commander, ~ gets +<n>/+<n> and other creatures you control get +<n>/+<n> and have trample.` |  |
 | Trail of Mystery | `Whenever a face-down creature you control enters, you may search your library for a basic land card, reveal it, put it into your hand, then shuffle.` |  |
-| Trygon Predator | `Whenever ~ deals combat damage to a player, you may destroy target artifact or enchantment that player controls.` |  |
 | Whisperwood Elemental | `Sacrifice ~: until end of turn, face-up nontoken creatures you control gain ~` |  |
 | Yedora, Grave Gardener | `Whenever another nontoken creature you control dies, you may return it to the battlefield face down under its owner's control. it's a forest land.` |  |
 

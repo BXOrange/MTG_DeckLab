@@ -7249,11 +7249,13 @@ def _segment_line_unsplit(
             }
             if becomes_target_trig.group("yours"):
                 condition["controller"] = "you"
-        trigger: dict[str, Any] = {
-            "event": "BECOMES_TARGET",
-            "condition": condition,
-            "filter": {"item_kind": becomes_target_trig.group("item_kind").lower()},
-        }
+        trigger: dict[str, Any] = {"event": "BECOMES_TARGET", "condition": condition}
+        item_kind = becomes_target_trig.group("item_kind").lower()
+        if item_kind != "spell or ability":
+            # The event's ``item_kind`` is "spell" or "ability"; "a spell or
+            # ability" is both, i.e. no filter (PAR-130: as an exact-match
+            # value it never fired).
+            trigger["filter"] = {"item_kind": item_kind}
         caster_rel = (becomes_target_trig.group("caster_rel") or "").strip()
         if caster_rel == "an opponent controls":
             trigger["caster_relation"] = "opponent"

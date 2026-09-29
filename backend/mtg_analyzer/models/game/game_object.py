@@ -661,6 +661,12 @@ class GameObject:
         #: `ReturnLinkedExileEffect` on this object's own leaves-battlefield
         #: trigger. ``None`` when nothing is currently linked.
         self.linked_exile_id: Optional[int] = None
+        #: Every card one remembering exile took, when it took more than one
+        #: ("for each opponent, exile up to one target … until ~ leaves the
+        #: battlefield" — PAR-130). `linked_exile_id` keeps naming the last of
+        #: them for its single-card readers; `ReturnLinkedExileEffect` returns
+        #: the whole set.
+        self.linked_exile_ids: list[int] = []
         #: RULE 702.55 Haunt: the creature this exiled card currently haunts.
         #: The link is cleared by any later zone change (`reset_as_new_object`).
         self.haunting_instance_id: Optional[int] = None
@@ -1405,6 +1411,7 @@ class GameObject:
         self.last_unattached_from_id = None
         self.control_change_until_eot = None
         self.linked_exile_id = None
+        self.linked_exile_ids = []
         self.haunting_instance_id = None
         self.exile_after_free_cast = False
         self.exiled_with_ids = []

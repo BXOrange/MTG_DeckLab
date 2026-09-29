@@ -313,6 +313,12 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # "goad target creature that player controls" — the damaged player
         # off `CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER`).
         "creature_that_player_controls",
+        # PAR-130: the same "that player" scope over every other base pool
+        # the parser's target grammar names (`THAT_PLAYER_KINDS`, below).
+        *(f"{base}_that_player_controls" for base in (
+            "permanent", "nonland_permanent", "land", "nonbasic_land", "artifact",
+            "enchantment", "artifact_or_enchantment", "artifact_or_creature", "equipment",
+        )),
         # "target creature or planeswalker" (Imodane deck batch —
         # Stonesplitter Bolt/Lithomantic Barrage/Torch Breath/Torch the
         # Tower, a hugely common modern removal-spell template) — the
@@ -556,6 +562,17 @@ class TargetSpec:
     #: target-legality question to resolve and stays a resolve-time trick.
     #: ``None`` (the default) means the filters above always apply.
     unless_flag: Optional[str] = None
+    #: PAR-130: "**for each opponent**/**for each player**, `<verb>` [up to 1]
+    #: target `<X>` **that player** controls" — one requirement per player
+    #: (`PER_PLAYER_SCOPES`), each scoped to that player's permanents.
+    #: `expand_counts` splits it into one round per player with
+    #: ``scoped_player_id`` set; a round whose player controls nothing legal
+    #: is skipped rather than dropping the whole ability (RULE 601.2c: no
+    #: target is chosen for that player). ``None`` = an ordinary requirement.
+    per_player: Optional[str] = None
+    #: The player one expanded `per_player` round is scoped to — read by the
+    #: ``SCOPE_THAT_PLAYER`` frames ahead of the trigger event's antecedent.
+    scoped_player_id: Optional[str] = None
 
     @property
     def effective_count(self) -> int:
@@ -566,6 +583,8 @@ class TargetSpec:
         its callers): for a range spec ``count`` is the RULE 601.2c
         *minimum*, and a shorter cap would silently drop a legally chosen
         target above the minimum."""
+        if self.per_player in PER_PLAYER_SCOPES:
+            return PER_PLAYER_TARGET_CAP
         return self.count_max if self.count_max is not None else self.count
 
     def label(self) -> str:
@@ -616,6 +635,22 @@ class TargetSpec:
                 "Kreatur oder Planeswalker unter der Kontrolle dieses Spielers",
             "creature_that_player_controls":
                 "Kreatur unter der Kontrolle dieses Spielers",
+            "permanent_that_player_controls":
+                "bleibende Karte unter der Kontrolle dieses Spielers",
+            "nonland_permanent_that_player_controls":
+                "bleibende Nichtland-Karte unter der Kontrolle dieses Spielers",
+            "land_that_player_controls": "Land unter der Kontrolle dieses Spielers",
+            "nonbasic_land_that_player_controls":
+                "nichtgrundlegendes Land unter der Kontrolle dieses Spielers",
+            "artifact_that_player_controls": "Artefakt unter der Kontrolle dieses Spielers",
+            "enchantment_that_player_controls":
+                "Verzauberung unter der Kontrolle dieses Spielers",
+            "artifact_or_enchantment_that_player_controls":
+                "Artefakt oder Verzauberung unter der Kontrolle dieses Spielers",
+            "artifact_or_creature_that_player_controls":
+                "Artefakt oder Kreatur unter der Kontrolle dieses Spielers",
+            "equipment_that_player_controls":
+                "Ausrüstung unter der Kontrolle dieses Spielers",
             "battle_or_opponent": "Schlacht oder Gegner",
             "creature_planeswalker_or_battle": "Kreatur, Planeswalker oder Schlacht",
             "attached_aura_or_equipment_you_control":
@@ -897,6 +932,17 @@ SCOPE_OWNER_YOU = "owner_you"
 SCOPE_DEFENDING = "defending"
 SCOPE_THAT_PLAYER = "that_player"
 
+#: `TargetSpec.per_player` vocabulary (PAR-130): whose permanents each round
+#: of a "for each opponent/player, … target `<X>` that player controls"
+#: requirement is scoped to.
+PER_PLAYER_SCOPES: frozenset[str] = frozenset({"opponents", "players"})
+#: The resolve-time slicing cap for a `per_player` requirement
+#: (`TargetSpec.effective_count`): one pick per round, and the number of
+#: rounds is the number of players, known only at announce time. Any value at
+#: least the largest table works; this is comfortably above the four seats the
+#: board UI supports (`services/lobby.MAX_SEATS`) without being unbounded.
+PER_PLAYER_TARGET_CAP = 16
+
 
 @dataclass(frozen=True)
 class TargetFrame:
@@ -1148,9 +1194,38 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     "artifact_or_enchantment_defending_player_controls": TargetFrame(
         "artifact_or_enchantment", SCOPE_DEFENDING),
     "creature_defending_player_controls": TargetFrame("creature", SCOPE_DEFENDING),
-    "creature_that_player_controls": TargetFrame("creature", SCOPE_THAT_PLAYER),
+    # PAR-130: "target `<X>` that player controls" over every base pool the
+    # parser composes the slot onto; the per-kind filter flags mirror the
+    # unscoped kind's, so "that player" narrows the pool and nothing else.
+    "creature_that_player_controls": TargetFrame(
+        "creature", SCOPE_THAT_PLAYER, exclude_source=False, apply_color=True,
+        apply_max_mana_value=True, apply_creature_filter=True),
     "creature_or_planeswalker_that_player_controls": TargetFrame(
-        "creature_or_planeswalker", SCOPE_THAT_PLAYER),
+        "creature_or_planeswalker", SCOPE_THAT_PLAYER, exclude_source=False,
+        apply_max_mana_value=True),
+    "permanent_that_player_controls": TargetFrame(
+        "permanent", SCOPE_THAT_PLAYER, exclude_source=False, apply_color=True,
+        apply_max_mana_value=True),
+    "nonland_permanent_that_player_controls": TargetFrame(
+        "nonland_permanent", SCOPE_THAT_PLAYER, exclude_source=False,
+        apply_color=True, apply_max_mana_value=True),
+    "land_that_player_controls": TargetFrame(
+        "land", SCOPE_THAT_PLAYER, exclude_source=False, apply_color=True,
+        apply_max_mana_value=True),
+    "nonbasic_land_that_player_controls": TargetFrame(
+        "nonbasic_land", SCOPE_THAT_PLAYER, exclude_source=False),
+    "artifact_that_player_controls": TargetFrame(
+        "artifact", SCOPE_THAT_PLAYER, exclude_source=False, apply_color=True,
+        apply_max_mana_value=True),
+    "enchantment_that_player_controls": TargetFrame(
+        "enchantment", SCOPE_THAT_PLAYER, exclude_source=False, apply_color=True,
+        apply_max_mana_value=True),
+    "artifact_or_enchantment_that_player_controls": TargetFrame(
+        "artifact_or_enchantment", SCOPE_THAT_PLAYER, exclude_source=False),
+    "artifact_or_creature_that_player_controls": TargetFrame(
+        "artifact_or_creature", SCOPE_THAT_PLAYER, exclude_source=False),
+    "equipment_that_player_controls": TargetFrame(
+        "equipment", SCOPE_THAT_PLAYER, exclude_source=False),
 
     # --- attachments (RULE 701.3) ---------------------------------------
     "equipment_you_control": TargetFrame(
@@ -1199,6 +1274,34 @@ def _frame_scope_ok(
     return obj.controller_id == scoped_player_id
 
 
+def trigger_player_antecedent(state: "GameState", event: Any) -> Optional[str]:
+    """The player a trigger's "that player" names (PAR-130), or ``None``.
+
+    Read off the firing event, per event family: a damage event's player
+    recipient (`DAMAGE` / the RULE 510.2 `CREATURES_DEALT_COMBAT_DAMAGE_TO_
+    PLAYER` batch — ``target_id`` with ``is_player``), the RULE 508.1a
+    defender of an attack event, the controller of the spell or ability
+    that targeted something (`BECOMES_TARGET`), and the active player of a
+    "at the beginning of each [opponent's|player's] `<step>`" trigger (RULE
+    102.1). The parser only emits a ``…_that_player_controls`` kind under one
+    of these heads (`gate._that_player_antecedent_ok`); anything else answers
+    ``None`` and the requirement fails closed.
+    """
+    if not event:
+        return None
+    event_type = getattr(event, "type", None) or event.get("type")
+    if event.get("is_player") and event.get("target_id") is not None:
+        return event.get("target_id")
+    if event.get("defending_player_id") is not None:
+        return event.get("defending_player_id")
+    if event_type == "BECOMES_TARGET":
+        return event.get("controller_id")
+    if event_type == "STEP_BEGIN":
+        active = getattr(state, "active_player", None)
+        return getattr(active, "id", None)
+    return None
+
+
 def _legal_from_frame(
     state: "GameState",
     controller_id: str,
@@ -1217,8 +1320,9 @@ def _legal_from_frame(
         event = trigger_event or {}
         if frame.scope == SCOPE_DEFENDING:
             scoped_player_id = event.get("defending_player_id")
-        elif event.get("is_player"):
-            scoped_player_id = event.get("target_id")
+        else:
+            # A `per_player` round names its player outright (PAR-130).
+            scoped_player_id = spec.scoped_player_id or trigger_player_antecedent(state, event)
         if scoped_player_id is None:
             # No event in hand means no player to scope to — fail closed
             # rather than guessing a fixed role.
@@ -1854,6 +1958,20 @@ def expand_counts(
     expanded: list[TargetSpec] = []
     spans: list[int] = []
     for spec in specs:
+        if spec.per_player in PER_PLAYER_SCOPES and state is not None:
+            # PAR-130: one round per player, in turn order from the
+            # controller, each scoped to that player (`scoped_player_id`).
+            players = list(state.living_players())
+            start = next((i for i, p in enumerate(players) if p.id == controller_id), 0)
+            rounds = [
+                replace(spec, per_player=None, scoped_player_id=p.id, count=1,
+                        count_max=None, count_selector=None)
+                for p in players[start:] + players[:start]
+                if spec.per_player == "players" or p.id != controller_id
+            ]
+            expanded.extend(rounds)
+            spans.append(len(rounds))
+            continue
         minimum = max(0, resolved_count(spec, state, controller_id, source))
         n = spec.count_max if spec.count_max is not None else minimum
         if n <= 1:

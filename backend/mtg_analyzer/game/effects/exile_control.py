@@ -261,6 +261,8 @@ class ExileEffect(GameEffect):
             if self.target_spec.count_selector
             else _chosen_targets(targets, self.target_spec.effective_count, self.target)
         )
+        if self.remember and self.source is not None:
+            self.source.linked_exile_ids = [t.instance_id for t in chosen] if len(chosen) > 1 else []
         for target in chosen:
             if self.remember and self.source is not None:
                 self.source.linked_exile_id = target.instance_id
@@ -1603,13 +1605,16 @@ class ReturnLinkedExileEffect(GameEffect):
         if self.source is None:
             return
         linked_id = getattr(self.source, "linked_exile_id", None)
+        linked_ids = list(getattr(self.source, "linked_exile_ids", None) or [])
         self.source.linked_exile_id = None
-        if linked_id is None:
-            return
-        card_obj = context.state.find_object(linked_id)
-        if card_obj is None or card_obj.zone != Zone.EXILE:
-            return
-        context.return_from_graveyard(card_obj, self.destination)
+        self.source.linked_exile_ids = []
+        if linked_id is not None and linked_id not in linked_ids:
+            linked_ids.append(linked_id)
+        for instance_id in linked_ids:
+            card_obj = context.state.find_object(instance_id)
+            if card_obj is None or card_obj.zone != Zone.EXILE:
+                continue
+            context.return_from_graveyard(card_obj, self.destination)
 
 
 class ReturnAllExiledWithEffect(GameEffect):
