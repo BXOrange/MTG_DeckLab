@@ -25,9 +25,9 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**51.7% covered — 18,004 / 34,811 — as of 2026-09-29, PARSER_VERSION 515** (PAR-131: the legacy trigger rows retired onto the composed heads — +16 since v514, 0 regressed).
+**51.7% covered — 18,012 / 34,811 — as of 2026-09-29, PARSER_VERSION 516** (PAR-131 closed: legacy trigger rows retired onto the composed heads, then compound "`<A>` or `<B>`" heads and noun unions — +24 since v514, 0 regressed).
 Commander-legal slice (the one the product actually plays): **54.3% —
-17,292 / 31,830** (measure with `--commander-legal-only`).
+17,299 / 31,830** (measure with `--commander-legal-only`).
 
 ### PAR-124 closes completely: player-events, X-tokens, a targeted delayed trigger, a hand-zone duplicate, an optional-attach composition — and the controller-binding bug the targeted variant first exposed (PARSER_VERSION 463)
 

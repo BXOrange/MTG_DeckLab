@@ -239,3 +239,92 @@ def test_kediss_is_parser_modeled_per_commander_hit():
     assert eng.rules.put_triggers_on_stack() == 1
     eng.rules.resolve_top_of_stack()
     assert (p1.life, p2.life, p3.life) == (20, 12, 17)
+
+
+# ---------------------------------------------------------------------------
+# Trigger-head gaps: compound "<A> or <B>" heads, "is put into exile from the
+# battlefield", "<phrase> or a <phrase>" unions, "~ or another …" damage.
+# ---------------------------------------------------------------------------
+
+from mtg_analyzer.parser.oracle.segmenter import _compound_trigger_heads  # noqa: E402
+
+
+def test_compound_heads_split_only_when_disjoint():
+    assert _compound_trigger_heads(
+        "~ or another nontoken artifact you control dies or is put into exile from the battlefield"
+    ) == [
+        "~ or another nontoken artifact you control dies",
+        "~ or another nontoken artifact you control is put into exile from the battlefield",
+    ]
+    assert _compound_trigger_heads("~ dies or another artifact you control dies") == [
+        "~ dies", "another artifact you control dies",
+    ]
+    # One death is both a DIES and a PUT_INTO_GRAVEYARD: without a zone apart, refuse.
+    assert _compound_trigger_heads("a creature dies or a creature card is put into a graveyard") is None
+    assert _compound_trigger_heads("a creature dies or an artifact dies") is None
+
+
+def test_dies_or_exiled_triggers_once_per_departure():
+    eng = _engine()
+    card = Card(
+        id="Test Psychomancer", name="Test Psychomancer", type_line="Artifact Creature — Human",
+        is_creature=True, power=1, toughness=1,
+        oracle_text="Whenever Test Psychomancer or another nontoken artifact you control dies "
+                    "or is put into exile from the battlefield, you gain 1 life.",
+    )
+    assert parse_oracle(card).coverage == MODELED
+    _put(eng, card)
+    exiled = _put(eng, Card(id="Rock", name="Rock", type_line="Artifact"))
+    destroyed = _put(eng, Card(id="Rock2", name="Rock2", type_line="Artifact"))
+    bear = _put(eng, _creature("Bear"))
+    eng.rules.exile(exiled)
+    assert eng.rules.put_triggers_on_stack() == 1
+    eng.state.stack.clear()
+    eng.rules.destroy(destroyed)
+    assert eng.rules.put_triggers_on_stack() == 1
+    eng.state.stack.clear()
+    eng.rules.exile(bear)  # not an artifact
+    assert eng.rules.put_triggers_on_stack() == 0
+
+
+def test_self_or_another_deals_combat_damage():
+    eng = _engine()
+    card = Card(
+        id="Test Harridan", name="Test Harridan", type_line="Creature — Tyranid",
+        is_creature=True, power=2, toughness=2,
+        oracle_text="Whenever Test Harridan or another Tyranid you control deals combat damage "
+                    "to a player, you gain 1 life.",
+    )
+    assert parse_oracle(card).coverage == MODELED
+    harridan = _put(eng, card)
+    other = _put(eng, Card(id="Tyr", name="Tyr", type_line="Creature — Tyranid",
+                           is_creature=True, power=1, toughness=1))
+    bear = _put(eng, _creature("Bear"))
+    p2 = eng.state.player_by_id("p2")
+    for source, expected in ((harridan, 1), (other, 1), (bear, 0)):
+        eng.rules.deal_damage(p2, 1, source=source, combat=True)
+        assert eng.rules.put_triggers_on_stack() == expected
+        eng.state.stack.clear()
+
+
+def test_discard_a_spirit_card_or_a_card_with_disturb():
+    eng = _engine()
+    card = Card(
+        id="Test Sifters", name="Test Sifters", type_line="Creature — Spirit",
+        is_creature=True, power=2, toughness=2,
+        oracle_text="Whenever you discard a Spirit card or a card with disturb, you gain 1 life.",
+    )
+    assert parse_oracle(card).coverage == MODELED
+    _put(eng, card)
+    p1 = eng.state.player_by_id("p1")
+    disturb = Card(id="Dist", name="Dist", type_line="Creature — Human", is_creature=True,
+                   power=1, toughness=1, keywords=["Disturb"],
+                   oracle_text="Disturb {1}{W}")
+    spirit = Card(id="Spi", name="Spi", type_line="Creature — Spirit", is_creature=True,
+                  power=1, toughness=1)
+    for card_, expected in ((_creature("Bear"), 0), (spirit, 1), (disturb, 1)):
+        obj = GameObject(card_, owner_id="p1", zone=Zone.HAND)
+        p1.hand.append(obj)
+        eng.rules.discard_specific(obj)
+        assert eng.rules.put_triggers_on_stack() == expected
+        eng.state.stack.clear()

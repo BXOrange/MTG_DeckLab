@@ -3564,7 +3564,7 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
   `test_par117_group_subject_blocks_this_turn.py` (stale "this turn" pin — PAR-124 moved
   that tail onto the turn-trigger wrapper).
 
-### PAR-131: the remaining legacy trigger rows retired onto the composed heads (PARSER_VERSION 515)
+### PAR-131: the remaining legacy trigger rows retired onto the composed heads (PARSER_VERSION 515–516)
 
 - **What:** every per-phrase trigger row PAR-119 left behind is deleted from
   `segmenter.py` (−1,180 lines): the nine cast rows (`_CAST_SPELL_TRIGGER_RE`, `_NEG_`,
@@ -3617,6 +3617,22 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
   Reconstruction, the parser's "cards leave your graveyard" row) are unchanged; every
   instruction and SBA sweep now batches exits without an explicit scope, and a held
   multi-pick batches them for the first time.
+- **Head gaps (PARSER_VERSION 516, +8):** a compound "`<A>` or `<B>`" condition the heads
+  can't read whole is split (`segmenter._compound_trigger_heads`) into two heads that each
+  parse — two whole heads (Dreadhound) or one subject with a second verb (Psychomancer's
+  "dies or is put into exile from the battlefield") — and re-segmented as one ability per
+  head sharing the body. Only when no single event satisfies both: different events that
+  never co-fire (`_CO_FIRING_EVENTS` names DIES with PUT_INTO_GRAVEYARD / LEAVES_BATTLEFIELD,
+  allowed only with a separating zone), or "~" against "another …". New: the verb "is put
+  into exile from the battlefield" (LEAVES_BATTLEFIELD + ``to_zone``); "`<phrase>` or a
+  `<phrase>`" noun unions → ``any_of`` (Shipwreck Sifters, and for free Kumena's Speaker and
+  Long Feng); "with disturb" read off the printed card like flashback
+  (`combat._PRINTED_ONLY_KEYWORDS`); "~ or another …" on the DAMAGE head (Millicent, Tyranid
+  Harridan) — which needed the binder's ``self_or_group`` self half to read the event's own
+  subject field (it read ``instance_id`` for every event, so "~ or another" never fired for
+  "~" on DAMAGE). Split out as their own tickets: MEC-103 (sacrifice a chosen number, then
+  "that many"), MEC-104 (one damage trigger per step across all opponents), PAR-133
+  (Powerstone tokens, found blocking Slagstone Refinery's body).
 - **Files:** `parser/oracle/segmenter.py`, `catalogue/object_trigger_head.py`,
   `catalogue/player_event_head.py`, `catalogue/spell_phrase.py`,
   `catalogue/static_handlers.py`, `game/binding/core.py`, `game/continuous.py`,

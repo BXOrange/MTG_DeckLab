@@ -101,10 +101,11 @@ No open tickets.
   > follow-up (below), `PAR-127` PAR-128's split-out "creature or
   > planeswalker" frame (closed), `PAR-129` the Exhaust keyword-line swallow;
   > `PAR-130` the "that player controls" target scope (closed), `PAR-131` PAR-119's
-  > legacy-row migration, `PAR-132` the dependent-body follow-up batch; first free id:
-  > **`PAR-133`**. A genuinely new engine
+  > legacy-row migration (closed), `PAR-132` the dependent-body follow-up batch, `PAR-133`
+  > Powerstone tokens; first free id: **`PAR-134`**. A genuinely new engine
   > primitive found along the way still files as its own `MEC-*` ticket —
-  > `MEC-102` is MEC-101's own such follow-up; next free id: **`MEC-103`**
+  > `MEC-102` is MEC-101's own such follow-up, `MEC-103`/`MEC-104` came out of PAR-131;
+  > next free id: **`MEC-105`**
   > — only the sweep itself stays out of this file.
   >
   > **Anti-proliferation note:** a 2-6 card cluster is not automatically its
@@ -144,11 +145,11 @@ No open tickets.
   (its own trigger is `LAST_TIME_COUNTER_REMOVED`, which exists) and a
   per-owner "remove a time counter from each other card" sweep.
 
-- **PAR-131 · Retire the remaining legacy trigger rows onto the composed heads (refactor).**
-  Hand-authored ``contributor_*`` flags, MEC-78's graveyard-exit batch, and small head gaps.
 - **PAR-132 · Dependent target/body follow-up batch.** Finish the distinct effect-body,
   trigger-head and duration clusters exposed while closing PAR-130; target-scope plumbing itself
   is complete, and the calibrated clusters live in `PARSER_LONG_TAIL.md`.
+- **PAR-133 · Powerstone tokens.** "create a [tapped] Powerstone token" — a `data/tokens.json`
+  entry with its RULE 605.3a-restricted mana ability, then `_NAMED_TOKEN_WORDS` (25 solo cards).
 - **PAR-129 · A line starting with "Exhaust" is swallowed as a keyword line (wrong-but-MODELED).**
   11 parser-MODELED cards lose an ability: the first line that begins with the word
   "Exhaust" is claimed as the bare Exhaust keyword (Scryfall lists it in `keywords`), so no
@@ -593,6 +594,13 @@ No open tickets.
   broader** condition — not opponent-scoped — and don't belong in this cluster.
 
 ## MEC — Game mechanic
+
+- **MEC-103 · Sacrifice a chosen number, then "that many".** "sacrifice up to N / any number
+  of / 1 or more `<X>`" with the count sacrificed as the "that many" of a following reflexive
+  trigger or effect (Nyssa of Traken, Ravenous Rotbelly, Radiant Lotus).
+- **MEC-104 · One damage trigger per step across all opponents.** "… deal(s) [combat] damage
+  to 1 or more of your opponents" needs an aggregate over every opponent hit, not one per
+  (controller, opponent) pair (Hordewing Skaab, Molten Lavamancer, Nelly Borca).
 
 ## PLR — Player management
 

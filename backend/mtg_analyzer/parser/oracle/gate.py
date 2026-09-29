@@ -3741,7 +3741,11 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: ``spell_filter`` / ``spell_cast_from`` / ``condition.filter``; compound player events
 #: as one event list); a self/attached DAMAGE subject's recipient ("to an opponent", "to
 #: a creature") is a trigger-level gate; regranted triggers carry the composed keys.
-PARSER_VERSION = "515"
+#: 516 (PAR-131 close): a compound "`<A>` or `<B>`" trigger head becomes one ability
+#: per head when no event can satisfy both; "is put into exile from the battlefield"
+#: (LEAVES_BATTLEFIELD ``to_zone``); "`<phrase>` or a `<phrase>`" noun unions
+#: (``any_of``); "with disturb"; "~ or another …" on the DAMAGE head.
+PARSER_VERSION = "516"
 
 
 def parser_source_hash() -> str:
