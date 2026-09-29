@@ -3676,7 +3676,7 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 - **Union bug.** The N-way "target X, Y, or Z" row also matched "target artifact or enchantment", so Naturalize, Disenchant and ~100 others could target any permanent; the dedicated two-type rows now sit above it (`artifact_or_enchantment`, `artifact_or_creature` in either order). 124 already-covered cards changed kind accordingly.
 - **One gate over "A, then B".** "If `<cond>`, A, then B" handed B to the connector split ungated: Canyon Crab, Wistfulness, Statute of Denial, Contaminant Grafter, Scion of Vitu-Ghazi and So Shiny did their second half regardless, and Airbender Ascension's "exile …, then return it" became "return the source". The existing one-gate rule now covers ", then" as well as "and".
 - **Player subject.** "each player / each opponent `<verb>`" parses the verb as "target player `<verb>`" and iterates it with `for_each {"players": …}` (every effect must target exactly that player); "target opponent `<verb>`" narrows the target to `opponent`. The token rows' `who` slot takes "target player/opponent" (`creators: target`, the Hunted cycle).
-- **Yield** (with batch 6): 17,515 → 17,641 (+126, 0 regressed); Commander-legal 53.3%. Open residue is PAR-128 in `BACKLOG.md`.
+- **Yield** (with batch 6): 17,515 → 17,641 (+126, 0 regressed); Commander-legal 53.3%. Open residue is in PAR-128's `workingOn.md` block.
 
 ### PAR-130: "target `<X>` that player controls" as a target-scope slot (PARSER_VERSION 512)
 

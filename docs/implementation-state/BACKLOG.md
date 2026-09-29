@@ -142,23 +142,7 @@ No open tickets.
   per-owner "remove a time counter from each other card" sweep.
 
 - **PAR-131 · Retire the remaining legacy trigger rows onto the composed heads (refactor).**
-  Pure maintainability — no coverage gain. Done so far: the four group-subject rows
-  (`object_trigger_head.legacy_group_condition` translates the composed head back into
-  their flat keys). Open, each measured by disabling the row alone (lost / changed specs):
-  `_DAMAGE_TRIGGER_RE` 40 / 34, `_DAMAGE_RECIPIENT_TRIGGER_RE` 39 / 0 (needs an "is dealt
-  damage" head), `_BECOMES_TARGET_TRIGGER_RE` 55 / 0 (needs a "becomes the target" head),
-  `_BATCH_ATTACK_TRIGGER_RE` 4 / 0, the cast rows `_CAST_SPELL_TRIGGER_RE` 9 / 225, `_NEG_`
-  0 / 90, `_HISTORIC_` 0 / 16, `_MV_AT_LEAST_` 0 / 15, `_PLAIN_` and `_MV_` 0 / 3 each,
-  `_X_` 3 / 0, `_NTH_` 1 / 0, `_FIRST_X_` 0 / 0 (no cached card; still the only reader of
-  its wording), the `_PLAYER_TRIGGER_CONDITIONS` "you …" rows (incl. the two bare
-  combat-damage rows and the hand-authored ``contributor_*`` flags → ``contributors``);
-  fold MEC-78's `graveyard_exit_batch` into `GameState.simultaneous`. Bar per row: emit the
-  legacy keys from the composed head, whole-cache spec diff identical (normalised for the
-  parser version), then delete the row. Also open, small head residue: compound
-  "`<A>` dies or `<B>` is put into …" heads (Dreadhound, Syr Konrad ×2, the artifact pair),
-  "a spirit card or a card with disturb", "to 1 or more of your opponents" as one trigger
-  per step, "to a player or battle", reflexive "when you sacrifice 1 or more X this way"
-  (Nyssa, Ravenous Rotbelly, Swashbuckler Extraordinaire).
+  Pure maintainability — no coverage gain; the remaining legacy rows and a small head gap.
 - **PAR-130 · "target `<X>` that player controls" beyond trigger antecedents.** The slot
   still fails on spells' "for each opponent", a prior-target antecedent, and some trigger
   heads/bodies around it.
@@ -173,21 +157,8 @@ No open tickets.
   ability is lost too. The same lines segment correctly on their own (`segment_line` →
   `activated` + `activate_only_once_marker`), so the fault is in the card-level keyword pass;
   Loot, the Pathfinder only escapes because its swallowed line is a mana ability.
-- **PAR-128 · Target/group-grammar slots — residue.** The controller-scope, "another" and
-  player-subject slots are in the shared target grammar; still failing on the same axes:
-  **group** selectors with "other"/scope ("it deals 1 damage to each other creature",
-  "other attacking creatures get +1/+0", "all other creatures get -2/-2", "destroy all creatures
-  your opponents control", "each creature with flying your opponents control", "each other player
-  sacrifices"); the hand-rolled **graveyard** target grammar ("return another target artifact
-  card from your graveyard to your hand" — Junk Diver ×3, Deadwood Treefolk ×2, Gixian
-  Puppeteer, Carrion Thrash); **plural multi-target** scope ("tap up to 2 target creatures your
-  opponents control", "… divided among any number of target creatures and/or planeswalkers your
-  opponents control"); a **quality filter before the scope** ("destroy target creature with flying
-  an opponent controls", "… an opponent controls with power 2 or less"); "target opponent `<verb>` for each …" (Honden of Night's Reach, Bishop of
-  the Bloodstained); the Duress-family `reveal_hand_choose_discard` row collapses "target
-  opponent" to `player` (can target yourself), and its comma form ("…, you choose … from it,
-  then that player discards that card") is unclaimed — together they block Devour Intellect's
-  "instead" override. Measure with `parser_probe.py composition mods --axis "control|another|scope"`.
+- **PAR-128 · Target/group-grammar slots.** Group selectors, the graveyard target grammar,
+  plural multi-target scope and filter-before-scope don't take the controller/"another" slots yet.
 - **PAR-121 · Subject-scope slot and per-verb connective de-duplication (no
   coverage change).** Roughly a third of the parser's regexes sit in
   near-duplicate clusters (`parser_probe`-style token-similarity clustering,
@@ -203,26 +174,9 @@ No open tickets.
   sentence parses, so this is maintainability and future-recombination work —
   do it when touching a verb, and never as a large batch (handler-recipe.md's
   v408 lesson: audit shipped rows, delete strict subsets).
-- **PAR-122 · Trigger-doubler residue.** The composed `trigger_doubler` (cause × subject) is
-  built; what still fails closed is a *player-event cause* ("turning a face-down permanent face up" — Panoptic Projektor, "a creature you control becoming
-  the target of …" — Valiant Emberkin, "being dealt damage" — Wayta; each needs its head in
-  a composed head first — PAR-131), a *compound subject* ("~ or an Equipment attached to it" —
-  Cloud, "another colorless permanent or a colorless spell" — Echoes of Eternity, "while you
-  control six or more Shrines" — Sanctum of All), The Fish Brewer's tap-for-extra-copies and
-  The Masamune's granted quoted doubler.
-- **PAR-123 · Group-subject pronoun residue.** The parse stamps a bare "it"/"that
-  creature" under a group trigger as the firing object for `tap` / `return_to_hand` /
-  `exile` / blink, and the plain "it gets +N/+N [and gains `<keyword>`] until end of turn" /
-  "it gains `<keyword>`" pump reads it too (`PumpEffect.trigger_subject`). Still open: the
-  amount forms of that pump ("it gets +X/+X where X …", "+1/+0 for each …" — Angelic Exaltation,
-  Asari Captain, Shared Animosity, Thoughtweft Imbuer; a `bind` over the trigger subject), "it
-  fights …" (Boxing Ring), "it deals damage equal to its power" (Stalking Vengeance, Warstorm
-  Surge) and `copy_permanent`. One wrong claim is known and small:
-  Dragon Tempest's "**it** deals X damage" is dealt by the Enchantment, not the entering Dragon
-  (visible only through lifelink / deathtouch / protection); the `damage` dealer needs the same
-  `trigger_subject` mode. A bare "it" under a `self_or_group` subject stays refused by the
-  composed head (Kappa Cannoneer's correct only because "~" is named first). Add each effect
-  type as it is exercised, and execute the card, as `test_par123_group_pronoun.py` does.
+- **PAR-122 · Trigger doublers.** Player-event causes and compound subjects still fail closed.
+- **PAR-123 · Group-subject pronouns.** A bare "it" under a group trigger isn't read as the
+  firing object by every effect type yet.
 - **PAR-99 · Khans-of-Tarkir "choose khans or dragons" Siege cycle.** The
   ETB choice itself (`as ~ enters, choose khans or dragons.`) already
   parses — confirmed via `parser_probe.py blocked "as .* enters, choose
