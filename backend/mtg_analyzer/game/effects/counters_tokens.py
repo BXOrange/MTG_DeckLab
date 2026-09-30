@@ -128,8 +128,15 @@ class AddCountersEffect(GameEffect):
         group: Optional[dict] = None,
         previous_group_scope: Optional[str] = None,
         kind_options: Optional[list[dict[str, Any]]] = None,
+        choose_one: bool = False,
     ) -> None:
         super().__init__(source)
+        #: PAR-140: "put a menace counter on **a creature you control**" (Blood Curdle, Ajani Fells the
+        #: Godsire) — with ``group`` (the structured selector naming which permanents are eligible), the
+        #: controller picks **one** of them at resolution instead of every member getting the counter; no
+        #: RULE 115 target is involved. One eligible permanent is taken without asking, none does nothing
+        #: (`RulesEngine._request_counter_recipient_choice`).
+        self.choose_one = bool(choose_one)
         #: MEC-108: "put **your choice of** a flying counter or a lifelink counter on …" (RULE
         #: 122.1b keyword counters — Owen Grady/Assaultron Dominator/Me, the Immortal-shaped):
         #: ``[{"kind", "count"}, …]`` (2+ entries), each option's own amount ("a +1/+1 counter or
@@ -345,7 +352,11 @@ class AddCountersEffect(GameEffect):
 
             if amount > 0:
                 controller_id = getattr(self.source, "controller_id", None)
-                for one in list(group_selector_objects(context.state, controller_id, self.group, src=self.source)):
+                members = list(group_selector_objects(context.state, controller_id, self.group, src=self.source))
+                if self.choose_one:
+                    context.engine._request_counter_recipient_choice(self, amount, members)
+                    return
+                for one in members:
                     context.add_counters(one, amount, self.kind, source=self.source)
             return
         elif self.previous_selector:

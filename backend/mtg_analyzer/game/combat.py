@@ -548,7 +548,7 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # "each creature blocking it" / "…blocking ~" (PAR-128) — RULE 509.1a: a
         # creature declared as a blocker *of the reference object* (the attacker whose
         # `blocked_by` names it), unlike ``blocking``, which is any attacker.
-        "blocking_source", "no_counters",
+        "blocking_source", "no_counters", "without_counter_kind",
         # "…if it targets a tapped creature" (RULE 601.2f cost reduction).
         "tapped",
         "even_mana_value",
@@ -706,6 +706,13 @@ def matches_object_filter(
     if filt.get("has_counter") and not any(
         v > 0 for v in (getattr(obj, "counters", {}) or {}).values()
     ):
+        return False
+    # "…without a +1/+1 counter on it" / "…that doesn't have a flying counter on it" (PAR-140) — the
+    # negation of ``has_counter_kind``.
+    without_counter_kind = filt.get("without_counter_kind")
+    if without_counter_kind is not None and (getattr(obj, "counters", {}) or {}).get(
+        str(without_counter_kind), 0
+    ) > 0:
         return False
     # "…with no counters on them" (Damning Verdict, PAR-128) — the negation of ``has_counter``.
     if filt.get("no_counters") and any(

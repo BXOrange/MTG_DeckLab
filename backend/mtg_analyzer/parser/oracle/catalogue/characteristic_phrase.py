@@ -108,7 +108,7 @@ _PLURAL_AND_CONNECTIVE = re.compile(r"\sand\s")
 _WITH_MANA_VALUE = re.compile(r"^mana value (?P<n>\d+) or (?P<dir>greater|less)$")
 _WITH_STAT = re.compile(r"^(?P<stat>power|toughness) (?P<n>\d+) or (?P<dir>greater|less)$")
 _WITH_COUNTER = re.compile(
-    r"^(?:an? )?(?:(?P<kind>\+1/\+1|-1/-1|[a-z]+) )?counters? on (?:it|them)$"
+    r"^(?:an? )?(?:(?P<kind>\+1/\+1|-1/-1|first strike|double strike|[a-z]+) )?counters? on (?:it|them)$"
 )
 _NON_SUBTYPE = re.compile(r"^non-?(?P<sub>[a-z]+)$")
 
@@ -390,6 +390,16 @@ def parse_object_phrase(
             continue
         neg = _WITHOUT_TAIL.match(rest)
         if neg is not None:
+            counter = _WITH_COUNTER.match(neg.group("q").strip())
+            if counter is not None and counter.group("kind") != "no":
+                # PAR-140: "creatures without a +1/+1 counter on them" (kindless: "without
+                # counters") — the negation of the "with a counter" qualifier.
+                key = "without_counter_kind" if counter.group("kind") else "no_counters"
+                if key in filt or "has_counter" in filt or "has_counter_kind" in filt:
+                    return None
+                filt[key] = counter.group("kind") if counter.group("kind") else True
+                rest = rest[neg.end():].strip()
+                continue
             keyword = KEYWORD_WORDS.get(neg.group("q").strip())
             if keyword is None or "without_keyword" in filt:
                 return None

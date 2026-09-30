@@ -626,6 +626,47 @@ class ManaCountersMixin:
         finally:
             self.context.previous_targets = saved
         self.check_state_based_actions()
+    def _request_counter_recipient_choice(
+        self, effect: AddCountersEffect, amount: int, candidates: list[GameObject]
+    ) -> None:
+        """"Put a menace counter on a creature you control" (RULE 122.1 — PAR-140): the effect's
+        controller picks which eligible permanent receives the counters. Degenerate cases resolve
+        without asking (the `bolster`/`populate` idiom): nobody eligible → nothing, exactly one →
+        straight onto it. Otherwise a `counter_recipient` `pending_choice`, answered by
+        `_resume_counter_recipient`."""
+        controller_id = getattr(effect.source, "controller_id", None)
+        if controller_id is None or amount <= 0 or not candidates:
+            return
+        source = effect.source
+        if len(candidates) == 1:
+            self.add_counters(candidates[0], amount, effect.kind, source=source)
+            return
+        self._pending_counter_recipient = {
+            "kind": effect.kind, "amount": amount, "source": source,
+            "candidate_ids": [o.instance_id for o in candidates],
+        }
+        self.open_choice({
+            "kind": "counter_recipient",
+            "player_id": controller_id,
+            "prompt": f"Auf welches Permanent {amount}× {effect.kind}-Marke(n)?",
+            "options": [
+                {"id": str(o.instance_id), "label": o.name, "instance_id": o.instance_id}
+                for o in candidates
+            ],
+        })
+    @continuations.choice("counter_recipient", answer=continuations.ANSWER_INT, rule="122.1")
+    def _resume_counter_recipient(self, choice: dict[str, Any], instance_id: Optional[int]) -> None:
+        """Answer a pending `counter_recipient` choice. Mandatory (no decline option), so a missing
+        or unknown answer takes the first eligible permanent, like every other mandatory pick."""
+        pending, self._pending_counter_recipient = self._pending_counter_recipient, None
+        if pending is None:
+            return
+        ids = pending["candidate_ids"]
+        chosen_id = instance_id if instance_id in ids else ids[0]
+        chosen = self._object_by_instance_id(chosen_id)
+        if chosen is not None and chosen in self.state.battlefield:
+            self.add_counters(chosen, pending["amount"], pending["kind"], source=pending["source"])
+        self.check_state_based_actions()
     def bolster(
         self, player: Player, amount: int, source: Optional[GameObject] = None
     ) -> None:

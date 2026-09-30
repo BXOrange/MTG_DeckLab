@@ -3248,6 +3248,14 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     (re.compile(r"(?:~|it) has (?P<n>a|an|\d+) (?P<kind>[+\-]\d/[+\-]\d|[a-z ]+?) counters? on it", re.I),
      lambda m: {"kind": "source_counters", "counter": _counter_kind(m.group("kind")),
                 "min": _count_word(m.group("n"))}),
+    # PAR-140: the negations — "if ~ doesn't have a flying counter on it" (Inventive Wingsmith,
+    # Risona) / "…has no +1/+1 counters on it" / "…no counters on it": RULE 122 presence, `max: 0`.
+    (re.compile(
+        r"(?:~|it) (?:doesn't|does not) have (?:a|an) (?P<kind>[+\-]\d/[+\-]\d|[a-z ]+?) counter on it", re.I),
+     lambda m: {"kind": "source_counters", "counter": _counter_kind(m.group("kind")), "max": 0}),
+    (re.compile(r"(?:~|it) has no (?P<kind>(?:[+\-]\d/[+\-]\d|[a-z ]+?) )?counters on it", re.I),
+     lambda m: {"kind": "source_counters", "max": 0,
+                **({"counter": _counter_kind(m.group("kind").strip())} if m.group("kind") else {})}),
     # -- The *attached permanent*'s characteristics, not the source's
     # ("as long as enchanted permanent is a creature"/"…is red"/"…is a
     # Human"). Same kinds as any other subject; the ``of`` key is what aims

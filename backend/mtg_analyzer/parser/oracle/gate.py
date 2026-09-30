@@ -3780,7 +3780,15 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (`add_counters.kind_options`, and the as-it-enters `choose_enter_counter`), "enters with a
 #: +1/+1 counter and a flying counter" / "…a first strike counter" (`extra_counters`), and
 #: "return … to the battlefield with a `<keyword>`/+1/+1 counter on it".
-PARSER_VERSION = "556"
+#: 557 (PAR-140): counter-placement residue — "put a `<kind>` counter on **a** creature you control"
+#: (`add_counters.choose_one` over a group selector, a recipient choice at resolution); a negated counter
+#: condition ("if ~ doesn't have a flying counter on it", "has no +1/+1 counters on it" → `source_counters`
+#: ``max: 0``) and a "without a `<kind>` counter on it" group filter (`without_counter_kind`; the mass
+#: destroy/exile/return rows' group class now admits "+1/+1"); "it/~/target `<permanent>` becomes a
+#: `<subtype/type>` in addition to its other types [until end of turn]" (a `grant_until` over a layer-4
+#: `type_change`, permanent = `rest_of_game`); "you may remove a `<kind>` counter from ~/it. When/If you do,
+#: …" (`pay_cost_then` whose cost comes off the source, `RulesEngine._source_counter_removal`).
+PARSER_VERSION = "557"
 
 
 def parser_source_hash() -> str:

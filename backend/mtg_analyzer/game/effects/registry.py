@@ -2561,6 +2561,7 @@ EffectRegistry.register(
         previous_selector=bool(p.get("previous_selector", False)),
         group=p.get("group"),
         kind_options=p.get("kind_options"),
+        choose_one=bool(p.get("choose_one", False)),
     ),
 )
 EffectRegistry.register(

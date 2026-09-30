@@ -3763,7 +3763,7 @@ def _exile_all(m: re.Match[str]) -> list[EffectSpec]:
 #: `DestroyEffect.group` / `ExileEffect.group`. After the named-selector rows above, so their
 #: closed vocabulary (and its numeric filters) keeps winning.
 _MASS_GROUP_RE = _c(
-    r"(?P<verb>destroy|exile) (?P<quant>all|each) (?P<group>[a-z' ,/-]+?)"
+    r"(?P<verb>destroy|exile) (?P<quant>all|each) (?P<group>[a-z0-9' ,/+-]+?)"
     r"(?P<no_regen>\.? (?:they|those [a-z ]+) can'?t be regenerated)?"
 )
 _MASS_GROUP_REFUSED_WORDS = (
@@ -3812,7 +3812,7 @@ def _mass_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: "return all creatures to their owners' hands" / "return each other creature you control to
 #: its owner's hand" (Evacuation, Denizen of the Deep — PAR-128): `ReturnToHandEffect.group`.
 _RETURN_GROUP_RE = _c(
-    r"return (?P<quant>all|each) (?P<group>[a-z' ,/-]+?) to (?:their owners'?|its owner'?s?) hands?"
+    r"return (?P<quant>all|each) (?P<group>[a-z0-9' ,/+-]+?) to (?:their owners'?|its owner'?s?) hands?"
 )
 
 
@@ -6801,6 +6801,11 @@ _MAY_COST_THEN_CLAUSE = (
     # RULE 701.68 — "put N -1/-1 counters on a creature you control"
     # (`ActivationCost.blight`; `RulesEngine.blight(interactive=False)`, PAR-29).
     r"|blight \d+"
+    # PAR-140 — "you may remove a menace counter from ~/it. When you do, …" (Biting-Palm Ninja,
+    # Kappa Tech-Wrecker, Slumbering Walker's kindless form): charged off the ability's own source
+    # (`RulesEngine._source_counter_removal`). "it" is only the source under a self trigger —
+    # `_pay_cost_then_general` refuses it under a group trigger.
+    r"|remove (?:a|an|\d+) (?:[+\-]\d/[+\-]\d |[a-z]+(?: strike)? )?counters? from (?:~|it|this [a-z]+)"
 )
 _PAY_COST_THEN_GENERAL_RE = _c(
     r"you may (?P<cost>" + _MAY_COST_THEN_CLAUSE + r")\.\s*(?P<link>if|when) you do,?\s*(?P<effect>.+)"
@@ -6860,6 +6865,8 @@ def _pay_cost_then_general(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     from ..segmenter import parse_effect_body, _announces_creature_target
 
     group = _GROUP_CLAUSE.get()
+    if group and re.match(r"remove .* from it$", m.group("cost")):
+        return None  # under a group trigger "it" is the firing object, not the source that pays
     parts = re.split(r"\.\s*otherwise,?\s+", m.group("effect").strip(), maxsplit=1)
     if group:
         # The branch runs once the payment is made, after the trigger's event window has closed, so
@@ -8672,6 +8679,29 @@ def _add_counter_list(m: re.Match[str]) -> Optional[list[EffectSpec]]:
                 params["previous_subject"] = True
             specs.append(EffectSpec("add_counters", params))
     return specs
+
+
+#: PAR-140: "put a menace counter on **a creature you control**" / "…on another artifact you control" — a
+#: counter on one permanent the controller picks at resolution, no "target" (RULE 122.1, not 115).
+#: `AddCountersEffect.choose_one` over the structured group selector the shared count-phrase grammar
+#: already reads; "another" is that grammar's "other" (excludes the source).
+_ADD_COUNTER_PICK_RE = _c(
+    rf"put {COUNT} (?P<ckind>[+\-−]1/[+\-−]1|{'|'.join(_NAMED_COUNTER_KINDS)}) counters? on "
+    r"(?:an? |(?P<other>another|other) )(?P<group>[a-z' -]+? you control)"
+)
+
+
+def _add_counter_pick(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from .count_phrase import parse_count_phrase
+
+    group = parse_count_phrase(("other " if m.group("other") else "") + m.group("group"))
+    if group is None or group.get("zone") != "battlefield" or group.get("of") != "you":
+        return None
+    token = m.group("ckind")
+    kind, mag = _counter_kind_and_multiplier(token) if token[0] in "+-−" else (token, 1)
+    return [EffectSpec("add_counters", {
+        "count": count_or_x_of(m.group("n")) * mag, "kind": kind, "group": group, "choose_one": True,
+    })]
 
 
 #: MEC-108: "put your choice of a +1/+1, first strike, or trample counter on
@@ -14236,6 +14266,65 @@ def _animate_self_leading_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return specs
 
 
+#: PAR-140: "it becomes a Rogue in addition to its other types" / "~ becomes a Vampire and a Zombie …" /
+#: "target creature becomes an artifact in addition to its other types until end of turn" — a type
+#: addition with no new P/T or abilities (RULE 205.1b: *in addition* keeps the rest), riding a put/return
+#: clause (Butch DeLoria, Beorn the Fierce, Origin of Spider-Man). One `grant_until` over a layer-4
+#: `type_change`: "until end of turn" ends at cleanup, otherwise it is a permanent effect
+#: (`rest_of_game`, RULE 611.2a). A word that is neither a card type, "legendary" nor a known subtype
+#: fails the clause closed.
+_BECOMES_IN_ADDITION_TYPES: frozenset[str] = frozenset({"artifact", "creature", "enchantment", "land"})
+_BECOMES_IN_ADDITION_TAIL = (
+    r" becomes an? (?P<words>[a-z]+(?: [a-z]+)*?) in addition to its other types(?P<eot> until end of turn)?"
+)
+#: "it"/"that creature" — only offered once the previous clause announced a pick.
+_BECOMES_IN_ADDITION_PREVIOUS_RE = _c(rf"(?P<prev>it|that creature|that permanent){_BECOMES_IN_ADDITION_TAIL}")
+#: "~" / "target creature" name their subject outright.
+_BECOMES_IN_ADDITION_RE = _c(rf"(?:(?P<self>~)|{TARGET}){_BECOMES_IN_ADDITION_TAIL}")
+
+
+def _becomes_in_addition(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from .subtype_vocabulary import SUBTYPES
+
+    add_types: list[str] = []
+    add_subtypes: list[str] = []
+    legendary = False
+    # "a Vampire and a Zombie" isn't this row's shape; only a run of words describing one set of types.
+    for word in m.group("words").split():
+        if word == "legendary":
+            legendary = True
+        elif word in _BECOMES_IN_ADDITION_TYPES:
+            add_types.append(word)
+        elif word in SUBTYPES:
+            add_subtypes.append(word.capitalize())
+        else:
+            return None
+    if not (add_types or add_subtypes or legendary):
+        return None
+    params: dict[str, Any] = {
+        "duration": "end_of_turn" if m.group("eot") else "rest_of_game",
+        "static": {"type": "type_change", "params": {
+            **({"add_types": add_types} if add_types else {}),
+            **({"add_subtypes": add_subtypes} if add_subtypes else {}),
+            **({"legendary": True} if legendary else {}),
+        }},
+    }
+    groups = m.groupdict()
+    if groups.get("prev"):
+        params["previous_subject"] = True
+        params["target_kind"] = None
+    elif groups.get("self"):
+        params["self_subject"] = True
+        params["target_kind"] = None
+    else:
+        kind = resolve_target_kind(groups["target"])
+        if not target_kind_allowed(kind, ("creature", "permanent", "creature_you_control", "land", "artifact")):
+            return None
+        params["target_kind"] = kind
+        params.update(_optional_param(m))
+    return [EffectSpec("grant_until", params)]
+
+
 _ANIMATE_QUOTED_CDA_RE = _c(
     r"(?:(?P<eot>until end of turn), )?"
     r"(?P<subject>~|target land you control|the goblin sparring grounds) becomes a "
@@ -16729,6 +16818,7 @@ HANDLERS: list[EffectHandler] = [
         _add_named_counter,
     ),
     EffectHandler("add_named_counter_group", _ADD_NAMED_COUNTER_GROUP_RE, _add_named_counter_group),
+    EffectHandler("add_counter_pick", _ADD_COUNTER_PICK_RE, _add_counter_pick),
     EffectHandler("add_counter_list", _ADD_COUNTER_LIST_RE, _add_counter_list),
     EffectHandler("add_counter_choice", _ADD_COUNTER_CHOICE_RE, _add_counter_choice),
     EffectHandler("remove_named_counter_self", _REMOVE_NAMED_COUNTER_SELF_RE, _remove_named_counter_self),
@@ -18099,6 +18189,13 @@ HANDLERS: list[EffectHandler] = [
     ),
     EffectHandler("x_power_unblockable", _X_POWER_UNBLOCKABLE_RE, _x_power_unblockable),
     EffectHandler("x_targets_unblockable", _X_TARGETS_UNBLOCKABLE_RE, _x_targets_unblockable),
+    # PAR-140: "it becomes a Rogue in addition to its other types" — "it" is the previous clause's pick,
+    # so the row is only offered when that clause announced one (`previous_subject_only`).
+    EffectHandler(
+        "becomes_in_addition_previous", _BECOMES_IN_ADDITION_PREVIOUS_RE, _becomes_in_addition,
+        previous_subject_only=True,
+    ),
+    EffectHandler("becomes_in_addition", _BECOMES_IN_ADDITION_RE, _becomes_in_addition),
     EffectHandler(
         "animate_quoted_cda",
         _ANIMATE_QUOTED_CDA_RE,

@@ -42,8 +42,8 @@ No open tickets.
   **set-specific mechanics** (a set/precon's signature keyword, worked deck-first). Planechase/
   Archenemy card bodies fold in here (~13/309 done).
 
-  > **Ids:** `PAR-1`…`PAR-139` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-140`**; next free `MEC`: **`MEC-109`**. A new engine primitive found along the way files
+  > **Ids:** `PAR-1`…`PAR-142` are taken — grep `Done_Backend.md` before reusing one. First free:
+  > **`PAR-143`**; next free `MEC`: **`MEC-109`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -121,16 +121,23 @@ No open tickets.
     `madness_cost_paid` stamp/parser condition, not a new target-announcement mechanism.
   - "When ~ is put into a graveyard from anywhere, its owner shuffles their graveyard into their
     library" — 2 SOLO (Emrakul the Aeons Torn, Ulamog the Infinite Gyre).
-- **PAR-140 · Counter-placement residue found closing MEC-108 (sized at v556).** Each fails for any
-  counter kind, not only keyword counters:
-  - "put a `<kind>` counter on **a** creature you control" (a non-targeted pick, no "target") — 13 cards,
-    7 SOLO (Blood Curdle, Ajani Fells the Godsire, Common Black Removal, …).
-  - "if `<~/it>` doesn't have a `<kind>` counter on it" intervening-if / "has no `<kind>` counters" — 12
-    cards, 8 SOLO (Inventive Wingsmith, Risona, …).
-  - "it becomes a `<type>` in addition to its other types" riding a put/return clause — 11 cards, 7 SOLO
-    (Butch DeLoria, Beorn the Fierce, Call a Surprise Witness, …).
-  - "you may remove a `<kind>` counter from it. When you do, `<effect>`" reflexive — 4 SOLO (Biting-Palm
-    Ninja, Kappa Tech-Wrecker, …); `remove_counters` with an exact `count` exists now (MEC-108).
+- **PAR-141 · Counter-placement residue, second pass (sized at v557).**
+  - A quality slot in `TARGET` — "put a `<kind>` counter on target creature `<you control>` that doesn't
+    have / without / with `<quality>`" — 11 cards, 9 SOLO (Coiling Stalker, Xira, Obsidian Fireheart,
+    Olinda); "tap target creature without flying" fails the same way, so this is the general axis.
+  - "it becomes a `<type>` in addition to its other types" after a put on *self* ("put a +1/+1 counter on
+    ~. It becomes …", Phantom Train), inside a compound ("it gains haste …, and it becomes …", Olivia) or
+    with a trailing "and gains flying" (Archangel Elspeth).
+  - A conjoined intervening-if ("if you haven't cast a spell from your hand this turn and ~ doesn't have a
+    flying counter on it", Inventive Wingsmith); the trigger head "whenever combat damage is dealt to you"
+    (Risona); a graveyard target filtered by power (Slumbering Walker).
+- **PAR-142 · Type-addition family: "`<X>` is/becomes/enters as a `<type>` in addition to its other
+  types".** 273 cards, 194 SOLO (sized at v557) — the copy rider ("a token that's a copy of it, except it's
+  a 0/0 Fractal creature in addition …", Applied Geometry), the return rider ("…with X additional counters.
+  It's a 1/1 Spirit creature with flying in addition …", Abuelo's Awakening), the standing statics ("enchanted
+  artifact is a creature with base power and toughness 4/4 in addition …"), "for as long as it has a
+  `<counter>`" durations (Aquitect's Will) and perpetual/Alchemy forms. `grant_until` + `type_change`
+  (PAR-140's shipped `becomes_in_addition` row) already carry the simple spelling.
 - **PAR-99 · Khans/Dragons Siege cycle.** The ETB choice parses; unclaimed on all 5 cards (0 SOLO) is
   each mode's standing text — a stored choice gating which of two ongoing abilities is live (Citadel,
   Frontier, Monastery, Outpost, Palace Siege).

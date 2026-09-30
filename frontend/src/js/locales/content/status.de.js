@@ -183,6 +183,7 @@ export default [
               ['full', 'mill / exile / tap'],
               ['full', 'add_counters (+1/+1 / −1/−1)'],
               ['full', 'Schlüsselwort-Marken (122.1b) — eine Flying-/First-Strike-/Double-Strike-/Deathtouch-/Haste-/Hexproof-/Indestructible-/Lifelink-/Menace-/Reach-/Shadow-/Trample-/Vigilance-Marke gewährt ihr Schlüsselwort; „lege eine … Marke und eine … Marke“, „deine Wahl aus einer … Marke oder einer … Marke“ (bei Auflösung und beim Ins-Spiel-Kommen), „entferne eine … Marke“'],
+              ['full', 'Marken legen (122): „eine Marke auf eine Kreatur, die du kontrollierst“ (Wahl, kein Ziel), „entferne eine … Marke von ~“ als Kosten von „du darfst … wenn du das tust“, Bedingungen und Filter „hat keine / ohne … Marke“, „wird zusätzlich zu seinen anderen Typen ein <Typ>“'],
               ['full', 'Verstärken / bolster (701.39) — +1/+1-Marken auf die Kreatur mit der geringsten Widerstandskraft; Auswahl bei Gleichstand'],
               ['full', 'Unterstützen / support (701.41) — +1/+1-Marke auf bis zu N Zielkreaturen'],
               ['full', 'Verkümmern / blight N (Bloomburrow) — N −1/−1-Marken auf eine eigene Kreatur (nur die eigenständige Verbform; Kostenform offen)'],
@@ -429,7 +430,7 @@ export default [
             items: [
               ['full', 'Rückgängig / Neustart / Rewind'],
               ['full', 'Passiver Gegner ("Goldfisch") als Ziel für Angriffe/Schaden — bewusst passiv (Zweck ist das Testen ohne Gegenwehr); echte agierende Bots (GoldfishBot/GreedyBot) existieren separat für Multiplayer & die Dynamische Analyse'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (53,5 % · 18.617 / 34.811, PARSER_VERSION 556)'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (53,5 % · 18.641 / 34.811, PARSER_VERSION 557)'],
               ['partial', 'Davon Commander-legal (56,1 % · 17.860 / 31.830) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],
               ['full', 'Unterbrochene Auflösung — mehrere Entscheidungen in einem Effekt (608.2)'],

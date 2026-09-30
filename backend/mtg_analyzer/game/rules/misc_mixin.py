@@ -34,7 +34,7 @@ from ...parser.oracle.catalogue.keywords import parse_keywords
 from ...parser.oracle.catalogue.saga import all_chapter_numbers
 from .. import card_registry, combat, continuous, copy_mechanics, dungeons, face_down, variants
 from ..combat import is_protected_from
-from ..costs import DISCARD_HAND, ActivationCost, parse_activation_cost
+from ..costs import DISCARD_HAND, REMOVE_COUNTERS_ANY_KIND, ActivationCost, parse_activation_cost
 from ..mana_abilities import restriction_predicate_for_cast
 from .triggers_mixin import _has_suspend
 from ..effects.core import (
@@ -317,8 +317,8 @@ class MiscSystemsMixin:
         modal_trigger = dict(then_trigger_modes or {})
         # ENG-48 / RULE 107.3a: "you may pay {X}" — the payer announces X as
         # part of paying, so the offer is one option per affordable value.
-        x_max = self._max_payable_x(player, cost) if cost.mana.has_variable else None
-        if not self._can_pay_player_cost(player, cost):
+        x_max = self._max_payable_x(player, cost, source) if cost.mana.has_variable else None
+        if not self._can_pay_player_cost(player, cost, source):
             saved = self.context.previous_targets
             if captured_previous is not None:
                 self.context.previous_targets = list(captured_previous)
@@ -358,13 +358,15 @@ class MiscSystemsMixin:
             "options": [*pay_options, {"id": "decline", "label": "Nicht bezahlen"}],
         })
 
-    def _max_payable_x(self, player: Player, cost: ActivationCost) -> int:
+    def _max_payable_x(
+        self, player: Player, cost: ActivationCost, source: Optional[GameObject] = None
+    ) -> int:
         """The largest X (up to `PAY_COST_THEN_MAX_X`) ``player`` can pay
         ``cost`` with — 0 when only X = 0 is affordable. Affordability is
         monotone in X, so the scan stops at the first miss."""
         best = 0
         for x in range(1, PAY_COST_THEN_MAX_X + 1):
-            if not self._can_pay_player_cost(player, _cost_with_x(cost, x)):
+            if not self._can_pay_player_cost(player, _cost_with_x(cost, x), source):
                 break
             best = x
         return best
@@ -417,11 +419,11 @@ class MiscSystemsMixin:
                 cost = _cost_with_x(cost, x)
         else:
             paying = answer == "pay"
-        if not paying or not self._can_pay_player_cost(player, cost):
+        if not paying or not self._can_pay_player_cost(player, cost, pending["source"]):
             # Re-checked: the board can have changed since the offer was made.
             apply_branch(_substitute_x_specs(pending["else_effect_specs"], None if x_max is None else 0))
         else:
-            self._pay_player_cost(player, cost)
+            self._pay_player_cost(player, cost, pending["source"])
             if x is not None:
                 pending = {
                     **pending,
@@ -4841,7 +4843,9 @@ class MiscSystemsMixin:
                 {"id": "decline", "label": "Nicht zahlen"},
             ],
         })
-    def _can_pay_player_cost(self, player: Player, cost: ActivationCost) -> bool:
+    def _can_pay_player_cost(
+        self, player: Player, cost: ActivationCost, source: Optional[GameObject] = None
+    ) -> bool:
         """Whether ``player`` can pay ``cost`` out of their own resources.
 
         The same per-component affordability checks
@@ -4891,7 +4895,29 @@ class MiscSystemsMixin:
             return False
         if cost.blight and not self.blight_possible(player):
             return False
+        if source is not None and self._source_counter_removal(source, cost) is False:
+            return False
         return True
+    def _source_counter_removal(
+        self, source: GameObject, cost: ActivationCost
+    ) -> Optional[tuple[str, int]]:
+        """The ``(kind, count)`` a "you may remove a `<kind>` counter from ~" payment takes off
+        ``source`` (PAR-140 — Biting-Palm Ninja, Kappa Tech-Wrecker), ``None`` when ``cost`` has no
+        such component, ``False`` when ``source`` doesn't carry enough. A fixed count only: the
+        X/any-number sentinels need an announcement `pay_cost_then` doesn't have, so they stay
+        unpayable here rather than guessed at. **Documented simplification:** "a counter" of no
+        named kind ("remove a counter from ~", Slumbering Walker) takes the source's first kind."""
+        if not cost.remove_counters or cost.remove_counters_from:
+            return None
+        kind, count = cost.remove_counters
+        if count <= 0:
+            return False
+        counters = {k: v for k, v in (source.counters or {}).items() if v and v > 0}
+        if kind == REMOVE_COUNTERS_ANY_KIND:
+            kind = next(iter(counters), "")
+        if counters.get(kind, 0) < count:
+            return False
+        return kind, count
     def _can_sacrifice_or_discard(self, player: Player) -> bool:
         """Whether ``player`` could pay a `sacrifice_or_discard` cost right
         now — a nonland permanent to sacrifice, or a card in hand."""
@@ -4900,7 +4926,9 @@ class MiscSystemsMixin:
             for obj in self.state.permanents_controlled_by(player.id)
         )
         return has_nonland or bool(player.hand)
-    def _pay_player_cost(self, player: Player, cost: ActivationCost) -> None:
+    def _pay_player_cost(
+        self, player: Player, cost: ActivationCost, source: Optional[GameObject] = None
+    ) -> None:
         """Charge ``player`` a cost's components — reuses the same per-kind
         payment primitives `GameEngine.activate_ability` charges an activated
         ability's cost with. The payment half of `_can_pay_player_cost`."""
@@ -4924,6 +4952,10 @@ class MiscSystemsMixin:
         if cost.blight:
             # RULE 701.68 — auto-pick (payment can't pause for a chooser).
             self.blight(player, cost.blight, interactive=False)
+        if source is not None:
+            removal = self._source_counter_removal(source, cost)
+            if removal:
+                self.add_counters(source, -removal[1], removal[0])
     def _pay_sacrifice_or_discard(self, player: Player) -> None:
         """Pay a `sacrifice_or_discard` cost component — the payer's own
         choice of *which* half (Tergrid's Lantern, MEC-43 round 4E). Forced

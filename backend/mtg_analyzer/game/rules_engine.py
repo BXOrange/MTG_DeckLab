@@ -261,6 +261,9 @@ class RulesEngine(
         #: MEC-108: the "put your choice of a flying counter or a lifelink counter"
         #: effect awaiting its kind pick — see `RulesEngine._request_counter_kind_choice`.
         self._pending_counter_kind: Optional[dict[str, Any]] = None
+        #: PAR-140: the "put a counter on a creature you control" pick awaiting its recipient —
+        #: see `RulesEngine._request_counter_recipient_choice`.
+        self._pending_counter_recipient: Optional[dict[str, Any]] = None
         #: Backing state for an optional "exile this card. If you do, …"
         #: resolution.  Unlike an activation cost the source can already be
         #: in a graveyard when this is offered (Greenwarden of Murasa), so it
