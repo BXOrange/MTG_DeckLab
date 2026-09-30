@@ -232,6 +232,7 @@ export default [
               ['full', 'Layer 4 — Grundlandtyp setzen entfernt Fähigkeiten (305.7, Blood Moon)'],
               ['full', 'Layer 5 — Farbwechsel'],
               ['full', 'Layer 6 — Fähigkeiten verleihen'],
+              ['full', 'Layer 6 — Schlüsselwörter bis Zugende entfernen (613.1f/514.2), einschließlich kombinierter Gewinn-/Verlust-Effekte'],
               ['full', 'Layer 6 — dauerhaft verliehener Schutz (702.16)'],
               ['full', 'Layer 7 — Stärke/Widerstandskraft (a–e)'],
               ['full', 'Zeitstempel-Ordnung'],
@@ -427,8 +428,8 @@ export default [
             items: [
               ['full', 'Rückgängig / Neustart / Rewind'],
               ['full', 'Passiver Gegner ("Goldfisch") als Ziel für Angriffe/Schaden — bewusst passiv (Zweck ist das Testen ohne Gegenwehr); echte agierende Bots (GoldfishBot/GreedyBot) existieren separat für Multiplayer & die Dynamische Analyse'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (53,3 % · 18.555 / 34.811, PARSER_VERSION 553)'],
-              ['partial', 'Davon Commander-legal (56,0 % · 17.828 / 31.830) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (53,4 % · 18.587 / 34.811, PARSER_VERSION 554)'],
+              ['partial', 'Davon Commander-legal (56,1 % · 17.860 / 31.830) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],
               ['full', 'Unterbrochene Auflösung — mehrere Entscheidungen in einem Effekt (608.2)'],
             ],

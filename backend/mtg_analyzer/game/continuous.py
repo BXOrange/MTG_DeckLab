@@ -2896,6 +2896,23 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
             if residual:
                 _trace(obj, 6, "Until-EOT", "gains " + ", ".join(sorted(residual)),
                        duration="end_of_turn")
+        if obj.temp_removed_keywords:
+            obj._removed_keywords.update(obj.temp_removed_keywords)
+            attributed_removed: set[str] = set()
+            for entry in obj.temp_effects:
+                removed = entry.get("removed_keywords") or []
+                if removed:
+                    attributed_removed.update(removed)
+                    _trace(
+                        obj, 6, entry.get("source") or "Until-EOT",
+                        "loses " + ", ".join(sorted(removed)), duration="end_of_turn",
+                    )
+            residual_removed = obj.temp_removed_keywords - attributed_removed
+            if residual_removed:
+                _trace(
+                    obj, 6, "Until-EOT",
+                    "loses " + ", ".join(sorted(residual_removed)), duration="end_of_turn",
+                )
         # MEC-98: perpetual keyword grants — same layer, never cleared.
         if obj.perpetual_keywords:
             obj._granted_keywords.update(obj.perpetual_keywords)

@@ -2568,6 +2568,16 @@ _ATTACHED_ANTHEM_RE = re.compile(
     r"(?P<goaded> and is goaded)?",
     re.IGNORECASE,
 )
+# MEC-105: the ability-removing sibling. Starforged Sword/Colossus Hammer
+# combine the loss with an attached P/T bonus; Mammoth Harness is the bare
+# "enchanted creature loses flying" form. Both are standing layer-6
+# effects, unlike handlers.py's cleanup-scoped temporary removal.
+_ATTACHED_REMOVE_KEYWORD_RE = re.compile(
+    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) "
+    r"(?:gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+) and )?"
+    r"loses (?P<kw>[a-z, ]+)",
+    re.IGNORECASE,
+)
 # "<equipped/enchanted/fortified subject> has <keywords>"  (keyword-only grant)
 _ATTACHED_GRANT_RE = re.compile(
     rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has (?P<kw>{_KW_WITH_WARD})"
@@ -4617,6 +4627,24 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             return specs
         # A "for each …" quantity with no wired selector — fail closed, same
         # as the self-scoped row (never silently apply +0).
+
+    # Attached-permanent keyword removal ("equipped creature gets +3/+3 and
+    # loses flying" / "enchanted creature loses flying").
+    m = _ATTACHED_REMOVE_KEYWORD_RE.fullmatch(text)
+    if m is not None:
+        keywords = _flag_keywords(m.group("kw"))
+        if keywords is None:
+            return None
+        specs: list[EffectSpec] = []
+        if m.group("p") is not None:
+            specs.append(EffectSpec("anthem", {
+                "power": int(m.group("p")), "toughness": int(m.group("t")),
+                "affects": "attached_permanent",
+            }))
+        specs.append(EffectSpec("remove_keyword", {
+            "keywords": keywords, "affects": "attached_permanent",
+        }))
+        return specs
 
     # Attached-permanent shape first ("equipped creature gets +2/+2 [and has
     # <keywords>]") — a closed subject list, so this never competes with the

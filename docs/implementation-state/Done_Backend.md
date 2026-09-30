@@ -1607,6 +1607,12 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 - **What:** A new `remove_keyword` static type mirrors `grant_keyword`, populating `GameObject._removed_keywords`, subtracted last in keyword display/combat checks (Colossu…
 - **Files:** `game/continuous.py`, `game/combat.py`
 
+### Temporary Layer-6 Keyword Removal (MEC-105, RULE 613.1f / 514.2; PARSER_VERSION 554)
+
+- **What:** `PumpEffect.removed_keywords` is the resolve-time mirror of a temporary keyword grant. It stamps `GameObject.temp_removed_keywords`; combat subtracts that set after printed, intrinsic, and granted keywords are combined, `continuous.recompute` preserves and traces it as an end-of-turn layer-6 change, and cleanup/new-object reset clears it. The pump path deliberately carries gains, P/T changes, and losses together, so “gains flying and loses trample” or “gets -2/+2 and loses flying” resolves against one recipient. Keyword loss is harmful target polarity for bot selection. The parser recognizes target/self/group-trigger/previous-subject forms plus attached-permanent standing “gets +N/+N and loses `<keyword>`”/bare loss through the existing `remove_keyword` static. Cache diff from v553: **+32 modeled, 0 regressed** (including Gravity Well, Barbed Foliage, Canopy Claws, Downdraft, Adarkar Windform, Canopy Dragon, and Starforged Sword).
+- **Files:** `models/game/game_object.py`, `game/combat.py`, `game/continuous.py`, `game/engine/turn_loop_mixin.py`, `game/effects/counters_tokens.py`, `game/effects/registry.py`, `parser/oracle/catalogue/handlers.py`, `parser/oracle/catalogue/static_handlers.py`, `tests/test_mec105_temporary_keyword_loss.py`
+- **Why:** A separate temporary removal set matches the existing `temp_keywords` lifetime and lets every established `PumpEffect` addressing mode work unchanged; mutating printed keywords would violate object identity and lose the change on a layer recompute.
+
 ### Standing Granted Protection (RULE 702.16, Layer 6)
 
 - **What:** `grant_protection_static` → `GameObject._granted_protections`, stamped every recompute and unioned by `combat.is_protected_from`, so it stops applying the insta…

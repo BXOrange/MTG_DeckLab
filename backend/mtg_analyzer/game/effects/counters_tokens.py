@@ -1986,6 +1986,9 @@ class CreateTokensPerCounterAmongTargetPlayerCreaturesEffect(GameEffect):
 class PumpEffect(GameEffect):
     """Give a target creature a temporary P/T boost and/or keywords "until end
     of turn" (Giant Growth; RULE 613.4d layer 7d + layer 6 for keywords).
+    ``removed_keywords`` is the layer-6 mirror: "loses flying until end of
+    turn" is stamped on ``GameObject.temp_removed_keywords`` and swept at
+    cleanup with the grants.
 
     ``power``/``toughness`` may be negative (a "-N/-N" debuff). The change is
     an *effect* with a duration, not counters — it lives on the object's
@@ -2018,6 +2021,7 @@ class PumpEffect(GameEffect):
         power: int = 0,
         toughness: int = 0,
         keywords: Optional[list[str]] = None,
+        removed_keywords: Optional[list[str]] = None,
         target_kind: Optional[str] = None,
         selector: Optional[str] = None,
         unblockable: bool = False,
@@ -2070,6 +2074,7 @@ class PumpEffect(GameEffect):
         self.power = power
         self.toughness = toughness
         self.keywords = list(keywords or [])
+        self.removed_keywords = list(removed_keywords or [])
         #: ENG-31: "gains firebending N until end of turn" — a keyword with a
         #: number, which the flat `keywords` slug list can't carry. Written
         #: to the recipient's `temp_parametric_keywords`, the parametric
@@ -2186,7 +2191,11 @@ class PumpEffect(GameEffect):
                 return value.startswith("-")
             return value < 0
 
-        return "harmful" if (_is_negative(self.power) or _is_negative(self.toughness)) else "beneficial"
+        return "harmful" if (
+            self.removed_keywords
+            or _is_negative(self.power)
+            or _is_negative(self.toughness)
+        ) else "beneficial"
 
     def _kicked_magnitude(
         self, base: Any, if_kicked: Optional[int], if_bargained: Optional[int]
@@ -2244,6 +2253,7 @@ class PumpEffect(GameEffect):
         obj.temp_power += power
         obj.temp_toughness += toughness
         obj.temp_keywords.update(self.keywords)
+        obj.temp_removed_keywords.update(self.removed_keywords)
         for pk in self.parametric_keywords:
             name, n = pk.get("name"), pk.get("n")
             if name and n is not None:
@@ -2252,13 +2262,14 @@ class PumpEffect(GameEffect):
             obj.temp_unblockable = True
         # Record a per-source breakdown for the board's per-card effect
         # summary (display-only — the aggregate ints above drive the math).
-        if power or toughness or self.keywords or self.parametric_keywords:
+        if power or toughness or self.keywords or self.removed_keywords or self.parametric_keywords:
             obj.temp_effects.append(
                 {
                     "source": self.source.name if self.source is not None else "Effekt",
                     "power": power,
                     "toughness": toughness,
                     "keywords": list(self.keywords),
+                    "removed_keywords": list(self.removed_keywords),
                 }
             )
 

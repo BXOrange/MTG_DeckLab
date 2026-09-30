@@ -258,7 +258,10 @@ def _obj_keywords(obj: "GameObject") -> frozenset[str]:
         keywords_of(obj.card)
         | frozenset(getattr(obj, "intrinsic_keywords", set()) or set())
         | frozenset(getattr(obj, "granted_keywords", set()) or set())
-    ) - frozenset(getattr(obj, "removed_keywords", set()) or set())
+    ) - (
+        frozenset(getattr(obj, "removed_keywords", set()) or set())
+        | frozenset(getattr(obj, "temp_removed_keywords", set()) or set())
+    )
 
 
 def _creature_subtypes(obj: "GameObject") -> set[str]:

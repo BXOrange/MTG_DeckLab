@@ -1155,6 +1155,12 @@ class GameObject:
         self.temp_power: int = 0
         self.temp_toughness: int = 0
         self.temp_keywords: set[str] = set()
+        #: MEC-105: flag keywords removed by a resolving "loses <keyword>
+        #: until end of turn" effect.  This is the ability-removing mirror
+        #: of ``temp_keywords``: it survives continuous-effect recomputes,
+        #: is subtracted by ``combat._obj_keywords`` after every keyword
+        #: source is combined, and expires at RULE 514.2 cleanup.
+        self.temp_removed_keywords: set[str] = set()
         #: ENG-31: "until end of turn" grants of a *parametric* keyword
         #: ("target creature gains firebending N until end of turn" — Fire
         #: Nation Palace), slug → number. The parametric sibling of
@@ -1481,6 +1487,7 @@ class GameObject:
         self.temp_power = 0
         self.temp_toughness = 0
         self.temp_keywords = set()
+        self.temp_removed_keywords = set()
         self.temp_parametric_keywords = {}
         self.temp_effects = []
         self.temp_unblockable = False

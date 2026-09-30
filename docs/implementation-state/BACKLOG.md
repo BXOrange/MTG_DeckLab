@@ -320,14 +320,6 @@ No open tickets.
 
 ## MEC — Game mechanic
 
-- **MEC-105 · Temporary keyword loss.** "Target creature / it loses flying [and …] until end of turn"
-  (Gravity Well, Barbed Foliage, Canopy Claws, Downdraft, Adarkar Windform, Starforged Sword — 36 SOLO
-  at v552): a
-  layer-6 ability-*removing* effect that ends at cleanup. `remove_keyword` exists only as a standing
-  static (`StaticAbility` `remove_keywords`); missing is a until-end-of-turn recipient (e.g.
-  `GameObject.temp_removed_keywords`, read by `combat._obj_keywords`, cleared at RULE 514.2) plus the
-  parser rows ("`<subject>` loses `<keyword>[, …]` until end of turn", "gains X and loses Y").
-
 ## PLR — Player management
 
 - **PLR-9 · User accounts.** Login/signup (docs/04 PART 4), auth token

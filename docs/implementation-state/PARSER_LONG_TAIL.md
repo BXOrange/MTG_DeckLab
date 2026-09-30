@@ -25,9 +25,9 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**53.2% covered — 18,532 / 34,811 — as of 2026-09-30, PARSER_VERSION 552** (PAR-123 closes: a group trigger's "it"/"that `<noun>`" names the firing object for every effect, condition, amount, count and target filter (+154 since v551, 0 regressed; the audit that found the last wrong claim is recorded under "Lessons that keep recurring"). Before that, PAR-122 closes: the "a player drawing a card" doubler cause, a spell's own / an emblem's / a granted / a paid ("tap any number of …") trigger doubler, "copy it" under a cast trigger, "that's all colors" tokens and the "as long as equipped creature is attacking" grant: +9 since v550, 0 regressed. Before that, PAR-128 closes: the general mass destroy / exile / bounce group, "each creature blocking it", "X target creatures", plural "other" / "you control", the `noncreature_permanent` kind, "counter target spell you don't control", mass tap scoped to the defending / event player: +124 since v548, 0 regressed. Before that, "those creatures" replaying a preceding mass-selector, mass-damage or mass-counter group, "target opponent … for each", Duress-family, scoped can't-block, counters on "each of them", the general and player-scoped mass tap, named counters on a group, "it gets +X/+X, where X …", "without <keyword>", "any player may activate", "can't be regenerated" (+ exile rider), general and player-scoped mass damage: +163 since v530, 0 regressed).
-Commander-legal slice (the one the product actually plays): **55.9% —
-17,805 / 31,830** (measure with `--commander-legal-only`).
+**53.4% covered — 18,587 / 34,811 — as of 2026-09-30, PARSER_VERSION 554** (MEC-105 adds temporary layer-6 keyword loss and its gain/loss, P/T/loss, group-subject, previous-subject, and attached-static parser forms: +32 since v553, 0 regressed. MEC-106/MEC-107 at v553 added Gift/Expend and related residue: +23 since v552. PAR-123 at v552 generalized a group trigger's firing-object referent: +154 since v551, 0 regressed.)
+Commander-legal slice (the one the product actually plays): **56.1% —
+17,860 / 31,830** (measure with `--commander-legal-only`).
 
 ### PAR-124 closes completely: player-events, X-tokens, a targeted delayed trigger, a hand-zone duplicate, an optional-attach composition — and the controller-binding bug the targeted variant first exposed (PARSER_VERSION 463)
 

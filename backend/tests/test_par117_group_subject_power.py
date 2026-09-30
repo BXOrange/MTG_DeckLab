@@ -60,7 +60,7 @@ from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.events import EventType, GameEvent
 from mtg_analyzer.models.game.game_object import GameObject, Zone
-from mtg_analyzer.parser.oracle.gate import parse_oracle, UNMODELED
+from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import _trigger_condition
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 
@@ -147,15 +147,6 @@ def test_real_cards_become_modeled():
         card = _db().get_card(name)
         result = parse_oracle(card)
         assert result.modeled, f"{name}: {result.unclaimed}"
-
-
-def test_still_unmodeled_on_unrelated_gaps():
-    for name in (
-        "Gravity Well",  # "it loses flying until end of turn": a keyword-loss effect nothing models yet
-    ):
-        card = _db().get_card(name)
-        result = parse_oracle(card)
-        assert result.coverage is UNMODELED
 
 
 # ---------------------------------------------------------------------------

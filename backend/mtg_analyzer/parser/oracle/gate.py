@@ -3760,7 +3760,9 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: player-event head; Expend is a numeric player-event head. Gift's real-card residue also adds
 #: multi-target graveyard returns with a mana-value cap, an elliptical target+mass damage clause,
 #: and the chosen-pair "the creature you control" counter referent.
-PARSER_VERSION = "553"
+#: 554 (MEC-105): temporary flag-keyword loss, including gain/loss and P/T/loss
+#: compounds, plus the standing attached-permanent P/T-and-loss form.
+PARSER_VERSION = "554"
 
 
 def parser_source_hash() -> str:

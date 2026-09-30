@@ -9146,6 +9146,63 @@ def _pump_keywords(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("pump", params)]
 
 
+def _temporary_keyword_change(
+    m: re.Match[str], *, previous_subject: bool = False,
+) -> Optional[list[EffectSpec]]:
+    """Layer-6 keyword gains/removals that last until cleanup (MEC-105).
+
+    A single ``pump`` spec carries both halves so a compound "gains X and
+    loses Y" sentence chooses/resolves its recipient only once. The same
+    effect already owns targeted, self, group and previous-subject routing;
+    ``removed_keywords`` is its ability-removing mirror of ``keywords``.
+    """
+    params: dict = {}
+    if m.groupdict().get("p") is not None:
+        params["power"] = _signed_int(m.group("p"))
+        params["toughness"] = _signed_int(m.group("t"))
+    if m.groupdict().get("kw"):
+        keywords = _token_keywords(m.group("kw"))
+        if keywords is None:
+            return None
+        params["keywords"] = keywords
+    removed = _token_keywords(m.group("lost"))
+    if removed is None:
+        return None
+    params["removed_keywords"] = removed
+    if previous_subject:
+        params["previous_subject"] = True
+        return [EffectSpec("pump", params)]
+    subject = _pump_target(m)
+    if subject is None:
+        return None
+    target_kind, selector = subject
+    if target_kind:
+        params["target_kind"] = target_kind
+    if selector:
+        params["selector"] = selector
+    state_filter = _pump_target_creature_filter(m)
+    if state_filter:
+        params["creature_filter"] = state_filter
+    return [EffectSpec("pump", params)]
+
+
+def _temporary_keyword_change_implicit(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    """Self-subject "it loses …"; other pronouns use their gated row."""
+    removed = _token_keywords(m.group("lost"))
+    if removed is None:
+        return None
+    params: dict = {"removed_keywords": removed}
+    if m.groupdict().get("p") is not None:
+        params["power"] = _signed_int(m.group("p"))
+        params["toughness"] = _signed_int(m.group("t"))
+    if m.groupdict().get("kw"):
+        keywords = _token_keywords(m.group("kw"))
+        if keywords is None:
+            return None
+        params["keywords"] = keywords
+    return [EffectSpec("pump", params)]
+
+
 #: "Another target attacking creature gains indestructible until end of
 #: turn" (Iconic Shield). This is a combat-state target restriction, not a
 #: subtype quality the ordinary `_SUBJECT` grammar can represent.
@@ -17107,6 +17164,38 @@ HANDLERS: list[EffectHandler] = [
         _PUMP_OTHER_ATTACKING_CREATURE_RE,
         _pump_other_attacking_creature,
     ),
+    # MEC-105 / RULE 613.1f: temporary ability removal. Compound rows come
+    # first and remain one effect, so "gains flying and loses trample" (or a
+    # P/T change plus a loss) shares one recipient and one duration.
+    EffectHandler(
+        "pump_and_lose_keyword",
+        _c(
+            rf"{_SUBJECT} gets? {_PT_DELTA} and loses? "
+            r"(?P<lost>[a-z, ]+?) until end of turn"
+        ),
+        _temporary_keyword_change,
+    ),
+    EffectHandler(
+        "gain_and_lose_keyword",
+        _c(
+            rf"{_SUBJECT} gains? (?P<kw>[a-z, ]+?) and loses? "
+            r"(?P<lost>[a-z, ]+?) until end of turn"
+        ),
+        _temporary_keyword_change,
+    ),
+    EffectHandler(
+        "lose_and_gain_keyword",
+        _c(
+            rf"{_SUBJECT} loses? (?P<lost>[a-z, ]+?) and gains? "
+            r"(?P<kw>[a-z, ]+?) until end of turn"
+        ),
+        _temporary_keyword_change,
+    ),
+    EffectHandler(
+        "lose_keyword_until_eot",
+        _c(rf"{_SUBJECT} loses? (?P<lost>[a-z, ]+?) until end of turn"),
+        _temporary_keyword_change,
+    ),
     # "target creature gains flying until end of turn" (keyword-only pump) /
     # "creatures you control gain flying until end of turn".
     EffectHandler(
@@ -17244,6 +17333,42 @@ HANDLERS: list[EffectHandler] = [
         _c(r"it gains? (?P<kw>[a-z, ]+?) until end of turn"),
         _grant_self_subject_kw,
         self_subject_only=True,
+    ),
+    EffectHandler(
+        "gain_and_lose_self_subject_kw",
+        _c(
+            r"(?:it|this creature) gains? (?P<kw>[a-z, ]+?) and loses? "
+            r"(?P<lost>[a-z, ]+?) until end of turn"
+        ),
+        _temporary_keyword_change_implicit,
+        self_subject_only=True,
+    ),
+    EffectHandler(
+        "pump_and_lose_self_subject_kw",
+        _c(
+            rf"(?:it|this creature) gets? {_PT_DELTA} and loses? "
+            r"(?P<lost>[a-z, ]+?) until end of turn"
+        ),
+        _temporary_keyword_change_implicit,
+        self_subject_only=True,
+    ),
+    EffectHandler(
+        "lose_self_subject_kw",
+        _c(
+            r"(?:it|this creature) loses? (?P<lost>[a-z, ]+?)"
+            r"(?: and gains? (?P<kw>[a-z, ]+?))? until end of turn"
+        ),
+        _temporary_keyword_change_implicit,
+        self_subject_only=True,
+    ),
+    EffectHandler(
+        "lose_previous_subject_kw",
+        _c(
+            rf"{_PREV_SUBJECT_SINGULAR}(?: also)? loses? (?P<lost>[a-z, ]+?)"
+            r"(?: and gains? (?P<kw>[a-z, ]+?))? until end of turn"
+        ),
+        lambda m: _temporary_keyword_change(m, previous_subject=True),
+        previous_subject_only=True,
     ),
     EffectHandler("copy_that_spell", _COPY_THAT_SPELL_RE, _copy_that_spell),
     EffectHandler(
@@ -18657,7 +18782,11 @@ _PERPETUAL_RE = re.compile(
 #: A trailing "where x is …" has to stay *after* the inserted duration.
 _PERPETUAL_WHERE_RE = re.compile(r"(?P<head>.+?)(?P<tail>,? where x is .+)")
 #: Pump params that have no perpetual reading — a spec carrying one is refused.
-_PERPETUAL_REFUSED_PARAMS = ("unblockable", "parametric_keywords")
+_PERPETUAL_REFUSED_PARAMS = (
+    "unblockable",
+    "parametric_keywords",
+    "removed_keywords",
+)
 #: "creatures you control and creature cards in your hand, library, and
 #: graveyard" / "creature cards in your hand" / "each creature card in your
 #: graveyard".

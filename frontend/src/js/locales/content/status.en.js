@@ -232,6 +232,7 @@ export default [
               ['full', 'Layer 4 — setting a basic land type removes abilities (305.7, Blood Moon)'],
               ['full', 'Layer 5 — color change'],
               ['full', 'Layer 6 — granting abilities'],
+              ['full', 'Layer 6 — removing keywords until end of turn (613.1f/514.2), including combined gain/loss effects'],
               ['full', 'Layer 6 — permanently granted protection (702.16)'],
               ['full', 'Layer 7 — power/toughness (a–e)'],
               ['full', 'Timestamp ordering'],
@@ -427,8 +428,8 @@ export default [
             items: [
               ['full', 'Undo / Restart / Rewind'],
               ['full', 'Passive opponent ("goldfish") as a target for attacks/damage — deliberately passive (the point is testing without resistance); real acting bots (GoldfishBot/GreedyBot) exist separately for multiplayer & the dynamic analysis'],
-              ['partial', 'Total oracle-parser coverage (53.3% · 18,555 / 34,811, PARSER_VERSION 553)'],
-              ['partial', 'Of which Commander-legal (56.0% · 17,828 / 31,830) — the subset relevant to Goldfish/Deck-Analyzer; remainder by cause in scripts/commander_tail_report.py'],
+              ['partial', 'Total oracle-parser coverage (53.4% · 18,587 / 34,811, PARSER_VERSION 554)'],
+              ['partial', 'Of which Commander-legal (56.1% · 17,860 / 31,830) — the subset relevant to Goldfish/Deck-Analyzer; remainder by cause in scripts/commander_tail_report.py'],
               ['full', 'Interactive choice instead of automation: which object to tap/sacrifice/return'],
               ['full', 'Interrupted resolution — several decisions in one effect (608.2)'],
             ],

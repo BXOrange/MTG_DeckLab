@@ -2573,6 +2573,7 @@ EffectRegistry.register(
         power=p.get("power", 0),
         toughness=p.get("toughness", 0),
         keywords=list(p.get("keywords", [])),
+        removed_keywords=list(p.get("removed_keywords", [])),
         trigger_subject=bool(p.get("trigger_subject", False)),
         trigger_event_key=p.get("trigger_event_key"),
         target_kind=p.get("target_kind"),
