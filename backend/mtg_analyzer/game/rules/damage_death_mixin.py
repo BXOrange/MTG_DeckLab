@@ -2054,6 +2054,10 @@ class DamageDeathMixin:
                     # that creature's toughness" on a DIES trigger (Abattoir
                     # Ghoul), read the same RULE 400.7 last-known way.
                     toughness=obj.toughness,
+                    # The characteristics "if it was a `<type>`" asks about (`trigger_event_object`), on
+                    # the leaves event too so a self "leaves the battlefield" trigger can read them.
+                    subtypes=sorted(continuous.derived_subtype_words(obj)),
+                    colors=sorted(obj.colors),
                 )
             )
             # RULE 700.4: "dies" means "is put into a graveyard from the
@@ -2088,7 +2092,9 @@ class DamageDeathMixin:
                     # gone from the battlefield by the time that check
                     # runs.
                     is_token=obj.is_token,
-                    subtypes=obj.card.type_line.partition("—")[2].strip().lower().split(),
+                    # Derived, not just printed (RULE 603.10a): a Demon the layer engine made it is still a
+                    # Demon when "if it wasn't a Demon" is asked (Infernal Vessel).
+                    subtypes=sorted(continuous.derived_subtype_words(obj)),
                     # "whenever a **green** creature dies" (Bereavement,
                     # PAR-117) — `_build_group_ok`'s ``color`` key needs the
                     # same RULE 400.7 last-known snapshot as ``object_types``/

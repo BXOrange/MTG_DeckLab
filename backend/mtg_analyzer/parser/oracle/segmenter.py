@@ -4256,6 +4256,37 @@ def _rescope_to_trigger_subject(condition: dict[str, Any]) -> dict[str, Any]:
     return condition
 
 
+#: The pronoun-row condition kinds that have a source-scoped reading and a last-known (snapshot) one.
+_SELF_PRONOUN_CHARACTERISTIC_KEYS: dict[str, str] = {
+    "is_card_type": "card_type", "is_subtype": "subtype", "is_color": "color",
+}
+
+
+def _rescope_self_pronoun_condition(condition: dict[str, Any], *, past: bool) -> Optional[dict[str, Any]]:
+    """A pronoun gate ("if it was a Demon") under a *self-subject* trigger → a condition that can hold.
+
+    The shared rows build ``of: previous_target`` — right after a targeting clause, but a self trigger has no
+    pick, so the gate never held and the card silently never acted (Weatherseed Totem, Infernal Vessel). Present
+    tense ("if it's a creature") is the source itself; past tense ("if it was/wasn't …") asks what the source
+    *was* — the death/leave event's last-known snapshot (`effect_conditions` ``trigger_event_object``, RULE
+    603.10a). ``None`` (fail closed) for any other kind still naming ``previous_target``."""
+    kind = condition.get("kind")
+    if kind in ("all", "any"):
+        subs = [_rescope_self_pronoun_condition(sub, past=past) for sub in condition.get("conditions") or []]
+        return None if any(sub is None for sub in subs) else {**condition, "conditions": subs}
+    if kind == "not" and isinstance(condition.get("condition"), dict):
+        inner = _rescope_self_pronoun_condition(condition["condition"], past=past)
+        return None if inner is None else {**condition, "condition": inner}
+    if condition.get("of") != "previous_target":
+        return condition
+    key = _SELF_PRONOUN_CHARACTERISTIC_KEYS.get(str(kind))
+    if key is None or key not in condition:
+        return None
+    if past:
+        return {"kind": "trigger_event_object", key: condition[key]}
+    return {k: v for k, v in condition.items() if k != "of"}
+
+
 def _peel_condition(
     body: str,
     table: tuple[_ConditionPrefix, ...],
@@ -4286,16 +4317,12 @@ def _peel_condition(
             match.groupdict().get("cond") or "", condition, self_subject=self_subject,
             previous_subject=previous_subject, group_subject=group_subject,
         )
-        if (
-            condition is not None and self_subject and not previous_subject and not group_subject
-            and '"of": "previous_target"' in json.dumps(condition)
-        ):
-            # PAR-142: "when ~ dies, if it wasn't a Demon, …" / "…if it was a creature, …" — "it" is the
-            # source, but these pronoun rows read ``previous_target`` (a pick an earlier clause made), which
-            # no clause has made here, so the gate never holds and the card silently never acts (Weatherseed
-            # Totem, Infernal Vessel). Last-known information of the dying object is not modelled either, so
-            # fail closed instead of claiming a card that does nothing.
-            return True, None
+        if condition is not None and self_subject and not previous_subject and not group_subject:
+            # PAR-142: "when ~ dies, if it was a creature / wasn't a Demon, …" — "it" is the source, but these
+            # pronoun rows read ``previous_target`` (a pick an earlier clause made), which no clause made here.
+            condition = _rescope_self_pronoun_condition(
+                condition, past=re.search(r"\b(?:was|wasn'?t|were|weren'?t)\b", match.groupdict().get("cond") or "") is not None,
+            )
         if condition is None:
             # A row whose ``build`` couldn't resolve its condition phrase (the
             # generic rows below hand the phrase to the shared vocabulary, and

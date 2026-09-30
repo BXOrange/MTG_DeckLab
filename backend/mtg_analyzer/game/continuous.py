@@ -139,6 +139,19 @@ def _has_subtype(obj: "GameObject", subtype: str) -> bool:
     return subtype.lower() in sub
 
 
+def derived_subtype_words(obj: "GameObject") -> frozenset[str]:
+    """``obj``'s *current* subtypes, lowercased — the printed ones plus any a layer-4 effect added (or, under a
+    RULE 613.5 overwrite, only those). The last-known-information snapshot a leaves-the-battlefield event carries
+    (RULE 603.10a/608.2h): "…if it wasn't a Demon" must see a Demon the layer engine made it, not just the type
+    line. Changeling is not expanded — a snapshot names words, it does not match them."""
+    override = getattr(obj, "_derived_subtypes", None)
+    if override is not None:
+        return frozenset(str(s).lower() for s in override)
+    _, _, printed = str(getattr(getattr(obj, "card", None), "type_line", "") or "").partition("—")
+    added = getattr(obj, "_added_subtypes", None) or ()
+    return frozenset({*printed.lower().split(), *(str(s).lower() for s in added)})
+
+
 def has_subtype(obj: "GameObject", subtype: str) -> bool:
     """Public wrapper over `_has_subtype` for callers outside this module
     (e.g. `game_engine`'s "tap N untapped Elves you control" cost, RULE

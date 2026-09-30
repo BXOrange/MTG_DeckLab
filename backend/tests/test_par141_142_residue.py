@@ -160,18 +160,63 @@ def test_minas_morgul_shape_is_modeled():
     )
 
 
-# --- a dies-trigger gate on "it" must not be claimed while it cannot hold ---------------------------
+# --- a dies-trigger gate on "it": last-known information of the dying object ------------------------------
+
+VESSEL = (
+    "When this creature dies, if it wasn't a Demon, return it to the battlefield under its owner's control "
+    "with two +1/+1 counters on it. It's a Demon in addition to its other types."
+)
+TOTEM = "When this permanent dies, if it was a creature, return this card to its owner's hand."
 
 
-def test_a_dies_trigger_gate_on_it_fails_closed_until_last_known_information_exists():
-    # Both cards read `previous_target`, which no clause made: they would silently never act.
-    assert not _modeled(
-        "When this creature dies, if it wasn't a Demon, return it to the battlefield under its owner's control "
-        "with two +1/+1 counters on it. It's a Demon in addition to its other types.", "Creature — Human", "Vessel",
-    )
-    assert not _modeled(
-        "When this creature dies, if it was a creature, return this card to its owner's hand.", "Artifact", "Totem",
-    )
+def test_a_dies_gate_on_it_reads_the_death_snapshot_not_a_pick():
+    assert _modeled(VESSEL, "Creature — Human Cleric", "Vessel")
+    assert _modeled(TOTEM, "Artifact", "Totem")
+    [totem_effect] = [e for s in _parse(Card(id="T", name="T", type_line="Artifact", oracle_text=TOTEM)).specs
+                      if s.ability_kind == "triggered" for e in s.effects]
+    assert totem_effect.condition == {"kind": "trigger_event_object", "card_type": "creature"}
+    # Present tense is the source itself, not a snapshot.
+    present = parse_effect_body("if it's a creature, draw a card", self_subject=True)
+    assert present[0].condition == {"kind": "is_card_type", "card_type": "creature"}
+
+
+def test_infernal_vessel_returns_once_as_a_demon_with_counters():
+    engine, state = _engine()
+    vessel = _put(state, VESSEL, name="Infernal Vessel", types="Creature — Human Cleric")
+    engine.rules.destroy(vessel)
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    assert vessel in state.battlefield and vessel.counters.get("+1/+1") == 2
+    assert "Demon" in vessel._added_subtypes
+    # Dying again as a Demon: last-known information says it *was* one, so it stays dead.
+    engine.rules.destroy(vessel)
+    engine.resolve_until_stable()
+    assert vessel not in state.battlefield
+
+
+def test_weatherseed_totem_returns_only_if_it_died_as_a_creature():
+    from mtg_analyzer.game.effects.registry import EffectRegistry
+
+    engine, state = _engine()
+    totem = _put(state, TOTEM, name="Totem", types="Artifact")
+    engine.rules.destroy(totem)
+    engine.resolve_until_stable()
+    assert totem in state.player_by_id("p1").graveyard  # an artifact, not a creature: no return
+
+    engine2, state2 = _engine()
+    animated = _put(state2, TOTEM, name="Totem", types="Artifact")
+    grant = EffectRegistry.create("grant_until", {
+        "duration": "end_of_turn", "self_subject": True, "target_kind": None,
+        "static": {"type": "type_change", "params": {"add_types": ["creature"], "power": 5, "toughness": 3}},
+    })
+    grant.source = animated
+    from mtg_analyzer.game.effects.core import GameContext
+    grant.apply(GameContext(state2, engine2.rules))
+    engine2.recompute_continuous_effects()
+    assert animated.is_creature
+    engine2.rules.destroy(animated)
+    engine2.resolve_until_stable()
+    assert animated in state2.player_by_id("p1").hand  # it died as a creature: it returns to hand
 
 
 def test_a_self_return_with_counters_makes_the_returned_permanent_the_next_it():

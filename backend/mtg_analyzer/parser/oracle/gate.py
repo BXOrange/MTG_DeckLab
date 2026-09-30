@@ -3788,7 +3788,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `<subtype/type>` in addition to its other types [until end of turn]" (a `grant_until` over a layer-4
 #: `type_change`, permanent = `rest_of_game`); "you may remove a `<kind>` counter from ~/it. When/If you do,
 #: …" (`pay_cost_then` whose cost comes off the source, `RulesEngine._source_counter_removal`).
-PARSER_VERSION = "560"
+PARSER_VERSION = "561"
 
 
 def parser_source_hash() -> str:

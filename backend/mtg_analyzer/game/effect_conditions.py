@@ -170,6 +170,11 @@ CONTEXT_CONDITION_KINDS: frozenset[str] = frozenset(
         # RULE 400.7: the dying object's counters survive in the firing
         # event's last-known snapshot, even after it reaches the graveyard.
         "trigger_event_counters",
+        # RULE 603.10a/608.2h: what the dying or departing object *was* — "if it was a creature" (Weatherseed
+        # Totem), "if it wasn't a Demon" (Infernal Vessel). Off the firing event's last-known snapshot
+        # (``object_types``/``subtypes``/``colors``), because by the time the trigger resolves the object is a
+        # new one in the graveyard (RULE 400.7) that carries none of what a layer effect gave it.
+        "trigger_event_object",
     }
 )
 
@@ -419,6 +424,25 @@ def _context_holds(
         count = int(counters.get(counter, 0)) if counter else sum(int(v) for v in counters.values())
         low, high = condition.get("min"), condition.get("max")
         return (low is None or count >= int(low)) and (high is None or count <= int(high))
+
+    if kind == "trigger_event_object":
+        event = getattr(context, "trigger_event", None)
+        if event is None or event.get("object_types") is None:
+            return None  # no snapshot to read — unanswerable, so the gate fails closed
+        wanted_type = condition.get("card_type")
+        if wanted_type is not None and str(wanted_type).lower() not in {str(t).lower() for t in event["object_types"]}:
+            return False
+        wanted_subtype = condition.get("subtype")
+        if wanted_subtype is not None and str(wanted_subtype).lower() not in {
+            str(t).lower() for t in (event.get("subtypes") or ())
+        }:
+            return False
+        wanted_color = condition.get("color")
+        if wanted_color is not None and str(wanted_color).upper() not in {
+            str(c).upper() for c in (event.get("colors") or ())
+        }:
+            return False
+        return True
 
     if kind == "did_all_bends_this_turn":
         done = context.state.bends_this_turn.get(_controller_id(source, context), set())
