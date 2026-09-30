@@ -1189,6 +1189,9 @@ class GameObject:
         #: than an evasion grant on the attacker, read directly by
         #: `GameEngine.can_block` and cleared at cleanup (RULE 514.2).
         self.temp_cant_block: bool = False
+        #: RULE 701.16 / "can't be regenerated this turn" (Gravebind, Incinerate's rider) —
+        #: `RulesEngine.destroy` skips the regeneration replacement pass; cleared at cleanup.
+        self.temp_cant_be_regenerated: bool = False
         #: "You can't sacrifice those creatures this turn." (Call for Aid —
         #: an anti-abuse rider on a mass threaten). Checked by
         #: `RulesEngine.sacrifice` / `GameEngine._sacrifice_candidate`;
@@ -1474,6 +1477,7 @@ class GameObject:
         self.temp_unblockable = False
         self.temp_pt_switch_count = 0
         self.temp_cant_block = False
+        self.temp_cant_be_regenerated = False
         self.temp_combat_restrictions = []
         self.temp_protections = set()
         self.temp_cant_be_target_of_spell_colors = set()

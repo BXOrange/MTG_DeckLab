@@ -43,6 +43,9 @@ from .subgrammars import (
     SELF_SUBJECT_PREFIX,
     SPELL_TARGET,
     TARGET,
+    NOT_YOU_TAIL,
+    NOT_YOU_TARGET_KINDS,
+    OTHER_PREFIX,
     UP_TO_ONE,
     all_permanent_type_selector,
     count_of,
@@ -191,7 +194,23 @@ _MULTI_TARGET_ROWS: list[tuple[str, str]] = [
     (r"target lands", "permanent"),
     (r"target players", "player"),
 ]
-_MULTI_TARGET_ALT = "|".join(f"(?:{frag})" for frag, _ in _MULTI_TARGET_ROWS)
+#: PAR-128: the controller scope on a plural target phrase ("tap up to 2 target
+#: creatures your opponents control"). Only the rows whose kind has a scoped
+#: pool in `subgrammars.NOT_YOU_TARGET_KINDS` compose it; "target artifacts",
+#: "target lands" and the like read as the broad ``permanent`` kind, so scoping
+#: them would claim a narrower pool than the engine offers — they stay unclaimed.
+_MULTI_TARGET_SCOPE_TAIL = r" (?:your opponents control|an opponent controls|you don'?t control)"
+_MULTI_TARGET_SCOPED_KINDS: dict[str, str] = {
+    r"target creatures and/or planeswalkers": "creature_or_planeswalker",
+    r"target creatures": "creature",
+    r"target nonland permanents": "nonland_permanent",
+    r"target permanents": "permanent",
+    r"target artifacts and/or enchantments": "artifact_or_enchantment",
+}
+_MULTI_TARGET_ALT = (
+    "(?:(?:" + "|".join(f"(?:{frag})" for frag, _ in _MULTI_TARGET_ROWS) + ")"
+    f"(?:{_MULTI_TARGET_SCOPE_TAIL})?)"
+)
 #: "exile any number of target spells." (Mindbreak Trap) — a spell-kind
 #: target row, deliberately *not* folded into the shared `_MULTI_TARGET_
 #: ROWS`/`_MULTI_TARGET_ALT` every other multi-target family (destroy/
@@ -216,6 +235,10 @@ def _multi_target_kind_with_spell(phrase: str) -> Optional[str]:
 
 def _multi_target_kind(phrase: str) -> Optional[str]:
     text = phrase.strip()
+    scoped = re.fullmatch(rf"(?P<base>.*?)(?P<tail>{_MULTI_TARGET_SCOPE_TAIL})", text, re.IGNORECASE)
+    if scoped is not None:
+        base = _MULTI_TARGET_SCOPED_KINDS.get(scoped.group("base").lower())
+        return None if base is None else NOT_YOU_TARGET_KINDS.get(base)
     for frag, kind in _MULTI_TARGET_ROWS:
         if re.fullmatch(frag, text, re.IGNORECASE):
             return kind
@@ -818,7 +841,9 @@ def _damage_each_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 _DIVIDED_DAMAGE_RE = _c(
     rf"{SELF_SUBJECT_PREFIX}"
     rf"deals? {COUNT_X} damage divided as you choose among any number of "
-    r"(?P<target>targets|target creatures|target creatures and/or planeswalkers)"
+    r"(?P<target>targets|target creatures and/or planeswalkers|target creatures)"
+    # PAR-128: "… your opponents control" (Dragonlord Atarka, Polukranos).
+    rf"(?P<scope>{_MULTI_TARGET_SCOPE_TAIL})?"
 )
 
 
@@ -829,6 +854,10 @@ def _divided_damage(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         else "creature_or_planeswalker" if target == "target creatures and/or planeswalkers"
         else "any"
     )
+    if m.group("scope"):
+        kind = NOT_YOU_TARGET_KINDS.get(kind)
+        if kind is None:  # bare "targets" has no scoped pool
+            return None
     return [EffectSpec("damage", {
         "amount": count_or_x_of(m.group("n")), "target_kind": kind,
         "count": _ANY_NUMBER_TARGET_CAP, "optional": True, "divided": True,
@@ -1256,6 +1285,8 @@ def _prevent_all_damage_enchanted(m: re.Match[str]) -> Optional[list[EffectSpec]
 #: here, since no card prints "deals damage to each other player".
 _SELECTOR_WORD_MAP: dict[str, str] = {
     "each creature": "each_creature",
+    # PAR-128: RULE 109.5 — every creature but the damage's own source.
+    "each other creature": "each_other_creature",
     "each player": "each_player",
     "each opponent": "each_opponent",
     # Symmetric mass-damage board wipes (RULE 601.2c) — the global-scope
@@ -1320,7 +1351,66 @@ def _damage_target_two_color(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 def _damage_selector(m: re.Match[str]) -> list[EffectSpec]:
     selector = _SELECTOR_WORD_MAP[m.group("selector")]
-    return [EffectSpec("damage", {"amount": int(m.group("n")), "selector": selector})]
+    n = m.group("n").lower()
+    # PAR-128: an X amount ("deals x damage to each creature and each player" — Crypt Rats).
+    return [EffectSpec("damage", {"amount": "x" if n == "x" else int(n), "selector": selector})]
+
+
+#: "~ deals 1 damage to each creature you don't control" / "…to each other creature
+#: you control" / "…to each other creature without flying" (Barrage of Boulders, Cinder
+#: Giant, Fire Ants — PAR-128) — the general mass form: the group is whatever the shared
+#: noun-phrase grammar reads (`parse_count_phrase`, singular head pluralized), carried as
+#: `DealDamageEffect.group`. After `damage_selector`, so its named selectors keep winning.
+_DAMAGE_GROUP_RE = _c(
+    rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+|x) damage to each (?P<group>[a-z' -]+?)"
+)
+_SINGULAR_GROUP_HEADS = re.compile(r"\b(creature|planeswalker|permanent|artifact|land|enchantment)\b(?!s)")
+
+
+#: The player a mass-damage group can be scoped to (`DealDamageEffect.group_player`).
+_DAMAGE_GROUP_PLAYER_TAILS: dict[str, str] = {
+    " defending player controls": "defending",
+    " that player controls": "event_player",
+    " target player controls": "player",
+    " target opponent controls": "opponent",
+}
+
+
+def _damage_group(m: re.Match[str], *, that_player: str = "event_player") -> Optional[list[EffectSpec]]:
+    from .count_phrase import parse_count_phrase
+
+    text = m.group("group")
+    and_players = None
+    for tail, scope in ((" and each player", "each_player"), (" and each opponent", "each_opponent")):
+        if text.endswith(tail):
+            text, and_players = text[: -len(tail)], scope
+            break
+    group_player = None
+    for tail, who in _DAMAGE_GROUP_PLAYER_TAILS.items():
+        if text.endswith(tail):
+            text, group_player = text[: -len(tail)], who
+            break
+    if group_player == "event_player":
+        group_player = that_player
+    if any(word in text for word in ("target", "that player", "dealt damage", "blocking", "blocked")):
+        return None
+    group = parse_count_phrase(_SINGULAR_GROUP_HEADS.sub(r"\1s", text))
+    if group is None or group.get("zone") != "battlefield":
+        return None
+    params: dict = {"group": group}
+    if group_player is not None:
+        # The group is that player's own: written `of: "you"`, evaluated for them.
+        if group.get("of") != "any":
+            return None
+        params["group"] = {**group, "of": "you"}
+        params["group_player"] = group_player
+    if and_players is not None:
+        if group_player is not None:
+            return None  # "…creatures that player controls and each player" reads two scopes
+        params["group_and_players"] = and_players
+    n = m.group("n").lower()
+    params["amount"] = "x" if n == "x" else int(n)
+    return [EffectSpec("damage", params)]
 
 
 def _damage_that_much_selector(m: re.Match[str]) -> list[EffectSpec]:
@@ -1362,16 +1452,21 @@ def _damage_to_you_per_treasure(m: re.Match[str]) -> list[EffectSpec]:
 _DAMAGE_EACH_CREATURE_KEYWORD_RE = _c(
     rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+|x) damage to "
     rf"each creature (?P<neg>with|without) (?P<kw>flying|horsemanship)"
-    rf"(?P<and_player> and each player)?"
+    rf"(?:(?P<and_player> and each player)|(?P<opp>{_MULTI_TARGET_SCOPE_TAIL}))?"
 )
 
 
 def _damage_each_creature_keyword(m: re.Match[str]) -> list[EffectSpec]:
     n = m.group("n").lower()
     key = "without_keyword" if m.group("neg").lower() == "without" else "keyword"
+    # PAR-128: "each creature with flying your opponents control" (Thundermaw Hellkite).
+    selector = (
+        "each_creature_and_player" if m.group("and_player")
+        else "each_creature_opponents_control" if m.group("opp") else "each_creature"
+    )
     return [EffectSpec("damage", {
         "amount": "x" if n == "x" else int(n),
-        "selector": "each_creature_and_player" if m.group("and_player") else "each_creature",
+        "selector": selector,
         "selector_filter": {key: m.group("kw").lower()},
     })]
 
@@ -1846,17 +1941,20 @@ _HAND_DISRUPTION_FILTERS: dict[str, dict] = {
     "an artifact or creature card": {"card_types": ["artifact", "creature"]},
 }
 _HAND_DISRUPTION_RE = _c(
-    rf"(?P<target>target opponent|target player) reveals their hand\. "
+    rf"(?P<target>target opponent|target player) reveals their hand(?:\. |, )"
     rf"you choose (?P<filter>{'|'.join(re.escape(k) for k in _HAND_DISRUPTION_FILTERS)}) "
     rf"from it(?: with mana value (?P<mv>\d+) or less)?"
-    r"\. that player discards that card(?:\. you lose (?P<life>\d+) life)?"
+    # PAR-128: the comma spelling ("…, you choose … from it, then that player
+    # discards that card", Devour Intellect / River's Grasp) reads the same.
+    r"(?:\. |, then )that player discards that card(?:\. you lose (?P<life>\d+) life)?"
 )
 
 
 def _hand_disruption_discard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    kind = resolve_target_kind(m.group("target"))
-    if kind != "player":
+    if resolve_target_kind(m.group("target")) != "player":
         return None
+    # PAR-128: "target opponent" is an opponent, not any player.
+    kind = "opponent" if m.group("target") == "target opponent" else "player"
     params: dict = {"target_kind": kind, **_HAND_DISRUPTION_FILTERS[m.group("filter")]}
     if m.group("mv"):
         params["max_mana_value"] = int(m.group("mv"))
@@ -2067,8 +2165,12 @@ def _discard(m: re.Match[str]) -> list[EffectSpec]:
     # controller* discard instead of the chosen player.
     params: dict = {"count": count_of(m.group("n"))}
     who = (m.groupdict().get("who") or "").strip()
-    if who in ("target player", "target opponent"):
+    if who == "target player":
         params["target_kind"] = "player"
+    elif who == "target opponent":
+        # PAR-128: an opponent, not any player — Honden of Night's Reach must
+        # not be able to aim the discard at its own controller.
+        params["target_kind"] = "opponent"
     elif who == "each player":
         params["scope"] = "each_player"
     elif who == "each opponent":
@@ -2092,6 +2194,9 @@ def _that_many_player_discards(m: re.Match[str]) -> list[EffectSpec]:
 #: choice per player).
 _SACRIFICE_EDICT_SELECTOR_WORDS: dict[str, str] = {
     "each player": "each_player", "each opponent": "each_opponent",
+    # PAR-128: RULE 109.5 "each other player" — every player but the controller,
+    # the same reading `_SELECTOR_WORD_MAP` gives it (no team play, RULE 809+).
+    "each other player": "each_opponent",
 }
 _SACRIFICE_EDICT_WHAT_WORDS: dict[str, str] = {
     "creature": "creature", "artifact": "artifact", "land": "land", "permanent": "permanent",
@@ -3148,6 +3253,26 @@ _CREATURE_FILTER_SUFFIX = (
 )
 
 
+#: PAR-128: the controller scope on a quality-filtered creature target, on
+#: either side of the filter ("target creature an opponent controls with power
+#: 2 or less", "target creature with flying an opponent controls"). Used by the
+#: rows that read `_scoped_creature_kind`; the can't-be-blocked row keeps the
+#: bare suffix.
+_CREATURE_FILTER_SCOPED = (
+    rf"(?P<scope_pre>{NOT_YOU_TAIL})? {_CREATURE_FILTER_SUFFIX}(?P<scope_post>{NOT_YOU_TAIL})?"
+)
+
+
+def _scoped_creature_kind(m: re.Match[str]) -> Optional[str]:
+    """The creature target kind a `_CREATURE_FILTER_SCOPED` match names, or
+    ``None`` when the scope is written on both sides of the filter."""
+    groups = m.groupdict()
+    pre, post = groups.get("scope_pre"), groups.get("scope_post")
+    if pre and post:
+        return None
+    return "creature_you_dont_control" if pre or post else "creature"
+
+
 def _creature_quality_filter_clause(groups: dict, suffix: str) -> Optional[dict]:
     if groups.get(f"pwr{suffix}"):
         n = int(groups[f"pwr{suffix}"])
@@ -3182,9 +3307,10 @@ def _quality_filter_builder(effect_type: str):
 
     def build(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         filt = _creature_quality_filter(m)
-        if filt is None:
+        kind = _scoped_creature_kind(m)
+        if filt is None or kind is None:
             return None
-        return [EffectSpec(effect_type, {"target_kind": "creature", "creature_filter": filt})]
+        return [EffectSpec(effect_type, {"target_kind": kind, "creature_filter": filt})]
 
     return build
 
@@ -3209,16 +3335,17 @@ _exile_creature_filter = _quality_filter_builder("exile")
 #: "up to one target creature with flying" card.
 _DAMAGE_CREATURE_FILTER_RE = _c(
     rf"{SELF_SUBJECT_PREFIX}"
-    rf"deals? {NUMBER} damage to target creature {_CREATURE_FILTER_SUFFIX}"
+    rf"deals? {NUMBER} damage to target creature{_CREATURE_FILTER_SCOPED}"
 )
 
 
 def _damage_creature_filter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     filt = _creature_quality_filter(m)
-    if filt is None:
+    kind = _scoped_creature_kind(m)
+    if filt is None or kind is None:
         return None
     return [EffectSpec("damage", {
-        "amount": int(m.group("n")), "target_kind": "creature", "creature_filter": filt,
+        "amount": int(m.group("n")), "target_kind": kind, "creature_filter": filt,
     })]
 
 
@@ -3422,6 +3549,9 @@ _DESTROY_ALL_RE = _c(
 _DESTROY_ALL_OPP_SELECTORS = {
     "all_enchantments": "opponents_enchantments",
     "all_artifacts": "opponents_artifacts",
+    # PAR-128: "destroy all creatures your opponents control" (Dread Cacodemon) —
+    # `opponents_creatures` already served Llawan's bounce.
+    "all_creatures": "opponents_creatures",
 }
 
 
@@ -3784,7 +3914,9 @@ def _tap_two_color(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: creature/permanent kinds the singular `_tap` handler allows.
 def _tap_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params = _multi_target_params(m)
-    if params is None or params["target_kind"] not in ("creature", "permanent", *_SINGLE_TYPE_PERMANENT_KINDS):
+    if params is None or not target_kind_allowed(
+        params["target_kind"], ("creature", "permanent", *_SINGLE_TYPE_PERMANENT_KINDS),
+    ):
         return None
     untap = m.group("verb").lower() == "untap"
     params["untap"] = untap
@@ -3823,6 +3955,40 @@ def _tap_selector(m: re.Match[str]) -> list[EffectSpec]:
     other = m.groupdict().get("other_all") or m.groupdict().get("other_each")
     selector = "other_creatures_you_control" if other else "creatures_you_control"
     return [EffectSpec("tap", {"selector": selector, "untap": untap})]
+
+
+#: "tap all creatures target opponent controls" / "tap all lands target player
+#: controls" (Tempest Caller, Gulf Squid, Mana Short — PAR-128): the mass group
+#: scoped to a chosen player. The selector is written `of: "you"` and
+#: `TapEffect.selector_player` evaluates it for that player.
+_TAP_ALL_PLAYER_GROUP_RE = _c(
+    r"(?P<verb>tap|untap) all (?P<group>[a-z' -]+?) (?P<who>target player|target opponent) controls"
+)
+
+
+def _tap_all_player_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from .count_phrase import parse_count_phrase
+
+    selector = parse_count_phrase(m.group("group"))
+    if selector is None or selector.get("zone") != "battlefield" or selector.get("of") != "any":
+        return None
+    return [EffectSpec("tap", {
+        "selector": {**selector, "of": "you"},
+        "selector_player": "opponent" if m.group("who") == "target opponent" else "player",
+        "untap": m.group("verb").lower() == "untap",
+    })]
+
+
+def _tap_all_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from .count_phrase import parse_count_phrase
+
+    group = m.group("group")
+    if "target" in group or "that player" in group:
+        return None
+    selector = parse_count_phrase(group)
+    if selector is None or selector.get("zone") != "battlefield":
+        return None
+    return [EffectSpec("tap", {"selector": selector, "untap": m.group("verb").lower() == "untap"})]
 
 
 #: MEC-28: "untap all attacking creatures" (Karlach, Fury of Avernus) /
@@ -4091,12 +4257,13 @@ def _return_to_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: _substitute_x`, which already walks any effect's ``filter`` attribute
 #: generically).
 _RETURN_ALL_NONLAND_RE = _c(
-    rf"return all nonland permanents{_MASS_DESTROY_FILTER} to their owners'? hands?"
+    rf"return all (?P<other>other )?nonland permanents{_MASS_DESTROY_FILTER} to their owners'? hands?"
 )
 
 
 def _return_all_nonland(m: re.Match[str]) -> list[EffectSpec]:
-    params: dict = {"selector": "all_nonland_permanents"}
+    # PAR-128: RULE 109.5 "all other nonland permanents" (Kederekt Leviathan).
+    params: dict = {"selector": "all_other_nonland_permanents" if m.group("other") else "all_nonland_permanents"}
     filt = _mass_destroy_filter_dict(m)
     if filt:
         params["filter"] = filt
@@ -4224,6 +4391,11 @@ _GRAVEYARD_TYPE_WORD = (
 #: A graveyard clause's *scope* — whose graveyard — "your"/"a" (any single
 #: graveyard)/"an opponent's" (longest-alternative-first, same reason).
 _GRAVEYARD_SCOPE_WORD = r"an opponent'?s|your|a"
+#: PAR-128: RULE 109.5's "another"/"other" before "target" on a graveyard card.
+#: A slot, not a filter: the graveyard pool already leaves out the ability's own
+#: source (`targeting.legal_targets`' `o is not source`), which is all "another"
+#: asks for (Junk Diver's dies trigger names its own graveyard card).
+_GRAVEYARD_OTHER = rf"(?:{OTHER_PREFIX})?"
 #: Scope word → `targeting._GRAVEYARD_SCOPE_PREFIXES` key.
 _GRAVEYARD_SCOPE_KIND: dict[str, str] = {
     "your": "graveyard", "a": "any_graveyard", "an opponents": "opponent_graveyard",
@@ -4311,7 +4483,7 @@ def _return_from_graveyard_two_color(m: re.Match[str]) -> Optional[list[EffectSp
 #: same `TargetSpec.max_mana_value` offer-time filter `destroy_mv` already
 #: uses, not a new one.
 _RETURN_FROM_GRAVEYARD_RE = _c(
-    rf"return (?P<up_to_one>{UP_TO_ONE})target (?:(?P<nonleg>nonlegendary) )?"
+    rf"return (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<nonleg>nonlegendary) )?"
     rf"(?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card"
     rf"(?: with mana value (?P<mv>\d+) or less)? from "
     rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard to "
@@ -4322,7 +4494,7 @@ _RETURN_FROM_GRAVEYARD_RE = _c(
     r"(?P<ewc> with a -1/-1 counter on it)?"
 )
 _PUT_FROM_GRAVEYARD_OWNER_CONTROL_RE = _c(
-    rf"put (?P<up_to_one>{UP_TO_ONE})target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
+    rf"put (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
     rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard onto the battlefield under its owner'?s control"
 )
 
@@ -4354,7 +4526,7 @@ def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: family) — the plural sibling of `_RETURN_FROM_GRAVEYARD_RE`. The type
 #: word itself doesn't inflect ("creature cards", not "creatures cards").
 _RETURN_FROM_GRAVEYARD_MULTI_RE = _c(
-    rf"return {_MULTI_TARGET_QUANTIFIER}target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?cards from "
+    rf"return {_MULTI_TARGET_QUANTIFIER}{_GRAVEYARD_OTHER}target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?cards from "
     rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyards? to "
     r"(?P<dest>the battlefield|your hand|their owners'? hands)"
 )
@@ -4395,7 +4567,7 @@ def _return_from_graveyard_multi_target(m: re.Match[str]) -> Optional[list[Effec
 #: phase out" and Change of Plans already use. Always `optional`: RULE
 #: 601.2c lets an announced X be 0, and "up to X" is optional anyway.
 _RETURN_FROM_GRAVEYARD_X_RE = _c(
-    rf"return (?:up to )?x target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?cards from "
+    rf"return (?:up to )?x {_GRAVEYARD_OTHER}target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?cards from "
     rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyards? to "
     r"(?P<dest>the battlefield|your hand)"
 )
@@ -4417,7 +4589,7 @@ def _return_from_graveyard_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: — unlike the two shapes above, this one *steals* the card for the
 #: activating/casting player regardless of whose graveyard it came from.
 _REANIMATE_UNDER_YOUR_CONTROL_RE = _c(
-    rf"put (?P<up_to_one>{UP_TO_ONE})target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
+    rf"put (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
     rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard onto the battlefield under your control"
 )
 
@@ -6230,6 +6402,17 @@ _POWER_DAMAGE_ROW_SPECS: list[tuple[str, "re.Pattern[str]", Any, dict]] = [
     (
         "damage_equal_to_power_pronoun_selector", _POWER_DAMAGE_PRONOUN_SELECTOR_RE,
         _damage_equal_to_power_selector(None), {"self_subject_only": True},
+    ),
+    # PAR-123: under a RULE 603.1 group trigger "it" is the firing creature, not the
+    # source (Stalking Vengeance, Warstorm Surge) — the same `trigger_subject`
+    # dealer `fight` already reads (MEC-99).
+    (
+        "damage_equal_to_power_group_pronoun", _POWER_DAMAGE_PRONOUN_RE,
+        _damage_equal_to_power_implicit("trigger_subject"), {"group_subject_only": True},
+    ),
+    (
+        "damage_equal_to_power_group_pronoun_selector", _POWER_DAMAGE_PRONOUN_SELECTOR_RE,
+        _damage_equal_to_power_selector("trigger_subject"), {"group_subject_only": True},
     ),
     (
         "damage_equal_to_power_attached", _POWER_DAMAGE_ATTACHED_RE,
@@ -8131,6 +8314,8 @@ _NAMED_COUNTER_KINDS: frozenset[str] = frozenset({
     "fuse", "depletion", "flood", "bounty", "brick", "study", "plague",
     "doom", "growth", "point", "infection", "hatchling", "pressure",
     "slime", "tide", "ice", "flame", "hour", "hoofprint", "arrow",
+    # PAR-128: pure card-text trackers (no reader in `game/`).
+    "impostor", "hone",
 })
 #: `COUNT_X` (not the plain `COUNT`) so an {X}-costed activated ability's
 #: own "put X charge counters on ~" (Blast Zone, Ventifact Bottle — PAR-47)
@@ -8143,6 +8328,26 @@ _ADD_NAMED_COUNTER_RE = _c(
     rf"put {COUNT_X} (?P<ckind>{'|'.join(_NAMED_COUNTER_KINDS)}) counters? on "
     rf"(?:{TARGET}|(?P<selfref>{_SELF_SUBJECT}))"
 )
+
+
+#: "put an impostor counter on each creature you control" (Illicit
+#: Masquerade) / "put a hone counter on each Equipment you control" (Dwalin) —
+#: a named counter on a mass group (`AddCountersEffect.group`, the group read
+#: through the shared `parse_count_phrase` grammar).
+_ADD_NAMED_COUNTER_GROUP_RE = _c(
+    rf"put {COUNT_X} (?P<ckind>{'|'.join(_NAMED_COUNTER_KINDS)}) counters? on each (?P<group>[a-z' -]+?)"
+)
+
+
+def _add_named_counter_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from .count_phrase import parse_count_phrase
+
+    group = parse_count_phrase(m.group("group"))
+    if group is None or group.get("zone") != "battlefield" or "target" in m.group("group"):
+        return None
+    return [EffectSpec("add_counters", {
+        "count": count_or_x_of(m.group("n")), "kind": m.group("ckind"), "group": group,
+    })]
 
 
 def _add_named_counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -8390,6 +8595,33 @@ def _add_counters_selector(m: re.Match[str]) -> list[EffectSpec]:
     else:
         params["count"] = amount
     return [EffectSpec("add_counters", params)]
+
+
+#: "…tap up to 2 target creatures. Put a stun counter on **each of them**."
+#: (Out Cold, Homesickness, Donatello — PAR-128) — the plural pronoun of
+#: `tap_and_stun`'s "on it": every object the preceding clause chose
+#: (`AddCountersEffect.previous_group`). Only the counter kinds whose engine
+#: reader is known (+1/+1, -1/-1, stun — RULE 122.1c).
+_ADD_COUNTERS_PREVIOUS_GROUP_RE = _c(
+    r"put (?P<n>an?|\d+) (?P<ckind>\+1/\+1|-1/-1|−1/−1|stun) counters? on "
+    r"(?:each of them|each of those creatures|those creatures)"
+)
+
+
+def _add_counters_previous_group(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("add_counters", {
+        "kind": _counter_sign(m.group("ckind")) if m.group("ckind") != "stun" else "stun",
+        "count": count_of(m.group("n")), "previous_subject": True, "previous_group": True,
+    })]
+
+
+def _add_counters_previous_selector(m: re.Match[str]) -> list[EffectSpec]:
+    """`_add_counters_previous_group`'s sibling for a preceding *mass selector*
+    ("tap all creatures your opponents control, then put a stun counter on each of
+    those creatures" — Monstrosity of the Lake)."""
+    [spec] = _add_counters_previous_group(m)
+    params = {k: v for k, v in spec.params.items() if k not in ("previous_subject", "previous_group")}
+    return [EffectSpec("add_counters", {**params, "previous_selector": True})]
 
 
 def _pump_target(m: re.Match[str]) -> Optional[tuple[Optional[str], Optional[str]]]:
@@ -9524,6 +9756,31 @@ def _grant_group_subject_kw(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             "keyword": "must_be_blocked", "event_key": GROUP_SUBJECT_KEY_SENTINEL,
         }))
     return specs
+
+
+#: "it gets +X/+X until end of turn" (PAR-123) — the pronoun subject with the
+#: symmetric X magnitude, whose X a trailing ", where X is the number of …"
+#: binds (`segmenter._where_x_specs`: Angelic Exaltation, Thoughtweft Imbuer,
+#: Altar of the Goyf). One regex, three subject flavours (source / group
+#: trigger's firing object / a preceding clause's target).
+_PUMP_IT_X_RE = _c(
+    r"it gets? \+x/\+x(?: and gains? (?P<kw>[a-z, ]+?))? until end of turn"
+)
+
+
+def _pump_it_x(m: re.Match[str], *, subject: str) -> Optional[list[EffectSpec]]:
+    params: dict = {"power": "x", "toughness": "x"}
+    if m.groupdict().get("kw"):
+        keywords = _token_keywords(m.group("kw"))
+        if keywords is None:
+            return None
+        params["keywords"] = keywords
+    if subject == "group":
+        params["trigger_subject"] = True
+        params["trigger_event_key"] = GROUP_SUBJECT_KEY_SENTINEL
+    elif subject == "previous":
+        params["previous_subject"] = True
+    return [EffectSpec("pump", params)]
 
 
 def _pump_group_subject(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -11557,6 +11814,10 @@ def _create_emblem(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: yours, the plain-English reading of either phrasing).
 _GROUP = (
     r"(?P<group>other creatures you control"
+    # PAR-128: the unscoped "other" (RULE 109.5) — Shefet Archfiend's "all other
+    # creatures", Honored Crop-Captain's "other attacking creatures"; the
+    # count-phrase grammar already reads "other" as ``not_reference``.
+    r"|all other creatures|other attacking creatures"
     # "Each creature you control with a counter on it gains firebending N …"
     # (Iroh, Dragon of the West) — a counter-presence filter on the
     # controller-scoped creature set; tried before the bare
@@ -11569,6 +11830,7 @@ _GROUP = (
     # "creatures you control". Tried before the bare "each creature you
     # control" row below so "other" isn't swallowed by it.
     r"|each other creature you control"
+    r"|each other creature"
     r"|each creature you control"
     # "all creatures you control gain deathtouch until end of turn" (Venom
     # Connoisseur) — the same group as "creatures you control", with the
@@ -11600,11 +11862,17 @@ _SUBJECT = (
 #: already be covered too (the grammar's own `has_counter` filter key,
 #: proven equivalent to the old `creatures_you_control_with_a_counter`
 #: string on a real board) — no residual entry needed for it at all.
-_GROUP_SELECTORS: dict[str, str] = {
+_GROUP_SELECTORS: dict[str, "str | dict"] = {
     "other creatures you control": "other_creatures_you_control",
     "each other creature you control": "other_creatures_you_control",
     "all creatures": "all_creatures",
     "creatures you dont control": "creatures_opponents_control",
+    # PAR-128: the unscoped "each other creature" (singular, so `parse_count_phrase`
+    # can't read it) — every creature but the effect's source.
+    "each other creature": {
+        "zone": "battlefield", "of": "any",
+        "filter": {"card_type": "creature", "not_reference": True},
+    },
 }
 
 
@@ -11627,6 +11895,8 @@ def _group_selector(phrase: str) -> "Optional[str | dict]":
         structured = parse_count_phrase(phrase[len("each "):])
         if structured is not None:
             return structured
+    if phrase == "all other creatures":
+        return parse_count_phrase(phrase[len("all "):])
     if phrase == "all creatures you control":
         # The emphatic "all" names the same group; bare "all creatures" (no
         # controller tail) stays the residual table's unscoped selector.
@@ -11690,6 +11960,18 @@ def _untap_previous_group(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("tap", {"previous_subject": True, "untap": True})]
 
 
+#: "Creatures you control get +2/+1 until end of turn. **Untap those
+#: creatures.**" (War Flare, PAR-128) — the mass-selector sibling of
+#: `_untap_previous_group`: offered only when the preceding clause acted on a
+#: replayable group (`EffectHandler.previous_selector_only`), read back off
+#: `GameContext.previous_selector` at resolution.
+_TAP_PREVIOUS_SELECTOR_RE = _c(r"(?:then )?(?P<verb>tap|untap) (?:those creatures|them)")
+
+
+def _tap_previous_selector(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("tap", {"selector": "previous_selector", "untap": m.group("verb").lower() == "untap"})]
+
+
 #: "…, then untap **that land**." (Avatar Kyoshi — PAR-30, following
 #: "earthbend N") / "…, then tap **that permanent**." — the singular
 #: `previous_subject` sibling of `_UNTAP_PREVIOUS_GROUP_RE`: "that
@@ -11717,21 +11999,41 @@ def _tap_previous_subject(m: re.Match[str]) -> list[EffectSpec]:
 _DONT_UNTAP_SUFFIX = (
     r" do(?:es)?n'?t untap during (?:its controller'?s|their controller'?s|your|the player'?s) next untap step"
 )
-_SKIP_UNTAP_TARGET_RE = _c(rf"target (?P<what>creature|artifact|land|permanent){_DONT_UNTAP_SUFFIX}")
+_SKIP_UNTAP_TARGET_RE = _c(
+    rf"target (?P<what>creature|artifact|land|permanent)(?P<scope>{NOT_YOU_TAIL})?{_DONT_UNTAP_SUFFIX}"
+)
 _SKIP_UNTAP_PREV_RE = _c(
     rf"(?:it|that (?:creature|artifact|land|permanent)|those creatures){_DONT_UNTAP_SUFFIX}"
 )
 _SKIP_UNTAP_SELF_RE = _c(rf"(?:~|this (?:creature|artifact|permanent)){_DONT_UNTAP_SUFFIX}")
 
 
-def _skip_untap_target(m: re.Match[str]) -> list[EffectSpec]:
-    what = m.group("what")
-    kind = "creature" if what == "creature" else what
+def _skip_untap_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = m.group("what")
+    if m.group("scope"):
+        # PAR-128: "target creature an opponent controls doesn't untap …" (Fogwalker).
+        kind = NOT_YOU_TARGET_KINDS.get(kind)
+        if kind is None:
+            return None
     return [EffectSpec("skip_next_untap", {"target_kind": kind})]
 
 
 def _skip_untap_prev(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("skip_next_untap", {"previous_subject": True})]
+
+
+#: PAR-128: "…tap all attacking creatures. **Those creatures** don't untap
+#: during their controller's next untap step." (Clinging Mists) — the
+#: mass-selector sibling of `_SKIP_UNTAP_PREV_RE`, plural wording included
+#: ("their controllers' next untap steps").
+_SKIP_UNTAP_PREV_SELECTOR_RE = _c(
+    r"(?:they|those creatures) don'?t untap during "
+    r"(?:their controller'?s next untap step|their controllers'? next untap steps)"
+)
+
+
+def _skip_untap_prev_selector(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("skip_next_untap", {"target_kind": None, "subject": "previous_selector"})]
 
 
 def _skip_untap_self(m: re.Match[str]) -> list[EffectSpec]:
@@ -12759,6 +13061,11 @@ _CANT_BLOCK_TURN_GROUPS: dict[str, tuple[str, dict]] = {
     "creatures without flying": ("all_creatures", {"without_keyword": "flying"}),
     "creatures with flying": ("all_creatures", {"keyword": "flying"}),
     "creatures your opponents control": ("opponents_permanents", {}),
+    # PAR-128: the controller scope written after the quality filter
+    # (Stoneshock Giant's "creatures without flying your opponents control").
+    "creatures without flying your opponents control": (
+        "opponents_permanents", {"without_keyword": "flying"}),
+    "creatures with flying your opponents control": ("opponents_permanents", {"keyword": "flying"}),
     "creatures you control": ("creatures_you_control", {}),
     "creatures you don't control": ("opponents_permanents", {}),
 }
@@ -12766,6 +13073,36 @@ _CANT_BLOCK_TURN_GROUP_RE = _c(
     r"(?P<group>" + "|".join(re.escape(g) for g in _CANT_BLOCK_TURN_GROUPS)
     + r") can'?t block this turn"
 )
+
+
+#: "Target creature can't be regenerated this turn." (Gravebind, Hurr Jackal, Furnace
+#: Brood) / "It can't be regenerated this turn." (Engulfing Flames, Rage of Purphoros) /
+#: "A creature dealt damage this way can't be regenerated this turn." (Incinerate,
+#: Flamebreak) — `CantBeRegeneratedEffect`, RULE 701.16. The pronoun and "dealt damage
+#: this way" forms only compete once a preceding clause supplied the referent.
+_CANT_BE_REGENERATED_TARGET_RE = _c(rf"{TARGET} can'?t be regenerated this turn")
+_CANT_BE_REGENERATED_PREV_RE = _c(r"(?:it|that creature) can'?t be regenerated this turn")
+_CANT_BE_REGENERATED_HIT_RE = _c(
+    r"(?:an?|each) creatures? dealt damage this way can'?t be regenerated this turn"
+    r"|creatures dealt damage this way can'?t be regenerated this turn"
+)
+
+
+def _cant_be_regenerated_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind is None or not target_kind_allowed(
+        kind, ("creature", "creature_you_control", "creature_you_dont_control")
+    ):
+        return None
+    return [EffectSpec("cant_be_regenerated", {"target_kind": kind})]
+
+
+def _cant_be_regenerated_prev(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("cant_be_regenerated", {"previous_subject": True})]
+
+
+def _cant_be_regenerated_hit(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("cant_be_regenerated", {"damaged_this_way": True})]
 
 
 def _cant_block_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -14039,13 +14376,23 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "damage_selector",
         _c(
-            rf"{SELF_SUBJECT_PREFIX}deals? {NUMBER} damage to "
+            rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+|x) damage to "
             rf"(?P<selector>each creature and each player|each creature and each planeswalker"
             rf"|each creature your opponents control|each creature an opponent controls"
-            rf"|each creature|each player|each opponent|that player|them|you)"
+            rf"|each other creature|each creature|each player|each opponent|that player|them|you)"
         ),
         _damage_selector,
     ),
+    # "…to each other creature **that player** controls" after a clause that chose a
+    # creature (Flames of the Raze-Boar): that clause's target's controller, offered only
+    # once a previous clause supplied one; otherwise `damage_group` reads a trigger's player.
+    EffectHandler(
+        "damage_group_previous_controller", _DAMAGE_GROUP_RE,
+        lambda m: _damage_group(m, that_player="previous_controller")
+        if m.group("group").endswith(" that player controls") else None,
+        previous_subject_only=True,
+    ),
+    EffectHandler("damage_group", _DAMAGE_GROUP_RE, _damage_group),
     # RULE 202.2f/700.6 "it deals damage to each opponent equal to your
     # devotion to <colour>." (Fanatic of Mogis) — tried before the plain
     # `damage_selector` row above since "equal to …" has no digit `NUMBER`
@@ -14584,7 +14931,7 @@ HANDLERS: list[EffectHandler] = [
     # `destroy_mv` (a strict superset of the bare "target creature" shape).
     EffectHandler(
         "destroy_creature_filter",
-        _c(rf"destroy target creature {_CREATURE_FILTER_SUFFIX}"),
+        _c(rf"destroy target creature{_CREATURE_FILTER_SCOPED}"),
         _destroy_creature_filter,
     ),
     # "destroy target nonblack creature[. It can't be regenerated.]"
@@ -14758,7 +15105,7 @@ HANDLERS: list[EffectHandler] = [
     # `destroy_creature_filter`.
     EffectHandler(
         "exile_creature_filter",
-        _c(rf"exile target creature {_CREATURE_FILTER_SUFFIX}"),
+        _c(rf"exile target creature{_CREATURE_FILTER_SCOPED}"),
         _exile_creature_filter,
     ),
     # "exile target creature" / "exile target artifact"
@@ -14879,6 +15226,20 @@ HANDLERS: list[EffectHandler] = [
             "choose_tap_or_untap": True,
         })],
     ),
+    # "…then put a stun counter on each of those creatures." after a mass selector.
+    EffectHandler(
+        "add_counters_previous_selector",
+        _ADD_COUNTERS_PREVIOUS_GROUP_RE,
+        _add_counters_previous_selector,
+        previous_selector_only=True,
+    ),
+    # "Put a stun counter on each of them." after a multi-target clause.
+    EffectHandler(
+        "add_counters_previous_group",
+        _ADD_COUNTERS_PREVIOUS_GROUP_RE,
+        _add_counters_previous_group,
+        previous_subject_only=True,
+    ),
     # "tap [up to one] target creature[ an opponent controls] and put a stun
     # counter on it." (Champions of the Shoal, Alchemax Slayer-Bots,
     # Constrictor Sage &c. — PAR-30, a ~30-card SOLO cluster). One clause,
@@ -14991,6 +15352,18 @@ HANDLERS: list[EffectHandler] = [
         "tap_attacking_creatures",
         _c(r"(?P<verb>tap|untap) (?:all attacking creatures|each attacking creature)"),
         _tap_attacking_creatures,
+    ),
+    EffectHandler("tap_all_player_group", _TAP_ALL_PLAYER_GROUP_RE, _tap_all_player_group),
+    # "tap all creatures your opponents control" / "tap all nonwhite creatures" /
+    # "tap all artifacts" (Bond of Discipline, Blinding Light, Metal Fatigue —
+    # PAR-128) — the general mass form: the group is whatever the shared noun-
+    # phrase grammar reads (`parse_count_phrase`), carried as a structured
+    # selector `TapEffect` resolves through `group_selector_objects`. After the
+    # dedicated rows above so their named selectors keep winning.
+    EffectHandler(
+        "tap_all_group",
+        _c(r"(?P<verb>tap|untap) all (?P<group>[a-z' -]+?)"),
+        _tap_all_group,
     ),
     # "Untap it and all Samurai you control." (Godo, Bandit Warlord) — tried
     # before `tap_self` since that row's bare `_SELF_SUBJECT` would consume
@@ -15863,6 +16236,7 @@ HANDLERS: list[EffectHandler] = [
         _ADD_NAMED_COUNTER_RE,
         _add_named_counter,
     ),
+    EffectHandler("add_named_counter_group", _ADD_NAMED_COUNTER_GROUP_RE, _add_named_counter_group),
     # "whenever you gain life, put that many +1/+1 counters on ~/target
     # creature" (Ageless Entity/Karlov-adjacent lifegain payoffs) — tried
     # before the plain `add_counters` row above so its "that many" wins
@@ -16008,6 +16382,12 @@ HANDLERS: list[EffectHandler] = [
     # can't block this turn" / "creatures without flying can't block this
     # turn" — the multi form first, since its "up to two target creatures"
     # phrase is not something the singular `TARGET` alternation can claim.
+    EffectHandler("cant_be_regenerated_target", _CANT_BE_REGENERATED_TARGET_RE, _cant_be_regenerated_target),
+    EffectHandler(
+        "cant_be_regenerated_prev", _CANT_BE_REGENERATED_PREV_RE, _cant_be_regenerated_prev,
+        previous_subject_only=True,
+    ),
+    EffectHandler("cant_be_regenerated_hit", _CANT_BE_REGENERATED_HIT_RE, _cant_be_regenerated_hit),
     EffectHandler(
         "cant_block_this_turn_multi",
         _CANT_BLOCK_TURN_MULTI_RE,
@@ -16180,6 +16560,20 @@ HANDLERS: list[EffectHandler] = [
         _UNTAP_PREVIOUS_GROUP_RE,
         _untap_previous_group,
         previous_subject_only=True,
+    ),
+    # "Those creatures don't untap …" after a mass selector (Clinging Mists).
+    EffectHandler(
+        "skip_untap_previous_selector",
+        _SKIP_UNTAP_PREV_SELECTOR_RE,
+        _skip_untap_prev_selector,
+        previous_selector_only=True,
+    ),
+    # "Untap those creatures." after a mass selector (War Flare, PAR-128).
+    EffectHandler(
+        "tap_previous_selector",
+        _TAP_PREVIOUS_SELECTOR_RE,
+        _tap_previous_selector,
+        previous_selector_only=True,
     ),
     # "…, then untap that land." (Avatar Kyoshi, following "earthbend N") —
     # the singular previous-subject sibling of the row just above.
@@ -16511,6 +16905,18 @@ HANDLERS: list[EffectHandler] = [
         ),
         _pump_group_subject,
         group_subject_only=True,
+    ),
+    EffectHandler(
+        "pump_group_subject_x", _PUMP_IT_X_RE,
+        lambda m: _pump_it_x(m, subject="group"), group_subject_only=True,
+    ),
+    EffectHandler(
+        "pump_self_subject_x", _PUMP_IT_X_RE,
+        lambda m: _pump_it_x(m, subject="self"), self_subject_only=True,
+    ),
+    EffectHandler(
+        "pump_previous_subject_x", _PUMP_IT_X_RE,
+        lambda m: _pump_it_x(m, subject="previous"), previous_subject_only=True,
     ),
     EffectHandler(
         "grant_group_subject_kw",

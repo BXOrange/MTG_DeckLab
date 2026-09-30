@@ -774,6 +774,9 @@ class TurnLoopMixin:
             if obj.temp_cant_block:
                 obj.temp_cant_block = False
                 ended_effects = True
+            if obj.temp_cant_be_regenerated:
+                obj.temp_cant_be_regenerated = False
+                ended_effects = True
             if obj.cant_be_sacrificed_this_turn:
                 obj.cant_be_sacrificed_this_turn = False  # Call for Aid rider
                 ended_effects = True

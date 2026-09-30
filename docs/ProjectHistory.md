@@ -117,13 +117,25 @@ Entdeckungen:
 
 5. **Half-Implementations sind teuer**: Wenn eine Batch beginnt und eine neue Mechanic braucht, aber dann nicht zu Ende gebracht wird, wird sie zu einer "Deferred" Ticket. Beim nächsten Mal wird die gleiche Mechanic von einer *anderen* Batch gebaut — aber die ursprüngliche Ticket wird nie gelöst. Das ist Zeitverschwendung. Die Disziplin jetzt: Entweder fertig machen oder per Hand implementieren (via `hand-author-card`) oder zu DEFERRED verschieben. Kein schönes Halbes.
 
-## Phase 8: Aktuelle Lage (September 2026)
+## Phase 8: Aktuelle Lage (September–30. September 2026)
 
-### Coverage-Status
+### Coverage-Progression: Der lange Weg zu 52%
 
-- **Globale Parser Coverage**: 45.86% (15,963 / 34,811 Cards)
-- **Commander-Legal Coverage**: 48.2% (15,332 / 31,830 Cards) — das ist was zählt
-- **Aktive Tickets**: PAR-117 (Trigger-Condition Group Subjects), die Indefinite Long Tail (PAR-12)
+Die erste vollständige Messung (Parser V2, 18. Juli 2026):
+- **Start**: 19.6% (6,720 Cards) — nur Vanilla Creatures, Basic Instants/Sorceries, Lands
+- **Meilenstein Anfang Sept**: 38% (v208) — Komplexe Trigger und Replacement Effects beginnen
+- **Mid-September**: 44% (v382) — Halbwegs durch die Parser-Erweiterungen
+- **28. September**: 51% (v500) — Die 50%-Hürde geknackt
+- **30. September**: **52.0%** (18,098 / 34,811 Cards)
+
+**520+ Parser-Versionen in 73 Tagen. Zero Regressions.**
+
+### Coverage-Status (Aktuell)
+
+- **Globale Parser Coverage**: 52.0% (18,098 / 34,811 Cards)
+- **Commander-Legal Coverage**: 54.6% (17,381 / 31,830 Cards) — das ist was zählt
+- **Progression**: +32.4% in 3 Monaten
+- **Aktive Tickets**: PAR-120+, die Indefinite Long Tail mit Hand-Authoring als Fallback
 
 ### Architektur-Highlights
 

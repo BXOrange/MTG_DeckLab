@@ -2751,9 +2751,26 @@ def _retarget_implicit_subject_effects(
             params = dict(e.params)
             params["trigger_subject_key"] = _subject_event_key(trigger)
             retargeted.append(EffectSpec(e.type, params, condition=e.condition))
+        elif GROUP_SUBJECT_KEY_SENTINEL in repr(e.params):
+            # A composition node ("bind"/"for_each"/…) carries its effects as nested dicts,
+            # and the placeholder sits inside one of them (PAR-123: "it gets +1/+1 for each
+            # creature you control") — resolve it at any depth, or it never matches an event.
+            retargeted.append(EffectSpec(
+                e.type, _resolve_group_sentinel(e.params, _subject_event_key(trigger)),
+                condition=e.condition,
+            ))
         else:
             retargeted.append(e)
     return retargeted
+
+
+def _resolve_group_sentinel(node: Any, key: Any) -> Any:
+    """``node`` with every ``GROUP_SUBJECT_KEY_SENTINEL`` value replaced by ``key``."""
+    if isinstance(node, dict):
+        return {k: _resolve_group_sentinel(v, key) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_resolve_group_sentinel(v, key) for v in node]
+    return key if node == GROUP_SUBJECT_KEY_SENTINEL else node
 
 
 def bind_ability(

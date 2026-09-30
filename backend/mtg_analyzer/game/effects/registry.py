@@ -20,6 +20,9 @@ EffectRegistry.register(
         colors=p.get("colors"),
         creature_filter=p.get("creature_filter"),
         selector_filter=p.get("selector_filter"),
+        group=p.get("group"),
+        group_player=p.get("group_player"),
+        group_and_players=p.get("group_and_players"),
         divided=bool(p.get("divided", False)),
         double_at=p.get("double_at"),
         amount_if_kicked=p.get("amount_if_kicked"),
@@ -51,6 +54,7 @@ EffectRegistry.register(
         amount_from_defending_player_hand_size=bool(p.get("amount_from_defending_player_hand_size", False)),
         recipient_subject=p.get("recipient_subject"),
         unpreventable=bool(p.get("unpreventable", False)),
+        dealer_event_key=p.get("dealer_event_key"),
     ),
 )
 EffectRegistry.register(
@@ -1194,6 +1198,7 @@ EffectRegistry.register(
         target=p.get("target"), target_kind=p.get("target_kind"),
         previous_subject=bool(p.get("previous_subject", False)),
         damaged_this_way=bool(p.get("damaged_this_way", False)),  # MEC-81
+        creature_only=bool(p.get("creature_only", False)),  # PAR-128 (Carbonize)
     ),
 )
 EffectRegistry.register(
@@ -2292,6 +2297,7 @@ EffectRegistry.register(
         choose_tap_or_untap=bool(p.get("choose_tap_or_untap", False)),
         colors=p.get("colors"),
         target_operand=p.get("target_operand"),
+        selector_player=p.get("selector_player"),
     ),
 )
 EffectRegistry.register(
@@ -2322,6 +2328,17 @@ EffectRegistry.register(
         count_selector=p.get("count_selector"),
         optional=bool(p.get("optional", False)),
         previous_subject=bool(p.get("previous_subject", False)),
+    ),
+)
+EffectRegistry.register(
+    # "Target creature can't be regenerated this turn." (Gravebind) and its
+    # pronoun / "dealt damage this way" forms — RULE 701.16.
+    "cant_be_regenerated",
+    lambda p: CantBeRegeneratedEffect(
+        target=p.get("target"),
+        target_kind=p.get("target_kind", "creature") if "target_kind" in p else None,
+        previous_subject=bool(p.get("previous_subject", False)),
+        damaged_this_way=bool(p.get("damaged_this_way", False)),
     ),
 )
 EffectRegistry.register(
@@ -2522,6 +2539,9 @@ EffectRegistry.register(
         ring_bearer=bool(p.get("ring_bearer", False)),
         previous_subject=bool(p.get("previous_subject", False)),
         distinct_from_others=bool(p.get("distinct_from_others", False)),
+        previous_group=bool(p.get("previous_group", False)),
+        previous_selector=bool(p.get("previous_selector", False)),
+        group=p.get("group"),
     ),
 )
 EffectRegistry.register(

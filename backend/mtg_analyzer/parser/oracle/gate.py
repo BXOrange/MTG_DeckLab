@@ -3745,7 +3745,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: per head when no event can satisfy both; "is put into exile from the battlefield"
 #: (LEAVES_BATTLEFIELD ``to_zone``); "`<phrase>` or a `<phrase>`" noun unions
 #: (``any_of``); "with disturb"; "~ or another …" on the DAMAGE head.
-PARSER_VERSION = "517"
+PARSER_VERSION = "548"
 
 
 def parser_source_hash() -> str:

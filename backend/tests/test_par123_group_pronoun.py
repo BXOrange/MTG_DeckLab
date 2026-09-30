@@ -295,3 +295,141 @@ def test_rienne_returns_the_dead_creature_from_the_graveyard():
     engine.resolve_until_stable()
     assert victim in state.player_by_id("p1").hand
     assert victim not in state.player_by_id("p1").graveyard
+
+
+# ---------------------------------------------------------------------------
+# v528: "it deals damage equal to its power to <target>" under a group trigger
+# ---------------------------------------------------------------------------
+
+WARSTORM = "Whenever a creature you control enters, it deals damage equal to its power to any target."
+
+
+def test_it_deals_damage_equal_to_its_power_names_the_trigger_subject():
+    [(trigger, effect)] = _effects(WARSTORM, name="Warstorm Surge", types="Enchantment")
+    assert effect.type == "damage_equal_to_power"
+    assert effect.params["dealer_kind"] == "trigger_subject"
+    assert effect.params["target_kind"] == "any"
+
+
+def test_a_self_trigger_it_still_deals_from_the_source():
+    [(trigger, effect)] = _effects(
+        "When this creature dies, it deals damage equal to its power to any target.",
+        name="Src", types="Creature — Bear")
+    assert effect.params.get("dealer_kind") is None
+
+
+def test_the_entering_creature_is_the_damage_source_and_uses_its_power():
+    from tests.test_par119_object_trigger_head import _fire_enter
+
+    engine, state = _engine()
+    surge = _put(state, WARSTORM, name="Surge", types="Enchantment")
+    late = _creature(state, "Late")
+    late.card.power = 4
+    dealt: list = []
+    original = engine.rules.deal_damage
+
+    def spy(target, amount, source, *a, **kw):
+        dealt.append((amount, source))
+        return original(target, amount, source, *a, **kw)
+
+    engine.rules.deal_damage = spy
+    _fire_enter(engine, state, late)
+    option = next(o for o in state.pending_choice["options"] if o.get("label") == "p2" or o["id"] == "p2")
+    engine.rules.resolve_choice(option["id"])
+    engine.resolve_until_stable()
+    assert dealt == [(4, late)], dealt
+    assert state.player_by_id("p2").life == 16
+    assert surge.card.power is None
+
+
+# ---------------------------------------------------------------------------
+# v529: the placeholder inside a composition node, and the damage dealer
+# ---------------------------------------------------------------------------
+
+
+def test_a_group_pump_that_scales_per_object_pumps_the_attacker():
+    """"it gets +1/+1 … for each creature you control" is a ``bind`` over a pump: the
+    group-subject placeholder sits inside the nested effect and used to stay unresolved,
+    so the pump matched no event and silently did nothing."""
+    engine, state = _engine()
+    state.current_step = "declare_attackers"
+    _put(state, "Whenever a creature you control attacks, it gets +1/+1 until end of turn "
+                "for each creature you control.", name="Charge", types="Enchantment")
+    attacker = _creature(state, "Attacker")
+    bystander = _creature(state, "Bystander")
+    _creature(state, "Third")
+    attacker.summoning_sick = False
+    engine.declare_attackers(state.active_player, [attacker])
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    assert attacker.power == 4          # printed 1, +3 for three creatures
+    assert bystander.power == 1
+
+
+DRAGON_TEMPEST = ("Whenever a Dragon you control enters, it deals X damage to any target, "
+                  "where X is the number of Dragons you control.")
+
+
+def test_dragon_tempest_damage_is_dealt_by_the_entering_dragon():
+    from tests.test_par119_object_trigger_head import _fire_enter
+
+    engine, state = _engine()
+    tempest = _put(state, DRAGON_TEMPEST, name="Tempest", types="Enchantment")
+    dragon = _put(state, "", name="Drake", types="Creature — Dragon")
+    dealt: list = []
+    original = engine.rules.deal_damage
+
+    def spy(target, amount, source, *a, **kw):
+        dealt.append((amount, source))
+        return original(target, amount, source, *a, **kw)
+
+    engine.rules.deal_damage = spy
+    _fire_enter(engine, state, dragon)
+    option = next(o for o in state.pending_choice["options"] if o["id"] == "p2")
+    engine.rules.resolve_choice(option["id"])
+    engine.resolve_until_stable()
+    assert dealt == [(1, dragon)], dealt          # one Dragon → X = 1, dealt by the Dragon
+    assert tempest not in [src for _, src in dealt]
+    assert state.player_by_id("p2").life == 19
+    # the effect instance serves the next firing too: its own source was restored
+    effect = next(e for a in tempest.triggered_abilities for e in a.effects
+                  if type(e).__name__ != "GameEffect")
+    assert getattr(effect, "source", tempest) is tempest
+
+
+def test_a_self_trigger_it_deals_damage_from_the_source():
+    [(trigger, effect)] = _effects(
+        "When this creature dies, it deals 2 damage to any target.", name="Src", types="Creature — Bear")
+    assert "dealer_event_key" not in effect.params
+
+
+# ---------------------------------------------------------------------------
+# v541: "it gets +X/+X …, where X is the number of …" (Angelic Exaltation)
+# ---------------------------------------------------------------------------
+
+
+def test_a_where_x_pump_scales_the_lone_attacker_by_the_measured_count():
+    engine, state = _engine()
+    state.current_step = "declare_attackers"
+    _put(state, "Whenever a creature you control attacks alone, it gets +X/+X until end of turn, "
+                "where X is the number of creatures you control.", name="Exaltation", types="Enchantment")
+    attacker = _creature(state, "Attacker")
+    bystander = _creature(state, "Bystander")
+    _creature(state, "Third")
+    attacker.summoning_sick = False
+    engine.declare_attackers(state.active_player, [attacker])
+    engine._fire_attacks_alone_event()  # RULE 508.1a: fired once the attack is locked in
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    assert attacker.power == 4          # printed 1, +3 for three creatures
+    assert bystander.power == 1
+
+
+@pytest.mark.parametrize("name, oracle", [
+    ("Angelic Exaltation", "Whenever a creature you control attacks alone, it gets +X/+X until end of "
+                           "turn, where X is the number of creatures you control."),
+    ("Thoughtweft Imbuer", "Whenever a creature you control attacks alone, it gets +X/+X until end of "
+                           "turn, where X is the number of Kithkin you control."),
+])
+def test_where_x_pump_cards_are_modeled(name, oracle):
+    assert _parse(Card(id=name, name=name, type_line="Enchantment", oracle_text=oracle)).modeled

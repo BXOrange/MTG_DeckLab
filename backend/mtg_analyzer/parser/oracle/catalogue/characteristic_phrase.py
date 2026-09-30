@@ -316,7 +316,13 @@ def parse_characteristic_phrase(text: str) -> Optional[dict[str, Any]]:
 #: "with <qualifier>", or an "of the chosen <color|type>".
 _TAIL_MARKER = re.compile(
     r"\s(?=(?:" + "|".join(re.escape(t) for t, _ in CONTROLLER_TAILS)
-    + r"|with|of the chosen|that entered)\b)"
+    + r"|with|without|of the chosen|that entered)\b)"
+)
+#: "creatures **without flying**" (Deluge, PAR-128) — the negated sibling of the
+#: "with `<keyword>`" tail: ``combat.matches_object_filter``'s ``without_keyword``.
+_WITHOUT_TAIL = re.compile(
+    r"^without (?P<q>.+?)(?=\s+(?:" + "|".join(re.escape(t) for t, _ in CONTROLLER_TAILS)
+    + r"|of the chosen|that entered)\b|$)"
 )
 _TAIL_QUALIFIER = re.compile(
     r"^with (?P<q>.+?)(?=\s+(?:" + "|".join(re.escape(t) for t, _ in CONTROLLER_TAILS)
@@ -378,6 +384,14 @@ def parse_object_phrase(
                 rest, matched = rest[len(phrase):].strip(), True
                 break
         if matched:
+            continue
+        neg = _WITHOUT_TAIL.match(rest)
+        if neg is not None:
+            keyword = KEYWORD_WORDS.get(neg.group("q").strip())
+            if keyword is None or "without_keyword" in filt:
+                return None
+            filt["without_keyword"] = keyword
+            rest = rest[neg.end():].strip()
             continue
         q = _TAIL_QUALIFIER.match(rest)
         if q is None:

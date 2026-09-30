@@ -462,6 +462,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "become_solved": "set_status",
     "bounce_own_land_from_trigger": "move_object",
     "cant_block_this_turn": "create_continuous_effect",
+    "cant_be_regenerated": "create_continuous_effect",
     "cast_exiled_face_down": "cast",
     "cast_target_elemental_from_graveyard_free": "cast",
     "cheat_creature_from_hand": "move_object",

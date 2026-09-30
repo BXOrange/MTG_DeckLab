@@ -41,6 +41,12 @@ class PreventCombatDamageDealtEffect(GameEffect):
         if obj is not None:
             obj.temp_prevent_combat_damage_dealt = True
 
+#: PAR-128: RULE 109.5's "each other creature" — every creature but this
+#: effect's own source. Kept off `_DAMAGE_SELECTORS`, which `library.py`'s
+#: power-damage effect shares and does not iterate.
+_DAMAGE_OTHER_SELECTORS: frozenset[str] = frozenset({"each_other_creature"})
+
+
 class DealDamageEffect(GameEffect):
     """Deal ``amount`` damage to a target player or creature — or, with
     ``selector`` set, to *every* object/player a closed vocabulary names
@@ -62,6 +68,9 @@ class DealDamageEffect(GameEffect):
         colors: Optional[list[str]] = None,
         creature_filter: Optional[dict[str, Any]] = None,
         selector_filter: Optional[dict[str, Any]] = None,
+        group: Optional[dict[str, Any]] = None,
+        group_player: Optional[str] = None,
+        group_and_players: Optional[str] = None,
         divided: bool = False,
         double_at: Optional[int] = None,
         amount_if_kicked: Optional[int] = None,
@@ -85,6 +94,7 @@ class DealDamageEffect(GameEffect):
         amount_from_defending_player_hand_size: bool = False,
         recipient_subject: Optional[str] = None,
         unpreventable: bool = False,
+        dealer_event_key: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self._base_amount = amount
@@ -96,6 +106,9 @@ class DealDamageEffect(GameEffect):
         #: for the span of this `apply()` so it doesn't leak to unrelated
         #: later damage.
         self.unpreventable = unpreventable
+        #: The event field naming the damage's dealer when it is the group trigger's firing
+        #: object rather than the source (resolved from the parser's sentinel by the binder).
+        self.dealer_event_key = dealer_event_key
         #: "~ deals N damage to **that creature's controller**" where "that
         #: creature" is a creature an *earlier clause* targeted (PAR-30 —
         #: "Destroy target creature. ~ deals 2 damage to that creature's
@@ -213,7 +226,27 @@ class DealDamageEffect(GameEffect):
         #: for the event's own caster instead of a flat multiplier.
         self.amount_from_noncreature_spells_cast_this_turn = amount_from_noncreature_spells_cast_this_turn
         self.target = target
-        self.selector = selector if selector in _DAMAGE_SELECTORS else None
+        self.selector = selector if selector in _DAMAGE_SELECTORS | _DAMAGE_OTHER_SELECTORS else None
+        #: PAR-128: "~ deals N damage to each creature you don't control" / "…to each other
+        #: creature without flying" — a structured battlefield selector (`{"zone","of",
+        #: "filter"}`) for the mass groups the closed `_DAMAGE_SELECTORS` vocabulary has no
+        #: name for, resolved through `continuous.group_selector_objects`.
+        self.group = dict(group) if isinstance(group, dict) and group.get("zone", "battlefield") == "battlefield" else None
+        if self.group is not None:
+            self.selector = "group"
+        #: "…to each other creature without flying **and each player**" (Themberchaud, Conductor
+        #: of Cacophony) — the group's damage also goes to every player (``"each_player"``) or
+        #: every opponent (``"each_opponent"``); players are never filtered by ``group``.
+        self.group_and_players = group_and_players if group_and_players in ("each_player", "each_opponent") else None
+        #: "…to each creature **defending player controls**" / "…**that player** controls" /
+        #: "…**target opponent** controls" (PAR-128) — whose creatures ``group`` (written
+        #: ``of: "you"``) names: ``"defending"`` (RULE 506.4), ``"event_player"`` (the trigger's
+        #: damaged player), ``"previous_controller"`` (the controller of the preceding clause's
+        #: target), or ``"player"``/``"opponent"`` (a RULE 115 player target).
+        self.group_player = (
+            group_player if group_player in ("defending", "event_player", "previous_controller", "player", "opponent")
+            else None
+        )
         #: "~ deals N damage to each creature **without flying**." (RULE
         #: 601.2c — Earthquake / Fault Line / Pyroclasm-with-a-filter) — a
         #: `combat.matches_object_filter`-shaped narrowing applied to the
@@ -236,6 +269,8 @@ class DealDamageEffect(GameEffect):
         self.double_at = double_at
         self.division: Optional[list[int]] = None
         self.target_spec = None
+        if self.group is not None and self.group_player in ("player", "opponent"):
+            self.target_spec = TargetSpec(kind=self.group_player)
         if self.selector is None and self.recipient_subject is None:
             # Damage targets "any target" by default (RULE 115.4); a card
             # that only hits creatures can narrow this to "creature".
@@ -371,6 +406,23 @@ class DealDamageEffect(GameEffect):
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.dealer_event_key is None:
+            self._apply_from(context, targets)
+            return
+        # PAR-123: under a group trigger "it deals N damage" names the object that fired the
+        # trigger, not this ability's source (Dragon Tempest) — deal from it for this resolution
+        # only, since one effect instance serves every future firing of the ability.
+        dealer = context.state.find_object((context.trigger_event or {}).get(self.dealer_event_key))
+        if dealer is None:
+            return
+        original = self.source
+        self.source = dealer
+        try:
+            self._apply_from(context, targets)
+        finally:
+            self.source = original
+
+    def _apply_from(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         # Amount overrides are resolve-time questions; Raid reads the same
         # player declaration history as every other controller-scoped gate.
         self._state = context.state
@@ -389,7 +441,7 @@ class DealDamageEffect(GameEffect):
 
     def _apply_impl(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.selector is not None:
-            self._apply_selector(context)
+            self._apply_selector(context, targets)
             return
         if self.recipient_subject is not None:
             who = self.recipient_subject.rpartition("_")[0]  # strip trailing "_controller"
@@ -474,7 +526,7 @@ class DealDamageEffect(GameEffect):
             if amount > 0:
                 context.deal_damage(target, amount, self.source)
 
-    def _apply_selector(self, context: GameContext) -> None:
+    def _apply_selector(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         # "Imodane deals that much damage to each opponent." — the mass-
         # selector sibling of `_amount_for`'s single-target read: `self.
         # amount` (the property below) takes no `context`, so the
@@ -500,6 +552,36 @@ class DealDamageEffect(GameEffect):
         if self.amount_from_noncreature_spells_cast_this_turn:
             caster = _event_player(context, key="player_id")
             amount = context.state.noncreature_spells_cast_this_turn.get(getattr(caster, "id", None), 0)
+        if self.selector == "group":
+            from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
+
+            controller_id = getattr(self.source, "controller_id", None)
+            if self.group_player is not None:
+                if self.group_player == "defending":
+                    scoped = _defending_player_of(self.source, context)
+                elif self.group_player == "event_player":
+                    scoped = _event_player(context, key="target_id")
+                elif self.group_player == "previous_controller":
+                    # "…deals 4 damage to target creature an opponent controls. Then ~ deals
+                    # 2 damage to each other creature **that player** controls." — the
+                    # earlier clause's target's controller (last-known, so it may have died).
+                    prev = context.previous_targets[0] if context.previous_targets else None
+                    owner_id = getattr(prev, "controller_id", None)
+                    scoped = context.state.player_by_id(owner_id) if owner_id is not None else None
+                else:
+                    scoped = (targets or [self.target])[0] if (targets or self.target is not None) else None
+                if scoped is None or getattr(scoped, "id", None) is None or not hasattr(scoped, "life"):
+                    return
+                controller_id = scoped.id
+            # Snapshot first: an early death must not skip a still-owed hit.
+            for obj in list(group_selector_objects(context.state, controller_id, self.group, src=self.source)):
+                context.deal_damage(obj, amount, self.source)
+            if self.group_and_players is not None:
+                for player in list(context.state.living_players()):
+                    if self.group_and_players == "each_opponent" and player.id == getattr(self.source, "controller_id", None):
+                        continue
+                    context.deal_damage(player, amount, self.source)
+            return
         if self.selector == "defending_player":
             # Simian Sling's "it deals 1 damage to defending player" — the
             # same per-firing dynamic-defender resolution afflict's
@@ -510,6 +592,12 @@ class DealDamageEffect(GameEffect):
                 if self.amount_from_defending_player_hand_size:
                     amount = len(player.hand)
                 context.deal_damage(player, amount, self.source)
+            return
+        if self.selector == "each_other_creature":
+            # Snapshot first: an early death must not skip a still-owed hit.
+            for obj in list(context.state.permanents()):
+                if obj.is_creature and obj is not self.source:
+                    context.deal_damage(obj, amount, self.source)
             return
         if self.selector in ("each_creature", "each_creature_and_player", "each_creature_and_planeswalker"):
             from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
@@ -595,11 +683,16 @@ class DealDamageEffect(GameEffect):
             # opponents' permanents only, no players. Snapshot first (an
             # early death must not skip a still-owed hit).
             include_pw = self.selector == "each_creature_and_planeswalker_opponents_control"
+            from .. import combat  # local: combat↔effects cycle
+
             for obj in list(context.state.battlefield):
                 if (
                     (obj.is_creature or (include_pw and obj.is_planeswalker))
                     and obj.controller_id is not None
                     and obj.controller_id != controller_id
+                    # PAR-128: "each creature with flying your opponents control".
+                    and not (self.selector_filter
+                             and not combat.matches_object_filter(obj, self.selector_filter))
                 ):
                     context.deal_damage(obj, amount, self.source)
             return
@@ -1691,6 +1784,9 @@ _MASS_DESTROY_SELECTORS: frozenset[str] = frozenset(
         # and the controller-scoped sibling "destroy all other creatures
         # you control" (Desolation Giant).
         "all_other_creatures", "other_creatures_you_control",
+        # "Return all other nonland permanents to their owners' hands." (PAR-128,
+        # Kederekt Leviathan) — `all_nonland_permanents` minus the source.
+        "all_other_nonland_permanents",
     }
 )
 
@@ -1763,6 +1859,8 @@ def _mass_selector_objects(
             o for o in battlefield
             if o is not source and controller_id is not None and o.controller_id == controller_id
         ]
+    elif selector == "all_other_nonland_permanents":
+        result = [o for o in battlefield if not o.card.is_land and o is not source]
     elif selector == "all_other_creatures":
         # RULE 400: "other" excludes this effect's own source, regardless
         # of who controls it (Novablast Wurm, Mageta the Lion).

@@ -53,6 +53,14 @@ _ADD_COUNTERS_SELECTOR_AFFECTS: dict[str, str] = {
 }
 
 
+#: The `_ADD_COUNTERS_SELECTORS` a following "those creatures" may replay by
+#: name — creature groups only (`_apply_effects_partitioned`'s
+#: `previous_selector` bookkeeping).
+ADD_COUNTERS_GROUP_AFFECTS: dict[str, str] = {
+    k: v for k, v in _ADD_COUNTERS_SELECTOR_AFFECTS.items() if k != "each_other_planeswalker_you_control"
+}
+
+
 class TransferEventCountersEffect(GameEffect):
     """Put each kind of counter from a departing object's snapshot on a target."""
 
@@ -115,8 +123,25 @@ class AddCountersEffect(GameEffect):
         ring_bearer: bool = False,
         previous_subject: bool = False,
         distinct_from_others: bool = False,
+        previous_group: bool = False,
+        previous_selector: bool = False,
+        group: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
+        #: PAR-128: "put an impostor counter on each creature you control" /
+        #: "…on each Equipment you control" — a structured battlefield selector
+        #: (`{"zone","of","filter"}`) naming the mass group, for the kinds
+        #: `_ADD_COUNTERS_SELECTORS` has no named entry for.
+        self.group = dict(group) if isinstance(group, dict) else None
+        #: PAR-128: "tap all creatures your opponents control, then put a stun
+        #: counter on **each of those creatures**" — the group the preceding
+        #: clause's *mass selector* acted on (`GameContext.previous_selector`),
+        #: `previous_group`'s untargeted sibling.
+        self.previous_selector = bool(previous_selector)
+        #: PAR-128: "tap up to 2 target creatures. Put a stun counter on **each
+        #: of them**." (Out Cold) — ``previous_subject``'s plural: every object
+        #: `GameContext.previous_targets` carries, not just the first.
+        self.previous_group = bool(previous_group)
         #: How many counters: a number or an `effect_amounts` operand ("put that many counters",
         #: "put X counters on ~ where X is the number of …", "twice X", "3 instead if you have a
         #: full party").
@@ -297,6 +322,28 @@ class AddCountersEffect(GameEffect):
             return
         if self.target_spec is not None:
             target = targets[0] if targets else None
+        elif self.group is not None:
+            from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
+
+            if amount > 0:
+                controller_id = getattr(self.source, "controller_id", None)
+                for one in list(group_selector_objects(context.state, controller_id, self.group, src=self.source)):
+                    context.add_counters(one, amount, self.kind, source=self.source)
+            return
+        elif self.previous_selector:
+            from .attachments_transforms import previous_group_objects
+
+            selector = getattr(context, "previous_selector", None)
+            if selector and amount > 0:
+                for one in previous_group_objects(context, self.source, selector):
+                    context.add_counters(one, amount, self.kind, source=self.source)
+            return
+        elif self.previous_subject and self.previous_group:
+            if amount > 0:
+                for one in list(context.previous_targets):
+                    if getattr(one, "instance_id", None) is not None:
+                        context.add_counters(one, amount, self.kind, source=self.source)
+            return
         elif self.previous_subject:
             # The previous clause's chosen object, or — when that clause
             # created rather than chose — what it made: "Create a 0/0 Fractal

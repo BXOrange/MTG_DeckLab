@@ -1338,6 +1338,24 @@ def _apply_effects_partitioned(
                     selector = (getattr(selecting, "static", {}) or {}).get("params", {}).get("affects")
                 if selector:
                     context.previous_selector = selector
+            elif (
+                isinstance(selecting, AddCountersEffect)
+                and selecting.selector in ADD_COUNTERS_GROUP_AFFECTS
+                and selecting.subtypes is None and not selecting.creature_filter
+            ):
+                # PAR-128: "put a +1/+1 counter on each creature you control.
+                # Untap those creatures." (Virtue of Loyalty) — an unnarrowed
+                # mass group is replayable by name.
+                context.previous_selector = ADD_COUNTERS_GROUP_AFFECTS[selecting.selector]
+            elif (
+                isinstance(selecting, DealDamageEffect)
+                and getattr(selecting, "selector", None) in PREVIOUS_GROUP_DAMAGE_SELECTORS
+            ):
+                # PAR-128: "~ deals 1 damage to each creature with flying your
+                # opponents control. Tap those creatures." (Thundermaw
+                # Hellkite) — the group is whoever the hit actually landed on
+                # (`damaged_this_way`), not a re-run of the damage selector.
+                context.previous_selector = DAMAGED_GROUP_SENTINEL
             if state is None or position + 1 >= len(effects):
                 continue
             opened = getattr(state, "pending_choice", None)

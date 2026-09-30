@@ -62,6 +62,29 @@ def _params(text):
                     "condition": {"subject": "group", "controller": "you", "other": False,
                                   "filter": {"card_type": "creature"}},
                     "filter": {"combat": True, "is_player": True}}}),
+        # the passive gerunds (Valiant Emberkin / Wayta) and "turning … face up" (Panoptic Projektor)
+        ("if a creature you control becoming the target of a spell or ability causes a triggered ability of a permanent you control to trigger" + TAIL,
+         {"cause": {"event": "BECOMES_TARGET",
+                    "condition": {"subject": "group", "controller": "you", "other": False,
+                                  "filter": {"card_type": "creature"}}}}),
+        ("if a creature you control being dealt damage causes a triggered ability of a permanent you control to trigger" + TAIL,
+         {"cause": {"event": "DAMAGE",
+                    "condition": {"subject": "group", "controller": "you", "other": False,
+                                  "filter": {"card_type": "creature"}, "recipient": True},
+                    "filter": {}}}),
+        ("if turning a face-down permanent face up causes a triggered ability of a permanent you control to trigger" + TAIL,
+         {"cause": {"event": "TURNED_FACE_UP",
+                    "condition": {"subject": "group", "controller": "any", "other": False,
+                                  "filter": {"face_down": True}}}}),
+        # a compound subject (Cloud) and a "while" gate (Sanctum of All)
+        ("if a triggered ability of ~ or an equipment attached to it triggers" + TAIL,
+         {"subject": {"any_of": [{"self": True},
+                                 {"filter": {"subtype": "equipment"}, "attached_to_doubler": True}]}}),
+        ("if a triggered ability of another shrine you control triggers while you control 6 or more shrines" + TAIL,
+         {"subject": {"filter": {"subtype": "shrine"}, "other": True},
+          "active_if": {"kind": "control_count",
+                        "selector": {"zone": "battlefield", "of": "you", "filter": {"subtype": "shrine"}},
+                        "min": 6}}),
     ],
 )
 def test_doubler_parses(text, expected):
@@ -76,6 +99,8 @@ def test_doubler_parses(text, expected):
         "if a frobnicator entering causes a triggered ability of a permanent you control to trigger" + TAIL,
         "if a creature exploring causes a triggered ability of a permanent you control to trigger" + TAIL,
         "if a triggered ability of a creature you control triggers, that ability triggers twice.",
+        "if a triggered ability of ~ or a frobnicator attached to it triggers" + TAIL,
+        "if a triggered ability of ~ or an equipment attached to it triggers while you frobnicate" + TAIL,
     ],
 )
 def test_doubler_fails_closed(text):
@@ -97,7 +122,7 @@ def test_as_long_as_wrapper_gates_the_whole_doubler():
         "Teysa Karlov", "Isshin, Two Heavens as One", "Wulfgar of Icewind Dale",
         "Felix Five-Boots", "Annie Joins Up", "Chief of the Wilds", "Jabs, Mistress of Mockery",
         "Katara, the Fearless", "Splinter, Radical Rat", "Twinflame Travelers",
-        "Wizard's Staff", "Bifur, Melodic Rider",
+        "Wizard's Staff", "Bifur, Melodic Rider", "Valiant Emberkin",
     ],
 )
 def test_real_cards_are_modeled(name):
@@ -228,3 +253,59 @@ def test_a_doubler_only_doubles_its_own_controllers_permanents():
     ))
     engine.resolve_until_stable()
     assert state.player_by_id("p2").life - life == 1
+
+
+def test_a_being_dealt_damage_cause_doubles_the_watching_trigger():
+    """Wayta's "a creature you control being dealt damage" (passive gerund)."""
+    engine, state = _engine()
+    state.current_step = "main1"
+    _doubler(state, "if a creature you control being dealt damage causes a triggered ability of a permanent you control to trigger")
+    _put(state, "Watcher", "Whenever a creature you control is dealt damage, you gain 1 life.")
+    victim = _put(state, "Victim", types="Creature — Bear")
+    victim.card.toughness = 9
+    life = state.player_by_id("p1").life
+    engine.rules.deal_damage(victim, 1, victim)
+    engine.resolve_until_stable()
+    assert state.player_by_id("p1").life - life == 2
+
+
+def test_a_compound_subject_doubles_the_doubler_itself_and_its_attachment():
+    """Cloud: "a triggered ability of ~ or an Equipment attached to it"."""
+    engine, state = _engine()
+    state.current_step = "main1"
+    cloud = _put(state, "Cloud", "If a triggered ability of ~ or an Equipment attached to it triggers" + TAIL
+                 + "\n" + ETB, types="Creature — Soldier")
+    bystander = _put(state, "Bystander", ETB, types="Creature — Bear")
+    sword = _put(state, "Sword", ETB, types="Artifact — Equipment")
+    loose = _put(state, "Loose", ETB, types="Artifact — Equipment")
+
+    def gained(obj, attach=False):
+        # attach right before the event: the trigger is doubled as it is put on the stack, and
+        # this fixture's bare Equipment is unattached by a later state-based-action pass
+        sword.attached_to = cloud.instance_id if attach else None
+        life = state.player_by_id("p1").life
+        _fire_enter(engine, state, obj)
+        return state.player_by_id("p1").life - life
+
+    assert gained(bystander) == 1        # neither Cloud nor its attachment
+    assert gained(loose) == 1            # an Equipment attached to nothing
+    assert gained(sword, attach=True) == 2   # attached to Cloud
+    assert gained(cloud) == 2            # the doubler itself
+
+
+def test_a_while_gate_doubles_only_once_the_count_is_met():
+    """Sanctum of All: "… triggers while you control six or more Shrines"."""
+    engine, state = _engine()
+    state.current_step = "main1"
+    _put(state, "Sanctum", "If a triggered ability of another shrine you control triggers while you "
+                            "control 3 or more shrines" + TAIL, types="Enchantment — Shrine")
+    first = _put(state, "First", ETB, types="Enchantment — Shrine")
+
+    def gained(obj):
+        life = state.player_by_id("p1").life
+        _fire_enter(engine, state, obj)
+        return state.player_by_id("p1").life - life
+
+    assert gained(first) == 1            # two shrines: the gate is closed
+    _put(state, "Third", "", types="Enchantment — Shrine")
+    assert gained(first) == 2            # three: open

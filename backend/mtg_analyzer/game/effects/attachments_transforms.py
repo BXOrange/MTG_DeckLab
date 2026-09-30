@@ -21,8 +21,12 @@ _TAP_SELECTORS: frozenset[str] = frozenset(
     }
 )
 
-def _is_valid_tap_selector(selector: Optional[str]) -> bool:
-    if selector in _TAP_SELECTORS:
+def _is_valid_tap_selector(selector: "Optional[str | dict]") -> bool:
+    if isinstance(selector, dict):
+        # PAR-128: a structured battlefield selector (`{"zone","of","filter"}`,
+        # PARSER_VERSION 473) — "tap all creatures your opponents control".
+        return selector.get("zone", "battlefield") == "battlefield"
+    if selector in _TAP_SELECTORS or selector == "previous_selector":
         return True
     # "…untap it and all Samurai you control." (Godo, Bandit Warlord) /
     # "Untap all Forests you control." (Woodland Guidance) —
@@ -32,6 +36,30 @@ def _is_valid_tap_selector(selector: Optional[str]) -> bool:
     return bool(selector) and selector.startswith(
         ("creatures_you_control_of_type_", "lands_you_control_of_type_",
          "creatures_you_control_of_color_")
+    )
+
+
+#: `GameContext.previous_selector` value naming "the creatures the previous
+#: mass-damage clause hit" (`GameContext.damaged_this_way`) rather than a
+#: `continuous.group_selector_objects` selector.
+DAMAGED_GROUP_SENTINEL = "damaged_this_way"
+#: The creature-only mass damage selectors a following "those creatures" may
+#: replay (`DealDamageEffect.selector`); player-inclusive ones stay out.
+PREVIOUS_GROUP_DAMAGE_SELECTORS: frozenset[str] = frozenset(
+    {"each_creature", "each_other_creature", "each_creature_opponents_control"}
+)
+
+
+def previous_group_objects(context: GameContext, source: Optional["GameObject"], selector: str) -> list[Any]:
+    """The battlefield objects ``selector`` (a `GameContext.previous_selector`
+    value) names — the damaged set for `DAMAGED_GROUP_SENTINEL`, else
+    `continuous.group_selector_objects`."""
+    if selector == DAMAGED_GROUP_SENTINEL:
+        return [o for o in context.damaged_this_way if o in context.state.battlefield]
+    from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
+
+    return group_selector_objects(
+        context.state, getattr(source, "controller_id", None), selector, src=source,
     )
 
 
@@ -106,9 +134,16 @@ class TapEffect(GameEffect):
         colors: Optional[list[str]] = None,
         count_selector: Optional[str] = None,
         target_operand: Any = None,
+        selector_player: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: PAR-128: "tap all creatures **target opponent controls**" (Tempest
+        #: Caller) / "tap all lands target player controls" (Gulf Squid) — a
+        #: mass ``selector`` scoped to a RULE 115 *player* target
+        #: (``"player"``/``"opponent"``). The selector is written ``of: "you"``
+        #: and evaluated for the chosen player rather than the controller.
+        self.selector_player = selector_player if selector_player in ("player", "opponent") else None
         #: "Tap up to **X** target creatures" (Crashing Wave) — a
         #: `TargetSpec.count_selector` (``"source_x_paid"``), resolved at
         #: announce time; see `ExileEffect._count_selector`.
@@ -157,6 +192,9 @@ class TapEffect(GameEffect):
         self._source_mode = target_kind == "source"
         self.trigger_event_key = trigger_event_key or "instance_id"
         self.previous_subject = previous_subject
+        if self.selector_player is not None and self.selector is not None:
+            self.target_spec = TargetSpec(kind=self.selector_player)
+            return
         self.target_spec = (
             TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max,
@@ -191,7 +229,26 @@ class TapEffect(GameEffect):
             from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
 
             controller_id = getattr(self.source, "controller_id", None)
-            group = group_selector_objects(context.state, controller_id, self.selector, src=self.source)
+            if self.selector_player is not None:
+                chosen = targets[0] if targets else self.target
+                if chosen is None or getattr(chosen, "id", None) is None:
+                    return
+                controller_id = chosen.id
+            selector = self.selector
+            if selector == "previous_selector":
+                # PAR-128: "Creatures you control get +2/+1 until end of turn.
+                # **Untap those creatures.**" (War Flare) — the group the
+                # preceding clause's own mass selector acted on, read off
+                # `GameContext.previous_selector` the same way `PumpEffect`'s
+                # MEC-28 sentinel is. No such clause this resolution → no-op.
+                selector = context.previous_selector
+                if not selector:
+                    return
+            group = (
+                previous_group_objects(context, self.source, selector)
+                if self.selector == "previous_selector"
+                else group_selector_objects(context.state, controller_id, selector, src=self.source)
+            )
             if self.subtypes is not None:
                 group = [
                     obj for obj in group
@@ -305,6 +362,14 @@ class SkipNextUntapEffect(GameEffect):
                 o for o in context.state.battlefield
                 if o.is_creature and o.controller_id == opp.id
             ]
+        elif self.subject == "previous_selector":
+            # PAR-128: "Tap all attacking creatures. **Those creatures** don't
+            # untap …" (Clinging Mists) — the preceding clause's mass-selector
+            # group, `GameContext.previous_selector`.
+            selector = getattr(context, "previous_selector", None)
+            if not selector:
+                return
+            objs = previous_group_objects(context, self.source, selector)
         elif self.previous_subject:
             objs = list(context.previous_targets)
         elif self.target_spec is None:
@@ -413,6 +478,53 @@ class UnblockableEffect(GameEffect):
             target = self.source
         if target is not None:
             target.temp_unblockable = True
+
+
+class CantBeRegeneratedEffect(GameEffect):
+    """"Target creature can't be regenerated this turn." (Gravebind, Hurr Jackal,
+    Furnace Brood) / "It can't be regenerated this turn." (Engulfing Flames) /
+    "A creature dealt damage this way can't be regenerated this turn."
+    (Incinerate, Flamebreak) — sets `GameObject.temp_cant_be_regenerated`, which
+    `RulesEngine.destroy` reads to skip the regeneration replacement pass
+    (RULE 701.16), cleared at cleanup (RULE 514.2).
+
+    Three subjects, one per way a card names it: a RULE 115 target, the
+    preceding clause's target (``previous_subject``), or the creatures the
+    preceding damage clause actually hit (``damaged_this_way``,
+    `GameContext.damaged_this_way`, MEC-81's hit set).
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = "creature",
+        previous_subject: bool = False,
+        damaged_this_way: bool = False,
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.previous_subject = previous_subject
+        self.damaged_this_way = damaged_this_way
+        self.target_spec = (
+            TargetSpec(kind=target_kind)
+            if target_kind is not None and not previous_subject and not damaged_this_way
+            else None
+        )
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.damaged_this_way:
+            objs = list(context.damaged_this_way)
+        elif self.previous_subject:
+            objs = list(context.previous_targets)
+        else:
+            objs = list(targets or ([self.target] if self.target is not None else []))
+        for obj in objs:
+            if obj is not None and getattr(obj, "is_creature", False):
+                obj.temp_cant_be_regenerated = True
 
 
 class CantBlockEffect(GameEffect):

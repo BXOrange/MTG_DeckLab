@@ -1,6 +1,6 @@
 # Ich wollte nur schnell testen ob mein MTG Deck funktioniert – das ist passiert
 
-**TL;DR:** "Ich baue einen kleinen Sandbox-Modus zum Decks testen" wurde in 2.5 Monaten eine vollständige Magic Rules Engine mit Multiplayer, Puzzle-Mode, Deckanalyse, 45% Parser Coverage und Zero Regressions. Send help (oder sag mir dass ich nicht allein bin).
+**TL;DR:** "Ich baue einen kleinen Sandbox-Modus zum Decks testen" wurde in 2.5 Monaten eine vollständige Magic Rules Engine mit Multiplayer, Puzzle-Mode, Deckanalyse, **51.8% Parser Coverage** (up from 19.6% am 18. Juli) und Zero Regressions. Send help (oder sag mir dass ich nicht allein bin).
 
 ---
 
@@ -38,6 +38,30 @@ Ich hab gegoogelt was "fail-closed design" bedeutet: "Nur MODELED markieren wenn
 
 ---
 
+## Der lange Weg: Von 19.6% zu 51.8%
+
+**Parser V2 (18. Juli):** 6,720 Cards, 19.6%
+- Was funktionierte: Vanilla Creatures, Basic Instants/Sorceries, Dual Lands
+- 3,415 Creatures, 734 Instants, 476 Sorceries, 770 Artifacts, 604 Dual Lands
+- Nur 4 Planeswalkers, 1 Fetch Land
+- Keine komplexen Trigger, keine Replacement Effects
+
+**3 Monate später (Parser V525, 29. September):** 18,056 Cards, 51.9%
+- +11,328 modellierte Karten
+- +32.3 Prozentpunkte Coverage
+- 520+ Versionssprünge
+
+**Milestones:**
+- 31. August (V141): 37% erreicht – PAR-30 startet
+- 3. September (V246): 40% Meilenstein  
+- 21. September (V457): 48.5% – ENG-47 Kompositions-Refactor abgeschlossen
+- 29. September (V500): Über 50% Coverage
+- 29. September (V525): 51.9% finales Ziel
+
+Die Progression war nicht linear: frühe Versionen (V2-V60) waren langsam, August brachte schnelle Sprünge (V60-V115), dann stabilisiertes sich auf ~0.05% pro Version. Das Faszinierende: bei jedem Release 0 Regressions. Alte Karten blieben richtig.
+
+---
+
 ## "Kurz Multiplayer hinzufügen"
 
 Sommer August/September: "Kurz noch Multiplayer, dann bin ich fertig."
@@ -71,7 +95,10 @@ Ich brauchte keine "Multiplayer Engine". Ich brauchte nur: Actor IDs pro Action,
 - ✅ Interactive Priority Multiplayer (real-time, WebSocket)
 - ✅ Replay/Puzzle Mode (complete board editor)
 - ✅ Deck Analysis (static + simulated)
-- ✅ 45.86% Oracle Parser Coverage (~15.900 Cards MODELED, Zero Regressions)
+- ✅ **51.8% Oracle Parser Coverage** (18,048 / 34,811 Cards MODELED, Zero Regressions)
+  - Started: 19.6% (6,720 cards) on July 18 with Parser V2
+  - Reached 50% on September 28 with Parser V500
+  - 520+ parser versions in 3 months
 - ✅ Deutsche UI
 - ✅ Offline-Safe Startup (startet ohne Internet)
 - ✅ Bots & Multiplayer

@@ -5488,6 +5488,20 @@ def _describe_ability(ability: StaticAbility) -> str:
     return ability.affects
 
 
+def _doubler_side_matches(
+    state: "GameState", doubler: "GameObject", side: dict, obj: "GameObject"
+) -> bool:
+    """One alternative of a compound doubler subject (`trigger_doubler._alternative`)."""
+    from .combat import matches_object_filter  # local: combat imports models lazily too
+
+    if side.get("self"):
+        return obj is doubler
+    if side.get("attached_to_doubler") and getattr(obj, "attached_to", None) != doubler.instance_id:
+        return False
+    filt = side.get("filter")
+    return not filt or matches_object_filter(obj, filt, reference=doubler, state=state)
+
+
 def _composed_doubler_applies(
     state: "GameState", doubler: "GameObject", effect: Any, obj: "GameObject",
     event: Any, context: Any,
@@ -5503,6 +5517,11 @@ def _composed_doubler_applies(
     from .combat import matches_object_filter  # local: combat imports models lazily too
 
     subject = effect.subject or {}
+    if subject.get("any_of"):
+        # A compound "<A> or <B>" subject: the trigger doubles if either side names ``obj``.
+        if not any(_doubler_side_matches(state, doubler, side, obj) for side in subject["any_of"]):
+            return False
+        subject = {}
     if subject.get("other") and doubler is obj:
         return False
     if subject.get("attached") and getattr(doubler, "attached_to", None) != obj.instance_id:

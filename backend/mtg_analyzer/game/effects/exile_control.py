@@ -2235,10 +2235,14 @@ class GrantDieToExileThisTurnEffect(GameEffect):
     def __init__(
         self, target: Any = None, source: Optional["GameObject"] = None,
         target_kind: Optional[str] = None, previous_subject: bool = False,
-        damaged_this_way: bool = False,
+        damaged_this_way: bool = False, creature_only: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: PAR-128: "…**If it's a creature**, it can't be regenerated this turn, and if it
+        #: would die this turn, exile it instead." (Carbonize) — the hit set narrowed to
+        #: creatures; a planeswalker or battle the damage also hit isn't armed.
+        self.creature_only = bool(creature_only)
         #: "~ deals N damage to target creature. **If that creature would
         #: die this turn, exile it instead.**" (PAR-40 — Magma Spray / Feed
         #: the Flames / Bleed Dry) — the trailing sentence has no RULE 115
@@ -2292,7 +2296,9 @@ class GrantDieToExileThisTurnEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.damaged_this_way:  # MEC-81 — the actual hit set
             for hit in list(getattr(context, "damaged_this_way", [])):
-                if hasattr(hit, "instance_id"):
+                if hasattr(hit, "instance_id") and (
+                    not self.creature_only or getattr(hit, "is_creature", False)
+                ):
                     self._arm(hit, context)
             return
         if self.previous_subject:

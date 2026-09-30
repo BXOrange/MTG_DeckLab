@@ -1407,6 +1407,9 @@ def _activation_cost_reduction_selector(what: str) -> "Optional[str | dict]":
 # <condition> [and only once]."  Peel only this closed tail before parsing
 # the actual body; the existing handler catalogue supplies the condition
 # marker and the existing binder owns both activation limits.
+_ANY_PLAYER_MAY_ACTIVATE_RE = re.compile(
+    r"\s*\bany player may activate this ability(?P<sorcery> but only as a sorcery)?\.?\s*$", re.IGNORECASE
+)
 _ACTIVATE_ONLY_IF_TRAILING_RE = re.compile(
     r"\.\s*activate (?:this ability )?only if (?P<cond>.+?)(?P<once> and only once)?\.?$",
     re.IGNORECASE,
@@ -1848,6 +1851,19 @@ _NO_REGEN_SENTENCE_RE = re.compile(
 #: turn` on whatever creature the "before" clause already chose
 #: (`previous_subject`, off `GameContext.previous_targets`). Fail-closed
 #: unless "before" actually announces a creature/permanent target.
+#: "~ deals 3 damage to any target. **If it's a creature, it can't be regenerated this
+#: turn, and if it would die this turn, exile it instead.**" (Carbonize, Disintegrate) /
+#: "**If this spell was kicked, that creature can't be regenerated this turn and if it
+#: would die this turn, exile it instead.**" (Scorching Lava) — both riders on the hit
+#: set of the damage clause before them, under one gate: "it's a creature" narrows the
+#: hit set to creatures (a planeswalker or player takes the damage but neither rider);
+#: any other gate becomes the specs' own `condition`.
+_REGEN_EXILE_RIDER_RE = re.compile(
+    r"^(?P<before>.+?)\.\s*if (?P<gate>it'?s a creature|this spell was kicked),\s*(?:it|that creature)"
+    r" can'?t be regenerated this turn,?\s*and if (?:it|that creature) would die this turn,"
+    r" exile it instead\.?$",
+    re.IGNORECASE | re.DOTALL,
+)
 _DIE_TO_EXILE_SENTENCE_RE = re.compile(
     # PAR-62: "a creature dealt damage this way" and "that creature or
     # planeswalker" are the same rider in two more printed spellings. Safe to
@@ -3488,6 +3504,29 @@ def _for_each_amount_specs(
     )
 
 
+def _bound_pump_for_each(spec: EffectSpec, amount: dict[str, Any]) -> "Optional[list[EffectSpec]]":
+    """"gets +1/+0 until end of turn for each `<quantity>`" (PAR-123) — a ``pump`` scales
+    per counted object, so each nonzero printed half takes the measured number. Two
+    different nonzero halves ("+2/+1 for each …") would need a per-half multiplier
+    and are refused; so is anything that isn't a plain printed +N/+M."""
+    params = dict(spec.params)
+    halves = {k: params.get(k) for k in ("power", "toughness")}
+    if any(isinstance(v, bool) or not isinstance(v, int) or v < 0 for v in halves.values()):
+        return None
+    scaled = {k: v for k, v in halves.items() if v}
+    if not scaled or len(set(scaled.values())) != 1:
+        return None
+    unit = next(iter(scaled.values()))
+    if unit > 1:
+        amount = {**amount, "multiply": unit}
+    for key in scaled:
+        params[key] = "$n"
+    return [EffectSpec("bind", {
+        "name": "n", "amount": amount,
+        "effects": [{"type": "pump", "params": params}],
+    })]
+
+
 def _bound_for_each_amount(
     match: "re.Match[str]", amount: dict[str, Any], *, self_subject: bool,
     previous_subject: bool, group_subject: bool, previous_selector: bool,
@@ -3498,8 +3537,18 @@ def _bound_for_each_amount(
         previous_subject=previous_subject, group_subject=group_subject,
         previous_selector=previous_selector,
     )
-    if not inner or len(inner) != 1 or _names_a_target(inner[0]):
+    if not inner or len(inner) != 1:
         return None
+    # RULE 601.2c: unlike `for_each`, a `bind` runs its body exactly once and
+    # `BindEffect.target_specs` forwards the body's requirement, so "target
+    # opponent loses 1 life for each Vampire you control" keeps its target
+    # (PAR-128). The measured amount never reads the target.
+    if inner[0].type == "pump":
+        # "other" counts against the ability's own source; under a group trigger the
+        # counted-against object is the firing creature, which the count can't name yet.
+        if group_subject and "'not_reference': True" in repr(amount):
+            return None
+        return _bound_pump_for_each(inner[0], amount)
     keys = [k for k in _MAGNITUDE_PARAM_KEYS if k in inner[0].params]
     if len(keys) != 1:
         return None
@@ -4338,6 +4387,25 @@ def parse_effect_body(
             previous_subject=_announces_creature_target(before_specs), group_subject=group_subject,
         )
 
+    regen_exile = _REGEN_EXILE_RIDER_RE.match(body.strip())
+    if regen_exile is not None:
+        before_specs = parse_effect_body(
+            regen_exile.group("before"), self_subject=self_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
+        )
+        if not before_specs or not any(spec.type == "damage" for spec in before_specs):
+            return None
+        creature_gate = regen_exile.group("gate").lower().startswith("it")
+        gate = None if creature_gate else static_condition(regen_exile.group("gate"))
+        if not creature_gate and gate is None:
+            return None
+        riders = [
+            EffectSpec("cant_be_regenerated", {"damaged_this_way": True}, condition=gate),
+            EffectSpec("grant_die_to_exile_this_turn", {
+                "damaged_this_way": True, "creature_only": True,
+            }, condition=gate),
+        ]
+        return before_specs + riders
     die_to_exile = _DIE_TO_EXILE_SENTENCE_RE.match(body)
     if die_to_exile is not None:
         before_specs = parse_effect_body(
@@ -5113,6 +5181,32 @@ _GROUP_SELECTOR_STRUCTURED_FILTERS: tuple[dict, ...] = (
 )
 
 
+#: PAR-128: the named tap groups a following "those creatures" may replay —
+#: each is its whole group by name (no subtype/colour suffix riding on a
+#: separate param).
+_SELF_DESCRIBING_TAP_SELECTORS: frozenset[str] = frozenset(
+    {"creatures_you_control", "other_creatures_you_control", "attacking_creatures"}
+)
+#: The params a tap / pump spec may carry and still be replayable by its
+#: selector alone (anything else narrows the group past what
+#: `GameContext.previous_selector` records).
+#: `DealDamageEffect.selector` values naming creatures only — mirrored by
+#: `effects.attachments_transforms.PREVIOUS_GROUP_DAMAGE_SELECTORS` (the parser
+#: can't import `game/`).
+_CREATURE_MASS_DAMAGE_SELECTORS: frozenset[str] = frozenset(
+    {"each_creature", "each_other_creature", "each_creature_opponents_control"}
+)
+#: `AddCountersEffect.selector` creature groups (mirrors `counters_tokens.
+#: ADD_COUNTERS_GROUP_AFFECTS`) and the params such a spec may carry.
+_CREATURE_MASS_COUNTER_SELECTORS: frozenset[str] = frozenset(
+    {"each_creature_you_control", "each_other_creature_you_control", "each_creature",
+     "each_other_creature", "each_creature_opponents_control"}
+)
+_BARE_COUNTER_PARAMS: frozenset[str] = frozenset({"kind", "selector", "count"})
+_BARE_TAP_PARAMS: frozenset[str] = frozenset({"selector", "untap"})
+_BARE_PUMP_PARAMS: frozenset[str] = frozenset({"selector", "power", "toughness", "keywords"})
+
+
 def _is_group_selector_value(value: object) -> bool:
     if isinstance(value, dict):
         return value in _GROUP_SELECTOR_STRUCTURED_FILTERS
@@ -5129,9 +5223,43 @@ def _announces_group_selector(specs: list[EffectSpec]) -> bool:
         return False
     last = specs[-1]
     if last.type == "tap":
-        return _is_group_selector_value(last.params.get("selector"))
+        selector = last.params.get("selector")
+        if isinstance(selector, dict) and selector.get("zone", "battlefield") == "battlefield":
+            # PAR-128: a structured selector states its whole group (filter and
+            # controller scope included), so replaying it names the same objects.
+            return set(last.params) <= _BARE_TAP_PARAMS
+        return _is_group_selector_value(last.params.get("selector")) or (
+            # PAR-128: "untap all creatures you control. They gain …" — any
+            # *unnarrowed* named group; `GameContext.previous_selector`
+            # carries only the selector, so a subtype/filter rider layered on
+            # top of it would be lost by the pronoun (Valley Floodcaller).
+            last.params.get("selector") in _SELF_DESCRIBING_TAP_SELECTORS
+            and set(last.params) <= _BARE_TAP_PARAMS
+        )
+    if last.type == "add_counters":
+        # PAR-128: "put a +1/+1 counter on each creature you control. Untap
+        # those creatures." — an unnarrowed creature group, replayable by name.
+        return (
+            last.params.get("selector") in _CREATURE_MASS_COUNTER_SELECTORS
+            and set(last.params) <= _BARE_COUNTER_PARAMS
+        )
+    if last.type == "damage":
+        # PAR-128: "deals 1 damage to each creature with flying your opponents
+        # control. Tap those creatures." — creature-only mass damage; the group
+        # is the set the hit landed on (`GameContext.damaged_this_way`).
+        return last.params.get("selector") in _CREATURE_MASS_DAMAGE_SELECTORS
     if last.type == "pump":
-        return _is_group_selector_value(last.params.get("selector"))
+        selector = last.params.get("selector")
+        return _is_group_selector_value(selector) or (
+            # PAR-128: "creatures you control get +2/+1 until end of turn.
+            # Untap those creatures." (War Flare) — a structured selector
+            # (PARSER_VERSION 473) states its whole group, filter included,
+            # so replaying it for "those creatures" names the same objects —
+            # provided the pump adds no narrowing param of its own.
+            isinstance(selector, dict)
+            and selector.get("zone", "battlefield") == "battlefield"
+            and set(last.params) <= _BARE_PUMP_PARAMS
+        )
     if last.type == "grant_until":
         return _is_group_selector_value(
             last.params.get("static", {}).get("params", {}).get("affects")
@@ -5340,6 +5468,33 @@ _EXPLICIT_SOURCE_RE = re.compile(r"~|\bthis (?:card|spell|creature|permanent|art
 _GROUP_IT_RETARGETED: frozenset[str] = frozenset({"tap", "return_to_hand", "exile"})
 
 
+_IT_DEALS_RE = re.compile(r"\bit deals?\b")
+
+
+def _deals_damage(effect: "EffectSpec") -> bool:
+    """A ``damage`` effect, or a ``bind`` whose body is one."""
+    if effect.type == "damage":
+        return True
+    return effect.type == "bind" and any(
+        isinstance(e, dict) and e.get("type") == "damage" for e in effect.params.get("effects", [])
+    )
+
+
+def _stamp_damage_dealer(effect: "EffectSpec") -> "EffectSpec":
+    """``effect`` with each ``damage`` in it dealt by the group trigger's firing object."""
+    if effect.type == "damage":
+        return EffectSpec(
+            "damage", {**effect.params, "dealer_event_key": GROUP_SUBJECT_KEY_SENTINEL},
+            condition=effect.condition,
+        )
+    inner = [
+        {**e, "params": {**e["params"], "dealer_event_key": GROUP_SUBJECT_KEY_SENTINEL}}
+        if e.get("type") == "damage" else e
+        for e in effect.params["effects"]
+    ]
+    return EffectSpec("bind", {**effect.params, "effects": inner}, condition=effect.condition)
+
+
 def _stamp_group_pronoun(
     condition: Optional[dict[str, Any]], body: str, effects: "list[EffectSpec]"
 ) -> "Optional[list[EffectSpec]]":
@@ -5375,7 +5530,12 @@ def _stamp_group_pronoun(
             ))
             index += 2
             continue
-        if effect.type in _GROUP_IT_RETARGETED and effect.params.get("target_kind", "unset") is None:
+        if _IT_DEALS_RE.search(lowered) and _deals_damage(effect):
+            # "Whenever a Dragon you control enters, it deals X damage to any target" — the
+            # entering Dragon is the damage source (lifelink, deathtouch, protection), not the
+            # Enchantment that carries the ability (PAR-123).
+            effect = _stamp_damage_dealer(effect)
+        elif effect.type in _GROUP_IT_RETARGETED and effect.params.get("target_kind", "unset") is None:
             params = dict(effect.params)
             params["target_kind"] = "trigger_subject"
             params["trigger_event_key"] = GROUP_SUBJECT_KEY_SENTINEL
@@ -6878,6 +7038,19 @@ def _segment_line_unsplit(
                             "active_if": active_if,
                         }
         tail_markers: list[EffectSpec] = []
+        # RULE 602.2: "Any player may activate this ability [but only as a
+        # sorcery]" (Fan Favorite, Feral Hydra, Excavation, the Flailing cycle) —
+        # `ActivationCost.any_player_may_activate`, the primitive Mercenaries and
+        # Nullhide Ferox were hand-authored on.
+        any_player = _ANY_PLAYER_MAY_ACTIVATE_RE.search(effect_text)
+        if any_player is not None:
+            effect_text = effect_text[:any_player.start()].strip()
+            cost_dict["any_player_may_activate"] = True
+            if any_player.group("sorcery"):
+                sorcery = parse_effect_body("activate only as a sorcery")
+                if sorcery is None:
+                    return Segment(raw=raw)
+                tail_markers.extend(sorcery)
         activation_tail = _ACTIVATE_ONLY_IF_TRAILING_RE.search(effect_text)
         if activation_tail is not None:
             tail = "activate only if " + activation_tail.group("cond").strip()

@@ -496,9 +496,11 @@ class DamageDeathMixin:
         regenerated.") skips the replacement pass entirely — a card-specific
         override of RULE 701.16, not RULE 701.16c (which is about sacrifice/
         0-toughness, unrelated to this) — so an existing shield simply
-        doesn't get a chance to intercept this particular destroy.
+        doesn't get a chance to intercept this particular destroy. A creature
+        carrying ``temp_cant_be_regenerated`` ("can't be regenerated this
+        turn", `CantBeRegeneratedEffect`) is treated the same way.
         """
-        if not can_be_regenerated:
+        if not can_be_regenerated or getattr(obj, "temp_cant_be_regenerated", False):
             self._move_to_graveyard(obj)
             return
         event = GameEvent(EventType.DESTROY, target_id=obj.instance_id, object=obj.name)

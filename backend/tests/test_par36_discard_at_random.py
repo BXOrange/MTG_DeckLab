@@ -41,7 +41,7 @@ def _fill_hand(state, pid, n):
 
 def test_discard_at_random_parses():
     assert parse_effect_body("target opponent discards a card at random") == [
-        EffectSpec("discard", {"count": 1, "target_kind": "player", "random": True})
+        EffectSpec("discard", {"count": 1, "target_kind": "opponent", "random": True})
     ]
     assert parse_effect_body("target player discards 2 cards at random") == [
         EffectSpec("discard", {"count": 2, "target_kind": "player", "random": True})
@@ -56,7 +56,7 @@ def test_each_player_discard_at_random_parses():
 
 def test_plain_discard_still_has_no_random_flag():
     assert parse_effect_body("target opponent discards a card") == [
-        EffectSpec("discard", {"count": 1, "target_kind": "player"})
+        EffectSpec("discard", {"count": 1, "target_kind": "opponent"})
     ]
 
 

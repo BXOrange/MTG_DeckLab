@@ -25,9 +25,9 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**51.7% covered — 18,012 / 34,811 — as of 2026-09-29, PARSER_VERSION 516** (PAR-131 closed: legacy trigger rows retired onto the composed heads, then compound "`<A>` or `<B>`" heads and noun unions — +24 since v514, 0 regressed).
-Commander-legal slice (the one the product actually plays): **54.3% —
-17,299 / 31,830** (measure with `--commander-legal-only`).
+**52.4% covered — 18,245 / 34,811 — as of 2026-09-30, PARSER_VERSION 548** (PAR-128 "those creatures" replaying a preceding mass-selector, mass-damage or mass-counter group, "target opponent … for each", Duress-family, scoped can't-block, counters on "each of them", the general and player-scoped mass tap, named counters on a group, "it gets +X/+X, where X …", "without <keyword>", "any player may activate", "can't be regenerated" (+ exile rider), general and player-scoped mass damage: +163 since v530, 0 regressed).
+Commander-legal slice (the one the product actually plays): **55.1% —
+17,524 / 31,830** (measure with `--commander-legal-only`).
 
 ### PAR-124 closes completely: player-events, X-tokens, a targeted delayed trigger, a hand-zone duplicate, an optional-attach composition — and the controller-binding bug the targeted variant first exposed (PARSER_VERSION 463)
 
