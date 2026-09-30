@@ -58,6 +58,7 @@ _LEGACY_SAMPLES: dict[str, list[object]] = {
     "kicked": [True, False],
     "kicked_at_least": [2],
     "bargained": [True],
+    "gift_promised": [True, False],
     "teamwork_paid": [True],
     "additional_cost_paid": [True, False],
     "source_was_cast": [True, False],
@@ -224,7 +225,7 @@ class TestTheCollapseIsReal:
         assert target["kind"] == recipient["kind"] == "is_you"
         assert {target["of"], recipient["of"]} == {"target", "counter_recipient"}
 
-    def test_twelve_flat_keys_were_one_attribute_read(self) -> None:
+    def test_fifteen_flat_keys_are_one_attribute_read(self) -> None:
         flags = {
             key for key, _, condition in _translated()
             if condition.get("kind") == "flag"
@@ -236,7 +237,7 @@ class TestTheCollapseIsReal:
             "source_was_foretold", "cast_via_escape",
             "cast_outside_sorcery_speed", "source_is_renowned",
             "cast_during_your_main_phase",  # PAR-120, Addendum
-            "previous_target_is_suspected", "teamwork_paid",
+            "previous_target_is_suspected", "teamwork_paid", "gift_promised",
             # RULE 701.60c's `is_suspected` flag read off two more referents,
             # plus RULE 602.2b's sacrificed-cost-specific flag — always part of
             # the same collapse, just missing their own `_LEGACY_SAMPLES` rows
@@ -413,6 +414,7 @@ class TestOnePeelerRule:
         "if this spell was kicked, draw a card",
         "if it was kicked twice, draw a card",
         "if this spell was bargained, draw a card",
+        "if the gift was promised, draw a card",
         "if this spell's additional cost was paid, draw a card",
         "if this spell was cast using teamwork, draw a card",
         "if that player is you, draw a card",

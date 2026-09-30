@@ -557,6 +557,10 @@ its state from the code or duplicating detail here.
   most one-shot families the parser emits.
 - **Keyword actions** — every RULE 701 keyword action has an engine
   primitive (PAR-29, closed).
+- **Recent keyword/defined-term mechanics** — Gift (RULE 702.174: opponent
+  choice, resolution/ETB delivery, promised-gift branches and targets) and
+  Expend (RULE 700.14: per-turn spell-mana thresholds) are engine-backed and
+  parser-reachable.
 - **Designations & subsystems** — planeswalkers, commander damage + tax,
   Monarch, Initiative, The Ring, emblems, Speed, the Case solve machine,
   energy, poison/infect/wither/toxic; controlling another player's
@@ -583,12 +587,12 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 53.2% (18,532 / 34,811) as of 2026-09-30, measured at
-PARSER_VERSION 552** (parser-`MODELED` or hand-`AUTHORED`, measured against
+**Coverage: 53.3% (18,555 / 34,811) as of 2026-09-30, measured at
+PARSER_VERSION 553** (parser-`MODELED` or hand-`AUTHORED`, measured against
 the full ~35k-card Oracle universe from `scripts/import_bulk.py`). Re-measure
 with `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset that
-matters for Goldfisch/Deck-Analyzer — is **55.9% (17,805 / 31,830)**; measure
+matters for Goldfisch/Deck-Analyzer — is **56.0% (17,828 / 31,830)**; measure
 it with `scripts/coverage_report.py --commander-legal-only` (records a
 separate `…-commander` snapshot row) and segment the still-UNMODELED
 remainder by *cause* (wrapper re-measure / recurring template → `PAR-*` /

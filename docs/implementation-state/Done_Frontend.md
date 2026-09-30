@@ -266,6 +266,14 @@ repointed there.
 
 ## Casting & Costs (frontend)
 
+### Gift recipient cast offers (RULE 702.174)
+
+- **What:** Each server-provided Gift cast offer is rendered as a distinct button naming the
+  recipient. `gift_opponent_id` is preserved through plain, `{X}`/Kicker, discard-cost and
+  multi-step target-selection flows, and is part of legal-action matching so one opponent's
+  target requirements cannot be confused with another cast offer.
+- **Files:** `gameBoardView.js`, `locales/{de,en}.js`
+
 ### X-spell and Kicker payment UI
 
 - **What:** A hand/command-zone card with `{X}` in its cost gets a number input (defaults to max) instead of a plain cast button; a kickable spell separately gets a Kicker number input (defaults to 0, since it's an opt-in extra cost) — both compose when a spell is kickable and X-costed.

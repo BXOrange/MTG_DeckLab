@@ -890,8 +890,34 @@ class CastingResolutionMixin:
                 **_cast_history_traits(obj),
             )
         )
+        self._fire_expend_events(player, obj)
         self.check_ward(item, player)
         return item
+
+    def _fire_expend_events(self, player: Player, obj: GameObject) -> None:
+        """RULE 700.14: fire one `EXPEND` per N this payment crossed.
+
+        The running total is read back off the turn's `SPELL_CAST` events (which
+        already include this cast), so no separate counter can drift. A player
+        expends N when the total *before* this payment was below N and is at
+        least N after it, i.e. N in (before, after].
+        """
+        spent = int(obj.mana_spent_to_cast or 0)
+        if spent <= 0:
+            return
+        after = int(self.state.mana_spent_on_spells_this_turn.get(player.id, 0))
+        before = after - spent
+        # The interval is finite (bounded by the mana actually paid).  Do not
+        # cap it at today's printed thresholds: RULE 700.14 defines arbitrary
+        # N, and future/custom cards must be able to listen above 8 as well.
+        for amount in range(before + 1, after + 1):
+            self.state.fire_event(
+                GameEvent(
+                    EventType.EXPEND, player_id=player.id, amount=amount,
+                    spell=obj.name, instance_id=obj.instance_id,
+                )
+            )
+
     def cast_without_paying(
         self,
         player: Player,
@@ -922,6 +948,10 @@ class CastingResolutionMixin:
         cast_from_zone = obj.zone.value
         obj.cast_from_exile = obj.zone == Zone.EXILE
         obj.was_cast = True
+        # RULE 702.174a: a cast that pays no additional costs promises no gift (and must not
+        # inherit the promise of an earlier cast of the same card).
+        obj.gift_promised = False
+        obj.gift_recipient_id = None
         self._remove_from_current_zone(player, obj)
         obj.zone = Zone.STACK
         # RULE 108.4 / 601.2f: whoever casts the spell controls it (and the
@@ -1708,6 +1738,14 @@ class CastingResolutionMixin:
         that produced it (RULE 608.2m/608.3) — `resolve_top_of_stack`'s body,
         split out only so that method can wrap it in the
         `GameContext.trigger_event` window."""
+        if (
+            item.kind == "spell" and item.obj is not None
+            and item.obj.gift_promised and not self.is_permanent_spell(item.obj.card)
+        ):
+            # RULE 702.174j: an instant/sorcery's gift happens before any of its
+            # other abilities. Here, not at cast time, so a countered spell (which
+            # never reaches this point) gives no gift.
+            self.give_gift(item.obj)
         if len(item.effects) == 1 and hasattr(item.effects[0], "effects"):
             # A single `TriggeredAbility`/`ActivatedAbility` wrapper — it
             # owns its *own* sub-effects list (`self.effects`, invisible to
@@ -1742,6 +1780,53 @@ class CastingResolutionMixin:
         if not self._finish_spell_routing(item):
             self.check_state_based_actions()
         return item
+    #: RULE 702.174f/i: the fixed tokens a gift can be. Named Food/Treasure come from the
+    #: token catalogue (they carry their mana/life abilities); the rest are inline.
+    _GIFT_INLINE_TOKENS = {
+        "tapped fish": dict(name="Fish", power=1, toughness=1, colors=["U"], tapped=True),
+        "octopus": dict(name="Octopus", power=8, toughness=8, colors=["U"], tapped=False),
+    }
+
+    def give_gift(self, source: GameObject) -> bool:
+        """RULE 702.174d-i: the chosen opponent receives ``source``'s promised gift.
+
+        Returns whether a gift was actually given. Nothing happens if no gift was promised,
+        or if the chosen opponent has since left the game. Fires `GIFT_GIVEN` (RULE 702.174c,
+        "whenever you give a gift").
+        """
+        if not source.gift_promised or source.gift_recipient_id is None:
+            return False
+        recipient = self.state.player_by_id(source.gift_recipient_id)
+        if recipient is None or recipient.has_lost:
+            return False
+        quality = str(((source.parametric_keywords or {}).get("gift") or {}).get("quality") or "").strip().lower()
+        if quality == "card":
+            self.draw(recipient, 1)                      # 702.174e
+        elif quality in ("food", "treasure"):            # 702.174d / 702.174h
+            from ...services.token_database import default_token_database  # avoid a services↔game cycle
+            token = default_token_database().get_token(quality)
+            if token is None:
+                return False
+            self.create_token(recipient.id, token, 1)
+        elif quality in self._GIFT_INLINE_TOKENS:        # 702.174f / 702.174i
+            from ...services.token_database import synthesize_token_card
+            spec = dict(self._GIFT_INLINE_TOKENS[quality])
+            tapped = spec.pop("tapped")
+            name = spec.pop("name")
+            made = self.create_token(recipient.id, synthesize_token_card(name, **spec), 1)
+            if tapped:
+                for token in made:
+                    self.set_tapped(token, True)
+        elif quality == "extra turn":                    # 702.174g
+            self.state.extra_turns.append(recipient.id)
+        else:
+            return False
+        self.state.fire_event(GameEvent(
+            EventType.GIFT_GIVEN, controller_id=source.controller_id,
+            recipient_id=recipient.id, quality=quality, instance_id=source.instance_id,
+        ))
+        return True
+
     def _finish_spell_routing(self, item: StackItem) -> bool:
         """RULE 608.2m/608.3: send a resolved spell to its next zone
         (ordinarily the graveyard) now that every one of its effects has

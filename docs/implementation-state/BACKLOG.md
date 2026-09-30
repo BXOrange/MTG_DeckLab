@@ -92,11 +92,15 @@ No open tickets.
   power", `PumpEffect.self_multiplier` axis — 11 SOLO); additive-colour copy exceptions ("… in
   addition to its other colors and types" — needs an additive colour on `CopyPermanentEffect`, 14 SOLO);
   "any target that isn't a `<subtype>`" (3 SOLO); "Do this only once each turn" as an *action* limit
-  (not a trigger limit when the effect is optional — Ondu Spiritdancer, Irreverent Gremlin).
+  (not a trigger limit when the effect is optional — Ondu Spiritdancer, Irreverent Gremlin). Kitnap's
+  "put three stun counters on it" is the attached-permanent/pronoun sibling of the named-counter gap;
+  Gift and its negative condition are already modeled.
 - **PAR-136 · Blink with a delayed return: "exile `<target>`. Return it to the battlefield under its
   owner's control at the beginning of the next end step."** 31 SOLO, 10 also-blocked (Turn to Mist,
   Voidwalk, Liberate, Flickerwisp, Glimmerpoint Stag, Galepowder Mage, Ghostway, Sudden Disappearance,
-  Eerie Interlude, Aetherling, Fleeting Spirit, Roon, Angel of Condemnation, Abuelo, Mistmeadow Witch, …).
+  Eerie Interlude, Aetherling, Fleeting Spirit, Roon, Angel of Condemnation, Abuelo, Mistmeadow Witch,
+  Parting Gust, …). Parting Gust's Gift/negative promised-gift gate is already modeled; only this delayed
+  return, including its +1/+1-counter rider, remains.
   `BlinkEffect` returns immediately and has no delayed-return param; the pieces exist elsewhere
   (`ExileEffect(remember)` + `CreateDelayedTriggerEffect` + `ReturnLinkedExileEffect`, RULE 603.7) —
   decide row-over-composition vs. a `BlinkEffect` param first. Self-blink activated forms ("discard a
@@ -127,7 +131,9 @@ No open tickets.
   - "`<reanimation>` with a corpse counter on it. If it would leave the battlefield, exile it instead"
     — 4 SOLO (Crowded Crypt, From the Catacombs, Isareth, Scavenging Ghoul).
   - "If its/this spell's madness cost was paid, `<effect>`" — 4 SOLO (Avacyn's Judgment, From Under the
-    Floorboards, Grave Scrabbler, Welcome to the Fold).
+    Floorboards, Grave Scrabbler, Welcome to the Fold). MEC-106's cast-announced flag plumbing
+    (`ANNOUNCED_FLAGS`/`announced_state`) is now the direct precedent; this residue needs a
+    `madness_cost_paid` stamp/parser condition, not a new target-announcement mechanism.
   - "When ~ is put into a graveyard from anywhere, its owner shuffles their graveyard into their
     library" — 2 SOLO (Emrakul the Aeons Torn, Ulamog the Infinite Gyre).
 - **PAR-99 · Khans/Dragons Siege cycle.** The ETB choice parses; unclaimed on all 5 cards (0 SOLO) is
@@ -315,23 +321,12 @@ No open tickets.
 ## MEC — Game mechanic
 
 - **MEC-105 · Temporary keyword loss.** "Target creature / it loses flying [and …] until end of turn"
-  (Gravity Well, Barbed Foliage, Canopy Claws, Downdraft, Adarkar Windform — 36 SOLO at v552): a
+  (Gravity Well, Barbed Foliage, Canopy Claws, Downdraft, Adarkar Windform, Starforged Sword — 36 SOLO
+  at v552): a
   layer-6 ability-*removing* effect that ends at cleanup. `remove_keyword` exists only as a standing
   static (`StaticAbility` `remove_keywords`); missing is a until-end-of-turn recipient (e.g.
   `GameObject.temp_removed_keywords`, read by `combat._obj_keywords`, cleared at RULE 514.2) plus the
   parser rows ("`<subject>` loses `<keyword>[, …]` until end of turn", "gains X and loses Y").
-
-- **MEC-106 · Gift (RULE 702.174).** "Gift a `<card | Food | Treasure | tapped Fish | extra turn |
-  octopus>`" + "if the gift was promised, `<effect>`" — 24 SOLO, 1 also-blocked (Dawn's Truce, Parting
-  Gust, Starfall Invocation, Coiling Rebirth, Blooming Blast, Kitnap, Valley Rally, Wildfire Howl, …).
-  `keywords.py` only *recognises* the keyword: no promise choice as the spell is cast (RULE
-  702.174a), no gift delivered to the chosen opponent, no "gift was promised" flag readable by
-  the resolving effect (`effect_conditions`), no "Whenever you give a gift" event (Jolly Gerbils). One
-  batch with its parser rows (see the mechanic-ticket rule).
-- **MEC-107 · Expend (RULE 700.14).** "Whenever you expend `<n>`" — 9 SOLO, 3 also-blocked (Teapot
-  Slinger, Wandertale Mentor, Trailtracker Scout, Bakersbane Duo, Byway Barterer, …). Needs a per-player
-  count of mana spent on spells this turn (`GameState`, reset in `begin_turn`, fed from the cast-payment
-  path) and an `EXPEND` event fired once when the running total reaches each threshold.
 
 ## PLR — Player management
 

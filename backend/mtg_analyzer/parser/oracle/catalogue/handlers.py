@@ -1455,6 +1455,29 @@ def _damage_selector(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("damage", {"amount": "x" if n == "x" else int(n), "selector": selector})]
 
 
+#: "~ deals N damage to any target and M damage to each creature" (Wildfire
+#: Howl) — the second conjunct elides the repeated subject and verb.  Keep it
+#: as two ordinary damage effects so the first announces its RULE 115 target
+#: while the mass half remains untargeted (RULE 601.2c).
+_DAMAGE_TARGET_AND_SELECTOR_RE = _c(
+    rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+) damage to {TARGET} "
+    r"and (?P<n2>\d+) damage to (?P<selector>each creature|each player|each opponent)"
+)
+
+
+def _damage_target_and_selector(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind is None:
+        return None
+    return [
+        EffectSpec("damage", {"amount": int(m.group("n")), "target_kind": kind}),
+        EffectSpec("damage", {
+            "amount": int(m.group("n2")),
+            "selector": _SELECTOR_WORD_MAP[m.group("selector")],
+        }),
+    ]
+
+
 #: "~ deals 1 damage to each creature you don't control" / "…to each other creature
 #: you control" / "…to each other creature without flying" (Barrage of Boulders, Cinder
 #: Giant, Fire Ants — PAR-128) — the general mass form: the group is whatever the shared
@@ -4707,7 +4730,8 @@ def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: family) — the plural sibling of `_RETURN_FROM_GRAVEYARD_RE`. The type
 #: word itself doesn't inflect ("creature cards", not "creatures cards").
 _RETURN_FROM_GRAVEYARD_MULTI_RE = _c(
-    rf"return {_MULTI_TARGET_QUANTIFIER}{_GRAVEYARD_OTHER}target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?cards from "
+    rf"return {_MULTI_TARGET_QUANTIFIER}{_GRAVEYARD_OTHER}target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?cards "
+    rf"(?:each with mana value (?P<mv>\d+) or less )?from "
     rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyards? to "
     r"(?P<dest>the battlefield|your hand|their owners'? hands)"
 )
@@ -4736,6 +4760,8 @@ def _return_from_graveyard_multi_target(m: re.Match[str]) -> Optional[list[Effec
     params: dict = {"target_kind": kind, "destination": destination, "count": count}
     if m.groupdict().get("up_to"):
         params["optional"] = True
+    if m.groupdict().get("mv") is not None:
+        params["max_mana_value"] = int(m.group("mv"))
     return [EffectSpec("return_from_graveyard", params)]
 
 
@@ -14358,6 +14384,11 @@ HANDLERS: list[EffectHandler] = [
         _DAMAGE_CREATURE_FILTER_RE,
         _damage_creature_filter,
     ),
+    EffectHandler(
+        "damage_target_and_selector",
+        _DAMAGE_TARGET_AND_SELECTOR_RE,
+        _damage_target_and_selector,
+    ),
     # "This creature deals 1 damage to target player or planeswalker. If
     # this creature is a Wizard, it deals 2 damage instead." (Sorcerer's
     # Wand) — type-sensitive amount override, before plain damage whose
@@ -16516,6 +16547,22 @@ HANDLERS: list[EffectHandler] = [
         _ADD_COUNTERS_GROUP_SUBJECT_IT_RE,
         _add_counters_group_subject_it,
         group_subject_only=True,
+    ),
+    # Longstalk Brawl: a preceding "choose target creature you control and
+    # target creature you don't control" already announced the pair.  "The
+    # creature you control" is the first member, not a new target.
+    EffectHandler(
+        "add_counters_chosen_creature_you_control",
+        _c(
+            rf"put {COUNT} (?P<ckind>[+\-−]\d/[+\-−]\d) counters? "
+            r"on the creature you control"
+        ),
+        lambda m: [EffectSpec("add_counters", {
+            "count": count_of(m.group("n")) * _counter_kind_and_multiplier(m.group("ckind"))[1],
+            "kind": _counter_kind_and_multiplier(m.group("ckind"))[0],
+            "previous_subject": True,
+        })],
+        previous_subject_only=True,
     ),
     # "put a +1/+1 counter on target creature" / "put a -1/-1 counter on …" /
     # "… on ~"/"this creature" (Walking Ballista's "{4}: Put a +1/+1 counter

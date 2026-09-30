@@ -1053,6 +1053,10 @@ class GameSession:
             teamwork=bool(action.get("teamwork", False)),
             teamwork_choices=[int(value) for value in (action.get("teamwork_choices") or [])]
             if action.get("teamwork_choices") is not None else None,
+            # MEC-106: RULE 702.174a — the opponent a promised gift goes to,
+            # round-tripped off the `gift_opponent_id` `_cast_action` stamps on
+            # each per-opponent "cast + promise a gift" offer.
+            gift_opponent_id=action.get("gift_opponent_id"),
         )
 
     def _dispatch_roll_planar_die(self, action: dict[str, Any], active: Player) -> None:

@@ -349,6 +349,19 @@ class EventType:
     # object itself as `GameObject.mana_spent_to_cast`, since a resolving
     # effect can need it after the spell has left the stack.
     SPELL_CAST = "SPELL_CAST"
+    #: RULE 700.14 (MEC-107): a player *expended N* — paying a spell's cost took
+    #: the mana they had spent on spells this turn from below N to at least N.
+    #: One event per N crossed (``amount``), fired right after that spell's
+    #: `SPELL_CAST`, so "Whenever you expend 4" reads ``filter: {"amount": 4}``.
+    #: Carries ``player_id``, ``amount``, and the ``spell``/``instance_id`` whose
+    #: payment crossed the threshold.
+    EXPEND = "EXPEND"
+    #: RULE 702.174c (MEC-106): a player *gave a gift* — a promised gift's effect
+    #: happened (an instant/sorcery resolving, or a permanent's gift ETB trigger
+    #: resolving). ``controller_id`` is the giver, ``recipient_id`` the chosen
+    #: opponent, ``quality`` the gift ("card", "food", …); what Jolly Gerbils'
+    #: "Whenever you give a gift" watches.
+    GIFT_GIVEN = "GIFT_GIVEN"
     #: RULE 707.10: a spell copy was put on the stack, without being cast.
     #: The copier is player_id; instance_id/stack_id name the new copy.
     SPELL_COPIED = "SPELL_COPIED"

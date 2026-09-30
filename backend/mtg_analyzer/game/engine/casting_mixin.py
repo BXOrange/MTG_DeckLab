@@ -369,6 +369,20 @@ class CastingMixin:
             return None
         return next((o for o in candidates if o.is_token), candidates[0])
 
+    def gift_opponents(self, player: Player) -> list[Player]:
+        """The opponents ``player`` may choose as a gift's recipient (RULE 702.174a)."""
+        return [p for p in self.state.living_players() if p.id != player.id]
+
+    def _require_legal_gift_choice(self, player: Player, obj: GameObject, opponent_id: str) -> None:
+        """RULE 702.174a: the gift cost is "you may choose an opponent" — only a spell that
+        actually has Gift offers it, and the choice must be one of the caster's opponents.
+        Refused rather than ignored, so an API caller can't stamp an arbitrary spell as
+        gifted (the same guard `can_cast` puts on ``bargained``)."""
+        if "gift" not in (obj.parametric_keywords or {}):
+            raise ValueError(f"{obj.name} has no gift cost")
+        if opponent_id not in {p.id for p in self.gift_opponents(player)}:
+            raise ValueError(f"{opponent_id} is not an opponent of {player.id}")
+
     def _teamwork_candidates(self, player: Player) -> list[GameObject]:
         """Untapped creatures available for Teamwork (RULE 702.194)."""
         self.recompute_continuous_effects()
@@ -1261,6 +1275,7 @@ class CastingMixin:
         pay_additional: bool = False,
         teamwork: bool = False,
         teamwork_choices: Optional[list[int]] = None,
+        gift_opponent_id: Optional[str] = None,
     ):
         """Cast a spell after validating timing, payability and targets (RULE 601).
 
@@ -1304,7 +1319,21 @@ class CastingMixin:
         additional cost to cast this spell, sacrifice/discard …" clause
         (RULE 601.2b) — see `can_cast`; ``None`` falls back to an auto-pick,
         for non-interactive callers.
+
+        ``gift_opponent_id`` (MEC-106, RULE 702.174) promises the spell's gift to that
+        opponent — the whole of Gift's additional cost, which is only a choice.
         """
+        if gift_opponent_id is not None:
+            self._require_legal_gift_choice(player, obj, gift_opponent_id)
+        # RULE 702.174a/k: "As an additional cost to cast this spell, you may choose an
+        # opponent" — choosing one *is* paying the gift cost, and declaring it makes the gift
+        # promised. Stamped before anything else so the target requirements below already see
+        # it (RULE 702.174m: a gift-only target is chosen only if the gift was promised).
+        # Nothing is given yet: an instant/sorcery gives it as it begins to resolve
+        # (`RulesEngine.give_gift`, RULE 702.174j), a permanent through its own ETB trigger
+        # (RULE 702.174b, `binding.core._kw_gift`).
+        obj.gift_promised = gift_opponent_id is not None
+        obj.gift_recipient_id = gift_opponent_id
         if face == "face_down":
             # RULE 702.37c/702.168b: "turn it face down and announce that
             # you're using a morph ability … put it onto the stack (as a

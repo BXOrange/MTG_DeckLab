@@ -39,7 +39,7 @@ from .catalogue.handlers import (
     _MAY_EFFECT_THEN_ANTECEDENT_PHRASES,
     match_clause,
 )
-from .catalogue.keywords import ALIAS_DISPLAYS, KEYWORDS, KeywordShape
+from .catalogue.keywords import ALIAS_DISPLAYS, GIFT_QUALITIES, KEYWORDS, KeywordShape
 from .catalogue.referent_condition import PRONOUN_NOUN_ALT, parse_referent_condition
 from .catalogue.replacements import replacement_clause_specs
 from .catalogue.saga import CHAPTER_LINE_RE, parse_chapter_token
@@ -1555,6 +1555,13 @@ _ADDITIONAL_COST_PAID_CONDITION_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: MEC-106 / RULE 702.174k: "if the gift was[n't] promised, `<effect>`." — an additive rider
+#: gated on the caster having promised the gift. "Instead" overrides ("… , instead `<effect>`")
+#: are a different, override grammar and fall to `_INSTEAD_OVERRIDE_RE`.
+_GIFT_PROMISED_CONDITION_RE = re.compile(
+    r"^if the gift (?P<neg>was|wasn'?t) promised,\s*(?P<rest>(?!instead\b).+)$", re.IGNORECASE,
+)
+
 #: PAR-56 / RULE 702.194: Teamwork is an optional additional cost with its
 #: own cast-state marker, so ordinary "if this spell was cast using
 #: teamwork" riders use the same additive conditional-effect path as Kicker.
@@ -2852,7 +2859,16 @@ def _is_compound_keyword_line(stripped: str) -> bool:
     return any(rx.match(stripped) for rx in _COMPOUND_KEYWORD_LINE_RES)
 
 
+#: RULE 702.174: "Gift a/an `<quality>`" — only the gifts the CR defines are a keyword line.
+_GIFT_TOKEN_RE = re.compile(r"^gift an? (?P<quality>[a-z][a-z ]*?)\s*$", re.IGNORECASE)
+
+
 def _is_keyword_token(tok: str) -> bool:
+    gift = _GIFT_TOKEN_RE.match(tok)
+    if gift is not None and gift.group("quality").lower() not in GIFT_QUALITIES:
+        # An un-card's "Gift a Rhystic Study": recognising the keyword would claim a gift the
+        # engine cannot give, so the line stays unclaimed and the card UNMODELED.
+        return False
     return bool(
         _KEYWORD_TOKEN_RE.match(tok)
         or _CYCLING_TOKEN_RE.match(tok)
@@ -3411,10 +3427,14 @@ def _instead_override_specs(body: str, **flags: Any) -> Optional[list[EffectSpec
     replacement = parse_effect_body(
         _resolve_override_referents(base_text, replacement_text), **flags)
     if (not base or not replacement
-            or any(spec.condition is not None for spec in [*base, *replacement])
-            # Both branches must announce the same requirement (or none),
-            # the only case `if_else` can announce a target (RULE 601.2c).
-            or _target_signature(base) != _target_signature(replacement)
+            or any(spec.condition is not None for spec in [*base, *replacement])):
+        return None
+    # Both branches must announce the same requirement (or none), the only case `if_else`
+    # can announce a target (RULE 601.2c) — unless the cast itself already decided which
+    # branch runs (a promised gift, RULE 702.174m), when only that branch announces, so the
+    # two may differ ("destroy target artifact" / "destroy two target artifacts").
+    if not _is_announced_condition(condition) and (
+            _target_signature(base) != _target_signature(replacement)
             or (_target_signature(base) and (len(base) != 1 or len(replacement) != 1))):
         return None
     return [EffectSpec("if_else", {
@@ -3422,6 +3442,19 @@ def _instead_override_specs(body: str, **flags: Any) -> Optional[list[EffectSpec
         "then": [spec.to_dict() for spec in replacement],
         "else": [spec.to_dict() for spec in base],
     })]
+
+
+#: Flags the cast itself decides before targets are chosen — the parser-side mirror of
+#: `game/effect_conditions.ANNOUNCED_FLAGS` (this package must not import `game/`).
+_ANNOUNCED_FLAGS: frozenset[str] = frozenset({"gift_promised"})
+
+
+def _is_announced_condition(condition: Optional[dict[str, Any]]) -> bool:
+    """Whether ``condition`` is a (possibly negated) flag the cast already settled (RULE 601.2b)."""
+    while condition and condition.get("kind") == "not":
+        condition = condition.get("condition")
+    return bool(condition and condition.get("kind") == "flag"
+                and condition.get("flag") in _ANNOUNCED_FLAGS and "of" not in condition)
 
 
 #: The param keys an `EffectSpec` names a RULE 115 requirement under — the
@@ -4048,6 +4081,13 @@ _CONDITION_PREFIXES: tuple[_ConditionPrefix, ...] = (
     _ConditionPrefix(
         _TEAMWORK_PAID_CONDITION_RE,
         lambda m: {"kind": "flag", "flag": "teamwork_paid"},
+    ),
+    _ConditionPrefix(
+        _GIFT_PROMISED_CONDITION_RE,
+        lambda m: (
+            {"kind": "not", "condition": {"kind": "flag", "flag": "gift_promised"}}
+            if m.group("neg").lower() != "was" else {"kind": "flag", "flag": "gift_promised"}
+        ),
     ),
     # "If that player is[n't] you, `<effect>`." (The Ghoul, Gunslinger) — the
     # negative polarity is the ``not`` combinator, not a second predicate.

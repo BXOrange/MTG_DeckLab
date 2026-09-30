@@ -762,6 +762,8 @@ export default {
   'bd.libraryTop.visible': "👁️ Oberste Karte sichtbar",
   'bd.cast.castPlain': "✨ Zaubern{mode}{hint}{face}",
   'bd.cast.castSuffix': "✨ Zaubern ({suffix}){mode}{face}",
+  'bd.cast.giftHint': " + Geschenk → {name}",
+  'bd.cast.giftSuffix': "Geschenk → {name}",
   'bd.cast.evokePlain': "✨ Evoke{mode}{hint}{face}",
   'bd.cast.evokeSuffix': "✨ Evoke ({suffix}){mode}{face}",
   'bd.cast.evokeLabel': "✨ Evoke{mode}{face}",

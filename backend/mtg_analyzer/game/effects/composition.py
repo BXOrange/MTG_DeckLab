@@ -297,6 +297,11 @@ class IfElseEffect(_CompositeEffect):
                         for spec in effect.target_specs]
         else_targets = [spec for effect in _build(self.else_specs, self.source)
                         for spec in effect.target_specs]
+        # RULE 702.174m: when the cast already decided the condition (a promised gift),
+        # only the branch that will run announces its targets.
+        decided = effect_conditions.announced_state(self.condition, self.source)
+        if decided is not None:
+            return then_targets if decided else else_targets
         return then_targets if then_targets == else_targets else []
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:

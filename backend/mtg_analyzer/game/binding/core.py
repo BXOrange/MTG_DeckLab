@@ -58,6 +58,7 @@ from ..effects.core import (
     EmbalmEternalizeEffect,
     GameEffect,
     GetCityBlessingEffect,
+    GiftGiveEffect,
     GrantUntilEffect,
     HauntEffect,
     LivingWeaponEffect,
@@ -210,6 +211,7 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     "BECOMES_BLOCKED": "player_id",
     "SPELL_CAST": "player_id",
     "SPELL_COPIED": "player_id",
+    "EXPEND": "player_id",  # RULE 700.14 (MEC-107) — "whenever you expend N"
     "PROLIFERATED": "player_id",
     # "When you play another land, …" (City of Traitors) / "Untap all
     # permanents you control during each other player's untap step."
@@ -3718,6 +3720,30 @@ def _kw_bushido(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
     ]
 
 
+def _kw_gift(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    """RULE 702.174b Gift on a *permanent* — "When this permanent enters, if its gift cost was
+    paid, `<gift>`" (MEC-106). An instant/sorcery has no trigger: `RulesEngine.give_gift` runs
+    as it begins to resolve (RULE 702.174j), so this builds nothing for one.
+
+    The intervening "if" (RULE 603.4) reads `GameObject.gift_promised`, stamped when the spell
+    was cast; the recipient and the gift itself are read off the source when the trigger resolves.
+    """
+    card = getattr(obj, "card", None)
+    if card is None or getattr(card, "is_instant", False) or getattr(card, "is_sorcery", False):
+        return []
+    return [
+        TriggeredAbility(
+            trigger_event=EventType.ENTERS_BATTLEFIELD,
+            effects=[GiftGiveEffect(source=obj)],
+            condition=lambda event, context, src=obj: (
+                event.get("instance_id") == src.instance_id and bool(src.gift_promised)
+            ),
+            source=obj,
+            description=_ability_description(obj, spec) or "Gift",
+        )
+    ]
+
+
 def _kw_prowess(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
     """RULE 702.108a Prowess — "Whenever you cast a noncreature spell, this
     creature gets +1/+1 until end of turn." Parser-recognized as a flag
@@ -3916,6 +3942,7 @@ _KEYWORD_TRIGGERED_BUILDERS: dict[str, Callable[[Any, AbilitySpec, Any], list[Tr
     "afflict": _kw_afflict,
     "bushido": _kw_bushido,
     "prowess": _kw_prowess,
+    "gift": _kw_gift,
     "exalted": _kw_exalted,
     "battle_cry": _kw_battle_cry,
     "mentor": _kw_mentor,

@@ -762,6 +762,7 @@ _CONTINUATION_TYPES: dict[str, str] = {
     "exchange_control_then_energy_sacrifice": "118.3",
     "exile_controller_searches_basic_land": "701.23",
     "face_villainous_choice": "701.55",
+    "gift_give": "702.174",
     "immoral_bargain": "601.2b",
     "immoral_bargain_destroy": "601.2b",
     "impulsive_look": "601.2b",

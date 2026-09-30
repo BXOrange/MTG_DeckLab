@@ -4549,6 +4549,10 @@ EffectRegistry.register(
     lambda p: BecomeMonarchEffect(target_kind=p.get("target_kind")),
 )
 EffectRegistry.register(
+    "gift_give",  # a permanent's gift ETB effect (RULE 702.174b); MEC-106
+    lambda p: GiftGiveEffect(),
+)
+EffectRegistry.register(
     "take_initiative",  # "you take the initiative" (RULE 726.1)
     lambda p: TakeInitiativeEffect(target_kind=p.get("target_kind")),
 )

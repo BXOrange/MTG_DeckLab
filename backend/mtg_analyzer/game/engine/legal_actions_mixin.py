@@ -230,6 +230,7 @@ class LegalActionsMixin:
         pay_additional: bool = False,
         bargained: bool = False,
         teamwork: bool = False,
+        gift_opponent_id: Optional[str] = None,
     ) -> dict[str, Any]:
         """A ``cast_spell`` legal-action entry, flagging ``{X}`` and targets.
 
@@ -263,6 +264,29 @@ class LegalActionsMixin:
         calls this once per mode instead of once per ``obj``) and computes
         ``targets``/``locked`` under that mode's own effects only.
         """
+        if gift_opponent_id is not None:
+            # RULE 702.174a: the "cast + promise a gift to `<opponent>`" offer. Previewed with the
+            # promise stamped, so a part that exists only if the gift was promised (and its
+            # targets, RULE 702.174m) is what the requirements below describe; restored after.
+            saved = (obj.gift_promised, obj.gift_recipient_id)
+            obj.gift_promised, obj.gift_recipient_id = True, gift_opponent_id
+            obj._gift_preview = True
+            try:
+                action = self._cast_action(player, obj, face=face, mode=mode, entwine=entwine, free=free,
+                                           alt_cost=alt_cost, evoke=evoke, help_pay=help_pay,
+                                           pay_additional=pay_additional)
+            finally:
+                obj.gift_promised, obj.gift_recipient_id = saved
+                del obj._gift_preview
+            opponent = self.state.player_by_id(gift_opponent_id)
+            action["gift_opponent_id"] = gift_opponent_id
+            action["gift_opponent_name"] = getattr(opponent, "name", gift_opponent_id)
+            action["gift_quality"] = str(((obj.parametric_keywords or {}).get("gift") or {}).get("quality") or "")
+            return action
+        # A card in hand promised nothing, whatever an earlier cast of it left stamped (unless
+        # this is the gift preview above, which stamped it on purpose).
+        if not getattr(obj, "_gift_preview", False):
+            obj.gift_promised, obj.gift_recipient_id = False, None
         if face in ("back", "fuse"):
             alt = obj.card.back_face() if face == "back" else obj.card.fuse_face()
             snapshot = self.rules.snapshot_face(obj)
@@ -763,6 +787,11 @@ class LegalActionsMixin:
             and self.can_cast(player, obj, bargained=True)
         ):
             actions.append(self._cast_action(player, obj, bargained=True))
+        # RULE 702.174a: Gift's additional cost is only a choice, so it costs no mana — one
+        # "cast, promising a gift" offer per opponent, beside the plain one.
+        if "gift" in (obj.parametric_keywords or {}) and self.can_cast(player, obj):
+            for opponent in self.gift_opponents(player):
+                actions.append(self._cast_action(player, obj, gift_opponent_id=opponent.id))
         # See `_castable_now_or_via_potential`'s matching comment: a
         # standing permission (Aluren) offers the free-cast action just as
         # readily as a per-object `free_cast_condition` does.

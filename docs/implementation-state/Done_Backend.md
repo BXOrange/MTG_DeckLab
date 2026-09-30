@@ -1071,6 +1071,19 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 
 ## Triggered Abilities & Trigger Ordering
 
+### Expend (RULE 700.14, MEC-107; PARSER_VERSION 553)
+
+- **What:** Every `SPELL_CAST.mana_spent` payment contributes to a per-player total derived from
+  the current turn's event log. A cast fires one `EXPEND` event for every threshold crossed by that
+  payment; "Whenever you expend N" is a composed player-event head filtered to exactly N. Free
+  casts contribute zero, totals reset naturally with the turn-event window, and thresholds are not
+  capped to today's printed 4/8 values.
+- **Why:** Deriving the total from the authoritative cast events avoids a second mutable counter and
+  makes rewind/history behavior automatic. Tests: `tests/test_mec107_expend.py`.
+- **Files:** `models/game/events.py`, `models/game/turn_history.py`, `models/game/game_state.py`,
+  `game/rules/casting_mixin.py`, `game/binding/core.py`,
+  `parser/oracle/catalogue/player_event_head.py`
+
 ### Trigger ordering within a controller (RULE 603.3b)
 
 - **What:** When `state.interactive_ordering` is on and the active player has 2+ simultaneous triggers, `put_triggers_on_stack` opens an `order_triggers` `pending_choice`;…
@@ -2024,6 +2037,28 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 
 - **What:** A genuinely payable optional additional cost plus an "if bargained" `EffectSpec.condition`, reusing exactly the shape Kicker's "kicked" gate already had.
 - **Files:** `game/costs.py`, `game/effects/core.py`
+
+### Gift (RULE 702.174, MEC-106; PARSER_VERSION 553)
+
+- **What:** Casting a Gift spell now offers the ordinary cast plus one "promise a gift" cast per
+  opponent. The chosen recipient and promised flag are stamped before targets are announced, so
+  RULE 702.174m condition-only targets exist only on the promised branch. Instants/sorceries give
+  the gift first as they resolve; permanents use a real intervening-if ETB trigger. Card, Food,
+  Treasure, tapped Fish, extra-turn and Octopus gifts are implemented, and a successful gift emits
+  `GIFT_GIVEN` for "Whenever you give a gift". Unknown joke-card qualities fail closed.
+- **Parser/UI:** Prefix, suffix and `instead` promised-gift clauses share the normal condition/
+  composition machinery; cast-decided conditions can select branch-specific target requirements.
+  The board carries `gift_opponent_id` through X, discard-cost and multi-target flows and labels the
+  recipient. The parser batch additionally covered the real Dewdrop Cure, Longstalk Brawl and
+  Wildfire Howl clause shapes; the old hand-authored Into the Flood Maw simplification was removed.
+- **Why:** Promise state belongs to the spell object beside Bargain/Kicker state, while giving the
+  gift belongs at resolution/ETB; this preserves the countered-spell rule and keeps the keyword out
+  of card-specific code. Tests: `tests/test_mec106_gift.py`,
+  `tests/test_mec106_gift_real_cards.py`.
+- **Files:** `game/engine/casting_mixin.py`, `game/engine/legal_actions_mixin.py`,
+  `game/rules/casting_mixin.py`, `game/effect_conditions.py`, `game/effects/composition.py`,
+  `game/binding/core.py`, `models/game/game_object.py`, `models/game/events.py`,
+  `parser/oracle/`, `services/game_session.py`, `frontend/src/js/gameBoardView.js`
 
 ### Entwine (RULE 702.42a)
 

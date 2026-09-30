@@ -40,6 +40,8 @@ _VERBS: dict[str, str] = {
     "collect evidence": "COLLECTED_EVIDENCE", "forage": "FORAGED",
     "roll a die": "DICE_ROLLED", "roll 1 or more dice": "DICE_ROLLED",
     "discard a card": "DISCARD_CARD", "discard another card": "DISCARD_CARD",
+    # RULE 702.174c (MEC-106): "whenever you give a gift" — `GIFT_GIVEN`, fired when a promised gift is given.
+    "give a gift": "GIFT_GIVEN", "gives a gift": "GIFT_GIVEN",
 }
 _COMPOUND_VERBS: dict[str, list[str]] = {
     "scry or surveil": ["SCRY", "SURVEIL"],
@@ -59,6 +61,9 @@ _DRAW_EXCEPT = re.compile(
     r"(?:they|you) draw in each of (?:their|your) draw steps$"
 )
 _DAMAGE = re.compile(r"^(?:are|is) dealt (?P<kind>combat |noncombat )?damage$")
+#: RULE 700.14 (MEC-107): "you expend 4" — the running spend crossed N. The engine fires one
+#: `EXPEND` per N crossed, so the threshold is an exact-match ``filter`` on ``amount``.
+_EXPEND = re.compile(r"^expends? (?P<n>\d+)$")
 _MANA_TAP = re.compile(r"^taps? (?:an?|another) (?P<object>.+) for mana$")
 
 _HEAD = re.compile(r"^(?P<actor>you|an opponent|each opponent|a player)\s+(?P<rest>.+)$")
@@ -101,6 +106,10 @@ def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], di
         if damage.group("kind"):
             trigger["filter"]["combat"] = damage.group("kind").strip() == "combat"
         return "DAMAGE", condition, trigger
+    expend = _EXPEND.fullmatch(rest)
+    if expend:
+        trigger["filter"] = {"amount": int(expend.group("n"))}
+        return "EXPEND", condition, trigger
     mana = _MANA_TAP.fullmatch(rest)
     if mana:
         parsed = parse_object_phrase(mana.group("object"))

@@ -259,6 +259,13 @@ class GameObject:
         #: paid — read by `EffectSpec.condition`'s ``"bargained"`` gate, the
         #: same shape Kicker's own ``"kicked"`` condition uses.
         self.bargained: bool = False
+        #: RULE 702.174k (MEC-106): the caster promised a gift — declared the
+        #: intention to pay the gift cost while casting — and to whom. Stamped by
+        #: `GameEngine.cast_spell` next to `bargained`; read by the ``gift_promised``
+        #: flag condition ("if the gift was promised"), by the RULE 702.174b ETB
+        #: trigger on a permanent, and by `RulesEngine.give_gift` at resolution.
+        self.gift_promised: bool = False
+        self.gift_recipient_id: Optional[str] = None
         #: RULE 701.20a: this card was exiled **face down** (Beseech the
         #: Mirror's "search your library for a card, exile it face down").
         #: A face-down card in exile has no characteristics anyone but its
@@ -1384,6 +1391,8 @@ class GameObject:
         self.cast_via_mutate = False
         self.mutate_under = False
         self.bargained = False
+        self.gift_promised = False
+        self.gift_recipient_id = None
         self.face_down_in_exile = False
         self.cast_via_flashback = False
         self.cast_via_evoke = False

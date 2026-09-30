@@ -38,6 +38,20 @@ class WinGameEffect(GameEffect):
         context.engine.player_wins(player)
 
 
+class GiftGiveEffect(GameEffect):
+    """RULE 702.174b: "When this permanent enters, if its gift cost was paid, `<gift>`."
+
+    The effect half of a permanent's Gift trigger (`binding.core._kw_gift` builds the trigger
+    around it); an instant/sorcery gives its gift at the start of resolution instead
+    (`RulesEngine.give_gift`, RULE 702.174j). The gift and its recipient are read off the
+    source, where `GameEngine.cast_spell` stamped them.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is not None:
+            context.engine.give_gift(self.source)
+
+
 class BecomeMonarchEffect(GameEffect):
     """"[Player] become[s] the monarch." (RULE 725.1) — untargeted ("you
     become the monarch", Palace Jailer-shaped) by default; ``target_kind="player"``
@@ -864,6 +878,15 @@ class ConditionalEffect(GameEffect):
         self.condition = condition
         self.inner = inner
         self.target_spec = inner.target_spec
+
+    @property
+    def target_specs(self) -> list[TargetSpec]:
+        """RULE 702.174m: a gated part whose condition the cast already decided as false
+        announces no target — "if the gift was promised, tap target creature" asks for
+        that creature only when it was."""
+        if effect_conditions.announced_state(self.condition, self.source) is False:
+            return []
+        return super().target_specs
 
     def _condition_holds(
         self, context: GameContext, targets: Optional[list[Any]] = None

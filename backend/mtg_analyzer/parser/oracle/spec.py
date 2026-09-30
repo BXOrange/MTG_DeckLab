@@ -83,7 +83,7 @@ _CLAMPED_PARAM_KEYS: tuple[str, ...] = (
 #: present instead of picking the first recognised one.
 _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
     {
-        "kicked", "kicked_at_least", "bargained", "teamwork_paid", "target_is_controller",
+        "kicked", "kicked_at_least", "bargained", "gift_promised", "teamwork_paid", "target_is_controller",
         "life_gained_this_turn_at_least", "opponent_lost_life_this_turn_at_least",
         "is_ring_bearer", "ring_tempted_at_least",
         # ``ring_tempted_at_most`` is `ring_tempted_at_least`'s upper-bound

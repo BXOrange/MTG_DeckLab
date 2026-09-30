@@ -507,6 +507,31 @@ def condition_state(
     return _evaluate(condition_from_legacy(condition), context, source, targets)
 
 
+#: Flags the *cast itself* decides, so they are already known when targets are announced.
+ANNOUNCED_FLAGS: frozenset[str] = frozenset({"gift_promised"})
+
+
+def announced_state(condition: Optional[dict[str, Any]], source: Any) -> Optional[bool]:
+    """``condition``'s value if the cast itself already decided it, else ``None``.
+
+    RULE 601.2c/702.174m: a part of a spell that exists only if its gift was promised — and
+    any target it has — is chosen only if the gift was promised, and that is settled by
+    RULE 601.2b before targets are. Target announcement (`GameEffect.target_specs`) has no
+    resolution context, so it asks this instead of `condition_holds`; ``None`` means "not
+    an announced condition — announce as if either outcome were possible".
+    """
+    if not condition or source is None:
+        return None
+    structured = condition_from_legacy(condition)
+    kind = (structured or {}).get("kind")
+    if kind == "not":
+        inner = announced_state(structured.get("condition"), source)
+        return None if inner is None else not inner
+    if kind == "flag" and structured.get("flag") in ANNOUNCED_FLAGS and "of" not in structured:
+        return bool(getattr(source, structured["flag"], False))
+    return None
+
+
 def condition_holds(
     condition: Optional[dict[str, Any]],
     context: "GameContext",
@@ -551,6 +576,7 @@ _FROM_LEGACY: dict[str, Callable[[Any], Optional[dict[str, Any]]]] = {
     "kicked": lambda v: {"kind": "kicked", "min": 1} if v else {"kind": "kicked", "max": 0},
     "kicked_at_least": lambda v: {"kind": "kicked", "min": int(v)},
     "bargained": _flag("bargained"),
+    "gift_promised": _flag("gift_promised"),  # RULE 702.174k (MEC-106)
     "teamwork_paid": _flag("teamwork_paid"),  # RULE 702.194b (PAR-56)
     "additional_cost_paid": _flag("additional_cost_paid"),
     "source_was_cast": _flag("was_cast"),

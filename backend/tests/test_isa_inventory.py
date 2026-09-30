@@ -243,9 +243,10 @@ class TestBacklogSizes:
         # not new work, but 7 pre-existing registered types (Avacyn's chosen-colour
         # prevention, Garnet's Saga-counter choice, Ancient Brass Dragon's any-number
         # graveyard return, …) that had never been classified at all, found while
-        # closing the `test_every_registered_effect_type_is_classified` gap.
+        # closing the `test_every_registered_effect_type_is_classified` gap. MEC-106
+        # adds Gift's permanent-ETB continuation (`gift_give`), hence 81 -> 82.
         n = len(isa.types_classified(isa.Classification.CONTINUATION))
-        assert n <= 81, f"continuation types grew to {n}"
+        assert n <= 82, f"continuation types grew to {n}"
 
     def test_fusion_backlog_does_not_grow(self) -> None:
         # ENG-37 deletes these outright.

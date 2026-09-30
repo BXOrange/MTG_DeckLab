@@ -3755,7 +3755,12 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: it"), target filters ("with the same mana value", "other than that creature") and "the
 #: player or planeswalker it's attacking" name it too; "that card" on a dies trigger; a
 #: pronoun after a "~" clause is the source (Fearless Fledgling no longer flies the land).
-PARSER_VERSION = "552"
+#: 553 (MEC-106/MEC-107): Gift is a closed parametric keyword with promised/not-promised
+#: conditions, cast-decided branch targets, override and suffix forms, plus the give-a-gift
+#: player-event head; Expend is a numeric player-event head. Gift's real-card residue also adds
+#: multi-target graveyard returns with a mana-value cap, an elliptical target+mass damage clause,
+#: and the chosen-pair "the creature you control" counter referent.
+PARSER_VERSION = "553"
 
 
 def parser_source_hash() -> str:

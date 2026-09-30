@@ -84,6 +84,11 @@ def spells_cast(events: Events) -> "defaultdict[str, int]":
     return _tally(events, EventType.SPELL_CAST, "player_id")
 
 
+def mana_spent_on_spells(events: Events) -> "defaultdict[str, int]":
+    """Mana each player spent casting spells this turn (RULE 700.14 — Expend)."""
+    return _tally(events, EventType.SPELL_CAST, "player_id", weight="mana_spent")
+
+
 def noncreature_spells_cast(events: Events) -> "defaultdict[str, int]":
     return _tally(events, EventType.SPELL_CAST, "player_id",
                   where=lambda e: "creature" not in (e.get("object_types") or []))

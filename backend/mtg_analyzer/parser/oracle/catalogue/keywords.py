@@ -134,7 +134,8 @@ _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
     "offering": re.compile(r"(?P<quality>[a-z]+) offering", re.I),
     # RULE 702.72 — "Champion a/an <type>".
     "champion": re.compile(r"champion an? (?P<quality>[a-z][a-z ]*?)(?=[.\n(]|$)", re.I),
-    # RULE 702.174 — "Gift a/an <something>".
+    # RULE 702.174 — "Gift a/an <something>". `GIFT_QUALITIES` below is the
+    # closed set the CR defines (702.174d-i); any other word stays unclaimed.
     "gift": re.compile(r"gift an? (?P<quality>[a-z][a-z ]*?)(?=[.\n(]|$)", re.I),
     # RULE 702.6e (MEC-43): "Equip commander {N}" is a genuinely *separate*
     # ability that coexists with the plain "Equip {M}" line (not a
@@ -152,6 +153,12 @@ _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
     # second keyword shape for that small a yield.
     "equip": re.compile(rf"\bEquip\b(?!\s+commander\b){_GAP}(?P<cost>{_COST_RUN})", re.I),
 }
+
+#: RULE 702.174d-i (MEC-106): the gifts the Comprehensive Rules define, as the lowercased
+#: ``quality`` of "Gift a/an `<quality>`". A card promising anything else (an un-card's
+#: "Gift a Rhystic Study") must stay unclaimed rather than parse to a gift that does nothing.
+GIFT_QUALITIES: tuple[str, ...] = ("card", "food", "treasure", "tapped fish", "extra turn", "octopus")
+
 
 #: RULE 702.74b's Modern Horizons Incarnation cycle uses a non-mana Evoke
 #: payment.  The narrow grammar is intentional: one coloured card from hand

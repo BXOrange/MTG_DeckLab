@@ -2951,6 +2951,13 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
      lambda m: {"kind": "kicked", "max": 0}),
     (re.compile(r"this spell was kicked", re.I),
      lambda m: {"kind": "kicked", "min": 1}),
+    # MEC-106 / RULE 702.174k: "the gift was[n't] promised" — `GameObject.gift_promised`,
+    # stamped when the spell was cast, read by a resolving spell and by a permanent's
+    # intervening-if alike (the flag lives on the source either way).
+    (re.compile(r"the gift wasn'?t promised", re.I),
+     lambda m: {"kind": "not", "condition": {"kind": "flag", "flag": "gift_promised"}}),
+    (re.compile(r"the gift was promised", re.I),
+     lambda m: {"kind": "flag", "flag": "gift_promised"}),
     (re.compile(r"you control a legendary (?P<subtype>[a-z]+)", re.I),
      lambda m: {"kind": "control_legendary_subtype", "subtype": m.group("subtype").lower()}),
     # PAR-98: reused by conditional activation-cost reductions as well as
