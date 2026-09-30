@@ -44,7 +44,6 @@ header before treating the two as equally verified.
 | Dreadlight Monstrosity | "Activate only if you own a card in exile" | An ownership-scoped (not controller-scoped) exile-zone activation condition. |
 | Secret Tunnel | "2 target creatures you control that share a creature type" | A same-type-as-each-other multi-target filter (cross-target constraint, not a fixed filter). |
 | Open into Wonder | X target creatures, then a quoted-grant tail on "those creatures" | X-count multi-target combined with a group quoted-ability grant. |
-| Trygon Prime | "Put a counter on it AND on target `<X>`" — two objects countered by one trigger | A dual-counter body (self + a separate target), not the single-counter shape every existing handler expects. |
 | Unquenchable Fury | "Each minotaur can't be blocked this turn except by 2 or more creatures" | Mass/subtype-scoped unblockable with a *count*-based (not filter-based) except-by clause; `UnblockableEffect.selector` is a closed name enum, not filterable. |
 | Chromium, the Mutable | "Becomes a human with base P/T 1/1, loses all abilities, and gains hexproof" | `_BASE_PT`-shaped, not `_ANIMATE_SELF`-shaped — a "loses all abilities" clause combined with a base-P/T set and a keyword grant in one sentence. |
 | Writ of Passage | "Whenever enchanted creature attacks, if its power is 2 or less, `<effect>`" | An intervening-if reading the *attacker's own* power — the existing `attacked_player_has_most/lowest_life`-style gates all read the defender's state, a different subject. |
@@ -68,7 +67,7 @@ went to tickets in `docs/implementation-state/BACKLOG.md`, not to this file.
 
 The rows below were **not** individually re-diagnosed with `parser_probe.py blocked` the way the queue above was — at this volume (1,020 cards across all 56 saved decks) that is a multi-session undertaking, tracked as an explicit follow-up rather than rushed. Instead every row passed a **mechanically equivalent, cache-wide check**: one `parse_oracle` pass over the full card cache (same `abstract_clause` normalization `commander_tail_report.py` uses) confirmed each card's unclaimed clause(s) have **no sibling anywhere in the cache** — a card with exactly one unclaimed clause unique cache-wide is listed plain; a card whose several unclaimed clauses are *each* individually unique is listed as a **compound gap** (all of them, not just one, would need a handler). A card with *any* clause that DOES cluster with another card was routed to a `PAR-*` ticket instead (PAR-99...PAR-114) or left for a future ticket batch — never listed here. Re-run the check before hand-authoring: a later batch can turn one of these into a two-card cluster, at which point promote it out per this file's own standing rule. Grouped by the saved deck each card was found uncovered in (its first non-cube deck, if it appears in more than one); `Commander Cube`/`cEDH staples`/`cEDH staples 2` cards with no non-cube deck are grouped under the cube itself. PARSER_VERSION 413.
 
-**Re-evaluated 2026-09-29 at PARSER_VERSION 501** (whole file, all three batches): 99 covered rows deleted, 33 gap cells updated to the card's current unclaimed clauses, deck counts recomputed. No remaining card's unclaimed clause shares its `abstract_clause` template with any other uncovered card (bar Batch 3's known `equipped creature has <name>` wrapper).
+**Re-evaluated 2026-09-29 at PARSER_VERSION 501, again 2026-09-30 at PARSER_VERSION 552** (whole file, all batches): 59 newly covered rows deleted, 17 gap cells updated to the card's current unclaimed clauses, deck counts recomputed. The exact-template test (below) still finds no shared clause, but a phrase-level sweep did: **~55 rows shared an *axis* with 4–31 other uncovered cards** and were promoted out into `BACKLOG.md` (PAR-136 blink at next end step, PAR-137 impulse draw, PAR-138 "N or more counters are put on", PAR-139 batch, MEC-106 Gift, MEC-107 expend) — their cards are named in those tickets. Re-run that sweep, not only the exact-template check, at the next re-evaluation: the exact-template check cannot see a shared *phrase* under different surrounding text.
 
 
 ### Abzan Armor - Tarkir: Dragonstorm Commander (19 cards)
@@ -79,7 +78,7 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Baldin, Century Herdmaster | `Whenever ~ attacks, up to <n> hundred target creatures each get +<n>/+x until end of turn, where x is the number of cards in your hand.` |  |
 | Betor, Ancestor's Voice | `At the beginning of your end step, put a number of +<n>/+<n> counters on up to <n> other target creature you control equal to the amount of life you gained this turn. return up to <n> target creature card with mana value less than or equal to the amount of life you lost this turn from your graveyard to the battlefield.` | Also uncovered in: Commander Cube |
 | Canopy Gargantuan | `At the beginning of your upkeep, put a number of +<n>/+<n> counters on each other creature you control equal to that creature's toughness.` |  |
-| Colfenor's Urn | Compound gap — `At the beginning of the end step, if <n> or more cards have been exiled with ~, sacrifice it. if you do, return those cards to the battlefield under their owner's control.`; `Whenever a creature with toughness <n> or greater is put into your graveyard from the battlefield, you may exile it.` |  |
+| Colfenor's Urn | `At the beginning of the end step, if <n> or more cards have been exiled with ~, sacrifice it. if you do, return those cards to the battlefield under their owner's control.` |  |
 | Expel the Interlopers | `Choose a number between <n> and <n>. destroy all creatures with power greater than or equal to the chosen number.` |  |
 | Jaws of Defeat | `Whenever a creature you control enters, target opponent loses life equal to the difference between that creature's power and its toughness.` |  |
 | Reunion of the House | `Return any number of target creature cards with total power <n> or less from your graveyard to the battlefield. exile ~.` |  |
@@ -96,7 +95,7 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Weathered Sentinels | `~ can attack players who attacked you during their last turn as though it didn't have defender.` | Also uncovered in: Riveteer Rampage - New Capenna Commander |
 
 
-### Animated Army - Bloomburrow Commander (21 cards)
+### Animated Army - Bloomburrow Commander (15 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
@@ -110,35 +109,26 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Goreclaw, Terror of Qal Sisma | Compound gap — `Creature spells you cast with power <n> or greater cost <cost> less to cast.`; `Whenever ~ attacks, each creature you control with power <n> or greater gets +<n>/+<n> and gains trample until end of turn.` | Also uncovered in: Commander Cube |
 | Greater Good | `Sacrifice a creature: draw cards equal to the sacrificed creature's power, then discard <n> cards.` | Also uncovered in: Hydranten |
 | Grothama, All-Devouring | Compound gap — `Other creatures have ~`; `When ~ leaves the battlefield, each player draws cards equal to the amount of damage dealt to ~ this turn by sources they controlled.` |  |
-| Grumgully, the Generous | `Each other non-human creature you control enters with an additional +<n>/+<n> counter on it.` |  |
 | Mosswort Bridge | `<cost>, <cost>: you may play the exiled card without paying its mana cost if creatures you control have total power <n> or greater.` | Also uncovered in: Jump Scare! - Duskmourn: House of Horror Commander, Riveteer Rampage - New Capenna Commander, Temur Roar - Tarkir: Dragonstorm Commander |
-| Path of Discovery | `Whenever a creature you control enters, it explores.` | Also uncovered in: Counter Blitz - Final Fantasy Commander |
 | Prosperous Bandit | `Whenever ~ deals combat damage to a player, create that many tapped treasure tokens.` |  |
 | Rain of Riches | `The first spell you cast each turn that mana from a treasure was spent to cast has cascade.` | Also uncovered in: Riveteer Rampage - New Capenna Commander |
-| Teapot Slinger | `Whenever you expend <n>, ~ deals <n> damage to each opponent.` |  |
 | Thickest in the Thicket | Compound gap — `At the beginning of your end step, draw <n> cards if you control the creature with the greatest power or tied for the greatest power.`; `When ~ enters, put x +<n>/+<n> counters on target creature, where x is that creature's power.` |  |
-| Trailtracker Scout | `Whenever you expend <n>, return up to <n> target permanent card from your graveyard to your hand.` |  |
-| Wandertale Mentor | `Whenever you expend <n>, put a +<n>/+<n> counter on ~.` |  |
-| Warstorm Surge | `Whenever a creature you control enters, it deals damage equal to its power to any target.` | Also uncovered in: Riveteer Rampage - New Capenna Commander |
 | Wildsear, Scouring Maw | `Enchantment spells you cast from your hand have cascade.` |  |
 
 
-### Commander Cube (220 cards)
+### Commander Cube (183 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Abuelo, Ancestral Echo | `<cost>: exile another target creature or artifact you control. return it to the battlefield under its owner's control at the beginning of the next end step.` |  |
 | Aerial Extortionist | Compound gap — `Whenever ~ enters or deals combat damage to a player, exile up to <n> target nonland permanent. for as long as that card remains exiled, its owner may cast it.`; `Whenever another player casts a spell from anywhere other than their hand, draw a card.` |  |
 | Agadeem's Awakening // Agadeem, the Undercrypt | `Return from your graveyard to the battlefield any number of target creature cards that each have a different mana value x or less.` |  |
 | All Is Dust | `Each player sacrifices all permanents they control that are <n> or more colors.` |  |
-| Anje Falkenrath | `Whenever you discard a card, if it has madness, untap ~.` |  |
 | Anje's Ravager | `Whenever ~ attacks, discard your hand, then draw <n> cards.` |  |
 | Answered Prayers | `Whenever a creature you control enters, you gain <n> life. if ~ isn't a creature, it becomes a <n>/<n> angel creature with flying in addition to its other types until end of turn.` |  |
 | Apprentice Necromancer | `<cost>, <cost>, sacrifice ~: return target creature card from your graveyard to the battlefield. that creature gains haste. at the beginning of the next end step, sacrifice it.` |  |
 | Archfiend of Spite | `Whenever a source an opponent controls deals damage to ~, that source's controller loses that much life unless they sacrifice that many permanents of their choice.` |  |
 | Archon of Cruelty | `Whenever ~ enters or attacks, target opponent sacrifices a creature or planeswalker of their choice, discards a card, and loses <n> life. you draw a card and gain <n> life.` |  |
 | Artificer's Dragon | `<cost>: artifact creatures you control get +<n>/+<n> until end of turn.` |  |
-| Avacyn's Judgment | `~ deals <n> damage divided as you choose among any number of targets. if this spell's madness cost was paid, it deals x damage divided as you choose among those permanents and/or players instead.` |  |
 | Aven Interrupter | Compound gap — `Spells your opponents cast from graveyards or from exile cost <cost> more to cast.`; `When ~ enters, exile target spell. it becomes plotted.` |  |
 | Azra Oddsmaker | `At the beginning of combat on your turn, you may discard a card. if you do, choose a creature. whenever that creature deals combat damage to a player this turn, you draw <n> cards.` |  |
 | Azure Fleet Admiral | `~ can't be blocked by creatures the monarch controls.` |  |
@@ -146,17 +136,15 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Barrin, Tolarian Archmage | `At the beginning of your end step, if a permanent was put into your hand from the battlefield this turn, draw a card.` |  |
 | Battle for Bretagard | `Iii — choose any number of artifact tokens and/or creature tokens you control with different names. for each of them, create a token that's a copy of it.` |  |
 | Benevolent Offering | Compound gap — `Choose an opponent. you and that player each create <n> <n>/<n> white spirit creature tokens with flying.`; `Choose an opponent. you gain <n> life for each creature you control and that player gains <n> life for each creature they control.` |  |
-| Benthic Biomancer | `Whenever <n> or more +<n>/+<n> counters are put on ~, draw a card, then discard a card.` |  |
 | Black Sun's Twilight | `Up to <n> target creature gets -x/-x until end of turn. if x is <n> or more, return a creature card with mana value x or less from your graveyard to the battlefield tapped.` |  |
 | Blanchwood Prowler | `When ~ enters, mill <n> cards. you may put a land card from among the cards milled this way into your hand. if you don't, put a +<n>/+<n> counter on ~.` |  |
 | Blast-Furnace Hellkite | `Creatures attacking your opponents have double strike.` |  |
 | Bloodtithe Harvester | `<cost>, sacrifice ~: target creature gets -x/-x until end of turn, where x is twice the number of blood tokens you control. activate only as a sorcery.` |  |
-| Bone Miser | `Whenever you discard a noncreature, nonland card, draw a card.` |  |
 | Brago, King Eternal | `Whenever ~ deals combat damage to a player, exile any number of target nonland permanents you control, then return those cards to the battlefield under their owner's control.` |  |
 | Brallin, Skyshark Rider | `<cost>: target shark gains trample until end of turn.` |  |
 | Call to the Netherworld | `Return target black creature card from your graveyard to your hand.` |  |
 | Campus Renovation | `Return up to <n> target artifact or enchantment card from your graveyard to the battlefield. exile the top <n> cards of your library. until the end of your next turn, you may play those cards.` |  |
-| Caretaker's Talent | Compound gap — `When this class becomes level <n>, create a token that's a copy of target token you control.`; `Whenever <n> or more tokens you control enter, draw a card. this ability triggers only once each turn.` |  |
+| Caretaker's Talent | `When this class becomes level <n>, create a token that's a copy of target token you control.` |  |
 | Castle Locthwain | `<cost>, <cost>: draw a card, then you lose life equal to the number of cards in your hand.` |  |
 | Cat Collector | `Whenever you gain life for the first time during each of your turns, create a <n>/<n> white cat creature token.` |  |
 | Celestine, the Living Saint | `At the beginning of your end step, return target creature card with mana value x or less from your graveyard to the battlefield, where x is the amount of life you gained this turn.` |  |
@@ -164,11 +152,8 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Chainer, Nightmare Adept | Compound gap — `Discard a card: you may cast a creature spell from your graveyard this turn. activate only once each turn.`; `Whenever a nontoken creature you control enters, if you didn't cast it from your hand, it gains haste until your next turn.` |  |
 | Chainsaw | Compound gap — `Equipped creature gets +x/+<n>, where x is the number of rev counters on ~.`; `Whenever <n> or more creatures die, put a rev counter on ~.` |  |
 | Champion of Lambholt | `Creatures with power less than ~'s power can't block creatures you control.` |  |
-| Champions of Minas Tirith | `At the beginning of combat on each opponent's turn, if you're the monarch, that opponent may pay <cost>, where x is the number of cards in their hand. if they don't, they can't attack you this combat.` |  |
 | Cleaver Skaab | `<cost>, <cost>, sacrifice another zombie: create <n> tokens that are copies of the sacrificed creature.` |  |
-| Cloud, Midgar Mercenary | `As long as ~ is equipped, if a triggered ability of ~ or an equipment attached to it triggers, that ability triggers an additional time.` |  |
 | Cool but Rude | Compound gap — `When this class becomes level <n>, search your library for a card, put it into your hand, shuffle, then discard a card at random.`; `Whenever you discard a card, this class deals <n> damage to each opponent.` |  |
-| Court of Ire | `At the beginning of your upkeep, ~ deals <n> damage to any target. if you're the monarch, it deals <n> damage instead.` |  |
 | Crown of Gondor | `When a legendary creature you control enters, if there is no monarch, you become the monarch.` |  |
 | Custodi Lich | `Whenever you become the monarch, target player sacrifices a creature of their choice.` |  |
 | Daretti, Rocketeer Engineer | `Whenever ~ enters or attacks, choose target artifact card in your graveyard. you may sacrifice an artifact. if you do, return the chosen card to the battlefield.` |  |
@@ -179,7 +164,7 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Diregraf Colossus | `~ enters with a +<n>/+<n> counter on it for each zombie card in your graveyard.` |  |
 | Disciple of Freyalise // Garden of Freyalise | `When ~ enters, you may sacrifice another creature. if you do, you gain x life and draw x cards, where x is that creature's power.` |  |
 | Disorder in the Court | `Exile x target creatures, then investigate x times. return the exiled cards to the battlefield tapped under their owners' control at the beginning of the next end step.` |  |
-| Doctor Doom, King of Latveria | Compound gap — `At the beginning of combat on your turn, target villain you control gains menace until end of turn. it connives.`; `Whenever you discard <n> or more land cards, each opponent loses <n> life.` |  |
+| Doctor Doom, King of Latveria | `At the beginning of combat on your turn, target villain you control gains menace until end of turn. it connives.` |  |
 | Don & Leo, Problem Solvers | `At the beginning of your end step, exile up to <n> target artifact you control and up to <n> target creature you control. then return them to the battlefield under their owners' control.` |  |
 | Draconic Muralists | `When ~ dies, you may search your library for a dragon card, reveal it, put it into your hand, then shuffle.` |  |
 | Dragon Broodmother | `At the beginning of each upkeep, create a <n>/<n> red and green dragon creature token with flying and devour <n>.` |  |
@@ -187,11 +172,9 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Dragonspark Reactor | `<cost>, sacrifice ~: it deals damage equal to the number of charge counters on it to target player and that much damage to up to <n> target creature.` |  |
 | Draining Whelk | `When ~ enters, counter target spell. put x +<n>/+<n> counters on ~, where x is that spell's mana value.` |  |
 | Dusk Mangler | Compound gap — `As an additional cost to cast this spell, sacrifice a creature, discard a card, or pay <n> life.`; `When ~ enters, each opponent sacrifices a creature of their choice, discards a card, and loses <n> life.` |  |
-| Dying to Serve | `Whenever you discard <n> or more cards, create a tapped <n>/<n> black zombie creature token. this ability triggers only once each turn.` |  |
 | Earthquake Dragon | `This spell costs <cost> less to cast, where x is the total mana value of dragons you control.` |  |
 | Echocasting Symposium | `Target player creates a token that's a copy of target creature you control.` |  |
 | Edgar's Awakening | `When you discard this card, you may pay <cost>. when you do, return target creature card from your graveyard to your hand.` |  |
-| Eerie Interlude | `Exile any number of target creatures you control. return those cards to the battlefield under their owner's control at the beginning of the next end step.` |  |
 | Elenda's Hierophant | `When ~ dies, create x <n>/<n> white vampire creature tokens with lifelink, where x is its power.` |  |
 | Elenda, Saint of Dusk | `As long as your life total is greater than your starting life total, ~ gets +<n>/+<n> and has menace. ~ gets an additional +<n>/+<n> as long as your life total is at least <n> greater than your starting life total.` |  |
 | Elesh Norn // The Argent Etchings | `Whenever a source an opponent controls deals damage to you or a permanent you control, that source's controller loses <n> life unless they pay <cost>.` |  |
@@ -199,45 +182,33 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Emeria's Call // Emeria, Shattered Skyclave | `Create <n> <n>/<n> white angel warrior creature tokens with flying. non-angel creatures you control gain indestructible until your next turn.` |  |
 | Empty the Laboratory | `Sacrifice x zombies, then reveal cards from the top of your library until you reveal a number of zombie creature cards equal to the number of zombies sacrificed this way. put those cards onto the battlefield and the rest on the bottom of your library in a random order.` |  |
 | Eris, Roar of the Storm | `This spell costs <cost> less to cast for each different mana value among instant and sorcery cards in your graveyard.` |  |
-| Experimental Synthesizer | `When ~ enters or leaves the battlefield, exile the top card of your library. until end of turn, you may play that card.` |  |
 | Ezuri, Claw of Progress | Compound gap — `At the beginning of combat on your turn, put x +<n>/+<n> counters on another target creature you control, where x is the number of experience counters you have.`; `Whenever a creature you control with power <n> or less enters, you get an experience counter.` |  |
 | Fall from Favor | `Enchanted creature doesn't untap during its controller's untap step unless that player is the monarch.` |  |
 | Fallen Shinobi | `Whenever ~ deals combat damage to a player, that player exiles the top <n> cards of their library. until end of turn, you may play those cards without paying their mana costs.` |  |
 | Fateful Absence | `Destroy target creature or planeswalker. its controller investigates.` |  |
 | Fatestitcher | `<cost>: you may tap or untap another target permanent.` |  |
 | Fear of Impostors | `When ~ enters, counter target spell. its controller manifests dread.` |  |
-| Felidar Retreat | Compound gap — `Whenever a land you control enters, choose <n> —`; `• create a <n>/<n> white cat beast creature token.`; `• put a +<n>/+<n> counter on each creature you control. those creatures gain vigilance until end of turn.` |  |
 | Filigree Vector | `When ~ enters, put a +<n>/+<n> counter on each of any number of target creatures and a charge counter on each of any number of target artifacts.` |  |
 | Foe-Razer Regent | `Whenever a creature you control fights, put <n> +<n>/+<n> counters on it at the beginning of the next end step.` |  |
-| From Under the Floorboards | `Create <n> tapped <n>/<n> black zombie creature tokens and you gain <n> life. if this spell's madness cost was paid, instead create x of those tokens and you gain x life.` |  |
-| From the Catacombs | `Put target creature card from a graveyard onto the battlefield under your control with a corpse counter on it. you take the initiative. if that creature would leave the battlefield, exile it instead of putting it anywhere else.` |  |
 | Geralf, Visionary Stitcher | `<cost>, <cost>, sacrifice another nontoken creature: create an x/x blue zombie creature token, where x is the sacrificed creature's toughness.` |  |
 | Geralf, the Fleshwright | Compound gap — `Whenever a zombie you control enters, put a +<n>/+<n> counter on it for each other zombie that entered the battlefield under your control this turn.`; `Whenever you cast a spell during your turn other than your first spell that turn, create a <n>/<n> blue and black zombie rogue creature token.` |  |
 | Gilraen, Dúnedain Protector | `<cost>, <cost>: exile another target creature you control. you may return that card to the battlefield under its owner's control. if you don't, at the beginning of the next end step, return that card to the battlefield under its owner's control with a vigilance counter and a lifelink counter on it.` |  |
 | Gisa and Geralf | `Once during each of your turns, you may cast a zombie creature spell from your graveyard.` |  |
 | Gisa, the Hellraiser | Compound gap — `Skeletons and zombies you control get +<n>/+<n> and have menace.`; `Whenever you commit a crime, create <n> tapped <n>/<n> blue and black zombie rogue creature tokens. this ability triggers only once each turn.` |  |
-| Githzerai Monk | `When ~ enters, tap all creatures you don't control.` |  |
 | Glimmer Lens | `Whenever equipped creature and at least <n> other creature attack, draw a card.` |  |
 | Glimpse the Impossible | `Exile the top <n> cards of your library. you may play those cards this turn. at the beginning of the next end step, if any of those cards remain exiled, put them into your graveyard, then create a <n>/<n> colorless eldrazi spawn creature token for each card put into your graveyard this way. those tokens have ~` |  |
-| Grave Scrabbler | `When ~ enters, if its madness cost was paid, you may return target creature card from a graveyard to its owner's hand.` |  |
 | Gumdrop Poisoner // Tempt with Treats | `When ~ enters, up to <n> target creature gets -x/-x until end of turn, where x is the amount of life you gained this turn.` |  |
 | Hagra Mauling // Hagra Broodpit | `This spell costs <cost> less to cast if an opponent controls no basic lands.` |  |
 | Havengul Lich | `<cost>: you may cast target creature card in a graveyard this turn. when you cast it this turn, ~ gains all activated abilities of that card until end of turn.` |  |
 | Havengul Runebinder | `<cost>, <cost>, exile a creature card from your graveyard: create a <n>/<n> black zombie creature token, then put a +<n>/+<n> counter on each zombie creature you control.` |  |
 | Highcliff Felidar | `When ~ enters, for each opponent, choose a creature with the greatest power among creatures that player controls. destroy those creatures.` |  |
 | Highway Robbery | `You may discard a card or sacrifice a land. if you do, draw <n> cards.` |  |
-| Hordewing Skaab | `Whenever <n> or more zombies you control deal combat damage to <n> or more of your opponents, you may draw cards equal to the number of opponents dealt damage this way. if you do, discard that many cards.` |  |
-| Hostile Investigator | `Whenever <n> or more players discard <n> or more cards, investigate. this ability triggers only once each turn.` |  |
 | Ignite the Future | `Exile the top <n> cards of your library. until the end of your next turn, you may play those cards. if this spell was cast from a graveyard, you may play cards this way without paying their mana costs.` |  |
-| Immolating Gyre | `~ deals x damage to each creature and planeswalker you don't control, where x is the number of instant and sorcery cards in your graveyard.` |  |
 | Improvisation Capstone | `Exile cards from the top of your library until you exile cards with total mana value <n> or greater. you may cast any number of spells from among them without paying their mana costs.` |  |
 | Increasing Devotion | `Create <n> <n>/<n> white human creature tokens. if this spell was cast from a graveyard, create <n> of those tokens instead.` |  |
-| Ingenious Artillerist | `Whenever <n> or more artifacts you control enter, ~ deals that much damage to each opponent.` |  |
 | Inspiration from Beyond | `Mill <n> cards, then return an instant or sorcery card from your graveyard to your hand.` |  |
-| Inti, Seneschal of the Sun | `Whenever you discard <n> or more cards, exile the top card of your library. you may play that card until your next end step.` |  |
 | Invasion of Tarkir // Defiant Thundermaw | `When ~ enters, reveal any number of dragon cards from your hand. when you do, ~ deals x plus <n> damage to any other target, where x is the number of cards revealed this way.` |  |
 | Ironsoul Enforcer | `Whenever ~ or a commander you control attacks alone, return target artifact card from your graveyard to the battlefield.` |  |
-| Isareth the Awakener | `Whenever ~ attacks, you may pay <cost>. when you do, return target creature card with mana value x from your graveyard to the battlefield with a corpse counter on it. if that creature would leave the battlefield, exile it instead of putting it anywhere else.` |  |
 | Jalira, Master Polymorphist | `<cost>, <cost>, sacrifice another creature: reveal cards from the top of your library until you reveal a nonlegendary creature card. put that card onto the battlefield and the rest on the bottom of your library in a random order.` |  |
 | Jinnie Fay, Jetmir's Second | `If you would create <n> or more tokens, you may instead create that many <n>/<n> green cat creature tokens with haste or that many <n>/<n> green dog creature tokens with vigilance.` |  |
 | Jugan Defends the Temple // Remnant of the Rising Star | `I — create a <n>/<n> green human monk creature token with ~` |  |
@@ -245,21 +216,16 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Kitesail Larcenist | `When ~ enters, for each player, choose up to <n> other target artifact or creature that player controls. for as long as ~ remains on the battlefield, the chosen permanents become treasure artifacts with ~ and lose all other abilities.` |  |
 | Krenko, Baron of Tin Street | `<cost>, sacrifice an artifact: put a +<n>/+<n> counter on each goblin you control.` |  |
 | Lluwen, Imperfect Naturalist | `When ~ enters, mill <n> cards, then you may put a creature or land card from among the milled cards on top of your library.` |  |
-| Lonis, Genetics Expert | `Whenever <n> or more +<n>/+<n> counters are put on ~, investigate that many times.` |  |
-| Losheel, Clockwork Scholar | Compound gap — `Prevent all combat damage that would be dealt to attacking artifact creatures you control.`; `Whenever <n> or more artifact creatures you control enter, draw a card. this ability triggers only once each turn.` |  |
-| Lotleth Giant | `When ~ enters, it deals <n> damage to target opponent for each creature card in your graveyard.` |  |
+| Losheel, Clockwork Scholar | `Prevent all combat damage that would be dealt to attacking artifact creatures you control.` |  |
 | Loyal Unicorn | `At the beginning of combat on your turn, if you control your commander, prevent all combat damage that would be dealt to creatures you control this turn. other creatures you control gain vigilance until end of turn.` |  |
 | Ludevic, Necrogenius // Olag, Ludevic's Hubris | `<cost>, exile x creature cards from your graveyard: transform ~. x can't be <n>. activate only as a sorcery.` |  |
 | Magmatic Channeler | `<cost>, discard a card: exile the top <n> cards of your library, then choose <n> of them. you may play that card this turn.` |  |
 | Malevolent Rumble | `Reveal the top <n> cards of your library. you may put a permanent card from among them into your hand. put the rest into your graveyard. create a <n>/<n> colorless eldrazi spawn creature token with ~` |  |
 | Mana Sculpt | `Counter target spell. if you control a wizard, add an amount of <cost> equal to the amount of mana spent to cast that spell at the beginning of your next main phase.` |  |
 | Masked Vandal | `When ~ enters, you may exile a creature card from your graveyard. if you do, exile target artifact or enchantment an opponent controls.` |  |
-| Master Biomancer | `Each other creature you control enters with a number of additional +<n>/+<n> counters on it equal to ~'s power and as a mutant in addition to its other types.` |  |
 | Master of Death | `At the beginning of your upkeep, if this card is in your graveyard, you may pay <n> life. if you do, return it to your hand.` |  |
 | Meteor Blast | `~ deals <n> damage to each of x targets.` |  |
-| Mistmeadow Witch | `<cost>: exile target creature. return that card to the battlefield under its owner's control at the beginning of the next end step.` |  |
 | Monstrous Onslaught | `~ deals x damage divided as you choose among any number of target creatures, where x is the greatest power among creatures you control as you cast this spell.` |  |
-| Moonstone, Harsh Mistress | `Whenever you discard a card, you may exile that card from your graveyard. if you do, until the end of your next turn, you may play that card.` |  |
 | Moonveil Regent | Compound gap — `When ~ dies, it deals x damage to any target, where x is the number of colors among permanents you control.`; `Whenever you cast a spell, you may discard your hand. if you do, draw a card for each of that spell's colors.` |  |
 | Moria Scavenger | `<cost>, discard a card: draw a card. if the discarded card was a creature card, amass orcs <n>.` |  |
 | Nahiri's Resolve | `At the beginning of your end step, exile any number of nontoken artifacts and/or creatures you control. return those cards to the battlefield under their owner's control at the beginning of your next upkeep.` |  |
@@ -268,28 +234,24 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Organ Hoarder | `When ~ enters, look at the top <n> cards of your library, then put <n> of them into your hand and the rest into your graveyard.` |  |
 | Osgir, the Reconstructor | `<cost>, <cost>, exile an artifact card with mana value x from your graveyard: create <n> tokens that are copies of the exiled card. activate only as a sorcery.` |  |
 | Overcharged Amalgam | `When ~ exploits a creature, counter target spell, activated ability, or triggered ability.` |  |
-| Parting Gust | `Exile target nontoken creature. if the gift wasn't promised, return that card to the battlefield under its owner's control with a +<n>/+<n> counter on it at the beginning of the next end step.` |  |
 | Party Thrasher | Compound gap — `At the beginning of your first main phase, you may discard a card. if you do, exile the top <n> cards of your library, then choose <n> of them. you may play that card this turn.`; `Noncreature spells you cast from exile have convoke.` |  |
 | Peel from Reality | `Return target creature you control and target creature you don't control to their owners' hands.` |  |
-| Pensive Professor | `Whenever <n> or more +<n>/+<n> counters are put on ~, draw a card.` |  |
 | Phelia, Exuberant Shepherd | `Whenever ~ attacks, exile up to <n> other target nonland permanent. at the beginning of the next end step, return that card to the battlefield under its owner's control. if it entered under your control, put a +<n>/+<n> counter on ~.` |  |
 | Phyrexian Delver | `When ~ enters, return target creature card from your graveyard to the battlefield. you lose life equal to that card's mana value.` |  |
 | Pink Horror | `When ~ dies, create <n> <n>/<n> blue and red demon horror creature tokens named blue horror with ~` |  |
 | Portal to Phyrexia | `At the beginning of your upkeep, put target creature card from a graveyard onto the battlefield under your control. it's a phyrexian in addition to its other types.` |  |
 | Predatory Rampage | `Creatures you control get +<n>/+<n> until end of turn. each creature your opponents control blocks this turn if able.` |  |
 | Prosper, Tome-Bound | Compound gap — `Mystic arcanum — at the beginning of your end step, exile the top card of your library. until the end of your next turn, you may play that card.`; `Pact boon — whenever you play a card from exile, create a treasure token.` |  |
-| Puppet Master, String Puller | Compound gap — `Whenever <n> or more goaded creatures deal combat damage to <n> of your opponents, create a treasure token.`; `Whenever you attack, goad target creature an opponent controls. it can't block this turn.` |  |
+| Puppet Master, String Puller | `Whenever you attack, goad target creature an opponent controls. it can't block this turn.` |  |
 | Queen Allenal of Ruadach | `If <n> or more creature tokens would be created under your control, those tokens plus a <n>/<n> white soldier creature token are created instead.` |  |
 | Ravenous Gigantotherium | `When ~ enters, it deals x damage divided as you choose among up to x target creatures, where x is its power. each of those creatures deals damage equal to its power to ~.` |  |
 | Ravenous Robots | `<cost>, <cost>: creature tokens you control gain haste until end of turn.` |  |
-| Ravenous Rotbelly | `When ~ enters, you may sacrifice up to <n> zombies. when you sacrifice <n> or more zombies this way, each opponent sacrifices that many creatures of their choice.` |  |
 | Realm-Scorcher Hellkite | `When ~ enters, if it was bargained, add <n> mana in any combination of colors.` |  |
 | Reconstruct History | `Return up to <n> target artifact card, up to <n> target enchantment card, up to <n> target instant card, up to <n> target sorcery card, and up to <n> target planeswalker card from your graveyard to your hand.` |  |
 | Red Dragon | `Fire breath — when ~ enters, it deals <n> damage to each opponent.` |  |
 | Rhys the Redeemed | `<cost>, <cost>: for each creature token you control, create a token that's a copy of that creature.` |  |
 | Riptide Gearhulk | `When ~ enters, for each opponent, put up to <n> target nonland permanent that player controls into its owner's library third from the top.` |  |
 | Rise of the Witch-king | `Each player sacrifices a creature of their choice. if you sacrificed a creature this way, you may return another permanent card from your graveyard to the battlefield.` |  |
-| Sage of Fables | `Each other wizard creature you control enters with an additional +<n>/+<n> counter on it.` |  |
 | Sarevok's Tome | `<cost>, <cost>: exile cards from the top of your library until you exile a nonland card. you may cast that card without paying its mana cost. activate only if you've completed a dungeon.` |  |
 | Scampering Surveyor | `When ~ enters, search your library for a basic land card or cave card, put it onto the battlefield tapped, then shuffle.` |  |
 | Scavenged Brawler | `<cost>, exile this card from your graveyard: choose target creature. put <n> +<n>/+<n> counters, a flying counter, a vigilance counter, a trample counter, and a lifelink counter on that creature. activate only as a sorcery.` |  |
@@ -298,7 +260,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Seasoned Pyromancer | `When ~ enters, discard <n> cards, then draw <n> cards. for each nonland card discarded this way, create a <n>/<n> red elemental creature token.` |  |
 | Sephara, Sky's Blade | Compound gap — `Other creatures you control with flying have indestructible.`; `You may pay <cost> and tap <n> untapped creatures you control with flying rather than pay this spell's mana cost.` |  |
 | Shadowgrange Archfiend | `When ~ enters, each opponent sacrifices a creature with the greatest power among creatures they control. you gain life equal to the greatest power among creatures sacrificed this way.` |  |
-| Sharktocrab | `Whenever <n> or more +<n>/+<n> counters are put on ~, tap target creature an opponent controls. that creature doesn't untap during its controller's next untap step.` |  |
 | Sheoldred // The True Scriptures | `When ~ enters, each opponent sacrifices a nontoken creature or planeswalker of their choice.` |  |
 | Signature Slam | `Put a +<n>/+<n> counter on target creature you control, then each modified creature you control deals damage equal to its power to target creature you don't control.` |  |
 | Simic Manipulator | `<cost>, remove <n> or more +<n>/+<n> counters from ~: gain control of target creature with power less than or equal to the number of +<n>/+<n> counters removed this way.` |  |
@@ -309,10 +270,7 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Soulherder | `Whenever a creature is exiled from the battlefield, put a +<n>/+<n> counter on ~.` |  |
 | Spear of Heliod | `<cost>, <cost>: destroy target creature that dealt damage to you this turn.` |  |
 | Spinerock Tyrant | `Whenever you cast an instant or sorcery spell with a single target, you may copy it. if you do, those spells gain wither. you may choose new targets for the copy.` |  |
-| Starfall Invocation | `Destroy all creatures. if the gift was promised, return a creature card put into your graveyard this way to the battlefield under your control.` |  |
 | Steel Seraph | `At the beginning of combat on your turn, target creature you control gains your choice of flying, vigilance, or lifelink until end of turn.` |  |
-| Stromkirk Occultist | `Whenever ~ deals combat damage to a player, exile the top card of your library. until end of turn, you may play that card.` |  |
-| Surly Badgersaur | `Whenever you discard a noncreature, nonland card, ~ fights up to <n> target creature you don't control.` |  |
 | Synchronized Charge | `Distribute <n> +<n>/+<n> counters among <n> or <n> target creatures you control. creatures you control with counters on them gain vigilance and trample until end of turn.` |  |
 | Teleportation Circle | `At the beginning of your end step, exile up to <n> target artifact or creature you control, then return that card to the battlefield under its owner's control.` |  |
 | The Eternal Wanderer | Compound gap — `+<n>: exile up to <n> target artifact or creature. return that card to the battlefield under its owner's control at the beginning of that player's next end step.`; `No more than <n> creature can attack ~ each combat.`; `−<n>: for each player, choose a creature that player controls. each player sacrifices all creatures they control not chosen this way.` |  |
@@ -334,13 +292,11 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Undead Butler | `When ~ dies, you may exile it. when you do, return target creature card from your graveyard to your hand.` |  |
 | Unexplained Absence | `For each player, exile up to <n> target nonland permanent that player controls. for each permanent exiled this way, its controller cloaks the top card of their library.` |  |
 | Unholy Heat | `~ deals <n> damage instead if there are <n> or more card types among cards in your graveyard.` |  |
-| Virtue of Loyalty // Ardenvale Fealty | `At the beginning of your end step, put a +<n>/+<n> counter on each creature you control. untap those creatures.` |  |
 | Virtue of Strength // Garenbrig Growth | `If you tap a basic land for mana, it produces <n> times as much of that mana instead.` |  |
 | Voracious Fell Beast | `When ~ enters, each opponent sacrifices a creature of their choice. create a food token for each creature sacrificed this way.` |  |
 | Warden of the Grove | `Whenever another nontoken creature you control enters, it endures x, where x is the number of counters on ~.` |  |
 | White Plume Adventurer | `At the beginning of each opponent's upkeep, untap a creature you control. if you've completed a dungeon, untap all creatures you control instead.` |  |
 | Wildfire Devils | `When ~ enters and at the beginning of your upkeep, choose a player at random. that player exiles an instant or sorcery card from their graveyard. copy that card. you may cast the copy without paying its mana cost.` |  |
-| Wilhelt, the Rotcleaver | `Whenever another zombie you control dies, if it didn't have decayed, create a <n>/<n> black zombie creature token with decayed.` |  |
 | Windswift Slice | `Target creature you control deals damage equal to its power to target creature you don't control. create a number of <n>/<n> green elf warrior creature tokens equal to the amount of excess damage dealt this way.` |  |
 | Wrathful Red Dragon | `Whenever a dragon you control is dealt damage, it deals that much damage to any target that isn't a dragon.` |  |
 | Y'shtola Rhul | `At the beginning of your end step, exile target creature you control, then return it to the battlefield under its owner's control. then if it's the first end step of the turn, there is an additional end step after this step.` |  |
@@ -349,14 +305,13 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Zul Ashur, Lich Lord | `<cost>: you may cast target zombie creature card from your graveyard this turn.` |  |
 
 
-### Counter Blitz - Final Fantasy Commander (32 cards)
+### Counter Blitz - Final Fantasy Commander (30 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
 | Auron, Venerated Guardian | `Whenever ~ attacks, put a +<n>/+<n> counter on it. when you do, exile target creature defending player controls with power less than ~'s power until ~ leaves the battlefield.` |  |
 | Blitzball Stadium | `<cost>, <cost>: until end of turn, target creature gains ~ and it can't be blocked this turn.` |  |
 | Chocobo Knights | `Whenever you attack, creatures you control with counters on them gain double strike until end of turn.` |  |
-| Damning Verdict | `Destroy all creatures with no counters on them.` |  |
 | Endless Detour | `The owner of target spell, nonland permanent, or card in a graveyard puts it on their choice of the top or bottom of their library.` |  |
 | Fathom Mage | `Whenever a +<n>/+<n> counter is put on ~, you may draw a card.` | Also uncovered in: Commander Cube |
 | Fight Rigging | `At the beginning of combat on your turn, put a +<n>/+<n> counter on target creature you control. then if you control a creature with power <n> or greater, you may play the exiled card without paying its mana cost.` | Also uncovered in: Commander Cube |
@@ -374,9 +329,8 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Resourceful Defense | Compound gap — `<cost>: move any number of counters from target permanent you control onto a second target permanent you control.`; `Whenever a permanent you control leaves the battlefield, if it had counters on it, put those counters on target permanent you control.` | Also uncovered in: Counter Intelligence - Edge of Eternities Commander Deck |
 | Rikku, Resourceful Guardian | Compound gap — `<cost>, <cost>: move a counter from target creature an opponent controls onto target creature you control. activate only as a sorcery.`; `Whenever you put <n> or more counters on a creature, until end of turn, that creature can't be blocked by creatures your opponents control.` | Also uncovered in: Commander Cube |
 | Scholar of New Horizons | `<cost>, remove a counter from a permanent you control: search your library for a plains card and reveal it. if an opponent controls more lands than you, you may put that card onto the battlefield tapped. if you don't put the card onto the battlefield, put it into your hand. then shuffle.` |  |
-| Shelinda, Yevon Acolyte | `Whenever another creature you control enters, put a +<n>/+<n> counter on that creature if its power is less than ~'s power. otherwise, put a +<n>/+<n> counter on ~.` |  |
 | Sin, Unending Cataclysm | Compound gap — `As ~ enters, remove all counters from any number of artifacts, creatures, and enchantments. ~ enters with x +<n>/+<n> counters on it, where x is twice the number of counters removed this way.`; `When ~ dies, put its counters on target creature you control, then shuffle this card into its owner's library.` |  |
-| Summon: Ixion | Compound gap — `I — aerospark — exile target creature an opponent controls until this saga leaves the battlefield.`; `Ii, iii — put a +<n>/+<n> counter on each of up to <n> target creatures you control. you gain <n> life.` |  |
+| Summon: Ixion | `I — aerospark — exile target creature an opponent controls until this saga leaves the battlefield.` |  |
 | Summon: Magus Sisters | Compound gap — `I, ii, iii — choose <n> at random —`; `• combine powers! — put <n> +<n>/+<n> counters on target creature.`; `• defense! — put a shield counter on target creature. you gain <n> life.`; `• fight! — ~ fights up to <n> target creature an opponent controls.` |  |
 | Summon: Valefor | `I — sonic wings — each opponent chooses a creature with the greatest mana value among creatures they control. return those creatures to their owners' hands.` |  |
 | Summon: Yojimbo | Compound gap — `I — exile target artifact, enchantment, or tapped creature an opponent controls.`; `Ii, iii — until your next turn, creatures can't attack you unless their controller pays <cost> for each of those creatures.`; `Iv — create x treasure tokens, where x is the number of opponents who control a creature with power <n> or greater.` |  |
@@ -384,7 +338,7 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Tidus, Yuna's Guardian | Compound gap — `At the beginning of combat on your turn, you may move a counter from target creature you control onto a second target creature you control.`; `Whenever <n> or more creatures you control with counters on them deal combat damage to a player, you may draw a card and proliferate. do this only once each turn.` |  |
 | Together Forever | `<cost>: choose target creature with a counter on it. when that creature dies this turn, return that card to its owner's hand.` | Also uncovered in: Turtle Power! - Teenage Mutant Ninja Turtles Commander Deck |
 | Tromell, Seymour's Butler | Compound gap — `<cost>, <cost>: proliferate x times, where x is the number of nontoken creatures you control that entered this turn.`; `Each other nontoken creature you control enters with an additional +<n>/+<n> counter on it.` |  |
-| Wakka, Devoted Guardian | Compound gap — `At the beginning of your end step, if a counter was put on ~ this turn, put a +<n>/+<n> counter on each other creature you control.`; `Whenever ~ deals combat damage to a player, destroy up to <n> target artifact that player controls and put a +<n>/+<n> counter on ~.` |  |
+| Wakka, Devoted Guardian | `At the beginning of your end step, if a counter was put on ~ this turn, put a +<n>/+<n> counter on each other creature you control.` |  |
 
 
 ### Counter Intelligence - Edge of Eternities Commander Deck (20 cards)
@@ -413,7 +367,7 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Wake the Past | `Return all artifact cards from your graveyard to the battlefield. they gain haste until end of turn.` | Also uncovered in: Commander Cube |
 
 
-### Death Toll - Duskmourn: House of Horror Commander (25 cards)
+### Death Toll - Duskmourn: House of Horror Commander (20 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
@@ -421,21 +375,16 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Carrion Grub | `~ gets +x/+<n>, where x is the greatest power among creature cards in your graveyard.` |  |
 | Cemetery Tampering | `At the beginning of your upkeep, you may mill <n> cards. then if there are twenty or more cards in your graveyard, you may play the exiled card without paying its mana cost.` |  |
 | Convert to Slime | Compound gap — `Destroy up to <n> target artifact, up to <n> target creature, and up to <n> target enchantment.`; `Then if there are <n> or more card types among cards in your graveyard, create an x/x green ooze creature token, where x is the total mana value of permanents destroyed this way.` |  |
-| Crawling Sensation | `Whenever <n> or more land cards are put into your graveyard from anywhere for the first time each turn, create a <n>/<n> green insect creature token.` | Also uncovered in: Sultai Arisen - Tarkir: Dragonstorm Commander |
 | Deadbridge Chant | `At the beginning of your upkeep, choose a card at random in your graveyard. if it's a creature card, put it onto the battlefield. otherwise, put it into your hand.` |  |
 | Deluge of Doom | `All creatures get -x/-x until end of turn, where x is the number of card types among cards in your graveyard.` |  |
-| Demolisher Spawn | `Whenever ~ attacks, if there are <n> or more card types among cards in your graveyard, other attacking creatures get +<n>/+<n> until end of turn.` | Also uncovered in: Commander Cube |
 | Demonic Covenant | Compound gap — `At the beginning of your end step, create a <n>/<n> black demon creature token with flying, then mill <n> cards. if <n> cards that share all their card types were milled this way, sacrifice ~.`; `Whenever <n> or more demons you control attack a player, you draw a card and lose <n> life.` |  |
 | Formless Genesis | `Create an x/x colorless shapeshifter creature token with changeling and deathtouch, where x is the number of land cards in your graveyard.` | Also uncovered in: World Shaper - Edge of Eternities Commander Deck |
 | Grapple with the Past | `Mill <n> cards, then you may return a creature or land card from your graveyard to your hand.` | Also uncovered in: Commander Cube, Sultai Arisen - Tarkir: Dragonstorm Commander |
 | Grist, the Hunger Tide | Compound gap — `+<n>: create a <n>/<n> black and green insect creature token, then mill a card. if an insect card was milled this way, put a loyalty counter on ~ and repeat this process.`; `As long as ~ isn't on the battlefield, it's a <n>/<n> insect creature in addition to its other types.` | Also uncovered in: Commander Cube |
 | Into the Pit | `You may cast spells from the top of your library by sacrificing a nonland permanent in addition to paying their other costs.` |  |
-| Ishkanah, Grafwidow | `<cost>: target opponent loses <n> life for each spider you control.` |  |
 | Moldgraf Monstrosity | `When ~ dies, exile it, then return <n> creature cards at random from your graveyard to the battlefield.` |  |
 | Mulch | `Reveal the top <n> cards of your library. put all land cards revealed this way into your hand and the rest into your graveyard.` |  |
-| Noxious Gearhulk | `When ~ enters, you may destroy another target creature. if a creature is destroyed this way, you gain life equal to its toughness.` | Also uncovered in: Commander Cube, Riveteer Rampage - New Capenna Commander, Sultai Arisen - Tarkir: Dragonstorm Commander |
 | Rendmaw, Creaking Nest | `When ~ enters and whenever you play a card with <n> or more card types, each player creates a tapped <n>/<n> black bird creature token with flying. the tokens are goaded for the rest of the game.` |  |
-| Skola Grovedancer | `Whenever a land card is put into your graveyard from anywhere, you gain <n> life.` |  |
 | Titania, Nature's Force | `You may play forests from your graveyard.` |  |
 | Ursine Monstrosity | `At the beginning of combat on your turn, mill a card and choose an opponent at random. ~ attacks that player this combat if able. until end of turn, ~ gains indestructible and gets +<n>/+<n> for each card type among cards in your graveyard.` |  |
 | Whip of Erebos | `<cost>, <cost>: return target creature card from your graveyard to the battlefield. it gains haste. exile it at the beginning of the next end step. if it would leave the battlefield, exile it instead of putting it anywhere else. activate only as a sorcery.` |  |
@@ -444,13 +393,12 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Wrenn and Seven | Compound gap — `+<n>: reveal the top <n> cards of your library. put all land cards revealed this way into your hand and the rest into your graveyard.`; `<n>: put any number of land cards from your hand onto the battlefield tapped.`; `−<n>: return all permanent cards from your graveyard to your hand. you get an emblem with ~` |  |
 
 
-### Endless Punishment - Duskmourn: House of Horror Commander (25 cards)
+### Endless Punishment - Duskmourn: House of Horror Commander (24 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
 | Barbflare Gremlin | `Whenever a player taps a land for mana, if ~ is tapped, that player adds <n> mana of any type that land produced. then that land deals <n> damage to that player.` |  |
 | Braids, Arisen Nightmare | `At the beginning of your end step, you may sacrifice an artifact, creature, enchantment, land, or planeswalker. if you do, each opponent may sacrifice a permanent of their choice that shares a card type with it. for each opponent who doesn't, that player loses <n> life and you draw a card.` | Also uncovered in: World Shaper - Edge of Eternities Commander Deck |
-| Brash Taunter | `Whenever ~ is dealt damage, it deals that much damage to target opponent.` |  |
 | Combustible Gearhulk | `When ~ enters, target opponent may have you draw <n> cards. if the player doesn't, you mill <n> cards, then ~ deals damage to that player equal to the total mana value of those cards.` | Also uncovered in: Living Energy - Aetherdrift Commander, Revival Trance - Final Fantasy Commander |
 | Decree of Pain | `Destroy all creatures. they can't be regenerated. draw a card for each creature destroyed this way.` | Also uncovered in: Squirreled Away - Bloomburrow Commander |
 | Enchanter's Bane | `At the beginning of your end step, target enchantment deals damage equal to its mana value to its controller unless that player sacrifices it.` |  |
@@ -475,7 +423,7 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Witch's Clinic | `<cost>, <cost>: target commander gains lifelink until end of turn.` |  |
 
 
-### Eternal Might - Aetherdrift Commander (24 cards)
+### Eternal Might - Aetherdrift Commander (22 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
@@ -483,14 +431,12 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Champion of Wits | `When ~ enters, you may draw cards equal to its power. if you do, discard <n> cards.` |  |
 | Commence the Endgame | `Draw <n> cards, then amass zombies x, where x is the number of cards in your hand.` |  |
 | Corpse Augur | `When ~ dies, you draw x cards and you lose x life, where x is the number of creature cards in target player's graveyard.` |  |
-| Crowded Crypt | `Whenever a creature you control dies, put a corpse counter on ~.` |  |
 | Dread Summons | `Each player mills x cards. for each creature card put into a graveyard this way, you create a tapped <n>/<n> black zombie creature token.` |  |
 | Forgotten Creation | `At the beginning of your upkeep, you may discard all the cards in your hand. if you do, draw that many cards.` |  |
 | Gate to the Afterlife | `<cost>, <cost>, sacrifice ~: search your graveyard, hand, and/or library for a card named god-pharaoh's gift and put it onto the battlefield. if you search your library this way, shuffle. activate only if there are <n> or more creature cards in your graveyard.` |  |
 | Gempalm Polluter | `When you cycle this card, you may have target player lose life equal to the number of zombies on the battlefield.` |  |
 | Gravecrawler | `You may cast this card from your graveyard as long as you control a zombie.` | Also uncovered in: Commander Cube, Sultai Arisen - Tarkir: Dragonstorm Commander |
-| Hashaton, Scarab's Fist | `Whenever you discard a creature card, you may pay <cost>. if you do, create a tapped token that's a copy of that card, except it's a <n>/<n> black zombie.` |  |
-| Liliana, Death's Majesty | Compound gap — `−<n>: destroy all non-zombie creatures.`; `−<n>: return target creature card from your graveyard to the battlefield. that creature is a black zombie in addition to its other colors and types.` |  |
+| Liliana, Death's Majesty | `−<n>: return target creature card from your graveyard to the battlefield. that creature is a black zombie in addition to its other colors and types.` |  |
 | Lord of the Accursed | `<cost>, <cost>: all zombies gain menace until end of turn.` |  |
 | Lost Monarch of Ifnir | Compound gap — `At the beginning of your second main phase, if a player was dealt combat damage by a zombie this turn, mill <n> cards, then you may return a creature card from your graveyard to your hand.`; `Other zombies you control have afflict <n>.` |  |
 | Maskwood Nexus | `Creatures you control are every creature type. the same is true for creature spells you control and creature cards you own that aren't on the battlefield.` | Also uncovered in: Squirreled Away - Bloomburrow Commander |
@@ -505,14 +451,13 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Wizened Mentor | `Whenever an opponent activates an ability of a permanent that isn't a mana ability, you create a <n>/<n> white zombie creature token. this ability triggers only once each turn.` |  |
 
 
-### Family Matters - Bloomburrow Commander (19 cards)
+### Family Matters - Bloomburrow Commander (18 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
 | Aetherize | `Return all attacking creatures to their owner's hand.` |  |
 | Bident of Thassa | `<cost>, <cost>: creatures your opponents control attack this turn if able.` |  |
 | Boss's Chauffeur | `~ enters with a number of +<n>/+<n> counters on it equal to <n> plus the number of other creatures you control.` |  |
-| Calamity of Cinders | `~ deals <n> damage to each untapped creature.` |  |
 | Cut a Deal | `Each opponent draws a card, then you draw a card for each opponent who drew a card this way.` | Also uncovered in: Scions & Spellcraft - Final Fantasy Commander |
 | Devilish Valet | `Whenever another creature you control enters, double ~'s power until end of turn.` |  |
 | Inferno Titan | `Whenever ~ enters or attacks, it deals <n> damage divided as you choose among <n>, <n>, or <n> targets.` | Also uncovered in: Riveteer Rampage - New Capenna Commander |
@@ -521,7 +466,7 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Junk Winder | `Whenever a token you control enters, tap target nonland permanent an opponent controls. it doesn't untap during its controller's next untap step.` |  |
 | Murmuration | `At the beginning of your end step, for each spell you've cast this turn, create a <n>/<n> blue bird creature token with flying named storm crow.` |  |
 | Pollywog Prodigy | `Whenever an opponent casts a noncreature spell with mana value less than ~'s power, draw a card.` |  |
-| Rapid Augmenter | Compound gap — `Whenever another creature you control enters, if it wasn't cast, put a +<n>/+<n> counter on ~ and ~ can't be blocked this turn.`; `Whenever another creature you control with base power <n> enters, it gains haste until end of turn.` |  |
+| Rapid Augmenter | `Whenever another creature you control with base power <n> enters, it gains haste until end of turn.` |  |
 | Shield Broker | `When ~ enters, put a shield counter on target noncommander creature you don't control. you gain control of that creature for as long as it has a shield counter on it.` |  |
 | Stolen by the Fae | `Return target creature with mana value x to its owner's hand. you create x <n>/<n> blue faerie creature tokens with flying.` |  |
 | Storm of Souls | `Return all creature cards from your graveyard to the battlefield. each of them is a <n>/<n> spirit with flying in addition to its other types. exile ~.` |  |
@@ -530,7 +475,7 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Zinnia, Valley's Voice | Compound gap — `~ gets +x/+<n>, where x is the number of other creatures you control with base power <n>.`; `Creature spells you cast gain offspring <cost> as you cast them.` |  |
 
 
-### Goblins (9 cards)
+### Goblins (7 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
@@ -538,14 +483,12 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Goblin Matron | `When ~ enters, you may search your library for a goblin card, reveal that card, put it into your hand, then shuffle.` |  |
 | Krenko, Tin Street Kingpin | `Whenever ~ attacks, put a +<n>/+<n> counter on it, then create a number of <n>/<n> red goblin creature tokens equal to ~'s power.` |  |
 | Legion Loyalist | `Whenever ~ and at least <n> other creatures attack, creatures you control gain first strike and trample until end of turn and can't be blocked by creature tokens this turn.` |  |
-| Muxus, Goblin Grandee | Compound gap — `When ~ enters, reveal the top <n> cards of your library. put all goblin creature cards with mana value <n> or less from among them onto the battlefield and the rest on the bottom of your library in a random order.`; `Whenever ~ attacks, it gets +<n>/+<n> until end of turn for each other goblin you control.` |  |
+| Muxus, Goblin Grandee | `When ~ enters, reveal the top <n> cards of your library. put all goblin creature cards with mana value <n> or less from among them onto the battlefield and the rest on the bottom of your library in a random order.` |  |
 | Reckless Bushwhacker | `When ~ enters, if its surge cost was paid, other creatures you control get +<n>/+<n> and gain haste until end of turn.` |  |
-| Shared Animosity | `Whenever a creature you control attacks, it gets +<n>/+<n> until end of turn for each other attacking creature that shares a creature type with it.` |  |
-| Thornbite Staff | `Whenever a shaman creature enters, you may attach ~ to it.` |  |
 | Wort, Boggart Auntie | `At the beginning of your upkeep, you may return target goblin card from your graveyard to your hand.` |  |
 
 
-### Hope to the last (22 cards)
+### Hope to the last (21 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
@@ -561,7 +504,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Minas Tirith | `<cost>, <cost>: draw a card. activate only if you attacked with <n> or more creatures this turn.` | Also uncovered in: Commander Cube |
 | Monumental Henge | `<cost>, <cost>: look at the top <n> cards of your library. you may reveal a historic card from among them and put it into your hand. put the rest on the bottom of your library in a random order.` |  |
 | Nykthos Paragon | `Whenever you gain life, you may put that many +<n>/+<n> counters on each creature you control. do this only once each turn.` | Also uncovered in: Commander Cube |
-| Profane Memento | `Whenever a creature card is put into an opponent's graveyard from anywhere, you gain <n> life.` |  |
 | Resplendent Angel | `<cost>: until end of turn, ~ gets +<n>/+<n> and gains lifelink.` | Also uncovered in: Commander Cube |
 | Restoration Magic | Compound gap — `• cura — <cost> — target permanent gains hexproof and indestructible until end of turn. you gain <n> life.`; `• curaga — <cost> — permanents you control gain hexproof and indestructible until end of turn. you gain <n> life.`; `• cure — <cost> — target permanent gains hexproof and indestructible until end of turn.` |  |
 | Riverchurn Monument | Compound gap — `<cost>, <cost>: any number of target players each mill <n> cards.`; `Exhaust — <cost>, <cost>: any number of target players each mill cards equal to the number of cards in their graveyard.` |  |
@@ -611,7 +553,7 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Voracious Bibliophile | `Whenever you cast a spell with <n> or more targets, draw that many cards.` |  |
 
 
-### Jump Scare! - Duskmourn: House of Horror Commander (26 cards)
+### Jump Scare! - Duskmourn: House of Horror Commander (22 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
@@ -623,7 +565,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Experimental Lab // Staff Room | `When you unlock this door, manifest dread, then put <n> +<n>/+<n> counters and a trample counter on that creature.` |  |
 | Ezuri's Predation | `For each creature your opponents control, create a <n>/<n> green phyrexian beast creature token. each of those tokens fights a different <n> of those creatures.` |  |
 | Giggling Skitterspike | `Whenever ~ attacks, blocks, or becomes the target of a spell, it deals damage equal to its power to each opponent.` | Also uncovered in: Wick Snail Boom |
-| Glitch Interpreter | Compound gap — `When ~ enters, if you control no face-down permanents, return ~ to its owner's hand and manifest dread.`; `Whenever <n> or more colorless creatures you control deal combat damage to a player, draw a card.` |  |
 | Growing Dread | `Whenever you turn a permanent face up, put a +<n>/+<n> counter on it.` |  |
 | Kheru Spellsnatcher | `When ~ is turned face up, counter target spell. if that spell is countered this way, exile it instead of putting it into its owner's graveyard. you may cast that card without paying its mana cost for as long as it remains exiled.` |  |
 | Kianne, Corrupted Memory | Compound gap — `As long as ~'s power is even, you may cast noncreature spells as though they had flash.`; `As long as ~'s power is odd, you may cast creature spells as though they had flash.` |  |
@@ -635,29 +576,24 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Scroll of Fate | `<cost>: manifest a card from your hand.` |  |
 | Shigeki, Jukai Visionary | Compound gap — `<cost>, <cost>, return ~ to its owner's hand: reveal the top <n> cards of your library. you may put a land card from among them onto the battlefield tapped. put the rest into your graveyard.`; `<cost>, discard this card: return x target nonlegendary cards from your graveyard to your hand.` | Also uncovered in: Commander Cube, Sultai Arisen - Tarkir: Dragonstorm Commander |
 | Shriekwood Devourer | `Whenever you attack with <n> or more creatures, untap up to x lands, where x is the greatest power among those creatures.` |  |
-| Temur War Shaman | `Whenever a permanent you control is turned face up, if it's a creature, you may have it fight target creature you don't control.` |  |
 | Thunderfoot Baloth | `As long as you control your commander, ~ gets +<n>/+<n> and other creatures you control get +<n>/+<n> and have trample.` |  |
-| Trail of Mystery | `Whenever a face-down creature you control enters, you may search your library for a basic land card, reveal it, put it into your hand, then shuffle.` |  |
 | Whisperwood Elemental | `Sacrifice ~: until end of turn, face-up nontoken creatures you control gain ~` |  |
 | Yedora, Grave Gardener | `Whenever another nontoken creature you control dies, you may return it to the battlefield face down under its owner's control. it's a forest land.` |  |
 
 
-### Kodama (21 cards)
+### Kodama (17 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
 | Amulet of Vigor | `Whenever a permanent you control enters tapped, untap it.` |  |
 | Ancient Animus | `Put a +<n>/+<n> counter on target creature you control if it's legendary. then it fights target creature an opponent controls.` |  |
 | Chocobo Racetrack | `Whenever a land you control enters, create a <n>/<n> green bird creature token with ~` |  |
-| Court of Garenbrig | `At the beginning of your upkeep, distribute <n> +<n>/+<n> counters among up to <n> target creatures. then if you're the monarch, double the number of +<n>/+<n> counters on each creature you control.` |  |
 | Defiler of Vigor | `As an additional cost to cast green permanent spells, you may pay <n> life. those spells cost <cost> less to cast if you paid life this way. this effect reduces only the amount of green mana you pay.` |  |
-| Evolution Witness | `Whenever <n> or more +<n>/+<n> counters are put on ~, return target permanent card from your graveyard to your hand.` |  |
 | Innkeeper's Talent | `Permanents you control with counters on them have ward <cost>.` | Also uncovered in: Commander Cube |
 | Nissa, Ascended Animist | Compound gap — `+<n>: create an x/x green phyrexian horror creature token, where x is ~'s loyalty.`; `−<n>: until end of turn, creatures you control get +<n>/+<n> for each forest you control and gain trample.` |  |
 | Nissa, Vital Force | `+<n>: untap target land you control. until your next turn, it becomes a <n>/<n> elemental creature with haste. it's still a land.` |  |
 | Nissa, Who Shakes the World | Compound gap — `+<n>: put <n> +<n>/+<n> counters on up to <n> target noncreature land you control. untap it. it becomes a <n>/<n> elemental creature with vigilance and haste that's still a land.`; `Whenever you tap a forest for mana, add an additional <cost>.`; `−<n>: you get an emblem with ~ search your library for any number of forest cards, put them onto the battlefield tapped, then shuffle.` |  |
 | Pathbreaker Ibex | `Whenever ~ attacks, creatures you control gain trample and get +x/+x until end of turn, where x is the greatest power among creatures you control.` |  |
-| Railway Brawler | `Whenever another creature you control enters, put x +<n>/+<n> counters on it, where x is its power.` | Also uncovered in: Commander Cube |
 | Ram Through | `Target creature you control deals damage equal to its power to target creature you don't control. if the creature you control has trample, excess damage is dealt to that creature's controller instead.` |  |
 | Ride the Shoopuf | `<cost>: ~ becomes a <n>/<n> beast creature in addition to its other types.` |  |
 | Roaring Earth | Compound gap — `<cost>, discard this card: put x +<n>/+<n> counters on target land you control. it becomes a <n>/<n> green spirit creature with haste. it's still a land.`; `Whenever a land you control enters, put a +<n>/+<n> counter on target creature or vehicle you control.` |  |
@@ -666,10 +602,9 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Summoning Materia | `As long as ~ is attached to a creature, you may cast creature spells from the top of your library.` | Also uncovered in: Limit Break - Final Fantasy Commander |
 | Titanic Brawl | `This spell costs <cost> less to cast if it targets a creature you control with a +<n>/+<n> counter on it.` |  |
 | Traveling Chocobo | `You may play lands and cast bird spells from the top of your library.` |  |
-| Tribute to the World Tree | `Whenever a creature you control enters, draw a card if its power is <n> or greater. otherwise, put <n> +<n>/+<n> counters on it.` |  |
 
 
-### Limit Break - Final Fantasy Commander (33 cards)
+### Limit Break - Final Fantasy Commander (32 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
@@ -687,7 +622,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Furious Rise | `At the beginning of your end step, if you control a creature with power <n> or greater, exile the top card of your library. you may play that card until you exile another card with ~.` |  |
 | Heidegger, Shinra Executive | `At the beginning of your end step, create a number of <n>/<n> white soldier creature tokens equal to the number of opponents who control more creatures than you.` |  |
 | Hellkite Tyrant | Compound gap — `At the beginning of your upkeep, if you control twenty or more artifacts, you win the game.`; `Whenever ~ deals combat damage to a player, gain control of all artifacts that player controls.` |  |
-| Hero's Blade | `Whenever a legendary creature you control enters, you may attach ~ to it.` |  |
 | Hero's Heirloom | `As long as equipped creature is legendary, it has trample and haste.` |  |
 | Inspiring Statuary | `Nonartifact spells you cast have improvise.` |  |
 | Lifestream's Blessing | `Draw x cards, where x is the greatest power among creatures you controlled as you cast this spell. if this spell was cast from exile, you gain twice x life.` |  |
@@ -708,7 +642,7 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Zack Fair | `<cost>, sacrifice ~: target creature you control gains indestructible until end of turn. put ~'s counters on that creature and attach an equipment that was attached to ~ to that creature.` |  |
 
 
-### Living Energy - Aetherdrift Commander (22 cards)
+### Living Energy - Aetherdrift Commander (20 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
@@ -716,7 +650,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Adaptive Omnitool | `Whenever equipped creature attacks, look at the top <n> cards of your library. you may reveal an artifact card from among them and put it into your hand. put the rest on the bottom of your library in a random order.` |  |
 | Aetherflux Conduit | Compound gap — `<cost>, pay fifty <cost>: draw <n> cards. you may cast any number of spells from your hand without paying their mana costs.`; `Whenever you cast a spell, you get an amount of <cost> equal to the amount of mana spent to cast that spell.` |  |
 | Aetheric Amplifier | Compound gap — `<cost>, <cost>: choose <n>. activate only as a sorcery.`; `• double the number of each kind of counter on target permanent.`; `• double the number of each kind of counter you have.` |  |
-| Aethersquall Ancient | `Pay <n> <cost>: return all other creatures to their owners' hands. activate only as a sorcery.` |  |
 | Aethertide Whale | `When ~ enters, you get <n> <cost>.` |  |
 | Aetherworks Marvel | Compound gap — `<cost>, pay <n> <cost>: look at the top <n> cards of your library. you may cast a spell from among them without paying its mana cost. put the rest on the bottom of your library in a random order.`; `Whenever a permanent you control is put into a graveyard, you get <cost>.` |  |
 | Bespoke Battlewagon | `Pay <cost>: ~ becomes an artifact creature until end of turn.` |  |
@@ -732,11 +665,10 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Saheeli, Sublime Artificer | `−<n>: target artifact you control becomes a copy of another target artifact or creature you control until end of turn, except it's an artifact in addition to its other types.` |  |
 | Stridehangar Automaton | `If <n> or more artifact tokens would be created under your control, those tokens plus an additional <n>/<n> colorless thopter artifact creature token with flying are created instead.` |  |
 | Territorial Aetherkite | `When ~ enters, you get <cost>. then you may pay <n> or more <cost>. when you do, ~ deals that much damage to each other creature.` |  |
-| Thopter Spy Network | `Whenever <n> or more artifact creatures you control deal combat damage to a player, draw a card.` | Also uncovered in: Shorikai Vehicles |
 | Triplicate Titan | `When ~ dies, create a <n>/<n> colorless golem artifact creature token with flying, a <n>/<n> colorless golem artifact creature token with vigilance, and a <n>/<n> colorless golem artifact creature token with trample.` |  |
 
 
-### Mardu Surge - Tarkir: Dragonstorm Commander (23 cards)
+### Mardu Surge - Tarkir: Dragonstorm Commander (20 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
@@ -745,10 +677,9 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Chittering Witch | `When ~ enters, create a number of <n>/<n> black rat creature tokens equal to the number of opponents you have.` | Also uncovered in: Squirreled Away - Bloomburrow Commander |
 | Commander's Insignia | `Creatures you control get +<n>/+<n> for each time you've cast your commander from the command zone this game.` |  |
 | Divine Visitation | `If <n> or more creature tokens would be created under your control, that many <n>/<n> white angel creature tokens with flying and vigilance are created instead.` |  |
-| Eliminate the Competition | Compound gap — `As an additional cost to cast this spell, sacrifice x creatures.`; `Destroy x target creatures.` |  |
+| Eliminate the Competition | `As an additional cost to cast this spell, sacrifice x creatures.` |  |
 | Gix, Yawgmoth Praetor | Compound gap — `<cost>, discard x cards: exile the top x cards of target opponent's library. you may play lands and cast spells from among cards exiled this way without paying their mana costs.`; `Whenever a creature deals combat damage to <n> of your opponents, its controller may pay <n> life. if they do, they draw a card.` |  |
 | Grenzo, Havoc Raiser | Compound gap — `Whenever a creature you control deals combat damage to a player, choose <n> —`; `• exile the top card of that player's library. until end of turn, you may cast that card and you may spend mana as though it were mana of any color to cast that spell.`; `• goad target creature that player controls.` |  |
-| Hour of Reckoning | `Destroy all nontoken creatures.` |  |
 | Infantry Shield | `Equipped creature has menace and mobilize x, where x is its power.` |  |
 | Ironwill Forger | `At the beginning of combat on your turn, if you control your commander, target nonlegendary creature you control gains myriad until end of turn.` |  |
 | Kaya, Geist Hunter | Compound gap — `+<n>: creatures you control gain deathtouch until end of turn. put a +<n>/+<n> counter on up to <n> target creature token you control.`; `−<n>: exile all cards from all graveyards, then create a <n>/<n> white spirit creature token with flying for each card exiled this way.`; `−<n>: until end of turn, if <n> or more tokens would be created under your control, twice that many of those tokens are created instead.` |  |
@@ -756,13 +687,11 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Mindblade Render | `Whenever your opponents are dealt combat damage, if any of that damage was dealt by a warrior, you draw a card and you lose <n> life.` |  |
 | Myr Battlesphere | `Whenever ~ attacks, you may tap x untapped myr you control. if you do, ~ gets +x/+<n> until end of turn and deals x damage to the player or planeswalker it's attacking.` |  |
 | Neriv, Crackling Vanguard | `Whenever ~ attacks, exile a number of cards from the top of your library equal to the number of differently named tokens you control. during any turn you attacked with a commander, you may play those cards.` |  |
-| Ogre Battledriver | `Whenever another creature you control enters, that creature gets +<n>/+<n> and gains haste until end of turn.` |  |
 | Stroke of Midnight | `Destroy target nonland permanent. its controller creates a <n>/<n> white human creature token.` | Also uncovered in: Commander Cube |
 | Tempt with Vengeance | `Create x <n>/<n> red elemental creature tokens with haste. each opponent may create x <n>/<n> red elemental creature tokens with haste. for each opponent who does, create x <n>/<n> red elemental creature tokens with haste.` |  |
 | Thalisse, Reverent Medium | `At the beginning of each end step, create x <n>/<n> white spirit creature tokens with flying, where x is the number of tokens you created this turn.` |  |
 | Windbrisk Heights | `<cost>, <cost>: you may play the exiled card without paying its mana cost if you attacked with <n> or more creatures this turn.` |  |
 | Within Range | `Whenever you attack, each opponent loses life equal to the number of creatures attacking them.` |  |
-| Zurgo Stormrender | `Whenever a creature token you control leaves the battlefield, draw a card if it was attacking. otherwise, each opponent loses <n> life.` |  |
 
 
 ### Miracle Worker - Duskmourn: House of Horror Commander (24 cards)
@@ -774,7 +703,7 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Ancient Cellarspawn | Compound gap — `Each spell you cast that's a demon, horror, or nightmare costs <cost> less to cast.`; `Whenever you cast a spell, if the amount of mana spent to cast it was less than its mana value, target opponent loses life equal to the difference.` |  |
 | Archetype of Imagination | `Creatures your opponents control lose flying and can't have or gain flying.` |  |
 | Arvinox, the Mind Flail | Compound gap — `~ isn't a creature unless you control <n> or more permanents you don't own.`; `At the beginning of your end step, exile the bottom card of each opponent's library face down. for as long as those cards remain exiled, you may look at them, you may cast permanent spells from among them, and you may spend mana as though it were mana of any color to cast those spells.` |  |
-| Athreos, Shroud-Veiled | Compound gap — `At the beginning of your end step, put a coin counter on another target creature.`; `Whenever a creature with a coin counter on it dies or is put into exile, return that card to the battlefield under your control.` |  |
+| Athreos, Shroud-Veiled | `At the beginning of your end step, put a coin counter on another target creature.` |  |
 | Bottomless Pool // Locker Room | `When you unlock this door, return up to <n> target creature to its owner's hand.` |  |
 | Brainstone | `<cost>, <cost>, sacrifice ~: draw <n> cards, then put <n> cards from your hand on top of your library in any order.` |  |
 | Cramped Vents // Access Maze | `When you unlock this door, this room deals <n> damage to target creature an opponent controls. you gain life equal to the excess damage dealt this way.` |  |
@@ -795,14 +724,13 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Thirst for Meaning | `Draw <n> cards. then discard <n> cards unless you discard an enchantment card.` |  |
 
 
-### Oops! All Night's Whispers (19 cards)
+### Oops! All Night's Whispers (18 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Agent of Treachery | Compound gap — `At the beginning of your end step, if you control <n> or more permanents you don't own, draw <n> cards.`; `When ~ enters, gain control of target permanent.` |  |
+| Agent of Treachery | `At the beginning of your end step, if you control <n> or more permanents you don't own, draw <n> cards.` |  |
 | Aphotic Wisps | `Target creature becomes black and gains fear until end of turn.` |  |
 | Breach the Multiverse | `Each player mills <n> cards. for each player, choose a creature or planeswalker card in that player's graveyard. put those cards onto the battlefield under your control. then each creature you control becomes a phyrexian in addition to its other types.` |  |
-| Coiling Rebirth | `Return target creature card from your graveyard to the battlefield. then if the gift was promised and that creature isn't legendary, create a token that's a copy of that creature, except it's <n>/<n>.` |  |
 | Crimson Wisps | `Target creature becomes red and gains haste until end of turn.` |  |
 | Exhume | `Each player puts a creature card from their graveyard onto the battlefield.` |  |
 | Fable of the Mirror-Breaker // Reflection of Kiki-Jiki | Compound gap — `I — create a <n>/<n> red goblin shaman creature token with ~`; `Ii — you may discard up to <n> cards. if you do, draw that many cards.` | Also uncovered in: Commander Cube |
@@ -820,7 +748,7 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Victimize | `Choose <n> target creature cards in your graveyard. sacrifice a creature. if you do, return the chosen cards to the battlefield tapped.` | Also uncovered in: Riveteer Rampage - New Capenna Commander, Sultai Arisen - Tarkir: Dragonstorm Commander |
 
 
-### Peace Offering - Bloomburrow Commander (24 cards)
+### Peace Offering - Bloomburrow Commander (20 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
@@ -835,11 +763,8 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Jolly Gerbils | `Whenever you give a gift, draw a card.` |  |
 | Jolrael, Mwonvuli Recluse | `<cost>: until end of turn, creatures you control have base power and toughness x/x, where x is the number of cards in your hand.` |  |
 | Kwain, Itinerant Meddler | `<cost>: each player may draw a card, then each player who drew a card this way gains <n> life.` |  |
-| Long River's Pull | `Counter target creature spell. if the gift was promised, instead counter target spell.` |  |
 | Mr. Foxglove | `Whenever ~ attacks, draw cards equal to the number of cards in defending player's hand minus the number of cards in your hand. if you didn't draw cards this way, you may put a creature card from your hand onto the battlefield.` |  |
 | Octomancer | `At the beginning of each end step, create a token that's a copy of target creature token that entered the battlefield this turn.` |  |
-| Peerless Recycling | `Return target permanent card from your graveyard to your hand. if the gift was promised, instead return <n> target permanent cards from your graveyard to your hand.` |  |
-| Perch Protection | `Create <n> <n>/<n> blue bird creature tokens with flying. if the gift was promised, all permanents you control phase out, and until your next turn, your life total can't change and you gain protection from everything.` |  |
 | Rishkar, Peema Renegade | `Each creature you control with a counter on it has ~` | Also uncovered in: Commander Cube, Raggadragga, Goreguts Boss |
 | Selvala, Explorer Returned | `<cost>: each player reveals the top card of their library. for each nonland card revealed this way, add <cost> and you gain <n> life. then each player draws a card.` |  |
 | Tempt with Bunnies | `Draw a card and create a <n>/<n> white rabbit creature token. then each opponent may draw a card and create a <n>/<n> white rabbit creature token. for each opponent who does, you draw a card and you create a <n>/<n> white rabbit creature token.` |  |
@@ -847,31 +772,28 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Tenuous Truce | Compound gap — `At the beginning of enchanted opponent's end step, you and that player each draw a card.`; `When you attack enchanted opponent or a planeswalker they control or when they attack you or a planeswalker you control, sacrifice ~.` |  |
 | Triskaidekaphile | `At the beginning of your upkeep, if you have exactly thirteen cards in your hand, you win the game.` |  |
 | Twenty-Toed Toad | Compound gap — `Whenever ~ attacks, you win the game if there are twenty or more counters on it or you have twenty or more cards in hand.`; `Your maximum hand size is twenty.` |  |
-| Wear Down | `Destroy target artifact or enchantment. if the gift was promised, instead destroy <n> target artifacts and/or enchantments.` | Also uncovered in: Commander Cube |
 
 
-### Raggadragga, Goreguts Boss (15 cards)
+### Raggadragga, Goreguts Boss (13 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
 | Akroma's Memorial | `Creatures you control have flying, first strike, vigilance, trample, haste, and protection from black and from red.` |  |
-| Benefactor's Draught | `Untap all creatures. until end of turn, whenever a creature an opponent controls blocks, draw a card.` |  |
 | Freyalise, Llanowar's Fury | `+<n>: create a <n>/<n> green elf druid creature token with ~` |  |
 | Genesis Wave | `Reveal the top x cards of your library. you may put any number of permanent cards with mana value x or less from among them onto the battlefield. then put all cards revealed this way that weren't put onto the battlefield into your graveyard.` |  |
 | Last March of the Ents | `Draw cards equal to the greatest toughness among creatures you control, then put any number of creature cards from your hand onto the battlefield.` |  |
 | March of the World Ooze | Compound gap — `Creatures you control have base power and toughness <n>/<n> and are oozes in addition to their other types.`; `Whenever an opponent casts a spell, if it's not their turn, you create a <n>/<n> green elephant creature token.` |  |
 | Orochi Merge-Keeper | `As long as ~ is modified, it has ~` |  |
-| Raggadragga, Goreguts Boss | Compound gap — `Each creature you control with a mana ability gets +<n>/+<n>.`; `Whenever a creature you control with a mana ability attacks, untap it.`; `Whenever you cast a spell, if at least <n> mana was spent to cast it, untap target creature. it gets +<n>/+<n> and gains trample until end of turn.` |  |
+| Raggadragga, Goreguts Boss | Compound gap — `Each creature you control with a mana ability gets +<n>/+<n>.`; `Whenever a creature you control with a mana ability attacks, untap it.` |  |
 | Rishkar's Expertise | `Draw cards equal to the greatest power among creatures you control.` |  |
 | Saryth, the Viper's Fang | `<cost>, <cost>: untap another target creature or land you control.` |  |
-| Stonehoof Chieftain | `Whenever another creature you control attacks, it gains trample and indestructible until end of turn.` |  |
 | Turntimber Symbiosis // Turntimber, Serpentine Wood | `Look at the top <n> cards of your library. you may put a creature card from among them onto the battlefield. if that card has mana value <n> or less, it enters with <n> additional +<n>/+<n> counters on it. put the rest on the bottom of your library in a random order.` | Also uncovered in: Commander Cube |
 | Twitching Doll | `<cost>, sacrifice ~: create a <n>/<n> green spider creature token with reach for each counter on ~. activate only as a sorcery.` | Also uncovered in: Commander Cube |
 | Wirewood Herald | `When ~ dies, you may search your library for an elf card, reveal that card, put it into your hand, then shuffle.` |  |
-| Yarus, Roar of the Old Gods | Compound gap — `Whenever <n> or more face-down creatures you control deal combat damage to a player, draw a card.`; `Whenever a face-down creature you control dies, return it to the battlefield face down under its owner's control if it's a permanent card, then turn it face up.` |  |
+| Yarus, Roar of the Old Gods | `Whenever a face-down creature you control dies, return it to the battlefield face down under its owner's control if it's a permanent card, then turn it face up.` |  |
 
 
-### Revival Trance - Final Fantasy Commander (28 cards)
+### Revival Trance - Final Fantasy Commander (26 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
@@ -879,7 +801,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Banon, the Returners' Leader | Compound gap — `Once during each of your turns, you may cast a creature spell from among cards in your graveyard that were put there from anywhere other than the battlefield this turn.`; `Whenever you attack, you may pay <cost> and discard a card. if you do, draw a card.` |  |
 | Coin of Fate | `<cost>, <cost>, exile <n> creature cards from your graveyard, sacrifice ~: an opponent chooses <n> of the exiled cards. you put that card on the bottom of your library and return the other to the battlefield tapped. you become the monarch.` |  |
 | Crackling Doom | `~ deals <n> damage to each opponent. each opponent sacrifices a creature with the greatest power among creatures that player controls.` |  |
-| Cyan, Vengeful Samurai | `Whenever <n> or more creature cards leave your graveyard, put a +<n>/+<n> counter on ~.` |  |
 | Demolition Field | `<cost>, <cost>, sacrifice ~: destroy target nonbasic land an opponent controls. that land's controller may search their library for a basic land card, put it onto the battlefield, then shuffle. you may search your library for a basic land card, put it onto the battlefield, then shuffle.` | Also uncovered in: Scions & Spellcraft - Final Fantasy Commander |
 | Espers to Magicite | `Exile each opponent's graveyard. when you do, choose up to <n> target creature card exiled this way. create a token that's a copy of that card, except it's an artifact and it loses all other card types.` |  |
 | Flayer of the Hatebound | `Whenever ~ or another creature enters from your graveyard, that creature deals damage equal to its power to any target.` |  |
@@ -893,7 +814,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Rejoin the Fight | `Mill <n> cards. then starting with the next opponent in turn order, each opponent chooses a creature card in your graveyard that hasn't been chosen. return each card chosen this way to the battlefield under your control.` |  |
 | Rise of the Dark Realms | `Put all creature cards from all graveyards onto the battlefield under your control.` |  |
 | Ruin Grinder | `When ~ dies, each player may discard their hand and draw <n> cards.` |  |
-| Ruinous Ultimatum | `Destroy all nonland permanents your opponents control.` |  |
 | Sepulchral Primordial | `When ~ enters, for each opponent, you may put up to <n> target creature card from that player's graveyard onto the battlefield under your control.` |  |
 | Setzer, Wandering Gambler | Compound gap — `When ~ enters, create the blackjack, a legendary <n>/<n> colorless vehicle artifact token with flying and crew <n>.`; `Whenever a vehicle you control deals combat damage to a player, flip a coin.`; `Whenever you win a coin flip, create <n> tapped treasure tokens.` |  |
 | Shadow, Mysterious Assassin | `Throw — whenever ~ deals combat damage to a player, you may sacrifice another nonland permanent. if you do, draw <n> cards and each opponent loses life equal to the mana value of the sacrificed permanent.` |  |
@@ -905,11 +825,10 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | The Warring Triad | `<cost>, mill a card: target player adds <n> mana of any color.` |  |
 
 
-### Riveteer Rampage - New Capenna Commander (21 cards)
+### Riveteer Rampage - New Capenna Commander (16 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Aether Snap | `Remove all counters from all permanents and exile all tokens.` |  |
 | Bellowing Mauler | `At the beginning of your end step, each player loses <n> life unless they sacrifice a nontoken creature of their choice.` |  |
 | Deathbringer Regent | `When ~ enters, if you cast it from your hand and there are <n> or more other creatures on the battlefield, destroy all other creatures.` |  |
 | Disciple of Bolas | `When ~ enters, sacrifice another creature. you gain x life and draw x cards, where x is that creature's power.` | Also uncovered in: Commander Cube, Sultai Arisen - Tarkir: Dragonstorm Commander, Wick Snail Boom |
@@ -917,18 +836,14 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Grime Gorger | `Whenever ~ attacks, exile up to <n> card of each card type from defending player's graveyard. put a +<n>/+<n> counter on ~ for each card exiled this way.` |  |
 | Henzie "Toolbox" Torre | `Each creature spell you cast with mana value <n> or greater has blitz. the blitz cost is equal to its mana cost.` |  |
 | Industrial Advancement | `At the beginning of your end step, you may sacrifice a creature. if you do, look at the top x cards of your library, where x is that creature's mana value. you may put a creature card from among them onto the battlefield. put the rest on the bottom of your library in a random order.` |  |
-| Kresh the Bloodbraided | `Whenever another creature dies, you may put x +<n>/+<n> counters on ~, where x is that creature's power.` |  |
 | Life's Legacy | `Draw cards equal to the sacrificed creature's power.` |  |
 | Mezzio Mugger | `Whenever ~ attacks, exile the top card of each player's library. you may play those cards this turn, and you may spend mana as though it were mana of any color to cast those spells.` |  |
 | Mitotic Slime | `When ~ dies, create <n> <n>/<n> green ooze creature tokens. they have ~` |  |
 | Next of Kin | `When enchanted creature dies, you may put a creature card you own with lesser mana value from your hand or from the command zone onto the battlefield. if you do, return this card to the battlefield attached to that creature at the beginning of the next end step.` |  |
 | Protection Racket | `At the beginning of your upkeep, repeat the following process for each opponent in turn order. reveal the top card of your library. that player may pay life equal to that card's mana value. if they do, exile that card. otherwise, put it into your hand.` |  |
-| Stalking Vengeance | `Whenever another creature you control dies, it deals damage equal to its power to target player or planeswalker.` |  |
 | The Beamtown Bullies | `<cost>: target opponent whose turn it is puts target nonlegendary creature card from your graveyard onto the battlefield under their control. it gains haste. goad it. at the beginning of the next end step, exile it.` |  |
 | Turf War | Compound gap — `When ~ enters, for each player, put a contested counter on target land that player controls.`; `Whenever a creature deals combat damage to a player, if that player controls <n> or more lands with contested counters on them, that creature's controller gains control of <n> of those lands of their choice and untaps it.` |  |
 | Wave of Rats | `When ~ dies, if it dealt combat damage to a player this turn, return it to the battlefield under its owner's control.` |  |
-| Windgrace's Judgment | `For any number of opponents, destroy target nonland permanent that player controls.` | Also uncovered in: Squirreled Away - Bloomburrow Commander, World Shaper - Edge of Eternities Commander Deck |
-| Woodfall Primus | `When ~ enters, destroy target noncreature permanent.` |  |
 | World Shaper | `When ~ dies, return all land cards from your graveyard to the battlefield tapped.` |  |
 
 
@@ -958,7 +873,7 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Urianger Augurelt | Compound gap — `<cost>: look at the top card of your library. you may exile it face down.`; `<cost>: until end of turn, you may play cards exiled with ~. spells you cast this way cost <cost> less to cast.`; `Whenever you play a land from exile or cast a spell from exile, you gain <n> life.` |  |
 
 
-### Shorikai Vehicles (22 cards)
+### Shorikai Vehicles (21 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
@@ -976,7 +891,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Prodigy's Prototype | `Whenever <n> or more vehicles you control attack, create a <n>/<n> colorless pilot creature token with ~` |  |
 | Rebbec, Architect of Ascension | `Artifacts you control have protection from each mana value among artifacts you control.` |  |
 | Reckoner Bankbuster | `<cost>, <cost>, remove a charge counter from ~: draw a card. then if there are no charge counters on ~, create a treasure token and a <n>/<n> colorless pilot creature token with ~` |  |
-| Replication Specialist | `Whenever a nontoken artifact you control enters, you may pay <cost>. if you do, create a token that's a copy of that artifact.` |  |
 | Shorikai, Genesis Engine | `<cost>, <cost>: draw <n> cards, then discard a card. create a <n>/<n> colorless pilot creature token with ~` |  |
 | Smuggler's Copter | `Whenever ~ attacks or blocks, you may draw a card. if you do, discard a card.` | Also uncovered in: Commander Cube |
 | Surgehacker Mech | `When ~ enters, it deals damage equal to twice the number of vehicles you control to target creature or planeswalker an opponent controls.` |  |
@@ -1033,7 +947,7 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Swarmyard Massacre | `Create <n> <n>/<n> green squirrel creature tokens. then each creature that isn't an insect, rat, spider, or squirrel gets -<n>/-<n> until end of turn for each creature you control that's an insect, rat, spider, or squirrel.` |  |
 | Sword of the Squeak | Compound gap — `Equipped creature gets +<n>/+<n> for each creature you control with base power or toughness <n>.`; `Whenever a hamster, mouse, rat, or squirrel you control enters, you may attach ~ to that creature.` |  |
 | Tear Asunder | `Exile target artifact or enchantment. if this spell was kicked, exile target nonland permanent instead.` | Also uncovered in: Sultai Arisen - Tarkir: Dragonstorm Commander, World Shaper - Edge of Eternities Commander Deck |
-| The Odd Acorn Gang | Compound gap — `Squirrels you control have ~`; `Whenever <n> or more squirrels you control deal combat damage to a player, draw a card.` |  |
+| The Odd Acorn Gang | `Squirrels you control have ~` |  |
 
 
 ### Sultai Arisen - Tarkir: Dragonstorm Commander (16 cards)
@@ -1058,7 +972,7 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Welcome the Dead | `Draw <n> cards, then discard a card and you lose <n> life. create x tapped <n>/<n> black zombie druid creature tokens, where x is the number of cards that were put into your graveyard from your hand or library this turn.` |  |
 
 
-### Temur Roar - Tarkir: Dragonstorm Commander (29 cards)
+### Temur Roar - Tarkir: Dragonstorm Commander (25 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
@@ -1066,14 +980,12 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Broodcaller Scourge | `Whenever <n> or more dragons you control deal combat damage to a player, you may put a permanent card with mana value less than or equal to that damage from your hand onto the battlefield.` | Also uncovered in: Commander Cube |
 | Deceptive Frostkite | `You may have ~ enter as a copy of a creature you control with power <n> or greater, except it's a dragon in addition to its other types and it has flying.` |  |
 | Dragon's Hoard | `Whenever a dragon you control enters, put a gold counter on ~.` | Also uncovered in: Commander Cube |
-| Dragonlord Atarka | `When ~ enters, it deals <n> damage divided as you choose among any number of target creatures and/or planeswalkers your opponents control.` | Also uncovered in: Commander Cube |
 | Eshki, Temur's Roar | `Whenever you cast a creature spell, put a +<n>/+<n> counter on ~. if that spell's power is <n> or greater, draw a card. if that spell's power is <n> or greater, ~ deals damage equal to ~'s power to each opponent.` |  |
 | Gadrak, the Crown-Scourge | `At the beginning of your end step, create a treasure token for each nontoken creature that died this turn.` |  |
 | Glorybringer | `You may exert ~ as it attacks. when you do, it deals <n> damage to target non-dragon creature an opponent controls.` | Also uncovered in: Commander Cube |
 | Hammerhead Tyrant | `Whenever you cast a spell, return up to <n> target nonland permanent an opponent controls with mana value less than or equal to that spell's mana value to its owner's hand.` |  |
 | Haven of the Spirit Dragon | `<cost>, <cost>, sacrifice ~: return target dragon creature card or ugin planeswalker card from your graveyard to your hand.` |  |
 | Hellkite Courser | `When ~ enters, you may put a commander you own from the command zone onto the battlefield. it gains haste. return it to the command zone at the beginning of the next end step.` |  |
-| Keiga, the Tide Star | `When ~ dies, gain control of target creature.` |  |
 | Nesting Dragon | `Whenever a land you control enters, create a <n>/<n> red dragon egg creature token with defender and ~` |  |
 | Nogi, Draco-Zealot | `Whenever ~ attacks, if you control <n> or more dragons, until end of turn, ~ becomes a dragon with base power and toughness <n>/<n> and gains flying.` |  |
 | Opportunistic Dragon | `When ~ enters, choose target human or artifact an opponent controls. for as long as ~ remains on the battlefield, gain control of that permanent, it loses all abilities, and it can't attack or block.` |  |
@@ -1086,14 +998,12 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Stormbreath Dragon | `When ~ becomes monstrous, it deals damage to each opponent equal to the number of cards in that player's hand.` |  |
 | Temple of the Dragon Queen | `As ~ enters, you may reveal a dragon card from your hand. ~ enters tapped unless you revealed a dragon card this way or you control a dragon.` |  |
 | Territorial Hellkite | `At the beginning of combat on your turn, choose an opponent at random that ~ didn't attack during your last combat. ~ attacks that player this combat if able. if you can't choose an opponent this way, tap ~.` |  |
-| Thunderbreak Regent | `Whenever a dragon you control becomes the target of a spell or ability an opponent controls, ~ deals <n> damage to that player.` | Also uncovered in: Commander Cube |
 | Thundermane Dragon | `You may cast creature spells with power <n> or greater from the top of your library. if you cast a creature spell this way, it gains haste until end of turn.` |  |
 | Ureni of the Unwritten | `Whenever ~ enters or attacks, look at the top <n> cards of your library. you may put a dragon creature card from among them onto the battlefield. put the rest on the bottom of your library in a random order.` | Also uncovered in: Commander Cube |
-| Vengeful Ancestor | `Whenever a goaded creature attacks, it deals <n> damage to its controller.` |  |
 | Whirlwing Stormbrood // Dynamic Soar | `You may cast sorcery spells and dragon spells as though they had flash.` |  |
 
 
-### Turtle Power! - Teenage Mutant Ninja Turtles Commander Deck (32 cards)
+### Turtle Power! - Teenage Mutant Ninja Turtles Commander Deck (30 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
@@ -1108,7 +1018,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Dimension X Pizzasaur | `When ~ enters, put <n> +<n>/+<n> counters on target creature. when you do, destroy up to <n> target creature with mana value less than or equal to the number of counters among permanents you control.` |  |
 | Donatello, the Brains | `If <n> or more tokens would be created under your control, those tokens plus a mutagen token are created instead.` |  |
 | Double Jump // Flying Kick | `Put a flying counter on target creature you control. until end of turn, it has base power and toughness <n>/<n>.` |  |
-| Electric Seaweed | `When ~ enters, until end of turn, whenever another creature dies, ~ deals <n> damage to each non-wall creature.` |  |
 | Everything Pizza | `<cost>, <cost>, sacrifice ~: target player gains <n> life and draws a card. each of your opponents discards a card. ~ deals <n> damage to any target. put <n> +<n>/+<n> counters on up to <n> target creature.` |  |
 | Fast Forward | `This spell costs <cost> less to cast for each opponent you attacked this turn.` |  |
 | Foot Chopper | `Whenever equipped creature deals combat damage to a player, you may sacrifice it. if you do, draw cards equal to its power.` |  |
@@ -1118,7 +1027,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Hidden Hideout | `<cost>, <cost>: target creature you control with a counter on it gains lifelink until end of turn.` |  |
 | High Score | `At the beginning of your end step, draw a card if you control a creature with the greatest power among creatures on the battlefield.` |  |
 | Irma, Part-Time Mutant | `At the beginning of combat on your turn, ~ becomes a copy of up to <n> other target creature you control, except her name is ~ and she has this ability. then put a +<n>/+<n> counter on her.` |  |
-| Krang, the All-Powerful | `If a player drawing a card causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time.` |  |
 | Leonardo, the Balance | `Whenever a token you control enters, you may put a +<n>/+<n> counter on each creature you control. do this only once each turn.` |  |
 | Michelangelo, the Heart | `Raid — at the beginning of your second main phase, if you attacked this turn, put a +<n>/+<n> counter on target creature and create a food token.` |  |
 | Mole Module | `Whenever ~ deals combat damage to a player, mill <n> cards. you may put a permanent card from among them onto the battlefield.` |  |
@@ -1151,12 +1059,12 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Wings of Velis Vel | `Target creature has base power and toughness <n>/<n>, gains all creature types, and gains flying until end of turn.` |  |
 
 
-### World Shaper - Edge of Eternities Commander Deck (15 cards)
+### World Shaper - Edge of Eternities Commander Deck (14 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
 | Aftermath Analyst | `<cost>, sacrifice ~: return all land cards from your graveyard to the battlefield tapped.` |  |
-| Centaur Vinecrasher | Compound gap — `~ enters with a number of +<n>/+<n> counters on it equal to the number of land cards in all graveyards.`; `Whenever a land card is put into a graveyard from anywhere, you may pay <cost>. if you do, return this card from your graveyard to your hand.` |  |
+| Centaur Vinecrasher | `~ enters with a number of +<n>/+<n> counters on it equal to the number of land cards in all graveyards.` |  |
 | Escape to the Wilds | `Exile the top <n> cards of your library. you may play cards exiled this way until the end of your next turn.` |  |
 | Eumidian Hatchery | `When ~ dies, for each hatchling counter on it, create a <n>/<n> black insect creature token with flying.` |  |
 | Eumidian Wastewaker | `Whenever ~ attacks, you and defending player each discard a card or sacrifice a permanent. you draw a card for each land card put into a graveyard this way.` |  |
@@ -1168,15 +1076,13 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Planetary Annihilation | `Each player chooses <n> lands they control, then sacrifices the rest. ~ deals <n> damage to each creature.` |  |
 | Scouring Swarm | `Whenever you sacrifice a land, create a tapped token that's a copy of ~ if <n> or more land cards are in your graveyard. otherwise, create a tapped <n>/<n> black insect creature token with flying.` |  |
 | Splendid Reclamation | `Return all land cards from your graveyard to the battlefield tapped.` |  |
-| The Gitrog Monster | `Whenever <n> or more land cards are put into your graveyard from anywhere, draw a card.` |  |
 | Worldsoul's Rage | `~ deals x damage to any target. put up to x land cards from your hand and/or graveyard onto the battlefield tapped.` |  |
 
 
-### yshtola (17 cards)
+### yshtola (14 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Alela, Cunning Conqueror | `Whenever <n> or more faeries you control deal combat damage to a player, goad target creature that player controls.` |  |
 | Baral, Chief of Compliance | `Whenever a spell or ability you control counters a spell, you may draw a card. if you do, discard a card.` | Also uncovered in: Commander Cube |
 | Battlefield Thaumaturge | `Each instant and sorcery spell you cast costs <cost> less to cast for each creature it targets.` |  |
 | Bloodchief Ascension | Compound gap — `At the beginning of each end step, if an opponent lost <n> or more life this turn, you may put a quest counter on ~.`; `Whenever a card is put into an opponent's graveyard from anywhere, if ~ has <n> or more quest counters on it, you may have that player lose <n> life. if you do, you gain <n> life.` |  |
@@ -1186,9 +1092,7 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Dragon's Prey | `This spell costs <cost> more to cast if it targets a dragon.` |  |
 | Eyeblight's Ending | `Destroy target non-elf creature.` |  |
 | Faebloom Trick | `Create <n> <n>/<n> blue faerie creature tokens with flying. when you do, tap target creature an opponent controls.` |  |
-| Hibernation | `Return all green permanents to their owners' hands.` |  |
 | Leadership Vacuum | `Target player returns each commander they control from the battlefield to the command zone.` |  |
-| Nocturnal Hunger | `Destroy target creature. if the gift wasn't promised, you lose <n> life.` |  |
 | Rend Flesh | `Destroy target non-spirit creature.` |  |
 | Stormscape Familiar | `White spells and black spells you cast cost <cost> less to cast.` |  |
 | Sygg, River Cutthroat | `At the beginning of each end step, if an opponent lost <n> or more life this turn, you may draw a card.` |  |
@@ -1222,3 +1126,15 @@ The target/group-grammar slots PAR-128 owned are closed; this card parses everyt
 | Card | Gap | Notes |
 | --- | --- | --- |
 | The Crimson Avenger | `When ~ enters, choose target spell an opponent controls. Reveal cards from the top of your library until you reveal a card that shares a mana value with it. Cast that card without paying its mana cost. Then shuffle your library.` | The "target spell an opponent controls" slot now parses (`spell_you_dont_control`); the gap left is reveal-until-*shares a mana value with the chosen spell* + free cast, unique cache-wide. |
+
+## Batch 5 — 2026-09-30 re-evaluation of PAR-103/PAR-113 (PARSER_VERSION 552)
+
+Left behind when PAR-119 (graveyard arrivals) and the combat-trigger rows closed the bulk of those tickets; each remaining clause is unique cache-wide (`parser_probe.py blocked` on its distinctive phrase → SOLO 1).
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Guile | `If a spell or ability you control would counter a spell, instead exile that spell and you may play that card without paying its mana cost.` | A counter-replacement that exiles and grants a free play; PAR-103's shuffle clause on the same card now parses. |
+| Goblin Rabblemaster | `Other goblin creatures you control attack each combat if able.` | The rest of the card parses (the `+1/+0 for each other attacking Goblin` clause closed); this is a group-scoped RULE 508.1d requirement on a subtype. |
+| Human Torch | `Whenever ~ attacks, you may pay {r}{g}{w}{u}. If you do, until end of turn, whenever he deals combat damage to an opponent, he deals that much damage to each other opponent.` | A pay-gated delayed trigger; the shape of PAR-113's closed "it deals that much damage to each other opponent" bullet, but the referent is granted until end of turn rather than standing. |
+| Kosei, Penitent Warlord | `As long as ~ is enchanted, equipped, and has a counter on it, ~ has "Whenever ~ deals combat damage to an opponent, you draw that many cards and ~ deals that much damage to each other opponent."` | A three-part conditional over the host's own attachments and counters, wrapping a granted trigger. |
+| Vincent, Vengeful Atoner | `Whenever ~ deals combat damage to an opponent, it deals that much damage to each other opponent if ~'s power is 7 or greater.` | An intervening-if on the source's own power. |

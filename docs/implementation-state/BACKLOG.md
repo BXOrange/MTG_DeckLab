@@ -42,8 +42,8 @@ No open tickets.
   **set-specific mechanics** (a set/precon's signature keyword, worked deck-first). Planechase/
   Archenemy card bodies fold in here (~13/309 done).
 
-  > **Ids:** `PAR-1`…`PAR-131` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-135`**; next free `MEC`: **`MEC-106`**. A new engine primitive found along the way files
+  > **Ids:** `PAR-1`…`PAR-139` are taken — grep `Done_Backend.md` before reusing one. First free:
+  > **`PAR-140`**; next free `MEC`: **`MEC-108`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -93,6 +93,43 @@ No open tickets.
   addition to its other colors and types" — needs an additive colour on `CopyPermanentEffect`, 14 SOLO);
   "any target that isn't a `<subtype>`" (3 SOLO); "Do this only once each turn" as an *action* limit
   (not a trigger limit when the effect is optional — Ondu Spiritdancer, Irreverent Gremlin).
+- **PAR-136 · Blink with a delayed return: "exile `<target>`. Return it to the battlefield under its
+  owner's control at the beginning of the next end step."** 31 SOLO, 10 also-blocked (Turn to Mist,
+  Voidwalk, Liberate, Flickerwisp, Glimmerpoint Stag, Galepowder Mage, Ghostway, Sudden Disappearance,
+  Eerie Interlude, Aetherling, Fleeting Spirit, Roon, Angel of Condemnation, Abuelo, Mistmeadow Witch, …).
+  `BlinkEffect` returns immediately and has no delayed-return param; the pieces exist elsewhere
+  (`ExileEffect(remember)` + `CreateDelayedTriggerEffect` + `ReturnLinkedExileEffect`, RULE 603.7) —
+  decide row-over-composition vs. a `BlinkEffect` param first. Self-blink activated forms ("discard a
+  card: exile ~. Return it …") and "when ~ dies, return it …" ride the same tail.
+- **PAR-137 · Impulse draw: "exile the top `<n>` cards of your library. Until end of turn, you may play
+  them."** 22 SOLO, 10 also-blocked (Abbot of Keral Keep, Act on Impulse, Aerial Caravan, Araña,
+  Ardent Dustspeaker, Experimental Synthesizer, Stromkirk Occultist, Waltz of Rage, …). The primitive
+  `ImpulsiveDrawEffect` (`impulsive_draw`; `same_turn_only` toggles this-turn vs. next-turn) ships and
+  is hand-authored on Galvanic Relay/Ragavan, but **no parser row emits it**. Variants to size:
+  "until end of your next turn", "you may play/cast … this turn" with a colour/type qualifier
+  (Chandra, Dressed to Kill), condition tails ("if you exiled a land this way").
+- **PAR-138 · "Whenever `<n>` or more `<counter>` counters are put on `<subject>`" trigger head.** 26
+  SOLO, 4 also-blocked (Benthic Biomancer, Lonis, Pensive Professor, Sharktocrab, Constable of the
+  Realm, Basking Broodscale, Evolution Witness, Moss-Pit Skeleton, …; not counted: the Plan cycle's
+  "when the fourth plan counter is put on ~", an adjacent ordinal spelling). `EventType.COUNTER` exists (Nine Lives); model the
+  batching on `PUT_INTO_GRAVEYARD`'s "`<n>` or more" form (PAR-119).
+- **PAR-139 · Small verified residue batch — promoted out of `singletons.md` (2026-09-30).** Shapes
+  sized cache-wide at v552; verify each primitive before adding a row:
+  - "If you're the monarch, `<amount>` instead" — 9 SOLO (the Court cycle, Champions of Minas Tirith,
+    Regal Sliver); `is_monarch` predicate exists in `static_conditions.py`.
+  - "Whenever you discard a card" trigger head (+ "if it has madness", noncreature/nonland filters) —
+    15 SOLO, 4 also-blocked (Anje Falkenrath, Bone Miser, Moonstone, Surly Badgersaur, Chira, …).
+  - "Each other `<subtype>` creature you control enters with an additional +1/+1 counter" — 14 SOLO
+    (Grumgully, Sage of Fables, Master Biomancer, Metallic Mimic, Renata, …); the *others* form of the
+    self enters-with-counters replacement.
+  - "If damage would be dealt …, prevent that damage. `<effect keyed to the amount prevented>`" — 5 SOLO
+    (Phyrexian Hydra, Phyrexian Vindicator, Purity, Vigor, Stormwild Capridor).
+  - "`<reanimation>` with a corpse counter on it. If it would leave the battlefield, exile it instead"
+    — 4 SOLO (Crowded Crypt, From the Catacombs, Isareth, Scavenging Ghoul).
+  - "If its/this spell's madness cost was paid, `<effect>`" — 4 SOLO (Avacyn's Judgment, From Under the
+    Floorboards, Grave Scrabbler, Welcome to the Fold).
+  - "When ~ is put into a graveyard from anywhere, its owner shuffles their graveyard into their
+    library" — 2 SOLO (Emrakul the Aeons Torn, Ulamog the Infinite Gyre).
 - **PAR-99 · Khans/Dragons Siege cycle.** The ETB choice parses; unclaimed on all 5 cards (0 SOLO) is
   each mode's standing text — a stored choice gating which of two ongoing abilities is live (Citadel,
   Frontier, Monastery, Outpost, Palace Siege).
@@ -110,14 +147,11 @@ No open tickets.
   (Dreadmaw's Ire, Hunter's Prowess, Unnatural Moonrise), Viconia ×2 "spend mana as though any color".
   Afterwards route non-parsing inner abilities (Full Steam Ahead, Galuf's Final Act, Greater Stone
   Spirit, Tower Above) to `singletons.md`.
-- **PAR-103 · "When `<name>` is put into a graveyard from anywhere, shuffle it into its owner's
-  library" (plain trigger).** Not PAR-92's replacement form. 1 SOLO (Worldspine Wurm), 5 also-blocked
-  (Dread, Guile, Purity, Serra Avatar, Vigor).
-- **PAR-104 · TMNT "create a mutagen token".** 15 SOLO, 2 also-blocked (April O'Neil Human Element,
+- **PAR-104 · TMNT "create a mutagen token".** 16 SOLO, 3 also-blocked (April O'Neil Human Element,
   Crustacean Commando, Genghis Frog, Michelangelo Weirdness to 11, Mona Lisa, Mutant Chain Reaction,
   Ooze Spill, Ray Fillet Man Ray, …).
 - **PAR-105 · "You may cast creature spells from the top of your library".** PAR-88's shape on
-  `game/top_library.py`; 5 SOLO, 3 also-blocked (Augur of Autumn, Elven Chorus, Garruk's Horde,
+  `game/top_library.py`; 6 SOLO, 4 also-blocked (Augur of Autumn, Elven Chorus, Garruk's Horde,
   Ranger Class, Summoning Materia).
 
 > PAR-99…105 counts confirmed at PV 413 (2026-09-16, vs the 56 saved decks in `deck_coverage.py`),
@@ -147,10 +181,8 @@ No open tickets.
   - "ETB target opponent creature gets -X/-X, X = permanent cards in your graveyard" — 2 (Chupacabra
     Echo, Cloud of Darkness).
   - "ETB mill `<n>`, may return a land card from graveyard to hand" — 2 (Eccentric Farmer, Pothole Mole).
-  - **Blink axis (one axis, not three — check which of wrapper / target count-filter / return timing the
-    existing `_BLINK_*_RE`, `BlinkEffect`, `ExileEffect(remember)`+`ReturnLinkedExileEffect` rows lack):**
-    Flickerwisp/Glimmerpoint Stag (ETB, return at next end step), Angel of Condemnation/Roon (`<cost>`
-    activated), Displace/Illusionist's Stratagem ("exile up to `<n>` creatures you control, return them").
+  - **Blink, immediate return of several targets** — Displace, Illusionist's Stratagem ("exile up to
+    `<n>` creatures you control, then return them"); the delayed-return forms are PAR-136.
   - "Return target creature card from your graveyard with an additional +1/+1 counter" — Prison Break
     (SOLO), A-Graveyard Shift (blocked).
   - "End step, if you didn't play a card from exile this turn, create a tapped Powerstone" — Visions of
@@ -167,8 +199,6 @@ No open tickets.
     (Overgrowth, Wolfwillow Haven).
   - "Counter target spell, activated ability, or triggered ability" — 2 (Disallow, Voidslime); widen
     `CounterSpellEffect`'s target kind.
-  - "N or more other creatures with power `<n>` or less enter, draw; once each turn" — Welcoming Vampire
-    (SOLO), Enduring Innocence (also needs PAR-111).
   - "You may have ~ enter as a copy of a creature you control, except it's a Shapeshifter Rogue" — 2
     (Glasspool Mimic, Visage Bandit).
   - "Target opponent exiles a creature or planeswalker with the greatest mana value" — 2 (Blot Out, End
@@ -222,28 +252,27 @@ No open tickets.
     turn/way" (Inflame), "equipped creature becomes blocked, it deals …" (Trailblazer's Torch — the dealer
     is the host, not the Equipment). `DealDamageEffect.group`/`group_player`/`group_and_players` carry the
     shapes that already parse.
-  - Mass-tap tail (`blocked '(?:^|, |\. )tap all '`): "… its controller controls" (Tectonic Instability),
-    "tap all untapped Islands that player controls and ~ deals X damage, X = the number tapped"
+  - Mass-tap tail (`blocked '(?:^|, |\. )tap all '`): "tap all untapped Islands that player controls and
+    ~ deals X damage, X = the number tapped"
     (Monsoon, Angel's Trumpet), "tap all untapped creatures that share a creature type with it", "tap all
     creatures blocking/that blocked ~".
   - "Destroy/exile all `<group>`" leftovers (`blocked '(?:^|[.,] |: )(?:destroy|exile) (?:all|each) '`, ~180
     solo — most are the group plus a rider): "for each … destroyed this way, create a Treasure / gain life"
-    (Blood Money, Fumigate), "they can't be regenerated" after a group (Plague Wind), "until ~ leaves the
-    battlefield" (Aligned Hedron Network), "at the beginning of the next end step" (Bearer of the Heavens).
+    (Blood Money, Fumigate), "until ~ leaves the battlefield" (Aligned Hedron Network), "at the
+    beginning of the next end step" (Bearer of the Heavens).
   - "Each player exiles creature cards from graveyard, sacrifices all creatures, puts exiled cards onto
     the battlefield" — 2 (Living Death, Living End).
   - "Each player chooses creatures with total power `<n>` or less, sacrifices the rest" — 2 (Destined
     Confrontation, Slaughter the Strong).
   - "Put all creatures on the bottom of their owners' libraries" — 2 (Hallowed Burial, Terminus).
   - "Destroy all creatures; gain `<n>` life for each" — Fumigate (SOLO), Avenge.
-  - "Destroy all nonartifact creatures" — 2 (Organic Extinction, Their Name Is Death).
   - "Each opponent sacrifices the creature/planeswalker with greatest mana value" — 2 (Flare of Malice,
     Soul Shatter).
   - "Target player mills half their library, rounded down" — 2 (Cut Your Losses, Traumatize).
 - **PAR-111 · Small residue batch — ETB/dies/leaves triggers.**
-  - Enduring cycle "when ~ dies, if it was a creature, return it… It's an enchantment" — 5, 2 SOLO
-    (Enduring Curiosity, Tenacity); Courage (ETB pump+haste), Friendship (double team + cast anthem),
-    Innocence (see PAR-108) each have a second clause.
+  - Enduring cycle "when ~ dies, if it was a creature, return it… It's an enchantment" — 4 SOLO
+    (Enduring Courage, Curiosity, Innocence, Tenacity); Friendship also needs double team + a cast
+    anthem. Enduring Vitality is hand-authored — copy its entry.
   - "ETB manifest dread, then attach ~ to that creature" — 4 (Conductive Machete, Cursed Windbreaker,
     Dissection Tools, Killer's Mask).
   - "Whenever an opponent's creature enters, you may have that player lose `<n>` life" — 2 (Blood Seeker,
@@ -253,14 +282,10 @@ No open tickets.
 - **PAR-113 · Small residue batch — combat triggers.**
   - "Whenever ~ deals combat damage to a player, you get that many `<cost>`" — Empyreal Voyager, Peema
     Trailblazer (SOLO); Aurora Shifter.
-  - "…to an opponent, it deals that much damage to each other opponent" — 3 SOLO (Amarant Coral, Grenzo's
-    Ruffians, Hydra Omnivore).
   - "Whenever ~ enters or attacks, you may put a land from a graveyard onto the battlefield tapped" — 2
     SOLO (Soul of Windgrace + rebalance).
   - "Whenever ~ attacks, add `<cost>`; you don't lose this mana as steps end" — 2 SOLO (Brazen
     Collector, Savage Ventmaw).
-  - "Whenever ~ attacks, +`<n>`/+`<n>` for each other attacking Goblin" — Goblin Piledriver (SOLO),
-    Goblin Rabblemaster.
 - **PAR-114 · Small residue batch — cost reduction & alternative costs.**
   - "This spell costs `<cost>` less, X = greatest power among your creatures" — 4 (Mitotic Ultimus,
     Molten Monstrosity, The Great Henge, The Skullspore Nexus).
@@ -278,7 +303,7 @@ No open tickets.
 - **PAR-126 · "A spell or ability an opponent controls causes you to discard `<X>`" — self-subject
   trigger family.** MEC-101 built the primitive (`DISCARD_CARD.cause_controller_id`,
   `requires_opponent_caused_discard`, `triggers_mixin._collect_discarded_triggers`) and hand-authored
-  Pure Intentions. 16 SOLO cards remain (`blocked "causes you to discard"`), pure parser work: **(a)** a
+  Pure Intentions. 12 SOLO cards remain (`blocked "causes you to discard"`), pure parser work: **(a)** a
   bare self-subject passive "~ is discarded" has no recognition (`_TRIGGER_VERBS` has no passive row,
   the self noun list has no "card"); **(b)** the "a spell or ability an opponent controls causes you to
   discard `<referent>`" wrapper (subject is the causing spell) needs its own dispatch row emitting
@@ -295,6 +320,18 @@ No open tickets.
   static (`StaticAbility` `remove_keywords`); missing is a until-end-of-turn recipient (e.g.
   `GameObject.temp_removed_keywords`, read by `combat._obj_keywords`, cleared at RULE 514.2) plus the
   parser rows ("`<subject>` loses `<keyword>[, …]` until end of turn", "gains X and loses Y").
+
+- **MEC-106 · Gift (RULE 702.174).** "Gift a `<card | Food | Treasure | tapped Fish | extra turn |
+  octopus>`" + "if the gift was promised, `<effect>`" — 24 SOLO, 1 also-blocked (Dawn's Truce, Parting
+  Gust, Starfall Invocation, Coiling Rebirth, Blooming Blast, Kitnap, Valley Rally, Wildfire Howl, …).
+  `keywords.py` only *recognises* the keyword: no promise choice as the spell is cast (RULE
+  702.174a), no gift delivered to the chosen opponent, no "gift was promised" flag readable by
+  the resolving effect (`effect_conditions`), no "Whenever you give a gift" event (Jolly Gerbils). One
+  batch with its parser rows (see the mechanic-ticket rule).
+- **MEC-107 · Expend (RULE 700.14).** "Whenever you expend `<n>`" — 9 SOLO, 3 also-blocked (Teapot
+  Slinger, Wandertale Mentor, Trailtracker Scout, Bakersbane Duo, Byway Barterer, …). Needs a per-player
+  count of mana spent on spells this turn (`GameState`, reset in `begin_turn`, fed from the cast-payment
+  path) and an `EXPEND` event fired once when the running total reaches each threshold.
 
 ## PLR — Player management
 
