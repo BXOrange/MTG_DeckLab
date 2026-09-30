@@ -28,6 +28,7 @@ from typing import Any, Callable, Optional
 
 from ..normalize import SELF
 from ..spec import GROUP_SUBJECT_KEY_SENTINEL, EffectSpec, ParserProvenance
+from .counters import KEYWORD_COUNTER_KINDS, counter_choice_list, parse_counter_choice_items
 from .referent_condition import PRONOUN_NOUN_ALT
 from .keywords import KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
 from .subgrammars import (
@@ -4694,8 +4695,10 @@ _RETURN_FROM_GRAVEYARD_RE = _c(
     r"(?P<dest>the battlefield|your hand|its owner'?s hand)"
     # "…to the battlefield with a -1/-1 counter on it." (Persist — RULE
     # 701.3 recursion plus an enters-with rider, distinct from the Persist
-    # *keyword*'s in-place return).
-    r"(?P<ewc> with a -1/-1 counter on it)?"
+    # *keyword*'s in-place return). MEC-108 widened the counter to a +1/+1 or
+    # RULE 122.1b keyword counter and its amount ("with a flying counter on it",
+    # "with 2 +1/+1 counters on it").
+    rf"(?: with (?P<ewc_n>a|an|\d+) (?P<ewc_kind>-1/-1|\+1/\+1|{'|'.join(KEYWORD_COUNTER_KINDS)}) counters? on it)?"
 )
 _PUT_FROM_GRAVEYARD_OWNER_CONTROL_RE = _c(
     rf"put (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
@@ -4717,10 +4720,10 @@ def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["max_mana_value"] = int(mv)
     if m.groupdict().get("nonleg"):
         params["exclude_legendary"] = True
-    if m.groupdict().get("ewc"):
+    if m.groupdict().get("ewc_kind"):
         if destination != "battlefield":
             return None  # an enters-with rider is meaningless returning to hand
-        params["extra_counters"] = {"kind": "-1/-1", "count": 1}
+        params["extra_counters"] = {"kind": m.group("ewc_kind"), "count": count_of(m.group("ewc_n"))}
     return [EffectSpec("return_from_graveyard", params)]
 
 
@@ -8575,15 +8578,16 @@ def _add_counters_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: type), so no engine change is needed, only this parser recognition.
 #:
 #: Still an explicit fail-closed whitelist (not a bare `[a-z-]+`) because
-#: three counter families need *more* than a generic `obj.counters[kind]`
-#: bump and would half-model if they slipped through here: RULE 122.1e
-#: **keyword counters** (`flying`/`indestructible`/`menace`/… — the layer
-#: engine has no keyword-counter reader), the **subsystem** counters the
+#: two counter families need *more* than a generic `obj.counters[kind]`
+#: bump and would half-model if they slipped through here: the **subsystem**
+#: counters the
 #: engine keys off by name (`age` cumulative-upkeep, `time` vanishing/
 #: fading, `level` leveler, `loyalty` planeswalker, `lore` Saga, `rad`,
 #: `energy`), and the **replacement-carrying** ones (`stun` skip-untap,
 #: `shield`). Every kind listed here was checked to have no reader anywhere
-#: in `game/` — it's a pure card-text-driven count tracker.
+#: in `game/` — it's a pure card-text-driven count tracker — bar the RULE
+#: 122.1b **keyword counters** (MEC-108), whose reader is the layer engine's
+#: `KEYWORD_COUNTER_SLUGS` pass.
 _NAMED_COUNTER_KINDS: frozenset[str] = frozenset({
     "spore", "burden", "quest",
     "charge", "oil", "storage", "verse", "ki", "page", "plan", "soul",
@@ -8592,6 +8596,9 @@ _NAMED_COUNTER_KINDS: frozenset[str] = frozenset({
     "slime", "tide", "ice", "flame", "hour", "hoofprint", "arrow",
     # PAR-128: pure card-text trackers (no reader in `game/`).
     "impostor", "hone",
+    # MEC-108 / RULE 122.1b: keyword counters — `continuous.KEYWORD_COUNTER_SLUGS`
+    # is the layer-6 reader that makes each one grant its keyword.
+    *KEYWORD_COUNTER_KINDS,
 })
 #: `COUNT_X` (not the plain `COUNT`) so an {X}-costed activated ability's
 #: own "put X charge counters on ~" (Blast Zone, Ventifact Bottle — PAR-47)
@@ -8629,6 +8636,80 @@ def _add_named_counter_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 def _add_named_counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params: dict = {"count": count_or_x_of(m.group("n")), "kind": m.group("ckind")}
     return _add_counters_target_params(m, params)
+
+
+#: MEC-108: "put a +1/+1 counter and a lifelink counter on target creature" /
+#: "put a flying counter, a first strike counter, and a lifelink counter on ~" —
+#: a fixed list of two or more counter kinds onto one recipient. One
+#: `add_counters` per kind: the first carries the recipient (target or self),
+#: the rest re-read it (`previous_subject`, the RULE 608.2 referent the first
+#: one's target seeds) so a single RULE 115 target serves the whole list.
+_COUNTER_LIST_KIND = rf"[+\-−]\d/[+\-−]\d|{'|'.join(_NAMED_COUNTER_KINDS)}"
+_COUNTER_LIST_ITEM = rf"(?:a|an|\d+) (?:{_COUNTER_LIST_KIND}) counters?"
+_COUNTER_LIST_PART_RE = re.compile(rf"(?P<n>a|an|\d+) (?P<ckind>{_COUNTER_LIST_KIND}) counters?")
+_ADD_COUNTER_LIST_RE = _c(
+    rf"put (?P<items>{_COUNTER_LIST_ITEM}(?:, {_COUNTER_LIST_ITEM})*,? and {_COUNTER_LIST_ITEM}) on "
+    rf"(?:{TARGET}|(?P<selfref>{_SELF_SUBJECT}))"
+)
+
+
+def _add_counter_list(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    parts = list(_COUNTER_LIST_PART_RE.finditer(m.group("items")))
+    if len(parts) < 2:
+        return None
+    specs: list[EffectSpec] = []
+    for index, part in enumerate(parts):
+        token = part.group("ckind")
+        kind, mag = _counter_kind_and_multiplier(token) if token[0] in "+-−" else (token, 1)
+        params: dict = {"count": count_or_x_of(part.group("n")) * mag, "kind": kind}
+        if index == 0:
+            built = _add_counters_target_params(m, params)
+            if built is None:
+                return None
+            specs.extend(built)
+        else:
+            if specs[0].params.get("target_kind"):
+                params["previous_subject"] = True
+            specs.append(EffectSpec("add_counters", params))
+    return specs
+
+
+#: MEC-108: "put your choice of a +1/+1, first strike, or trample counter on
+#: that creature" (Assaultron Dominator) / "…your choice of a menace, trample,
+#: reach, or haste counter on ~" / "…a +1/+1 counter or 2 charge counters on
+#: up to 1 other target artifact" (Inspirit) — one `add_counters` whose
+#: ``kind_options`` the controller picks from at resolution.
+_ADD_COUNTER_CHOICE_RE = _c(
+    r"put your choice of " + counter_choice_list("|".join(_NAMED_COUNTER_KINDS))
+    + rf" on (?:{TARGET}|(?P<selfref>{_SELF_SUBJECT}))"
+)
+
+
+def _add_counter_choice(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    options = parse_counter_choice_items(m.group("items"))
+    if options is None:
+        return None
+    return _add_counters_target_params(m, {"kind_options": options})
+
+
+#: MEC-108: "remove a menace counter from ~" / "remove 2 charge counters from
+#: this creature" — the effect-side sibling of the `remove N <kind> counters`
+#: *cost* (`cost_text._REMOVE_COUNTERS_RE`); untargeted, the source's own
+#: counters, exactly ``count`` of one kind (none on it: nothing happens).
+_REMOVE_NAMED_COUNTER_SELF_RE = _c(
+    rf"remove {COUNT} (?P<ckind>{'|'.join(_NAMED_COUNTER_KINDS)}|[+\-−]1/[+\-−]1) "
+    rf"counters? from (?P<selfref>{_SELF_SUBJECT})"
+)
+
+
+def _remove_named_counter_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    if _GROUP_CLAUSE.get() and m.group("selfref").lower() == "it":
+        return None  # under a group trigger a bare "it" is the firing object, not the source
+    ckind = m.group("ckind")
+    kind = "+1/+1" if ckind[0] == "+" else ("-1/-1" if ckind[0] in "-−" else ckind)
+    return [EffectSpec("remove_counters", {
+        "self_only": True, "kind": kind, "count": count_or_x_of(m.group("n")),
+    })]
 
 
 #: RULE 603.1's "Whenever you gain life, …" lifegain-payoff family (RULE
@@ -16648,6 +16729,9 @@ HANDLERS: list[EffectHandler] = [
         _add_named_counter,
     ),
     EffectHandler("add_named_counter_group", _ADD_NAMED_COUNTER_GROUP_RE, _add_named_counter_group),
+    EffectHandler("add_counter_list", _ADD_COUNTER_LIST_RE, _add_counter_list),
+    EffectHandler("add_counter_choice", _ADD_COUNTER_CHOICE_RE, _add_counter_choice),
+    EffectHandler("remove_named_counter_self", _REMOVE_NAMED_COUNTER_SELF_RE, _remove_named_counter_self),
     # "whenever you gain life, put that many +1/+1 counters on ~/target
     # creature" (Ageless Entity/Karlov-adjacent lifegain payoffs) — tried
     # before the plain `add_counters` row above so its "that many" wins

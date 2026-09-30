@@ -2480,6 +2480,12 @@ EffectRegistry.register(
     "choose_opponent_on_enter", lambda p: ChooseOpponentReplacement()
 )
 EffectRegistry.register(
+    # "~ enters with your choice of a flying counter or a first strike counter
+    # on it." (RULE 614.1/122.1b, MEC-108) — `RulesEngine._offer_enter_choices`.
+    "choose_enter_counter",
+    lambda p: ChooseEnterCounterReplacement(options=list(p.get("options", []))),
+)
+EffectRegistry.register(
     # "As this creature enters, choose a number." (Sanctum Prelate, MEC-43)
     # — hand-authored only, no oracle-text grammar yet.
     "choose_number_on_enter",
@@ -2554,6 +2560,7 @@ EffectRegistry.register(
         previous_group_scope=p.get("previous_group_scope"),
         previous_selector=bool(p.get("previous_selector", False)),
         group=p.get("group"),
+        kind_options=p.get("kind_options"),
     ),
 )
 EffectRegistry.register(
@@ -2975,6 +2982,7 @@ EffectRegistry.register(
         draw_per_removed=bool(p.get("draw_per_removed", False)),
         self_only=bool(p.get("self_only", False)), kind=p.get("kind"),
         keep=int(p.get("keep", 0) or 0),
+        count=p.get("count"),
     ),
 )
 EffectRegistry.register(

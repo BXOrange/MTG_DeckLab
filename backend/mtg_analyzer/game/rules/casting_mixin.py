@@ -48,6 +48,7 @@ from ..effects.core import (
     ChooseCardNameReplacement,
     ChooseColorReplacement,
     ChooseCreatureTypeReplacement,
+    ChooseEnterCounterReplacement,
     ChooseNamedModeReplacement,
     ChooseNumberReplacement,
     ChooseOpponentReplacement,
@@ -376,6 +377,10 @@ class CastingResolutionMixin:
             amount = x_paid if condition["is_x"] else condition["count"]
         if amount > 0:
             obj.add_counters(condition["counter_type"], amount)
+        # "~ enters with a +1/+1 counter and a flying counter on it." — the
+        # compound's remaining counters, placed together with the first.
+        for extra in condition.get("extra_counters", ()):
+            obj.add_counters(extra["counter_type"], extra["count"])
 
     def _apply_granted_entry_counters(self, obj: GameObject) -> None:
         """MEC-56: any live ``extra_etb_counter`` static's contribution
@@ -2355,6 +2360,16 @@ class CastingResolutionMixin:
             kind = "choose_named_mode"
             prompt = "Modus wählen"
             options = [{"id": label.strip().lower(), "label": label} for label in effect.options]
+        elif isinstance(effect, ChooseEnterCounterReplacement):
+            # RULE 614.1 + 122.1b: "enters with your choice of a flying counter
+            # or a first strike counter" — the option id is the index, since
+            # two options may share a kind and differ only in amount.
+            kind = "choose_enter_counter"
+            prompt = "Marke wählen, mit der es ins Spiel kommt"
+            options = [
+                {"id": str(i), "label": f"{o['count']}× {o['kind']}" if o["count"] > 1 else o["kind"]}
+                for i, o in enumerate(effect.options)
+            ]
         elif isinstance(effect, ChooseCardNameReplacement):
             kind = "choose_card_name"
             prompt = "Kartenname wählen"
@@ -2412,6 +2427,7 @@ class CastingResolutionMixin:
     @continuations.choice(
         "choose_creature_type", "choose_color", "choose_named_mode",
         "choose_basic_land_type", "choose_card_name", "choose_number", "choose_opponent_on_enter",
+        "choose_enter_counter",
         answer=continuations.ANSWER_STR,
         rule="601.2b",
     )
@@ -2433,6 +2449,7 @@ class CastingResolutionMixin:
         the empty string, which simply matches no permanent.
         """
         obj = self._pending_enter_choice_obj
+        effect = self._pending_enter_choice_effect
         continuation = self._pending_enter_choice_continuation
         self._pending_enter_choice_obj = None
         self._pending_enter_choice_effect = None
@@ -2467,6 +2484,10 @@ class CastingResolutionMixin:
                 obj.chosen_number = int(chosen)
             elif choice["kind"] == "choose_opponent_on_enter":
                 obj.chosen_player_id = chosen
+            elif choice["kind"] == "choose_enter_counter":
+                picked = effect.options[int(chosen)] if effect is not None else None
+                if picked is not None:
+                    obj.add_counters(picked["kind"], picked["count"])
             else:
                 obj.chosen_color = chosen
         if continuation is not None:

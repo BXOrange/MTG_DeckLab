@@ -736,6 +736,7 @@ _CONTINUATION_TYPES: dict[str, str] = {
     "choose_card_name_on_enter": "601.2b",
     "choose_color_on_enter": "601.2b",
     "choose_creature_type_on_enter": "601.2b",
+    "choose_enter_counter": "614.1",
     "choose_named_mode": "700.2",
     "choose_number_on_enter": "601.2b",
     "choose_objects": "601.2b",

@@ -18,6 +18,7 @@ engine is the toolbox that loop drives.
 
 from __future__ import annotations
 
+import copy
 import re
 from typing import Any, Callable, Optional, Union
 
@@ -576,6 +577,55 @@ class ManaCountersMixin:
             self.state.fire_event(resolved)
 
         self.apply_replacements(event, on_resolved=_finish)
+    def _request_counter_kind_choice(
+        self, effect: AddCountersEffect, context: GameContext, targets: Optional[list[Any]]
+    ) -> None:
+        """"Put your choice of a flying counter or a lifelink counter on …"
+        (RULE 122.1b/122.1 — MEC-108): open a `counter_kind` `pending_choice`
+        for the effect's controller and park what `_resume_counter_kind` needs
+        to finish — the effect, the targets its own RULE 115 spec already
+        gathered, and the RULE 608.2 referent a "put … on it" reads
+        (`previous_targets`), the same parking `pay_cost_then` does."""
+        controller_id = getattr(effect.source, "controller_id", None)
+        if controller_id is None or not effect.kind_options:
+            return
+        self._pending_counter_kind = {
+            "effect": effect,
+            "targets": list(targets or []),
+            "previous_targets": list(context.previous_targets),
+        }
+        self.open_choice({
+            "kind": "counter_kind",
+            "player_id": controller_id,
+            "prompt": "Welche Marke soll gelegt werden?",
+            "options": [
+                {"id": str(i), "label": f"{o['count']}× {o['kind']}" if o["count"] > 1 else o["kind"]}
+                for i, o in enumerate(effect.kind_options)
+            ],
+        })
+    @continuations.choice("counter_kind", answer=continuations.ANSWER_STR, rule="122.1")
+    def _resume_counter_kind(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        """Answer a pending `counter_kind` choice: place the picked counters
+        by running a copy of the parked `AddCountersEffect` with that option's
+        kind/amount. Mandatory (no "decline" option), so a missing or unknown
+        answer takes the first option, as every other mandatory pick here does."""
+        pending, self._pending_counter_kind = self._pending_counter_kind, None
+        if pending is None:
+            return
+        effect: AddCountersEffect = pending["effect"]
+        valid = {str(i) for i in range(len(effect.kind_options or []))}
+        picked = effect.kind_options[int(answer) if answer in valid else 0]
+        chosen = copy.copy(effect)
+        chosen.kind_options = None
+        chosen.kind = picked["kind"]
+        chosen.amount = picked["count"]
+        saved = self.context.previous_targets
+        self.context.previous_targets = list(pending["previous_targets"])
+        try:
+            chosen.apply(self.context, pending["targets"] or None)
+        finally:
+            self.context.previous_targets = saved
+        self.check_state_based_actions()
     def bolster(
         self, player: Player, amount: int, source: Optional[GameObject] = None
     ) -> None:

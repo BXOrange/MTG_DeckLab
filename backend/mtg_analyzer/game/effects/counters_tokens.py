@@ -127,8 +127,19 @@ class AddCountersEffect(GameEffect):
         previous_selector: bool = False,
         group: Optional[dict] = None,
         previous_group_scope: Optional[str] = None,
+        kind_options: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         super().__init__(source)
+        #: MEC-108: "put **your choice of** a flying counter or a lifelink counter on …" (RULE
+        #: 122.1b keyword counters — Owen Grady/Assaultron Dominator/Me, the Immortal-shaped):
+        #: ``[{"kind", "count"}, …]`` (2+ entries), each option's own amount ("a +1/+1 counter or
+        #: 2 charge counters" — Inspirit). The effect's controller picks one at resolution
+        #: (`RulesEngine._request_counter_kind_choice`), which then runs a copy of this effect with
+        #: that ``kind``/``amount`` and every other parameter — subject, target — untouched.
+        self.kind_options = [
+            {"kind": str(o["kind"]), "count": max(1, int(o.get("count", 1)))}
+            for o in (kind_options or [])
+        ] or None
         #: ``"not_you"`` — "put a stun counter on each of those creatures **you don't control**"
         #: (Lost in the Maze): `previous_group` narrowed to the objects another player controls.
         self.previous_group_scope = previous_group_scope if previous_group_scope == "not_you" else None
@@ -222,6 +233,9 @@ class AddCountersEffect(GameEffect):
         return "harmful" if self.kind in ("-1/-1", "stun") else "beneficial"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.kind_options:
+            context.engine._request_counter_kind_choice(self, context, targets)
+            return
         self._place_counters(context, targets)
         # RULE 613.1: derived P/T updates continuously, so a *later* clause of
         # the same resolution ("Put a +1/+1 counter on target creature you
@@ -1564,9 +1578,14 @@ class RemoveCountersEffect(GameEffect):
         self_only: bool = False,
         kind: Optional[str] = None,
         keep: int = 0,
+        count: Optional[int] = None,
     ) -> None:
         super().__init__(source)
         self.max_count = max_count
+        #: "Remove a menace counter from ~." (MEC-108, RULE 122.1/701 — a keyword-counter payoff
+        #: cost-as-effect) — remove up to exactly this many of ``kind`` (none is a no-op, nothing
+        #: is owed), unlike every other mode's "strip them all". ``None`` keeps "all".
+        self.count = max(1, int(count)) if count is not None else None
         #: "Remove all counters from target … . Draw a card for each counter
         #: removed this way." (Nexus Mentality, PAR-60) — the controller
         #: draws N, where N is the positive-counter total actually stripped.
@@ -1599,7 +1618,9 @@ class RemoveCountersEffect(GameEffect):
             if not amount:
                 continue
             to_remove = amount
-            if self.keep and amount > 0:
+            if self.count is not None and amount > 0:
+                to_remove = min(amount, self.count)
+            elif self.keep and amount > 0:
                 to_remove = amount - self.keep
                 if to_remove <= 0:
                     continue
@@ -3695,6 +3716,29 @@ class ChooseNumberReplacement(GameEffect):
 
     def __init__(self, description: str = "") -> None:
         super().__init__(None)
+        self.description = description
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        return None  # consulted by RulesEngine._offer_enter_choices, not applied
+
+
+class ChooseEnterCounterReplacement(GameEffect):
+    """"~ enters with your choice of a flying counter or a first strike counter
+    on it." (RULE 614.1 + 122.1b — Helica Glider/Boot Nipper/Wingfold Pteron-
+    shaped) — a sixth `enter_choice_effects` sibling: the controller picks one
+    of ``options`` (``[{"kind", "count"}, …]``) before the permanent joins the
+    battlefield, and `RulesEngine._offer_enter_choices` puts the picked
+    counters on it right then, so they're already there when
+    ENTERS_BATTLEFIELD fires (the same moment `_apply_entry_counters` uses for
+    a fixed "enters with").
+    """
+
+    def __init__(self, options: Optional[list[dict[str, Any]]] = None, description: str = "") -> None:
+        super().__init__(None)
+        self.options = [
+            {"kind": str(o["kind"]), "count": max(1, int(o.get("count", 1)))}
+            for o in (options or [])
+        ]
         self.description = description
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:

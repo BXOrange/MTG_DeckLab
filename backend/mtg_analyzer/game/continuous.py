@@ -146,6 +146,19 @@ def has_subtype(obj: "GameObject", subtype: str) -> bool:
     return _has_subtype(obj, subtype)
 
 
+#: RULE 122.1b: the counter kinds that are *keyword counters* → the keyword
+#: slug (`combat.COMBAT_KEYWORDS`' vocabulary) a permanent carrying one gains.
+#: Counter kinds are stored as the oracle prints them ("first strike"), the
+#: slug is the underscore form every other keyword grant uses. `decayed` and
+#: `exalted` (also listed in 122.1b) are left out: neither is a combat keyword
+#: the layer engine reads today, so a counter of either stays an inert tracker.
+KEYWORD_COUNTER_SLUGS: dict[str, str] = {
+    "flying": "flying", "first strike": "first_strike", "double strike": "double_strike",
+    "deathtouch": "deathtouch", "haste": "haste", "hexproof": "hexproof",
+    "indestructible": "indestructible", "lifelink": "lifelink", "menace": "menace",
+    "reach": "reach", "shadow": "shadow", "trample": "trample", "vigilance": "vigilance",
+}
+
 #: Printed card-type word → the `Card` boolean flag it reads (RULE 300-ish
 #: type vocabulary) — the small, closed set the "opponent-scoped enters-
 #: tapped"/"activation prohibition"/"type overwrite" static families narrow
@@ -2942,6 +2955,21 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
             obj._granted_keywords.update(obj.perpetual_keywords)
             _trace(obj, 6, "Perpetual", "gains " + ", ".join(sorted(obj.perpetual_keywords)),
                    duration="permanent")
+
+    # RULE 122.1b / 613.1f: a keyword counter ("flying", "first strike", …)
+    # makes its permanent gain that keyword — layer 6, re-derived every pass
+    # from `obj.counters`, so removing the last counter takes the keyword
+    # straight back off (no separate cleanup).
+    for obj in state.battlefield:
+        counters = obj.counters
+        if not counters:
+            continue
+        counted = sorted(
+            kind for kind in KEYWORD_COUNTER_SLUGS if int(counters.get(kind, 0) or 0) > 0
+        )
+        if counted:
+            obj._granted_keywords.update(KEYWORD_COUNTER_SLUGS[kind] for kind in counted)
+            _trace(obj, 6, "Keyword counter", "gains " + ", ".join(counted), duration="permanent")
 
     # Still layer 6, but reaching *hand* cards rather than battlefield
     # permanents (PAR-8) — see `_apply_hand_cycling_grants`.

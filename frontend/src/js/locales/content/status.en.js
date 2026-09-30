@@ -182,6 +182,7 @@ export default [
               ['full', 'draw / discard / gain_life'],
               ['full', 'mill / exile / tap'],
               ['full', 'add_counters (+1/+1 / −1/−1)'],
+              ['full', 'Keyword counters (122.1b) — a flying / first strike / double strike / deathtouch / haste / hexproof / indestructible / lifelink / menace / reach / shadow / trample / vigilance counter grants its keyword; "put a … counter and a … counter", "your choice of a … counter or a … counter" (at resolution and as it enters), "remove a … counter"'],
               ['full', 'Bolster (701.39) — +1/+1 counters on the creature with the least toughness; choose on a tie'],
               ['full', 'Support (701.41) — a +1/+1 counter on up to N target creatures'],
               ['full', 'Blight N (Bloomburrow) — N −1/−1 counters on a creature you control (verb form only; cost form open)'],
@@ -428,7 +429,7 @@ export default [
             items: [
               ['full', 'Undo / Restart / Rewind'],
               ['full', 'Passive opponent ("goldfish") as a target for attacks/damage — deliberately passive (the point is testing without resistance); real acting bots (GoldfishBot/GreedyBot) exist separately for multiplayer & the dynamic analysis'],
-              ['partial', 'Total oracle-parser coverage (53.3% · 18,565 / 34,811, PARSER_VERSION 555)'],
+              ['partial', 'Total oracle-parser coverage (53.5% · 18,617 / 34,811, PARSER_VERSION 556)'],
               ['partial', 'Of which Commander-legal (56.1% · 17,860 / 31,830) — the subset relevant to Goldfish/Deck-Analyzer; remainder by cause in scripts/commander_tail_report.py'],
               ['full', 'Interactive choice instead of automation: which object to tap/sacrifice/return'],
               ['full', 'Interrupted resolution — several decisions in one effect (608.2)'],

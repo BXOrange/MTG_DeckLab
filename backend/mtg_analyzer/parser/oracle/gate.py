@@ -3773,7 +3773,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: line (Exhaust/Power-up/Boast/Max speed/Solved) whose body isn't modeled is UNMODELED instead of
 #: an inert keyword-line claim (23 cards lost a real ability). Net: +2 covered (General's
 #: Enforcer, Kashi-Tribe Elite), -24 honestly UNMODELED.
-PARSER_VERSION = "555"
+#: 556 (MEC-108): RULE 122.1b keyword counters — the thirteen keyword kinds join the named-counter
+#: whitelist (single/group "put a flying counter on …", "remove a menace counter from ~"), a
+#: compound list ("a +1/+1 counter and a lifelink counter on target creature", one `add_counters`
+#: per kind, later ones reading the first's target), "your choice of a … counter or a … counter"
+#: (`add_counters.kind_options`, and the as-it-enters `choose_enter_counter`), "enters with a
+#: +1/+1 counter and a flying counter" / "…a first strike counter" (`extra_counters`), and
+#: "return … to the battlefield with a `<keyword>`/+1/+1 counter on it".
+PARSER_VERSION = "556"
 
 
 def parser_source_hash() -> str:

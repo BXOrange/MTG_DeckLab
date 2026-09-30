@@ -72,6 +72,8 @@ const CHOICE_ICONS = {
   choose_creature_type: '🐾', choose_color: '🎨', choose_basic_land_type: '🗺️', read_ahead: '📜',
   scry: '🔮', surveil: '🕵️', clash: '⚔️', opening_hand_battlefield: '🌅', dredge: '⚰️',
   explore_bin: '🧭', populate: '🌱', bolster: '💪', blight: '🥀', endure: '🕊️', recruit: '🎖️',
+  // MEC-108: "your choice of a flying counter or a lifelink counter" — at resolution / as it enters.
+  counter_kind: '🏷️', choose_enter_counter: '🏷️',
   // Explorer's Scope's "look at the top card, if it's a land you may put
   // it onto the battlefield tapped" (bug report, 2026-09-04).
   peek_top_land: '🔭',

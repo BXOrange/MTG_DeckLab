@@ -62,6 +62,7 @@ from .handlers import (
 )
 from .replacements import replacement_clause_specs
 from .count_phrase import _NUMBER, _number
+from .counters import ENTER_COUNTER_CHOICE_RE, parse_counter_choice_items
 from .keywords import KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
 from .subgrammars import (
     CANT_BE_COUNTERED_RE,
@@ -1831,6 +1832,13 @@ def enter_choice_specs(clause: str) -> Optional[list[EffectSpec]]:
         return [EffectSpec("choose_basic_land_type_on_enter", {})]
     if _CHOOSE_OPPONENT_ON_ENTER_RE.fullmatch(text):
         return [EffectSpec("choose_opponent_on_enter", {})]
+    # MEC-108 / RULE 614.1: "~ enters with your choice of a flying counter or a
+    # first strike counter on it." — the counter pick is an as-it-enters choice.
+    choice = ENTER_COUNTER_CHOICE_RE.fullmatch(text)
+    if choice is not None:
+        options = parse_counter_choice_items(choice.group("items"))
+        if options is not None:
+            return [EffectSpec("choose_enter_counter", {"options": options})]
     return None
 
 

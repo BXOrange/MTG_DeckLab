@@ -52,11 +52,20 @@ def test_various_new_kinds_parse():
         assert specs == [EffectSpec("add_counters", {"count": 1, "kind": kind})], kind
 
 
-def test_keyword_counter_stays_unclaimed():
-    # RULE 122.1e keyword counter — the layer engine has no reader, so this
-    # must stay fail-closed rather than half-model.
-    assert match_clause("put a flying counter on ~") is None
-    assert match_clause("put an indestructible counter on ~") is None
+def test_keyword_counter_is_claimed_now_the_layer_engine_reads_it():
+    # RULE 122.1b (MEC-108): `continuous.KEYWORD_COUNTER_SLUGS` is the layer-6 reader.
+    assert match_clause("put a flying counter on ~") == [
+        EffectSpec("add_counters", {"count": 1, "kind": "flying"})
+    ]
+    assert match_clause("put an indestructible counter on ~") == [
+        EffectSpec("add_counters", {"count": 1, "kind": "indestructible"})
+    ]
+
+
+def test_keyword_counters_the_layer_engine_does_not_read_stay_unclaimed():
+    # RULE 122.1b also lists decayed/exalted, but nothing reads them as a counter.
+    assert match_clause("put a decayed counter on ~") is None
+    assert match_clause("put an exalted counter on ~") is None
 
 
 def test_subsystem_counter_stays_unclaimed():

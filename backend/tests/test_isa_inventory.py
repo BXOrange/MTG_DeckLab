@@ -245,8 +245,10 @@ class TestBacklogSizes:
         # graveyard return, …) that had never been classified at all, found while
         # closing the `test_every_registered_effect_type_is_classified` gap. MEC-106
         # adds Gift's permanent-ETB continuation (`gift_give`), hence 81 -> 82.
+        # MEC-108 adds the enter-choice `choose_enter_counter` ("enters with your
+        # choice of a flying counter or …", an `enter_choice_effects` sibling), 82 -> 83.
         n = len(isa.types_classified(isa.Classification.CONTINUATION))
-        assert n <= 82, f"continuation types grew to {n}"
+        assert n <= 83, f"continuation types grew to {n}"
 
     def test_fusion_backlog_does_not_grow(self) -> None:
         # ENG-37 deletes these outright.

@@ -5374,7 +5374,21 @@ def _stamp_counters_on_referent(part: str, specs: list[EffectSpec]) -> list[Effe
     608.2c), so the spec is re-pointed at it (``previous_subject``, which
     `AddCountersEffect` resolves from `previous_targets`, else
     `created_objects`). An explicit "~"/"this creature" never matches."""
-    if len(specs) != 1 or not _COUNTERS_ON_IT_RE.search(part.split(", where x is")[0]):
+    if not specs or not _COUNTERS_ON_IT_RE.search(part.split(", where x is")[0]):
+        return specs
+    if len(specs) > 1:
+        # MEC-108: "put a +1/+1 counter and a flying counter on it" — one
+        # `add_counters` per kind, every one of them aimed at the same "it".
+        if all(
+            spec.type == "add_counters"
+            and not any(spec.params.get(key) for key in _ADD_COUNTERS_PLACEMENT_KEYS)
+            for spec in specs
+        ):
+            return [
+                EffectSpec("add_counters", {**spec.params, "previous_subject": True},
+                           condition=spec.condition)
+                for spec in specs
+            ]
         return specs
     spec = specs[0]
     if spec.type == "bind":

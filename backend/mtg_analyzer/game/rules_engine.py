@@ -258,6 +258,9 @@ class RulesEngine(
         #: opponent {2}); see `_request_pay_cost_then`/
         #: `_resume_pay_cost_then`.
         self._pending_pay_cost_then: Optional[dict[str, Any]] = None
+        #: MEC-108: the "put your choice of a flying counter or a lifelink counter"
+        #: effect awaiting its kind pick — see `RulesEngine._request_counter_kind_choice`.
+        self._pending_counter_kind: Optional[dict[str, Any]] = None
         #: Backing state for an optional "exile this card. If you do, …"
         #: resolution.  Unlike an activation cost the source can already be
         #: in a graveyard when this is offered (Greenwarden of Murasa), so it

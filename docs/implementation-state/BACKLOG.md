@@ -121,6 +121,16 @@ No open tickets.
     `madness_cost_paid` stamp/parser condition, not a new target-announcement mechanism.
   - "When ~ is put into a graveyard from anywhere, its owner shuffles their graveyard into their
     library" — 2 SOLO (Emrakul the Aeons Torn, Ulamog the Infinite Gyre).
+- **PAR-140 · Counter-placement residue found closing MEC-108 (sized at v556).** Each fails for any
+  counter kind, not only keyword counters:
+  - "put a `<kind>` counter on **a** creature you control" (a non-targeted pick, no "target") — 13 cards,
+    7 SOLO (Blood Curdle, Ajani Fells the Godsire, Common Black Removal, …).
+  - "if `<~/it>` doesn't have a `<kind>` counter on it" intervening-if / "has no `<kind>` counters" — 12
+    cards, 8 SOLO (Inventive Wingsmith, Risona, …).
+  - "it becomes a `<type>` in addition to its other types" riding a put/return clause — 11 cards, 7 SOLO
+    (Butch DeLoria, Beorn the Fierce, Call a Surprise Witness, …).
+  - "you may remove a `<kind>` counter from it. When you do, `<effect>`" reflexive — 4 SOLO (Biting-Palm
+    Ninja, Kappa Tech-Wrecker, …); `remove_counters` with an exact `count` exists now (MEC-108).
 - **PAR-99 · Khans/Dragons Siege cycle.** The ETB choice parses; unclaimed on all 5 cards (0 SOLO) is
   each mode's standing text — a stored choice gating which of two ongoing abilities is live (Citadel,
   Frontier, Monastery, Outpost, Palace Siege).
@@ -305,13 +315,7 @@ No open tickets.
 
 ## MEC — Game mechanic
 
-- **MEC-108 · Keyword counters (RULE 122.1b).** A `flying`/`first strike`/`double strike`/`deathtouch`/
-  `haste`/`hexproof`/`indestructible`/`lifelink`/`menace`/`reach`/`shadow`/`trample`/`vigilance`
-  counter grants its keyword, but the layer engine has no reader (a `flying` counter on a creature
-  gives nothing) and `_NAMED_COUNTER_KINDS` excludes them. Then the parser: single and compound
-  "put a flying counter / a +1/+1 counter and a lifelink counter on …", "remove a menace counter",
-  "your choice of a deathtouch counter or a lifelink counter" (124 cards carry an unclaimed clause
-  naming one, 94 solo — Mai, Captain Marvel, Quicksilver, Nezumi Prowler, Avenging Huntbonder, …).
+_No open tickets._
 
 ## PLR — Player management
 

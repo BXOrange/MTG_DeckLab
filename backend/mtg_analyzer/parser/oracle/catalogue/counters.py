@@ -35,7 +35,73 @@ _ENTERS = r"enters(?: the battlefield)?"
 _AMOUNT = r"(a|an|x|\d+)"
 #: The counter's kind: "+1/+1"/"-1/-1" (number words are already folded to
 #: digits by `normalize`), or a bare word like "ice"/"charge".
-_COUNTER_TYPE = r"(\+\d+/\+\d+|-\d+/-\d+|[a-z]+)"
+_COUNTER_TYPE = r"(\+\d+/\+\d+|-\d+/-\d+|first strike|double strike|[a-z]+)"
+
+#: RULE 122.1b keyword counters, spelled as the oracle text prints the kind
+#: (the layer engine's matching reader is `game/continuous.py`'s
+#: `KEYWORD_COUNTER_SLUGS`; a test pins the two lists together, since this
+#: module may not import `game/`). `decayed`/`exalted` are deliberately absent
+#: — see that constant's comment.
+KEYWORD_COUNTER_KINDS: tuple[str, ...] = (
+    "flying", "first strike", "double strike", "deathtouch", "haste", "hexproof",
+    "indestructible", "lifelink", "menace", "reach", "shadow", "trample", "vigilance",
+)
+
+#: One option of a "your choice of …" counter list: an optional amount ("a"/"an"
+#: = 1, a digit), the kind, and an optional trailing "counter(s)" word — the
+#: shared-noun list "a +1/+1, first strike, or trample counter" carries the
+#: word only on its last option.
+def counter_choice_item(kinds: str) -> str:
+    return rf"(?:(?:a|an|\d+) )?(?:\+1/\+1|{kinds})(?: counters?)?"
+
+
+def counter_choice_list(kinds: str) -> str:
+    """Regex fragment for ``<item>, <item>, or <item>`` / ``<item> or <item>``
+    (two or more options), as the named group ``items``."""
+    item = counter_choice_item(kinds)
+    return rf"(?P<items>{item}(?:, {item})*,? or {item})"
+
+
+_CHOICE_OPTION_RE = re.compile(r"(?:(?P<n>a|an|\d+) )?(?P<kind>\+1/\+1|[a-z]+(?: strike)?)(?: counters?)?$")
+
+
+def parse_counter_choice_items(items: str) -> Optional[list[dict[str, Any]]]:
+    """Split a `counter_choice_list` match into ``[{"kind", "count"}, …]``
+    (an amount-less option in a shared-noun list counts as 1), or ``None``
+    when any option doesn't read back cleanly."""
+    options: list[dict[str, Any]] = []
+    for part in re.split(r",? or |, ", items):
+        match = _CHOICE_OPTION_RE.match(part.strip())
+        if match is None:
+            return None
+        amount = match.group("n")
+        options.append({
+            "kind": match.group("kind"),
+            "count": int(amount) if amount and amount.isdigit() else 1,
+        })
+    return options if len(options) >= 2 else None
+
+
+#: "~ enters with your choice of a flying counter or a first strike counter on
+#: it." / "…with your choice of a +1/+1, first strike, or vigilance counter on
+#: it." (RULE 614.1 + 122.1b — the controller picks as it enters).
+ENTER_COUNTER_CHOICE_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} with your choice of "
+    + counter_choice_list("|".join(KEYWORD_COUNTER_KINDS)) + r" on it\.?$",
+    re.IGNORECASE,
+)
+
+#: "~ enters with a +1/+1 counter and a flying counter on it." — a fixed
+#: compound of two (or three) counters; `_ENTRY_COUNTERS_RE` only ever names
+#: one. Kinds are the +1/+1/-1/-1 shapes, a keyword counter, or a bare word.
+_ENTRY_COMPOUND_ITEM = rf"(?:a|an|\d+) (?:\+\d+/\+\d+|-\d+/-\d+|first strike|double strike|[a-z]+) counters?"
+_ENTRY_COUNTERS_COMPOUND_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} with (?P<items>{_ENTRY_COMPOUND_ITEM}(?:, {_ENTRY_COMPOUND_ITEM})*,? and {_ENTRY_COMPOUND_ITEM}) on it\.?$",
+    re.IGNORECASE,
+)
+_ENTRY_COMPOUND_PART_RE = re.compile(
+    r"(?P<n>a|an|\d+) (?P<kind>\+\d+/\+\d+|-\d+/-\d+|first strike|double strike|[a-z]+) counters?"
+)
 
 #: "~ enters with X +1/+1 counters on it." / "this creature enters with
 #: three ice counters on it." / "this artifact enters with a charge counter
@@ -204,6 +270,11 @@ def entry_counters_condition(line: str) -> Optional[dict[str, Any]]:
       the other two kicked shapes use, and not the *spell's* own X the
       unconditional ``is_x`` shape above uses); 0 unless Kicker was paid.
 
+    - ``{"is_x": False, "count": N, "counter_type": T, "extra_counters":
+      [{"counter_type": T2, "count": N2}, …]}`` — a compound ("~ enters with
+      a +1/+1 counter and a flying counter on it"): the first counter plus
+      the rest, all placed unconditionally.
+
     Either kicked shape may also carry ``"grant_keyword": "vigilance"`` (RULE
     702.33b's "...and with `<keyword>`." tail) — a keyword granted under the
     exact same kicked gate as the counters (present at all once kicked, for
@@ -285,6 +356,15 @@ def entry_counters_condition(line: str) -> Optional[dict[str, Any]]:
             "is_x": False, "count": _fixed_count(match.group(1)),
             "counter_type": match.group(2).lower(), "chosen_opponent_creatures_scale": True,
         }
+    match = _ENTRY_COUNTERS_COMPOUND_RE.match(line)
+    if match is not None:
+        parts = [
+            {"counter_type": p.group("kind").lower(), "count": _fixed_count(p.group("n"))}
+            for p in _ENTRY_COMPOUND_PART_RE.finditer(match.group("items"))
+        ]
+        first, rest = parts[0], parts[1:]
+        return {"is_x": False, "count": first["count"], "counter_type": first["counter_type"],
+                "extra_counters": rest}
     match = _ENTRY_COUNTERS_RE.match(line)
     if not match:
         return None
