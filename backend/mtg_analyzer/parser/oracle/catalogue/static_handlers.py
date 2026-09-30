@@ -2571,7 +2571,10 @@ _ATTACHED_ANTHEM_RE = re.compile(
 # "<equipped/enchanted/fortified subject> has <keywords>"  (keyword-only grant)
 _ATTACHED_GRANT_RE = re.compile(
     rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has (?P<kw>{_KW_WITH_WARD})"
-    r"(?P<goaded> and is goaded)?",
+    r"(?P<goaded> and is goaded)?"
+    # PAR-122: RULE 509.1c's "… and must be blocked if able" (The Masamune) — the same
+    # synthetic ``must_be_blocked`` flag `_MUST_BE_BLOCKED_RE` grants on its own.
+    r"(?P<must_be_blocked> and must be blocked if able)?",
     re.IGNORECASE,
 )
 # "<enchanted subject> is goaded" — the bare designation with no other grant
@@ -3359,6 +3362,30 @@ def _previous_target_color_condition(m: "re.Match[str]") -> dict:
 #: precedence order. Deliberately closed: a word that is none of the three
 #: (an ability word, a supertype) fails the whole clause closed rather than
 #: becoming a subtype filter that silently never matches.
+#: PAR-122: the combat/tap *states* an "as long as enchanted creature is `<state>`" condition
+#: may name — RULE 508.1/509.1 designations and RULE 302.6 tapped-ness, read off the host.
+#: Only the RULE 613.6 "as long as" wrapper reads these (`_attached_state_condition`): its
+#: pronoun rewrite ("it has …" → "enchanted creature has …") is what points the inner clause at
+#: the host. A bare "tap it"/"untap it" under an intervening "if" would still act on the Aura.
+_ATTACHED_STATE_KINDS: dict[str, str] = {
+    "attacking": "source_attacking",
+    "blocking": "source_blocking",
+    "tapped": "source_tapped",
+    "untapped": "source_untapped",
+}
+_ATTACHED_STATE_CONDITION_RE = re.compile(
+    rf"(?:{_ATTACHED_SUBJECT_PATTERN}) is (?P<state>{'|'.join(_ATTACHED_STATE_KINDS)})", re.I
+)
+
+
+def _attached_state_condition(text: str) -> Optional[dict]:
+    """"enchanted creature is attacking" → its ``active_if`` dict (`_ATTACHED_STATE_KINDS`)."""
+    m = _ATTACHED_STATE_CONDITION_RE.fullmatch(text.strip().rstrip("."))
+    if m is None:
+        return None
+    return {"kind": _ATTACHED_STATE_KINDS[m.group("state").lower()], "of": "attached"}
+
+
 def _attached_characteristic(word: str) -> Optional[dict]:
     word = word.strip().lower()
     if word in _CARD_TYPE_WORDS:
@@ -3852,7 +3879,7 @@ def _conditional_static_specs(text: str) -> Optional[list[EffectSpec]]:
         m = pattern.fullmatch(text)
         if m is None:
             continue
-        condition = static_condition(m.group("cond"))
+        condition = _attached_state_condition(m.group("cond")) or static_condition(m.group("cond"))
         if condition is None:
             return None
         inner = m.group("inner").strip().rstrip(",").strip()
@@ -3892,6 +3919,22 @@ def _conditional_static_specs(text: str) -> Optional[list[EffectSpec]]:
             spec.params["active_if"] = {"kind": "your_turn"}
         return specs
     return None
+
+
+def _granted_trigger_doubler(inner: str) -> Optional[EffectSpec]:
+    """A quoted trigger doubler granted to the attached permanent → a `trigger_doubler`
+    spec with ``affects="attached_permanent"`` (its "~"/"this creature" is that host)."""
+    body = inner.strip().rstrip(".").strip()
+    if not body.lower().startswith("if ") or "triggers an additional time" not in body.lower():
+        return None
+    from ..segmenter import trigger_condition_dict  # lazy: segmenter imports this module
+    from .trigger_doubler import parse_trigger_doubler
+
+    doubler = parse_trigger_doubler(body, trigger_condition_dict)
+    if doubler is None:
+        return None
+    doubler.params["affects"] = "attached_permanent"
+    return doubler
 
 
 def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
@@ -4602,6 +4645,8 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         if resolved is None:
             return None
         keywords, ward_cost = resolved
+        if m.group("must_be_blocked"):
+            keywords = [*keywords, "must_be_blocked"]
         params = {"affects": "attached_permanent"}
         if keywords:
             params["keywords"] = keywords
@@ -5000,6 +5045,11 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _ATTACHED_QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
+        # PAR-122: "equipped creature has \"if … triggers an additional time\"" (The Masamune)
+        # — a granted doubler, held by the attached permanent rather than the Equipment.
+        granted_doubler = _granted_trigger_doubler(m.group("inner"))
+        if granted_doubler is not None:
+            return [granted_doubler]
         grants = _quoted_ability_grant_effects_list(m.group("inner"))
         if grants is None:
             return None

@@ -216,6 +216,10 @@ class RulesEngine(
         #: mode's effects while its own target/"you may" choice is pending
         #: (``None`` selects the ability's own ``effects``, keeping the
         #: non-modal path unchanged).
+        #: RULE 603.2d: the paid trigger doubler (`TriggerDoublerEffect.tap_cost`) whose
+        #: `trigger_doubler_tap` choice is open — the firing, the queue behind it, the
+        #: doubler's holder/effect and the permanents picked to tap so far.
+        self._pending_doubler_tap: Optional[dict[str, Any]] = None
         self._pending_trigger_ability: Optional[TriggeredAbility] = None
         self._pending_trigger_queue: list[tuple[TriggeredAbility, GameEvent]] = []
         self._pending_trigger_effects: Optional[list[Any]] = None

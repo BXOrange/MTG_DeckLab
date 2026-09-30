@@ -1158,6 +1158,7 @@ EffectRegistry.register(
     "trigger_doubler",  # Roaming Throne / Panharmonicon / Elesh Norn, Mother of Machines / Delney …
     lambda p: TriggerDoublerEffect(
         cause=p.get("cause"), subject=p.get("subject"), active_if=p.get("active_if"),
+        attached=p.get("affects") == "attached_permanent", tap_cost=p.get("tap_cost"),
     ),
 )
 EffectRegistry.register(

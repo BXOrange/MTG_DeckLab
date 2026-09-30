@@ -5488,14 +5488,32 @@ def _describe_ability(ability: StaticAbility) -> str:
     return ability.affects
 
 
+def _doubler_kind(obj: Any) -> str:
+    """What a doubled trigger's source is: an ``"emblem"`` (RULE 114.4), a ``"spell"`` on the
+    stack (its own cast triggers — cascade, storm), or an ordinary ``"permanent"``."""
+    from ..models.game.emblem import Emblem  # local: continuous imports models lazily
+    from ..models.game.game_object import Zone
+
+    if isinstance(obj, Emblem):
+        return "emblem"
+    return "spell" if getattr(obj, "zone", None) == Zone.STACK else "permanent"
+
+
 def _doubler_side_matches(
-    state: "GameState", doubler: "GameObject", side: dict, obj: "GameObject"
+    state: "GameState", doubler: "GameObject", side: dict, obj: Any
 ) -> bool:
     """One alternative of a compound doubler subject (`trigger_doubler._alternative`)."""
     from .combat import matches_object_filter  # local: combat imports models lazily too
 
+    kind = _doubler_kind(obj)
+    if kind == "emblem":
+        return bool(side.get("emblem")) and obj.owner_id == doubler.controller_id
+    if side.get("emblem") or bool(side.get("spell")) != (kind == "spell"):
+        return False
     if side.get("self"):
         return obj is doubler
+    if side.get("other") and obj is doubler:
+        return False
     if side.get("attached_to_doubler") and getattr(obj, "attached_to", None) != doubler.instance_id:
         return False
     filt = side.get("filter")
@@ -5503,7 +5521,7 @@ def _doubler_side_matches(
 
 
 def _composed_doubler_applies(
-    state: "GameState", doubler: "GameObject", effect: Any, obj: "GameObject",
+    state: "GameState", doubler: "GameObject", effect: Any, obj: Any,
     event: Any, context: Any,
 ) -> bool:
     """PAR-122: whether a `TriggerDoublerEffect` built from a ``cause`` and/or
@@ -5513,6 +5531,7 @@ def _composed_doubler_applies(
     trigger-shaped dict answered by the same predicate a triggered ability of that
     shape would use (`binding.core._trigger_condition`), so "a creature you control
     attacking" means exactly what "whenever a creature you control attacks" means.
+    ``obj`` is a permanent unless the subject names a spell/emblem side (`_doubler_kind`).
     """
     from .combat import matches_object_filter  # local: combat imports models lazily too
 
@@ -5522,6 +5541,8 @@ def _composed_doubler_applies(
         if not any(_doubler_side_matches(state, doubler, side, obj) for side in subject["any_of"]):
             return False
         subject = {}
+    elif _doubler_kind(obj) != "permanent":
+        return False  # "a permanent you control" never names a spell or an emblem
     if subject.get("other") and doubler is obj:
         return False
     if subject.get("attached") and getattr(doubler, "attached_to", None) != obj.instance_id:
@@ -5552,6 +5573,61 @@ def _composed_doubler_applies(
     return predicate is None or bool(predicate(event, context))
 
 
+def _active_doublers(
+    state: "GameState", obj: Any, event: Any, context: Any
+) -> list[tuple["GameObject", Any]]:
+    """Every ``(holder, TriggerDoublerEffect)`` that doubles ``obj``'s trigger caused by
+    ``event`` — the holder being the permanent that has the doubler (an Equipment's granted
+    doubler is held by its host, `TriggerDoublerEffect.attached`)."""
+    from .effects.core import TriggerDoublerEffect  # local: effects imports this module
+
+    if obj.controller_id is None:
+        return []
+    found: list[tuple["GameObject", Any]] = []
+    for doubler in state.battlefield:
+        for effect in getattr(doubler, "static_effects", None) or []:
+            if not isinstance(effect, TriggerDoublerEffect):
+                continue
+            holder = doubler
+            if effect.attached:
+                holder = next(
+                    (o for o in state.battlefield if o.instance_id == getattr(doubler, "attached_to", None)),
+                    None,
+                )
+                if holder is None:
+                    continue
+            if holder.controller_id != obj.controller_id:
+                continue
+            if effect.active_if and not static_conditions.condition_holds(
+                effect.active_if, state, doubler, doubler.controller_id
+            ):
+                continue
+            if _composed_doubler_applies(state, holder, effect, obj, event, context):
+                found.append((holder, effect))
+    return found
+
+
+def trigger_doubler_tap_offers(
+    state: "GameState", obj: Any, event: Any = None, context: Any = None
+) -> list[tuple["GameObject", Any]]:
+    """The paid doublers ("tap any number of Fish you control … an additional time for each",
+    The Fish Brewer) that apply to ``obj``'s trigger: ``(holder, effect)`` pairs whose extra
+    copies the controller buys when the trigger is put on the stack, not free ones."""
+    return [(h, e) for h, e in _active_doublers(state, obj, event, context) if e.tap_cost]
+
+
+def doubler_tap_candidates(state: "GameState", holder: "GameObject", effect: Any) -> list["GameObject"]:
+    """The untapped permanents ``holder``'s controller may tap to pay ``effect.tap_cost``."""
+    from .combat import matches_object_filter  # local: combat imports models lazily too
+
+    filt = (effect.tap_cost or {}).get("filter")
+    return [
+        o for o in state.battlefield
+        if o.controller_id == holder.controller_id and not o.tapped
+        and (not filt or matches_object_filter(o, filt, reference=holder, state=state))
+    ]
+
+
 def trigger_doubler_bonus(
     state: "GameState", obj: "GameObject", event: Any = None, context: Any = None
 ) -> int:
@@ -5572,21 +5648,4 @@ def trigger_doubler_bonus(
     the `GameContext` its predicate reads — consulted only by a doubler whose
     `TriggerDoublerEffect.cause` is set (see `_composed_doubler_applies`).
     """
-    from .effects.core import TriggerDoublerEffect  # local: effects imports this module
-
-    if obj.controller_id is None:
-        return 0
-    bonus = 0
-    for doubler in state.battlefield:
-        if doubler.controller_id != obj.controller_id:
-            continue
-        for effect in getattr(doubler, "static_effects", None) or []:
-            if not isinstance(effect, TriggerDoublerEffect):
-                continue
-            if effect.active_if and not static_conditions.condition_holds(
-                effect.active_if, state, doubler, doubler.controller_id
-            ):
-                continue
-            if _composed_doubler_applies(state, doubler, effect, obj, event, context):
-                bonus += 1
-    return bonus
+    return sum(1 for _, effect in _active_doublers(state, obj, event, context) if not effect.tap_cost)

@@ -162,6 +162,7 @@ export default [
               ['full', 'Modale ausgelöste Fähigkeiten'],
               ['full', '„Du darfst"-Trigger'],
               ['full', 'Reihenfolge-Wahl (Trigger)'],
+              ['full', 'Trigger-Verdoppler (603.2d) — „Wenn <Ursache> eine ausgelöste Fähigkeit von <Subjekt> auslöst, löst sie ein weiteres Mal aus“: Permanents, Zauber (Cascade/Storm), Embleme, von Ausrüstung/Auren gewährte und bezahlte („tappe beliebig viele …“, interaktiv)'],
             ],
           },
           {
@@ -424,8 +425,8 @@ export default [
             items: [
               ['full', 'Rückgängig / Neustart / Rewind'],
               ['full', 'Passiver Gegner ("Goldfisch") als Ziel für Angriffe/Schaden — bewusst passiv (Zweck ist das Testen ohne Gegenwehr); echte agierende Bots (GoldfishBot/GreedyBot) existieren separat für Multiplayer & die Dynamische Analyse'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (52,8 % · 18.369 / 34.811, PARSER_VERSION 550)'],
-              ['partial', 'Davon Commander-legal (52,8 % · 16.793 / 31.830) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (52,8 % · 18.378 / 34.811, PARSER_VERSION 551)'],
+              ['partial', 'Davon Commander-legal (55,5 % · 17.652 / 31.830) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],
               ['full', 'Unterbrochene Auflösung — mehrere Entscheidungen in einem Effekt (608.2)'],
             ],

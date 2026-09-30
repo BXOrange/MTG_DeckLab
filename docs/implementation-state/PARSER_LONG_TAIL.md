@@ -25,9 +25,9 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**52.8% covered — 18,369 / 34,811 — as of 2026-09-30, PARSER_VERSION 550** (PAR-128 closes: the general mass destroy / exile / bounce group, "each creature blocking it", "X target creatures", plural "other" / "you control", the `noncreature_permanent` kind, "counter target spell you don't control", mass tap scoped to the defending / event player: +124 since v548, 0 regressed. Before that, "those creatures" replaying a preceding mass-selector, mass-damage or mass-counter group, "target opponent … for each", Duress-family, scoped can't-block, counters on "each of them", the general and player-scoped mass tap, named counters on a group, "it gets +X/+X, where X …", "without <keyword>", "any player may activate", "can't be regenerated" (+ exile rider), general and player-scoped mass damage: +163 since v530, 0 regressed).
-Commander-legal slice (the one the product actually plays): **55.4% —
-17,644 / 31,830** (measure with `--commander-legal-only`).
+**52.8% covered — 18,378 / 34,811 — as of 2026-09-30, PARSER_VERSION 551** (PAR-122 closes: the "a player drawing a card" doubler cause, a spell's own / an emblem's / a granted / a paid ("tap any number of …") trigger doubler, "copy it" under a cast trigger, "that's all colors" tokens and the "as long as equipped creature is attacking" grant: +9 since v550, 0 regressed. Before that, PAR-128 closes: the general mass destroy / exile / bounce group, "each creature blocking it", "X target creatures", plural "other" / "you control", the `noncreature_permanent` kind, "counter target spell you don't control", mass tap scoped to the defending / event player: +124 since v548, 0 regressed. Before that, "those creatures" replaying a preceding mass-selector, mass-damage or mass-counter group, "target opponent … for each", Duress-family, scoped can't-block, counters on "each of them", the general and player-scoped mass tap, named counters on a group, "it gets +X/+X, where X …", "without <keyword>", "any player may activate", "can't be regenerated" (+ exile rider), general and player-scoped mass damage: +163 since v530, 0 regressed).
+Commander-legal slice (the one the product actually plays): **55.5% —
+17,652 / 31,830** (measure with `--commander-legal-only`).
 
 ### PAR-124 closes completely: player-events, X-tokens, a targeted delayed trigger, a hand-zone duplicate, an optional-attach composition — and the controller-binding bug the targeted variant first exposed (PARSER_VERSION 463)
 

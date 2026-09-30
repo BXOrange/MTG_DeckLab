@@ -158,8 +158,49 @@ def _creature_type_options(state: GameState, controller_id: Optional[str]) -> li
 
 
 
+class _TapOfferFiring(tuple):
+    """A queued ``(ability, event)`` firing that also carries the paid doublers
+    (`TriggerDoublerEffect.tap_cost`) still to be offered to its controller — a plain tuple
+    everywhere else, so every consumer of `pending_triggers` unpacks it unchanged."""
+
+    def __new__(cls, firing: tuple, offers: list[tuple[GameObject, Any]]) -> "_TapOfferFiring":
+        item = super().__new__(cls, firing)
+        item.tap_offers = list(offers)
+        return item
+
+
 class TriggerCollectionMixin:
     """Trigger collection (per-firing built and inherent) and placement/ordering/mode/target interactive choices (RULE 603)."""
+
+    def _queue_firing(
+        self, ability: "TriggeredAbility", event: GameEvent, obj: Any, capture: bool = True
+    ) -> None:
+        """Queue ``ability``'s firing for placement — once, plus one extra copy per free
+        doubler that applies (RULE 603.2d, Roaming Throne-shaped "if a triggered ability of
+        another creature you control of the chosen type triggers, it triggers an additional
+        time"). The extras are independent copies rather than a multiplier baked into the
+        ability, since each copy is separately orderable/targetable (RULE 603.3b) once 2+ end
+        up pending together.
+
+        A *paid* doubler (`TriggerDoublerEffect.tap_cost`, The Fish Brewer) rides on the first
+        copy as `_TapOfferFiring.tap_offers`; `_place_triggers` asks its controller how many
+        to tap when that copy is placed.
+        """
+        copies = 1 + continuous.trigger_doubler_bonus(
+            self.state, obj, event=event, context=self.context
+        )
+        offers = continuous.trigger_doubler_tap_offers(
+            self.state, obj, event=event, context=self.context
+        )
+        for index in range(copies):
+            captured = (
+                ability.capture_event(event, self.context)
+                if capture and ability.capture_event else event
+            )
+            firing: tuple = (ability, captured)
+            if index == 0 and offers:
+                firing = _TapOfferFiring(firing, offers)
+            self.pending_triggers.append(firing)
 
     def _collect_triggers(self, event: GameEvent) -> None:
         if continuous.trigger_suppressed(self.state, event):
@@ -197,19 +238,7 @@ class TriggerCollectionMixin:
                         # late to spend, which is the entire point of both.
                         self._resolve_mana_trigger(ability, event)
                         continue
-                    # RULE 603.3d: Roaming Throne-shaped "if a triggered
-                    # ability of another creature you control of the chosen
-                    # type triggers, it triggers an additional time" —
-                    # placed as extra, independent copies rather than a
-                    # multiplier baked into the ability itself, since each
-                    # copy is separately orderable/targetable (RULE 603.3b)
-                    # once 2+ end up pending together.
-                    copies = 1 + continuous.trigger_doubler_bonus(
-                        self.state, obj, event=event, context=self.context
-                    )
-                    for _ in range(copies):
-                        captured = ability.capture_event(event, self.context) if ability.capture_event else event
-                        self.pending_triggers.append((ability, captured))
+                    self._queue_firing(ability, event, obj)
         # RULE 114.4: an emblem's abilities function in the command zone —
         # scanned the same way as a permanent's, just off `Player.emblems`
         # instead of the battlefield (see `models/emblem.py`).
@@ -217,8 +246,7 @@ class TriggerCollectionMixin:
             for emblem in player.emblems:
                 for ability in emblem.triggered_abilities:
                     if ability.check_trigger(event, self.context):
-                        captured = ability.capture_event(event, self.context) if ability.capture_event else event
-                        self.pending_triggers.append((ability, captured))
+                        self._queue_firing(ability, event, emblem)
         # RULE 901.7/902.4/904.9: likewise for the casual variants' own
         # command-zone cards — the face-up plane's planeswalk/chaos
         # abilities, a scheme's "when you set this scheme in motion", a
@@ -1103,7 +1131,8 @@ class TriggerCollectionMixin:
             if not getattr(ability, "functions_from_stack", False):
                 continue
             if isinstance(ability, TriggeredAbility) and ability.check_trigger(event, self.context):
-                self.pending_triggers.append((ability, event))
+                # RULE 603.2d: a spell's own cast trigger (cascade, storm) can be doubled too.
+                self._queue_firing(ability, event, obj, capture=False)
     def _collect_suspend_triggers(self, event: GameEvent) -> None:
         """RULE 702.62a: Suspend's 2nd/3rd abilities "function in the exile
         zone" — a suspended card is never a permanent, so `_collect_
@@ -1250,7 +1279,10 @@ class TriggerCollectionMixin:
         ordering flow for whatever's still unordered afterward.
         """
         while queue:
-            ability, event = queue.pop(0)
+            firing = queue.pop(0)
+            ability, event = firing
+            if getattr(firing, "tap_offers", None) and self._open_doubler_tap_offer(firing, queue):
+                return
             if getattr(ability, "reflexive", False):
                 # RULE 603.3d "that permanent/spell": the target is the object
                 # that fired ``event``, not a chosen one — bake it in and
@@ -1291,6 +1323,74 @@ class TriggerCollectionMixin:
             if not self._place_or_pause_trigger(ability, ability.effects, queue, event=event):
                 return
         self._maybe_continue_ordering()
+    def _open_doubler_tap_offer(self, firing: "_TapOfferFiring", queue: list[Any]) -> bool:
+        """RULE 603.2d: ask the controller how many permanents to tap for the next paid
+        doubler (`TriggerDoublerEffect.tap_cost`) on ``firing`` — one extra copy of the
+        trigger per permanent tapped. Returns ``True`` when a `trigger_doubler_tap` choice
+        is now open (the caller must stop; `_resume_trigger_doubler_tap` re-enters
+        `_place_triggers`); an offer with nothing left to tap is dropped and the next tried."""
+        while firing.tap_offers:
+            holder, effect = firing.tap_offers[0]
+            if continuous.doubler_tap_candidates(self.state, holder, effect):
+                self._pending_doubler_tap = {
+                    "firing": firing, "queue": queue, "holder": holder, "effect": effect, "picked": [],
+                }
+                self.open_choice(self._doubler_tap_choice())
+                return True
+            firing.tap_offers.pop(0)
+        return False
+
+    def _doubler_tap_choice(self) -> dict[str, Any]:
+        """The serializable `trigger_doubler_tap` `pending_choice`: one option per permanent
+        still untapped and eligible, plus "done" once the player has tapped enough."""
+        pending = self._pending_doubler_tap
+        holder, effect = pending["holder"], pending["effect"]
+        picked = pending["picked"]
+        options = [
+            {"id": str(o.instance_id), "label": o.name, "instance_id": o.instance_id}
+            for o in continuous.doubler_tap_candidates(self.state, holder, effect)
+            if o not in picked
+        ]
+        options.append({"id": "decline", "label": "Fertig"})
+        return {
+            "kind": "trigger_doubler_tap",
+            "player_id": holder.controller_id,
+            "source_id": holder.instance_id,
+            "prompt": (
+                f"{holder.name}: Tappe beliebig viele Permanents – jedes lässt die "
+                f"Fähigkeit ein weiteres Mal auslösen (getappt: {len(picked)})"
+            ),
+            "options": options,
+        }
+
+    @continuations.choice("trigger_doubler_tap", answer=continuations.ANSWER_STR, rule="603.2d")
+    def _resume_trigger_doubler_tap(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        """Answer a `trigger_doubler_tap` choice: add the picked permanent and re-ask while any
+        remain, or (on "done"/decline) tap everything picked and place the trigger once plus one
+        extra copy per permanent tapped (RULE 603.2d, The Fish Brewer)."""
+        pending = self._pending_doubler_tap
+        if pending is None:
+            return
+        picked: list[Any] = pending["picked"]
+        if answer is not None and answer != "decline":
+            chosen = self._resolve_choice_option(choice["options"], str(answer))
+            if chosen is None or chosen in picked:
+                raise ValueError(f"{answer} is not a legal choice")
+            picked.append(chosen)
+            left = continuous.doubler_tap_candidates(self.state, pending["holder"], pending["effect"])
+            if any(o not in picked for o in left):
+                self.open_choice(self._doubler_tap_choice())
+                return
+        self._pending_doubler_tap = None
+        for permanent in picked:
+            self.set_tapped(permanent, True)
+        firing = pending["firing"]
+        firing.tap_offers.pop(0)
+        ability, event = firing
+        extra = [(ability, event)] * len(picked)
+        # the original re-enters first: any further paid doubler is offered before it is placed
+        self._place_triggers([firing, *extra, *pending["queue"]])
+
     def _place_or_pause_trigger(
         self,
         ability: "TriggeredAbility",

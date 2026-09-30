@@ -44,32 +44,6 @@ Block template (copy below the line, fill in):
 
 ---
 
-## PAR-122 · Trigger doublers
-
-- **Started / last update:** — / 2026-09-29 (residue migrated from `BACKLOG.md`)
-- **Goal of this run:** close the fail-closed doubler shapes below.
-- **Done (built + tested):** the composed `trigger_doubler` (cause × subject); v530 the compound
-  "<A> or <B>" subject (`any_of`) and the "while" gate; v526 the passive-gerund
-  and "turning … face up" causes (Valiant Emberkin).
-- **In progress:** —
-- **Next step:** The Fish Brewer's tap-for-extra-copies and The Masamune's granted quoted doubler
-  (below); Wayta's fight-cost reduction and Panoptic Projektor's face-down cost reduction block
-  those two cards, not the doubler.
-- **Decisions:** —
-- **Baselines / artefacts:** —
-- **Known failures:** —
-- **Residue:**
-  - The causes now parse (v526); the *cards* Wayta ("{2}{G}, {T}: … fights another target
-    creature. This ability costs {2} less …") and Panoptic Projektor ("the next face-down
-    creature spell you cast this turn costs {3} less") stay blocked on those other lines.
-  - *Compound subject:* "a colorless spell you control or another colorless permanent you
-    control" (Echoes of Eternity) — a *spell's* own triggered abilities (cascade/storm) do not
-    pass through `trigger_doubler_bonus`, which takes a permanent. (Cloud's "~ or an Equipment
-    attached to it" and Sanctum of All's "while you control N or more Shrines" parse as of v530;
-    Sanctum and Cloud, Ex-SOLDIER stay blocked on their *other* clauses.)
-  - The Fish Brewer's tap-for-extra-copies; The Masamune's granted quoted doubler.
-- **Log:** 2026-09-29 — residue migrated from `BACKLOG.md`. 2026-09-29 — v526: gerund/face-up causes. 2026-09-29 — v530: compound subject + while gate.
-
 ## PAR-123 · Group-subject pronouns
 
 - **Started / last update:** — / 2026-09-30 (v541)

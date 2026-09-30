@@ -84,8 +84,6 @@ No open tickets.
   family re-matches antecedents the clause parser already handles; plus 32 `*_DEVOTION_*` rows (fold
   into `count_phrase`). Maintainability work: do it when touching a verb, never as a large batch
   (audit shipped rows, delete strict subsets).
-- **PAR-122 · Trigger doublers.** Player-event causes and compound subjects still fail closed (32
-  cached "triggers an additional time" cards; primitive `continuous.trigger_doubler_bonus` exists).
 - **PAR-123 · Group-subject pronouns.** A bare "it" under a group trigger isn't read as the firing
   object by every effect type yet.
 - **PAR-99 · Khans/Dragons Siege cycle.** The ETB choice parses; unclaimed on all 5 cards (0 SOLO) is
@@ -181,8 +179,8 @@ No open tickets.
     control or yourself>`, put that many plus 1 of each of those kinds of counters instead" — 5 SOLO (Doc
     Samson, Lae'zel, Brad Boimler's until-EOT form, …); a counter-placement replacement whose amount
     is "that many + 1 per kind" (compare Hardened Scales / Doubling Season in `card_catalogue/`).
-  - "Equipped creature has `<quoted ability>`" is a wrapper over six unrelated inner abilities: trigger
-    doubler (**PAR-122**); "conjure a card onto the battlefield tapped and attacking" — Stormforged
+  - "Equipped creature has `<quoted ability>`" is a wrapper over five unrelated inner abilities:
+    "conjure a card onto the battlefield tapped and attacking" — Stormforged
     Armor (SOLO), Kari Zev; rest → `singletons.md` Batch 3 (Conformer Shuriken, Lobe Lobber, Shuriken,
     Fishing Pole).
   - "[Basic] lands you control have `<quoted mana ability>`" — 4 (Nexos, Worldknit SOLO; Resonating

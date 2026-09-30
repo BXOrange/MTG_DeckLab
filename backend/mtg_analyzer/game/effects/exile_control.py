@@ -2354,6 +2354,19 @@ class TriggerDoublerEffect(GameEffect):
     creature"). Absent = any permanent its controller controls.
 
     ``active_if`` is a RULE 613.6 "as long as …" gate on the whole doubler.
+
+    ``subject`` may also name what isn't a battlefield permanent: ``spell`` (a spell's
+    own cast triggers — cascade, storm — while it is on the stack) and ``emblem`` (an
+    emblem's triggers, RULE 114.4), each as one side of an ``any_of`` compound.
+
+    ``attached`` (``affects="attached_permanent"``): the doubler is an ability the Equipment/
+    Aura *grants* ("equipped creature has \"if … triggers an additional time\""), so it is
+    held — its "this creature", its controller — by the permanent it is attached to.
+
+    ``tap_cost`` (``{"filter": …}``, The Fish Brewer): the doubling is paid for — "tap any
+    number of `<filter>` you control … triggers an additional time for each tapped this way".
+    The number is the controller's choice, made when the trigger is put on the stack
+    (`RulesEngine._place_triggers`), so it never counts as a free extra copy.
     """
 
     def __init__(
@@ -2362,11 +2375,15 @@ class TriggerDoublerEffect(GameEffect):
         cause: Optional[dict[str, Any]] = None,
         subject: Optional[dict[str, Any]] = None,
         active_if: Optional[dict[str, Any]] = None,
+        attached: bool = False,
+        tap_cost: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.cause = dict(cause) if cause else None
         self.subject = dict(subject) if subject else None
         self.active_if = dict(active_if) if active_if else None
+        self.attached = attached
+        self.tap_cost = dict(tap_cost) if tap_cost else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         return None

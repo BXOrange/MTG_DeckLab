@@ -5884,7 +5884,7 @@ def _conjure_duplicate_into_hand(m: re.Match[str]) -> list[EffectSpec]:
 #: instance of this same trigger already grants — from this instance's own perspective that is
 #: just an ordinary single copy, same as no suffix at all.
 _COPY_THAT_SPELL_RE = _c(
-    r"copy that spell(?: (?P<n>twice|x times|an additional time|\d+ times))?\.\s*"
+    r"copy (?:that spell|it)(?: (?P<n>twice|x times|an additional time|\d+ times))?\.\s*"
     r"you may choose new targets for the cop(?:y|ies)"
 )
 
@@ -7662,6 +7662,10 @@ _TOKEN_TAPPED_ATTACKING = (
 )
 
 
+#: RULE 105.1: the five colors, in WUBRG order — a token that is "all colors".
+_ALL_COLORS = ("W", "U", "B", "R", "G")
+
+
 def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
     """The shared ``create_token`` params for the inline-stats creature-token
     grammar (``p``/``t``/``mid``/``kw``/``n``/``tapped``/``legendary``/``who``
@@ -7710,6 +7714,8 @@ def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
     if m.groupdict().get("dies_life"):
         # STX Pest — "with \"when ~ dies, you gain N life.\""
         params["token_dies_gain_life"] = int(m.group("dies_life"))
+    if m.groupdict().get("all_colors"):
+        params["colors"] = list(_ALL_COLORS)
     if is_artifact:
         params["is_artifact"] = True
     if subtypes:
@@ -17986,6 +17992,8 @@ HANDLERS: list[EffectHandler] = [
             # onto each token via `CreateTokenEffect.token_dies_gain_life`.
             rf'(?: with "when (?:~|it) dies, you gain (?P<dies_life>\d+) life\.?")?'
             + rf'(?: (?:with|and) "(?P<quoted_cda>(?:this token|this creature|~)\'?s power[^\"]+)")?'
+            # PAR-122: "…token that's all colors" (The Fish Brewer) — RULE 105.1's five colors.
+            + r"(?P<all_colors> that'?s all colors| that are all colors)?"
             + _TOKEN_TAPPED_ATTACKING
         ),
         _create_token,

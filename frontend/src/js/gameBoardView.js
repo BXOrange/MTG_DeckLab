@@ -67,7 +67,7 @@ function labelStep(name) {
 const CHOICE_ICONS = {
   search: '🔎', cascade: '🌊', discover: '🔮', replacement_order: '⚖️',
   land_tapped: '💧', land_tapped_reveal: '💧', order_triggers: '🔀', trigger_target: '🎯',
-  enter_as_copy: '🪞', counter_unless_pays: '🚫', ward: '🛡️',
+  enter_as_copy: '🪞', counter_unless_pays: '🚫', ward: '🛡️', trigger_doubler_tap: '🔁',
   commander_zone: '👑', trigger_mode: '🎭', add_mana_any_color: '💎',
   choose_creature_type: '🐾', choose_color: '🎨', choose_basic_land_type: '🗺️', read_ahead: '📜',
   scry: '🔮', surveil: '🕵️', clash: '⚔️', opening_hand_battlefield: '🌅', dredge: '⚰️',
