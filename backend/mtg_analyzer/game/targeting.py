@@ -834,14 +834,24 @@ def _creature_matches_filter(
     # printed-characteristic vocabulary. Keep it structural so callers can
     # use the ordinary ``creature`` target frame (Iconic Shield's "another
     # target attacking creature") rather than adding a name branch.
-    if filt.get("attacking") and not obj.attacking:
+    # "target **nonattacking** creature" (Alarum) is ``attacking: False`` — enforced here too, since this
+    # key is handled structurally rather than by `combat.matches_object_filter`.
+    if "attacking" in filt and bool(filt["attacking"]) != bool(obj.attacking):
         return False
+    # "…that's attacking you" (PAR-141, Snow Fortress) — RULE 506.2: it attacks the ability's controller.
+    if filt.get("attacking_you"):
+        defender = getattr(obj, "combat_defender", None) or {}
+        if (
+            reference is None or not obj.attacking
+            or defender.get("kind") != "player" or defender.get("id") != reference.controller_id
+        ):
+            return False
     if filt.get("max_power_from_source_x"):
         if reference is None or (obj.power or 0) > int(getattr(reference, "x_paid", 0) or 0):
             return False
     combat_filter = {
         key: value for key, value in filt.items()
-        if key not in {"attacking", "max_power_from_source_x"}
+        if key not in {"attacking", "attacking_you", "max_power_from_source_x"}
     }
     return combat.matches_object_filter(obj, combat_filter, reference=reference, state=state)
 
@@ -1432,6 +1442,16 @@ def _cast_time_flag(source: Optional[GameObject], flag: str) -> bool:
     return bool(getattr(source, flag, False))
 
 
+def graveyard_card_matches(kind: str, obj: GameObject) -> bool:
+    """Whether ``obj`` is a card of the type a `_GRAVEYARD_TARGET_KINDS` ``kind`` names — the
+    type half of `legal_targets`' graveyard branch, for an untargeted mass/pick (PAR-143)."""
+    prefix = next((p for p in _GRAVEYARD_SCOPE_PREFIXES if kind.startswith(p + "_")), None)
+    if prefix is None:
+        return False
+    type_filter = _GRAVEYARD_TYPE_FILTERS.get(kind[len(prefix) + 1:])
+    return bool(type_filter and type_filter(obj))
+
+
 def legal_targets(
     state: GameState,
     controller_id: str,
@@ -1884,6 +1904,9 @@ def _legal_targets_for(
             and (not spec.subtype or spec.subtype in o.card.type_line.lower())
             and not (spec.exclude_legendary and o.card.is_legendary)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
+            # "return target creature card with power 2 or less from your graveyard" (Alesha,
+            # PAR-143) — the same filter vocabulary a battlefield creature target reads.
+            and (not spec.creature_filter or _creature_matches_filter(o, spec.creature_filter, source, state))
             # "exile target red, white, or black creature card from your
             # graveyard" (Offspring's Revenge) — the same `_color_ok` colour
             # narrowing the battlefield-object branches apply (RULE 105).

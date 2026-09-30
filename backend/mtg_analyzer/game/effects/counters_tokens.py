@@ -917,6 +917,9 @@ class ReturnSelfToBattlefieldEffect(GameEffect):
                 "ability", affects="self", params={"lose_all_abilities": True},
                 source=obj,
             ))
+        # "Return it to the battlefield …. **It's** a Demon in addition to its other types." (Infernal
+        # Vessel) — the returned permanent is the next clause's "it".
+        context.previous_targets = [obj]
 
 
 class RevealTopThenCreatureAndOrLandBattlefieldEffect(GameEffect):
@@ -3214,9 +3217,17 @@ class CopyPermanentEffect(GameEffect):
         set_toughness: Optional[int] = None,
         set_colors: Optional[list[str]] = None,
         extra_temp_keywords: Optional[list[str]] = None,
+        creature_filter: Optional[dict[str, Any]] = None,
+        legendary: bool = False,
     ) -> None:
         super().__init__(source)
         self.count = count
+        #: "…a copy of target artifact, except **it's legendary**" (Adagia) — the copy gains the Legendary
+        #: supertype (RULE 205.4a); applied to the made token, so `Card.as_copy` needs no new parameter.
+        self.legendary = bool(legendary)
+        #: "…a copy of target **nonlegendary** creature you control" (Kiki-Jiki, PAR-142) — the same
+        #: `TargetSpec.creature_filter` narrowing every other creature target carries.
+        self.creature_filter = dict(creature_filter) if creature_filter else None
         #: PAR-18's own pronoun antecedent — "exile up to 1 target creature
         #: card from a graveyard. Create a token that's a copy of **that
         #: card**." (Ardyn/Anikthea-shaped): the copied object is neither a
@@ -3318,7 +3329,10 @@ class CopyPermanentEffect(GameEffect):
         #: combine on some future card without colliding.
         self.target_count = target_count
         self.target_spec = (
-            TargetSpec(kind=target_kind, count=target_count, count_max=target_count_max, optional=target_optional)
+            TargetSpec(
+                kind=target_kind, count=target_count, count_max=target_count_max, optional=target_optional,
+                creature_filter=self.creature_filter,
+            )
             if target_kind is not None and not self._attached_mode else None
         )
 
@@ -3474,6 +3488,11 @@ class CopyPermanentEffect(GameEffect):
             # class just hadn't needed it until a delayed-sacrifice tail
             # (Kiki-Jiki) had to name what got made.
             context.created_objects.extend(made)
+            if self.legendary:
+                for obj in made:
+                    obj.card.is_legendary = True
+                    if "Legendary" not in obj.card.type_line.partition("—")[0]:
+                        obj.card.type_line = f"Legendary {obj.card.type_line}"
             if self.haste:
                 for obj in made:
                     obj.temp_keywords.add("haste")
@@ -3534,9 +3553,12 @@ class EnterAsCopyReplacement(GameEffect):
         add_keywords_if_target_lacks: Optional[list[str]] = None,
         keep_own_abilities: bool = False,
         max_mana_value_from_mana_spent: bool = False,
+        not_legendary: bool = False,
     ) -> None:
         super().__init__(None)
         self.target_kind = target_kind
+        #: "…except it isn't legendary" (Auton Soldier, PAR-142) — `Card.as_copy`'s ``not_legendary``.
+        self.not_legendary = bool(not_legendary)
         #: "…of any creature on the battlefield with mana value less than
         #: or equal to the amount of mana spent to cast ~." (Mockingbird) —
         #: `GameObject.mana_spent_to_cast`, read live when the choice is
@@ -3756,7 +3778,51 @@ class ChooseEnterCounterReplacement(GameEffect):
         return None  # consulted by RulesEngine._offer_enter_choices, not applied
 
 
-class BecomeCopyUntilEndOfTurnEffect(GameEffect):
+class _BecomeCopyBase(GameEffect):
+    """Shared shape of the two "*This* permanent becomes a copy of a target …" effects: the target, and the
+    copy's own "except …" clause (PAR-142) — types/keywords added, ``not_legendary``, and
+    ``keep_own_abilities`` ("…except it has this ability", Cryptoplasm/Dimir Doppelganger: RULE 707.2 would
+    otherwise erase the ability that does the copying, so the object's own are re-added after the copy)."""
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "creature",
+        add_types: Optional[list[str]] = None,
+        add_subtypes: Optional[list[str]] = None,
+        add_keywords: Optional[list[str]] = None,
+        not_legendary: bool = False,
+        keep_own_abilities: bool = False,
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind)
+        self.add_types = list(add_types or [])
+        self.add_subtypes = list(add_subtypes or [])
+        self.add_keywords = list(add_keywords or [])
+        self.not_legendary = bool(not_legendary)
+        self.keep_own_abilities = bool(keep_own_abilities)
+
+    def _become(self, context: GameContext, do_copy: Any, target: Any) -> None:
+        obj = self.source
+        own = (
+            [list(obj.triggered_abilities), list(obj.static_effects),
+             list(obj.activated_abilities), list(obj.replacement_effects)]
+            if self.keep_own_abilities else None
+        )
+        do_copy(
+            obj, target, self.add_types or None, self.add_subtypes or None,
+            add_keywords=self.add_keywords or None, not_legendary=self.not_legendary,
+        )
+        if own is not None:
+            obj.triggered_abilities.extend(own[0])
+            obj.static_effects.extend(own[1])
+            obj.activated_abilities.extend(own[2])
+            obj.replacement_effects.extend(own[3])
+
+
+class BecomeCopyUntilEndOfTurnEffect(_BecomeCopyBase):
     """*This* permanent becomes a copy of a target creature until end of
     turn (Cursed Mirror-style: "{T}: ~ becomes a copy of target creature
     until end of turn.").
@@ -3766,40 +3832,24 @@ class BecomeCopyUntilEndOfTurnEffect(GameEffect):
     become_copy_until_end_of_turn` and `GameEngine._step_cleanup`.
     """
 
-    def __init__(
-        self,
-        target: Any = None,
-        source: Optional["GameObject"] = None,
-        target_kind: str = "creature",
-    ) -> None:
-        super().__init__(source)
-        self.target = target
-        self.target_spec = TargetSpec(kind=target_kind)
-
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
         if target is None or self.source is None or target is self.source:
             return
-        context.become_copy_until_end_of_turn(self.source, target)
+        self._become(context, context.become_copy_until_end_of_turn, target)
 
 
-class BecomeCopyPermanentEffect(GameEffect):
+class BecomeCopyPermanentEffect(_BecomeCopyBase):
     """*This* permanent permanently becomes a copy of a target creature
     (RULE 707.2 — Shameless Charlatan's "{2}{U}: ~ becomes a copy of
     another target creature."). Unlike `BecomeCopyUntilEndOfTurnEffect`
     this does *not* revert at cleanup — `RulesEngine.become_copy`."""
 
-    def __init__(self, target: Any = None, source: Optional["GameObject"] = None,
-                 target_kind: str = "creature") -> None:
-        super().__init__(source)
-        self.target = target
-        self.target_spec = TargetSpec(kind=target_kind)
-
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
         if target is None or self.source is None or target is self.source:
             return
-        context.engine.become_copy(self.source, target)
+        self._become(context, context.become_copy, target)
 
 
 class SetCopyTargetEffect(GameEffect):

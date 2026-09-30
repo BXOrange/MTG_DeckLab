@@ -60,6 +60,7 @@ _DRAW_EXCEPT = re.compile(
     r"^(?:draw|draws) a card except the first (?P<n>\d+|one) "
     r"(?:they|you) draw in each of (?:their|your) draw steps$"
 )
+_DAMAGE_DEALT_TO_YOU = re.compile(r"^(?P<kind>combat |noncombat )?damage is dealt to you$")
 _DAMAGE = re.compile(r"^(?:are|is) dealt (?P<kind>combat |noncombat )?damage$")
 #: RULE 700.14 (MEC-107): "you expend 4" — the running spend crossed N. The engine fires one
 #: `EXPEND` per N crossed, so the threshold is an exact-match ``filter`` on ``amount``.
@@ -76,6 +77,10 @@ def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], di
         return "RING_TEMPTED", {"subject": "you"}, {}
     if cond.startswith("you're "):
         cond = "you are " + cond[len("you're "):]
+    # "whenever combat damage is dealt to you" (Risona) — the passive spelling of "you're dealt combat damage".
+    passive = _DAMAGE_DEALT_TO_YOU.fullmatch(cond)
+    if passive is not None:
+        cond = f"you are dealt {passive.group('kind') or ''}damage"
     m = _HEAD.match(cond)
     if m is None:
         return None

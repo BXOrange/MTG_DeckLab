@@ -3206,7 +3206,10 @@ class MiscSystemsMixin:
     #: than passing a continuation closure around.
     CHOOSE_OBJECT_ACTIONS = frozenset(
         {
-            "tap", "sacrifice", "suspect", "return_to_hand", "return_from_graveyard", "soulbond_pair", "library_top", "discard",
+            "tap", "sacrifice", "suspect", "return_to_hand", "return_from_graveyard",
+            # PAR-143: an untargeted graveyard pick ("return a land card from your graveyard to the
+            # battlefield tapped / to your hand").
+            "return_from_graveyard_tapped", "return_from_graveyard_to_hand", "soulbond_pair", "library_top", "discard",
             "library_to_hand", "sacrifice_for_descendants_fury",
             "turn_face_up",  # Zimone — RULE 708.8 by an effect
             # Quandrix Command mode 4 ("target player shuffles up to three
@@ -3762,6 +3765,12 @@ class MiscSystemsMixin:
             self.return_from_graveyard(
                 obj, "battlefield", controller_id=control_recipient_id,
             )
+        elif action == "return_from_graveyard_tapped":
+            self.return_from_graveyard(
+                obj, "battlefield_tapped", controller_id=control_recipient_id,
+            )
+        elif action == "return_from_graveyard_to_hand":
+            self.return_from_graveyard(obj, "hand")
         elif action == "graveyard_to_library":
             # Quandrix Command mode 4: move the pick from its owner's
             # graveyard to its owner's library, then shuffle that library

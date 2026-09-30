@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from .core import GameEffect
 from ._runtime import install, register
+from ..targeting import graveyard_card_matches, legal_targets
 
 install(globals())
 
@@ -440,9 +441,25 @@ class ReturnFromGraveyardEffect(GameEffect):
         exclude_legendary: bool = False,
         positional_top_creature: bool = False,
         unless_flag: Optional[str] = None,
+        attacking: bool = False,
+        pick: bool = False,
+        creature_filter: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "…to the battlefield tapped **and attacking**" (Alesha, Interceptor) — RULE 508.4: put into
+        #: combat right after it lands (`RulesEngine.put_onto_battlefield_attacking`, the primitive
+        #: "create a tapped and attacking token" already uses).
+        self.attacking = bool(attacking)
+        #: "return **a** land card from your graveyard to the battlefield tapped" (Blossoming Tortoise) —
+        #: not a RULE 115 target: the controller picks among the cards the ``target_kind``/filters
+        #: describe when this resolves (`RulesEngine._request_choose_objects`), and may pick none only
+        #: when ``optional``. An exactly-one pool is taken without asking.
+        self.pick = bool(pick)
+        self.optional = bool(optional)
+        #: "…creature card with power 2 or less…" — a filter on the graveyard card itself
+        #: (`TargetSpec.creature_filter`, read by `targeting.legal_targets`' graveyard branch).
+        self.creature_filter = dict(creature_filter) if creature_filter else None
         #: "Return the **top** creature card of your graveyard to the
         #: battlefield." (Corpse Dance) — a positional pick (the graveyard's
         #: own insertion order, most-recently-added last), *not* a RULE 115
@@ -520,12 +537,14 @@ class ReturnFromGraveyardEffect(GameEffect):
         #: "return target **nonlegendary** creature card …" (Persist) — RULE
         #: 205.4a supertype exclusion on the graveyard target pool.
         self.exclude_legendary = bool(exclude_legendary)
-        self.target_spec = (
+        self._kind = target_kind
+        spec = (
             TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max,
                 subtype=subtype, max_mana_value=max_mana_value,
                 count_selector=count_selector, colors=self.colors,
                 exclude_legendary=self.exclude_legendary,
+                creature_filter=self.creature_filter,
                 # "…with mana value 4 or less. If this spell was cast using
                 # teamwork, instead choose target creature card in your
                 # graveyard[.]" (MEC-85, Too Evil to Stay Dead) — see
@@ -536,6 +555,11 @@ class ReturnFromGraveyardEffect(GameEffect):
             and not self.positional_top_creature
             else None
         )
+        #: An untargeted pick / mass ("return a land card …", "return all land cards …") announces no
+        #: RULE 115 target — a spell must not need a legal one to be cast — but still describes the pool
+        #: through the same spec, kept privately for `legal_targets`.
+        self._pool_spec = spec
+        self.target_spec = None if (self.pick or self.players is not None) else spec
 
     def _apply_one(self, context: GameContext, target: Any) -> None:
         if self.destination == "battlefield":
@@ -567,7 +591,13 @@ class ReturnFromGraveyardEffect(GameEffect):
             controller_id = player.id if player is not None else None
         mv = getattr(getattr(target, "card", None), "converted_mana_cost", 0) or 0
         owner_id = getattr(target, "owner_id", None)
-        context.return_from_graveyard(target, self.destination, controller_id=controller_id)
+        # RULE 110.5b: "…to the battlefield tapped" *enters* tapped — the destination string
+        # `return_from_graveyard` reads, so an enters-the-battlefield trigger sees it tapped.
+        destination = (
+            "battlefield_tapped" if self.tapped and self.destination == "battlefield"
+            else self.destination
+        )
+        context.return_from_graveyard(target, destination, controller_id=controller_id)
         if self.destination == "battlefield":
             # RULE 400.7: the object's `instance_id` stays stable across
             # the zone change (see `GameObject.reset_as_new_object`'s own
@@ -578,8 +608,8 @@ class ReturnFromGraveyardEffect(GameEffect):
             context.created_objects.append(target)
             if self.haste:
                 target.temp_keywords.add("haste")
-            if self.tapped:
-                target.tapped = True
+            if self.attacking:
+                context.engine.put_onto_battlefield_attacking(target)
             if self.extra_counters:
                 kind = str(self.extra_counters.get("kind", "-1/-1"))
                 count = int(self.extra_counters.get("count", 1) or 1)
@@ -591,6 +621,29 @@ class ReturnFromGraveyardEffect(GameEffect):
             player = _controller_of(self.source, context)
             if player is not None:
                 context.lose_life(player, int(mv))
+
+    def _request_pick(self, context: GameContext) -> None:
+        """An untargeted "return a `<type>` card from your graveyard" — the controller chooses one."""
+        player = _controller_of(self.source, context)
+        if player is None or self._pool_spec is None:
+            return
+        found = legal_targets(context.state, player.id, self._pool_spec, self.source)
+        ids = {item["instance_id"] for item in found}
+        candidates = [
+            o for owner in context.state.living_players() for o in owner.graveyard
+            if o.instance_id in ids
+        ]
+        if not candidates:
+            return
+        if self.destination == "hand":
+            action = "return_from_graveyard_to_hand"
+        else:
+            action = "return_from_graveyard_tapped" if self.tapped else "return_from_graveyard"
+        context.engine._request_choose_objects(
+            player, candidates, action, count=1, optional=self.optional,
+            prompt="Karte aus dem Friedhof zurückbringen", source=self.source,
+            control_recipient_id=player.id if self.under_your_control else None,
+        )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.positional_top_creature:
@@ -620,16 +673,17 @@ class ReturnFromGraveyardEffect(GameEffect):
                 players = [ctrl] if ctrl is not None else []
             else:
                 players = list(context.state.living_players())
-            kind = getattr(self.target_spec, "kind", "graveyard_creature")
-            want_creature = "creature" in (kind or "")
+            kind = self._kind or "graveyard_creature"
             with context.state.simultaneous():
                 for player in players:
-                    cards = [
-                        o for o in list(player.graveyard)
-                        if not want_creature or o.card.is_creature
-                    ]
+                    # "return all **land** cards from your graveyard to the battlefield tapped"
+                    # (Aftermath Analyst, Lumra): the kind's own type filter, not just creature/any.
+                    cards = [o for o in list(player.graveyard) if graveyard_card_matches(kind, o)]
                     for card in cards:
                         self._apply_one(context, card)
+            return
+        if self.pick:
+            self._request_pick(context)
             return
         if self._self_enchant_mode:
             target_id = getattr(self.source, "reanimate_target_id", None)

@@ -61,6 +61,7 @@ from .subgrammars import (
     resolve_color_word,
     resolve_spell_filter,
     resolve_target_creature_state_filter,
+    target_quality_filter,
     resolve_target_kind,
     target_is_optional,
     target_macro,
@@ -153,7 +154,40 @@ class EffectHandler:
         the gate fail-closed.
         """
         m = self.regex.fullmatch(clause.strip())
-        return self.build(m) if m is not None else None
+        if m is None:
+            return None
+        specs = self.build(m)
+        if specs is not None and not _target_qualities_kept(m, specs):
+            return None
+        return specs
+
+
+def _carries_filter(node: object, fragment: dict) -> bool:
+    """Whether some ``creature_filter`` inside ``node`` (an effect's params, nested) holds ``fragment``."""
+    if isinstance(node, dict):
+        held = node.get("creature_filter")
+        if isinstance(held, dict) and all(held.get(k) == v for k, v in fragment.items()):
+            return True
+        return any(_carries_filter(v, fragment) for v in node.values())
+    if isinstance(node, (list, tuple)):
+        return any(_carries_filter(v, fragment) for v in node)
+    return False
+
+
+def _target_qualities_kept(m: re.Match[str], specs: list[EffectSpec]) -> bool:
+    """PAR-141: a matched TARGET phrase's negated quality ("without flying") must reach a spec.
+
+    `resolve_target_kind` drops the quality from the kind, so a builder that never merges
+    `resolve_target_creature_state_filter` would resolve against *every* creature — the silent
+    over-wide claim v409 fixed for the combat-state adjectives. Refusing here keeps the slot
+    fail-closed for all ~hundred `{TARGET}` handlers at once instead of trusting each builder.
+    """
+    for name, text in m.groupdict().items():
+        if text and (name == "target" or name.startswith("target_")):
+            fragment = target_quality_filter(text)
+            if fragment and not any(_carries_filter(spec.params, fragment) for spec in specs):
+                return False
+    return True
 
 
 def _c(pattern: str) -> re.Pattern[str]:
@@ -608,25 +642,36 @@ def _copy_except_modifier(piece: str) -> Optional[dict]:
     piece = piece.strip()
     for subject_re, replacement in _COPY_EXCEPT_SUBJECT_RES:
         piece = subject_re.sub(replacement, piece)
+    # PAR-142: a later piece of a compound tail drops its subject ("…it isn't legendary and **is a** mutant in
+    # addition to its other types"); read it as "it" like the pieces before it.
+    if re.match(r"^is an? ", piece):
+        piece = "it's " + piece[len("is "):]
+    elif re.match(r"^has ", piece):
+        piece = "it " + piece
     if piece == "it has haste":
         return {"haste": True}
     if re.fullmatch(r"it isn'?t legendary|it'?s not legendary", piece):
         return {"not_legendary": True}
+    if piece in ("it's legendary", "it is legendary"):
+        return {"legendary": True}
     m = re.fullmatch(r"it'?s an? (?P<mid>[a-z ]+?) in addition to its other types", piece)
     if m:
-        colors, subtypes, is_artifact = _split_token_mid_words(m.group("mid"))
-        if colors or not (is_artifact or subtypes):
-            return None  # a colour word or an empty/unrecognised mid — fail closed
+        # The shared type-word reader (card types, "legendary", the subtype vocabulary; an unknown word or a
+        # colour fails the piece closed), so "enchantment"/"land" are added types rather than bogus subtypes.
+        from .static_handlers import type_addition_params  # local: imports handlers
+
+        parsed = type_addition_params(m.group("mid"))
+        if parsed is None:
+            return None
         out: dict = {}
-        # `Card.as_copy` splices these straight into the type line
-        # (`f"{main} {' '.join(add_types)}"`), no case-normalization of its
-        # own — a real MTG type line is title-cased ("Artifact Creature —
-        # Human"), so the words must be capitalized here, not left as the
-        # lowercase tokens `_split_token_mid_words` returns.
-        if is_artifact:
-            out["add_types"] = ["Artifact"]
-        if subtypes:
-            out["add_subtypes"] = [s.capitalize() for s in subtypes]
+        # `Card.as_copy` splices these straight into the type line (`f"{main} {' '.join(add_types)}"`), no
+        # case-normalization of its own — a real MTG type line is title-cased ("Artifact Creature — Human").
+        if parsed.get("add_types"):
+            out["add_types"] = [t.capitalize() for t in parsed["add_types"]]
+        if parsed.get("add_subtypes"):
+            out["add_subtypes"] = list(parsed["add_subtypes"])
+        if parsed.get("legendary"):
+            out["legendary"] = True
         return out
     pt = _COPY_EXCEPT_PT_RE.fullmatch(piece)
     if pt:
@@ -702,8 +747,41 @@ def _parse_copy_except_tail(tail: str) -> Optional[dict]:
 #: unrecognised modifier still fails the whole clause closed rather than
 #: silently dropping it.
 _COPY_PERMANENT_RE = _c(
-    rf"create a token that'?s a copy of {TARGET}(?:, except (?P<except_tail>.+))?"
+    # The comma before "except" is optional: "a copy of that creature except it's an artifact" (Faerie Artisans).
+    rf"create a token that'?s a copy of {TARGET}(?:,?\s+except (?P<except_tail>.+))?"
 )
+
+#: PAR-142: the granted end-step clause of a temporary copy — "…except it has haste and \"at the beginning of the
+#: end step, sacrifice ~.\"" (Minion Reflector, Kindle the Inner Flame, Electroduplicate; "exile ~" on Heat
+#: Shimmer). The same delayed trigger the sentence form "sacrifice it at the beginning of the next end step"
+#: (Kiki-Jiki) emits, on the object the copy made — so the grant is modelled as that delayed trigger, not a
+#: granted ability on the token.
+_COPY_END_STEP_GRANT_RE = re.compile(
+    r'(?:,? and |, )"at the beginning of the end step, (?P<verb>sacrifice|exile) ~\.?"\s*$', re.IGNORECASE,
+)
+
+
+def _copy_with_tail(params: dict, tail: Optional[str]) -> Optional[list[EffectSpec]]:
+    """The `copy_permanent` spec for ``params`` with a copy-"except" ``tail`` folded in (PAR-142): the parsed
+    modifiers, and — for a granted end-step clause — the delayed trigger that ends the copy. ``None`` (fail
+    closed) when any piece of the tail is unrecognised."""
+    delayed: Optional[str] = None
+    if tail:
+        grant = _COPY_END_STEP_GRANT_RE.search(tail)
+        if grant is not None:
+            delayed = grant.group("verb").lower()
+            tail = tail[: grant.start()]
+        extra = _parse_copy_except_tail(tail) if tail.strip() else {}
+        if extra is None:
+            return None
+        params.update(extra)
+    specs = [EffectSpec("copy_permanent", params)]
+    if delayed is not None:
+        specs.append(EffectSpec("create_delayed_trigger", {
+            "step": "end", "scope": "any", "capture": "previous_or_self",
+            "effects": [{"type": _DELAYED_TAIL_INNER[delayed], "params": {}}],
+        }))
+    return specs
 
 
 def _copy_permanent(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -711,13 +789,10 @@ def _copy_permanent(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if kind is None:
         return None
     params: dict = {"target_kind": kind, **_optional_param(m)}
-    tail = m.groupdict().get("except_tail")
-    if tail:
-        extra = _parse_copy_except_tail(tail)
-        if extra is None:
-            return None
-        params.update(extra)
-    return [EffectSpec("copy_permanent", params)]
+    state_filter = resolve_target_creature_state_filter(m.group("target"))
+    if state_filter:
+        params["creature_filter"] = state_filter  # "target nonlegendary creature" (Kiki-Jiki)
+    return _copy_with_tail(params, m.groupdict().get("except_tail"))
 
 
 #: "Create a token that's a copy of ~, except it has haste." (Splinter
@@ -774,7 +849,7 @@ def _copy_permanent_kicked_override(m: re.Match[str]) -> Optional[list[EffectSpe
 _COPY_PERMANENT_PREVIOUS_RE = _c(
     r"create a (?P<ta>tapped and attacking |tapped |attacking )?"
     r"token that'?s a copy of (?:it|that card)"
-    r"(?:, except (?P<except_tail>.+))?"
+    r"(?:,?\s+except (?P<except_tail>.+))?"
 )
 
 
@@ -788,13 +863,7 @@ def _copy_permanent_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["tapped"] = True
     if "attacking" in ta:
         params["attacking"] = True
-    tail = m.groupdict().get("except_tail")
-    if tail:
-        extra = _parse_copy_except_tail(tail)
-        if extra is None:
-            return None
-        params.update(extra)
-    return [EffectSpec("copy_permanent", params)]
+    return _copy_with_tail(params, m.groupdict().get("except_tail"))
 
 
 #: PAR-124: the RULE 603.1 group-subject sibling of `_COPY_PERMANENT_
@@ -811,7 +880,7 @@ def _copy_permanent_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 _COPY_PERMANENT_GROUP_RE = _c(
     r"create a (?P<ta>tapped and attacking |tapped |attacking )?"
     r"token that'?s a copy of (?:it|that creature|that card)"
-    r"(?:, except (?P<except_tail>.+))?"
+    r"(?:,?\s+except (?P<except_tail>.+))?"
 )
 
 
@@ -822,13 +891,7 @@ def _copy_permanent_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["tapped"] = True
     if "attacking" in ta:
         params["attacking"] = True
-    tail = m.groupdict().get("except_tail")
-    if tail:
-        extra = _parse_copy_except_tail(tail)
-        if extra is None:
-            return None
-        params.update(extra)
-    return [EffectSpec("copy_permanent", params)]
+    return _copy_with_tail(params, m.groupdict().get("except_tail"))
 
 
 #: "create a token that's [a] [tapped and attacking] copy of `<a specific
@@ -4037,6 +4100,16 @@ def _exile(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("exile", params)]
 
 
+#: "{1}{R}{G}, {T}: Exile ~ and target creature without flying that's attacking you." (Hunting Kavu,
+#: Giant Trap Door Spider, Mangara of Corondor) — the source and one RULE 115 target, both exiled.
+_EXILE_SELF_AND_TARGET_RE = _c(rf"exile ~ and {TARGET}")
+
+
+def _exile_self_and_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    target = _exile(m)
+    return None if target is None else [EffectSpec("exile", {"target_kind": None}), *target]
+
+
 #: "Whenever this creature deals combat damage to a creature, exile that
 #: creature." (Kaldra Compleat) — this is not a second RULE 115 target:
 #: ``that creature`` is the recipient recorded on the firing DAMAGE event.
@@ -4690,9 +4763,12 @@ def _return_from_graveyard_two_color(m: re.Match[str]) -> Optional[list[EffectSp
 _RETURN_FROM_GRAVEYARD_RE = _c(
     rf"return (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<nonleg>nonlegendary) )?"
     rf"(?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card"
-    rf"(?: with mana value (?P<mv>\d+) or less)? from "
+    # PAR-143: "with power 2 or less" (Alesha) rides the same slot as the mana-value cap.
+    rf"(?: with (?:mana value (?P<mv>\d+)|power (?P<pw>\d+)) or less)? from "
     rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard to "
     r"(?P<dest>the battlefield|your hand|its owner'?s hand)"
+    # PAR-143: "…to the battlefield tapped [and attacking]" (RULE 110.5b / 508.4).
+    r"(?P<tapped> tapped)?(?P<atk> and attacking)?"
     # "…to the battlefield with a -1/-1 counter on it." (Persist — RULE
     # 701.3 recursion plus an enters-with rider, distinct from the Persist
     # *keyword*'s in-place return). MEC-108 widened the counter to a +1/+1 or
@@ -4718,6 +4794,17 @@ def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     mv = m.groupdict().get("mv")
     if mv is not None:
         params["max_mana_value"] = int(mv)
+    if m.groupdict().get("pw") is not None:
+        params["creature_filter"] = {"max_power": int(m.group("pw"))}
+    if m.groupdict().get("tapped") or m.groupdict().get("atk"):
+        if destination != "battlefield":
+            return None  # only a battlefield entry is tapped or attacking
+        if m.group("tapped"):
+            params["tapped"] = True
+        if m.group("atk"):
+            if not m.group("tapped"):
+                return None  # "attacking" on its own isn't a printed spelling
+            params["attacking"] = True
     if m.groupdict().get("nonleg"):
         params["exclude_legendary"] = True
     if m.groupdict().get("ewc_kind"):
@@ -4914,21 +5001,69 @@ def _shuffle_target_graveyard_cards(m: re.Match[str]) -> list[EffectSpec]:
 #: the Catacombs, Storm of Souls, Finale of Eternity. Riders on the
 #: returned cards (a -1/-1 counter, "each is a 1/1 Spirit") stay
 #: fail-closed.
+#: PAR-143 widened the type word from "creature" to the graveyard type vocabulary ("return all land
+#: cards from your graveyard to the battlefield tapped", Aftermath Analyst, Lumra) and added the
+#: tapped entry; `ReturnFromGraveyardEffect` filters by the kind's own type predicate.
 _MASS_RETURN_GRAVEYARD_RE = _c(
     r"(?:(?P<each>each player returns)|you return|return) "
-    r"(?:all|each) creature cards? from "
+    rf"(?:all|each) (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?cards? from "
     r"(?:their|your|its owner'?s) graveyards? to "
-    r"(?P<dest>the battlefield|their hand|your hand)"
+    r"(?P<dest>the battlefield|their hand|your hand)(?P<tapped> tapped)?"
 )
 
 
-def _mass_return_graveyard(m: re.Match[str]) -> list[EffectSpec]:
+def _mass_return_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     dest = m.group("dest")
-    return [EffectSpec("return_from_graveyard", {
-        "target_kind": "graveyard_creature",
+    kind = _graveyard_target_kind(m.groupdict().get("type"), "your")
+    if kind is None or (m.group("tapped") and dest != "the battlefield"):
+        return None
+    params: dict = {
+        "target_kind": kind,
         "destination": "battlefield" if dest == "the battlefield" else "hand",
         "players": "each_player" if m.group("each") else "you",
-    })]
+    }
+    if m.group("tapped"):
+        params["tapped"] = True
+    return [EffectSpec("return_from_graveyard", params)]
+
+
+#: PAR-143: "[you may] return a `<type>` card [with mana value N or less] from your graveyard to the
+#: battlefield [tapped] / your hand" and "put a `<type>` card from a graveyard onto the battlefield
+#: [tapped] under your control" (Blossoming Tortoise, Deeproot Wayfinder, Soul of Windgrace) — the
+#: untargeted pick: no "target", so the controller chooses at resolution (`ReturnFromGraveyardEffect.pick`).
+_RETURN_PICK_FROM_GRAVEYARD_RE = _c(
+    r"(?P<may>you may )?(?:"
+    rf"return an? (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card"
+    rf"(?: with mana value (?P<mv>\d+) or less)? from (?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard to "
+    r"(?P<dest>the battlefield|your hand)(?P<tapped> tapped)?"
+    r"|"
+    rf"put an? (?:(?P<type2>{_GRAVEYARD_TYPE_WORD}) )?card from (?P<scope2>{_GRAVEYARD_SCOPE_WORD}) graveyard "
+    r"onto the battlefield(?P<tapped2> tapped)? under your control)"
+)
+
+
+def _return_pick_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    groups = m.groupdict()
+    put = groups.get("scope2") is not None
+    kind = _graveyard_target_kind(
+        groups["type2"] if put else groups.get("type"), groups["scope2"] if put else groups["scope"],
+    )
+    if kind is None:
+        return None
+    destination = "battlefield" if put or groups["dest"] == "the battlefield" else "hand"
+    tapped = bool(groups.get("tapped2") if put else groups.get("tapped"))
+    if tapped and destination != "battlefield":
+        return None
+    params: dict = {"target_kind": kind, "destination": destination, "pick": True}
+    if groups.get("may"):
+        params["optional"] = True
+    if tapped:
+        params["tapped"] = True
+    if put:
+        params["under_your_control"] = True
+    if groups.get("mv") is not None:
+        params["max_mana_value"] = int(groups["mv"])
+    return [EffectSpec("return_from_graveyard", params)]
 
 
 #: "exile [up to one] target [type] card from [scope] graveyard" (RULE
@@ -6847,6 +6982,15 @@ def _remembered_group_referent(specs: "list[EffectSpec]") -> Optional[list[Effec
                     "event_key": "remembered",
                     "effects": [{**out, "params": {**params, "referent": "previous"}}],
                 }}
+            elif out.get("type") == "grant_keyword_to_trigger_subject" and params.get("event_key") == GROUP_SUBJECT_KEY_SENTINEL:
+                # "…it gains haste until end of turn" after a payment (Olivia): the remembered
+                # object, granted through the ordinary previous-pick pump.
+                return {"type": "trigger_subject_referent", "params": {
+                    "event_key": "remembered",
+                    "effects": [{"type": "pump", "params": {
+                        "keywords": [params.get("keyword", "haste")], "previous_subject": True,
+                    }}],
+                }}
             if out.get("trigger_subject_key") == GROUP_SUBJECT_KEY_SENTINEL:
                 out["trigger_subject_key"] = "remembered"
             return out
@@ -7364,16 +7508,29 @@ def _return_from_graveyard_transformed(m: re.Match[str]) -> list[EffectSpec]:
 # dies-trigger's continuation of "When ~ dies, …". One regex, two
 # destinations (a named ``hand`` group rather than two near-duplicate
 # regex/handler pairs) since only the tail differs.
+#: PAR-143: the card's own name folds to ``~`` ("return ~ from your graveyard …", Narfi, Llanowar
+#: Greenwidow), and a battlefield entry may also be "tapped and attacking" (Interceptor).
 _RETURN_SELF_FROM_GRAVEYARD_RE = _c(
-    r"return this card from your graveyard to "
-    r"(?:the battlefield(?P<tapped> tapped)?|(?P<hand>your hand))"
+    r"return (?:this card|~) from your graveyard to "
+    r"(?:the battlefield(?P<tapped> tapped)?(?P<atk> and attacking)?"
+    # "…with 2 +1/+1 counters on it" (Retrofitted Transmogrant, Phoenix Chick) — the enters-with rider
+    # the targeted row already reads, same counter vocabulary.
+    rf"(?: with (?P<ewc_n>a|an|\d+) (?P<ewc_kind>-1/-1|\+1/\+1|{'|'.join(KEYWORD_COUNTER_KINDS)}) counters? on it)?"
+    r"|(?P<hand>your hand))"
 )
 
 
-def _return_self_from_graveyard(m: re.Match[str]) -> list[EffectSpec]:
+def _return_self_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.group("hand"):
         return [EffectSpec("return_self_from_graveyard_to_hand", {})]
-    return [EffectSpec("return_self_from_graveyard", {"tapped": bool(m.group("tapped"))})]
+    if m.group("atk") and not m.group("tapped"):
+        return None
+    params: dict = {"tapped": bool(m.group("tapped"))}
+    if m.group("atk"):
+        params["attacking"] = True
+    if m.group("ewc_kind"):
+        params["extra_counters"] = {"kind": m.group("ewc_kind"), "count": count_of(m.group("ewc_n"))}
+    return [EffectSpec("return_self_from_graveyard", params)]
 
 
 #: "When ~ dies, return it to the battlefield [tapped] under its owner's/
@@ -7385,7 +7542,9 @@ def _return_self_from_graveyard(m: re.Match[str]) -> list[EffectSpec]:
 _RETURN_SELF_TO_BATTLEFIELD_RE = _c(
     rf"return (?:{_SELF_SUBJECT}|this card) to the battlefield(?P<tapped> tapped)? under "
     r"(?P<whose>its owner'?s|your) control"
-    r"(?: with an? \+(?P<cn>\d+)/\+(?P<cn2>\d+) counter on it)?"
+    # "…with 2 +1/+1 counters on it" (Infernal Vessel, PAR-142) — an amount and the same counter
+    # vocabulary the targeted graveyard row reads (a +N/+N with N > 1 is no counter kind: it is N of +1/+1).
+    rf"(?: with (?P<cn_n>a|an|\d+) (?P<cn_kind>-1/-1|\+1/\+1|{'|'.join(KEYWORD_COUNTER_KINDS)}) counters? on it)?"
 )
 
 
@@ -7393,10 +7552,8 @@ def _return_self_to_battlefield(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params: dict = {"tapped": bool(m.group("tapped"))}
     if m.group("whose").lower() == "your":
         params["under_your_control"] = True
-    if m.groupdict().get("cn"):
-        if m.group("cn") != m.group("cn2"):
-            return None  # not a real +N/+N counter kind — fail closed
-        params["extra_counters"] = {"kind": f"+{m.group('cn')}/+{m.group('cn2')}", "count": 1}
+    if m.groupdict().get("cn_kind"):
+        params["extra_counters"] = {"kind": m.group("cn_kind"), "count": count_of(m.group("cn_n"))}
     return [EffectSpec("return_self_to_battlefield", params)]
 
 
@@ -10455,6 +10612,18 @@ _LOCKDOWN_CONDITIONS: list[tuple[re.Pattern[str], dict]] = [
 ]
 
 
+#: "It doesn't untap during its controller's untap step" with no duration of its own — the body of a
+#: "for as long as it has a `<counter>` counter on it" lock (`segmenter._for_as_long_as_counter_specs`
+#: re-times it). Offered only after a clause that chose the permanent (`previous_subject_only`).
+_LOCKDOWN_BARE_RE = _c(r"it doesn'?t untap during its controller'?s untap step")
+
+
+def _lockdown_bare(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("grant_until", {
+        "static": {"type": "no_untap", "params": {}}, "previous_subject": True, "target_kind": None,
+    })]
+
+
 def _lockdown(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     """"It doesn't untap during its controller's untap step for as long as ~
     remains tapped." (RULE 502.1 + RULE 611.2b — Sand Squid/Ice Floe-shaped.)
@@ -12769,6 +12938,36 @@ _DELAYED_SAC_EXILE_TAIL_RE = _c(
     # ordinary `end` step (RULE 603.7).
     r"(?P<when>at the beginning of (?:the|your) next end step|at end of combat)"
 )
+#: "~ becomes a copy of [another] target `<creature|permanent>`[ until end of turn][, except `<tail>`]" (Cursed
+#: Mirror, Shameless Charlatan, Cryptoplasm — "…you may have ~ become…" after `_peel_optional`). PAR-142 added the
+#: copy's own "except …" clause: "it has this ability" keeps the object's own abilities; the rest is the same
+#: type/keyword/legendary vocabulary an enter-as-copy replacement reads (`static_handlers._enter_as_copy_tail`).
+_BECOME_COPY_RE = _c(
+    r"(?:(?:you may )?have )?~ becomes? a copy of (?:another )?target (?P<what>creature|permanent)"
+    r"(?P<eot> until end of turn)?(?:,? except (?P<tail>.+))?"
+)
+
+
+def _become_copy_of_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from .static_handlers import _enter_as_copy_tail  # local: imports handlers
+
+    params: dict = {"target_kind": m.group("what").lower()}
+    tail = m.group("tail")
+    if tail:
+        keep_own = re.search(r"(?:,\s*(?:and\s+)?|\s+and\s+)?\bit has this ability\b", tail)
+        if keep_own is not None:
+            params["keep_own_abilities"] = True
+            tail = (tail[: keep_own.start()] + tail[keep_own.end():]).strip(" ,.")
+        if tail:
+            extra = _enter_as_copy_tail(tail)
+            if extra is None or "extra_counters_from_x" in extra:
+                return None
+            params.update(extra)
+    return [EffectSpec(
+        "become_copy_until_eot" if m.group("eot") else "become_copy_permanent", params,
+    )]
+
+
 _DELAYED_TAIL_INNER = {
     "sacrifice": "sacrifice_specific",
     "exile": "exile_specific",
@@ -14274,43 +14473,77 @@ def _animate_self_leading_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: (`rest_of_game`, RULE 611.2a). A word that is neither a card type, "legendary" nor a known subtype
 #: fails the clause closed.
 _BECOMES_IN_ADDITION_TYPES: frozenset[str] = frozenset({"artifact", "creature", "enchantment", "land"})
-_BECOMES_IN_ADDITION_TAIL = (
-    r" becomes an? (?P<words>[a-z]+(?: [a-z]+)*?) in addition to its other types(?P<eot> until end of turn)?"
+#: PAR-141/142: the body after the verb — "a `<N/N>` `<subtype/type words>` [with `<keywords>`] in
+#: addition to its other types [and gains `<keyword>`] [until end of turn]" (Archangel Elspeth's "and gains
+#: flying", Answered Prayers' "a 3/3 Angel creature with flying", Call a Surprise Witness' "it's a Spirit").
+#: Keywords come through the same vocabulary the "with `<keyword>`" tails read. A base P/T needs the word
+#: "creature" (a non-creature has none) and rides the same layer-4 static, exactly as the animate rows do.
+_BIA_KEYWORD = "|".join(sorted(_CREATURE_FILTER_KEYWORD_WORDS, key=len, reverse=True))
+_BIA_KEYWORD_LIST = rf"(?:{_BIA_KEYWORD})(?:(?:, and |, | and )(?:{_BIA_KEYWORD}))*"
+#: "that creature has base power and toughness 3/1 and has flying" (Aven Mimeomancer) — a layer-7b base P/T
+#: (the same `type_change` ``power``/``toughness`` the animate rows set) plus an optional keyword list, on the
+#: pick an earlier clause made. Duration-less here: "for as long as it has a feather counter on it" re-times it.
+_BASE_PT_PREVIOUS_RE = _c(
+    r"(?:it|that (?:creature|permanent|land|artifact)) has base power and toughness (?P<p>\d+)/(?P<t>\d+)"
+    rf"(?: and has (?P<kws>{_BIA_KEYWORD_LIST}))?"
 )
-#: "it"/"that creature" — only offered once the previous clause announced a pick.
-_BECOMES_IN_ADDITION_PREVIOUS_RE = _c(rf"(?P<prev>it|that creature|that permanent){_BECOMES_IN_ADDITION_TAIL}")
+
+
+def _base_pt_previous(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict[str, Any] = {
+        "static": {"type": "type_change", "params": {"power": int(m.group("p")), "toughness": int(m.group("t"))}},
+        "previous_subject": True, "target_kind": None,
+    }
+    if m.group("kws"):
+        keywords = [_CREATURE_FILTER_KEYWORD_WORDS[w] for w in re.split(r", and |, | and ", m.group("kws")) if w]
+        params["extra_statics"] = [{"type": "grant_keyword", "params": {"keywords": keywords}}]
+    return [EffectSpec("grant_until", params)]
+
+
+_BECOMES_IN_ADDITION_BODY = (
+    r" an? (?:(?P<bp>\d+)/(?P<bt>\d+) )?(?P<words>[a-z]+(?: [a-z]+)*?)"
+    rf"(?: with (?P<kws>{_BIA_KEYWORD_LIST}))?"
+    r" in addition to its other types"
+    rf"(?: and gains (?P<kw>{_BIA_KEYWORD}))?"
+    r"(?P<eot> until end of turn)?"
+)
+#: "it"/"that creature" — only offered once the previous clause announced a pick. "it's a …" is the
+#: rider spelling after a put/return ("put a flying counter on it. It's a Spirit in addition …").
+_BECOMES_IN_ADDITION_PREVIOUS_RE = _c(
+    rf"(?:(?P<prev>it)(?: becomes|'s)|(?P<prev2>that (?:creature|permanent|land|artifact))(?: becomes| is))"
+    rf"{_BECOMES_IN_ADDITION_BODY}"
+)
+#: "it" after a counter put on the source (Phantom Train) — the source itself, see
+#: `segmenter._puts_counter_on_source`.
+_BECOMES_IN_ADDITION_SELF_PRONOUN_RE = _c(rf"(?P<self>it)(?: becomes|'s){_BECOMES_IN_ADDITION_BODY}")
 #: "~" / "target creature" name their subject outright.
-_BECOMES_IN_ADDITION_RE = _c(rf"(?:(?P<self>~)|{TARGET}){_BECOMES_IN_ADDITION_TAIL}")
+_BECOMES_IN_ADDITION_RE = _c(rf"(?:(?P<self>~)|{TARGET}) becomes{_BECOMES_IN_ADDITION_BODY}")
 
 
 def _becomes_in_addition(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    from .subtype_vocabulary import SUBTYPES
+    from .static_handlers import type_addition_params  # local: imports handlers
 
-    add_types: list[str] = []
-    add_subtypes: list[str] = []
-    legendary = False
-    # "a Vampire and a Zombie" isn't this row's shape; only a run of words describing one set of types.
-    for word in m.group("words").split():
-        if word == "legendary":
-            legendary = True
-        elif word in _BECOMES_IN_ADDITION_TYPES:
-            add_types.append(word)
-        elif word in SUBTYPES:
-            add_subtypes.append(word.capitalize())
-        else:
-            return None
-    if not (add_types or add_subtypes or legendary):
+    type_params = type_addition_params(m.group("words"))
+    if type_params is None:
         return None
+    if m.group("bp") is not None:
+        if "creature" not in type_params.get("add_types", []):
+            return None
+        type_params = {**type_params, "power": int(m.group("bp")), "toughness": int(m.group("bt"))}
     params: dict[str, Any] = {
         "duration": "end_of_turn" if m.group("eot") else "rest_of_game",
-        "static": {"type": "type_change", "params": {
-            **({"add_types": add_types} if add_types else {}),
-            **({"add_subtypes": add_subtypes} if add_subtypes else {}),
-            **({"legendary": True} if legendary else {}),
-        }},
+        "static": {"type": "type_change", "params": type_params},
     }
+    keywords = [
+        _CREATURE_FILTER_KEYWORD_WORDS[w]
+        for w in re.split(r", and |, | and ", m.group("kws") or "") if w
+    ]
+    if m.group("kw"):
+        keywords.append(_CREATURE_FILTER_KEYWORD_WORDS[m.group("kw")])
+    if keywords:
+        params["extra_statics"] = [{"type": "grant_keyword", "params": {"keywords": keywords}}]
     groups = m.groupdict()
-    if groups.get("prev"):
+    if groups.get("prev") or groups.get("prev2"):
         params["previous_subject"] = True
         params["target_kind"] = None
     elif groups.get("self"):
@@ -15684,6 +15917,7 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"exile {TARGET}"),
         _exile,
     ),
+    EffectHandler("exile_self_and_target", _EXILE_SELF_AND_TARGET_RE, _exile_self_and_target),
     # "exile another target creature/nonland permanent" (Faceless Butcher /
     # old two-sentence O-Ring ETB) — RULE 601.2c's self-exclusion isn't
     # separately enforced (documented simplification, the same one
@@ -16073,6 +16307,11 @@ HANDLERS: list[EffectHandler] = [
         "mass_return_graveyard",
         _MASS_RETURN_GRAVEYARD_RE,
         _mass_return_graveyard,
+    ),
+    EffectHandler(
+        "return_pick_from_graveyard",
+        _RETURN_PICK_FROM_GRAVEYARD_RE,
+        _return_pick_from_graveyard,
     ),
     EffectHandler(
         "return_from_graveyard_owner_control",
@@ -17594,6 +17833,8 @@ HANDLERS: list[EffectHandler] = [
         _lockdown,
         previous_subject_only=True,
     ),
+    EffectHandler("lockdown_no_untap_bare", _LOCKDOWN_BARE_RE, _lockdown_bare, previous_subject_only=True),
+    EffectHandler("base_pt_previous", _BASE_PT_PREVIOUS_RE, _base_pt_previous, previous_subject_only=True),
     # The same grant with any *other* duration (RULE 611) — "…until your next
     # turn", "…until end of combat". Ordered after the end-of-turn row above,
     # which it can't collide with (that duration isn't in `_GRANT_DURATIONS`).
@@ -18161,11 +18402,8 @@ HANDLERS: list[EffectHandler] = [
     # `target is self.source` guard, so no distinct target kind is needed.
     EffectHandler(
         "become_copy_of_target",
-        _c(r"~ becomes a copy of (?:another )?target creature(?P<eot> until end of turn)?"),
-        lambda m: [EffectSpec(
-            "become_copy_until_eot" if m.group("eot") else "become_copy_permanent",
-            {"target_kind": "creature"},
-        )],
+        _BECOME_COPY_RE,
+        _become_copy_of_target,
     ),
     EffectHandler(
         "you_gain_life_eq_that_creature_mv",
@@ -18194,6 +18432,10 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "becomes_in_addition_previous", _BECOMES_IN_ADDITION_PREVIOUS_RE, _becomes_in_addition,
         previous_subject_only=True,
+    ),
+    EffectHandler(
+        "becomes_in_addition_self_pronoun", _BECOMES_IN_ADDITION_SELF_PRONOUN_RE, _becomes_in_addition,
+        self_subject_only=True,
     ),
     EffectHandler("becomes_in_addition", _BECOMES_IN_ADDITION_RE, _becomes_in_addition),
     EffectHandler(

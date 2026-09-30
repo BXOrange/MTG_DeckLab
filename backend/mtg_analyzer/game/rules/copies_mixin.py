@@ -478,20 +478,26 @@ class CopiesMixin:
         target: GameObject,
         add_types: Optional[list[str]] = None,
         add_subtypes: Optional[list[str]] = None,
+        add_keywords: Optional[list[str]] = None,
+        not_legendary: bool = False,
     ) -> None:
         """``obj`` itself becomes a copy of ``target`` (RULE 707.2).
 
         Delegates to `copy_mechanics.become_copy` — moved there so
         `game/continuous.py`'s layer-1 conditional-copy pass can call the
         same mutate/rebind logic without importing this module (which would
-        be circular)."""
-        copy_mechanics.become_copy(obj, target, add_types, add_subtypes)
+        be circular). ``add_keywords``/``not_legendary`` are the copy's own "except …" clause (PAR-142)."""
+        copy_mechanics.become_copy(
+            obj, target, add_types, add_subtypes, add_keywords=add_keywords, not_legendary=not_legendary,
+        )
     def become_copy_until_end_of_turn(
         self,
         obj: GameObject,
         target: GameObject,
         add_types: Optional[list[str]] = None,
         add_subtypes: Optional[list[str]] = None,
+        add_keywords: Optional[list[str]] = None,
+        not_legendary: bool = False,
     ) -> None:
         """``obj`` becomes a copy of ``target`` until end of turn (Cursed
         Mirror-style: "{T}: ~ becomes a copy of target creature until end of
@@ -503,7 +509,9 @@ class CopiesMixin:
         already-copied state."""
         if obj._copy_until_eot_base is None:
             obj._copy_until_eot_base = copy_mechanics.snapshot_face(obj)
-        copy_mechanics.become_copy(obj, target, add_types, add_subtypes)
+        copy_mechanics.become_copy(
+            obj, target, add_types, add_subtypes, add_keywords=add_keywords, not_legendary=not_legendary,
+        )
     def set_copy_target(self, obj: GameObject, target: GameObject) -> None:
         """Choose/change the target a layer-1 conditional-copy static ability
         copies (Vesuvan Shapeshifter's "you may have it be a copy of another

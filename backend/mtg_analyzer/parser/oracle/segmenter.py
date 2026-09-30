@@ -1515,7 +1515,13 @@ _PLAY_WITH_TOP_REVEALED_RE = re.compile(
 
 #: Connectors that chain two effect clauses in one ability body, tried in this
 #: order when the whole body isn't a single handled clause.
-_CONNECTORS: tuple[str, ...] = (r"\.\s+", r";\s+", r",?\s+then\s+", r"\s+and\s+")
+#: PAR-141: a comma before a *pronoun-led* effect clause is a sentence boundary too ("put a +1/+1 counter on that
+#: creature, it gains haste until end of turn, and it becomes a Vampire …", Olivia) — only when the next clause
+#: opens with "it"/"that creature" plus a verb that acts on it, so a comma inside one clause is never split.
+_PRONOUN_COMMA_CONNECTOR = r",\s+(?:and\s+)?(?=(?:it|that creature)\s+(?:gains?|becomes|gets?|has|loses)\b)"
+_CONNECTORS: tuple[str, ...] = (
+    r"\.\s+", r";\s+", r",?\s+then\s+", _PRONOUN_COMMA_CONNECTOR, r"\s+and\s+",
+)
 
 #: RULE 702.33b/701.x's "if `<this spell was kicked|it was kicked[
 #: twice]|this spell/it was bargained>`, `<effect>`." — a *second,
@@ -4280,6 +4286,16 @@ def _peel_condition(
             match.groupdict().get("cond") or "", condition, self_subject=self_subject,
             previous_subject=previous_subject, group_subject=group_subject,
         )
+        if (
+            condition is not None and self_subject and not previous_subject and not group_subject
+            and '"of": "previous_target"' in json.dumps(condition)
+        ):
+            # PAR-142: "when ~ dies, if it wasn't a Demon, …" / "…if it was a creature, …" — "it" is the
+            # source, but these pronoun rows read ``previous_target`` (a pick an earlier clause made), which
+            # no clause has made here, so the gate never holds and the card silently never acts (Weatherseed
+            # Totem, Infernal Vessel). Last-known information of the dying object is not modelled either, so
+            # fail closed instead of claiming a card that does nothing.
+            return True, None
         if condition is None:
             # A row whose ``build`` couldn't resolve its condition phrase (the
             # generic rows below hand the phrase to the shared vocabulary, and
@@ -4983,6 +4999,10 @@ def parse_effect_body(
     if direct is not None:
         return direct
 
+    timed = _for_as_long_as_counter_specs(body, previous_subject=previous_subject)
+    if timed is not None:
+        return timed
+
     both_counters = _DOUBLE_COUNTERS_RE.match(body)
     if both_counters is not None:
         # "put a +1/+1 counter on that creature and a +1/+1 counter on ~" — two placements in one
@@ -5061,6 +5081,10 @@ def parse_effect_body(
             return shared_x
 
     for sep in _CONNECTORS:
+        # PAR-141: the pronoun comma is only a boundary *within* a gated body's own effect text. Split
+        # across "…, if you do, X, it gains …" it would leave the later clauses outside the gate.
+        if sep is _PRONOUN_COMMA_CONNECTOR and re.search(r"\b(?:if|when) you (?:do|don't),", body, re.I):
+            continue
         parts = [p for p in re.split(sep, body) if p.strip()]
         if len(parts) > 1:
             collected: list[EffectSpec] = []
@@ -5145,6 +5169,12 @@ def parse_effect_body(
                 # rather than have it cleared here.
                 if not referent and sub and all(s.type == "clash" for s in sub):
                     referent, referent_selector = prev_referent, prev_referent_selector
+                # PAR-141: "put a +1/+1 counter on ~. It becomes a Spirit in addition to …" — a
+                # counter put on the source leaves "it" meaning the source (a counter spec with no
+                # target of its own is the ability's own permanent), so the next clause may read
+                # the pronoun as `self_subject` even outside a self-subject trigger.
+                if not referent and sub and _puts_counter_on_source(sub[-1]):
+                    carry_self = True
                 # PAR-30: a clause that itself *consumed* the pronoun ("untap
                 # that creature", "it gains haste until end of turn") keeps the
                 # referent chain alive for the clause after it rather than
@@ -5409,6 +5439,45 @@ def _stamp_counters_on_referent(part: str, specs: list[EffectSpec]) -> list[Effe
                        condition=spec.condition)]
 
 
+#: PAR-142: "… for as long as it/that `<noun>` has a `<kind>` counter on it" (Aquitect's Will, Minas Morgul,
+#: Aven Mimeomancer) — RULE 611.2b's condition-bounded duration over the pick an earlier clause just put the
+#: counter on. Not a clause of its own: the body before (or after) it is an ordinary duration-less effect, and
+#: this only re-times the `grant_until` it produced (`game/durations.py`, ``for_as_long_as``, its condition
+#: read off the locked permanent — ``of="affected"``).
+_FOR_AS_LONG_AS_WHO = r"(?:it|that [a-z]+)"
+_FOR_AS_LONG_AS_COUNTER = (
+    rf"for as long as (?P<who>{_FOR_AS_LONG_AS_WHO}) has an? (?P<kind>[a-z0-9+/\- ]+?) counters? on it"
+)
+_FOR_AS_LONG_AS_TRAILING_RE = re.compile(
+    rf"^(?P<body>.+?),?\s+{_FOR_AS_LONG_AS_COUNTER}$", re.IGNORECASE | re.DOTALL,
+)
+_FOR_AS_LONG_AS_LEADING_RE = re.compile(
+    rf"^{_FOR_AS_LONG_AS_COUNTER},\s+(?P<body>.+)$", re.IGNORECASE | re.DOTALL,
+)
+
+
+def _for_as_long_as_counter_specs(body: str, *, previous_subject: bool, self_subject: bool = False) -> Optional[list[EffectSpec]]:
+    m = _FOR_AS_LONG_AS_TRAILING_RE.match(body) or _FOR_AS_LONG_AS_LEADING_RE.match(body)
+    if m is None or not previous_subject:
+        return None  # the pronoun needs a pick an earlier clause made
+    inner = parse_effect_body(m.group("body").strip(), previous_subject=True)
+    if not inner or any(spec.type != "grant_until" for spec in inner):
+        return None  # only a duration effect can be re-timed; anything else fails closed
+    condition = {"kind": "source_counters", "counter": m.group("kind").strip().lower(), "min": 1, "of": "affected"}
+    return [
+        EffectSpec(spec.type, {**spec.params, "duration": "for_as_long_as", "condition": dict(condition)},
+                   condition=spec.condition)
+        for spec in inner
+    ]
+
+
+def _puts_counter_on_source(spec: EffectSpec) -> bool:
+    """A plain ``add_counters`` naming no target, recipient or group — the counter went on ``~``."""
+    return spec.type == "add_counters" and not any(
+        key in spec.params for key in ("target_kind", "group", "selector", "choose_one", "recipient")
+    )
+
+
 def _announces_creature_target(specs: list[EffectSpec]) -> bool:
     """Whether the last of ``specs`` picks a permanent (or a graveyard card,
     or — PAR-71 — a countered spell) the next clause can refer back to as
@@ -5442,6 +5511,10 @@ def _announces_creature_target(specs: list[EffectSpec]) -> bool:
     # reanimator-token grammar routes "a token that's a copy of that card"
     # through them.
     if last.type in ("create_token", "copy_permanent", "become_copy", "manifest"):
+        return True
+    # "Return it to the battlefield … with 2 +1/+1 counters on it. It's a Demon in addition …" (PAR-142):
+    # the returned permanent is what the rider's "it" names (`ReturnSelfToBattlefieldEffect` sets it).
+    if last.type == "return_self_to_battlefield":
         return True
     # "Counter target spell. Discover X, where X is that spell's mana
     # value." (Hurl into History/Access Denied/Overwhelming Intellect/Spell
@@ -7650,7 +7723,11 @@ def _segment_line_unsplit(
             gated = static_condition(gate.group("cond")) if gate is not None else None
             if gated is not None:
                 phase_active_if = gated
-                effects = parse_effect_body(gate.group("rest").strip())
+                # A condition that names ``~`` ("if …and ~ isn't a creature, it becomes …", Emergent
+                # Haunting) gives a bare "it" in the body its only antecedent: the source.
+                effects = parse_effect_body(
+                    gate.group("rest").strip(), self_subject="~" in gate.group("cond"),
+                )
         if effects is None:
             return Segment(raw=raw)
         trigger: dict[str, Any] = {"event": "STEP_BEGIN", "filter": {"step": step}}

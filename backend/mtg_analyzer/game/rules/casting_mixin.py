@@ -2287,6 +2287,7 @@ class CastingResolutionMixin:
                     obj, target, effect.add_types, effect.add_subtypes,
                     only_types=effect.only_types,
                     add_keywords=effect.add_keywords + conditional_keywords,
+                    not_legendary=getattr(effect, "not_legendary", False),
                 )
                 if effect.keep_own_abilities:
                     obj.triggered_abilities.extend(own_triggered)

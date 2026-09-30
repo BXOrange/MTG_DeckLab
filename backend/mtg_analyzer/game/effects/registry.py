@@ -1406,6 +1406,9 @@ EffectRegistry.register(
         exclude_legendary=bool(p.get("exclude_legendary", False)),
         positional_top_creature=bool(p.get("positional_top_creature", False)),
         unless_flag=p.get("unless_flag"),
+        attacking=bool(p.get("attacking", False)),
+        pick=bool(p.get("pick", False)),
+        creature_filter=p.get("creature_filter"),
     ),
 )
 EffectRegistry.register(
@@ -2449,6 +2452,7 @@ EffectRegistry.register(
         add_keywords_if_target_lacks=p.get("add_keywords_if_target_lacks"),
         keep_own_abilities=bool(p.get("keep_own_abilities", False)),
         max_mana_value_from_mana_spent=bool(p.get("max_mana_value_from_mana_spent", False)),
+        not_legendary=bool(p.get("not_legendary", False)),
     ),
 )
 EffectRegistry.register(
@@ -2496,6 +2500,9 @@ EffectRegistry.register(
     lambda p: BecomeCopyUntilEndOfTurnEffect(
         target=p.get("target"),
         target_kind=p.get("target_kind", "creature"),
+        add_types=p.get("add_types"), add_subtypes=p.get("add_subtypes"), add_keywords=p.get("add_keywords"),
+        not_legendary=bool(p.get("not_legendary", False)),
+        keep_own_abilities=bool(p.get("keep_own_abilities", False)),
     ),
 )
 EffectRegistry.register(
@@ -2505,6 +2512,9 @@ EffectRegistry.register(
     lambda p: BecomeCopyPermanentEffect(
         target=p.get("target"),
         target_kind=p.get("target_kind", "creature"),
+        add_types=p.get("add_types"), add_subtypes=p.get("add_subtypes"), add_keywords=p.get("add_keywords"),
+        not_legendary=bool(p.get("not_legendary", False)),
+        keep_own_abilities=bool(p.get("keep_own_abilities", False)),
     ),
 )
 EffectRegistry.register(
@@ -2755,6 +2765,8 @@ EffectRegistry.register(
         set_toughness=p.get("set_toughness"),
         set_colors=p.get("set_colors"),
         extra_temp_keywords=p.get("extra_temp_keywords"),
+        creature_filter=p.get("creature_filter"),
+        legendary=bool(p.get("legendary", False)),
     ),
 )
 EffectRegistry.register(
@@ -2903,7 +2915,10 @@ EffectRegistry.register(
     # (Dread Wanderer/Bloodsoaked Champion/Drownyard Temple &c) — the plain
     # sibling of `return_from_graveyard_transformed` above.
     "return_self_from_graveyard",
-    lambda p: ReturnSelfFromGraveyardToBattlefieldEffect(tapped=bool(p.get("tapped", False))),
+    lambda p: ReturnSelfFromGraveyardToBattlefieldEffect(
+        tapped=bool(p.get("tapped", False)), attacking=bool(p.get("attacking", False)),
+        extra_counters=p.get("extra_counters"),
+    ),
 )
 EffectRegistry.register(
     # "When enchanted creature dies, return that card to the battlefield

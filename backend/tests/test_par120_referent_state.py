@@ -151,10 +151,17 @@ def test_cast_provenance_condition_gates_a_self_triggered_effect():
 # ---------------------------------------------------------------------------
 
 
+def test_a_dies_trigger_gate_on_it_is_not_claimed_while_it_cannot_hold():
+    # "when ~ dies, if it was a creature, …" reads `previous_target`, which no clause made on a dies trigger: the
+    # gate never held, so Weatherseed Totem was wrong-but-MODELED (PAR-142 fails it closed — see
+    # `segmenter._peel_condition`). It becomes modeled again once last-known information of the dying object exists.
+    assert not parse_oracle(_db().get_card("Weatherseed Totem")).modeled
+
+
 def test_referent_state_cards_become_modeled():
     for name in (
         "Avacyn's Collar", "Cling to Dust", "Ethereal Absolution", "Scavenging Ooze",
-        "Slayer's Plate", "Weatherseed Totem",
+        "Slayer's Plate",
     ):
         card = _db().get_card(name)
         result = parse_oracle(card)

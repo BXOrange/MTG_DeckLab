@@ -612,6 +612,8 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # RULE 205.4g supertype: "the number of **snow** permanents you control"
         # (Abominable Treefolk, PAR-120).
         "snow",
+        # "target **nonsnow** creature" (Chill to the Bone, PAR-141) — the negation of ``snow``.
+        "without_snow",
         # RULE 201.2: "the number of creatures **named ~** on the battlefield"
         # (Plague Rats) — the same English name as the *reference* object.
         "named_as_reference",
@@ -949,6 +951,8 @@ def matches_object_filter(
     if filt.get("not_reference") and reference is not None and obj is reference:
         return False
     if filt.get("snow") and "snow" not in str(getattr(obj.card, "type_line", "") or "").lower().split("—")[0].split():
+        return False
+    if filt.get("without_snow") and "snow" in str(getattr(obj.card, "type_line", "") or "").lower().split("—")[0].split():
         return False
     if filt.get("named_as_reference") and (reference is None or getattr(obj, "name", None) != reference.name):
         return False

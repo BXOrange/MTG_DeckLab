@@ -280,6 +280,24 @@ def parse_head(head: str, plural: bool = False) -> Optional[dict[str, Any]]:
     return _conjunction(head.replace(",", " ").split(), card_noun=card_noun, plural=plural)
 
 
+def parse_absent_quality(text: str) -> Optional[dict[str, Any]]:
+    """The object of "without" / "doesn't have" / "has no" → the negated filter keys.
+
+    ``"flying"`` → ``{"without_keyword": "flying"}``; ``"a +1/+1 counter on it"`` →
+    ``{"without_counter_kind": "+1/+1"}``; ``"counters on it"`` (kindless) → ``{"no_counters": True}``.
+    Anything else is ``None`` (fail closed). The shared reader behind `parse_object_phrase`'s
+    "without …" tail and `subgrammars`' target quality slot (PAR-141).
+    """
+    text = text.strip().lower()
+    counter = _WITH_COUNTER.match(text)
+    if counter is not None and counter.group("kind") != "no":
+        if counter.group("kind"):
+            return {"without_counter_kind": counter.group("kind")}
+        return {"no_counters": True}
+    keyword = KEYWORD_WORDS.get(text)
+    return {"without_keyword": keyword} if keyword else None
+
+
 def parse_qualifier(qualifier: str) -> Optional[dict[str, Any]]:
     """The text after "with " → filter keys, or ``None``."""
     qualifier = qualifier.strip().lower()

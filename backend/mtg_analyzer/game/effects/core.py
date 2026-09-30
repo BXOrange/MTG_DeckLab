@@ -529,8 +529,12 @@ class GameContext:
         target: "GameObject",
         add_types: Optional[list] = None,
         add_subtypes: Optional[list] = None,
+        add_keywords: Optional[list] = None,
+        not_legendary: bool = False,
     ) -> None:
-        self.engine.become_copy(obj, target, add_types, add_subtypes)
+        self.engine.become_copy(
+            obj, target, add_types, add_subtypes, add_keywords=add_keywords, not_legendary=not_legendary,
+        )
 
     def become_copy_until_end_of_turn(
         self,
@@ -538,8 +542,12 @@ class GameContext:
         target: "GameObject",
         add_types: Optional[list] = None,
         add_subtypes: Optional[list] = None,
+        add_keywords: Optional[list] = None,
+        not_legendary: bool = False,
     ) -> None:
-        self.engine.become_copy_until_end_of_turn(obj, target, add_types, add_subtypes)
+        self.engine.become_copy_until_end_of_turn(
+            obj, target, add_types, add_subtypes, add_keywords=add_keywords, not_legendary=not_legendary,
+        )
 
     def set_copy_target(self, obj: "GameObject", target: "GameObject") -> None:
         self.engine.set_copy_target(obj, target)

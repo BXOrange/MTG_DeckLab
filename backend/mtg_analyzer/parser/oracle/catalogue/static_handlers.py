@@ -1056,6 +1056,8 @@ _ATTACHED_SUBJECTS = (
     "fortified land",
     "enchanted permanent",
     "enchanted land",
+    # PAR-142: the Animate-Artifact family (Ensoul Artifact, Mightstone's Animation, Zoetic Glyph).
+    "enchanted artifact",
 )
 _ATTACHED_SUBJECT_PATTERN = "|".join(re.escape(s) for s in _ATTACHED_SUBJECTS)
 
@@ -1815,6 +1817,87 @@ _CHOOSE_BASIC_LAND_TYPE_ON_ENTER_RE = re.compile(
 _CHOOSE_OPPONENT_ON_ENTER_RE = re.compile(r"as ~ enters, choose an opponent", re.IGNORECASE)
 
 
+#: PAR-142: "you may have ~ enter the battlefield as a copy of `<what>`[, except `<tail>`]" (RULE 614.1c/707.9 —
+#: Clone, Copy Artifact, Phantasmal Image, Mirrorhall Mimic …): an ``enter_replacement`` over the engine's
+#: `EnterAsCopyReplacement`. ``<what>`` is a closed table onto the targeting pools the engine already offers;
+#: a pool it lacks (a graveyard card, "a creature you control with power 4 or greater") fails the clause closed.
+_ENTER_AS_COPY_RE = re.compile(
+    r"you may have (?:~|it) enter(?: the battlefield)? as a copy of (?P<what>[a-z ]+?)"
+    r"(?:, except (?P<tail>.+))?",
+    re.IGNORECASE,
+)
+_ENTER_AS_COPY_POOLS: dict[str, str] = {
+    "any creature on the battlefield": "creature",
+    "a creature you control": "creature_you_control",
+    "a creature an opponent controls": "creature_you_dont_control",
+    "any artifact on the battlefield": "artifact",
+    "any enchantment on the battlefield": "enchantment",
+    "any land on the battlefield": "land",
+    "any permanent on the battlefield": "permanent",
+    "any nonland permanent on the battlefield": "nonland_permanent",
+    "any artifact or creature on the battlefield": "artifact_or_creature",
+    "any artifact or enchantment on the battlefield": "artifact_or_enchantment",
+}
+
+
+def _enter_as_copy_tail(tail: str) -> Optional[dict]:
+    """A copy's "except …" clause → `EnterAsCopyReplacement` params, or ``None`` (fail closed)."""
+    from .characteristic_phrase import KEYWORD_WORDS
+
+    params: dict = {}
+    pieces: list[str] = []
+    for chunk in re.split(r",\s*(?:and\s+)?", tail.strip().rstrip(".")):
+        pieces.extend(p for p in re.split(r"\s+and\s+", chunk) if p.strip())
+    for piece in pieces:
+        piece = piece.strip()
+        if re.match(r"^is an? ", piece):
+            piece = "it's " + piece[len("is "):]
+        elif re.match(r"^has ", piece):
+            piece = "it " + piece
+        if re.fullmatch(r"it isn'?t legendary|it'?s not legendary", piece):
+            params["not_legendary"] = True
+            continue
+        m = re.fullmatch(r"it'?s an? (?P<words>[a-z ]+?) in addition to its other types", piece)
+        if m is not None:
+            added = type_addition_params(m.group("words"))
+            if added is None or added.get("legendary"):
+                return None
+            if added.get("add_types"):
+                params["add_types"] = [*params.get("add_types", []), *(t.capitalize() for t in added["add_types"])]
+            if added.get("add_subtypes"):
+                params["add_subtypes"] = [*params.get("add_subtypes", []), *added["add_subtypes"]]
+            continue
+        m = re.fullmatch(r"it has (?P<kws>[a-z ,]+?)", piece)
+        if m is not None:
+            words = [w.strip() for w in re.split(r",\s*(?:and\s+)?|\s+and\s+", m.group("kws")) if w.strip()]
+            if not words or any(w not in KEYWORD_WORDS for w in words):
+                return None
+            params["add_keywords"] = [*params.get("add_keywords", []), *(w.title() for w in words)]
+            continue
+        if piece == "it enters with x additional +1/+1 counters on it":
+            params["extra_counters_from_x"] = True
+            continue
+        return None  # an unrecognised piece is never dropped
+    return params
+
+
+def enter_as_copy_specs(clause: str) -> Optional[list[EffectSpec]]:
+    """`EffectSpec`s for an "enter as a copy of …" replacement ``clause``, or ``None``."""
+    m = _ENTER_AS_COPY_RE.fullmatch(clause.strip().rstrip(".").strip())
+    if m is None:
+        return None
+    kind = _ENTER_AS_COPY_POOLS.get(re.sub(r"\s+", " ", m.group("what").lower()))
+    if kind is None:
+        return None
+    params: dict = {"target_kind": kind}
+    if m.group("tail"):
+        extra = _enter_as_copy_tail(m.group("tail"))
+        if extra is None:
+            return None
+        params.update(extra)
+    return [EffectSpec("enter_as_copy", params)]
+
+
 def enter_choice_specs(clause: str) -> Optional[list[EffectSpec]]:
     """`EffectSpec`s for a RULE 601.2b "as ~ enters, choose a …" ``clause``,
     or ``None`` — see the module comment above `_CHOOSE_CREATURE_TYPE_ON_
@@ -1824,6 +1907,9 @@ def enter_choice_specs(clause: str) -> Optional[list[EffectSpec]]:
     ``static``).
     """
     text = clause.strip().rstrip(".").strip()
+    copy_specs = enter_as_copy_specs(text)
+    if copy_specs is not None:
+        return copy_specs
     if _CHOOSE_CREATURE_TYPE_ON_ENTER_RE.fullmatch(text):
         return [EffectSpec("choose_creature_type_on_enter", {})]
     if _CHOOSE_COLOR_ON_ENTER_RE.fullmatch(text):
@@ -1863,6 +1949,27 @@ _IS_CHOSEN_TYPE_RE = re.compile(
 # _apply_off_battlefield_types`. Two sentences on one printed line, so it
 # has to be claimed by one regex (the segmenter splits on newlines, not
 # sentences); leaving the tail unmatched would fail the whole clause closed.
+_GROUP_TYPE_ADDITION_RE = re.compile(
+    r"(?:each )?(?P<body>[a-z][a-z ]*?) you control (?:is|are) (?:an? )?(?P<words>[a-z]+(?: [a-z]+)*?) "
+    r"in addition to (?:its|their) other (?:creature )?types",
+    re.IGNORECASE,
+)
+
+
+def _type_addition_plural_words(words: str) -> Optional[dict]:
+    """"Forest lands"/"squirrels"/"artifacts" (a group's plural spelling) → `type_addition_params`, reading
+    each word either as printed or singularized; ``None`` if any word is in neither vocabulary."""
+    singular: list[str] = []
+    for word in words.lower().split():
+        for candidate in (word, _singularize(word)):
+            if type_addition_params(candidate) is not None:
+                singular.append(candidate)
+                break
+        else:
+            return None
+    return type_addition_params(" ".join(singular))
+
+
 _GROUP_CHOSEN_TYPE_RE = re.compile(
     r"(?:each )?(?P<body>[a-z][a-z ]*?) you control (?:is|are) the chosen "
     r"(?:creature )?type in addition to (?:its|their) other (?:creature )?types"
@@ -1901,11 +2008,21 @@ def _chosen_type_group_affects(body: str) -> Optional[dict]:
     scope = _scope(" ".join(words))
     if scope is None:
         return None
+    if scope.attacking or scope.permanents:
+        return None  # a selector this grant can't express — fail closed rather than widen
     params: dict = {"affects": "creatures_you_control"}
     if scope.subtype:
         params["subtype"] = scope.subtype
     if scope.filt:  # PAR-134
         params["object_filter"] = scope.filt
+    # PAR-142: "creature **tokens** you control are Squirrels", "**white** creatures you control are …",
+    # "**artifact** creatures you control are …" — dropped, each would silently widen to every creature.
+    if scope.tokens:
+        params["tokens"] = True
+    if scope.colors:
+        params["color"] = scope.colors
+    if scope.card_type:
+        params["card_type"] = scope.card_type
     return params
 
 # "You control enchanted creature/permanent." (Mind Control/Control Magic-
@@ -2567,6 +2684,108 @@ _GRAVEYARD_RETRACE_GRANT_RE = re.compile(
 )
 
 
+#: PAR-142: "<attached subject> [gets +N/+N,] [has <keywords>,] is a `<type words>` [creature with base
+#: power and toughness N/N] in addition to its other types [, and has "<ability>"]" — an Aura/Equipment
+#: that adds a type (Dub, Raven Wings, Ninja's Blades, Ensoul Artifact). One row composing the parts
+#: those cards recombine, each already modelled on its own: the anthem, the keyword grant, a layer-4
+#: `type_change` (RULE 205.1b — "in addition" keeps the host's own types; a base P/T rides the same
+#: static, layer 7b) and a quoted-ability grant. The "it's …" spelling is what
+#: `_conditional_static_specs` leaves after rewriting the pronoun to the attached subject.
+_ATTACHED_TYPE_ADDITION_RE = re.compile(
+    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) "
+    # "…has base power and toughness 5/5, has menace, and is a black Demon …" (Blade of the Oni)
+    r"(?:has base power and toughness (?P<bp2>\d+)/(?P<bt2>\d+)(?:, and |, | and ))?"
+    r"(?:gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+)(?:, and |, | and ))?"
+    r"(?:has (?P<kw>[a-z0-9][a-z0-9,{}— ]*?)(?:, and |, | and ))?"  # `_KW_WITH_WARD`, defined below
+    r"(?: ?is|'s) an? (?P<words>[a-z]+(?: [a-z]+)*?)"
+    r"(?: with base power and toughness (?P<bp>\d+)/(?P<bt>\d+))?"
+    # "…in addition to its other colors and types" — the colour words in ``words`` are *added* (layer 5).
+    r" in addition to its other (?P<colors_too>colors and )?types"
+    r'(?:(?:, and |, | and )has "(?P<inner>.+)")?',
+    re.IGNORECASE | re.DOTALL,
+)
+_ATTACHED_TRAILING_TYPE_RE = re.compile(
+    rf"(?P<main>(?:{_ATTACHED_SUBJECT_PATTERN}) .+?)\.?\s+it'?s an? (?P<words>[a-z]+(?: [a-z]+)*?) "
+    r"in addition to its other types\.?",
+    re.IGNORECASE | re.DOTALL,
+)
+_TYPE_ADDITION_CARD_TYPES = frozenset({"artifact", "creature", "enchantment", "land"})
+
+
+def type_addition_params(words: str) -> Optional[dict]:
+    """"`<subtype> <type>`" words of an "…in addition to its other types" clause → the
+    ``add_types``/``add_subtypes``/``legendary`` params of a layer-4 `type_change`, or ``None``
+    for a word that is none of them (fail closed — never a guessed subtype)."""
+    from .subtype_vocabulary import SUBTYPES
+
+    add_types: list[str] = []
+    add_subtypes: list[str] = []
+    legendary = False
+    for word in words.lower().split():
+        if word == "legendary":
+            legendary = True
+        elif word in _TYPE_ADDITION_CARD_TYPES:
+            add_types.append(word)
+        elif word in SUBTYPES:
+            add_subtypes.append(word.capitalize())
+        else:
+            return None
+    if not (add_types or add_subtypes or legendary):
+        return None
+    return {
+        **({"add_types": add_types} if add_types else {}),
+        **({"add_subtypes": add_subtypes} if add_subtypes else {}),
+        **({"legendary": True} if legendary else {}),
+    }
+
+
+def _attached_type_addition(m: "re.Match[str]") -> Optional[list[EffectSpec]]:
+    words = m.group("words").lower().split()
+    colors: list[str] = []
+    if m.group("colors_too"):
+        # "a white Angel in addition to its other colors and types": the leading colour words are added colours.
+        while words and words[0] in COLOR_LETTERS and words[0] != "colorless":
+            colors.append(COLOR_LETTERS[words.pop(0)])
+        if not colors:
+            return None
+    elif any(w in COLOR_LETTERS for w in words):
+        return None  # a colour without "…other colors and types" means "is exactly that colour" — not modelled
+    type_params = type_addition_params(" ".join(words)) if words else {}
+    if type_params is None:
+        return None
+    base = (m.group("bp"), m.group("bt")) if m.group("bp") is not None else (m.group("bp2"), m.group("bt2"))
+    if base[0] is not None:
+        if m.group("bp") is not None and "creature" not in type_params.get("add_types", []):
+            return None  # a base P/T after "is a …" belongs to a creature
+        type_params = {**type_params, "power": int(base[0]), "toughness": int(base[1])}
+    specs: list[EffectSpec] = []
+    if colors:
+        specs.append(EffectSpec("color", {"affects": "attached_permanent", "colors": colors, "set": False}))
+    if m.group("p") is not None:
+        specs.append(EffectSpec("anthem", {
+            "power": int(m.group("p")), "toughness": int(m.group("t")), "affects": "attached_permanent",
+        }))
+    if m.group("kw"):
+        resolved = _flag_keywords_and_ward(m.group("kw"))
+        if resolved is None:
+            return None
+        keywords, ward_cost = resolved
+        grant: dict = {"affects": "attached_permanent"}
+        if keywords:
+            grant["keywords"] = keywords
+        if ward_cost:
+            grant["ward_cost"] = ward_cost
+        specs.append(EffectSpec("grant_keyword", grant))
+    if type_params:
+        specs.append(EffectSpec("type_change", {"affects": "attached_permanent", **type_params}))
+    if m.group("inner"):
+        grants = _quoted_ability_grant_effects_list(m.group("inner"))
+        if grants is None:
+            return None
+        specs.extend(grants)
+    return specs
+
+
 # "<equipped/enchanted/fortified subject> gets +N/+N [and has <keywords>]"
 # (attached-permanent anthem, +grant) — singular "gets"/"has", unlike the
 # plural "get"/"have" of `_ANTHEM_RE`/`_GRANT_RE` above (those two families
@@ -3203,6 +3422,10 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # purpose: neither is a card type, so `is_card_type` on one can never hold.
     (re.compile(rf"(?:~|it)(?:'s| is) an? (?P<ct>{CARD_TYPE_WORD_ALT})", re.I),
      lambda m: {"kind": "is_card_type", "card_type": m.group("ct").lower()}),
+    # PAR-141: "if ~ isn't a creature" (Emergent Haunting, Answered Prayers) — the ENG-36 `not` combinator
+    # over the same live card-type read, true again once a type-change effect has made it one.
+    (re.compile(rf"(?:~|it)(?: isn't|'s not| is not) an? (?P<ct>{CARD_TYPE_WORD_ALT})", re.I),
+     lambda m: {"kind": "not", "condition": {"kind": "is_card_type", "card_type": m.group("ct").lower()}}),
     # "if you attacked this turn" (Raid; 47 occurrences in PAR-62's
     # residual scan). This asks whether the ability controller declared any
     # attacker; it is deliberately not the source-only Boast condition.
@@ -3554,6 +3777,37 @@ def _attached_state_condition(text: str) -> Optional[dict]:
     return {"kind": _ATTACHED_STATE_KINDS[m.group("state").lower()], "of": "attached"}
 
 
+_PRONOUN_STATE_RE = re.compile(
+    rf"it(?:'s| is) (?P<state>{'|'.join(_ATTACHED_STATE_KINDS)})", re.I
+)
+
+
+def _pronoun_attached_condition(cond: str, subject: str) -> Optional[dict]:
+    """"it's blocking [and `<more>`]" where "it" is the *attached* permanent (PAR-141).
+
+    The grant clause ("enchanted creature has first strike as long as it's blocking and you control a
+    snow land", Snow Devil) names the host, so a pronoun state in its condition reads the host, not the
+    Aura — `static_condition` alone would read it off the source. Each "and" half resolves on its own;
+    ``None`` (fail closed) unless at least one half is such a pronoun state.
+    """
+    halves = cond.strip().rstrip(".").split(" and ", 1)
+    built: list[dict] = []
+    pronoun = False
+    for half in halves:
+        m = _PRONOUN_STATE_RE.fullmatch(half.strip())
+        if m is not None:
+            pronoun = True
+            part = _attached_state_condition(f"{subject} is {m.group('state')}")
+        else:
+            part = static_condition(half)
+        if part is None:
+            return None
+        built.append(part)
+    if not pronoun:
+        return None
+    return built[0] if len(built) == 1 else {"kind": "all", "conditions": built}
+
+
 def _attached_characteristic(word: str) -> Optional[dict]:
     word = word.strip().lower()
     if word in _CARD_TYPE_WORDS:
@@ -3670,6 +3924,16 @@ def static_condition(text: str) -> Optional[dict]:
         right_cond = static_condition(right)
         if left_cond is not None and right_cond is not None:
             return {"kind": "any", "conditions": [left_cond, right_cond]}
+    # PAR-141: "`<condition A>` and `<condition B>`" ("if you haven't cast a spell from your hand this
+    # turn and ~ doesn't have a flying counter on it", Inventive Wingsmith) — the AND sibling of the
+    # "or" split above, same discipline: only when BOTH halves independently resolve (an "and" inside a
+    # phrase a named row already claims never reaches here), split on the first " and " only.
+    if " and " in stripped:
+        left, right = stripped.split(" and ", 1)
+        left_cond = static_condition(left)
+        right_cond = static_condition(right)
+        if left_cond is not None and right_cond is not None:
+            return {"kind": "all", "conditions": [left_cond, right_cond]}
     return None
 
 
@@ -4047,11 +4311,20 @@ def _conditional_static_specs(text: str) -> Optional[list[EffectSpec]]:
         m = pattern.fullmatch(text)
         if m is None:
             continue
-        condition = _attached_state_condition(m.group("cond")) or static_condition(m.group("cond"))
+        inner = m.group("inner").strip().rstrip(",").strip()
+        host = re.match(rf"({_ATTACHED_SUBJECT_PATTERN})\b", inner, re.I)
+        # The pronoun form already names the host in `inner`, so it needs no rewrite below.
+        pronoun_condition = (
+            _pronoun_attached_condition(m.group("cond"), host.group(1).lower()) if host else None
+        )
+        condition = (
+            pronoun_condition
+            or _attached_state_condition(m.group("cond"))
+            or static_condition(m.group("cond"))
+        )
         if condition is None:
             return None
-        inner = m.group("inner").strip().rstrip(",").strip()
-        if condition.get("of") == "attached":
+        if condition.get("of") == "attached" and pronoun_condition is None:
             subject = _CONDITION_ATTACHED_SUBJECT_RE.search(m.group("cond"))
             if subject is None:
                 return None  # fail closed — no phrase to rewrite the pronoun to
@@ -4797,6 +5070,19 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         }))
         return specs
 
+    m = _ATTACHED_TYPE_ADDITION_RE.fullmatch(text)
+    if m is not None:
+        return _attached_type_addition(m)
+    # PAR-142: a second sentence that only adds a type to the host — "Enchanted creature gets +1/+1 and has
+    # flying, haste, and "{1}: ~ gets +1/+0 until end of turn." **It's a Dragon in addition to its other
+    # types.**" (Draconic Destiny). The first sentence is an ordinary attached grant; "it" is the host.
+    trailing = _ATTACHED_TRAILING_TYPE_RE.fullmatch(text)
+    if trailing is not None:
+        head = static_effect_specs(trailing.group("main"))
+        added = type_addition_params(trailing.group("words"))
+        if head and added is not None and not added.get("legendary"):
+            return [*head, EffectSpec("type_change", {"affects": "attached_permanent", **added})]
+
     # Attached-permanent shape first ("equipped creature gets +2/+2 [and has
     # <keywords>]") — a closed subject list, so this never competes with the
     # "you control" scopes below (singular "gets"/"has" vs. their plural
@@ -5065,6 +5351,17 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             "add_subtypes_from_source": True,
             "off_battlefield": "your_graveyard",
         })]
+
+    m = _GROUP_TYPE_ADDITION_RE.fullmatch(text)
+    if m is not None and "chosen" not in text.lower():
+        # PAR-142: "creature tokens you control are Squirrels in addition to their other creature types"
+        # (Earl of Squirrel), "nontoken creatures you control are Forest lands in addition to their other
+        # types" (Ashaya) — the literal-word sibling of the chosen-type row just below.
+        params = _chosen_type_group_affects(m.group("body"))
+        added = _type_addition_plural_words(m.group("words"))
+        if params is None or added is None:
+            return None
+        return [EffectSpec("type_change", {**params, **added})]
 
     m = _GROUP_CHOSEN_TYPE_RE.fullmatch(text)
     if m is not None:

@@ -183,9 +183,10 @@ def test_another_target_legendary_creature_unblockable_parses():
     # comment: the redundant `card_type` key is `object_filter`'s general
     # recursion, not a regression.
     specs = match_clause("another target legendary creature can't be blocked this turn")
+    # PAR-141's adjective slot reads "legendary" straight off the target phrase; the kind already is "creature".
     assert specs == [EffectSpec("unblockable", {
         "target_kind": "creature",
-        "creature_filter": {"legendary": True, "card_type": "creature"},
+        "creature_filter": {"legendary": True},
     })]
 
 
@@ -317,7 +318,7 @@ def test_legendary_target_without_another_parses():
     assert parse_effect_body("target legendary creature can't be blocked this turn.") == [
         EffectSpec("unblockable", {
             "target_kind": "creature",
-            "creature_filter": {"legendary": True, "card_type": "creature"},
+            "creature_filter": {"legendary": True},
         }),
     ]
 

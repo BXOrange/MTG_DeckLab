@@ -82,6 +82,7 @@ def become_copy(
     add_subtypes: Optional[list[str]] = None,
     only_types: Optional[list[str]] = None,
     add_keywords: Optional[list[str]] = None,
+    not_legendary: bool = False,
 ) -> None:
     """``obj`` itself becomes a copy of ``target`` (RULE 707.2).
 
@@ -114,7 +115,7 @@ def become_copy(
     copiable = getattr(target, "_front_card", target.card)
     obj.card = copiable.as_copy(
         add_types=add_types, add_subtypes=add_subtypes,
-        only_types=only_types, add_keywords=add_keywords,
+        only_types=only_types, add_keywords=add_keywords, not_legendary=not_legendary,
     )
     obj._front_card = obj.card
 

@@ -18,6 +18,8 @@ import copy
 import re
 from typing import Any, Iterable, Optional
 
+from .characteristic_phrase import KEYWORD_WORDS, parse_absent_quality
+
 #: The canonical vocabulary of nouns that name a permanent type/group,
 #: singular, concrete types first then the two abstract/negated readings
 #: ("permanent" itself, "nonland permanent") — the shared source every
@@ -84,6 +86,101 @@ def all_permanent_type_selector(word: str) -> str:
     return "all_" + pluralize_permanent_type(word).replace(" ", "_")
 
 
+#: PAR-134: scope adjectives that name a characteristic other than a creature
+#: subtype → the `combat.matches_object_filter` fragment they mean. A word
+#: here must never reach the ``subtype`` param: ``_has_subtype`` would then
+#: look for a creature type nobody has and the static would silently affect
+#: nothing (or, for a negation, everything).
+SCOPE_ADJECTIVES: dict[str, dict] = {
+    "tapped": {"tapped": True},
+    "untapped": {"tapped": False},
+    "legendary": {"legendary": True},
+    "nonlegendary": {"nonlegendary": True},
+    "nontoken": {"nontoken": True},
+    "multicolored": {"multicolored": True},
+    "colorless": {"colorless": True},
+    "snow": {"snow": True},
+    "modified": {"modified": True},
+    "nonattacking": {"attacking": False},
+    "commander": {"is_commander": True},
+    # RULE 700.6: legendary supertype, artifact card type or Saga subtype.
+    "historic": {"any_of": [{"legendary": True}, {"card_type": "artifact"}, {"subtype": "Saga"}]},
+}
+
+#: Card types a "non<type>" adjective may negate (RULE 205.2a).
+_NEGATABLE_CARD_TYPES: frozenset[str] = frozenset(
+    {"artifact", "creature", "enchantment", "land", "planeswalker", "battle", "instant", "sorcery"}
+)
+
+#: "non<word>" / "non-<word>" — the negation of a colour, card type or subtype.
+_NON_WORD_RE = re.compile(r"non-?(?P<word>[a-z]+)")
+
+
+def scope_adjective(word: str) -> Optional[dict]:
+    """The filter fragment for one scope adjective (PAR-134), else ``None``."""
+    if word in SCOPE_ADJECTIVES:
+        return copy.deepcopy(SCOPE_ADJECTIVES[word])  # callers merge into their own dict
+    m = _NON_WORD_RE.fullmatch(word)
+    if m is None:
+        return None
+    negated = m.group("word")
+    if negated == "snow":  # a supertype (RULE 205.4g), not a subtype
+        return {"without_snow": True}
+    if negated in COLOR_LETTERS:
+        return {"without_color": [COLOR_LETTERS[negated]]}
+    if negated in _NEGATABLE_CARD_TYPES:
+        return {"without_card_type": negated}
+    return {"without_subtype": negated.capitalize()}  # "non-Wall", "nonhuman"
+
+
+#: PAR-141: an adjective before the noun of a targeted creature — "target **nontoken** creature", "target
+#: **legendary** creature you control", "target **Zombie** creature", "target **artifact** creature" — a slot
+#: like the quality/scope tails, not a row per word. One vocabulary: the scope adjectives above, a
+#: "non<word>" negation, a colour, a card-type word, or a subtype from the generated list. The combat-state
+#: words (attacking/blocking/tapped/untapped) keep their own older row.
+_UNMODELED_SUPERTYPES = frozenset({"basic", "world", "ongoing"})
+_ADJECTIVE_STATE_WORDS = frozenset({"attacking", "blocking", "tapped", "untapped"})
+_ADJECTIVE_COLOR_WORDS = frozenset(w for w in COLOR_LETTERS if w != "colorless")
+_ADJECTIVE_TYPE_WORDS = frozenset({"artifact", "enchantment", "land", "planeswalker"})
+
+
+def target_adjective_filter(word: str) -> Optional[dict]:
+    """One pre-noun adjective of a target phrase → its `combat.matches_object_filter` fragment, else
+    ``None`` (fail closed — a word that is none of the vocabulary is never guessed to be a subtype)."""
+    from .subtype_vocabulary import SUBTYPES
+
+    w = word.lower()
+    if w in _ADJECTIVE_STATE_WORDS:
+        return None
+    if w == "werewolf":
+        return {}  # its own kind (`werewolf_creature`) already is the filter — nothing to merge
+    # A negated *supertype* other than the ones `scope_adjective` models would become a bogus
+    # subtype filter ("nonbasic" → Basic): fail closed instead.
+    if w.startswith("non") and re.sub(r"^non-?", "", w) in _UNMODELED_SUPERTYPES:
+        return None
+    scoped = scope_adjective(w)
+    if scoped is not None:
+        return scoped
+    if w in _ADJECTIVE_COLOR_WORDS:
+        return {"color": COLOR_LETTERS[w]}
+    if w in _ADJECTIVE_TYPE_WORDS:
+        return {"card_type": w}
+    if w in SUBTYPES:
+        return {"subtype": w.capitalize()}
+    return None
+
+
+def _adjective_alternation() -> str:
+    from .subtype_vocabulary import SUBTYPES
+
+    words = {*SCOPE_ADJECTIVES, *_ADJECTIVE_COLOR_WORDS, *_ADJECTIVE_TYPE_WORDS, *SUBTYPES}
+    words -= _ADJECTIVE_STATE_WORDS
+    return r"non-?[a-z]+|" + "|".join(sorted((re.escape(w) for w in words), key=len, reverse=True))
+
+
+TARGET_ADJECTIVE = _adjective_alternation()
+
+
 #: Ordered (regex-fragment, target_kind) rows. **Longest / most specific
 #: first** — "target creature or player" must win over "target creature".
 #: Each fragment is a self-contained alternative that the TARGET matcher ORs
@@ -119,6 +216,11 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     (r"target attacking or blocking creature", "attacking_or_blocking_creature"),
     (r"target (?:attacking|blocking|tapped|untapped) creature", "creature"),
     (r"target werewolf creature", "werewolf_creature"),
+    # PAR-141: "target `<adjective>` creature [you control]" — the adjective is read back as a filter
+    # fragment by `target_adjective_filter` (`resolve_target_creature_state_filter`), never dropped:
+    # `handlers.EffectHandler.match` refuses a builder that loses it.
+    (rf"target (?:{TARGET_ADJECTIVE}) creature you control", "creature_you_control"),
+    (rf"target (?:{TARGET_ADJECTIVE}) creature", "creature"),
     # An ATTACKS trigger's defending player is carried on the event; this is
     # narrower than an arbitrary opponent-controlled creature.
     (r"target creature defending player controls", "creature_defending_player_controls"),
@@ -321,10 +423,34 @@ NOT_YOU_TAIL = r" (?:an opponent controls|you don't control)"
 THAT_PLAYER_TAIL = r" that player controls"
 #: PAR-128: RULE 109.5's "another"/"other" is the same kind of slot, before any row.
 OTHER_PREFIX = r"(?:another|other) "
+#: PAR-141: a negated quality on a targeted creature ("target creature **without flying**", "target
+#: creature you control **that doesn't have a +1/+1 counter on it**") — a slot like the controller
+#: scope above, not a row per phrase. The same vocabulary as `characteristic_phrase`'s "without …"
+#: tail (keyword words, counter kinds). `target_quality_filter` reads it back as a
+#: `combat.matches_object_filter` fragment and `resolve_target_kind` drops it; a handler that
+#: matched one without merging that fragment is refused by `handlers.EffectHandler.match`.
+_QUALITY_KEYWORDS = "|".join(sorted(KEYWORD_WORDS, key=len, reverse=True))
+TARGET_QUALITY_TAIL = (
+    r" (?:without|that doesn't have|that has no) "
+    rf"(?:(?:{_QUALITY_KEYWORDS})|(?:an? )?(?:(?:\+1/\+1|-1/-1|[a-z]+) )?counters? on it)"
+)
+#: The pools whose `targeting.TargetFrame` applies ``creature_filter`` — the only kinds a quality
+#: may narrow (any other would carry a filter nothing reads).
+_QUALITY_TARGET_KINDS = frozenset({
+    "creature", "creature_you_control", "other_creature_you_control",
+    "creature_you_dont_control", "creature_that_player_controls",
+})
+_TARGET_SCOPE_TAIL = f"(?:{NOT_YOU_TAIL}|{THAT_PLAYER_TAIL})"
+#: "target creature without flying **that's attacking you**" (Snow Fortress, Hunting Kavu) — the creature
+#: attacks the ability's controller (RULE 506.2): `targeting._creature_matches_filter`'s ``attacking_you``.
+ATTACKING_YOU_TAIL = r" that'?s attacking you"
 _TARGET_ALT = (
     f"(?:{OTHER_PREFIX})?"
     "(?:" + "|".join(f"(?:{frag})" for frag, _ in _TARGET_ROWS) + ")"
-    f"(?:{NOT_YOU_TAIL}|{THAT_PLAYER_TAIL})?"
+    # The quality may sit on either side of a trailing scope ("without flying you don't control",
+    # Street Spasm) but appears at most once.
+    f"(?:{TARGET_QUALITY_TAIL}{_TARGET_SCOPE_TAIL}?|{_TARGET_SCOPE_TAIL}?(?:{TARGET_QUALITY_TAIL})?)"
+    f"(?:{ATTACKING_YOU_TAIL})?"
 )
 TARGET = (
     r"(?P<up_to_one>" + UP_TO_ONE + r")"
@@ -602,6 +728,28 @@ def target_kind_allowed(kind: Optional[str], allowed: "Iterable[str]") -> bool:
     return False
 
 
+_TARGET_QUALITY_RE = re.compile(TARGET_QUALITY_TAIL, re.IGNORECASE)
+_ATTACKING_YOU_RE = re.compile(ATTACKING_YOU_TAIL, re.IGNORECASE)
+_QUALITY_OBJECT_RE = re.compile(r"^ (?:without|that doesn't have|that has no) ")
+
+
+def target_quality_filter(phrase: str) -> dict:
+    """The quality a TARGET phrase carries beyond its kind (PAR-141) — a negated keyword/counter and/or
+    "that's attacking you" — as a filter fragment, else ``{}``."""
+    text = phrase.strip()
+    fragment: dict = {}
+    adjective = _TARGET_ADJECTIVE_RE.fullmatch(_ATTACKING_YOU_RE.sub("", _TARGET_QUALITY_RE.sub("", text)))
+    if adjective is not None:
+        fragment.update(target_adjective_filter(adjective.group(1)) or {})
+    if _ATTACKING_YOU_RE.search(text):
+        fragment.update({"attacking": True, "attacking_you": True})
+    quality = _TARGET_QUALITY_RE.search(text)
+    if quality is not None:
+        head = _QUALITY_OBJECT_RE.match(quality.group(0))
+        fragment.update(parse_absent_quality(quality.group(0)[head.end():]) or {} if head else {})
+    return fragment
+
+
 def resolve_target_kind(phrase: str) -> Optional[str]:
     """Classify a matched TARGET ``phrase`` into an engine ``target_kind``.
 
@@ -609,6 +757,23 @@ def resolve_target_kind(phrase: str) -> Optional[str]:
     leaves the clause unclaimed rather than guessing ``"any"``).
     """
     text = phrase.strip()
+    attacking_you = _ATTACKING_YOU_RE.search(text)
+    quality = _TARGET_QUALITY_RE.search(text)
+    if attacking_you is not None or quality is not None:
+        rest = text
+        for found in (attacking_you, quality):
+            if found is not None:
+                rest = rest.replace(found.group(0), "", 1)
+        if _TARGET_QUALITY_RE.search(rest) is not None or _ATTACKING_YOU_RE.search(rest) is not None:
+            return None  # one slot of each per target phrase
+        base = resolve_target_kind(rest)
+        return base if base in _QUALITY_TARGET_KINDS else None
+    adjective = _TARGET_ADJECTIVE_RE.fullmatch(text)
+    if (
+        adjective is not None and adjective.group(1).lower() not in _ADJECTIVE_STATE_WORDS
+        and target_adjective_filter(adjective.group(1)) is None
+    ):
+        return None  # an adjective with no filter reading would be dropped silently (e.g. "nonbasic")
     for pattern, kind in _TARGET_LOOKUP:
         if pattern.match(text):
             return kind
@@ -651,53 +816,8 @@ _TARGET_COMBAT_STATE_RE = re.compile(
 )
 
 
-#: PAR-134: scope adjectives that name a characteristic other than a creature
-#: subtype → the `combat.matches_object_filter` fragment they mean. A word
-#: here must never reach the ``subtype`` param: ``_has_subtype`` would then
-#: look for a creature type nobody has and the static would silently affect
-#: nothing (or, for a negation, everything).
-SCOPE_ADJECTIVES: dict[str, dict] = {
-    "tapped": {"tapped": True},
-    "untapped": {"tapped": False},
-    "legendary": {"legendary": True},
-    "nonlegendary": {"nonlegendary": True},
-    "nontoken": {"nontoken": True},
-    "multicolored": {"multicolored": True},
-    "colorless": {"colorless": True},
-    "snow": {"snow": True},
-    "modified": {"modified": True},
-    "nonattacking": {"attacking": False},
-    "commander": {"is_commander": True},
-    # RULE 700.6: legendary supertype, artifact card type or Saga subtype.
-    "historic": {"any_of": [{"legendary": True}, {"card_type": "artifact"}, {"subtype": "Saga"}]},
-}
-
-#: Card types a "non<type>" adjective may negate (RULE 205.2a).
-_NEGATABLE_CARD_TYPES: frozenset[str] = frozenset(
-    {"artifact", "creature", "enchantment", "land", "planeswalker", "battle", "instant", "sorcery"}
-)
-
-#: "non<word>" / "non-<word>" — the negation of a colour, card type or subtype.
-_NON_WORD_RE = re.compile(r"non-?(?P<word>[a-z]+)")
-
-
-def scope_adjective(word: str) -> Optional[dict]:
-    """The filter fragment for one scope adjective (PAR-134), else ``None``."""
-    if word in SCOPE_ADJECTIVES:
-        return copy.deepcopy(SCOPE_ADJECTIVES[word])  # callers merge into their own dict
-    m = _NON_WORD_RE.fullmatch(word)
-    if m is None:
-        return None
-    negated = m.group("word")
-    if negated in COLOR_LETTERS:
-        return {"without_color": [COLOR_LETTERS[negated]]}
-    if negated in _NEGATABLE_CARD_TYPES:
-        return {"without_card_type": negated}
-    return {"without_subtype": negated.capitalize()}  # "non-Wall", "nonhuman"
-
-
 _TARGET_ADJECTIVE_RE = re.compile(
-    r"(?:" + OTHER_PREFIX + r")?target ([a-z-]+) creature(?:" + NOT_YOU_TAIL + r")?",
+    r"(?:" + OTHER_PREFIX + r")?target ([a-z-]+) creature(?: you control)?(?:" + NOT_YOU_TAIL + r")?",
     re.IGNORECASE,
 )
 
@@ -709,6 +829,15 @@ def resolve_target_creature_state_filter(phrase: str) -> Optional[dict]:
     `resolve_target_kind` on the same raw text and merge the result into
     the caller's own ``creature_filter``.
     """
+    quality = _TARGET_QUALITY_RE.search(phrase)
+    attacking_you = _ATTACKING_YOU_RE.search(phrase)
+    if quality is not None or attacking_you is not None:
+        # PAR-141: the quality slots ride the same channel as the combat-state adjective.
+        rest = phrase
+        for found in (attacking_you, quality):
+            if found is not None:
+                rest = rest.replace(found.group(0), "", 1)
+        return {**(resolve_target_creature_state_filter(rest) or {}), **target_quality_filter(phrase)}
     m = _TARGET_COMBAT_STATE_RE.fullmatch(phrase.strip())
     if m is None:
         # PAR-134: the same shape for a supertype/designation/negation adjective
@@ -716,7 +845,7 @@ def resolve_target_creature_state_filter(phrase: str) -> Optional[dict]:
         # "target multicolored creature") — `scope_adjective`'s vocabulary, so a
         # caller that falls back to "the word is a subtype" never guesses it.
         m = _TARGET_ADJECTIVE_RE.fullmatch(phrase.strip())
-        return None if m is None else scope_adjective(m.group(1).lower())
+        return None if m is None else target_adjective_filter(m.group(1))
     word = m.group(1).lower()
     return {"tapped": word != "untapped"} if word in ("tapped", "untapped") else {word: True}
 

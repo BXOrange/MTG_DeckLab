@@ -1172,15 +1172,30 @@ class ReturnSelfFromGraveyardToBattlefieldEffect(GameEffect):
     battlefield) rather than reusing that name for an unrelated effect.
     """
 
-    def __init__(self, tapped: bool = False, source: Optional["GameObject"] = None):
+    def __init__(
+        self, tapped: bool = False, source: Optional["GameObject"] = None, attacking: bool = False,
+        extra_counters: Optional[dict[str, Any]] = None,
+    ):
         super().__init__(source)
         self.tapped = tapped
+        #: "…with 2 +1/+1 counters on it" — ``{"kind", "count"}``, placed right after it lands
+        #: (`ReturnFromGraveyardEffect.extra_counters`' own shape).
+        self.extra_counters = dict(extra_counters) if extra_counters else None
+        #: "…to the battlefield tapped and attacking" (Interceptor, Shadow's Hound) — RULE 508.4.
+        self.attacking = attacking
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None or self.source.zone != Zone.GRAVEYARD:
             return
         destination = "battlefield_tapped" if self.tapped else "battlefield"
         context.return_from_graveyard(self.source, destination)
+        if self.extra_counters:
+            context.add_counters(
+                self.source, int(self.extra_counters.get("count", 1) or 1),
+                str(self.extra_counters.get("kind", "+1/+1")), source=self.source,
+            )
+        if self.attacking:
+            context.engine.put_onto_battlefield_attacking(self.source)
 
 
 class UndyingPersistReturnEffect(GameEffect):
