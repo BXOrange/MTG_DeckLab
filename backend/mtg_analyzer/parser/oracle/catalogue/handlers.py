@@ -20,12 +20,15 @@ Pure regex + data — **no `game/` imports** (front-end security boundary).
 from __future__ import annotations
 
 import copy
+import contextvars
+import json
 import re
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from ..normalize import SELF
 from ..spec import GROUP_SUBJECT_KEY_SENTINEL, EffectSpec, ParserProvenance
+from .referent_condition import PRONOUN_NOUN_ALT
 from .keywords import KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
 from .subgrammars import (
     THAT_PLAYER_TAIL,
@@ -461,6 +464,52 @@ _DAMAGE_TO_SUBJECT_CONTROLLER_RE = _c(
 )
 
 
+#: "~ deals N damage to **the player or planeswalker it's attacking**" (Hellrider, Cavalcade of Calamity,
+#: Raid Bombardment) — what the attacker that fired the trigger was declared against. A group-subject
+#: row: "it"/"that creature" is the attacker (`DealDamageEffect.recipient_subject`).
+_DAMAGE_TO_ATTACKED_RE = _c(
+    rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+) damage to the player or planeswalker "
+    r"(?:it'?s|that creature is|that creature'?s) attacking"
+)
+
+
+#: "**it** deals N damage to its controller" / "**that archer** deals that much damage to that
+#: creature's controller" (Vengeful Ancestor, Greatbow Doyen) — the firing object is the *dealer*
+#: (`segmenter._stamp_damage_dealer` names it from the sentinel) and its controller the recipient.
+_GROUP_DEALS_TO_ITS_CONTROLLER_RE = _c(
+    r"(?:it|that creature) deals? (?:(?P<n>\d+)|(?P<much>that much)) damage to "
+    r"(?:its|that creature'?s) controller"
+)
+
+
+#: "**that archer** deals that much damage to **that creature's** controller" (Greatbow Doyen) — two
+#: different objects: the dealer is the firing creature, "that creature" the one the damage went to.
+_GROUP_DEALS_TO_DAMAGED_CONTROLLER_RE = _c(
+    rf"that (?!creature\b){PRONOUN_NOUN_ALT} deals? that much damage to that creature'?s controller"
+)
+
+
+def _group_deals_to_damaged_controller(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("damage", {
+        "recipient_subject": "damage_recipient_controller", "amount_from_trigger_event": "amount",
+    })]
+
+
+def _group_deals_to_its_controller(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict = {"recipient_subject": "trigger_subject_controller"}
+    if m.group("much"):
+        params["amount_from_trigger_event"] = "amount"
+    else:
+        params["amount"] = int(m.group("n"))
+    return [EffectSpec("damage", params)]
+
+
+def _damage_to_attacked(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("damage", {
+        "amount": int(m.group("n")), "recipient_subject": "trigger_subject_defender",
+    })]
+
+
 def _damage_to_prev_subject_controller(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("damage", {
         "amount": int(m.group("n")), "recipient_subject": "previous_subject_controller",
@@ -545,8 +594,19 @@ _COPY_EXCEPT_PT_RE = re.compile(
 )
 
 
+#: The subject a copy-"except" piece may name for the copy: "it", "the token", or "they" (plural
+#: tokens). Read as "it" so one grammar serves all three.
+_COPY_EXCEPT_SUBJECT_RES = (
+    (re.compile(r"^(?:the token|they) (?:isn'?t|aren'?t|is not|are not) "), "it isn't "),
+    (re.compile(r"^(?:the token|they)(?:'re| is| are) "), "it's "),
+    (re.compile(r"^(?:the token|they) (?:has|have) "), "it has "),
+)
+
+
 def _copy_except_modifier(piece: str) -> Optional[dict]:
     piece = piece.strip()
+    for subject_re, replacement in _COPY_EXCEPT_SUBJECT_RES:
+        piece = subject_re.sub(replacement, piece)
     if piece == "it has haste":
         return {"haste": True}
     if re.fullmatch(r"it isn'?t legendary|it'?s not legendary", piece):
@@ -2547,12 +2607,12 @@ def _its_controller_loses_life_unless_sac_or_discard(m: re.Match[str]) -> list[E
 #: built for Broken Ambitions' "that spell's controller mills four cards"
 #: (see that effect's own docstring, RULE 608.2h) — this was only ever
 #: missing the "its controller" parser row, not the engine primitive.
-_ITS_CONTROLLER_MILLS_RE = _c(rf"{_CONTROLLER_REFERENT} mills {NUMBER} cards?")
+_ITS_CONTROLLER_MILLS_RE = _c(rf"{_CONTROLLER_REFERENT} mills {COUNT} cards?")
 
 
 def _its_controller_mills(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("mill", {
-        "count": int(m.group("n")), "selector": "previous_subject_controller",
+        "count": count_of(m.group("n")), "selector": "previous_subject_controller",
     })]
 
 
@@ -2653,7 +2713,7 @@ def _group_its_controller_discards(m: re.Match[str]) -> list[EffectSpec]:
 
 def _group_its_controller_mills(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("mill", {
-        "count": int(m.group("n")), "selector": "trigger_subject_controller",
+        "count": count_of(m.group("n")), "selector": "trigger_subject_controller",
     })]
 
 
@@ -2705,7 +2765,7 @@ def _attached_its_controller_discards(m: re.Match[str]) -> list[EffectSpec]:
 
 def _attached_its_controller_mills(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("mill", {
-        "count": int(m.group("n")), "selector": "attached_permanent_controller",
+        "count": count_of(m.group("n")), "selector": "attached_permanent_controller",
     })]
 
 
@@ -6021,6 +6081,12 @@ def _fight_implicit(fighter_kind: Optional[str]):
         if other is None:
             return None
         params: dict = {"other_kind": other, **_optional_param(m)}
+        if m.groupdict().get("same_mv"):
+            # "…with the same mana value" as the group trigger's firing object (Boxing Ring): a
+            # target filter read off the trigger's event, so only under a group trigger.
+            if not _GROUP_CLAUSE.get():
+                return None
+            params["other_exact_mana_value"] = "trigger_subject_mana_value"
         if fighter_kind is not None:
             params["fighter_kind"] = fighter_kind
         if m.groupdict().get("another"):
@@ -6221,7 +6287,7 @@ _FIGHT_SELF_RE = _c(rf"(?:have )?{re.escape(SELF)} fights? {_ANOTHER}{TARGET}")
 _FIGHT_PRONOUN_RE = _c(rf"(?:have )?(?:it|he|she|they) fights? {_ANOTHER}{TARGET}")
 _FIGHT_ATTACHED_RE = _c(rf"(?:have )?{_ATTACHED_SUBJECT} fights? {_ANOTHER}{TARGET}")
 _FIGHT_PREVIOUS_RE = _c(
-    rf"{_THEN}(?:have )?{_PREVIOUS_SUBJECT} fights? {_ANOTHER}{TARGET}"
+    rf"{_THEN}(?:have )?{_PREVIOUS_SUBJECT} fights? {_ANOTHER}{TARGET}(?P<same_mv> with the same mana value)?"
 )
 
 #: Predatory Urge's pre-keyword-action wording for a fight.  The two damage
@@ -6721,11 +6787,63 @@ _PAY_COST_THEN_OR_ELSE_RE = _c(
 )
 
 
+#: Spellings of "read this from the trigger's event", which is gone once a payment has been made.
+_LIVE_EVENT_MARKERS = (
+    '"trigger_subject": true', '"target_kind": "trigger_subject"', '"dealer_event_key"',
+    '"trigger_event_key"', '"referent": "trigger_event"', '"amount_from_trigger_event"',
+    '"count_from_trigger_event"',
+)
+
+
+def _remembered_group_referent(specs: "list[EffectSpec]") -> Optional[list[EffectSpec]]:
+    """PAR-123: a payment's "if you do" body runs after the trigger's event window has closed, so a
+    group-trigger pronoun inside it must read the subject `PayCostThenEffect` remembers rather than
+    the event. Rewrites the firing-object sentinel to ``remembered``; ``None`` if anything else still
+    needs the live event (it would resolve to nothing)."""
+    def rewrite(node: Any) -> Any:
+        if isinstance(node, dict):
+            out = {k: rewrite(v) for k, v in node.items()}
+            params = out.get("params") or {}
+            if out.get("type") == "trigger_subject_referent" and params.get("event_key") == GROUP_SUBJECT_KEY_SENTINEL:
+                out["params"] = {**params, "event_key": "remembered"}
+            elif out.get("type") == "copy_permanent" and params.get("referent") == "trigger_event":
+                # "create a token that's a copy of it": the copy reads the remembered object as the
+                # referent instead of the event that is no longer live.
+                return {"type": "trigger_subject_referent", "params": {
+                    "event_key": "remembered",
+                    "effects": [{**out, "params": {**params, "referent": "previous"}}],
+                }}
+            if out.get("trigger_subject_key") == GROUP_SUBJECT_KEY_SENTINEL:
+                out["trigger_subject_key"] = "remembered"
+            return out
+        if isinstance(node, list):
+            return [rewrite(v) for v in node]
+        return node
+
+    rewritten = [rewrite(spec.to_dict()) for spec in specs]
+    text = json.dumps(rewritten, default=str)
+    if GROUP_SUBJECT_KEY_SENTINEL in text or any(marker in text for marker in _LIVE_EVENT_MARKERS):
+        return None
+    return [EffectSpec(d["type"], d.get("params") or {}, condition=d.get("condition")) for d in rewritten]
+
+
 def _pay_cost_then_general(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     from ..segmenter import parse_effect_body, _announces_creature_target
 
+    group = _GROUP_CLAUSE.get()
     parts = re.split(r"\.\s*otherwise,?\s+", m.group("effect").strip(), maxsplit=1)
-    sub = parse_effect_body(parts[0], self_subject=True)
+    if group:
+        # The branch runs once the payment is made, after the trigger's event window has closed, so
+        # a pronoun in it names the object `remember_trigger_subject` stamped on the source: read as
+        # the previous pick, behind a seed of that remembered object.
+        sub = parse_effect_body(parts[0], previous_subject=True)
+        if sub:
+            sub = [EffectSpec("trigger_subject_referent", {"event_key": "remembered"}), *sub]
+        else:
+            grouped = parse_effect_body(parts[0], group_subject=True)
+            sub = _remembered_group_referent(grouped) if grouped else None
+    else:
+        sub = parse_effect_body(parts[0], self_subject=True)
     if not sub:
         return None  # follow-up not modeled → whole clause unclaimed
     if m.group("link") == "when" and any(s.params.get("target_kind") for s in sub):
@@ -6736,6 +6854,7 @@ def _pay_cost_then_general(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return [EffectSpec("pay_cost_then", {
             "cost": m.group("cost"),
             "then_trigger": [s.to_dict() for s in sub],
+            **({"remember_trigger_subject": True} if group else {}),
         })]
     params: dict = {"cost": m.group("cost"), "effects": [s.to_dict() for s in sub]}
     if len(parts) > 1:
@@ -6745,7 +6864,7 @@ def _pay_cost_then_general(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         if not otherwise or any(s.params.get("target_kind") for s in otherwise):
             return None
         params["else_effects"] = [s.to_dict() for s in otherwise]
-    if any(s.params.get("trigger_subject_key") == "remembered" for s in sub):
+    if group or any(s.params.get("trigger_subject_key") == "remembered" for s in sub):
         params["remember_trigger_subject"] = True
     return [EffectSpec("pay_cost_then", params)]
 
@@ -8232,6 +8351,10 @@ def _add_counters_target_params(
     (`_add_counters_from_trigger_amount`) whose regex has no "up to" group to
     read."""
     if m.groupdict().get("selfref"):
+        if _GROUP_CLAUSE.get() and m.group("selfref").lower() == "it":
+            # Under a group trigger a bare "it" is the firing object, not the ability's source
+            # (PAR-123) — the group readings own it; the source is only ever named ("~").
+            return None
         return [EffectSpec("add_counters", params)]
     kind = resolve_target_kind(m.group("target"))
     if not target_kind_allowed(kind, (
@@ -9336,7 +9459,9 @@ _PUMP_DEVOTION_NEGATIVE_TARGET_RE = _c(
 #: `continuous.count_selector`'s `source_power`, its own row rather than a
 #: `{DEVOTION}` addition (that subgrammar is reused far too widely).
 _PUMP_TARGET_SOURCE_POWER_RE = _c(
-    rf"{TARGET} gets? \+x/\+x until end of turn, where x is ~'?s power"
+    rf"{TARGET} (?:gets? \+x/\+x(?: and gains? (?P<kw>[a-z, ]+?))?"
+    r"|gains? (?P<kw2>[a-z, ]+?) and gets? \+x/\+x)"
+    r" until end of turn, where x is ~'?s power"
 )
 
 
@@ -9346,6 +9471,13 @@ def _pump_target_source_power(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     target_kind, selector_subject = subject
     params: dict = {"amount_from_count_selector": "source_power"}
+    granted = m.group("kw") or m.group("kw2")
+    if granted:
+        # "gains trample and gets +X/+X …" (Ashroot Animist): the keyword rides the same pump.
+        keywords = _token_keywords(granted)
+        if keywords is None:
+            return None
+        params["keywords"] = keywords
     if target_kind is not None:
         params["target_kind"] = target_kind
     if selector_subject is not None:
@@ -12435,6 +12567,8 @@ _DELAYED_SAC_EXILE_TAIL_RE = _c(
     # loan bounced end of turn; the object is the same `previous_or_self`
     # referent the sacrifice/exile forms use.
     r"|(?P<verb_return>return) (?:it|that creature|that token|that permanent) to (?:your|its owner'?s) hand"
+    # "It phases out at end of combat" (Teferi's Veil, PAR-123) — the subject leads the verb.
+    r"|(?P<phase_subject>it|that creature|that permanent) phases? out"
     r") "
     # "at end of combat" (Kari Zev, Calamity, every "tapped and attacking"
     # token) fires at the `end_combat` step, "the/your next end step" at the
@@ -12463,6 +12597,12 @@ def _delayed_sac_exile_tail(m: re.Match[str]) -> list[EffectSpec]:
                 "effects": [{"type": "destroy_specific", "params": {}}],
             }),
         ]
+    if m.groupdict().get("phase_subject"):
+        step = "end_combat" if m.group("when").lower() == "at end of combat" else "end"
+        return [EffectSpec("create_delayed_trigger", {
+            "step": step, "scope": "any", "capture": "previous_or_self",
+            "effects": [{"type": "phase_out", "params": {}}],
+        })]
     verb_ctrl = m.groupdict().get("verb_ctrl")
     verb = (
         m.groupdict().get("verb") or m.groupdict().get("verb_return")
@@ -14326,6 +14466,18 @@ HANDLERS: list[EffectHandler] = [
         _c(r"each of those creatures deals damage equal to its power to (?:~|this creature)"),
         lambda m: [EffectSpec("damage_equal_to_power", {"dealer_group": "previous_targets"})],
         previous_subject_only=True,
+    ),
+    EffectHandler(
+        "damage_to_attacked_defender", _DAMAGE_TO_ATTACKED_RE, _damage_to_attacked,
+        group_subject_only=True,
+    ),
+    EffectHandler(
+        "group_deals_to_damaged_controller", _GROUP_DEALS_TO_DAMAGED_CONTROLLER_RE,
+        _group_deals_to_damaged_controller, group_subject_only=True,
+    ),
+    EffectHandler(
+        "group_deals_to_its_controller", _GROUP_DEALS_TO_ITS_CONTROLLER_RE,
+        _group_deals_to_its_controller, group_subject_only=True,
     ),
     # "~ [also] deals N damage to that creature's controller" (~22 SOLO —
     # Consign to the Pit / Battle Strain / Dingus Staff / …).
@@ -18116,6 +18268,29 @@ HANDLERS: list[EffectHandler] = [
 ]
 
 
+#: "that creature's controller" / "that land's power" — under a group trigger the same possessive
+#: as "its", so every "its …" row serves both spellings.
+_THAT_OBJECTS_POSSESSIVE_RE = re.compile(rf"\bthat {PRONOUN_NOUN_ALT}'s\b")
+
+#: "that hero" / "that sliver" — a creature subtype naming the firing object.
+_THAT_SUBTYPE_RE = re.compile(rf"\bthat (?!creature\b|permanent\b|artifact\b|land\b|token\b){PRONOUN_NOUN_ALT}\b")
+
+_THAT_CREATURE_RE = re.compile(r"\bthat creature\b")
+
+#: "…target creature you control **other than that creature**" — the group trigger's firing object.
+_OTHER_THAN_THAT_RE = re.compile(rf"\s+other than (?:it|that {PRONOUN_NOUN_ALT})$")
+
+#: A plural referent ("put a counter on each of **those** creatures") names a group, which the
+#: one object a group trigger fired for cannot stand for.
+_PLURAL_PRONOUN_RE = re.compile(r"\b(?:those|them|they|these|each of)\b")
+
+
+#: Whether the clause `match_clause` is reading right now sits under a group trigger — for the
+#: builders (`_pay_cost_then_general`) that parse a sub-clause of their own and must give it the
+#: same reading, and are handed only a regex match.
+_GROUP_CLAUSE: contextvars.ContextVar[bool] = contextvars.ContextVar("par123_group_clause", default=False)
+
+
 def match_clause(
     clause: str, *, self_subject: bool = False, previous_subject: bool = False,
     group_subject: bool = False, previous_selector: bool = False,
@@ -18139,7 +18314,201 @@ def match_clause(
     ``group_subject_only``/``previous_selector_only``/``attached_subject_
     only``); with none set — the default, and the only reading available to a
     clause standing alone — a pronoun claims nothing at all.
+
+    PAR-123: a group-subject clause no row claims outright is tried once more as though
+    its pronoun named an earlier clause's pick, and the firing object is then made that
+    pick (`trigger_subject_referent`) — "it"/"that creature" under a RULE 603.1 group
+    trigger *is* an object nothing chose, and every effect with a previous-subject reading
+    ("it explores", "it fights …", "that creature endures N") already reads the pick from
+    `GameContext.previous_targets`. Rows written for the group subject itself win first, so
+    nothing they claim changes reading.
     """
+    token = _GROUP_CLAUSE.set(group_subject and not previous_subject and not self_subject)
+    try:
+        return _match_clause_reading(
+            clause, self_subject=self_subject, previous_subject=previous_subject,
+            group_subject=group_subject, previous_selector=previous_selector,
+            attached_subject=attached_subject,
+        )
+    finally:
+        _GROUP_CLAUSE.reset(token)
+
+
+def _match_clause_reading(
+    clause: str, *, self_subject: bool, previous_subject: bool, group_subject: bool,
+    previous_selector: bool, attached_subject: bool,
+) -> Optional[list[EffectSpec]]:
+    other_than = _OTHER_THAN_THAT_RE.search(clause) if group_subject else None
+    if other_than is not None:
+        # "put a +1/+1 counter on target creature you control **other than that creature**": the
+        # firing object is excluded from the choice, whatever verb the clause has.
+        effects = _match_clause_reading(
+            clause[:other_than.start()], self_subject=self_subject, previous_subject=previous_subject,
+            group_subject=group_subject, previous_selector=previous_selector,
+            attached_subject=attached_subject,
+        )
+        if effects is None or not any(e.params.get("target_kind") for e in effects):
+            return None
+        return [
+            EffectSpec(e.type, {**e.params, "excluding_trigger_subject": True}, condition=e.condition)
+            if e.params.get("target_kind") else e
+            for e in effects
+        ]
+    if group_subject and _THAT_CREATURE_RE.search(clause) is None:
+        # "that hero"/"that sliver" under a group trigger for that subtype is "that creature" —
+        # unless the clause also says "that creature", which would then be a *second* object
+        # ("that archer deals that much damage to that creature's controller").
+        clause = _THAT_SUBTYPE_RE.sub("that creature", clause)
+    effects = _match_clause_once(
+        clause, self_subject=self_subject, previous_subject=previous_subject,
+        group_subject=group_subject, previous_selector=previous_selector,
+        attached_subject=attached_subject,
+    )
+    if effects is None and group_subject and _THAT_OBJECTS_POSSESSIVE_RE.search(clause):
+        clause = _THAT_OBJECTS_POSSESSIVE_RE.sub("its", clause)
+        effects = _match_clause_once(clause, group_subject=True)
+    if effects is None and group_subject and not previous_subject and _PLURAL_PRONOUN_RE.search(clause) is None:
+        effects = _match_clause_once(clause, previous_subject=True)
+        if effects is not None:
+            return [EffectSpec("trigger_subject_referent", {"event_key": GROUP_SUBJECT_KEY_SENTINEL}), *effects]
+        return _group_pronoun_as_target(clause) or _group_controller_as_you(clause)
+    return effects
+
+
+#: The object pronoun of a group-trigger clause ("destroy **it**", "put a counter on **that
+#: creature**") — not the possessive "its"/"it's".
+_OBJECT_PRONOUN_RE = re.compile(rf"\b(?:it|that {PRONOUN_NOUN_ALT})\b(?!')")
+
+
+#: Nested effect bodies that hand their ``targets`` on to what they contain. Any other body
+#: (a payment's "if you do", a "you may", a delayed trigger) runs later or elsewhere, without
+#: the firing object the wrapper supplies.
+_TARGET_PASSING_NODES = frozenset({"bind", "seq", "if_else"})
+
+
+def _runs_against_targets(spec: Any) -> bool:
+    """Whether every effect nested in ``spec`` is run with the ``targets`` its parent got."""
+    if isinstance(spec, dict):
+        nested = isinstance(spec.get("type"), str) and "params" in spec
+        if nested and any(_has_nested_spec(v) for v in spec["params"].values()) and (
+            spec["type"] not in _TARGET_PASSING_NODES
+        ):
+            return False
+        return all(_runs_against_targets(v) for v in spec.values())
+    if isinstance(spec, list):
+        return all(_runs_against_targets(v) for v in spec)
+    return True
+
+
+def _has_nested_spec(value: Any) -> bool:
+    if isinstance(value, dict):
+        return (isinstance(value.get("type"), str) and "params" in value) or any(
+            _has_nested_spec(v) for v in value.values())
+    if isinstance(value, list):
+        return any(_has_nested_spec(v) for v in value)
+    return False
+
+
+#: "**its controller**" / "**that creature's controller**" — the player who controls the object a
+#: group trigger fired for — with the verb that follows it, if any.
+_CONTROLLER_PRONOUN_RE = re.compile(
+    rf"\b(?:its|that {PRONOUN_NOUN_ALT}'s) controller(?P<poss>'s)?(?: (?P<verb>[a-z]+))?"
+)
+
+#: Third-person verbs that do not just drop their "s"/"es" to reach the base form.
+_IRREGULAR_BASE_VERBS = {"has": "have", "does": "do"}
+
+
+def _base_verb(word: str) -> str:
+    if word in _IRREGULAR_BASE_VERBS:
+        return _IRREGULAR_BASE_VERBS[word]
+    if word.endswith("ies"):
+        return word[:-3] + "y"
+    if word.endswith(("ches", "shes", "sses", "xes")):
+        return word[:-2]
+    return word[:-1] if word.endswith("s") else word
+
+
+#: The effect types that read "you" through `GameContext.acting_player_id` (`_controller_of`,
+#: `effect_conditions._controller_id`, or directly), each pinned by `test_par123_referent.py`. An
+#: effect that resolves "you" some other way would quietly act for the wrong player, so the rewrite
+#: is offered only for these.
+_ACTING_AS_CONTROLLER_TYPES: frozenset[str] = frozenset({
+    "damage", "create_token", "tap", "add_player_counters", "draw", "lose_life", "gain_life",
+})
+
+
+def _group_controller_as_you(clause: str) -> Optional[list[EffectSpec]]:
+    """PAR-123: "its controller creates a 1/1 Snake token" is "you create a 1/1 Snake token"
+    done by the firing object's controller (RULE 109.5). The clause is read as its second-person
+    form and run acting as that player (`trigger_subject_referent` ``acting``), so every effect
+    with a "you" reading gains the "its controller" one — creating, sacrificing, drawing, tapping
+    "lands you control" — without a row of its own.
+
+    Refused when the clause names another player or carries a second pronoun (the two would
+    need to be told apart), and when the effect would run later than this resolution."""
+    found = list(_CONTROLLER_PRONOUN_RE.finditer(clause))
+    if len(found) != 1 or _OBJECT_PRONOUN_RE.search(clause) or re.search(r"\b(?:you|your|target)\b", clause):
+        return None
+    hit = found[0]
+    verb = hit.group("verb")
+    if hit.group("poss"):
+        replacement = "your" + (f" {verb}" if verb else "")
+    elif verb == "may":
+        replacement = "you may"
+    elif verb:
+        replacement = f"you {_base_verb(verb)}"
+    else:
+        replacement = "you"
+    rewritten = clause[:hit.start()] + replacement + clause[hit.end():]
+    rewritten = re.sub(r"\bof their choice\b", "of your choice", rewritten)
+    rewritten = re.sub(r"\btheir\b", "your", rewritten)
+    effects = _match_clause_once(rewritten)
+    if (
+        effects is None or not all(_runs_against_targets(e.to_dict()) for e in effects)
+        or not all(e.type in _ACTING_AS_CONTROLLER_TYPES for e in effects)
+    ):
+        return None
+    return [EffectSpec("trigger_subject_referent", {
+        "event_key": GROUP_SUBJECT_KEY_SENTINEL, "acting": "controller",
+        "effects": [e.to_dict() for e in effects],
+    })]
+
+
+def _group_pronoun_as_target(clause: str) -> Optional[list[EffectSpec]]:
+    """PAR-123: a group trigger's bare "it"/"that creature" read through the *targeted* form of
+    the same clause. "destroy it" is "destroy target permanent" whose one target the trigger
+    already fixed, so any effect that has a targeted row gains the firing-object reading with no
+    row of its own: the clause is parsed with the pronoun spelled as a target, and the result
+    runs against the firing object (`trigger_subject_referent`'s body) instead of a chosen one.
+
+    Refused unless the pronoun is the clause's *only* possible target — a second "target"
+    ("it fights target creature you don't control") would be hidden by the wrapper, which
+    announces none — and only for the creature/permanent spellings, the objects a group
+    trigger fires for."""
+    pronouns = _OBJECT_PRONOUN_RE.findall(clause)
+    if len(pronouns) != 1 or "target" in clause:
+        return None
+    noun = re.match(r"that (creature|permanent|artifact|land|token)$", pronouns[0])
+    # A creature that died is a card in a graveyard by the time the trigger resolves (RULE 603.10a).
+    for kind in dict.fromkeys(
+        ((noun.group(1) if noun else "creature"), "creature", "permanent", "card from a graveyard")
+    ):
+        rewritten = _OBJECT_PRONOUN_RE.sub(f"target {kind}", clause)
+        effects = _match_clause_once(rewritten)
+        if effects is not None and all(_runs_against_targets(e.to_dict()) for e in effects):
+            return [EffectSpec("trigger_subject_referent", {
+                "event_key": GROUP_SUBJECT_KEY_SENTINEL,
+                "effects": [e.to_dict() for e in effects],
+            })]
+    return None
+
+
+def _match_clause_once(
+    clause: str, *, self_subject: bool = False, previous_subject: bool = False,
+    group_subject: bool = False, previous_selector: bool = False,
+    attached_subject: bool = False,
+) -> Optional[list[EffectSpec]]:
     for handler in HANDLERS:
         if handler.self_subject_only and not self_subject:
             continue

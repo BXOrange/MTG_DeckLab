@@ -32,6 +32,7 @@ _OBJECT_VERBS: list[tuple[str, str]] = [
     ("attacked", "ATTACKS"),
     ("blocked", "BLOCKS"),
     ("died", "DIES"),
+    ("fought", "FIGHTS"),
 ]
 _CONTROL_TAILS = [
     (" under your control", "you"),
@@ -46,6 +47,7 @@ _PLAYER_VERBS: dict[str, "str | list[str]"] = {
     "played a land": "LAND_PLAYED", "play a land": "LAND_PLAYED",
     "committed a crime": "CRIME_COMMITTED", "commit a crime": "CRIME_COMMITTED",
 }
+_YOU_CONTROL_THAT = re.compile(r"^you control (?P<object>(?:an?|\d+ or more) .+?) that (?P<verb>[a-z ]+)$")
 _NEGATION = re.compile(r"^you (?:haven't|didn't|have not|did not) ")
 _YOU = re.compile(r"^you(?:'ve| have)? ")
 
@@ -176,6 +178,10 @@ def parse_history_condition(text: str) -> Optional[dict[str, Any]]:
     stripped = _THIS_TURN.sub("", text)
     if stripped == text:
         return None
+    controlled = _YOU_CONTROL_THAT.match(stripped)
+    if controlled is not None:
+        # "you control a creature that fought" is "a creature you control fought".
+        stripped = f"{controlled.group('object')} you control {controlled.group('verb')}"
     negation = _NEGATION.match(stripped)
     if negation is not None:
         return _player_event(stripped[negation.end():], negated=True)

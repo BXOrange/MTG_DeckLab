@@ -43,7 +43,7 @@ No open tickets.
   Archenemy card bodies fold in here (~13/309 done).
 
   > **Ids:** `PAR-1`…`PAR-131` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-134`**; next free `MEC`: **`MEC-105`**. A new engine primitive found along the way files
+  > **`PAR-135`**; next free `MEC`: **`MEC-106`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -84,8 +84,15 @@ No open tickets.
   family re-matches antecedents the clause parser already handles; plus 32 `*_DEVOTION_*` rows (fold
   into `count_phrase`). Maintainability work: do it when touching a verb, never as a large batch
   (audit shipped rows, delete strict subsets).
-- **PAR-123 · Group-subject pronouns.** A bare "it" under a group trigger isn't read as the firing
-  object by every effect type yet.
+- **PAR-135 · Base-grammar gaps found closing PAR-123 (small verified residue batch).** Each fails in
+  its *targeted* spelling too, so none is a pronoun gap; sized at v552: named counters on a target
+  ("put a stun / flying / globe counter on target creature" — 24 SOLO); "target Equipment you control"
+  as a target kind (10 SOLO; Sokka and Suki / Kemba's "attach it to that creature" also needs
+  `AttachEffect` to take the previous pick as its destination); power-only doubling ("double its
+  power", `PumpEffect.self_multiplier` axis — 11 SOLO); additive-colour copy exceptions ("… in
+  addition to its other colors and types" — needs an additive colour on `CopyPermanentEffect`, 14 SOLO);
+  "any target that isn't a `<subtype>`" (3 SOLO); "Do this only once each turn" as an *action* limit
+  (not a trigger limit when the effect is optional — Ondu Spiritdancer, Irreverent Gremlin).
 - **PAR-99 · Khans/Dragons Siege cycle.** The ETB choice parses; unclaimed on all 5 cards (0 SOLO) is
   each mode's standing text — a stored choice gating which of two ongoing abilities is live (Citadel,
   Frontier, Monastery, Outpost, Palace Siege).
@@ -282,7 +289,12 @@ No open tickets.
 
 ## MEC — Game mechanic
 
-No open tickets.
+- **MEC-105 · Temporary keyword loss.** "Target creature / it loses flying [and …] until end of turn"
+  (Gravity Well, Barbed Foliage, Canopy Claws, Downdraft, Adarkar Windform — 36 SOLO at v552): a
+  layer-6 ability-*removing* effect that ends at cleanup. `remove_keyword` exists only as a standing
+  static (`StaticAbility` `remove_keywords`); missing is a until-end-of-turn recipient (e.g.
+  `GameObject.temp_removed_keywords`, read by `combat._obj_keywords`, cleared at RULE 514.2) plus the
+  parser rows ("`<subject>` loses `<keyword>[, …]` until end of turn", "gains X and loses Y").
 
 ## PLR — Player management
 

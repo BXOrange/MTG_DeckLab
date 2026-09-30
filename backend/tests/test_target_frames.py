@@ -190,7 +190,7 @@ class TestDispatchIsStructural:
     """The 58-branch cascade is gone, not merely bypassed."""
 
     def test_legal_targets_has_few_name_branches_left(self) -> None:
-        source = inspect.getsource(targeting.legal_targets)
+        source = inspect.getsource(targeting._legal_targets_for)
         branches = source.count("if kind ==") + source.count("if kind in")
         # 14_ S0b's exit: `legal_targets` dispatches on structure, not on 58
         # name branches. What remains is the documented irreducible set plus
@@ -206,7 +206,7 @@ class TestDispatchIsStructural:
         )
 
     def test_frame_dispatch_runs_before_the_remaining_branches(self) -> None:
-        source = inspect.getsource(targeting.legal_targets)
+        source = inspect.getsource(targeting._legal_targets_for)
         dispatch = source.index("TARGET_FRAMES.get(kind)")
         first_branch = source.index("if kind ==")
         assert dispatch < first_branch, (

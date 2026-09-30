@@ -84,6 +84,13 @@ class GameContext:
         #: the permanent's own controller — read by `PreventDamageEffect`'s
         #: opt-in ``recipient_is_activator``.
         self.resolving_controller_id: Optional[str] = None
+        #: PAR-123: the player "you" means while a body runs *as someone else* — "**its
+        #: controller** creates a 1/1 Snake token" is the ordinary "you create a token" done by
+        #: the firing object's controller (RULE 109.5: the player an ability's "you" names).
+        #: ``None`` (always, outside `TriggerSubjectReferentEffect`'s ``acting`` body) leaves
+        #: "you" as the source's controller; `_controller_of` and
+        #: `effect_conditions._controller_id` are the two places that read it.
+        self.acting_player_id: Optional[str] = None
         #: Which resolution this turn of the ability now resolving this is
         #: (1 = first), set by `RulesEngine.resolve_top_of_stack` for exactly
         #: that window — the ``ability_resolution_count`` condition reads it.
@@ -887,7 +894,7 @@ def _controller_of(source: Optional["GameObject"], context: GameContext) -> Opti
     controller; if the effect has no source yet (a fixture/direct call), fall
     back to the active player.
     """
-    controller_id = getattr(source, "controller_id", None)
+    controller_id = getattr(context, "acting_player_id", None) or getattr(source, "controller_id", None)
     if controller_id is not None:
         try:
             return context.state.player_by_id(controller_id)

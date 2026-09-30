@@ -583,12 +583,12 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 52.8% (18,378 / 34,811) as of 2026-09-30, measured at
-PARSER_VERSION 551** (parser-`MODELED` or hand-`AUTHORED`, measured against
+**Coverage: 53.2% (18,532 / 34,811) as of 2026-09-30, measured at
+PARSER_VERSION 552** (parser-`MODELED` or hand-`AUTHORED`, measured against
 the full ~35k-card Oracle universe from `scripts/import_bulk.py`). Re-measure
 with `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset that
-matters for Goldfisch/Deck-Analyzer — is **55.5% (17,652 / 31,830)**; measure
+matters for Goldfisch/Deck-Analyzer — is **55.9% (17,805 / 31,830)**; measure
 it with `scripts/coverage_report.py --commander-legal-only` (records a
 separate `…-commander` snapshot row) and segment the still-UNMODELED
 remainder by *cause* (wrapper re-measure / recurring template → `PAR-*` /
@@ -826,6 +826,7 @@ English and German.
 | "Until …" durations on a continuous effect (RULE 611) | `game/durations.py`, `GameState.floating_statics`, `effects.GrantUntilEffect` — note "until end of turn" stays on the `temp_*` path |
 | How many targets a spell/ability wants (RULE 115.1/601.2c) | `game/targeting.py` (`TargetSpec.count`/`count_max`/`count_selector`, `effective_count`, `resolved_count`, `expand_counts`/`collapse_groups`) |
 | A clause naming what a previous clause targeted, created, or revealed | `effects.GameContext.previous_targets` / `created_objects` / `revealed_card` (all maintained by `_apply_effects_partitioned`; `revealed_card` is the `of: "revealed"` referent, set by `reveal_top`) |
+| "It" / "that creature" under a group trigger ("whenever a creature you control enters …", RULE 603.1) | `game/effects/composition.py`'s `TriggerSubjectReferentEffect` (`trigger_subject_referent`: seeds `previous_targets`, runs a body *against* the firing object, `acting="controller"` for "its controller …", `event_key="remembered"` inside a payment's "if you do"); the parser reaches it from `parser/oracle/catalogue/handlers.py`'s `match_clause` (group fallbacks, tried only after every row written for the group subject), `parser/oracle/catalogue/referent_condition.py` (conditions on "it") and `segmenter._referent_characteristic_specs` / `_hoist_referent_seed`; a bare `it` read as the *source* under a group trigger is wrong-but-MODELED — see the PAR-123 lesson in `PARSER_LONG_TAIL.md` |
 | Activated abilities / costs | `game/costs.py`, `game/game_engine.py` (`activate_ability`) |
 | Card abilities / fetch lands / enters-tapped | `game/card_catalogue/` (one file per card), `game/card_registry/` (the `register`/`specs_for` mechanism), `effect_binder.bind_from_catalogue` |
 | Hand-authoring a specific card's effects | `hand-author-card` skill, [docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md) |

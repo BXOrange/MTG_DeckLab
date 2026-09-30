@@ -443,6 +443,22 @@ class DealDamageEffect(GameEffect):
         if self.selector is not None:
             self._apply_selector(context, targets)
             return
+        if self.recipient_subject == "trigger_subject_defender":
+            # "~ deals 1 damage to the player or planeswalker **it's attacking**" (PAR-123, Hellrider):
+            # what the attacker that fired the trigger was declared against (`combat_defender` — a
+            # player, or a planeswalker/battle), read live off that attacker.
+            attacker = context.state.find_object((context.trigger_event or {}).get("instance_id"))
+            defender = getattr(attacker, "combat_defender", None) or {}
+            if defender.get("kind") == "player":
+                try:
+                    recipient = context.state.player_by_id(defender.get("id"))
+                except (KeyError, ValueError):
+                    recipient = None
+            else:
+                recipient = context.state.find_object(defender.get("instance_id"))
+            if recipient is not None:
+                context.deal_damage(recipient, self._amount_for(recipient, context), self.source)
+            return
         if self.recipient_subject is not None:
             who = self.recipient_subject.rpartition("_")[0]  # strip trailing "_controller"
             obj = None
@@ -455,6 +471,10 @@ class DealDamageEffect(GameEffect):
             elif who == "previous_subject":
                 prev = list(context.previous_targets)
                 obj = prev[0] if prev else None
+            elif who == "damage_recipient":
+                # "…that archer deals that much damage to **that creature's** controller" (Greatbow
+                # Doyen): the creature the firing DAMAGE event's damage was dealt to.
+                obj = context.state.find_object((context.trigger_event or {}).get("target_id"))
             elif who == "trigger_subject":
                 ev = context.trigger_event or {}
                 obj = context.state.find_object(ev.get("instance_id"))

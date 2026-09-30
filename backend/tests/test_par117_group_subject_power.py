@@ -142,6 +142,7 @@ def test_real_cards_become_modeled():
         "Life Finds a Way",  # head: PAR-119's composed object head; body: populate
         "Subira, Tulzidi Caravanner",  # ENG-47: "until end of turn, whenever …" as a body sentence
         "Where Ancients Tread",  # PAR-130: optional "have it deal" normalization
+        "Cavalcade of Calamity", "Raid Bombardment",  # PAR-123: "the player or planeswalker it's attacking"
     ):
         card = _db().get_card(name)
         result = parse_oracle(card)
@@ -150,7 +151,7 @@ def test_real_cards_become_modeled():
 
 def test_still_unmodeled_on_unrelated_gaps():
     for name in (
-        "Cavalcade of Calamity", "Raid Bombardment",
+        "Gravity Well",  # "it loses flying until end of turn": a keyword-loss effect nothing models yet
     ):
         card = _db().get_card(name)
         result = parse_oracle(card)

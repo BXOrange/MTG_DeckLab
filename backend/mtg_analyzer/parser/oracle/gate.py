@@ -3745,7 +3745,17 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: per head when no event can satisfy both; "is put into exile from the battlefield"
 #: (LEAVES_BATTLEFIELD ``to_zone``); "`<phrase>` or a `<phrase>`" noun unions
 #: (``any_of``); "with disturb"; "~ or another …" on the DAMAGE head.
-PARSER_VERSION = "551"
+#: 552 (PAR-123 close): a group trigger's "it"/"that `<noun>`" is the firing object for *every*
+#: effect — a clause no row claims is read through the effect's previous-subject row, its
+#: targeted spelling ("destroy it" as "destroy target permanent"), or a second-person spelling
+#: run as the object's controller ("its controller creates …"), behind a
+#: `trigger_subject_referent`; a payment's "if you do" reads the remembered object; conditions
+#: ("if it has flying / was attacking / has a counter"), amounts ("equal to that creature's
+#: power", "that many"), counts ("for each creature blocking it", "…shares a creature type with
+#: it"), target filters ("with the same mana value", "other than that creature") and "the
+#: player or planeswalker it's attacking" name it too; "that card" on a dies trigger; a
+#: pronoun after a "~" clause is the source (Fearless Fledgling no longer flies the land).
+PARSER_VERSION = "552"
 
 
 def parser_source_hash() -> str:

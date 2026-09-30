@@ -566,6 +566,9 @@ class TargetSpec:
     #: target-legality question to resolve and stays a resolve-time trick.
     #: ``None`` (the default) means the filters above always apply.
     unless_flag: Optional[str] = None
+    #: PAR-123: "…target creature you control **other than that creature**" — the object that fired
+    #: the group trigger this ability is on is not a legal choice (`legal_targets` drops it).
+    excluding_trigger_subject: bool = False
     #: PAR-130: "**for each opponent**/**for each player**, `<verb>` [up to 1]
     #: target `<X>` **that player** controls" — one requirement per player
     #: (`PER_PLAYER_SCOPES`), each scoped to that player's permanents.
@@ -1155,7 +1158,7 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
         apply_color=True, apply_creature_filter=True),
     "creature_you_dont_control": TargetFrame(
         "creature", SCOPE_NOT_YOU, exclude_source=False,
-        apply_creature_filter=True),
+        apply_creature_filter=True, apply_max_mana_value=True),
     "werewolf_creature": TargetFrame("werewolf_creature", apply_creature_filter=True),
     "attacking_or_blocking_creature": TargetFrame("attacking_or_blocking_creature"),
     "artifact_you_dont_control": TargetFrame(
@@ -1436,6 +1439,23 @@ def legal_targets(
     source: Optional[GameObject] = None,
     trigger_event: Optional[dict[str, Any]] = None,
 ) -> list[dict[str, Any]]:
+    """The currently legal targets for ``spec`` — see `_legal_targets_for`, less the object a
+    group trigger fired for when the spec says "other than that creature" (PAR-123)."""
+    found = _legal_targets_for(state, controller_id, spec, source, trigger_event)
+    if not spec.excluding_trigger_subject:
+        return found
+    event = trigger_event or {}
+    firing = event.get("instance_id", event.get("source_id"))
+    return [option for option in found if option.get("instance_id") != firing]
+
+
+def _legal_targets_for(
+    state: GameState,
+    controller_id: str,
+    spec: TargetSpec,
+    source: Optional[GameObject] = None,
+    trigger_event: Optional[dict[str, Any]] = None,
+) -> list[dict[str, Any]]:
     """The currently legal targets for ``spec`` as JSON-able descriptors.
 
     Players are returned as ``{"player_id", "name"}``; objects as
@@ -1498,6 +1518,16 @@ def legal_targets(
         # dealt to that player." (Venerable Warsinger, PAR-60) — the firing
         # DAMAGE event's own ``amount``.
         spec = replace(spec, max_mana_value=int((trigger_event or {}).get("amount", 0) or 0))
+    if spec.exact_mana_value == "trigger_subject_mana_value":
+        # "…up to one target creature you don't control with the same mana value." (PAR-123, Boxing
+        # Ring) — "the same" as the object that fired this group trigger: the event's own subject,
+        # read live. With no such object nothing has "the same" mana value, so nothing is legal.
+        event = trigger_event or {}
+        firing = state.find_object(event.get("instance_id", event.get("source_id")))
+        spec = replace(spec, exact_mana_value=(
+            int(getattr(getattr(firing, "card", None), "converted_mana_cost", 0) or 0)
+            if firing is not None else -1
+        ))
     if spec.exact_mana_value == "trigger_spell_mana_value":
         # "…with that spell's mana value." (PAR-74, Skyfire Kirin) — the
         # firing SPELL_CAST event's own ``mana_value`` (PAR-71's established

@@ -62,6 +62,11 @@ _THAT_ARE = re.compile(r"\s+that are (?P<what>[a-z/, ]+)$")
 #: Solidarity) — the `entered_this_turn` filter key `combat.matches_object_filter`
 #: already reads off `GameObject.entered_turn`. Always the last tail.
 _ENTERED_THIS_TURN = re.compile(r"\s+that entered (?:the battlefield )?this turn$")
+#: "creatures **blocking it**" / "…that share a creature type with **it**" — counted against the object
+#: a pronoun names (`blocking_source` / `shares_creature_type_with_reference`); the caller says which
+#: object that is (the amount's ``reference``).
+_BLOCKING_IT = re.compile(r"\s+blocking (?:it|~)$")
+_SHARES_TYPE_WITH_IT = re.compile(r"\s+that shares? a creature type with (?:it|~)$")
 # One noun phrase can name two disjoint zones (Crackling Drake / Huskburster
 # Swarm). Each half keeps the same filter; summing is safe because an object
 # cannot be in exile and a graveyard at the same time (RULE 400.1).
@@ -109,6 +114,14 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
     if entered is not None:
         extra["entered_this_turn"] = True
         text = text[: entered.start()].strip()
+    blocking = _BLOCKING_IT.search(text)
+    if blocking is not None:
+        extra["blocking_source"] = True
+        text = text[: blocking.start()].strip()
+    shares = _SHARES_TYPE_WITH_IT.search(text)
+    if shares is not None:
+        extra["shares_creature_type_with_reference"] = True
+        text = text[: shares.start()].strip()
     that_are = _THAT_ARE.search(text)
     if that_are is not None:
         restated = parse_object_phrase(that_are.group("what"), plural=True)

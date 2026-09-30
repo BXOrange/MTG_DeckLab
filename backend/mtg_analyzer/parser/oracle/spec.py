@@ -243,7 +243,7 @@ RETIRED_EFFECT_PARAMS: dict[str, str] = {
 }
 
 _AMOUNT_SPEC_FIELDS: dict[str, type] = {
-    "of": str, "characteristic": str, "counter": str, "selector": (str, dict),
+    "of": str, "reference": str, "characteristic": str, "counter": str, "selector": (str, dict),
     "tally": str, "scope": str, "resource": str, "field": str, "aggregate": str,
     "amount": int, "multiply": int, "divide": int, "plus": int, "minus": int,
     "minimum": int, "maximum": int, "round_up": bool,

@@ -121,6 +121,9 @@ def build_effects(effects: list[EffectSpec], source: Optional[Any] = None) -> li
             # controls" — stamped here once rather than threaded through every
             # verb's factory; `targeting.expand_counts` does the rest.
             effect.target_spec = dataclasses.replace(effect.target_spec, per_player=per_player)
+        if spec.params.get("excluding_trigger_subject") and getattr(effect, "target_spec", None) is not None:
+            # PAR-123: "…other than that creature" — the firing object is not a legal choice.
+            effect.target_spec = dataclasses.replace(effect.target_spec, excluding_trigger_subject=True)
         if spec.condition is not None:
             effect = ConditionalEffect(spec.condition, effect, source=source)
         built.append(effect)
@@ -2720,7 +2723,7 @@ def _retarget_implicit_subject_effects(
     subject = condition.get("subject")
     if subject == "attached_permanent":
         retarget_fields = _ATTACHED_PERMANENT_RETARGET_FIELDS
-    elif subject == "group":
+    elif subject in ("group", "self_or_group"):
         retarget_fields = {}
     else:
         return effect_specs

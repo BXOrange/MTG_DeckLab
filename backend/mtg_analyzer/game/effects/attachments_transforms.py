@@ -70,7 +70,8 @@ def previous_group_objects(context: GameContext, source: Optional["GameObject"],
         )
 
     return group_selector_objects(
-        context.state, getattr(source, "controller_id", None), selector, src=source,
+        context.state, getattr(context, "acting_player_id", None) or getattr(source, "controller_id", None),
+        selector, src=source,
     )
 
 
@@ -244,7 +245,8 @@ class TapEffect(GameEffect):
         if self.selector is not None:
             from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
 
-            controller_id = getattr(self.source, "controller_id", None)
+            controller_id = getattr(context, "acting_player_id", None) or getattr(
+                self.source, "controller_id", None)
             if self.selector_player is not None:
                 if self.selector_player == "defending":
                     chosen = _defending_player_of(self.source, context)
@@ -1519,6 +1521,9 @@ class PhaseOutEffect(GameEffect):
             target = (targets[0] if targets else None) or self.target
         elif self.self_target:
             target = self.source
+        elif self.target is not None:
+            # A delayed trigger's captured object ("it phases out at end of combat", Teferi's Veil).
+            target = self.target
         elif self.source is not None:
             host_id = getattr(self.source, "attached_to", None)
             target = context.state.find_object(host_id) if host_id is not None else None

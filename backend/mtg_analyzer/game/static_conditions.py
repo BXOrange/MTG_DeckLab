@@ -261,6 +261,12 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # posture, as `continuous.count_selector`'s selector names.
         "flag",  # + ``flag`` (a `SUBJECT_FLAGS` name)
         "power",  # + ``min``/``max`` — the subject's *derived* power
+        # PAR-123: the rest of what a group trigger's "it" is asked about — "if its toughness is
+        # 4 or greater", "…mana value is 3 or less", "if it has flying", "if it entered this turn".
+        "toughness",  # + ``min``/``max`` — the subject's *derived* toughness
+        "mana_value",  # + ``min``/``max`` — printed mana value (RULE 202.3)
+        "has_keyword",  # + ``keyword`` (a lowercase slug), granted or intrinsic
+        "entered_this_turn",  # RULE 400.7 — the subject came to the battlefield this turn
         # "if that player is you" / "…if you control that creature" — the
         # subject (a player, or a player resolved off a firing event) against
         # the ability's own controller.
@@ -661,6 +667,24 @@ def condition_holds(
         if subject is None or not hasattr(subject, "instance_id"):
             return False
         return _within(int(getattr(subject, "power", 0) or 0), condition)
+    if kind == "toughness":
+        if subject is None or not hasattr(subject, "instance_id"):
+            return False
+        return _within(int(getattr(subject, "toughness", 0) or 0), condition)
+    if kind == "mana_value":
+        card = getattr(subject, "card", None)
+        if card is None:
+            return False
+        return _within(int(getattr(card, "converted_mana_cost", 0) or 0), condition)
+    if kind == "has_keyword":
+        if subject is None or not hasattr(subject, "instance_id"):
+            return False
+        from .combat import _obj_keywords  # local: combat imports this module
+
+        return str(condition.get("keyword", "")).lower() in {str(k).lower() for k in _obj_keywords(subject)}
+    if kind == "entered_this_turn":
+        entered = getattr(subject, "turn_entered", None)
+        return entered is not None and entered == state.internal_turn.number
     if kind == "is_you":
         if subject is None or controller_id is None:
             return False

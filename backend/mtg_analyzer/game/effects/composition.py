@@ -198,6 +198,62 @@ class SeqEffect(_CompositeEffect):
         self._run(self.inner_specs, context, targets)
 
 
+#: `TriggerSubjectReferentEffect.event_key` naming the remembered subject rather than an event field.
+REMEMBERED_EVENT_KEY = "remembered"
+
+
+class TriggerSubjectReferentEffect(_CompositeEffect):
+    """PAR-123: the object that fired a RULE 603.1 group trigger as the referent of "it"/"that
+    creature" — and, given a body, the thing that body acts on.
+
+    "Whenever a creature you control enters, **it** explores" / "…put a +1/+1 counter on **that
+    creature**" name the firing object, which is not a RULE 115 target: nothing was chosen and
+    nothing can become illegal. This seeds `GameContext.previous_targets` with it, so every effect
+    that already reads that referent for its pronoun (explore, endure, phase out, fight, connive,
+    goad, …) works under a group trigger without each growing its own trigger-event read.
+
+    With a ``body`` the effects run against that object as their ``targets`` — the parser reads
+    "destroy it" as the targeted "destroy target permanent" and wraps it, so *every* effect that
+    has a targeted form gains the firing-object reading, and the body's own target requirement is
+    deliberately not announced (this node exposes none; the object was never chosen).
+    ``event_key`` names the event field carrying the object's id (the binder resolves the group
+    sentinel per event type). An object that is gone leaves the referent empty, so a following
+    pronoun clause does nothing rather than reaching for another permanent.
+    """
+
+    def __init__(
+        self, effects: Optional[list[Any]] = None, event_key: Optional[str] = None,
+        acting: Optional[str] = None, source: Optional[GameObject] = None,
+    ) -> None:
+        super().__init__(effects, source)
+        self.event_key = event_key or "instance_id"
+        #: ``"controller"`` runs the body *as* the firing object's controller ("its controller
+        #: creates a token"): every "you" in it — who creates, draws, sacrifices, whose lands
+        #: "you control" — is that player (`GameContext.acting_player_id`, RULE 109.5).
+        self.acting = acting if acting == "controller" else None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.event_key == REMEMBERED_EVENT_KEY:
+            # A body that runs after the trigger's window closed (a payment's "if you do"): the
+            # object `PayCostThenEffect(remember_trigger_subject)` stamped on the source.
+            object_id = getattr(self.source, "remembered_instance_id", None)
+        else:
+            object_id = (context.trigger_event or {}).get(self.event_key)
+        firing = context.state.find_object(object_id) if object_id is not None else None
+        context.previous_targets = [firing] if firing is not None else []
+        if firing is None or not self.inner_specs:
+            return
+        if self.acting is None:
+            self._run(self.inner_specs, context, [firing])
+            return
+        outer = context.acting_player_id
+        context.acting_player_id = getattr(firing, "controller_id", None)
+        try:
+            self._run(self.inner_specs, context, [firing])
+        finally:
+            context.acting_player_id = outer
+
+
 class IfElseEffect(_CompositeEffect):
     """``if_else`` — RULE 603.4's intervening-if with a real "otherwise".
 
@@ -574,6 +630,13 @@ EffectRegistry.register(
     # A list as a value — see `SeqEffect`.
     "seq",
     lambda p: SeqEffect(effects=p.get("effects")),
+)
+EffectRegistry.register(
+    # PAR-123 — a group trigger's firing object as the referent of "it"/"that creature".
+    "trigger_subject_referent",
+    lambda p: TriggerSubjectReferentEffect(
+        effects=p.get("effects"), event_key=p.get("event_key"), acting=p.get("acting"),
+    ),
 )
 EffectRegistry.register(
     # RULE 603.4 / 701.30d — "if <condition>, A. Otherwise, B."

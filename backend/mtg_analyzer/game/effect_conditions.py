@@ -193,7 +193,7 @@ def _controller_id(source: Any, context: "GameContext") -> Optional[str]:
     `effects._controller_of` does, which is what every controller-scoped key
     in the flat vocabulary read.
     """
-    controller_id = getattr(source, "controller_id", None)
+    controller_id = getattr(context, "acting_player_id", None) or getattr(source, "controller_id", None)
     if controller_id is not None:
         return controller_id
     return getattr(getattr(context, "active_player", None), "id", None)

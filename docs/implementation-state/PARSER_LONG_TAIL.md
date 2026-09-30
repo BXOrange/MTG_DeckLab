@@ -25,9 +25,9 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**52.8% covered — 18,378 / 34,811 — as of 2026-09-30, PARSER_VERSION 551** (PAR-122 closes: the "a player drawing a card" doubler cause, a spell's own / an emblem's / a granted / a paid ("tap any number of …") trigger doubler, "copy it" under a cast trigger, "that's all colors" tokens and the "as long as equipped creature is attacking" grant: +9 since v550, 0 regressed. Before that, PAR-128 closes: the general mass destroy / exile / bounce group, "each creature blocking it", "X target creatures", plural "other" / "you control", the `noncreature_permanent` kind, "counter target spell you don't control", mass tap scoped to the defending / event player: +124 since v548, 0 regressed. Before that, "those creatures" replaying a preceding mass-selector, mass-damage or mass-counter group, "target opponent … for each", Duress-family, scoped can't-block, counters on "each of them", the general and player-scoped mass tap, named counters on a group, "it gets +X/+X, where X …", "without <keyword>", "any player may activate", "can't be regenerated" (+ exile rider), general and player-scoped mass damage: +163 since v530, 0 regressed).
-Commander-legal slice (the one the product actually plays): **55.5% —
-17,652 / 31,830** (measure with `--commander-legal-only`).
+**53.2% covered — 18,532 / 34,811 — as of 2026-09-30, PARSER_VERSION 552** (PAR-123 closes: a group trigger's "it"/"that `<noun>`" names the firing object for every effect, condition, amount, count and target filter (+154 since v551, 0 regressed; the audit that found the last wrong claim is recorded under "Lessons that keep recurring"). Before that, PAR-122 closes: the "a player drawing a card" doubler cause, a spell's own / an emblem's / a granted / a paid ("tap any number of …") trigger doubler, "copy it" under a cast trigger, "that's all colors" tokens and the "as long as equipped creature is attacking" grant: +9 since v550, 0 regressed. Before that, PAR-128 closes: the general mass destroy / exile / bounce group, "each creature blocking it", "X target creatures", plural "other" / "you control", the `noncreature_permanent` kind, "counter target spell you don't control", mass tap scoped to the defending / event player: +124 since v548, 0 regressed. Before that, "those creatures" replaying a preceding mass-selector, mass-damage or mass-counter group, "target opponent … for each", Duress-family, scoped can't-block, counters on "each of them", the general and player-scoped mass tap, named counters on a group, "it gets +X/+X, where X …", "without <keyword>", "any player may activate", "can't be regenerated" (+ exile rider), general and player-scoped mass damage: +163 since v530, 0 regressed).
+Commander-legal slice (the one the product actually plays): **55.9% —
+17,805 / 31,830** (measure with `--commander-legal-only`).
 
 ### PAR-124 closes completely: player-events, X-tokens, a targeted delayed trigger, a hand-zone duplicate, an optional-attach composition — and the controller-binding bug the targeted variant first exposed (PARSER_VERSION 463)
 
@@ -621,6 +621,25 @@ document's own standing rule, and it has now caught itself.
 ## Lessons that keep recurring
 
 Each was paid for once; re-reading them is cheaper than re-learning them.
+
+- **A row that reads a pronoun as the source is *wrong-but-MODELED* the moment a trigger's subject is
+  a group — audit the covered set, not just the unclaimed one (PAR-123, v552).** `_SELF_SUBJECT`
+  folds "it" in with "~", `_pay_cost_then_general` parsed its branch with `self_subject=True`, and a
+  keyword grant after a "~" sentence stamped the firing object: each *claimed* a group-trigger clause
+  and acted on the wrong permanent (Fearless Fledgling flew the land, "you may pay {1}. If you do, it
+  gets +1/+1" pumped the Enchantment). No failing test and no unclaimed clause points at one. What
+  found them: (1) instrument `parse_effect_body` for group-flag failures to list the *unclaimed*
+  ones by verb, (2) scan every **modeled** card whose group-trigger body has a bare pronoun and no
+  referent evidence in its specs (`__group_subject__` / `previous_subject` / `remembered` / a
+  `trigger_subject_referent`), (3) the completion test — a clause whose "target creature" spelling
+  parses must parse in its group form. Fix the mechanism once (a generic seed + a targeted-spelling
+  wrapper), not one row per verb; and expect stale pins: three tests recorded the gap as "still
+  unmodeled".
+- **A fallback that generalizes a whole grammar must leave the specific rows first — and its
+  wrappers must not sit outside a body that runs later.** The group fallback is tried only after
+  every row declined, and it refuses any body whose effect runs after the trigger's event window
+  closed (a payment's "if you do", a "you may", a delayed trigger): those read the *remembered*
+  object instead. A wrapper hiding a second target would also have announced none.
 
 - **`commander_tail_report.py`'s Bucket-D "missing primitive" label is a
   heuristic, not proof — grep `game/` before filing a `MEC-*` ticket.** The

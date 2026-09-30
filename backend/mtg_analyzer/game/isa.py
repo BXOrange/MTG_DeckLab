@@ -454,6 +454,8 @@ _ALIAS_TYPES: dict[str, str] = {
     # then_add_counters`'s own choice, not itself a second pause.
     "add_counters_from_saga_lore_removed_delta": "put_counter",
     "attach_triggering_permanent": "attach",
+    # PAR-123: names the object a group trigger fired for as the referent of a later pronoun.
+    "trigger_subject_referent": "choose",
     "unattach": "attach",
     "attacker_creates_attacking_token": "create",
     "become_copy_until_eot": "copy_object",

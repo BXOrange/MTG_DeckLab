@@ -94,7 +94,7 @@ def test_group_subject_it_clause_is_unclaimed_not_mismodeled():
     assert match_clause("put that many +1/+1 counters on it", self_subject=False) is None
 
 
-def test_necropolis_regent_is_still_unmodeled():
+def test_necropolis_regent_is_modeled_now():  # PAR-123: "that many" after a damage head, on "it"
     card = Card(
         id="Necropolis Regent", name="Necropolis Regent", type_line="Creature — Dragon",
         is_creature=True, power=4, toughness=4,
@@ -104,7 +104,7 @@ def test_necropolis_regent_is_still_unmodeled():
             "put that many +1/+1 counters on it."
         ),
     )
-    assert parse_oracle(card).modeled is False
+    assert parse_oracle(card).modeled is True
 
 
 # ---------------------------------------------------------------------------

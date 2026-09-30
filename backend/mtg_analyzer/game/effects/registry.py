@@ -1585,6 +1585,7 @@ EffectRegistry.register(
         fighter_optional=bool(p.get("fighter_optional", False)),
         optional=bool(p.get("optional", False)),
         distinct=bool(p.get("distinct", False)),
+        other_exact_mana_value=p.get("other_exact_mana_value"),
     ),
 )
 EffectRegistry.register(

@@ -2591,6 +2591,7 @@ class FightEffect(GameEffect):
         optional: bool = False,
         distinct: bool = False,
         source: Optional["GameObject"] = None,
+        other_exact_mana_value: Optional[Union[int, str]] = None,
     ) -> None:
         super().__init__(source)
         self.fighter_kind = fighter_kind
@@ -2600,9 +2601,12 @@ class FightEffect(GameEffect):
         if fighter_kind not in _IMPLICIT_FIGHT_SUBJECTS:
             specs.append(TargetSpec(kind=fighter_kind, optional=fighter_optional))
         if other_kind not in _IMPLICIT_FIGHT_SUBJECTS:
-            specs.append(
-                TargetSpec(kind=other_kind, optional=optional, distinct_from_others=distinct)
-            )
+            # ``other_exact_mana_value``: "…target creature you don't control **with the same mana
+            # value**" (Boxing Ring) — `TargetSpec.exact_mana_value`'s ``trigger_subject_mana_value``.
+            specs.append(TargetSpec(
+                kind=other_kind, optional=optional, distinct_from_others=distinct,
+                exact_mana_value=other_exact_mana_value,
+            ))
         if specs:
             self.target_spec = specs[0]
             self.extra_target_specs = tuple(specs[1:])
@@ -2637,6 +2641,11 @@ class FightEffect(GameEffect):
         other_power = other.power or 0
         context.deal_damage(other, fighter_power, fighter)
         context.deal_damage(fighter, other_power, other)
+        for creature in (fighter, other):
+            context.state.fire_event(GameEvent(
+                EventType.FIGHTS, instance_id=creature.instance_id,
+                controller_id=creature.controller_id, object_types=sorted(creature.type_words),
+            ))
 
 
 class DamageEqualToPowerEffect(GameEffect):

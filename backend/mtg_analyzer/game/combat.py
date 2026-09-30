@@ -261,6 +261,12 @@ def _obj_keywords(obj: "GameObject") -> frozenset[str]:
     ) - frozenset(getattr(obj, "removed_keywords", set()) or set())
 
 
+def _creature_subtypes(obj: "GameObject") -> set[str]:
+    """The creature subtypes on ``obj``'s type line (the words after the dash), lowercased."""
+    _, _, subtypes = str(getattr(getattr(obj, "card", None), "type_line", "") or "").partition("—")
+    return {word.lower() for word in subtypes.split()}
+
+
 def has(obj: "GameObject", keyword: str) -> bool:
     return keyword in _obj_keywords(obj)
 
@@ -604,6 +610,9 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # RULE 201.2: "the number of creatures **named ~** on the battlefield"
         # (Plague Rats) — the same English name as the *reference* object.
         "named_as_reference",
+        # PAR-123: "…that shares a creature type with it" — the object and the reference object have a
+        # creature subtype in common (RULE 205.3m; Shared Animosity).
+        "shares_creature_type_with_reference",
         # RULE 707.2 base power: "with base power 0" (Primo) and "with power
         # greater than its base power" (Kutzil).
         "base_power", "power_gt_base",
@@ -922,6 +931,9 @@ def matches_object_filter(
         return False
     if filt.get("named_as_reference") and (reference is None or getattr(obj, "name", None) != reference.name):
         return False
+    if filt.get("shares_creature_type_with_reference"):
+        if reference is None or not (_creature_subtypes(obj) & _creature_subtypes(reference)):
+            return False
     if filt.get("not_owned_by_you"):
         if reference is None or getattr(obj, "owner_id", None) == reference.controller_id:
             return False

@@ -1948,7 +1948,22 @@ def _pt_mod_count(
         counters = getattr(ability.source, "counters", None) or {}
         kind = str(ability.params.get("counter_kind", "+1/+1"))
         return int(counters.get(kind, 0))
+    if isinstance(selector, dict) and _selector_filter_names_its_object(selector):
+        # PAR-123: "for each other creature that shares a creature type with **it**" / "…blocking it" —
+        # "it" is the creature the static affects, whichever that is (an Aura's host, an anthem's
+        # recipient), so the counted-against reference is ``obj`` rather than the ability's source.
+        return count_selector(
+            state, getattr(ability.source, "controller_id", None), selector, source=obj
+        )
     return _count_selector(state, ability, selector)
+
+
+def _selector_filter_names_its_object(selector: dict[str, Any]) -> bool:
+    """Whether a structured selector's filter is relative to "it" (the object it is evaluated for)."""
+    filt = selector.get("filter")
+    return isinstance(filt, dict) and bool(
+        filt.get("shares_creature_type_with_reference") or filt.get("blocking_source")
+    )
 
 
 def commander_color_identity(state: "GameState", controller_id: str) -> frozenset[str]:

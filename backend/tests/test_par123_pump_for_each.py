@@ -79,10 +79,11 @@ def test_a_multiplied_pump_scales_both_halves():
     assert (me.power, me.toughness) == (6, 6)     # two elves → +4/+4
 
 
-def test_other_under_a_group_trigger_is_refused():
-    """"other" counts against the ability's source, not the firing creature."""
-    assert parse_effect_body(
-        "it gets +1/+1 until end of turn for each other creature you control", group_subject=True) is None
+def test_other_under_a_group_trigger_counts_against_the_firing_creature():
+    """"other" excludes the creature that fired the trigger, not the ability's source (PAR-123)."""
+    [bound] = parse_effect_body(
+        "it gets +1/+1 until end of turn for each other creature you control", group_subject=True)
+    assert bound.params["amount"]["reference"] == "trigger_subject"
     assert parse_effect_body(
         "it gets +1/+1 until end of turn for each creature you control", group_subject=True) is not None
 

@@ -123,6 +123,10 @@ class EventType:
     ENTERS_BATTLEFIELD = "ENTERS_BATTLEFIELD"
     LEAVES_BATTLEFIELD = "LEAVES_BATTLEFIELD"
     DIES = "DIES"
+    #: A creature (``instance_id``, controlled by ``controller_id``) fought another creature (RULE
+    #: 701.14) — fired once per fighter after the damage, so "a creature that fought this turn" is
+    #: asked over the turn's event log (`static_conditions` ``event_this_turn``).
+    FIGHTS = "FIGHTS"
     #: A creature (``target_id``, controlled by ``controller_id``) would die —
     #: be put into a graveyard from the battlefield (RULE 700.4) — fired
     #: pre-emptively by `RulesEngine._move_to_graveyard` (creatures leaving

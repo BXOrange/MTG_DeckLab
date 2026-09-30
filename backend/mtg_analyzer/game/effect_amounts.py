@@ -235,10 +235,18 @@ def _base(
                 controller_id,
             )
             controller_id = getattr(counted_for, "id", None) or controller_id
+        reference = source
+        if amount.get("reference"):
+            # PAR-123: "for each creature blocking **it**" / "for each **other** attacking creature that
+            # shares a creature type with **it**" — the counted-against object is the one a pronoun
+            # names (the group trigger's firing object), not the ability's own source.
+            reference = effect_conditions.subject_of(str(amount["reference"]), context, source, targets)
+            if reference is None:
+                return 0
         return int(
             count_selector(
                 context.state, controller_id,
-                selector if isinstance(selector, dict) else str(selector), source=source,
+                selector if isinstance(selector, dict) else str(selector), source=reference,
             ) or 0
         )
 

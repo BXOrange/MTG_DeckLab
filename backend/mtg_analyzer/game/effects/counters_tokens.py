@@ -2997,7 +2997,7 @@ class CreateTokenEffect(GameEffect):
                 legendary=self.legendary,
                 is_artifact=self.is_artifact,
             )
-        controller_id = (
+        controller_id = getattr(context, "acting_player_id", None) or (
             self.source.controller_id if self.source is not None
             else context.active_player.id
         )
