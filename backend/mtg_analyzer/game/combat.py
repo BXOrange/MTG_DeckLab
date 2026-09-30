@@ -536,6 +536,10 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # Righteousness) — RULE 509.1 blocker status and the either-of pair,
         # the siblings of the ``attacking`` boolean above.
         "blocking", "attacking_or_blocking",
+        # "each creature blocking it" / "…blocking ~" (PAR-128) — RULE 509.1a: a
+        # creature declared as a blocker *of the reference object* (the attacker whose
+        # `blocked_by` names it), unlike ``blocking``, which is any attacker.
+        "blocking_source", "no_counters",
         # "…if it targets a tapped creature" (RULE 601.2f cost reduction).
         "tapped",
         "even_mana_value",
@@ -689,6 +693,11 @@ def matches_object_filter(
         v > 0 for v in (getattr(obj, "counters", {}) or {}).values()
     ):
         return False
+    # "…with no counters on them" (Damning Verdict, PAR-128) — the negation of ``has_counter``.
+    if filt.get("no_counters") and any(
+        v > 0 for v in (getattr(obj, "counters", {}) or {}).values()
+    ):
+        return False
     keyword_any = filt.get("keyword_any")
     if keyword_any and not any(has(obj, str(k)) for k in keyword_any):
         return False
@@ -722,6 +731,10 @@ def matches_object_filter(
         return False
     if filt.get("attacking_or_blocking") and not (
         getattr(obj, "attacking", False) or _is_blocking
+    ):
+        return False
+    if filt.get("blocking_source") and not (
+        reference is not None and obj.instance_id in (getattr(reference, "blocked_by", None) or ())
     ):
         return False
     # "…if it targets a **tapped** creature" (Ajani's Response / the

@@ -68,8 +68,15 @@ No open tickets.
   Redshift, Rocketeer Chief/Boostbuggy, Sita Varma, Skyserpent Seeker, Spire Mechcycle, Trackhand
   Trainer; one of three on Audacious Knuckleblade; Boom Scholar loses its static). The lines segment
   correctly alone (`activated` + `activate_only_once_marker`) — the fault is the keyword pass.
-- **PAR-128 · Target/group-grammar slots.** Group selectors, the graveyard target grammar, plural
-  multi-target scope and filter-before-scope don't take the controller/"another" slots yet.
+- **PAR-134 · A state or supertype adjective in a static's scope is read as a creature subtype
+  (wrong-but-MODELED).** `static_handlers._scope` turns any word before "creatures you control" into
+  `subtype: "<Word>"`, so "Tapped / Untapped / Legendary / Nonlegendary / Nontoken / Multicolored /
+  Commander creatures you control have/get …" grants to creatures of a subtype nobody has. 38 MODELED
+  cards are affected today (Adept Watershaper, Lost in the Maze, Bastion Protector, Cathedral of Serra,
+  Thraben Watcher, Vexilus Praetor, the Maze-* cycle, …). `combat.matches_object_filter` already has
+  `tapped`/`legendary`/`nontoken`/`multicolored`/`is_commander`; `continuous.affected_objects` needs the
+  matching params, then `_scope` maps the adjective instead of guessing. Rejecting the words alone
+  drops the 38 from `MODELED` (measured, 0 other change).
 - **PAR-121 · Subject-scope slot and per-verb connective de-duplication (no coverage change).** A
   third of the regexes sit in near-duplicate clusters: **(a) subject scope** — one verb re-registered
   per subject (prevent-damage ≈27 rows, skip-untap, pump previous/target/group, its-controller
@@ -157,7 +164,6 @@ No open tickets.
     `CounterSpellEffect`'s target kind.
   - "N or more other creatures with power `<n>` or less enter, draw; once each turn" — Welcoming Vampire
     (SOLO), Enduring Innocence (also needs PAR-111).
-  - "~ deals `<n>` damage to each non-Dragon creature" — Breath Weapon (SOLO), Desolation of Smaug.
   - "You may have ~ enter as a copy of a creature you control, except it's a Shapeshifter Rogue" — 2
     (Glasspool Mimic, Visage Bandit).
   - "Target opponent exiles a creature or planeswalker with the greatest mana value" — 2 (Blot Out, End
@@ -171,6 +177,10 @@ No open tickets.
     Abundance).
   - "Look at target player's hand" — 2 (Clairvoyance, Peek).
 - **PAR-109 · Small residue batch — static/activated abilities & mana.**
+  - "If you would put 1 or more counters on `<a permanent you control / a creature or planeswalker you
+    control or yourself>`, put that many plus 1 of each of those kinds of counters instead" — 5 SOLO (Doc
+    Samson, Lae'zel, Brad Boimler's until-EOT form, …); a counter-placement replacement whose amount
+    is "that many + 1 per kind" (compare Hardened Scales / Doubling Season in `card_catalogue/`).
   - "Equipped creature has `<quoted ability>`" is a wrapper over six unrelated inner abilities: trigger
     doubler (**PAR-122**); "conjure a card onto the battlefield tapped and attacking" — Stormforged
     Armor (SOLO), Kari Zev; rest → `singletons.md` Batch 3 (Conformer Shuriken, Lobe Lobber, Shuriken,
@@ -186,13 +196,35 @@ No open tickets.
     Thousand-Year Elixir (SOLO); Tyvar.
   - "`<cost>`: target land becomes a `<n>`/`<n>` Elemental with haste until EOT; sorcery speed" — 2
     (Llanowar Loamspeaker + rebalance).
-  - "`<cost>`: ~ deals `<n>` damage to each other creature with flying" — 2 (Harbinger of the Hunt,
-    Scourge of Kher Ridges).
+  - "Creatures you control with `<keyword | counters on them | the chosen name>` get +N/+N / have
+    `<keyword | quoted ability>`" — ~25 SOLO (Air Nomad Legacy, Alela, Cavalry Master, Kwende, Ichorplate
+    Golem, Jubilant Skybonder, the chosen-name cycle); `static_handlers._ANTHEM_RE`/`_GRANT_RE` have no
+    "with `<qualifier>`" tail, though `continuous.affected_objects` already filters by counter kind,
+    chosen name and structured selectors.
+  - "Spend only `<colour>` mana on X" (Crypt Rats, Crimson Hellkite, Consume Spirit) and "add N mana in
+    any combination of colors, spend only to cast Dragon spells" (Desolation of Smaug) — RULE 605.3a
+    spend restrictions, shared with the Nexos/Rosheen bullet above.
+  - "Can't be regenerated" leftovers — Bone Shaman (granted quoted form), Lim-Dûl's Cohort
+    (block-trigger form); `CantBeRegeneratedEffect` exists.
   - "`<cost>`: Dragons you control get +`<n>`/+`<n>` until EOT" — Lathliss (SOLO), Ran and Shaw.
   - "Equipped creature gets +`<n>`/+`<n>` and is every creature type" — 2 (Amorphous Axe, Runed Stalactite).
 - **PAR-110 · Small residue batch — board wipes & mass effects.** Check whether `object_filter`/
   `creature_filter` already reaches these before adding rows.
-  - "~ deals X damage to each creature" — 2 (Savage Twister, Starstorm).
+  - Mass-damage tail (`parser_probe.py blocked 'deals? (?:x|\d+) damage to each (?:other )?creature'`):
+    "it deals" under a sacrifice-on-a-condition trigger (Bloodletter, Krazy Kow), "for each Aura attached"
+    (Baki's Curse), kicker/"instead" variants (Cinderclasm, Firespout), a summed X amount (Calamitous
+    Cave-In), "except for creatures you control with flying" (Flame Sweep), "creatures dealt damage this
+    turn/way" (Inflame), "equipped creature becomes blocked, it deals …" (Trailblazer's Torch — the dealer
+    is the host, not the Equipment). `DealDamageEffect.group`/`group_player`/`group_and_players` carry the
+    shapes that already parse.
+  - Mass-tap tail (`blocked '(?:^|, |\. )tap all '`): "… its controller controls" (Tectonic Instability),
+    "tap all untapped Islands that player controls and ~ deals X damage, X = the number tapped"
+    (Monsoon, Angel's Trumpet), "tap all untapped creatures that share a creature type with it", "tap all
+    creatures blocking/that blocked ~".
+  - "Destroy/exile all `<group>`" leftovers (`blocked '(?:^|[.,] |: )(?:destroy|exile) (?:all|each) '`, ~180
+    solo — most are the group plus a rider): "for each … destroyed this way, create a Treasure / gain life"
+    (Blood Money, Fumigate), "they can't be regenerated" after a group (Plague Wind), "until ~ leaves the
+    battlefield" (Aligned Hedron Network), "at the beginning of the next end step" (Bearer of the Heavens).
   - "Each player exiles creature cards from graveyard, sacrifices all creatures, puts exiled cards onto
     the battlefield" — 2 (Living Death, Living End).
   - "Each player chooses creatures with total power `<n>` or less, sacrifices the rest" — 2 (Destined

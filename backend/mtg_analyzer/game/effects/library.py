@@ -2667,8 +2667,14 @@ class DamageEqualToPowerEffect(GameEffect):
         optional: bool = False,
         to_self: bool = False,
         source: Optional["GameObject"] = None,
+        dealer_group: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: ``"previous_targets"`` — "**each of those creatures** deals damage equal to its power
+        #: to ~" (Polukranos, World Eater; PAR-128): every object the preceding clause targeted
+        #: is a dealer of its own power, and the recipient is the ability's source. No target of
+        #: this clause's own.
+        self.dealer_group = dealer_group if dealer_group == "previous_targets" else None
         self.dealer_kind = dealer_kind
         # "… deals damage to itself equal to its power" (Wave of Reckoning /
         # Solar Blaze / Justice Strike) — the dealer *is* the recipient, so
@@ -2677,18 +2683,28 @@ class DamageEqualToPowerEffect(GameEffect):
         self.to_self = to_self
         self.selector = selector if selector in _DAMAGE_SELECTORS else None
         specs: list[TargetSpec] = []
-        need_dealer_target = dealer_kind not in _IMPLICIT_FIGHT_SUBJECTS and not (
+        need_dealer_target = self.dealer_group is None and dealer_kind not in _IMPLICIT_FIGHT_SUBJECTS and not (
             to_self and self.selector is not None
         )
         if need_dealer_target:
             specs.append(TargetSpec(kind=dealer_kind, optional=dealer_optional))
-        if not to_self and self.selector is None and target_kind is not None:
+        if not to_self and self.selector is None and target_kind is not None and self.dealer_group is None:
             specs.append(TargetSpec(kind=target_kind, optional=optional))
         if specs:
             self.target_spec = specs[0]
             self.extra_target_specs = tuple(specs[1:])
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.dealer_group is not None:
+            recipient = self.source
+            if recipient is None or recipient not in context.state.permanents():
+                return  # RULE 608.2b: a permanent that left the battlefield takes no damage
+            for dealer in list(context.previous_targets):
+                # Players have no power; a creature's power is read as it last existed (RULE 608.2h).
+                amount = getattr(dealer, "power", None) or 0
+                if hasattr(dealer, "instance_id") and amount > 0:
+                    context.deal_damage(recipient, amount, dealer)
+            return
         picks = list(targets or [])
         chosen = iter(picks)
         # "each creature deals damage to itself equal to its power." — no

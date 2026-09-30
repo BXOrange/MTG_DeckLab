@@ -33,6 +33,7 @@ class CounterSpellEffect(GameEffect):
         suspend_instead: Optional[int] = None,
         on_pay_effect_specs: Optional[list[dict]] = None,
         unless_pays_extra_selector: Optional[str] = None,
+        target_kind: str = "spell",
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -80,7 +81,10 @@ class CounterSpellEffect(GameEffect):
         if color:
             spell_filter["color"] = color
         if target_from_trigger_event is None:
-            self.target_spec = TargetSpec(kind="spell", spell_filter=spell_filter or None)
+            # "counter target spell **you don't control**" (Counterflux, PAR-128): the
+            # controller-scoped ``spell_you_dont_control`` pool.
+            kind = target_kind if target_kind in ("spell", "spell_you_dont_control") else "spell"
+            self.target_spec = TargetSpec(kind=kind, spell_filter=spell_filter or None)
 
     def target_polarity(self) -> Optional[str]:
         return "harmful"

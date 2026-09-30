@@ -378,6 +378,8 @@ EffectRegistry.register(
         distinct_controllers=bool(p.get("distinct_controllers", False)),
         exclude_created=bool(p.get("exclude_created", False)),
         target_from_trigger_event=p.get("target_from_trigger_event"),
+        group=p.get("group"), group_player=p.get("group_player"),
+        count_selector=p.get("count_selector"),
     ),
 )
 EffectRegistry.register(
@@ -657,6 +659,7 @@ EffectRegistry.register(
         suspend_instead=p.get("suspend_instead"),
         on_pay_effect_specs=p.get("on_pay_effect_specs"),
         unless_pays_extra_selector=p.get("unless_pays_extra_selector"),
+        target_kind=p.get("target_kind", "spell"),
     ),
 )
 EffectRegistry.register(
@@ -835,7 +838,9 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "sacrifice_self",  # "Sacrifice ~." (Dress Down/Underworld Breach-shaped)
-    lambda p: SacrificeSelfEffect(),
+    lambda p: SacrificeSelfEffect(
+        target_kind=p.get("target_kind"), trigger_event_key=p.get("trigger_event_key"),
+    ),
 )
 EffectRegistry.register("sacrifice_target", lambda p: SacrificeTargetEffect())
 EffectRegistry.register(
@@ -909,6 +914,7 @@ EffectRegistry.register(
         bend_kind=p.get("bend_kind"),
         count_selector=p.get("count_selector"),
         unless_flag=p.get("unless_flag"),
+        group=p.get("group"), group_player=p.get("group_player"),
     ),
 )
 EffectRegistry.register(
@@ -1308,6 +1314,8 @@ EffectRegistry.register(
         to_library_top_if_clash_won=bool(p.get("to_library_top_if_clash_won", False)),
         then_specs=p.get("then_specs"),
         trigger_event_key=p.get("trigger_event_key"),
+        group=p.get("group"), group_player=p.get("group_player"),
+        count_selector=p.get("count_selector"),
     ),
 )
 EffectRegistry.register(
@@ -1590,6 +1598,7 @@ EffectRegistry.register(
         dealer_optional=bool(p.get("dealer_optional", False)),
         optional=bool(p.get("optional", False)),
         to_self=bool(p.get("to_self", False)),
+        dealer_group=p.get("dealer_group"),
     ),
 )
 EffectRegistry.register(
@@ -2540,6 +2549,7 @@ EffectRegistry.register(
         previous_subject=bool(p.get("previous_subject", False)),
         distinct_from_others=bool(p.get("distinct_from_others", False)),
         previous_group=bool(p.get("previous_group", False)),
+        previous_group_scope=p.get("previous_group_scope"),
         previous_selector=bool(p.get("previous_selector", False)),
         group=p.get("group"),
     ),

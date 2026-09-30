@@ -78,7 +78,8 @@ def test_untap_up_to_two_target_lands_recognized():
     # Snap-shaped: "Untap up to two target lands."
     (spec,) = parse_effect_body("untap up to 2 target lands")
     assert spec.type == "tap"
-    assert spec.params == {"target_kind": "permanent", "count": 2, "untap": True, "optional": True}
+    # PAR-128: the plural "target lands" row is the land pool, not "any permanent".
+    assert spec.params == {"target_kind": "land", "count": 2, "untap": True, "optional": True}
 
 
 def test_return_to_hand_multi_target_recognized():

@@ -72,7 +72,8 @@ def test_any_number_of_is_recognized_by_cant_block():
 def test_any_number_of_is_recognized_by_exile():
     (spec,) = match_clause("exile any number of target artifacts")
     assert spec.type == "exile"
-    assert spec.params == {"target_kind": "permanent", "count": 10, "optional": True}
+    # PAR-128: the plural "target artifacts" row is the artifact pool, not "any permanent".
+    assert spec.params == {"target_kind": "artifact", "count": 10, "optional": True}
 
 
 def test_plain_up_to_n_still_works_after_the_widening():

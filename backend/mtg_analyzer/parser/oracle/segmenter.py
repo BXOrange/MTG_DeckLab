@@ -16,6 +16,7 @@ so the front-end stays import-pure.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Optional
@@ -5203,7 +5204,7 @@ _CREATURE_MASS_COUNTER_SELECTORS: frozenset[str] = frozenset(
      "each_other_creature", "each_creature_opponents_control"}
 )
 _BARE_COUNTER_PARAMS: frozenset[str] = frozenset({"kind", "selector", "count"})
-_BARE_TAP_PARAMS: frozenset[str] = frozenset({"selector", "untap"})
+_BARE_TAP_PARAMS: frozenset[str] = frozenset({"selector", "untap", "selector_player"})
 _BARE_PUMP_PARAMS: frozenset[str] = frozenset({"selector", "power", "toughness", "keywords"})
 
 
@@ -5480,6 +5481,16 @@ def _deals_damage(effect: "EffectSpec") -> bool:
     )
 
 
+def _reads_blocked_attacker(effect: "EffectSpec") -> bool:
+    """Whether ``effect`` carries a "creatures blocking it" group (`blocking_source`), which the
+    engine reads off the effect's *source* — the blocked attacker."""
+    return '"blocking_source"' in json.dumps(effect.to_dict(), default=str)
+
+
+def _stamped_dealer(effect: "EffectSpec") -> bool:
+    return GROUP_SUBJECT_KEY_SENTINEL in json.dumps(effect.to_dict(), default=str)
+
+
 def _stamp_damage_dealer(effect: "EffectSpec") -> "EffectSpec":
     """``effect`` with each ``damage`` in it dealt by the group trigger's firing object."""
     if effect.type == "damage":
@@ -5508,7 +5519,10 @@ def _stamp_group_pronoun(
     A body that also names the source explicitly is left as parsed ("exile ~, then
     return it" is the source both times). ``None`` means the body is a pronoun
     reading no effect here can honour, so the line stays unclaimed."""
-    if (condition or {}).get("subject") != "group":
+    subject = (condition or {}).get("subject")
+    if subject not in (None, "self", "group") and any(_reads_blocked_attacker(e) for e in effects):
+        return None  # "equipped creature becomes blocked, it deals …": "it" isn't the source
+    if subject != "group":
         return effects
     lowered = body.lower()
     if _BARE_PRONOUN_RE.search(lowered) is None or _EXPLICIT_SOURCE_RE.search(lowered):
@@ -5535,6 +5549,14 @@ def _stamp_group_pronoun(
             # entering Dragon is the damage source (lifelink, deathtouch, protection), not the
             # Enchantment that carries the ability (PAR-123).
             effect = _stamp_damage_dealer(effect)
+        elif effect.type == "sacrifice_self" and not effect.params:
+            # "Whenever another Goblin you control becomes blocked, sacrifice it." — the firing
+            # creature, not the permanent carrying the ability.
+            effect = EffectSpec(
+                "sacrifice_self",
+                {"target_kind": "trigger_subject", "trigger_event_key": GROUP_SUBJECT_KEY_SENTINEL},
+                condition=effect.condition,
+            )
         elif effect.type in _GROUP_IT_RETARGETED and effect.params.get("target_kind", "unset") is None:
             params = dict(effect.params)
             params["target_kind"] = "trigger_subject"
@@ -5553,6 +5575,8 @@ def _stamp_group_pronoun(
             params["capture"] = "trigger_subject"
             params["trigger_event_key"] = GROUP_SUBJECT_KEY_SENTINEL
             effect = EffectSpec(effect.type, params, condition=effect.condition)
+        if _reads_blocked_attacker(effect) and not _stamped_dealer(effect):
+            return None  # the blocked attacker is the firing object; nothing here names it
         stamped.append(effect)
         index += 1
     return stamped
@@ -6393,7 +6417,10 @@ def _segment_line_unsplit(
 
     exert_trig = _EXERT_TRIGGER_RE.match(raw)
     if exert_trig is not None:
-        effects = parse_effect_body(exert_trig.group("body"), self_subject=True)
+        # "…as he attacks. When you do, he gains flying" (Themberchaud): the effect grammar
+        # knows the self-pronoun as "it".
+        body = re.sub(r"\b(?:he|she)\b", "it", exert_trig.group("body"))
+        effects = parse_effect_body(body, self_subject=True)
         if effects is None:
             return Segment(raw=raw)
         spec = AbilitySpec(

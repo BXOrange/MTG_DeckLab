@@ -46,9 +46,20 @@ class DestroyEffect(GameEffect):
         distinct_controllers: bool = False,
         exclude_created: bool = False,
         target_from_trigger_event: Optional[str] = None,
+        group: Optional[dict[str, Any]] = None,
+        group_player: Optional[str] = None,
+        count_selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "Destroy **X** target artifacts" (By Force) — `TargetSpec.count_selector`
+        #: (``"source_x_paid"``), read at announce time off `GameObject.x_paid`.
+        self._count_selector = count_selector
+        #: PAR-128: "destroy all white permanents" / "…all creatures you don't control" /
+        #: "…all lands target player controls" — a structured battlefield selector for the
+        #: mass groups `_MASS_DESTROY_SELECTORS` has no name for (`_group_objects`).
+        self.group = dict(group) if isinstance(group, dict) and group.get("zone", "battlefield") == "battlefield" else None
+        self.group_player = group_player if group_player in GROUP_SCOPE_PLAYERS else None
         #: "destroy target `<c1>` or `<c2>` creature" (Deathmark) —
         #: `TargetSpec.colors`' OR narrowing, the multi-letter sibling of
         #: ``color``'s single-letter form; checked at offer time by
@@ -74,12 +85,15 @@ class DestroyEffect(GameEffect):
         #: (`GameContext.created_objects`), the mirror image of
         #: `AttachEffect`'s ``target_kind="created"`` reading the same list.
         self.exclude_created = exclude_created
-        if self.selector is None and target_from_trigger_event is None:
+        if self.group is not None:
+            if self.group_player in ("player", "opponent"):
+                self.target_spec = TargetSpec(kind=self.group_player)
+        elif self.selector is None and target_from_trigger_event is None:
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max, color=color,
                 colors=self.colors,
                 max_mana_value=max_mana_value, creature_filter=creature_filter,
-                distinct_controllers=distinct_controllers,
+                distinct_controllers=distinct_controllers, count_selector=count_selector,
             )
 
     def target_polarity(self) -> Optional[str]:
@@ -92,6 +106,11 @@ class DestroyEffect(GameEffect):
             target = context.state.find_object(source_id) if source_id is not None else None
             if target is not None:
                 context.destroy(target, can_be_regenerated=self.can_be_regenerated)
+            return
+        if self.group is not None:
+            chosen = (targets or [self.target])[0] if (targets or self.target is not None) else None
+            for obj in _group_objects(context, self.group, self.group_player, self.source, chosen) or []:
+                context.destroy(obj, can_be_regenerated=self.can_be_regenerated)
             return
         if self.selector is not None:
             excluded = set(context.created_objects) if self.exclude_created else ()
@@ -1840,11 +1859,31 @@ class SacrificeSelfEffect(GameEffect):
     (RULE 701.16c: sacrifice isn't destruction, so it can't be regenerated),
     the same distinction `GameEngine._pay_activation_cost`'s own sacrifice
     cost-payment already makes.
+
+    ``target_kind="trigger_subject"`` (PAR-123/128) is a bare "sacrifice it" under a group
+    trigger — "Whenever another Goblin you control becomes blocked, sacrifice it" (Ib
+    Halfheart): the permanent that fired the trigger (``trigger_event_key`` names the event
+    field), not the Ability's own source.
     """
 
+    def __init__(
+        self, source: Optional["GameObject"] = None, target_kind: Optional[str] = None,
+        trigger_event_key: Optional[str] = None,
+    ) -> None:
+        super().__init__(source)
+        self._trigger_subject_mode = target_kind == "trigger_subject"
+        self.trigger_event_key = trigger_event_key or "instance_id"
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.source is not None:
-            context.put_into_graveyard(self.source)
+        subject = self.source
+        if self._trigger_subject_mode:
+            iid = (context.trigger_event or {}).get(self.trigger_event_key)
+            subject = context.state.find_object(iid) if iid is not None else None
+            # RULE 701.17a: only a permanent on the battlefield can be sacrificed.
+            if subject is not None and subject not in context.state.battlefield:
+                return
+        if subject is not None:
+            context.put_into_graveyard(subject)
 
 
 class SacrificeTargetEffect(GameEffect):

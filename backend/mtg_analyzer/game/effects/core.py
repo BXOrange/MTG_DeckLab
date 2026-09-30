@@ -842,6 +842,44 @@ def _event_player(context: GameContext, key: str = "controller_id") -> Optional[
         return None
 
 
+#: The players a mass group can be scoped to (PAR-128): "… all lands **target player** controls",
+#: "… **defending player** controls" (RULE 506.4), "… **that player** controls" (the trigger's
+#: damaged player). The group is written `of: "you"` and evaluated for that player.
+GROUP_SCOPE_PLAYERS: tuple[str, ...] = ("player", "opponent", "defending", "event_player")
+
+
+def _group_scope_player(
+    scope: str, context: GameContext, source: Optional["GameObject"],
+    chosen: Optional[Any],
+) -> Optional["Player"]:
+    """The `Player` a ``GROUP_SCOPE_PLAYERS`` value names, or ``None`` when there is none."""
+    if scope == "defending":
+        player = _defending_player_of(source, context)
+    elif scope == "event_player":
+        player = _event_player(context, key="target_id")
+    else:
+        player = chosen
+    return player if getattr(player, "id", None) is not None and hasattr(player, "life") else None
+
+
+def _group_objects(
+    context: GameContext, group: dict[str, Any], group_player: Optional[str],
+    source: Optional["GameObject"], chosen: Optional[Any] = None,
+) -> Optional[list[Any]]:
+    """A structured mass ``group`` (`{"zone","of","filter"}`) resolved for a one-shot effect —
+    for the source's controller, or for the scoped player. ``None`` when a scoped player can't
+    be found (the effect then does nothing)."""
+    from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
+
+    controller_id = getattr(source, "controller_id", None)
+    if group_player is not None:
+        player = _group_scope_player(group_player, context, source, chosen)
+        if player is None:
+            return None
+        controller_id = player.id
+    return list(group_selector_objects(context.state, controller_id, group, src=source))
+
+
 def _controller_of(source: Optional["GameObject"], context: GameContext) -> Optional["Player"]:
     """The `Player` controlling ``source`` (RULE 109.4), else the active player.
 
@@ -1336,8 +1374,8 @@ def _apply_effects_partitioned(
                 selector = getattr(selecting, "selector", None)
                 if selector is None:
                     selector = (getattr(selecting, "static", {}) or {}).get("params", {}).get("affects")
-                if selector:
-                    context.previous_selector = selector
+                if selector and not getattr(selecting, "selector_player", None):
+                    context.previous_selector = selector  # a player-scoped one set its own
             elif (
                 isinstance(selecting, AddCountersEffect)
                 and selecting.selector in ADD_COUNTERS_GROUP_AFFECTS

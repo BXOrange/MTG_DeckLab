@@ -82,9 +82,15 @@ class ExileEffect(GameEffect):
         bend_kind: Optional[str] = None,
         count_selector: Optional[str] = None,
         unless_flag: Optional[str] = None,
+        group: Optional[dict[str, Any]] = None,
+        group_player: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: PAR-128: "exile all artifacts and enchantments your opponents control" — a structured
+        #: battlefield selector (`_group_objects`), the mass sibling `DestroyEffect.group` has.
+        self.group = dict(group) if isinstance(group, dict) and group.get("zone", "battlefield") == "battlefield" else None
+        self.group_player = group_player if group_player in GROUP_SCOPE_PLAYERS else None
         #: "Exile **X** target creatures you control" (Waterbender's
         #: Restoration) — a `TargetSpec.count_selector` (``"source_x_paid"``,
         #: resolved at announce time off `GameObject.x_paid`), not the plain
@@ -156,7 +162,10 @@ class ExileEffect(GameEffect):
         #: to the printed cost); mutually exclusive with it in practice.
         self.owner_play_permission_cost = owner_play_permission_cost
         self.target_spec: Optional[TargetSpec] = None
-        if (
+        if self.group is not None:
+            if self.group_player in ("player", "opponent"):
+                self.target_spec = TargetSpec(kind=self.group_player)
+        elif (
             self.selector is None and target_kind is not None
             and not self._trigger_subject_mode and not self._attached_mode
         ):
@@ -178,6 +187,13 @@ class ExileEffect(GameEffect):
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.group is not None:
+            chosen = (targets or [self.target])[0] if (targets or self.target is not None) else None
+            for obj in _group_objects(context, self.group, self.group_player, self.source, chosen) or []:
+                if self.track_exiled_with and self.source is not None:
+                    self.source.exiled_with_ids.append(obj.instance_id)
+                context.exile(obj)
+            return
         if self.selector is not None:
             for obj in _mass_selector_objects(context, self.selector, self.filter, source=self.source):
                 if self.track_exiled_with and self.source is not None:

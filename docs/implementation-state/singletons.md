@@ -1214,3 +1214,11 @@ additional time" axis and Stormforged Armor pairs with Kari Zev on
 | Lobe Lobber | Granted "{T}: ~ deals 1 damage to target player or planeswalker. Roll a 6-sided die. On a 5 or higher, untap it." | A die-roll-gated untap; the RULE 706 dice subsystem exists (MEC-75), but this is the only card whose text gates an untap on a roll result. |
 | Shuriken | Granted "{T}, Unattach ~: ~ deals 2 damage to target creature. That creature's controller gains control of ~ unless it was unattached from a Ninja." | A cost that unattaches the source, plus a control-change conditioned on what the Equipment was attached to. Elbrus, the Binding Blade shares the word "unattach" but not the shape (its trigger unattaches then transforms). |
 | Fishing Pole | Compound gap — granted `{1}, {T}, tap ~: put a bait counter on ~.`; `Whenever equipped creature becomes untapped, remove a bait counter from ~. If you do, create a 1/1 blue Fish creature token.` | Both clauses are unique cache-wide ("bait counter" appears on no other card); the second is a becomes-untapped trigger on the equipped creature, which handler-recipe.md lists as deliberately absent from `_TRIGGER_VERBS` (re-check whether the engine fires a becomes-untapped event before hand-authoring). |
+
+## Batch 4 — 2026-09-30 PAR-128 leftovers (PARSER_VERSION 550)
+
+The target/group-grammar slots PAR-128 owned are closed; this card parses everything up to its own unique clause (`parser_probe.py blocked 'shares a mana value with it'` → SOLO on 1).
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| The Crimson Avenger | `When ~ enters, choose target spell an opponent controls. Reveal cards from the top of your library until you reveal a card that shares a mana value with it. Cast that card without paying its mana cost. Then shuffle your library.` | The "target spell an opponent controls" slot now parses (`spell_you_dont_control`); the gap left is reveal-until-*shares a mana value with the chosen spell* + free cast, unique cache-wide. |

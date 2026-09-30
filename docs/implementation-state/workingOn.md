@@ -44,64 +44,6 @@ Block template (copy below the line, fill in):
 
 ---
 
-## PAR-128 · Target/group-grammar slots
-
-- **Started / last update:** — / 2026-09-30 (v540 batch)
-- **Goal of this run:** extend the scope slots to the axes below.
-- **Done (built + tested):** the controller-scope, "another" and player-subject slots are in
-  the shared target grammar (PARSER_VERSION 485; narrative in `Done_Backend.md` → "PAR-128").
-  v519–v525 (+38, 0 regressed; narrative in the same entry): "another/other" on graveyard cards, and
-  "all other creatures" / "other attacking creatures" / "each other creature" as group
-  subjects + `each_other_creature` damage selector; controller scope around a quality filter
-  (destroy/exile/damage), on plural targets, on "doesn't untap", on a keyword-filtered group
-  damage and on divided damage. Full suite and `--full-cache` tier green.
-- **In progress:** —
-- **Next step (a cluster bigger than the residue below):** the rest of the mass-damage tail
-  (`blocked 'deals? (?:x|\d+) damage to each (?:other )?creature'`, ~45 left: "it deals" under a
-  sacrifice/trigger (Bloodletter, Battle-Scarred Goblin), "…for each aura attached",
-  kicker/"instead" variants (Cinderclasm), "each creature and each planeswalker" + X
-  (Calamitous Cave-In — a count-phrase sum), "each creature blocking it"; Crypt Rats' "spend
-  only black mana on x" is a separate 3-card mana-restriction rider. Then the remaining mass-tap cluster (`blocked '(?:^|, |\. )tap all '` — ~13 solo:
-  "… that player controls"
-  under a trigger/event player (Nature's Will, Tectonic Instability, Pretender's Claim, Monsoon),
-  Sleep's "don't untap during that player's next untap step" (needs the chosen player
-  recorded as the group's owner)), the "you don't control" tail (Lost in the Maze), then the
-  "other" residue (Themberchaud, Lae'zel) and "target spell an opponent
-  controls" (The Crimson Avenger). (The Fifth Doctor's "each
-  creature you control that didn't attack or enter this turn. Untap those creatures." needs
-  the *filtered* group as a referent — the context records only a selector name.)
-- **Decisions:** "another" on a graveyard target is a pure grammar slot (the engine's graveyard
-  branch already excludes the source), not a new `TargetSpec` field.
-- **Baselines / artefacts:** PARSER_VERSION 548, 18,245 / 34,811; Commander-legal 17,524 / 31,830.
-- **Known failures:** —
-- **Residue:**
-  - The remaining "other" groups: "each other creature without flying and each player" (Themberchaud),
-    "other creatures you control and creature cards in your hand perpetually get +1/+1"
-    (Lae'zel).
-  - A **group referent** for the next sentence: Polukranos's "each of those creatures deals
-    damage equal to its power to ~" (`PumpEffect`/`AddCountersEffect` don't read the
-    `damaged_this_way` sentinel yet either).
-  - "target spell an opponent controls" (The Crimson Avenger).
-  - Graveyard "another" cards still blocked by something else: Illicit Masquerade ("up to 1
-    other target …"), Soul of Emancipation ("up to 3 other target nonland permanents").
-- **Log:** 2026-09-29 — residue migrated from `BACKLOG.md`. 2026-09-29 — v519: graveyard
-  "another" + unscoped "other" groups + `each_other_creature` damage, docs synced. 2026-09-29 —
-  v522: scoped quality filter, plural scope, scoped "doesn't untap"; docs synced. 2026-09-29 —
-  v523: scoped keyword-group damage + divided damage; docs synced. 2026-09-29 — v524: "each other
-  player sacrifices"; docs synced. 2026-09-29 — v525: opponent-scoped destroy-all, "return all
-  other nonland permanents"; docs synced. 2026-09-30 — v531: mass-selector "those creatures"
-  (untap/tap/don't untap); coverage docs synced, Done_Backend.md filed. 2026-09-30 — v532:
-  mass-damage group referent (Thundermaw); suite green, docs synced. 2026-09-30 — v533:
-  mass-counter group referent (+5); suite green, docs synced. 2026-09-30 — v534: targeted
-  body under "for each" (+21) + plain `discard` "target opponent" kind; suite + full-cache green,
-  docs synced. 2026-09-30 — v535: Duress-family opponent kind + comma form (+2); green, docs synced.
-  2026-09-30 — v536: scoped mass "can't block" (+1, Stoneshock Giant); green, docs synced.
-  2026-09-30 — v537: counters on "each of them" (+7, `previous_group`); green, docs synced.
-  2026-09-30 — v538: general mass tap `tap_all_group` (+27, structured tap selector,
-  `AddCountersEffect.previous_selector`); suite + full-cache green, docs synced.
-  2026-09-30 — v539: player-scoped mass tap (+6, `TapEffect.selector_player`); green, docs synced.
-  2026-09-30 — v540: named counter on a mass group (+3, `AddCountersEffect.group`); green, docs synced.
-
 ## PAR-122 · Trigger doublers
 
 - **Started / last update:** — / 2026-09-29 (residue migrated from `BACKLOG.md`)
@@ -156,12 +98,3 @@ Block template (copy below the line, fill in):
 - **Log:** 2026-09-29 — residue migrated from `BACKLOG.md`. 2026-09-29 — v527: for-each pump. 2026-09-29 — v528/v529: group-trigger damage dealer,
   nested placeholder fix. 2026-09-30 — v541: "it gets +X/+X, where X is …" for the group /
   self / previous pronoun (+5); suite + full-cache green, coverage docs synced (18,170).
-  2026-09-30 — v542 (PAR-128): "without `<keyword>`" object-phrase tail (+3); green, docs synced.
-  2026-09-30 — v543: "any player may activate this ability" rider (+15, reaches MEC-30's
-  `any_player_may_activate`); green, docs synced.
-  2026-09-30 — v544: "can't be regenerated this turn" (+8, `temp_cant_be_regenerated` +
-  `CantBeRegeneratedEffect`); green, docs synced.
-  2026-09-30 — v545: regen + exile-instead rider pair (+3, `creature_only`); green, docs synced.
-  2026-09-30 — v546: general mass damage `damage_group` (+29, `DealDamageEffect.group`); green, docs synced.
-  2026-09-30 — v547: player-scoped mass damage (`group_player`) + X on `damage_selector` (+14); green, docs synced.
-  2026-09-30 — v548: group + "and each player/opponent" (+3); green, docs synced.

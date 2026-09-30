@@ -252,6 +252,9 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # "another target permanent" row just below.
     (r"(?:another|other) target nonland permanent", "nonland_permanent"),
     (r"target nonland permanent", "nonland_permanent"),
+    # "destroy target noncreature permanent" (Bramblecrush, Woodfall Primus — PAR-128):
+    # the engine's `noncreature_permanent` pool, lands included (RULE 205.4a).
+    (r"target noncreature permanent", "noncreature_permanent"),
     # "another target permanent" (RULE 109.5 — Legerdemain's second
     # exchange-control target; `other_permanent` isn't a distinct engine
     # kind, so it routes to the plain broad ``permanent`` pool like the
@@ -580,6 +583,8 @@ SCOPED_TARGET_BASE: dict[str, str] = {
     "artifact_or_enchantment": "permanent",
     "artifact_or_creature": "permanent",
     "creature_or_planeswalker": "permanent",
+    # PAR-128: "noncreature permanent" narrows "any permanent" by a type exclusion.
+    "noncreature_permanent": "permanent",
 }
 
 
@@ -758,6 +763,8 @@ _SPELL_TARGET_BODY = (
     rf"(?:(?P<subtypes>{_SPELL_SUBTYPE_LIST})\s+|(?P<types>{_SPELL_TYPE_LIST})\s+)?"
     r"spell"
     r"(?:\s+with mana value (?P<mv>\d+))?"
+    # PAR-128: the controller scope slot — "counter target spell **you don't control**".
+    r"(?P<scope> (?:you don'?t control|an opponent controls|your opponents control))?"
 )
 #: The same phrase captured under a ``target`` group, for embedding inline in
 #: a handler regex the way `TARGET` is (e.g. ``counter {SPELL_TARGET}``).
@@ -792,6 +799,8 @@ def resolve_spell_filter(phrase: str) -> Optional[dict[str, Any]]:
         filt["subtype_any"] = subtypes
     if m.group("mv"):
         filt["mana_value"] = int(m.group("mv"))
+    if m.group("scope"):
+        filt["target_kind"] = "spell_you_dont_control"
     return filt
 
 

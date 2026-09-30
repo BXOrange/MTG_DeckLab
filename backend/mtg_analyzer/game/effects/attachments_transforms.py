@@ -43,6 +43,9 @@ def _is_valid_tap_selector(selector: "Optional[str | dict]") -> bool:
 #: mass-damage clause hit" (`GameContext.damaged_this_way`) rather than a
 #: `continuous.group_selector_objects` selector.
 DAMAGED_GROUP_SENTINEL = "damaged_this_way"
+#: `GameContext.previous_selector` value for a mass effect scoped to a chosen player
+#: (`TapEffect.selector_player`): ``{PLAYER_SCOPED_GROUP_KEY: <selector>, "controller_id": <player>}``.
+PLAYER_SCOPED_GROUP_KEY = "scoped_selector"
 #: The creature-only mass damage selectors a following "those creatures" may
 #: replay (`DealDamageEffect.selector`); player-inclusive ones stay out.
 PREVIOUS_GROUP_DAMAGE_SELECTORS: frozenset[str] = frozenset(
@@ -57,6 +60,14 @@ def previous_group_objects(context: GameContext, source: Optional["GameObject"],
     if selector == DAMAGED_GROUP_SENTINEL:
         return [o for o in context.damaged_this_way if o in context.state.battlefield]
     from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
+
+    if isinstance(selector, dict) and PLAYER_SCOPED_GROUP_KEY in selector:
+        # "Tap all creatures target player controls. Those creatures …" — the group is that
+        # selector *for the player the clause chose*, not for the ability's controller.
+        return group_selector_objects(
+            context.state, selector.get("controller_id"), selector[PLAYER_SCOPED_GROUP_KEY],
+            src=source,
+        )
 
     return group_selector_objects(
         context.state, getattr(source, "controller_id", None), selector, src=source,
@@ -143,7 +154,12 @@ class TapEffect(GameEffect):
         #: mass ``selector`` scoped to a RULE 115 *player* target
         #: (``"player"``/``"opponent"``). The selector is written ``of: "you"``
         #: and evaluated for the chosen player rather than the controller.
-        self.selector_player = selector_player if selector_player in ("player", "opponent") else None
+        #: "tap all lands **defending player** controls" (Pretender's Claim) / "…**that player**
+        #: controls" (Nature's Will) name the player off the ability's own context, the way
+        #: `DealDamageEffect.group_player` does; "target player/opponent" is a RULE 115 target.
+        self.selector_player = (
+            selector_player if selector_player in ("player", "opponent", "defending", "event_player") else None
+        )
         #: "Tap up to **X** target creatures" (Crashing Wave) — a
         #: `TargetSpec.count_selector` (``"source_x_paid"``), resolved at
         #: announce time; see `ExileEffect._count_selector`.
@@ -192,7 +208,7 @@ class TapEffect(GameEffect):
         self._source_mode = target_kind == "source"
         self.trigger_event_key = trigger_event_key or "instance_id"
         self.previous_subject = previous_subject
-        if self.selector_player is not None and self.selector is not None:
+        if self.selector_player in ("player", "opponent") and self.selector is not None:
             self.target_spec = TargetSpec(kind=self.selector_player)
             return
         self.target_spec = (
@@ -230,7 +246,12 @@ class TapEffect(GameEffect):
 
             controller_id = getattr(self.source, "controller_id", None)
             if self.selector_player is not None:
-                chosen = targets[0] if targets else self.target
+                if self.selector_player == "defending":
+                    chosen = _defending_player_of(self.source, context)
+                elif self.selector_player == "event_player":
+                    chosen = _event_player(context, key="target_id")
+                else:
+                    chosen = targets[0] if targets else self.target
                 if chosen is None or getattr(chosen, "id", None) is None:
                     return
                 controller_id = chosen.id
@@ -259,6 +280,12 @@ class TapEffect(GameEffect):
                 ]
             for obj in group:
                 context.set_tapped(obj, tapped=not self.untap)
+            if self.selector_player is not None and self.selector != "previous_selector":
+                # The core's default (the bare selector) would replay this for the ability's
+                # controller; "those creatures" are the chosen player's.
+                context.previous_selector = {
+                    PLAYER_SCOPED_GROUP_KEY: self.selector, "controller_id": controller_id,
+                }
             return
         if self._attached_mode:
             host_id = getattr(self.source, "attached_to", None)

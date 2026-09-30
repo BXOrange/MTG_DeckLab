@@ -126,8 +126,12 @@ class AddCountersEffect(GameEffect):
         previous_group: bool = False,
         previous_selector: bool = False,
         group: Optional[dict] = None,
+        previous_group_scope: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: ``"not_you"`` — "put a stun counter on each of those creatures **you don't control**"
+        #: (Lost in the Maze): `previous_group` narrowed to the objects another player controls.
+        self.previous_group_scope = previous_group_scope if previous_group_scope == "not_you" else None
         #: PAR-128: "put an impostor counter on each creature you control" /
         #: "…on each Equipment you control" — a structured battlefield selector
         #: (`{"zone","of","filter"}`) naming the mass group, for the kinds
@@ -340,9 +344,13 @@ class AddCountersEffect(GameEffect):
             return
         elif self.previous_subject and self.previous_group:
             if amount > 0:
+                mine = getattr(self.source, "controller_id", None)
                 for one in list(context.previous_targets):
-                    if getattr(one, "instance_id", None) is not None:
-                        context.add_counters(one, amount, self.kind, source=self.source)
+                    if getattr(one, "instance_id", None) is None:
+                        continue
+                    if self.previous_group_scope == "not_you" and one.controller_id == mine:
+                        continue
+                    context.add_counters(one, amount, self.kind, source=self.source)
             return
         elif self.previous_subject:
             # The previous clause's chosen object, or — when that clause
@@ -2350,6 +2358,10 @@ class PumpEffect(GameEffect):
                         obj.card.type_line.partition("—")[2].strip().lower().split()
                     )
                 ]
+            elif self.selector == "previous_selector":
+                from .attachments_transforms import previous_group_objects
+
+                group = previous_group_objects(context, self.source, selector)
             else:
                 controller_id = getattr(self.source, "controller_id", None)
                 group = group_selector_objects(context.state, controller_id, selector, src=self.source)

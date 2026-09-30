@@ -215,6 +215,10 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # further excluding creatures (an artifact creature is still a
         # creature and stays out).
         "noncreature_nonland_permanent",
+        # "destroy target noncreature permanent" (Bramblecrush, PAR-128) — any
+        # permanent that is not a creature; unlike the nonland sibling above,
+        # lands are legal (RULE 205.4a — a land is a noncreature permanent).
+        "noncreature_permanent",
         # "target nonland permanent an opponent controls" / "… you don't
         # control" (Lyev Skyknight/New Prahv Guildmage's detain, PAR-29) and
         # its "you control" mirror — the `legal_targets` branch has always
@@ -670,6 +674,7 @@ class TargetSpec:
             "creature_source_is_blocking": "Kreatur, die dies blockiert",
             "noncreature_nonland_permanent":
                 "bleibende Karte, die weder Kreatur noch Land ist",
+            "noncreature_permanent": "bleibende Karte, die keine Kreatur ist",
         }.get(self.kind, self.kind)
 
 
@@ -1045,6 +1050,7 @@ _FRAME_TYPE_PREDICATES: dict[str, Any] = {
         (o.is_planeswalker or bool(o.card.is_artifact) or bool(o.card.is_enchantment))
         and not o.is_creature
     ),
+    "noncreature_permanent": lambda o: not o.is_creature,
     "creature_or_enchantment": lambda o: o.is_creature or bool(o.card.is_enchantment),
     # "target creature or land you control" (PAR-124, Vengeant Earth) — the
     # land sibling of `creature_or_enchantment` just above.
@@ -1119,6 +1125,8 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     "noncreature_nonland_permanent": TargetFrame(
         "noncreature_nonland_permanent", apply_color=True,
         apply_max_mana_value=True),
+    "noncreature_permanent": TargetFrame(
+        "noncreature_permanent", apply_color=True, apply_max_mana_value=True),
 
     # --- single permanent types -----------------------------------------
     "artifact": TargetFrame("artifact", apply_color=True, apply_max_mana_value=True),

@@ -46,6 +46,8 @@ from .subgrammars import (
     NOT_YOU_TAIL,
     NOT_YOU_TARGET_KINDS,
     OTHER_PREFIX,
+    OTHER_TARGET_KINDS,
+    SOURCE_EXCLUDED_TARGET_KINDS,
     UP_TO_ONE,
     all_permanent_type_selector,
     count_of,
@@ -189,9 +191,11 @@ _MULTI_TARGET_ROWS: list[tuple[str, str]] = [
     # below since RAW excludes lands, unlike that row.
     (r"target nonland permanents", "nonland_permanent"),
     (r"target permanents", "permanent"),
-    (r"target artifacts", "permanent"),
-    (r"target enchantments", "permanent"),
-    (r"target lands", "permanent"),
+    # The single-type pools (`targeting.TARGET_FRAMES`' artifact/enchantment/land): "destroy X
+    # target artifacts" must not offer a creature or a land.
+    (r"target artifacts", "artifact"),
+    (r"target enchantments", "enchantment"),
+    (r"target lands", "land"),
     (r"target players", "player"),
 ]
 #: PAR-128: the controller scope on a plural target phrase ("tap up to 2 target
@@ -199,7 +203,13 @@ _MULTI_TARGET_ROWS: list[tuple[str, str]] = [
 #: pool in `subgrammars.NOT_YOU_TARGET_KINDS` compose it; "target artifacts",
 #: "target lands" and the like read as the broad ``permanent`` kind, so scoping
 #: them would claim a narrower pool than the engine offers — they stay unclaimed.
-_MULTI_TARGET_SCOPE_TAIL = r" (?:your opponents control|an opponent controls|you don'?t control)"
+_MULTI_TARGET_SCOPE_TAIL = r" (?:your opponents control|an opponent controls|you don'?t control|you control)"
+#: "…each of up to 2 target creatures **you control**" — the plural mirror of the singular
+#: `<kind>_you_control` pools (`targeting.TARGET_FRAMES`' ``SCOPE_YOU``).
+_MULTI_TARGET_YOU_KINDS: dict[str, str] = {
+    "creature": "creature_you_control", "permanent": "permanent_you_control",
+    "nonland_permanent": "nonland_permanent_you_control",
+}
 _MULTI_TARGET_SCOPED_KINDS: dict[str, str] = {
     r"target creatures and/or planeswalkers": "creature_or_planeswalker",
     r"target creatures": "creature",
@@ -238,7 +248,11 @@ def _multi_target_kind(phrase: str) -> Optional[str]:
     scoped = re.fullmatch(rf"(?P<base>.*?)(?P<tail>{_MULTI_TARGET_SCOPE_TAIL})", text, re.IGNORECASE)
     if scoped is not None:
         base = _MULTI_TARGET_SCOPED_KINDS.get(scoped.group("base").lower())
-        return None if base is None else NOT_YOU_TARGET_KINDS.get(base)
+        if base is None:
+            return None
+        if scoped.group("tail").strip() == "you control":
+            return _MULTI_TARGET_YOU_KINDS.get(base)
+        return NOT_YOU_TARGET_KINDS.get(base)
     for frag, kind in _MULTI_TARGET_ROWS:
         if re.fullmatch(frag, text, re.IGNORECASE):
             return kind
@@ -272,6 +286,9 @@ _MULTI_TARGET_QUANTIFIER = (
     r"(?:(?P<any_number>any number of )"
     r"|(?P<range_min>\d+) or (?P<range_max>\d+) "
     r"|(?P<up_to>up to )?(?P<count>\d+) )"
+    # PAR-128: "each of up to 2 **other** target creatures" (Felidar Savior) — RULE 109.5, not
+    # the ability's own source. `_multi_target_params` reads it (`_OTHER_MULTI_KINDS`).
+    r"(?P<other>other )?"
 )
 
 
@@ -281,6 +298,15 @@ _MULTI_TARGET_QUANTIFIER = (
 #: distinct_controllers`) — appended right after `_MULTI_TARGET_ALT`'s
 #: target phrase in whichever multi-target handler regex opts in.
 _MULTI_TARGET_DISTINCT_CONTROLLERS = r"(?P<dc> controlled by different (?:players|controllers))?"
+
+
+#: PAR-128: "destroy **X** target creatures" / "tap **up to X** target creatures" — the target
+#: count is the spell's or ability's announced {X} (`TargetSpec.count_selector="source_x_paid"`,
+#: read at announce time). Only the handlers whose effect class takes a `count_selector` opt in
+#: through this variant; every other handler keeps `_MULTI_TARGET_QUANTIFIER` and so never sees
+#: an "x" count.
+_MULTI_TARGET_QUANTIFIER_X = rf"(?:(?P<x_count>(?P<x_up_to>up to )?x )|{_MULTI_TARGET_QUANTIFIER})"
+_OTHER_MULTI_SIBLINGS: dict[str, str] = dict(OTHER_TARGET_KINDS)
 
 
 def _multi_target_params(m: re.Match[str], allow_spell: bool = False) -> Optional[dict]:
@@ -306,8 +332,21 @@ def _multi_target_params(m: re.Match[str], allow_spell: bool = False) -> Optiona
     )
     if kind is None:
         return None
-    if m.groupdict().get("any_number"):
-        params: dict = {"target_kind": kind, "count": _ANY_NUMBER_TARGET_CAP, "optional": True}
+    if m.groupdict().get("other"):
+        # The pool must already leave the source out, or have an "other" sibling.
+        if kind in _OTHER_MULTI_SIBLINGS:
+            kind = _OTHER_MULTI_SIBLINGS[kind]
+        elif kind not in SOURCE_EXCLUDED_TARGET_KINDS:
+            return None
+    if m.groupdict().get("x_count"):
+        # `count` is the cap `_chosen_targets` slices a resolved pick list to; the announced X
+        # (`count_selector`) decides how many picks were offered.
+        params: dict = {
+            "target_kind": kind, "count": _ANY_NUMBER_TARGET_CAP,
+            "count_selector": "source_x_paid", "optional": True,
+        }
+    elif m.groupdict().get("any_number"):
+        params = {"target_kind": kind, "count": _ANY_NUMBER_TARGET_CAP, "optional": True}
     elif m.groupdict().get("range_min") is not None:
         range_min, range_max = int(m.group("range_min")), int(m.group("range_max"))
         if range_min < 1 or range_max <= range_min:
@@ -1392,11 +1431,22 @@ def _damage_group(m: re.Match[str], *, that_player: str = "event_player") -> Opt
             break
     if group_player == "event_player":
         group_player = that_player
+    # "…to each creature blocking it" (Battle-Scarred Goblin): RULE 509.1a, the blockers of
+    # the dealer — the attacker whose `blocked_by` the engine reads.
+    blocking_source = False
+    for tail in (" blocking it", " blocking ~"):
+        if text.endswith(tail):
+            text, blocking_source = text[: -len(tail)], True
+            break
     if any(word in text for word in ("target", "that player", "dealt damage", "blocking", "blocked")):
         return None
     group = parse_count_phrase(_SINGULAR_GROUP_HEADS.sub(r"\1s", text))
     if group is None or group.get("zone") != "battlefield":
         return None
+    if blocking_source:
+        if group.get("of") != "any":
+            return None
+        group = {**group, "filter": {**(group.get("filter") or {}), "blocking_source": True}}
     params: dict = {"group": group}
     if group_player is not None:
         # The group is that player's own: written `of: "you"`, evaluated for them.
@@ -3624,6 +3674,69 @@ def _exile_all(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("exile", {"selector": _MASS_DESTROY_NOUNS[m.group("noun")]})]
 
 
+#: "destroy/exile all `<group>`" / "…each `<group>`" (PAR-128) — the general mass form: the group
+#: is whatever the shared noun-phrase grammar reads (`parse_count_phrase`), carried as
+#: `DestroyEffect.group` / `ExileEffect.group`. After the named-selector rows above, so their
+#: closed vocabulary (and its numeric filters) keeps winning.
+_MASS_GROUP_RE = _c(
+    r"(?P<verb>destroy|exile) (?P<quant>all|each) (?P<group>[a-z' ,/-]+?)"
+    r"(?P<no_regen>\.? (?:they|those [a-z ]+) can'?t be regenerated)?"
+)
+_MASS_GROUP_REFUSED_WORDS = (
+    "target", "that player", "other than", "except", "chosen", "blocking", "blocked", "graveyard",
+    "hand", "library", "exile", "sacrificed", "this way", "named",
+)
+
+
+def _mass_group_params(text: str, quant: str) -> Optional[dict]:
+    """``{"group", "group_player"?}`` for a mass verb's "all/each `<group>`" object, or ``None``."""
+    from .count_phrase import parse_count_phrase
+
+    group_player = None
+    for tail, who in _DAMAGE_GROUP_PLAYER_TAILS.items():
+        if text.endswith(tail):
+            text, group_player = text[: -len(tail)], who
+            break
+    if any(word in text for word in _MASS_GROUP_REFUSED_WORDS):
+        return None
+    if quant == "each":
+        text = _SINGULAR_GROUP_HEADS.sub(r"\1s", text)
+    group = parse_count_phrase(text)
+    if group is None or group.get("zone") != "battlefield":
+        return None
+    params: dict = {"group": group}
+    if group_player is not None:
+        # The group is that player's own: written `of: "you"`, evaluated for them.
+        if group.get("of") != "any":
+            return None
+        params["group"] = {**group, "of": "you"}
+        params["group_player"] = group_player
+    return params
+
+
+def _mass_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _mass_group_params(m.group("group"), m.group("quant"))
+    if params is None:
+        return None
+    if m.group("no_regen"):
+        if m.group("verb") != "destroy":
+            return None
+        params["can_be_regenerated"] = False
+    return [EffectSpec(m.group("verb"), params)]
+
+
+#: "return all creatures to their owners' hands" / "return each other creature you control to
+#: its owner's hand" (Evacuation, Denizen of the Deep — PAR-128): `ReturnToHandEffect.group`.
+_RETURN_GROUP_RE = _c(
+    r"return (?P<quant>all|each) (?P<group>[a-z' ,/-]+?) to (?:their owners'?|its owner'?s?) hands?"
+)
+
+
+def _return_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _mass_group_params(m.group("group"), m.group("quant"))
+    return None if params is None else [EffectSpec("return_to_hand", params)]
+
+
 def _regenerate(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if not target_kind_allowed(kind, ("creature", "permanent")):
@@ -3962,8 +4075,13 @@ def _tap_selector(m: re.Match[str]) -> list[EffectSpec]:
 #: scoped to a chosen player. The selector is written `of: "you"` and
 #: `TapEffect.selector_player` evaluates it for that player.
 _TAP_ALL_PLAYER_GROUP_RE = _c(
-    r"(?P<verb>tap|untap) all (?P<group>[a-z' -]+?) (?P<who>target player|target opponent) controls"
+    r"(?P<verb>tap|untap) all (?P<group>[a-z' -]+?) "
+    r"(?P<who>target player|target opponent|defending player|that player) controls"
 )
+_TAP_ALL_PLAYER_SCOPES: dict[str, str] = {
+    "target player": "player", "target opponent": "opponent",
+    "defending player": "defending", "that player": "event_player",
+}
 
 
 def _tap_all_player_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -3974,7 +4092,7 @@ def _tap_all_player_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     return [EffectSpec("tap", {
         "selector": {**selector, "of": "you"},
-        "selector_player": "opponent" if m.group("who") == "target opponent" else "player",
+        "selector_player": _TAP_ALL_PLAYER_SCOPES[m.group("who")],
         "untap": m.group("verb").lower() == "untap",
     })]
 
@@ -4232,6 +4350,9 @@ _RETURN_TO_HAND_KINDS: frozenset[str] = frozenset(
     {
         "creature", "permanent", "nonland_permanent", "nonland_permanent_you_control", "historic_permanent_you_control", "any", "creature_you_control",
         "land_you_control", "other_creature_you_control",
+        # The single-type pools: "return target artifact to its owner's hand" and, plural, "return
+        # X target artifacts …" (`targeting.TARGET_FRAMES`' artifact/enchantment/land).
+        "artifact", "enchantment", "land",
     }
 )
 
@@ -8511,7 +8632,9 @@ def _choose_creature_type_until_eot(m: re.Match[str]) -> Optional[list[EffectSpe
 #: ``count``/``amount`` (both already mean the *counter* amount here).
 def _add_counters_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     mt = _multi_target_params(m)
-    if mt is None or mt["target_kind"] not in ("creature", "permanent", *_SINGLE_TYPE_PERMANENT_KINDS):
+    if mt is None or not target_kind_allowed(
+        mt["target_kind"], ("creature", "permanent", *_SINGLE_TYPE_PERMANENT_KINDS),
+    ):
         return None
     params: dict = {
         "count": count_of(m.group("n")),
@@ -8519,6 +8642,10 @@ def _add_counters_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "target_kind": mt["target_kind"],
         "target_count": mt["count"],
     }
+    if mt.get("count_selector"):
+        # "put a +1/+1 counter on each of X target creatures": the announced X, not a fixed count.
+        params.pop("target_count")
+        params["target_count_selector"] = mt["count_selector"]
     if mt.get("optional"):
         params["optional"] = True
     if mt.get("count_max") is not None:
@@ -8604,21 +8731,28 @@ def _add_counters_selector(m: re.Match[str]) -> list[EffectSpec]:
 #: reader is known (+1/+1, -1/-1, stun — RULE 122.1c).
 _ADD_COUNTERS_PREVIOUS_GROUP_RE = _c(
     r"put (?P<n>an?|\d+) (?P<ckind>\+1/\+1|-1/-1|−1/−1|stun) counters? on "
-    r"(?:each of them|each of those creatures|those creatures)"
+    r"(?:each of them|each of those creatures|those creatures)(?P<scope> you don't control)?"
 )
 
 
 def _add_counters_previous_group(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("add_counters", {
+    params: dict = {
         "kind": _counter_sign(m.group("ckind")) if m.group("ckind") != "stun" else "stun",
         "count": count_of(m.group("n")), "previous_subject": True, "previous_group": True,
-    })]
+    }
+    if m.group("scope"):
+        # "tap X target creatures. Put a stun counter on each of those creatures you don't
+        # control." (Lost in the Maze) — the earlier clause's targets, narrowed by controller.
+        params["previous_group_scope"] = "not_you"
+    return [EffectSpec("add_counters", params)]
 
 
-def _add_counters_previous_selector(m: re.Match[str]) -> list[EffectSpec]:
+def _add_counters_previous_selector(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     """`_add_counters_previous_group`'s sibling for a preceding *mass selector*
     ("tap all creatures your opponents control, then put a stun counter on each of
     those creatures" — Monstrosity of the Lake)."""
+    if m.group("scope"):
+        return None  # a mass selector is replayed by name; it can't carry a controller narrowing
     [spec] = _add_counters_previous_group(m)
     params = {k: v for k, v in spec.params.items() if k not in ("previous_subject", "previous_group")}
     return [EffectSpec("add_counters", {**params, "previous_selector": True})]
@@ -12028,7 +12162,9 @@ def _skip_untap_prev(m: re.Match[str]) -> list[EffectSpec]:
 #: ("their controllers' next untap steps").
 _SKIP_UNTAP_PREV_SELECTOR_RE = _c(
     r"(?:they|those creatures) don'?t untap during "
-    r"(?:their controller'?s next untap step|their controllers'? next untap steps)"
+    r"(?:their controller'?s next untap step|their controllers'? next untap steps|"
+    # Sleep: the chosen player's own creatures, so "that player's" is their controller's.
+    r"that player'?s next untap step)"
 )
 
 
@@ -14177,6 +14313,14 @@ HANDLERS: list[EffectHandler] = [
             "amount": int(m.group("n")), "selector": "each_creature_blocking_source",
         })],
     ),
+    # PAR-128: "each of those creatures deals damage equal to its power to ~." (Polukranos,
+    # World Eater) — the earlier clause's targets are the dealers; the recipient is the source.
+    EffectHandler(
+        "damage_equal_to_power_previous_group_to_source",
+        _c(r"each of those creatures deals damage equal to its power to (?:~|this creature)"),
+        lambda m: [EffectSpec("damage_equal_to_power", {"dealer_group": "previous_targets"})],
+        previous_subject_only=True,
+    ),
     # "~ [also] deals N damage to that creature's controller" (~22 SOLO —
     # Consign to the Pit / Battle Strain / Dingus Staff / …).
     EffectHandler(
@@ -14971,7 +15115,7 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "destroy_multi_target",
         _c(
-            rf"destroy {_MULTI_TARGET_QUANTIFIER}(?P<target>{_MULTI_TARGET_ALT})"
+            rf"destroy {_MULTI_TARGET_QUANTIFIER_X}(?P<target>{_MULTI_TARGET_ALT})"
             rf"{_MULTI_TARGET_DISTINCT_CONTROLLERS}"
         ),
         _destroy_multi_target,
@@ -15053,7 +15197,7 @@ HANDLERS: list[EffectHandler] = [
         "counter",
         _c(
             rf"counter {SPELL_TARGET}"
-            + r"(?: unless its controller pays (?P<cost>\{[^}]+\})"
+            + r"(?: unless (?:its controller pays|they pay) (?P<cost>\{[^}]+\})"
             + r"(?P<party_tax> plus an additional \{1\} for each creature in your party)?)?"
             + r"(?:\. if they do, (?P<reflexive>.+?))?\.?"
             + IF_COLOR_SUFFIX
@@ -15159,7 +15303,7 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "exile_multi_target",
         _c(
-            rf"exile {_MULTI_TARGET_QUANTIFIER}(?P<target>{_MULTI_TARGET_ALT_WITH_SPELL})"
+            rf"exile {_MULTI_TARGET_QUANTIFIER_X}(?P<target>{_MULTI_TARGET_ALT_WITH_SPELL})"
             rf"{_MULTI_TARGET_DISTINCT_CONTROLLERS}"
         ),
         _exile_multi_target,
@@ -15171,6 +15315,9 @@ HANDLERS: list[EffectHandler] = [
         _EXILE_ALL_RE,
         _exile_all,
     ),
+    # PAR-128: "destroy all white permanents" / "exile all artifacts and enchantments your
+    # opponents control" — after `destroy_all`/`exile_all`, whose named selectors keep winning.
+    EffectHandler("mass_group", _MASS_GROUP_RE, _mass_group),
     # "sacrifice/destroy/tap/exile ~ unless you pay <cost>" — one row over the
     # verb (PAR-121), registered *before* the plain `tap_self`/`exile_self`/
     # `sacrifice_self` handlers (whose regexes are a prefix of this one) so the
@@ -15283,7 +15430,7 @@ HANDLERS: list[EffectHandler] = [
     # 115.1a generalized to N>=2, Snap-shaped).
     EffectHandler(
         "tap_multi_target",
-        _c(rf"(?P<verb>tap|untap) {_MULTI_TARGET_QUANTIFIER}(?:other )?(?P<target>{_MULTI_TARGET_ALT})"),
+        _c(rf"(?P<verb>tap|untap) {_MULTI_TARGET_QUANTIFIER_X}(?:other )?(?P<target>{_MULTI_TARGET_ALT})"),
         _tap_multi_target,
     ),
     # "tap 1 or 2 target creatures without horsemanship." (MEC-87, Broken
@@ -15467,11 +15614,13 @@ HANDLERS: list[EffectHandler] = [
         _RETURN_ALL_NONLAND_RE,
         _return_all_nonland,
     ),
+    # PAR-128: "return all creatures to their owners' hands" — after `return_all_nonland`.
+    EffectHandler("return_group", _RETURN_GROUP_RE, _return_group),
     # "return two target creatures to their owners' hands" (RULE 115.1a
     # generalized to N>=2) — the plural sibling of `return_to_hand`.
     EffectHandler(
         "return_to_hand_multi_target",
-        _c(rf"return {_MULTI_TARGET_QUANTIFIER}(?:other )?(?P<target>{_MULTI_TARGET_ALT}) to their owners'? hands?"),
+        _c(rf"return {_MULTI_TARGET_QUANTIFIER_X}(?:other )?(?P<target>{_MULTI_TARGET_ALT}) to their owners'? hands?"),
         _return_to_hand_multi_target,
     ),
     # "Return those creatures to their owners' hands." (PAR-1, Run Away
@@ -16289,7 +16438,7 @@ HANDLERS: list[EffectHandler] = [
         "add_counters_multi_target",
         _c(
             rf"put {COUNT} (?P<ckind>[+\-−]1/[+\-−]1) counters? on each of "
-            rf"{_MULTI_TARGET_QUANTIFIER}(?:other )?(?P<target>{_MULTI_TARGET_ALT})"
+            rf"{_MULTI_TARGET_QUANTIFIER_X}(?:other )?(?P<target>{_MULTI_TARGET_ALT})"
         ),
         _add_counters_multi_target,
     ),

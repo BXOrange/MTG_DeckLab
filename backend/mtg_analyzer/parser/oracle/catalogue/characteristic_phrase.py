@@ -291,7 +291,10 @@ def parse_qualifier(qualifier: str) -> Optional[dict[str, Any]]:
         return _bound(m.group("stat"), int(m.group("n")), m.group("dir"))
     m = _WITH_COUNTER.match(qualifier)
     if m:
-        # The kindless "a counter on it" is any counter (RULE 122.1).
+        # The kindless "a counter on it" is any counter (RULE 122.1); "no counters on them"
+        # (Damning Verdict) is its negation, not a counter kind called "no".
+        if m.group("kind") == "no":
+            return {"no_counters": True}
         return {"has_counter_kind": m.group("kind")} if m.group("kind") else {"has_counter": True}
     if qualifier in KEYWORD_WORDS:
         return {"keyword": KEYWORD_WORDS[qualifier]}

@@ -87,8 +87,10 @@ def test_destroy_all_opponents_enchantments():
     assert got == [__import__(
         "mtg_analyzer.parser.oracle.spec", fromlist=["EffectSpec"]
     ).EffectSpec("destroy", {"selector": "opponents_enchantments"})]
-    # a scope on a noun with no opponent-scoped selector fails closed
-    assert match_clause("destroy all lands your opponents control") is None
+    # a scope on a noun with no named opponent-scoped selector reads as a structured group
+    # (PAR-128 `DestroyEffect.group`) instead of failing closed
+    [land] = match_clause("destroy all lands your opponents control")
+    assert land.params == {"group": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "land"}}}
 
 
 def test_real_clash_cards_modeled():

@@ -136,9 +136,20 @@ class ReturnToHandEffect(GameEffect):
         to_library_top_if_clash_won: bool = False,
         then_specs: Optional[list[dict]] = None,
         trigger_event_key: Optional[str] = None,
+        group: Optional[dict[str, Any]] = None,
+        group_player: Optional[str] = None,
+        count_selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "Return **X** target creatures to their owners' hands" (Alexi, Zephyr Mage) —
+        #: `TargetSpec.count_selector` (``"source_x_paid"``), read at announce time.
+        self._count_selector = count_selector
+        #: PAR-128: "return all creatures to their owners' hands" / "return each other creature
+        #: you control …" — a structured battlefield selector (`_group_objects`), the mass
+        #: sibling of `DestroyEffect.group`.
+        self.group = dict(group) if isinstance(group, dict) and group.get("zone", "battlefield") == "battlefield" else None
+        self.group_player = group_player if group_player in GROUP_SCOPE_PLAYERS else None
         #: ``target_kind="trigger_subject"`` (PAR-123, Cunning Evasion's "whenever
         #: a creature you control becomes blocked, you may return **it** …") —
         #: the acted-on object is whichever one fired this trigger, read live
@@ -182,6 +193,7 @@ class ReturnToHandEffect(GameEffect):
             TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max,
                 distinct_controllers=distinct_controllers, colors=self.colors,
+                count_selector=count_selector,
                 # "target **Human** you control" (Kogla, the Titan Ape,
                 # MEC-43) — the same `TargetSpec.creature_filter` narrowing
                 # `BlinkEffect`/`CounterUntapGrantKeywordEffect` already
@@ -191,7 +203,9 @@ class ReturnToHandEffect(GameEffect):
                 creature_filter=creature_filter,
             )
             if target_kind is not None and not previous_subject and self.selector is None
-            and not self._trigger_subject_mode
+            and not self._trigger_subject_mode and self.group is None
+            else TargetSpec(kind=self.group_player)
+            if self.group is not None and self.group_player in ("player", "opponent")
             else None
         )
 
@@ -203,6 +217,11 @@ class ReturnToHandEffect(GameEffect):
                 context.bounce_spell_or_permanent if self.spell_or_permanent
                 else context.return_to_hand
             )
+        if self.group is not None:
+            chosen = (targets or [self.target])[0] if (targets or self.target is not None) else None
+            for obj in _group_objects(context, self.group, self.group_player, self.source, chosen) or []:
+                bounce(obj)
+            return
         if self.selector is not None:
             # "…with mana value X or less" — the ``"x"`` sentinel on
             # ``self.filter`` is already substituted for the spell's real
