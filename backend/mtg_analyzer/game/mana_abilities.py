@@ -819,6 +819,11 @@ def mana_options(card: Any) -> list[dict[str, int]]:
     return _dedupe(options)
 
 
+#: RULE 702.177a / Power-up: "Exhaust — " / "Power-up — " label fronting a mana
+#: ability (Activate only once).
+_ONCE_PER_GAME_LABEL_RE = re.compile(r"(?:exhaust|power-up)\s*[—-]\s*", re.IGNORECASE)
+
+
 def _parse_mana_ability_lines(
     text: str, name: Optional[str], want_hand_exile: bool = False
 ) -> list[ManaAbility]:
@@ -845,6 +850,15 @@ def _parse_mana_ability_lines(
         if station is not None:
             for ability in _parse_mana_ability_lines(station.group("body"), name, want_hand_exile):
                 ability.min_charge = int(station.group("n"))
+                abilities.append(ability)
+            continue
+        once = _ONCE_PER_GAME_LABEL_RE.match(line)
+        if once is not None:
+            # RULE 702.177a "Exhaust — <cost>: Add …" (Loot, the Pathfinder):
+            # the label is a once-per-game activation cap on the ability it
+            # fronts, not part of its cost.
+            for ability in _parse_mana_ability_lines(line[once.end():], name, want_hand_exile):
+                ability.cost.once_per_game = True
                 abilities.append(ability)
             continue
         if '"' in line:
@@ -1196,6 +1210,14 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
         for ability in parse_mana_abilities(obj.card)
         if _leveler_tier_active(obj, ability)
     ]
+    # RULE 702.177a: a spent "Exhaust — …: Add …" offers nothing again. Its
+    # options are blanked rather than the entry dropped, so every later
+    # ability keeps the index `tap_for_mana` addresses it by.
+    used_once = getattr(obj, "mana_abilities_used_this_game", None)
+    if used_once:
+        for index, ability in enumerate(printed):
+            if ability.cost.once_per_game and index in used_once:
+                ability.options = []
     granted = [
         ManaAbility(cost=ActivationCost(taps_self=True), options=[dict(opt)])
         for opt in getattr(obj, "granted_mana_options", [])

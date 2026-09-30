@@ -71,6 +71,7 @@ from .subgrammars import (
     DEVOTION,
     count_of,
     devotion_selector,
+    scope_adjective as _scope_adjective,
 )
 
 #: Trigger events a granted triggered ability can be safely re-scoped to a
@@ -1427,7 +1428,7 @@ def object_filter(text: str) -> Optional[dict]:
         subtypes = []
         for part in parts:
             sub = _scope(part)
-            if sub is None or not sub.subtype or " " in sub.subtype:
+            if sub is None or not sub.subtype or " " in sub.subtype or sub.filt:
                 return None
             subtypes.append(sub.subtype)
         return {"subtype_any": subtypes} if len(subtypes) > 1 else {"subtype": subtypes[0]}
@@ -1459,6 +1460,13 @@ def object_filter(text: str) -> Optional[dict]:
         if len(scope.colors) != 1:
             return None  # a multi-colour blocker filter needs an OR this shape can't carry
         filt["color"] = scope.colors[0]
+    if scope.filt:
+        # PAR-134: a state/supertype adjective ("tapped", "nonlegendary",
+        # "commander") — already in this filter's own vocabulary. A clash with
+        # a key set above can't be one flat filter, so fail closed.
+        if any(k in filt for k in scope.filt):
+            return None
+        filt.update(scope.filt)
     if scope.tokens or not filt:
         return None if scope.tokens else {}
     return filt
@@ -1888,6 +1896,8 @@ def _chosen_type_group_affects(body: str) -> Optional[dict]:
     params: dict = {"affects": "creatures_you_control"}
     if scope.subtype:
         params["subtype"] = scope.subtype
+    if scope.filt:  # PAR-134
+        params["object_filter"] = scope.filt
     return params
 
 # "You control enchanted creature/permanent." (Mind Control/Control Magic-
@@ -2626,6 +2636,101 @@ class _Scope(NamedTuple):
     #: currently attacking. Folded into an ``attacking_creatures_you_
     #: control[_of_type_<sub>]`` `affects` selector by `_scope_params`.
     attacking: bool = False
+    #: PAR-134: the scope's adjectives that are *not* a creature subtype — a
+    #: state ("tapped"/"untapped"/"nonattacking"), a supertype/designation
+    #: ("legendary"/"nonlegendary"/"snow"/"commander"), a token status
+    #: ("nontoken"), "multicolored", "modified" (RULE 700.9), a negation
+    #: ("nonblack", "non-Wall") or a coordinated list ("Ninja and Rogue
+    #: creatures" → ``any_of``) — as one `combat.matches_object_filter` dict.
+    #: `_scope_params` ships it as the ``object_filter`` selector param and
+    #: `object_filter` merges it into a target/blocker filter, so the two
+    #: callers share the engine's one vocabulary instead of each guessing the
+    #: word is a subtype. ``None`` = no such adjective.
+    filt: Optional[dict] = None
+    #: "Commanders you control" — the scope is every *permanent* of the
+    #: designation, not just creatures (a planeswalker commander counts), so
+    #: `_scope_params` picks a permanent selector.
+    permanents: bool = False
+
+
+def _merge_scope_filter(into: dict, frag: dict) -> Optional[dict]:
+    """``into`` ∪ ``frag`` (both AND-combined), or ``None`` on a clash that can't
+    be expressed as one flat filter (two ``any_of``s, a repeated key)."""
+    for key, value in frag.items():
+        if key in into:
+            if key == "without_color":
+                into[key] = [*into[key], *value]
+                continue
+            return None
+        into[key] = value
+    return into
+
+
+def _scope_filter(scope: _Scope) -> Optional[dict]:
+    """A whole `_Scope` as one `matches_object_filter` dict (for a part of a
+    coordinated list), or ``None`` when it can't be expressed."""
+    filt: dict = dict(scope.filt or {})
+    if scope.subtype:
+        filt["subtype"] = scope.subtype
+    if scope.colors:
+        if scope.colors == ["C"]:
+            filt["colorless"] = True
+        elif "C" in scope.colors:
+            return None
+        elif len(scope.colors) == 1:
+            filt["color"] = scope.colors[0]
+        else:
+            filt["color_any"] = list(scope.colors)
+    if scope.tokens:
+        filt["token"] = True
+    if scope.card_type:
+        filt["card_type"] = scope.card_type
+    if scope.attacking:
+        filt["attacking"] = True
+    return filt
+
+
+#: A coordinated list inside one scope phrase ("ninja and rogue creatures",
+#: "green creatures and white creatures", "saproling creatures and other
+#: treefolk creatures") — an OR over its parts, not one multi-word subtype.
+_SCOPE_LIST_SPLIT_RE = re.compile(r",\s*(?:and\s+)?|\s+and\s+")
+
+
+def _coordinated_scope(text: str) -> "Optional[_Scope] | bool":
+    """PAR-134: parse ``text`` as an OR-list of scopes.
+
+    ``False`` = not a coordinated list at all (no "and"/comma, or just a
+    colour connector like "white and blue creatures" that `_scope` already
+    reads); ``None`` = a list this can't express (fail-closed); else the
+    `_Scope` carrying an ``any_of`` filter. Every part inherits the list's
+    trailing noun ("ninja and rogue **creatures**"), and a part may carry its
+    own leading "other" (Verdeloth — ``not_reference``)."""
+    parts = [p.strip() for p in _SCOPE_LIST_SPLIT_RE.split(text) if p.strip()]
+    if len(parts) < 2:
+        return False
+    if all(p in _COLOR_WORDS for p in parts[:-1]):
+        return False  # "white and blue creatures" — colours, handled by `_scope`
+    noun = parts[-1].split()[-1]
+    if noun not in ("creatures", "creature"):
+        return None
+    alternatives: list[dict] = []
+    for part in parts:
+        words = part.split()
+        if words[-1] not in ("creatures", "creature"):
+            words.append("creatures")
+        other = words[0] == "other"
+        if other:
+            words = words[1:]
+        if "you" in words:
+            return None  # a controller phrase inside one alternative
+        sub = _simple_scope(words)
+        filt = _scope_filter(sub) if sub is not None else None
+        if filt is None:
+            return None
+        if other:
+            filt["not_reference"] = True
+        alternatives.append(filt)
+    return _Scope(None, False, [], filt={"any_of": alternatives})
 
 
 def _singularize(word: str) -> str:
@@ -2641,14 +2746,23 @@ def _scope(body: str) -> Optional[_Scope]:
     """Parse a scope phrase into a `_Scope`, or ``None`` for a non-creature scope.
 
     Handles a leading global marker ("all"/"each"), leading colour words
-    ("black", "white and blue"), "creatures", a plural type ("goblins"),
-    "<type> creatures", and the "<…> tokens" variants — always fail-closed
-    (returns ``None`` rather than guess a scope it doesn't recognise).
+    ("black", "white and blue"), scope adjectives that aren't creature types
+    (`_SCOPE_ADJECTIVES`, PAR-134), "creatures", a plural type ("goblins"),
+    "<type> creatures", coordinated lists ("Ninja and Rogue creatures") and
+    the "<…> tokens" variants — always fail-closed (returns ``None`` rather
+    than guess a scope it doesn't recognise).
     """
     words = body.split()
     while words and words[0] in ("all", "each"):  # global emphasis, no scope change
         words = words[1:]
+    listed = _coordinated_scope(" ".join(words))
+    if listed is not False:
+        return listed
+    return _simple_scope(words)
 
+
+def _simple_scope(words: list[str]) -> Optional[_Scope]:
+    """`_scope` for one (non-coordinated) phrase, already split into words."""
     # PAR-60 wave 19: a leading "attacking" narrows the set by combat state
     # ("Attacking Elves you control have deathtouch").
     attacking = False
@@ -2657,24 +2771,32 @@ def _scope(body: str) -> Optional[_Scope]:
         words = words[1:]
 
     colors: list = []
+    adjectives: dict = {}
     while words:
         if words[0] in _COLOR_WORDS:
             colors.append(_COLOR_WORDS[words[0]])
             words = words[1:]
         elif words[0] in ("and", "or") and len(words) > 1 and words[1] in _COLOR_WORDS:
             words = words[1:]  # skip a colour connector ("white and blue")
+        elif len(words) > 1 and (frag := _scope_adjective(words[0])) is not None:
+            # A leading state/supertype adjective ("tapped", "nonlegendary") —
+            # never the last word, which is the noun ("commander creatures").
+            if _merge_scope_filter(adjectives, frag) is None:
+                return None
+            words = words[1:]
         else:
             break
+    filt = adjectives or None
 
     tokens = False
     if words and words[-1] == "tokens":
         tokens = True
         words = words[:-1]
         if not words:  # bare "tokens" (creature tokens implied)
-            return _Scope(None, True, colors, attacking=attacking)
+            return _Scope(None, True, colors, attacking=attacking, filt=filt)
 
     if words in (["creature"], ["creatures"]):
-        return _Scope(None, tokens, colors, attacking=attacking)
+        return _Scope(None, tokens, colors, attacking=attacking, filt=filt)
     if not words:
         return None
     if words[-1] == "creatures":
@@ -2684,9 +2806,16 @@ def _scope(body: str) -> Optional[_Scope]:
         # "creatures" narrows *which* creatures, it doesn't change the scope
         # away from creatures the way a bare "Artifacts you control" would.
         if len(prefix) == 1 and prefix[0] in (_CARD_TYPE_WORDS - {"creature"}):
-            return _Scope(None, tokens, colors, card_type=prefix[0], attacking=attacking)
+            return _Scope(None, tokens, colors, card_type=prefix[0], attacking=attacking, filt=filt)
         sub = _singularize(" ".join(prefix))
     elif len(words) == 1:
+        # "Commanders you control" — a designation, not a creature type, and
+        # not limited to creatures (a planeswalker can be a commander).
+        if words[0] in ("commander", "commanders"):
+            return _Scope(
+                None, tokens, colors, attacking=attacking,
+                filt={**(filt or {}), "is_commander": True}, permanents=True,
+            )
         sub = _singularize(words[0])
         # A *bare* artifact-subtype word ("Vehicles [you control]") is never
         # a creature scope — unlike the "<word> creatures" branch above
@@ -2714,7 +2843,7 @@ def _scope(body: str) -> Optional[_Scope]:
     # still validate for themselves afterward.
     if not sub or sub in _NONCREATURE_TYPES or any(c.isdigit() for c in sub):
         return None
-    return _Scope(sub.capitalize(), tokens, colors, attacking=attacking)
+    return _Scope(sub.capitalize(), tokens, colors, attacking=attacking, filt=filt)
 
 
 def _scope_params(scope: _Scope, m: "re.Match[str]") -> dict:
@@ -2737,6 +2866,12 @@ def _scope_params(scope: _Scope, m: "re.Match[str]") -> dict:
         params["subtype"] = scope.subtype
     if scope.card_type:  # "Artifact/Enchantment/… creatures …" (PAR-3)
         params["card_type"] = scope.card_type
+    if scope.filt:  # PAR-134: state/supertype adjectives, negations, coordinated lists
+        params["object_filter"] = scope.filt
+    if scope.permanents:  # "Commanders you control" — any permanent, not just creatures
+        params["affects"] = "permanents_you_control" if yours else "all_permanents"
+        if other:
+            params["exclude_self"] = True
     # "… of the chosen type/color …" (RULE 601.2b) — a dynamic sibling of the
     # literal subtype/colour params above, read fresh off the ability's own
     # source at recompute time (`continuous.group_selector_objects`). Only

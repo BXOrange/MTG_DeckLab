@@ -167,6 +167,8 @@ class ManaMixin:
                 self.rules.gain_life(player, x)
         if cost.once_per_turn:
             source.mana_abilities_activated_this_turn.add(ability_index)
+        if cost.once_per_game:
+            source.mana_abilities_used_this_game.add(ability_index)  # RULE 702.177a
         if cost.exile_creature:
             # Food Chain (MEC-40): the amount depends on *which* creature
             # just paid this cost — unresolvable at `mana_abilities_for`'s

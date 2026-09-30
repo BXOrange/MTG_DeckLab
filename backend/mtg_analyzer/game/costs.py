@@ -414,6 +414,13 @@ class ActivationCost:
     #: ability's stable `ability_index` (`mana_abilities_for`'s enumeration
     #: order) — see `GameEngine.tap_for_mana`/`_only_once_this_turn_ok`.
     once_per_turn: bool = False
+    #: "Exhaust — {G}, {T}: Add three mana of any one color." (RULE 702.177a,
+    #: Loot, the Pathfinder) — a per-*ability*, per-game activation cap on a
+    #: **mana** ability, the no-stack sibling of `ActivatedAbility.
+    #: once_per_game`. Tracked like `once_per_turn`, by `ability_index`, on
+    #: `GameObject.mana_abilities_used_this_game`; `mana_abilities_for` then
+    #: blanks a spent ability's options so nothing offers it again.
+    once_per_game: bool = False
     #: "Any player may activate this ability." (Mercenaries, MEC-30) — RULE
     #: 602.2a's *eligibility* is normally "the permanent's controller only";
     #: this is a standing exception widening it to any player at the table,

@@ -3762,7 +3762,18 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: and the chosen-pair "the creature you control" counter referent.
 #: 554 (MEC-105): temporary flag-keyword loss, including gain/loss and P/T/loss
 #: compounds, plus the standing attached-permanent P/T-and-loss form.
-PARSER_VERSION = "554"
+#: 555 (PAR-134 + PAR-129, both wrong-but-MODELED fixes): a scope adjective that isn't a creature
+#: subtype — state (tapped/untapped/nonattacking), supertype/designation (legendary/nonlegendary/
+#: snow/commander), nontoken, multicolored, modified (RULE 700.9), historic (RULE 700.6), a
+#: "non<colour/type/subtype>" negation — is a `matches_object_filter` dict (`subgrammars.
+#: scope_adjective`) shipped as the static's ``object_filter`` param (and merged into a target /
+#: blocker filter) instead of ``subtype: "Tapped"``; a coordinated list ("Ninja and Rogue
+#: creatures", "snow and Zombie creatures", "saproling creatures and other treefolk creatures")
+#: is an ``any_of``; "Commanders you control" scopes every permanent. A "Keyword — <ability>"
+#: line (Exhaust/Power-up/Boast/Max speed/Solved) whose body isn't modeled is UNMODELED instead of
+#: an inert keyword-line claim (23 cards lost a real ability). Net: +2 covered (General's
+#: Enforcer, Kashi-Tribe Elite), -24 honestly UNMODELED.
+PARSER_VERSION = "555"
 
 
 def parser_source_hash() -> str:

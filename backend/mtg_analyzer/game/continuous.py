@@ -626,6 +626,20 @@ def group_selector_objects(
         result = [o for o in result if any(_has_card_type(o, str(t)) for t in types)]
     if params.get("nonbasic"):  # "Nonbasic lands …" (RULE 205.4a)
         result = [o for o in result if _is_nonbasic(o)]
+    # PAR-134: a state/supertype/designation adjective or a coordinated list
+    # ("Tapped creatures …", "Nonlegendary artifact creatures …", "Ninja and
+    # Rogue creatures …", "Commanders …") — one `combat.matches_object_filter`
+    # dict, the project's single object-characteristic vocabulary, instead of
+    # the parser guessing the adjective is a creature subtype. ``src`` is the
+    # filter's reference object (``not_reference`` = "other …" inside a list).
+    object_filter = params.get("object_filter")
+    if object_filter:
+        from . import combat  # function-scoped: combat imports continuous
+
+        result = [
+            o for o in result
+            if combat.matches_object_filter(o, object_filter, reference=src, state=state)
+        ]
 
     # A per-object power/toughness qualifier on the scope itself ("Each
     # creature you control **with power 4 or greater** can't be blocked by
@@ -1040,6 +1054,29 @@ def _counters_on_source(spec: dict[str, Any], source: Optional["GameObject"]) ->
     if kind:
         return int(counters.get(kind, 0) or 0)
     return sum(int(v or 0) for v in counters.values())
+
+
+def is_modified(state: "GameState", obj: "GameObject") -> bool:
+    """RULE 700.9: a permanent is modified if it has a counter on it, is
+    equipped, or is enchanted by an Aura its own controller controls.
+
+    Equipment counts whoever controls it (RULE 301.5 — "equipped" is just
+    "has an Equipment attached"); only an Aura has to share the permanent's
+    controller. Used by the ``modified`` object-filter key and the
+    ``modified_creatures_you_control`` count selector, so the two can't drift.
+    """
+    if any(int(v or 0) > 0 for v in (getattr(obj, "counters", None) or {}).values()):
+        return True
+    if getattr(obj, "plus_one_counters", 0):
+        return True
+    for attachment in state.battlefield:
+        if getattr(attachment, "attached_to", None) != obj.instance_id:
+            continue
+        if _has_subtype(attachment, "equipment"):
+            return True
+        if _has_subtype(attachment, "aura") and attachment.controller_id == obj.controller_id:
+            return True
+    return False
 
 
 def count_selector(
@@ -1592,23 +1629,10 @@ def count_selector(
             for o in bf if o.is_creature and o.controller_id == controller_id
         )
     if selector == "modified_creatures_you_control":
-        # RULE 700.9: a creature is modified if it has a counter, is equipped,
-        # or is enchanted by an Aura controlled by the same player.
-        attached_hosts = {
-            attachment.attached_to
-            for attachment in bf
-            if attachment.controller_id == controller_id
-            and attachment.attached_to is not None
-            and (_has_subtype(attachment, "equipment") or _has_subtype(attachment, "aura"))
-        }
         return sum(
             1 for creature in bf
             if creature.is_creature and creature.controller_id == controller_id
-            and (
-                creature.instance_id in attached_hosts
-                or bool(getattr(creature, "counters", None))
-                or bool(getattr(creature, "plus_one_counters", 0))
-            )
+            and is_modified(state, creature)
         )
     if selector == "artifacts_you_control":
         return sum(1 for o in bf if o.card.is_artifact and o.controller_id == controller_id)

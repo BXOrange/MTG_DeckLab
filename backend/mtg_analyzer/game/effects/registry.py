@@ -3105,6 +3105,11 @@ _SELECTOR_KEYS: tuple[str, ...] = (
     # also what makes the *source's own zone* gate correct here: nothing
     # else about this static changes, only where it's looked for.
     "from_graveyard",
+    # PAR-134: one `combat.matches_object_filter` dict narrowing the scope by
+    # a state/supertype/designation adjective or a coordinated list ("Tapped
+    # creatures …", "Commanders …", "Ninja and Rogue creatures …"); see
+    # `continuous.group_selector_objects`.
+    "object_filter",
 )
 
 

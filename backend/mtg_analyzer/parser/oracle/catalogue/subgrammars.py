@@ -14,6 +14,7 @@ resolved kind straight into an effect's params.
 
 from __future__ import annotations
 
+import copy
 import re
 from typing import Any, Iterable, Optional
 
@@ -650,6 +651,57 @@ _TARGET_COMBAT_STATE_RE = re.compile(
 )
 
 
+#: PAR-134: scope adjectives that name a characteristic other than a creature
+#: subtype → the `combat.matches_object_filter` fragment they mean. A word
+#: here must never reach the ``subtype`` param: ``_has_subtype`` would then
+#: look for a creature type nobody has and the static would silently affect
+#: nothing (or, for a negation, everything).
+SCOPE_ADJECTIVES: dict[str, dict] = {
+    "tapped": {"tapped": True},
+    "untapped": {"tapped": False},
+    "legendary": {"legendary": True},
+    "nonlegendary": {"nonlegendary": True},
+    "nontoken": {"nontoken": True},
+    "multicolored": {"multicolored": True},
+    "colorless": {"colorless": True},
+    "snow": {"snow": True},
+    "modified": {"modified": True},
+    "nonattacking": {"attacking": False},
+    "commander": {"is_commander": True},
+    # RULE 700.6: legendary supertype, artifact card type or Saga subtype.
+    "historic": {"any_of": [{"legendary": True}, {"card_type": "artifact"}, {"subtype": "Saga"}]},
+}
+
+#: Card types a "non<type>" adjective may negate (RULE 205.2a).
+_NEGATABLE_CARD_TYPES: frozenset[str] = frozenset(
+    {"artifact", "creature", "enchantment", "land", "planeswalker", "battle", "instant", "sorcery"}
+)
+
+#: "non<word>" / "non-<word>" — the negation of a colour, card type or subtype.
+_NON_WORD_RE = re.compile(r"non-?(?P<word>[a-z]+)")
+
+
+def scope_adjective(word: str) -> Optional[dict]:
+    """The filter fragment for one scope adjective (PAR-134), else ``None``."""
+    if word in SCOPE_ADJECTIVES:
+        return copy.deepcopy(SCOPE_ADJECTIVES[word])  # callers merge into their own dict
+    m = _NON_WORD_RE.fullmatch(word)
+    if m is None:
+        return None
+    negated = m.group("word")
+    if negated in COLOR_LETTERS:
+        return {"without_color": [COLOR_LETTERS[negated]]}
+    if negated in _NEGATABLE_CARD_TYPES:
+        return {"without_card_type": negated}
+    return {"without_subtype": negated.capitalize()}  # "non-Wall", "nonhuman"
+
+
+_TARGET_ADJECTIVE_RE = re.compile(
+    r"(?:" + OTHER_PREFIX + r")?target ([a-z-]+) creature(?:" + NOT_YOU_TAIL + r")?",
+    re.IGNORECASE,
+)
+
+
 def resolve_target_creature_state_filter(phrase: str) -> Optional[dict]:
     """"target `<state>` creature" → a `combat.matches_object_filter`
     fragment (``{"attacking": True}``/``{"tapped": False}``/…), or ``None``
@@ -659,7 +711,12 @@ def resolve_target_creature_state_filter(phrase: str) -> Optional[dict]:
     """
     m = _TARGET_COMBAT_STATE_RE.fullmatch(phrase.strip())
     if m is None:
-        return None
+        # PAR-134: the same shape for a supertype/designation/negation adjective
+        # ("target legendary creature", "target nonattacking creature",
+        # "target multicolored creature") — `scope_adjective`'s vocabulary, so a
+        # caller that falls back to "the word is a subtype" never guesses it.
+        m = _TARGET_ADJECTIVE_RE.fullmatch(phrase.strip())
+        return None if m is None else scope_adjective(m.group(1).lower())
     word = m.group(1).lower()
     return {"tapped": word != "untapped"} if word in ("tapped", "untapped") else {word: True}
 

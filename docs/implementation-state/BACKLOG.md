@@ -43,7 +43,7 @@ No open tickets.
   Archenemy card bodies fold in here (~13/309 done).
 
   > **Ids:** `PAR-1`…`PAR-139` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-140`**; next free `MEC`: **`MEC-108`**. A new engine primitive found along the way files
+  > **`PAR-140`**; next free `MEC`: **`MEC-109`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -62,21 +62,6 @@ No open tickets.
   duration clusters exposed by PAR-130; calibrated clusters live in `PARSER_LONG_TAIL.md`.
 - **PAR-133 · Powerstone tokens.** "create a [tapped] Powerstone token" — a `data/tokens.json` entry
   with its RULE 605.3a-restricted mana ability, then `_NAMED_TOKEN_WORDS` (25 solo cards).
-- **PAR-129 · A line starting with "Exhaust" is swallowed as a keyword line (wrong-but-MODELED).** 11
-  MODELED cards lose an ability: the card-level keyword pass claims the first "Exhaust…" line as the
-  bare keyword, so no spec is emitted (Liliana the Repentant, Mai, Jaded Edge, Marshals' Pathcruiser,
-  Redshift, Rocketeer Chief/Boostbuggy, Sita Varma, Skyserpent Seeker, Spire Mechcycle, Trackhand
-  Trainer; one of three on Audacious Knuckleblade; Boom Scholar loses its static). The lines segment
-  correctly alone (`activated` + `activate_only_once_marker`) — the fault is the keyword pass.
-- **PAR-134 · A state or supertype adjective in a static's scope is read as a creature subtype
-  (wrong-but-MODELED).** `static_handlers._scope` turns any word before "creatures you control" into
-  `subtype: "<Word>"`, so "Tapped / Untapped / Legendary / Nonlegendary / Nontoken / Multicolored /
-  Commander creatures you control have/get …" grants to creatures of a subtype nobody has. 38 MODELED
-  cards are affected today (Adept Watershaper, Lost in the Maze, Bastion Protector, Cathedral of Serra,
-  Thraben Watcher, Vexilus Praetor, the Maze-* cycle, …). `combat.matches_object_filter` already has
-  `tapped`/`legendary`/`nontoken`/`multicolored`/`is_commander`; `continuous.affected_objects` needs the
-  matching params, then `_scope` maps the adjective instead of guessing. Rejecting the words alone
-  drops the 38 from `MODELED` (measured, 0 other change).
 - **PAR-121 · Subject-scope slot and per-verb connective de-duplication (no coverage change).** A
   third of the regexes sit in near-duplicate clusters: **(a) subject scope** — one verb re-registered
   per subject (prevent-damage ≈27 rows, skip-untap, pump previous/target/group, its-controller
@@ -319,6 +304,14 @@ No open tickets.
   discard") are a broader, non-opponent-scoped condition — not this cluster.
 
 ## MEC — Game mechanic
+
+- **MEC-108 · Keyword counters (RULE 122.1b).** A `flying`/`first strike`/`double strike`/`deathtouch`/
+  `haste`/`hexproof`/`indestructible`/`lifelink`/`menace`/`reach`/`shadow`/`trample`/`vigilance`
+  counter grants its keyword, but the layer engine has no reader (a `flying` counter on a creature
+  gives nothing) and `_NAMED_COUNTER_KINDS` excludes them. Then the parser: single and compound
+  "put a flying counter / a +1/+1 counter and a lifelink counter on …", "remove a menace counter",
+  "your choice of a deathtouch counter or a lifelink counter" (124 cards carry an unclaimed clause
+  naming one, 94 solo — Mai, Captain Marvel, Quicksilver, Nezumi Prowler, Avenging Huntbonder, …).
 
 ## PLR — Player management
 

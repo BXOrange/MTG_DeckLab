@@ -554,6 +554,10 @@ class GameObject:
         #: permanent's "Activate only once" abilities already activated this
         #: game. Never reset (per-game, not per-turn).
         self.used_once_per_game_abilities: set[str] = set()
+        #: The mana-ability sibling of the set above (`ActivationCost.
+        #: once_per_game` — Loot, the Pathfinder's "Exhaust — {G}, {T}: Add
+        #: three mana …"): the `mana_abilities_for` indices already activated.
+        self.mana_abilities_used_this_game: set[int] = set()
         #: "…if this is the second time this ability has resolved this turn"
         #: (Omnath, Locus of Creation; Rumor Gatherer, PAR-120): per ability
         #: of *this object*, ``key → (turn_number, resolutions)``. Stamped with
@@ -1420,6 +1424,9 @@ class GameObject:
         self.activated_loyalty_this_turn = False
         self.graveyard_casts_this_turn = 0
         self.mana_abilities_activated_this_turn = set()
+        # RULE 400.7 / 702.177a: a new object's Exhaust abilities are fresh.
+        self.used_once_per_game_abilities = set()
+        self.mana_abilities_used_this_game = set()
         self.added_mana_with_ability_this_turn = False
         self.blocking = None
         self.additional_blocking = []

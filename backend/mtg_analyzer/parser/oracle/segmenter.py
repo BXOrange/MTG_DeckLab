@@ -5723,24 +5723,21 @@ def _segment_keyword_labeled_ability(
         # ("Exhaust — {G}, {T}: Add three mana of any one color." — Loot, the
         # Pathfinder, the very card RULE 702.177b's example is about) or an
         # informational-only clause. Claimed, but there's no `ActivatedAbility`
-        # to fold the once-per-game cap onto; a keyword *mana* ability's own
-        # "activate only once" is left as a known simplification.
+        # to fold the once-per-game cap onto — a mana ability gets its cap from
+        # `game/mana_abilities.py`'s own "Exhaust —"/"Power-up —" label
+        # handling (`ActivationCost.once_per_game`), which reads the same line.
         return Segment(raw=raw, claimed=True)
     if not inner.claimed or inner.spec is None or not _apply_keyword_restriction(
         inner.spec, kw
     ):
-        # Body didn't fully parse. Fall back to an inert keyword-line claim
-        # *only* where `is_keyword_line` itself would already have made one
-        # pre-PAR-28 (a comma-free `<keyword> — <body>` line, which
-        # `_KEYWORD_TOKEN_RE`'s greedy `.*$` swallowed whole). That keeps the
-        # handler a strict upgrade for those cards and avoids promoting a
-        # card whose whole reason-for-being is an unparseable Boast/Solved/…
-        # body to `MODELED` with that ability inert — a half-model.
-        return (
-            Segment(raw=raw, claimed=True, keyword_line=True)
-            if is_keyword_line(raw)
-            else Segment(raw=raw)
-        )
+        # Body didn't fully parse, or the spec can't carry the restriction:
+        # fail closed. This used to fall back to an inert keyword-line claim
+        # (the pre-PAR-28 behaviour of `_KEYWORD_TOKEN_RE`'s greedy `.*$`),
+        # which made the card MODELED with the whole labelled ability silently
+        # missing — PAR-129, 23 cards across Exhaust/Power-up/Boast/Max speed.
+        # UNMODELED is correct and recoverable (the body is an ordinary
+        # unclaimed clause the ranking can see); a half-model is not.
+        return Segment(raw=raw)
     inner.spec.raw_text = raw
     for extra in inner.extra_specs:
         _apply_keyword_restriction(extra, kw)

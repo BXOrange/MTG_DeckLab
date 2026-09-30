@@ -552,6 +552,8 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # "…if it targets a tapped creature" (RULE 601.2f cost reduction).
         "tapped",
         "even_mana_value",
+        # RULE 700.9 "modified creatures you control" (PAR-134).
+        "modified",
         # "a black or red source"/"a source of the chosen colour"/"a creature
         # of the chosen type" (MEC-30 — Greater Realm of Preservation/Story
         # Circle/Prismatic Circle/Circle of Solace).
@@ -733,7 +735,8 @@ def matches_object_filter(
     # turn." (Gnarlroot Trapper-shaped) — RULE 506.4's own attacker status,
     # composing with the subtype/"you control" filters above rather than
     # a bespoke target kind.
-    if filt.get("attacking") and not getattr(obj, "attacking", False):
+    # ``False`` is "nonattacking" (Ruthless Instincts), the `tapped` idiom.
+    if filt.get("attacking") is not None and bool(getattr(obj, "attacking", False)) != bool(filt["attacking"]):
         return False
     # "…that's blocking" / "…that's attacking or blocking" (Surge of
     # Righteousness) — RULE 509.1: a creature is blocking once it has been
@@ -758,6 +761,14 @@ def matches_object_filter(
     # target of this Equip cost must be a commander (RULE 903.4).
     if filt.get("is_commander") and not getattr(obj, "is_commander", False):
         return False
+    # "**modified** creatures you control" (RULE 700.9, Envoy of the Ancestors)
+    # — a counter, an Equipment, or an Aura its controller controls; needs
+    # ``state`` to see the attachments, so a state-less caller never matches.
+    if filt.get("modified") is not None:
+        from .continuous import is_modified  # function-scoped: see `_has_subtype`
+
+        if state is None or is_modified(state, obj) != bool(filt["modified"]):
+            return False
     if filt.get("has_adventure") and not getattr(obj.card, "is_adventure", False):
         return False
     # "sacrifice a **nontoken** blue creature" (Flare of Denial's own RULE
