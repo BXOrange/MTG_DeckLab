@@ -623,6 +623,9 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # RULE 707.2 base power: "with base power 0" (Primo) and "with power
         # greater than its base power" (Kutzil).
         "base_power", "power_gt_base",
+        # PAR-109: "creatures you control that are enchanted/equipped" — a permanent is enchanted/equipped
+        # while an Aura/Equipment is attached to it; needs ``state`` (a scan of the battlefield).
+        "enchanted", "equipped",
     }
 )
 
@@ -914,6 +917,21 @@ def matches_object_filter(
             return False
         entered = getattr(obj, "turn_entered", None) == state.internal_turn.number
         if entered != bool(entered_this_turn):
+            return False
+    # PAR-109: "…that are **enchanted**/**equipped**" (Fencer's Magemark, Hexgold Hoverwings) — an Aura (RULE
+    # 303.4) / Equipment (RULE 301.5) on the battlefield is attached to this permanent.
+    for attach_key, attach_word in (("enchanted", "aura"), ("equipped", "equipment")):
+        wanted = filt.get(attach_key)
+        if wanted is None:
+            continue
+        if state is None:
+            return False
+        attached = any(
+            getattr(o, "attached_to", None) == obj.instance_id
+            and attach_word in (getattr(o.card, "type_line", "") or "").lower()
+            for o in state.battlefield
+        )
+        if attached != bool(wanted):
             return False
     # "a **multicolored** spell" / "a **colorless** spell" (RULE 105.2a/
     # 105.2c) — a count of colours, not a colour word, so neither fits

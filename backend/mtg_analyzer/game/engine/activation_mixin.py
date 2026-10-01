@@ -334,7 +334,7 @@ class ActivationMixin:
         """
         bound: Optional[int] = None
         if cost.mana.has_variable:
-            bound = self._max_x_for_mana(player, source, cost.mana)
+            bound = self._max_x_for_mana(player, source, cost.mana, cost.x_spend_color)
         if cost.remove_counters is not None and cost.remove_counters[1] in (
             REMOVE_COUNTERS_X, REMOVE_COUNTERS_ANY,
         ):
@@ -345,7 +345,16 @@ class ActivationMixin:
             sacrifice_bound = len(self._sacrifice_count_pool(player, cost.sacrifice_count[1], source))
             bound = sacrifice_bound if bound is None else min(bound, sacrifice_bound)
         return bound if bound is not None else 0
-    def _max_x_for_mana(self, player: Player, source: GameObject, mana: "ManaCost") -> int:
+    @staticmethod
+    def _activation_mana_with_x(cost: "ActivationCost", x: int) -> "ManaCost":
+        """``cost``'s mana with ``{X}`` resolved — colour-locked when it says "Spend only `<colour>` mana on X"."""
+        if not cost.mana.has_variable:
+            return cost.mana
+        return cost.mana.with_x_colored(x, cost.x_spend_color) if cost.x_spend_color else cost.mana.with_x(x)
+
+    def _max_x_for_mana(
+        self, player: Player, source: GameObject, mana: "ManaCost", x_color: Optional[str] = None,
+    ) -> int:
         bound = player.mana_pool.total()
         allows_restriction = restriction_predicate_for_activation(source, has_x=True)
         wildcard = continuous.any_color_for_activation(self.state, player, source)
@@ -354,7 +363,8 @@ class ActivationMixin:
         extra_life_color = continuous.life_for_mana_pip_color(self.state, player)
         for x in range(bound, -1, -1):
             if player.mana_pool.can_pay(
-                mana.with_x(x), life_available=player.life, allows_restriction=allows_restriction,
+                mana.with_x_colored(x, x_color) if x_color else mana.with_x(x),
+                life_available=player.life, allows_restriction=allows_restriction,
                 wildcard=wildcard, extra_life_color=extra_life_color,
             ):
                 return x
@@ -474,7 +484,7 @@ class ActivationMixin:
             return False
         if cost.untaps_self and (not source.tapped or self._summoning_sick_for_tap(source)):
             return False
-        mana = cost.mana.with_x(x) if cost.mana.has_variable else cost.mana
+        mana = self._activation_mana_with_x(cost, x)
         mana = self._reduced_activation_mana(source, mana, cost, is_mana_ability=is_mana_ability)
         if cost.spend_only_chosen_color:
             # Throne of Eldraine-shaped colour-lock: the whole mana cost must
@@ -1244,7 +1254,7 @@ class ActivationMixin:
                 count = x  # see `_can_pay_activation_cost`'s matching branch
             for obj in self._resolve_sacrifice_count(player, count, subtype, tap_choices, source) or []:
                 self.rules.put_into_graveyard(obj)
-        mana = cost.mana.with_x(x) if cost.mana.has_variable else cost.mana
+        mana = self._activation_mana_with_x(cost, x)
         mana = self._reduced_activation_mana(source, mana, cost, is_mana_ability=is_mana_ability)
         treasure_before = sum(player.mana_pool.pool_by_source.get("treasure", {}).values())
         if cost.spend_only_chosen_color:
@@ -1479,7 +1489,7 @@ class ActivationMixin:
         ):
             return  # illegal for a reason other than mana — never auto-tap
         cost = ability.cost
-        mana = cost.mana.with_x(x) if cost.mana.has_variable else cost.mana
+        mana = self._activation_mana_with_x(cost, x)
         mana = self._reduced_activation_mana(source, mana, cost)
         if cost.spend_only_chosen_color:
             locked = self._chosen_color_locked_cost(source, mana)

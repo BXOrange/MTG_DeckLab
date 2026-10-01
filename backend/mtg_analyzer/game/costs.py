@@ -360,6 +360,10 @@ class ActivationCost:
     #: mana the ability *produces*): the whole mana cost must be paid with
     #: mana of the source's `GameObject.chosen_color`. Enforced by
     #: `GameEngine._can_pay_activation_cost`/`_pay_activation_cost`.
+    #: "Spend only black mana on X." (Crypt Rats, Crimson Hellkite; PAR-109) — a WUBRG letter locking only the
+    #: ``{X}`` portion of this ability's mana cost to one colour (`ManaCost.with_x_colored`), unlike
+    #: ``spend_only_chosen_color`` below, which locks the whole cost. Folded in from the body's marker sentence.
+    x_spend_color: Optional[str] = None
     spend_only_chosen_color: bool = False
     #: "Exile the top card(s) of your library" (Thought Lash's 1, Seasoned
     #: Tactician's 4, MEC-30) — a non-mana additional cost paid off the

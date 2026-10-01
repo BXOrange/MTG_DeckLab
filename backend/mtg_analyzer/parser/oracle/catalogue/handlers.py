@@ -1105,6 +1105,44 @@ def _prevent_damage_single_target(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("prevent_damage_shield", {"amount": int(m.group("n")), "target_kind": "any"})]
 
 
+#: PAR-139: "prevent the next N damage that would be dealt to target creature this turn" (Test of Faith, Temper's
+#: X) — the creature sibling of the any-target row above; ``x`` is the spell's announced X.
+_PREVENT_NEXT_DAMAGE_TARGET_CREATURE_RE = _c(
+    r"prevent the next (?P<n>\d+|x) damage that would be dealt to target creature this turn"
+)
+
+
+def _prevent_next_damage_target_creature(m: re.Match[str]) -> list[EffectSpec]:
+    n = m.group("n").lower()
+    return [EffectSpec("prevent_damage_shield", {
+        "amount": "x" if n == "x" else int(n), "target_kind": "creature",
+    })]
+
+
+#: PAR-139: a one-shot shield followed by a rider keyed on the amount it prevented — "Prevent the next 3 damage
+#: that would be dealt to target creature this turn. For each 1 damage prevented this way, put a +1/+1 counter on
+#: that creature." (Test of Faith, Temper) / "… You gain life equal to the damage prevented this way." (Candles'
+#: Glow). The shield sentence is read by the ordinary rows; the rider is `RulesEngine.apply_prevent_rider`'s.
+_PREVENT_SHIELD_THEN_RIDER_RE = _c(
+    r"(?P<shield>prevent the next (?:\d+|x) damage that would be dealt to [^.]+? this turn)\.\s+"
+    r"(?:for each 1 damage prevented this way, put an? (?P<kind>[+\-]\d+/[+\-]\d+) counter on that creature"
+    r"|(?P<life>you gain life equal to the damage prevented this way))"
+)
+
+
+def _prevent_shield_then_rider(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    shield = match_clause(m.group("shield"))
+    if shield is None or len(shield) != 1 or shield[0].type != "prevent_damage_shield" or "rider" in shield[0].params:
+        return None
+    if m.group("life"):
+        rider: dict = {"kind": "gain_life", "recipient": "you"}
+    elif shield[0].params.get("target_kind") == "creature":
+        rider = {"kind": "add_scaled_counters", "on": "recipient", "counter": m.group("kind")}
+    else:
+        return None  # "that creature" needs a creature-only target
+    return [EffectSpec("prevent_damage_shield", {**shield[0].params, "rider": rider})]
+
+
 _PREVENT_DAMAGE_PLAYER_PLANESWALKER_OR_SUBTYPE_RE = _c(
     r"prevent the next (?P<n>\d+) damage that would be dealt to target player, planeswalker, or "
     r"(?P<subtype>[a-z]+) creature this turn"
@@ -4757,7 +4795,7 @@ _RETURN_FROM_GRAVEYARD_RE = _c(
     rf"return (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<nonleg>nonlegendary) )?"
     rf"(?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card"
     # PAR-143: "with power 2 or less" (Alesha) rides the same slot as the mana-value cap.
-    rf"(?: with (?:mana value (?P<mv>\d+)|power (?P<pw>\d+)) or less)? from "
+    rf"(?: with (?:mana value (?P<mv>\d+)|power (?P<pw>\d+)) or less| with mana value (?P<emv>x))? from "
     rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard to "
     r"(?P<dest>the battlefield|your hand|its owner'?s hand)"
     # PAR-143: "…to the battlefield tapped [and attacking]" (RULE 110.5b / 508.4).
@@ -4767,7 +4805,7 @@ _RETURN_FROM_GRAVEYARD_RE = _c(
     # *keyword*'s in-place return). MEC-108 widened the counter to a +1/+1 or
     # RULE 122.1b keyword counter and its amount ("with a flying counter on it",
     # "with 2 +1/+1 counters on it").
-    rf"(?: with (?P<ewc_n>a|an|\d+) (?P<ewc_kind>-1/-1|\+1/\+1|{'|'.join(KEYWORD_COUNTER_KINDS)}) counters? on it)?"
+    rf"(?: with (?P<ewc_n>a|an|\d+) (?P<ewc_kind>-1/-1|\+1/\+1|corpse|{'|'.join(KEYWORD_COUNTER_KINDS)}) counters? on it)?"
 )
 _PUT_FROM_GRAVEYARD_OWNER_CONTROL_RE = _c(
     rf"put (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
@@ -4789,6 +4827,8 @@ def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["max_mana_value"] = int(mv)
     if m.groupdict().get("pw") is not None:
         params["creature_filter"] = {"max_power": int(m.group("pw"))}
+    if m.groupdict().get("emv"):
+        params["exact_mana_value"] = "x"  # Isareth the Awakener: bound by the preceding "pay {X}"
     if m.groupdict().get("tapped") or m.groupdict().get("atk"):
         if destination != "battlefield":
             return None  # only a battlefield entry is tapped or attacking
@@ -4881,6 +4921,8 @@ def _return_from_graveyard_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 _REANIMATE_UNDER_YOUR_CONTROL_RE = _c(
     rf"put (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
     rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard onto the battlefield under your control"
+    # PAR-139: "…with a corpse counter on it" (From the Catacombs) — a named enters-with counter.
+    r"(?: with (?P<ewc_n>a|an|\d+) (?P<ewc_kind>corpse) counters? on it)?"
 )
 
 
@@ -4889,6 +4931,8 @@ def _reanimate_under_your_control(m: re.Match[str]) -> Optional[list[EffectSpec]
     if kind is None:
         return None
     params: dict = {"target_kind": kind, "destination": "battlefield", "under_your_control": True}
+    if m.groupdict().get("ewc_kind"):
+        params["extra_counters"] = {"kind": m.group("ewc_kind"), "count": count_of(m.group("ewc_n"))}
     if m.groupdict().get("up_to_one"):
         params["optional"] = True
     return [EffectSpec("return_from_graveyard", params)]
@@ -7733,6 +7777,17 @@ _SORCERY_SPEED_RE = _c(
 
 def _sorcery_speed(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec(SORCERY_SPEED_MARKER, {})]
+
+
+#: PAR-109, RULE 605.3a: "Spend only black mana on X." (Crypt Rats, Crimson Hellkite) — a trailing sentence of an
+#: activated ability's body, folded by `effect_binder.bind_ability` into `ActivationCost.x_spend_color` (the
+#: `SORCERY_SPEED_MARKER` shape).
+X_SPEND_COLOR_MARKER = "x_spend_color_marker"
+_X_SPEND_COLOR_RE = _c(r"spend only (?P<color>white|blue|black|red|green) mana on x")
+
+
+def _x_spend_color(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec(X_SPEND_COLOR_MARKER, {"color": _COLOR_WORDS[m.group("color").lower()]})]
 
 
 #: RULE 602.5d's *other* timing restriction: "Activate only during your
@@ -12550,8 +12605,12 @@ _GROUP = (
     # emphatic "all"; tried before the unscoped "all creatures" below.
     r"|all creatures you control"
     r"|creatures you control|all creatures"
-    r"|creatures your opponents control|creatures you don'?t control"
+    r"|creatures your opponents control|creatures you don'?t control|permanents your opponents control"
     r"|permanents you control|elves you control|elf creatures you control"
+    # PAR-109: "Dragons you control get +1/+0 until end of turn" (Lathliss, Ran and Shaw) — any plural subtype
+    # or "<adjective> creatures" group; `_group_selector` (the count-phrase grammar) fails closed on a word that
+    # is none of its vocabulary.
+    r"|other [a-z]+s you control|[a-z]+ creatures you control|[a-z]+s you control"
     # PAR-19: "Attacking creatures get -3/-0 until end of turn." (Lethargy
     # Trap-shaped) — unscoped by controller, the same `group_selector_
     # objects` "attacking_creatures" branch Motivated Pony's anthem and
@@ -13094,6 +13153,18 @@ def _delayed_sac_exile_tail(m: re.Match[str]) -> list[EffectSpec]:
         "capture": capture,
         "effects": [{"type": inner, "params": {}}],
     })]
+
+
+#: PAR-139: "If that creature would leave the battlefield, exile it instead of putting it anywhere else." — the
+#: tail of a corpse-counter reanimation (From the Catacombs, Isareth the Awakener). "That creature" is the card
+#: the earlier clause returned, so the row is gated on that clause having chosen one (`previous_subject_only`).
+_EXILE_INSTEAD_OF_LEAVING_RE = _c(
+    r"if that creature would leave the battlefield, exile it instead of putting it anywhere else"
+)
+
+
+def _exile_instead_of_leaving(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("exile_instead_of_leaving", {})]
 
 
 #: PAR-139: "its owner shuffles their graveyard into their library" — the tail of "When ~ is put into a graveyard
@@ -15202,6 +15273,16 @@ HANDLERS: list[EffectHandler] = [
         _prevent_damage_single_target,
     ),
     EffectHandler(
+        "prevent_next_damage_target_creature",
+        _PREVENT_NEXT_DAMAGE_TARGET_CREATURE_RE,
+        _prevent_next_damage_target_creature,
+    ),
+    EffectHandler(
+        "prevent_shield_then_rider",
+        _PREVENT_SHIELD_THEN_RIDER_RE,
+        _prevent_shield_then_rider,
+    ),
+    EffectHandler(
         "prevent_damage_player_planeswalker_or_subtype",
         _PREVENT_DAMAGE_PLAYER_PLANESWALKER_OR_SUBTYPE_RE,
         _prevent_damage_player_planeswalker_or_subtype,
@@ -17046,6 +17127,7 @@ HANDLERS: list[EffectHandler] = [
         _SORCERY_SPEED_RE,
         _sorcery_speed,
     ),
+    EffectHandler("x_spend_color", _X_SPEND_COLOR_RE, _x_spend_color),
     # "Activate only during your turn." — RULE 602.5d's wider sibling
     # (Wishclaw Talisman); see `ONLY_DURING_YOUR_TURN_MARKER`'s docstring.
     EffectHandler(
@@ -17593,6 +17675,10 @@ HANDLERS: list[EffectHandler] = [
     ),
     # The when-first sibling — "At the beginning of the next end step,
     # sacrifice/exile <it>[ unless ~ is your Ring-bearer]." (MEC-52).
+    EffectHandler(
+        "exile_instead_of_leaving", _EXILE_INSTEAD_OF_LEAVING_RE, _exile_instead_of_leaving,
+        previous_subject_only=True,
+    ),
     EffectHandler(
         "owner_shuffles_graveyard", _OWNER_SHUFFLES_GRAVEYARD_RE, _owner_shuffles_graveyard,
         self_subject_only=True,

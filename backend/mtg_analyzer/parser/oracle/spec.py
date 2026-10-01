@@ -1389,6 +1389,8 @@ class AbilitySpec:
                 raise SpecValidationError(f"unknown effect condition field {key!r}")
             # ``bool`` is an ``int`` subclass; a flag where a count belongs is
             # a spelling mistake, not a zero/one.
+            if key in ("min", "max") and value == "x":
+                continue  # the spell's announced X, bound at resolution (`effect_conditions._evaluate`)
             if expected is int and (isinstance(value, bool) or not isinstance(value, int)):
                 raise SpecValidationError(f"{key!r} in an effect condition must be an int")
             if expected is not int and not isinstance(value, expected):

@@ -1228,6 +1228,42 @@ class UndyingPersistReturnEffect(GameEffect):
         context.add_counters(self.source, 1, self.counter_kind, source=self.source)
 
 
+def _exile_instead_of_dying(context: GameContext, creature: "GameObject", description: str) -> None:
+    """Arm ``creature`` with a RULE 614.1 "if it would leave the battlefield, exile it instead" — modeled
+    as a `WOULD_DIE` replacement (the one leave-the-battlefield event this engine fires pre-emptively), so
+    a bounce/blink that keeps the card is a known simplification (no general "would leave the battlefield"
+    event yet). Shared by Unearth and the corpse-counter reanimation family (PAR-139)."""
+    tid = creature.instance_id
+
+    def _cond(e: GameEvent, c: GameContext, tid=tid) -> bool:
+        return e.get("target_id") == tid
+
+    def _replace(e: GameEvent, c: GameContext) -> Optional[GameEvent]:
+        obj = c.state.find_object(e.get("target_id"))
+        if obj is not None:
+            c.engine.exile(obj)
+        return None
+
+    creature.replacement_effects.append(
+        ReplacementEffect(
+            event_type=EventType.WOULD_DIE, replacement_fn=_replace, condition=_cond, description=description,
+        )
+    )
+
+
+class ExileInsteadOfLeavingEffect(GameEffect):
+    """"Put target creature card from a graveyard onto the battlefield under your control with a corpse
+    counter on it. … If that creature would leave the battlefield, exile it instead of putting it anywhere
+    else." (From the Catacombs, Isareth the Awakener; PAR-139) — the tail sentence: arms every creature the
+    earlier clause returned (`GameContext.previous_targets`, the RULE 608.2 referent) that is on the
+    battlefield now. Does nothing for a card that never made it (nothing was chosen/legal)."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        for creature in list(context.previous_targets or []):
+            if creature.zone == Zone.BATTLEFIELD:
+                _exile_instead_of_dying(context, creature, "Exilieren statt zu verlassen")
+
+
 class UnearthEffect(GameEffect):
     """RULE 702.84a Unearth's own activated-ability body: "Return this card
     from your graveyard to the battlefield. It gains haste. Exile it at the
@@ -1271,25 +1307,7 @@ class UnearthEffect(GameEffect):
                 description=f"{creature.name}: Unearth — im nächsten Endsegment exilieren",
             )
         )
-        tid = creature.instance_id
-
-        def _cond(e: GameEvent, c: GameContext, tid=tid) -> bool:
-            return e.get("target_id") == tid
-
-        def _replace(e: GameEvent, c: GameContext) -> Optional[GameEvent]:
-            obj = c.state.find_object(e.get("target_id"))
-            if obj is not None:
-                c.engine.exile(obj)
-            return None
-
-        creature.replacement_effects.append(
-            ReplacementEffect(
-                event_type=EventType.WOULD_DIE,
-                replacement_fn=_replace,
-                condition=_cond,
-                description="Unearth: exilieren statt sterben",
-            )
-        )
+        _exile_instead_of_dying(context, creature, "Unearth: exilieren statt sterben")
         context.recompute()
 
 

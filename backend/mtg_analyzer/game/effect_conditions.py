@@ -461,6 +461,12 @@ def _evaluate(
     if not condition:
         return True
     kind = condition.get("kind")
+    if kind in ("power", "toughness", "mana_value") and "x" in (condition.get("min"), condition.get("max")):
+        # "…if its toughness is X or less" (Welcome to the Fold, PAR-139): X is the resolving spell's own
+        # announced X (`GameObject.x_paid`), bound here because a condition dict is not an effect attribute
+        # `RulesEngine._substitute_x` walks.
+        announced = int(getattr(source, "x_paid", 0) or 0)
+        condition = {k: (announced if v == "x" and k in ("min", "max") else v) for k, v in condition.items()}
 
     if kind == "all":
         results = [

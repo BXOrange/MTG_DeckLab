@@ -1536,6 +1536,12 @@ _PLAY_WITH_TOP_REVEALED_RE = re.compile(
 #: creature, it gains haste until end of turn, and it becomes a Vampire …", Olivia) — only when the next clause
 #: opens with "it"/"that creature" plus a verb that acts on it, so a comma inside one clause is never split.
 _PRONOUN_COMMA_CONNECTOR = r",\s+(?:and\s+)?(?=(?:it|that creature)\s+(?:gains?|becomes|gets?|has|loses)\b)"
+#: Effects that neither target nor create anything, so a pronoun chain runs straight through them: "clash with
+#: an opponent" (PAR-30) and the player designations ("you take the initiative", "you become the monarch" —
+#: PAR-139: From the Catacombs' "put … onto the battlefield … with a corpse counter on it. You take the
+#: initiative. If that creature would leave the battlefield, exile it instead …").
+_REFERENT_TRANSPARENT_TYPES: frozenset[str] = frozenset({"clash", "take_initiative", "become_monarch"})
+
 #: PAR-137: the longest run of consecutive sentences a clause row may claim as one unit when a body
 #: is split on periods ("return up to 1 target … to the battlefield. Exile the top 2 cards of your
 #: library. Until the end of your next turn, you may play those cards." — the exile row owns *two*
@@ -3351,6 +3357,14 @@ def _resolve_override_referents(base_text: str, replacement_text: str) -> str:
     none or several the text is returned unchanged and fails to match.
     """
     rewritten = re.sub(r"^(?:she|he|it)\b", "~", replacement_text.strip(), flags=re.I)
+    # PAR-139 (madness overrides): "instead create X of those tokens" names the base's own tokens, and
+    # "divided … among those permanents and/or players" the base's own "any number of targets".
+    base_tokens = re.search(r"\bcreate \d+ (?P<phrase>.+? tokens?)\b", base_text, flags=re.I)
+    if base_tokens is not None:
+        rewritten = re.sub(r"\b(?P<n>x|\d+) of those tokens\b",
+                           lambda m: f"{m.group('n')} {base_tokens.group('phrase')}", rewritten, flags=re.I)
+    if "among any number of targets" in base_text:
+        rewritten = rewritten.replace("among those permanents and/or players", "among any number of targets")
     # "~ deals 2 damage to any target. If you're the monarch, it deals 7 damage instead." (Court of
     # Ire): a replacement that names no recipient hits the base's own.
     bare_damage = re.fullmatch(r"~ deals? \d+ damage", rewritten, flags=re.I)
@@ -5262,7 +5276,7 @@ def parse_effect_body(
                 # opponent. if you win, those creatures gain deathtouch …")
                 # must carry the pronoun chain across the clash sentence
                 # rather than have it cleared here.
-                if not referent and sub and all(s.type == "clash" for s in sub):
+                if not referent and sub and all(s.type in _REFERENT_TRANSPARENT_TYPES for s in sub):
                     referent, referent_selector = prev_referent, prev_referent_selector
                 # PAR-141: "put a +1/+1 counter on ~. It becomes a Spirit in addition to …" — a
                 # counter put on the source leaves "it" meaning the source (a counter spec with no

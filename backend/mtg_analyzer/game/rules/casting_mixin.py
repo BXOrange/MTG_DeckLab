@@ -1388,7 +1388,7 @@ class CastingResolutionMixin:
                 # `TargetSpec` is a frozen dataclass — `dataclasses.replace`
                 # builds the substituted copy rather than mutating in place.
                 updates: dict[str, int] = {}
-                for mv_key in ("max_mana_value", "min_mana_value"):
+                for mv_key in ("max_mana_value", "min_mana_value", "exact_mana_value"):
                     mv_value = getattr(target_spec, mv_key, None)
                     if mv_value == "x":
                         updates[mv_key] = x

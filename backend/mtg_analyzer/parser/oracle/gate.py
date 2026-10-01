@@ -3802,7 +3802,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: kindless "has four or more counters on it" counts every kind (both used to read "or more" as a counter's name,
 #: a condition that never held). PAR-121 consolidated (0 of 39,639 clause readings changed): one verb × subject
 #: table, one certain-antecedent connective, one targeted-damage shape, one strict-subset row deleted.
-PARSER_VERSION = "566"
+PARSER_VERSION = "567"
 
 
 def parser_source_hash() -> str:

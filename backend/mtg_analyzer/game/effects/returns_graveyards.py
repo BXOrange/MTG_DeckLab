@@ -432,6 +432,7 @@ class ReturnFromGraveyardEffect(GameEffect):
         subtype: Optional[str] = None,
         haste: bool = False,
         max_mana_value: Optional[int] = None,
+        exact_mana_value: Optional[Union[int, str]] = None,
         tapped: bool = False,
         trigger_subject_key: Optional[str] = None,
         players: Optional[str] = None,
@@ -542,6 +543,9 @@ class ReturnFromGraveyardEffect(GameEffect):
             TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max,
                 subtype=subtype, max_mana_value=max_mana_value,
+                # "…creature card with mana value X…" (Isareth the Awakener, PAR-139): an exact match,
+                # ``"x"`` until `RulesEngine._substitute_x` binds it.
+                exact_mana_value=exact_mana_value,
                 count_selector=count_selector, colors=self.colors,
                 exclude_legendary=self.exclude_legendary,
                 creature_filter=self.creature_filter,

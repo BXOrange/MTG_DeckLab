@@ -1526,6 +1526,8 @@ def _legal_targets_for(
     # early (before this target-offer step runs) precisely so this can
     # read it, not just at the usual post-resolution point `cast_spell`
     # stamps it for real.
+    if spec.exact_mana_value == "x":
+        spec = replace(spec, exact_mana_value=int(getattr(source, "x_paid", 0) or 0))
     if spec.max_mana_value in ("x", "-x"):
         x_paid = int(getattr(source, "x_paid", 0) or 0)
         spec = replace(spec, max_mana_value=x_paid if spec.max_mana_value == "x" else -x_paid)
@@ -1915,6 +1917,8 @@ def _legal_targets_for(
             and (not spec.subtype or spec.subtype in o.card.type_line.lower())
             and not (spec.exclude_legendary and o.card.is_legendary)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
+            # "…creature card with mana value X from your graveyard" (Isareth the Awakener, PAR-139).
+            and (spec.exact_mana_value is None or o.card.converted_mana_cost == spec.exact_mana_value)
             # "return target creature card with power 2 or less from your graveyard" (Alesha,
             # PAR-143) — the same filter vocabulary a battlefield creature target reads.
             and (not spec.creature_filter or _creature_matches_filter(o, spec.creature_filter, source, state))

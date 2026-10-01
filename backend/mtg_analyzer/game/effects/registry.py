@@ -1399,6 +1399,7 @@ EffectRegistry.register(
         shuffle_after=bool(p.get("shuffle_after", False)),
         subtype=p.get("subtype"),
         max_mana_value=p.get("max_mana_value"),
+        exact_mana_value=p.get("exact_mana_value"),
         haste=bool(p.get("haste", False)),
         tapped=bool(p.get("tapped", False)),
         trigger_subject_key=p.get("trigger_subject_key"),
@@ -1756,6 +1757,10 @@ EffectRegistry.register(
     # sacrifice/exile/destroy siblings above.
     "return_specific_to_hand",
     lambda p: ReturnSpecificToHandEffect(objects=[]),
+)
+EffectRegistry.register(
+    # "If that creature would leave the battlefield, exile it instead of putting it anywhere else." (PAR-139)
+    "exile_instead_of_leaving", lambda p: ExileInsteadOfLeavingEffect(),
 )
 EffectRegistry.register(
     # "Return that card to the battlefield under its owner's control at the beginning of the next
@@ -4251,6 +4256,19 @@ EffectRegistry.register(
     # forwarded via ``_selectors`` like every other group-scoped static.
     "no_untap",
     lambda p: StaticAbility("no_untap", affects=p.get("affects", "self"), params={**_selectors(p)}),
+)
+EffectRegistry.register(
+    # "You may activate abilities of creatures you control as though those creatures had haste." (PAR-109 —
+    # Thousand-Year Elixir, Shang-Chi, Tyvar); consulted by `continuous.activates_as_though_haste`.
+    "activate_as_though_haste",
+    lambda p: StaticAbility("activate_as_though_haste", affects=p.get("affects", "creatures_you_control"),
+                            params={**_selectors(p)}),
+)
+EffectRegistry.register(
+    # "Untap ~ during each other player's untap step." (PAR-109 — Bender's Waterskin, Thousand Moons Infantry,
+    # Endbringer, Victory Chimes); consulted by `continuous.untaps_in_every_untap_step`.
+    "untap_each_untap_step",
+    lambda p: StaticAbility("untap_each_untap_step", affects=p.get("affects", "self"), params={**_selectors(p)}),
 )
 EffectRegistry.register(
     # "As long as this artifact is untapped, players can't untap more than

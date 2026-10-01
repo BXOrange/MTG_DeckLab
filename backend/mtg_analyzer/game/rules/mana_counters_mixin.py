@@ -511,6 +511,9 @@ class ManaCountersMixin:
             # ``source_controller_id`` above (Innkeeper's Talent).
             recipient_controller_id=obj.controller_id,
             recipient_is_creature=bool(getattr(obj, "is_creature", False)),
+            # PAR-109: "…put on an artifact or creature you control" (Winding Constrictor).
+            recipient_is_artifact=bool(getattr(getattr(obj, "card", None), "is_artifact", False)),
+            recipient_is_planeswalker=bool(getattr(getattr(obj, "card", None), "is_planeswalker", False)),
         )
 
         def _finish(resolved: Optional[GameEvent]) -> None:

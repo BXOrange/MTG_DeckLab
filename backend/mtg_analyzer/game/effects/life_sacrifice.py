@@ -477,9 +477,13 @@ class PreventDamageEffect(GameEffect):
             shares = [base + (1 if i < extra else 0) for i in range(len(chosen))]
         else:
             shares = [amount] * len(chosen)
+        controller = _controller_of(self.source, context)
         for target, share in zip(chosen, shares):
             if share == "all" or (isinstance(share, int) and share > 0):
-                context.prevent_damage_to_target(target, share, source_filter=self.source_filter)
+                context.prevent_damage_to_target(
+                    target, share, source_filter=self.source_filter, rider=self.rider,
+                    shield_controller_id=controller.id if controller is not None else None,
+                )
 
 
 class GrantCantLoseThisTurnEffect(GameEffect):

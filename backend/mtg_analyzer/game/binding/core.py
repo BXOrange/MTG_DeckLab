@@ -32,6 +32,7 @@ from ...parser.oracle.catalogue.handlers import (
     ONLY_DURING_YOUR_TURN_MARKER,
     POWERUP_COST_REDUCTION_MARKER,
     SORCERY_SPEED_MARKER,
+    X_SPEND_COLOR_MARKER,
 )
 from ...parser.oracle.spec import GROUP_SUBJECT_KEY_SENTINEL, AbilitySpec, EffectSpec, fold_action_limit
 from ..costs import ActivationCost, parse_activation_cost
@@ -2851,8 +2852,19 @@ def bind_ability(
     powerup_cost_reduction = False  # PAR-28 Power-up
     from_hand = False  # PAR-28 RULE 702.57a Forecast
     activation_condition: Optional[dict[str, Any]] = None
+    x_spend_color: Optional[str] = None  # PAR-109: "Spend only black mana on X."
     effect_specs = spec.effects
+    if spec.ability_kind == "spell_effect":
+        # PAR-109: "Spend only black mana on X." as a spell's own line (Consume Spirit) — the spell-side sibling
+        # of the activated fold below: `GameEngine.effective_cast_cost` reads ``x_spend_color_restriction``.
+        spell_marker = next((e for e in effect_specs if e.type == X_SPEND_COLOR_MARKER), None)
+        if spell_marker is not None:
+            source.x_spend_color_restriction = str(spell_marker.params.get("color") or "") or None
+            effect_specs = [e for e in effect_specs if e.type != X_SPEND_COLOR_MARKER]
     if spec.ability_kind == "activated":
+        x_color_marker = next((e for e in effect_specs if e.type == X_SPEND_COLOR_MARKER), None)
+        if x_color_marker is not None:
+            x_spend_color = str(x_color_marker.params.get("color") or "") or None
         if any(e.type == ONCE_PER_TURN_MARKER for e in effect_specs):
             once_per_turn = True
         if any(e.type == SORCERY_SPEED_MARKER for e in effect_specs):
@@ -2882,7 +2894,7 @@ def bind_ability(
                 ONCE_PER_TURN_MARKER, SORCERY_SPEED_MARKER,
                 ONLY_DURING_YOUR_TURN_MARKER, ACTIVATION_CONDITION_MARKER,
                 ACTIVATE_ONLY_ONCE_MARKER, POWERUP_COST_REDUCTION_MARKER,
-                FROM_HAND_MARKER,
+                FROM_HAND_MARKER, X_SPEND_COLOR_MARKER,
             )
         ]
 
@@ -3038,6 +3050,8 @@ def bind_ability(
     # activated: recognize the full cost (mana, {T}/{Q}, sacrifice, pay life,
     # discard, remove counters) from the spec's cost dict / text.
     cost = parse_activation_cost(spec.cost)
+    if x_spend_color:
+        cost.x_spend_color = x_spend_color
     if sorcery_speed_only:
         # RULE 602.5d — the "Activate only as a sorcery" body marker folds into
         # the cost's timing flag (`can_activate` already enforces it).

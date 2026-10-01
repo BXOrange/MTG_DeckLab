@@ -1324,6 +1324,7 @@ class DamageDeathMixin:
         watched_source_id: Optional[int] = None,
         rider: Optional[dict] = None,
         source_filter: Optional[dict] = None,
+        shield_controller_id: Optional[str] = None,
     ) -> None:
         """RULE 615, the *any-target* sibling of `prevent_damage_to_player`
         (PAR-15's "prevent the next N damage ... to any number of targets,
@@ -1371,7 +1372,12 @@ class DamageDeathMixin:
                 remaining -= prevented
                 if remaining <= 0 and effect in holder:
                     holder.remove(effect)
-            self.apply_prevent_rider(rider, prevented, event, target_id if is_player else getattr(target, "controller_id", None))
+            # ``shield_controller_id``: whose "you" a rider means — the spell's controller (PAR-139, "you gain
+            # life equal to the damage prevented"), not necessarily the shielded permanent's.
+            self.apply_prevent_rider(
+                rider, prevented, event,
+                shield_controller_id or (target_id if is_player else getattr(target, "controller_id", None)),
+            )
             if remaining is None:
                 return None  # "all" — every point prevented, shield persists
             new_amount = dealt - prevented
@@ -1716,6 +1722,16 @@ class DamageDeathMixin:
         ):
             return
         kind = rider.get("kind")
+        if kind == "reflexive_damage":
+            # PAR-139, Phyrexian Vindicator: "…prevent that damage. When damage is prevented this way, ~ deals
+            # that much damage to any other target." — a fresh triggered ability (RULE 603.11: its target is
+            # chosen when it is put on the stack), sized by the amount actually prevented.
+            if shield_source is not None:
+                self.enqueue_reflexive_trigger(
+                    [{"type": "damage", "params": {"amount": prevented, "target_kind": "any"}}],
+                    shield_source, event,
+                )
+            return
         if kind == "add_scaled_counters":
             # PAR-139: "…prevent that damage. Put a -1/-1 counter on ~ for each 1 damage prevented this
             # way." (Phyrexian Hydra, Stormwild Capridor) / "… on that creature …" (Vigor) — one counter
@@ -1742,10 +1758,12 @@ class DamageDeathMixin:
             # last +1/+1 counter goes the RULE 704.5g "0 toughness" SBA
             # (these are printed 0/0) kills it, no extra code.
             if shield_source is not None:
-                self.add_counters(
-                    shield_source, -int(rider.get("count", 1)),
-                    str(rider.get("counter", "+1/+1")),
-                )
+                counter = str(rider.get("counter", "+1/+1"))
+                count = prevented if rider.get("scaled") else int(rider.get("count", 1))
+                # "…remove that many +1/+1 counters from it" (PAR-139, Ugin's Conjurant): only as many as
+                # it actually holds.
+                held = shield_source.plus_one_counters if counter == "+1/+1" else shield_source.counters.get(counter, 0)
+                self.add_counters(shield_source, -min(count, held), counter)
             return
         if kind == "deal_damage_to_source_controller":
             # Always the *source's* controller, unconditionally — never the
@@ -1782,7 +1800,8 @@ class DamageDeathMixin:
         elif kind == "draw_cards":
             self.draw(recipient, prevented)
         elif kind == "mill":
-            self.mill(recipient, prevented)
+            # "…prevent that damage and mill twice that many cards" (Angel of Suffering): ``factor``.
+            self.mill(recipient, prevented * int(rider.get("factor", 1)))
         elif kind == "exile_top_of_library_scaled":
             # Bone Mask (MEC-30): "Exile cards from the top of your library
             # equal to the damage prevented this way." — `mill`'s

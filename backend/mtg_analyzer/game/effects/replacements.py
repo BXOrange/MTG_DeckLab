@@ -240,7 +240,16 @@ def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
             return 0
         return max(0, dealt - int(amount))
 
+    #: PAR-139: "if damage would be dealt to ~ **while it has a +1/+1 counter on it**, prevent that damage and
+    #: remove …" (Oathsworn Knight, Undergrowth Champion, Ugin's Conjurant) — the shield only exists while its
+    #: own permanent holds a counter of this kind.
+    requires_counter = params.get("requires_counter")
+
     def _applies(event: GameEvent, context: GameContext) -> bool:
+        if requires_counter and not (getattr(effect.source, "counters", None) or {}).get(str(requires_counter)) and not (
+            str(requires_counter) == "+1/+1" and getattr(effect.source, "plus_one_counters", 0)
+        ):
+            return False
         return _recipient_matches(event, context) and _source_matches(event, context)
 
     def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
@@ -598,7 +607,22 @@ def _double_counters_replacement(params: dict[str, Any]) -> ReplacementEffect:
             src = effect.source
             if src is None or event.get("recipient_controller_id") != src.controller_id:
                 return False
+            # PAR-109: "…a creature or planeswalker you control or on yourself" (Lae'zel): a permanent of
+            # this controller's or the controller themself.
+            if recipient == "creature_planeswalker_or_you":
+                return bool(
+                    event.get("is_player") or event.get("recipient_is_creature") or event.get("recipient_is_planeswalker")
+                )
+            # PAR-109: a permanent-scoped recipient is never a player ("a permanent you control" is not "you").
+            if recipient != "you_player" and event.get("is_player"):
+                return False
+            if recipient == "you_player" and not event.get("is_player"):
+                return False
             if recipient == "creature_you_control" and not event.get("recipient_is_creature"):
+                return False
+            if recipient == "artifact_or_creature_you_control" and not (
+                event.get("recipient_is_creature") or event.get("recipient_is_artifact")
+            ):
                 return False
         return True
 

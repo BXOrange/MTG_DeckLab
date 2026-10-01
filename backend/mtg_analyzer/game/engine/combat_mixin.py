@@ -1056,8 +1056,7 @@ class CombatMixin:
         and the `ATTACKS_ALONE` trigger event)."""
         attacking = [o for o in self.state.battlefield if o.attacking]
         return len(attacking) == 1 and attacking[0] is obj
-    @staticmethod
-    def _summoning_sick_for_tap(obj: GameObject) -> bool:
+    def _summoning_sick_for_tap(self, obj: GameObject) -> bool:
         """Whether summoning sickness stops ``obj`` paying a {T}/{Q} cost.
 
         RULE 302.6 / 602.5e: a creature can't activate an ability whose cost
@@ -1068,7 +1067,12 @@ class CombatMixin:
         (RULE 605.1a). Haste (RULE 702.10b) lifts the restriction, and
         non-creature permanents (lands, mana rocks) are never affected.
         """
-        return obj.is_creature and obj.summoning_sick and not combat.has_haste(obj)
+        # PAR-109: "You may activate abilities of creatures you control as though those creatures had haste"
+        # (Thousand-Year Elixir, Shang-Chi, Tyvar) lifts the restriction for activations only.
+        return (
+            obj.is_creature and obj.summoning_sick and not combat.has_haste(obj)
+            and not continuous.activates_as_though_haste(self.state, obj)
+        )
     def declare_blockers(self, player: Player, assignments: list[Any]) -> None:
         """Declare ``player``'s creatures as blockers (RULE 509).
 

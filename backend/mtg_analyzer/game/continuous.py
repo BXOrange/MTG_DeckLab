@@ -128,9 +128,12 @@ def _has_subtype(obj: "GameObject", subtype: str) -> bool:
     """
     override = getattr(obj, "_derived_subtypes", None)
     if override is not None:
-        return subtype.lower() in {s.lower() for s in override}
+        words = {s.lower() for s in override}
+        return subtype.lower() in words or ALL_CREATURE_TYPES in words
     added = getattr(obj, "_added_subtypes", None)
-    if added and subtype.lower() in {s.lower() for s in added}:
+    # PAR-109: "equipped creature … is every creature type" (Amorphous Axe, Runed Stalactite) adds the
+    # `ALL_CREATURE_TYPES` marker — a changeling, granted rather than printed (RULE 702.73a).
+    if added and (subtype.lower() in {s.lower() for s in added} or ALL_CREATURE_TYPES in {s.lower() for s in added}):
         # RULE 613.4a: a layer-4 "~ is the chosen type in addition to its
         # other types" grant (`add_subtypes`/`add_subtypes_from_source`,
         # Adaptive Automaton/A-Thran Portal-shaped) — additive, unlike
@@ -141,6 +144,10 @@ def _has_subtype(obj: "GameObject", subtype: str) -> bool:
         return True
     _, _, sub = type_line.partition("—")  # subtypes follow the em dash
     return subtype.lower() in sub
+
+
+#: The marker `type_change`'s ``add_subtypes`` carries for "is every creature type" — read by `has_subtype`.
+ALL_CREATURE_TYPES = "changeling"
 
 
 def derived_subtype_words(obj: "GameObject") -> frozenset[str]:
@@ -4871,6 +4878,26 @@ def has_no_untap_static(state: "GameState", obj: "GameObject") -> bool:
     return False
 
 
+def activates_as_though_haste(state: "GameState", obj: "GameObject") -> bool:
+    """Whether a "you may activate abilities of creatures you control as though those creatures had haste"
+    static (Thousand-Year Elixir, Shang-Chi, Tyvar; PAR-109) covers ``obj`` — RULE 302.6's tap-symbol
+    restriction only; attacking still needs real haste."""
+    return any(
+        ab.layer == "activate_as_though_haste" and obj in affected_objects(state, ab)
+        for ab in _battlefield_static_abilities(state)
+    )
+
+
+def untaps_in_every_untap_step(state: "GameState", obj: "GameObject") -> bool:
+    """Whether ``obj`` carries "Untap ~ during each other player's untap step" (Bender's Waterskin, Thousand
+    Moons Infantry, Endbringer, Victory Chimes; PAR-109) — consulted by `GameEngine._step_untap` for the
+    permanents of the players whose untap step it is *not*."""
+    return any(
+        ab.layer == "untap_each_untap_step" and obj in affected_objects(state, ab)
+        for ab in _battlefield_static_abilities(state)
+    )
+
+
 def has_optional_no_untap_permission(state: "GameState", obj: "GameObject") -> bool:
     """Whether ``obj`` carries a "you may choose not to untap ~ during your
     untap step" permission (RULE 502.1 — Rubinia Soulsinger/Hivis of the
@@ -5422,7 +5449,7 @@ def enters_tapped_from_static(state: "GameState", obj: "GameObject") -> bool:
 #: UI's layer-trace panel rather than a bare "99", same treatment "cost"
 #: already got before any of these existed.
 _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
-    {"cost", "no_untap", "no_untap_optional", "enters_tapped", "activation_prohibition",
+    {"cost", "no_untap", "no_untap_optional", "untap_each_untap_step", "activate_as_though_haste", "enters_tapped", "activation_prohibition",
      "cast_limit", "cast_prohibition", "draw_limit", "trigger_prohibition", "untap_cap",
      "extra_land_drop", "no_max_hand_size", "hand_size_modifier", "ignore_legend_rule", "radiation_life_gain", "grant_escape", "grant_retrace",
      "combat_restriction", "goaded", "any_color_for_activation", "skip_untap_step",
@@ -5576,6 +5603,10 @@ def _describe_ability(ability: StaticAbility) -> str:
         return f"each player can't draw more than {p.get('max_per_turn', 1)} card(s) each turn"
     if ability.layer == "no_untap":
         return "doesn't untap during its controller's untap step"
+    if ability.layer == "activate_as_though_haste":
+        return "its controller may activate abilities of their creatures as though they had haste"
+    if ability.layer == "untap_each_untap_step":
+        return "untaps during each other player's untap step"
     if ability.layer == "no_untap_optional":
         return "controller may choose not to untap it during their untap step"
     if ability.layer == "extra_land_drop":

@@ -170,12 +170,19 @@ _COLOR_WORDS: dict[str, str] = {**COLOR_LETTERS, "colorless": "C"}
 #: Automaton/Ward Sliver-shaped) — the dynamic sibling of a literal subtype/
 #: colour scope, sitting between the "you control" clause and "get"/"have".
 _CHOSEN_TAIL = r"(?: of the chosen (?P<chosen>type|color))?"
+#: PAR-109: an optional "with `<qualifier>`" / "that are enchanted" tail between "you control" and "get"/"have"
+#: ("Creatures you control **with flying** get +1/+1", "…**with +1/+1 counters on them** have trample", "…**with
+#: the chosen name** have haste"). Read back by `_scope_params` (`_qualifier_params`); a qualifier outside the
+#: vocabulary fails the whole clause.
+_QUAL_TAIL = (
+    r"(?P<qual> (?:with|that (?:are|entered)) (?:(?!get\b|gets\b|have\b|has\b)[a-z0-9+/' -])+?)?"
+)
 
 # "[Other] <scope> [you control] [of the chosen type/color] get +N/+N [and
 # have <keywords>]"  (anthem, +grant)
 _ANTHEM_RE = re.compile(
     r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?"
-    rf"{_CHOSEN_TAIL} "
+    rf"{_CHOSEN_TAIL}{_QUAL_TAIL} "
     r"get (?P<p>[+-]\d+)/(?P<t>[+-]\d+)"
     # PAR-65: braces/digits alongside the ordinary bare-word list admit
     # Ward's own "{cost}" (`_flag_keywords_and_ward`, not `_flag_keywords`).
@@ -198,7 +205,7 @@ _SELF_ANTHEM_PER_OPPONENT_COLOR_PERMANENT_RE = re.compile(
 # (keyword grant, layer 6)
 _GRANT_RE = re.compile(
     r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?"
-    rf"{_CHOSEN_TAIL} "
+    rf"{_CHOSEN_TAIL}{_QUAL_TAIL} "
     # PAR-65: admits Ward's own "{cost}" — see `_flag_keywords_and_ward`.
     r"have (?P<kw>[a-z0-9][a-z0-9,{}— ]*)",
     re.IGNORECASE,
@@ -244,7 +251,7 @@ _GROUP_COUNTER_GRANT_RE = re.compile(
 # the `affects` (+ subtype/colour/tokens/chosen) params.
 _QUOTED_GRANT_RE = re.compile(
     r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?"
-    rf"{_CHOSEN_TAIL} "
+    rf"{_CHOSEN_TAIL}{_QUAL_TAIL} "
     r'have "(?P<inner>.+)"',
     re.IGNORECASE | re.DOTALL,
 )
@@ -1309,10 +1316,26 @@ _FILTER_KEYWORD_WORDS: dict[str, str] = {
     # Avenger) — a real, recurring RULE 509.1b blocker qualifier this
     # closed vocabulary had simply never needed before.
     "haste": "haste",
+    # PAR-109: "creatures you control with vigilance get +1/+1" (and the like) — any combat keyword slug
+    # `combat.has` reads works as a filter; the rest of the common ones.
+    "vigilance": "vigilance",
+    "trample": "trample",
+    "deathtouch": "deathtouch",
+    "lifelink": "lifelink",
+    "infect": "infect",
+    "flanking": "flanking",
+    "double strike": "double_strike",
+    "indestructible": "indestructible",
+    "hexproof": "hexproof",
 }
 _FILTER_KEYWORDS_RE = re.compile(
     r"creatures with (?P<kws>[a-z ]+?(?: or [a-z ]+?)*)$", re.I
 )
+_FILTER_WITH_COUNTERS_RE = re.compile(
+    r"creatures with (?:(?:a|an) )?(?:(?P<kind>[+\-]\d+/[+\-]\d+|[a-z]+) )?counters? on (?:it|them)", re.I
+)
+_FILTER_ATTACHMENT_RE = re.compile(r"creatures that are (?P<what>enchanted|equipped)", re.I)
+_FILTER_ENTERED_THIS_TURN_RE = re.compile(r"creatures that entered(?: the battlefield)? this turn", re.I)
 _FILTER_WITHOUT_KEYWORD_RE = re.compile(r"creatures without (?P<kw>[a-z ]+)$", re.I)
 
 #: A leading combat-state/supertype word `combat.matches_object_filter`
@@ -1403,6 +1426,17 @@ def object_filter(text: str) -> Optional[dict]:
         if key == "lesser_power":
             return {"power_vs_reference": "less"}
         return {key: int(m.group("n"))}
+    # PAR-109: "creatures with counters on them" / "… +1/+1 counters on them" / "… oil counters on them",
+    # "creatures that are enchanted/equipped", "creatures that entered this turn".
+    m = _FILTER_WITH_COUNTERS_RE.fullmatch(text)
+    if m is not None:
+        kind = m.group("kind")
+        return {"has_counter_kind": kind.lower()} if kind else {"has_counter": True}
+    m = _FILTER_ATTACHMENT_RE.fullmatch(text)
+    if m is not None:
+        return {m.group("what").lower(): True}
+    if _FILTER_ENTERED_THIS_TURN_RE.fullmatch(text):
+        return {"entered_this_turn": True}
     m = _FILTER_WITHOUT_KEYWORD_RE.fullmatch(text)
     if m is not None:
         keyword = _FILTER_KEYWORD_WORDS.get(m.group("kw").strip().lower())
@@ -2170,9 +2204,17 @@ _GRANTED_MANA_ABILITY_RE = re.compile(
     r"(?P<cost>\{t\}|sacrifice (?:this permanent|~)):\s*add\s+(?:"
     r"(?P<syms>(?:\{[wubrgc]\})+)"
     r"|(?P<n>\d+) mana of any (?:1 )?colou?r"
-    r")\.?",
+    r")\.?"
+    # PAR-109 (Nexos, Resonating Lute): "Spend this mana only on costs that contain {X}" / "…only to cast instant
+    # and sorcery spells" — the two spend restrictions a granted land ability prints; the same dict shapes
+    # `game/mana_abilities._parse_restriction` reads for a printed one (this package cannot import `game/`).
+    r"(?: spend this mana only (?P<restr>on costs that contain \{x\}|to cast instant and sorcery spells)\.?)?",
     re.IGNORECASE,
 )
+_GRANTED_MANA_RESTRICTIONS: dict[str, dict] = {
+    "on costs that contain {x}": {"kind": "contains_x"},
+    "to cast instant and sorcery spells": {"kind": "instant_or_sorcery_spell"},
+}
 _GRANTED_MANA_COMBINATION_RE = re.compile(
     r"\{t\}:\s*add\s+(?P<n>\d+) mana in any combination of colou?rs\.\s*"
     r"spend this mana only to cast spells\.?",
@@ -2180,7 +2222,7 @@ _GRANTED_MANA_COMBINATION_RE = re.compile(
 )
 
 
-def _granted_mana_options(inner: str) -> Optional[tuple[list[dict[str, int]], str]]:
+def _granted_mana_options(inner: str) -> Optional[tuple[list[dict[str, int]], str, Optional[dict]]]:
     """A quoted mana ability's ``mana`` production options, or ``None``.
 
     Returns the same "list of ``{colour: amount}`` options, payer picks one"
@@ -2191,16 +2233,17 @@ def _granted_mana_options(inner: str) -> Optional[tuple[list[dict[str, int]], st
     m = _GRANTED_MANA_ABILITY_RE.fullmatch(inner.strip())
     if m is None:
         return None
+    restriction = _GRANTED_MANA_RESTRICTIONS[m.group("restr").lower()] if m.group("restr") else None
     syms = m.group("syms")
     if syms:
         option: dict[str, int] = {}
         for sym in re.findall(r"\{([wubrgc])\}", syms, re.IGNORECASE):
             option[sym.upper()] = option.get(sym.upper(), 0) + 1
-        return [option], m.group("cost")
+        return [option], m.group("cost"), restriction
     amount = int(m.group("n"))
     if amount < 1:
         return None
-    return [{color: amount} for color in _ALL_COLORS], m.group("cost")
+    return [{color: amount} for color in _ALL_COLORS], m.group("cost"), restriction
 
 
 def _quoted_ability_grant_effects(inner: str) -> Optional[EffectSpec]:
@@ -2283,8 +2326,10 @@ def _quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]
 
     mana_grant = _granted_mana_options(inner)
     if mana_grant is not None:
-        mana, mana_cost = mana_grant
+        mana, mana_cost, mana_restriction = mana_grant
         params: dict[str, Any] = {"mana": mana, "affects": "attached_permanent"}
+        if mana_restriction:
+            params["mana_restriction"] = dict(mana_restriction)
         # A bare "{T}: Add …" (Tyvar Kell) folds onto the granted-to permanent's
         # own tap ability the same way its hand-authored catalogue entry does
         # (`continuous.recompute`'s plain `_granted_mana` bucket) — only the
@@ -2802,7 +2847,9 @@ _ATTACHED_ANTHEM_RE = re.compile(
     # single most common goad phrasing on a card). A tail rather than its own
     # row because it only ever appears *after* the P/T (and optionally the
     # keyword) grant of the same Aura/Equipment.
-    r"(?P<goaded> and is goaded)?",
+    r"(?P<goaded> and is goaded)?"
+    # PAR-109: "…and is every creature type" (Amorphous Axe, Runed Stalactite) — a granted changeling.
+    r"(?P<every_type> and is every creature type)?",
     re.IGNORECASE,
 )
 # MEC-105: the ability-removing sibling. Starforged Sword/Colossus Hammer
@@ -3073,6 +3120,21 @@ def _simple_scope(words: list[str]) -> Optional[_Scope]:
     return _Scope(sub.capitalize(), tokens, colors, attacking=attacking, filt=filt)
 
 
+def _qualifier_params(qual: str) -> Optional[dict]:
+    """The params a "with `<qualifier>`" tail adds to a group static's scope, or ``None`` (fail closed)."""
+    text = qual.strip().lower()
+    if text == "with the chosen name":
+        return {"card_name_from_source": True}  # "…creatures you control with the chosen name have haste"
+    filt = object_filter("creatures " + text)
+    return {"object_filter": filt} if filt else None
+
+
+def _qualifier_ok(m: "re.Match[str]") -> bool:
+    """Whether the clause's optional qualifier tail (if any) is one `_scope_params` can express."""
+    qual = m.groupdict().get("qual")
+    return not qual or _qualifier_params(qual) is not None
+
+
 def _scope_params(scope: _Scope, m: "re.Match[str]") -> dict:
     """Build the `affects` + filter params from a scope and the clause match.
 
@@ -3109,6 +3171,13 @@ def _scope_params(scope: _Scope, m: "re.Match[str]") -> dict:
         params["subtype_from_source"] = True
     elif chosen == "color":
         params["color_from_source"] = True
+    qual = m.groupdict().get("qual")
+    if qual:
+        extra = _qualifier_params(qual) or {}
+        if "object_filter" in extra:
+            params["object_filter"] = {**(params.get("object_filter") or {}), **extra["object_filter"]}
+        else:
+            params.update(extra)
     if scope.tokens:
         params["tokens"] = True
     if scope.colors:
@@ -4922,6 +4991,15 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     if _NOT_A_CREATURE_RE.fullmatch(text):
         return [EffectSpec("type_change", {"remove_types": ["creature"]})]
 
+    if re.fullmatch(
+        r"you may activate abilities of creatures you control as though those creatures had haste",
+        text, re.IGNORECASE,
+    ):
+        return [EffectSpec("activate_as_though_haste", {"affects": "creatures_you_control"})]  # PAR-109
+
+    if re.fullmatch(r"untap (?:~|this [a-z]+) during each other player'?s untap step", text, re.IGNORECASE):
+        return [EffectSpec("untap_each_untap_step", {"affects": "self"})]  # PAR-109
+
     if _NO_UNTAP_OPTIONAL_RE.fullmatch(text):
         return [EffectSpec("no_untap_optional", {})]
 
@@ -5153,6 +5231,10 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             specs.append(EffectSpec("grant_keyword", params))
         if m.group("goaded"):  # "… and is goaded" tail (RULE 701.15b)
             specs.append(EffectSpec("goaded", {"affects": "attached_permanent"}))
+        if m.group("every_type"):  # "… and is every creature type" tail (RULE 702.73a)
+            specs.append(EffectSpec("type_change", {
+                "affects": "attached_permanent", "add_subtypes": ["Changeling"],
+            }))
         return specs
 
     # Attached-permanent keyword-only grant ("equipped creature has trample",
@@ -5617,6 +5699,8 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _ANTHEM_RE.fullmatch(text)
     if m is not None:
+        if not _qualifier_ok(m):
+            return None
         scope = _scope(m.group("body"))
         if scope is not None:
             params = _scope_params(scope, m)
@@ -5659,6 +5743,8 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
+        if not _qualifier_ok(m):
+            return None
         scope = _scope(m.group("body"))
         if scope is not None:
             scope_params = _scope_params(scope, m)
@@ -5670,9 +5756,14 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             # (kept for `_ANTHEM_RE`), so a grant family falls back to the
             # permanent-type sibling instead of failing closed.
             word = _permanent_type_scope(m.group("body"))
+            basic_only = False
+            if word is None and re.fullmatch(r"(?:all |each )?basic lands?", m.group("body"), re.IGNORECASE):
+                word, basic_only = "land", True  # PAR-109: "Basic lands you control have '{T}: Add …'"
             if word is None:
                 return None
             scope_params = _permanent_scope_params(word, m)
+            if basic_only:
+                scope_params["object_filter"] = {**(scope_params.get("object_filter") or {}), "basic": True}
         grants = _quoted_ability_grant_effects_list(m.group("inner"))
         if grants is None:
             return None
@@ -5713,6 +5804,8 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _GRANT_RE.fullmatch(text)
     if m is not None:
+        if not _qualifier_ok(m):
+            return None
         scope = _scope(m.group("body"))
         if scope is not None:
             scope_params = _scope_params(scope, m)

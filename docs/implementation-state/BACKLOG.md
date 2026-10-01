@@ -62,10 +62,6 @@ No open tickets.
   duration clusters exposed by PAR-130; calibrated clusters live in `PARSER_LONG_TAIL.md`.
 - **PAR-133 · Powerstone tokens.** "create a [tapped] Powerstone token" — a `data/tokens.json` entry
   with its RULE 605.3a-restricted mana ability, then `_NAMED_TOKEN_WORDS` (25 solo cards).
-- **PAR-139 · Residue of the small verified batch.** Madness-cost overrides that read the madness `{X}` (Avacyn's
-  Judgment, From Under the Floorboards, Welcome to the Fold); a reanimated card's "if it would leave the
-  battlefield, exile it instead" (From the Catacombs, Isareth); the "prevent that damage" riders not yet keyed
-  (reflexive "when damage is prevented this way", "twice that many", fixed-count, source-qualified shields).
 - **PAR-99 · Khans/Dragons Siege cycle.** The ETB choice parses; unclaimed on all 5 cards (0 SOLO) is
   each mode's standing text — a stored choice gating which of two ongoing abilities is live (Citadel,
   Frontier, Monastery, Outpost, Palace Siege).
@@ -147,38 +143,9 @@ No open tickets.
   - "Whenever you tap a creature for mana, add an additional `<cost>`" — 2 (Badgermole Cub, Leyline of
     Abundance).
   - "Look at target player's hand" — 2 (Clairvoyance, Peek).
-- **PAR-109 · Small residue batch — static/activated abilities & mana.**
-  - "If you would put 1 or more counters on `<a permanent you control / a creature or planeswalker you
-    control or yourself>`, put that many plus 1 of each of those kinds of counters instead" — 5 SOLO (Doc
-    Samson, Lae'zel, Brad Boimler's until-EOT form, …); a counter-placement replacement whose amount
-    is "that many + 1 per kind" (compare Hardened Scales / Doubling Season in `card_catalogue/`).
-  - "Equipped creature has `<quoted ability>`" is a wrapper over five unrelated inner abilities:
-    "conjure a card onto the battlefield tapped and attacking" — Stormforged
-    Armor (SOLO), Kari Zev; rest → `singletons.md` Batch 3 (Conformer Shuriken, Lobe Lobber, Shuriken,
-    Fishing Pole).
-  - "[Basic] lands you control have `<quoted mana ability>`" — 4 (Nexos, Worldknit SOLO; Resonating
-    Lute, Sovereign's Realm blocked). A real shell gap (even the unrestricted form is unclaimed) plus
-    RULE 605.3a spend restrictions (Nexos, Rosheen, Resonating Lute).
-  - "Untap ~ during each other player's untap step" — 4 (Bender's Waterskin, Thousand Moons Infantry
-    SOLO; Endbringer, Victory Chimes).
-  - "`<cost>`: opponents' permanents lose hexproof and indestructible until EOT" — Shadowspear (SOLO),
-    Luxior and Shadowspear, The Fire Nation Drill.
-  - "You may activate abilities of creatures you control as though they had haste" — Shang-Chi,
-    Thousand-Year Elixir (SOLO); Tyvar.
-  - "`<cost>`: target land becomes a `<n>`/`<n>` Elemental with haste until EOT; sorcery speed" — 2
-    (Llanowar Loamspeaker + rebalance).
-  - "Creatures you control with `<keyword | counters on them | the chosen name>` get +N/+N / have
-    `<keyword | quoted ability>`" — ~25 SOLO (Air Nomad Legacy, Alela, Cavalry Master, Kwende, Ichorplate
-    Golem, Jubilant Skybonder, the chosen-name cycle); `static_handlers._ANTHEM_RE`/`_GRANT_RE` have no
-    "with `<qualifier>`" tail, though `continuous.affected_objects` already filters by counter kind,
-    chosen name and structured selectors.
-  - "Spend only `<colour>` mana on X" (Crypt Rats, Crimson Hellkite, Consume Spirit) and "add N mana in
-    any combination of colors, spend only to cast Dragon spells" (Desolation of Smaug) — RULE 605.3a
-    spend restrictions, shared with the Nexos/Rosheen bullet above.
-  - "Can't be regenerated" leftovers — Bone Shaman (granted quoted form), Lim-Dûl's Cohort
-    (block-trigger form); `CantBeRegeneratedEffect` exists.
-  - "`<cost>`: Dragons you control get +`<n>`/+`<n>` until EOT" — Lathliss (SOLO), Ran and Shaw.
-  - "Equipped creature gets +`<n>`/+`<n>` and is every creature type" — 2 (Amorphous Axe, Runed Stalactite).
+- **PAR-109 · Residue of the static/activated-ability batch.** Brad Boimler's until-EOT counter replacement;
+  Worldknit's card-pool condition; "can't be regenerated" leftovers (Bone Shaman, Lim-Dûl's Cohort); Desolation of
+  Smaug's "spend only to cast Dragon spells"; Luxior's per-counter bonus; Atalya's modal `{X}, {T}` body.
 - **PAR-110 · Small residue batch — board wipes & mass effects.** Check whether `object_filter`/
   `creature_filter` already reaches these before adding rows.
   - Mass-damage tail (`parser_probe.py blocked 'deals? (?:x|\d+) damage to each (?:other )?creature'`):

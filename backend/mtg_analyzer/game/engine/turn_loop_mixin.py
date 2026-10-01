@@ -603,6 +603,16 @@ class TurnLoopMixin:
         # same "whole step skipped" treatment `should_skip_step` gets, not
         # `has_no_untap_static`'s "just don't untap this one").
         skip_whole_step = continuous.all_untap_steps_skipped(self.state)
+        # PAR-109: "Untap ~ during each other player's untap step" — permanents of the players whose untap
+        # step this is *not* untap now as well (the step's own skip/no-untap gates still apply).
+        if not skip_whole_step:
+            for obj in list(self.state.battlefield):
+                if (
+                    obj.controller_id != active.id and obj.tapped
+                    and continuous.untaps_in_every_untap_step(self.state, obj)
+                    and not continuous.has_no_untap_static(self.state, obj)
+                ):
+                    self.rules.set_tapped(obj, False)
         for obj in self.state.permanents_controlled_by(active.id):
             if skip_whole_step or self.rules.should_skip_step(
                 active, "untap_permanents"

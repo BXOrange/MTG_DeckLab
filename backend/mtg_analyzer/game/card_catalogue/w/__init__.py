@@ -4,6 +4,7 @@ from . import war_room  # noqa: F401
 from . import water_tribe_rallier  # noqa: F401
 from . import waterbender_s_restoration  # noqa: F401
 from . import waterbending_lesson  # noqa: F401
+from . import welcome_to_the_fold  # noqa: F401
 from . import wheel_of_fortune  # noqa: F401
 from . import wheel_of_misfortune  # noqa: F401
 from . import wickersmith_s_tools  # noqa: F401
