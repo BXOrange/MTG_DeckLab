@@ -3813,7 +3813,17 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (`keywords.UNGRANTABLE_FLAG_KEYWORDS`). "you may have that player lose N life" under a group trigger; "attach it
 #: to target legendary creature you control" (the destination's `creature_filter`); "manifest dread, then attach ~ to
 #: that creature" (`created_objects` handed across the look-at-two pause).
-PARSER_VERSION = "573"
+#: 576 (PAR-104): the Mutagen token (`data/tokens.json` + `_NAMED_TOKEN_WORDS`); a comma list of card types in a cast
+#: trigger ("an artifact, instant, or sorcery spell"); Donatello's "those tokens plus a Mutagen token are created
+#: instead" (`additional_named_token`, any named token); "a `<named>` token for each +1/+1 counter on it" under a group
+#: trigger (the `counters` amount reads the leaving creature's snapshot); and the shared pool "target artifact,
+#: enchantment, or creature [with flying / power N or greater]" (`artifact_creature_or_enchantment`, the quality on its
+#: creature members only — `TargetFrame.creature_filter_creatures_only`). The unqualified three-type phrase now gets
+#: that pool instead of the broad "permanent" (which also offered lands), so the library-put and exile-until-leaves
+#: rows that took "permanent" for it (Banishing Stroke, Banishment Decree, Trapped in the Screen) name it too. A
+#: "Solved —" / "Max speed —" gate on a *replacement* is its `active_if` (it used to append an activation marker that
+#: could not bind — Case of the Pilfered Proof), and a two-event group trigger binds (`_subject_event_key`).
+PARSER_VERSION = "576"
 
 
 def parser_source_hash() -> str:

@@ -185,6 +185,9 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         "enchantment_you_dont_control",
         "artifact_or_enchantment_you_dont_control",
         "artifact_or_creature_you_dont_control",
+        # PAR-104: the three-type union scoped to an opponent ("exile target artifact, creature, or enchantment an
+        # opponent controls" — Trapped in the Screen, Banishment-shaped), composed by the same target grammar.
+        "artifact_creature_or_enchantment_you_dont_control",
         # "target permanent an opponent controls" (Assassin's Trophy/
         # Geomancer's Gambit) — the same mirror-image shape, unscoped by
         # permanent type (unlike the narrower `nonland_permanent_you_dont_
@@ -637,6 +640,8 @@ class TargetSpec:
                 "Artefakt oder Verzauberung, das du nicht kontrollierst",
             "artifact_or_creature_you_dont_control":
                 "Artefakt oder Kreatur, das du nicht kontrollierst",
+            "artifact_creature_or_enchantment_you_dont_control":
+                "Artefakt, Kreatur oder Verzauberung, das du nicht kontrollierst",
             "artifact_or_enchantment": "Artefakt oder Verzauberung",
             "artifact_or_creature": "Artefakt oder Kreatur",
             "artifact_or_creature_you_control": "Artefakt oder Kreatur unter deiner Kontrolle",
@@ -1017,6 +1022,9 @@ class TargetFrame:
     apply_color: bool = False
     apply_max_mana_value: bool = False
     apply_creature_filter: bool = False
+    #: ``creature_filter`` narrows only the *creatures* of a mixed pool ("target artifact, enchantment, or creature
+    #: **with flying**" — the quality belongs to the creature alternative, never to the artifact or the enchantment).
+    creature_filter_creatures_only: bool = False
     #: Descriptors carry ``controller_id`` only where the branch being
     #: replaced did — it flows to the UI and back through
     #: `game_session._resolve_targets`, so the shape is not free to change.
@@ -1203,6 +1211,9 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
         "artifact_or_enchantment", SCOPE_NOT_YOU, exclude_source=False),
     "artifact_or_creature_you_dont_control": TargetFrame(
         "artifact_or_creature", SCOPE_NOT_YOU, exclude_source=False),
+    "artifact_creature_or_enchantment_you_dont_control": TargetFrame(
+        "artifact_creature_or_enchantment", SCOPE_NOT_YOU, exclude_source=False,
+        apply_max_mana_value=True, apply_creature_filter=True, creature_filter_creatures_only=True),
     "land_you_dont_control": TargetFrame(
         "land", SCOPE_NOT_YOU, exclude_source=False),
     "nonbasic_land_you_dont_control": TargetFrame(
@@ -1220,7 +1231,8 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     "artifact_or_creature_you_control": TargetFrame(
         "artifact_or_creature", SCOPE_YOU),
     "artifact_creature_or_enchantment": TargetFrame(
-        "artifact_creature_or_enchantment", apply_max_mana_value=True),
+        "artifact_creature_or_enchantment", apply_max_mana_value=True,
+        apply_creature_filter=True, creature_filter_creatures_only=True),
     "artifact_creature_enchantment_or_planeswalker": TargetFrame(
         "artifact_creature_enchantment_or_planeswalker"),
     "artifact_enchantment_or_nonbasic_land": TargetFrame(
@@ -1428,8 +1440,8 @@ def _legal_from_frame(
         ):
             continue
         if frame.apply_creature_filter and spec.creature_filter and not (
-            _creature_matches_filter(obj, spec.creature_filter)
-        ):
+            frame.creature_filter_creatures_only and not obj.is_creature
+        ) and not _creature_matches_filter(obj, spec.creature_filter):
             continue
         descriptor = {"instance_id": obj.instance_id, "name": obj.name}
         if frame.emit_controller:

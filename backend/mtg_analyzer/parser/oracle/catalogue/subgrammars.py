@@ -283,6 +283,14 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # turn Naturalize's "target artifact or enchantment" into any permanent.
     (r"target artifact or enchantment", "artifact_or_enchantment"),
     (r"target (?:artifact or creature|creature or artifact)", "artifact_or_creature"),
+    # PAR-104: "target artifact, enchantment, or creature [with flying]" (Mutant Chain Reaction, Spider Food, Broken
+    # Wings, Exorcise, Vivien Reid, …) — the three-type union in any printed order, with the dedicated pool the engine
+    # already has rather than the broad ``"permanent"`` the N-way row below would pick (which also offers lands). A
+    # trailing quality narrows only its creature members (`TargetFrame.creature_filter_creatures_only`).
+    (r"target (?:artifact, enchantment,? or creature|artifact, creature,? or enchantment|"
+     r"enchantment, artifact,? or creature|enchantment, creature,? or artifact|"
+     r"creature, artifact,? or enchantment|creature, enchantment,? or artifact)",
+     "artifact_creature_or_enchantment"),
     # Batch 4: "target token [you control]" — any token (RULE 111.1), its controller scope composed below.
     (r"target token", "token"),
     (rf"target (?:{CARD_TYPE_WORD_ALT})"
@@ -455,6 +463,7 @@ TARGET_QUALITY_TAIL = (
 _QUALITY_TARGET_KINDS = frozenset({
     "creature", "creature_you_control", "other_creature_you_control",
     "creature_you_dont_control", "creature_that_player_controls",
+    "artifact_creature_or_enchantment",  # its creature members only
 })
 _TARGET_SCOPE_TAIL = f"(?:{NOT_YOU_TAIL}|{THAT_PLAYER_TAIL}|{YOU_TAIL})"
 #: "target creature without flying **that's attacking you**" (Snow Fortress, Hunting Kavu) — the creature
@@ -686,6 +695,7 @@ NOT_YOU_TARGET_KINDS: dict[str, str] = {
     "equipment": "equipment_you_dont_control",
     "artifact_or_enchantment": "artifact_or_enchantment_you_dont_control",
     "artifact_or_creature": "artifact_or_creature_you_dont_control",
+    "artifact_creature_or_enchantment": "artifact_creature_or_enchantment_you_dont_control",
     "creature_or_planeswalker": "creature_or_planeswalker_you_dont_control",
 }
 #: Batch 4: a target kind → the same pool scoped to permanents you control (`targeting.TARGET_FRAMES`'

@@ -355,7 +355,8 @@ def _cast_spell_trigger_condition(subj: str) -> dict[str, Any]:
 _CAST_TRIGGER_COMPOSED_RE = re.compile(
     r"^(?:whenever|when) (?P<subj>you|an opponent|a player) casts? "
     r"(?P<copies>or (?:copy|copies) )?"
-    r"(?P<phrase>(?:an?|another|your|their) [^,]*?\bspell\b[^,]*),\s*(?P<body>.+)$",
+    # PAR-104: a comma list of card types ("an artifact, instant, or sorcery spell") is part of the phrase.
+    r"(?P<phrase>(?:an?|another|your|their) (?:(?:[a-z'-]+, )+or [a-z'-]+ |[^,]*?)\bspell\b[^,]*),\s*(?P<body>.+)$",
     re.IGNORECASE | re.S,
 )
 
@@ -5875,7 +5876,9 @@ def _apply_keyword_restriction(spec: AbilitySpec, kw: str) -> bool:
     # RULE 702.169b-d Solved / 702.178a Max Speed — the same condition on
     # whichever of the three ability shapes the body turned out to be.
     cond = {"kind": "source_solved"} if kw == "solved" else {"kind": "your_speed_is_max"}
-    if spec.ability_kind == "static":
+    # A replacement is gated the same way (``binding.core.build_replacements`` reads ``active_if`` off each effect):
+    # "Solved — If one or more tokens would be created under your control, …" (Case of the Pilfered Proof).
+    if spec.ability_kind in ("static", "replacement"):
         for eff in spec.effects:
             eff.params.setdefault("active_if", cond)
         return True

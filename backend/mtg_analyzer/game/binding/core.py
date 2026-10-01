@@ -516,7 +516,13 @@ def _subject_event_key(trigger: dict[str, Any]) -> str:
     # other side.
     if trigger.get("event") == "DAMAGE" and (trigger.get("condition") or {}).get("recipient"):
         return "target_id"
-    return _SUBJECT_EVENT_KEYS.get(trigger.get("event"), "instance_id")
+    event = trigger.get("event")
+    if isinstance(event, list):
+        # "whenever a Detective you control enters or is turned face up" — one subject key if the events agree
+        # (the per-object events all name the object as ``instance_id``), else the default.
+        keys = {_SUBJECT_EVENT_KEYS.get(e, "instance_id") for e in event}
+        return keys.pop() if len(keys) == 1 else "instance_id"
+    return _SUBJECT_EVENT_KEYS.get(event, "instance_id")
 
 
 def _subject_condition(

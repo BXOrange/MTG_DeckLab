@@ -67,9 +67,6 @@ No open tickets.
   "That player" binds to the player whose step it is; 10 SOLO + Mornsong Aria (Academy Loremaster,
   Anvil of Bogardan, Dictate of Kruphix, Font of Mythos, Howling Mine, Kami of the Crescent Moon,
   Nekusar, Rites of Flourishing, Spiteful Visions, Teferi's Puzzle Box).
-- **PAR-104 · TMNT "create a mutagen token".** 16 SOLO, 3 also-blocked (April O'Neil Human Element,
-  Crustacean Commando, Genghis Frog, Michelangelo Weirdness to 11, Mona Lisa, Mutant Chain Reaction,
-  Ooze Spill, Ray Fillet Man Ray, …).
 
 > PAR-99…105 counts confirmed at PV 413 (2026-09-16, vs the 56 saved decks in `deck_coverage.py`),
 > re-verified at PV 447 (2026-09-21). Re-run `parser_probe.py blocked` before starting.

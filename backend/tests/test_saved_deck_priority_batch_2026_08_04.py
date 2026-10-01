@@ -276,16 +276,27 @@ def test_cast_instant_or_sorcery_spell_trigger_full_card_is_modeled():
     assert spec.effects[0].type == "draw"
 
 
-def test_cast_spell_trigger_with_a_subtype_stays_unclaimed():
-    # "wizard" is a creature subtype, not in `_SPELL_CAST_TYPE_WORDS` (only
-    # main card types — `GameObject.type_words` carries no subtypes) — fail
-    # closed rather than silently dropping it.
+def test_cast_spell_trigger_with_a_subtype_in_the_type_list_filters_by_subtype():
+    # PAR-104: the comma list ("an instant, sorcery, or Wizard spell") is one phrase, and "wizard" is read from the
+    # cast spell's own type line (`spell_filter`'s ``subtype``), not from the event's main-type snapshot — so it is
+    # claimed, and a non-Wizard creature spell does not trigger it.
     card = Card(
         id="Test Wizard Payoff", name="Test Wizard Payoff", type_line="Creature — Human",
         is_creature=True, power=1, toughness=1,
         oracle_text="Whenever you cast an instant, sorcery, or wizard spell, draw a card.",
     )
-    assert not parse_oracle(card).modeled
+    assert parse_oracle(card).modeled
+    for type_line, expected in (("Creature — Human Wizard", 1), ("Creature — Bear", 0)):
+        eng = _engine()
+        p1 = eng.state.player_by_id("p1")
+        _bf(eng.state, card)
+        spell = GameObject(
+            Card(id="Test Spell", name="Test Spell", type_line=type_line, is_creature=True, power=1, toughness=1),
+            owner_id="p1", zone=Zone.HAND,
+        )
+        p1.hand.append(spell)
+        eng.rules.cast_without_paying(p1, spell)
+        assert eng.rules.put_triggers_on_stack() == expected, type_line
 
 
 def test_cast_spell_trigger_executes_and_draws_a_card():

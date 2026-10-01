@@ -3675,6 +3675,24 @@ def _quality_filter_builder(effect_type: str):
 _destroy_creature_filter = _quality_filter_builder("destroy")
 _exile_creature_filter = _quality_filter_builder("exile")
 
+#: PAR-104: "destroy|exile [up to 1] target artifact, enchantment, or creature with flying / power 4 or greater"
+#: (Mutant Chain Reaction, Spider Food, Broken Wings, Return to the Earth, Shoot Down, Exorcise, Make Your Move,
+#: Vivien Reid's -3, …) — the three-type pool with the quality on its *creature* members only
+#: (`TargetFrame.creature_filter_creatures_only`: an artifact or enchantment needs no flying).
+_ARTIFACT_ENCHANTMENT_OR_CREATURE_FILTER_RE = _c(
+    rf"(?P<verb>destroy|exile) (?P<up_to>up to 1 )?target artifact, enchantment, or creature {_CREATURE_FILTER_SUFFIX}"
+)
+
+
+def _artifact_enchantment_or_creature_filter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    filt = _creature_quality_filter(m)
+    if filt is None:
+        return None
+    params: dict = {"target_kind": "artifact_creature_or_enchantment", "creature_filter": filt}
+    if m.group("up_to"):
+        params["optional"] = True
+    return [EffectSpec(m.group("verb"), params)]
+
 
 #: "~ deals N damage to target creature with flying" / "…with power 4 or
 #: greater" (RULE 115/601.2c power/toughness/keyword quality filter on a
@@ -4717,7 +4735,9 @@ def _return_all_nonland(m: re.Match[str]) -> list[EffectSpec]:
 #: is `return_to_hand`'s library-destination sibling.
 def _return_to_library(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if not target_kind_allowed(kind, _RETURN_TO_HAND_KINDS):
+    # PAR-104: the three-type pool ("put target artifact, creature, or enchantment on the bottom of its owner's
+    # library" — Banishing Stroke, Banishment Decree) has its own frame; before it, it read as any permanent.
+    if not target_kind_allowed(kind, _RETURN_TO_HAND_KINDS | {"artifact_creature_or_enchantment"}):
         return None
     position = "bottom" if m.group("pos") == "bottom" else "top"
     return [
@@ -7682,6 +7702,7 @@ _EXILE_UNTIL_LEAVES_OPP_KINDS: dict[str, str] = {
     "permanent": "permanent_you_dont_control",
     "artifact": "artifact_you_dont_control",
     "nonland_permanent": "nonland_permanent_you_dont_control",
+    "artifact_creature_or_enchantment": "artifact_creature_or_enchantment_you_dont_control",
 }
 
 
@@ -8671,7 +8692,9 @@ def _create_named_legendary_token(m: re.Match[str]) -> Optional[list[EffectSpec]
 #: fallback), the exact half-resolved outcome docs/09's fail-closed
 #: discipline forbids. Keep this dict in sync with `data/tokens.json`
 #: whenever a new named token is added there.
-_NAMED_TOKEN_WORDS: dict[str, str] = {"treasure": "Treasure", "clue": "Clue", "food": "Food", "blood": "Blood"}
+_NAMED_TOKEN_WORDS: dict[str, str] = {
+    "treasure": "Treasure", "clue": "Clue", "food": "Food", "blood": "Blood", "mutagen": "Mutagen",
+}
 
 
 #: "create a Treasure token" / "create two Clue tokens" — the named-token
@@ -8703,6 +8726,21 @@ def _create_named_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if creator == "target":
         params["target_kind"] = "opponent" if who == "target opponent " else "player"
     return [EffectSpec("create_token", params)]
+
+
+#: PAR-104: "whenever a creature you control with a +1/+1 counter on it leaves the battlefield, create a Mutagen
+#: token for each +1/+1 counter on it." (The Ooze) — under a group trigger "it" is the firing creature, and the
+#: `counters` amount reads its counters live, or from the leave event's RULE 603.10a snapshot once it is gone.
+_CREATE_NAMED_TOKEN_PER_COUNTER_ON_IT_RE = _c(
+    rf"create an? (?P<name>{'|'.join(_NAMED_TOKEN_WORDS)}) token for each (?P<kind>\+1/\+1|-1/-1|[a-z]+) counter on it"
+)
+
+
+def _create_named_token_per_counter_on_it(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("create_token", {
+        "token_name": _NAMED_TOKEN_WORDS[m.group("name")],
+        "count": {"kind": "counters", "of": "trigger_subject", "counter": m.group("kind")},
+    })]
 
 
 #: "Whenever this creature deals combat damage to a player or planeswalker,
@@ -16296,6 +16334,11 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"destroy target creature{_CREATURE_FILTER_SCOPED}"),
         _destroy_creature_filter,
     ),
+    EffectHandler(
+        "artifact_enchantment_or_creature_filter",
+        _ARTIFACT_ENCHANTMENT_OR_CREATURE_FILTER_RE,
+        _artifact_enchantment_or_creature_filter,
+    ),
     # "destroy target nonblack creature[. It can't be regenerated.]"
     # (Doom Blade-shaped) — tried before the plain `destroy` handler for
     # the same "strict superset" reason as `destroy_mv`/
@@ -19407,6 +19450,12 @@ HANDLERS: list[EffectHandler] = [
         "create_named_token_that_many",
         _CREATE_NAMED_TOKEN_THAT_MANY_RE,
         _create_named_token_that_many,
+    ),
+    EffectHandler(
+        "create_named_token_per_counter_on_it",
+        _CREATE_NAMED_TOKEN_PER_COUNTER_ON_IT_RE,
+        _create_named_token_per_counter_on_it,
+        group_subject_only=True,
     ),
     EffectHandler(
         "create_named_token",

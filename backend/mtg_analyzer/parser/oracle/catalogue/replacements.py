@@ -50,6 +50,15 @@ _DOUBLE_TOKENS_RE = re.compile(
     r"it creates twice that many of those tokens instead",
     re.IGNORECASE,
 )
+#: PAR-104: "If 1 or more tokens would be created under your control, those tokens plus a Mutagen token are
+#: created instead." (Donatello, the Brains; Peregrin Took's Food is the hand-authored original) — one extra
+#: named token alongside every creation (`additional_named_token`). The names are `handlers._NAMED_TOKEN_WORDS`'
+#: closed set: a name outside it would synthesize a blank token.
+_ADDITIONAL_NAMED_TOKEN_RE = re.compile(
+    r"if 1 or more tokens would be created under your control, those tokens plus an? (?:additional )?"
+    r"(?P<name>treasure|clue|food|blood|mutagen) token are created instead",
+    re.IGNORECASE,
+)
 #: Doubling Season's counter-doubling line ("a permanent you control" —
 #: the real card's own wording; engine-side unscoped by ``kind``, but this
 #: specific sentence is target-controller-scoped in its own text).
@@ -551,6 +560,10 @@ def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     if _DOUBLE_TOKENS_RE.fullmatch(text):
         return [EffectSpec("double_tokens", {})]
+
+    m = _ADDITIONAL_NAMED_TOKEN_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("additional_named_token", {"token_name": m.group("name").capitalize()})]
 
     if _DOUBLE_COUNTERS_RE.fullmatch(text):
         return [EffectSpec("double_counters", {})]
