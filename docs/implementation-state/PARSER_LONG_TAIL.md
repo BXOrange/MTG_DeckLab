@@ -25,9 +25,9 @@ The rules that replace it:
 
 ## Where coverage stands
 
-**54.2% covered — 18,863 / 34,811 — as of 2026-09-30, PARSER_VERSION 561** (PAR-134 + PAR-129, two wrong-but-MODELED fixes: +2 covered, −24 honestly UNMODELED — a count that fell because it got more honest. MEC-105 adds temporary layer-6 keyword loss and its gain/loss, P/T/loss, group-subject, previous-subject, and attached-static parser forms: +32 since v553, 0 regressed. MEC-106/MEC-107 at v553 added Gift/Expend and related residue: +23 since v552. PAR-123 at v552 generalized a group trigger's firing-object referent: +154 since v551, 0 regressed.)
-Commander-legal slice (the one the product actually plays): **56.9% —
-18,127 / 31,830** (measure with `--commander-legal-only`).
+**54.4% covered — 18,945 / 34,811 — as of 2026-10-01, PARSER_VERSION 564** (PAR-135 + PAR-121: +82, 0 regressed — the named-counter kind became an open axis, plus action limits, power-only doubling, additive colours, Equipment targets; 4 wrong-but-MODELED families corrected on the way. PAR-134 + PAR-129, two wrong-but-MODELED fixes: +2 covered, −24 honestly UNMODELED — a count that fell because it got more honest. MEC-105 adds temporary layer-6 keyword loss and its gain/loss, P/T/loss, group-subject, previous-subject, and attached-static parser forms: +32 since v553, 0 regressed. MEC-106/MEC-107 at v553 added Gift/Expend and related residue: +23 since v552. PAR-123 at v552 generalized a group trigger's firing-object referent: +154 since v551, 0 regressed.)
+Commander-legal slice (the one the product actually plays): **57.2% —
+18,203 / 31,830** (measure with `--commander-legal-only`).
 
 ### PAR-124 closes completely: player-events, X-tokens, a targeted delayed trigger, a hand-zone duplicate, an optional-attach composition — and the controller-binding bug the targeted variant first exposed (PARSER_VERSION 463)
 

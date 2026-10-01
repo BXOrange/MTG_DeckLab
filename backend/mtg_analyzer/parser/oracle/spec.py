@@ -1757,3 +1757,73 @@ class AbilitySpec:
             raw_text=str(data.get("raw_text", "")),
             parser=ParserProvenance.from_dict(data.get("parser") or {}),
         )
+
+
+#: The effect types whose own ``effects`` list runs **only once the optional action has been accepted** — "you
+#: may …" (`optional`) and "you may pay/discard …, if you do, …" (`pay_cost_then`). An action-limit stamp placed
+#: first in that list is written only when the player actually does it.
+ACCEPT_GATED_EFFECTS: frozenset[str] = frozenset({"optional", "pay_cost_then"})
+
+
+def fold_action_limit(
+    effects: list[EffectSpec], marker: str, key: str
+) -> Optional[tuple[list[EffectSpec], bool]]:
+    """Fold a "Do this only once each turn." ``marker`` into its gate and stamp (PAR-135).
+
+    Returns ``(effects, found)`` — ``effects`` unchanged when there is no marker — or ``None`` when the marker
+    sits somewhere this can't place a stamp (fail closed: the caller refuses the card rather than dropping a
+    limit). Two placements are understood:
+
+    * a **top-level** marker ("…you may create a token. Do this only once each turn."): "this" is the action
+      the body offers. The stamp goes first in the body — or first inside the trailing ``optional`` /
+      ``pay_cost_then`` node when that is where the player decides (Legolas: "you may untap it") — so a declined
+      action isn't counted;
+    * a marker **inside** a ``pay_cost_then``/``optional`` node's own ``effects`` (Irreverent Gremlin: the
+      sentence trails the "if you do" body and the parser nests it): the stamp replaces it at the front of
+      that same list.
+
+    Either way the whole body becomes one ``seq`` gated by ``action_unused_this_turn`` — checked once, before
+    anything happens, and announcing the body's targets (RULE 601.2c) like any ``seq``.
+    """
+    stamp = EffectSpec("action_stamp", {"key": key}).to_dict()
+    top_marker = any(e.type == marker for e in effects)
+    body = [e for e in effects if e.type != marker]
+    folded: list[EffectSpec] = []
+    nested_found = False
+    for effect in body:
+        inner = effect.params.get("effects")
+        if effect.type in ACCEPT_GATED_EFFECTS and isinstance(inner, list) and any(
+            isinstance(x, dict) and x.get("type") == marker for x in inner
+        ):
+            rest = [x for x in inner if not (isinstance(x, dict) and x.get("type") == marker)]
+            effect = EffectSpec(effect.type, {**effect.params, "effects": [stamp, *rest]}, effect.condition)
+            nested_found = True
+        folded.append(effect)
+    if not top_marker and not nested_found:
+        if any(contains_marker(e, marker) for e in effects):
+            return None  # a marker somewhere this can't place a stamp
+        return effects, False
+    if top_marker:
+        if nested_found:
+            return None  # two markers for one body: ambiguous
+        last = folded[-1] if folded else None
+        if last is not None and last.type in ACCEPT_GATED_EFFECTS and isinstance(last.params.get("effects"), list):
+            folded[-1] = EffectSpec(
+                last.type, {**last.params, "effects": [stamp, *last.params["effects"]]}, last.condition,
+            )
+        else:
+            folded = [EffectSpec("action_stamp", {"key": key}), *folded]
+    if any(contains_marker(e, marker) for e in folded):
+        return None
+    gate = {"kind": "action_unused_this_turn", "key": key}
+    return [EffectSpec("seq", {"effects": [e.to_dict() for e in folded]}, condition=gate)], True
+
+
+def contains_marker(node: Any, marker: str) -> bool:
+    if isinstance(node, EffectSpec):
+        return node.type == marker or contains_marker(node.params, marker)
+    if isinstance(node, dict):
+        return node.get("type") == marker or any(contains_marker(v, marker) for v in node.values())
+    if isinstance(node, list):
+        return any(contains_marker(v, marker) for v in node)
+    return False

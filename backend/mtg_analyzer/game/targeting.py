@@ -281,6 +281,9 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # Ancients' +1: "you may attach an Equipment you control to it") —
         # broader than `attached_equipment_you_control` above.
         "equipment_you_control",
+        # PAR-135: "target Equipment" (any player's) and "target Equipment an opponent controls"
+        # (Ogre Geargrabber) — the unscoped and not-you siblings of `equipment_you_control`.
+        "equipment", "equipment_you_dont_control",
         # "Target nonbasic land" (Encroaching Wastes) — any player's, unlike
         # the controller-restricted kinds above. ``nonbasic_land_you_dont_
         # control`` is the "an opponent controls" narrowing (Field of Ruin).
@@ -670,6 +673,8 @@ class TargetSpec:
             "land_you_dont_control": "Land, das du nicht kontrollierst",
             "attached_equipment_you_control": "befestigte Ausrüstung unter deiner Kontrolle",
             "equipment_you_control": "Ausrüstung unter deiner Kontrolle",
+            "equipment": "Ausrüstung",
+            "equipment_you_dont_control": "Ausrüstung, die du nicht kontrollierst",
             "nonbasic_land": "nichtgrundlegendes Land",
             "nonbasic_land_you_dont_control": "nichtgrundlegendes Land, das du nicht kontrollierst",
             "legendary_permanent": "legendäre bleibende Karte",
@@ -1254,8 +1259,11 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
         "equipment", SCOPE_THAT_PLAYER, exclude_source=False),
 
     # --- attachments (RULE 701.3) ---------------------------------------
+    "equipment": TargetFrame("equipment", exclude_source=False),
     "equipment_you_control": TargetFrame(
         "equipment", SCOPE_YOU, exclude_source=False),
+    "equipment_you_dont_control": TargetFrame(
+        "equipment", SCOPE_NOT_YOU, exclude_source=False),
     "attached_equipment_you_control": TargetFrame(
         "equipment", SCOPE_YOU, exclude_source=False, attached="any"),
     "equipment_attached_to_source": TargetFrame(
@@ -1763,6 +1771,9 @@ def _legal_targets_for(
             for o in state.permanents()
             if o.is_creature and o is not source and _targetable_by(o, source)
             and _color_ok(spec, o.colors)
+            # PAR-135: "any target that isn't a Dinosaur" — the identity filter reads the creature; a
+            # player/planeswalker/battle is none of those things and stays legal.
+            and (not spec.creature_filter or _creature_matches_filter(o, spec.creature_filter, source, state))
         ]
         other_permanents = [
             {"instance_id": o.instance_id, "name": o.name}

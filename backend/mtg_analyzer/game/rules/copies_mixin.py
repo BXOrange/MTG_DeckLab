@@ -157,6 +157,7 @@ class CopiesMixin:
         set_power: Optional[int] = None,
         set_toughness: Optional[int] = None,
         set_colors: Optional[list[str]] = None,
+        add_colors: Optional[list[str]] = None,
     ) -> list[GameObject]:
         """Create ``count`` token copies of ``source`` (RULE 707.2 / 111.5).
 
@@ -174,6 +175,10 @@ class CopiesMixin:
         enters-as-a-copy replacement shape.
         """
         copiable = getattr(source, "_front_card", source.card)
+        if add_colors:
+            # "…in addition to its other colors" (PAR-135): the copiable colours plus these, expressed
+            # through `Card.as_copy`'s replace-only ``set_colors`` so the card model needs no change.
+            set_colors = sorted({*(set_colors if set_colors is not None else copiable.color_identity), *add_colors})
         if (add_types or add_subtypes or not_legendary or set_power is not None
                 or set_toughness is not None or set_colors is not None):
             copiable = copiable.as_copy(

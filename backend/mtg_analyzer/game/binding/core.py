@@ -24,6 +24,7 @@ from typing import Any, Callable, Optional, Union
 from ...models.game.events import EventType, GameEvent
 from ...models.mana.mana_cost import ManaCost
 from ...parser.oracle.catalogue.handlers import (
+    ACTION_ONCE_PER_TURN_MARKER,
     ACTIVATE_ONLY_ONCE_MARKER,
     ACTIVATION_CONDITION_MARKER,
     FROM_HAND_MARKER,
@@ -32,7 +33,7 @@ from ...parser.oracle.catalogue.handlers import (
     POWERUP_COST_REDUCTION_MARKER,
     SORCERY_SPEED_MARKER,
 )
-from ...parser.oracle.spec import GROUP_SUBJECT_KEY_SENTINEL, AbilitySpec, EffectSpec
+from ...parser.oracle.spec import GROUP_SUBJECT_KEY_SENTINEL, AbilitySpec, EffectSpec, fold_action_limit
 from ..costs import ActivationCost, parse_activation_cost
 from ..static_conditions import condition_holds
 from ..targeting import PER_PLAYER_SCOPES
@@ -2881,6 +2882,17 @@ def bind_ability(
             )
         ]
 
+    # PAR-135: "Do this only once each turn." — a marker for the optional action's own cap, folded into
+    # `TriggeredAbility.action_once_per_turn` (the trigger itself still fires every time).
+    action_key: Optional[str] = None
+    if spec.ability_kind == "triggered":
+        folded = fold_action_limit(effect_specs, ACTION_ONCE_PER_TURN_MARKER, spec.raw_text or description)
+        if folded is None:
+            raise BindError(f"a 'do this only once each turn' limit with nowhere to record it: {spec.raw_text!r}")
+        effect_specs, has_action_limit = folded
+        if has_action_limit:
+            action_key = spec.raw_text or description
+
     if spec.ability_kind == "triggered":
         assert spec.trigger is not None  # validate() guarantees this
         effect_specs = _retarget_implicit_subject_effects(effect_specs, spec.trigger)
@@ -2968,6 +2980,9 @@ def bind_ability(
                 # (built for Dionus, Elvish Archdruid's granted ability),
                 # this is the first oracle-text path that reaches it.
                 once_per_turn=bool(spec.trigger.get("limit", False)),
+                # PAR-135: "Do this only once each turn." limits the action (gated `seq` + stamp in the
+                # effect list), not the trigger; the key lets a repeat firing skip its prompt.
+                action_key=action_key,
                 # RULE 113.6a/PAR-16: inferred straight off the effect list,
                 # the same "effect and permission always travel together"
                 # shape `graveyard_zone` uses below for the activated half.

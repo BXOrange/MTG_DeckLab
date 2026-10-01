@@ -865,6 +865,9 @@ _REPLACEMENT_TYPES: frozenset[str] = frozenset({
 #: ISA. Value names the card (or family) each was written for. This list
 #: shrinking is a better health signal than coverage moving.
 _SPECIAL_TYPES: dict[str, str] = {
+    # Bookkeeping, not a rules action: records that an ability's action was performed this turn so its
+    # "Do this only once each turn." gate (`action_unused_this_turn`) can refuse a second one (PAR-135).
+    "action_stamp": "\"Do this only once each turn\" (Ondu Spiritdancer family)",
     "abstract_performance": "Abstract Performance",
     "advanced_reconstruction_l1": "Advanced Reconstruction",
     "animists_awakening": "Animist's Awakening",

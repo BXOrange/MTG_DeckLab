@@ -553,6 +553,10 @@ class GameObject:
         #: PAR-28 / RULE 702.177a Exhaust & Power-up: the descriptions of this
         #: permanent's "Activate only once" abilities already activated this
         #: game. Never reset (per-game, not per-turn).
+        #: "Do this only once each turn." (PAR-135): the turn number an *action* of this object's ability —
+        #: keyed by the ability's own text — was last performed. `game_status.ActionStampEffect` writes it
+        #: when the action is taken; the `action_unused_this_turn` condition (and the trigger prompt) read it.
+        self.action_turns: dict[str, int] = {}
         self.used_once_per_game_abilities: set[str] = set()
         #: The mana-ability sibling of the set above (`ActivationCost.
         #: once_per_game` — Loot, the Pathfinder's "Exhaust — {G}, {T}: Add
@@ -1426,6 +1430,7 @@ class GameObject:
         self.mana_abilities_activated_this_turn = set()
         # RULE 400.7 / 702.177a: a new object's Exhaust abilities are fresh.
         self.used_once_per_game_abilities = set()
+        self.action_turns = {}
         self.mana_abilities_used_this_game = set()
         self.added_mana_with_ability_this_turn = False
         self.blocking = None

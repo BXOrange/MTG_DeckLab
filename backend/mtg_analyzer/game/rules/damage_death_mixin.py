@@ -341,6 +341,15 @@ class DamageDeathMixin:
                 final_target = self.state.player_by_id(resolved.get("target_id")) or target
             else:
                 final_target = self.state.find_object(resolved.get("target_id")) or target
+            # RULE 122.1c: "If damage would be dealt to this permanent, prevent that damage and
+            # remove a shield counter from it." Checked on the *resolved* recipient (after any
+            # redirect, RULE 616.1c) and before any result of the damage — infect/wither's -1/-1
+            # counters, loyalty/defense loss, the DAMAGE event its triggers watch — because
+            # prevented damage is never dealt (RULE 615.1). One counter per damage event,
+            # however large the damage.
+            if not final_is_player and getattr(final_target, "counters", {}).get("shield", 0) > 0:
+                self.add_counters(final_target, -1, "shield")
+                return
             # RULE 702.90b/c: damage from an infect source is never marked/
             # doesn't cause life loss at all — it is dealt as -1/-1 counters
             # (creature) or poison counters (player) instead. RULE 702.91a's
@@ -483,7 +492,9 @@ class DamageDeathMixin:
         self.state.fire_event(
             GameEvent(EventType.LIFE_LOST, player_id=player.id, amount=amount, cause=cause)
         )
-    def destroy(self, obj: GameObject, can_be_regenerated: bool = True) -> None:
+    def destroy(
+        self, obj: GameObject, can_be_regenerated: bool = True, by_effect: bool = True,
+    ) -> None:
         """RULE 701.6: destroy ``obj`` — replaceable (RULE 616), chiefly by a
         regeneration shield (RULE 701.16, `regenerate`) consuming the event
         instead of letting the permanent reach the graveyard. Not the entry
@@ -499,7 +510,16 @@ class DamageDeathMixin:
         doesn't get a chance to intercept this particular destroy. A creature
         carrying ``temp_cant_be_regenerated`` ("can't be regenerated this
         turn", `CantBeRegeneratedEffect`) is treated the same way.
+
+        ``by_effect`` is RULE 122.1c's own qualifier: a shield counter replaces destruction
+        "as the result of an effect" only, so the RULE 704.5g lethal-damage pass
+        (`_sba_check_lethal_damage`, ``by_effect=False``) is not protected by one. It sits
+        ahead of the regeneration opt-out because "can't be regenerated" says nothing about a
+        shield counter, which isn't regeneration.
         """
+        if by_effect and obj.counters.get("shield", 0) > 0:
+            self.add_counters(obj, -1, "shield")
+            return
         if not can_be_regenerated or getattr(obj, "temp_cant_be_regenerated", False):
             self._move_to_graveyard(obj)
             return

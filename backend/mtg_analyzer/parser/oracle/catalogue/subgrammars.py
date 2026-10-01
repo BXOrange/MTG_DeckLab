@@ -302,6 +302,11 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # type phrase there too.
     (r"target artifact", "artifact"),
     (r"target enchantment", "enchantment"),
+    # PAR-135: "target Equipment [you control]" (Magnetic Theft, Auriok Windwalker) — the subtype-filtered
+    # pool `targeting` already had for `equipment_you_control`; the bare row is any player's Equipment and
+    # an "an opponent controls"/"that player controls" tail composes onto it like any other row.
+    (r"target equipment you control", "equipment_you_control"),
+    (r"target equipment", "equipment"),
     # "target Forest" (Arbor Elf) — a specific basic land subtype, above
     # the bare "target land" row so the longer/more specific phrase wins.
     (r"target forest", "forest"),
@@ -430,9 +435,15 @@ OTHER_PREFIX = r"(?:another|other) "
 #: `combat.matches_object_filter` fragment and `resolve_target_kind` drops it; a handler that
 #: matched one without merging that fragment is refused by `handlers.EffectHandler.match`.
 _QUALITY_KEYWORDS = "|".join(sorted(KEYWORD_WORDS, key=len, reverse=True))
+#: PAR-135: "any target **that isn't a Dinosaur**" / "target creature that isn't a commander" — the
+#: negated *identity* of a target (a subtype, a card type or the commander designation), the sibling of
+#: the negated keyword/counter above. The word is read back by `isnt_a_filter`; one outside that
+#: vocabulary makes the kind unresolved (`resolve_target_kind`) rather than a silently dropped filter.
+_ISNT_A_TAIL = r" that isn'?t an? [a-z]+"
 TARGET_QUALITY_TAIL = (
-    r" (?:without|that doesn't have|that has no) "
+    r"(?: (?:without|that doesn't have|that has no) "
     rf"(?:(?:{_QUALITY_KEYWORDS})|(?:an? )?(?:(?:\+1/\+1|-1/-1|[a-z]+) )?counters? on it)"
+    rf"|{_ISNT_A_TAIL})"
 )
 #: The pools whose `targeting.TargetFrame` applies ``creature_filter`` — the only kinds a quality
 #: may narrow (any other would carry a filter nothing reads).
@@ -667,6 +678,7 @@ NOT_YOU_TARGET_KINDS: dict[str, str] = {
     "nonbasic_land": "nonbasic_land_you_dont_control",
     "artifact": "artifact_you_dont_control",
     "enchantment": "enchantment_you_dont_control",
+    "equipment": "equipment_you_dont_control",
     "artifact_or_enchantment": "artifact_or_enchantment_you_dont_control",
     "artifact_or_creature": "artifact_or_creature_you_dont_control",
     "creature_or_planeswalker": "creature_or_planeswalker_you_dont_control",
@@ -678,7 +690,7 @@ THAT_PLAYER_TARGET_KINDS: dict[str, str] = {
     base: f"{base}_that_player_controls" for base in (
         "creature", "creature_or_planeswalker", "permanent", "nonland_permanent", "land",
         "nonbasic_land", "artifact", "enchantment", "artifact_or_enchantment",
-        "artifact_or_creature",
+        "artifact_or_creature", "equipment",
     )
 }
 #: PAR-128: kinds whose engine pool already leaves out the ability's own source
@@ -731,6 +743,25 @@ def target_kind_allowed(kind: Optional[str], allowed: "Iterable[str]") -> bool:
 _TARGET_QUALITY_RE = re.compile(TARGET_QUALITY_TAIL, re.IGNORECASE)
 _ATTACKING_YOU_RE = re.compile(ATTACKING_YOU_TAIL, re.IGNORECASE)
 _QUALITY_OBJECT_RE = re.compile(r"^ (?:without|that doesn't have|that has no) ")
+_ISNT_A_RE = re.compile(r"^ that isn'?t an? (?P<word>[a-z]+)$", re.IGNORECASE)
+
+
+def isnt_a_filter(word: str) -> Optional[dict]:
+    """The negated-identity fragment for "that isn't a `<word>`" (PAR-135), else ``None`` (fail closed).
+
+    A creature subtype → ``without_subtype``, a card type → ``without_card_type``, and "commander" (RULE
+    903.3) → ``is_commander: False``. Players, planeswalkers and battles are never a subtype, so a filter
+    that only ever inspects a creature leaves them legal, which is what the English means."""
+    from .subtype_vocabulary import SUBTYPES
+
+    w = word.lower()
+    if w == "commander":
+        return {"is_commander": False}
+    if w in _NEGATABLE_CARD_TYPES:
+        return {"without_card_type": w}
+    if w in SUBTYPES:
+        return {"without_subtype": w.capitalize()}
+    return None
 
 
 def target_quality_filter(phrase: str) -> dict:
@@ -746,7 +777,11 @@ def target_quality_filter(phrase: str) -> dict:
     quality = _TARGET_QUALITY_RE.search(text)
     if quality is not None:
         head = _QUALITY_OBJECT_RE.match(quality.group(0))
-        fragment.update(parse_absent_quality(quality.group(0)[head.end():]) or {} if head else {})
+        isnt = _ISNT_A_RE.match(quality.group(0))
+        if head:
+            fragment.update(parse_absent_quality(quality.group(0)[head.end():]) or {})
+        elif isnt:
+            fragment.update(isnt_a_filter(isnt.group("word")) or {})
     return fragment
 
 
@@ -767,6 +802,12 @@ def resolve_target_kind(phrase: str) -> Optional[str]:
         if _TARGET_QUALITY_RE.search(rest) is not None or _ATTACKING_YOU_RE.search(rest) is not None:
             return None  # one slot of each per target phrase
         base = resolve_target_kind(rest)
+        isnt = _ISNT_A_RE.match(quality.group(0)) if quality is not None else None
+        if isnt is not None:
+            # PAR-135: an unknown word would drop the filter; "any target" is the one extra pool it may narrow.
+            if isnt_a_filter(isnt.group("word")) is None:
+                return None
+            return base if base in _QUALITY_TARGET_KINDS or base == "any" else None
         return base if base in _QUALITY_TARGET_KINDS else None
     adjective = _TARGET_ADJECTIVE_RE.fullmatch(text)
     if (

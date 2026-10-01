@@ -913,6 +913,27 @@ class ConditionalEffect(GameEffect):
             self.inner.apply(context, targets)
 
 
+class ActionStampEffect(GameEffect):
+    """"Do this only once each turn." (PAR-135) — records that this ability's action was performed.
+
+    The parser folds the printed limit into ``seq`` gated by the ``action_unused_this_turn`` condition
+    (checked once, before anything in the body happens) with this effect placed **where the action is
+    accepted**: first in a plain body, but first *inside* an "you may …" / "you may pay …, if you do"
+    node — so declining the optional action never uses the turn's one performance up (Irreverent Gremlin,
+    Legolas). ``key`` names the ability (its own text), so two limited abilities on one permanent don't
+    share a turn.
+    """
+
+    def __init__(self, key: str = "", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.key = str(key)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        source = self.source
+        if source is not None and hasattr(source, "action_turns"):
+            source.action_turns[self.key] = context.state.internal_turn.number
+
+
 # ---------------------------------------------------------------------------
 # Concrete one-shot effects (RULE 608 resolution bodies)
 # ---------------------------------------------------------------------------

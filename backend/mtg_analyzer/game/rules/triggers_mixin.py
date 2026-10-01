@@ -1281,6 +1281,10 @@ class TriggerCollectionMixin:
         while queue:
             firing = queue.pop(0)
             ability, event = firing
+            if getattr(ability, "action_key", None) is not None and ability.action_used_this_turn(self.context):
+                # PAR-135: "Do this only once each turn" — already done; offering it again would only
+                # ask a question whose answer can no longer do anything.
+                continue
             if getattr(firing, "tap_offers", None) and self._open_doubler_tap_offer(firing, queue):
                 return
             if getattr(ability, "reflexive", False):

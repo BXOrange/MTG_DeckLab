@@ -6,10 +6,8 @@ claims 26 pure card-text-driven counter kinds (charge, oil, storage, …) —
 each verified to have *no* reader anywhere in `game/`, so the generic
 free-string `AddCountersEffect.kind` path models them completely.
 
-Keyword counters (RULE 122.1e — no layer-engine reader), subsystem
-counters (age / time / level / loyalty / lore / rad / energy) and
-replacement-carrying counters (stun / shield) stay out of the whitelist:
-they would half-model.
+Subsystem counters (age / time / level / loyalty / lore / rad / energy) stay reserved: they would
+half-model. (Keyword counters and stun/shield joined later — MEC-108, PAR-135.)
 """
 
 from __future__ import annotations
@@ -73,7 +71,8 @@ def test_subsystem_counter_stays_unclaimed():
     # the engine keys off these by name; a generic bump would half-model.
     assert match_clause("put an age counter on ~") is None
     assert match_clause("put a level counter on ~") is None
-    assert match_clause("put a stun counter on ~") is None
+    # `stun` joined the open kinds in PAR-135 once shield/stun were both engine-enforced.
+    assert match_clause("put a stun counter on ~") is not None
 
 
 # --- real cards -------------------------------------------------------------

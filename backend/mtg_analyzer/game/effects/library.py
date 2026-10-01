@@ -2472,10 +2472,23 @@ class AttachChosenEffect(GameEffect):
     `AttachEffect` assumes). Expressed with `GameEffect.extra_target_specs`,
     so both requirements are gathered through the ordinary RULE 115.1
     one-at-a-time machinery and arrive here flattened in printed order:
-    ``targets[0]`` is what moves, ``targets[1]`` is where it goes.
+    everything before the last pick is what moves, the last one is where it
+    goes.
 
     ``what_kind`` widens the first requirement for Halvar, whose clause is
     "target Aura **or** Equipment attached to a creature you control".
+
+    PAR-135 generalized the two halves independently. ``what_optional`` /
+    ``what_count`` are "up to one target Equipment" / "any number of target Equipment"
+    (Raubahn, Armory Automaton, Thorin); ``to_optional`` is "to up to one target creature"
+    (Iron Hills Stalwart). ``to_subject`` names a destination that is **not** a target —
+    the source itself (``"source"``: "attach target Equipment you control to ~", Kazuul's
+    Toll Collector), the object that fired a group trigger (``"trigger_subject"``: "…to
+    that creature", Sokka and Suki), the pick an earlier clause made (``"previous_target"``)
+    or an Aura/Equipment's host (``"attached_permanent"``) — the same subject vocabulary
+    `FightEffect` reads (`_IMPLICIT_FIGHT_SUBJECTS`), so such a clause announces only the
+    Equipment requirement. The destination is the last pick, so a declined optional
+    requirement can't shift which pick is which.
     """
 
     def __init__(
@@ -2483,19 +2496,39 @@ class AttachChosenEffect(GameEffect):
         what_kind: str = "equipment_you_control",
         to_kind: str = "creature_you_control",
         source: Optional["GameObject"] = None,
+        what_optional: bool = False,
+        what_count: int = 1,
+        to_optional: bool = False,
+        to_subject: Optional[str] = None,
+        creature_filter: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
-        self.target_spec = TargetSpec(kind=what_kind)
-        self.extra_target_specs = (TargetSpec(kind=to_kind),)
+        self.to_subject = to_subject
+        self.target_spec = TargetSpec(kind=what_kind, optional=what_optional, count=what_count)
+        if to_subject is None:
+            # ``creature_filter`` narrows the *destination* ("…to target attacking creature", "…to target
+            # Rebel you control"); the Equipment being moved has no filter of its own to carry.
+            self.extra_target_specs = (
+                TargetSpec(kind=to_kind, optional=to_optional, creature_filter=creature_filter),
+            )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        picks = list(targets or [])
-        if len(picks) < 2:
+        picks = [t for t in (targets or []) if t is not None]
+        if self.to_subject is None:
+            if len(picks) < 2:
+                return
+            *moving, host = picks
+        else:
+            host = _implicit_fight_subject(
+                None if self.to_subject == "source" else self.to_subject, self, context
+            )
+            moving = picks
+        if host is None:
             return
-        what, host = picks[0], picks[1]
-        if what is None or host is None:
-            return
-        context.attach_to_target(what, host)
+        for what in moving:
+            # RULE 301.5b: a spell or ability may attach an Equipment to a creature its controller
+            # doesn't control — control matters only to the equip ability itself.
+            context.attach_to_target(what, host, check_control=False)
 
 
 #: Subject names that are *not* a RULE 115 target choice — the five ways a

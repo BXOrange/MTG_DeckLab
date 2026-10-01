@@ -47,6 +47,7 @@ from .catalogue.opening_hand import (
     opening_hand_graveyard_permission_line,
 )
 from .catalogue.station import split_station_blocks, station_creature_threshold
+from .catalogue.handlers import ACTION_ONCE_PER_TURN_MARKER
 from .catalogue.static_handlers import commander_eligibility_line, deck_any_number_line
 from .normalize import normalize
 from .segmenter import (
@@ -56,7 +57,7 @@ from .segmenter import (
     parse_effect_body,
     segment_line,
 )
-from .spec import AbilitySpec, EffectSpec, ParserProvenance
+from .spec import AbilitySpec, EffectSpec, ParserProvenance, contains_marker, fold_action_limit
 
 MODELED = "MODELED"
 UNMODELED = "UNMODELED"
@@ -3788,7 +3789,20 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `<subtype/type>` in addition to its other types [until end of turn]" (a `grant_until` over a layer-4
 #: `type_change`, permanent = `rest_of_game`); "you may remove a `<kind>` counter from ~/it. When/If you do,
 #: …" (`pay_cost_then` whose cost comes off the source, `RulesEngine._source_counter_removal`).
-PARSER_VERSION = "561"
+#: 564 (PAR-135 + PAR-121): the named-counter kind is an open axis (`_NAMED_COUNTER_KIND` = any word minus
+#: `_RESERVED_COUNTER_KINDS`; `stun`/`shield` are engine-enforced, RULE 122.1c) and an asymmetric "+0/+1" counter
+#: is its own kind rather than a +1/+1 (layer 7c); "any target that isn't a `<subtype>`/commander" (a quality-tail
+#: slot + `creature_filter` on the `any` pool); "Do this only once each turn." as an *action* limit (a `seq` gated
+#: by `action_unused_this_turn`, with an `action_stamp` where the optional action is accepted — `spec.
+#: fold_action_limit`); "double its/target creature's power" (`PumpEffect.self_multiplier_stat`, group/attached
+#: pronoun rows); additive colours ("a black Zombie in addition to its other colors and types" — a layer-5 `color`
+#: static, and `CopyPermanentEffect.add_colors`); "target Equipment" as a target kind and `attach_chosen` from
+#: oracle text (chosen or implicit destination); "if it's tapped" after a targeting clause reads that pick, and
+#: "tap enchanted creature. … on it" reads the host; "has N or fewer `<kind>` counters" is an upper bound, and the
+#: kindless "has four or more counters on it" counts every kind (both used to read "or more" as a counter's name,
+#: a condition that never held). PAR-121 consolidated (0 of 39,639 clause readings changed): one verb × subject
+#: table, one certain-antecedent connective, one targeted-damage shape, one strict-subset row deleted.
+PARSER_VERSION = "564"
 
 
 def parser_source_hash() -> str:
@@ -4277,6 +4291,15 @@ def _opponents_batch_ok(spec: AbilitySpec) -> bool:
     if spec.ability_kind != "triggered" or not trigger.get("opponents_batch"):
         return True
     return trigger.get("event") != "DAMAGE" or bool(trigger.get("limit"))
+
+
+def _action_limit_ok(spec: AbilitySpec) -> bool:
+    """PAR-135: "Do this only once each turn" limits the action a *trigger* offers (`spec.fold_action_limit` turns
+    it into a gated `seq` with a stamp). On any other ability kind, or where no stamp can be placed, nothing
+    would honour the marker, so it fails closed rather than silently dropping the limit."""
+    if spec.ability_kind != "triggered":
+        return not contains_marker(spec.effects, ACTION_ONCE_PER_TURN_MARKER)
+    return fold_action_limit(spec.effects, ACTION_ONCE_PER_TURN_MARKER, spec.raw_text or "") is not None
 
 
 def _that_player_antecedent_ok(spec: AbilitySpec) -> bool:
@@ -5078,6 +5101,9 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             all_claimed = False
             unclaimed.append(spec.raw_text)
         if not _opponents_batch_ok(spec):
+            all_claimed = False
+            unclaimed.append(spec.raw_text)
+        if not _action_limit_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
 

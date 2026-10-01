@@ -35,13 +35,13 @@ def _creature(name, text, keywords=()):
     )
 
 
-# A body no handler models (a stun counter carries its own skip-untap replacement, so it has
-# no generic `add_counters` row — MEC-108 gave the keyword counters one, which these used to be).
+# A body no handler models (an age counter is read by name — cumulative upkeep — so it has no
+# generic `add_counters` row; PAR-135 opened the named-counter kinds that stun/feather etc. now use).
 UNMODELED_BODIES = [
-    ("Exhaust", "Exhaust — {3}: Put a stun counter on Mai."),
-    ("Power-up", "Power-up — {5}{W}{W}: Put a +1/+1 counter and a stun counter on Mai."),
-    ("Boast", "Boast — {1}: Put a stun counter on another target creature."),
-    ("Max speed", "Max speed — Mai has deathtouch. Put a stun counter on each creature you control."),
+    ("Exhaust", "Exhaust — {3}: Put an age counter on Mai."),
+    ("Power-up", "Power-up — {5}{W}{W}: Put a +1/+1 counter and an age counter on Mai."),
+    ("Boast", "Boast — {1}: Put an age counter on another target creature."),
+    ("Max speed", "Max speed — Mai has deathtouch. Put an age counter on each creature you control."),
 ]
 
 
@@ -72,7 +72,7 @@ def test_one_unparseable_exhaust_line_does_not_hide_behind_its_parseable_sibling
     # Audacious Knuckleblade's shape: three Exhaust lines, one unmodeled.
     result = parse_oracle(_creature(
         "Triple", "Exhaust — {R}: Creatures you control gain haste until end of turn.\n"
-        "Exhaust — {G}: Put a stun counter on this creature.",
+        "Exhaust — {G}: Put an age counter on this creature.",
         keywords=["Exhaust"]))
     assert result.coverage is not MODELED
 

@@ -298,7 +298,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | White Plume Adventurer | `At the beginning of each opponent's upkeep, untap a creature you control. if you've completed a dungeon, untap all creatures you control instead.` |  |
 | Wildfire Devils | `When ~ enters and at the beginning of your upkeep, choose a player at random. that player exiles an instant or sorcery card from their graveyard. copy that card. you may cast the copy without paying its mana cost.` |  |
 | Windswift Slice | `Target creature you control deals damage equal to its power to target creature you don't control. create a number of <n>/<n> green elf warrior creature tokens equal to the amount of excess damage dealt this way.` |  |
-| Wrathful Red Dragon | `Whenever a dragon you control is dealt damage, it deals that much damage to any target that isn't a dragon.` |  |
 | Y'shtola Rhul | `At the beginning of your end step, exile target creature you control, then return it to the battlefield under its owner's control. then if it's the first end step of the turn, there is an additional end step after this step.` |  |
 | Zameck Guildmage | `<cost>: this turn, each creature you control enters with an additional +<n>/+<n> counter on it.` |  |
 | Zombie Apocalypse | `Return all zombie creature cards from your graveyard to the battlefield tapped, then destroy all humans.` |  |
@@ -436,7 +435,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Gate to the Afterlife | `<cost>, <cost>, sacrifice ~: search your graveyard, hand, and/or library for a card named god-pharaoh's gift and put it onto the battlefield. if you search your library this way, shuffle. activate only if there are <n> or more creature cards in your graveyard.` |  |
 | Gempalm Polluter | `When you cycle this card, you may have target player lose life equal to the number of zombies on the battlefield.` |  |
 | Gravecrawler | `You may cast this card from your graveyard as long as you control a zombie.` | Also uncovered in: Commander Cube, Sultai Arisen - Tarkir: Dragonstorm Commander |
-| Liliana, Death's Majesty | `−<n>: return target creature card from your graveyard to the battlefield. that creature is a black zombie in addition to its other colors and types.` |  |
 | Lord of the Accursed | `<cost>, <cost>: all zombies gain menace until end of turn.` |  |
 | Lost Monarch of Ifnir | Compound gap — `At the beginning of your second main phase, if a player was dealt combat damage by a zombie this turn, mill <n> cards, then you may return a creature card from your graveyard to your hand.`; `Other zombies you control have afflict <n>.` |  |
 | Maskwood Nexus | `Creatures you control are every creature type. the same is true for creature spells you control and creature cards you own that aren't on the battlefield.` | Also uncovered in: Squirreled Away - Bloomburrow Commander |
@@ -459,7 +457,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Bident of Thassa | `<cost>, <cost>: creatures your opponents control attack this turn if able.` |  |
 | Boss's Chauffeur | `~ enters with a number of +<n>/+<n> counters on it equal to <n> plus the number of other creatures you control.` |  |
 | Cut a Deal | `Each opponent draws a card, then you draw a card for each opponent who drew a card this way.` | Also uncovered in: Scions & Spellcraft - Final Fantasy Commander |
-| Devilish Valet | `Whenever another creature you control enters, double ~'s power until end of turn.` |  |
 | Inferno Titan | `Whenever ~ enters or attacks, it deals <n> damage divided as you choose among <n>, <n>, or <n> targets.` | Also uncovered in: Riveteer Rampage - New Capenna Commander |
 | Jacked Rabbit | `Whenever ~ attacks, create a number of <n>/<n> white rabbit creature tokens equal to ~'s power.` |  |
 | Jazal Goldmane | `<cost>: attacking creatures you control get +x/+x until end of turn, where x is the number of attacking creatures.` |  |
@@ -539,7 +536,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Card | Gap | Notes |
 | --- | --- | --- |
 | Adaptive Training Post | Compound gap — `Remove <n> charge counters from ~: when you next cast an instant or sorcery spell this turn, copy it and you may choose new targets for the copy.`; `Whenever you cast an instant or sorcery spell, if ~ has fewer than <n> charge counters on it, put a charge counter on it.` |  |
-| Aligned Heart | `Whenever you cast your second spell each turn, put a rally counter on ~. then create a <n>/<n> white monk creature token with prowess for each rally counter on it.` |  |
 | Baral and Kari Zev | `Whenever you cast your first instant or sorcery spell each turn, you may cast a spell with lesser mana value that shares a card type with it from your hand without paying its mana cost. if you don't, create first mate ragavan, a legendary <n>/<n> red monkey pirate creature token. it gains haste until end of turn.` |  |
 | Baral's Expertise | `Return up to <n> target artifacts and/or creatures to their owners' hands.` | Also uncovered in: Commander Cube |
 | Compulsive Research | `Target player draws <n> cards. then that player discards <n> cards unless they discard a land card.` |  |
@@ -608,7 +604,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Armory Automaton | `Whenever ~ enters or attacks, you may attach any number of target equipment to it.` |  |
 | Avalanche of Sector 7 | `Whenever an opponent activates an ability of an artifact they control, ~ deals <n> damage to that player.` |  |
 | Barret Wallace | `Whenever ~ attacks, it deals damage equal to the number of equipped creatures you control to defending player.` |  |
 | Barret, Avalanche Leader | `At the beginning of combat on your turn, attach up to <n> target equipment you control to target rebel you control.` |  |
@@ -703,7 +698,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Ancient Cellarspawn | Compound gap — `Each spell you cast that's a demon, horror, or nightmare costs <cost> less to cast.`; `Whenever you cast a spell, if the amount of mana spent to cast it was less than its mana value, target opponent loses life equal to the difference.` |  |
 | Archetype of Imagination | `Creatures your opponents control lose flying and can't have or gain flying.` |  |
 | Arvinox, the Mind Flail | Compound gap — `~ isn't a creature unless you control <n> or more permanents you don't own.`; `At the beginning of your end step, exile the bottom card of each opponent's library face down. for as long as those cards remain exiled, you may look at them, you may cast permanent spells from among them, and you may spend mana as though it were mana of any color to cast those spells.` |  |
-| Athreos, Shroud-Veiled | `At the beginning of your end step, put a coin counter on another target creature.` |  |
 | Bottomless Pool // Locker Room | `When you unlock this door, return up to <n> target creature to its owner's hand.` |  |
 | Brainstone | `<cost>, <cost>, sacrifice ~: draw <n> cards, then put <n> cards from your hand on top of your library in any order.` |  |
 | Cramped Vents // Access Maze | `When you unlock this door, this room deals <n> damage to target creature an opponent controls. you gain life equal to the excess damage dealt this way.` |  |
@@ -713,7 +707,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Hall of Heliod's Generosity | `<cost>, <cost>: put target enchantment card from your graveyard on top of your library.` |  |
 | Metamorphosis Fanatic | `When ~ enters, return up to <n> target creature card from your graveyard to the battlefield with a lifelink counter on it.` |  |
 | Nightmare Shepherd | `Whenever another nontoken creature you control dies, you may exile it. if you do, create a token that's a copy of that creature, except it's <n>/<n> and it's a nightmare in addition to its other types.` |  |
-| Ondu Spiritdancer | `Whenever an enchantment you control enters, you may create a token that's a copy of it. do this only once each turn.` |  |
 | One with the Multiverse | `Once during each of your turns, you may cast a spell from your hand or the top of your library without paying its mana cost.` |  |
 | Phenomenon Investigators | Compound gap — `As ~ enters, choose believe or doubt.`; `• believe — whenever a nontoken creature you control dies, create a <n>/<n> black horror enchantment creature token.`; `• doubt — at the beginning of your end step, you may return a nonland permanent you own to your hand. if you do, draw a card.` |  |
 | Secret Arcade // Dusty Parlor | `Nonland permanents you control and permanent spells you control are enchantments in addition to their other types.` |  |
@@ -915,7 +908,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Kellan, the Kid | `Whenever you cast a spell from anywhere other than your hand, you may cast a permanent spell with equal or lesser mana value from your hand without paying its mana cost. if you don't, you may put a land card from your hand onto the battlefield.` |  |
 | Kethis, the Hidden Hand | Compound gap — `Exile <n> legendary cards from your graveyard: until end of turn, each legendary card in your graveyard gains ~`; `Legendary spells you cast cost <cost> less to cast.` |  |
 | Ramos, Dragon Engine | `Whenever you cast a spell, put a +<n>/+<n> counter on ~ for each of that spell's colors.` |  |
-| Ratadrabik of Urborg | `Whenever another legendary creature you control dies, create a token that's a copy of that creature, except it's not legendary and it's a <n>/<n> black zombie in addition to its other colors and types.` |  |
 | Serah Farron // Crystallized Serah | `The first legendary creature spell you cast each turn costs <cost> less to cast.` |  |
 | Shanid, Sleepers' Scourge | `Whenever you play a legendary land or cast a legendary spell, you draw a card and you lose <n> life.` |  |
 | Sisay, Weatherlight Captain | Compound gap — `<cost>: search your library for a legendary permanent card with mana value less than ~'s power, put that card onto the battlefield, then shuffle.`; `~ gets +<n>/+<n> for each color among other legendary permanents you control.` |  |
@@ -979,7 +971,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Breaching Dragonstorm | `When ~ enters, exile cards from the top of your library until you exile a nonland card. you may cast it without paying its mana cost if that spell's mana value is <n> or less. if you don't, put that card into your hand.` |  |
 | Broodcaller Scourge | `Whenever <n> or more dragons you control deal combat damage to a player, you may put a permanent card with mana value less than or equal to that damage from your hand onto the battlefield.` | Also uncovered in: Commander Cube |
 | Deceptive Frostkite | `You may have ~ enter as a copy of a creature you control with power <n> or greater, except it's a dragon in addition to its other types and it has flying.` |  |
-| Dragon's Hoard | `Whenever a dragon you control enters, put a gold counter on ~.` | Also uncovered in: Commander Cube |
 | Eshki, Temur's Roar | `Whenever you cast a creature spell, put a +<n>/+<n> counter on ~. if that spell's power is <n> or greater, draw a card. if that spell's power is <n> or greater, ~ deals damage equal to ~'s power to each opponent.` |  |
 | Gadrak, the Crown-Scourge | `At the beginning of your end step, create a treasure token for each nontoken creature that died this turn.` |  |
 | Glorybringer | `You may exert ~ as it attacks. when you do, it deals <n> damage to target non-dragon creature an opponent controls.` | Also uncovered in: Commander Cube |
@@ -1027,7 +1018,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Hidden Hideout | `<cost>, <cost>: target creature you control with a counter on it gains lifelink until end of turn.` |  |
 | High Score | `At the beginning of your end step, draw a card if you control a creature with the greatest power among creatures on the battlefield.` |  |
 | Irma, Part-Time Mutant | `At the beginning of combat on your turn, ~ becomes a copy of up to <n> other target creature you control, except her name is ~ and she has this ability. then put a +<n>/+<n> counter on her.` |  |
-| Leonardo, the Balance | `Whenever a token you control enters, you may put a +<n>/+<n> counter on each creature you control. do this only once each turn.` |  |
 | Michelangelo, the Heart | `Raid — at the beginning of your second main phase, if you attacked this turn, put a +<n>/+<n> counter on target creature and create a food token.` |  |
 | Mole Module | `Whenever ~ deals combat damage to a player, mill <n> cards. you may put a permanent card from among them onto the battlefield.` |  |
 | Ninja Pizza | `Foods you control have ~` |  |
@@ -1043,7 +1033,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Bulk Up | `Double target creature's power until end of turn.` |  |
 | Chameleon, Master of Disguise | `You may have ~ enter as a copy of a creature you control, except his name is ~.` |  |
 | Crystal Shard | `<cost>, <cost> or <cost>, <cost>: return target creature to its owner's hand unless its controller pays <cost>.` |  |
 | Demonspine Whip | `<cost>: equipped creature gets +x/+<n> until end of turn.` |  |
@@ -1053,7 +1042,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Siren's Ruse | `Exile target creature you control, then return that card to the battlefield under its owner's control. if a pirate was exiled this way, draw a card.` |  |
 | Teferi's Time Twist | `Exile target permanent you control. return that card to the battlefield under its owner's control at the beginning of the next end step. if it enters as a creature, it enters with an additional +<n>/+<n> counter on it.` | Also uncovered in: Commander Cube |
 | Turn Inside Out | `Target creature gets +<n>/+<n> until end of turn. when it dies this turn, manifest dread.` |  |
-| Unleash Fury | `Double the power of target creature until end of turn.` |  |
 | Water Wings | `Target creature you control has base power and toughness <n>/<n> and gains flying and hexproof until end of turn.` |  |
 | Wick, the Whorled Mind | Compound gap — `<cost>, sacrifice a snail: ~ deals damage equal to the sacrificed creature's power to each opponent. then draw cards equal to the sacrificed creature's power.`; `Whenever ~ or another rat you control enters, create a <n>/<n> black snail creature token if you don't control a snail. otherwise, put a +<n>/+<n> counter on a snail you control.` |  |
 | Wings of Velis Vel | `Target creature has base power and toughness <n>/<n>, gains all creature types, and gains flying until end of turn.` |  |

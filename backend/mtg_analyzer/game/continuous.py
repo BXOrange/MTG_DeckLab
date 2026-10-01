@@ -88,6 +88,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..models.game.player import Player
 
 
+#: An asymmetric P/T counter kind ("+0/+1", "-0/-2") — each half a signed delta per counter.
+_PT_COUNTER_KIND_RE = re.compile(r"([+-]\d+)/([+-]\d+)")
+
+
 def _signed(n: int) -> str:
     return f"+{n}" if n >= 0 else str(n)
 
@@ -3114,6 +3118,18 @@ def _apply_layer_7_pt(
                 base[obj.instance_id][1] += counters
                 p, t = base[obj.instance_id]
                 _trace(obj, 7, "+1/+1-Marken", f"{_signed(counters)}/{_signed(counters)}",
+                       p, t, duration="permanent")
+            # RULE 122.1a: any other "+a/+b" counter ("+0/+1" — Coral Reef, Shield Sphere;
+            # "-0/-2" — Spirit Shackle) is its own kind, each one worth its printed delta.
+            for kind, amount in obj.counters.items():
+                pt_delta = _PT_COUNTER_KIND_RE.fullmatch(kind)
+                if pt_delta is None or kind in ("+1/+1", "-1/-1") or amount <= 0:
+                    continue
+                d_power, d_toughness = int(pt_delta.group(1)) * amount, int(pt_delta.group(2)) * amount
+                base[obj.instance_id][0] += d_power
+                base[obj.instance_id][1] += d_toughness
+                p, t = base[obj.instance_id]
+                _trace(obj, 7, f"{kind}-Marken", f"{_signed(d_power)}/{_signed(d_toughness)}",
                        p, t, duration="permanent")
 
     # 7d: modify (but don't set) power/toughness — anthems, including a

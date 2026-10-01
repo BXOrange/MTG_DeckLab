@@ -402,17 +402,23 @@ def _multi_target_params(m: re.Match[str], allow_spell: bool = False) -> Optiona
     return params
 
 
-def _damage(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+def _targeted_damage(m: re.Match[str], **amount: Any) -> Optional[list[EffectSpec]]:
+    """The one `damage` spec every "deals `<amount>` damage to `<target>`" row emits (PAR-121): the amount
+    it names, the resolved target kind, "up to one", and the creature qualifier `resolve_target_kind`
+    discards ("deals N damage to target **tapped** creature", "…to any target **that isn't a Dinosaur**"),
+    merged here once instead of in a copy per amount spelling."""
     kind = resolve_target_kind(m.group("target"))
     if kind is None:
         return None
-    params: dict = {"amount": int(m.group("n")), "target_kind": kind, **_optional_param(m)}
-    # See `_destroy`'s own comment: "deals N damage to target tapped
-    # creature" needs the same qualifier `resolve_target_kind` discards.
+    params: dict = {**amount, "target_kind": kind, **_optional_param(m)}
     state_filter = resolve_target_creature_state_filter(m.group("target"))
     if state_filter:
         params["creature_filter"] = state_filter
     return [EffectSpec("damage", params)]
+
+
+def _damage(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return _targeted_damage(m, amount=int(m.group("n")))
 
 
 def _damage_that_much(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -423,28 +429,11 @@ def _damage_that_much(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     event's concrete payload field and fail-closes spells/activations or a
     trigger without a numeric antecedent.
     """
-    kind = resolve_target_kind(m.group("target"))
-    if kind is None:
-        return None
-    params: dict = {
-        "amount_from_trigger_event": "that_much", "target_kind": kind,
-        **_optional_param(m),
-    }
-    state_filter = resolve_target_creature_state_filter(m.group("target"))
-    if state_filter:
-        params["creature_filter"] = state_filter
-    return [EffectSpec("damage", params)]
+    return _targeted_damage(m, amount_from_trigger_event="that_much")
 
 
 def _damage_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    kind = resolve_target_kind(m.group("target"))
-    if kind is None:
-        return None
-    params: dict = {"amount": "x", "target_kind": kind, **_optional_param(m)}
-    state_filter = resolve_target_creature_state_filter(m.group("target"))
-    if state_filter:
-        params["creature_filter"] = state_filter
-    return [EffectSpec("damage", params)]
+    return _targeted_damage(m, amount="x")
 
 
 _DAMAGE_X_SOURCE_COUNTERS_RE = _c(
@@ -476,13 +465,7 @@ def _damage_x_defending_player_hand(m: re.Match[str]) -> list[EffectSpec]:
 
 
 def _damage_spell_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    kind = resolve_target_kind(m.group("target"))
-    if kind is None:
-        return None
-    return [EffectSpec("damage", {
-        "amount_from_trigger_event": "mana_value", "target_kind": kind,
-        **_optional_param(m),
-    })]
+    return _targeted_damage(m, amount_from_trigger_event="mana_value")
 
 
 #: "~ [also] deals N damage to **that creature's controller**" — the
@@ -624,7 +607,8 @@ _COPY_EXCEPT_PT_RE = re.compile(
     # "…except it's a 3/3 black Wraith **with menace**" (Sauron, the
     # Necromancer) — a keyword the copy carries, not a subtype.
     r"(?:\s+with (?P<kw>[a-z][a-z, ]*?))?"
-    r"(?:\s+in addition to its other types)?",
+    # PAR-135: "…in addition to its other **colors and** types" adds the colour rather than replacing it.
+    r"(?:\s+in addition to its other (?P<colors_too>colors and )?types)?",
     re.IGNORECASE,
 )
 
@@ -684,7 +668,7 @@ def _copy_except_modifier(piece: str) -> Optional[dict]:
             out["set_power"] = int(pt.group("p"))
             out["set_toughness"] = int(pt.group("t"))
         if colors:
-            out["set_colors"] = colors
+            out["add_colors" if pt.group("colors_too") else "set_colors"] = colors
         add_types: list[str] = []
         if is_artifact:
             add_types.append("Artifact")
@@ -721,7 +705,8 @@ def _copy_except_modifier(piece: str) -> Optional[dict]:
 def _parse_copy_except_tail(tail: str) -> Optional[dict]:
     pieces: list[str] = []
     for chunk in re.split(r",\s*", tail.strip()):
-        pieces.extend(p for p in re.split(r"\s+and\s+", chunk) if p.strip())
+        # "…in addition to its other colors **and types**" is one phrase, not a connector (PAR-135).
+        pieces.extend(p for p in re.split(r"\s+and\s+(?!types\b)", chunk) if p.strip())
     if not pieces:
         return None
     merged: dict = {}
@@ -2758,16 +2743,6 @@ def _its_controller_mills_eq_power(m: re.Match[str]) -> list[EffectSpec]:
 _ENTERING_CONTROLLER: dict = {"of": "entering", "as": "controller"}
 
 
-def _group_its_controller_loses_life(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("lose_life", {
-        "amount": int(m.group("n")), "player": _ENTERING_CONTROLLER,
-    })]
-
-
-def _group_its_controller_gains_life(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("gain_life", {
-        "amount": int(m.group("n")), "player": _ENTERING_CONTROLLER,
-    })]
 
 
 #: "whenever a Sliver deals damage, its controller gains that much life."
@@ -2780,28 +2755,8 @@ def _group_its_controller_gains_life(m: re.Match[str]) -> list[EffectSpec]:
 _ITS_CONTROLLER_GAINS_THAT_MUCH_LIFE_RE = _c(r"its controller gains that much life")
 
 
-def _group_its_controller_gains_that_much_life(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("gain_life", {
-        "amount_from_trigger_event": "amount", "player": _ENTERING_CONTROLLER,
-    })]
 
 
-def _group_its_controller_draws(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("draw", {
-        "count": count_or_x_of(m.group("n")), "player": _ENTERING_CONTROLLER,
-    })]
-
-
-def _group_its_controller_discards(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("discard", {
-        "count": count_of(m.group("n")), "player": _ENTERING_CONTROLLER,
-    })]
-
-
-def _group_its_controller_mills(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("mill", {
-        "count": count_of(m.group("n")), "selector": "trigger_subject_controller",
-    })]
 
 
 #: PAR-117 (attached-permanent-controller residue): "whenever enchanted
@@ -2826,34 +2781,9 @@ def _group_its_controller_mills(m: re.Match[str]) -> list[EffectSpec]:
 _ATTACHED_CONTROLLER: dict = {"of": "attached", "as": "controller"}
 
 
-def _attached_its_controller_loses_life(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("lose_life", {
-        "amount": int(m.group("n")), "player": _ATTACHED_CONTROLLER,
-    })]
 
 
-def _attached_its_controller_gains_life(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("gain_life", {
-        "amount": int(m.group("n")), "player": _ATTACHED_CONTROLLER,
-    })]
 
-
-def _attached_its_controller_draws(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("draw", {
-        "count": count_or_x_of(m.group("n")), "player": _ATTACHED_CONTROLLER,
-    })]
-
-
-def _attached_its_controller_discards(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("discard", {
-        "count": count_of(m.group("n")), "player": _ATTACHED_CONTROLLER,
-    })]
-
-
-def _attached_its_controller_mills(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("mill", {
-        "count": count_of(m.group("n")), "selector": "attached_permanent_controller",
-    })]
 
 
 #: "whenever enchanted creature is dealt damage / deals damage, its
@@ -2864,11 +2794,6 @@ def _attached_its_controller_mills(m: re.Match[str]) -> list[EffectSpec]:
 #: their attached-host-controller sibling.
 _ITS_CONTROLLER_LOSES_THAT_MUCH_LIFE_RE = _c(r"its controller loses that much life")
 
-
-def _attached_its_controller_loses_that_much_life(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("lose_life", {
-        "amount_from_trigger_event": "amount", "player": _ATTACHED_CONTROLLER,
-    })]
 
 
 #: PAR-117 (sacrifice-verb residue): "its controller sacrifices `<N>`
@@ -2908,18 +2833,69 @@ def _its_controller_sacrifices_params(m: re.Match[str]) -> Optional[dict]:
     return {"what": what, "count": 1 if count_word in ("a", "an") else int(count_word)}
 
 
-def _attached_its_controller_sacrifices(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    params = _its_controller_sacrifices_params(m)
-    if params is None:
-        return None
-    return [EffectSpec("sacrifice", {**params, "player": _ATTACHED_CONTROLLER})]
 
 
-def _group_its_controller_sacrifices(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    params = _its_controller_sacrifices_params(m)
-    if params is None:
-        return None
-    return [EffectSpec("sacrifice", {**params, "player": _ENTERING_CONTROLLER})]
+#: PAR-121: "its controller `<verb>` …" — the verb × subject matrix. The same clause text reads as the controller
+#: of the creature a group trigger fired for (``group``, `_ENTERING_CONTROLLER`; Poisonbelly Ogre-shaped) or of an
+#: Aura's host (``attached``, `_ATTACHED_CONTROLLER`; Contaminated Bond-shaped) — the two referents differ only
+#: in the operand a player-scoped effect reads (and the `MillEffect` selector sibling), so each verb is built once
+#: from ``(player operand, mill selector)`` instead of once per subject. The third reading ("its" = an earlier
+#: clause's pick, ``previous``) has its own builders above because it resolves through `previous_targets`.
+#: "that much" is the firing DAMAGE event's own ``amount`` (Essence Sliver's "gains", Ragged Veins' "loses" —
+#: each printed off a different subject only, so each polarity exists for one).
+_ITS_CONTROLLER_SUBJECTS: dict[str, tuple[dict, str]] = {
+    "group": (_ENTERING_CONTROLLER, "trigger_subject_controller"),
+    "attached": (_ATTACHED_CONTROLLER, "attached_permanent_controller"),
+}
+
+
+def _its_controller_spec(verb: str, m: re.Match[str], player: dict, mill_selector: str) -> Optional[list[EffectSpec]]:
+    if verb == "loses_life":
+        return [EffectSpec("lose_life", {"amount": int(m.group("n")), "player": player})]
+    if verb == "gains_life":
+        return [EffectSpec("gain_life", {"amount": int(m.group("n")), "player": player})]
+    if verb == "loses_that_much_life":
+        return [EffectSpec("lose_life", {"amount_from_trigger_event": "amount", "player": player})]
+    if verb == "gains_that_much_life":
+        return [EffectSpec("gain_life", {"amount_from_trigger_event": "amount", "player": player})]
+    if verb == "draws":
+        return [EffectSpec("draw", {"count": count_or_x_of(m.group("n")), "player": player})]
+    if verb == "discards":
+        return [EffectSpec("discard", {"count": count_of(m.group("n")), "player": player})]
+    if verb == "mills":
+        return [EffectSpec("mill", {"count": count_of(m.group("n")), "selector": mill_selector})]
+    if verb == "sacrifices":
+        params = _its_controller_sacrifices_params(m)
+        return None if params is None else [EffectSpec("sacrifice", {**params, "player": player})]
+    return None
+
+
+def _its_controller_handlers() -> list[EffectHandler]:
+    """One row per (subject, verb) the printed cards use, in the order the rows were first written."""
+    regexes = {
+        "loses_life": _ITS_CONTROLLER_LOSES_LIFE_RE,
+        "gains_life": _ITS_CONTROLLER_GAINS_LIFE_RE,
+        "loses_that_much_life": _ITS_CONTROLLER_LOSES_THAT_MUCH_LIFE_RE,
+        "gains_that_much_life": _ITS_CONTROLLER_GAINS_THAT_MUCH_LIFE_RE,
+        "draws": _ITS_CONTROLLER_DRAWS_RE,
+        "discards": _ITS_CONTROLLER_DISCARDS_RE,
+        "mills": _ITS_CONTROLLER_MILLS_RE,
+        "sacrifices": _ITS_CONTROLLER_SACRIFICES_RE,
+    }
+    matrix = (
+        ("group", ("loses_life", "gains_life", "gains_that_much_life", "draws", "discards", "mills", "sacrifices")),
+        ("attached", ("loses_life", "loses_that_much_life", "gains_life", "draws", "discards", "mills", "sacrifices")),
+    )
+    rows = []
+    for subject, verbs in matrix:
+        player, mill_selector = _ITS_CONTROLLER_SUBJECTS[subject]
+        for verb in verbs:
+            rows.append((
+                f"{subject}_its_controller_{verb}", subject, regexes[verb],
+                lambda m, verb=verb, player=player, mill_selector=mill_selector:
+                    _its_controller_spec(verb, m, player, mill_selector),
+            ))
+    return _subject_handlers(rows)
 
 
 #: "Whenever a player casts a spell, they lose 1 life for each spell
@@ -6169,6 +6145,65 @@ def _attach(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("attach", {"target_kind": kind})]
 
 
+#: PAR-135: "attach target Equipment [you control] to target creature [you control]" (Magnetic Theft,
+#: Auriok Windwalker, Kor Outfitter) and its variants — `AttachChosenEffect`, the two-requirement
+#: effect Brass Squire and Halvar were hand-authored onto. The *moved* half is "[up to one |any number of]
+#: target Equipment"; the destination is a second target ("to up to one target creature you control",
+#: "to target attacking creature") or not a target at all ("to ~", "to it" under a self/group/attached
+#: subject, "to that creature" after an earlier pick) — `to_subject`, the vocabulary `FightEffect` reads.
+_ATTACH_WHAT = rf"(?:(?P<any_number>any number of )(?P<multi>target equipment(?: you control)?)|{TARGET})"
+_ATTACH_TO_TARGET_KINDS: frozenset[str] = frozenset(
+    {"creature", "creature_you_control", "creature_you_dont_control", "other_creature_you_control"}
+)
+_ATTACH_WHAT_KINDS: frozenset[str] = frozenset({
+    "equipment", "equipment_you_control", "equipment_you_dont_control", "equipment_that_player_controls",
+})
+
+
+def _attach_what_params(m: re.Match[str]) -> Optional[dict]:
+    """The moved Equipment's half of an `attach_chosen` clause."""
+    if m.group("multi"):
+        kind = resolve_target_kind(m.group("multi"))
+        params: dict = {"what_count": _ANY_NUMBER_TARGET_CAP, "what_optional": True}
+    else:
+        kind = resolve_target_kind(m.group("target"))
+        params = {"what_optional": True} if target_is_optional(m) else {}
+    if kind not in _ATTACH_WHAT_KINDS:
+        return None
+    return {"what_kind": kind, **params}
+
+
+def _attach_chosen_to_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _attach_what_params(m)
+    to_kind = resolve_target_kind(m.group("target_b"))
+    if params is None or not target_kind_allowed(to_kind, _ATTACH_TO_TARGET_KINDS):
+        return None
+    params["to_kind"] = to_kind
+    if target_is_optional(m, "_b"):
+        params["to_optional"] = True
+    filt = resolve_target_creature_state_filter(m.group("target_b"))
+    if filt:
+        params["creature_filter"] = filt
+    return [EffectSpec("attach_chosen", params)]
+
+
+def _attach_chosen_to_subject(subject: str):
+    def build(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+        params = _attach_what_params(m)
+        if params is None:
+            return None
+        return [EffectSpec("attach_chosen", {**params, "to_subject": subject})]
+
+    return build
+
+
+_ATTACH_CHOSEN_TO_TARGET_RE = _c(rf"attach {_ATTACH_WHAT} to {target_macro('_b')}")
+_ATTACH_CHOSEN_TO_SOURCE_RE = _c(rf"attach {_ATTACH_WHAT} to ~")
+_ATTACH_CHOSEN_TO_PRONOUN_RE = _c(rf"attach {_ATTACH_WHAT} to (?:it|her|him)")
+_ATTACH_CHOSEN_TO_THAT_RE = _c(rf"attach {_ATTACH_WHAT} to (?:it|that creature)")
+_ATTACH_CHOSEN_TO_IT_RE = _c(rf"attach {_ATTACH_WHAT} to it")
+
+
 # --- RULE 701.14 fight ------------------------------------------------------
 # "Target creature you control fights target creature you don't control."
 # (Prey Upon), "it fights up to one target creature you don't control."
@@ -7645,6 +7680,19 @@ def _trigger_once_per_turn(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec(TRIGGER_ONCE_PER_TURN_MARKER, {})]
 
 
+#: PAR-135: "…, you may draw a card. **Do this only once each turn.**" — the once-per-turn limit on the
+#: *action* a trigger offers, not on the trigger: it still triggers every time, the controller just can't
+#: perform the optional action a second time this turn, and declining the first doesn't use it up. So it is
+#: not `TRIGGER_ONCE_PER_TURN_MARKER` (Ondu Spiritdancer, Irreverent Gremlin). The binder strips the marker
+#: into `TriggeredAbility.action_once_per_turn`; `gate._action_limit_ok` refuses it anywhere else.
+ACTION_ONCE_PER_TURN_MARKER = "action_once_per_turn_marker"
+_ACTION_ONCE_PER_TURN_RE = _c(r"do this only once each turn")
+
+
+def _action_once_per_turn(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec(ACTION_ONCE_PER_TURN_MARKER, {})]
+
+
 #: RULE 602.5d timing restriction: "Activate only as a sorcery." (older
 #: template) / "Activate this ability only any time you could cast a sorcery."
 #: (current) — like `ONCE_PER_TURN_MARKER`, a trailing sentence in the
@@ -8517,19 +8565,25 @@ def _counter_sign(token: str) -> str:
     return "-1/-1" if token.lstrip()[0] in "-−" else "+1/+1"
 
 
+#: A "±N/±M" P/T counter token (RULE 122.1a). The engine keeps P/T counters as plain kind
+#: strings: "+1/+1" and "-1/-1" are the net `GameObject.plus_one_counters` pair, and any other
+#: "+a/+b" is an ordinary counter kind that layer 7c adds its own delta for
+#: (`continuous._apply_pt_counters`) — so "+0/+1" (Coral Reef, Shield Sphere) is exactly that,
+#: not a +1/+1 counter that would have handed the creature power it never had.
+_PT_COUNTER_TOKEN = r"[+\-−]\d+/[+\-−]\d+"
+
+
 def _counter_kind_and_multiplier(token: str) -> tuple[str, int]:
-    """A "±N/±N" counter token → ``("+1/+1" | "-1/-1", N)``. **Documented
-    simplification:** a genuine "+2/+2 counter" (Baron Sengir, RULE 122.1c —
-    one counter worth +2/+2) is modeled as *two* +1/+1 counters — identical
-    for net P/T, differing only for a later "remove a +1/+1 counter" / "has
-    a +1/+1 counter" reading. Asymmetric tokens ("+2/+0") have no real card
-    on this shape and fall back to magnitude 1."""
+    """A "±N/±M" counter token → ``(kind, count multiplier)``. **Documented simplification:**
+    a symmetric "+2/+2 counter" (Baron Sengir, RULE 122.1c — one counter worth +2/+2) is
+    modeled as *two* +1/+1 counters — identical for net P/T, differing only for a later
+    "remove a +1/+1 counter" / "has a +1/+1 counter" reading. An asymmetric one is its own
+    counter kind, spelled with an ASCII sign ("+0/+1"), one counter each."""
     sign = _counter_sign(token)
-    mag = 1
-    m = re.match(r"\s*[+\-−](\d)/[+\-−](\d)", token)
+    m = re.match(r"\s*[+\-−](\d+)/[+\-−](\d+)", token)
     if m and m.group(1) == m.group(2):
-        mag = max(1, int(m.group(1)))
-    return sign, mag
+        return sign, max(1, int(m.group(1)))
+    return token.strip().replace("−", "-"), 1
 
 
 def _add_counters_target_params(
@@ -8635,7 +8689,7 @@ def _transfer_event_counters(m: re.Match[str]) -> list[EffectSpec]:
 #: handler can't know the field name itself (``instance_id`` vs. `DAMAGE`'s
 #: own ``source_id``), only that the clause is a group-subject "it".
 _ADD_COUNTERS_GROUP_SUBJECT_IT_RE = _c(
-    rf"put {COUNT} (?P<ckind>[+\-−]\d/[+\-−]\d) counters? on it"
+    rf"put {COUNT} (?P<ckind>{_PT_COUNTER_TOKEN}) counters? on it"
 )
 
 
@@ -8732,38 +8786,30 @@ def _add_counters_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return _add_counters_target_params(m, params, include_optional=False)
 
 
-#: RULE 122.1's *named* (non-P/T) counter kinds this grammar recognizes for
-#: the plain "put a `<kind>` counter on X" shape. Kept as a wholly separate
-#: row from `_add_counters`'s own `[+\-−]1/[+\-−]1` `ckind` group rather
-#: than widening that regex's alternation — `_add_counters`'s builder maps
-#: *any* non-`-`-prefixed match to `"+1/+1"`, so a shared group would have
-#: silently mis-typed "spore" as a P/T counter. `AddCountersEffect.kind` is
-#: already a free string (RULE 122.1a — any permanent, any named counter
-#: type), so no engine change is needed, only this parser recognition.
+#: RULE 122.1's *named* (non-P/T) counter kinds: the plain "put a `<kind>` counter on X"
+#: shape and every row that shares its kind vocabulary. `AddCountersEffect.kind` is a free
+#: string (RULE 122.1a — any permanent, any named counter type), so a pure card-text tracker
+#: ("spore", "feather", "bloodstain") needs no engine change and **the kind is an open axis**
+#: (PAR-135) — a closed list of the tracker words printed so far kept missing the next set's.
 #:
-#: Still an explicit fail-closed whitelist (not a bare `[a-z-]+`) because
-#: two counter families need *more* than a generic `obj.counters[kind]`
-#: bump and would half-model if they slipped through here: the **subsystem**
-#: counters the
-#: engine keys off by name (`age` cumulative-upkeep, `time` vanishing/
-#: fading, `level` leveler, `loyalty` planeswalker, `lore` Saga, `rad`,
-#: `energy`), and the **replacement-carrying** ones (`stun` skip-untap,
-#: `shield`). Every kind listed here was checked to have no reader anywhere
-#: in `game/` — it's a pure card-text-driven count tracker — bar the RULE
-#: 122.1b **keyword counters** (MEC-108), whose reader is the layer engine's
-#: `KEYWORD_COUNTER_SLUGS` pass.
-_NAMED_COUNTER_KINDS: frozenset[str] = frozenset({
-    "spore", "burden", "quest",
-    "charge", "oil", "storage", "verse", "ki", "page", "plan", "soul",
-    "fuse", "depletion", "flood", "bounty", "brick", "study", "plague",
-    "doom", "growth", "point", "infection", "hatchling", "pressure",
-    "slime", "tide", "ice", "flame", "hour", "hoofprint", "arrow",
-    # PAR-128: pure card-text trackers (no reader in `game/`).
-    "impostor", "hone",
-    # MEC-108 / RULE 122.1b: keyword counters — `continuous.KEYWORD_COUNTER_SLUGS`
-    # is the layer-6 reader that makes each one grant its keyword.
-    *KEYWORD_COUNTER_KINDS,
-})
+#: What is *not* open is the small set whose name the engine itself keys off, where a generic
+#: `obj.counters[kind]` bump would half-model: the subsystem counters (`time` vanishing/
+#: suspend, `age` cumulative upkeep, `fade` fading, `level` leveler, `loyalty` planeswalker,
+#: `lore` Saga, `defense` battle), the player counters (`rad`, `energy`, `experience`,
+#: `poison`) and the RULE 122.1b keyword counters no layer reader exists for (`decayed`,
+#: `exalted`). `stun` (RULE 122.1c, `set_tapped`) and `shield` (RULE 122.1c,
+#: `deal_damage`/`destroy`) carry replacement effects, and both are engine-enforced now, so
+#: they are ordinary members. A test (`test_par135_named_counters.py`) scans `game/` for
+#: counter-kind literals so a *new* reader can't slip in unreserved.
+_RESERVED_COUNTER_KINDS: tuple[str, ...] = (
+    "time", "age", "fade", "level", "loyalty", "lore", "defense",
+    "rad", "energy", "experience", "poison", "decayed", "exalted", "finality", "ticket",
+)
+#: Multi-word RULE 122.1b keyword kinds first, so "first strike" isn't read as kind "first".
+_NAMED_COUNTER_KIND = (
+    rf"(?!(?:{'|'.join(_RESERVED_COUNTER_KINDS)})\b)"
+    rf"(?:{'|'.join(sorted(KEYWORD_COUNTER_KINDS, key=len, reverse=True))}|[a-z]+)"
+)
 #: `COUNT_X` (not the plain `COUNT`) so an {X}-costed activated ability's
 #: own "put X charge counters on ~" (Blast Zone, Ventifact Bottle — PAR-47)
 #: is recognized too: the "x" token becomes `EffectSpec`'s literal ``"x"``
@@ -8772,7 +8818,7 @@ _NAMED_COUNTER_KINDS: frozenset[str] = frozenset({
 #: ability's actually-announced {X} at resolve time — the exact mechanism
 #: `_pump_x` already relies on for "gets +x/+x", not a new one.
 _ADD_NAMED_COUNTER_RE = _c(
-    rf"put {COUNT_X} (?P<ckind>{'|'.join(_NAMED_COUNTER_KINDS)}) counters? on "
+    rf"put {COUNT_X} (?P<ckind>{_NAMED_COUNTER_KIND}) counters? on "
     rf"(?:{TARGET}|(?P<selfref>{_SELF_SUBJECT}))"
 )
 
@@ -8782,7 +8828,7 @@ _ADD_NAMED_COUNTER_RE = _c(
 #: a named counter on a mass group (`AddCountersEffect.group`, the group read
 #: through the shared `parse_count_phrase` grammar).
 _ADD_NAMED_COUNTER_GROUP_RE = _c(
-    rf"put {COUNT_X} (?P<ckind>{'|'.join(_NAMED_COUNTER_KINDS)}) counters? on each (?P<group>[a-z' -]+?)"
+    rf"put {COUNT_X} (?P<ckind>{_NAMED_COUNTER_KIND}) counters? on each (?P<group>[a-z' -]+?)"
 )
 
 
@@ -8808,7 +8854,7 @@ def _add_named_counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: `add_counters` per kind: the first carries the recipient (target or self),
 #: the rest re-read it (`previous_subject`, the RULE 608.2 referent the first
 #: one's target seeds) so a single RULE 115 target serves the whole list.
-_COUNTER_LIST_KIND = rf"[+\-−]\d/[+\-−]\d|{'|'.join(_NAMED_COUNTER_KINDS)}"
+_COUNTER_LIST_KIND = rf"{_PT_COUNTER_TOKEN}|{_NAMED_COUNTER_KIND}"
 _COUNTER_LIST_ITEM = rf"(?:a|an|\d+) (?:{_COUNTER_LIST_KIND}) counters?"
 _COUNTER_LIST_PART_RE = re.compile(rf"(?P<n>a|an|\d+) (?P<ckind>{_COUNTER_LIST_KIND}) counters?")
 _ADD_COUNTER_LIST_RE = _c(
@@ -8843,7 +8889,7 @@ def _add_counter_list(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: `AddCountersEffect.choose_one` over the structured group selector the shared count-phrase grammar
 #: already reads; "another" is that grammar's "other" (excludes the source).
 _ADD_COUNTER_PICK_RE = _c(
-    rf"put {COUNT} (?P<ckind>[+\-−]1/[+\-−]1|{'|'.join(_NAMED_COUNTER_KINDS)}) counters? on "
+    rf"put {COUNT} (?P<ckind>[+\-−]1/[+\-−]1|{_NAMED_COUNTER_KIND}) counters? on "
     r"(?:an? |(?P<other>another|other) )(?P<group>[a-z' -]+? you control)"
 )
 
@@ -8867,7 +8913,7 @@ def _add_counter_pick(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: up to 1 other target artifact" (Inspirit) — one `add_counters` whose
 #: ``kind_options`` the controller picks from at resolution.
 _ADD_COUNTER_CHOICE_RE = _c(
-    r"put your choice of " + counter_choice_list("|".join(_NAMED_COUNTER_KINDS))
+    r"put your choice of " + counter_choice_list(_NAMED_COUNTER_KIND)
     + rf" on (?:{TARGET}|(?P<selfref>{_SELF_SUBJECT}))"
 )
 
@@ -8884,7 +8930,7 @@ def _add_counter_choice(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: *cost* (`cost_text._REMOVE_COUNTERS_RE`); untargeted, the source's own
 #: counters, exactly ``count`` of one kind (none on it: nothing happens).
 _REMOVE_NAMED_COUNTER_SELF_RE = _c(
-    rf"remove {COUNT} (?P<ckind>{'|'.join(_NAMED_COUNTER_KINDS)}|[+\-−]1/[+\-−]1) "
+    rf"remove {COUNT} (?P<ckind>{_NAMED_COUNTER_KIND}|[+\-−]1/[+\-−]1) "
     rf"counters? from (?P<selfref>{_SELF_SUBJECT})"
 )
 
@@ -9543,48 +9589,63 @@ _DOUBLE_PT_MULTIPLIERS: dict[str, int] = {"double": 2, "triple": 3}
 _DOUBLE_PT_TARGET_KINDS = frozenset(
     {"creature", "creature_you_control", "creature_you_dont_control"}
 )
+#: PAR-135: which half of the stats "double"/"triple" scales — a slot of the four rows below, not a row per
+#: wording ("double target creature's power", Bulk Up; "double its power", Death Kiss — 11 cards).
+_DOUBLE_STAT = r"(?P<stat>power and toughness|power|toughness)"
+_DOUBLE_STAT_PARAM: dict[str, str] = {"power and toughness": "both", "power": "power", "toughness": "toughness"}
+
+
+def _double_pump(m: re.Match[str], params: dict) -> Optional[list[EffectSpec]]:
+    """The one `pump` every double/triple row emits: its multiplier, plus the stat slot."""
+    mult = _DOUBLE_PT_MULTIPLIERS.get(m.group("mult"))
+    if mult is None:
+        return None
+    params = {**params, "self_multiplier": mult}
+    stat = _DOUBLE_STAT_PARAM[m.group("stat").lower()]
+    if stat != "both":
+        params["self_multiplier_stat"] = stat
+    return [EffectSpec("pump", params)]
+
+
+_DOUBLE_PRONOUN_RE = _c(rf"(?P<mult>double|triple) its {_DOUBLE_STAT} until end of turn")
 
 
 def _double_pt_of(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    mult = _DOUBLE_PT_MULTIPLIERS.get(m.group("mult"))
-    if mult is None:
-        return None
     if m.groupdict().get("each_group"):
-        return [EffectSpec("pump", {"selector": "creatures_you_control", "self_multiplier": mult})]
+        return _double_pump(m, {"selector": "creatures_you_control"})
     kind = resolve_target_kind(m.group("target"))
     if not target_kind_allowed(kind, _DOUBLE_PT_TARGET_KINDS):
         return None
-    return [EffectSpec("pump", {
-        "target_kind": kind, "self_multiplier": mult, **_optional_param(m),
-    })]
+    return _double_pump(m, {"target_kind": kind, **_optional_param(m)})
 
 
 def _double_pt_possessive(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    mult = _DOUBLE_PT_MULTIPLIERS.get(m.group("mult"))
-    if mult is None:
-        return None
     if m.groupdict().get("selfposs"):
-        return [EffectSpec("pump", {"self_multiplier": mult})]
+        return _double_pump(m, {})
     kind = resolve_target_kind(m.group("target"))
     if not target_kind_allowed(kind, _DOUBLE_PT_TARGET_KINDS):
         return None
-    return [EffectSpec("pump", {
-        "target_kind": kind, "self_multiplier": mult, **_optional_param(m),
-    })]
+    return _double_pump(m, {"target_kind": kind, **_optional_param(m)})
 
 
 def _double_pt_pronoun(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    mult = _DOUBLE_PT_MULTIPLIERS.get(m.group("mult"))
-    if mult is None:
-        return None
-    return [EffectSpec("pump", {"self_multiplier": mult})]
+    return _double_pump(m, {})
 
 
 def _double_pt_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    mult = _DOUBLE_PT_MULTIPLIERS.get(m.group("mult"))
-    if mult is None:
-        return None
-    return [EffectSpec("pump", {"self_multiplier": mult, "previous_subject": True})]
+    return _double_pump(m, {"previous_subject": True})
+
+
+def _double_pt_attached(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    """"Whenever equipped creature attacks, double **its** power" — RULE 301.5/303.4 the host
+    (`PumpEffect`'s ``attached_permanent`` mode, the one "enchanted creature gains …" already uses)."""
+    return _double_pump(m, {"target_kind": "attached_permanent"})
+
+
+def _double_pt_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    """"Whenever a creature … attacks, double **its** power" — the creature that fired the group trigger,
+    read live off the event (`PumpEffect.trigger_subject`, the same route `_pump_group_subject` takes)."""
+    return _double_pump(m, {"trigger_subject": True, "trigger_event_key": GROUP_SUBJECT_KEY_SENTINEL})
 
 
 #: "Target attacking Elf you control gains deathtouch until end of turn."
@@ -10822,10 +10883,10 @@ def _remove_counters_target(m: re.Match[str]) -> list[EffectSpec]:
 #: Bottle, PAR-66) — untargeted (the ability names its own source, RULE
 #: 115 never applies), and restricted to one named counter kind so an
 #: unrelated counter type on the same permanent survives. Reuses
-#: `_NAMED_COUNTER_KINDS` (the same fail-closed whitelist `_add_named_
+#: `_NAMED_COUNTER_KIND` (the same open-minus-reserved kind axis `_add_named_
 #: counter` uses) plus the `+1/+1`/`-1/-1` P/T shape.
 _REMOVE_ALL_NAMED_COUNTERS_SELF_RE = _c(
-    rf"remove all (?P<ckind>{'|'.join(_NAMED_COUNTER_KINDS)}|[+\-−]1/[+\-−]1) "
+    rf"remove all (?P<ckind>{_NAMED_COUNTER_KIND}|[+\-−]1/[+\-−]1) "
     rf"counters? from {_SELF_SUBJECT}"
 )
 
@@ -14500,17 +14561,25 @@ def _base_pt_previous(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("grant_until", params)]
 
 
+#: PAR-135: "…a black Zombie in addition to its other **colors and** types" (Liliana, Death's Majesty, Dread
+#: Slaver, Ever After) / "becomes blue in addition to its other **colors**" (Indigo Faerie) — the colour is an
+#: *added* colour (a layer-5 `color` static with ``set: False``), where a colour word without that tail means
+#: "is exactly that colour" and stays unmodeled. The article is optional only for the colour-only spelling.
 _BECOMES_IN_ADDITION_BODY = (
-    r" an? (?:(?P<bp>\d+)/(?P<bt>\d+) )?(?P<words>[a-z]+(?: [a-z]+)*?)"
+    r" (?:an? )?(?:(?P<bp>\d+)/(?P<bt>\d+) )?(?P<words>[a-z]+(?: [a-z]+)*?)"
+    # "…a green Bear creature **with base power and toughness 4/4** in addition to …" (Halsin) — the other
+    # spelling of the same base P/T a leading "4/4" gives.
+    r"(?: with base power and toughness (?P<bp2>\d+)/(?P<bt2>\d+))?"
     rf"(?: with (?P<kws>{_BIA_KEYWORD_LIST}))?"
-    r" in addition to its other types"
+    r" in addition to its other (?P<scope>colors and types|colors|types)"
     rf"(?: and gains (?P<kw>{_BIA_KEYWORD}))?"
     r"(?P<eot> until end of turn)?"
 )
 #: "it"/"that creature" — only offered once the previous clause announced a pick. "it's a …" is the
 #: rider spelling after a put/return ("put a flying counter on it. It's a Spirit in addition …").
 _BECOMES_IN_ADDITION_PREVIOUS_RE = _c(
-    rf"(?:(?P<prev>it)(?: becomes|'s)|(?P<prev2>that (?:creature|permanent|land|artifact))(?: becomes| is))"
+    rf"(?:(?P<prev>it)(?: becomes|'s)|(?P<prev2>that (?:creature|permanent|land|artifact)|each of those creatures)"
+    rf"(?: becomes| is))"
     rf"{_BECOMES_IN_ADDITION_BODY}"
 )
 #: "it" after a counter put on the source (Phantom Train) — the source itself, see
@@ -14523,17 +14592,36 @@ _BECOMES_IN_ADDITION_RE = _c(rf"(?:(?P<self>~)|{TARGET}) becomes{_BECOMES_IN_ADD
 def _becomes_in_addition(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     from .static_handlers import type_addition_params  # local: imports handlers
 
-    type_params = type_addition_params(m.group("words"))
+    words = m.group("words").lower().split()
+    scope = m.group("scope")
+    added_colors: list[str] = []
+    if scope == "types":
+        if any(w in COLOR_LETTERS for w in words):
+            return None  # "becomes a black Zombie in addition to its other types" replaces the colour
+    else:
+        while words and words[0] in COLOR_LETTERS and words[0] != "colorless":
+            added_colors.append(COLOR_LETTERS[words.pop(0)])
+        if not added_colors or (scope == "colors" and words):
+            return None
+    type_params = type_addition_params(" ".join(words)) if words else {}
     if type_params is None:
         return None
-    if m.group("bp") is not None:
+    base_pt = (m.group("bp"), m.group("bt")) if m.group("bp") is not None else (m.group("bp2"), m.group("bt2"))
+    if base_pt[0] is not None:
         if "creature" not in type_params.get("add_types", []):
             return None
-        type_params = {**type_params, "power": int(m.group("bp")), "toughness": int(m.group("bt"))}
+        type_params = {**type_params, "power": int(base_pt[0]), "toughness": int(base_pt[1])}
+    statics: list[dict[str, Any]] = []
+    if type_params:
+        statics.append({"type": "type_change", "params": type_params})
+    if added_colors:
+        statics.append({"type": "color", "params": {"colors": added_colors, "set": False}})
     params: dict[str, Any] = {
         "duration": "end_of_turn" if m.group("eot") else "rest_of_game",
-        "static": {"type": "type_change", "params": type_params},
+        "static": statics[0],
     }
+    if len(statics) > 1:
+        params["extra_statics"] = statics[1:]
     keywords = [
         _CREATURE_FILTER_KEYWORD_WORDS[w]
         for w in re.split(r", and |, | and ", m.group("kws") or "") if w
@@ -14541,7 +14629,8 @@ def _becomes_in_addition(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.group("kw"):
         keywords.append(_CREATURE_FILTER_KEYWORD_WORDS[m.group("kw")])
     if keywords:
-        params["extra_statics"] = [{"type": "grant_keyword", "params": {"keywords": keywords}}]
+        params["extra_statics"] = [*params.get("extra_statics", []),
+                                   {"type": "grant_keyword", "params": {"keywords": keywords}}]
     groups = m.groupdict()
     if groups.get("prev") or groups.get("prev2"):
         params["previous_subject"] = True
@@ -14740,6 +14829,26 @@ def _animate_target_leading_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 # Order matters only for reporting; a clause is claimed by the first handler
 # whose full-clause regex matches. Every pattern is anchored to the whole
 # clause by `EffectHandler.match`'s `fullmatch`, so no partial claims.
+
+#: PAR-121: the subject-scope slot of a verb. A clause whose subject is a bare pronoun ("it"/"that creature") means
+#: a different object under each kind of ability — the source (``self``), an earlier clause's pick (``previous``),
+#: the creature a group trigger fired for (``group``), an Aura/Equipment's host (``attached``) — and
+#: `EffectHandler` gates each reading with its own flag. A verb used to register one near-identical row per
+#: reading; `_subject_handlers` declares it once: ``(row name, subject, regex, builder)`` per reading.
+_SUBJECT_FLAGS: dict[str, dict[str, bool]] = {
+    "any": {},
+    "self": {"self_subject_only": True},
+    "previous": {"previous_subject_only": True},
+    "group": {"group_subject_only": True},
+    "attached": {"attached_subject_only": True},
+}
+
+
+def _subject_handlers(
+    rows: "list[tuple[str, str, re.Pattern[str], Callable[[re.Match[str]], Optional[list[EffectSpec]]]]]",
+) -> list[EffectHandler]:
+    return [EffectHandler(name, regex, build, **_SUBJECT_FLAGS[subject]) for name, subject, regex, build in rows]
+
 
 HANDLERS: list[EffectHandler] = [
     # RULE 701.47/48 Amass "<Type> N" — "amass Orcs 1"/"amass Zombies 2".
@@ -15459,28 +15568,15 @@ HANDLERS: list[EffectHandler] = [
     ),
     # "You gain life equal to <its / that creature's> <power / toughness>"
     # (~36 SOLO — Bottle Golems / Angelic Chorus / Weed Strangle [clash] / …).
-    EffectHandler(
-        "gain_life_eq_its_self", _GAIN_LIFE_EQ_ITS_RE, _gain_life_eq_its_self,
-        self_subject_only=True,
-    ),
-    EffectHandler(
-        "gain_life_eq_its_group", _GAIN_LIFE_EQ_ITS_RE, _gain_life_eq_its_group,
-        group_subject_only=True,
-    ),
-    EffectHandler(
-        "gain_life_eq_that_prev", _GAIN_LIFE_EQ_THAT_RE, _gain_life_eq_that_prev,
-        previous_subject_only=True,
-    ),
-    # MEC-49: "that creature's <char>" on a *group* trigger — "Whenever a
-    # creature dealt damage by ~ this turn dies, you gain life equal to
-    # **that creature's toughness**." (Abattoir Ghoul). The `its`-pronoun
-    # sibling (`gain_life_eq_its_group`) reads the same firing-event
-    # subject; this row just accepts the wordier "that creature's" form for
-    # the same shape.
-    EffectHandler(
-        "gain_life_eq_that_group", _GAIN_LIFE_EQ_THAT_RE, _gain_life_eq_its_group,
-        group_subject_only=True,
-    ),
+    # MEC-49: "that creature's <char>" on a *group* trigger — "Whenever a creature dealt damage by ~ this turn
+    # dies, you gain life equal to **that creature's toughness**." (Abattoir Ghoul) reads the same firing-event
+    # subject as the `its`-pronoun row, so the wordier form is the same builder.
+    *_subject_handlers([
+        ("gain_life_eq_its_self", "self", _GAIN_LIFE_EQ_ITS_RE, _gain_life_eq_its_self),
+        ("gain_life_eq_its_group", "group", _GAIN_LIFE_EQ_ITS_RE, _gain_life_eq_its_group),
+        ("gain_life_eq_that_prev", "previous", _GAIN_LIFE_EQ_THAT_RE, _gain_life_eq_that_prev),
+        ("gain_life_eq_that_group", "group", _GAIN_LIFE_EQ_THAT_RE, _gain_life_eq_its_group),
+    ]),
     # "When ~ dies, [you gain life and] draw cards equal to its power."
     # (Lifeblood Hydra) — the combined row tried first so its "you gain
     # life and " prefix isn't left dangling by the bare draw row.
@@ -15532,68 +15628,7 @@ HANDLERS: list[EffectHandler] = [
     # `group_subject_only` instead — "its" is a RULE 603.1 group-subject
     # trigger's own per-firing object (Poisonbelly Ogre-shaped), not a
     # creature this same body's earlier clause targeted.
-    EffectHandler(
-        "group_its_controller_loses_life", _ITS_CONTROLLER_LOSES_LIFE_RE,
-        _group_its_controller_loses_life, group_subject_only=True,
-    ),
-    EffectHandler(
-        "group_its_controller_gains_life", _ITS_CONTROLLER_GAINS_LIFE_RE,
-        _group_its_controller_gains_life, group_subject_only=True,
-    ),
-    EffectHandler(
-        "group_its_controller_gains_that_much_life",
-        _ITS_CONTROLLER_GAINS_THAT_MUCH_LIFE_RE,
-        _group_its_controller_gains_that_much_life, group_subject_only=True,
-    ),
-    EffectHandler(
-        "group_its_controller_draws", _ITS_CONTROLLER_DRAWS_RE,
-        _group_its_controller_draws, group_subject_only=True,
-    ),
-    EffectHandler(
-        "group_its_controller_discards", _ITS_CONTROLLER_DISCARDS_RE,
-        _group_its_controller_discards, group_subject_only=True,
-    ),
-    EffectHandler(
-        "group_its_controller_mills", _ITS_CONTROLLER_MILLS_RE,
-        _group_its_controller_mills, group_subject_only=True,
-    ),
-    EffectHandler(
-        "group_its_controller_sacrifices", _ITS_CONTROLLER_SACRIFICES_RE,
-        _group_its_controller_sacrifices, group_subject_only=True,
-    ),
-    # PAR-117 (attached-permanent-controller residue): the same clauses
-    # again, gated on `attached_subject_only` instead — "its" is the Aura's
-    # own host (RULE 303.4/301.5), named by the trigger condition itself
-    # rather than a pronoun chain within the body.
-    EffectHandler(
-        "attached_its_controller_loses_life", _ITS_CONTROLLER_LOSES_LIFE_RE,
-        _attached_its_controller_loses_life, attached_subject_only=True,
-    ),
-    EffectHandler(
-        "attached_its_controller_loses_that_much_life",
-        _ITS_CONTROLLER_LOSES_THAT_MUCH_LIFE_RE,
-        _attached_its_controller_loses_that_much_life, attached_subject_only=True,
-    ),
-    EffectHandler(
-        "attached_its_controller_gains_life", _ITS_CONTROLLER_GAINS_LIFE_RE,
-        _attached_its_controller_gains_life, attached_subject_only=True,
-    ),
-    EffectHandler(
-        "attached_its_controller_draws", _ITS_CONTROLLER_DRAWS_RE,
-        _attached_its_controller_draws, attached_subject_only=True,
-    ),
-    EffectHandler(
-        "attached_its_controller_discards", _ITS_CONTROLLER_DISCARDS_RE,
-        _attached_its_controller_discards, attached_subject_only=True,
-    ),
-    EffectHandler(
-        "attached_its_controller_mills", _ITS_CONTROLLER_MILLS_RE,
-        _attached_its_controller_mills, attached_subject_only=True,
-    ),
-    EffectHandler(
-        "attached_its_controller_sacrifices", _ITS_CONTROLLER_SACRIFICES_RE,
-        _attached_its_controller_sacrifices, attached_subject_only=True,
-    ),
+    *_its_controller_handlers(),
     # Tried before the plain `lose_life` row below (its own bare
     # `{NUMBER} life` would otherwise stop right after the digit, leaving
     # "for each spell they've cast this turn" unconsumed).
@@ -15918,16 +15953,9 @@ HANDLERS: list[EffectHandler] = [
         _exile,
     ),
     EffectHandler("exile_self_and_target", _EXILE_SELF_AND_TARGET_RE, _exile_self_and_target),
-    # "exile another target creature/nonland permanent" (Faceless Butcher /
-    # old two-sentence O-Ring ETB) — RULE 601.2c's self-exclusion isn't
-    # separately enforced (documented simplification, the same one
-    # `_gain_control_eot`'s "another" accepts): an ETB body with no reason
-    # to grab its own source.
-    EffectHandler(
-        "exile_another_target",
-        _c(rf"exile another {TARGET}"),
-        _exile,
-    ),
+    # "exile another target creature/nonland permanent" (Faceless Butcher / old two-sentence O-Ring ETB) is
+    # the plain `exile` row above: `TARGET` carries the "another" prefix itself (PAR-128), so a dedicated row
+    # is a strict subset (PAR-121 audit) and was deleted.
     # "return the exiled card[s] to the battlefield under its/their owner's
     # control." — old two-sentence O-Ring's own LEAVES_BATTLEFIELD line
     # (Journey to Nowhere, Petravark, Faceless Butcher …).
@@ -16599,6 +16627,20 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"attach (?:it|{re.escape(SELF)}) to {TARGET}"),
         _attach,
     ),
+    # PAR-135: a *chosen* Equipment onto a chosen creature, or onto a non-target subject.
+    EffectHandler("attach_chosen_to_target", _ATTACH_CHOSEN_TO_TARGET_RE, _attach_chosen_to_target),
+    EffectHandler(
+        "attach_chosen_to_source", _ATTACH_CHOSEN_TO_SOURCE_RE, _attach_chosen_to_subject("source"),
+    ),
+    *_subject_handlers([
+        ("attach_chosen_to_self_pronoun", "self", _ATTACH_CHOSEN_TO_PRONOUN_RE, _attach_chosen_to_subject("source")),
+        ("attach_chosen_to_group_subject", "group", _ATTACH_CHOSEN_TO_THAT_RE,
+         _attach_chosen_to_subject("trigger_subject")),
+        ("attach_chosen_to_previous", "previous", _ATTACH_CHOSEN_TO_THAT_RE,
+         _attach_chosen_to_subject("previous_target")),
+        ("attach_chosen_to_attached_host", "attached", _ATTACH_CHOSEN_TO_IT_RE,
+         _attach_chosen_to_subject("attached_permanent")),
+    ]),
     # RULE 701.14 fight, in its four printed subjects: two chosen creatures
     # ("target creature you control fights target creature you don't
     # control"), the source itself written as ``~`` or as "it", and an Aura's
@@ -16930,6 +16972,13 @@ HANDLERS: list[EffectHandler] = [
         _TRIGGER_ONCE_PER_TURN_RE,
         _trigger_once_per_turn,
     ),
+    # "Do this only once each turn." (PAR-135) — the optional action's own cap; see
+    # `ACTION_ONCE_PER_TURN_MARKER`.
+    EffectHandler(
+        "action_once_per_turn",
+        _ACTION_ONCE_PER_TURN_RE,
+        _action_once_per_turn,
+    ),
     # "Activate only as a sorcery." / "… only any time you could cast a
     # sorcery." — a RULE 602.5d timing restriction, not a real effect; see
     # `SORCERY_SPEED_MARKER`'s docstring for how the binder folds it into the
@@ -17020,7 +17069,7 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "add_counters_chosen_creature_you_control",
         _c(
-            rf"put {COUNT} (?P<ckind>[+\-−]\d/[+\-−]\d) counters? "
+            rf"put {COUNT} (?P<ckind>{_PT_COUNTER_TOKEN}) counters? "
             r"on the creature you control"
         ),
         lambda m: [EffectSpec("add_counters", {
@@ -17041,7 +17090,7 @@ HANDLERS: list[EffectHandler] = [
             # "+1/+1" / "-1/-1" — and "+N/+N" for N>1 (Baron Sengir's
             # "+2/+2 counter"), modeled as N +1/+1 counters (see
             # `_counter_kind_and_multiplier`).
-            rf"put {COUNT_X} (?P<ckind>[+\-−]\d/[+\-−]\d) counters? on "
+            rf"put {COUNT_X} (?P<ckind>{_PT_COUNTER_TOKEN}) counters? on "
             rf"(?:{TARGET}|(?P<selfref>{_SELF_SUBJECT}))"
         ),
         _add_counters,
@@ -17336,39 +17385,34 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "double_pt_of",
         _c(
-            rf"(?P<mult>double|triple) the power and toughness of "
+            rf"(?P<mult>double|triple) the {_DOUBLE_STAT} of "
             rf"(?:{TARGET}|(?P<each_group>each creature you control)) until end of turn"
         ),
         _double_pt_of,
     ),
     # The possessive phrasing — "double/triple <target creature>'s/~'s
     # power and toughness until end of turn" (Nylea's Colossus/Reckless
-    # Amplimancer/Tifa's Limit Break's own "triple").
+    # Amplimancer/Tifa's Limit Break's own "triple"), or just "power" (Bulk Up).
     EffectHandler(
         "double_pt_possessive",
         _c(
             rf"(?P<mult>double|triple) (?:(?P<selfposs>~)|{TARGET})'s "
-            rf"power and toughness until end of turn"
+            rf"{_DOUBLE_STAT} until end of turn"
         ),
         _double_pt_possessive,
     ),
     # The bare pronoun — "double its power and toughness until end of
     # turn." Self-subject (Grunn's "whenever ~ attacks alone, double its
-    # power and toughness") and the previous-clause pronoun (World War
+    # power and toughness"), the previous-clause pronoun (World War
     # Hulk's "choose target creature you control. … double its power and
-    # toughness.") are genuinely different referents, so two rows.
-    EffectHandler(
-        "double_pt_self_pronoun",
-        _c(r"(?P<mult>double|triple) its power and toughness until end of turn"),
-        _double_pt_pronoun,
-        self_subject_only=True,
-    ),
-    EffectHandler(
-        "double_pt_previous",
-        _c(r"(?P<mult>double|triple) its power and toughness until end of turn"),
-        _double_pt_previous,
-        previous_subject_only=True,
-    ),
+    # toughness.") and the group trigger's firing creature (Death Kiss) are
+    # genuinely different referents, so three rows.
+    *_subject_handlers([
+        ("double_pt_self_pronoun", "self", _DOUBLE_PRONOUN_RE, _double_pt_pronoun),
+        ("double_pt_previous", "previous", _DOUBLE_PRONOUN_RE, _double_pt_previous),
+        ("double_pt_group_pronoun", "group", _DOUBLE_PRONOUN_RE, _double_pt_group),
+        ("double_pt_attached_pronoun", "attached", _DOUBLE_PRONOUN_RE, _double_pt_attached),
+    ]),
     # PAR-15: "any number of target creatures each get +N/+N [and gain
     # `<keyword>`] until end of turn" — every chosen creature gets the full
     # boost, not a divided pool.
@@ -17798,18 +17842,11 @@ HANDLERS: list[EffectHandler] = [
         _pump_group_subject,
         group_subject_only=True,
     ),
-    EffectHandler(
-        "pump_group_subject_x", _PUMP_IT_X_RE,
-        lambda m: _pump_it_x(m, subject="group"), group_subject_only=True,
-    ),
-    EffectHandler(
-        "pump_self_subject_x", _PUMP_IT_X_RE,
-        lambda m: _pump_it_x(m, subject="self"), self_subject_only=True,
-    ),
-    EffectHandler(
-        "pump_previous_subject_x", _PUMP_IT_X_RE,
-        lambda m: _pump_it_x(m, subject="previous"), previous_subject_only=True,
-    ),
+    *_subject_handlers([
+        ("pump_group_subject_x", "group", _PUMP_IT_X_RE, lambda m: _pump_it_x(m, subject="group")),
+        ("pump_self_subject_x", "self", _PUMP_IT_X_RE, lambda m: _pump_it_x(m, subject="self")),
+        ("pump_previous_subject_x", "previous", _PUMP_IT_X_RE, lambda m: _pump_it_x(m, subject="previous")),
+    ]),
     EffectHandler(
         "grant_group_subject_kw",
         _c(

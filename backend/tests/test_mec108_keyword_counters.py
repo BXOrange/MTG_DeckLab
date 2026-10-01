@@ -182,7 +182,8 @@ def test_compound_list_on_self_and_three_items():
 
 
 def test_compound_list_with_an_unknown_kind_stays_unclaimed():
-    assert match_clause("put a flying counter and a banana counter on ~") is None
+    # `age` is read by name (cumulative upkeep) and stays reserved; an open tracker kind now parses (PAR-135).
+    assert match_clause("put a flying counter and an age counter on ~") is None
 
 
 def test_choice_of_counter_kinds_parses_into_kind_options():

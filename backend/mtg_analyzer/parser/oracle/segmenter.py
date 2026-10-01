@@ -2145,6 +2145,18 @@ _DISCARD_THEN_IF_YOU_DO_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+#: PAR-121: the rows above whose antecedent is **certain** — a sacrifice of the source, an earthbend, a bare
+#: mandatory discard — share one body: parse the antecedent, require the spec type it must produce, then the
+#: "when/if you do" sentence is just the next clause (`_with_after_tail`). Each entry is ``(regex, the antecedent
+#: spec type it must yield)``; a row's own connective wording stays in its regex, since it is what keeps a
+#: *may* antecedent ("you may discard a card. If you do, …" — `_pay_cost_then_or_else`) from collapsing.
+#: The antecedents start with different verbs, so the order is immaterial.
+_CERTAIN_ANTECEDENT_ROWS: tuple[tuple["re.Pattern[str]", str], ...] = (
+    (_SACRIFICE_THEN_WHEN_YOU_DO_RE, "sacrifice_self"),
+    (_EARTHBEND_THEN_WHEN_YOU_DO_RE, "earthbend"),
+    (_DISCARD_THEN_IF_YOU_DO_RE, "discard"),
+)
+
 #: PAR-79 eighth increment: a *preceding* sentence in front of
 #: `catalogue.handlers._DELAYED_SAC_EXILE_WHEN_FIRST_RE`'s own "at the
 #: beginning of the next end step, sacrifice/exile/return `<it>`[. if you
@@ -4237,22 +4249,24 @@ _SUBJECT_SCOPED_CONDITION_KINDS: frozenset[str] = frozenset({
 })
 
 
-def _rescope_to_trigger_subject(condition: dict[str, Any]) -> dict[str, Any]:
+def _rescope_to_trigger_subject(condition: dict[str, Any], of: str = "trigger_subject") -> dict[str, Any]:
     """PAR-123: a condition about "it" under a group trigger is about the object that fired it.
 
     The condition vocabulary reads the ability's own source unless told otherwise (or, for a few
     rows written for a pronoun after a targeting clause, ``previous_target``); under a group
     trigger that would be the Enchantment carrying the ability, not the creature that entered.
-    ``trigger_subject`` is the firing object straight off the event, so a gate needs no seed."""
+    ``trigger_subject`` is the firing object straight off the event, so a gate needs no seed.
+    PAR-135: ``of="previous_target"`` is the same rescoping for "it" after a targeting clause
+    ("choose target creature. If it's tapped, …" — Shackle Slinger), the pick an earlier clause made."""
     kind = condition.get("kind")
     if kind in ("all", "any"):
         return {**condition, "conditions": [
-            _rescope_to_trigger_subject(sub) for sub in condition.get("conditions") or []
+            _rescope_to_trigger_subject(sub, of) for sub in condition.get("conditions") or []
         ]}
     if kind == "not" and isinstance(condition.get("condition"), dict):
-        return {**condition, "condition": _rescope_to_trigger_subject(condition["condition"])}
+        return {**condition, "condition": _rescope_to_trigger_subject(condition["condition"], of)}
     if kind in _SUBJECT_SCOPED_CONDITION_KINDS and condition.get("of") in (None, "source", "previous_target"):
-        return {**condition, "of": "trigger_subject"}
+        return {**condition, "of": of}
     return condition
 
 
@@ -4317,6 +4331,14 @@ def _peel_condition(
             match.groupdict().get("cond") or "", condition, self_subject=self_subject,
             previous_subject=previous_subject, group_subject=group_subject,
         )
+        if (
+            condition is not None and previous_subject and not self_subject and not group_subject
+            and _PRONOUN_CONDITION_RE.match(match.groupdict().get("cond") or "") is not None
+        ):
+            # PAR-135: "it"/"that creature" after a clause that chose a target is that pick. The shared rows
+            # read the ability's source unless they name a pick themselves, so "tap target creature. If it's
+            # tapped, …" gated on the *source* being tapped — the wrong object, silently.
+            condition = _rescope_to_trigger_subject(condition, "previous_target")
         if condition is not None and self_subject and not previous_subject and not group_subject:
             # PAR-142: "when ~ dies, if it was a creature / wasn't a Demon, …" — "it" is the source, but these
             # pronoun rows read ``previous_target`` (a pick an earlier clause made), which no clause made here.
@@ -4789,15 +4811,17 @@ def parse_effect_body(
             previous_subject=prev, group_subject=group_subject,
         )
 
-    sac_when_you_do = _SACRIFICE_THEN_WHEN_YOU_DO_RE.match(body)
-    if sac_when_you_do is not None:
+    for certain_re, antecedent_type in _CERTAIN_ANTECEDENT_ROWS:
+        certain = certain_re.match(body)
+        if certain is None:
+            continue
         before_specs = parse_effect_body(
-            sac_when_you_do.group("before"), self_subject=self_subject,
+            certain.group("before"), self_subject=self_subject,
             previous_subject=previous_subject, group_subject=group_subject,
         )
-        if before_specs is None or not any(spec.type == "sacrifice_self" for spec in before_specs):
+        if before_specs is None or not any(spec.type == antecedent_type for spec in before_specs):
             return None  # fail closed — only a certain, unconditional antecedent collapses
-        return _with_after_tail(before_specs, sac_when_you_do.group("after"), group_subject=group_subject)
+        return _with_after_tail(before_specs, certain.group("after"), group_subject=group_subject)
 
     exile_self_delayed_return = _EXILE_SELF_THEN_DELAYED_RETURN_RE.match(body)
     if exile_self_delayed_return is not None:
@@ -4815,18 +4839,6 @@ def parse_effect_body(
             }),
         ]
 
-    earthbend_when_you_do = _EARTHBEND_THEN_WHEN_YOU_DO_RE.match(body)
-    if earthbend_when_you_do is not None:
-        before_specs = parse_effect_body(
-            earthbend_when_you_do.group("before"), self_subject=self_subject,
-            previous_subject=previous_subject, group_subject=group_subject,
-        )
-        if before_specs is None or not any(spec.type == "earthbend" for spec in before_specs):
-            return None  # fail closed — only a certain, unconditional antecedent collapses
-        return _with_after_tail(
-            before_specs, earthbend_when_you_do.group("after"), group_subject=group_subject,
-        )
-
     roll_when_you_do = _ROLL_DIE_THEN_WHEN_YOU_DO_RE.match(body)
     if roll_when_you_do is not None:
         before_specs = parse_effect_body(
@@ -4843,18 +4855,6 @@ def parse_effect_body(
         params = dict(before_specs[0].params)
         params["then_trigger"] = [spec.to_dict() for spec in after_specs]
         return [EffectSpec("roll_die", params)]
-
-    discard_then_if_you_do = _DISCARD_THEN_IF_YOU_DO_RE.match(body)
-    if discard_then_if_you_do is not None:
-        before_specs = parse_effect_body(
-            discard_then_if_you_do.group("before"), self_subject=self_subject,
-            previous_subject=previous_subject, group_subject=group_subject,
-        )
-        if before_specs is None or not any(spec.type == "discard" for spec in before_specs):
-            return None  # fail closed — only a bare mandatory discard collapses
-        return _with_after_tail(
-            before_specs, discard_then_if_you_do.group("after"), group_subject=group_subject,
-        )
 
     # PAR-79 eighth increment: a delayed sacrifice/exile/return clause
     # (`handlers._DELAYED_SAC_EXILE_WHEN_FIRST_RE`) preceded by an unrelated
@@ -5552,6 +5552,10 @@ def _announces_creature_target(specs: list[EffectSpec]) -> bool:
     # (RULE 608.2h last-known info — the countered spell is in a graveyard,
     # with no controller, by the time a later clause asks).
     if last.type == "counter":
+        return True
+    # "Tap enchanted creature. If …, put three stun counters on **it**." (Kitnap — PAR-135): the Aura's host is
+    # the pick the pronoun names though nothing targeted it (`TapEffect` leaves it in `previous_targets`).
+    if last.type == "tap" and last.params.get("target_kind") == "attached_permanent":
         return True
     values: list[Any] = []
     for value in last.params.values():

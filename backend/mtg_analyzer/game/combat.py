@@ -768,7 +768,8 @@ def matches_object_filter(
         return False
     # "Equip commander {N}" (RULE 702.6e, Commander's Plate, MEC-43) — the
     # target of this Equip cost must be a commander (RULE 903.4).
-    if filt.get("is_commander") and not getattr(obj, "is_commander", False):
+    # ``False`` is the negation — "any target that isn't a commander" (PAR-135, Lozhan).
+    if filt.get("is_commander") is not None and bool(filt["is_commander"]) != bool(getattr(obj, "is_commander", False)):
         return False
     # "**modified** creatures you control" (RULE 700.9, Envoy of the Ancestors)
     # — a counter, an Equipment, or an Aura its controller controls; needs

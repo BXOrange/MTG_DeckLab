@@ -103,11 +103,9 @@ def test_equipment_unattaches_but_stays_on_battlefield_when_host_gains_protectio
     assert equipment in state.battlefield
 
 
-def test_equipment_unattaches_when_the_host_changes_control():
-    # RULE 301.5c: Equipment stays attached across an *ordinary* board
-    # change, but "target creature you control" (RULE 301.5b) is re-checked
-    # continuously — a host that's no longer the Equipment's controller's
-    # creature is an illegal attachment.
+def test_equipment_stays_attached_when_the_host_changes_control():
+    # RULE 301.5b/301.5d: control of the creature matters only when the equip ability is activated and
+    # when it resolves; changing control of either permanent doesn't detach the Equipment (PAR-135).
     engine, state, p1, p2 = _rules()
     host = _bf(state, _creature("Bear"))
     equipment = _bf(state, _equipment("Bonesplitter"))
@@ -115,9 +113,18 @@ def test_equipment_unattaches_when_the_host_changes_control():
 
     host.controller_id = "p2"
 
-    assert engine.check_state_based_actions() is True
-    assert equipment.attached_to is None
+    engine.check_state_based_actions()
+    assert equipment.attached_to == host.instance_id
     assert equipment in state.battlefield
+
+
+def test_equip_activation_still_needs_a_creature_you_control():
+    engine, state, p1, p2 = _rules()
+    theirs = _bf(state, _creature("Their Bear"), controller="p2")
+    equipment = _bf(state, _equipment("Bonesplitter"))
+
+    assert engine.attach_to_target(equipment, theirs) is False            # the equip ability's own check
+    assert engine.attach_to_target(equipment, theirs, check_control=False) is True  # an effect attaching it
 
 
 def test_revalidation_leaves_a_host_that_left_the_battlefield_to_the_other_path():

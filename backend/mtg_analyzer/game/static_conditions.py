@@ -65,6 +65,9 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # spelled ``source_*`` in every shipped spec; which object they
         # actually read is now chosen by the condition's ``of`` key (see
         # `CONDITION_SUBJECTS`), defaulting to the source.
+        # PAR-135: "Do this only once each turn." — true while this ability's action (``key``) hasn't been
+        # performed yet this turn (`GameObject.action_turns`, stamped by `ActionStampEffect`).
+        "action_unused_this_turn",
         "source_tapped",  # "as long as ~ is tapped"
         "source_untapped",  # "as long as ~ is untapped"
         "source_monstrous",  # RULE 701.37b
@@ -585,6 +588,9 @@ def condition_holds(
     # default, or an attached host / a floating static's affected permanent.
     subject = _subject(condition, state, source, affected)
 
+    if kind == "action_unused_this_turn":
+        performed = getattr(source, "action_turns", None) or {}
+        return performed.get(str(condition.get("key"))) != state.internal_turn.number
     if kind == "source_tapped":
         return bool(getattr(subject, "tapped", False))
     if kind == "source_untapped":

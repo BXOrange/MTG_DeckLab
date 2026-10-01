@@ -422,8 +422,10 @@ class GameContext:
     def set_tapped(self, target: "GameObject", tapped: bool = True) -> None:
         self.engine.set_tapped(target, tapped)
 
-    def attach_to_target(self, source: "GameObject", target: "GameObject") -> None:
-        self.engine.attach_to_target(source, target)
+    def attach_to_target(
+        self, source: "GameObject", target: "GameObject", check_control: bool = True
+    ) -> None:
+        self.engine.attach_to_target(source, target, check_control=check_control)
 
     def add_counters(
         self, target: "GameObject", amount: int, kind: str = "+1/+1", source: Optional["GameObject"] = None
@@ -485,12 +487,14 @@ class GameContext:
         set_power: Optional[int] = None,
         set_toughness: Optional[int] = None,
         set_colors: Optional[list[str]] = None,
+        add_colors: Optional[list[str]] = None,
     ) -> list[Any]:
         # Returns what it made, same as `create_token` — see `created_objects`.
         return self.engine.copy_permanent(
             controller_id, source, count,
             add_types=add_types, add_subtypes=add_subtypes, not_legendary=not_legendary,
             set_power=set_power, set_toughness=set_toughness, set_colors=set_colors,
+            add_colors=add_colors,
         )
 
     def copy_spell(
@@ -1676,6 +1680,7 @@ class TriggeredAbility(GameEffect):
         condition: Optional[Callable[[GameEvent, GameContext], bool]] = None,
         optional: bool = False,
         once_per_turn: bool = False,
+        action_key: Optional[str] = None,
         controller_id: Optional[str] = None,
         source: Optional["GameObject"] = None,
         description: str = "",
@@ -1795,6 +1800,20 @@ class TriggeredAbility(GameEffect):
         #: the pass that would otherwise have rebuilt it from scratch.
         self.once_per_turn = once_per_turn
         self._last_triggered_turn: Optional[int] = None
+        #: "…, you may `<action>`. Do this only once each turn." (PAR-135 — Ondu Spiritdancer, Irreverent
+        #: Gremlin): unlike ``once_per_turn`` the ability *does* trigger every time; it is the action that
+        #: can be performed once a turn. The limit itself lives in the effect list (a gated ``seq`` and an
+        #: `ActionStampEffect` at the point the action is accepted — `spec.fold_action_limit`); this is only
+        #: its key, so `RulesEngine._place_triggers` can skip a firing whose action is already spent instead
+        #: of asking a question whose answer can no longer do anything.
+        self.action_key = action_key
+
+    def action_used_this_turn(self, context: GameContext) -> bool:
+        """Whether this ability's once-a-turn action has already been performed this turn."""
+        if self.action_key is None:
+            return False
+        performed = getattr(self.source, "action_turns", None) or {}
+        return performed.get(self.action_key) == context.state.internal_turn.number
 
     def check_trigger(self, event: GameEvent, context: GameContext) -> bool:
         """RULE 603.1: does this ability trigger for ``event``?"""

@@ -2074,6 +2074,7 @@ class PumpEffect(GameEffect):
         trigger_subject: bool = False,
         trigger_event_key: Optional[str] = None,
         self_multiplier: Optional[int] = None,
+        self_multiplier_stat: str = "both",
         parametric_keywords: Optional[list[dict[str, Any]]] = None,
         colors: Optional[list[str]] = None,
         power_if_kicked: Optional[int] = None,
@@ -2182,6 +2183,10 @@ class PumpEffect(GameEffect):
         #: doubles (a "+1x/+1x" delta on top of the base), ``3`` triples
         #: (+2x/+2x); ``None`` leaves ``power``/``toughness`` as printed.
         self.self_multiplier = self_multiplier
+        #: Which half ``self_multiplier`` scales: ``"both"`` ("double the power and toughness of …"),
+        #: ``"power"`` ("double target creature's power" — Bulk Up, Death Kiss; PAR-135) or
+        #: ``"toughness"``. The other half is left exactly as it is.
+        self.self_multiplier_stat = self_multiplier_stat
         #: MEC-82 / RULE 614: the "if this spell was kicked/bargained, that
         #: creature gets `<P2>`/`<T2>` **instead**" magnitude override — a
         #: *replacement* of this pump's own printed P/T, not a second additive
@@ -2263,7 +2268,8 @@ class PumpEffect(GameEffect):
             # "double each creature you control" scales every creature by
             # its own stats, not by one shared amount.
             delta = self.self_multiplier - 1
-            power, toughness = delta * obj.power, delta * obj.toughness
+            power = delta * obj.power if self.self_multiplier_stat in ("both", "power") else 0
+            toughness = delta * obj.toughness if self.self_multiplier_stat in ("both", "toughness") else 0
         else:
             power = self._kicked_magnitude(
                 self.power, self.power_if_kicked, self.power_if_bargained
@@ -3216,6 +3222,7 @@ class CopyPermanentEffect(GameEffect):
         set_power: Optional[int] = None,
         set_toughness: Optional[int] = None,
         set_colors: Optional[list[str]] = None,
+        add_colors: Optional[list[str]] = None,
         extra_temp_keywords: Optional[list[str]] = None,
         creature_filter: Optional[dict[str, Any]] = None,
         legendary: bool = False,
@@ -3295,6 +3302,10 @@ class CopyPermanentEffect(GameEffect):
         #: token cycle): replace the copied card's colour identity outright
         #: with these WUBRG letters (`Card.as_copy`'s ``set_colors``).
         self.set_colors = list(set_colors) if set_colors is not None else None
+        #: "…in addition to its other **colors** and types" (PAR-135, Ratadrabik of Urborg): these WUBRG
+        #: letters are added to the copied card's colours instead of replacing them
+        #: (`Card.as_copy`'s ``add_colors``).
+        self.add_colors = list(add_colors) if add_colors else None
         #: "…and it has flying and haste." (The Jolly Balloon Man, MEC-40)
         #: — ``haste`` above stays its own bool for backward compatibility
         #: (every existing caller already sets it that way); any *other*
@@ -3351,7 +3362,7 @@ class CopyPermanentEffect(GameEffect):
                     add_types=self.add_types, add_subtypes=self.add_subtypes,
                     not_legendary=self.not_legendary,
                     set_power=self.set_power, set_toughness=self.set_toughness,
-                    set_colors=self.set_colors,
+                    set_colors=self.set_colors, add_colors=self.add_colors,
                 )
                 context.created_objects.extend(made)
                 if self.haste:
@@ -3381,7 +3392,7 @@ class CopyPermanentEffect(GameEffect):
                     add_types=self.add_types, add_subtypes=self.add_subtypes,
                     not_legendary=self.not_legendary,
                     set_power=self.set_power, set_toughness=self.set_toughness,
-                    set_colors=self.set_colors,
+                    set_colors=self.set_colors, add_colors=self.add_colors,
                 )
                 context.created_objects.extend(made)
                 if self.haste:
@@ -3419,7 +3430,7 @@ class CopyPermanentEffect(GameEffect):
                     add_types=self.add_types, add_subtypes=self.add_subtypes,
                     not_legendary=self.not_legendary,
                     set_power=self.set_power, set_toughness=self.set_toughness,
-                    set_colors=self.set_colors,
+                    set_colors=self.set_colors, add_colors=self.add_colors,
                 )
                 context.created_objects.extend(made)
                 if self.haste:
@@ -3481,7 +3492,7 @@ class CopyPermanentEffect(GameEffect):
                 add_types=self.add_types, add_subtypes=self.add_subtypes,
                 not_legendary=self.not_legendary,
                 set_power=self.set_power, set_toughness=self.set_toughness,
-                set_colors=self.set_colors,
+                set_colors=self.set_colors, add_colors=self.add_colors,
             )
             # RULE 608.2's "the tokens"/"it" referent for a following
             # clause — `create_token`'s own effect already does this; this

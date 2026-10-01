@@ -3464,11 +3464,23 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
      lambda m: {"kind": "source_equipped"}),
     (re.compile(r"(?:~|it)(?:'s| is) enchanted", re.I),
      lambda m: {"kind": "source_enchanted"}),
+    # PAR-135: the kindless spellings — "as long as ~ has four or more counters on it" (Gavel of the Righteous,
+    # Warden of the Inner Sky) counts counters of any kind, like the kindless "has no counters on it" below. They
+    # used to be claimed by the row after next reading "or more" as a *counter kind* (a condition that never held).
+    (re.compile(r"(?:~|it) has (?P<n>a|an|\d+) or more counters on it", re.I),
+     lambda m: {"kind": "source_counters", "min": _count_word(m.group("n"))}),
+    (re.compile(r"(?:~|it) has (?P<n>\d+) or fewer counters on it", re.I),
+     lambda m: {"kind": "source_counters", "max": _count_word(m.group("n"))}),
     # "~ has three or more +1/+1 counters on it" / "…a +1/+1 counter on it"
     (re.compile(r"(?:~|it) has (?P<n>a|an|\d+) or more (?P<kind>[+\-]\d/[+\-]\d|[a-z ]+?) counters? on it", re.I),
      lambda m: {"kind": "source_counters", "counter": _counter_kind(m.group("kind")),
                 "min": _count_word(m.group("n"))}),
-    (re.compile(r"(?:~|it) has (?P<n>a|an|\d+) (?P<kind>[+\-]\d/[+\-]\d|[a-z ]+?) counters? on it", re.I),
+    # PAR-135: "…has two **or fewer** judgment counters on it" (Faithbound Judge) is an upper bound — without its
+    # own row the next one read "or fewer judgment" as the counter's name and a lower bound of 2, silently.
+    (re.compile(r"(?:~|it) has (?P<n>\d+) or fewer (?P<kind>[+\-]\d/[+\-]\d|[a-z ]+?) counters? on it", re.I),
+     lambda m: {"kind": "source_counters", "counter": _counter_kind(m.group("kind")),
+                "max": _count_word(m.group("n"))}),
+    (re.compile(r"(?:~|it) has (?P<n>a|an|\d+) (?!or )(?P<kind>[+\-]\d/[+\-]\d|[a-z ]+?) counters? on it", re.I),
      lambda m: {"kind": "source_counters", "counter": _counter_kind(m.group("kind")),
                 "min": _count_word(m.group("n"))}),
     # PAR-140: the negations — "if ~ doesn't have a flying counter on it" (Inventive Wingsmith,

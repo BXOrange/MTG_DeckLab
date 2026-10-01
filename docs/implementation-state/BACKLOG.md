@@ -62,24 +62,6 @@ No open tickets.
   duration clusters exposed by PAR-130; calibrated clusters live in `PARSER_LONG_TAIL.md`.
 - **PAR-133 · Powerstone tokens.** "create a [tapped] Powerstone token" — a `data/tokens.json` entry
   with its RULE 605.3a-restricted mana ability, then `_NAMED_TOKEN_WORDS` (25 solo cards).
-- **PAR-121 · Subject-scope slot and per-verb connective de-duplication (no coverage change).** A
-  third of the regexes sit in near-duplicate clusters: **(a) subject scope** — one verb re-registered
-  per subject (prevent-damage ≈27 rows, skip-untap, pump previous/target/group, its-controller
-  draw/discard, attached tap/exile/phase-out); **(b) connectives** — the `_X_THEN_WHEN_YOU_DO_RE`
-  family re-matches antecedents the clause parser already handles; plus 32 `*_DEVOTION_*` rows (fold
-  into `count_phrase`). Maintainability work: do it when touching a verb, never as a large batch
-  (audit shipped rows, delete strict subsets).
-- **PAR-135 · Base-grammar gaps found closing PAR-123 (small verified residue batch).** Each fails in
-  its *targeted* spelling too, so none is a pronoun gap; sized at v552: named counters on a target
-  ("put a stun / flying / globe counter on target creature" — 24 SOLO); "target Equipment you control"
-  as a target kind (10 SOLO; Sokka and Suki / Kemba's "attach it to that creature" also needs
-  `AttachEffect` to take the previous pick as its destination); power-only doubling ("double its
-  power", `PumpEffect.self_multiplier` axis — 11 SOLO); additive-colour copy exceptions ("… in
-  addition to its other colors and types" — needs an additive colour on `CopyPermanentEffect`, 14 SOLO);
-  "any target that isn't a `<subtype>`" (3 SOLO); "Do this only once each turn" as an *action* limit
-  (not a trigger limit when the effect is optional — Ondu Spiritdancer, Irreverent Gremlin). Kitnap's
-  "put three stun counters on it" is the attached-permanent/pronoun sibling of the named-counter gap;
-  Gift and its negative condition are already modeled.
 - **PAR-136 · Blink with a delayed return: "exile `<target>`. Return it to the battlefield under its
   owner's control at the beginning of the next end step."** 31 SOLO, 10 also-blocked (Turn to Mist,
   Voidwalk, Liberate, Flickerwisp, Glimmerpoint Stag, Galepowder Mage, Ghostway, Sudden Disappearance,

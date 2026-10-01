@@ -1074,8 +1074,16 @@ class CastingResolutionMixin:
             if name in keywords:
                 return name
         return None
-    def _attachment_legal(self, obj: GameObject, target: Any) -> bool:
-        """Whether ``obj`` can legally attach to ``target`` (basic MVP rules)."""
+    def _attachment_legal(self, obj: GameObject, target: Any, check_control: bool = True) -> bool:
+        """Whether ``obj`` can legally attach to ``target`` (basic MVP rules).
+
+        ``check_control`` is the "creature you control" half of equip/reconfigure/fortify. RULE 301.5b
+        says control of the creature matters *only when the ability is activated and when it resolves*,
+        and 301.5d that changing control of either permanent doesn't detach anything — so the state-
+        based re-check (`_revalidate_attachments`) and a spell or ability that attaches an Equipment
+        (Magnetic Theft — "attach target Equipment to target creature", PAR-135) both pass ``False``;
+        only the equip-style activation keeps the default. An Aura's own "enchant creature you control"
+        is its restriction, not the equip family's, and is always checked."""
         kind = self._attachment_kind(obj)
         # RULE 303.4a/702.5: a Curse Aura's ``Enchant player`` target is a
         # player, not a permanent. Its attachment identity is the stable
@@ -1116,17 +1124,17 @@ class CastingResolutionMixin:
             # Only the Equipment's own controller may activate its equip
             # ability (RULE 301.5d), so that's the controller who must
             # match — not necessarily the target's *owner*.
-            return target.is_creature and target.controller_id == obj.controller_id
+            return target.is_creature and (not check_control or target.controller_id == obj.controller_id)
         if kind == "reconfigure":
             # RULE 702.151a: "another target creature you control."
             return (
                 target.is_creature
-                and target.controller_id == obj.controller_id
+                and (not check_control or target.controller_id == obj.controller_id)
                 and target is not obj
             )
         if kind == "fortify":
             # RULE 702.67a: "target land you control."
-            return target.is_land and target.controller_id == obj.controller_id
+            return target.is_land and (not check_control or target.controller_id == obj.controller_id)
         if kind == "enchant":
             enchant_params = (obj.parametric_keywords or {}).get(kind) or {}
             quality = str(enchant_params.get("quality", "")).strip().lower()
@@ -1157,9 +1165,12 @@ class CastingResolutionMixin:
                 return target.is_planeswalker
             return True
         return True
-    def attach_to_target(self, obj: GameObject, target: Any) -> bool:
-        """Attach an Aura/Equipment-like object to a legal target (RULE 303/301.5)."""
-        if not self._attachment_legal(obj, target):
+    def attach_to_target(self, obj: GameObject, target: Any, check_control: bool = True) -> bool:
+        """Attach an Aura/Equipment-like object to a legal target (RULE 303/301.5).
+
+        ``check_control=False`` is an effect attaching it outside the equip ability — see
+        `_attachment_legal`."""
+        if not self._attachment_legal(obj, target, check_control):
             return False
         obj.attached_to = target.id if isinstance(target, Player) else target.instance_id
         return True
@@ -1230,7 +1241,7 @@ class CastingResolutionMixin:
                 continue
             player_host = next((p for p in self.state.players if p.id == host_id), None)
             if player_host is not None:
-                if self._attachment_legal(attached, player_host):
+                if self._attachment_legal(attached, player_host, check_control=False):
                     continue
                 attached.attached_to = None
                 if self._attachment_kind(attached) == "enchant":
@@ -1245,7 +1256,7 @@ class CastingResolutionMixin:
                 # normal case — this guards the same-host-different-
                 # controller edge no shipped card reaches yet.
                 continue
-            if self._attachment_legal(attached, host):
+            if self._attachment_legal(attached, host, check_control=False):
                 continue
             attached.attached_to = None
             if getattr(attached, "bestowed", False):

@@ -256,5 +256,8 @@ class TestBacklogSizes:
         assert n == 0, f"ENG-37 leaves fusion types behind: {n}"
 
     def test_one_card_special_residue_does_not_grow(self) -> None:
+        # 57 -> 58: PAR-135's `action_stamp`, the record half of "Do this only once each turn." It is engine
+        # bookkeeping (no Comprehensive Rules action decomposes into it), so it is the honest residue rather
+        # than an `INSTRUCTIONS` entry — examined, not a stray.
         n = len(isa.types_classified(isa.Classification.SPECIAL))
-        assert n <= 57, f"one-card specials grew to {n}"
+        assert n <= 58, f"one-card specials grew to {n}"

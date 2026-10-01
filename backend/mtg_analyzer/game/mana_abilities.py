@@ -234,8 +234,17 @@ _WHERE_X_POWER_RE = re.compile(
 )
 _SUBJECT_CONTROL_RE = re.compile(r"^(?P<noun>.+?)\s+you control$", re.IGNORECASE)
 _SUBJECT_BATTLEFIELD_RE = re.compile(r"^(?P<noun>.+?)\s+on the battlefield$", re.IGNORECASE)
+#: "<kind> counters on this creature/artifact/…" — a P/T counter ("+1/+1") or (PAR-135) a named tracker kind
+#: ("art counter on ~", Famous Museum; "petal counters on this artifact", Lotus Blossom).
 _SUBJECT_COUNTER_RE = re.compile(
-    r"^(?P<kind>[+\-]?\d+/[+\-]?\d+) counters? on (?:this creature|~)$", re.IGNORECASE
+    r"^(?P<kind>[+\-]?\d+/[+\-]?\d+|[a-z]+) counters? on "
+    r"(?:this (?:creature|artifact|enchantment|land|permanent)|~)$",
+    re.IGNORECASE,
+)
+#: "Add {C}**, plus an additional {C} for each** art counter on ~." (Famous Museum) — the base amount *plus* a
+#: per-subject count, where `_FOR_EACH_RE` alone would scale the base by the count (zero counters → nothing).
+_PLUS_ADDITIONAL_FOR_EACH_RE = re.compile(
+    r"^(?P<base>.+?),\s*plus an additional\s+(?P<extra>.+?)\s+for each\s+(?P<subject>.+)$", re.IGNORECASE
 )
 
 # --- RULE 605.3a mana spend restrictions ("Spend this mana only ...") ----
@@ -528,12 +537,21 @@ class ManaAbility:
     color_selector: Optional[str] = None
 
 
-def _selector_from_subject(subject: str) -> Optional[dict[str, Any]]:
+def _fold_self_name(text: str, card_name: Optional[str]) -> str:
+    """``text`` with the card's own printed name (or its short form) as "~" — the mana grammar reads raw oracle
+    text, where a card names itself instead of saying "this artifact"."""
+    for form in sorted(_self_name_forms(card_name), key=len, reverse=True):
+        if form:
+            text = re.sub(re.escape(form), "~", text, flags=re.IGNORECASE)
+    return text
+
+
+def _selector_from_subject(subject: str, card_name: Optional[str] = None) -> Optional[dict[str, Any]]:
     """RULE 605.1a-adjacent "for each <subject>" → a count selector dict, or
     ``None`` for a subject shape outside the small recognised vocabulary
     (fail-soft: the caller then leaves the amount unscaled, same as before
     this grammar existed)."""
-    subject = subject.strip().rstrip(".")
+    subject = _fold_self_name(subject.strip().rstrip("."), card_name)
     m = _SUBJECT_COUNTER_RE.match(subject)
     if m is not None:
         return {"kind": "counters_on_self", "counter": m.group("kind").lower()}
@@ -594,9 +612,19 @@ def _peel_amount_selector(clause: str, card_name: Optional[str]) -> tuple[str, O
     shapes (including a "for each"/"equal to" subject this grammar doesn't
     recognise — fail-soft, not fail-closed: the base clause still parses to
     whatever fixed amount it names, exactly the pre-existing behaviour)."""
+    m = _PLUS_ADDITIONAL_FOR_EACH_RE.match(clause)
+    if m is not None:
+        # The extra mana must be the same single pip as the base ("{C}, plus an additional {C}"): the amount
+        # is then 1 + the count, which `resolve_options` reads off the selector's ``plus``.
+        base_options, extra_options = _dedupe(_parse_clause(m.group("base"))), _dedupe(_parse_clause(m.group("extra")))
+        selector = _selector_from_subject(m.group("subject"), card_name)
+        if selector is not None and base_options == extra_options and len(base_options) == 1 and (
+            sum(base_options[0].values()) == 1
+        ):
+            return m.group("base"), {**selector, "plus": 1}
     m = _WHERE_X_RE.match(clause)
     if m is not None:
-        selector = _selector_from_subject(m.group("subject"))
+        selector = _selector_from_subject(m.group("subject"), card_name)
         if selector is not None:
             return m.group("base"), selector
     m = _WHERE_X_POWER_RE.match(clause)
@@ -611,7 +639,7 @@ def _peel_amount_selector(clause: str, card_name: Optional[str]) -> tuple[str, O
             return m.group("base"), selector
     m = _FOR_EACH_RE.match(clause)
     if m is not None:
-        selector = _selector_from_subject(m.group("subject"))
+        selector = _selector_from_subject(m.group("subject"), card_name)
         if selector is not None:
             return m.group("base"), selector
     return clause, None
@@ -1488,7 +1516,7 @@ def resolve_options(ability: ManaAbility, obj: Any, state: Optional[Any] = None)
         return [{color: 1} for color in sorted(identity)]
     if ability.amount_selector is None:
         return [dict(opt) for opt in ability.options]
-    n = _resolve_amount(ability.amount_selector, obj, state)
+    n = _resolve_amount(ability.amount_selector, obj, state) + ability.amount_selector.get("plus", 0)
     return [{color: count * n for color, count in opt.items()} for opt in ability.options]
 
 

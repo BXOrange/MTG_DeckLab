@@ -1575,6 +1575,11 @@ EffectRegistry.register(
     lambda p: AttachChosenEffect(
         what_kind=p.get("what_kind", "equipment_you_control"),
         to_kind=p.get("to_kind", "creature_you_control"),
+        what_optional=bool(p.get("what_optional", False)),
+        what_count=int(p.get("what_count", 1)),
+        to_optional=bool(p.get("to_optional", False)),
+        to_subject=p.get("to_subject"),
+        creature_filter=p.get("creature_filter"),
     ),
 )
 EffectRegistry.register(
@@ -2608,6 +2613,7 @@ EffectRegistry.register(
         previous_subject=bool(p.get("previous_subject", False)),
         subtypes=p.get("subtypes"),
         self_multiplier=p.get("self_multiplier"),
+        self_multiplier_stat=str(p.get("self_multiplier_stat", "both")),
         parametric_keywords=p.get("parametric_keywords"),
         colors=p.get("colors"),
         power_if_kicked=p.get("power_if_kicked"),  # MEC-82
@@ -2764,6 +2770,7 @@ EffectRegistry.register(
         set_power=p.get("set_power"),
         set_toughness=p.get("set_toughness"),
         set_colors=p.get("set_colors"),
+        add_colors=p.get("add_colors"),
         extra_temp_keywords=p.get("extra_temp_keywords"),
         creature_filter=p.get("creature_filter"),
         legendary=bool(p.get("legendary", False)),
@@ -4698,6 +4705,11 @@ EffectRegistry.register(
         optional=bool(p.get("optional")),
         count=p.get("count", 1),
     ),
+)
+EffectRegistry.register(
+    # "Do this only once each turn." (PAR-135) — the record half of the action limit; see `ActionStampEffect`.
+    "action_stamp",
+    lambda p: ActionStampEffect(key=str(p.get("key", ""))),
 )
 EffectRegistry.register(
     "create_emblem",  # "you get an emblem with '<ability>'" (RULE 114.2)

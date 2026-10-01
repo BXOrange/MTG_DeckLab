@@ -294,6 +294,9 @@ class TapEffect(GameEffect):
             target = context.state.find_object(host_id) if host_id is not None else None
             if target is not None:
                 context.set_tapped(target, tapped=not self.untap)
+                # "Tap enchanted creature. … put three stun counters on **it**." (Kitnap, PAR-135): the
+                # host is what the next clause's pronoun names, though nothing *targeted* it.
+                context.previous_targets = [target]
             return
         if self._trigger_subject_mode:
             event = context.trigger_event

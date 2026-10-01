@@ -510,7 +510,9 @@ class StateBasedActionsMixin:
                 continue
             lethal_marked = obj.toughness > 0 and obj.damage_marked >= obj.toughness
             if lethal_marked or (obj.dealt_deathtouch_damage and obj.damage_marked > 0):
-                self.destroy(obj)
+                # RULE 122.1c: a shield counter guards destruction "as the result of an effect",
+                # which this state-based action is not.
+                self.destroy(obj, by_effect=False)
                 return True
         return False
 
