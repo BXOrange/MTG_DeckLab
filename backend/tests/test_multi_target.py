@@ -84,7 +84,8 @@ def test_optional_up_to_two_recognized_for_destroy_with_and_or_types():
     # enchantments."
     (spec,) = parse_effect_body("destroy up to 2 target artifacts and/or enchantments")
     assert spec.type == "destroy"
-    assert spec.params == {"target_kind": "permanent", "count": 2, "optional": True}
+    # the real "artifact or enchantment" pool, not any permanent (batch 6)
+    assert spec.params == {"target_kind": "artifact_or_enchantment", "count": 2, "optional": True}
 
 
 def test_optional_up_to_three_recognized_for_exile():

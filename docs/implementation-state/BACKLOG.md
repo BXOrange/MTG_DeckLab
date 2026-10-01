@@ -62,9 +62,8 @@ No open tickets.
   duration clusters exposed by PAR-130; calibrated clusters live in `PARSER_LONG_TAIL.md`.
 - **PAR-133 · Powerstone tokens.** "create a [tapped] Powerstone token" — a `data/tokens.json` entry
   with its RULE 605.3a-restricted mana ability, then `_NAMED_TOKEN_WORDS` (25 solo cards).
-- **PAR-99 · Khans/Dragons Siege cycle.** The ETB choice parses; unclaimed on all 5 cards (0 SOLO) is
-  each mode's standing text — a stored choice gating which of two ongoing abilities is live (Citadel,
-  Frontier, Monastery, Outpost, Palace Siege).
+- **PAR-99 · Targeted-spell tax.** "Spells your opponents cast that target you or a permanent you control
+  cost `<cost>` more to cast" — Monastery Siege's Dragons mode, Esior, Kasmina, Terror of the Peaks (3 life).
 - **PAR-100 · "At the beginning of each player's draw step, that player draws an additional card".**
   "That player" binds to the player whose step it is; 10 SOLO + Mornsong Aria (Academy Loremaster,
   Anvil of Bogardan, Dictate of Kruphix, Font of Mythos, Howling Mine, Kami of the Crescent Moon,
@@ -159,9 +158,7 @@ No open tickets.
     Soul Shatter).
   - "Target player mills half their library, rounded down" — 2 (Cut Your Losses, Traumatize).
 - **PAR-111 · Small residue batch — ETB/dies/leaves triggers.**
-  - Enduring cycle "when ~ dies, if it was a creature, return it… It's an enchantment" — 4 SOLO
-    (Enduring Courage, Curiosity, Innocence, Tenacity); Friendship also needs double team + a cast
-    anthem. Enduring Vitality is hand-authored — copy its entry.
+  - Enduring Friendship — double team + a cast anthem for creatures that are otters and/or enchantments.
   - "ETB manifest dread, then attach ~ to that creature" — 4 (Conductive Machete, Cursed Windbreaker,
     Dissection Tools, Killer's Mask).
   - "Whenever an opponent's creature enters, you may have that player lose `<n>` life" — 2 (Blood Seeker,

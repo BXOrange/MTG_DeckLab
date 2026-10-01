@@ -1298,6 +1298,7 @@ class CastingResolutionMixin:
         "All creatures get -X/-X", where X comes from an ``additional_cost``
         life payment, not a mana ``{X}``, but is threaded through the exact
         same ``obj.x_paid``/`StackItem.x` mechanism regardless).
+        ``"twice_x"`` is "twice X" (2 × the announced X).
         ``"half_x_up"``/``"half_x_down"`` are the division-of-X sentinels
         (Contaminated Drink's "you get half X rad counters, rounded up") —
         no real card needs a plain (non-X) division yet, so this only
@@ -1402,6 +1403,8 @@ class CastingResolutionMixin:
                     setattr(effect, attr, x)
                 elif value == "-x":
                     setattr(effect, attr, -x)
+                elif value == "twice_x":
+                    setattr(effect, attr, 2 * x)  # "twice X" (Drown in Dreams, Heliod's Intervention)
                 elif value == "half_x_up":
                     setattr(effect, attr, -(-x // 2))  # ceiling division
                 elif value == "half_x_down":
@@ -1454,6 +1457,8 @@ class CastingResolutionMixin:
                         params[attr] = x
                     elif value == "-x":
                         params[attr] = -x
+                    elif value == "twice_x":
+                        params[attr] = 2 * x
     def resolve_top_of_stack(self) -> Optional[StackItem]:
         """Resolve the topmost stack object (RULE 608). Returns it, or None."""
         if not self.state.stack:

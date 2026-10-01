@@ -216,6 +216,11 @@ _FOR_EACH_RE = re.compile(r"^(?P<base>.*?)\s+for each\s+(?P<subject>.+?)$", re.I
 _EQUAL_TO_POWER_RE = re.compile(
     r"^an amount of\s+(?P<base>.*?)\s+equal to\s+(?P<who>.+?)'s power$", re.IGNORECASE
 )
+#: "an amount of {G} equal to the greatest power among creatures you control" (Bighorner Rancher) —
+#: `_resolve_amount`'s ``greatest_power_control`` (Selvala's quantity) scaling a fixed base clause.
+_EQUAL_TO_GREATEST_POWER_RE = re.compile(
+    r"^an amount of\s+(?P<base>.*?)\s+equal to the greatest power among creatures you control$", re.IGNORECASE
+)
 #: "X mana of any one color, where X is the number of <subject>" (Wirewood
 #: Channeler) — captures the (still-variable) base clause and the subject
 #: separately, since the base itself needs `_parse_clause`'s any-colour path.
@@ -317,8 +322,10 @@ _CHOSEN_COLOR_ADD_RE = re.compile(
 #: (`GameObject.linked_exile_id`), the same "not printed at parse time"
 #: shape `_CHOSEN_COLOR_ADD_RE` is for an ETB colour choice — see
 #: `ManaAbility.color_selector`'s ``"imprinted_card_colors"`` kind.
+#: "…of any of the exiled **cards'** colors" (Pit of Offerings — several cards exiled by one
+#: ETB, `GameObject.linked_exile_ids`) is the same menu over every remembered card.
 _IMPRINTED_COLOR_ADD_RE = re.compile(
-    r"^(?:\d+|[a-z]+) mana of any of the exiled card'?s colou?rs$", re.IGNORECASE
+    r"^(?:\d+|[a-z]+) mana of any of the exiled cards?'?s? colou?rs$", re.IGNORECASE
 )
 #: "Choose a color. Add an amount of mana of that color equal to your
 #: devotion to that color." (Nykthos, Shrine to Nyx) — the choice and the
@@ -637,6 +644,9 @@ def _peel_amount_selector(clause: str, card_name: Optional[str]) -> tuple[str, O
         selector = _power_selector(m.group("who"), card_name)
         if selector is not None:
             return m.group("base"), selector
+    m = _EQUAL_TO_GREATEST_POWER_RE.match(clause)
+    if m is not None:
+        return m.group("base"), {"kind": "greatest_power_control"}
     m = _FOR_EACH_RE.match(clause)
     if m is not None:
         selector = _selector_from_subject(m.group("subject"), card_name)
@@ -1432,17 +1442,17 @@ def resolve_options(ability: ManaAbility, obj: Any, state: Optional[Any] = None)
         # not a colour to choose from).
         if state is None:
             return []
-        imprinted_id = getattr(obj, "linked_exile_id", None)
-        if imprinted_id is None:
-            return []
-        imprinted = state.find_object(imprinted_id)
-        if imprinted is None:
-            return []
-        card = getattr(imprinted, "card", imprinted)
-        colors = set(getattr(card, "color_identity", None) or set()) & set(_ALL_COLORS)
-        if not colors:
-            return []
-        return [{color: 1} for color in colors]
+        imprinted_ids = list(getattr(obj, "linked_exile_ids", None) or [])
+        if getattr(obj, "linked_exile_id", None) is not None:
+            imprinted_ids.append(obj.linked_exile_id)
+        colors: set[str] = set()
+        for imprinted_id in set(imprinted_ids):
+            imprinted = state.find_object(imprinted_id)
+            if imprinted is None:
+                continue
+            card = getattr(imprinted, "card", imprinted)
+            colors |= set(getattr(card, "color_identity", None) or set()) & set(_ALL_COLORS)
+        return [{color: 1} for color in sorted(colors)]
     if ability.color_selector in (
         "colors_of_legendary_permanents_you_control",
         "colors_of_legendary_creatures_planeswalkers_you_control",

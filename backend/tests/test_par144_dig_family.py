@@ -182,9 +182,8 @@ def test_dig_clause_shuffled_rest_and_graveyard_rest():
 
 
 @pytest.mark.parametrize("clause", [
-    # an announced-X count is a different X under a spell, an ability and a trigger
-    "look at the top x cards of your library. you may reveal a creature card from among them and put it "
-    f"into your hand. {_BOTTOM}",
+    # (an announced-X count is read since batch 6; `gate._dig_x_ok` refuses it under a trigger —
+    # tests/test_batch6_named_choice_and_enduring.py)
     # no statement of where the rest goes
     "look at the top 5 cards of your library. you may reveal a creature card from among them and put it "
     "into your hand",

@@ -5,8 +5,9 @@ Salvage, Wrenn and Seven's +1 — ~200 cards sharing one skeleton and varying al
 
 The four axes, each parsed on its own so a card recombining known values needs no new row:
 
-* **count** — a literal N (an ``x`` count is refused: the sentinel means a *different* X under a
-  spell, an activated ability and a trigger, and this grammar can't tell which it sits in);
+* **count** — a literal N, or ``x`` (the announced {X} of a spell or activated ability; the sentinel
+  means a *different* X under a trigger, which this grammar can't see, so `gate._dig_x_ok` refuses an
+  ``x`` count on a triggered ability);
 * **what may be taken** — a `models.cards.card_query` criteria dict built from the noun phrase
   (`parse_criteria`: types and subtypes, colours, "nonland", "permanent", "historic", a mana-value
   bound, "{X} in its mana cost"), and *how many* (a / up to N / any number of / all);
@@ -57,7 +58,7 @@ _BARE_X_RE = re.compile(r"(?<!\{)\bx\b(?!\})")
 
 #: "put 2 of them into your hand [and the rest …]" — a pick with no kind restriction.
 _PICK_OF_THEM_RE = re.compile(
-    r"put (?P<n>\d+) of them into your hand(?: and the rest (?P<rest>.+))?"
+    r"put (?P<up_to>up to )?(?P<n>\d+) of them into your hand(?: and the rest (?P<rest>.+))?"
 )
 #: The selection sentence. ``verb`` "reveal" is only valid with its "and put it" half.
 _SELECTION_RE = re.compile(
@@ -190,7 +191,7 @@ def _rest_destination(text: str) -> Optional[str]:
 
 
 def parse_dig(
-    count: int, remainder: str, match_tail: Callable[[str], Optional[list[EffectSpec]]],
+    count: "int | str", remainder: str, match_tail: Callable[[str], Optional[list[EffectSpec]]],
 ) -> Optional[list[EffectSpec]]:
     """The `EffectSpec`s for a dig whose first sentence ("look at/reveal the top N cards of your
     library") was already read: ``remainder`` is every sentence after it."""
@@ -203,7 +204,9 @@ def parse_dig(
     pick = _PICK_OF_THEM_RE.fullmatch(selection)
     rest_text: Optional[str]
     if pick is not None:
-        params.update(action="library_to_hand", max_picks=int(pick.group("n")), optional=False)
+        params.update(
+            action="library_to_hand", max_picks=int(pick.group("n")), optional=bool(pick.group("up_to")),
+        )
         rest_text = pick.group("rest")
     else:
         sel = _SELECTION_RE.fullmatch(selection)

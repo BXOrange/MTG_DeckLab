@@ -35,9 +35,10 @@ def test_investigate_n_times_parses():
 
 
 def test_investigate_x_times_stays_unclaimed():
-    # A dynamic count ("investigate x times, where x is …") — `COUNT` only
-    # ever resolves a literal int, fail-closed rather than guessing.
-    assert match_clause("investigate x times") is None
+    # A measured count ("investigate x times, where x is …") — fail-closed rather than guessing. A bare
+    # "investigate X times" is the spell's announced X (Disorder in the Court, batch 6).
+    assert match_clause("investigate x times, where x is the number of creatures you control") is None
+    assert match_clause("investigate for each creature you control") is None
 
 
 def test_fugitive_doctor_first_line_is_modeled():

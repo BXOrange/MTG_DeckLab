@@ -1767,7 +1767,7 @@ EffectRegistry.register(
     # "Return that card to the battlefield under its owner's control at the beginning of the next
     # end step." (PAR-136, the Flickerwisp/Turn to Mist family) — the battlefield sibling above.
     "return_specific_to_battlefield",
-    lambda p: ReturnSpecificToBattlefieldEffect(objects=[]),
+    lambda p: ReturnSpecificToBattlefieldEffect(objects=[], tapped=bool(p.get("tapped", False))),
 )
 EffectRegistry.register(
     # "When this Aura leaves the battlefield, that creature's controller

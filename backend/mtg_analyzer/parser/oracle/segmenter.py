@@ -16,6 +16,7 @@ so the front-end stays import-pure.
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 from dataclasses import dataclass, field, replace
@@ -23,7 +24,7 @@ from typing import Any, Callable, Optional
 
 from .catalogue.object_trigger_head import legacy_group_condition, parse_object_trigger_head
 from .catalogue.cost_text import scan_cost_text
-from .catalogue.count_phrase import parse_count_phrase
+from .catalogue.count_phrase import parse_amount_phrase, parse_count_phrase
 from .catalogue.spell_phrase import parse_spell_phrase
 from .catalogue.handlers import (
     ACTIVATE_ONLY_ONCE_MARKER,
@@ -916,6 +917,9 @@ _PHASE_STEP_WORDS: dict[str, str] = {
     "postcombat main phase": "main2",
 }
 
+#: "each of your main phases" (Frontier Siege) — both main phases (RULE 505), one trigger apiece.
+_EACH_MAIN_PHASE_STEPS = ("main1", "main2")
+
 #: The step/phase alternation, longest first so "first main phase" wins over
 #: any prefix of it.
 _PHASE_STEP_ALT = "|".join(
@@ -1049,9 +1053,11 @@ _PHASE_TRIGGER_RE = re.compile(
     rf"|your (?P<step_you>{_PHASE_STEP_ALT})(?:\s+step)?"
     # "at the beginning of each of your postcombat main phases" — the plural
     # form of the "your <phase>" row above, same meaning.
+    r"|each of your (?P<step_both_mains>main phases)"
     rf"|each of your (?P<step_you_each>{_PHASE_STEP_ALT})s?(?:\s+steps?)?"
     # RULE 507's own idiom: the phase is named, the scope trails it.
     r"|(?P<step_combat_you>combat) on your turn"
+    r"|(?P<step_combat_opp>combat) on each opponent'?s turn"
     rf"|each opponent'?s (?P<step_opp>{_PHASE_STEP_ALT})(?:\s+step)?"
     r"),\s*(?P<body>.+)$",
     re.IGNORECASE,
@@ -3816,6 +3822,23 @@ _EQUAL_TO_RE = re.compile(
     r"(?P<tail>\s+to (?:any target|target [a-z ]+?|each opponent|each player|that player))?$",
     re.IGNORECASE,
 )
+#: The same quantity with the recipient *before* "equal to": "~ deals damage to target creature equal to
+#: the number of lands you control." (Earth Tremor, Will of the Mardu, ~40 cards) — read as the
+#: `_EQUAL_TO_RE` spelling "~ deals X damage to target creature" with X bound to the count.
+_DAMAGE_TO_EQUAL_TO_RE = re.compile(
+    r"^(?P<verb>.+?)\s+(?P<noun>damage)(?P<tail>\s+to (?:any target|target [a-z ]+?|each opponent|each player|that player))"
+    r" equal to the number of (?P<phrase>.+)$",
+    re.IGNORECASE,
+)
+#: "`<verb>` life/cards/damage equal to **the greatest power among creatures you control**" (Garruk,
+#: Primal Hunter; ~25 cards) — an aggregate over a group rather than a count of it, read by
+#: `count_phrase.parse_amount_phrase`. The recipient may sit before "equal to" or after the term.
+_EQUAL_TO_AGGREGATE_RE = re.compile(
+    r"^(?P<verb>.+?)\s+(?P<noun>life|cards?|damage)(?P<pre>\s+to (?:any target|target [a-z ]+?|each opponent|each player|that player))?"
+    r" equal to (?P<phrase>the (?:greatest|total) (?:mana value|power|toughness) (?:among|of) .+?)"
+    r"(?P<tail>\s+to (?:any target|target [a-z ]+?|each opponent|each player|that player))?$",
+    re.IGNORECASE,
+)
 #: The params an X can sit in once an X-capable handler has parsed the body.
 _X_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "power", "toughness")
 
@@ -3849,16 +3872,24 @@ def _where_x_specs(
             )
         if m is not None:
             return None  # a sentence break inside the phrase that is not this shape: not an X definition
+    aggregate = None
     if m is not None:
         rest = m.group("rest")
     else:
-        m = _EQUAL_TO_RE.match(text)
+        m = _EQUAL_TO_RE.match(text) or _DAMAGE_TO_EQUAL_TO_RE.match(text)
+        if m is None:
+            m = aggregate = _EQUAL_TO_AGGREGATE_RE.match(text)
         if m is None:
             return None
-        rest = f"{m.group('verb')} x {m.group('noun')}{m.group('tail') or ''}"
-    amount = _count_amount(
-        m.group("phrase"), self_subject=self_subject, previous_subject=previous_subject
-    )
+        recipient = (m.groupdict().get("pre") or "") + (m.group("tail") or "")
+        rest = f"{m.group('verb')} x {m.group('noun')}{recipient}"
+    if aggregate is not None:
+        term = parse_amount_phrase(m.group("phrase"))
+        amount = None if term is None else {"kind": "count_selector", "selector": term}
+    else:
+        amount = _count_amount(
+            m.group("phrase"), self_subject=self_subject, previous_subject=previous_subject
+        )
     if amount is None:
         return None
     inner = parse_effect_body(
@@ -7771,19 +7802,23 @@ def _segment_line_unsplit(
             phase_trig.group("step_any")
             or phase_trig.group("step_you")
             or phase_trig.group("step_you_each")
+            or phase_trig.group("step_both_mains")
             or phase_trig.group("step_combat_you")
+            or phase_trig.group("step_combat_opp")
             or phase_trig.group("step_opp")
         )
-        step = _PHASE_STEP_WORDS.get((step_word or "").lower())
+        both_mains = bool(phase_trig.group("step_both_mains"))
+        step = "main1" if both_mains else _PHASE_STEP_WORDS.get((step_word or "").lower())
         if step is None:
             return Segment(raw=raw)
         if (
             phase_trig.group("step_you")
             or phase_trig.group("step_you_each")
+            or both_mains
             or phase_trig.group("step_combat_you")
         ):
             relation = "you"
-        elif phase_trig.group("step_opp"):
+        elif phase_trig.group("step_opp") or phase_trig.group("step_combat_opp"):
             relation = "not_you"
         else:
             relation = None
@@ -7878,20 +7913,23 @@ def _segment_line_unsplit(
                 )
         if effects is None:
             return Segment(raw=raw)
-        trigger: dict[str, Any] = {"event": "STEP_BEGIN", "filter": {"step": step}}
-        if relation is not None:
-            trigger["phase_relation"] = relation
-        if phase_active_if is not None:
-            trigger["active_if"] = phase_active_if
-        spec = AbilitySpec(
-            "triggered",
-            effects=effects,
-            trigger=trigger,
-            optional=optional,
-            raw_text=raw,
-            parser=provenance,
-        )
-        return Segment(raw=raw, spec=spec, claimed=True)
+        steps = _EACH_MAIN_PHASE_STEPS if both_mains else (step,)
+        phase_specs: list[AbilitySpec] = []
+        for one_step in steps:
+            trigger: dict[str, Any] = {"event": "STEP_BEGIN", "filter": {"step": one_step}}
+            if relation is not None:
+                trigger["phase_relation"] = relation
+            if phase_active_if is not None:
+                trigger["active_if"] = phase_active_if
+            phase_specs.append(AbilitySpec(
+                "triggered",
+                effects=copy.deepcopy(effects) if len(steps) > 1 else effects,
+                trigger=trigger,
+                optional=optional,
+                raw_text=raw,
+                parser=provenance,
+            ))
+        return Segment(raw=raw, spec=phase_specs[0], claimed=True, extra_specs=phase_specs[1:])
 
     trig = _TRIGGER_RE.match(raw)
     if trig is not None:

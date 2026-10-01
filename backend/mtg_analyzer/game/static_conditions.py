@@ -99,6 +99,9 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "source_equipped",  # "as long as ~ is equipped"
         "source_enchanted",  # "as long as ~ is enchanted"
         "source_counters",  # + ``counter``/``min``/``max``
+        # "As ~ enters, choose Khans or Dragons." (Siege cycle) — the source's own
+        # stored ``chosen_mode`` label slug equals ``mode``.
+        "chosen_mode",
         # "for as long as you control ~" / "…as long as ~ remains on the
         # battlefield" — the lock-down family's own duration (PAR-11): the
         # effect lasts while its *source* is still around, which is not
@@ -649,6 +652,10 @@ def condition_holds(
             return False
         instance_id = getattr(subject, "instance_id", None)
         return any(o.instance_id == instance_id for o in state.permanents())
+    if kind == "chosen_mode":
+        if subject is None:
+            return False
+        return getattr(subject, "chosen_mode", None) == condition.get("mode")
     if kind == "source_counters":
         if subject is None:
             return False
@@ -1317,6 +1324,8 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
         return prefix + f"vom Typ {condition.get('subtype', '')}"
     if kind == "source_counters":
         return prefix + f"≥{condition.get('min', 1)} {condition.get('counter', 'Marken')}"
+    if kind == "chosen_mode":
+        return f"solange {condition.get('mode', '')} gewählt ist"
     if kind == "control_count":
         return f"solange ≥{condition.get('min', 1)} {_selector_label(condition.get('selector', ''))}"
     if kind == "opponent_count":

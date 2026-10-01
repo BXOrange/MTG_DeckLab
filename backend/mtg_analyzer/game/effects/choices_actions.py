@@ -2361,14 +2361,18 @@ class ReturnSpecificToBattlefieldEffect(GameEffect):
         self,
         objects: list["GameObject"],
         source: Optional["GameObject"] = None,
+        tapped: bool = False,
     ) -> None:
         super().__init__(source)
         self.objects = objects
+        #: "…to the battlefield **tapped** under their owners' control…" (Disorder in the Court).
+        self.tapped = bool(tapped)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        destination = "battlefield_tapped" if self.tapped else "battlefield"
         for obj in list(self.objects):
             if obj.zone == Zone.EXILE and obj in context.state.player_by_id(obj.owner_id).exile:
-                context.return_from_graveyard(obj, "battlefield")
+                context.return_from_graveyard(obj, destination)
 
 
 class ReturnUncastExiledEffect(GameEffect):

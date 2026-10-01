@@ -223,7 +223,9 @@ def _optional_param(m: re.Match[str]) -> dict:
 #: `_MULTI_TARGET_QUANTIFIER`.
 _MULTI_TARGET_ROWS: list[tuple[str, str]] = [
     (r"target creatures and/or planeswalkers", "any"),
-    (r"target artifacts and/or enchantments", "permanent"),
+    (r"target artifacts and/or enchantments", "artifact_or_enchantment"),
+    # "exile X target artifacts and/or creatures" (Hide on the Ceiling) — its own pool, like the row above.
+    (r"target artifacts and/or creatures", "artifact_or_creature"),
     (r"target creatures", "creature"),
     # "return 1 or 2 target nonland permanents to their owners' hands"
     # (Wanderwine Farewell) — tried before the bare `target permanents` row
@@ -434,7 +436,9 @@ def _damage_that_much(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 
 def _damage_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    return _targeted_damage(m, amount="x")
+    # "deals twice X damage" (Purphoros's Intervention) is the ``"twice_x"`` sentinel
+    # (`RulesEngine._substitute_x`, 2 × the announced X).
+    return _targeted_damage(m, amount="twice_x" if m.groupdict().get("twice") else "x")
 
 
 _DAMAGE_X_SOURCE_COUNTERS_RE = _c(
@@ -1695,7 +1699,7 @@ def _damage_to_you_per_treasure(m: re.Match[str]) -> list[EffectSpec]:
 #: this file) — same "closed list, extend as needed" style as every other
 #: per-family keyword-filter vocabulary here.
 _DAMAGE_EACH_CREATURE_KEYWORD_RE = _c(
-    rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+|x) damage to "
+    rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+|x|twice x) damage to "
     rf"each creature (?P<neg>with|without) (?P<kw>flying|horsemanship)"
     rf"(?:(?P<and_player> and each player)|(?P<opp>{_MULTI_TARGET_SCOPE_TAIL}))?"
 )
@@ -1710,7 +1714,7 @@ def _damage_each_creature_keyword(m: re.Match[str]) -> list[EffectSpec]:
         else "each_creature_opponents_control" if m.group("opp") else "each_creature"
     )
     return [EffectSpec("damage", {
-        "amount": "x" if n == "x" else int(n),
+        "amount": count_or_x_of(n),
         "selector": selector,
         "selector_filter": {key: m.group("kw").lower()},
     })]
@@ -1824,6 +1828,37 @@ _DRAW_THAT_MANY_RE = _c(r"draws? that many cards?")
 
 def _draw_that_many(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("draw", {"count_from_trigger_event": "amount"})]
+
+
+#: The wheel (RULE 701.8f): "Each player discards their hand, then draws N cards." (Reforge the Soul, Wheel
+#: of Fate) is a `seq` of a whole-hand mass discard and a mass draw — the hand-authored Wheel of Fortune's
+#: own shape. "…**may** discard their hand and draw N cards" (Raphael's Technique, Ruin Grinder, Will of the
+#: Jeskai) is each player's own choice: a loop over the players whose body asks that player (`optional`'s
+#: ``player="target"``, the loop item handed in as the target) and then acts on them.
+_WHEEL_RE = _c(r"each player discards (?:their|all the cards in their) hand, then draws (?P<n>\d+) cards?")
+_MAY_WHEEL_RE = _c(r"each player may discard their hand and draw (?P<n>\d+) cards?")
+
+
+def _wheel(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("seq", {"effects": [
+        {"type": "discard", "params": {"scope": "each_player", "whole_hand": True}},
+        {"type": "draw", "params": {"selector": "each_player", "count": int(m.group("n"))}},
+    ]})]
+
+
+def _may_wheel(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("for_each", {"over": {"players": "each_player"}, "effects": [
+        {"type": "optional", "params": {"player": "target", "effects": [
+            {"type": "discard", "params": {"target_kind": "player", "whole_hand": True}},
+            {"type": "draw", "params": {"target_kind": "player", "count": int(m.group("n"))}},
+        ]}},
+    ]})]
+
+
+#: "draw an additional card" — a draw-step trigger's own bonus draw (Overbeing of Myth, Heightened
+#: Awareness, Monastery Siege). "Additional" only says it comes on top of the step's draw; the effect
+#: itself is one more ordinary draw. Fullmatched, so "… for each opponent who …" stays unclaimed.
+_DRAW_ADDITIONAL_RE = _c(r"draw an additional card")
 
 
 #: "Target player draws N cards, then discards M cards." (Prismari Command /
@@ -2499,6 +2534,76 @@ def _target_player_edict(m: re.Match[str]) -> list[EffectSpec]:
     count_word = m.group("count")
     count = 1 if count_word in ("a", "an") else int(count_word)
     return [EffectSpec("sacrifice", {"target_kind": "player", "what": what, "count": count})]
+
+
+#: "each opponent / target opponent sacrifices a creature with the greatest power among creatures they
+#: control" (Crackling Doom, Gix's Command, Szat's Will, Professor Onyx's −3 — the hand-authored original) —
+#: `SacrificeEffect.greatest_power` narrows the pick to the tied leaders of that player's own board.
+_SACRIFICE_GREATEST_POWER_RE = _c(
+    r"(?P<who>each opponent|target opponent|target player) sacrifices a creature "
+    r"(?:with the greatest power among creatures (?:they|that player) controls?"
+    r"|they control with the greatest power)"
+)
+
+
+def _sacrifice_greatest_power(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict = {"what": "creature", "count": 1, "greatest_power": True}
+    if m.group("who") == "each opponent":
+        params["selector"] = "each_opponent"
+    else:
+        params["target_kind"] = "player"
+    return [EffectSpec("sacrifice", params)]
+
+
+#: "Create a number of 1/1 red Warrior creature tokens equal to the number of creatures target player
+#: controls." (Will of the Mardu) — the count is taken *as that player* (`effect_amounts`' ``of: "target"``),
+#: so the player is announced by a bare `choose_targets` and the token count bound to their creatures.
+_TOKENS_PER_TARGET_PLAYER_CREATURE_RE = _c(
+    r"create a number of (?P<token>\d+/\d+ [a-z ]+? creature) tokens equal to the number of creatures "
+    r"target player controls"
+)
+
+
+def _tokens_per_target_player_creature(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    token = match_clause(f"create a {m.group('token')} token")
+    if not token or len(token) != 1 or token[0].type != "create_token":
+        return None
+    params = {**token[0].params, "count": "$n"}
+    return [
+        EffectSpec("choose_targets", {"kinds": ["player"]}),
+        EffectSpec("bind", {
+            "name": "n",
+            "amount": {
+                "kind": "count_selector", "of": "target",
+                "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
+            },
+            "effects": [{"type": "create_token", "params": params}],
+        }),
+    ]
+
+
+#: "Any number of target opponents each sacrifice a creature with the greatest power among creatures that
+#: player controls and lose N life." (Will of the Abzan) — the targets are announced by a bare
+#: `choose_targets` ("any number" is a RULE 601.2c declinable count), then a loop over exactly those
+#: chosen opponents hands each one to a sacrifice and a life loss that read the item as their player.
+_ANY_OPPONENTS_SACRIFICE_LOSE_RE = _c(
+    r"any number of target opponents each sacrifice a creature with the greatest power among creatures "
+    r"that player controls and lose (?P<n>\d+) life"
+)
+
+
+def _any_opponents_sacrifice_lose(m: re.Match[str]) -> list[EffectSpec]:
+    return [
+        EffectSpec("choose_targets", {
+            "kinds": ["opponent"], "count": _ANY_NUMBER_TARGET_CAP, "optional": True,
+        }),
+        EffectSpec("for_each", {"over": {"targets": True}, "effects": [
+            {"type": "sacrifice", "params": {
+                "what": "creature", "count": 1, "greatest_power": True, "target_kind": "player",
+            }},
+            {"type": "lose_life", "params": {"amount": int(m.group("n")), "target_kind": "player"}},
+        ]}),
+    ]
 
 
 #: "Sacrifice a creature." (Inevitable End's quoted upkeep ability) — an
@@ -4008,7 +4113,8 @@ def _counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     params: dict = dict(filt)
     if m.groupdict().get("cost"):
-        params["unless_pays"] = m.group("cost")
+        # "pays twice {X}" (Thassa's Intervention) is two X symbols: `ManaCost.with_x` fills both.
+        params["unless_pays"] = "{x}{x}" if m.group("cost") == "twice {x}" else m.group("cost")
         # "…pays {1} plus an additional {1} for each creature in your
         # party." (Concerted Defense, PAR-72) — `CounterSpellEffect.
         # unless_pays_extra_selector` adds one more generic to the fixed
@@ -4131,7 +4237,8 @@ def _mill_source_pt(m: re.Match[str]) -> list[EffectSpec]:
 def _mill(m: re.Match[str]) -> list[EffectSpec]:
     # "you mill N" / bare "mill N" → self; "target player/opponent mills N" → targeted.
     who = (m.groupdict().get("who") or "").strip()
-    params: dict = {"count": 1 if m.group("n").lower() == "a" else int(m.group("n"))}
+    count_word = m.group("n").lower()
+    params: dict = {"count": "twice_x" if count_word == "twice x" else 1 if count_word == "a" else int(count_word)}
     if who in ("target player", "target opponent"):
         params["target_kind"] = "player"
     return [EffectSpec("mill", params)]
@@ -4750,6 +4857,31 @@ def _graveyard_target_kind(type_word: Optional[str], scope_word: str) -> Optiona
         "mercenary permanent": "mercenary_permanent",
     }.get((type_word or "").strip().lower(), (type_word or "").strip().lower() or "card")
     return f"{scope_key}_{type_key}"
+
+
+#: "exile up to twice X target cards from graveyards." (Erebos's Intervention) / "exile X target cards
+#: from graveyards" — several graveyard cards picked from any graveyards at once. The X forms size the
+#: pick by the announced {X} (`TargetSpec.count_selector`, read at announce time); a literal count is
+#: the plain multi-target shape. "a single graveyard" (a same-graveyard constraint) is not this row.
+_EXILE_GRAVEYARD_CARDS_MULTI_RE = _c(
+    r"exile (?:(?P<x_count>(?P<x_up_to>up to )?(?P<twice>twice )?x )"
+    r"|(?P<up_to>up to )?(?P<count>\d+) )target cards from graveyards"
+)
+
+
+def _exile_graveyard_cards_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    if m.group("x_count"):
+        return [EffectSpec("exile", {
+            "target_kind": "any_graveyard_card", "count": _ANY_NUMBER_TARGET_CAP, "optional": True,
+            "count_selector": "source_twice_x_paid" if m.group("twice") else "source_x_paid",
+        })]
+    count = int(m.group("count"))
+    if count < 2:
+        return None
+    params: dict = {"target_kind": "any_graveyard_card", "count": count}
+    if m.group("up_to"):
+        params["optional"] = True
+    return [EffectSpec("exile", params)]
 
 
 #: Colour-list ("`<c1>` or `<c2>`") siblings of the bounce / put-on-library
@@ -7668,6 +7800,15 @@ _RETURN_SELF_TO_BATTLEFIELD_RE = _c(
 )
 
 
+#: "If it was a creature, return it to the battlefield under its owner's control. It's an
+#: enchantment." (Enduring Courage / Curiosity / Innocence / Tenacity / Friendship; Enduring
+#: Vitality is the hand-authored original) — `DiesReturnAsEnchantmentEffect`.
+_DIES_RETURN_AS_ENCHANTMENT_RE = _c(
+    rf"(?:if it was a creature, )?return (?:{_SELF_SUBJECT}) to the battlefield under its owner'?s "
+    r"control\. it'?s an enchantment\.?"
+)
+
+
 def _return_self_to_battlefield(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params: dict = {"tapped": bool(m.group("tapped"))}
     if m.group("whose").lower() == "your":
@@ -8622,13 +8763,16 @@ def _create_named_then_create_token_and_attach(m: re.Match[str]) -> Optional[lis
 #: "3 times" but "twice" isn't a `_NUMBER_WORDS` entry — it's a distinct
 #: word, not "two times") — handled here as its own literal alternative
 #: rather than widening `normalize` for a single irregular word no other
-#: family needs. "Investigate X times"/"...for each `<count>`" (a dynamic
-#: count) stays unclaimed — `COUNT` only ever resolves a literal int.
-_INVESTIGATE_RE = _c(r"investigate(?: (?P<times>twice|\d+ times?))?")
+#: family needs. "Investigate X times" (Disorder in the Court) is the announced-X
+#: ``"x"`` count sentinel; "...for each `<count>`" (a dynamic count) stays
+#: unclaimed — `COUNT` only ever resolves a literal int.
+_INVESTIGATE_RE = _c(r"investigate(?: (?P<times>twice|x times|\d+ times?))?")
 
 
 def _investigate(m: re.Match[str]) -> list[EffectSpec]:
     times = m.group("times")
+    if times == "x times":
+        return [EffectSpec("create_token", {"count": "x", "token_name": "Clue"})]
     count = 2 if times == "twice" else (int(times.split()[0]) if times else 1)
     return [EffectSpec("create_token", {"count": count, "token_name": "Clue"})]
 
@@ -9263,8 +9407,25 @@ def _distribute_counters(m: re.Match[str]) -> list[EffectSpec]:
 #: a genuine RULE 601.2c minimum of one, not 0..cap.
 _DISTRIBUTE_COUNTERS_RANGE_RE = _c(
     r"distribute (?P<n>\d+) (?P<ckind>\+1/\+1|-1/-1|−1/−1) counters among "
-    r"(?P<range_min>\d+) or (?P<range_max>\d+) target creatures(?P<yc> you control)?"
+    r"(?P<range_min>\d+)(?:, \d+,)? or (?P<range_max>\d+) target creatures(?P<yc> you control)?"
 )
+#: "distribute N +1/+1 counters among **up to M** target creatures[ you control]" (Court of Garenbrig,
+#: Storm the Seedcore) — the divided pool over a RULE 601.2c "up to" target count.
+_DISTRIBUTE_COUNTERS_UP_TO_RE = _c(
+    r"distribute (?P<n>\d+) (?P<ckind>\+1/\+1|-1/-1|−1/−1) counters among "
+    r"up to (?P<up_to>\d+) target creatures(?P<yc> you control)?"
+)
+
+
+def _distribute_counters_up_to(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    up_to = int(m.group("up_to"))
+    if up_to < 2:
+        return None
+    kind = "creature_you_control" if m.groupdict().get("yc") else "creature"
+    return [EffectSpec("add_counters", {
+        "count": int(m.group("n")), "kind": _counter_sign(m.group("ckind")), "target_kind": kind,
+        "target_count": up_to, "optional": True, "divided": True,
+    })]
 
 
 def _distribute_counters_range(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -13356,14 +13517,14 @@ def _owner_shuffles_graveyard(m: re.Match[str]) -> list[EffectSpec]:
 #: silently do nothing.
 _DELAYED_RETURN_BATTLEFIELD_RE = _c(
     r"return (?:it|that card|that creature|that permanent|them|those cards|the exiled cards?) to the "
-    r"battlefield under (?:its|their) owner'?s control at the beginning of the next end step"
+    r"battlefield(?P<tapped> tapped)? under (?:its|their) (?:owner'?s|owners') control at the beginning of the next end step"
 )
 
 
 def _delayed_return_battlefield(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("create_delayed_trigger", {
         "step": "end", "scope": "any", "capture": "previous_or_self",
-        "effects": [{"type": "return_specific_to_battlefield", "params": {}}],
+        "effects": [{"type": "return_specific_to_battlefield", "params": {"tapped": True} if m.group("tapped") else {}}],
     })]
 
 
@@ -14601,11 +14762,14 @@ def _reveal_top_all_filter(m: re.Match[str]) -> list[EffectSpec]:
 #: the bottom of your library / into your graveyard." (`dig.py` parses everything after the first
 #: sentence; this row only owns that sentence, so a body the dig grammar can't read returns None
 #: and falls through to the rows below.)
-_DIG_RE = _c(r"(?:look at|reveal) the top (?P<n>\d+) cards of your library\.\s+(?P<rest>.+)")
+#: An ``x`` count is the spell's / ability's announced {X}; `gate._dig_x_ok` refuses it under a trigger,
+#: where no X was announced.
+_DIG_RE = _c(r"(?:look at|reveal) the top (?P<n>\d+|x) cards of your library\.\s+(?P<rest>.+)")
 
 
 def _dig(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    return parse_dig(int(m.group("n")), m.group("rest"), match_clause)
+    count = m.group("n").lower()
+    return parse_dig("x" if count == "x" else int(count), m.group("rest"), match_clause)
 
 
 #: "~ deals 4 damage to target creature and X damage to that creature's
@@ -15347,7 +15511,7 @@ HANDLERS: list[EffectHandler] = [
     ),
     EffectHandler(
         "damage_x",
-        _c(rf"{SELF_SUBJECT_PREFIX}deals? x damage to {TARGET}"),
+        _c(rf"{SELF_SUBJECT_PREFIX}deals? (?P<twice>twice )?x damage to {TARGET}"),
         _damage_x,
     ),
     # "~ deals damage equal to that spell's mana value to target opponent."
@@ -15669,6 +15833,21 @@ HANDLERS: list[EffectHandler] = [
         _DRAW_THAT_MANY_RE,
         _draw_that_many,
     ),
+    EffectHandler("sacrifice_greatest_power", _SACRIFICE_GREATEST_POWER_RE, _sacrifice_greatest_power),
+    EffectHandler(
+        "tokens_per_target_player_creature", _TOKENS_PER_TARGET_PLAYER_CREATURE_RE,
+        _tokens_per_target_player_creature,
+    ),
+    EffectHandler(
+        "any_opponents_sacrifice_lose", _ANY_OPPONENTS_SACRIFICE_LOSE_RE, _any_opponents_sacrifice_lose,
+    ),
+    EffectHandler("wheel", _WHEEL_RE, _wheel),
+    EffectHandler("may_wheel", _MAY_WHEEL_RE, _may_wheel),
+    EffectHandler(
+        "draw_additional",
+        _DRAW_ADDITIONAL_RE,
+        lambda m: [EffectSpec("draw", {"count": 1})],
+    ),
     # "Target player draws N cards, then discards M cards." (Prismari
     # Command) — tried before the plain `draw` row, whose bare match would
     # leave the trailing "then discards …" dangling with no subject link.
@@ -15878,7 +16057,7 @@ HANDLERS: list[EffectHandler] = [
     # "you gain x life" (an {X}-cost spell/ability's own announced X).
     EffectHandler(
         "gain_life",
-        _c(rf"(?P<who>you |target player )?gains? (?P<n>x|\d+) life"),
+        _c(rf"(?P<who>you |target player )?gains? (?P<n>x|twice x|\d+) life"),
         _gain_life,
     ),
     # Elemental Spectacle / Luminollusk-shaped count-based life gain.
@@ -16205,7 +16384,7 @@ HANDLERS: list[EffectHandler] = [
         "counter",
         _c(
             rf"counter {SPELL_TARGET}"
-            + r"(?: unless (?:its controller pays|they pay) (?P<cost>\{[^}]+\})"
+            + r"(?: unless (?:its controller pays|they pay) (?P<cost>\{[^}]+\}|twice \{x\})"
             + r"(?P<party_tax> plus an additional \{1\} for each creature in your party)?)?"
             + r"(?:\. if they do, (?P<reflexive>.+?))?\.?"
             + IF_COLOR_SUFFIX
@@ -16247,7 +16426,7 @@ HANDLERS: list[EffectHandler] = [
     # "mill 3 cards" / "you mill 3 cards" / "target player mills a card"
     EffectHandler(
         "mill",
-        _c(r"(?:(?P<who>you|target player|target opponent) )?mills? (?P<n>\d+|a) cards?"),
+        _c(r"(?:(?P<who>you|target player|target opponent) )?mills? (?P<n>\d+|a|twice x) cards?"),
         _mill,
     ),
     EffectHandler("mill_spell_mv", _MILL_SPELL_MV_RE, _mill_spell_mv),
@@ -16729,6 +16908,11 @@ HANDLERS: list[EffectHandler] = [
         "exile_from_graveyard",
         _EXILE_FROM_GRAVEYARD_RE,
         _exile_from_graveyard,
+    ),
+    EffectHandler(
+        "exile_graveyard_cards_multi",
+        _EXILE_GRAVEYARD_CARDS_MULTI_RE,
+        _exile_graveyard_cards_multi,
     ),
     EffectHandler(
         "exile_own_graveyard_cards",
@@ -17257,6 +17441,15 @@ HANDLERS: list[EffectHandler] = [
         _RETURN_SELF_TO_BATTLEFIELD_RE,
         _return_self_to_battlefield,
     ),
+    # "When ~ dies, if it was a creature, return it to the battlefield under its owner's control.
+    # It's an enchantment." (Enduring cycle) — the effect reads "if it was a creature" off the DIES
+    # event itself (RULE 400.7), so the intervening-if is part of the claimed text, not a gate.
+    EffectHandler(
+        "dies_return_as_enchantment",
+        _DIES_RETURN_AS_ENCHANTMENT_RE,
+        lambda m: [EffectSpec("dies_return_as_enchantment", {})],
+        self_subject_only=True,
+    ),
     # "return that card to the battlefield under its owner's control"
     # (Graceful Reprieve) — the self-subject-bound-target spelling.
     EffectHandler(
@@ -17508,6 +17701,9 @@ HANDLERS: list[EffectHandler] = [
         "distribute_counters_range",
         _DISTRIBUTE_COUNTERS_RANGE_RE,
         _distribute_counters_range,
+    ),
+    EffectHandler(
+        "distribute_counters_up_to", _DISTRIBUTE_COUNTERS_UP_TO_RE, _distribute_counters_up_to,
     ),
     # "put N +1/+1 counters on each creature you control" (RULE 601.2c mass
     # effect, Vastwood Surge-shaped).

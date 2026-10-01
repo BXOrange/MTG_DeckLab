@@ -39,7 +39,7 @@ from .catalogue.levels import (
 )
 from .catalogue.modal import (
     CONDITIONAL_MODAL_HEADER_RE, MODAL_HEADER_RE, conditional_modal_override,
-    collect_mode_bodies, split_modal_block, split_spree_block,
+    collect_mode_bodies, split_modal_block, split_named_choice_block, split_spree_block,
 )
 from .catalogue.opening_hand import (
     opening_hand_battlefield_conditional_permission_line,
@@ -3802,7 +3802,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: kindless "has four or more counters on it" counts every kind (both used to read "or more" as a counter's name,
 #: a condition that never held). PAR-121 consolidated (0 of 39,639 clause readings changed): one verb × subject
 #: table, one certain-antecedent connective, one targeted-damage shape, one strict-subset row deleted.
-PARSER_VERSION = "570"
+PARSER_VERSION = "571"
 
 
 def parser_source_hash() -> str:
@@ -4185,6 +4185,33 @@ def _parse_cache_key(card: Any) -> tuple[Any, ...]:
     )
 
 
+#: Effect types whose static form reads ``active_if`` (`registry._SELECTOR_KEYS` -> the layer
+#: engine or a permission module's own gate); a named-choice option built from anything else would
+#: apply unconditionally, so the gate fails closed on it instead.
+_NAMED_MODE_STATIC_EFFECTS = frozenset({
+    "anthem", "grant_keyword", "trigger_doubler", "graveyard_cast_permission",
+    "self_graveyard_or_exile_cast_permission", "top_library_permission",
+})
+
+
+def _named_mode_gated(spec: AbilitySpec, label: str) -> Optional[AbilitySpec]:
+    """``spec`` live only while ``GameObject.chosen_mode`` is ``label`` (None = cannot be gated)."""
+    condition = {"kind": "chosen_mode", "mode": label.strip().lower()}
+    if spec.ability_kind == "triggered":
+        spec.trigger = {**(spec.trigger or {}), "named_mode": condition["mode"]}
+        return spec
+    if spec.ability_kind == "static" and spec.effects:
+        for effect in spec.effects:
+            if effect.type not in _NAMED_MODE_STATIC_EFFECTS:
+                return None
+            existing = effect.params.get("active_if")
+            effect.params["active_if"] = (
+                {"kind": "all", "conditions": [existing, condition]} if existing else condition
+            )
+        return spec
+    return None
+
+
 def parse_oracle(card: Any) -> ParseResult:
     """Memoized entry point — see `_parse_oracle_uncached` for the real work.
 
@@ -4300,6 +4327,32 @@ def _action_limit_ok(spec: AbilitySpec) -> bool:
     if spec.ability_kind != "triggered":
         return not contains_marker(spec.effects, ACTION_ONCE_PER_TURN_MARKER)
     return fold_action_limit(spec.effects, ACTION_ONCE_PER_TURN_MARKER, spec.raw_text or "") is not None
+
+
+_EXILED_CARDS_COLORS_MANA_RE = re.compile(r"add 1 mana of any of the exiled cards' colou?rs")
+
+
+_TAP_X_COST_RE = re.compile(r"\btap x untapped\b")
+
+
+def _tap_x_cost_ok(spec: AbilitySpec) -> bool:
+    """"Tap X untapped artifacts you control" as a cost has no engine form yet: the cost parser reads the
+    X as a count of 1 (`costs.py`'s ``tap_others``), so an ability carrying it would run for a single
+    tap whatever its X. Fails closed until X-sized tap costs exist."""
+    cost = spec.cost if isinstance(spec.cost, dict) else None
+    return not (cost and _TAP_X_COST_RE.search(str(cost.get("text", "")).lower()))
+
+
+def _dig_x_ok(spec: AbilitySpec) -> bool:
+    """A dig's ``x`` count ("look at the top X cards") is the announced {X} of a spell or an activated
+    ability. Under a trigger nothing announced an X (the word then means a measured or "where X is"
+    amount), so it fails closed instead of reading 0."""
+    if spec.ability_kind != "triggered":
+        return True
+    return not any(
+        effect.type == "inspect_top_choose" and effect.params.get("count") == "x"
+        for effect in spec.effects
+    )
 
 
 def _that_player_antecedent_ok(spec: AbilitySpec) -> bool:
@@ -4731,6 +4784,38 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             parser=provenance,
         ))
 
+    def _process_named_choice_block(
+        labels: list[str], bodies: dict[str, str], header: str
+    ) -> None:
+        # "As ~ enters, choose A or B. • A — <ability> • B — <ability>" (Siege cycle): the choice is
+        # an as-enters replacement stamping `GameObject.chosen_mode`; each option's ability stays an
+        # ordinary bound ability, live only while its own label is the stored choice.
+        nonlocal all_claimed
+        gated: list[AbilitySpec] = []
+        unclaimed_before = len(unclaimed)
+        for label in labels:
+            seg = segment_line(
+                bodies[label], allow_spell_effect=False, provenance=provenance, is_saga=False
+            )
+            option_specs = (
+                [_named_mode_gated(spec, label) for spec in [seg.spec, *seg.extra_specs]]
+                if seg.claimed and not seg.keyword_line and seg.spec is not None else [None]
+            )
+            if any(spec is None for spec in option_specs):
+                all_claimed = False
+                unclaimed.append(f"• {label} — {bodies[label]}")
+                continue
+            gated.extend(option_specs)
+        if len(unclaimed) > unclaimed_before:
+            unclaimed.insert(unclaimed_before, header)
+            return
+        effect_specs.append(AbilitySpec(
+            "enter_replacement",
+            [EffectSpec("choose_named_mode", {"options": [label.title() for label in labels]})],
+            raw_text=header, parser=provenance,
+        ))
+        effect_specs.extend(gated)
+
     def _process_spree_block(header: str, mode_costs: list[str], mode_bodies: list[str]) -> None:
         nonlocal all_claimed
         # RULE 702.172a: Spree's own block shape — always "choose one or
@@ -5052,6 +5137,12 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 _process_modal_block(lines[i], or_both, or_more, repeatable, override, choose, mode_bodies)
                 i = next_i
                 continue
+            named_choice = split_named_choice_block(lines, i)
+            if named_choice is not None:
+                nc_labels, nc_bodies, next_i = named_choice
+                _process_named_choice_block(nc_labels, nc_bodies, lines[i])
+                i = next_i
+                continue
             trig_block = _split_triggered_modal_block(lines, i, provenance)
             if trig_block is not None:
                 trigger, or_both, or_more, repeatable, exhausted, override, choose, mode_bodies, next_i = trig_block
@@ -5093,6 +5184,16 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 if e.type == "exile" and not e.params.get("selector"):
                     e.params["remember"] = True
 
+    # Pit of Offerings: "{T}: Add one mana of any of the exiled cards' colors." names the cards the
+    # ETB's "exile up to three target cards from graveyards" took. The mana line is the
+    # `mana_abilities` module's (`imprinted_card_colors`, read off `linked_exile_ids`), so — like the
+    # linked-return stamp above — the exile that feeds it must remember what it took.
+    if _EXILED_CARDS_COLORS_MANA_RE.search(normalized):
+        for spec in effect_specs:
+            for e in spec.effects:
+                if e.type == "exile" and str(e.params.get("target_kind", "")).startswith("any_graveyard"):
+                    e.params["remember"] = True
+
     for spec in effect_specs:
         if not _that_player_antecedent_ok(spec):
             all_claimed = False
@@ -5104,6 +5205,9 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             all_claimed = False
             unclaimed.append(spec.raw_text)
         if not _action_limit_ok(spec):
+            all_claimed = False
+            unclaimed.append(spec.raw_text)
+        if not _dig_x_ok(spec) or not _tap_x_cost_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
 

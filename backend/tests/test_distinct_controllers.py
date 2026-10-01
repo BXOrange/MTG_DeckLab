@@ -69,7 +69,8 @@ def test_exile_up_to_two_controlled_by_different_players_is_recognized():
     )
     assert spec.type == "exile"
     assert spec.params == {
-        "target_kind": "permanent", "count": 2, "optional": True, "distinct_controllers": True,
+        # the real "artifact or enchantment" pool, not any permanent (batch 6)
+        "target_kind": "artifact_or_enchantment", "count": 2, "optional": True, "distinct_controllers": True,
     }
 
 

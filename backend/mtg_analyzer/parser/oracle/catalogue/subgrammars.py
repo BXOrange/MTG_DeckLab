@@ -511,7 +511,7 @@ COUNT = r"(?P<n>a|an|\d+)"
 #: specific handler to `COUNT_X` (+ `count_or_x_of`) as a real card needs
 #: it, the same "generalize the fragment, not blindly the call sites"
 #: split `_rad_counter_amount` used before this existed.
-COUNT_X = r"(?P<n>a|an|x|\d+)"
+COUNT_X = r"(?P<n>a|an|x|twice x|\d+)"
 
 #: RULE 202.2f/700.6 "your devotion to <colour>[ and <colour>[ and
 #: <colour>]]" (Purphoros/Heliod/Athreos/Karametra-shaped) or one of the five
@@ -938,8 +938,11 @@ def count_of(token: str) -> int:
 def count_or_x_of(token: str) -> "int | str":
     """A captured `COUNT_X` token → its integer value, or the ``"x"``
     sentinel `RulesEngine._substitute_x` resolves against the spell/
-    ability's actually-announced {X} at resolve time."""
-    return "x" if token.strip().lower() == "x" else count_of(token)
+    ability's actually-announced {X} at resolve time (``"twice_x"`` for "twice X" — 2 × that X)."""
+    word = token.strip().lower()
+    if word == "twice x":
+        return "twice_x"
+    return "x" if word == "x" else count_of(token)
 
 
 #: WUBRG colour words → letters, for the old-templating "target blue

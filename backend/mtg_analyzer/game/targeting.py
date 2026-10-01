@@ -2002,7 +2002,9 @@ def _legal_targets_for(
 #: The vocabulary `TargetSpec.count_selector` may name. Whitelisted like
 #: every other card-text-derived name in this package; an unknown one falls
 #: back to the printed ``count``.
-TARGET_COUNT_SELECTORS: frozenset[str] = frozenset({"opponents", "source_monstrosity_x", "source_x_paid"})
+TARGET_COUNT_SELECTORS: frozenset[str] = frozenset({
+    "opponents", "source_monstrosity_x", "source_x_paid", "source_twice_x_paid",
+})
 
 
 def resolved_count(
@@ -2030,6 +2032,10 @@ def resolved_count(
         # stamped by `RulesEngine.cast_spell`), read fresh at target-
         # gathering time rather than a fixed printed count.
         return max(0, int(getattr(source, "x_paid", 0) or 0))
+    if selector == "source_twice_x_paid":
+        # "Exile up to twice X target cards from graveyards." (Erebos's Intervention) — 2 × the
+        # announced {X}, read the same way as ``source_x_paid``.
+        return max(0, 2 * int(getattr(source, "x_paid", 0) or 0))
     # "goad up to X target creatures" where X is the monstrosity just
     # announced — `GameObject.monstrosity_x` is stamped by
     # `RulesEngine.monstrosity` precisely so a *later* ability of the same

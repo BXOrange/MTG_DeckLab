@@ -57,9 +57,16 @@ def active_graveyard_cast_grants(player: "Player", state: "GameState") -> list[G
     has already been used this turn (`GameObject.graveyard_casts_this_turn`,
     reset each untap step)."""
     grants: list[GraveyardCastPermissionEffect] = []
-    for obj in state.permanents_controlled_by(player.id):
+    # A turn-scoped grant ("…gains flashback until end of turn", Will of the Jeskai / Past in Flames) is
+    # written onto its own *spell*, which has left the stack for the graveyard or exile by the time anything
+    # asks — so those zones are scanned too, for turn-scoped grants only.
+    on_battlefield = list(state.permanents_controlled_by(player.id))
+    off_battlefield = [*player.graveyard, *player.exile]
+    for obj in [*on_battlefield, *off_battlefield]:
         for effect in getattr(obj, "static_effects", None) or []:
             if not isinstance(effect, GraveyardCastPermissionEffect):
+                continue
+            if effect.expires_turn is None and obj in off_battlefield:
                 continue
             if effect.once_per_turn and not effect.per_permanent_type and getattr(obj, "graveyard_casts_this_turn", 0):
                 continue
