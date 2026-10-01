@@ -68,6 +68,7 @@ from ..top_library import (
     may_cast_flash_from_top_of_library,
     may_cast_spell_from_top_of_library,
     may_play_land_from_top_of_library,
+    record_top_library_use,
     top_library_life_payment_required,
 )
 
@@ -565,11 +566,11 @@ class CastingMixin:
             or (obj in player.graveyard and self._graveyard_cast_permission(player, obj))
             or (
                 obj in player.graveyard
-                and self._self_graveyard_or_exile_cast_permission(obj)
+                and self._self_graveyard_or_exile_cast_permission(obj, player)
             )
             or (
                 obj in player.exile
-                and self._self_graveyard_or_exile_cast_permission(obj)
+                and self._self_graveyard_or_exile_cast_permission(obj, player)
             )
             or (
                 bool(player.library)
@@ -1843,6 +1844,10 @@ class CastingMixin:
                 if obj in player.graveyard and graveyard_keyword is None
                 else None
             )
+            # PAR-105: a "once each turn" top-of-library grant is spent by this cast — read while the card
+            # is still the top card.
+            if bool(player.library) and obj is player.library[-1]:
+                record_top_library_use(player, self.state, obj.card)
             # MEC-44: RULE 601.3a — remembered once, here, since whether a
             # sorcery could have been cast depends on the board at THIS
             # moment (own main phase, empty stack, own turn), not whatever

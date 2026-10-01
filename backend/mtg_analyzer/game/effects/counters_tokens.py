@@ -129,8 +129,12 @@ class AddCountersEffect(GameEffect):
         previous_group_scope: Optional[str] = None,
         kind_options: Optional[list[dict[str, Any]]] = None,
         choose_one: bool = False,
+        group_other: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "put a +1/+1 counter on each **other** Dragon you control" — ``group`` minus this effect's own
+        #: source (RULE 109.5), which the structured selector grammar has no spelling for.
+        self.group_other = bool(group_other)
         #: PAR-140: "put a menace counter on **a creature you control**" (Blood Curdle, Ajani Fells the
         #: Godsire) — with ``group`` (the structured selector naming which permanents are eligible), the
         #: controller picks **one** of them at resolution instead of every member getting the counter; no
@@ -353,6 +357,8 @@ class AddCountersEffect(GameEffect):
             if amount > 0:
                 controller_id = getattr(self.source, "controller_id", None)
                 members = list(group_selector_objects(context.state, controller_id, self.group, src=self.source))
+                if self.group_other:
+                    members = [o for o in members if o is not self.source]
                 if self.choose_one:
                     context.engine._request_counter_recipient_choice(self, amount, members)
                     return

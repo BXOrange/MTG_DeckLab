@@ -549,9 +549,27 @@ class TopLibraryPermissionEffect(GameEffect):
         chosen_type_creature_only: bool = False,
         creature_only: bool = False,
         subtypes: Optional[list[str]] = None,
+        spell_criteria: Optional[dict[str, Any]] = None,
+        land_criteria: Optional[dict[str, Any]] = None,
+        once_each_turn: bool = False,
+        active_if: Optional[dict[str, Any]] = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
+        #: RULE 613.6's "as long as `<condition>`, you may cast … from the top of your library" — a
+        #: `static_conditions` dict read live by `top_library.active_top_library_grants` (this effect is not
+        #: a `StaticAbility`, so the layer engine's own ``active_if`` gate never sees it).
+        self.active_if = dict(active_if) if isinstance(active_if, dict) else None
+        #: PAR-105: "you may cast `<spells of a kind>` from the top of your library" — the kind as a
+        #: `models.cards.card_query` criteria dict, matched against the top card
+        #: (`top_library._grant_permits_cast`). ANDs with every narrower flag above. ``None`` = any spell.
+        self.spell_criteria = dict(spell_criteria) if spell_criteria else None
+        #: The same for "play `<historic>` lands …" (`top_library.may_play_land_from_top_of_library`).
+        self.land_criteria = dict(land_criteria) if land_criteria else None
+        #: "Once each turn, you may cast a creature spell … from the top of your library" — one use per
+        #: turn per granting permanent (`GameObject.top_library_uses_this_turn`, reset at its controller's
+        #: untap step), counting a land played this way too (`top_library.record_top_library_use`).
+        self.once_each_turn = bool(once_each_turn)
         self.look = look
         self.play_lands = play_lands
         self.cast_spells = cast_spells
@@ -633,8 +651,15 @@ class GraveyardCastPermissionEffect(GameEffect):
         expires_turn: Optional[int] = None,
         per_permanent_type: bool = False,
         lands_only: bool = False,
+        spell_criteria: Optional[dict[str, Any]] = None,
+        active_if: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
+        #: PAR-105: "you may cast a `<kind>` spell from your graveyard" — the kind as a `card_query`
+        #: criteria dict (`graveyard_cast.graveyard_cast_grant_for`), ANDed with the flags below.
+        self.spell_criteria = dict(spell_criteria) if spell_criteria else None
+        #: A `static_conditions` gate ("as long as …"), read live by `graveyard_cast.active_graveyard_cast_grants`.
+        self.active_if = dict(active_if) if isinstance(active_if, dict) else None
         self.max_mana_value = max_mana_value
         self.permanent_only = permanent_only
         self.once_per_turn = once_per_turn
@@ -679,6 +704,20 @@ class SelfGraveyardOrExileCastPermissionEffect(GameEffect):
     just the battlefield), so the marker survives the card's own trip
     through hand → battlefield → graveyard/exile.
     """
+
+    def __init__(
+        self,
+        zones: Optional[list[str]] = None,
+        active_if: Optional[dict[str, Any]] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        #: Which zones the permission covers — ``("graveyard", "exile")`` for Squee ("from your graveyard or
+        #: from exile"), ``("graveyard",)`` for the many "you may cast this card from your graveyard" cards.
+        self.zones = tuple(zones) if zones else ("graveyard", "exile")
+        #: "…as long as you control a Zombie" / "…if you gained life this turn" — a `static_conditions` gate
+        #: evaluated for the casting player when the card is offered (`GameEngine._self_graveyard_or_exile_cast_permission`).
+        self.active_if = dict(active_if) if isinstance(active_if, dict) else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         return None

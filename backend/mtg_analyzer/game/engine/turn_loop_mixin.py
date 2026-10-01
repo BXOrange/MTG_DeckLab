@@ -654,6 +654,7 @@ class TurnLoopMixin:
             # during each of your turns" restriction (Lurrus-shaped) resets
             # the same way.
             obj.graveyard_casts_this_turn = 0
+            obj.top_library_uses_this_turn = 0
             obj.graveyard_cast_types_this_turn = set()
             # ENG-27: "if you haven't added mana with this ability this
             # turn" (Carpet of Flowers) resets the same way too.

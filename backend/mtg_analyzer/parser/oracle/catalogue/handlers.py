@@ -8924,19 +8924,35 @@ _ADD_NAMED_COUNTER_RE = _c(
 #: a named counter on a mass group (`AddCountersEffect.group`, the group read
 #: through the shared `parse_count_phrase` grammar).
 _ADD_NAMED_COUNTER_GROUP_RE = _c(
-    rf"put {COUNT_X} (?P<ckind>{_NAMED_COUNTER_KIND}) counters? on each (?P<group>[a-z' -]+?)"
+    rf"put {COUNT_X} (?P<ckind>{_NAMED_COUNTER_KIND}) counters? on each (?P<other>other )?(?P<group>[a-z' -]+?)"
+)
+
+#: Batch 5: the +1/+1 / -1/-1 sibling over the same group grammar — "put a +1/+1 counter on each creature you
+#: control with a +1/+1 counter on it" (Dueling Coach, Oran-Rief, Edgar), "…on each other Dragon you control"
+#: (Acid-Spewer Dragon, Belltoll Dragon), "…on each Ooze you control" (Biogenic Ooze). Registered *after* the
+#: closed `add_counters_selector` row, which keeps the named selectors it always read.
+_ADD_PT_COUNTER_GROUP_RE = _c(
+    rf"put {COUNT_X} (?P<ckind>[+\-−]1/[+\-−]1) counters? on each (?P<other>other )?(?P<group>[a-z0-9' +/\-−]+?)"
 )
 
 
-def _add_named_counter_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+def _add_counter_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     from .count_phrase import parse_count_phrase
 
-    group = parse_count_phrase(m.group("group"))
-    if group is None or group.get("zone") != "battlefield" or "target" in m.group("group"):
+    phrase = m.group("group")
+    group = parse_count_phrase(phrase)
+    if group is None or group.get("zone") != "battlefield" or "target" in phrase:
         return None
-    return [EffectSpec("add_counters", {
-        "count": count_or_x_of(m.group("n")), "kind": m.group("ckind"), "group": group,
-    })]
+    ckind = m.group("ckind")
+    kind = _counter_sign(ckind) if ckind[0] in "+-−" else ckind
+    params: dict = {"count": count_or_x_of(m.group("n")), "kind": kind, "group": group}
+    if m.group("other"):
+        params["group_other"] = True
+    return [EffectSpec("add_counters", params)]
+
+
+def _add_named_counter_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return _add_counter_group(m)
 
 
 def _add_named_counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -17505,6 +17521,7 @@ HANDLERS: list[EffectHandler] = [
         ),
         _add_counters_selector,
     ),
+    EffectHandler("add_pt_counter_group", _ADD_PT_COUNTER_GROUP_RE, _add_counter_group),
     # "target creature gets +1/+0 until end of turn and can't be blocked
     # this turn" (You Come to a River-shaped) — tried before the plain
     # `pump` handler below since it's a strict superset of that shape (a

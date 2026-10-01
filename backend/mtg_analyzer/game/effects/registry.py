@@ -2592,6 +2592,7 @@ EffectRegistry.register(
         group=p.get("group"),
         kind_options=p.get("kind_options"),
         choose_one=bool(p.get("choose_one", False)),
+        group_other=bool(p.get("group_other", False)),
     ),
 )
 EffectRegistry.register(
@@ -2687,6 +2688,20 @@ EffectRegistry.register(
         creature_only=bool(p.get("creature_only", False)),
     ),
 )
+def _top_library_gate(p: dict) -> Optional[dict]:
+    """A top-of-library grant's whole gate as one `static_conditions` dict: the printed "as long as …"
+    (``active_if``) and the legacy per-card gates the parser's Class-level / Leveler wrappers stamp
+    (``min_level``/``level_counter``, ``min_count_selector``, ``active_player_only``) — this effect is not a
+    `StaticAbility`, so the layer engine's own gate never reads either."""
+    from ..static_conditions import condition_from_legacy_params
+
+    parts = [c for c in (p.get("active_if") if isinstance(p.get("active_if"), dict) else None,
+                         condition_from_legacy_params(p)) if c]
+    if not parts:
+        return None
+    return parts[0] if len(parts) == 1 else {"kind": "all", "conditions": parts}
+
+
 EffectRegistry.register(
     "top_library_permission",
     lambda p: TopLibraryPermissionEffect(
@@ -2701,6 +2716,10 @@ EffectRegistry.register(
         chosen_type_creature_only=p.get("chosen_type_creature_only", False),
         creature_only=bool(p.get("creature_only", False)),
         subtypes=p.get("subtypes"),
+        spell_criteria=p.get("spell_criteria"),
+        land_criteria=p.get("land_criteria"),
+        once_each_turn=bool(p.get("once_each_turn", False)),
+        active_if=_top_library_gate(p),
     ),
 )
 EffectRegistry.register(
@@ -2712,11 +2731,15 @@ EffectRegistry.register(
         exile_if_would_be_put_into_graveyard=p.get("exile_if_would_be_put_into_graveyard", False),
         per_permanent_type=bool(p.get("per_permanent_type", False)),
         lands_only=bool(p.get("lands_only", False)),
+        spell_criteria=p.get("spell_criteria"),
+        active_if=_top_library_gate(p),
     ),
 )
 EffectRegistry.register(
     "self_graveyard_or_exile_cast_permission",
-    lambda p: SelfGraveyardOrExileCastPermissionEffect(),
+    lambda p: SelfGraveyardOrExileCastPermissionEffect(
+        zones=p.get("zones"), active_if=_top_library_gate(p),
+    ),
 )
 EffectRegistry.register(
     "create_token",

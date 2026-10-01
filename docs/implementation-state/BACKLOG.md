@@ -72,9 +72,6 @@ No open tickets.
 - **PAR-104 · TMNT "create a mutagen token".** 16 SOLO, 3 also-blocked (April O'Neil Human Element,
   Crustacean Commando, Genghis Frog, Michelangelo Weirdness to 11, Mona Lisa, Mutant Chain Reaction,
   Ooze Spill, Ray Fillet Man Ray, …).
-- **PAR-105 · "You may cast creature spells from the top of your library".** PAR-88's shape on
-  `game/top_library.py`; 6 SOLO, 4 also-blocked (Augur of Autumn, Elven Chorus, Garruk's Horde,
-  Ranger Class, Summoning Materia).
 
 > PAR-99…105 counts confirmed at PV 413 (2026-09-16, vs the 56 saved decks in `deck_coverage.py`),
 > re-verified at PV 447 (2026-09-21). Re-run `parser_probe.py blocked` before starting.
@@ -83,7 +80,6 @@ No open tickets.
   blocker) — work each independently:
   - God-Eternal "dies or exiled → put third from top" — 5 (2 SOLO: Oketra, Ilharg; Bontu/Kefnet/Rhonas
     each blocked by a second clause).
-  - "You may cast this card from your graveyard" (plain) — 3 (Hogaak, Skaab Ruinator, Their Number Is Legion).
   - "Counter target spell unless its controller pays `<cost>` for each card in your graveyard" — 3
     (Circular Logic, Countervailing Winds, Rakshasa's Disdain).
   - "`<cost>`: target player exiles a card from their graveyard" — 3 (Merrow Bonegnawer, Relic of

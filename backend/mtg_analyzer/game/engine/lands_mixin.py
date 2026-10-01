@@ -62,6 +62,7 @@ from ..top_library import (
     may_cast_flash_from_top_of_library,
     may_cast_spell_from_top_of_library,
     may_play_land_from_top_of_library,
+    record_top_library_use,
     top_library_life_payment_required,
 )
 
@@ -80,7 +81,7 @@ class LandsMixin:
             or (
                 bool(player.library)
                 and obj is player.library[-1]
-                and may_play_land_from_top_of_library(player, self.state)
+                and may_play_land_from_top_of_library(player, self.state, card)
             )
             or (
                 obj.zone == Zone.EXILE
@@ -144,6 +145,8 @@ class LandsMixin:
         # the same "read the object's own zone" idiom
         # `RulesEngine._remove_from_current_zone` uses for casting.
         from_zone = obj.zone.value
+        if from_zone == "library":
+            record_top_library_use(player, self.state, obj.card, land=True)
         player.remove_from_zone(obj, obj.zone)
 
         def _finish() -> None:
@@ -302,20 +305,28 @@ class LandsMixin:
             graveyard_cast_grant_for(player, self.state, obj.card) is not None
             or has_temporary_graveyard_play_permission(player, self.state)
         )
-    def _self_graveyard_or_exile_cast_permission(self, obj: GameObject) -> bool:
-        """Whether ``obj`` carries its own standing "you may cast this card
-        from your graveyard or from exile" permission (Squee, the
-        Immortal-shaped, MEC-40) — unlike `_graveyard_cast_permission`
-        above, granted by no *other* permanent, so it's read straight off
-        ``obj``'s own `static_effects` regardless of which of the two
-        zones it's currently sitting in.
+    def _self_graveyard_or_exile_cast_permission(self, obj: GameObject, player: Optional[Player] = None) -> bool:
+        """Whether ``obj`` carries its own standing "you may cast this card from your graveyard [or from
+        exile]" permission (Squee, the Immortal-shaped, MEC-40; Gravecrawler's "…as long as you control a
+        Zombie") — unlike `_graveyard_cast_permission` above, granted by no *other* permanent, so it's read
+        straight off ``obj``'s own `static_effects`. It covers only the zones it names (``zones``) and only
+        while its own gate (``active_if``) holds for the casting player.
         """
         from ..effects.core import SelfGraveyardOrExileCastPermissionEffect
 
-        return any(
-            isinstance(e, SelfGraveyardOrExileCastPermissionEffect)
-            for e in getattr(obj, "static_effects", None) or []
-        )
+        zone = "graveyard" if obj.zone == Zone.GRAVEYARD else ("exile" if obj.zone == Zone.EXILE else None)
+        caster = player.id if player is not None else (obj.controller_id or obj.owner_id)
+        for effect in getattr(obj, "static_effects", None) or []:
+            if not isinstance(effect, SelfGraveyardOrExileCastPermissionEffect):
+                continue
+            if zone is not None and zone not in effect.zones:
+                continue
+            if effect.active_if is not None and not static_conditions.condition_holds(
+                effect.active_if, self.state, obj, caster,
+            ):
+                continue
+            return True
+        return False
     def _castable_from_library(self, player: Player, obj: GameObject) -> bool:
         """Whether the top-of-library card ``obj`` is castable from there
         right now (Oracle of Mul Daya/Glarb, Calamity's Augur-shaped — see

@@ -54,6 +54,7 @@ from __future__ import annotations
 import re
 from typing import Any, Callable, NamedTuple, Optional
 
+from .library_permission import parse_graveyard_cast_permission, parse_top_library_permission
 from ..spec import EffectSpec, ParserProvenance
 from .handlers import (
     ONCE_PER_TURN_MARKER,
@@ -4981,6 +4982,15 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         if tail is not None:
             params[_TOP_LIBRARY_TAILS[tail.lower()]] = True
         return [EffectSpec("top_library_permission", params)]
+
+    # PAR-105: the general "you may [play `<lands>` and] cast `<spells>` from the top of your library" grammar —
+    # after the closed-vocabulary row above, which keeps its five phrasings byte-for-byte.
+    top_library = parse_top_library_permission(text)
+    if top_library is not None:
+        return top_library
+    graveyard_cast = parse_graveyard_cast_permission(text)
+    if graveyard_cast is not None:
+        return graveyard_cast
 
     if _GRAVEYARD_LAND_PLAY_PERMISSION_RE.fullmatch(text):
         return [EffectSpec("graveyard_cast_permission", {"lands_only": True})]

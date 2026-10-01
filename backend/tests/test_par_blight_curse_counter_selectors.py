@@ -29,7 +29,14 @@ def test_mass_counter_selectors_parse_without_claiming_qualified_near_misses():
     assert match_clause("put x -1/-1 counters on each creature") == [
         EffectSpec("add_counters", {"kind": "-1/-1", "selector": "each_creature", "x_multiplier": 1})
     ]
-    assert match_clause("put a -1/-1 counter on each nonblack creature") is None
+    # A qualified group is no near miss any more: the shared group grammar reads "nonblack" (batch 5,
+    # `handlers._ADD_PT_COUNTER_GROUP_RE`) as a structured selector, not a closed named one.
+    assert match_clause("put a -1/-1 counter on each nonblack creature") == [
+        EffectSpec("add_counters", {"count": 1, "kind": "-1/-1", "group": {
+            "zone": "battlefield", "of": "any", "filter": {"without_color": "B", "card_type": "creature"},
+        }})
+    ]
+    assert match_clause("put a -1/-1 counter on each creature that was dealt damage this turn") is None
 
 
 def test_blight_curse_cards_with_plain_mass_counter_clauses_are_modeled():

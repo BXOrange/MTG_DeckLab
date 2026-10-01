@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
+from ..models.cards import card_query
 from .effects.core import GraveyardCastPermissionEffect
 
 if TYPE_CHECKING:
@@ -64,6 +65,11 @@ def active_graveyard_cast_grants(player: "Player", state: "GameState") -> list[G
                 continue
             if effect.expires_turn is not None and effect.expires_turn != state.internal_turn.number:
                 continue
+            if effect.active_if is not None:
+                from . import static_conditions  # function-scoped: static_conditions imports effects' siblings
+
+                if not static_conditions.condition_holds(effect.active_if, state, obj, player.id):
+                    continue
             grants.append(effect)
     return grants
 
@@ -85,6 +91,8 @@ def graveyard_cast_grant_for(
         if effect.instant_sorcery_only and not (card.is_instant or card.is_sorcery):
             continue
         if effect.max_mana_value is not None and card.converted_mana_cost > effect.max_mana_value:
+            continue
+        if effect.spell_criteria and not card_query.matches(card, effect.spell_criteria):
             continue
         if effect.per_permanent_type and permanent_types(card) <= getattr(effect.source, "graveyard_cast_types_this_turn", set()):
             continue
