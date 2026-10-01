@@ -201,6 +201,11 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # Exarch) — a name-keyed token target, the Incubate family's own
         # two-state token (`card_registry` "Incubator").
         "incubator_token_you_control",
+        # Batch 4 ("create a token that's a copy of target token/artifact you control" — Esika's Chariot,
+        # Donatello, Adagia): the controller-scoped pools the parser's "you control" slot composes
+        # (`subgrammars.YOU_TARGET_KINDS`) plus the bare token pool.
+        "token", "token_you_control", "artifact_you_control", "enchantment_you_control",
+        "artifact_or_enchantment_you_control",
         # "target nonland permanent" (Retraction Helix-shaped) — any
         # controller's, unlike the `_you_control`/`_you_dont_control`
         # suffixed forms (which have their own `legal_targets` branch); the
@@ -622,6 +627,11 @@ class TargetSpec:
             "non_human_creature_you_own": "Nicht-Mensch-Kreatur, die du besitzt",
             "creature_you_dont_control": "Kreatur, die du nicht kontrollierst",
             "artifact_you_dont_control": "Artefakt, das du nicht kontrollierst",
+            "token": "Spielstein",
+            "token_you_control": "Spielstein unter deiner Kontrolle",
+            "artifact_you_control": "Artefakt unter deiner Kontrolle",
+            "enchantment_you_control": "Verzauberung unter deiner Kontrolle",
+            "artifact_or_enchantment_you_control": "Artefakt oder Verzauberung unter deiner Kontrolle",
             "enchantment_you_dont_control": "Verzauberung, die du nicht kontrollierst",
             "artifact_or_enchantment_you_dont_control":
                 "Artefakt oder Verzauberung, das du nicht kontrollierst",
@@ -1106,6 +1116,8 @@ _FRAME_TYPE_PREDICATES: dict[str, Any] = {
     "incubator_token": lambda o: (
         bool(getattr(o, "is_token", False)) and (o.name or "") == "Incubator"
     ),
+    # "target token [you control]" (RULE 111.1) — any token, whatever its type.
+    "token": lambda o: bool(getattr(o, "is_token", False)),
 }
 
 
@@ -1130,6 +1142,12 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     "historic_permanent_you_control": TargetFrame("historic_permanent", SCOPE_YOU, apply_color=True),
     "monocolored_permanent": TargetFrame("monocolored_permanent"),
     "incubator_token_you_control": TargetFrame("incubator_token", SCOPE_YOU),
+    "token": TargetFrame("token"),
+    "token_you_control": TargetFrame("token", SCOPE_YOU, exclude_source=False),
+    "artifact_you_control": TargetFrame("artifact", SCOPE_YOU, exclude_source=False),
+    "enchantment_you_control": TargetFrame("enchantment", SCOPE_YOU, exclude_source=False),
+    "artifact_or_enchantment_you_control": TargetFrame(
+        "artifact_or_enchantment", SCOPE_YOU, exclude_source=False),
 
     # --- nonland permanents ---------------------------------------------
     "nonland_permanent": TargetFrame(

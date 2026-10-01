@@ -283,6 +283,8 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # turn Naturalize's "target artifact or enchantment" into any permanent.
     (r"target artifact or enchantment", "artifact_or_enchantment"),
     (r"target (?:artifact or creature|creature or artifact)", "artifact_or_creature"),
+    # Batch 4: "target token [you control]" — any token (RULE 111.1), its controller scope composed below.
+    (r"target token", "token"),
     (rf"target (?:{CARD_TYPE_WORD_ALT})"
      rf"(?:, (?:{CARD_TYPE_WORD_ALT}))*"
      rf",? or (?:{CARD_TYPE_WORD_ALT})", "permanent"),
@@ -420,6 +422,9 @@ UP_TO_ONE = r"(?:up to (?:one|1) )?"
 #: composes it onto the row's kind through `NOT_YOU_TARGET_KINDS`; a row that
 #: already names its own scope still wins (it is tried first, full-match).
 NOT_YOU_TAIL = r" (?:an opponent controls|you don't control)"
+#: Batch 4: "you control" is the same kind of slot — composed onto the pools the engine has a
+#: ``*_you_control`` frame for (`YOU_TARGET_KINDS`); a pool without one stays unclaimed.
+YOU_TAIL = r" you control"
 #: PAR-130: "that player controls" is the same kind of slot, scoped to a
 #: player the *trigger head* names (the damaged/attacked/active player, the
 #: controller of a targeting spell). The slot itself can't see its antecedent,
@@ -451,7 +456,7 @@ _QUALITY_TARGET_KINDS = frozenset({
     "creature", "creature_you_control", "other_creature_you_control",
     "creature_you_dont_control", "creature_that_player_controls",
 })
-_TARGET_SCOPE_TAIL = f"(?:{NOT_YOU_TAIL}|{THAT_PLAYER_TAIL})"
+_TARGET_SCOPE_TAIL = f"(?:{NOT_YOU_TAIL}|{THAT_PLAYER_TAIL}|{YOU_TAIL})"
 #: "target creature without flying **that's attacking you**" (Snow Fortress, Hunting Kavu) — the creature
 #: attacks the ability's controller (RULE 506.2): `targeting._creature_matches_filter`'s ``attacking_you``.
 ATTACKING_YOU_TAIL = r" that'?s attacking you"
@@ -683,6 +688,14 @@ NOT_YOU_TARGET_KINDS: dict[str, str] = {
     "artifact_or_creature": "artifact_or_creature_you_dont_control",
     "creature_or_planeswalker": "creature_or_planeswalker_you_dont_control",
 }
+#: Batch 4: a target kind → the same pool scoped to permanents you control (`targeting.TARGET_FRAMES`'
+#: ``SCOPE_YOU`` over that kind's pool; `tests/test_par102_...`-style sync test in `test_batch4_token_copy`).
+YOU_TARGET_KINDS: dict[str, str] = {
+    "token": "token_you_control",
+    "artifact": "artifact_you_control",
+    "enchantment": "enchantment_you_control",
+    "artifact_or_enchantment": "artifact_or_enchantment_you_control",
+}
 #: PAR-130: a target kind → the same pool scoped to "that player"
 #: (`targeting.TARGET_FRAMES`' ``SCOPE_THAT_PLAYER`` rows). Same contract as
 #: `NOT_YOU_TARGET_KINDS`: a kind missing here stays unclaimed.
@@ -718,6 +731,11 @@ SCOPED_TARGET_BASE: dict[str, str] = {
     "nonland_permanent_you_control": "nonland_permanent",
     "land_you_control": "land",
     "artifact_or_creature_you_control": "artifact_or_creature",
+    "token_you_control": "token",
+    "token": "permanent",
+    "artifact_you_control": "artifact",
+    "enchantment_you_control": "enchantment",
+    "artifact_or_enchantment_you_control": "artifact_or_enchantment",
     # a type union is a narrowing of "any permanent"
     "artifact_or_enchantment": "permanent",
     "artifact_or_creature": "permanent",
@@ -826,6 +844,14 @@ def resolve_target_kind(phrase: str) -> Optional[str]:
     if tail is not None:
         base = resolve_target_kind(text[: tail.start()])
         return THAT_PLAYER_TARGET_KINDS.get(base) if base is not None else None
+    tail = re.search(YOU_TAIL + r"\Z", text, re.IGNORECASE)
+    if tail is not None:
+        base = resolve_target_kind(text[: tail.start()])
+        scoped = YOU_TARGET_KINDS.get(base) if base is not None else None
+        if scoped is not None:
+            return scoped
+        # No ``*_you_control`` pool for it: fall through ("another target red creature you control" is
+        # resolved by the "another" prefix below, over the row that already names its own scope).
     other = re.match(OTHER_PREFIX, text, re.IGNORECASE)
     if other is not None:
         base = resolve_target_kind(text[other.end():])

@@ -1366,6 +1366,7 @@ def _apply_effects_partitioned(
             # effects happen in order). Recording the depth first and
             # inserting there keeps the innermost suspension on top.
             depth = len(state.deferred_effects) if state is not None else 0
+            created_before = len(context.created_objects)
             if target_groups is not None and specs:
                 # An effect with 2+ requirements consumes that many groups and
                 # sees them flattened, so its `apply` reads targets[0],
@@ -1384,6 +1385,12 @@ def _apply_effects_partitioned(
                 used = list(targets or [])
             if specs and used:
                 context.previous_targets = list(used)
+            if (
+                getattr(effect, "created_objects_are_referent", False)
+                and len(context.created_objects) > created_before
+            ):
+                # "Create a token that's a copy of target X. It gains haste." — "it" is the copy.
+                context.previous_targets = list(context.created_objects[created_before:])
             # A RULE 603.4-gated clause ("if it's the first combat phase …,
             # untap all attacking creatures. They gain …" — Karlach) is a
             # `ConditionalEffect` around the selector effect; "they" still

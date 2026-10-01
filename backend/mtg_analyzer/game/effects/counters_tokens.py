@@ -577,7 +577,9 @@ class GrantUntilEffect(GameEffect):
             if self.self_subject:
                 chosen = [self.source] if self.source is not None else []
             elif self.previous_subject:
-                chosen = list(context.previous_targets)
+                # The previous clause's pick — or, when it created rather than chose ("Create a token that's
+                # a copy of …. It gains haste."), what it made (`PumpEffect.previous_subject`'s fallback).
+                chosen = list(context.previous_targets) or list(getattr(context, "created_objects", None) or [])
             else:
                 chosen = list(targets or [])[: self.target_spec.effective_count]
             chosen_ids = [
@@ -3235,6 +3237,11 @@ class CopyPermanentEffect(GameEffect):
     controller (its source's controller, else the active player). The basic
     version copies the printed card; layered/copy-of-copy nuances (RULE 707.2
     copiable values, other copy effects) are not modeled."""
+
+    #: "…create a token that's a copy of target creature. **It** gains haste." — the pronoun that follows
+    #: names the copy, not the permanent that was copied, so `_apply_effects_partitioned` hands what this
+    #: effect made on as the next clause's `previous_targets` instead of its own target.
+    created_objects_are_referent = True
 
     def __init__(
         self,

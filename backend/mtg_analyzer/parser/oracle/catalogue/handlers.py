@@ -725,6 +725,32 @@ def _parse_copy_except_tail(tail: str) -> Optional[dict]:
     return merged
 
 
+#: Batch 4: the head of every "create … token(s) that's/are a copy/copies of <referent>" row — one token
+#: (optionally tapped / attacking) or a counted plural ("create 2 tokens that are copies of", "create X tokens
+#: that are copies of"). ``n`` is absent for the singular.
+_COPY_HEAD = (
+    r"create (?:an? (?P<ta>tapped and attacking |tapped |attacking )?token that'?s an? copy"
+    r"|(?P<n>\d+|x|two|three) (?P<tb>tapped and attacking |tapped |attacking )?tokens that are copies) of "
+)
+
+
+def _copy_head_params(m: re.Match[str]) -> Optional[dict]:
+    """The count / tapped / attacking params the shared head carries (``None`` = an unreadable count)."""
+    groups = m.groupdict()
+    params: dict = {}
+    if groups.get("n"):
+        count = count_or_x_of(groups["n"])
+        if count is None:
+            return None
+        params["count"] = count
+    flags = (groups.get("ta") or groups.get("tb") or "").strip()
+    if "tapped" in flags:
+        params["tapped"] = True
+    if "attacking" in flags:
+        params["attacking"] = True
+    return params
+
+
 #: RULE 707/706.2's "create a token that's a copy of target X[, except
 #: <modifier>[, <modifier>...][ and <modifier>]]" (Cackling Counterpart/
 #: Rite of Replication/Multiversal Recruitment/Impostor Syndrome-shaped) —
@@ -734,7 +760,7 @@ def _parse_copy_except_tail(tail: str) -> Optional[dict]:
 #: silently dropping it.
 _COPY_PERMANENT_RE = _c(
     # The comma before "except" is optional: "a copy of that creature except it's an artifact" (Faerie Artisans).
-    rf"create a token that'?s a copy of {TARGET}(?:,?\s+except (?P<except_tail>.+))?"
+    rf"{_COPY_HEAD}{TARGET}(?:,?\s+except (?P<except_tail>.+))?"
 )
 
 #: PAR-142: the granted end-step clause of a temporary copy — "…except it has haste and \"at the beginning of the
@@ -774,7 +800,10 @@ def _copy_permanent(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if kind is None:
         return None
-    params: dict = {"target_kind": kind, **_optional_param(m)}
+    head = _copy_head_params(m)
+    if head is None:
+        return None
+    params: dict = {"target_kind": kind, **_optional_param(m), **head}
     state_filter = resolve_target_creature_state_filter(m.group("target"))
     if state_filter:
         params["creature_filter"] = state_filter  # "target nonlegendary creature" (Kiki-Jiki)
@@ -786,12 +815,14 @@ def _copy_permanent(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: ``~`` is not a RULE 115 target, so the copied permanent is the ability's
 #: source and must remain stable when the ability was granted by an Aura.
 _COPY_SELF_RE = _c(
-    r"create a token that'?s a copy of ~(?:, except (?P<except_tail>[^.]+))?"
+    rf"{_COPY_HEAD}~(?:, except (?P<except_tail>[^.]+))?"
 )
 
-
 def _copy_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    params: dict = {"target_kind": None, "referent": "source"}
+    head = _copy_head_params(m)
+    if head is None:
+        return None
+    params: dict = {"target_kind": None, "referent": "source", **head}
     tail = m.groupdict().get("except_tail")
     if tail:
         extra = _parse_copy_except_tail(tail)
@@ -833,22 +864,18 @@ def _copy_permanent_kicked_override(m: re.Match[str]) -> Optional[list[EffectSpe
 #: off an earlier clause that announced a target. Shares
 #: `_parse_copy_except_tail` with the plain-target row above.
 _COPY_PERMANENT_PREVIOUS_RE = _c(
-    r"create a (?P<ta>tapped and attacking |tapped |attacking )?"
-    r"token that'?s a copy of (?:it|that card)"
+    rf"{_COPY_HEAD}(?:it|that (?:card|creature|permanent|artifact|enchantment|land))"
     r"(?:,?\s+except (?P<except_tail>.+))?"
 )
 
 
 def _copy_permanent_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    params: dict = {"target_kind": None, "referent": "previous"}
-    # "create a **tapped and attacking** token that's a copy of that card…"
-    # (RULE 508.4 — Sauron, the Necromancer). `CopyPermanentEffect` already
-    # takes ``tapped``/``attacking``.
-    ta = (m.groupdict().get("ta") or "").strip()
-    if "tapped" in ta:
-        params["tapped"] = True
-    if "attacking" in ta:
-        params["attacking"] = True
+    head = _copy_head_params(m)
+    if head is None:
+        return None
+    # "create a **tapped and attacking** token that's a copy of that card…" (RULE 508.4 — Sauron, the
+    # Necromancer). `CopyPermanentEffect` already takes ``tapped``/``attacking``.
+    params: dict = {"target_kind": None, "referent": "previous", **head}
     return _copy_with_tail(params, m.groupdict().get("except_tail"))
 
 
@@ -864,19 +891,16 @@ def _copy_permanent_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: (`_subject_event_key`'s default) already keys the acting object the
 #: same way, so no new event-field threading is needed.
 _COPY_PERMANENT_GROUP_RE = _c(
-    r"create a (?P<ta>tapped and attacking |tapped |attacking )?"
-    r"token that'?s a copy of (?:it|that creature|that card)"
+    rf"{_COPY_HEAD}(?:it|that creature|that card)"
     r"(?:,?\s+except (?P<except_tail>.+))?"
 )
 
 
 def _copy_permanent_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    params: dict = {"target_kind": None, "referent": "trigger_event"}
-    ta = (m.groupdict().get("ta") or "").strip()
-    if "tapped" in ta:
-        params["tapped"] = True
-    if "attacking" in ta:
-        params["attacking"] = True
+    head = _copy_head_params(m)
+    if head is None:
+        return None
+    params: dict = {"target_kind": None, "referent": "trigger_event", **head}
     return _copy_with_tail(params, m.groupdict().get("except_tail"))
 
 
@@ -13495,7 +13519,7 @@ def _pump_previous_targets_kw(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: "if you win, **that creature** gets +2/+2 …" payoffs (RULE 701.30d).
 #: Gated `previous_subject_only`, so it only competes once the preceding
 #: clause actually bound the pronoun.
-_PREV_SUBJECT_SINGULAR = r"(?:it|that creature|that permanent|that artifact|that token)"
+_PREV_SUBJECT_SINGULAR = r"(?:it|that creature|that permanent|that artifact|that token|the token)"
 _PUMP_PREV_SINGULAR_PT_RE = _c(
     rf"{_PREV_SUBJECT_SINGULAR}(?: also)? gets? (?:an additional )?(?P<p>[+\-−]\d+)/(?P<t>[+\-−]\d+)"
     r"(?: and gains? (?P<kw>[a-z][a-z, ]*?))? until end of turn"
@@ -13505,6 +13529,19 @@ _PUMP_PREV_SINGULAR_KW_RE = _c(
     # PAR-124: "…and must be blocked this turn if able." (Magitek Scythe).
     rf"(?P<must_blocked> and must be blocked this turn if able)?"
 )
+
+#: Batch 4: the bare "It gains haste." / "That token gains haste." a token- or copy-making (or reanimating)
+#: clause is followed by — no duration is printed, so the grant is what it says: indefinite (RULE 611.2c's
+#: omitted-duration default, `rest_of_game`). Haste only: any other bare grant stays unclaimed.
+_PUMP_PREV_HASTE_BARE_RE = _c(rf"{_PREV_SUBJECT_SINGULAR} gains haste")
+
+
+def _pump_prev_haste_bare(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("grant_until", {
+        "static": {"type": "grant_keyword", "params": {"keywords": ["haste"]}},
+        "duration": "rest_of_game", "previous_subject": True, "target_kind": None,
+    })]
+
 
 #: PAR-30 "Threaten / 'it gains haste' tails residue" — the *rich* leading-
 #: "until end of turn, it …" restatement a threaten clause pairs with,
@@ -15152,6 +15189,7 @@ HANDLERS: list[EffectHandler] = [
         _COPY_SELF_RE,
         _copy_self,
     ),
+
     # PAR-18: "exile up to 1 target creature card from a graveyard. Create a
     # token that's a copy of it/that card[, except <modifier(s)>]." — the
     # pronoun sibling of the row above, offered only once an earlier clause
@@ -17889,6 +17927,9 @@ HANDLERS: list[EffectHandler] = [
         _PUMP_PREV_SINGULAR_KW_RE,
         _pump_previous_targets_kw,
         previous_subject_only=True,
+    ),
+    EffectHandler(
+        "pump_prev_haste_bare", _PUMP_PREV_HASTE_BARE_RE, _pump_prev_haste_bare, previous_subject_only=True,
     ),
     # "They gain first strike until end of turn." (Karlach, Fury of
     # Avernus, MEC-28) — the mass-selector sibling: only offered when the
