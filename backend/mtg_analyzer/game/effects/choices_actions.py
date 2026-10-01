@@ -575,6 +575,7 @@ class CreateTurnTriggerEffect(GameEffect):
         description: str = "",
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = None,
+        previous_subject: bool = False,
     ) -> None:
         super().__init__(source)
         self.trigger = dict(trigger or {})
@@ -583,6 +584,10 @@ class CreateTurnTriggerEffect(GameEffect):
         self.once = bool(once)
         self.description = str(description)
         self.target_spec = TargetSpec(kind=target_kind) if target_kind else None
+        #: PAR-102: "Target creature gets +2/+0 until end of turn. When **that creature** dies this
+        #: turn, draw a card." — the trigger's subject is whatever the *preceding clause* chose
+        #: (`GameContext.previous_targets`), not a target of its own.
+        self.previous_subject = bool(previous_subject)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..binding.core import bind_ability  # function-scoped: effects↔binder cycle
@@ -592,8 +597,12 @@ class CreateTurnTriggerEffect(GameEffect):
         if not self.trigger.get("event") or not self.inner_specs:
             return
         trigger = dict(self.trigger)
-        if self.target_spec is not None:
-            target = targets[0] if targets else None
+        if self.target_spec is not None or self.previous_subject:
+            if self.previous_subject:
+                chosen = [t for t in context.previous_targets if t is not None]
+                target = chosen[0] if chosen else None
+            else:
+                target = targets[0] if targets else None
             if target is None:
                 return  # RULE 608.2b: fizzle — no legal target remained
             trigger["condition"] = {

@@ -261,6 +261,9 @@ class RulesEngine(
         #: MEC-108: the "put your choice of a flying counter or a lifelink counter"
         #: effect awaiting its kind pick — see `RulesEngine._request_counter_kind_choice`.
         self._pending_counter_kind: Optional[dict[str, Any]] = None
+        #: PAR-102: the "gains your choice of <keyword>, <keyword>, or <keyword>" pump awaiting its pick —
+        #: see `RulesEngine._request_keyword_choice`.
+        self._pending_keyword_choice: Optional[dict[str, Any]] = None
         #: PAR-140: the "put a counter on a creature you control" pick awaiting its recipient —
         #: see `RulesEngine._request_counter_recipient_choice`.
         self._pending_counter_recipient: Optional[dict[str, Any]] = None

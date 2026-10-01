@@ -8016,12 +8016,12 @@ def _grantable_flag_slug(part: str) -> Optional[str]:
 
 #: ENG-31: the parametric keywords a *grant* ("gains firebending N until end
 #: of turn", "has firebending N as long as …", a token "with firebending N")
-#: can model — exactly the ones whose RULE 702 text is a triggered ability
+#: can model — the ones whose RULE 702 text is a triggered ability
 #: `effect_binder._KEYWORD_TRIGGERED_BUILDERS` re-synthesizes off the granted
-#: N. Every other NUMBER-shape keyword (renown, toxic, …) stays fail-closed
-#: for a grant.
+#: N, plus toxic (PAR-102), which no builder needs: `combat.toxic_value` reads the granted N live at
+#: damage time. Every other NUMBER-shape keyword (renown, …) stays fail-closed for a grant.
 _GRANTABLE_PARAMETRIC_KEYWORDS: frozenset[str] = frozenset(
-    {"firebending", "annihilator", "afflict", "bushido"}
+    {"firebending", "annihilator", "afflict", "bushido", "toxic"}
 )
 
 
@@ -9357,11 +9357,14 @@ def _pump(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "toughness": _signed_int(m.group("t")),
     }
     keywords: list[str] = []
+    parametric: list[dict[str, object]] = []
     if m.groupdict().get("kw"):
-        parsed_kw = _token_keywords(m.group("kw"))
-        if parsed_kw is None:
+        # PAR-102: "gains flying and toxic 1" — a grantable parametric keyword rides beside the flags.
+        split = _split_keywords_with_parametric(m.group("kw"))
+        if split is None:
             return None  # unmodeled granted ability → fail-closed
-        keywords.extend(parsed_kw)
+        keywords.extend(split[0])
+        parametric.extend(split[1])
     if m.groupdict().get("must_blocked"):
         # PAR-124: "…until end of turn and must be blocked this turn if
         # able." (Compelled Duel/Emergent Growth/Joraga Invocation) — a
@@ -9369,6 +9372,8 @@ def _pump(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         keywords.append("must_be_blocked")
     if keywords:
         params["keywords"] = keywords
+    if parametric:
+        params["parametric_keywords"] = parametric
     if target_kind:
         params["target_kind"] = target_kind
     if selector:
@@ -9499,6 +9504,87 @@ def _pump_x_nonland_permanents(m: re.Match[str]) -> list[EffectSpec]:
         "power": 0, "toughness": 0,
         "amount_from_count_selector": "nonland_permanents_you_control",
     })]
+
+
+#: PAR-102(b): "[Until end of turn, ]target creature gets +2/+0 and gains [<keywords> and ]"<quoted
+#: ability>"[ until end of turn]." (Abnormal Endurance, Hunter's Prowess, Supernatural Stamina, Unnatural
+#: Moonrise …) — a pump that also hands out a whole quoted triggered/activated ability. Two specs share
+#: one choice of recipient: the `pump` (P/T + any flag keywords) picks it, and the quoted grant — a
+#: `grant_until` over the same `static_handlers._quoted_ability_grant_effects` the Aura/Equipment and
+#: "gains "…" until end of turn" rows use — replays it (`previous_subject`; a group subject re-states its
+#: selector as the static's ``affects``, a self subject its own source). The duration must be written
+#: (prefix or suffix) — without one the grant would be permanent, a different card.
+
+
+def _pump_and_quoted_grant(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from .static_handlers import _quoted_ability_grant_effects  # local: avoid a module cycle
+
+    if bool(m.group("dur_pre")) == bool(m.group("dur_post")):
+        return None  # no duration (permanent) or two of them
+    inner = _quoted_ability_grant_effects(m.group("inner"))
+    if inner is None:
+        return None
+    return _pump_then_grant(m, {"type": inner.type, "params": dict(inner.params)})
+
+
+def _pump_then_grant(m: re.Match[str], static: dict) -> Optional[list[EffectSpec]]:
+    """A `pump` for ``m``'s subject and P/T (+ flag keywords) followed by a `grant_until` of ``static`` on
+    that same subject until end of turn — the shared tail of the "pump and also grant …" rows."""
+    if m.groupdict().get("attached"):
+        return None  # "enchanted creature gets … and has …" is a standing static, not a resolving effect
+    pump = _pump(m)
+    if pump is None:
+        return None
+    target_kind, selector = _pump_target(m) or (None, None)
+    grant: dict = {"static": static, "duration": "end_of_turn", "target_kind": None}
+    if target_kind:
+        grant["previous_subject"] = True
+    elif selector:
+        grant["static"]["params"]["affects"] = selector
+        grant["lock_group"] = True  # RULE 611.2c: the set is fixed when the spell resolves
+    else:
+        grant["self_subject"] = True
+    return [*pump, EffectSpec("grant_until", grant)]
+
+
+#: "…gets +0/+1 and gains all creature types until end of turn" (Shields of Velis Vel-shaped) — RULE
+#: 702.73a, as a layer-4 `ALL_CREATURE_TYPES` marker like the "is every creature type" static.
+def _pump_and_all_creature_types(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return _pump_then_grant(m, {"type": "type_change", "params": {"add_subtypes": ["Changeling"]}})
+
+
+#: PAR-102: "[Until end of turn, ]<subject> [gets +N/+N and ]gains your choice of flying, vigilance, deathtouch,
+#: or haste[ until end of turn]." (Alchemist's Gift, Argivian Avenger, the Avenger/Courier abilities, Manifold
+#: Mouse, Gideon Blackblade's +1 …) — one `pump` whose ``keyword_options`` the controller picks from when it
+#: resolves (RULE 608.2d). Only flag keywords: a parametric or quality option ("protection from red") leaves
+#: the clause unclaimed rather than dropping a choice.
+def _pump_keyword_choice(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    if bool(m.group("dur_pre")) == bool(m.group("dur_post")):
+        return None  # a missing duration is a permanent grant; two are a typo
+    options: list[str] = []
+    for part in re.split(r",\s*or\s+|\s+or\s+|,\s*", m.group("opts")):
+        slug = _grantable_flag_slug(part.strip())
+        if slug is None or slug in options:
+            return None
+        options.append(slug)
+    if len(options) < 2:
+        return None
+    subject = _pump_target(m)
+    if subject is None:
+        return None
+    target_kind, selector = subject
+    if selector:
+        return None  # "creatures you control gain your choice of …" — one pick for the group is a different clause
+    params: dict = {"keyword_options": options}
+    if m.groupdict().get("p") is not None:
+        params["power"] = _signed_int(m.group("p"))
+        params["toughness"] = _signed_int(m.group("t"))
+    if target_kind:
+        params["target_kind"] = target_kind
+    state_filter = _pump_target_creature_filter(m)
+    if state_filter:
+        params["creature_filter"] = state_filter
+    return [EffectSpec("pump", params)]
 
 
 def _pump_keywords(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -10678,6 +10764,34 @@ def _pump_and_grant_indefinite(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "extra_statics": [{"type": "grant_keyword", "params": {"keywords": keywords}}],
         "duration": "rest_of_game",
         "target_kind": kind,
+    })]
+
+
+#: "{2}{G}, {T}: Target Elf creature gets +2/+2 and has trample for as long as ~ remains tapped." (the
+#: Mirage/Alliances tap-to-bestow creatures — Elven/Goblin/Zombie/Wizard/Soldier Cohort-shaped). One
+#: `grant_until` carries both statics (the P/T `anthem` and the keyword) on the chosen creature for a
+#: RULE 611.2b condition-bounded duration — `_LOCKDOWN_CONDITIONS`' own ``source_tapped``.
+
+
+def _pump_grant_while_tapped(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    keywords = _token_keywords(m.group("kw"))
+    if keywords is None:
+        return None
+    # See `_pump_subtype_target`: the bare `[a-z]+` capture can't tell a subtype from a state word.
+    target_text = f"target {m.group('subtype')} creature"
+    creature_filter = resolve_target_creature_state_filter(target_text) or {
+        "subtype": m.group("subtype").capitalize(),
+    }
+    return [EffectSpec("grant_until", {
+        "static": {
+            "type": "anthem",
+            "params": {"power": _signed_int(m.group("p")), "toughness": _signed_int(m.group("t"))},
+        },
+        "extra_statics": [{"type": "grant_keyword", "params": {"keywords": keywords}}],
+        "duration": "for_as_long_as",
+        "condition": {"kind": "source_tapped"},
+        "target_kind": "creature",
+        "creature_filter": creature_filter,
     })]
 
 
@@ -12676,6 +12790,23 @@ def _group_selector(phrase: str) -> "Optional[str | dict]":
     return _GROUP_SELECTORS.get(phrase)
 #: A signed P/T delta, "+3/+3" / "-2/-2" / "+0/-1" (ASCII or unicode minus).
 _PT_DELTA = r"(?P<p>[+\-−]\d+)/(?P<t>[+\-−]\d+)"
+
+_PUMP_GRANT_WHILE_TAPPED_RE = _c(
+    rf"target (?P<subtype>[a-z]+) creature gets? {_PT_DELTA} and has (?P<kw>[a-z, ]+?) "
+    r"for as long as ~ remains tapped"
+)
+
+_PUMP_AND_QUOTED_GRANT_RE = _c(
+    rf"(?P<dur_pre>until end of turn, )?{_SUBJECT} gets? {_PT_DELTA} and gains? "
+    r"(?:(?P<kw>[a-z, ]+?),? and )?\"(?P<inner>[^\"]+)\"(?P<dur_post> until end of turn)?"
+)
+_PUMP_AND_ALL_TYPES_RE = _c(
+    rf"{_SUBJECT} gets? {_PT_DELTA} and gains? all creature types until end of turn"
+)
+_PUMP_KEYWORD_CHOICE_RE = _c(
+    rf"(?P<dur_pre>until end of turn, )?{_SUBJECT} (?:gets? {_PT_DELTA} and )?gains? your choice of "
+    r"(?P<opts>[a-z, ]+?)(?P<dur_post> until end of turn)?"
+)
 
 #: "Nonblack creatures get -2/-2 until end of turn." — a normal
 #: untargeted group pump with the existing negated-colour object filter.
@@ -17512,7 +17643,7 @@ HANDLERS: list[EffectHandler] = [
         "pump",
         _c(
             rf"{_SUBJECT} gets? {_PT_DELTA}"
-            rf"(?: and gains? (?P<kw>[a-z, ]+?))? until end of turn"
+            rf"(?: and gains? (?P<kw>[a-z0-9, ]+?))? until end of turn"
             # PAR-124: "…and must be blocked this turn if able." (Compelled
             # Duel/Emergent Growth/Joraga Invocation).
             rf"(?P<must_blocked> and must be blocked this turn if able)?"
@@ -17831,6 +17962,10 @@ HANDLERS: list[EffectHandler] = [
         ),
         _pump_keywords,
     ),
+    # PAR-102(b): the pump that also grants a quoted ability.
+    EffectHandler("pump_and_quoted_grant", _PUMP_AND_QUOTED_GRANT_RE, _pump_and_quoted_grant),
+    EffectHandler("pump_and_all_creature_types", _PUMP_AND_ALL_TYPES_RE, _pump_and_all_creature_types),
+    EffectHandler("pump_keyword_choice", _PUMP_KEYWORD_CHOICE_RE, _pump_keyword_choice),
     # "Each creature your opponents control gets -1/-1 until end of turn
     # for each poison counter its controller has." (Phyresis Outbreak).
     EffectHandler(
@@ -18081,6 +18216,7 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"{TARGET} gets {_PT_DELTA} and gains? (?P<kw>[a-z, ]+)"),
         _pump_and_grant_indefinite,
     ),
+    EffectHandler("pump_grant_while_tapped", _PUMP_GRANT_WHILE_TAPPED_RE, _pump_grant_while_tapped),
     # PAR-13: "target creature can't attack/block until <duration>" — the
     # resolve-time-grant sibling of the permanent-static "~ can't attack."
     EffectHandler(

@@ -1487,6 +1487,7 @@ EffectRegistry.register(
         once=bool(p.get("once", False)),
         description=p.get("description", ""),
         target_kind=p.get("target_kind"),
+        previous_subject=bool(p.get("previous_subject", False)),
     ),
 )
 EffectRegistry.register(
@@ -2638,6 +2639,7 @@ EffectRegistry.register(
         perpetual=bool(p.get("perpetual", False)),  # MEC-98
         card_zones=p.get("card_zones"),
         card_type=p.get("card_type"),
+        keyword_options=p.get("keyword_options"),
     ),
 )
 EffectRegistry.register(
@@ -4656,6 +4658,8 @@ EffectRegistry.register(
         previous_subject=bool(p.get("previous_subject", False)),
         self_subject=bool(p.get("self_subject", False)),
         extra_statics=p.get("extra_statics"),
+        lock_group=bool(p.get("lock_group", False)),
+        creature_filter=p.get("creature_filter"),
     ),
 )
 EffectRegistry.register(

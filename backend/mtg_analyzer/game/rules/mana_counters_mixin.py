@@ -629,6 +629,49 @@ class ManaCountersMixin:
         finally:
             self.context.previous_targets = saved
         self.check_state_based_actions()
+    def _request_keyword_choice(
+        self, effect: PumpEffect, context: GameContext, targets: Optional[list[Any]]
+    ) -> None:
+        """"…gains your choice of flying, vigilance, or haste until end of turn" (RULE 608.2d — PAR-102):
+        open a `keyword_choice` `pending_choice` for the effect's controller and park what
+        `_resume_keyword_choice` needs — the effect, the targets its own RULE 115 spec gathered and the
+        RULE 608.2 referent a "gains … " pronoun reads (`previous_targets`)."""
+        controller_id = getattr(effect.source, "controller_id", None)
+        if controller_id is None or not effect.keyword_options:
+            return
+        self._pending_keyword_choice = {
+            "effect": effect,
+            "targets": list(targets or []),
+            "previous_targets": list(context.previous_targets),
+        }
+        self.open_choice({
+            "kind": "keyword_choice",
+            "player_id": controller_id,
+            "prompt": "Welche Fähigkeit soll gewährt werden?",
+            "options": [{"id": str(i), "label": k.replace("_", " ")} for i, k in enumerate(effect.keyword_options)],
+        })
+
+    @continuations.choice("keyword_choice", answer=continuations.ANSWER_STR, rule="608.2d")
+    def _resume_keyword_choice(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        """Answer a pending `keyword_choice`: run a copy of the parked `PumpEffect` granting only the
+        picked keyword. Mandatory (no decline), so a missing or unknown answer takes the first option."""
+        pending, self._pending_keyword_choice = self._pending_keyword_choice, None
+        if pending is None:
+            return
+        effect: PumpEffect = pending["effect"]
+        valid = {str(i) for i in range(len(effect.keyword_options))}
+        picked = effect.keyword_options[int(answer) if answer in valid else 0]
+        chosen = copy.copy(effect)
+        chosen.keyword_options = []
+        chosen.keywords = [*effect.keywords, picked]
+        saved = self.context.previous_targets
+        self.context.previous_targets = list(pending["previous_targets"])
+        try:
+            chosen.apply(self.context, pending["targets"] or None)
+        finally:
+            self.context.previous_targets = saved
+        self.check_state_based_actions()
+
     def _request_counter_recipient_choice(
         self, effect: AddCountersEffect, amount: int, candidates: list[GameObject]
     ) -> None:

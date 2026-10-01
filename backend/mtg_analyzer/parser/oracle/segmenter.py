@@ -4542,7 +4542,9 @@ def parse_effect_body(
     # "…, whenever `<event>` this turn, `<effect>`" as one sentence of a larger body — after an
     # "if C," gate or a first sentence — creates the same turn-long trigger a whole line does.
     if _TURN_TRIGGER_RE.match(body):
-        turn_trigger = _turn_trigger_segment(body, provenance=ParserProvenance())
+        turn_trigger = _turn_trigger_segment(
+            body, provenance=ParserProvenance(), previous_subject=previous_subject,
+        )
         if turn_trigger is not None and turn_trigger.claimed and turn_trigger.spec is not None:
             return list(turn_trigger.spec.effects)
 
@@ -6373,9 +6375,14 @@ _NEXT_CAST_RE = re.compile(r"\byou next cast\b")
 #: chosen object itself as its source (see that class's own docstring).
 _TARGET_CREATURE_SUBJECT_RE = re.compile(r"^target creature (?P<verb>.+)$", re.IGNORECASE)
 
+#: PAR-102: "Target creature gets +2/+0 until end of turn. When **that creature** dies this turn, …" — the
+#: subject is the creature the *preceding clause* chose, so it is only read as such when the caller says
+#: a previous clause did (`previous_subject`); otherwise "that creature" names nothing and stays unclaimed.
+_THAT_CREATURE_SUBJECT_RE = re.compile(r"^that creature (?P<verb>(?:dies|leaves the battlefield))$", re.IGNORECASE)
+
 
 def _turn_trigger_segment(
-    line: str, *, provenance: ParserProvenance
+    line: str, *, provenance: ParserProvenance, previous_subject: bool = False,
 ) -> "Optional[Segment]":
     """A spell line that creates a turn-long trigger → its `create_turn_trigger` segment;
     an unclaimed `Segment` when the trigger inside is not one the grammar reads; ``None``
@@ -6393,6 +6400,11 @@ def _turn_trigger_segment(
     if target_creature is not None:
         target_kind = "creature"
         condition = f"~ {target_creature.group('verb')}"
+    that_creature = _THAT_CREATURE_SUBJECT_RE.match(condition.strip())
+    if that_creature is not None:
+        if not previous_subject:
+            return Segment(raw=line.strip())
+        condition = f"~ {that_creature.group('verb')}"
     inner = segment_line(
         f"{keyword} {condition}, {m.group('body')}",
         allow_spell_effect=False, provenance=provenance,
@@ -6413,6 +6425,7 @@ def _turn_trigger_segment(
                 "optional": bool(spec.optional),
                 **({"once": True} if once else {}),
                 **({"target_kind": target_kind} if target_kind else {}),
+                **({"previous_subject": True} if that_creature is not None else {}),
                 "description": line.strip(),
             })],
             raw_text=line.strip(), parser=provenance,

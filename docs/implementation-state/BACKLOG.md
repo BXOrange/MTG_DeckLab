@@ -69,16 +69,6 @@ No open tickets.
   "That player" binds to the player whose step it is; 10 SOLO + Mornsong Aria (Academy Loremaster,
   Anvil of Bogardan, Dictate of Kruphix, Font of Mythos, Howling Mine, Kami of the Crescent Moon,
   Nekusar, Rites of Flourishing, Spiteful Visions, Teferi's Puzzle Box).
-- **PAR-102 · Pump + keyword/quoted-ability grant in one sentence.** "Target creature gets +N/+N and
-  gains `<keyword>`/"`<quoted>`" until end of turn" — 104 SOLO, 34 also-blocked (PV 447). **(a) Plain
-  keyword tail** (86 SOLO, e.g. Enlarge): widen `catalogue/keywords.py` + the pump row's tail.
-  **(b) Quoted tail** (18 SOLO): have the shell recurse into the standard ability grammar (as
-  `_QUOTED_GRANT_RE` does for statics); 8 ride "when ~ dies, return it to the battlefield…" (Abnormal
-  Endurance, Perigee Beckoner, Return to Action, Supernatural Stamina, Demonic Gifts, Fake Your Own
-  Death, Presumed Dead, Ashnod's Intervention), 3 ride "whenever ~ deals combat damage to a player"
-  (Dreadmaw's Ire, Hunter's Prowess, Unnatural Moonrise), Viconia ×2 "spend mana as though any color".
-  Afterwards route non-parsing inner abilities (Full Steam Ahead, Galuf's Final Act, Greater Stone
-  Spirit, Tower Above) to `singletons.md`.
 - **PAR-104 · TMNT "create a mutagen token".** 16 SOLO, 3 also-blocked (April O'Neil Human Element,
   Crustacean Commando, Genghis Frog, Michelangelo Weirdness to 11, Mona Lisa, Mutant Chain Reaction,
   Ooze Spill, Ray Fillet Man Ray, …).

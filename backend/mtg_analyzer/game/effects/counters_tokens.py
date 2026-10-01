@@ -523,10 +523,18 @@ class GrantUntilEffect(GameEffect):
         previous_subject: bool = False,
         self_subject: bool = False,
         extra_statics: Optional[list[dict[str, Any]]] = None,
+        lock_group: bool = False,
+        creature_filter: Optional[dict[str, Any]] = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.static = dict(static or {})
+        #: RULE 611.2c: a resolving spell/ability's continuous effect that modifies
+        #: characteristics or grants abilities affects only the objects that were in the
+        #: group *when it resolved* — "creatures you control gain "…" until end of turn"
+        #: must not reach a creature that enters later. Resolve the static's own
+        #: ``affects`` selector once, here, instead of re-reading it every recompute.
+        self.lock_group = lock_group
         #: Additional `EffectSpec`-shaped static payloads applied to the
         #: **same** chosen targets under the same duration/condition as
         #: ``static`` — "target land … becomes a 5/5 green Plant Boar
@@ -545,7 +553,9 @@ class GrantUntilEffect(GameEffect):
         #: resolved through the vote's `winner_specs` with no duration).
         self.self_subject = self_subject
         self.target_spec = (
-            TargetSpec(kind=target_kind, optional=optional, count=count)
+            TargetSpec(
+                kind=target_kind, optional=optional, count=count, creature_filter=creature_filter,
+            )
             if target_kind is not None and not previous_subject and not self_subject
             else None
         )
@@ -575,6 +585,10 @@ class GrantUntilEffect(GameEffect):
             ]
             if not chosen_ids:
                 return
+        elif self.lock_group:
+            chosen_ids = self._locked_group_ids(context, controller_id, payloads)
+            if not chosen_ids:
+                return
 
         for payload in payloads:
             self._park_static(context, durations, payload, controller_id, chosen_ids)
@@ -582,6 +596,21 @@ class GrantUntilEffect(GameEffect):
         # (RULE 613.1) — the caller's SBA pass would get there anyway, but a
         # grant whose effect isn't visible until then reads as a bug.
         context.recompute()
+
+    def _locked_group_ids(
+        self, context: GameContext, controller_id: Optional[str], payloads: list[dict[str, Any]],
+    ) -> list[int]:
+        from .. import continuous  # local: continuous imports effects' siblings
+
+        for payload in payloads:
+            params = dict(payload.get("params") or {})
+            selector = params.get("affects")
+            if selector:
+                members = continuous.group_selector_objects(
+                    context.state, controller_id, selector, params, src=self.source,
+                )
+                return [o.instance_id for o in members]
+        return []
 
     def _park_static(
         self, context: GameContext, durations: Any, static_payload: dict[str, Any],
@@ -2086,8 +2115,12 @@ class PumpEffect(GameEffect):
         perpetual: bool = False,
         card_zones: Optional[list[str]] = None,
         card_type: Optional[str] = None,
+        keyword_options: Optional[list[str]] = None,
     ) -> None:
         super().__init__(source)
+        #: PAR-102: "gains your choice of flying, vigilance, or haste until end of turn" — the flag
+        #: keywords the controller picks one of at resolution (`RulesEngine._request_keyword_choice`).
+        self.keyword_options = [str(k) for k in (keyword_options or [])]
         #: MEC-98: Alchemy "perpetually gets +N/+N / gains <keyword>" — the
         #: same addressing modes as an until-end-of-turn pump, but written to
         #: the recipient's never-cleared `perpetual_*` fields instead of
@@ -2315,6 +2348,9 @@ class PumpEffect(GameEffect):
             )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.keyword_options:
+            context.engine._request_keyword_choice(self, context, targets)
+            return
         if self.target_group_index is not None:
             groups = getattr(context, "resolution_target_groups", None) or []
             chosen = list(groups[self.target_group_index]) if self.target_group_index < len(groups) else []
