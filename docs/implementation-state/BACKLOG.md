@@ -42,8 +42,8 @@ No open tickets.
   **set-specific mechanics** (a set/precon's signature keyword, worked deck-first). Planechase/
   Archenemy card bodies fold in here (~13/309 done).
 
-  > **Ids:** `PAR-1`…`PAR-143` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-144`**; next free `MEC`: **`MEC-109`**. A new engine primitive found along the way files
+  > **Ids:** `PAR-1`…`PAR-144` are taken — grep `Done_Backend.md` before reusing one. First free:
+  > **`PAR-145`**; next free `MEC`: **`MEC-109`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -62,47 +62,10 @@ No open tickets.
   duration clusters exposed by PAR-130; calibrated clusters live in `PARSER_LONG_TAIL.md`.
 - **PAR-133 · Powerstone tokens.** "create a [tapped] Powerstone token" — a `data/tokens.json` entry
   with its RULE 605.3a-restricted mana ability, then `_NAMED_TOKEN_WORDS` (25 solo cards).
-- **PAR-136 · Blink with a delayed return: "exile `<target>`. Return it to the battlefield under its
-  owner's control at the beginning of the next end step."** 31 SOLO, 10 also-blocked (Turn to Mist,
-  Voidwalk, Liberate, Flickerwisp, Glimmerpoint Stag, Galepowder Mage, Ghostway, Sudden Disappearance,
-  Eerie Interlude, Aetherling, Fleeting Spirit, Roon, Angel of Condemnation, Abuelo, Mistmeadow Witch,
-  Parting Gust, …). Parting Gust's Gift/negative promised-gift gate is already modeled; only this delayed
-  return, including its +1/+1-counter rider, remains.
-  `BlinkEffect` returns immediately and has no delayed-return param; the pieces exist elsewhere
-  (`ExileEffect(remember)` + `CreateDelayedTriggerEffect` + `ReturnLinkedExileEffect`, RULE 603.7) —
-  decide row-over-composition vs. a `BlinkEffect` param first. Self-blink activated forms ("discard a
-  card: exile ~. Return it …") and "when ~ dies, return it …" ride the same tail.
-- **PAR-137 · Impulse draw: "exile the top `<n>` cards of your library. Until end of turn, you may play
-  them."** 22 SOLO, 10 also-blocked (Abbot of Keral Keep, Act on Impulse, Aerial Caravan, Araña,
-  Ardent Dustspeaker, Experimental Synthesizer, Stromkirk Occultist, Waltz of Rage, …). The primitive
-  `ImpulsiveDrawEffect` (`impulsive_draw`; `same_turn_only` toggles this-turn vs. next-turn) ships and
-  is hand-authored on Galvanic Relay/Ragavan, but **no parser row emits it**. Variants to size:
-  "until end of your next turn", "you may play/cast … this turn" with a colour/type qualifier
-  (Chandra, Dressed to Kill), condition tails ("if you exiled a land this way").
-- **PAR-138 · "Whenever `<n>` or more `<counter>` counters are put on `<subject>`" trigger head.** 26
-  SOLO, 4 also-blocked (Benthic Biomancer, Lonis, Pensive Professor, Sharktocrab, Constable of the
-  Realm, Basking Broodscale, Evolution Witness, Moss-Pit Skeleton, …; not counted: the Plan cycle's
-  "when the fourth plan counter is put on ~", an adjacent ordinal spelling). `EventType.COUNTER` exists (Nine Lives); model the
-  batching on `PUT_INTO_GRAVEYARD`'s "`<n>` or more" form (PAR-119).
-- **PAR-139 · Small verified residue batch — promoted out of `singletons.md` (2026-09-30).** Shapes
-  sized cache-wide at v552; verify each primitive before adding a row:
-  - "If you're the monarch, `<amount>` instead" — 9 SOLO (the Court cycle, Champions of Minas Tirith,
-    Regal Sliver); `is_monarch` predicate exists in `static_conditions.py`.
-  - "Whenever you discard a card" trigger head (+ "if it has madness", noncreature/nonland filters) —
-    15 SOLO, 4 also-blocked (Anje Falkenrath, Bone Miser, Moonstone, Surly Badgersaur, Chira, …).
-  - "Each other `<subtype>` creature you control enters with an additional +1/+1 counter" — 14 SOLO
-    (Grumgully, Sage of Fables, Master Biomancer, Metallic Mimic, Renata, …); the *others* form of the
-    self enters-with-counters replacement.
-  - "If damage would be dealt …, prevent that damage. `<effect keyed to the amount prevented>`" — 5 SOLO
-    (Phyrexian Hydra, Phyrexian Vindicator, Purity, Vigor, Stormwild Capridor).
-  - "`<reanimation>` with a corpse counter on it. If it would leave the battlefield, exile it instead"
-    — 4 SOLO (Crowded Crypt, From the Catacombs, Isareth, Scavenging Ghoul).
-  - "If its/this spell's madness cost was paid, `<effect>`" — 4 SOLO (Avacyn's Judgment, From Under the
-    Floorboards, Grave Scrabbler, Welcome to the Fold). MEC-106's cast-announced flag plumbing
-    (`ANNOUNCED_FLAGS`/`announced_state`) is now the direct precedent; this residue needs a
-    `madness_cost_paid` stamp/parser condition, not a new target-announcement mechanism.
-  - "When ~ is put into a graveyard from anywhere, its owner shuffles their graveyard into their
-    library" — 2 SOLO (Emrakul the Aeons Torn, Ulamog the Infinite Gyre).
+- **PAR-139 · Residue of the small verified batch.** Madness-cost overrides that read the madness `{X}` (Avacyn's
+  Judgment, From Under the Floorboards, Welcome to the Fold); a reanimated card's "if it would leave the
+  battlefield, exile it instead" (From the Catacombs, Isareth); the "prevent that damage" riders not yet keyed
+  (reflexive "when damage is prevented this way", "twice that many", fixed-count, source-qualified shields).
 - **PAR-99 · Khans/Dragons Siege cycle.** The ETB choice parses; unclaimed on all 5 cards (0 SOLO) is
   each mode's standing text — a stored choice gating which of two ongoing abilities is live (Citadel,
   Frontier, Monastery, Outpost, Palace Siege).
@@ -155,7 +118,7 @@ No open tickets.
     Echo, Cloud of Darkness).
   - "ETB mill `<n>`, may return a land card from graveyard to hand" — 2 (Eccentric Farmer, Pothole Mole).
   - **Blink, immediate return of several targets** — Displace, Illusionist's Stratagem ("exile up to
-    `<n>` creatures you control, then return them"); the delayed-return forms are PAR-136.
+    `<n>` creatures you control, then return them"); the delayed-return forms are claimed since v566.
   - "Return target creature card from your graveyard with an additional +1/+1 counter" — Prison Break
     (SOLO), A-Graveyard Shift (blocked).
   - "End step, if you didn't play a card from exile this turn, create a tapped Powerstone" — Visions of

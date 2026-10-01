@@ -474,6 +474,7 @@ def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
         or _parse_attack_batch_head(cond)
         or _parse_block_relation_head(cond) or _parse_batch_quantity_head(cond)
         or _parse_combat_damage_batch_head(cond) or _parse_graveyard_arrival_head(cond)
+        or _parse_counters_put_head(cond)
     )
     if actor is not None:
         return actor
@@ -694,6 +695,51 @@ def _parse_graveyard_arrival_head(cond: str) -> Optional[ObjectHead]:
         trigger["batch"] = {"of": event, "min": int(m.group("n"))}
         return ObjectHead("EVENT_BATCH", condition, trigger)
     return ObjectHead(event, condition, trigger)
+
+
+#: PAR-138, RULE 122.5 / 603.2: "`<n>` or more `<kind>` counters are put on `<subject>`" and its single form
+#: "a `<kind>` counter is put on `<subject>`" — `EventType.COUNTER`, which `RulesEngine.add_counters` fires
+#: *after* the counters landed (the same event a replacement reads before). One placement is one event, so
+#: "1 or more" needs no batching of its own. The subject is the object counters went on (the event's
+#: ``target_id``): ``~``, or one `characteristic_phrase` noun phrase with its controller scope. "For the first
+#: time each turn" is a once-per-turn limit (counters landing on the same subject twice in a turn trigger once).
+_COUNTER_KIND = r"(?:[+\-]\d+/[+\-]\d+|[a-z]+)"
+_COUNTERS_PUT = re.compile(
+    rf"^(?:(?P<n>1|one) or more (?P<kinds>{_COUNTER_KIND}|) ?counters are|"
+    rf"an? (?P<kind>{_COUNTER_KIND}) counter is) put on (?P<subject>.+?)"
+    r"(?P<first> for the first time each turn)?$"
+)
+
+
+def _parse_counters_put_head(cond: str) -> Optional[ObjectHead]:
+    m = _COUNTERS_PUT.match(cond)
+    if m is None:
+        return None
+    kind = (m.group("kinds") or m.group("kind") or "").strip()
+    subject = m.group("subject").strip()
+    if subject == "~":
+        condition: Optional[dict[str, Any]] = {"subject": "self"}
+    else:
+        plural = _ACTOR_QUANTITY_PLURAL.match(subject)
+        if plural is not None:
+            parsed = parse_object_phrase(plural.group("phrase"), plural=True)
+            if parsed is None:
+                return None
+            condition = {"subject": "group", "controller": parsed[1] or "any", "other": False,
+                         **({"filter": parsed[0]} if parsed[0] else {})}
+        else:
+            condition = _subject(subject)
+    if condition is None or condition["subject"] == "self_or_group":
+        return None
+    filt: dict[str, Any] = {"kind": kind} if kind else {}
+    trigger: dict[str, Any] = {**({"filter": filt} if filt else {})}
+    if m.group("first"):
+        trigger["limit"] = True
+    return ObjectHead("COUNTER", condition, trigger)
+
+
+#: "1 or more `<plural object phrase>`" as a counters' recipient ("1 or more humans you control").
+_ACTOR_QUANTITY_PLURAL = re.compile(r"^(?:1|one) or more (?P<phrase>.+)$")
 
 
 #: Condition keys other than the subject scope that pass through `legacy_condition`

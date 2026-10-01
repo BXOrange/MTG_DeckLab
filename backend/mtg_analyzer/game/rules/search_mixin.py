@@ -1978,6 +1978,7 @@ class SearchMixin:
         permission_player: Optional[Player] = None,
         same_turn_only: bool = False,
         mana_wildcard: Optional[str] = None,
+        grant: bool = True,
     ) -> list[GameObject]:
         """Exile the top ``count`` cards of ``player``'s library; every one
         of them becomes playable by ``permission_player`` (``player``
@@ -1999,6 +2000,10 @@ class SearchMixin:
         temp_play_permission_source` so the board can explain *why* the
         card is castable — purely cosmetic, no effect on legality.
         ``mana_wildcard`` — see `GameState.mana_wildcard_permission`.
+
+        ``grant=False`` only exiles (PAR-137, "exile the top two cards of your library. Choose 1 of
+        them. You may play that card this turn."): the caller then offers the pick and grants the
+        permission to that one card alone via the ``grant_temp_play*`` choose-object actions.
         """
         holder = permission_player or player
         exiled: list[GameObject] = []
@@ -2008,7 +2013,8 @@ class SearchMixin:
             obj = player.library.pop()
             obj.zone = Zone.EXILE
             player.exile.append(obj)
-            self._grant_temp_play_permission(obj, holder, source_name, same_turn_only, mana_wildcard)
+            if grant:
+                self._grant_temp_play_permission(obj, holder, source_name, same_turn_only, mana_wildcard)
             exiled.append(obj)
             self.state.fire_event(
                 GameEvent(EventType.EXILE, player_id=player.id, object=obj.name, from_zone="library")
@@ -2947,6 +2953,10 @@ class SearchMixin:
                 self._remove_from_current_zone(player, o)
                 o.zone = Zone.GRAVEYARD
                 player.graveyard.append(o)
+        elif destination == "library_shuffled":
+            # PAR-144 (Genesis Hydra): "shuffle the rest into your library" — the
+            # unpicked cards stay in the library, which is then shuffled (RULE 701.20).
+            self.shuffle_library(player)
 
     def inspect_top_n_choose(
         self,
@@ -2959,7 +2969,9 @@ class SearchMixin:
         prompt: str = "Wähle eine Karte",
         source: Optional[GameObject] = None,
         decline_leaves_untouched: bool = False,
-        max_picks: int = 1,
+        max_picks: Union[int, str] = 1,
+        criteria: Optional[dict[str, Any]] = None,
+        else_specs: Optional[list[dict]] = None,
     ) -> None:
         """Inspect a bounded top-N group from ``player``'s library, offer a
         filtered choice among them, and route the rest to ``rest_destination``
@@ -2976,6 +2988,18 @@ class SearchMixin:
         (`InspectTopChooseEffect.max_picks_if_teamwork`) before this method
         ever sees it, so this stays a plain, teamwork-agnostic "how many"
         knob any future "reveal N, choose up to K" card can reuse.
+
+        PAR-144 widened the pick vocabulary for the whole "look at the top N
+        cards of your library. You may reveal a `<kind>` card from among them
+        and put it into your hand/onto the battlefield. Put the rest …" family
+        (~200 cards): ``criteria`` is a `models.cards.card_query` dict (types
+        and subtypes, colours, mana-value bounds, "{X} in its mana cost", …)
+        ANDed with the older ``filter_criteria`` keys; ``max_picks="all"`` is
+        "any number"/"all" (every matching card); ``else_specs`` are the
+        "if you didn't put a card into your hand this way, …" tail, run when
+        nothing was picked (including when nothing matched); and a rest
+        destination of ``"library_shuffled"`` shuffles the unpicked cards back
+        in (Genesis Hydra). Picking nothing is only possible when ``optional``.
         """
         if isinstance(count, str) and count == "trigger_power":
             trigger_event = getattr(self.context, "trigger_event", None)
@@ -3009,23 +3033,30 @@ class SearchMixin:
                         return False
             return True
 
-        candidates = [o for o in inspected if _matches(o)]
+        def _matches_all(obj: GameObject) -> bool:
+            return _matches(obj) and (not criteria or card_query.matches(obj.card, criteria))
+
+        candidates = [o for o in inspected if _matches_all(o)]
         rest_ids = [o.instance_id for o in inspected]
 
         if not candidates:
             if not decline_leaves_untouched:
                 self._handle_rest_inspected(player, rest_ids, rest_destination)
+            if else_specs:
+                self._apply_effect_specs(list(else_specs), source)
             return
 
+        pick_count = len(candidates) if max_picks == "all" else max(1, int(max_picks))
         self._request_choose_objects(
             player,
             candidates,
             action,
-            count=max(1, int(max_picks)),
+            count=pick_count,
             optional=optional,
             prompt=prompt,
             source=source,
             rest_ids=rest_ids,
             rest_destination=rest_destination,
             decline_leaves_untouched=decline_leaves_untouched,
+            else_specs=else_specs,
         )

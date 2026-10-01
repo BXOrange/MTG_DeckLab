@@ -2333,6 +2333,35 @@ class ReturnSpecificToHandEffect(GameEffect):
                 context.engine.return_to_hand(obj)
 
 
+class ReturnSpecificToBattlefieldEffect(GameEffect):
+    """Return the exact exiled cards baked into this effect to the battlefield under their owners'
+    control (RULE 400.7 / 603.7) — the delayed half of "Exile target creature. Return that card to
+    the battlefield under its owner's control at the beginning of the next end step." (Flickerwisp,
+    Turn to Mist, Aetherling's self-blink, …; PAR-136). The battlefield sibling of
+    `ReturnSpecificToHandEffect`, same "empty default, populated by `CreateDelayedTriggerEffect`'s
+    ``capture``" idiom.
+
+    Only a card **still in exile** is returned: one that left some other way in the meantime is a
+    different object (RULE 400.7), and a ``capture="previous_or_self"`` that found no pick (an "up to
+    one target" ability with nothing chosen falls back to its own source) must not drag a permanent
+    that was never exiled anywhere. Each returns as a new object (`return_from_graveyard` resets it),
+    so its enters-the-battlefield abilities fire again.
+    """
+
+    def __init__(
+        self,
+        objects: list["GameObject"],
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.objects = objects
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        for obj in list(self.objects):
+            if obj.zone == Zone.EXILE and obj in context.state.player_by_id(obj.owner_id).exile:
+                context.return_from_graveyard(obj, "battlefield")
+
+
 class ReturnUncastExiledEffect(GameEffect):
     """The "…if it wasn't cast this way" tail every optional free-cast-from-
     exile window needs: Beseech the Mirror's "put the exiled card into your

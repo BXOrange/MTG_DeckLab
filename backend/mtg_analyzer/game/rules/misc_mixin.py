@@ -3274,6 +3274,11 @@ class MiscSystemsMixin:
             # top card, you may put it onto the battlefield" template to
             # reuse rather than a one-off.
             "library_to_battlefield",
+            # PAR-144: "put up to two land cards from among them onto the battlefield tapped".
+            "library_to_battlefield_tapped",
+            # PAR-137: "exile the top two cards … choose 1 of them. You may play that card this turn /
+            # until the end of your next turn" — the pick (already in exile) alone gets the permission.
+            "grant_temp_play_same_turn", "grant_temp_play_next_turn",
             # MEC-43 round 4D (Kodama of the East Tree — "you may put a
             # permanent card with equal or lesser mana value from your
             # hand onto the battlefield"): a hand-zone pick placed
@@ -3881,7 +3886,7 @@ class MiscSystemsMixin:
                 # `remember`'s accumulating sibling, same field
                 # `ExileEffect(track_exiled_with=True)` uses.
                 source.exiled_with_ids.append(obj.instance_id)
-        elif action == "library_to_battlefield":
+        elif action in ("library_to_battlefield", "library_to_battlefield_tapped"):
             # MEC-41 (Nissa, Steward of Elements' 0 ability): the object is
             # still sitting in the library at this point (unlike every
             # other action above, which acts on a battlefield permanent or
@@ -3889,7 +3894,14 @@ class MiscSystemsMixin:
             # does the same library-pop-then-move split.
             if obj in player.library:
                 player.remove_from_zone(obj, Zone.LIBRARY)
-            self._put_searched_card(player, obj, "battlefield")
+            self._put_searched_card(
+                player, obj, "battlefield_tapped" if action.endswith("_tapped") else "battlefield",
+            )
+        elif action in ("grant_temp_play_same_turn", "grant_temp_play_next_turn"):
+            self._grant_temp_play_permission(
+                obj, player, source.name if source is not None else None,
+                action.endswith("_same_turn"), None,
+            )
         elif action == "library_to_hand":
             # MEC-72 (Eclipsed Flamekin): move the picked card from library to hand.
             self._remove_from_current_zone(player, obj)

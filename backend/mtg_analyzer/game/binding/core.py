@@ -186,6 +186,10 @@ def build_replacements(
 #: you control) — instead; see the firing sites in `game/game_engine.py`.
 _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     "ATTACKS": "player_id",
+    # RULE 122.5, PAR-138: "whenever 1 or more +1/+1 counters are put on a creature **you control**" —
+    # `RulesEngine.add_counters`' COUNTER event names the *recipient's* controller (the causer's is
+    # ``source_controller_id``).
+    "COUNTER": "recipient_controller_id",
     # "Whenever you lose life for the first time each turn, …" (Intermediate
     # Chirography level 2, PAR-60) — `RulesEngine.lose_life` fires
     # `LIFE_LOST` per player, keyed by ``player_id``.

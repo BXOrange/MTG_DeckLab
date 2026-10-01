@@ -636,6 +636,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "return_self_from_graveyard_untargeted": "move_object",
     "return_self_to_battlefield": "move_object",
     "return_shared_type_permanent": "move_object",
+    "return_specific_to_battlefield": "move_object",
     "return_specific_to_hand": "move_object",
     "return_to_hand": "move_object",
     "return_to_library": "move_object",

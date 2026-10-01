@@ -817,6 +817,8 @@ class CastingResolutionMixin:
         from_hand = obj.zone == Zone.HAND
         cast_from_zone = obj.zone.value
         obj.cast_from_exile = obj.zone == Zone.EXILE
+        # RULE 702.35a: the only way to cast a madness-exiled card from exile is for its madness cost.
+        obj.madness_cost_paid = bool(getattr(obj, "madness_exiled", False)) and obj.cast_from_exile
         obj.was_cast = True
         # Zone-agnostic (not just hand/command) so an Adventure creature can
         # be cast from exile (RULE 715.3d) with no dedicated branch here.
@@ -952,6 +954,7 @@ class CastingResolutionMixin:
         from_hand = obj.zone == Zone.HAND
         cast_from_zone = obj.zone.value
         obj.cast_from_exile = obj.zone == Zone.EXILE
+        obj.madness_cost_paid = bool(getattr(obj, "madness_exiled", False)) and obj.cast_from_exile
         obj.was_cast = True
         # RULE 702.174a: a cast that pays no additional costs promises no gift (and must not
         # inherit the promise of an earlier cast of the same card).

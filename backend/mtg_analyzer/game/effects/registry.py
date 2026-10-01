@@ -244,8 +244,10 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)),
         prompt=p.get("prompt", "Wähle eine Karte"),
         decline_leaves_untouched=bool(p.get("decline_leaves_untouched", False)),
-        max_picks=int(p.get("max_picks", 1) or 1),
+        max_picks=p.get("max_picks", 1) if p.get("max_picks") == "all" else int(p.get("max_picks", 1) or 1),
         max_picks_if_teamwork=p.get("max_picks_if_teamwork"),
+        criteria=p.get("criteria"),
+        else_effects=p.get("else_effects"),
     ),
 )
 EffectRegistry.register(
@@ -1121,7 +1123,8 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    "shuffle_graveyard_into_library", lambda p: ShuffleGraveyardIntoLibraryEffect()
+    "shuffle_graveyard_into_library",
+    lambda p: ShuffleGraveyardIntoLibraryEffect(owner_of_source=bool(p.get("owner_of_source", False))),
 )
 EffectRegistry.register(
     # "Target player shuffles up to three target cards from their graveyard
@@ -1753,6 +1756,12 @@ EffectRegistry.register(
     # sacrifice/exile/destroy siblings above.
     "return_specific_to_hand",
     lambda p: ReturnSpecificToHandEffect(objects=[]),
+)
+EffectRegistry.register(
+    # "Return that card to the battlefield under its owner's control at the beginning of the next
+    # end step." (PAR-136, the Flickerwisp/Turn to Mist family) — the battlefield sibling above.
+    "return_specific_to_battlefield",
+    lambda p: ReturnSpecificToBattlefieldEffect(objects=[]),
 )
 EffectRegistry.register(
     # "When this Aura leaves the battlefield, that creature's controller
@@ -2830,6 +2839,7 @@ EffectRegistry.register(
     "impulsive_draw",
     lambda p: ImpulsiveDrawEffect(
         count=p.get("count", 1), same_turn_only=bool(p.get("same_turn_only", False)),
+        choose_one=bool(p.get("choose_one", False)),
     ),
 )
 EffectRegistry.register(
@@ -3639,6 +3649,9 @@ EffectRegistry.register(
             # PAR-60) — a live `continuous.count_selector`, overriding
             # ``count`` when set.
             **({"count_selector": p["count_selector"]} if p.get("count_selector") else {}),
+            # PAR-139: "each [other] <subtype> creature you control enters with …" — see
+            # `continuous.extra_etb_counters_for`.
+            **({"filter": dict(p["filter"]), "other": bool(p.get("other", True))} if p.get("filter") else {}),
             # "**Nontoken** creatures you control enter with…" (Gorma) —
             # RULE 111.9 filter on the entering object.
             **({"nontoken": True} if p.get("nontoken") else {}),

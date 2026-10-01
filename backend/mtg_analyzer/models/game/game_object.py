@@ -266,6 +266,10 @@ class GameObject:
         #: trigger on a permanent, and by `RulesEngine.give_gift` at resolution.
         self.gift_promised: bool = False
         self.gift_recipient_id: Optional[str] = None
+        #: RULE 702.35: the spell was cast by paying its madness cost (cast from exile, having been
+        #: exiled by `RulesEngine._maybe_madness`) — stamped at cast time by `RulesEngine.cast_spell`
+        #: and read by the ``madness_cost_paid`` flag condition ("if its madness cost was paid").
+        self.madness_cost_paid: bool = False
         #: RULE 701.20a: this card was exiled **face down** (Beseech the
         #: Mirror's "search your library for a card, exile it face down").
         #: A face-down card in exile has no characteristics anyone but its
@@ -1407,6 +1411,7 @@ class GameObject:
         self.bargained = False
         self.gift_promised = False
         self.gift_recipient_id = None
+        self.madness_cost_paid = False
         self.face_down_in_exile = False
         self.cast_via_flashback = False
         self.cast_via_evoke = False

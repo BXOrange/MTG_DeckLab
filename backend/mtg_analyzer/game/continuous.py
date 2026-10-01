@@ -4766,6 +4766,19 @@ def extra_etb_counters_for(state: "GameState", obj: "GameObject") -> dict[str, i
             # Gullet) — includes the granting source itself if it's nontoken.
             if obj.controller_id != controller_id or getattr(obj, "is_token", False):
                 continue
+        elif ability.params.get("filter"):
+            # PAR-139: "Each other Warrior creature you control enters with an additional +1/+1 counter
+            # on it." / "Each Dragon you control enters with …" — a `combat.matches_object_filter` on the
+            # entering object; the granting source is excluded unless the text says "each <X>" without
+            # "other" (``other`` False — Dragonstorm Globe counts itself only if it is a Dragon).
+            if obj.controller_id != controller_id:
+                continue
+            if obj is source and ability.params.get("other", True):
+                continue
+            from . import combat  # function-scoped: combat imports this module
+
+            if not combat.matches_object_filter(obj, ability.params["filter"], reference=source, state=state):
+                continue
         else:
             if obj.controller_id != controller_id or obj is source:
                 continue

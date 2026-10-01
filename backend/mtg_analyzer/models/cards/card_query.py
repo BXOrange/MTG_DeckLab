@@ -23,6 +23,12 @@ A criteria value is one of:
                       type line; a list is an OR ("Plains or Island"), so it
                       spans supertypes ("Basic Land"), card types ("Creature"),
                       and subtypes ("Forest").
+  ``all_types``       list[str] — every word must be in the type line (AND,
+                      the sibling of ``type``'s OR): "a **dragon creature**
+                      card", "a **legendary artifact** card" (PAR-144's
+                      "look at the top N … put a `<qualified>` card" family).
+  ``has_x_cost``      bool — the printed mana cost contains ``{X}`` ("a card
+                      with {X} in its mana cost" — Paradox Surveyor).
   ``basic``           bool — the card is a basic land (the "Basic" supertype).
   ``max_mana_value``  int  — mana value ≤ this (e.g. Green Sun's Zenith's X).
   ``min_mana_value``  int  — mana value ≥ this.
@@ -66,6 +72,7 @@ A criteria value is one of:
 
 from __future__ import annotations
 
+import re
 from typing import Any, Union
 
 from .card import Card
@@ -80,7 +87,7 @@ _ALLOWED_KEYS: frozenset[str] = frozenset(
         "type", "basic", "max_mana_value", "min_mana_value",
         "max_power", "min_power", "max_toughness", "min_toughness",
         "name", "not_name", "color", "without_type", "has_mana_ability", "or",
-        "nonlegendary", "has_keyword",
+        "nonlegendary", "has_keyword", "all_types", "has_x_cost",
     }
 )
 
@@ -118,13 +125,18 @@ def matches(card: Card, criteria: Criteria) -> bool:
     without_type = crit.get("without_type")
     if without_type is not None and _type_matches(type_line, without_type):
         return False
+    all_types = crit.get("all_types")
+    if all_types and not all(_has_type_word(type_line, t) for t in all_types):
+        return False
+    if crit.get("has_x_cost") and "{x}" not in (card.mana_cost_string or "").lower():
+        return False
     if crit.get("basic") and "basic" not in type_line:
         return False
     # "a nonlegendary card" (Unmarked Grave, MEC-43) — the negation of the
     # already-recognized "legendary" type-line word, its own key rather
     # than a magic string in ``without_type`` so a criteria dict stays
     # literal data (mirrors ``not_name``'s own treatment of ``name``).
-    if crit.get("nonlegendary") and "legendary" in type_line:
+    if crit.get("nonlegendary") and _has_type_word(type_line, "legendary"):
         return False
     if "max_mana_value" in crit and card.converted_mana_cost > crit["max_mana_value"]:
         return False
@@ -203,13 +215,19 @@ def describe(criteria: Criteria) -> str:
     return f"{article} {label} card{suffix}"
 
 
+def _has_type_word(type_line: str, word: Any) -> bool:
+    """Whether ``word`` is a whole word of the (lowercased) type line — "orc" must not match
+    "Sorcery", nor "ape" "Shape". ``word`` may itself be several words ("basic land")."""
+    return re.search(rf"(?<![a-z]){re.escape(str(word).lower())}(?![a-z])", type_line) is not None
+
+
 def _type_matches(type_line: str, type_val: Any) -> bool:
     if not type_val:
         return True
     if isinstance(type_val, str):
-        return type_val.lower() in type_line
+        return _has_type_word(type_line, type_val)
     if isinstance(type_val, list):
-        return any(str(t).lower() in type_line for t in type_val)
+        return any(_has_type_word(type_line, t) for t in type_val)
     raise ValueError(f"'type' must be a str or list (got {type(type_val).__name__})")
 
 

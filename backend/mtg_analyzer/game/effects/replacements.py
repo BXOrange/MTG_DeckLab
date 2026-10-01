@@ -178,6 +178,10 @@ def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
                 return False
         if source_filter.get("is_creature") and not event.get("source_is_creature"):
             return False
+        # PAR-139: "if noncombat damage would be dealt to …" (Purity, Stormwild Capridor) — the event's
+        # own ``combat`` flag, which `RulesEngine.deal_damage` stamps on every DAMAGE event.
+        if "combat" in source_filter and bool(event.get("combat")) != bool(source_filter["combat"]):
+            return False
         if source_filter.get("is_spell") and not event.get("source_is_instant_or_sorcery"):
             return False
         # PAR-78: "…by deserts."/"…by creatures with first strike."/"…by

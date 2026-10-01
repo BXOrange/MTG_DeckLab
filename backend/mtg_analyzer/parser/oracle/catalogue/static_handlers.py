@@ -3330,6 +3330,9 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
      lambda m: {"kind": "not", "condition": {"kind": "flag", "flag": "gift_promised"}}),
     (re.compile(r"the gift was promised", re.I),
      lambda m: {"kind": "flag", "flag": "gift_promised"}),
+    # PAR-139 / RULE 702.35: "(if) its / this spell's madness cost was paid" — `GameObject.madness_cost_paid`.
+    (re.compile(r"(?:its|this spell'?s) madness cost was paid", re.I),
+     lambda m: {"kind": "flag", "flag": "madness_cost_paid"}),
     (re.compile(r"you control a legendary (?P<subtype>[a-z]+)", re.I),
      lambda m: {"kind": "control_legendary_subtype", "subtype": m.group("subtype").lower()}),
     # PAR-98: reused by conditional activation-cost reductions as well as
@@ -4390,6 +4393,34 @@ def _granted_trigger_doubler(inner: str) -> Optional[EffectSpec]:
     return doubler
 
 
+#: PAR-139: "Each [other] `<kind>` you control enters with an additional +1/+1 counter on it." (Grumgully,
+#: Bramblewood Paragon, Dragonstorm Globe, Metallic Mimic, Master Biomancer's sibling clause …) — the
+#: *others* form of a RULE 614.1 entry-counter replacement, `extra_etb_counter` with a ``filter``.
+#: The kind is one `object_filter` plural phrase ("warrior creatures", "dragons", "non-human creatures").
+_EXTRA_ETB_COUNTER_RE = re.compile(
+    r"each (?P<other>other )?(?P<phrase>[a-z' -]+?) you control enters? with an additional "
+    r"(?:(?P<n>\d+|an?|one) )?(?P<kind>[+\-]\d+/[+\-]\d+) counters? on it",
+    re.IGNORECASE,
+)
+
+
+def _extra_etb_counter_specs(text: str) -> Optional[list[EffectSpec]]:
+    m = _EXTRA_ETB_COUNTER_RE.fullmatch(text)
+    if m is None:
+        return None
+    phrase = m.group("phrase").strip().lower()
+    filt = object_filter(phrase + "s") or (
+        object_filter(re.sub(r"f$", "ves", phrase)) if phrase.endswith("f") else None
+    )
+    if not filt:
+        return None
+    n = (m.group("n") or "1").lower()
+    count = int(n) if n.isdigit() else 1
+    return [EffectSpec("extra_etb_counter", {
+        "kind": m.group("kind"), "count": count, "filter": filt, "other": bool(m.group("other")),
+    })]
+
+
 def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     """`EffectSpec`s for a static anthem/keyword-grant ``clause``, or ``None``.
 
@@ -4410,6 +4441,9 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         doubler = parse_trigger_doubler(text, trigger_condition_dict)
         if doubler is not None:
             return [doubler]
+    extra_counter = _extra_etb_counter_specs(text)
+    if extra_counter is not None:
+        return extra_counter
     if _SELF_GRAVEYARD_SHUFFLE_RE.fullmatch(text):
         return [EffectSpec("grant_graveyard_to_library_replacement", {"affects": "self"})]
     if re.fullmatch(

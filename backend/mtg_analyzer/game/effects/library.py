@@ -376,8 +376,12 @@ class ImpulsiveDrawEffect(GameEffect):
         permission_player: Any = None,
         same_turn_only: bool = False,
         source: Optional["GameObject"] = None,
+        choose_one: bool = False,
     ) -> None:
         super().__init__(source)
+        #: PAR-137: "choose 1 of them. You may play that card" / "you may play 1 of those cards" —
+        #: only the player's pick keeps the play permission (the other exiled cards stay exiled).
+        self.choose_one = choose_one
         #: How many: a number or an `effect_amounts` operand ("…you may exile that many cards from
         #: the top of your library" — Virtue of Courage; "…three cards instead if the additional
         #: cost was paid" — Burning Curiosity).
@@ -411,7 +415,14 @@ class ImpulsiveDrawEffect(GameEffect):
         exiled = context.exile_with_play_permission(
             player, count, source_name=source_name,
             permission_player=permission_player, same_turn_only=self.same_turn_only,
+            grant=not self.choose_one,
         )
+        if self.choose_one and exiled:
+            context.engine._request_choose_objects(
+                permission_player, exiled,
+                "grant_temp_play_same_turn" if self.same_turn_only else "grant_temp_play_next_turn",
+                count=1, optional=False, prompt="Wähle eine Karte", source=self.source,
+            )
         # MEC-58: seed `created_objects` (the "the tokens"/"that card"
         # RULE 608.2 referent idiom this file already uses in several
         # places) so a following clause in the same ability body can act on

@@ -1716,6 +1716,19 @@ class DamageDeathMixin:
         ):
             return
         kind = rider.get("kind")
+        if kind == "add_scaled_counters":
+            # PAR-139: "…prevent that damage. Put a -1/-1 counter on ~ for each 1 damage prevented this
+            # way." (Phyrexian Hydra, Stormwild Capridor) / "… on that creature …" (Vigor) — one counter
+            # per point actually prevented, on the shield's own permanent (``on="self"``) or on the
+            # permanent the damage was going to hit (``on="recipient"``, the DAMAGE event's target).
+            if rider.get("on") == "recipient":
+                target_id = event.get("target_id")
+                counted_on = self.state.find_object(target_id) if target_id is not None else None
+            else:
+                counted_on = shield_source
+            if counted_on is not None:
+                self.add_counters(counted_on, prevented, str(rider.get("counter", "+1/+1")), source=shield_source)
+            return
         if kind == "add_self_counter":
             if shield_source is not None:
                 self.add_counters(shield_source, 1, str(rider.get("counter", "+1/+1")), source=shield_source)

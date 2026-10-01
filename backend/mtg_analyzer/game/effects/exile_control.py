@@ -189,13 +189,20 @@ class ExileEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.group is not None:
             chosen = (targets or [self.target])[0] if (targets or self.target is not None) else None
+            exiled_now = []
             for obj in _group_objects(context, self.group, self.group_player, self.source, chosen) or []:
                 if self.track_exiled_with and self.source is not None:
                     self.source.exiled_with_ids.append(obj.instance_id)
                 context.exile(obj)
+                exiled_now.append(obj)
+            # RULE 608.2: "those cards"/"the exiled cards" in a following clause (a delayed return,
+            # PAR-136 — Ghostway, Sudden Disappearance) name exactly what this one exiled.
+            context.previous_targets = exiled_now
             return
         if self.selector is not None:
+            exiled_now = []
             for obj in _mass_selector_objects(context, self.selector, self.filter, source=self.source):
+                exiled_now.append(obj)
                 if self.track_exiled_with and self.source is not None:
                     # "…exile all other permanents you control. When ~
                     # leaves the battlefield, return the exiled cards…"
@@ -206,6 +213,7 @@ class ExileEffect(GameEffect):
                     # `ReturnAllExiledWithEffect` later.
                     self.source.exiled_with_ids.append(obj.instance_id)
                 context.exile(obj)
+            context.previous_targets = exiled_now  # as in the group branch above
             return
         if self._attached_mode:
             # "Exile enchanted creature." — this Aura/Equipment's host.
@@ -1871,10 +1879,22 @@ class ShuffleGraveyardIntoLibraryEffect(GameEffect):
     graveyard-only sibling of `RulesEngine.shuffle_hand_and_graveyard_
     into_library`'s "hand AND graveyard" wheel template; reused wherever
     only the graveyard moves (Paradigm Shift).
+
+    ``owner_of_source`` (PAR-139, Emrakul, the Aeons Torn / Ulamog, the Infinite Gyre — "When ~ is put into a
+    graveyard from anywhere, **its owner** shuffles their graveyard into their library.") shuffles the
+    *owner's* graveyard: the source is a card that may have been controlled by anyone, and its controller
+    is stale once it is in a graveyard.
     """
 
+    def __init__(self, owner_of_source: bool = False, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.owner_of_source = owner_of_source
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = _controller_of(self.source, context)
+        if self.owner_of_source and self.source is not None:
+            player = context.state.player_by_id(self.source.owner_id)
+        else:
+            player = _controller_of(self.source, context)
         if player is None:
             return
         for obj in list(player.graveyard):

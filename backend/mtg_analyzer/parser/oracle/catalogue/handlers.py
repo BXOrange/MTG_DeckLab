@@ -28,6 +28,7 @@ from typing import Any, Callable, Optional
 
 from ..normalize import SELF
 from ..spec import GROUP_SUBJECT_KEY_SENTINEL, EffectSpec, ParserProvenance
+from .dig import parse_dig
 from .counters import KEYWORD_COUNTER_KINDS, counter_choice_list, parse_counter_choice_items
 from .referent_condition import PRONOUN_NOUN_ALT
 from .keywords import KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
@@ -1890,21 +1891,37 @@ def _draw_next_upkeep(m: re.Match[str]) -> list[EffectSpec]:
 #: *is* later this same turn); an instant-speed cast on an opponent's turn
 #: would close the window at that turn's cleanup instead of carrying it
 #: into the caster's own next end step — narrower than RAW, not wider.
+#: PAR-137 widened the row: the window word may also be "until end of turn", and a *choice* of one
+#: of the exiled cards is accepted — "exile the top 2 cards of your library[,] [then] choose 1 of
+#: them. You may play that card this turn" and "… you may play 1 of those cards this turn" — which
+#: keeps the play permission on the pick alone (`ImpulsiveDrawEffect.choose_one`).
+_EXILE_TOP_WINDOW = r"this turn|until (?:the )?end of turn|until the end of your next turn|until your next end step"
 _EXILE_TOP_PLAY_RE = _c(
-    r"exile the top (?:(?P<n>\d+|x) cards?|card) of your library\. "
-    r"(?:(?P<dur_pre>this turn|until the end of your next turn|until your next end step), )?"
-    r"you may play (?:them|it|that card|those cards)"
-    r"(?: (?P<dur_post>this turn|until the end of your next turn|until your next end step))?"
+    r"exile the top (?:(?P<n>\d+|x) cards?|card) of your library(?:\.|, then) "
+    r"(?P<choose>choose 1(?: of (?:them|those cards))?\. )?"
+    rf"(?:(?P<dur_pre>{_EXILE_TOP_WINDOW}), )?"
+    r"you may play (?P<what>them|it|that card|those cards|the exiled cards|cards exiled this way|1 of those cards)"
+    rf"(?: (?P<dur_post>{_EXILE_TOP_WINDOW}))?"
 )
 
 
-def _exile_top_play(m: re.Match[str]) -> list[EffectSpec]:
+def _exile_top_play(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     dur = (m.groupdict().get("dur_pre") or m.groupdict().get("dur_post") or "").strip()
-    same_turn_only = dur in ("this turn", "until your next end step")
+    same_turn_only = dur in ("this turn", "until end of turn", "until the end of turn", "until your next end step")
     n = m.group("n")
-    return [EffectSpec("impulsive_draw", {
-        "count": count_or_x_of(n) if n else 1, "same_turn_only": same_turn_only,
-    })]
+    what = m.group("what")
+    choose_one = bool(m.group("choose")) or what == "1 of those cards"
+    count = count_or_x_of(n) if n else 1
+    # "that card"/"it" names *the* card — one exiled card, or the pick; "them"/"those cards" every one.
+    singular = what in ("it", "that card")
+    if singular and not choose_one and count != 1:
+        return None
+    if m.group("choose") and what != "that card":
+        return None
+    params: dict = {"count": count, "same_turn_only": same_turn_only}
+    if choose_one:
+        params["choose_one"] = True
+    return [EffectSpec("impulsive_draw", params)]
 
 
 #: "Draw N cards and reveal them. You may cast one of them without paying
@@ -13079,6 +13096,35 @@ def _delayed_sac_exile_tail(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+#: PAR-139: "its owner shuffles their graveyard into their library" — the tail of "When ~ is put into a graveyard
+#: from anywhere, …" (Emrakul, the Aeons Torn; Ulamog, the Infinite Gyre). "Its" is the ability's own source.
+_OWNER_SHUFFLES_GRAVEYARD_RE = _c(r"its owner shuffles their graveyard into their library")
+
+
+def _owner_shuffles_graveyard(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("shuffle_graveyard_into_library", {"owner_of_source": True})]
+
+
+#: PAR-136: "Return that card to the battlefield under its owner's control at the beginning of the next end
+#: step." — the delayed half of a flicker (Flickerwisp, Turn to Mist, Aetherling's self-blink, Ghostway).
+#: A separate, *gated* row rather than a verb of `_DELAYED_SAC_EXILE_TAIL_RE`: "it" must name a card an
+#: earlier clause of the same ability just **exiled** (`previous_subject_only`, or the ability's own source
+#: for "exile ~. Return it …", `self_subject_only`). Ungated it also claimed a *dies* trigger's
+#: "return it to the battlefield …" (Resurrection Orb), where nothing is in exile and the effect would
+#: silently do nothing.
+_DELAYED_RETURN_BATTLEFIELD_RE = _c(
+    r"return (?:it|that card|that creature|that permanent|them|those cards|the exiled cards?) to the "
+    r"battlefield under (?:its|their) owner'?s control at the beginning of the next end step"
+)
+
+
+def _delayed_return_battlefield(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("create_delayed_trigger", {
+        "step": "end", "scope": "any", "capture": "previous_or_self",
+        "effects": [{"type": "return_specific_to_battlefield", "params": {}}],
+    })]
+
+
 #: The *when-first* sibling of `_DELAYED_SAC_EXILE_TAIL_RE` — "At the
 #: beginning of the next end step, sacrifice/exile/return `<it>`[ unless
 #: `<X>`][. If you do, `<effect>`.]" (Apprentice Necromancer, Momo's Heist,
@@ -14293,6 +14339,18 @@ def _reveal_top_all_filter(m: re.Match[str]) -> list[EffectSpec]:
         "count": n, "action": "library_to_hand", "filter": {"is_land": True},
         "max_picks": n, "rest_destination": "library_bottom_random",
     })]
+
+
+#: PAR-144: the general dig — "Look at/Reveal the top N cards of your library. You may reveal a
+#: `<kind>` card from among them and put it into your hand/onto the battlefield. Put the rest on
+#: the bottom of your library / into your graveyard." (`dig.py` parses everything after the first
+#: sentence; this row only owns that sentence, so a body the dig grammar can't read returns None
+#: and falls through to the rows below.)
+_DIG_RE = _c(r"(?:look at|reveal) the top (?P<n>\d+) cards of your library\.\s+(?P<rest>.+)")
+
+
+def _dig(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return parse_dig(int(m.group("n")), m.group("rest"), match_clause)
 
 
 #: "~ deals 4 damage to target creature and X damage to that creature's
@@ -17536,6 +17594,23 @@ HANDLERS: list[EffectHandler] = [
     # The when-first sibling — "At the beginning of the next end step,
     # sacrifice/exile <it>[ unless ~ is your Ring-bearer]." (MEC-52).
     EffectHandler(
+        "owner_shuffles_graveyard", _OWNER_SHUFFLES_GRAVEYARD_RE, _owner_shuffles_graveyard,
+        self_subject_only=True,
+    ),
+    EffectHandler(
+        "delayed_return_battlefield_previous", _DELAYED_RETURN_BATTLEFIELD_RE,
+        _delayed_return_battlefield, previous_subject_only=True,
+    ),
+    EffectHandler(
+        "delayed_return_battlefield_self", _DELAYED_RETURN_BATTLEFIELD_RE,
+        _delayed_return_battlefield, self_subject_only=True,
+    ),
+    # "Exile each creature you control. Return those cards …" (Ghostway) — a mass selector's own referent.
+    EffectHandler(
+        "delayed_return_battlefield_selector", _DELAYED_RETURN_BATTLEFIELD_RE,
+        _delayed_return_battlefield, previous_selector_only=True,
+    ),
+    EffectHandler(
         "delayed_sac_exile_when_first",
         _DELAYED_SAC_EXILE_WHEN_FIRST_RE,
         _delayed_sac_exile_when_first,
@@ -18891,6 +18966,7 @@ HANDLERS: list[EffectHandler] = [
     ),
     EffectHandler("look_top_put_three_party", _LOOK_TOP_PUT_THREE_PARTY_RE, _look_top_put_three_party),
     EffectHandler("reveal_top_all_filter", _REVEAL_TOP_ALL_FILTER_RE, _reveal_top_all_filter),
+    EffectHandler("dig_top_choose", _DIG_RE, _dig),
     EffectHandler(
         "damage_target_and_controller_party",
         _DAMAGE_TARGET_AND_CONTROLLER_PARTY_RE, _damage_target_and_controller_party,

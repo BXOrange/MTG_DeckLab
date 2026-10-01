@@ -716,6 +716,7 @@ class GameContext:
         source_name: Optional[str] = None,
         permission_player: Optional["Player"] = None,
         same_turn_only: bool = False,
+        grant: bool = True,
     ) -> list[Any]:
         # MEC-58: returns the exiled objects (rather than discarding them,
         # as before) so a caller — `ImpulsiveDrawEffect.apply` — can seed
@@ -723,7 +724,7 @@ class GameContext:
         # (Tavern Brawler's "…where X is that card's mana value").
         return self.engine.exile_with_play_permission(
             player, count, source_name=source_name,
-            permission_player=permission_player, same_turn_only=same_turn_only,
+            permission_player=permission_player, same_turn_only=same_turn_only, grant=grant,
         )
 
     def shuffle_library(self, player: "Player") -> None:

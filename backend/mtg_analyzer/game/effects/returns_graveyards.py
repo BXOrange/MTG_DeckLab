@@ -1643,11 +1643,20 @@ class InspectTopChooseEffect(GameEffect):
         optional: bool = False,
         prompt: str = "Wähle eine Karte",
         decline_leaves_untouched: bool = False,
-        max_picks: int = 1,
+        max_picks: Union[int, str] = 1,
         max_picks_if_teamwork: Optional[int] = None,
         source: Optional["GameObject"] = None,
+        criteria: Optional[dict[str, Any]] = None,
+        else_effects: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         super().__init__(source)
+        #: PAR-144: a `models.cards.card_query` dict ("a creature or land card", "a card with
+        #: mana value X or less") — named ``criteria`` so `RulesEngine._substitute_x` rewrites its
+        #: ``"x"`` mana-value bound like every other criteria-carrying effect's.
+        self.criteria = criteria
+        #: PAR-144: serialized `EffectSpec` dicts run when nothing was picked ("if you didn't put
+        #: a card into your hand this way, draw a card").
+        self.else_effects = else_effects
         self.count = count
         self.action = action
         self.filter = filter
@@ -1666,6 +1675,7 @@ class InspectTopChooseEffect(GameEffect):
         if self.max_picks_if_teamwork is not None and bool(getattr(self.source, "teamwork_paid", False)):
             max_picks = self.max_picks_if_teamwork
         count = self._measured(self.count, context, targets)
+        criteria = self._resolved_criteria()
         context.engine.inspect_top_n_choose(
             player,
             count=count,
@@ -1677,7 +1687,21 @@ class InspectTopChooseEffect(GameEffect):
             source=self.source,
             decline_leaves_untouched=self.decline_leaves_untouched,
             max_picks=max_picks,
+            criteria=criteria,
+            else_specs=self.else_effects,
         )
+
+    def _resolved_criteria(self) -> Optional[dict[str, Any]]:
+        """``criteria`` with any mana-value bound `_substitute_x` did not reach bound to the
+        source's own announced X — a triggered ability ("when you cast this spell, reveal the
+        top X cards … mana value X or less", Genesis Hydra) never had an X of its own."""
+        if not self.criteria:
+            return None
+        resolved = dict(self.criteria)
+        for key in ("max_mana_value", "min_mana_value"):
+            if resolved.get(key) in ("x", "source_x_paid"):
+                resolved[key] = int(getattr(self.source, "x_paid", 0) or 0)
+        return resolved
 
 
 class BlinkEffect(GameEffect):

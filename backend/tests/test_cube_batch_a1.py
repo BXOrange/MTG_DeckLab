@@ -223,15 +223,18 @@ def test_witherbloom_apprentice_modeled():
 
 def test_professor_onyx_stays_unmodeled_unrelated_loyalty_abilities():
     """Magecraft itself parses fine (proven by Witherbloom Apprentice
-    above); Professor Onyx stays `UNMODELED` because its +1/-3/-8 loyalty
+    above); Professor Onyx stays `UNMODELED` because its -3/-8 loyalty
     abilities are each their own complex, unrelated, unmodeled mechanic —
-    see BACKLOG.md. Also proves the loyalty-ability bracket fix
-    (below) doesn't over-claim: these lines are now *recognized* as loyalty
-    abilities but still correctly fail on their own unparseable bodies."""
+    see BACKLOG.md (its +1 — "look at the top three, put one in your hand and
+    the rest into your graveyard" — is the PAR-144 dig grammar's since v565).
+    Also proves the loyalty-ability bracket fix (below) doesn't over-claim:
+    these lines are now *recognized* as loyalty abilities but still correctly
+    fail on their own unparseable bodies."""
     result = parse_oracle(_card("Professor Onyx"))
     assert not result.modeled
     assert not any("magecraft" in u for u in result.unclaimed)
-    assert any(u.startswith("+1:") for u in result.unclaimed)
+    assert not any(u.startswith("+1:") for u in result.unclaimed)
+    assert any(u.startswith(("−3:", "-3:")) for u in result.unclaimed)
 
 
 # ---------------------------------------------------------------------------

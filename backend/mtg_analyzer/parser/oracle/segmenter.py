@@ -243,7 +243,18 @@ _VARIANT_TRIGGER_CONDITIONS: tuple[tuple[re.Pattern[str], Any], ...] = (
 
 
 #: A triggered-ability wrapper: "When/Whenever/At <condition>, <body>".
-_TRIGGER_RE = re.compile(r"^(?:when|whenever|at)\b(?P<cond>[^,]*),\s*(?P<body>.+)$", re.S)
+#: PAR-139: a comma inside the *condition* when it continues a noun-phrase list — "whenever you discard a
+#: noncreature, nonland card, draw a card" and "whenever you discard an island, pirate, or vehicle card, …":
+#: a comma followed by "non…", or by further list items ending in "card(s)"/"creature(s)"/… before the
+#: separator that really starts the body. A body such as "draw a card" has no list separator, so it never
+#: reads as list items.
+_TRIGGER_LIST_NOUN = r"(?:cards?|creatures?|permanents?|artifacts?|enchantments?|lands?|spells?)"
+_TRIGGER_RE = re.compile(
+    r"^(?:when|whenever|at)\b(?P<cond>(?:[^,]|,\s+(?=non[a-z]+\b)"
+    rf"|,\s+(?=(?:[a-z'-]+(?:,\s+(?:or\s+)?|\s+or\s+))+[a-z'-]+ {_TRIGGER_LIST_NOUN}\b)"
+    rf"|,\s+(?=or\s+[a-z'-]+ {_TRIGGER_LIST_NOUN}\b))*),\s*(?P<body>.+)$",
+    re.S,
+)
 
 #: RULE 603.2's other printed spelling of the once-per-turn cap (PAR-14) —
 #: an inline qualifier on the trigger *condition* itself ("whenever you
@@ -662,6 +673,12 @@ _CAST_SPELL_NO_MANA_TRIGGER_RE = re.compile(
 #: other ETB shape needs.
 _ENTERS_IF_CAST_RE = re.compile(
     r"^when ~ enters, if you cast it,\s*(?P<body>.+)$", re.IGNORECASE | re.S,
+)
+
+#: PAR-139, RULE 702.35 / 603.4: "When ~ enters, if its madness cost was paid, `<effect>`." (Grave Scrabbler) — the
+#: intervening-if reads the flag `RulesEngine.cast_spell` stamped (`GameObject.madness_cost_paid`).
+_ENTERS_IF_MADNESS_PAID_RE = re.compile(
+    r"^when ~ enters, if its madness cost was paid,\s*(?P<body>.+)$", re.IGNORECASE | re.S,
 )
 
 _CAST_SPELL_NOT_THEIR_TURN_TRIGGER_RE = re.compile(
@@ -1519,6 +1536,12 @@ _PLAY_WITH_TOP_REVEALED_RE = re.compile(
 #: creature, it gains haste until end of turn, and it becomes a Vampire …", Olivia) — only when the next clause
 #: opens with "it"/"that creature" plus a verb that acts on it, so a comma inside one clause is never split.
 _PRONOUN_COMMA_CONNECTOR = r",\s+(?:and\s+)?(?=(?:it|that creature)\s+(?:gains?|becomes|gets?|has|loses)\b)"
+#: PAR-137: the longest run of consecutive sentences a clause row may claim as one unit when a body
+#: is split on periods ("return up to 1 target … to the battlefield. Exile the top 2 cards of your
+#: library. Until the end of your next turn, you may play those cards." — the exile row owns *two*
+#: sentences). Four covers the longest multi-sentence rows (a dig with its rest and else tail);
+#: a longer window would only be a slower way of failing.
+_MAX_SENTENCE_WINDOW = 4
 _CONNECTORS: tuple[str, ...] = (
     r"\.\s+", r";\s+", r",?\s+then\s+", _PRONOUN_COMMA_CONNECTOR, r"\s+and\s+",
 )
@@ -3328,6 +3351,12 @@ def _resolve_override_referents(base_text: str, replacement_text: str) -> str:
     none or several the text is returned unchanged and fails to match.
     """
     rewritten = re.sub(r"^(?:she|he|it)\b", "~", replacement_text.strip(), flags=re.I)
+    # "~ deals 2 damage to any target. If you're the monarch, it deals 7 damage instead." (Court of
+    # Ire): a replacement that names no recipient hits the base's own.
+    bare_damage = re.fullmatch(r"~ deals? \d+ damage", rewritten, flags=re.I)
+    base_recipient = re.match(r"~ deals? \d+ damage( to .+)$", base_text.strip(), flags=re.I)
+    if bare_damage is not None and base_recipient is not None:
+        rewritten += base_recipient.group(1)
     targets = list(_OVERRIDE_TARGET_RE.finditer(base_text))
     if len(targets) != 1:
         return rewritten
@@ -3464,7 +3493,7 @@ def _instead_override_specs(body: str, **flags: Any) -> Optional[list[EffectSpec
 
 #: Flags the cast itself decides before targets are chosen — the parser-side mirror of
 #: `game/effect_conditions.ANNOUNCED_FLAGS` (this package must not import `game/`).
-_ANNOUNCED_FLAGS: frozenset[str] = frozenset({"gift_promised"})
+_ANNOUNCED_FLAGS: frozenset[str] = frozenset({"gift_promised", "madness_cost_paid"})
 
 
 def _is_announced_condition(condition: Optional[dict[str, Any]]) -> bool:
@@ -3777,6 +3806,13 @@ _EQUAL_TO_RE = re.compile(
 _X_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "power", "toughness")
 
 
+#: "`<sentence>`, where x is `<phrase>`. `<more sentences>`" — the sentence defining X is not the last.
+_WHERE_X_MID_BODY_RE = re.compile(
+    r"^(?P<head>[^.]*?),\s*where x is (?P<phrase>[^.]+?)\.\s+(?P<tail>.+)$",
+    re.IGNORECASE,
+)
+
+
 def _where_x_specs(
     body: str, *, self_subject: bool, previous_subject: bool,
     group_subject: bool, previous_selector: bool, several: bool = False,
@@ -3786,6 +3822,19 @@ def _where_x_specs(
     creature and you gain X life, where X is …" — one X for the whole sentence)."""
     text = body.strip().rstrip(".").strip()
     m = _WHERE_X_RE.match(text)
+    if m is None or "." in m.group("phrase"):
+        # PAR-137: the definition sits mid-body — "exile the top x cards of your library, where x is
+        # the number of creatures you control. You may play those cards this turn." X is one
+        # measurement for the whole ability, so it reads the same moved to the end.
+        mid = _WHERE_X_MID_BODY_RE.match(text)
+        if mid is not None:
+            return _where_x_specs(
+                f"{mid.group('head')}. {mid.group('tail')}, where x is {mid.group('phrase')}",
+                self_subject=self_subject, previous_subject=previous_subject,
+                group_subject=group_subject, previous_selector=previous_selector, several=several,
+            )
+        if m is not None:
+            return None  # a sentence break inside the phrase that is not this shape: not an X definition
     if m is not None:
         rest = m.group("rest")
     else:
@@ -5146,7 +5195,10 @@ def parse_effect_body(
                 else:
                     merged.append(part)
             parts = merged
+            skip_until = 0
             for idx, part in enumerate(parts):
+                if idx < skip_until:
+                    continue  # consumed by a multi-sentence window
                 # A period split retains the leading "then" from a printed
                 # "… . Then <effect>" sentence, unlike the explicit
                 # `, then` connector. It is sequencing, not effect grammar.
@@ -5161,12 +5213,28 @@ def parse_effect_body(
                     if sub is not None:
                         del collected[len(collected) - last_len:]  # the if_else replaces them
                 else:
-                    sub = parse_effect_body(
-                        part,
-                        self_subject=carry_self and not referent,
-                        previous_subject=referent, previous_selector=referent_selector,
-                        group_subject=group_subject,
-                    )
+                    sub = None
+                    if sep == _CONNECTORS[0]:
+                        # A row written for several consecutive sentences (`_MAX_SENTENCE_WINDOW`),
+                        # longest first, before the sentence alone: splitting would hand it only
+                        # its first sentence.
+                        for end in range(min(len(parts), idx + _MAX_SENTENCE_WINDOW), idx + 1, -1):
+                            window = re.sub(r"^then\s+", "", ". ".join(p.strip() for p in parts[idx:end]), flags=re.I)
+                            sub = match_clause(
+                                window, self_subject=carry_self and not referent,
+                                previous_subject=referent, previous_selector=referent_selector,
+                                group_subject=group_subject,
+                            )
+                            if sub is not None:
+                                skip_until = end
+                                break
+                    if sub is None:
+                        sub = parse_effect_body(
+                            part,
+                            self_subject=carry_self and not referent,
+                            previous_subject=referent, previous_selector=referent_selector,
+                            group_subject=group_subject,
+                        )
                 if sub is None:
                     ok = False
                     break
@@ -5632,6 +5700,10 @@ def _announces_group_selector(specs: list[EffectSpec]) -> bool:
     if not specs:
         return False
     last = specs[-1]
+    if last.type == "exile" and (last.params.get("group") or last.params.get("selector")):
+        # PAR-136: "Exile each creature you control. Return those cards …" (Ghostway) — a mass exile
+        # leaves exactly what it exiled in `GameContext.previous_targets` (`ExileEffect`).
+        return True
     if last.type == "tap":
         selector = last.params.get("selector")
         if isinstance(selector, dict) and selector.get("zone", "battlefield") == "battlefield":
@@ -6597,6 +6669,24 @@ def _segment_line_unsplit(
                     for inner_key, inner_value in list(value.items()):
                         if inner_value == "x":
                             value[inner_key] = "source_x_paid"
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={"event": "ENTERS_BATTLEFIELD", "condition": {"subject": "self"}},
+            optional=optional,
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    enters_if_madness = _ENTERS_IF_MADNESS_PAID_RE.match(raw)
+    if enters_if_madness is not None:
+        body, optional = _peel_optional(enters_if_madness.group("body"))
+        effects = parse_effect_body(body, self_subject=True)
+        if effects is None:
+            return Segment(raw=raw)
+        for e in effects:
+            e.condition = {**(e.condition or {}), "madness_cost_paid": True}
         spec = AbilitySpec(
             "triggered",
             effects=effects,

@@ -307,6 +307,12 @@ def _prevent_recipient_params(recipient: str) -> Optional[dict]:
         return {"to": "creatures_you_control", "recipient_filter": {"token": True}}
     if recipient == "a planeswalker you control":
         return {"to": "controlled_permanent", "recipient_filter": {"card_type": "planeswalker"}}
+    if recipient == "another creature you control":
+        # PAR-139 (Vigor): any *other* creature — a card type, not the subtype word the rows below read.
+        return {
+            "to": "controlled_permanent",
+            "recipient_filter": {"card_type": "creature", "exclude_self": True},
+        }
     if recipient.startswith("a ") and recipient.endswith(" creature you control"):
         subtype = recipient[len("a "):-len(" creature you control")]
         return {"to": "controlled_permanent", "recipient_filter": {"subtype": subtype}}
@@ -317,6 +323,39 @@ def _prevent_recipient_params(recipient: str) -> Optional[dict]:
             "recipient_filter": {"subtype": subtype, "exclude_self": True},
         }
     return None
+
+
+#: PAR-139: "If [noncombat|combat] damage would be dealt to `<recipient>`, prevent that damage. `<rider keyed on
+#: the amount prevented>`" — Phyrexian Hydra / Stormwild Capridor ("Put a -1/-1 [+1/+1] counter on ~ for each 1
+#: damage prevented this way"), Vigor ("… on that creature …"), Purity ("You gain life equal to the damage
+#: prevented this way"). A standing `prevent_damage` shield whose ``rider`` (`apply_prevent_rider`) reads the
+#: prevented amount; "combat" narrows by the DAMAGE event's own flag (``source_filter["combat"]``).
+_PREVENT_THEN_RIDER_RE = re.compile(
+    r"if (?P<combat>noncombat |combat )?damage would be dealt to "
+    r"(?P<recipient>~|you|another creature you control), prevent that damage\.\s*"
+    r"(?:put an? (?P<kind>[+\-]\d+/[+\-]\d+) counter on (?P<on>~|that creature) for each 1 damage prevented this way"
+    r"|(?P<life>you gain life equal to the damage prevented this way))",
+    re.IGNORECASE,
+)
+
+
+def _prevent_then_rider_spec(m: "re.Match[str]") -> Optional[EffectSpec]:
+    params = _prevent_recipient_params(m.group("recipient").lower())
+    if params is None:
+        return None
+    on = (m.group("on") or "").lower()
+    if m.group("life"):
+        rider: dict = {"kind": "gain_life", "recipient": "you"}
+    elif on == "~":
+        rider = {"kind": "add_scaled_counters", "on": "self", "counter": m.group("kind")}
+    elif m.group("recipient").lower() == "another creature you control":
+        rider = {"kind": "add_scaled_counters", "on": "recipient", "counter": m.group("kind")}
+    else:
+        return None  # "that creature" only names the recipient of a "another creature" shield
+    spec_params = {**params, "amount": "all", "rider": rider}
+    if m.group("combat"):
+        spec_params["source_filter"] = {"combat": m.group("combat").strip().lower() == "combat"}
+    return EffectSpec("prevent_damage", spec_params)
 
 
 def _standing_prevent_spec(m: "re.Match[str]") -> Optional[EffectSpec]:
@@ -498,6 +537,12 @@ def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
             "amount": "all",
             "rider": {"kind": "remove_self_counter", "counter": m.group("counter"), "count": 1},
         })]
+
+    m = _PREVENT_THEN_RIDER_RE.fullmatch(text)
+    if m is not None:
+        spec = _prevent_then_rider_spec(m)
+        if spec is not None:
+            return [spec]
 
     m = _STANDING_PREVENT_COUNT_RE.fullmatch(text)
     if m is not None:
