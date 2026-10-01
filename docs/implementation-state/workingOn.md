@@ -43,3 +43,35 @@ Block template (copy below the line, fill in):
 ```
 
 ---
+
+## PLAY-ALL · Make every saved deck playable (order of work)
+
+- **Started / last update:** 2026-10-01 / 2026-10-01
+- **Goal of this run:** Plan only. Fix the order of work that takes every non-cube saved deck to N/N in `scripts/deck_coverage.py`.
+- **Done (built + tested):** Nothing built. Measured at PARSER_VERSION 564: 56 decks, 20 already N/N, 35 non-cube decks open (725 distinct uncovered cards, about 870 unclaimed clauses), plus the Commander Cube (300 uncovered, ~241 in no other deck, a pool and not a deck).
+- **In progress:** Nothing.
+- **Next step:** Step 1 below, handler batch 1 (dig). Measure real unlock with `parser_probe.py` first; tell the user before filing candidate PAR-144. Then Step 2 deck list.
+- **Decisions:**
+  - Decks barely overlap (Tarkir 115 uncovered = 115 distinct, Duskmourn 102 = 102). Finishing one deck does not help the next, so order by marginal cost, not by set. Set-by-set is only a familiarity choice.
+  - 599 of the 725 cards have exactly one unclaimed clause and no two share an exact template. Hand-authoring dominates, and only ~83 cards sit on an open BACKLOG cluster. Handlers shrink the bill but do not remove it.
+  - Per-deck size is flat (16 to 35 missing). The real levers are the free wins in Step 0 and the handler batches in Step 1.
+  - Cube is last and optional. Step 1 handlers (PAR-102 especially) shrink it for free.
+- **Baselines / artefacts:** `scripts/deck_coverage.py --uncovered` (2.7s). Per-card unclaimed clauses come from `parse_oracle(card).unclaimed` as in `commander_tail_report.py`. Singleton rows were last checked at PARSER_VERSION 552, so re-run `parser_probe.py blocked` before hand-authoring each card.
+- **Known failures:** None known.
+- **Residue:**
+  - **Step 0, DONE 2026-10-01:** War Room hand-authored (`PAY_LIFE_COMMANDER_COLORS`); 14 Universes Beyond alt names in 6 saved decks renamed to the real Oracle names (backup of decks.db in the session scratchpad only). Vivi B4, Ojer cEDH, cEDH staples 2, Silverquill Influence now N/N; Raggadragga/SpongeBob/Kodama each lost their unresolved lines.
+  - **Step 1, handler batches before the big decks.** Counts are saved-deck cards touching the clause, an upper bound (a card with several unclaimed clauses needs all of them). Measure the real unlock with `parser_probe.py` first.
+    1. Dig, "look at or reveal the top N, take X, rest to bottom or graveyard": ~27 cards (Atraxa Grand Unifier, Genesis Hydra, Genesis Wave, Geometer's Arthropod, Grisly Salvage, Growing Rites, Monumental Henge, Muxus, Paradox Surveyor, Ureni, Weatherlight, Wrenn and Seven). **Not ticketed.** Candidate `PAR-144`, tell the user before filing.
+    2. PAR-139 batch (~11), PAR-138 (~9), PAR-136 (~7), PAR-137 (~5).
+    3. PAR-109 "creatures you control with `<qualifier>`" (~11 + 8 named) and PAR-102 pump + keyword grant (~9 here, 104 cache-wide).
+    4. Token copy, "create a token that's a copy of …": ~16 cards. **Not ticketed.**
+    5. Counters on each or other creature (~15); free cast from top of library or graveyard (~10, with PAR-105's 8).
+    6. Cycles through `register_family`: Tarkir Will of the Temur / Mardu / Jeskai / Abzan (4 cards, 4 decks), Siege cycle (PAR-99), Heliod's / Erebos's / Thassa's Intervention, Enduring cycle (PAR-111), Court cycle (PAR-139 monarch).
+    7. PAR-104 mutagen (7 cards): only with the TMNT deck. PAR-107 to PAR-114 residue batches: only for the deck being worked.
+  - **Step 2, decks in marginal-cost order (missing cards):** Goblins 8; Jeskai Striker 16; Family Matters 19; Raggadragga 19 (+1 alias); yshtola 19; Riveteer Rampage 23; Animated Army 19; Hydranten 20; Abzan Armor 23; Wick Snail Boom 23; Counter Intelligence 21; Kodama 22 (+4 aliases); Eternal Might 24; Jump Scare! 25; World Shaper 22; Sultai Arisen 26; Oops! All Night's Whispers 25; Squirreled Away 24; Mardu Surge 22; Death Toll 24; Shorikai Vehicles 26; SpongeBob and the legendary Burger 21 (+3 aliases); Endless Punishment 28; Scions & Spellcraft 27; Peace Offering 24; Living Energy 26; Temur Roar 28; Miracle Worker 25; Revival Trance 31; Counter Blitz 32; Turtle Power! 35 (PAR-104 first); Hope to the last 30; Limit Break 35.
+    - Cards in several decks: hand-author them at the first deck that has one (Mosswort Bridge in 4 decks; Tear Asunder, Time Wipe, Combustible Gearhulk, Victimize, Multani, Disciple of Bolas, War Room in 3 each).
+  - **Step 3, Commander Cube (last, optional):** ~241 cube-only cards, ~275 clauses of hand-authoring.
+  - **Effort estimate:** ~725 cards; if Step 1 closes 100 to 150, ~600 remain by hand. At about one deck per session earlier (Marchesa, Vivi), expect ~30 to 35 sessions for Steps 2 and 3, 1 to 2 for Step 0, 4 to 6 for Step 1.
+- **Log:**
+  - 2026-10-01 — Coverage measured, cards classified, order proposed, block filed.
+  - 2026-10-01 — Step 0 done: War Room + alias renames; full pytest 9998 passed (before the deck renames, which touch no tests).

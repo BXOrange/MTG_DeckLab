@@ -85,6 +85,10 @@ DISCARD_FILTER_SAME_NAME = "same_name"
 #: ENG-51: `ActivationCost.pay_life` sentinel for "Pay half your life, rounded
 #: up" (Lurking Evil) — the amount depends on the life total at payment.
 PAY_LIFE_HALF_UP = -2
+#: `ActivationCost.pay_life` sentinel for "Pay life equal to the number of
+#: colors in your commanders' color identity" (War Room) — the amount is
+#: the controller's RULE 903.4 identity size, only known at payment.
+PAY_LIFE_COMMANDER_COLORS = -3
 
 #: MEC-43 round 4 (Grim Hireling): the `ActivationCost.sacrifice_count`
 #: sibling of `REMOVE_COUNTERS_X` — "Sacrifice X Treasures" isn't a printed
@@ -648,6 +652,8 @@ class ActivationCost:
         if self.pay_life:
             parts.append("Pay X life" if self.pay_life == PAY_LIFE_X
                          else "Pay half your life, rounded up" if self.pay_life == PAY_LIFE_HALF_UP
+                         else "Pay life equal to the number of colors in your commanders' color identity"
+                         if self.pay_life == PAY_LIFE_COMMANDER_COLORS
                          else f"Pay {self.pay_life} life")
         if self.pay_energy:
             parts.append(f"Pay {'{E}' * self.pay_energy}")
@@ -810,7 +816,11 @@ def parse_activation_cost(
         parsed.sacrifice_or_mana = True
     if "pay_life" in cost:
         value = cost["pay_life"]
-        parsed.pay_life = PAY_LIFE_X if value == "x" else int(value)
+        parsed.pay_life = (
+            PAY_LIFE_X if value == "x"
+            else PAY_LIFE_COMMANDER_COLORS if value == "commander_colors"
+            else int(value)
+        )
     if "pay_energy" in cost:
         parsed.pay_energy = int(cost["pay_energy"])
     if "note_spent_color" in cost:

@@ -1,5 +1,6 @@
 """Hand-authored card entries whose name starts with 'w' (see game/card_registry for the registration mechanism: `register`/`register_family`/`specs_for`)."""
 from . import wandering_archaic  # noqa: F401
+from . import war_room  # noqa: F401
 from . import water_tribe_rallier  # noqa: F401
 from . import waterbender_s_restoration  # noqa: F401
 from . import waterbending_lesson  # noqa: F401

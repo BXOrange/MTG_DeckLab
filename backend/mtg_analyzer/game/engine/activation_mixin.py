@@ -34,6 +34,7 @@ from ..costs import (
     DISCARD_FILTER_SAME_NAME,
     DISCARD_X,
     EXILE_FROM_GRAVEYARD_X,
+    PAY_LIFE_COMMANDER_COLORS,
     PAY_LIFE_HALF_UP,
     PAY_LIFE_X,
     REMOVE_COUNTERS_ALL,
@@ -508,7 +509,7 @@ class ActivationMixin:
             self.state, "sacrifice_nonland_permanent"
         ):
             return False
-        if cost.pay_life and player.life < cost.pay_life:
+        if cost.pay_life and player.life < self._life_cost(player, cost):
             return False
         if cost.pay_energy and player.counters.get("energy", 0) < cost.pay_energy:
             return False
@@ -1107,12 +1108,14 @@ class ActivationMixin:
             o for o in self.state.permanents_controlled_by(player.id)
             if continuous.matches_permanent_word(o, word)
         ]
-    @staticmethod
-    def _life_cost(player: Player, cost: "ActivationCost") -> int:
+    def _life_cost(self, player: Player, cost: "ActivationCost") -> int:
         """The life a cost's ``pay_life`` actually charges — "half your life,
-        rounded up" (ENG-51) is only known at payment."""
+        rounded up" (ENG-51) and "the number of colors in your commanders'
+        color identity" (War Room, RULE 903.4) are only known at payment."""
         if cost.pay_life == PAY_LIFE_HALF_UP:
             return -(-max(player.life, 0) // 2)
+        if cost.pay_life == PAY_LIFE_COMMANDER_COLORS:
+            return len(continuous.commander_color_identity(self.state, player.id))
         return cost.pay_life
     def exert_permanent(self, player: Player, obj: GameObject) -> None:
         """RULE 701.43: exert ``obj`` — it won't untap during its controller's

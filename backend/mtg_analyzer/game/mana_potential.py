@@ -94,7 +94,7 @@ from ..models.mana.mana_cost import ManaCost
 from ..models.mana.mana_pool import MANA_TYPES, ManaPool
 from ..models.game.player import Player
 from . import continuous
-from .costs import DISCARD_HAND, PAY_LIFE_X, REMOVE_COUNTERS_ANY, REMOVE_COUNTERS_X
+from .costs import DISCARD_HAND, REMOVE_COUNTERS_ANY, REMOVE_COUNTERS_X
 from .mana_abilities import ManaAbility, hand_mana_abilities_for, mana_abilities_for, mana_source_kind_for
 
 #: The six mana types WUBRGC potential is tracked/displayed in, matching
@@ -324,7 +324,9 @@ def _non_mana_cost_payable(
     # here is a documented simplification, not a regression.
     if cost.loyalty is not None or cost.discard_self or cost.put_hand_card_on_library:
         return False
-    if cost.pay_life == PAY_LIFE_X:
+    if cost.pay_life < 0:
+        # `PAY_LIFE_X` and the other payment-time sentinels (half life,
+        # commander colors) aren't a number this static check can subtract.
         return False
     if cost.remove_counters and cost.remove_counters[1] in (REMOVE_COUNTERS_X, REMOVE_COUNTERS_ANY):
         return False
