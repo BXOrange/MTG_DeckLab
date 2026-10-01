@@ -64,7 +64,7 @@ from .handlers import (
 from .replacements import replacement_clause_specs
 from .count_phrase import _NUMBER, _number
 from .counters import ENTER_COUNTER_CHOICE_RE, parse_counter_choice_items
-from .keywords import KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
+from .keywords import KEYWORDS, UNGRANTABLE_FLAG_KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
 from .subgrammars import (
     CANT_BE_COUNTERED_RE,
     CARD_TYPE_WORD_ALT,
@@ -514,17 +514,61 @@ _SPELL_COST_TAX_OPPONENTS_RE = re.compile(
     re.IGNORECASE,
 )
 
-# "Spells your opponents cast that target ~ cost {N} more to cast."
-# (Icefall Regent / Boreal Elemental / Charix, the Raging Isle / Elderwood
-# Scion / Pursued Whale / Frost Titan-adjacent) — the "that target ~"
-# narrowing on the opponents-tax above; `continuous.cost_reduction_for`
-# checks the caster's chosen targets against this static's own source
-# (`targets_source` param). Tried before the plain opponents row (whose
-# regex would leave the "that target ~" clause unconsumed and fail).
-_SPELL_COST_TAX_OPPONENTS_TARGET_RE = re.compile(
-    r"spells your opponents cast that target ~ cost \{(?P<n>\d+)\} (?P<dir>more|less) to cast",
+# "Spells `<who>` cast that target `<X>` cost {N} more/less to cast." /
+# "…cost an additional N life to cast."  (Icefall Regent / Boreal Elemental /
+# Charix / Pursued Whale / Elderwood Scion; Kasmina, Esior, Monastery Siege,
+# Terror of the Peaks) — the "that target `<X>`" narrowing on the
+# you/opponents spell tax. `continuous.cost_reduction_for` checks the caster's
+# chosen targets against this static (RULE 601.2c precedes 601.2f): ``~`` is
+# the ``targets_source`` param, anything else an ``if_targets`` OR-list
+# (`_tax_target_alternatives`). Tried before the plain opponents row (whose
+# regex would leave the "that target …" clause unconsumed and fail).
+_SPELL_COST_TAX_THAT_TARGET_RE = re.compile(
+    r"spells (?P<who>you|your opponents) cast that target (?P<target>.+?) cost "
+    r"(?:\{(?P<n>\d+)\} (?P<dir>more|less)|an additional (?P<life>\d+) life) to cast",
     re.IGNORECASE,
 )
+#: Plural spellings of the `_CARD_TYPE_WORDS` a tax's target may name.
+_TAX_TARGET_CONTROLLED_SUFFIX = " you control"
+_TAX_TARGET_COUNT_PREFIX = "1 or more "
+
+
+def _tax_target_alternatives(target: str) -> "Optional[list[dict]]":
+    """What a "spells … that target `<X>`" tax's ``<X>`` may be → a
+    `continuous._spell_targets_hit` OR-list, or ``None`` (fail-closed for any
+    word outside the vocabulary: ``you``, a card type, ``commander``).
+
+    "you or a permanent you control" → the controller as a player, or one of
+    their permanents; a trailing "you control" scopes every *permanent*
+    alternative, never the bare "you"."""
+    text = target.strip().lower()
+    controlled = text.endswith(_TAX_TARGET_CONTROLLED_SUFFIX)
+    if controlled:
+        text = text[: -len(_TAX_TARGET_CONTROLLED_SUFFIX)]
+    if text.startswith(_TAX_TARGET_COUNT_PREFIX):
+        text = text[len(_TAX_TARGET_COUNT_PREFIX):]
+    alternatives: list[dict] = []
+    for part in text.split(" or "):
+        word = re.sub(r"^(?:an?|the) ", "", part.strip())
+        if part.strip() == "you":
+            alternatives.append({"player": "controller"})
+            continue
+        word = word[:-1] if word.endswith("s") else word
+        crit: dict = {"permanent": True}
+        if word == "commander":
+            crit["is_commander"] = True
+        elif word in _CARD_TYPE_WORDS:
+            if word != "permanent":
+                crit["card_type"] = word
+        else:
+            return None
+        if controlled:
+            crit["controller"] = "source_controller"
+        elif word == "permanent":
+            return None  # "target a permanent" taxes nothing in particular
+        alternatives.append(crit)
+    return alternatives or None
+
 
 # "Activated abilities of <type> you control cost {N} less to activate[.
 # This effect can't reduce the mana in that cost to less than {M} mana.]"
@@ -4125,6 +4169,8 @@ def _flag_keywords(text: str) -> Optional[list[str]]:
             continue
         slug = keyword_slug(part)
         kdef = KEYWORDS.get(slug)
+        if kdef is not None and kdef.slug in UNGRANTABLE_FLAG_KEYWORDS:
+            return None
         if kdef is not None and (kdef.shape is KeywordShape.FLAG or kdef.slug == "hexproof"):
             slugs.append(kdef.slug)
             continue
@@ -4820,14 +4866,23 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         }
         return [EffectSpec("cost_reduction", params)]
 
-    m = _SPELL_COST_TAX_OPPONENTS_TARGET_RE.fullmatch(text)
+    m = _SPELL_COST_TAX_THAT_TARGET_RE.fullmatch(text)
     if m is not None:
-        return [EffectSpec("cost_reduction", {
-            "affects": "opponents_spells",
-            "generic": int(m.group("n")),
-            "increase": m.group("dir") == "more",
-            "targets_source": True,
-        })]
+        params = {}
+        if m.group("who").lower() != "you":
+            params["affects"] = "opponents_spells"
+        if m.group("life"):
+            params.update({"generic": 0, "life": int(m.group("life")), "increase": True})
+        else:
+            params.update({"generic": int(m.group("n")), "increase": m.group("dir") == "more"})
+        if m.group("target").strip() == "~":
+            params["targets_source"] = True
+        else:
+            alternatives = _tax_target_alternatives(m.group("target"))
+            if alternatives is None:
+                return None
+            params["if_targets"] = alternatives
+        return [EffectSpec("cost_reduction", params)]
 
     m = _SPELL_COST_TAX_OPPONENTS_RE.fullmatch(text)
     if m is not None:

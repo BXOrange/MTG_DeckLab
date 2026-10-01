@@ -883,11 +883,35 @@ class CastingMixin:
             # RULE 708.4 again: no text means no "as an additional cost to
             # cast this spell, …" clause either — the {3} is the whole price.
             additional_cost = None
+        if not self._can_pay_cast_life_tax(player, obj, targets):
+            return False
         return self._can_pay_additional_cast_cost(
             player, obj, additional_cost, x,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
             pay_additional=pay_additional,
         )
+    def _cast_life_tax(self, player: Player, obj: GameObject, targets: Optional[list[Any]]) -> int:
+        """RULE 601.2f: life a standing "cost an additional N life to cast"
+        static (Terror of the Peaks) adds to this cast — 0 without chosen
+        ``targets`` (see `continuous.cast_life_tax_for`)."""
+        return continuous.cast_life_tax_for(self.state, player, obj, targets)
+
+    def _can_pay_cast_life_tax(self, player: Player, obj: GameObject, targets: Optional[list[Any]]) -> bool:
+        """Whether ``player`` can pay `_cast_life_tax` — RULE 119.4 lets a
+        player pay life only up to their life total, and Yasharn forbids it."""
+        tax = self._cast_life_tax(player, obj, targets)
+        if not tax:
+            return True
+        if continuous.cost_restricted(self.state, "pay_life"):
+            return False
+        return player.life >= tax
+
+    def _pay_cast_life_tax(self, player: Player, obj: GameObject, targets: Optional[list[Any]]) -> None:
+        """Pay `_cast_life_tax` as part of casting (RULE 601.2h)."""
+        tax = self._cast_life_tax(player, obj, targets)
+        if tax:
+            self.rules.lose_life(player, tax, cause="cost")
+
     @staticmethod
     def _buyback_cost(obj: GameObject) -> Optional["ManaCost"]:
         """RULE 702.27: ``obj``'s Buyback cost as a `ManaCost`, or ``None``
@@ -1970,6 +1994,7 @@ class CastingMixin:
             # Phyrexian-mana payment reads the player's life before any
             # "pay N life" additional cost reduces it.
             with self.state.simultaneous():  # RULE 601.2h: one payment, one event (603.2c)
+                self._pay_cast_life_tax(player, obj, targets)
                 self._pay_additional_cast_cost(
                     player, obj, getattr(obj, "additional_cast_cost", None), x,
                     sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,

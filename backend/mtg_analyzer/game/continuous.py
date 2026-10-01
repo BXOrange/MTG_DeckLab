@@ -3588,6 +3588,20 @@ def cost_reduction_for(
             }
             if src_id is None or src_id not in chosen_ids:
                 continue
+        # An additional *life* cost is not generic mana — see `cast_life_tax_for`.
+        if ability.params.get("life"):
+            continue
+        # "…that target you or a permanent you control cost {N} more to cast."
+        # (Kasmina/Esior/Monastery Siege) — see `_spell_targets_hit`. A tax
+        # needs the chosen targets, so the offer-time probe (``targets is
+        # None``) leaves it off; a discount is left on, as `reduce_if_targets`.
+        if_targets = ability.params.get("if_targets")
+        if if_targets:
+            if targets is None:
+                if ability.params.get("increase"):
+                    continue
+            elif not _spell_targets_hit(targets, if_targets, state, ability.source):
+                continue
         spell_type = ability.params.get("spell_type")
         if spell_type and (obj is None or not _spell_type_matches(obj, spell_type)):
             continue
@@ -4087,12 +4101,17 @@ def cost_floor_for(state: "GameState", player: "Player", obj: Optional["GameObje
 
 def _obj_matches_target_criteria(
     target: Any, criteria: dict[str, Any], state: "GameState",
-    caster_id: Optional[str] = None,
+    caster_id: Optional[str] = None, source_controller_id: Optional[str] = None,
 ) -> bool:
     """Whether a resolved spell target matches a `reduce_if_targets` criteria
     dict (RULE 601.2f "if it targets a `<criteria>`"). ``target`` may be a
     `GameObject` or an instance-id/descriptor; a player target never matches
-    (every printed criterion in this cycle names a permanent)."""
+    (every printed criterion in this cycle names a permanent).
+
+    ``controller`` is relative to the caster (``"you"``/``"not_you"``, a
+    discount printed on the spell) or, for a tax a permanent imposes on
+    someone else's spell, to that permanent's controller
+    (``"source_controller"``, ``source_controller_id``)."""
     from . import combat  # function-scoped: combat imports this module
 
     obj = target
@@ -4102,6 +4121,9 @@ def _obj_matches_target_criteria(
     if obj is None or not hasattr(obj, "card"):
         return False
     crit = dict(criteria)
+    # "a permanent you control" names the battlefield, not a spell on the stack.
+    if crit.pop("permanent", False) and obj not in state.battlefield:
+        return False
     card_type = crit.pop("card_type", None)
     if card_type and card_type.lower() not in obj.card.type_line.lower():
         return False
@@ -4110,11 +4132,89 @@ def _obj_matches_target_criteria(
     if crit.pop("is_token", False) and not getattr(obj, "is_token", False):
         return False
     controller = crit.pop("controller", None)
+    if controller == "source_controller" and (
+        source_controller_id is None or getattr(obj, "controller_id", None) != source_controller_id
+    ):
+        return False
     if controller == "you" and getattr(obj, "controller_id", None) != caster_id:
         return False
     if controller == "not_you" and getattr(obj, "controller_id", None) == caster_id:
         return False
     return combat.matches_object_filter(obj, crit) if crit else True
+
+
+def _spell_targets_hit(
+    targets: list[Any], alternatives: list[dict[str, Any]], state: "GameState", source: Any,
+) -> bool:
+    """Whether any of a spell's chosen ``targets`` is one a cost static's
+    ``if_targets`` names (RULE 601.2f, after 601.2c's targets are chosen).
+
+    ``alternatives`` is an OR-list; each member is one of ``{"source": True}``
+    (the static's own permanent — "that target ~"), ``{"player":
+    "controller"}`` (its controller as a player — "that target you"), or a
+    `_obj_matches_target_criteria` dict whose ``controller`` may be
+    ``"source_controller"`` ("a creature you control", read from the
+    permanent's controller, not the caster's)."""
+    controller_id = getattr(source, "controller_id", None)
+    source_id = getattr(source, "instance_id", None)
+    for target in targets:
+        is_object = hasattr(target, "instance_id")
+        for alt in alternatives:
+            if alt.get("player") == "controller":
+                if not is_object and controller_id is not None and (
+                    getattr(target, "id", target) == controller_id
+                ):
+                    return True
+            elif not is_object:
+                continue  # every other alternative names a permanent
+            elif alt.get("source"):
+                if source_id is not None and target.instance_id == source_id:
+                    return True
+            elif _obj_matches_target_criteria(
+                target, alt, state, source_controller_id=controller_id,
+            ):
+                return True
+    return False
+
+
+def cast_life_tax_for(
+    state: "GameState", player: "Player", obj: Optional["GameObject"],
+    targets: Optional[list[Any]],
+) -> int:
+    """Life ``player`` must pay in addition to casting ``obj`` (RULE 601.2f).
+
+    "Spells your opponents cast that target ~ cost an additional 3 life to
+    cast." (Terror of the Peaks) — a ``cost``-layer static with a ``life``
+    param, gated exactly like `cost_reduction_for`'s mana taxes (the
+    ``affects`` scope and the chosen-target filters). Needs the chosen
+    ``targets``: with none (an offer-time probe) it is 0, as the mana taxes are.
+    """
+    if not targets:
+        return 0
+    total = 0
+    for ability in _battlefield_static_abilities(state):
+        life = ability.params.get("life")
+        if ability.layer != "cost" or not life:
+            continue
+        controller_id = getattr(ability.source, "controller_id", None)
+        if ability.affects == "your_spells" and controller_id != player.id:
+            continue
+        if ability.affects == "opponents_spells" and controller_id == player.id:
+            continue
+        active_if = ability.params.get("active_if")
+        if active_if and not static_conditions.condition_holds(active_if, state, ability.source, controller_id):
+            continue
+        hit = ability.params.get("targets_source") and _spell_targets_hit(
+            targets, [{"source": True}], state, ability.source
+        )
+        hit = hit or (
+            ability.params.get("if_targets")
+            and _spell_targets_hit(targets, ability.params["if_targets"], state, ability.source)
+        )
+        if not hit:
+            continue
+        total += int(life)
+    return total
 
 
 def self_cost_reduction_for(

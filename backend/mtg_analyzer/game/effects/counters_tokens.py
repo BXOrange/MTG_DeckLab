@@ -2768,7 +2768,29 @@ class ManifestDreadEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is not None:
-            context._request_manifest_dread(player)
+            # "…manifest dread, then attach ~ to that creature": a library of one card manifests at once.
+            context.created_objects.extend(context._request_manifest_dread(player))
+
+
+class ExploitEffect(GameEffect):
+    """RULE 702.110a Exploit: "When this creature enters, you may sacrifice a creature." The creature may be
+    the exploiter itself; sacrificing one is what makes it "exploit a creature" (RULE 702.110b — the
+    ``exploit`` choose-action fires `EventType.EXPLOITS`, which "when ~ exploits a creature" triggers read)."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        candidates = [
+            obj for obj in context.state.battlefield
+            if getattr(obj, "controller_id", None) == player.id and getattr(obj, "is_creature", False)
+        ]
+        if not candidates:
+            return
+        context.engine._request_choose_objects(
+            player, candidates, "exploit", count=1, optional=True, source=self.source,
+            prompt="Exploit: you may sacrifice a creature.",
+        )
 
 
 class TurnFaceUpChosenEffect(GameEffect):

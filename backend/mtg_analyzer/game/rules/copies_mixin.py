@@ -748,7 +748,7 @@ class CopiesMixin:
             self._put_searched_card(player, obj, "battlefield")
             made.append(obj)
         return made
-    def _request_manifest_dread(self, player: Player) -> None:
+    def _request_manifest_dread(self, player: Player) -> list[GameObject]:
         """"Manifest dread": look at the top two cards of ``player``'s
         library, manifest one face down and put the other into the graveyard.
 
@@ -758,16 +758,21 @@ class CopiesMixin:
         which is the entire second half of this keyword action. Degenerate
         libraries resolve without asking: one card left is manifested with no
         choice to make, an empty one does nothing (RULE 701.40f).
+
+        Returns what it manifested *now* (the one-card library); an answered choice hands the permanent to a
+        suspended "then attach ~ to that creature" itself (`_resume_manifest_dread`).
         """
         looked = player.library[-2:]
         if not looked:
-            return
+            return []
         if len(looked) == 1:
-            self.manifest(player, 1)
-            return
+            return self.manifest(player, 1)
         self.open_choice({
             "kind": "manifest_dread",
             "player_id": player.id,
+            # RULE 608.2: where the rest of the resolving effect list parks if this choice suspends it
+            # (`_apply_effects_partitioned` inserts it at the depth it saw before the effect ran).
+            "deferred_depth": len(self.state.deferred_effects),
             "prompt": "Manifest dread: welche Karte wird verdeckt gespielt?",
             "options": [
                 {"id": str(obj.instance_id), "label": obj.name, "instance_id": obj.instance_id}
@@ -794,6 +799,13 @@ class CopiesMixin:
             if other is not None and other in player.library:
                 player.remove_from_zone(other, Zone.LIBRARY)
                 player.add_to_zone(other, Zone.GRAVEYARD)
+        # "…manifest dread, then attach ~ to that creature": the clause after the pause reads the manifested
+        # permanent as `created_objects`, which the suspended remainder carried before it existed.
+        depth = choice.get("deferred_depth")
+        if chosen is not None and depth is not None and len(self.state.deferred_effects) > depth:
+            frame = self.state.deferred_effects[depth]
+            if frame.get("kind") != self.DEFERRED_ITERATION:
+                frame["created_objects"] = list(frame.get("created_objects") or []) + [chosen]
         self.check_state_based_actions()
     def exile_return_transformed(self, obj: GameObject) -> bool:
         """"Exile ~, then return it to the battlefield transformed under its

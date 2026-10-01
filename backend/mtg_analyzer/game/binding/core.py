@@ -59,6 +59,7 @@ from ..effects.core import (
     ConditionalEffect,
     EffectRegistry,
     EmbalmEternalizeEffect,
+    ExploitEffect,
     GameEffect,
     GetCityBlessingEffect,
     GiftGiveEffect,
@@ -3914,6 +3915,21 @@ def _kw_backup(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
     ]
 
 
+def _kw_exploit(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    """RULE 702.110a Exploit — "When this creature enters, you may sacrifice a creature." A flag keyword, so
+    ``n`` is unused. The sacrifice (the exploiter itself included) is what fires `EventType.EXPLOITS`, which
+    "when ~ exploits a creature" abilities read."""
+    return [
+        TriggeredAbility(
+            trigger_event=EventType.ENTERS_BATTLEFIELD,
+            effects=[ExploitEffect(source=obj)],
+            condition=_self_only_condition(getattr(obj, "instance_id", None)),
+            source=obj,
+            description=_ability_description(obj, spec) or "Exploit",
+        )
+    ]
+
+
 def _kw_firebending(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
     """RULE 702.189 (approx) Firebending N (Doctor Who / Avatar: The Last
     Airbender) — "Whenever this creature attacks, add {R}×N. This mana lasts
@@ -3981,6 +3997,7 @@ _KEYWORD_TRIGGERED_BUILDERS: dict[str, Callable[[Any, AbilitySpec, Any], list[Tr
     "battle_cry": _kw_battle_cry,
     "mentor": _kw_mentor,
     "backup": _kw_backup,
+    "exploit": _kw_exploit,
     "firebending": _kw_firebending,
 }
 

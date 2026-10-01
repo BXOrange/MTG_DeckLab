@@ -510,6 +510,12 @@ ALIAS_DISPLAYS: tuple[str, ...] = tuple(
 )
 
 
+#: FLAG keywords that are a *triggered ability* the engine binds only for a printed keyword
+#: (`binding.core._KEYWORD_TRIGGERED_BUILDERS`): a grant would add the slug and no trigger, so a grant of
+#: one stays unclaimed ("have exploit" — RULE 702.110a's ETB sacrifice would never happen).
+UNGRANTABLE_FLAG_KEYWORDS: frozenset[str] = frozenset({"exploit"})
+
+
 def keyword_slug(name: str) -> str:
     """A Scryfall/display keyword name → its canonical catalogue slug.
 

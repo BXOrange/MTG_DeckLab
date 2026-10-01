@@ -462,6 +462,28 @@ def _parse_block_relation_head(cond: str) -> Optional[ObjectHead]:
     return ObjectHead(events, condition, related)
 
 
+#: "<subject> exploits a creature" (RULE 702.110b) — the exploit relation: the subject is the exploiting
+#: creature, the other side the sacrificed creature (the `EXPLOITS` event's ``related_ids``).
+_EXPLOIT_HEAD = re.compile(r"^(?P<subject>.+?)\s+exploits\s+(?P<other>(?:a|an) .+)$")
+
+
+def _parse_exploit_head(cond: str) -> Optional[ObjectHead]:
+    m = _EXPLOIT_HEAD.match(cond)
+    if m is None:
+        return None
+    subject = m.group("subject").strip()
+    condition = {"subject": "self"} if subject == "~" else _subject(subject)
+    if condition is None or condition["subject"] == "self_or_group":
+        return None
+    other = _SUBJECT_ARTICLE.match(m.group("other"))
+    parsed = parse_object_phrase(other.group("phrase")) if other else None
+    if parsed is None or parsed[1] is not None:  # whose creature it was is not modelled
+        return None
+    # Any creature is every creature a player can sacrifice to exploit, so it adds nothing to the head.
+    related = {} if parsed[0] == {"card_type": "creature"} else {"related_filter": parsed[0]}
+    return ObjectHead("EXPLOITS", condition, related)
+
+
 def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
     """``cond`` — the trigger condition with its "when"/"whenever" stripped."""
     cond = cond.strip().lower()
@@ -472,7 +494,7 @@ def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
         _parse_actor_head(cond) or _parse_damage_head(cond) or _parse_damage_recipient_head(cond)
         or _parse_becomes_target_head(cond) or _parse_group_attack_head(cond)
         or _parse_attack_batch_head(cond)
-        or _parse_block_relation_head(cond) or _parse_batch_quantity_head(cond)
+        or _parse_block_relation_head(cond) or _parse_exploit_head(cond) or _parse_batch_quantity_head(cond)
         or _parse_combat_damage_batch_head(cond) or _parse_graveyard_arrival_head(cond)
         or _parse_counters_put_head(cond)
     )

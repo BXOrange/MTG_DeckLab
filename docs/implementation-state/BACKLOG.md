@@ -26,6 +26,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 | `VIS` | Visuals — frontend UI/UX |
 | `DB` | Database — card cache, saved decks, persistence, data freshness |
 | `ANA` | Deck analysis — UC2 (LLM + presentation) |
+| `BUG` | Bugs — a shipped behaviour that is wrong (a wrong-but-`MODELED` claim, a silently dropped clause); not missing coverage |
 
 ---
 
@@ -62,8 +63,6 @@ No open tickets.
   duration clusters exposed by PAR-130; calibrated clusters live in `PARSER_LONG_TAIL.md`.
 - **PAR-133 · Powerstone tokens.** "create a [tapped] Powerstone token" — a `data/tokens.json` entry
   with its RULE 605.3a-restricted mana ability, then `_NAMED_TOKEN_WORDS` (25 solo cards).
-- **PAR-99 · Targeted-spell tax.** "Spells your opponents cast that target you or a permanent you control
-  cost `<cost>` more to cast" — Monastery Siege's Dragons mode, Esior, Kasmina, Terror of the Peaks (3 life).
 - **PAR-100 · "At the beginning of each player's draw step, that player draws an additional card".**
   "That player" binds to the player whose step it is; 10 SOLO + Mornsong Aria (Academy Loremaster,
   Anvil of Bogardan, Dictate of Kruphix, Font of Mythos, Howling Mine, Kami of the Crescent Moon,
@@ -157,14 +156,6 @@ No open tickets.
   - "Each opponent sacrifices the creature/planeswalker with greatest mana value" — 2 (Flare of Malice,
     Soul Shatter).
   - "Target player mills half their library, rounded down" — 2 (Cut Your Losses, Traumatize).
-- **PAR-111 · Small residue batch — ETB/dies/leaves triggers.**
-  - Enduring Friendship — double team + a cast anthem for creatures that are otters and/or enchantments.
-  - "ETB manifest dread, then attach ~ to that creature" — 4 (Conductive Machete, Cursed Windbreaker,
-    Dissection Tools, Killer's Mask).
-  - "Whenever an opponent's creature enters, you may have that player lose `<n>` life" — 2 (Blood Seeker,
-    Suture Priest).
-  - "When ~ exploits a creature, scry `<n>`, then draw" — 2 (Stitched Assistant + rebalance).
-  - "ETB attach it to target legendary creature you control" — Mithril Coat (SOLO), Mjölnir.
 - **PAR-113 · Small residue batch — combat triggers.**
   - "Whenever ~ deals combat damage to a player, you get that many `<cost>`" — Empyreal Voyager, Peema
     Trailblazer (SOLO); Aurora Shifter.
@@ -244,3 +235,18 @@ _No open tickets._
   sub-tabs, not replacing them. Blocked on [ANA-1].
 - **ANA-3 · Cache indicator** ("Analysis from X ago") for that LLM result.
   Blocked on [ANA-1].
+
+## BUG — Bugs
+
+- **BUG-1 · An "Equip …" line is claimed as a keyword line and its text silently dropped.** The
+  segmenter reads any line starting with "Equip" as a keyword line (`keyword_line=True`), so "Equip
+  abilities you activate [that target X] cost {N} less to activate." and "Equip {N}. This ability costs
+  … less to activate …" emit no spec: Bureau Headmaster, Bladehold War-Whip, Cloud Planet's Champion,
+  Dwarven Mauler, Helitrooper, Plate Armor / A-Plate Armor and Warrior's Blades are `MODELED` without
+  their equip-cost discount. Fix: fail the line closed unless it is a bare equip cost, then give the
+  discount its own row (activation costs have no `targets` yet — see Kopala/Strong Back).
+- **BUG-2 · "target player draws N cards and loses N life" in a triggered ability costs its controller the life.**
+  The `lose_life` clause carries no player (`previous_subject` unset) and a trigger passes its targets only to the
+  effect that declared one, so it falls back to the controller; as a spell the shared target list hides it. Wrong
+  but `MODELED`: Fell Stinger, Vault Plunderer, Bloodgift Demon, Unscrupulous Contractor (and any other
+  subjectless "and loses/gains …" after a targeted-player clause in a trigger).

@@ -3802,7 +3802,18 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: kindless "has four or more counters on it" counts every kind (both used to read "or more" as a counter's name,
 #: a condition that never held). PAR-121 consolidated (0 of 39,639 clause readings changed): one verb × subject
 #: table, one certain-antecedent connective, one targeted-damage shape, one strict-subset row deleted.
-PARSER_VERSION = "571"
+#: 572 (PAR-99): "spells `<you|your opponents>` cast that target `<X>` cost {N} more/less (or an additional N life)
+#: to cast" — one row over the targeted-spell tax: ``~`` is ``targets_source``, anything else the ``if_targets``
+#: OR-list (``you``, a card type, ``commander``, all scoped by "you control" to the static's controller), the life
+#: form is ``cost_reduction.life`` (`continuous.cast_life_tax_for`); `cost_reduction` joined the named-choice
+#: static whitelist (Monastery Siege's Dragons).
+#: 573 (PAR-111): Exploit as a real mechanic — the keyword's ETB "you may sacrifice a creature" (`ExploitEffect`, the
+#: ``exploit`` choose-action) and `EventType.EXPLOITS`, read by the "~ / a creature you control exploits a `<kind>`
+#: creature" trigger head (`object_trigger_head._parse_exploit_head`); a *grant* of exploit stays unclaimed
+#: (`keywords.UNGRANTABLE_FLAG_KEYWORDS`). "you may have that player lose N life" under a group trigger; "attach it
+#: to target legendary creature you control" (the destination's `creature_filter`); "manifest dread, then attach ~ to
+#: that creature" (`created_objects` handed across the look-at-two pause).
+PARSER_VERSION = "573"
 
 
 def parser_source_hash() -> str:
@@ -4190,7 +4201,7 @@ def _parse_cache_key(card: Any) -> tuple[Any, ...]:
 #: apply unconditionally, so the gate fails closed on it instead.
 _NAMED_MODE_STATIC_EFFECTS = frozenset({
     "anthem", "grant_keyword", "trigger_doubler", "graveyard_cast_permission",
-    "self_graveyard_or_exile_cast_permission", "top_library_permission",
+    "self_graveyard_or_exile_cast_permission", "top_library_permission", "cost_reduction",
 })
 
 

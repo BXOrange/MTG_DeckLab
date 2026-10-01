@@ -3212,6 +3212,8 @@ class MiscSystemsMixin:
             "return_from_graveyard_tapped", "return_from_graveyard_to_hand", "soulbond_pair", "library_top", "discard",
             "library_to_hand", "sacrifice_for_descendants_fury",
             "turn_face_up",  # Zimone — RULE 708.8 by an effect
+            # RULE 702.110a/b: an exploit ability's optional sacrifice — a sacrifice that also fires `EXPLOITS`.
+            "exploit",
             # Quandrix Command mode 4 ("target player shuffles up to three
             # target cards from their graveyard into their library") — the
             # pick moves from its owner's graveyard to its owner's library,
@@ -3758,6 +3760,25 @@ class MiscSystemsMixin:
         elif action == "sacrifice":
             # RULE 701.17a: non-destructive, so no regeneration shield saves it.
             self.put_into_graveyard(obj)
+        elif action == "exploit":
+            # RULE 702.110b: the creature exploits a creature when its controller sacrifices one as the exploit
+            # ability resolves. ``source`` is the exploiting creature; if the sacrifice did not happen (a
+            # replacement effect), nothing was exploited.
+            # A creature that sacrifices *itself* still exploits (it triggers off the battlefield, as a
+            # leaves-the-battlefield ability would), so the event fires before the sacrifice in that case.
+            exploited = GameEvent(
+                EventType.EXPLOITS,
+                instance_id=getattr(source, "instance_id", None),
+                controller_id=player.id,
+                related_ids=[obj.instance_id],
+            )
+            if source is obj:
+                self.state.fire_event(exploited)
+                self.put_into_graveyard(obj)
+            else:
+                self.put_into_graveyard(obj)
+                if source is not None and obj not in self.state.battlefield:
+                    self.state.fire_event(exploited)
         elif action == "suspect":
             self.suspect(obj)
         elif action == "destroy":

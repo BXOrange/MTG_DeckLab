@@ -31,7 +31,7 @@ from ..spec import GROUP_SUBJECT_KEY_SENTINEL, EffectSpec, ParserProvenance
 from .dig import parse_dig
 from .counters import KEYWORD_COUNTER_KINDS, counter_choice_list, parse_counter_choice_items
 from .referent_condition import PRONOUN_NOUN_ALT
-from .keywords import KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
+from .keywords import KEYWORDS, UNGRANTABLE_FLAG_KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
 from .subgrammars import (
     THAT_PLAYER_TAIL,
     target_kind_allowed,
@@ -6359,7 +6359,13 @@ def _attach(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if not target_kind_allowed(kind, ("permanent", "creature", "creature_you_control")):
         return None
-    return [EffectSpec("attach", {"target_kind": kind})]
+    params: dict = {"target_kind": kind}
+    # "attach it to target legendary creature you control" (Mithril Coat, Mjölnir): the destination's qualifier
+    # rides as the same `creature_filter` the Equip-restricted-to-commanders form uses.
+    filt = resolve_target_creature_state_filter(m.group("target"))
+    if filt:
+        params["creature_filter"] = filt
+    return [EffectSpec("attach", params)]
 
 
 #: PAR-135: "attach target Equipment [you control] to target creature [you control]" (Magnetic Theft,
@@ -7551,6 +7557,18 @@ def _may_have_it_deal_damage_equal_to_power(m: re.Match[str]) -> Optional[list[E
     })]
 
 
+#: PAR-111: "whenever a creature an opponent controls enters, you may **have that player lose N life**."
+#: (Blood Seeker, Suture Priest) — the controller of the firing object loses the life, while the ability's own
+#: controller is the one asked: `segmenter._peel_optional` has already taken the "you may" off the body (the
+#: trigger is optional), so this is the group-subject `lose_life` row with the entering creature's controller
+#: (`_ENTERING_CONTROLLER`) as the player.
+_HAVE_THAT_PLAYER_LOSE_LIFE_RE = _c(rf"have that player lose {NUMBER} life")
+
+
+def _have_that_player_lose_life(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("lose_life", {"amount": int(m.group("n")), "player": _ENTERING_CONTROLLER})]
+
+
 def _may_effect_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
 
@@ -8171,6 +8189,8 @@ def _grantable_flag_slug(part: str) -> Optional[str]:
     turn" pump) stay in lockstep."""
     slug = keyword_slug(part)
     kdef = KEYWORDS.get(slug)
+    if kdef is not None and kdef.slug in UNGRANTABLE_FLAG_KEYWORDS:
+        return None
     if kdef is not None and (kdef.shape is KeywordShape.FLAG or kdef.slug == "hexproof"):
         return kdef.slug
     resolved = resolve_keyword(slug)
@@ -11339,6 +11359,17 @@ def _manifest(m: re.Match[str]) -> list[EffectSpec]:
 
 def _manifest_dread(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("manifest_dread", {})]
+
+
+#: PAR-111: "manifest dread, then attach ~ to that creature." (the Duskmourn Equipment cycle — Conductive Machete,
+#: Cursed Windbreaker, Dissection Tools, Killer's Mask) — the manifested permanent is "that creature", handed to
+#: `AttachEffect`'s ``created`` mode through `GameContext.created_objects` (`ManifestDreadEffect`, and the
+#: suspended remainder when the look-at-two choice pauses the resolution).
+_MANIFEST_DREAD_THEN_ATTACH_RE = _c(r"manifest dread, then attach (?:~|it|this [a-z]+) to that creature")
+
+
+def _manifest_dread_then_attach(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("manifest_dread", {}), EffectSpec("attach", {"target_kind": "created"})]
 
 
 #: RULE 601.2f for the rest of the turn: "spells you cast this turn that are
@@ -17336,6 +17367,12 @@ HANDLERS: list[EffectHandler] = [
         _may_have_it_deal_damage_equal_to_power,
         group_subject_only=True,
     ),
+    EffectHandler(
+        "have_that_player_lose_life",
+        _HAVE_THAT_PLAYER_LOSE_LIFE_RE,
+        _have_that_player_lose_life,
+        group_subject_only=True,
+    ),
     # PAR-79 sixth increment: "You may <effect>. If you do, <effect2>." with
     # a resolving-effect antecedent rather than a cost — tried after both
     # cost-shaped rows above so a genuine cost antecedent keeps the more
@@ -19155,6 +19192,7 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"detain {TARGET}"),
         _detain,
     ),
+    EffectHandler("manifest_dread_then_attach", _MANIFEST_DREAD_THEN_ATTACH_RE, _manifest_dread_then_attach),
     # "manifest dread" (RULE 701.40a) — tried before the plain manifest row
     # below, which would otherwise not match it at all but reads more
     # naturally kept in this order alongside its sibling.

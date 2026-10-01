@@ -587,12 +587,12 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 56.1% (19,677 / 35,095) as of 2026-10-01, measured at
-PARSER_VERSION 571** (parser-`MODELED` or hand-`AUTHORED`, measured against
+**Coverage: 56.1% (19,709 / 35,095) as of 2026-10-01, measured at
+PARSER_VERSION 573** (parser-`MODELED` or hand-`AUTHORED`, measured against
 the full ~35k-card Oracle universe from `scripts/import_bulk.py`). Re-measure
 with `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset that
-matters for Goldfisch/Deck-Analyzer — is **58.9% (18,917 / 32,116)**; measure
+matters for Goldfisch/Deck-Analyzer — is **59.0% (18,947 / 32,116)**; measure
 it with `scripts/coverage_report.py --commander-legal-only` (records a
 separate `…-commander` snapshot row) and segment the still-UNMODELED
 remainder by *cause* (wrapper re-measure / recurring template → `PAR-*` /
@@ -628,7 +628,7 @@ memory** — all under
 
 | Kind | File | Rule |
 | --- | --- | --- |
-| Open points | `BACKLOG.md` | The *single* backlog, backend **and** frontend, as categorized tickets (`ENG` game engine, `PAR` parser, `MEC` game mechanics, `PLR` player management, `VIS` visuals, `DB` database, `ANA` deck analysis — the former `TYP` card-types category is retired, RULE 300–315 being complete). Open scope only — no history, and no *residue*: a partly done ticket stays here only as its terse open point (id, title, one-clause scope). **Up-for-scheduling work only**; parked/low-priority tickets and permanent non-goals move to `DEFERRED.md` so this file stays cheap to read in full. |
+| Open points | `BACKLOG.md` | The *single* backlog, backend **and** frontend, as categorized tickets (`ENG` game engine, `PAR` parser, `MEC` game mechanics, `PLR` player management, `VIS` visuals, `DB` database, `ANA` deck analysis, `BUG` bugs in shipped behaviour — the former `TYP` card-types category is retired, RULE 300–315 being complete). Open scope only — no history, and no *residue*: a partly done ticket stays here only as its terse open point (id, title, one-clause scope). **Up-for-scheduling work only**; parked/low-priority tickets and permanent non-goals move to `DEFERRED.md` so this file stays cheap to read in full. |
 | Parked / non-goals | `DEFERRED.md` | Low-priority or large-and-unscheduled tickets pulled out of `BACKLOG.md` (they keep their id + full write-up), plus the "never to be built" guardrails (Stickers, Attractions, Vanguard avatars). Same open-scope-only discipline. Promote by moving a block back into `BACKLOG.md`. |
 | Worklogs | `Done_Backend.md`, `Done_Frontend.md` | Catalogues, organized by game-mechanic/app-area (not chronologically) — what shipped and *why it was built that way*, one entry per feature/primitive under a subsystem heading. Entry headings are the stable, searchable unit now (not the whole file being append-only); closing a ticket means filing its narrative under the matching subsystem entry, merging into it if one already covers the same primitive, rather than appending at the end. |
 | Examples | `PARSER_LONG_TAIL.md` | Standing strategy + recurring lessons + enumerated worked samples for the indefinite parser tail. Neither backlog nor worklog. |

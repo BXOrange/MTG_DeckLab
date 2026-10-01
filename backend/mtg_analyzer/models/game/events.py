@@ -238,6 +238,12 @@ class EventType:
     #: triggers off it; deliberately distinct from ENTERS_BATTLEFIELD, which
     #: mutate specifically does *not* fire.
     MUTATES = "MUTATES"
+    #: RULE 702.110b: a creature with exploit "exploits a creature" when its controller sacrifices a creature as
+    #: the exploit ability resolves (the exploiter itself included). ``instance_id`` is the *exploiting* creature,
+    #: ``controller_id`` its controller, ``related_ids`` the sacrificed creature (now in the graveyard) — "when ~
+    #: exploits a creature" reads the first, "a non-Human creature" the second. Fired by `RulesEngine`'s
+    #: ``exploit`` choose-action.
+    EXPLOITS = "EXPLOITS"
     #: A player scried (RULE 701.18): looked at the top N of their library and
     #: reordered / bottomed them.
     SCRY = "SCRY"

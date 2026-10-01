@@ -2680,6 +2680,8 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register("manifest_dread", lambda p: ManifestDreadEffect())
+# RULE 702.110a: the exploit keyword's own ETB "you may sacrifice a creature".
+EffectRegistry.register("exploit", lambda p: ExploitEffect())
 EffectRegistry.register(
     # RULE 708.8 by an effect: "you may turn a permanent you control face up".
     "turn_face_up_chosen",
@@ -4069,6 +4071,15 @@ EffectRegistry.register(
             # caster's already-chosen targets (RULE 601.2c precedes 601.2f)
             # against this static's own source.
             **({"targets_source": True} if p.get("targets_source") else {}),
+            # "Spells your opponents cast that target you or a permanent you
+            # control cost {N} more to cast." (Monastery Siege / Esior /
+            # Kasmina) — the general sibling of ``targets_source``: an OR-list
+            # of what a chosen target may be (`continuous._spell_targets_hit`).
+            **({"if_targets": p["if_targets"]} if p.get("if_targets") else {}),
+            # "…cost an additional {N} life to cast." (Terror of the Peaks) —
+            # life, not generic mana; read by `continuous.cast_life_tax_for`
+            # and paid by `GameEngine._pay_cast_life_tax`.
+            **({"life": int(p["life"])} if p.get("life") else {}),
             # "Each spell that would cost less than N mana to cast costs N
             # mana to cast instead." (Trinisphere) — a floor rather than a
             # delta, read separately by `continuous.cost_floor_for` (not

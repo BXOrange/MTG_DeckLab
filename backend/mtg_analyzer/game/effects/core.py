@@ -410,9 +410,9 @@ class GameContext:
         # RULE 701.40a manifest / RULE 701.58a cloak.
         return self.engine.manifest(player, count, kind=kind) or []
 
-    def _request_manifest_dread(self, player: "Player") -> None:
+    def _request_manifest_dread(self, player: "Player") -> list[Any]:
         # RULE 701.40a's look-at-two variant.
-        self.engine._request_manifest_dread(player)
+        return self.engine._request_manifest_dread(player) or []
 
     def take_extra_turn(self, player: "Player") -> None:
         # RULE 500.7: queue an extra turn for ``player``, taken after the
