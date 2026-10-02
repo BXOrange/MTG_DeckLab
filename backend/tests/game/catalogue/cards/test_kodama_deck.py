@@ -140,3 +140,31 @@ def test_sapling_nursery_keeps_affinity_for_forests_after_being_registered():
     battlefield_object(engine, "p1", "Forest B", "Basic Land — Forest", is_land=True)
     battlefield_object(engine, "p1", "Island", "Basic Land — Island", is_land=True)
     assert continuous.self_cost_reduction_for(spell, engine.state, "p1")[0] == 2  # one per Forest, not per land
+
+
+def _animus(my_type_line):
+    engine, p1, p2 = _game("Ancient Animus")
+    mine = battlefield_object(
+        engine, "p1", "My Creature", my_type_line, is_creature=True, power=2, toughness=3,
+        is_legendary="Legendary" in my_type_line,
+    )
+    victim = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=5)
+    p1.mana_pool.add_many({"G": 1, "C": p1.hand[0].card.converted_mana_cost - 1})
+    engine.cast_spell(p1, p1.hand[0], targets=[mine, victim])
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    return mine, victim
+
+
+def test_ancient_animus_adds_a_counter_only_to_a_legendary_creature_then_fights():
+    mine, victim = _animus("Legendary Creature — Elf")
+    assert mine.counters.get("+1/+1", 0) == 1
+    assert victim.damage_marked == 3  # fought as a 3/4: counter first, then damage = new power
+    assert mine.damage_marked == 2
+
+
+def test_ancient_animus_skips_the_counter_for_a_nonlegendary_creature_but_still_fights():
+    mine, victim = _animus("Creature — Elf")
+    assert mine.counters.get("+1/+1", 0) == 0
+    assert victim.damage_marked == 2  # the fight still happens at the creature's own power
+    assert mine.damage_marked == 2

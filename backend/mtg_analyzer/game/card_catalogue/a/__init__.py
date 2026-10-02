@@ -25,6 +25,7 @@ from . import altar_of_dementia  # noqa: F401
 from . import altered_ego  # noqa: F401
 from . import aluren  # noqa: F401
 from . import an_offer_you_can_t_refuse  # noqa: F401
+from . import ancient_animus  # noqa: F401
 from . import and_ril_flame_of_the_west  # noqa: F401
 from . import angel_s_grace  # noqa: F401
 from . import angelic_destiny  # noqa: F401
