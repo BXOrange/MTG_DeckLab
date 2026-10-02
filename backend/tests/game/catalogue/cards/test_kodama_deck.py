@@ -219,3 +219,26 @@ def test_amulet_of_vigor_untaps_only_permanents_that_enter_tapped():
     engine.rules.put_triggers_on_stack()
     assert not engine.state.stack and engine.state.pending_choice is None  # entered untapped: no trigger
     assert not forest.tapped
+
+
+def test_chocobo_racetrack_makes_a_bird_per_land_and_each_bird_grows_on_landfall():
+    engine, p1, p2 = _game("Forest", "Forest", "Forest")
+    racetrack = battlefield_object(engine, "p1", "Chocobo Racetrack", "Enchantment")
+    bind_from_catalogue(racetrack)
+
+    def birds():
+        return [o for o in engine.state.permanents_controlled_by("p1") if "Bird" in (o.card.type_line or "")]
+
+    def play_land():
+        engine.play_land(p1, next(o for o in p1.hand if o.is_land))
+        p1.lands_played_this_turn = 0
+        for _ in range(5):  # let every landfall trigger (the Racetrack's and any Bird's) resolve
+            engine.rules.put_triggers_on_stack()
+            engine.resolve_until_stable()
+
+    play_land()
+    assert len(birds()) == 1 and (birds()[0].power, birds()[0].toughness) == (2, 2)
+
+    play_land()  # second land: another Bird, and the first Bird gets +1/+0
+    assert len(birds()) == 2
+    assert sorted(b.power for b in birds()) == [2, 3]  # old Bird 3/2, fresh Bird 2/2
