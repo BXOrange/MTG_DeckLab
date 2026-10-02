@@ -503,3 +503,27 @@ def test_resourceful_defense_ability_moves_every_counter_between_two_permanents(
     engine.resolve_until_stable()
     assert keeper.counters == {"+1/+1": 3, "charge": 1}
     assert not any(bear.counters.values())
+
+
+def test_ripples_of_potential_proliferates_then_phases_out_the_chosen_permanents():
+    engine, p1 = _game("Ripples of Potential")
+    mine = battlefield_object(engine, "p1", "Charged Rock", "Artifact")
+    kept = battlefield_object(engine, "p1", "Kept Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    theirs = battlefield_object(engine, "p2", "Their Rock", "Artifact")
+    plain = battlefield_object(engine, "p1", "Plain Rock", "Artifact")
+    mine.counters["charge"] = 1
+    kept.counters["+1/+1"] = 1
+    theirs.counters["charge"] = 1
+    p1.mana_pool.add_many({"U": 1, "C": 1})
+    engine.cast_spell(p1, p1.hand[0])
+    engine.resolve_until_stable()
+    assert (mine.counters["charge"], kept.counters["+1/+1"], theirs.counters["charge"]) == (2, 2, 2)  # proliferate
+
+    choice = engine.state.pending_choice
+    assert choice["kind"] == "choose_objects"
+    offered = {o["label"] for o in choice["options"] if "instance_id" in o}  # the rest is the decline option
+    assert offered == {"Charged Rock", "Kept Bear"}  # mine, with a counter put on
+    engine.resolve_pending_choice(str(mine.instance_id))
+    engine.resolve_pending_choice(None)  # "any number": stop after one
+    engine.resolve_until_stable()
+    assert mine.phased_out and not kept.phased_out and not theirs.phased_out and not plain.phased_out

@@ -43,6 +43,7 @@ from . import righteous_aura  # noqa: F401
 from . import rings_of_brighthearth  # noqa: F401
 from . import rionya_fire_dancer  # noqa: F401
 from . import riot_control  # noqa: F401
+from . import ripples_of_potential  # noqa: F401
 from . import rise_from_the_grave  # noqa: F401
 from . import risen_reef  # noqa: F401
 from . import rishkar_peema_renegade  # noqa: F401

@@ -3123,6 +3123,12 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # "…choose any number of permanents you control that had a counter put on them this way. Those
+    # permanents phase out." (Ripples of Potential) — see `PhaseOutProliferatedEffect`.
+    "phase_out_proliferated",
+    lambda p: PhaseOutProliferatedEffect(),
+)
+EffectRegistry.register(
     # "…move any number of +1/+1 counters from this creature onto other
     # creatures." (Forgotten Ancient, PAR-60 — simplified to all-onto-one)
     "move_all_plus_one_counters_from_self",

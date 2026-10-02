@@ -1591,11 +1591,15 @@ class ProliferateEffect(GameEffect):
         # RULE 616: Tekuthal's "proliferate twice instead" replaces the whole action.
         controller_id = getattr(_controller_of(self.source, context), "id", None)
         times = self.times * continuous.proliferate_multiplier(context.state, controller_id)
+        # "…permanents you control that had a counter put on them this way" (Ripples of Potential).
+        context.proliferated_objects = []
         for _ in range(times):
             for obj in list(context.state.battlefield):
                 for kind in list(obj.counters.keys()):
                     if obj.counters.get(kind, 0) > 0:
                         context.add_counters(obj, 1, kind, source=self.source)
+                        if obj not in context.proliferated_objects:
+                            context.proliferated_objects.append(obj)
             for player in list(context.state.players):
                 if player.poison > 0:
                     context.add_player_counters(player, 1, "poison", source=self.source)
@@ -1872,6 +1876,28 @@ class AddCountersFromSagaLoreRemovedDeltaEffect(GameEffect):
         n = self.before - _your_saga_lore_total(context.state, self.player_id)
         if n > 0:
             context.add_counters(obj, n, "+1/+1")
+
+
+class PhaseOutProliferatedEffect(GameEffect):
+    """"…then choose any number of permanents you control that had a counter put on them this way. Those
+    permanents phase out." (Ripples of Potential) — the second half of a proliferate: reads the permanents
+    the *same resolution's* `ProliferateEffect` gave a counter (`GameContext.proliferated_objects`), keeps
+    the controller's own, and opens an optional pick-any-number (`choose_objects`, action ``phase_out``,
+    RULE 702.26) — a real chooser, not a target, so a permanent the player would rather keep stays."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        controller = _controller_of(self.source, context)
+        if controller is None:
+            return
+        candidates = [
+            o for o in getattr(context, "proliferated_objects", [])
+            if o in context.state.battlefield and o.controller_id == controller.id
+        ]
+        if candidates:
+            context.engine._request_choose_objects(
+                controller, candidates, "phase_out", count=len(candidates), optional=True,
+                prompt="Permanents wählen, die phasen", source=self.source,
+            )
 
 
 class MoveCountersEffect(GameEffect):

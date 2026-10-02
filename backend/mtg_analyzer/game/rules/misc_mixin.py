@@ -3235,6 +3235,8 @@ class MiscSystemsMixin:
     CHOOSE_OBJECT_ACTIONS = frozenset(
         {
             "tap", "untap", "sacrifice", "suspect", "return_to_hand", "return_from_graveyard",
+            # RULE 702.26: "those permanents phase out" (Ripples of Potential).
+            "phase_out",
             # PAR-143: an untargeted graveyard pick ("return a land card from your graveyard to the
             # battlefield tapped / to your hand").
             "return_from_graveyard_tapped", "return_from_graveyard_to_hand", "soulbond_pair", "library_top", "discard",
@@ -3798,6 +3800,11 @@ class MiscSystemsMixin:
         """Do the one thing a `choose_objects` action names to one pick."""
         if action == "tap":
             self.set_tapped(obj, True)
+        elif action == "phase_out":
+            obj.phased_out = True
+            for other in self.state.battlefield:
+                if other.attached_to == obj.instance_id:  # same detaching as `PhaseOutEffect`
+                    other.attached_to = None
         elif action == "untap":
             # "Untap up to three lands." (Frantic Search, Snap-shaped) — untargeted, so a pick, not a target.
             self.set_tapped(obj, False)

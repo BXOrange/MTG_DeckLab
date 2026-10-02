@@ -607,6 +607,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "mill_until_creature": "mill",
     "move_all_plus_one_counters_from_self": "move_counter",
     "phase_out_all_you_control": "phase_out",
+    "phase_out_proliferated": "phase_out",
     "prevent_all_combat_damage": "prevent_damage",
     # The source-scoped sibling of `prevent_all_combat_damage`'s player-scoped
     # Fog effect — "prevent all combat damage this effect's source would deal".
