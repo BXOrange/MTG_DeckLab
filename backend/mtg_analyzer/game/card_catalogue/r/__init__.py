@@ -49,6 +49,7 @@ from . import risen_reef  # noqa: F401
 from . import rishkar_peema_renegade  # noqa: F401
 from . import rite_of_flame  # noqa: F401
 from . import roaming_throne  # noqa: F401
+from . import roaring_earth  # noqa: F401
 from . import robe_of_stars  # noqa: F401
 from . import rogue_s_gloves  # noqa: F401
 from . import rogue_s_passage  # noqa: F401

@@ -415,3 +415,47 @@ def test_tale_of_katara_and_toph_grows_a_creature_the_first_time_it_taps_each_of
     engine.rules.set_tapped(mine, False)
     tap(mine)
     assert mine.counters.get("+1/+1", 0) == 0  # only during my turns
+
+
+def test_roaring_earth_landfall_counter_on_a_creature_or_vehicle_you_control():
+    from mtg_analyzer.game.targeting import TargetSpec, legal_targets
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+
+    engine, p1, p2 = _game()
+    earth = battlefield_object(engine, "p1", "Roaring Earth", "Enchantment")
+    bind_from_catalogue(earth)
+    bear = battlefield_object(engine, "p1", "Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    ride = battlefield_object(engine, "p1", "Ride", "Artifact — Vehicle")
+    rock = battlefield_object(engine, "p1", "Rock", "Artifact")
+    theirs = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+
+    pool = legal_targets(engine.state, "p1", TargetSpec(kind="creature_or_vehicle_you_control"), source=earth)
+    assert {o["name"] for o in pool} == {"Bear", "Ride"}  # not the plain artifact, not the opponent's creature
+
+    land = battlefield_object(engine, "p1", "Forest", "Basic Land — Forest", is_land=True)
+    engine.state.fire_event(GameEvent(
+        EventType.ENTERS_BATTLEFIELD, instance_id=land.instance_id, controller_id="p1",
+        object_types=["land"], player_id="p1",
+    ))
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_pending_choice(str(ride.instance_id))
+    engine.resolve_until_stable()
+    assert ride.counters == {"+1/+1": 1} and not bear.counters and not rock.counters and not theirs.counters
+
+
+def test_roaring_earth_channel_animates_a_land_permanently():
+    engine, p1, p2 = _game("Roaring Earth")
+    earth = p1.hand[0]
+    land = battlefield_object(engine, "p1", "Forest", "Basic Land — Forest", is_land=True)
+    p1.mana_pool.add_many({"G": 4})
+    engine.activate_ability(p1, earth, 0, targets=[land], x=2)
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    assert earth.zone == Zone.GRAVEYARD  # discarded as the cost
+    assert land.counters == {"+1/+1": 2}
+    assert land.is_creature and land.is_land  # "it's still a land"
+    assert (land.power, land.toughness) == (2, 2)  # 0/0 plus X counters
+    assert "haste" in land.granted_keywords
+    engine._step_cleanup()
+    engine.recompute_continuous_effects()
+    assert land.is_creature and (land.power, land.toughness) == (2, 2)  # no end-of-turn expiry
