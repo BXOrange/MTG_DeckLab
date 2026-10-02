@@ -28,6 +28,7 @@ from . import serra_paragon  # noqa: F401
 from . import sevinne_s_reclamation  # noqa: F401
 from . import shadowbane  # noqa: F401
 from . import shadrix_silverquill  # noqa: F401
+from . import shanid_sleepers_scourge  # noqa: F401
 from . import shatter_the_sky  # noqa: F401
 from . import shatterskull_smashing  # noqa: F401
 from . import sheltered_by_ghosts  # noqa: F401

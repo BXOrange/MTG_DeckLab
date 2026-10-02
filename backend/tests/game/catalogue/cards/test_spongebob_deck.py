@@ -134,3 +134,58 @@ def test_venser_plus_two_exiles_a_permanent_you_own_and_returns_it_at_the_end_st
         engine.resolve_until_stable()
     assert mine in engine.state.battlefield and not mine.counters
     assert mine.controller_id == "p1"
+
+
+def _shanid_game():
+    card = CardDatabase(DB_PATH).get_card("Shanid, Sleepers' Scourge")
+    engine, p1 = _game()
+    shanid = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    shanid.controller_id = "p1"
+    bind_from_catalogue(shanid)
+    engine.state.add_to_battlefield(shanid)
+    return engine, p1
+
+
+def _play_land(engine, p1, name, legendary):
+    land = GameObject(
+        Card(id=name, name=name, type_line=("Legendary " if legendary else "") + "Land", is_land=True, is_legendary=legendary),
+        owner_id="p1", zone=Zone.HAND,
+    )
+    bind_from_catalogue(land)
+    p1.add_to_zone(land, Zone.HAND)
+    p1.lands_played_this_turn = 0
+    life, hand = p1.life, len(p1.hand)
+    engine.play_land(p1, land)
+    for _ in range(3):
+        engine.rules.put_triggers_on_stack()
+        engine.resolve_until_stable()
+    return p1.life - life, len(p1.hand) - hand
+
+
+def test_shanid_draws_and_loses_life_for_a_legendary_land_but_not_an_ordinary_one():
+    engine, p1 = _shanid_game()
+    assert _play_land(engine, p1, "Plain Land", legendary=False) == (0, -1)  # just the land leaving the hand
+    assert _play_land(engine, p1, "Legendary Land", legendary=True) == (-1, 0)  # -1 life, +1 card -1 land
+
+
+def test_shanid_also_triggers_on_a_legendary_spell_only():
+    engine, p1 = _shanid_game()
+
+    def cast(legendary):
+        spell = GameObject(
+            Card(id="Sp", name="Spell", type_line=("Legendary " if legendary else "") + "Creature — Elf",
+                 is_creature=True, is_legendary=legendary, power=1, toughness=1, mana_cost_string="{1}", converted_mana_cost=1),
+            owner_id="p1", zone=Zone.HAND,
+        )
+        bind_from_catalogue(spell)
+        p1.add_to_zone(spell, Zone.HAND)
+        p1.mana_pool.add_many({"C": 1})
+        life, hand = p1.life, len(p1.hand)
+        engine.cast_spell(p1, spell)
+        for _ in range(3):
+            engine.rules.put_triggers_on_stack()
+            engine.resolve_until_stable()
+        return p1.life - life, len(p1.hand) - hand
+
+    assert cast(False) == (0, -1)
+    assert cast(True) == (-1, 0)
