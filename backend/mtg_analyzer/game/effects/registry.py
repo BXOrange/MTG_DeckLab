@@ -677,6 +677,7 @@ EffectRegistry.register(
         on_pay_effect_specs=p.get("on_pay_effect_specs"),
         unless_pays_extra_selector=p.get("unless_pays_extra_selector"),
         target_kind=p.get("target_kind", "spell"),
+        tap_lands_empty_pool_if_unpaid=bool(p.get("tap_lands_empty_pool_if_unpaid", False)),
     ),
 )
 EffectRegistry.register(

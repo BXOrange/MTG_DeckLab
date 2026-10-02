@@ -35,6 +35,7 @@ from . import ponder  # noqa: F401
 from . import pongify  # noqa: F401
 from . import possibility_storm  # noqa: F401
 from . import power_artifact  # noqa: F401
+from . import power_sink  # noqa: F401
 from . import powerbalance  # noqa: F401
 from . import praetor_s_grasp  # noqa: F401
 from . import price_of_glory  # noqa: F401

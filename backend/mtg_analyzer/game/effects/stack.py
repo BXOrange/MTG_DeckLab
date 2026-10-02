@@ -34,10 +34,15 @@ class CounterSpellEffect(GameEffect):
         on_pay_effect_specs: Optional[list[dict]] = None,
         unless_pays_extra_selector: Optional[str] = None,
         target_kind: str = "spell",
+        tap_lands_empty_pool_if_unpaid: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.unless_pays = unless_pays
+        #: "…If that player doesn't, they tap all lands with mana abilities they control and lose all unspent
+        #: mana." (Power Sink) — the spell's controller's penalty on every branch where the ``unless_pays`` cost
+        #: is *not* paid (declined, or unable to pay). See `RulesEngine.counter_unless_pays`.
+        self.tap_lands_empty_pool_if_unpaid = bool(tap_lands_empty_pool_if_unpaid)
         #: "…unless its controller pays {1} plus an additional {1} for each
         #: creature in your party." (Concerted Defense, PAR-72) — a
         #: `continuous.count_selector` name, each point of which adds one
@@ -112,6 +117,7 @@ class CounterSpellEffect(GameEffect):
                 context.counter(
                     target, unless_pays=unless_pays, source=self.source,
                     suspend_instead=self.suspend_instead, on_pay_effect_specs=on_pay,
+                    tap_lands_empty_pool_if_unpaid=self.tap_lands_empty_pool_if_unpaid,
                 )
             return
         target = (targets[0] if targets else None) or self.target
@@ -123,6 +129,7 @@ class CounterSpellEffect(GameEffect):
             context.counter(
                 target, unless_pays=unless_pays, source=self.source,
                 suspend_instead=self.suspend_instead, on_pay_effect_specs=on_pay,
+                tap_lands_empty_pool_if_unpaid=self.tap_lands_empty_pool_if_unpaid,
             )
 
 

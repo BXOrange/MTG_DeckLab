@@ -761,10 +761,12 @@ class GameContext:
         source: Optional["GameObject"] = None,
         suspend_instead: Optional[int] = None,
         on_pay_effect_specs: Optional[list[dict]] = None,
+        tap_lands_empty_pool_if_unpaid: bool = False,
     ) -> None:
         self.engine.counter_unless_pays(
             target, unless_pays, source, suspend_time_counters=suspend_instead,
             on_pay_effect_specs=on_pay_effect_specs,
+            tap_lands_empty_pool_if_unpaid=tap_lands_empty_pool_if_unpaid,
         )
 
     def counter_ability(self, target: Any) -> None:

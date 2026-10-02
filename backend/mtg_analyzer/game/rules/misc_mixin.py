@@ -4698,6 +4698,7 @@ class MiscSystemsMixin:
         source: Optional[GameObject] = None,
         suspend_time_counters: Optional[int] = None,
         on_pay_effect_specs: Optional[list[dict]] = None,
+        tap_lands_empty_pool_if_unpaid: bool = False,
     ) -> None:
         """`CounterSpellEffect`'s resolve-time logic (RULE 118/601/701.5).
 
@@ -4743,7 +4744,10 @@ class MiscSystemsMixin:
             cost, life_available=controller.life
         ):
             self.counter_spell(target, suspend_time_counters=suspend_time_counters)
+            if tap_lands_empty_pool_if_unpaid and controller is not None:
+                self._tap_lands_and_empty_pool(controller)  # couldn't pay = "doesn't"
             return
+        self._pending_counter_tap_penalty = bool(tap_lands_empty_pool_if_unpaid)
         self._pending_counter_target = target
         self._pending_counter_cost = cost
         self._pending_counter_suspend = suspend_time_counters
@@ -4773,6 +4777,13 @@ class MiscSystemsMixin:
         suspend_time_counters = getattr(self, "_pending_counter_suspend", None)
         on_pay_specs = list(getattr(self, "_pending_counter_on_pay_specs", None) or [])
         on_pay_source = getattr(self, "_pending_counter_on_pay_source", None)
+        tap_penalty = bool(getattr(self, "_pending_counter_tap_penalty", False))
+        self._pending_counter_tap_penalty = False
+        penalised = self._stack_item_for(target) if target is not None else None
+        penalised_player = (
+            self.state.player_by_id(penalised.obj.controller_id)
+            if penalised is not None and penalised.obj is not None else None
+        )
         self._pending_counter_target = None
         self._pending_counter_cost = None
         self._pending_counter_suspend = None
@@ -4791,6 +4802,18 @@ class MiscSystemsMixin:
                 self._apply_effect_specs(on_pay_specs, on_pay_source)
             return
         self.counter_spell(target, suspend_time_counters=suspend_time_counters)
+        if tap_penalty and penalised_player is not None:
+            self._tap_lands_and_empty_pool(penalised_player)  # Power Sink: "if that player doesn't"
+    def _tap_lands_and_empty_pool(self, player: Player) -> None:
+        """"…they tap all lands with mana abilities they control and lose all unspent mana." (Power Sink)
+        Every untapped land ``player`` controls that has a mana ability is tapped (without producing mana —
+        it is a penalty, not a payment), then the mana pool is emptied (RULE 106.4)."""
+        from ..mana_abilities import mana_abilities_for  # function-scoped: mana_abilities imports the models
+
+        for permanent in list(self.state.permanents_controlled_by(player.id)):
+            if permanent.is_land and not permanent.tapped and mana_abilities_for(permanent, self.state):
+                self.set_tapped(permanent, True)
+        player.mana_pool.empty()
     def _fire_becomes_target_events(self, item: StackItem) -> None:
         """MEC-19: fire `EventType.BECOMES_TARGET` once per target of
         ``item`` — see that constant's own docstring for the full field

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import Zone
 from tests.support.catalogue import battlefield_object, two_player_game
 
 
@@ -292,3 +293,55 @@ def test_geometers_arthropod_looks_at_the_top_x_cards_when_an_x_spell_is_cast():
     engine.resolve_until_stable()
     assert cards["Second"] in p1.hand
     assert p1.library[0] is cards["First"]  # the unpicked card went to the bottom of the library (index 0)
+
+
+def _power_sink_setup(pool_after_cast):
+    """p1 casts a 1-mana bear, then Power Sink (X = 2) on it; p1 owns two untapped Forests."""
+    from mtg_analyzer.config import DB_PATH
+    from mtg_analyzer.game.game_engine import GameEngine
+    from mtg_analyzer.models.game.game_object import GameObject, Zone
+    from mtg_analyzer.services.card_database import CardDatabase
+
+    sink = CardDatabase(DB_PATH).get_card("Power Sink")
+    engine = GameEngine.new_game([("p1", "A", [sink]), ("p2", "B", [])], starting_hand=1, starting_life=20)
+    for obj in engine.state.players[0].hand:
+        bind_from_catalogue(obj)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    p1 = engine.state.player_by_id("p1")
+    forests = [
+        battlefield_object(engine, "p1", f"Forest {i}", "Basic Land — Forest", is_land=True) for i in range(2)
+    ]
+    bear = GameObject(
+        Card(id="Bear", name="Bear", type_line="Creature — Bear", mana_cost_string="{1}", converted_mana_cost=1,
+             is_creature=True, power=1, toughness=1),
+        owner_id="p1", zone=Zone.HAND,
+    )
+    p1.hand.append(bear)
+    p1.mana_pool.add_many({"C": 1})
+    engine.cast_spell(p1, bear)
+    p1.mana_pool.add_many({"U": 2, "C": 2})  # exactly {X}{U}{U} for X = 2
+    engine.cast_spell(p1, p1.hand[0], x=2, targets=[bear])
+    p1.mana_pool.add_many(pool_after_cast)  # what is left to pay the {X} with
+    engine.resolve_until_stable()
+    return engine, p1, bear, forests
+
+
+def test_power_sink_taps_lands_and_empties_the_pool_when_the_controller_cannot_pay():
+    engine, p1, bear, forests = _power_sink_setup({})
+    assert bear.zone == Zone.GRAVEYARD  # countered: nothing left to pay {2}
+    assert all(f.tapped for f in forests)
+    assert p1.mana_pool.total() == 0
+
+
+def test_power_sink_penalises_a_declined_payment_but_not_a_paid_one():
+    engine, p1, bear, forests = _power_sink_setup({"C": 2, "G": 1})
+    assert engine.state.pending_choice["kind"] == "counter_unless_pays"
+    engine.resolve_pending_choice("decline")
+    assert bear.zone == Zone.GRAVEYARD and all(f.tapped for f in forests) and p1.mana_pool.total() == 0
+
+    engine, p1, bear, forests = _power_sink_setup({"C": 2, "G": 1})
+    engine.resolve_pending_choice("pay")
+    engine.resolve_until_stable()
+    assert bear.zone == Zone.BATTLEFIELD  # paid {2}: the bear resolves
+    assert not any(f.tapped for f in forests) and p1.mana_pool.total() > 0  # no penalty: lands untapped, pool kept
