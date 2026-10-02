@@ -335,7 +335,7 @@ the process group and reports the last test that had started.
 
 ## Claude Code skills
 
-Five project-scoped skills live in `.claude/skills/` and should be invoked
+Six project-scoped skills live in `.claude/skills/` and should be invoked
 (not reimplemented ad hoc) for the work they cover:
 
 - **`extend-parser`** (`.claude/skills/extend-parser/SKILL.md`) — extending
@@ -382,6 +382,11 @@ Five project-scoped skills live in `.claude/skills/` and should be invoked
   looks like it explains an `UNCLAIMED` clause flagged. Reads only (bar that
   one rulings fetch); hands off to `parser_probe.py` / `engine_bench.py` /
   `author_card.py` for the work itself.
+- **`ticket-management`** (`.claude/skills/ticket-management/SKILL.md`) —
+  create, resume, refine, park, and close tickets while keeping
+  `BACKLOG.md`, `workingOn.md`, `DEFERRED.md`, and the topic-organized
+  `Done_*.md` worklogs consistent. Organizes ticket state; does not implement
+  the ticket unless asked.
 
 ## Architecture & data flow
 
@@ -587,12 +592,12 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 57.0% (19,995 / 35,095) as of 2026-10-02, measured at
-PARSER_VERSION 578** (parser-`MODELED` or hand-`AUTHORED`, measured against
+**Coverage: 57.0% (20,002 / 35,095) as of 2026-10-02, measured at
+PARSER_VERSION 579** (parser-`MODELED` or hand-`AUTHORED`, measured against
 the full ~35k-card Oracle universe from `scripts/import_bulk.py`). Re-measure
 with `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset that
-matters for Goldfisch/Deck-Analyzer — is **59.9% (19,228 / 32,116)**; measure
+matters for Goldfisch/Deck-Analyzer — is **59.9% (19,235 / 32,116)**; measure
 it with `scripts/coverage_report.py --commander-legal-only` (records a
 separate `…-commander` snapshot row) and segment the still-UNMODELED
 remainder by *cause* (wrapper re-measure / recurring template → `PAR-*` /

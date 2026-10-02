@@ -3831,7 +3831,12 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: cards", library top / third from the top); "During turns other than yours, `<static>`" (`not_your_turn`) and its
 #: gated self-animation; the Visions flashback discount (`source_in_graveyard`); Magmaquake's "and each planeswalker",
 #: Inflame's `damaged_this_turn` group filter and Cinderclasm's kicked "instead" on a mass hit.
-PARSER_VERSION = "578"
+#: 579 (PAR-113 kept mana): "add X / that much / N mana in any combination of colors | {R} and/or {G}", "add that much mana
+#: of any 1 color" and "add {R} or {G}" (`add_mana` ``"ANY"`` narrowed by ``any_color_choices``; a fixed N is N single
+#: picks); "that much" under "whenever one or more creatures you control attack" now measures `ATTACKERS_DECLARED` via a
+#: `bind` (it read `PLAYER_ATTACKED`, which carries no amount, so "gain that much life" gained 0), and a group-filtered
+#: head of that kind fails closed.
+PARSER_VERSION = "579"
 
 
 def parser_source_hash() -> str:

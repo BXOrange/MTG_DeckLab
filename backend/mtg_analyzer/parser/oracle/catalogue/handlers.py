@@ -7316,6 +7316,38 @@ def _add_mana_that_much(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+#: "add X mana in any combination of colors" / "add that much mana in any combination of {R} and/or {G}" (Grand Warlord
+#: Radha, Klauth) and "add that much mana of any 1 color" (Photon), and the two-colour choice "add {R} or {G}" (Kessig
+#: Naturalist): `AddManaEffect`'s ``"ANY"`` offer, narrowed to the named colours. A fixed count is that many single picks;
+#: **documented simplification** for a variable amount (as for Culling Ritual): one colour pick covers the whole amount
+#: instead of splitting it mana by mana.
+_ADD_MANA_ANY_COMBINATION_RE = _c(
+    r"add (?:(?P<amount>x|that much|\d+) mana (?:in any combination of (?P<cols>colou?rs|"
+    r"\{[wubrg]\}(?:(?:, | and/or |, and/or )\{[wubrg]\})*)|of any (?:1|one) colou?r)"
+    r"|(?P<first>\{[wubrg]\}) or (?P<second>\{[wubrg]\}))"
+)
+
+
+def _add_mana_any_combination(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    if m.group("first"):
+        return [EffectSpec("add_mana", {
+            "colors": ["ANY"], "any_color_choices": [m.group("first").strip("{}").upper(), m.group("second").strip("{}").upper()],
+        })]
+    params: dict = {"colors": ["ANY"]}
+    cols = m.group("cols")
+    if cols and cols not in ("color", "colors", "colour", "colours"):
+        params["any_color_choices"] = [c.upper() for c in re.findall(r"\{([wubrg])\}", cols)]
+    amount = m.group("amount")
+    if amount == "that much":
+        params["any_amount_from_trigger_event"] = "amount"
+    elif amount == "x":
+        params["any_amount"] = "x"
+    elif amount.isdigit() and int(amount) > 1:
+        # A fixed "N mana in any combination" is exactly N independent single picks (RULE 106.1) — no simplification.
+        return [EffectSpec("add_mana", dict(params)) for _ in range(int(amount))]
+    return [EffectSpec("add_mana", params)]
+
+
 def _add_mana_counted(m: re.Match[str]) -> list[EffectSpec]:
     if m.group("k"):
         return [EffectSpec("add_mana", {"colors": ["any"], "any_amount": int(m.group("k"))})]
@@ -17778,6 +17810,7 @@ HANDLERS: list[EffectHandler] = [
     ),
     EffectHandler("add_mana_counted", _ADD_MANA_COUNTED_RE, _add_mana_counted),
     EffectHandler("add_mana_that_much", _ADD_MANA_THAT_MUCH_RE, _add_mana_that_much),
+    EffectHandler("add_mana_any_combination", _ADD_MANA_ANY_COMBINATION_RE, _add_mana_any_combination),
     # "that player adds an additional {b}." (Bubbling Muck/High Tide).
     EffectHandler(
         "add_mana_additional_event_player",

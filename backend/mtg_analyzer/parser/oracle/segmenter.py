@@ -6374,7 +6374,9 @@ def _stamp_group_pronoun_once(
 #: Effect params that read a number or object off the firing event. An `ATTACKERS_DECLARED`
 #: event names the whole declaration, not "that many"/"that creature": the count a body means
 #: depends on the head's own filter, which the shared event cannot carry.
-_EVENT_READS = ("amount_from_trigger_event", "count_from_trigger_event", "pt_from_trigger_event")
+_EVENT_READS = (
+    "amount_from_trigger_event", "count_from_trigger_event", "pt_from_trigger_event", "any_amount_from_trigger_event",
+)
 
 
 def _retarget_block_relation(
@@ -6410,6 +6412,11 @@ _HEAD_COUNT_AMOUNTS: dict[str, dict[str, Any]] = {
     "DAMAGE": _DAMAGE_EVENT_AMOUNT,
 }
 _THAT_MANY_RE = re.compile(r"\bthat (?:many|much)\b", re.IGNORECASE)
+
+
+def _reads_event_amount(effects: "list[EffectSpec]") -> bool:
+    """Whether any effect (nested compositions included) reads a number off the firing event (`_EVENT_READS`)."""
+    return any(key in repr(effect.to_dict()) for effect in effects for key in _EVENT_READS)
 
 
 def _bind_attack_count(
@@ -8591,6 +8598,14 @@ def _segment_line_unsplit(
         effects = stamped
         if composed_head and _group_it_would_hit_source(condition, body, effects):
             return Segment(raw=raw)
+        if event == "PLAYER_ATTACKED" and _reads_event_amount(effects):
+            # "Whenever one or more creatures you control attack, … that much/many" (Grand Warlord Radha, Ohran
+            # Viper-shaped): `PLAYER_ATTACKED` fires once per defender and carries no amount, so the count is read off
+            # the whole declaration instead (`ATTACKERS_DECLARED`). A group-filtered head has no equivalent: fail closed.
+            if condition.get("group_filter"):
+                return Segment(raw=raw)
+            event = "ATTACKERS_DECLARED"
+            head_trigger = {"attackers_declared": {"filter": {"card_type": "creature"}, "min": 1}}
         if event == "ATTACKERS_DECLARED":
             effects = _bind_attack_count(effects)
             if effects is None:

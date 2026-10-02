@@ -81,7 +81,7 @@ No open tickets.
 - **PAR-110 · Small residue batch — board wipes & mass effects.** Mass-damage riders, mass-tap, "destroy/exile all"
   + rider tails, total-power edicts, Living Death.
 - **PAR-113 · Small residue batch — combat triggers.** "Whenever a player attacks" head and kept mana with a
-  restriction or a non-trivial head.
+  restriction or a non-trivial amount.
 - **PAR-114 · Small residue batch — cost reduction & alternative costs.** Resolve-time "discard a card or pay {N}",
   same-name discard costs, X-valued sacrifice costs, activation-cost "where X is …" discounts.
 

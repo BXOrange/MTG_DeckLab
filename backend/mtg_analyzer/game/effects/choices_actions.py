@@ -44,8 +44,13 @@ class AddManaEffect(GameEffect):
         any_amount_multiplier: int = 1,
         amount_from_context: Optional[str] = None,
         keep_until: Optional[str] = None,
+        any_amount_from_trigger_event: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: "add that much mana of any 1 color" (Photon) / "…in any combination of {R} and/or {G}" (Grand Warlord Radha):
+        #: the ``"ANY"`` amount is the firing event's field of this name (a damage head's ``amount``). Under an
+        #: attack-count head the segmenter rewrites it into a measured `bind` instead.
+        self.any_amount_from_trigger_event = any_amount_from_trigger_event
         #: "Until end of turn, you don't lose this mana as steps and phases end." (Brazen Collector, Savage
         #: Ventmaw, Neheb): ``"end_of_turn"``/``"end_of_combat"`` — `ManaPool.kept`.
         self.keep_until = keep_until
@@ -175,7 +180,9 @@ class AddManaEffect(GameEffect):
             if color == "ANY":
                 any_amount = 1 if self.any_amount is None else int(self.any_amount)
                 any_amount *= self.any_amount_multiplier
-                if self.any_amount_from_context:
+                if self.any_amount_from_trigger_event:
+                    any_amount = int((context.trigger_event or {}).get(self.any_amount_from_trigger_event) or 0)
+                elif self.any_amount_from_context:
                     any_amount = int(getattr(context, self.any_amount_from_context, 0) or 0)
                 elif self.amount_selector:
                     # "Add X mana in any combination of {B} and/or {R},

@@ -1452,6 +1452,7 @@ EffectRegistry.register(
         any_amount_multiplier=int(p.get("any_amount_multiplier", 1) or 1),
         amount_from_context=p.get("amount_from_context"),
         keep_until=p.get("keep_until"),
+        any_amount_from_trigger_event=p.get("any_amount_from_trigger_event"),
     ),
 )
 EffectRegistry.register(
