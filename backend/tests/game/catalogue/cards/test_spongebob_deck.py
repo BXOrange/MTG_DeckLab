@@ -55,3 +55,36 @@ def test_helga_triggers_only_for_creature_spells_with_mana_value_four_or_more():
     engine, p1, helga, life_before, hand_before = _helga_with(3)
     assert p1.life == life_before and helga.counters.get("+1/+1", 0) == 0
     assert len(p1.hand) == hand_before - 1  # mana value 3: nothing
+
+
+def test_captain_sisay_fetches_a_legendary_card_to_hand():
+    engine, p1 = _game()
+    sisay_card = CardDatabase(DB_PATH).get_card("Captain Sisay")
+    sisay = GameObject(sisay_card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    sisay.controller_id = "p1"
+    bind_from_catalogue(sisay)
+    sisay.summoning_sick = False
+    engine.state.add_to_battlefield(sisay)
+    legend = GameObject(
+        Card(id="Legend", name="A Legend", type_line="Legendary Creature — Elf", is_creature=True, is_legendary=True,
+             power=2, toughness=2),
+        owner_id="p1", zone=Zone.LIBRARY,
+    )
+    plain = GameObject(Card(id="Plain", name="Plain Elf", type_line="Creature — Elf", is_creature=True, power=1, toughness=1),
+                       owner_id="p1", zone=Zone.LIBRARY)
+    p1.library.extend([plain, legend])
+
+    index = next(i for i, a in enumerate(sisay.activated_abilities) if getattr(a, "cost", None) is not None)
+    engine.activate_ability(p1, sisay, index)
+    engine.resolve_until_stable()
+    for _ in range(4):
+        if not engine.state.pending_choice:
+            break
+        choice = engine.state.pending_choice
+        wanted = [o for o in choice["options"] if o.get("instance_id") == legend.instance_id]
+        offered_ids = {o.get("instance_id") for o in choice["options"]}
+        assert plain.instance_id not in offered_ids  # only legendary cards are offered
+        engine.resolve_pending_choice((wanted or choice["options"])[0]["id"])
+        engine.resolve_until_stable()
+
+    assert legend in p1.hand and plain not in p1.hand and sisay.tapped
