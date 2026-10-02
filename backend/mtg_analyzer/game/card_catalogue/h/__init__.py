@@ -13,6 +13,7 @@ from . import haywire_mite  # noqa: F401
 from . import heat_shimmer  # noqa: F401
 from . import hedge_whisperer  # noqa: F401
 from . import hedron_field_purists  # noqa: F401
+from . import helga_skittish_seer  # noqa: F401
 from . import helicarrier_strike  # noqa: F401
 from . import heliod_sun_crowned  # noqa: F401
 from . import helm_of_awakening  # noqa: F401
