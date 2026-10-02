@@ -454,6 +454,9 @@ class CastingResolutionMixin:
         opens; `_resume_land_tapped` flips it untapped if the
         controller pays.
         """
+        if continuous.enters_untapped_from_static(self.state, obj):
+            obj.tapped = False  # "Lands you control enter untapped." (Horizon Explorer) — no tapped-entry applies
+            return
         condition = card_registry.land_tap_condition(obj.card)
         kind = condition["kind"]
         if kind == "unless_types":
@@ -593,6 +596,8 @@ class CastingResolutionMixin:
         rather than ``obj.card`` — the same "rebind read-only" idiom
         `_cast_action`'s own ``face="back"`` preview uses.
         """
+        if continuous.enters_untapped_from_static(self.state, obj):
+            return False  # Horizon Explorer: the land enters untapped whatever its own clause says
         card = card or obj.card
         condition = card_registry.land_tap_condition(card)
         kind = condition["kind"]
@@ -2032,6 +2037,8 @@ class CastingResolutionMixin:
             obj.tapped = card_registry.enters_tapped(obj.card) or continuous.enters_tapped_from_static(
                 self.state, obj
             )
+            if obj.tapped and continuous.enters_untapped_from_static(self.state, obj):
+                obj.tapped = False  # a land entering by an effect, under Horizon Explorer
             self._apply_entry_counters(obj, x_paid=getattr(obj, "x_paid", 0) or 0)
             self._apply_granted_entry_counters(obj)
             # RULE 702.155b/714.3b: Read Ahead's chosen count (if any —

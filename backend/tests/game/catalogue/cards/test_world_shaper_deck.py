@@ -136,3 +136,51 @@ def test_worldsouls_rage_deals_x_and_puts_up_to_x_lands_from_hand_and_graveyard_
     assert grave_land.zone == Zone.BATTLEFIELD and hand_land.zone == Zone.BATTLEFIELD
     assert grave_land.tapped and hand_land.tapped  # "onto the battlefield tapped"
     assert extra.zone == Zone.HAND  # only X = 2 lands
+
+
+def test_horizon_explorer_lands_enter_untapped_and_attacking_makes_a_lander():
+    engine, p1, p2 = _game("Tranquil Cove")
+    explorer = _battlefield_card(engine, "Horizon Explorer")
+    explorer.summoning_sick = False
+    cove = p1.hand[0]  # a land that enters tapped on its own
+    engine.play_land(p1, cove)
+    assert cove.zone == Zone.BATTLEFIELD and not cove.tapped  # Horizon Explorer overrides the tapped entry
+
+    engine.state.current_step = "declare_attackers"
+    engine.declare_attackers(p1, [{"attacker": explorer, "defender": engine.legal_defenders_for(p1)[0]}])
+    engine._fire_player_attacked_events()  # what the turn loop does once attackers are declared (RULE 506.4)
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    landers = [o for o in engine.state.battlefield if o.name == "Lander"]
+    assert len(landers) == 1 and landers[0].card.is_artifact
+
+
+def test_without_horizon_explorer_the_same_land_enters_tapped():
+    engine, p1, p2 = _game("Tranquil Cove")
+    cove = p1.hand[0]
+    engine.play_land(p1, cove)
+    assert cove.tapped
+
+
+def test_the_lander_token_fetches_a_basic_land_tapped_when_sacrificed():
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+
+    engine, p1, p2 = _game()
+    explorer = _battlefield_card(engine, "Horizon Explorer")
+    forest = GameObject(Card(id="F", name="Forest", type_line="Basic Land — Forest", is_land=True), owner_id="p1", zone=Zone.LIBRARY)
+    other = GameObject(Card(id="N", name="Nonbasic", type_line="Land", is_land=True), owner_id="p1", zone=Zone.LIBRARY)
+    p1.library.extend([other, forest])
+    engine.state.fire_event(GameEvent(EventType.PLAYER_ATTACKED, attacking_player_id="p1", defending_player_id="p2", count=1))
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    lander = next(o for o in engine.state.battlefield if o.name == "Lander")
+    lander.summoning_sick = False
+    p1.mana_pool.add_many({"C": 2})
+    engine.activate_ability(p1, lander, 0)
+    engine.resolve_until_stable()
+    while engine.state.pending_choice:
+        choice = engine.state.pending_choice
+        assert {o["label"] for o in choice["options"] if "instance_id" in o} == {"Forest"}  # basic lands only
+        engine.resolve_pending_choice(next(o["id"] for o in choice["options"] if o.get("label") == "Forest"))
+        engine.resolve_until_stable()
+    assert forest.zone == Zone.BATTLEFIELD and forest.tapped and lander.zone != Zone.BATTLEFIELD

@@ -5653,6 +5653,19 @@ def trigger_suppressed_for(state: "GameState", event: Any, controller_id: Option
     return False
 
 
+def enters_untapped_from_static(state: "GameState", obj: "GameObject") -> bool:
+    """"Lands you control enter untapped." (Horizon Explorer) — whether a standing ``enters_untapped`` static
+    makes the land ``obj`` enter untapped, overriding its own tapped-entry clause (the printed text is the
+    permission: it replaces "enters tapped", RULE 614.1). Only the static's controller's lands."""
+    if not getattr(obj, "is_land", False):
+        return False
+    return any(
+        ability.layer == "enters_untapped"
+        and getattr(ability.source, "controller_id", None) == obj.controller_id
+        for ability in _battlefield_static_abilities(state)
+    )
+
+
 def enters_tapped_from_static(state: "GameState", obj: "GameObject") -> bool:
     """Whether a board-wide static ("Artifacts your opponents control enter
     tapped." — RULE 614.1, Manglehorn/Dauntless Dismantler/Archon of

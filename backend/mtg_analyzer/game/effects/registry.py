@@ -4034,6 +4034,11 @@ EffectRegistry.register(
     lambda p: StaticAbility("sorcery_speed_only", affects="opponents", params={}),
 )
 EffectRegistry.register(
+    # "Lands you control enter untapped." (Horizon Explorer) — consulted by `continuous.enters_untapped_from_static`.
+    "lands_enter_untapped",
+    lambda p: StaticAbility("enters_untapped", affects="self", params={}),
+)
+EffectRegistry.register(
     # "If you would proliferate, proliferate twice instead." (Tekuthal, Inquiry Dominus) — a marker
     # static consumed by `continuous.proliferate_multiplier` from `ProliferateEffect`.
     "proliferate_twice",

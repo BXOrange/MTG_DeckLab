@@ -29,6 +29,7 @@ from . import homeward_path  # noqa: F401
 from . import honorable_passage  # noqa: F401
 from . import hope_of_ghirapur  # noqa: F401
 from . import horde_of_notions  # noqa: F401
+from . import horizon_explorer  # noqa: F401
 from . import horizon_of_progress  # noqa: F401
 from . import hostility  # noqa: F401
 from . import hullbreaker_horror  # noqa: F401
