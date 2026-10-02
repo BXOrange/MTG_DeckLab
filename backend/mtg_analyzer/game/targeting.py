@@ -180,6 +180,9 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # "two target artifacts, creatures, and/or lands you control" (Ghostly
         # Flicker) — the three-type union sibling of the entries above.
         "artifact_creature_or_land_you_control",
+        # "target permanent you own" (Venser, the Sojourner) — owner-scoped, unlike
+        # `permanent_you_control`: a permanent an opponent controls but you own counts.
+        "permanent_you_own",
         # "target creature you **don't** control" (Archdruid's Charm's second
         # mode) — the mirror image of `creature_you_control`.
         "creature_you_dont_control",
@@ -643,6 +646,7 @@ class TargetSpec:
             "creature_or_land_you_control": "Kreatur oder Land unter deiner Kontrolle",
             "another_creature_or_land_you_control": "andere Kreatur oder Land unter deiner Kontrolle",
             "artifact_creature_or_land_you_control": "Artefakt, Kreatur oder Land unter deiner Kontrolle",
+            "permanent_you_own": "Permanent, das du besitzt",
             "non_human_creature_you_own": "Nicht-Mensch-Kreatur, die du besitzt",
             "creature_you_dont_control": "Kreatur, die du nicht kontrollierst",
             "artifact_you_dont_control": "Artefakt, das du nicht kontrollierst",
@@ -1237,6 +1241,7 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
         "nonbasic_land", SCOPE_NOT_YOU, exclude_source=False),
     "non_human_creature_you_own": TargetFrame(
         "non_human_creature", SCOPE_OWNER_YOU, exclude_source=False),
+    "permanent_you_own": TargetFrame("permanent", SCOPE_OWNER_YOU, exclude_source=False),
 
     # --- type unions -----------------------------------------------------
     "creature_or_enchantment_you_control": TargetFrame(

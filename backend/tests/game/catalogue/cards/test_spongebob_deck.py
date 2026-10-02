@@ -88,3 +88,49 @@ def test_captain_sisay_fetches_a_legendary_card_to_hand():
         engine.resolve_until_stable()
 
     assert legend in p1.hand and plain not in p1.hand and sisay.tapped
+
+
+def _venser_game(loyalty=3):
+    card = CardDatabase(DB_PATH).get_card("Venser, the Sojourner")
+    engine, p1 = _game()
+    venser = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    venser.controller_id = "p1"
+    bind_from_catalogue(venser)
+    engine.state.add_to_battlefield(venser)
+    venser.counters["loyalty"] = loyalty
+
+    def activate(amount, **kwargs):
+        venser.activated_loyalty_this_turn = False
+        index = next(
+            i for i, a in enumerate(venser.activated_abilities)
+            if getattr(getattr(a, "cost", None), "loyalty", None) == amount
+        )
+        engine.activate_ability(p1, venser, index, **kwargs)
+        engine.resolve_until_stable()
+
+    return engine, p1, venser, activate
+
+
+def test_venser_plus_two_exiles_a_permanent_you_own_and_returns_it_at_the_end_step():
+    engine, p1, venser, activate = _venser_game()
+    mine = battlefield_object(engine, "p1", "My Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    mine.counters["+1/+1"] = 1  # gone after the round trip: it is a new object
+    theirs = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+
+    from mtg_analyzer.game import targeting
+
+    spec = targeting.TargetSpec(kind="permanent_you_own")
+    legal_ids = {t["instance_id"] for t in targeting.legal_targets(engine.state, "p1", spec, source=venser)}
+    assert mine.instance_id in legal_ids and theirs.instance_id not in legal_ids  # owner-scoped
+
+    activate(2, targets=[mine])
+    assert venser.counters["loyalty"] == 5
+    assert mine.zone == Zone.EXILE and mine not in engine.state.battlefield
+
+    engine.state.current_step = "end"
+    engine._fire_delayed_triggers("end")
+    for _ in range(3):
+        engine.rules.put_triggers_on_stack()
+        engine.resolve_until_stable()
+    assert mine in engine.state.battlefield and not mine.counters
+    assert mine.controller_id == "p1"
