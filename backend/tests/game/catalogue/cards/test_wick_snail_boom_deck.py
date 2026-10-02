@@ -291,3 +291,31 @@ def test_crystal_shard_bounces_a_creature_unless_its_controller_pays_one():
     engine.resolve_pending_choice("pay" if any(o["id"] == "pay" for o in choice["options"]) else choice["options"][0]["id"])
     engine.resolve_until_stable()
     assert victim in engine.state.battlefield  # paid: stays
+
+
+def test_ghostly_flicker_blinks_two_of_my_artifacts_creatures_or_lands():
+    engine, p1 = _game("Ghostly Flicker")
+    creature = battlefield_object(engine, "p1", "Grown Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    creature.counters["+1/+1"] = 1
+    land = battlefield_object(engine, "p1", "Forest", "Basic Land — Forest", is_land=True)
+    land.tapped = True
+    artifact = battlefield_object(engine, "p1", "Trinket", "Artifact")
+    artifact.counters["charge"] = 1
+    theirs = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    theirs.counters["+1/+1"] = 1
+
+    p1.mana_pool.add_many({"U": 1, "C": p1.hand[0].card.converted_mana_cost - 1})
+    engine.cast_spell(p1, p1.hand[0], targets=[creature, land])
+    engine.resolve_until_stable()
+
+    assert not creature.counters  # blinked: a new object
+    assert not land.tapped  # returned untapped
+    assert artifact.counters.get("charge") == 1  # not targeted
+    assert theirs.counters.get("+1/+1") == 1  # not mine
+
+    from mtg_analyzer.game import targeting
+
+    spec = targeting.TargetSpec(kind="artifact_creature_or_land_you_control")
+    legal_ids = {t["instance_id"] for t in targeting.legal_targets(engine.state, "p1", spec, source=artifact)}
+    assert {artifact.instance_id, land.instance_id, creature.instance_id} <= legal_ids
+    assert theirs.instance_id not in legal_ids

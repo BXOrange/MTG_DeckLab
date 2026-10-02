@@ -12,6 +12,7 @@ from . import geistwave  # noqa: F401
 from . import generous_gift  # noqa: F401
 from . import ghost_quarter  # noqa: F401
 from . import ghostfire_slice  # noqa: F401
+from . import ghostly_flicker  # noqa: F401
 from . import ghoulish_impetus  # noqa: F401
 from . import gift_of_immortality  # noqa: F401
 from . import gifts_ungiven  # noqa: F401
