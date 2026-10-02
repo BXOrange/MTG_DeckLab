@@ -528,3 +528,70 @@ def test_tam_turns_a_creature_into_all_colors_until_end_of_turn():
     engine._step_cleanup()
     engine.recompute_continuous_effects()
     assert set(bear.colors) == {"R"}
+
+
+def _dihada_game(loyalty):
+    card = CardDatabase(DB_PATH).get_card("Dihada, Binder of Wills")
+    engine, p1 = _game()
+    dihada = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    dihada.controller_id = "p1"
+    bind_from_catalogue(dihada)
+    engine.state.add_to_battlefield(dihada)
+    dihada.counters["loyalty"] = loyalty
+
+    def activate(amount, **kwargs):
+        dihada.activated_loyalty_this_turn = False
+        index = next(
+            i for i, a in enumerate(dihada.activated_abilities)
+            if getattr(getattr(a, "cost", None), "loyalty", None) == amount
+        )
+        engine.activate_ability(p1, dihada, index, **kwargs)
+        engine.resolve_until_stable()
+        for _ in range(8):
+            if not engine.state.pending_choice:
+                break
+            options = [o for o in engine.state.pending_choice["options"] if o["id"] != "decline"]
+            engine.resolve_pending_choice((options or engine.state.pending_choice["options"])[0]["id"])
+            engine.resolve_until_stable()
+        engine.recompute_continuous_effects()
+
+    return engine, p1, dihada, activate
+
+
+def test_dihada_plus_two_protects_a_legendary_creature_until_my_next_turn():
+    engine, p1, dihada, activate = _dihada_game(3)
+    legend = battlefield_object(engine, "p1", "A Legend", "Legendary Creature — Elf", is_creature=True, is_legendary=True, power=2, toughness=2)
+    activate(2, targets=[legend])
+    assert dihada.counters["loyalty"] == 5
+    assert {"vigilance", "lifelink", "indestructible"} <= set(legend.granted_keywords)
+
+
+def test_dihada_minus_three_keeps_the_legends_and_turns_the_rest_into_treasures():
+    engine, p1, dihada, activate = _dihada_game(5)
+    p1.library.clear()
+    cards = {
+        "Legend A": ("Legendary Creature — Elf", True), "Legend B": ("Legendary Artifact", True),
+        "Plain A": ("Creature — Elf", False), "Plain B": ("Instant", False),
+    }
+    for name, (type_line, legendary) in cards.items():
+        p1.library.append(GameObject(Card(id=name, name=name, type_line=type_line, is_legendary=legendary), owner_id="p1", zone=Zone.LIBRARY))
+    hand_before = {o.name for o in p1.hand}
+    activate(-3)
+    assert {o.name for o in p1.hand} - hand_before == {"Legend A", "Legend B"}
+    assert {o.name for o in p1.graveyard} == {"Plain A", "Plain B"}
+    treasures = [o for o in engine.state.permanents_controlled_by("p1") if "Treasure" in (o.card.type_line or "")]
+    assert len(treasures) == 2  # one per card put into the graveyard this way
+
+
+def test_dihada_minus_eleven_takes_every_nonland_permanent_until_end_of_turn():
+    engine, p1, dihada, activate = _dihada_game(11)
+    theirs = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    their_land = battlefield_object(engine, "p2", "Their Forest", "Basic Land — Forest", is_land=True)
+    theirs.tapped = True
+    activate(-11)
+    assert theirs.controller_id == "p1" and not theirs.tapped and "haste" in theirs.granted_keywords
+    assert their_land.controller_id == "p2"  # lands are not nonland permanents
+
+    engine._step_cleanup()
+    engine.recompute_continuous_effects()
+    assert theirs.controller_id == "p2"

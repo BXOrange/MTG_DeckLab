@@ -3009,11 +3009,18 @@ class SearchMixin:
                 self._remove_from_current_zone(player, o)
                 o.zone = Zone.LIBRARY
                 player.library.insert(0, o)
-        elif destination == "graveyard":
+        elif destination in ("graveyard", "graveyard_with_treasures"):
             for o in objs:
                 self._remove_from_current_zone(player, o)
                 o.zone = Zone.GRAVEYARD
                 player.graveyard.append(o)
+            if destination == "graveyard_with_treasures":
+                # "Create a Treasure token for each card put into your graveyard this way." (Dihada)
+                from ...services.token_database import default_token_database
+
+                treasure = default_token_database().get_token("Treasure")
+                if treasure is not None:
+                    self.create_token(player.id, treasure, count=len(objs))
         elif destination == "library_shuffled":
             # PAR-144 (Genesis Hydra): "shuffle the rest into your library" — the
             # unpicked cards stay in the library, which is then shuffled (RULE 701.20).

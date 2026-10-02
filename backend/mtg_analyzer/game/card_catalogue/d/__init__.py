@@ -32,6 +32,7 @@ from . import desperate_gambit  # noqa: F401
 from . import destiny_spinner  # noqa: F401
 from . import desynchronization  # noqa: F401
 from . import determined_iteration  # noqa: F401
+from . import dihada_binder_of_wills  # noqa: F401
 from . import dina_essence_brewer  # noqa: F401
 from . import dina_soul_steeper  # noqa: F401
 from . import dionus_elvish_archdruid  # noqa: F401
