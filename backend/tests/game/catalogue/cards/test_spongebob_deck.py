@@ -595,3 +595,29 @@ def test_dihada_minus_eleven_takes_every_nonland_permanent_until_end_of_turn():
     engine._step_cleanup()
     engine.recompute_continuous_effects()
     assert theirs.controller_id == "p2"
+
+
+def test_esika_gives_other_legendary_creatures_vigilance_and_an_any_color_mana_ability():
+    from mtg_analyzer.game.mana_abilities import mana_abilities_for
+
+    engine, p1 = _game()
+    card = CardDatabase(DB_PATH).get_card("Esika, God of the Tree // The Prismatic Bridge")
+    esika = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    esika.controller_id = "p1"
+    bind_from_catalogue(esika)
+    esika.summoning_sick = False
+    engine.state.add_to_battlefield(esika)
+    legend = battlefield_object(engine, "p1", "A Legend", "Legendary Creature — Elf", is_creature=True, is_legendary=True, power=2, toughness=2)
+    plain = battlefield_object(engine, "p1", "Plain Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    theirs = battlefield_object(engine, "p2", "Their Legend", "Legendary Creature — Elf", is_creature=True, is_legendary=True, power=2, toughness=2)
+    for creature in (legend, plain, theirs):
+        creature.summoning_sick = False
+    engine.recompute_continuous_effects()
+
+    assert "vigilance" in legend.granted_keywords
+    assert "vigilance" not in plain.granted_keywords and "vigilance" not in theirs.granted_keywords
+    assert mana_abilities_for(legend, engine.state) and not mana_abilities_for(plain, engine.state)
+    assert not mana_abilities_for(theirs, engine.state)
+
+    engine.tap_for_mana(p1, legend)
+    assert sum(p1.mana_pool.pool.get(c, 0) for c in "WUBRG") == 1  # one mana of a chosen color

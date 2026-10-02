@@ -30,6 +30,7 @@ from . import ensnared_by_the_mara  # noqa: F401
 from . import entrancing_melody  # noqa: F401
 from . import ephemerate  # noqa: F401
 from . import eriette_of_the_charmed_apple  # noqa: F401
+from . import esika_god_of_the_tree  # noqa: F401
 from . import esper_sentinel  # noqa: F401
 from . import essence_flux  # noqa: F401
 from . import etali_primal_conqueror  # noqa: F401
