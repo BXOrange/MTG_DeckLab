@@ -88,6 +88,7 @@ from . import stangg_echo_warrior  # noqa: F401
 from . import steal_enchantment  # noqa: F401
 from . import stensian_sanguinist  # noqa: F401
 from . import stifle  # noqa: F401
+from . import stitch_together  # noqa: F401
 from . import stinging_licid  # noqa: F401
 from . import stonesplitter_bolt  # noqa: F401
 from . import storm_kiln_artist  # noqa: F401

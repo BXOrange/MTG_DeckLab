@@ -375,12 +375,12 @@ def test_reanimate_from_an_opponents_graveyard_takes_control():
 # ---------------------------------------------------------------------------
 
 
-def test_exhume_is_not_yet_modeled_or_authored():
+def test_exhume_is_hand_authored_because_the_parser_cannot_claim_it():
     from mtg_analyzer.game.card_registry import specs_for
 
     card = Card(id="Exhume", name="Exhume", type_line="Sorcery", is_sorcery=True,
-                mana_cost_string="{B}", converted_mana_cost=1,
+                mana_cost_string="{1}{B}", converted_mana_cost=2,
                 oracle_text="Each player puts a creature card from their graveyard onto the battlefield.")
-    result = parse_oracle(card)
-    assert not result.modeled
-    assert not specs_for(card)
+    assert not parse_oracle(card).modeled  # the oracle-text parser still has no "each player puts … from their graveyard"
+    specs = specs_for(card)  # ... so it is hand-authored (`card_catalogue/e/exhume.py`: `each_player_pick`)
+    assert specs and specs[0].effects[0].params.get("each_player_pick") is True

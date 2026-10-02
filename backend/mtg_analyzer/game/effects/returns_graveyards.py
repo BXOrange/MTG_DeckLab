@@ -468,9 +468,20 @@ class ReturnFromGraveyardEffect(GameEffect):
         attacking: bool = False,
         pick: bool = False,
         creature_filter: Optional[dict[str, Any]] = None,
+        each_player_pick: bool = False,
+        destination_if: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "Return target creature card to your hand. **Threshold** — Return that card to the battlefield
+        #: **instead** if there are seven or more cards in your graveyard." (Stitch Together) —
+        #: ``{"condition": <effect condition>, "destination": "battlefield"}``: the destination swaps when the
+        #: condition holds as the effect resolves (the target was chosen once, either way).
+        self.destination_if = dict(destination_if) if destination_if else None
+        #: "Each player puts a creature card from **their** graveyard onto the battlefield." (Exhume) — every
+        #: living player chooses one matching card from their own graveyard, one prompt at a time in turn order
+        #: (`_pick_each_in_order`), each coming back under its owner's control.
+        self.each_player_pick = bool(each_player_pick)
         #: "…to the battlefield tapped **and attacking**" (Alesha, Interceptor) — RULE 508.4: put into
         #: combat right after it lands (`RulesEngine.put_onto_battlefield_attacking`, the primitive
         #: "create a tapped and attacking token" already uses).
@@ -586,7 +597,7 @@ class ReturnFromGraveyardEffect(GameEffect):
         #: RULE 115 target — a spell must not need a legal one to be cast — but still describes the pool
         #: through the same spec, kept privately for `legal_targets`.
         self._pool_spec = spec
-        self.target_spec = None if (self.pick or self.players is not None) else spec
+        self.target_spec = None if (self.pick or self.each_player_pick or self.players is not None) else spec
 
     def _apply_one(self, context: GameContext, target: Any) -> None:
         if self.destination == "battlefield":
@@ -649,6 +660,40 @@ class ReturnFromGraveyardEffect(GameEffect):
             if player is not None:
                 context.lose_life(player, int(mv))
 
+    #: A resumed continuation's remaining players (see `_pick_each_in_order`) — runtime state, never a spec param.
+    _remaining_players: Optional[list[Any]] = None
+
+    def _pick_each_in_order(self, context: GameContext, players: list[Any]) -> None:
+        """`each_player_pick` — one player's choice at a time (`SacrificeEffect._sacrifice_each_in_order`'s idiom:
+        the game state holds one `pending_choice`, so once a prompt opens the remaining players are parked on
+        `GameState.deferred_effects` as a copy of this effect and resumed after the answer)."""
+        import copy
+
+        state = context.state
+        kind = self._kind or "graveyard_creature"
+        action = "return_from_graveyard_tapped" if self.tapped else "return_from_graveyard"
+        for i, player in enumerate(players):
+            candidates = [o for o in player.graveyard if graveyard_card_matches(kind, o)]
+            if not candidates:
+                continue
+            before = getattr(state, "pending_choice", None)
+            context.engine._request_choose_objects(
+                player, candidates, action, count=1, optional=False,
+                prompt="Karte aus dem Friedhof zurückbringen", source=self.source,
+                control_recipient_id=player.id,
+            )
+            opened = getattr(state, "pending_choice", None)
+            if opened is not None and opened is not before and i + 1 < len(players):
+                remainder = copy.copy(self)
+                remainder._remaining_players = players[i + 1:]
+                state.deferred_effects.append({
+                    "effects": [remainder], "targets": None, "target_groups": None, "group_index": 0,
+                    "source": self.source,
+                    "previous_targets": list(getattr(context, "previous_targets", [])),
+                    "created_objects": list(getattr(context, "created_objects", [])),
+                })
+                return
+
     def _request_pick(self, context: GameContext) -> None:
         """An untargeted "return a `<type>` card from your graveyard" — the controller chooses one."""
         player = _controller_of(self.source, context)
@@ -673,6 +718,26 @@ class ReturnFromGraveyardEffect(GameEffect):
         )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from .. import effect_conditions  # function-scoped: effect_conditions imports this package
+
+        original = self.destination
+        swap = self.destination_if
+        if swap and effect_conditions.condition_holds(swap.get("condition"), context, self.source, targets):
+            destination = swap.get("destination")
+            if destination in self._DESTINATIONS:
+                self.destination = destination
+        try:
+            self._apply_resolved(context, targets)
+        finally:
+            self.destination = original
+
+    def _apply_resolved(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self._remaining_players is not None:
+            self._pick_each_in_order(context, self._remaining_players)
+            return
+        if self.each_player_pick:
+            self._pick_each_in_order(context, list(context.state.living_players()))
+            return
         if self.positional_top_creature:
             player = _controller_of(self.source, context)
             if player is None:

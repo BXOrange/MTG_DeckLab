@@ -1451,6 +1451,8 @@ EffectRegistry.register(
         attacking=bool(p.get("attacking", False)),
         pick=bool(p.get("pick", False)),
         creature_filter=p.get("creature_filter"),
+        each_player_pick=bool(p.get("each_player_pick", False)),
+        destination_if=p.get("destination_if"),
     ),
 )
 EffectRegistry.register(

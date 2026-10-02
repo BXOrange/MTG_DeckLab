@@ -13,6 +13,7 @@ from . import generous_gift  # noqa: F401
 from . import genesis_hydra  # noqa: F401
 from . import genesis_wave  # noqa: F401
 from . import geometer_s_arthropod  # noqa: F401
+from . import ghastly_demise  # noqa: F401
 from . import ghost_quarter  # noqa: F401
 from . import ghostfire_slice  # noqa: F401
 from . import ghostly_flicker  # noqa: F401

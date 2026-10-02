@@ -45,6 +45,7 @@ from . import eventide_s_shadow  # noqa: F401
 from . import everlasting_torment  # noqa: F401
 from . import evolving_wilds  # noqa: F401
 from . import excava_the_risen_past  # noqa: F401
+from . import exhume  # noqa: F401
 from . import expansion_algorithm  # noqa: F401
 from . import experimental_confectioner  # noqa: F401
 from . import explorer_s_scope  # noqa: F401

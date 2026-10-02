@@ -77,6 +77,7 @@ from . import crashing_wave  # noqa: F401
 from . import cream_of_the_crop  # noqa: F401
 from . import creative_technique  # noqa: F401
 from . import crib_swap  # noqa: F401
+from . import crimson_wisps  # noqa: F401
 from . import cruel_alliance  # noqa: F401
 from . import crypt_ghast  # noqa: F401
 from . import crypt_incursion  # noqa: F401
