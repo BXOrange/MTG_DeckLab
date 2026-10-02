@@ -25,6 +25,7 @@ from . import lim_d_l_s_vault  # noqa: F401
 from . import lion_sash  # noqa: F401
 from . import lithomantic_barrage  # noqa: F401
 from . import llawan_cephalid_empress  # noqa: F401
+from . import loamcrafter_faun  # noqa: F401
 from . import lobelia_defender_of_bag_end  # noqa: F401
 from . import lore_drakkis  # noqa: F401
 from . import lorehold_archivist  # noqa: F401

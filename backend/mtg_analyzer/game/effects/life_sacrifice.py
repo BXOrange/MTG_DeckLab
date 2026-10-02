@@ -1891,6 +1891,43 @@ class SacrificeChosenThenEffect(GameEffect):
         )
 
 
+class DiscardChosenThenEffect(GameEffect):
+    """"You may discard one or more `<what>` cards. When you do, `<payoff>` [with "that many"]." (Loamcrafter Faun)
+    — `SacrificeChosenThenEffect`'s hand-zone sibling: the controller picks any number of matching cards from
+    their hand through the ordinary `_request_choose_objects` chooser (action ``discard``), ``then_that_many``
+    binds the follow-up's ``"x"`` to how many were discarded, and ``trigger`` becomes a real RULE 603.12
+    reflexive trigger so its payoff may target ("return up to that many target … cards from your graveyard").
+    Nothing fires when nothing was discarded. ``what`` is a type word (`continuous.matches_permanent_word`)."""
+
+    def __init__(
+        self,
+        what: str = "land",
+        effects: Optional[list[dict[str, Any]]] = None,
+        trigger: Optional[list[dict[str, Any]]] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.what = what
+        self.effects = list(effects or [])
+        self.trigger = list(trigger or [])
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from .. import continuous  # function-scoped: effects↔continuous cycle
+
+        controller_id = getattr(self.source, "controller_id", None)
+        if controller_id is None:
+            return
+        player = context.state.player_by_id(controller_id)
+        pool = [card for card in player.hand if continuous.matches_permanent_word(card, self.what)]
+        if not pool:
+            return
+        context.engine._request_choose_objects(
+            player, pool, "discard", count=len(pool), optional=True, source=self.source,
+            prompt="Karten zum Abwerfen wählen",
+            then_that_many={"effects": self.effects, "trigger": self.trigger},
+        )
+
+
 class SacrificeSelfEffect(GameEffect):
     """"Sacrifice ~."/"Sacrifice this enchantment." (Dress Down/Underworld
     Breach-shaped standing end-step self-sac) — the effect's own source

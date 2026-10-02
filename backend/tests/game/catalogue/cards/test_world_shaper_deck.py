@@ -230,3 +230,77 @@ def test_szarel_puts_counters_equal_to_its_power_when_i_sacrifice_another_nontok
     engine.resolve_pending_choice(next(o["id"] for o in choice["options"] if o.get("label") == "Bear"))
     engine.resolve_until_stable()
     assert bear.counters.get("+1/+1") == power and power > 0
+
+
+def test_god_eternal_bontu_sacrifices_any_number_of_others_to_draw_that_many_then_returns_third_from_top():
+    engine, p1, p2 = _game("God-Eternal Bontu")
+    keep = battlefield_object(engine, "p1", "Keeper", "Artifact")
+    sac_a = battlefield_object(engine, "p1", "Fodder A", "Artifact")
+    sac_b = battlefield_object(engine, "p1", "Fodder B", "Artifact")
+    for i in range(5):
+        p1.library.append(GameObject(Card(id=f"L{i}", name=f"Lib {i}", type_line="Land"), owner_id="p1", zone=Zone.LIBRARY))
+    bontu = p1.hand[0]
+    p1.mana_pool.add_many({"B": 2, "C": 5})
+    engine.cast_spell(p1, bontu)
+    engine.resolve_until_stable()
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    hand_before = len(p1.hand)
+    for victim in (sac_a, sac_b):
+        choice = engine.state.pending_choice
+        assert choice is not None
+        assert bontu.name not in {o["label"] for o in choice["options"] if "instance_id" in o}  # "other permanents"
+        engine.resolve_pending_choice(str(victim.instance_id))
+        engine.resolve_until_stable()
+    while engine.state.pending_choice:  # "any number": stop after two
+        engine.resolve_pending_choice("decline")
+        engine.resolve_until_stable()
+    assert sac_a.zone == Zone.GRAVEYARD and sac_b.zone == Zone.GRAVEYARD and keep.zone == Zone.BATTLEFIELD
+    assert len(p1.hand) == hand_before + 2  # drew that many
+
+    engine.rules.destroy(bontu)
+    engine.rules.put_triggers_on_stack()
+    while engine.state.pending_choice:  # "you may put her ... third from the top"
+        engine.resolve_pending_choice(next(o["id"] for o in engine.state.pending_choice["options"] if o["id"] != "decline"))
+        engine.resolve_until_stable()
+    engine.resolve_until_stable()
+    assert bontu in p1.library and p1.library.index(bontu) == len(p1.library) - 3  # third from the top
+
+
+def test_loamcrafter_faun_discards_lands_then_returns_that_many_nonland_permanent_cards():
+    engine, p1, p2 = _game("Loamcrafter Faun")
+    lands = [
+        GameObject(Card(id=f"HL{i}", name=f"Hand Land {i}", type_line="Basic Land — Forest", is_land=True), owner_id="p1", zone=Zone.HAND)
+        for i in range(3)
+    ]
+    p1.hand.extend(lands)
+    grave = {}
+    for name, type_line, flags in (
+        ("Dead Rock", "Artifact", {}), ("Dead Bear", "Creature — Bear", {"is_creature": True, "power": 2, "toughness": 2}),
+        ("Dead Bolt", "Instant", {"is_instant": True}), ("Dead Land", "Land", {"is_land": True}),
+    ):
+        grave[name] = GameObject(Card(id=name, name=name, type_line=type_line, **flags), owner_id="p1", zone=Zone.GRAVEYARD)
+        p1.graveyard.append(grave[name])
+    p1.mana_pool.add_many({"G": 2, "C": 4})
+    engine.cast_spell(p1, p1.hand[0])
+    engine.resolve_until_stable()
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    for land in lands[:2]:  # discard two of the three land cards
+        engine.resolve_pending_choice(str(land.instance_id))
+        engine.resolve_until_stable()
+    engine.resolve_pending_choice("decline")  # "one or more": stop at two
+    engine.resolve_until_stable()
+    assert lands[0].zone == Zone.GRAVEYARD and lands[1].zone == Zone.GRAVEYARD and lands[2] in p1.hand
+    engine.rules.put_triggers_on_stack()  # the reflexive "when you do" trigger
+    choice = engine.state.pending_choice
+    assert choice is not None
+    offered = {o["label"] for o in choice["options"] if "instance_id" in o}
+    assert offered == {"Dead Rock", "Dead Bear"}  # nonland permanent cards only (not the instant, not lands)
+    for name in ("Dead Rock", "Dead Bear"):
+        option = next(o for o in engine.state.pending_choice["options"] if o.get("label") == name)
+        engine.resolve_pending_choice(option["id"])
+    while engine.state.pending_choice:
+        engine.resolve_pending_choice("stop")
+    engine.resolve_until_stable()
+    assert grave["Dead Rock"] in p1.hand and grave["Dead Bear"] in p1.hand

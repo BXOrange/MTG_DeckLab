@@ -1704,6 +1704,14 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # "You may discard one or more <what> cards. When you do, … that many …" (Loamcrafter Faun) — the hand-zone
+    # sibling of `sacrifice_chosen_then` just below.
+    "discard_chosen_then",
+    lambda p: DiscardChosenThenEffect(
+        what=str(p.get("what", "land")), effects=list(p.get("effects") or []), trigger=list(p.get("trigger") or []),
+    ),
+)
+EffectRegistry.register(
     # MEC-103: "you may sacrifice up to N `<what>`. When you do, … that many …"
     # (Ravenous Rotbelly, Nyssa of Traken).
     "sacrifice_chosen_then",
