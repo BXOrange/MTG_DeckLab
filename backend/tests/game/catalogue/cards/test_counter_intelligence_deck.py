@@ -417,3 +417,50 @@ def test_patrolling_peacemaker_proliferates_when_an_opponent_commits_a_crime():
     crime("p2")  # an opponent's: proliferate
     assert rock.counters["charge"] == 2 and peacemaker.counters["+1/+1"] == 3
 
+
+
+def test_lux_artillery_grants_sunburst_to_artifact_creature_spells_you_cast():
+    engine, p1 = _game("Lux Artillery")
+    artillery = p1.hand[0]
+    golem_card = GameObject(
+        Card(id="Golem", name="Test Golem", type_line="Artifact Creature — Golem", mana_cost_string="{W}{U}{1}",
+             converted_mana_cost=3, is_creature=True, power=1, toughness=1),
+        owner_id="p1", zone=Zone.HAND,
+    )
+    p1.hand.append(golem_card)
+    p1.mana_pool.add_many({"C": 4})
+    engine.cast_spell(p1, artillery)
+    engine.resolve_until_stable()
+    assert artillery.zone == Zone.BATTLEFIELD
+
+    p1.mana_pool.add_many({"W": 1, "U": 1, "C": 1})  # two colours + one colourless pay for the 3-mana Golem
+    engine.cast_spell(p1, golem_card)
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert golem_card.zone == Zone.BATTLEFIELD
+    assert golem_card.counters.get("+1/+1") == 2  # sunburst: one per colour of mana spent
+
+
+def _lux_end_step(counters):
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+
+    engine, p1 = _game("Lux Artillery")
+    artillery = p1.hand[0]
+    p1.mana_pool.add_many({"C": 4})
+    engine.cast_spell(p1, artillery)
+    engine.resolve_until_stable()
+    rock = battlefield_object(engine, "p1", "Charged Rock", "Artifact")
+    bear = battlefield_object(engine, "p1", "Bear", "Artifact Creature — Bear", is_creature=True, power=2, toughness=2)
+    rock.counters["charge"] = counters // 2
+    bear.counters["+1/+1"] = counters - counters // 2  # an artifact creature: counted once, not twice
+    enemy = engine.state.player_by_id("p2")
+    life = enemy.life
+    engine.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="end", phase="ending", player_id="p1"))
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    return life - enemy.life
+
+
+def test_lux_artillery_deals_ten_to_each_opponent_only_with_thirty_counters():
+    assert _lux_end_step(30) == 10
+    assert _lux_end_step(29) == 0

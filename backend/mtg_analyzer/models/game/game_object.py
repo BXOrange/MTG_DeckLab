@@ -176,6 +176,9 @@ class GameObject:
         #: `SearchLibraryEffect.mana_value_from`'s ``"colors_spent_to_cast"``
         #: source (Bring to Light, MEC-41) via ``len(...)``.
         self.colors_spent_to_cast: frozenset = frozenset()
+        #: RULE 702.43a: a spell that "gains sunburst" (Lux Artillery) — set while it is on the stack,
+        #: consumed (and cleared) by `RulesEngine._apply_entry_counters` when it enters.
+        self.gains_sunburst: bool = False
         #: Adamant's per-colour sibling of ``colors_spent_to_cast``.  This
         #: preserves *how much* of each WUBRG colour paid the spell, not just
         #: whether that colour appeared at least once.

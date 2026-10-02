@@ -4717,6 +4717,12 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # "Whenever you cast an artifact creature spell, it gains sunburst." (Lux Artillery) — marks the
+    # spell that fired the trigger; see `GrantSunburstToTriggeringSpellEffect`.
+    "grant_sunburst_to_triggering_spell",
+    lambda p: GrantSunburstToTriggeringSpellEffect(),
+)
+EffectRegistry.register(
     # PAR-81: "Switch target creature's power and toughness until end of
     # turn." (Twisted Image-shaped) — the resolving one-shot sibling of
     # "pt_switch" just above; see `SwitchPowerToughnessEffect`.

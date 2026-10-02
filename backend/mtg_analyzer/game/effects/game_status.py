@@ -1378,4 +1378,22 @@ class ReduceSpellCostsThisTurnEffect(GameEffect):
         context.state.turn_cost_reductions.append(entry)
 
 
+
+class GrantSunburstToTriggeringSpellEffect(GameEffect):
+    """"Whenever you cast an artifact creature spell, it gains sunburst." (Lux Artillery, RULE 702.43a)
+
+    "It" is the spell whose `SPELL_CAST` event fired this trigger (``trigger_event["instance_id"]``);
+    the trigger resolves above the spell, so the mark is in place when the spell later resolves and
+    `RulesEngine._apply_entry_counters` turns it into counters from the colours of mana spent. A spell
+    that already left the stack (countered in response) is simply not marked.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        event = getattr(context, "trigger_event", None) or {}
+        spell_id = event.get("instance_id")
+        spell = context.state.find_object(spell_id) if spell_id is not None else None
+        if spell is not None and spell.zone == Zone.STACK:
+            spell.gains_sunburst = True
+
+
 register(globals())

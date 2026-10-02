@@ -573,6 +573,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "grant_flash_until_eot": "create_continuous_effect",
     "grant_flashback_to_target": "create_continuous_effect",
     "grant_graveyard_cast_permission_this_turn": "create_continuous_effect",
+    "grant_sunburst_to_triggering_spell": "create_continuous_effect",
     "grant_keyword_to_trigger_subject": "create_continuous_effect",
     "grant_keywords_to_chosen_type_until_eot": "create_continuous_effect",
     "grant_life_for_mana_pip": "create_continuous_effect",

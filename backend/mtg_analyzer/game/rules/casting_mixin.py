@@ -313,6 +313,15 @@ class CastingResolutionMixin:
             if param and int(param.get("n", 0) or 0) > 0:
                 obj.add_counters(kind, int(param["n"]))
 
+        if obj.gains_sunburst:
+            # RULE 702.43a Sunburst *granted* to a spell (Lux Artillery): a +1/+1 counter per colour of
+            # mana spent for a creature, a charge counter otherwise — the same colours count as the
+            # printed keyword's `colors_spent_scale` below.
+            obj.gains_sunburst = False
+            spent = len(getattr(obj, "colors_spent_to_cast", None) or ())
+            if spent > 0:
+                obj.add_counters("+1/+1" if obj.is_creature else "charge", spent)
+
         condition = card_registry.entry_counters(obj.card)
         if condition is None:
             return

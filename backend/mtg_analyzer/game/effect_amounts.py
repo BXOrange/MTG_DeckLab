@@ -107,6 +107,9 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         "counters",  # + ``counter`` (the counter's name), ``of``
         # Every kind of counter among creatures controlled by a player.
         "counters_among_creatures",  # + ``of`` (a player referent)
+        # Every counter among a named group of the controller's permanents (+ ``scope``, a key of
+        # `_COUNTER_SCOPES`).
+        "counters_among_permanents",
         # MEC-83 / RULE 702.42a Domain — "for each basic land type among lands
         # you control". Distinct basic land types (RULE 305.6's five) among
         # the ``of`` player's lands; defers to the one selector that already
@@ -337,6 +340,18 @@ def _base(
             if getattr(obj, "is_creature", False) and obj.controller_id == player_id
         )
 
+    if kind == "counters_among_permanents":
+        # "counters among artifacts and creatures you control" (Lux Artillery): every counter of every
+        # kind on the permanents ``scope`` names, the controller's own. An artifact creature is one
+        # permanent, so it is counted once.
+        if scope_types := _COUNTER_SCOPES.get(str(amount.get("scope", ""))):
+            return sum(
+                sum(v for v in (getattr(obj, "counters", None) or {}).values() if v and v > 0)
+                for obj in context.state.battlefield
+                if obj.controller_id == controller_id and any(has(obj) for has in scope_types)
+            )
+        return 0
+
     if kind == "domain":  # MEC-83 / RULE 702.42a — distinct basic land types
         from .continuous import count_selector  # function-scoped: import cycle
 
@@ -430,6 +445,15 @@ def _base(
         return _resource_of(player, resource)
 
     return 0  # fail-safe: an unmodelled measurement contributes nothing
+
+
+#: `counters_among_permanents`'s ``scope`` vocabulary: the predicates (any one matching) a permanent must pass.
+_COUNTER_SCOPES: dict[str, tuple[Any, ...]] = {
+    "artifacts_and_creatures_you_control": (
+        lambda o: bool(getattr(o, "is_creature", False)),
+        lambda o: bool(getattr(o.card, "is_artifact", False)),
+    ),
+}
 
 
 def amount_of(
