@@ -1213,7 +1213,9 @@ EffectRegistry.register(
     # per-graveyard-card marker rather than reusing the untargeted grant
     # just above.
     "grant_flashback_to_target",
-    lambda p: GrantFlashbackToTargetEffect(cost=p.get("cost")),
+    lambda p: GrantFlashbackToTargetEffect(
+        cost=p.get("cost"), target_kind=p.get("target_kind", "graveyard_instant_or_sorcery"),
+    ),
 )
 EffectRegistry.register(
     "grant_self_activated_ability",  # Urza's Saga's own chapter grants

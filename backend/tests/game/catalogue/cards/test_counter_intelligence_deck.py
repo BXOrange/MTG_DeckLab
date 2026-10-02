@@ -215,3 +215,44 @@ def test_depthshaker_titan_choosing_nothing_never_sacrifices_itself():
     engine.rules.put_triggers_on_stack()
     engine.resolve_until_stable()
     assert titan.zone == Zone.BATTLEFIELD and rock.zone == Zone.BATTLEFIELD
+
+
+def test_emry_lets_you_cast_only_the_chosen_artifact_card_from_the_graveyard():
+    engine, p1 = _game()
+    emry = battlefield_object(
+        engine, "p1", "Emry, Lurker of the Loch", "Legendary Creature — Merfolk Wizard",
+        is_creature=True, power=1, toughness=2,
+    )
+    bind_from_catalogue(emry)
+    emry.summoning_sick = False
+
+    def grave_card(name, type_line, **kw):
+        obj = GameObject(
+            Card(id=name, name=name, type_line=type_line, mana_cost_string="{1}", converted_mana_cost=1, **kw),
+            owner_id="p1", zone=Zone.GRAVEYARD,
+        )
+        p1.graveyard.append(obj)
+        return obj
+
+    rock = grave_card("Grave Rock", "Artifact")
+    other_rock = grave_card("Other Rock", "Artifact")
+    bear = grave_card("Grave Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+
+    from mtg_analyzer.game.targeting import TargetSpec, legal_targets
+
+    pool = legal_targets(engine.state, "p1", TargetSpec(kind="graveyard_artifact"), source=emry)
+    assert {o["name"] for o in pool} == {"Grave Rock", "Other Rock"}  # artifact cards only
+    engine.activate_ability(p1, emry, 0, targets=[rock])
+    engine.resolve_until_stable()
+
+    def castable(obj):
+        return any(
+            a.get("instance_id") == obj.instance_id and a.get("type") == "cast_spell"
+            for a in engine.legal_actions(p1)
+        )
+
+    p1.mana_pool.add_many({"C": 3})
+    assert castable(rock) and not castable(other_rock) and not castable(bear)
+    engine.cast_spell(p1, rock)
+    engine.resolve_until_stable()
+    assert rock.zone == Zone.BATTLEFIELD
