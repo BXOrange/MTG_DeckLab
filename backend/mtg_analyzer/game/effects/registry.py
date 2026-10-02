@@ -706,6 +706,11 @@ EffectRegistry.register(
     lambda p: CopyAbilityEffect(),
 )
 EffectRegistry.register(
+    # "Copy target activated or triggered ability you control X times." (Gogo, Master of Mimicry)
+    "copy_target_ability",
+    lambda p: CopyTargetAbilityEffect(),
+)
+EffectRegistry.register(
     # "Conjure a duplicate of that spell into your hand." (Spellchain
     # Scatter, PAR-124) — the hand-zone sibling of ``"copy_spell"``.
     "conjure_duplicate_into_hand",

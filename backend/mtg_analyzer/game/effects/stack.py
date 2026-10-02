@@ -153,6 +153,35 @@ class CounterAbilityEffect(GameEffect):
             context.counter_ability(target)
 
 
+class CopyTargetAbilityEffect(GameEffect):
+    """"Copy target activated or triggered ability you control X times." (Gogo, Master of Mimicry) —
+    RULE 707.10, the *targeted* sibling of `CopyAbilityEffect` above (which copies "that ability", the one
+    that fired a trigger). The target is an ability item on the stack (``TargetSpec(kind="ability")``,
+    named by `StackItem.stack_id`); only one the effect's controller controls is copyable. ``X`` is the
+    spell/ability's own announced {X} (``GameObject.x_paid``); at X = 0 nothing is copied ("X can't be 0"
+    is a casting restriction this engine does not enforce — a 0-copy activation is simply a no-op).
+
+    **Documented simplification**, as for `CopyAbilityEffect`: "you may choose new targets for the copies"
+    keeps the original's targets.
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind="ability")
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None or not targets:
+            return
+        target = targets[0]
+        stack_id = target.get("stack_id") if isinstance(target, dict) else getattr(target, "stack_id", None)
+        item = next((i for i in context.state.stack if i.stack_id == stack_id), None)
+        controller_id = getattr(self.source, "controller_id", None)
+        if item is None or item.kind != "ability" or controller_id is None or item.controller_id != controller_id:
+            return  # RULE 608.2b: the ability left the stack, or isn't one you control
+        for _ in range(max(0, int(getattr(self.source, "x_paid", 0) or 0))):
+            context.copy_ability(item, controller_id)
+
+
 class CopySpellEffect(GameEffect):
     """Copy a target spell on the stack (RULE 707.10 — Dualcaster Mage/Flare
     of Duplication/Reiterate "copy target instant or sorcery spell").

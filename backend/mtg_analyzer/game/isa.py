@@ -474,6 +474,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "cheat_creature_from_hand": "move_object",
     "combat_restriction_this_turn": "create_continuous_effect",
     "copy_ability": "copy_object",
+    "copy_target_ability": "copy_object",
     "counter_ability": "counter",
     "copy_imprinted_card": "copy_object",
     "copy_permanent": "copy_object",

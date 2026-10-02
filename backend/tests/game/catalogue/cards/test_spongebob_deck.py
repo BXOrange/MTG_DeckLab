@@ -841,3 +841,39 @@ def test_inga_and_esika_draws_when_three_or_more_mana_from_creatures_paid_for_a_
         engine.rules.put_triggers_on_stack()
         engine.resolve_until_stable()
     assert len(p1.hand) == hand_before - 1  # only two mana from creatures: no draw
+
+
+def test_gogo_copies_a_targeted_ability_on_the_stack_x_times():
+    engine, p1 = _game()
+    gogo_card = CardDatabase(DB_PATH).get_card("Gogo, Master of Mimicry")
+    gogo = GameObject(gogo_card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    gogo.controller_id = "p1"
+    bind_from_catalogue(gogo)
+    gogo.summoning_sick = False
+    engine.state.add_to_battlefield(gogo)
+    asc_card = CardDatabase(DB_PATH).get_card("Simic Ascendancy")
+    ascendancy = GameObject(asc_card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    ascendancy.controller_id = "p1"
+    bind_from_catalogue(ascendancy)
+    engine.state.add_to_battlefield(ascendancy)
+    bear = battlefield_object(engine, "p1", "My Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    engine.state.current_step = "main1"
+
+    # {1}{G}{U}: put a +1/+1 counter on target creature you control — activate it and leave it on the stack
+    p1.mana_pool.add_many({"G": 1, "U": 1, "C": 1})
+    counter_ability = next(
+        i for i, a in enumerate(ascendancy.activated_abilities)
+        if getattr(a, "cost", None) is not None
+    )
+    engine.activate_ability(p1, ascendancy, counter_ability, targets=[bear])
+    pending = [item for item in engine.state.stack if item.kind == "ability"]
+    assert len(pending) == 1
+
+    # {X}{X}, {T} with X = 2: copy that ability twice
+    p1.mana_pool.add_many({"C": 4})
+    gogo_ability = next(i for i, a in enumerate(gogo.activated_abilities) if getattr(a, "cost", None) is not None)
+    engine.activate_ability(p1, gogo, gogo_ability, x=2, targets=[{"stack_id": pending[0].stack_id}])
+    engine.resolve_until_stable()
+
+    assert bear.counters.get("+1/+1", 0) == 3  # the original plus two copies
+    assert gogo.tapped
