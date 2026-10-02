@@ -621,6 +621,34 @@ class DrawDiscardMixin:
             if obj.card.converted_mana_cost == mana_value:
                 self.discard_specific(obj, cause=cause)
 
+    def look_at_hand(
+        self, player: Player, owner: Player, source: Optional[GameObject] = None,
+    ) -> None:
+        """"Look at target player's hand." (Clairvoyance, Peek, Glasses of Urza.) Nothing moves: the
+        looking player is shown ``owner``'s hand — every card as an option, any click or "done"
+        acknowledges — through a pending choice, the one thing only its decider ever sees
+        (`game_session._redact`), so an opponent's hand stays hidden from everyone else (RULE 400.2).
+        An empty hand has nothing to look at, so nothing opens."""
+        if not owner.hand:
+            return
+        options = [
+            {"id": "ok", "label": obj.name, "instance_id": obj.instance_id, "card_id": obj.card.id}
+            for obj in owner.hand
+        ]
+        options.append({"id": "decline", "label": "Fertig"})
+        self.open_choice({
+            "kind": "look_hand",
+            "player_id": player.id,
+            "owner_id": owner.id,
+            "prompt": f"Hand von {owner.name}",
+            "source_name": source.name if source is not None else None,
+            "options": options,
+        })
+
+    @continuations.choice("look_hand", answer=continuations.ANSWER_STR, rule="400.2")
+    def _resume_look_hand(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        """Looking changes nothing; the answer only closes the window."""
+
     def exile_hand_choice(
         self,
         player: Player,
@@ -628,6 +656,7 @@ class DrawDiscardMixin:
         source: Optional[GameObject] = None,
         then_specs: Optional[list[dict]] = None,
         optional: bool = False,
+        zone: str = "hand",
     ) -> None:
         """Interactive exile-from-hand (PAR-74 — Kyoki, Sanity's Eclipse:
         "target opponent exiles a card from their hand."). The exile sibling
@@ -637,10 +666,18 @@ class DrawDiscardMixin:
         ``"exile"`` action already exists for the Gemstone Caverns opening-
         hand pick (`offer_opening_hand_battlefield_choice`) and simply calls
         `RulesEngine.exile` on whatever object is chosen, hand card or not.
+        ``zone="graveyard"`` is the same pick over the player's own graveyard
+        ("target player exiles a card from their graveyard" — Merrow
+        Bonegnawer, Scrabbling Claws).
         """
+        graveyard = zone == "graveyard"
         self._request_choose_objects(
-            player, list(player.hand), "exile", count=count, optional=optional,
-            prompt="Wähle eine Karte aus deiner Hand zum Exilieren",
+            player, list(player.graveyard if graveyard else player.hand), "exile", count=count,
+            optional=optional,
+            prompt=(
+                "Wähle eine Karte aus deinem Friedhof zum Exilieren" if graveyard
+                else "Wähle eine Karte aus deiner Hand zum Exilieren"
+            ),
             source=source, then_specs=then_specs,
         )
 

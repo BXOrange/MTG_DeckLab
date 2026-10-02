@@ -72,6 +72,9 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     # battlefield…" (MEC-43 round 2, Beacon of Unrest) — the artifact
     # sibling of `creature_or_planeswalker` below.
     "artifact_or_creature": lambda o: o.is_creature or bool(o.card.is_artifact),
+    # "return all artifact and enchantment cards from your graveyard to the battlefield" (Brilliant
+    # Restoration, Redress Fate) — the artifact/enchantment union, same idiom as above.
+    "artifact_or_enchantment": lambda o: bool(o.card.is_artifact or o.card.is_enchantment),
     # "return a creature or planeswalker card from your graveyard to your
     # hand" (Takenuma, Abandoned Mire's Channel ability) — the union of the
     # two single-type filters, same idiom as `instant_or_sorcery` above.
@@ -371,6 +374,8 @@ _GRAVEYARD_TYPE_LABELS: dict[str, str] = {
     "creature": "Kreaturenkarte",
     "land": "Landkarte",
     "artifact": "Artefaktkarte",
+    "artifact_or_enchantment": "Artefakt- oder Verzauberungskarte",
+    "artifact_or_creature": "Artefakt- oder Kreaturenkarte",
     "enchantment": "Verzauberungskarte",
     "non_aura_enchantment": "Nicht-Aura-Verzauberungskarte",
     "instant_or_sorcery": "Spontanzauber- oder Hexereikarte",
@@ -462,6 +467,9 @@ class TargetSpec:
     #: is never a legal target to begin with, not merely a no-op if chosen),
     #: mirroring ``color``'s narrowing. ``None`` means unfiltered.
     max_mana_value: Optional[int] = None
+    #: The floor sibling of ``max_mana_value`` ("exile target permanent with mana value 4 or greater" —
+    #: Despark, Kin-Tree Severance), gated by the same ``apply_max_mana_value`` frame flag.
+    min_mana_value: Optional[int] = None
     #: The exact-match sibling of ``max_mana_value`` (PAR-74, Skyfire Kirin
     #: — "gain control of target creature with **that spell's** mana
     #: value") — a fixed mana value the target must equal, not a ceiling.
@@ -1435,6 +1443,10 @@ def _legal_from_frame(
             obj.card.converted_mana_cost > spec.max_mana_value
         ):
             continue
+        if frame.apply_max_mana_value and spec.min_mana_value is not None and (
+            obj.card.converted_mana_cost < spec.min_mana_value
+        ):
+            continue
         if frame.apply_max_mana_value and spec.exact_mana_value is not None and (
             obj.card.converted_mana_cost != spec.exact_mana_value
         ):
@@ -1834,6 +1846,7 @@ def _legal_targets_for(
             and _targetable_by(o, source)
             and _color_ok(spec, o.colors)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
+            and (spec.min_mana_value is None or o.card.converted_mana_cost >= spec.min_mana_value)
             and (spec.exact_mana_value is None or o.card.converted_mana_cost == spec.exact_mana_value)
             and (
                 not spec.creature_filter
@@ -1947,6 +1960,7 @@ def _legal_targets_for(
             and (not spec.subtype or spec.subtype in o.card.type_line.lower())
             and not (spec.exclude_legendary and o.card.is_legendary)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
+            and (spec.min_mana_value is None or o.card.converted_mana_cost >= spec.min_mana_value)
             # "…creature card with mana value X from your graveyard" (Isareth the Awakener, PAR-139).
             and (spec.exact_mana_value is None or o.card.converted_mana_cost == spec.exact_mana_value)
             # "return target creature card with power 2 or less from your graveyard" (Alesha,
@@ -1977,6 +1991,9 @@ def _legal_targets_for(
         ]
         if spec.spell_filter:
             card_filter = dict(spec.spell_filter)
+            if card_filter.get("mana_value") == "x":
+                # "counter target spell with mana value X" — the announced {X}, as for `exact_mana_value`.
+                card_filter["mana_value"] = int(getattr(source, "x_paid", 0) or 0)
             if card_filter.pop("single_target", False):
                 items = [item for item in items if len(item.targets) == 1]
             if card_filter:

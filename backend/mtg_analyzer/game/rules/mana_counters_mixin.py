@@ -164,14 +164,17 @@ def _counter_totals(target: Union[GameObject, Player]) -> dict[str, int]:
 class ManaCountersMixin:
     """Resolve-time mana production, +1/+1-family counters, randomness (RULE 106.4/122/613)."""
 
-    def add_mana(self, player: Player, color: str, amount: int = 1) -> None:
+    def add_mana(
+        self, player: Player, color: str, amount: int = 1, keep_until: Optional[str] = None,
+    ) -> None:
         """Add ``amount`` mana of ``color`` straight to ``player``'s pool
         (RULE 106.4) — a spell's own bare "Add {B}." resolve-time body
         (Dark Ritual-shaped), as opposed to a permanent's mana ability
         (`game/mana_abilities.py`, tapped for mana outside the stack
-        entirely, never routed through this engine at all).
+        entirely, never routed through this engine at all). ``keep_until`` is "until end of turn, you don't lose this
+        mana as steps and phases end" (`ManaPool.kept`).
         """
-        player.mana_pool.add(color, amount)
+        player.mana_pool.add(color, amount, keep_until=keep_until)
     #: German labels for the interactive "add one mana of any color" choice.
     _ANY_COLOR_LABELS: dict[str, str] = {
         "W": "Weiß", "U": "Blau", "B": "Schwarz", "R": "Rot", "G": "Grün",
@@ -182,7 +185,8 @@ class ManaCountersMixin:
     #: Monolith produces exactly that.
     _MANA_TYPE_LABELS: dict[str, str] = {**_ANY_COLOR_LABELS, "C": "Farblos"}
     def add_mana_any_color(
-        self, player: Player, colors: Optional[list[str]] = None, amount: int = 1
+        self, player: Player, colors: Optional[list[str]] = None, amount: int = 1,
+        keep_until: Optional[str] = None,
     ) -> None:
         """Open the interactive colour choice for a resolve-time "add one
         mana of any color" effect (RULE 106.4) — e.g. Deathrite Shaman's
@@ -212,7 +216,7 @@ class ManaCountersMixin:
         if not offered or amount <= 0:
             return
         if len(offered) == 1:
-            self.add_mana(player, offered[0], amount)
+            self.add_mana(player, offered[0], amount, keep_until=keep_until)
             return
         self.open_choice({
             "kind": "add_mana_any_color",
@@ -223,6 +227,7 @@ class ManaCountersMixin:
                 {"id": color, "label": self._MANA_TYPE_LABELS.get(color, color)}
                 for color in offered
             ],
+            **({"keep_until": keep_until} if keep_until else {}),
         })
     @continuations.choice("add_mana_any_color", answer=continuations.ANSWER_STR, rule="106.4")
     def _resume_add_mana_any_color(self, choice: dict[str, Any], answer: Optional[str]) -> None:
@@ -237,7 +242,7 @@ class ManaCountersMixin:
         player = self.state.player_by_id(choice["player_id"])
         offered = [o["id"] for o in choice.get("options") or []]
         color = answer if answer in offered else (offered[0] if offered else "W")
-        self.add_mana(player, color, int(choice.get("amount", 1) or 1))
+        self.add_mana(player, color, int(choice.get("amount", 1) or 1), keep_until=choice.get("keep_until"))
     def grant_protection_choice(
         self, target: GameObject, player: Player, allow_colorless: bool = False
     ) -> None:

@@ -3759,6 +3759,7 @@ class MiscSystemsMixin:
                     self.add_counters(obj, -amount, kind)
         elif action == "sacrifice":
             # RULE 701.17a: non-destructive, so no regeneration shield saves it.
+            self.note_sacrificed(source, obj)
             self.put_into_graveyard(obj)
         elif action == "exploit":
             # RULE 702.110b: the creature exploits a creature when its controller sacrifices one as the exploit

@@ -424,6 +424,7 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     "roll_die": "roll_die",
     "sacrifice": "sacrifice",
     "scry": "scry",
+    "look_reorder_top": "scry",
     "search": "search",
     "set_life": "set_life",
     "shuffle": "shuffle",
@@ -531,6 +532,7 @@ _ALIAS_TYPES: dict[str, str] = {
     # `exile_hand`'s untargeted whole-hand move, but the same RULE 701.13
     # primitive underneath.
     "exile_hand_card": "exile",
+    "look_at_hand": "reveal",
     "exile_library": "exile",
     "exile_own_graveyard_card_mana_value_x": "exile",
     "exile_specific": "exile",

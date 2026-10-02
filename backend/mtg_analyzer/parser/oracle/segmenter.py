@@ -24,7 +24,7 @@ from typing import Any, Callable, Optional
 
 from .catalogue.object_trigger_head import legacy_group_condition, parse_object_trigger_head
 from .catalogue.cost_text import scan_cost_text
-from .catalogue.count_phrase import parse_amount_phrase, parse_count_phrase
+from .catalogue.count_phrase import SACRIFICED_TERM, parse_amount_phrase, parse_count_phrase
 from .catalogue.spell_phrase import parse_spell_phrase
 from .catalogue.handlers import (
     ACTIVATE_ONLY_ONCE_MARKER,
@@ -116,6 +116,9 @@ _TRIGGER_VERBS: tuple[tuple[str, str], ...] = (
     # the verb match ignores (the engine fires the same event regardless of
     # the from-zone), so the shorter "specializes" row claims them too.
     ("specializes", "SPECIALIZED"),
+    # RULE 605.1: "whenever enchanted land is tapped for mana" (Wild Growth) — `GameEngine.tap_for_mana` fires
+    # `TAPPED_FOR_MANA` with the land's own ``instance_id``, so the self/attached subject scopes as for any verb.
+    ("is tapped for mana", "TAPPED_FOR_MANA"),
     ("enters", "ENTERS_BATTLEFIELD"),
     # RULE 700.4's expanded spelling of "dies".  The condition grammar
     # below additionally verifies the owner-relative "your graveyard"
@@ -1892,6 +1895,17 @@ _NO_REGEN_SENTENCE_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+#: "Add {R}. **Until end of turn, you don't lose this mana as steps and phases end.**" (Brazen Collector, Savage
+#: Ventmaw, Neheb, Sakiko, Avatar Roku's "until end of combat") — a trailing sentence that is a property of the mana
+#: the previous clause added, so it tags that clause's `add_mana` specs with ``keep_until`` (`ManaPool.kept`)
+#: rather than being an effect of its own. Anything before it that adds no mana fails closed.
+_KEEP_MANA_SENTENCE_RE = re.compile(
+    r"^(?P<before>.+?)\.\s*until (?P<until>end of turn|end of combat), (?:you|they) don'?t lose this mana as "
+    r"steps(?: and phases)? end(?:\.\s*(?P<after>.+))?\.?$",
+    re.IGNORECASE | re.DOTALL,
+)
+_KEEP_MANA_UNTIL = {"end of turn": "end_of_turn", "end of combat": "end_of_combat"}
+
 #: "~ deals N damage to target creature. **If that creature would die this
 #: turn, exile it instead.**" (RULE 616 / 701.11 — Magma Spray / Feed the
 #: Flames / Bot Bashing Time / Elspeth's Smite; also the pump form, Bleed
@@ -2709,6 +2723,48 @@ _CAST_MANA_SOURCE_RESTRICTION_RE = re.compile(
 )
 
 
+#: "`<cost>` or pay {N}" / "pay {N} or `<cost>`" (RULE 601.2b — Lightning Axe "discard a card or pay {5}", Annihilating
+#: Glare "pay {4} or sacrifice an artifact or creature", Soaring Stoneglider "exile 2 cards from your graveyard or pay
+#: {1}{W}", Daring Buccaneer "reveal a Pirate card from your hand or pay {2}"): the caster picks one branch when
+#: casting — the mana by default, the other cost as the `pay_additional` variant (`additional_cost["or_mana"]`).
+_ADDITIONAL_COST_OR_MANA_RE = re.compile(
+    r"^(?:(?P<cost_first>.+?) or pay (?P<mana_first>(?:\{[^{}]+\})+)"
+    r"|pay (?P<mana_second>(?:\{[^{}]+\})+) or (?P<cost_second>.+))$",
+    re.IGNORECASE,
+)
+_OR_MANA_SACRIFICE_PHRASES: dict[str, str] = {
+    "creature": "creature", "artifact": "artifact", "land": "land",
+    "artifact or creature": "artifact_or_creature", "creature or artifact": "artifact_or_creature",
+    "creature or planeswalker": "creature_or_planeswalker", "creature or enchantment": "creature_or_enchantment",
+}
+_ADDITIONAL_COST_OR_MANA_SACRIFICE_RE = re.compile(r"^sacrifice an? (?P<what>.+)$", re.IGNORECASE)
+_ADDITIONAL_COST_PAY_N_LIFE_RE = re.compile(r"^pay (?P<n>\d+) life$", re.IGNORECASE)
+_ADDITIONAL_COST_REVEAL_FROM_HAND_RE = re.compile(
+    r"^reveal an? (?P<type>[a-z]+) card from your hand$", re.IGNORECASE
+)
+
+
+def _or_mana_inner_cost(text: str) -> Optional[dict[str, Any]]:
+    """The non-mana half of an "… or pay {N}" additional cost — a closed vocabulary of single costs."""
+    text = text.strip().lower()
+    if re.fullmatch(r"discard a card", text):
+        return {"discard": 1}
+    life = _ADDITIONAL_COST_PAY_N_LIFE_RE.match(text)
+    if life is not None:
+        return {"pay_life": int(life.group("n"))}
+    sac = _ADDITIONAL_COST_OR_MANA_SACRIFICE_RE.match(text)
+    if sac is not None:
+        word = _OR_MANA_SACRIFICE_PHRASES.get(sac.group("what").strip())
+        return None if word is None else {"sacrifice": word}
+    reveal = _ADDITIONAL_COST_REVEAL_FROM_HAND_RE.match(text)
+    if reveal is not None:
+        return {"reveal_from_hand": reveal.group("type")}
+    exile_gy = _ADDITIONAL_COST_EXILE_GRAVEYARD_RE.match(text)
+    if exile_gy is not None and not exile_gy.group("type") and exile_gy.group("n").isdigit():
+        return {"exile_from_graveyard": {"count": int(exile_gy.group("n"))}}
+    return None
+
+
 def _additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
     """One additional-cost clause's closed vocabulary → its dict, or ``None``.
 
@@ -2725,6 +2781,11 @@ def _additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
         return {"sacrifice_or_mana": {
             "sacrifice": sac_or_mana.group("what"), "mana": sac_or_mana.group("mana"),
         }}
+    or_mana = _ADDITIONAL_COST_OR_MANA_RE.match(text)
+    if or_mana is not None:
+        inner = _or_mana_inner_cost(or_mana.group("cost_first") or or_mana.group("cost_second"))
+        if inner is not None:
+            return {"or_mana": {"cost": inner, "mana": or_mana.group("mana_first") or or_mana.group("mana_second")}}
     if _ADDITIONAL_COST_SACRIFICE_ARTIFACT_OR_CREATURE_RE.match(text):
         return {"sacrifice": "artifact_or_creature"}
     sac = _ADDITIONAL_COST_SACRIFICE_RE.match(text)
@@ -3572,6 +3633,13 @@ _FOR_EACH_AMOUNTS: dict[str, dict[str, Any]] = {
 _MAGNITUDE_PARAM_KEYS: tuple[str, ...] = ("amount", "count")
 
 
+#: "for each creature destroyed this way" / "the number of permanents exiled this way" (Fumigate, Death Begets Life,
+#: Sunfall) — `GameContext`'s own per-resolution tallies. They count every object the resolution destroyed or
+#: exiled, so only the unqualified nouns are read (a "nontoken creature destroyed this way" is a narrower count).
+_THIS_WAY_TALLY_RE = re.compile(r"^(?:creature|permanent|card)s? (?P<verb>destroyed|exiled) this way$")
+_THIS_WAY_TALLY_NAMES = {"destroyed": "permanents_destroyed_this_way", "exiled": "objects_exiled_this_way"}
+
+
 def _count_amount(
     phrase: str, *, self_subject: bool, previous_subject: bool = True, group_subject: bool = False
 ) -> "Optional[dict[str, Any]]":
@@ -3581,6 +3649,9 @@ def _count_amount(
     amount = _FOR_EACH_AMOUNTS.get(phrase)
     if amount is not None:
         return amount
+    this_way = _THIS_WAY_TALLY_RE.match(phrase)
+    if this_way is not None:
+        return {"kind": "this_way", "tally": _THIS_WAY_TALLY_NAMES[this_way.group("verb")]}
     cm = _FOR_EACH_COUNTER_RE.match(phrase)
     if cm is not None:
         who = cm.group("who").lower()
@@ -3836,7 +3907,8 @@ _DAMAGE_TO_EQUAL_TO_RE = re.compile(
 #: `count_phrase.parse_amount_phrase`. The recipient may sit before "equal to" or after the term.
 _EQUAL_TO_AGGREGATE_RE = re.compile(
     r"^(?P<verb>.+?)\s+(?P<noun>life|cards?|damage)(?P<pre>\s+to (?:any target|target [a-z ]+?|each opponent|each player|that player))?"
-    r" equal to (?P<phrase>the (?:greatest|total) (?:mana value|power|toughness) (?:among|of) .+?)"
+    r" equal to (?P<phrase>the (?:greatest|total) (?:mana value|power|toughness) (?:among|of) .+?|"
+    rf"{SACRIFICED_TERM})"
     r"(?P<tail>\s+to (?:any target|target [a-z ]+?|each opponent|each player|that player))?$",
     re.IGNORECASE,
 )
@@ -3844,11 +3916,28 @@ _EQUAL_TO_AGGREGATE_RE = re.compile(
 _X_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "power", "toughness")
 
 
+#: "`<effect with x>`, where x is the sacrificed creature's power" (Ghoulcaller Gisa, Atogatog) — X as an
+#: amount term rather than "the number of …": read by `count_phrase.parse_amount_phrase` like the aggregates.
+_WHERE_X_AMOUNT_RE = re.compile(
+    rf"^(?P<rest>.+?),?\s+where x is (?P<phrase>(?:\d+ plus )?(?:{SACRIFICED_TERM}"
+    r"|the (?:greatest|total) (?:mana value|power|toughness) (?:among|of) [^.]+?))$", re.IGNORECASE
+)
 #: "`<sentence>`, where x is `<phrase>`. `<more sentences>`" — the sentence defining X is not the last.
 _WHERE_X_MID_BODY_RE = re.compile(
     r"^(?P<head>[^.]*?),\s*where x is (?P<phrase>[^.]+?)\.\s+(?P<tail>.+)$",
     re.IGNORECASE,
 )
+
+
+#: "`<head>`, where x is `<phrase>`, then `<tail>`" — the definition sits between two parts of one
+#: sentence ("look at the top x cards of your library, where x is the number of cards in your hand, then
+#: put them back in any order", Descendant of Soramaro). Moved to the end, X is the same measurement.
+_WHERE_X_THEN_RE = re.compile(
+    r"^(?P<head>[^.]*?),\s*where x is (?P<phrase>[^.,]+?),\s*then (?P<tail>[^.]+)$", re.IGNORECASE,
+)
+
+
+_MINUS_TAIL_RE = re.compile(r"\s+minus (?P<n>\d+)$")
 
 
 def _where_x_specs(
@@ -3859,8 +3948,29 @@ def _where_x_specs(
     with ``several``, to several effects that share it ("~ deals X damage to target
     creature and you gain X life, where X is …" — one X for the whole sentence)."""
     text = body.strip().rstrip(".").strip()
+    between = _WHERE_X_THEN_RE.match(text)
+    if between is not None:
+        kwargs = dict(
+            self_subject=self_subject, previous_subject=previous_subject,
+            group_subject=group_subject, previous_selector=previous_selector,
+        )
+        # One effect that reads "then" inside itself ("look at the top x cards …, then put them back in any order")…
+        whole = _where_x_specs(
+            f"{between.group('head')}, then {between.group('tail')}, where x is {between.group('phrase')}",
+            several=several, **kwargs,
+        )
+        if whole is not None:
+            return whole
+        # …otherwise X belongs to the first effect only and the rest follows it ("scry x, where x is …, then
+        # draw 3 cards", Ugin's Insight): measured before the first effect, which nothing earlier can change.
+        head = _where_x_specs(f"{between.group('head')}, where x is {between.group('phrase')}", **kwargs)
+        tail = parse_effect_body(between.group("tail").strip(), **kwargs) if head is not None else None
+        return None if head is None or not tail else head + tail
     m = _WHERE_X_RE.match(text)
-    if m is None or "." in m.group("phrase"):
+    amount_m = _WHERE_X_AMOUNT_RE.match(text) if m is None else None
+    if amount_m is not None:
+        m = amount_m
+    elif m is None or "." in m.group("phrase"):
         # PAR-137: the definition sits mid-body — "exile the top x cards of your library, where x is
         # the number of creatures you control. You may play those cards this turn." X is one
         # measurement for the whole ability, so it reads the same moved to the end.
@@ -3874,7 +3984,9 @@ def _where_x_specs(
         if m is not None:
             return None  # a sentence break inside the phrase that is not this shape: not an X definition
     aggregate = None
-    if m is not None:
+    if amount_m is not None:
+        aggregate, rest = m, m.group("rest")
+    elif m is not None:
         rest = m.group("rest")
     else:
         m = _EQUAL_TO_RE.match(text) or _DAMAGE_TO_EQUAL_TO_RE.match(text)
@@ -3888,9 +4000,15 @@ def _where_x_specs(
         term = parse_amount_phrase(m.group("phrase"))
         amount = None if term is None else {"kind": "count_selector", "selector": term}
     else:
-        amount = _count_amount(
-            m.group("phrase"), self_subject=self_subject, previous_subject=previous_subject
-        )
+        phrase = m.group("phrase")
+        # "…the number of cards in your hand **minus 4**" (Ivory Tower): a negative X counts as 0
+        # (RULE 107.1b), so the subtraction is floored.
+        minus = _MINUS_TAIL_RE.search(phrase)
+        if minus is not None:
+            phrase = phrase[: minus.start()]
+        amount = _count_amount(phrase, self_subject=self_subject, previous_subject=previous_subject)
+        if amount is not None and minus is not None:
+            amount = {**amount, "minus": int(minus.group("n")), "minimum": 0}
     if amount is None:
         return None
     inner = parse_effect_body(
@@ -3903,9 +4021,11 @@ def _where_x_specs(
     bound_any = False
     for spec in inner:
         params = dict(spec.params)
-        if any(v == "-x" for v in params.values()):
+        # "-x" (a pump's -X/-X) binds as the negated measurement.
+        negated = [k for k in _X_PARAM_KEYS if params.get(k) == "-x"]
+        if any(v == "-x" for k, v in params.items() if k not in _X_PARAM_KEYS):
             return None
-        holders = [k for k in _X_PARAM_KEYS if params.get(k) == "x"]
+        holders = [k for k in _X_PARAM_KEYS if params.get(k) in ("x", "-x")]
         if several and not holders:
             # "put a +1/+1 counter on ~, then create X tokens, where X is the number of
             # counters on ~" (Anim Pakal) measures *after* the first effect; a bind
@@ -3913,7 +4033,7 @@ def _where_x_specs(
             # takes the X is one shared measurement.
             return None
         for key in holders:
-            params[key] = "$n"
+            params[key] = "-$n" if key in negated else "$n"
         bound_any = bound_any or bool(holders)
         entry = {"type": spec.type, "params": params}
         if spec.condition is not None:
@@ -4778,6 +4898,24 @@ def parse_effect_body(
                     before_specs, enters_atk.group("after"), group_subject=group_subject
                 )
         # regex matched but nothing stampable — fall through, fail closed
+
+    keep_mana = _KEEP_MANA_SENTENCE_RE.match(body)
+    if keep_mana is not None:
+        before_specs = parse_effect_body(
+            keep_mana.group("before"), self_subject=self_subject, previous_subject=previous_subject,
+            group_subject=group_subject,
+        )
+        if before_specs is None or not any(spec.type == "add_mana" for spec in before_specs):
+            return None
+        keep = _KEEP_MANA_UNTIL[keep_mana.group("until").lower()]
+        before_specs = [
+            EffectSpec(spec.type, {**spec.params, "keep_until": keep}, condition=spec.condition)
+            if spec.type == "add_mana" else spec
+            for spec in before_specs
+        ]
+        return _with_after_tail(
+            before_specs, keep_mana.group("after"), previous_subject=previous_subject, group_subject=group_subject,
+        )
 
     no_regen = _NO_REGEN_SENTENCE_RE.match(body)
     if no_regen is not None:
@@ -7448,7 +7586,7 @@ def _segment_line_unsplit(
             "spell_effect",
             effects=[],
             additional_cost=cost,
-            additional_cost_optional=is_optional or "sacrifice_or_mana" in cost,
+            additional_cost_optional=is_optional or "sacrifice_or_mana" in cost or "or_mana" in cost,
             raw_text=raw,
             parser=provenance,
         )

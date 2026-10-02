@@ -115,6 +115,9 @@ rule(
 # -- scry / look / connive ---------------------------------------------------------------------------
 
 rule("scry", ("count_from_count_selector", "count", lambda v, p: counted(v)))
+# "you get that many {E}": a player-counter amount that is a field of the firing event.
+rule("add_player_counters", ("amount_from_trigger_event", "amount", lambda v, p: event_field(v)))
+rule("look_reorder_top", ("count_from_count_selector", "count", lambda v, p: counted(v)))
 rule(
     "inspect_top_choose",
     # "3 plus the number of creatures in your party": the printed addend rides on the operand.

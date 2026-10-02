@@ -70,7 +70,7 @@ const CHOICE_ICONS = {
   enter_as_copy: '🪞', counter_unless_pays: '🚫', ward: '🛡️', trigger_doubler_tap: '🔁',
   commander_zone: '👑', trigger_mode: '🎭', add_mana_any_color: '💎',
   choose_creature_type: '🐾', choose_color: '🎨', choose_basic_land_type: '🗺️', read_ahead: '📜',
-  scry: '🔮', surveil: '🕵️', clash: '⚔️', opening_hand_battlefield: '🌅', dredge: '⚰️',
+  scry: '🔮', reorder_top: '🔮', look_hand: '👁️', surveil: '🕵️', clash: '⚔️', opening_hand_battlefield: '🌅', dredge: '⚰️',
   explore_bin: '🧭', populate: '🌱', bolster: '💪', blight: '🥀', endure: '🕊️', recruit: '🎖️',
   // MEC-108: "your choice of a flying counter or a lifelink counter" — at resolution / as it enters.
   counter_kind: '🏷️', choose_enter_counter: '🏷️',
@@ -1791,7 +1791,7 @@ export function createGameBoardView(opts = {}) {
       ? replacementOrderHtml(pending)
       : pending.kind === 'order_triggers'
         ? triggerOrderHtml(pending)
-        : pending.kind === 'scry' || pending.kind === 'surveil'
+        : pending.kind === 'scry' || pending.kind === 'surveil' || pending.kind === 'reorder_top' || pending.kind === 'look_hand'
           ? lookTopChoiceHtml(pending)
           : pending.kind === 'clash'
             ? clashChoiceHtml(pending)

@@ -2422,33 +2422,49 @@ def _blink_non_subtype(m: re.Match[str]) -> list[EffectSpec]:
 #: **other** target nonland permanent you control") is the same free case as
 #: "another": the source-excluding ``*_you_control`` `legal_targets` branch
 #: makes plain / "another" / "other" resolve identically.
+#: Plural targets (Displace / Illusionist's Stratagem "exile up to 2 target creatures you control, then return those
+#: cards …", Brago "any number of target nonland permanents", Gandalf, Shadow's Foe "up to 3 target lands … tapped")
+#: ride the same row: the count is the target count, "those cards"/"them" the referent, "under their owner's
+#: control" the owner form.
 _BLINK_PLAIN_RE = _c(
-    r"exile (?:up to (?P<up_to>one|[0-9]+) )?(?:(?:an)?other )?target "
+    r"exile (?:(?P<any_number>any number of )|up to (?P<up_to>one|[0-9]+) |(?P<exactly>[2-9]) )?"
+    r"(?:(?:an)?other )?target "
     # "…target **tapped** creature you control…" (Far Traveler's granted
     # end-step blink) — a state filter on the target, `BlinkEffect.
     # creature_filter` (the same param `_blink_non_subtype` uses for its
     # subtype exclusion).
-    r"(?P<tapped>tapped )?(?P<kind>nonland permanent|permanent|creature) you control, "
-    r"then return (?:that card|it) to the battlefield under (?P<who>your|its owner'?s) control"
+    r"(?P<tapped>tapped )?(?P<kind>nonland permanents?|permanents?|creatures?|lands?) you control, "
+    r"then return (?:that card|it|those cards|them) to the battlefield(?P<enters_tapped> tapped)? "
+    r"under (?P<who>your|its owner'?s|their owners?'?s?) control"
 )
+#: How many a plural blink target phrase may name when it says "any number" (the engine's own multi-target cap).
+_BLINK_ANY_NUMBER_CAP = 10
 
 
 def _blink_plain(m: re.Match[str]) -> list[EffectSpec]:
-    kind_word = m.group("kind")
+    kind_word = m.group("kind").rstrip("s") if m.group("kind") != "lands" else "land"
     target_kind = {
         "creature": "creature_you_control",
         "permanent": "permanent_you_control",
         "nonland permanent": "nonland_permanent_you_control",
+        "land": "land_you_control",
     }[kind_word]
     params: dict = {"target_kind": target_kind}
     if m.group("who") == "your":
         params["under_your_control"] = True
     if m.group("tapped"):
         params["creature_filter"] = {"tapped": True}
+    if m.group("enters_tapped"):
+        params["tapped"] = True
     up_to = m.group("up_to")
-    if up_to:
+    if m.group("any_number"):
+        params["optional"] = True
+        params["target_count_max"] = _BLINK_ANY_NUMBER_CAP
+    elif up_to:
         params["optional"] = True
         params["target_count_max"] = 1 if up_to == "one" else int(up_to)
+    elif m.group("exactly"):
+        params["target_count"] = int(m.group("exactly"))
     return [EffectSpec("blink", params)]
 
 
@@ -2539,15 +2555,35 @@ def _target_player_edict(m: re.Match[str]) -> list[EffectSpec]:
 #: "each opponent / target opponent sacrifices a creature with the greatest power among creatures they
 #: control" (Crackling Doom, Gix's Command, Szat's Will, Professor Onyx's −3 — the hand-authored original) —
 #: `SacrificeEffect.greatest_power` narrows the pick to the tied leaders of that player's own board.
+#: …and the same edict by **mana value**, over creatures or creatures and planeswalkers, as a sacrifice or an exile
+#: (Blot Out / End of the Hunt "exiles", Flare of Malice / Soul Shatter / Break Under Pressure "sacrifices"). A tie is
+#: the chosen player's pick among the tied leaders (`SacrificeEffect.greatest`).
 _SACRIFICE_GREATEST_POWER_RE = _c(
-    r"(?P<who>each opponent|target opponent|target player) sacrifices a creature "
-    r"(?:with the greatest power among creatures (?:they|that player) controls?"
+    r"(?P<who>each opponent|target opponent|target player) (?P<verb>sacrifices|exiles) a "
+    r"(?P<what>creature|creature or planeswalker) "
+    r"(?:with the greatest (?P<stat>power|mana value) among (?P<pool>creatures|creatures and planeswalkers) "
+    r"(?:they|that player) controls?"
+    r"|they control with the greatest (?P<stat2>power|mana value) among (?P<pool2>creatures|creatures and planeswalkers) "
+    r"they control"
     r"|they control with the greatest power)"
 )
 
 
-def _sacrifice_greatest_power(m: re.Match[str]) -> list[EffectSpec]:
-    params: dict = {"what": "creature", "count": 1, "greatest_power": True}
+def _sacrifice_greatest_power(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    groups = m.groupdict()
+    stat = groups["stat"] or groups["stat2"] or "power"
+    pool = groups["pool"] or groups["pool2"] or ("creatures" if groups["what"] == "creature" else None)
+    # The "among …" pool must be the picked type: "creature" ↔ "creatures", "creature or planeswalker" ↔ both.
+    if pool is not None and (pool == "creatures") != (groups["what"] == "creature"):
+        return None
+    if groups["verb"] == "exiles" and m.group("who") == "each opponent":
+        return None  # an exile edict printed on every opponent is not a card yet
+    params: dict = {
+        "what": "creature" if groups["what"] == "creature" else "creature_or_planeswalker", "count": 1,
+        "greatest": stat.replace(" ", "_"),
+    }
+    if groups["verb"] == "exiles":
+        params["action"] = "exile"
     if m.group("who") == "each opponent":
         params["selector"] = "each_opponent"
     else:
@@ -2805,21 +2841,23 @@ _PREVIOUS_TARGET_CONTROLLER: dict = {"of": "previous_target", "as": "controller"
 # Dalek Drone's destroyed creature) — the same disambiguation "its
 # controller" already relies on, just under a different printed pronoun.
 _CONTROLLER_REFERENT = r"(?:(?:its|that creature'?s) controller|that player)"
-_ITS_CONTROLLER_LOSES_LIFE_RE = _c(rf"{_CONTROLLER_REFERENT} loses {NUMBER} life")
-_ITS_CONTROLLER_GAINS_LIFE_RE = _c(rf"{_CONTROLLER_REFERENT} gains {NUMBER} life")
+#: ``x`` is a "…loses life equal to <amount>" rewrite's own measurement (`segmenter._where_x_specs` — Deny the Witch);
+#: the group/attached rows (`_its_controller_spec`) have nothing to bind it to and refuse it.
+_ITS_CONTROLLER_LOSES_LIFE_RE = _c(rf"{_CONTROLLER_REFERENT} loses (?P<n>\d+|x) life")
+_ITS_CONTROLLER_GAINS_LIFE_RE = _c(rf"{_CONTROLLER_REFERENT} gains (?P<n>\d+|x) life")
 _ITS_CONTROLLER_DRAWS_RE = _c(rf"{_CONTROLLER_REFERENT} draws? {COUNT_X} cards?")
 _ITS_CONTROLLER_DISCARDS_RE = _c(rf"{_CONTROLLER_REFERENT} discards? {COUNT} cards?")
 
 
 def _its_controller_loses_life(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("lose_life", {
-        "amount": int(m.group("n")), "player": _PREVIOUS_TARGET_CONTROLLER,
+        "amount": count_or_x_of(m.group("n")), "player": _PREVIOUS_TARGET_CONTROLLER,
     })]
 
 
 def _its_controller_gains_life(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("gain_life", {
-        "amount": int(m.group("n")), "player": _PREVIOUS_TARGET_CONTROLLER,
+        "amount": count_or_x_of(m.group("n")), "player": _PREVIOUS_TARGET_CONTROLLER,
     })]
 
 
@@ -3034,6 +3072,8 @@ _ITS_CONTROLLER_SUBJECTS: dict[str, tuple[dict, str]] = {
 
 
 def _its_controller_spec(verb: str, m: re.Match[str], player: dict, mill_selector: str) -> Optional[list[EffectSpec]]:
+    if verb in ("loses_life", "gains_life") and m.group("n") == "x":
+        return None
     if verb == "loses_life":
         return [EffectSpec("lose_life", {"amount": int(m.group("n")), "player": player})]
     if verb == "gains_life":
@@ -3565,7 +3605,20 @@ def _destroy_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if not target_kind_allowed(kind, ("creature", "permanent", "nonland_permanent")):
         return None
-    return [EffectSpec("destroy", {"target_kind": kind, "max_mana_value": int(m.group("mv"))})]
+    return [EffectSpec("destroy", {"target_kind": kind, _mana_value_bound_key(m): int(m.group("mv"))})]
+
+
+def _mana_value_bound_key(m: re.Match[str]) -> str:
+    """"…with mana value N or less" is a ceiling, "…or greater" a floor (`TargetSpec.max_/min_mana_value`)."""
+    return "min_mana_value" if m.group("cmp") == "greater" else "max_mana_value"
+
+
+def _exile_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    # "exile target permanent with mana value 4 or greater" (Despark, Kin-Tree Severance) / "…or less".
+    kind = resolve_target_kind(m.group("target"))
+    if not target_kind_allowed(kind, ("creature", "permanent", "nonland_permanent")):
+        return None
+    return [EffectSpec("exile", {"target_kind": kind, _mana_value_bound_key(m): int(m.group("mv"))})]
 
 
 #: A creature's power/toughness/keyword *quality* filter (RULE 115/601.2c —
@@ -4062,6 +4115,19 @@ def _return_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return None if params is None else [EffectSpec("return_to_hand", params)]
 
 
+#: "put all creatures on the bottom of their owners' libraries" (Terminus, Hallowed Burial) — `ReturnToLibraryEffect.group`.
+_PUT_GROUP_ON_BOTTOM_RE = _c(
+    r"put (?P<quant>all|each) (?P<group>[a-z0-9' ,/+-]+?) on the bottom of (?:their owners'?|its owner'?s?) librar(?:y|ies)"
+)
+
+
+def _put_group_on_bottom(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _mass_group_params(m.group("group"), m.group("quant"))
+    if params is None or "group_player" in params:  # a "…target player controls" group needs a target; not built
+        return None
+    return [EffectSpec("return_to_library", {**params, "position": "bottom"})]
+
+
 def _regenerate(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if not target_kind_allowed(kind, ("creature", "permanent")):
@@ -4140,6 +4206,13 @@ def _counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         # time, read for the counter spell's own caster.
         if m.groupdict().get("party_tax"):
             params["unless_pays_extra_selector"] = "creatures_in_your_party"
+        # "…unless its controller pays {1} for each card in your graveyard." (Circular Logic) — a
+        # zero base plus one generic per card, the same extra-selector mechanism.
+        if m.groupdict().get("graveyard_tax"):
+            if m.group("cost") != "{1}":
+                return None
+            params["unless_pays"] = "{0}"
+            params["unless_pays_extra_selector"] = "cards_in_your_graveyard"
     cond_color = resolve_color_word(m.groupdict().get("cond_color"))
     if cond_color:
         params["color"] = cond_color
@@ -4249,6 +4322,19 @@ _MILL_SOURCE_PT_RE = _c(
 def _mill_source_pt(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("mill", {
         "target_kind": "player", "count_selector": f"source_{m.group('pt')}",
+    })]
+
+
+#: "target player mills half their library, rounded down." (Cut Your Losses, Traumatize, Kitsune's Technique,
+#: Fleet Swallower) — `MillEffect.half`.
+_MILL_HALF_RE = _c(
+    r"target (?P<who>player|opponent) mills half their library, rounded (?P<dir>down|up)"
+)
+
+
+def _mill_half(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("mill", {
+        "target_kind": "opponent" if m.group("who") == "opponent" else "player", "half": m.group("dir"),
     })]
 
 
@@ -4733,19 +4819,49 @@ def _return_all_nonland(m: re.Match[str]) -> list[EffectSpec]:
 #: cards, `parser_probe.py blocked`) / "…on the bottom of its owner's
 #: library" (rarer — same shape, ``position="bottom"``). `ReturnToLibraryEffect`
 #: is `return_to_hand`'s library-destination sibling.
+#: "… library third from the top" (RULE 401.7 — God-Eternal Oketra, Enigma Sphinx, Long-Term Plans).
+_NTH_FROM_TOP_WORDS = {"second": 2, "third": 3, "fourth": 4, "fifth": 5}
+_NTH_FROM_TOP = r"(?P<nth>" + "|".join(_NTH_FROM_TOP_WORDS) + r") from the top"
+#: Where "put … into/on … its owner's library" lands: on top, on the bottom, or Nth from the top.
+_LIBRARY_PLACEMENT = (
+    rf"(?:on (?:top|the (?P<pos>bottom)) of its owner's library|into (?:its owner's|your) library {_NTH_FROM_TOP})"
+)
+
+
+def _library_placement_params(m: re.Match[str]) -> dict:
+    groups = m.groupdict()
+    if groups.get("nth"):
+        return {"position": "top", "depth": _NTH_FROM_TOP_WORDS[groups["nth"]]}
+    return {"position": "bottom" if groups.get("pos") == "bottom" else "top"}
+
+
 def _return_to_library(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     # PAR-104: the three-type pool ("put target artifact, creature, or enchantment on the bottom of its owner's
     # library" — Banishing Stroke, Banishment Decree) has its own frame; before it, it read as any permanent.
     if not target_kind_allowed(kind, _RETURN_TO_HAND_KINDS | {"artifact_creature_or_enchantment"}):
         return None
-    position = "bottom" if m.group("pos") == "bottom" else "top"
     return [
         EffectSpec(
             "return_to_library",
-            {"target_kind": kind, "position": position, **_optional_param(m)},
+            {"target_kind": kind, **_library_placement_params(m), **_optional_param(m)},
         )
     ]
+
+
+#: "put ~ on top of / on the bottom of its owner's library", "put it into its owner's library third from
+#: the top" (self form — Fell Horseman's and Murderous Rider's dies trigger, God-Eternal Oketra, Bookwurm's
+#: graveyard ability). The source may already be in the graveyard (RULE 400.7), which
+#: `RulesEngine.return_to_library` handles ("from wherever it is"). The pronoun form is only offered when
+#: the caller says the implicit subject is the source (`EffectHandler.self_subject_only`).
+_RETURN_SELF_TO_LIBRARY_RE = _c(
+    rf"put (?:~|this card)(?: from your graveyard)? {_LIBRARY_PLACEMENT}"
+)
+_RETURN_IT_TO_LIBRARY_RE = _c(rf"put it {_LIBRARY_PLACEMENT}")
+
+
+def _return_self_to_library(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("return_to_library", {"target_kind": None, **_library_placement_params(m)})]
 
 
 #: "Put target card from a graveyard on the bottom of its owner's library."
@@ -4845,7 +4961,7 @@ def _return_previous_group(m: re.Match[str]) -> list[EffectSpec]:
 #: "permanent" alternative so it isn't swallowed by it.
 _GRAVEYARD_TYPE_WORD = (
     r"instant or sorcery|sorcery|nonland permanent|rebel permanent|"
-    r"mercenary permanent|creature|artifact|"
+    r"mercenary permanent|artifact (?:and|or) enchantment|artifact or creature|creature|artifact|"
     r"non-aura enchantment|enchantment|land|permanent"
 )
 #: A graveyard clause's *scope* — whose graveyard — "your"/"a" (any single
@@ -4875,6 +4991,9 @@ def _graveyard_target_kind(type_word: Optional[str], scope_word: str) -> Optiona
         "non-aura enchantment": "non_aura_enchantment",
         "rebel permanent": "rebel_permanent",
         "mercenary permanent": "mercenary_permanent",
+        "artifact and enchantment": "artifact_or_enchantment",
+        "artifact or enchantment": "artifact_or_enchantment",
+        "artifact or creature": "artifact_or_creature",
     }.get((type_word or "").strip().lower(), (type_word or "").strip().lower() or "card")
     return f"{scope_key}_{type_key}"
 
@@ -5550,6 +5669,32 @@ _SEARCH_PUT_THEN_SHUFFLE_RE = _c(
     rf"put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT}),?\s*"
     r"then shuffle"
 )
+#: Search criteria the plain grammar above has no slot for, each a whole phrase of its own: "an instant card or a
+#: card with flash" (Mystical Teachings — an OR of two criteria) and "a land card with a basic land type"
+#: (Sprouting Goblin — a land whose type line carries any of RULE 305.6's five basic types).
+_SEARCH_NAMED_CRITERIA: dict[str, dict] = {
+    "an instant card or a card with flash": {"or": [{"type": "instant"}, {"has_keyword": "Flash"}]},
+    "a land card with a basic land type": {
+        "all_types": ["land"], "type": ["plains", "island", "swamp", "mountain", "forest"],
+    },
+}
+_SEARCH_NAMED_CRITERIA_RE = _c(
+    rf"search your library for (?P<crit>{'|'.join(re.escape(k) for k in _SEARCH_NAMED_CRITERIA)}),?\s*"
+    rf"{_SEARCH_REVEAL}"
+    rf"put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT}),?\s*"
+    r"then shuffle"
+)
+
+
+def _search_named_criteria(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    destination = _search_destination_kind(m.group("dest"))
+    if destination is None:
+        return None
+    return [EffectSpec("search", {
+        "criteria": dict(_SEARCH_NAMED_CRITERIA[m.group("crit").lower()]), "destination": destination,
+    })]
+
+
 #: "search your library for <criteria> that share a land type, [reveal
 #: <pronoun>,] put <pronoun> <destination>, then shuffle." (Myriad
 #: Landscape, MEC-43 round 3) — the same put-then-shuffle order as
@@ -5572,7 +5717,9 @@ _SEARCH_PUT_THEN_SHUFFLE_SHARE_TYPE_RE = _c(
 _SEARCH_SHUFFLE_THEN_PUT_TOP_RE = _c(
     rf"search your library for {_SEARCH_CRITERIA},?\s*"
     rf"{_SEARCH_REVEAL}"
-    rf"then shuffle and put {_SEARCH_PRONOUN} on top(?: of your library)?"
+    rf"then shuffle and put {_SEARCH_PRONOUN} "
+    # Long-Term Plans' "third from the top" (RULE 401.7) — the same shuffle-then-place order.
+    r"(?:on top(?: of your library)?|(?P<third>third from the top))"
 )
 
 
@@ -5789,7 +5936,8 @@ def _search_put_attach_then_shuffle(m: re.Match[str]) -> list[EffectSpec]:
 
 
 def _search_shuffle_then_put_top(m: re.Match[str]) -> list[EffectSpec]:
-    params: dict = {"criteria": _search_criteria_from_match(m), "destination": "library_top"}
+    destination = "library_third" if m.groupdict().get("third") else "library_top"
+    params: dict = {"criteria": _search_criteria_from_match(m), "destination": destination}
     count = _search_count_from_match(m)
     if count is not None:
         params["count"] = count
@@ -7068,19 +7216,46 @@ _POWER_DAMAGE_ROW_SPECS: list[tuple[str, "re.Pattern[str]", Any, dict]] = [
 #: of any color" has no ``{…}`` symbols to capture, so it's left unclaimed
 #: rather than guessed at (that's a player choice, not modeled yet).
 _MANA_SYMBOL = r"\{[wubrgc]\}"
-_ADD_MANA_RE = _c(rf"add (?P<syms>(?:{_MANA_SYMBOL}){{1,20}})")
+#: "add an additional {g}" (a triggered mana ability's bonus mana — Badgermole Cub, Leyline of Abundance) adds exactly
+#: what "add {g}" does; "additional" only says it comes on top of what the tap produced.
+_ADD_MANA_RE = _c(rf"add (?:an additional )?(?P<syms>(?:{_MANA_SYMBOL}){{1,20}})")
 #: "add 1 mana of any color" (number words already folded to digits by
 #: `normalize`) — a genuine resolve-time player choice (RULE 106.4), unlike
 #: the fixed pip run above. Deliberately narrow: real cards only print this
 #: singular form (a multi-mana "any color" clause is always templated "any
 #: *one* color" instead, a different, not-yet-modeled shape — guessing it
 #: means the same thing here would be wrong).
-_ADD_MANA_ANY_COLOR_RE = _c(r"add 1 mana of any colou?r")
+_ADD_MANA_ANY_COLOR_RE = _c(r"add (?:an additional )?1 mana of any colou?r")
 
 
 def _add_mana(m: re.Match[str]) -> list[EffectSpec]:
     colors = [s.upper() for s in re.findall(r"\{([wubrgc])\}", m.group("syms"))]
     return [EffectSpec("add_mana", {"colors": colors})]
+
+
+#: "add 6 {R}." (Avatar Roku, Firebender), "add 8 {C}." (Su-Chi Cave Guard) — a count in front of one symbol — and
+#: "add 2 mana of any 1 color." (Branch of Vitu-Ghazi: one colour pick, that many mana). The count form is
+#: `AddManaEffect`'s variable-count ``amount``/``color``; the any-colour form its ``any_amount``.
+_ADD_MANA_COUNTED_RE = _c(
+    r"add (?:(?P<n>\d+) (?P<sym>" + _MANA_SYMBOL + r")|(?P<k>\d+) mana of any (?:1|one) colou?r)"
+)
+
+
+#: "add that much {G}." (Sakiko, Mother of Summer; Raphael, Ninja Destroyer) — the firing damage event's own amount,
+#: `AddManaEffect.amount_from_trigger_event`.
+_ADD_MANA_THAT_MUCH_RE = _c(r"add that much (?P<sym>" + _MANA_SYMBOL + r")")
+
+
+def _add_mana_that_much(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("add_mana", {
+        "color": m.group("sym").strip("{}").upper(), "amount_from_trigger_event": "amount",
+    })]
+
+
+def _add_mana_counted(m: re.Match[str]) -> list[EffectSpec]:
+    if m.group("k"):
+        return [EffectSpec("add_mana", {"colors": ["any"], "any_amount": int(m.group("k"))})]
+    return [EffectSpec("add_mana", {"color": m.group("sym").strip("{}").upper(), "amount": int(m.group("n"))})]
 
 
 def _add_mana_any_color(m: re.Match[str]) -> list[EffectSpec]:
@@ -7096,9 +7271,23 @@ def _add_mana_any_color(m: re.Match[str]) -> list[EffectSpec]:
 _ADD_MANA_ADDITIONAL_EVENT_PLAYER_RE = _c(
     rf"that player adds an additional (?P<syms>(?:{_MANA_SYMBOL}){{1,20}})"
 )
+#: "…its controller adds an additional `<mana>`" under "whenever enchanted land is tapped for mana" (Wild Growth,
+#: Overgrowth, Dawn's Reflection, Market Festival) — the land's controller, who need not be the Aura's. The mana is
+#: a symbol run, "1 mana of any color", or "2 mana in any combination of colors" — which is exactly two single
+#: any-colour mana, each picked on its own (RULE 106.1), so no combination chooser is needed.
+_ADD_MANA_ADDITIONAL_ITS_CONTROLLER_RE = _c(
+    r"its controller adds an additional (?:(?P<syms>(?:" + _MANA_SYMBOL + r"){1,20})|(?P<any>1 mana of any colou?r)"
+    r"|(?P<combo>2 mana in any combination of colou?rs))"
+)
 
 
 def _add_mana_additional_event_player(m: re.Match[str]) -> list[EffectSpec]:
+    groups = m.groupdict()
+    if groups.get("any") or groups.get("combo"):
+        return [
+            EffectSpec("add_mana", {"colors": ["any"], "recipient": "event_controller"})
+            for _ in range(2 if groups.get("combo") else 1)
+        ]
     colors = [s.upper() for s in re.findall(r"\{([wubrgc])\}", m.group("syms"))]
     return [EffectSpec("add_mana", {"colors": colors, "recipient": "event_controller"})]
 
@@ -7655,6 +7844,14 @@ _GET_ENERGY_RE = _c(r"you get (?P<pips>(?:\{e\})+)")
 
 def _get_energy(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("add_player_counters", {"amount": m.group("pips").count("{e}"), "kind": "energy"})]
+
+
+#: "you get that many {E}." (Empyreal Voyager, Aurora Shifter, Peema Trailblazer) — the combat damage just dealt.
+_GET_THAT_MANY_ENERGY_RE = _c(r"you get that many \{e\}")
+
+
+def _get_that_many_energy(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("add_player_counters", {"kind": "energy", "amount_from_trigger_event": "amount"})]
 
 
 def _transform(m: re.Match[str]) -> list[EffectSpec]:
@@ -11229,7 +11426,7 @@ def _scry_or_surveil(m: re.Match[str]) -> list[EffectSpec]:
     # spells out ("whenever enchanted creature attacks, you scry 2" —
     # Psychic Impetus; "then you scry 2" — Overwhelmed Apprentice): scry is
     # always the controller's, so it drops to the same self effect.
-    return [EffectSpec(m.group("verb"), {"count": int(m.group("n"))})]
+    return [EffectSpec(m.group("verb"), {"count": count_or_x_of(m.group("n"))})]
 
 
 #: "Look at the top N cards of your library, then put them back in any
@@ -11239,13 +11436,28 @@ def _scry_or_surveil(m: re.Match[str]) -> list[EffectSpec]:
 #: legal outcome of "put them back in any order" (Ponder's own existing
 #: entry documents why), so it's the same `"scry"` EffectSpec, just a
 #: different printed phrasing reaching it.
+#: Since the target form ("look at the top 3 cards of target player's library", Elemental Augury /
+#: Architects of Will) arrived, both are `LookReorderTopEffect` — scry minus the bottom option, which
+#: the printed text never offered. ``x`` takes its value from a "where x is …" tail like any X clause.
 _LOOK_TOP_REORDER_RE = _c(
-    rf"look at the top {NUMBER} cards? of your library, then put (?:it|them) back in any order"
+    rf"look at the top (?P<n>\d+|x) cards? of (?:(?P<owner>your)|target player's) library, "
+    r"then put (?:it|them) back in any order"
+    # "You may shuffle." / "You may have that player shuffle." (Omen, Pondering Mage, Natural Selection, Portent).
+    r"(?:\.\s*you may (?P<shuffle>shuffle|have that player shuffle))?"
 )
 
 
-def _look_top_reorder(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("scry", {"count": int(m.group("n"))})]
+def _look_top_reorder(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    count: object = "x" if m.group("n") == "x" else int(m.group("n"))
+    params: dict = {"count": count}
+    if not m.group("owner"):
+        params["target_kind"] = "player"
+    if m.group("shuffle"):
+        # "shuffle" is the looker's own library, "have that player shuffle" the target's: each must name its owner.
+        if (m.group("shuffle") == "shuffle") != bool(m.group("owner")):
+            return None
+        params["may_shuffle"] = True
+    return [EffectSpec("look_reorder_top", params)]
 
 
 def _proliferate(m: re.Match[str]) -> list[EffectSpec]:
@@ -16050,6 +16262,14 @@ HANDLERS: list[EffectHandler] = [
         ),
         _discard,
     ),
+    # "look at target player's hand." (Clairvoyance, Peek, Glasses of Urza) — an informational pick, see
+    # `RulesEngine.look_at_hand`; "that player's hand" follows an earlier clause that chose the player.
+    EffectHandler(
+        "look_at_hand",
+        _c(r"look at target (?P<who>player|opponent)'s hand"),
+        lambda m: [EffectSpec("look_at_hand", {
+            "target_kind": "opponent" if m.group("who") == "opponent" else "player"})],
+    ),
     # PAR-74: "target opponent exiles a card from their hand." (Kyoki,
     # Sanity's Eclipse) — the exile-zone sibling of the plain ``discard``
     # row above; RULE 701.5a's interactive "that player chooses" (the
@@ -16058,10 +16278,11 @@ HANDLERS: list[EffectHandler] = [
         "exile_hand_card",
         _c(
             rf"(?P<who>you|target player|target opponent) exiles? {COUNT} "
-            r"cards? from (?:your|their) hand"
+            r"cards? from (?:your|their) (?P<zone>hand|graveyard)"
         ),
         lambda m: [EffectSpec("exile_hand_card", {
             "count": count_of(m.group("n")),
+            **({"zone": "graveyard"} if m.group("zone") == "graveyard" else {}),
             **(
                 {"target_kind": "player"}
                 if m.group("who") in ("target player", "target opponent")
@@ -16322,8 +16543,14 @@ HANDLERS: list[EffectHandler] = [
     # below (see `_destroy_mv`'s docstring for why it's safe to try first).
     EffectHandler(
         "destroy_mv",
-        _c(rf"destroy {TARGET} with mana value (?P<mv>\d+) or less"),
+        _c(rf"destroy {TARGET} with mana value (?P<mv>\d+) or (?P<cmp>less|greater)"),
         _destroy_mv,
+    ),
+    # "exile target permanent with mana value 4 or greater" — the exile sibling of `destroy_mv`.
+    EffectHandler(
+        "exile_mv",
+        _c(rf"exile {TARGET} with mana value (?P<mv>\d+) or (?P<cmp>less|greater)"),
+        _exile_mv,
     ),
     # "destroy target creature with power 4 or greater" / "…with flying"
     # (RULE 115/601.2c power/toughness/keyword quality filter) — tried
@@ -16459,11 +16686,19 @@ HANDLERS: list[EffectHandler] = [
         _c(
             rf"counter {SPELL_TARGET}"
             + r"(?: unless (?:its controller pays|they pay) (?P<cost>\{[^}]+\}|twice \{x\})"
-            + r"(?P<party_tax> plus an additional \{1\} for each creature in your party)?)?"
+            + r"(?P<party_tax> plus an additional \{1\} for each creature in your party)?"
+            + r"(?P<graveyard_tax> for each card in your graveyard)?)?"
             + r"(?:\. if they do, (?P<reflexive>.+?))?\.?"
             + IF_COLOR_SUFFIX
         ),
         _counter,
+    ),
+    # "counter target spell, activated ability, or triggered ability." (Disallow, Voidslime, Deny the Witch) —
+    # `TargetSpec` kind ``spell_or_ability`` (Deflecting Swat's union of the stack's spells and abilities).
+    EffectHandler(
+        "counter_spell_or_ability",
+        _c(r"counter target spell, activated ability, or triggered ability"),
+        lambda m: [EffectSpec("counter", {"target_kind": "spell_or_ability"})],
     ),
     # "this spell can't be countered." / "~ can't be countered." (RULE
     # 118-area) — a spell's own property, docked as a marker the counter
@@ -16503,6 +16738,7 @@ HANDLERS: list[EffectHandler] = [
         _c(r"(?:(?P<who>you|target player|target opponent) )?mills? (?P<n>\d+|a|twice x) cards?"),
         _mill,
     ),
+    EffectHandler("mill_half", _MILL_HALF_RE, _mill_half),
     EffectHandler("mill_spell_mv", _MILL_SPELL_MV_RE, _mill_spell_mv),
     EffectHandler("mill_source_pt", _MILL_SOURCE_PT_RE, _mill_source_pt),
     # "exile target creature with power 4 or greater" / "…with flying" —
@@ -16850,8 +17086,13 @@ HANDLERS: list[EffectHandler] = [
     # 701.3 — Time Ebb/Griptide-shaped tempo bounce).
     EffectHandler(
         "return_to_library",
-        _c(rf"put {TARGET} on (?:top|the (?P<pos>bottom)) of its owner's library"),
+        _c(rf"put {TARGET} {_LIBRARY_PLACEMENT}"),
         _return_to_library,
+    ),
+    # "put ~ / it … on the bottom of / third from the top of its owner's library" (self form).
+    EffectHandler("return_self_to_library", _RETURN_SELF_TO_LIBRARY_RE, _return_self_to_library),
+    EffectHandler(
+        "return_it_to_library", _RETURN_IT_TO_LIBRARY_RE, _return_self_to_library, self_subject_only=True,
     ),
     # "Put target card from a graveyard on the bottom of its owner's
     # library." (PAR-83 — Junktroller/Chrome Companion).  Its target is a
@@ -16871,6 +17112,7 @@ HANDLERS: list[EffectHandler] = [
     ),
     # PAR-128: "return all creatures to their owners' hands" — after `return_all_nonland`.
     EffectHandler("return_group", _RETURN_GROUP_RE, _return_group),
+    EffectHandler("put_group_on_bottom", _PUT_GROUP_ON_BOTTOM_RE, _put_group_on_bottom),
     # "return two target creatures to their owners' hands" (RULE 115.1a
     # generalized to N>=2) — the plural sibling of `return_to_hand`.
     EffectHandler(
@@ -17023,6 +17265,7 @@ HANDLERS: list[EffectHandler] = [
         _search_put_then_shuffle_share_type,
     ),
     EffectHandler("elfhame_sanctuary", _ELFHAME_SANCTUARY_RE, _elfhame_sanctuary),
+    EffectHandler("search_named_criteria", _SEARCH_NAMED_CRITERIA_RE, _search_named_criteria),
     EffectHandler(
         "search_put_then_shuffle",
         _SEARCH_PUT_THEN_SHUFFLE_RE,
@@ -17443,6 +17686,7 @@ HANDLERS: list[EffectHandler] = [
         _GET_ENERGY_RE,
         _get_energy,
     ),
+    EffectHandler("get_that_many_energy", _GET_THAT_MANY_ENERGY_RE, _get_that_many_energy),
     # "add `<sym>`/1 mana of any color for each `<kind>` counter removed
     # this way" — tried before both rows below since either would otherwise
     # (fail to) match only the leading "add …" fragment.
@@ -17465,11 +17709,20 @@ HANDLERS: list[EffectHandler] = [
         _ADD_MANA_RE,
         _add_mana,
     ),
+    EffectHandler("add_mana_counted", _ADD_MANA_COUNTED_RE, _add_mana_counted),
+    EffectHandler("add_mana_that_much", _ADD_MANA_THAT_MUCH_RE, _add_mana_that_much),
     # "that player adds an additional {b}." (Bubbling Muck/High Tide).
     EffectHandler(
         "add_mana_additional_event_player",
         _ADD_MANA_ADDITIONAL_EVENT_PLAYER_RE,
         _add_mana_additional_event_player,
+    ),
+    # "…its controller adds an additional {g}" (Wild Growth/Overgrowth/Dawn's Reflection) — the host's controller.
+    EffectHandler(
+        "add_mana_additional_its_controller",
+        _ADD_MANA_ADDITIONAL_ITS_CONTROLLER_RE,
+        _add_mana_additional_event_player,
+        attached_subject_only=True,
     ),
     # "transform ~" / "transform it" / "transform this permanent"/"creature"
     # (RULE 712.8) — the self-transform shape a loyalty "[0]: Transform ~."
@@ -17614,6 +17867,9 @@ HANDLERS: list[EffectHandler] = [
         _ACTIVATE_ONLY_IF_RE,
         _activate_only_if,
     ),
+    # "you win the game." (RULE 104.2 — Felidar Sovereign, Test of Endurance: the upkeep trigger's body after its
+    # intervening "if you have 40 or more life"). The conditional library-empty form is the row below.
+    EffectHandler("win_game", _c(r"you win the game"), lambda m: [EffectSpec("win_game", {})]),
     # "if your library has no cards in it, you win the game" (Jace, Wielder
     # of Mysteries' -8 tail).
     EffectHandler(
@@ -18562,7 +18818,7 @@ HANDLERS: list[EffectHandler] = [
     # (the controller scries/surveils), same grammar, one handler.
     EffectHandler(
         "scry_or_surveil",
-        _c(rf"(?:you )?(?P<verb>scry|surveil) {NUMBER}"),
+        _c(r"(?:you )?(?P<verb>scry|surveil) (?P<n>\d+|x)"),
         _scry_or_surveil,
     ),
     # "fateseal N" (RULE 701.29a) — scry aimed at an opponent's library.

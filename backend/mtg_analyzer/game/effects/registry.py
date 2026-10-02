@@ -272,6 +272,13 @@ EffectRegistry.register(
     lambda p: ExileHandCardEffect(
         count=p.get("count", 1), target_kind=p.get("target_kind"),
         previous_subject=bool(p.get("previous_subject", False)),
+        zone=p.get("zone", "hand"),
+    ),
+)
+EffectRegistry.register(
+    "look_at_hand",  # "look at target player's hand" (Clairvoyance) — an informational choice
+    lambda p: LookAtHandEffect(
+        target_kind=p.get("target_kind", "player"), previous_subject=bool(p.get("previous_subject", False)),
     ),
 )
 EffectRegistry.register(
@@ -376,6 +383,7 @@ EffectRegistry.register(
         color=p.get("color"),
         colors=p.get("colors"),
         max_mana_value=p.get("max_mana_value"),
+        min_mana_value=p.get("min_mana_value"),
         creature_filter=p.get("creature_filter"),
         distinct_controllers=bool(p.get("distinct_controllers", False)),
         exclude_created=bool(p.get("exclude_created", False)),
@@ -835,7 +843,7 @@ EffectRegistry.register(
 EffectRegistry.register(
     "mill", lambda p: MillEffect(
         count=p.get("count", 1), target_kind=p.get("target_kind"),
-        count_selector=p.get("count_selector"), selector=p.get("selector"),
+        count_selector=p.get("count_selector"), selector=p.get("selector"), half=p.get("half"),
     )
 )
 EffectRegistry.register(
@@ -906,6 +914,7 @@ EffectRegistry.register(
         distinct_controllers=bool(p.get("distinct_controllers", False)),
         track_exiled_with=bool(p.get("track_exiled_with", False)),
         max_mana_value=p.get("max_mana_value"),
+        min_mana_value=p.get("min_mana_value"),
         grant_owner_play_permission=bool(p.get("grant_owner_play_permission", False)),
         owner_play_permission_tax=p.get("owner_play_permission_tax"),
         owner_play_permission_cost=p.get("owner_play_permission_cost"),
@@ -1337,6 +1346,8 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)),
         count=p.get("count", 1),
         colors=p.get("colors"),
+        depth=p.get("depth", 1),
+        group=p.get("group"),
     ),
 )
 EffectRegistry.register(
@@ -1437,6 +1448,7 @@ EffectRegistry.register(
         any_amount_from_context=p.get("any_amount_from_context"),
         any_amount_multiplier=int(p.get("any_amount_multiplier", 1) or 1),
         amount_from_context=p.get("amount_from_context"),
+        keep_until=p.get("keep_until"),
     ),
 )
 EffectRegistry.register(
@@ -1659,6 +1671,8 @@ EffectRegistry.register(
         selector=p.get("selector"),
         greatest_power=bool(p.get("greatest_power", False)),
         target_kind=p.get("target_kind"),
+        greatest=p.get("greatest"),
+        action=p.get("action", "sacrifice"),
     ),
 )
 EffectRegistry.register(
@@ -2307,6 +2321,7 @@ EffectRegistry.register(
         count=p.get("target_count", 1),
         count_max=p.get("target_count_max"),
         trigger_event_key=p.get("trigger_event_key"),
+        tapped=bool(p.get("tapped", False)),
     ),
 )
 EffectRegistry.register(
@@ -2646,6 +2661,13 @@ EffectRegistry.register(
 EffectRegistry.register(
     "scry", lambda p: ScryEffect(
         count=p.get("count", p.get("amount", 1)),
+    )
+)
+EffectRegistry.register(
+    # "look at the top N cards of [target player's] library, then put them back in any order"
+    "look_reorder_top", lambda p: LookReorderTopEffect(
+        count=p.get("count", p.get("amount", 1)), target_kind=p.get("target_kind"),
+        may_shuffle=bool(p.get("may_shuffle", False)),
     )
 )
 EffectRegistry.register(

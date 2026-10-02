@@ -2176,6 +2176,12 @@ class CastingMixin:
             amount = x if cost.pay_life == PAY_LIFE_X else cost.pay_life
             if player.life < amount:
                 return False
+        # "reveal a `<type>` card from your hand or pay {N}" (Daring Buccaneer): the revealing branch needs such a
+        # card in hand besides the spell itself; the mana branch never reaches this check.
+        if cost.reveal_from_hand and not any(
+            c is not obj and continuous.has_subtype(c, cost.reveal_from_hand) for c in player.hand
+        ):
+            return False
         # RULE 701.4a / 701.68 (PAR-29): a `behold` or `blight` additional
         # cost never blocks casting — the "or pay {N}" alternative (the
         # documented-dropped half) means a player who can't behold / has no
@@ -2313,6 +2319,8 @@ class CastingMixin:
         if getattr(obj, "additional_cast_cost_optional", False) and not pay_additional:
             return
         obj.sacrificed_cost_mana_value = None
+        obj.sacrificed_cost_power = None
+        obj.sacrificed_cost_toughness = None
         if cost.sacrifice:
             victim = self._sacrifice_candidate(
                 player, obj, cost.sacrifice, chosen_id=sacrifice_choice
@@ -2322,7 +2330,7 @@ class CastingMixin:
                 # so a resolving effect can still read "the sacrificed
                 # creature's mana value" (Eldritch Evolution/Neoform) —
                 # `StackItem.x` only ever threads an announced {X}.
-                obj.sacrificed_cost_mana_value = victim.card.converted_mana_cost
+                self.rules.note_sacrificed(obj, victim)  # mana value, power, toughness
                 # RULE 701.16c: sacrifice isn't destruction — regeneration
                 # can't save it — so this bypasses `destroy` and its
                 # regeneration-shield check.

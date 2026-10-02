@@ -72,6 +72,7 @@ class ExileEffect(GameEffect):
         distinct_controllers: bool = False,
         track_exiled_with: bool = False,
         max_mana_value: Optional[int] = None,
+        min_mana_value: Optional[int] = None,
         grant_owner_play_permission: bool = False,
         owner_play_permission_tax: Optional[int] = None,
         owner_play_permission_cost: Optional[str] = None,
@@ -177,6 +178,8 @@ class ExileEffect(GameEffect):
                 # Apparition) — the same target-offer-time cap `DestroyEffect`
                 # already threads (`targeting.TargetSpec.max_mana_value`).
                 max_mana_value=max_mana_value,
+                # "exile target permanent with mana value 4 or greater" (Despark) — the floor sibling.
+                min_mana_value=min_mana_value,
                 # "…with mana value 3 or less. If this spell was cast using
                 # teamwork, instead exile target creature[.]" (MEC-85, Cruel
                 # Alliance) — see `targeting.TargetSpec.unless_flag`.

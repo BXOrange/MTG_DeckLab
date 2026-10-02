@@ -599,6 +599,16 @@ _SELF_COST_REDUCTION_FOR_EACH_RE = re.compile(
     r"this spell costs \{(?P<n>\d+)\} less to cast for each (?P<phrase>.+?)\.?",
     re.IGNORECASE,
 )
+#: "This spell costs {X} less to cast, where X is the greatest power among creatures you control." (Ghalta, The Great
+#: Henge, Molten Monstrosity) — one generic less per point of the amount, so the same `per` selector a "for each"
+#: phrase gives, read from the shared amount grammar (`count_phrase.parse_amount_phrase`).
+_SELF_COST_REDUCTION_WHERE_X_RE = re.compile(
+    r"this spell costs \{x\} less to cast, where x is (?P<phrase>.+?)\.?",
+    re.IGNORECASE,
+)
+_DURING_OTHER_TURNS_COST_RE = re.compile(
+    r"during turns other than yours, (?P<rest>.+ cost .+)", re.IGNORECASE,
+)
 _SELF_COST_PER_PHRASES: dict[str, str] = {
     "attacking creature": "attacking_creatures",
     "attacking creature you control": "attacking_creatures_you_control",
@@ -4550,6 +4560,16 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     `_ATTACHED_SUBJECTS` above.
     """
     text = clause.strip().rstrip(".").strip()
+    # "During turns other than yours, spells you cast cost {1} less to cast." (Geyser Drake, Naiad of Hidden Coves) — a
+    # cost discount gated by RULE 613.6's `not_your_turn`, the same `active_if` a condition-gated static carries.
+    other_turns = _DURING_OTHER_TURNS_COST_RE.fullmatch(text)
+    if other_turns is not None:
+        inner = static_effect_specs(other_turns.group("rest"))
+        if inner is not None and all(spec.type == "cost_reduction" for spec in inner):
+            return [
+                EffectSpec(spec.type, {**spec.params, "active_if": {"kind": "not_your_turn"}}, condition=spec.condition)
+                for spec in inner
+            ]
     if text.lower().startswith("if ") and "triggers an additional time" in text.lower():
         from ..segmenter import trigger_condition_dict  # lazy: segmenter imports this module
         from .trigger_doubler import parse_trigger_doubler
@@ -4929,6 +4949,14 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         if m.group("floor"):
             params["min_total"] = int(m.group("floor"))
         return [EffectSpec("cost_reduction", params)]
+
+    m = _SELF_COST_REDUCTION_WHERE_X_RE.fullmatch(text)
+    if m is not None:
+        from .count_phrase import parse_amount_phrase
+
+        selector = parse_amount_phrase(m.group("phrase"))
+        if selector is not None:
+            return [EffectSpec("cost_reduction", {"affects": "self", "generic": 1, "per": selector})]
 
     m = _SELF_COST_REDUCTION_FOR_EACH_RE.fullmatch(text)
     if m is not None:

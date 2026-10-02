@@ -1570,6 +1570,11 @@ class GameState:
         return turn_history.noncreature_spells_cast(self.events_this_turn())
 
     @property
+    def cards_played_from_exile_this_turn(self) -> dict[str, int]:
+        """Spells cast and lands played from exile by each player this turn (RULE 601.2a / 305.1)."""
+        return turn_history.cards_played_from_exile(self.events_this_turn())
+
+    @property
     def nonartifact_spells_cast_this_turn(self) -> dict[str, int]:
         return turn_history.nonartifact_spells_cast(self.events_this_turn())
 

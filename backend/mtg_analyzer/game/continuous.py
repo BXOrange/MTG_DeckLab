@@ -1696,6 +1696,14 @@ def count_selector(
             int(o.power or 0) for o in bf
             if o.is_creature and o.controller_id == controller_id
         ))
+    if selector == "greatest_commander_mana_value":
+        # "the greatest mana value among your commanders" / "…of a commander you own on the battlefield or in the
+        # command zone" (Cloudkill, Imposing Grandeur, Majestic Genesis, Tangleweave Armor): a commander is owned,
+        # not controlled (RULE 108.3), and counts in either zone; no commander is 0.
+        owner = state.player_by_id(controller_id) if controller_id else None
+        owned = [o for o in bf if o.is_commander and o.owner_id == controller_id]
+        owned += list(getattr(owner, "command", None) or [])
+        return max((o.card.converted_mana_cost or 0 for o in owned), default=0)
     if selector == "commanders_you_control":
         # "as long as you control your commander"/"if you control your
         # commander" (RULE 903.4 — Angelic Field Marshal, Loyal Drake and

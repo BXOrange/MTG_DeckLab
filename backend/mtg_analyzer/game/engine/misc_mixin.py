@@ -24,6 +24,7 @@ from ...models.game.events import EventType, GameEvent
 from ...models.game.game_object import GameObject, Zone
 from ...models.game.game_state import GameState, StackItem
 from ...models.mana.mana_cost import ManaCost
+from ...models.mana.mana_pool import kept_mana_expiring_at
 from ...models.game.player import Player
 from .. import combat, condition_query, continuous, durations, face_down, variants
 from ...models.decks import formats as game_format
@@ -217,7 +218,7 @@ class MiscMixin:
             if step.gives_priority:
                 self.resolve_until_stable()
             for player in self.state.players:
-                player.mana_pool.empty()
+                player.mana_pool.empty(expire=kept_mana_expiring_at(step.name))
             self.state.fire_event(GameEvent(EventType.STEP_END, step=step.name, phase=phase.name))
 
         self.state.fire_event(

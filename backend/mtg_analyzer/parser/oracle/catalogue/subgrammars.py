@@ -1028,7 +1028,9 @@ _SPELL_TARGET_BODY = (
     r"(?:(?P<noncreature>noncreature)\s+)?"
     rf"(?:(?P<subtypes>{_SPELL_SUBTYPE_LIST})\s+|(?P<types>{_SPELL_TYPE_LIST})\s+)?"
     r"spell"
-    r"(?:\s+with mana value (?P<mv>\d+))?"
+    # "…with mana value X" (Spell Blast / Spell Burst) is the spell's announced {X} — the sentinel is
+    # read back at target-offer time (`targeting.legal_targets`).
+    r"(?:\s+with mana value (?P<mv>\d+|x))?"
     # PAR-128: the controller scope slot — "counter target spell **you don't control**".
     r"(?P<scope> (?:you don'?t control|an opponent controls|your opponents control))?"
 )
@@ -1064,7 +1066,7 @@ def resolve_spell_filter(phrase: str) -> Optional[dict[str, Any]]:
         subtypes = [t for t in re.split(r",\s*or\s+|,\s*|\s+or\s+", m.group("subtypes")) if t]
         filt["subtype_any"] = subtypes
     if m.group("mv"):
-        filt["mana_value"] = int(m.group("mv"))
+        filt["mana_value"] = "x" if m.group("mv") == "x" else int(m.group("mv"))
     if m.group("scope"):
         filt["target_kind"] = "spell_you_dont_control"
     return filt

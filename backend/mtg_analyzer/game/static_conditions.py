@@ -298,6 +298,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # spells last turn" (``min`` 2) are one quantity at two thresholds.
         "spells_cast_last_turn",  # + ``min``/``max``
         "spells_cast_this_turn",  # + ``min``/``max``, controller-scoped
+        "cards_played_from_exile_this_turn",  # + ``min``/``max``, controller-scoped (Visions of Phyrexia)
         "graveyard_count",  # + ``min``/``max`` — raw card count, RULE 702.19
         "ring_tempted",  # + ``min``/``max`` — RULE 701.51b `Player.ring_level`
         "creatures_died_this_turn",  # + ``min``/``max``
@@ -922,6 +923,14 @@ def condition_holds(
             return False
         return _within(
             int((getattr(state, "spells_cast_this_turn", {}) or {}).get(controller_id, 0)),
+            condition,
+        )
+
+    if kind == "cards_played_from_exile_this_turn":
+        if controller_id is None:
+            return False
+        return _within(
+            int((getattr(state, "cards_played_from_exile_this_turn", {}) or {}).get(controller_id, 0)),
             condition,
         )
 

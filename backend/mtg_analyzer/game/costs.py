@@ -239,6 +239,10 @@ class ActivationCost:
     #: attempted, and the spell casts whether or not it succeeds; it never
     #: blocks casting.
     behold: Optional[str] = None
+    #: "reveal a `<type>` card from your hand" as one side of "…or pay {N}" (Daring Buccaneer, Flamekin Bladewhirl,
+    #: Thunderherd Migration): the creature-type word of the card to reveal. Only payable while the caster's hand
+    #: holds such a card besides the spell itself; paying moves nothing.
+    reveal_from_hand: Optional[str] = None
     #: RULE 701.4a (Behold, PAR-30 — the Lorwyn "Champion" cycle reflavoured):
     #: "as an additional cost to cast this spell, behold a `<type>` **and
     #: exile it**." — the mandatory sibling of ``behold`` (no "or pay {N}"
@@ -608,6 +612,7 @@ class ActivationCost:
             or self.collect_evidence
             or self.forage
             or self.behold
+            or self.reveal_from_hand
             or self.behold_exile
             or self.behold_two_shared_type
             or self.blight
@@ -634,7 +639,9 @@ class ActivationCost:
     def label(self) -> str:
         """A short "{T}, Sacrifice a creature, Pay 2 life" style summary."""
         parts: list[str] = []
-        if self.mana.symbols:
+        # An "X or pay {N}" additional cost keeps the mana half in `mana` as the *default* branch; its label is the
+        # other half (the branch `pay_additional` selects).
+        if self.mana.symbols and not self.sacrifice_or_mana:
             parts.append(self.mana.raw or "".join(f"{{{s.kind}}}" for s in self.mana.symbols))
         if self.taps_self:
             parts.append("{T}")
@@ -687,6 +694,8 @@ class ActivationCost:
             parts.append("Forage")
         if self.behold:
             parts.append(f"Behold a {self.behold}")
+        if self.reveal_from_hand:
+            parts.append(f"Reveal a {self.reveal_from_hand} card from your hand")
         if self.behold_exile:
             parts.append(f"Behold a {self.behold_exile} and exile it")
         if self.behold_two_shared_type:
@@ -757,6 +766,7 @@ class ActivationCost:
             "collect_evidence": self.collect_evidence,
             "forage": self.forage,
             "behold": self.behold,
+            "reveal_from_hand": self.reveal_from_hand,
             "behold_exile": self.behold_exile,
             "behold_two_shared_type": self.behold_two_shared_type,
             "blight": self.blight,
@@ -802,6 +812,14 @@ def parse_activation_cost(
     if isinstance(cost, str):
         return _parse_text(cost)
 
+    if cost.get("or_mana"):
+        # "<cost> or pay {N}" (RULE 601.2b): the cost's own components for the `pay_additional` branch, the mana for
+        # the default one — the `sacrifice_or_mana` flag's meaning, for any single additional-cost component.
+        choice = cost["or_mana"]
+        parsed = parse_activation_cost(choice["cost"])
+        parsed.mana = ManaCost.parse(str(choice["mana"]))
+        parsed.sacrifice_or_mana = True
+        return parsed
     # dict: parse any free text, then let explicit structured fields override.
     text = str(cost.get("text") or cost.get("cost_text") or "")
     parsed = _parse_text(text) if text else ActivationCost()
@@ -865,6 +883,8 @@ def parse_activation_cost(
         parsed.forage = True
     if cost.get("behold"):
         parsed.behold = str(cost["behold"])
+    if cost.get("reveal_from_hand"):
+        parsed.reveal_from_hand = str(cost["reveal_from_hand"])
     if cost.get("behold_exile"):
         parsed.behold_exile = str(cost["behold_exile"])
     if cost.get("behold_two_shared_type"):

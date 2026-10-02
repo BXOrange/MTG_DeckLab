@@ -212,8 +212,10 @@ def _player_by_id(context: "GameContext", player_id: Optional[str]) -> Any:
 
 
 def _object_or_none(candidate: Any) -> Any:
-    """``candidate`` if it is a game object, else ``None`` (e.g. a player)."""
-    return candidate if getattr(candidate, "instance_id", None) is not None else None
+    """``candidate`` if it is a game object, else ``None`` (e.g. a player). An ability on the stack counts
+    (it is a `StackItem`, keyed by ``stack_id``): "counter target ability. Its controller …" names it."""
+    named = getattr(candidate, "instance_id", None) is not None or getattr(candidate, "stack_id", None) is not None
+    return candidate if named else None
 
 
 def subject_of(

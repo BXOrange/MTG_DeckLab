@@ -45,6 +45,7 @@ class DestroyEffect(GameEffect):
         creature_filter: Optional[dict[str, Any]] = None,
         distinct_controllers: bool = False,
         exclude_created: bool = False,
+        min_mana_value: Optional[int] = None,
         target_from_trigger_event: Optional[str] = None,
         group: Optional[dict[str, Any]] = None,
         group_player: Optional[str] = None,
@@ -92,7 +93,7 @@ class DestroyEffect(GameEffect):
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max, color=color,
                 colors=self.colors,
-                max_mana_value=max_mana_value, creature_filter=creature_filter,
+                max_mana_value=max_mana_value, min_mana_value=min_mana_value, creature_filter=creature_filter,
                 distinct_controllers=distinct_controllers, count_selector=count_selector,
             )
 
@@ -1595,12 +1596,14 @@ class AddPlayerCountersEffect(GameEffect):
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        # "you get that many {E}" (Empyreal Voyager) measures the firing event's amount.
+        amount = self._measured(self.amount, context, targets)
         if self.selector in ("each_player", "each_opponent"):
             controller_id = getattr(self.source, "controller_id", None)
             for p in context.state.living_players():
                 if self.selector == "each_opponent" and p.id == controller_id:
                     continue
-                context.add_player_counters(p, self.amount, self.kind, source=self.source)
+                context.add_player_counters(p, amount, self.kind, source=self.source)
             return
         player = self.player
         if player is None and self.target_spec is not None:
@@ -1616,7 +1619,7 @@ class AddPlayerCountersEffect(GameEffect):
         if player is None:
             player = _controller_of(self.source, context)
         if player is not None:
-            context.add_player_counters(player, self.amount, self.kind, source=self.source)
+            context.add_player_counters(player, amount, self.kind, source=self.source)
 
 
 class LoseAllPlayerCountersEffect(GameEffect):
@@ -1694,15 +1697,24 @@ class SacrificeEffect(GameEffect):
         greatest_power: bool = False,
         target_kind: Optional[str] = None,
         source: Optional["GameObject"] = None,
+        greatest: Optional[str] = None,
+        action: str = "sacrifice",
     ) -> None:
         super().__init__(source)
+        #: "…a creature or planeswalker **with the greatest mana value** among creatures and planeswalkers they
+        #: control" (Blot Out, Flare of Malice, Soul Shatter): ``"power"`` (the original ``greatest_power``) or
+        #: ``"mana_value"`` narrow the pick to the tied leaders, among which that player chooses (RULE 601.2c).
+        self.greatest = "power" if greatest_power and not greatest else (greatest if greatest in ("power", "mana_value") else None)
+        #: ``"exile"`` — "target opponent **exiles** a creature or planeswalker they control with the greatest
+        #: mana value" (Blot Out, End of the Hunt): the same pick, a different action on it.
+        self.action = action if action in ("sacrifice", "exile") else "sacrifice"
         #: An int, or the ``"all_but_one"`` sentinel (`RulesEngine.sacrifice`
         #: resolves it against the live candidate count at apply-time).
         self.count = count
         self.what = what
         self.player = player
         self.selector = selector
-        self.greatest_power = greatest_power
+        self.greatest_power = self.greatest == "power"
         #: ``target_kind="player"`` ("target player sacrifices a creature of
         #: their choice" — Diabolic Edict, and villainous/vote option bodies,
         #: ENG-33) opts into a real RULE 115 player target, exactly as
@@ -1769,7 +1781,7 @@ class SacrificeEffect(GameEffect):
             opened = getattr(state, "pending_choice", None)
             if opened is not None and opened is not before and i + 1 < len(players):
                 remainder = SacrificeEffect(
-                    count=self.count, what=self.what, greatest_power=self.greatest_power,
+                    count=self.count, what=self.what, greatest=self.greatest, action=self.action,
                     source=self.source,
                 )
                 remainder._remaining_players = players[i + 1:]
@@ -1787,18 +1799,27 @@ class SacrificeEffect(GameEffect):
                 return
 
     def _sacrifice_one(self, context: GameContext, player: "Player") -> None:
-        if not self.greatest_power:
+        if self.greatest is None:
             context.sacrifice(player, self.what, self.count)
             return
-        creatures = [
-            o for o in context.state.permanents_controlled_by(player.id) if o.is_creature
+        from ..rules.damage_death_mixin import _matches_permanent_type  # function-scoped: rules↔effects cycle
+
+        measure = (lambda o: o.power or 0) if self.greatest == "power" else (lambda o: o.card.converted_mana_cost or 0)
+        pool = [
+            o for o in context.state.permanents_controlled_by(player.id)
+            if _matches_permanent_type(o, self.what)
+            and not (self.action == "sacrifice" and o.cant_be_sacrificed_this_turn)
         ]
-        for _ in range(self.count):
-            if not creatures:
-                return
-            victim = max(creatures, key=lambda o: o.power or 0)
-            creatures.remove(victim)
-            context.put_into_graveyard(victim)  # RULE 701.16c: sacrifice
+        if not pool or self.count != 1:
+            return  # every printed "greatest" edict takes exactly one permanent
+        top = max(measure(o) for o in pool)
+        leaders = [o for o in pool if measure(o) == top]
+        # With one leader there is nothing to choose, which `_request_choose_objects` resolves unasked; a tie is
+        # that player's choice among the tied (Tariff's "if 2 or more … are tied for greatest, that player chooses 1").
+        context.engine._request_choose_objects(
+            player, leaders, self.action, count=1, source=self.source,
+            prompt="Wähle eine Permanent mit dem höchsten Wert",
+        )
 
 
 class SacrificeChosenThenEffect(GameEffect):

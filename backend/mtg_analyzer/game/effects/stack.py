@@ -83,7 +83,7 @@ class CounterSpellEffect(GameEffect):
         if target_from_trigger_event is None:
             # "counter target spell **you don't control**" (Counterflux, PAR-128): the
             # controller-scoped ``spell_you_dont_control`` pool.
-            kind = target_kind if target_kind in ("spell", "spell_you_dont_control") else "spell"
+            kind = target_kind if target_kind in ("spell", "spell_you_dont_control", "spell_or_ability") else "spell"
             self.target_spec = TargetSpec(kind=kind, spell_filter=spell_filter or None)
 
     def target_polarity(self) -> Optional[str]:
@@ -115,7 +115,11 @@ class CounterSpellEffect(GameEffect):
                 )
             return
         target = (targets[0] if targets else None) or self.target
-        if target is not None:
+        if target is not None and getattr(target, "kind", None) == "ability":
+            # "counter target spell, activated ability, or triggered ability" (Disallow): the picked
+            # stack item is an ability, which has no card to put anywhere (RULE 701.5b).
+            context.counter_ability(target)
+        elif target is not None:
             context.counter(
                 target, unless_pays=unless_pays, source=self.source,
                 suspend_instead=self.suspend_instead, on_pay_effect_specs=on_pay,
@@ -918,8 +922,12 @@ class MillEffect(GameEffect):
         count_selector: Optional[str] = None,
         selector: Optional[str] = None,
         source: Optional["GameObject"] = None,
+        half: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: "mills **half their library**, rounded down/up" (Cut Your Losses, Kitsune's Technique): the count
+        #: is read off the milled player's library at resolution, RULE 107.1a's rounding as printed.
+        self.half = half if half in ("down", "up") else None
         #: How many cards: a number or an `effect_amounts` operand ("target player mills X cards,
         #: where X is that spell's mana value" — Cloudhoof Kirin).
         self.count = count
@@ -1002,6 +1010,8 @@ class MillEffect(GameEffect):
             count = continuous.count_selector(
                 context.state, controller_id, self.count_selector, source=self.source
             )
+        if self.half is not None:
+            count = (len(player.library) + 1) // 2 if self.half == "up" else len(player.library) // 2
         before = len(player.graveyard)
         context.mill(player, count)
         milled = player.graveyard[before:]

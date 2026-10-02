@@ -949,6 +949,9 @@ class ActivationMixin:
             return obj.card.is_enchantment
         if what == "land":
             return obj.is_land
+        if what == "creature_or_enchantment":
+            # "sacrifice a creature or enchantment or pay {N}" (Betrayer's Bargain, Final Flare).
+            return obj.is_creature or obj.card.is_enchantment
         if what == "creature_or_planeswalker":
             # RULE 306/302: Tevesh Szat's "another creature or planeswalker".
             # Mirrors `rules.misc_mixin._matches_permanent_type` (the

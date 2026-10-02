@@ -606,6 +606,8 @@ class BindEffect(_CompositeEffect):
         """Replace ``sentinel`` anywhere in a params value, at any depth."""
         if value == sentinel:
             return measured
+        if value == f"-{sentinel}":
+            return -measured  # "gets -X/-X until end of turn, where X is …"
         if isinstance(value, dict):
             return {k: BindEffect._substitute(v, sentinel, measured) for k, v in value.items()}
         if isinstance(value, list):

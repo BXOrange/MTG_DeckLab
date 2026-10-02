@@ -2616,6 +2616,38 @@ class ScryEffect(GameEffect):
         context.scry(player, self._measured(self.count, context, targets), source=self.source)
 
 
+class LookReorderTopEffect(GameEffect):
+    """"Look at the top N cards of [target player's] library, then put them back in any order."
+    (Sensei's Divining Top, Elemental Augury, Architects of Will.) Scry without the bottom option —
+    `RulesEngine.look_reorder_top`. ``target_kind="player"`` aims it at a RULE 115 player target's
+    library; the effect's controller still makes the decision."""
+
+    def __init__(
+        self,
+        count: Any = 1,
+        source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = None,
+        may_shuffle: bool = False,
+    ) -> None:
+        super().__init__(source)
+        self.count = count
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+        #: "You may shuffle." / "You may have that player shuffle." — a yes/no once the order is set.
+        self.may_shuffle = bool(may_shuffle)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        owner = targets[0] if (self.target_spec is not None and targets) else None
+        if self.target_spec is not None and owner is None:
+            return
+        context.look_reorder_top(
+            player, self._measured(self.count, context, targets), library_owner=owner, source=self.source,
+            may_shuffle=self.may_shuffle,
+        )
+
+
 class SurveilEffect(GameEffect):
     """Surveil ``count`` for the effect's controller (RULE 701.31)."""
 

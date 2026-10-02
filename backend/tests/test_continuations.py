@@ -242,8 +242,11 @@ class TestPublicSurfaceShrank:
         # Bumped 171 -> 172: `conjure_duplicate_into_hand` (Spellchain Scatter,
         # PAR-124) is called externally from `ConjureDuplicateIntoHandEffect.
         # apply()` the same way.
+        # Bumped 172 -> 175 (PAR-107..114): `look_at_hand` and `look_reorder_top` are called from
+        # `GameContext` (`LookAtHandEffect`/`LookReorderTopEffect`) and `note_sacrificed` from
+        # `GameEngine`'s cost payment, none of them from another `RulesEngine` method.
         count = len(self._public_methods())
-        assert count <= 172, f"RulesEngine still exposes {count} public methods"
+        assert count <= 175, f"RulesEngine still exposes {count} public methods"
 
     def test_the_dispatcher_is_no_longer_a_cascade(self) -> None:
         source = inspect.getsource(GameEngine.resolve_pending_choice)

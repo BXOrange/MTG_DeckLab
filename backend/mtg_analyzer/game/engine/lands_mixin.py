@@ -168,6 +168,8 @@ class LandsMixin:
                     player_id=player.id,
                     card_id=obj.card.id,
                     land=obj.name,
+                    # RULE 305.1 / 601.2a: "played a card from exile" (Visions of Phyrexia) counts lands too.
+                    from_exile=from_zone == "exile",
                     # A "whenever you play another land" trigger (City of
                     # Traitors) needs to exclude its own play event via
                     # `effect_binder`'s "group"/"other" subject condition.

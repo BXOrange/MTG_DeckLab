@@ -131,6 +131,11 @@ def _player_event(text: str, negated: bool) -> Optional[dict[str, Any]]:
             condition.pop("min", None)
             condition["max"] = 0
         return condition
+    if text in ("played a card from exile", "play a card from exile"):
+        # A spell cast *or* a land played from exile — two events, so a turn tally rather than a trigger shape.
+        out: dict[str, Any] = {"kind": "cards_played_from_exile_this_turn"}
+        out["max" if negated else "min"] = 0 if negated else 1
+        return out
     if text in _PLAYER_VERBS:
         trigger = {"event": _PLAYER_VERBS[text], "condition": {"subject": "you"}}
         return _condition(trigger, None if negated else 1, 0 if negated else None)

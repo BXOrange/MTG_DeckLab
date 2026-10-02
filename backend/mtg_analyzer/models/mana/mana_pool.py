@@ -54,6 +54,23 @@ AllowsRestriction = Callable[[dict], bool]
 #: colored costs, then the five colors.
 MANA_TYPES: tuple[str, ...] = ("C", "W", "U", "B", "R", "G")
 
+#: When mana that "doesn't empty as steps and phases end" finally does: the end of the combat phase, or the
+#: end of the turn (the cleanup step, after which nothing is left to keep).
+KEEP_UNTIL_END_OF_COMBAT = "end_of_combat"
+KEEP_UNTIL_END_OF_TURN = "end_of_turn"
+KEEP_UNTIL_VALUES: tuple[str, ...] = (KEEP_UNTIL_END_OF_COMBAT, KEEP_UNTIL_END_OF_TURN)
+#: The step whose end finally empties each kind of kept mana: end of combat ends "until end of combat"; the
+#: cleanup step ends "until end of turn" (and anything still kept for a combat that never ended).
+_KEPT_MANA_EXPIRY_STEPS: dict[str, tuple[str, ...]] = {
+    "end_combat": (KEEP_UNTIL_END_OF_COMBAT,),
+    "cleanup": (KEEP_UNTIL_END_OF_COMBAT, KEEP_UNTIL_END_OF_TURN),
+}
+
+
+def kept_mana_expiring_at(step_name: str) -> tuple[str, ...]:
+    """Which `ManaPool.kept` buckets empty when ``step_name`` ends (RULE 500.4)."""
+    return _KEPT_MANA_EXPIRY_STEPS.get(step_name, ())
+
 #: The five real colors (RULE 105.1) — the substitution set for
 #: ``wildcard="color"`` below; excludes colorless (``"C"``), since RULE
 #: 605.1a's "any color" never means colorless.
@@ -113,6 +130,12 @@ class ManaPool:
         #: payment that *could* have used snow mana is credited with having
         #: done so rather than silently preferring plain mana instead.
         self.snow_pool: dict[str, int] = {t: 0 for t in MANA_TYPES}
+        #: "Until end of turn, you don't lose this mana as steps and phases end." (Brazen Collector, Savage
+        #: Ventmaw, Neheb, Sakiko): how much of `pool` (per type) survives each step's emptying, bucketed by
+        #: the moment it finally empties (`KEEP_UNTIL_END_OF_COMBAT` / `KEEP_UNTIL_END_OF_TURN`). Like
+        #: `snow_pool` it is a subset tally that never exceeds `pool`: a payment drains the mana that would
+        #: have been lost first, so `_trim_kept` only ever cuts the kept amount down to what is left.
+        self.kept: dict[str, dict[str, int]] = {}
         if amounts:
             for mana_type, amount in amounts.items():
                 self.add(mana_type, amount)
@@ -123,7 +146,7 @@ class ManaPool:
 
     def add(
         self, mana_type: str, amount: int = 1, restriction: Optional[dict] = None,
-        source_kind: Optional[str] = None, is_snow: bool = False,
+        source_kind: Optional[str] = None, is_snow: bool = False, keep_until: Optional[str] = None,
     ) -> None:
         """Add ``amount`` mana of ``mana_type`` (``W U B R G C``).
 
@@ -136,6 +159,8 @@ class ManaPool:
         see that field's docstring. ``is_snow`` (MEC-43 round 3) tags it as
         snow-sourced for `snow_pool`'s own independent, orthogonal count —
         see that field's docstring for why it can't reuse ``source_kind``.
+        ``keep_until`` (`KEEP_UNTIL_VALUES`, unrestricted mana only) is "you don't lose this mana as steps and
+        phases end" — see `kept`.
         """
         if mana_type not in self.pool:
             raise ValueError(f"unknown mana type: {mana_type!r}")
@@ -146,6 +171,9 @@ class ManaPool:
             self._add_to_source_pool(mana_type, amount, source_kind)
             if is_snow:
                 self.snow_pool[mana_type] = self.snow_pool.get(mana_type, 0) + amount
+            if keep_until in KEEP_UNTIL_VALUES:
+                bucket = self.kept.setdefault(keep_until, {})
+                bucket[mana_type] = bucket.get(mana_type, 0) + amount
             return
         for lot in self.restricted:
             if lot["restriction"] == restriction:
@@ -155,11 +183,12 @@ class ManaPool:
 
     def add_many(
         self, amounts: dict[str, int], restriction: Optional[dict] = None,
-        source_kind: Optional[str] = None, is_snow: bool = False,
+        source_kind: Optional[str] = None, is_snow: bool = False, keep_until: Optional[str] = None,
     ) -> None:
         for mana_type, amount in amounts.items():
             self.add(
                 mana_type, amount, restriction=restriction, source_kind=source_kind, is_snow=is_snow,
+                keep_until=keep_until,
             )
 
     def set_amount(self, mana_type: str, amount: int) -> None:
@@ -172,23 +201,50 @@ class ManaPool:
         if amount < 0:
             raise ValueError("amount must be non-negative")
         self.pool[mana_type] = amount
+        self._trim_kept()
+
+    def _trim_kept(self) -> None:
+        """Cut `kept` down to what the pool still holds (a payment spent the mana that would have been lost
+        first); an emptied bucket is dropped."""
+        for until in list(self.kept):
+            bucket = self.kept[until]
+            for mana_type in list(bucket):
+                others = sum(b.get(mana_type, 0) for u, b in self.kept.items() if u != until)
+                bucket[mana_type] = max(0, min(bucket[mana_type], self.pool.get(mana_type, 0) - others))
+                if not bucket[mana_type]:
+                    del bucket[mana_type]
+            if not bucket:
+                del self.kept[until]
 
     def total(self) -> int:
         return sum(self.pool.values()) + sum(
             sum(lot["amounts"].values()) for lot in self.restricted
         )
 
-    def empty(self) -> None:
+    def empty(self, expire: tuple[str, ...] = ()) -> None:
         """Empty the pool (RULE 500.4: mana empties as each step/phase ends).
 
         Restricted mana empties the same way — being tagged for a narrower
         set of costs doesn't exempt it from the step/phase-end cleanup.
+        Mana tagged `kept` survives — except the buckets named in ``expire`` (the end of combat, the end of the
+        turn), which are dropped first and empty with the rest.
         """
+        for until in expire:
+            self.kept.pop(until, None)
+        survives = {t: sum(b.get(t, 0) for b in self.kept.values()) for t in self.pool}
         for mana_type in self.pool:
-            self.pool[mana_type] = 0
+            self.pool[mana_type] = min(self.pool[mana_type], survives[mana_type])
             self.snow_pool[mana_type] = 0
         self.restricted.clear()
         self.pool_by_source.clear()
+        if survives and any(survives.values()):
+            # What stays is plain, untagged mana from here on (its origin no longer matters).
+            self._add_to_source_pool_all(self.pool)
+
+    def _add_to_source_pool_all(self, amounts: dict[str, int]) -> None:
+        for mana_type, amount in amounts.items():
+            if amount:
+                self._add_to_source_pool(mana_type, amount, None)
 
     def _usable_lots(self, allows_restriction: Optional[AllowsRestriction]) -> list[dict]:
         """Restricted lots ``allows_restriction`` says may pay the cost at
@@ -288,6 +344,7 @@ class ManaPool:
         for color in colored_spends:
             self._consume(color, 1, usable, require_source_kind)
         spent_generic = self._spend_generic(generic_needed, usable, require_source_kind)
+        self._trim_kept()
         # Lots a payment fully drained are dropped rather than left as
         # empty husks (`add` would otherwise keep merging into them forever).
         self.restricted = [lot for lot in self.restricted if sum(lot["amounts"].values())]
@@ -507,6 +564,7 @@ class ManaPool:
         ]
         copy.pool_by_source = {k: dict(v) for k, v in self.pool_by_source.items()}
         copy.snow_pool = dict(self.snow_pool)
+        copy.kept = {until: dict(bucket) for until, bucket in self.kept.items()}
         return copy
 
     def can_pay_distinct_colors(self, n: int) -> bool:
@@ -536,6 +594,7 @@ class ManaPool:
             if self.pool.get(color, 0) > 0:
                 self.pool[color] -= 1
                 paid += 1
+        self._trim_kept()
 
     def to_dict(self) -> dict[str, Any]:
         data = dict(self.pool)

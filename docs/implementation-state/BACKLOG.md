@@ -71,102 +71,19 @@ No open tickets.
 > PAR-99…105 counts confirmed at PV 413 (2026-09-16, vs the 56 saved decks in `deck_coverage.py`),
 > re-verified at PV 447 (2026-09-21). Re-run `parser_probe.py blocked` before starting.
 
-- **PAR-107 · Small residue batch — graveyard/library/exile.** Clauses (cache-wide count; SOLO = only
-  blocker) — work each independently:
-  - God-Eternal "dies or exiled → put third from top" — 5 (2 SOLO: Oketra, Ilharg; Bontu/Kefnet/Rhonas
-    each blocked by a second clause).
-  - "Counter target spell unless its controller pays `<cost>` for each card in your graveyard" — 3
-    (Circular Logic, Countervailing Winds, Rakshasa's Disdain).
-  - "`<cost>`: target player exiles a card from their graveyard" — 3 (Merrow Bonegnawer, Relic of
-    Progenitus, Scrabbling Claws).
-  - "Exile target permanent with mana value `<n>` or greater" — 2 (Despark, Kin-Tree Severance).
-  - "When ~ dies, put it on the bottom of its owner's library" — 2 (Fell Horseman, Murderous Rider).
-  - "Reveal top `<n>`, may put a creature or land into hand, rest into graveyard" — 2 (Grisly Salvage,
-    Scout the Borders).
-  - "When ~ dies, you may cast it from your graveyard as an Adventure until end of your next turn" — 2
-    (Hildibrand Manderville, Mosswood Dreadknight).
-  - "You may cast this card from your graveyard using its Blitz ability" — 2 (Sabin, Tenacious Underdog).
-  - "Return all artifact and enchantment cards from your graveyard to the battlefield" — 2
-    (Brilliant Restoration, Redress Fate).
-  - "Look at top `<n>` of target player's library, put back in any order, may have them shuffle" — 2
-    (Natural Selection, Portent).
-  - "ETB if kicked, search for a land with a basic land type…" — 2 (Sprouting Goblin + rebalance).
-  - "ETB target opponent creature gets -X/-X, X = permanent cards in your graveyard" — 2 (Chupacabra
-    Echo, Cloud of Darkness).
-  - "ETB mill `<n>`, may return a land card from graveyard to hand" — 2 (Eccentric Farmer, Pothole Mole).
-  - **Blink, immediate return of several targets** — Displace, Illusionist's Stratagem ("exile up to
-    `<n>` creatures you control, then return them"); the delayed-return forms are claimed since v566.
-  - "Return target creature card from your graveyard with an additional +1/+1 counter" — Prison Break
-    (SOLO), A-Graveyard Shift (blocked).
-  - "End step, if you didn't play a card from exile this turn, create a tapped Powerstone" — Visions of
-    Phyrexia (SOLO), A-Visions (different upkeep clause).
-  - "ETB look at top `<n>`, may reveal a creature to hand, rest on bottom" — Growing Rites of Itlimoc
-    (SOLO), Foul Emissary (blocked).
-  - "Search for an instant or flash card, reveal, hand, shuffle" — 2 (Mystical Teachings, Waterlogged
-    Teachings).
-- **PAR-108 · Small residue batch — miscellaneous shapes (≥2 cards each).**
-  - "Destroy target artifact, enchantment, or creature with flying" — 3 (Airship Crash, Broken Wings,
-    Return to the Earth).
-  - "~ deals damage equal to the sacrificed creature's power to any target" — 3 (Fling, Kazuul's Fury, Thud).
-  - "Whenever enchanted land is tapped for mana, its controller adds an additional `<cost>`" — 2
-    (Overgrowth, Wolfwillow Haven).
-  - "Counter target spell, activated ability, or triggered ability" — 2 (Disallow, Voidslime); widen
-    `CounterSpellEffect`'s target kind.
-  - "You may have ~ enter as a copy of a creature you control, except it's a Shapeshifter Rogue" — 2
-    (Glasspool Mimic, Visage Bandit).
-  - "Target opponent exiles a creature or planeswalker with the greatest mana value" — 2 (Blot Out, End
-    of the Hunt).
-  - "Upkeep, if you have `<n>` or more life, you win" — 2 (Felidar Sovereign, Test of Endurance).
-  - "Upkeep, gain X life, X = cards in hand minus `<n>`" — Ivory Tower (SOLO), The Archimandrite.
-  - "As long as you have `<n>` life more than starting, creatures get +`<n>`/+`<n>`" — 2 (Leyline of
-    Hope, Righteous Valkyrie).
-  - "Counter target spell with mana value X" — 2 (Spell Blast, Spell Burst).
-  - "Whenever you tap a creature for mana, add an additional `<cost>`" — 2 (Badgermole Cub, Leyline of
-    Abundance).
-  - "Look at target player's hand" — 2 (Clairvoyance, Peek).
+- **PAR-107 · Small residue batch — graveyard/library/exile.** Adventure/Blitz casts from the graveyard and the
+  single-card graveyard/library shapes left over.
+- **PAR-108 · Small residue batch — miscellaneous shapes.** Single-card copy/counter/look-at-hand shapes and the
+  remaining "the sacrificed creature's …" sub-shapes.
 - **PAR-109 · Residue of the static/activated-ability batch.** Brad Boimler's until-EOT counter replacement;
   Worldknit's card-pool condition; "can't be regenerated" leftovers (Bone Shaman, Lim-Dûl's Cohort); Desolation of
   Smaug's "spend only to cast Dragon spells"; Luxior's per-counter bonus; Atalya's modal `{X}, {T}` body.
-- **PAR-110 · Small residue batch — board wipes & mass effects.** Check whether `object_filter`/
-  `creature_filter` already reaches these before adding rows.
-  - Mass-damage tail (`parser_probe.py blocked 'deals? (?:x|\d+) damage to each (?:other )?creature'`):
-    "it deals" under a sacrifice-on-a-condition trigger (Bloodletter, Krazy Kow), "for each Aura attached"
-    (Baki's Curse), kicker/"instead" variants (Cinderclasm, Firespout), a summed X amount (Calamitous
-    Cave-In), "except for creatures you control with flying" (Flame Sweep), "creatures dealt damage this
-    turn/way" (Inflame), "equipped creature becomes blocked, it deals …" (Trailblazer's Torch — the dealer
-    is the host, not the Equipment). `DealDamageEffect.group`/`group_player`/`group_and_players` carry the
-    shapes that already parse.
-  - Mass-tap tail (`blocked '(?:^|, |\. )tap all '`): "tap all untapped Islands that player controls and
-    ~ deals X damage, X = the number tapped"
-    (Monsoon, Angel's Trumpet), "tap all untapped creatures that share a creature type with it", "tap all
-    creatures blocking/that blocked ~".
-  - "Destroy/exile all `<group>`" leftovers (`blocked '(?:^|[.,] |: )(?:destroy|exile) (?:all|each) '`, ~180
-    solo — most are the group plus a rider): "for each … destroyed this way, create a Treasure / gain life"
-    (Blood Money, Fumigate), "until ~ leaves the battlefield" (Aligned Hedron Network), "at the
-    beginning of the next end step" (Bearer of the Heavens).
-  - "Each player exiles creature cards from graveyard, sacrifices all creatures, puts exiled cards onto
-    the battlefield" — 2 (Living Death, Living End).
-  - "Each player chooses creatures with total power `<n>` or less, sacrifices the rest" — 2 (Destined
-    Confrontation, Slaughter the Strong).
-  - "Put all creatures on the bottom of their owners' libraries" — 2 (Hallowed Burial, Terminus).
-  - "Destroy all creatures; gain `<n>` life for each" — Fumigate (SOLO), Avenge.
-  - "Each opponent sacrifices the creature/planeswalker with greatest mana value" — 2 (Flare of Malice,
-    Soul Shatter).
-  - "Target player mills half their library, rounded down" — 2 (Cut Your Losses, Traumatize).
-- **PAR-113 · Small residue batch — combat triggers.**
-  - "Whenever ~ deals combat damage to a player, you get that many `<cost>`" — Empyreal Voyager, Peema
-    Trailblazer (SOLO); Aurora Shifter.
-  - "Whenever ~ enters or attacks, you may put a land from a graveyard onto the battlefield tapped" — 2
-    SOLO (Soul of Windgrace + rebalance).
-  - "Whenever ~ attacks, add `<cost>`; you don't lose this mana as steps end" — 2 SOLO (Brazen
-    Collector, Savage Ventmaw).
-- **PAR-114 · Small residue batch — cost reduction & alternative costs.**
-  - "This spell costs `<cost>` less, X = greatest power among your creatures" — 4 (Mitotic Ultimus,
-    Molten Monstrosity, The Great Henge, The Skullspore Nexus).
-  - "Additional cost: discard a card or pay `<cost>`" — 3 (Lightning Axe, Pumpkin Bombardment, Titania).
-  - "Additional cost: sacrifice a creature or discard a card" — 2 (Bone Shards, Minion Missile).
-  - "During turns other than yours, spells you cast cost `<cost>` less" — 2 (Geyser Drake, Naiad of
-    Hidden Coves).
+- **PAR-110 · Small residue batch — board wipes & mass effects.** Mass-damage riders, mass-tap, "destroy/exile all"
+  + rider tails, total-power edicts, Living Death.
+- **PAR-113 · Small residue batch — combat triggers.** "Whenever a player attacks" head and kept mana with a
+  restriction or a non-trivial head.
+- **PAR-114 · Small residue batch — cost reduction & alternative costs.** Either/or additional costs with no mana
+  half, activation-cost and flashback-cost "where X is …" discounts, "during turns other than yours" on P/T.
 
 > PAR-107…114 counts come from a one-pass `parse_oracle` + `abstract_clause` scan (PV 413, 2026-09-16,
 > vs the 56 saved decks); 107…113 re-measured at PV 447. They were not individually re-diagnosed —

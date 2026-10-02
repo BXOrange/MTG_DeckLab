@@ -289,11 +289,21 @@ _DIFFERENTLY_NAMED = re.compile(r"^the number of differently named (?P<phrase>.+
 _NAMED_TERMS: dict[str, str] = {
     "the number of basic land types among lands you control": "basic_land_types_among_lands_you_control",
     "your life total": "your_life_total",
+    "the greatest mana value among your commanders": "greatest_commander_mana_value",
+    "the greatest mana value of a commander you own on the battlefield or in the command zone":
+        "greatest_commander_mana_value",
+    "the greatest mana value among commanders you own on the battlefield or in the command zone":
+        "greatest_commander_mana_value",
     # `GameState.life_gained_this_turn` (Fortifying Draught) — a turn total, no noun phrase.
     "the amount of life you gained this turn": "life_gained_this_turn",
     "the amount of life you lost this turn": "life_lost_this_turn",
     "the number of experience counters you have": "experience_counters_you_have",
 }
+#: "the sacrificed creature's power" (Fling, Altar of Dementia, Ghoulcaller Gisa) — what the ability's own
+#: sacrifice (a cost, or "you may sacrifice a creature. When you do, …") stamped on its source
+#: (`RulesEngine.note_sacrificed` → `continuous.count_selector`'s ``sacrificed_cost_*``).
+SACRIFICED_TERM = r"the sacrificed (?:creature|permanent|artifact|land)'?s (?:power|toughness|mana value)"
+_SACRIFICED = re.compile(r"^the sacrificed (?:creature|permanent|artifact|land)'?s (?P<what>power|toughness|mana value)$")
 #: "`<N>` plus …" (Allosaurus Rider) and "twice …" (Territorial Maro).
 _PLUS_PREFIX = re.compile(rf"^(?P<n>{_NUMBER}) plus (?P<rest>.+)$")
 _TWICE_PREFIX = "twice "
@@ -308,6 +318,9 @@ def parse_amount_term(text: str) -> "Optional[str | dict[str, Any]]":
     text = text.strip().lower()
     if text in _NAMED_TERMS:
         return _NAMED_TERMS[text]
+    m = _SACRIFICED.match(text)
+    if m is not None:
+        return "sacrificed_cost_" + m.group("what").replace(" ", "_")
     m = _DEVOTION_TERM.match(text) or _MANA_SYMBOLS_TERM.match(text)
     if m is not None:
         return f"devotion_to_{m.group('color')}"

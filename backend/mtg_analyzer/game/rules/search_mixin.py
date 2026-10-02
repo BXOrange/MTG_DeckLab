@@ -221,6 +221,14 @@ class SearchMixin:
             "away": ("Schicksalszeichnung: welche Karte kommt unter die Bibliothek?", "Rest oben lassen"),
             "order": ("Schicksalszeichnung: welche Karte kommt zuoberst?", "Reihenfolge behalten"),
         },
+        # "Look at the top N cards of [target player's] library, then put them back in any order"
+        # (Sensei's Divining Top, Elemental Augury, Architects of Will): no keyword action, so no
+        # event and no "away" pile — just the "order" phase, over that library (`library_owner`).
+        "reorder_top": {
+            "event": None,
+            "away": None,
+            "order": ("Oberste Karten: welche kommt zuoberst?", "Reihenfolge behalten"),
+        },
         # MEC-43 round 4F (Scroll Rack): "look at the exiled cards and put
         # them on top of your library in any order" — the order-only
         # sibling of scry/surveil's own ordering phase (`open_scroll_rack_
@@ -490,6 +498,7 @@ class SearchMixin:
         top: list[int],
         source_name: Optional[str] = None,
         library_owner: Optional[Player] = None,
+        may_shuffle: bool = False,
     ) -> dict[str, Any]:
         """Build one step of the serializable `scry`/`surveil` decision.
 
@@ -526,9 +535,12 @@ class SearchMixin:
         # and every existing caller/serialized choice is unchanged.
         if library_owner is not None and library_owner.id != player.id:
             choice["library_owner_id"] = library_owner.id
+        # `reorder_top` only: "…put them back in any order. You may shuffle." — offered once the order is set.
+        if may_shuffle:
+            choice["may_shuffle"] = True
         return choice
     @continuations.choice(
-        "scry", "surveil", "scroll_rack", "fateseal",
+        "scry", "surveil", "scroll_rack", "fateseal", "reorder_top",
         answer=continuations.ANSWER_INT,
         rule="701.22",
     )
@@ -568,9 +580,11 @@ class SearchMixin:
         phase = choice["phase"]
         source_name = choice.get("source_name")
 
+        may_shuffle = bool(choice.get("may_shuffle"))
         if instance_id is None:
             if phase == "order":
                 self._finish_look_top(owner, kind, away, top + remaining)
+                self._offer_shuffle_after_look(player, owner, may_shuffle)
                 return
             phase = "order"  # declined: what's left stays on top
         elif instance_id in remaining:
@@ -583,10 +597,11 @@ class SearchMixin:
         # all — either way the decision is over.
         if not remaining or (phase == "order" and len(remaining) == 1):
             self._finish_look_top(owner, kind, away, top + remaining)
+            self._offer_shuffle_after_look(player, owner, may_shuffle)
             return
         self.open_choice(self._look_top_choice(
             player, kind, phase, remaining, away, top, source_name,
-            library_owner=owner,
+            library_owner=owner, may_shuffle=may_shuffle,
         ))
     def _finish_look_top(
         self, player: Player, kind: str, away: list[int], top: list[int]
@@ -631,6 +646,47 @@ class SearchMixin:
                     obj.face_down_in_exile = False
                 player.library.append(obj)
 
+    def _offer_shuffle_after_look(self, player: Player, owner: Player, may_shuffle: bool) -> None:
+        """"You may shuffle" / "you may have that player shuffle" (Omen, Natural Selection, Portent): a yes/no
+        once the looked-at cards are back in order. Only the decider is asked (``player``); ``owner`` is whose
+        library shuffles."""
+        if not may_shuffle or len(owner.library) < 2:
+            return
+        self.open_choice({
+            "kind": "shuffle_offer",
+            "player_id": player.id,
+            "library_owner_id": owner.id,
+            "prompt": "Bibliothek mischen?" if owner.id == player.id else f"Bibliothek von {owner.name} mischen?",
+            "options": [{"id": "do", "label": "Mischen"}, {"id": "decline", "label": "Nicht mischen"}],
+        })
+
+    @continuations.choice("shuffle_offer", answer=continuations.ANSWER_STR, rule="701.24")
+    def _resume_shuffle_offer(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        if answer == "do":
+            self.shuffle_library(self.state.player_by_id(choice["library_owner_id"]))
+
+    def look_reorder_top(
+        self,
+        player: Player,
+        count: int,
+        library_owner: Optional[Player] = None,
+        source: Optional["GameObject"] = None,
+        may_shuffle: bool = False,
+    ) -> None:
+        """"Look at the top ``count`` cards of a library, then put them back in any order" —
+        ``player`` decides, ``library_owner`` (default: ``player``) is whose library it is.
+        Unlike scry nothing may leave the top, so only the ordering decision opens (and not at
+        all for a single card, which has one order)."""
+        owner = library_owner if library_owner is not None else player
+        looked = owner.library[-count:] if count > 0 else []
+        if len(looked) < 2:
+            self._offer_shuffle_after_look(player, owner, may_shuffle)
+            return
+        remaining = [obj.instance_id for obj in reversed(looked)]  # top card first
+        self.open_choice(self._look_top_choice(
+            player, "reorder_top", "order", remaining, [], [],
+            source.name if source is not None else None, library_owner=owner, may_shuffle=may_shuffle,
+        ))
     def open_scroll_rack_order_choice(
         self, player: Player, instance_ids: list[int], source: Optional["GameObject"] = None,
     ) -> None:
@@ -1542,7 +1598,9 @@ class SearchMixin:
         # "Shuffle, then put on top/bottom" (RULE 701.19e for a library
         # destination): the found card must land *after* the shuffle, so its
         # position is known — otherwise the shuffle would move it.
-        to_library = any(d in ("library_top", "library_bottom") for d in effective_destinations)
+        to_library = any(
+            d in ("library_top", "library_bottom", "library_third") for d in effective_destinations
+        )
         if shuffle and to_library:
             self.shuffle_library(player)
         for obj, dest in zip(chosen, effective_destinations):
@@ -1726,6 +1784,9 @@ class SearchMixin:
             player.library.insert(0, obj)  # bottom (index 0 — see Player.library)
         elif destination == "library_top":
             player.add_to_zone(obj, Zone.LIBRARY)  # top of deck is the list end
+        elif destination == "library_third":
+            # Long-Term Plans: "put that card third from the top" (RULE 401.7).
+            self._insert_library_nth_from_top(player, obj, 3)
         elif destination == "graveyard":
             player.add_to_zone(obj, Zone.GRAVEYARD)
         elif destination == "exile":

@@ -325,10 +325,10 @@ def test_add_mana_handler_recognizes_any_color():
     any_color = parse_effect_body("add 1 mana of any color")[0]
     assert any_color.type == "add_mana"
     assert any_color.params == {"colors": ["any"]}
-    # Deliberately narrow: a multi-mana "any color" clause is always
-    # templated "any *one* color" instead — a different, unclaimed shape.
+    # A multi-mana clause is templated "any *one* color" — one colour pick for all of it (PAR-107…114's
+    # `any_amount`); the bare "add 2 mana of any color" stays unclaimed.
     assert parse_effect_body("add 2 mana of any color") is None
-    assert parse_effect_body("add 2 mana of any one color") is None
+    assert parse_effect_body("add 2 mana of any one color")[0].params == {"colors": ["any"], "any_amount": 2}
 
 
 def test_gate_claims_a_bare_add_any_color_spell_as_modeled():

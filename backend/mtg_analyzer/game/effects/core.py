@@ -312,6 +312,9 @@ class GameContext:
     ) -> None:
         self.engine.discard_matching(player, mana_value=mana_value, cause=cause)
 
+    def look_at_hand(self, player: "Player", owner: "Player", source: Optional["GameObject"] = None) -> None:
+        self.engine.look_at_hand(player, owner, source=source)
+
     def exile_hand_choice(
         self,
         player: "Player",
@@ -319,9 +322,10 @@ class GameContext:
         source: Optional["GameObject"] = None,
         then_specs: Optional[list[dict]] = None,
         optional: bool = False,
+        zone: str = "hand",
     ) -> None:
         self.engine.exile_hand_choice(
-            player, count, source=source, then_specs=then_specs, optional=optional
+            player, count, source=source, then_specs=then_specs, optional=optional, zone=zone
         )
 
     def put_hand_cards_on_top(self, player: "Player", count: int = 1) -> None:
@@ -439,6 +443,14 @@ class GameContext:
 
     def scry(self, player: "Player", count: int = 1, source: Optional["GameObject"] = None) -> None:
         self.engine.scry(player, count, source=source)
+
+    def look_reorder_top(
+        self, player: "Player", count: int = 1, library_owner: Optional["Player"] = None,
+        source: Optional["GameObject"] = None, may_shuffle: bool = False,
+    ) -> None:
+        self.engine.look_reorder_top(
+            player, count, library_owner=library_owner, source=source, may_shuffle=may_shuffle,
+        )
 
     def surveil(self, player: "Player", count: int = 1, source: Optional["GameObject"] = None) -> None:
         self.engine.surveil(player, count, source=source)
@@ -801,8 +813,8 @@ class GameContext:
     def end_the_turn(self) -> None:
         self.engine.end_the_turn()
 
-    def return_to_library(self, target: "GameObject", position: str = "top") -> None:
-        self.engine.return_to_library(target, position)
+    def return_to_library(self, target: "GameObject", position: str = "top", depth: int = 1) -> None:
+        self.engine.return_to_library(target, position, depth)
 
     def shuffle_into_library(self, target: "GameObject") -> None:
         self.engine.shuffle_into_library(target)
@@ -818,8 +830,8 @@ class GameContext:
             target, destination, controller_id=controller_id, transformed=transformed
         )
 
-    def blink(self, target: "GameObject", controller: Optional["Player"] = None) -> None:
-        self.engine.blink(target, controller=controller)
+    def blink(self, target: "GameObject", controller: Optional["Player"] = None, tapped: bool = False) -> None:
+        self.engine.blink(target, controller=controller, tapped=tapped)
 
     def exile_return_transformed(self, target: "GameObject") -> None:
         self.engine.exile_return_transformed(target)
@@ -835,13 +847,16 @@ class GameContext:
             target, new_type_line, new_oracle_text, attach_to=attach_to
         )
 
-    def add_mana(self, player: "Player", color: str, amount: int = 1) -> None:
-        self.engine.add_mana(player, color, amount)
+    def add_mana(
+        self, player: "Player", color: str, amount: int = 1, keep_until: Optional[str] = None,
+    ) -> None:
+        self.engine.add_mana(player, color, amount, keep_until=keep_until)
 
     def add_mana_any_color(
-        self, player: "Player", colors: Optional[list[str]] = None, amount: int = 1
+        self, player: "Player", colors: Optional[list[str]] = None, amount: int = 1,
+        keep_until: Optional[str] = None,
     ) -> None:
-        self.engine.add_mana_any_color(player, colors, amount=amount)
+        self.engine.add_mana_any_color(player, colors, amount=amount, keep_until=keep_until)
 
 
 def _event_player(context: GameContext, key: str = "controller_id") -> Optional["Player"]:

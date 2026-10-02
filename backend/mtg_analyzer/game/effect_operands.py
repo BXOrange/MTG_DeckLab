@@ -93,8 +93,15 @@ def _player_by_id(context: "GameContext", player_id: Optional[str]) -> Any:
 
 def _is_player(candidate: Any) -> bool:
     """A `Player` has no ``instance_id``; that absence is what the targeting
-    code already uses to tell the two apart."""
-    return candidate is not None and getattr(candidate, "instance_id", None) is None
+    code already uses to tell the two apart. An ability on the stack has none
+    either (it is a `StackItem`, keyed by ``stack_id``), but it is not a player:
+    its controller is `controller_id` like any object's ("counter target …
+    ability. **Its controller** loses life …" — Deny the Witch)."""
+    return (
+        candidate is not None
+        and getattr(candidate, "instance_id", None) is None
+        and getattr(candidate, "stack_id", None) is None
+    )
 
 
 def _derive(context: "GameContext", subject: Any, derivation: str) -> Any:

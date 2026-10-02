@@ -94,6 +94,18 @@ def noncreature_spells_cast(events: Events) -> "defaultdict[str, int]":
                   where=lambda e: "creature" not in (e.get("object_types") or []))
 
 
+def cards_played_from_exile(events: Events) -> "defaultdict[str, int]":
+    """Cards each player played from exile this turn: spells cast from exile and lands played from exile
+    (Visions of Phyrexia's "if you didn't play a card from exile this turn")."""
+    out: "defaultdict[str, int]" = defaultdict(int)
+    for event in events:
+        if event.type in (EventType.SPELL_CAST, EventType.LAND_PLAYED) and event.get("from_exile"):
+            who = event.get("player_id")
+            if who is not None:
+                out[who] += 1
+    return out
+
+
 def nonartifact_spells_cast(events: Events) -> "defaultdict[str, int]":
     return _tally(events, EventType.SPELL_CAST, "player_id",
                   where=lambda e: "artifact" not in (e.get("object_types") or []))

@@ -121,6 +121,8 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
         # Deadly Dispute/Costly Plunder-shaped "sacrifice an artifact or
         # creature" additional cost.
         return obj.is_creature or obj.card.is_artifact
+    if what == "creature_or_enchantment":
+        return obj.is_creature or obj.card.is_enchantment
     if what == "creature_or_planeswalker":
         # RULE 306/302: Tevesh Szat's "another creature or planeswalker" —
         # the one compound word any shipped card needs.
@@ -599,6 +601,20 @@ class DamageDeathMixin:
         sacrifice (RULE 701.17) uses this too, for the same reason.
         """
         self._move_to_graveyard(obj, cause="sacrifice")
+    def note_sacrificed(self, source: Optional[GameObject], victim: GameObject) -> None:
+        """Remember on ``source`` what was just sacrificed, for a "the sacrificed creature's
+        power / toughness / mana value" amount (`continuous.count_selector`'s ``sacrificed_cost_*``).
+        Called with the victim still on the battlefield, so its derived (RULE 613) power and
+        toughness are the ones read — RULE 608.2h last-known information. A cost (RULE 601.2b /
+        602.2b) and an effect's own sacrifice ("you may sacrifice another creature. When you do, ...")
+        both stamp, so a clause measuring "the sacrificed creature" reads the same fields either way."""
+        if source is None:
+            return
+        source.sacrificed_cost_mana_value = victim.card.converted_mana_cost
+        source.sacrificed_cost_was_suspected = bool(getattr(victim, "is_suspected", False))
+        source.sacrificed_cost_power = victim.power
+        source.sacrificed_cost_toughness = victim.toughness
+
     def sacrifice(self, player: Player, what: str = "permanent", count: "int | str" = 1) -> None:
         """``player`` sacrifices up to ``count`` permanents matching ``what``
         (RULE 701.17) — an effect-driven sacrifice (annihilator, RULE
@@ -752,14 +768,17 @@ class DamageDeathMixin:
         self._split_melded_after_move(obj, Zone.HAND)  # RULE 712.19
         if obj.is_commander:
             self.open_choice(self._commander_zone_choice(obj, Zone.HAND))
-    def return_to_library(self, obj: GameObject, position: str = "top") -> None:
+    def return_to_library(self, obj: GameObject, position: str = "top", depth: int = 1) -> None:
         """Put ``obj`` on top (default) or the bottom of its owner's library
         (RULE 701.3's "put" — Time Ebb/Griptide/Roil Spout-shaped tempo
         bounce, distinct from `shuffle_into_library`'s "shuffle into", which
         randomizes rather than placing), from anywhere — the same "move to
         another zone, from wherever it is" shape as `return_to_hand`/
         `exile`. RULE 903.9b's commander redirect applies here exactly as it
-        does for a commander headed to hand.
+        does for a commander headed to hand. ``depth`` > 1 is "Nth from the
+        top" (God-Eternal Oketra's "third from the top"): ``depth - 1`` cards
+        stay above it; a library with fewer than ``depth`` cards puts it on the
+        bottom (RULE 401.7).
         """
         was_on_battlefield = obj in self.state.battlefield
         owner = self.state.player_by_id(obj.owner_id)
@@ -787,11 +806,20 @@ class DamageDeathMixin:
         if position == "bottom":
             obj.zone = Zone.LIBRARY
             owner.library.insert(0, obj)
+        elif depth > 1:
+            self._insert_library_nth_from_top(owner, obj, depth)
         else:
             owner.add_to_zone(obj, Zone.LIBRARY)  # top (index -1)
         self._split_melded_after_move(obj, Zone.LIBRARY)  # RULE 712.19
         if obj.is_commander:
             self.open_choice(self._commander_zone_choice(obj, Zone.LIBRARY))
+    def _insert_library_nth_from_top(self, owner: Player, obj: GameObject, depth: int) -> None:
+        """Put ``obj`` ``depth``-th from the top of ``owner``'s library (RULE 401.7:
+        the top of the library is the list end, so ``depth - 1`` cards stay above
+        it; a library with fewer than ``depth`` cards puts it on the bottom)."""
+        obj.zone = Zone.LIBRARY
+        owner.library.insert(max(0, len(owner.library) - (depth - 1)), obj)
+
     def shuffle_into_library(self, obj: GameObject) -> None:
         """Move ``obj`` into its owner's library, then shuffle (RULE 701.20 —
         Green Sun's Zenith's own trailing "Shuffle ~ into its owner's
@@ -831,7 +859,7 @@ class DamageDeathMixin:
         owner.add_to_zone(obj, Zone.LIBRARY)
         self._split_melded_after_move(obj, Zone.LIBRARY)  # RULE 712.19
         self.shuffle_library(owner)
-    def blink(self, obj: GameObject, controller: Optional[Player] = None) -> None:
+    def blink(self, obj: GameObject, controller: Optional[Player] = None, tapped: bool = False) -> None:
         """Exile ``obj``, then immediately return it to the battlefield under
         its owner's control (RULE 400.7's "leaves and re-enters" — Ephemerate/
         Momentary Blink-shaped "exile target permanent, then return it").
@@ -874,7 +902,8 @@ class DamageDeathMixin:
         owner.remove_from_zone(obj, Zone.EXILE)
         obj.reset_as_new_object()
         obj.controller_id = new_controller.id
-        self._put_searched_card(new_controller, obj, "battlefield")
+        # "…then return them to the battlefield **tapped** under their owner's control" (Gandalf, Shadow's Foe).
+        self._put_searched_card(new_controller, obj, "battlefield_tapped" if tapped else "battlefield")
     def return_from_graveyard(
         self,
         obj: GameObject,

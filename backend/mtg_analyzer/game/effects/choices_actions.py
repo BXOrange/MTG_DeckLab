@@ -43,8 +43,12 @@ class AddManaEffect(GameEffect):
         any_amount_from_context: Optional[str] = None,
         any_amount_multiplier: int = 1,
         amount_from_context: Optional[str] = None,
+        keep_until: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: "Until end of turn, you don't lose this mana as steps and phases end." (Brazen Collector, Savage
+        #: Ventmaw, Neheb): ``"end_of_turn"``/``"end_of_combat"`` — `ManaPool.kept`.
+        self.keep_until = keep_until
         #: "Add X mana in any combination of {B} and/or {G}." (Culling
         #: Ritual, MEC-40) — narrows the ``colors=["ANY"]`` offer to this
         #: fixed set instead of all five WUBRG, mirroring `add_mana_any_
@@ -188,21 +192,21 @@ class AddManaEffect(GameEffect):
                     )
                 if any_amount > 0:
                     context.add_mana_any_color(
-                        player, colors=self.any_color_choices, amount=any_amount,
+                        player, colors=self.any_color_choices, amount=any_amount, keep_until=self.keep_until,
                     )
                     used_this_turn = True
             else:
-                context.add_mana(player, color)
+                context.add_mana(player, color, keep_until=self.keep_until)
                 used_this_turn = True
         if self.once_per_turn_ability and used_this_turn and self.source is not None:
             self.source.added_mana_with_ability_this_turn = True
         if isinstance(self.amount, int) and self.amount > 0:
-            context.add_mana(player, self.color, self.amount)
+            context.add_mana(player, self.color, self.amount, keep_until=self.keep_until)
         if self.amount_from_trigger_event:
             event = context.trigger_event
             extra = int((event or {}).get(self.amount_from_trigger_event) or 0)
             if extra > 0:
-                context.add_mana(player, self.color, extra)
+                context.add_mana(player, self.color, extra, keep_until=self.keep_until)
         if self.amount_selector:
             from .. import continuous  # function-scoped: avoid an import cycle
 
@@ -210,11 +214,11 @@ class AddManaEffect(GameEffect):
                 context.state, player.id, self.amount_selector, source=self.source
             )
             if extra > 0:
-                context.add_mana(player, self.color, extra)
+                context.add_mana(player, self.color, extra, keep_until=self.keep_until)
         if self.amount_from_context:
             extra = int(getattr(context, self.amount_from_context, 0) or 0)
             if extra > 0:
-                context.add_mana(player, self.color, extra)
+                context.add_mana(player, self.color, extra, keep_until=self.keep_until)
 
 
 def _mana_value_of(target: Any) -> int:

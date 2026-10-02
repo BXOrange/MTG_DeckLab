@@ -709,6 +709,17 @@ class LegalActionsMixin:
                 cost = self.effective_cast_cost(player, obj, face=face, help_pay=True)
                 if mana_potential.is_castable_via_potential(self, player, cost):
                     return True
+        # RULE 601.2b: an optional additional cost's *paid* variant (`pay_additional`) can be castable when the plain
+        # one is not — "discard a card or pay {5}" with no {5} to spare (Lightning Axe): only the discard branch is.
+        if getattr(obj, "additional_cast_cost", None) is not None and getattr(
+            obj, "additional_cast_cost_optional", False
+        ):
+            if self.can_cast(player, obj, face=face, pay_additional=True):
+                return True
+            if self.can_cast(player, obj, face=face, pay_additional=True, assume_mana_available=True):
+                cost = self.effective_cast_cost(player, obj, face=face, pay_additional=True)
+                if mana_potential.is_castable_via_potential(self, player, cost):
+                    return True
         return False
     def _activatable_now_or_via_potential(
         self, player: Player, source: GameObject, ability: ActivatedAbility,

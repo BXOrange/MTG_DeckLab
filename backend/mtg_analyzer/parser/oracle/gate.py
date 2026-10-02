@@ -3823,7 +3823,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: rows that took "permanent" for it (Banishing Stroke, Banishment Decree, Trapped in the Screen) name it too. A
 #: "Solved —" / "Max speed —" gate on a *replacement* is its `active_if` (it used to append an activation marker that
 #: could not bind — Case of the Pilfered Proof), and a two-event group trigger binds (`_subject_event_key`).
-PARSER_VERSION = "576"
+PARSER_VERSION = "577"
 
 
 def parser_source_hash() -> str:

@@ -282,9 +282,18 @@ class ReturnToLibraryEffect(GameEffect):
         optional: bool = False,
         count: int = 1,
         colors: Optional[list[str]] = None,
+        depth: int = 1,
+        group: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "Put all creatures on the bottom of their owners' libraries." (Terminus, Hallowed Burial) — a structured
+        #: battlefield selector (`_group_objects`), `ReturnToHandEffect.group`'s library sibling. Each owner's cards
+        #: go in the order found (RULE 401.4 lets them arrange them; the engine keeps one fixed order).
+        self.group = dict(group) if isinstance(group, dict) and group.get("zone", "battlefield") == "battlefield" else None
+        #: "put it into its owner's library third from the top" (God-Eternal
+        #: Oketra) — ``position="top"`` with ``depth`` 3; 1 is plain "on top".
+        self.depth = max(1, int(depth))
         #: "put target `<c1>` or `<c2>` creature on top of its owner's
         #: library" (Hunting Drake) — `TargetSpec.colors`' OR narrowing.
         self.colors = tuple(colors) if colors else None
@@ -294,23 +303,27 @@ class ReturnToLibraryEffect(GameEffect):
         #: all, mirroring `ExileEffect`/`TapEffect`'s own self mode.
         self.target_spec = (
             TargetSpec(kind=target_kind, optional=optional, count=count, colors=self.colors)
-            if target_kind else None
+            if target_kind and self.group is None else None
         )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.group is not None:
+            for obj in _group_objects(context, self.group, None, self.source, None) or []:
+                context.return_to_library(obj, self.position, self.depth)
+            return
         if self.target_spec is None:
             target = (targets[0] if targets else None) or self.target or self.source
             if target is not None:
-                context.return_to_library(target, self.position)
+                context.return_to_library(target, self.position, self.depth)
             return
         if self.target_spec.effective_count != 1:
             chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
             for target in chosen:
-                context.return_to_library(target, self.position)
+                context.return_to_library(target, self.position, self.depth)
             return
         target = (targets[0] if targets else None) or self.target
         if target is not None:
-            context.return_to_library(target, self.position)
+            context.return_to_library(target, self.position, self.depth)
 
 
 class ReturnToLibraryThenDigSharedTypeEffect(GameEffect):
@@ -1734,9 +1747,12 @@ class BlinkEffect(GameEffect):
         count: int = 1,
         count_max: Optional[int] = None,
         trigger_event_key: Optional[str] = None,
+        tapped: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: Returns tapped ("…then return them to the battlefield tapped under their owner's control").
+        self.tapped = bool(tapped)
         #: ``target_kind="trigger_subject"`` (PAR-123, Gossip's Talent's "exile
         #: **it**, then return it …") — no RULE 115 target; the object that
         #: fired the trigger, read off `GameContext.trigger_event`.
@@ -1759,7 +1775,7 @@ class BlinkEffect(GameEffect):
         controller = _controller_of(self.source, context) if self.under_your_control else None
         for target in chosen:
             if target is not None:
-                context.blink(target, controller=controller)
+                context.blink(target, controller=controller, tapped=self.tapped)
 
 
 

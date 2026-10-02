@@ -1402,9 +1402,12 @@ class ExileHandCardEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = None,
         previous_subject: bool = False,
+        zone: str = "hand",
     ) -> None:
         super().__init__(source)
         self.count = count
+        #: ``"graveyard"`` — "target player exiles a card from their graveyard" (Merrow Bonegnawer).
+        self.zone = zone if zone in ("hand", "graveyard") else "hand"
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
         #: "**That player** exiles a card from their hand." — the `Player`
         #: an earlier clause of this resolution RULE 115-targeted, the same
@@ -1425,7 +1428,34 @@ class ExileHandCardEffect(GameEffect):
             player = _controller_of(self.source, context)
         if player is None or self.count <= 0:
             return
-        context.exile_hand_choice(player, self.count, source=self.source)
+        context.exile_hand_choice(player, self.count, source=self.source, zone=self.zone)
+
+
+class LookAtHandEffect(GameEffect):
+    """"Look at target player's hand." (Clairvoyance, Peek, Glasses of Urza, Ingenious Thief) — the
+    effect's controller is shown that player's hand (`RulesEngine.look_at_hand`); nothing changes."""
+
+    def __init__(
+        self,
+        source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = "player",
+        previous_subject: bool = False,
+    ) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+        #: "…look at **that player's** hand" after an earlier clause aimed at a player.
+        self.previous_subject = bool(previous_subject)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        looker = _controller_of(self.source, context)
+        owner = None
+        if self.previous_subject:
+            prev = list(context.previous_targets)
+            owner = prev[0] if prev else None
+        if owner is None and self.target_spec is not None and targets:
+            owner = targets[0]
+        if looker is not None and owner is not None:
+            context.look_at_hand(looker, owner, source=self.source)
 
 
 class DiscardCardsDiscardedDeltaDrawEffect(GameEffect):
