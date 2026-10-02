@@ -17,6 +17,7 @@ from . import ajani_nacatl_pariah  # noqa: F401
 from . import ajani_s_chosen  # noqa: F401
 from . import ajani_steadfast  # noqa: F401
 from . import akiri_fearless_voyager  # noqa: F401
+from . import akroma_s_memorial  # noqa: F401
 from . import alchemist_s_retrieval  # noqa: F401
 from . import allosaurus_shepherd  # noqa: F401
 from . import alms_collector  # noqa: F401

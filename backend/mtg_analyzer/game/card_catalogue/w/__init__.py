@@ -13,6 +13,7 @@ from . import windfall  # noqa: F401
 from . import winds_of_abandon  # noqa: F401
 from . import winds_of_rath  # noqa: F401
 from . import winter_orb  # noqa: F401
+from . import wirewood_herald  # noqa: F401
 from . import witch_of_the_moors  # noqa: F401
 from . import witch_s_mark  # noqa: F401
 from . import witherbloom_command  # noqa: F401
