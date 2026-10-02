@@ -19,6 +19,7 @@ from . import black_market_connections  # noqa: F401
 from . import blackblade_reforged  # noqa: F401
 from . import blasphemous_act  # noqa: F401
 from . import bloatfly_swarm  # noqa: F401
+from . import bloodchief_ascension  # noqa: F401
 from . import bloodforged_battle_axe  # noqa: F401
 from . import bloodghast  # noqa: F401
 from . import blossoming_bogbeast  # noqa: F401

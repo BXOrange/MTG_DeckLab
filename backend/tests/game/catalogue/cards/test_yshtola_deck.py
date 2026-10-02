@@ -85,3 +85,64 @@ def test_faebloom_trick_makes_two_fliers_then_taps_an_opposing_creature():
     faeries = [o for o in engine.state.permanents_controlled_by("p1") if "Faerie" in (o.card.type_line or "")]
     assert len(faeries) == 2
     assert bear.tapped
+
+
+def _bloodchief_ascension_game():
+    from mtg_analyzer.config import DB_PATH
+    from mtg_analyzer.game.game_engine import GameEngine
+    from mtg_analyzer.services.card_database import CardDatabase
+
+    card = CardDatabase(DB_PATH).get_card("Bloodchief Ascension")
+    engine = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])], starting_hand=0, starting_life=20)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    ascension = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    ascension.controller_id = "p1"
+    bind_from_catalogue(ascension)
+    engine.state.add_to_battlefield(ascension)
+    return engine, ascension
+
+
+def _answer_may(engine, answer="do"):
+    choice = engine.state.pending_choice
+    assert choice is not None and choice["kind"] == "trigger_target"
+    engine.resolve_pending_choice(answer)
+    engine.resolve_until_stable()
+
+
+def test_bloodchief_ascension_counts_up_only_after_an_opponent_lost_2_life():
+    from mtg_analyzer.models.game.events import GameEvent, EventType
+
+    engine, ascension = _bloodchief_ascension_game()
+    p2 = engine.state.player_by_id("p2")
+    engine.rules.lose_life(p2, 1)
+    engine.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="end", phase="ending"))
+    engine.rules.put_triggers_on_stack()
+    assert engine.state.pending_choice is None and not engine.state.stack  # intervening-if false
+
+    engine.rules.lose_life(p2, 1)  # 2 lost in total this turn
+    engine.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="end", phase="ending"))
+    engine.rules.put_triggers_on_stack()
+    _answer_may(engine)
+    assert ascension.counters.get("quest", 0) == 1
+
+
+def test_bloodchief_ascension_drains_per_opponent_card_once_it_has_three_quest_counters():
+    engine, ascension = _bloodchief_ascension_game()
+    victim = battlefield_object(engine, "p2", "Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+
+    engine.state.announce_graveyard_arrivals()  # first call only takes the baseline
+    ascension.counters["quest"] = 2
+    engine.rules.destroy(victim)
+    engine.state.announce_graveyard_arrivals()
+    engine.rules.put_triggers_on_stack()
+    assert engine.state.pending_choice is None  # only 2 counters
+
+    ascension.counters["quest"] = 3
+    victim2 = battlefield_object(engine, "p2", "Bear 2", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    engine.rules.destroy(victim2)
+    engine.state.announce_graveyard_arrivals()
+    engine.rules.put_triggers_on_stack()
+    _answer_may(engine)
+    assert engine.state.player_by_id("p2").life == 18
+    assert engine.state.player_by_id("p1").life == 22
