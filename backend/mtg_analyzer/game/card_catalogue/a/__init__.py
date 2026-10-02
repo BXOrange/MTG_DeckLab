@@ -49,6 +49,7 @@ from . import arteeoh_dread_scavenger  # noqa: F401
 from . import ashaya_soul_of_the_wild  # noqa: F401
 from . import ashling_the_limitless  # noqa: F401
 from . import astral_cornucopia  # noqa: F401
+from . import atraxa_grand_unifier  # noqa: F401
 from . import augusta_order_returned  # noqa: F401
 from . import auntie_ool_cursewretch  # noqa: F401
 from . import austere_command  # noqa: F401

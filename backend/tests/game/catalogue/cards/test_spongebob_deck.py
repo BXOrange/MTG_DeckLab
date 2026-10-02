@@ -656,3 +656,52 @@ def test_serah_discounts_only_the_first_legendary_creature_spell_each_turn():
     engine.cast_spell(p1, first)
     engine.resolve_until_stable()
     assert discount(second) == 0  # the first legendary creature spell this turn is gone
+
+
+def test_atraxa_takes_at_most_one_card_of_each_card_type_from_the_top_ten():
+    engine, p1 = _game("Atraxa, Grand Unifier")
+    p1.library.clear()
+    # drawn from the END of the library: the last ten appended are the "top ten"
+    revealed = [
+        ("Bear A", "Creature — Bear", dict(is_creature=True, power=2, toughness=2)),
+        ("Bear B", "Creature — Bear", dict(is_creature=True, power=2, toughness=2)),
+        ("Island A", "Basic Land — Island", dict(is_land=True)),
+        ("Island B", "Basic Land — Island", dict(is_land=True)),
+        ("Bolt A", "Instant", dict(is_instant=True)),
+        ("Bolt B", "Instant", dict(is_instant=True)),
+        ("Rock", "Artifact", {}),
+        ("Aura", "Enchantment — Aura", {}),
+        ("Walker", "Planeswalker — Test", {"loyalty": 3}),
+        ("Spell", "Sorcery", dict(is_sorcery=True)),
+    ]
+    for name, type_line, kw in revealed:
+        p1.library.append(GameObject(Card(id=name, name=name, type_line=type_line, **kw), owner_id="p1", zone=Zone.LIBRARY))
+    filler = GameObject(Card(id="Deep", name="Deep Card", type_line="Land", is_land=True), owner_id="p1", zone=Zone.LIBRARY)
+    p1.library.insert(0, filler)  # below the top ten: never revealed
+
+    p1.mana_pool.add_many({"W": 1, "U": 1, "B": 1, "G": 1, "C": 3})  # {3}{G}{W}{U}{B}
+    hand_before = {o.name for o in p1.hand}
+    engine.cast_spell(p1, p1.hand[0])
+    engine.resolve_until_stable()
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+
+    picked_types = []
+    for _ in range(20):
+        choice = engine.state.pending_choice
+        if not choice:
+            break
+        options = [o for o in choice["options"] if o["id"] != "decline"]
+        if not options:
+            break
+        engine.resolve_pending_choice(options[0]["id"])
+        engine.resolve_until_stable()
+        picked_types.append(options[0]["label"])
+
+    gained = {o.name for o in p1.hand} - hand_before - {"Atraxa, Grand Unifier"}
+    types_of = {name: type_line.split("—")[0].split()[-1].lower() for name, type_line, _ in revealed}
+    gained_types = [types_of[n] for n in gained]
+    seven_types = {"creature", "land", "instant", "artifact", "enchantment", "planeswalker", "sorcery"}  # no battle in the top ten
+    assert len(gained) == 7 and set(gained_types) == seven_types  # exactly one card of each type that was there
+    assert "Deep Card" not in {o.name for o in p1.hand}  # beyond the top ten: untouched
+    assert len(p1.library) == (10 - 7) + 1  # the three unpicked revealed cards went to the bottom, plus the deep card

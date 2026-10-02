@@ -97,6 +97,17 @@ def _cost_with_x(cost: ActivationCost, x: int) -> ActivationCost:
     return replace(cost, mana=cost.mana.with_x(x))
 
 
+#: RULE 205.2a's card types — the words `_card_type_words` keeps from an object's type words.
+_CARD_TYPE_WORDS = frozenset({
+    "artifact", "battle", "creature", "enchantment", "instant", "land", "planeswalker", "sorcery",
+})
+
+
+def _card_type_words(obj: Any) -> set[str]:
+    """The RULE 205.2a card types of ``obj`` (lowercase), without supertypes/subtypes."""
+    return set(getattr(obj, "type_words", None) or ()) & _CARD_TYPE_WORDS
+
+
 def _that_many_value(then_that_many: Optional[dict], objs: list[Any]) -> int:
     """What "that many" counts after a `choose_objects` pick: how many were picked, or — with
     ``measure: "power"`` ("you gain X life and draw X cards, where X is that creature's power",
@@ -3381,6 +3392,7 @@ class MiscSystemsMixin:
         decline_leaves_untouched: bool = False,
         total_mana_value_budget: Optional[int] = None,
         then_that_many: Optional[dict] = None,
+        distinct_card_types: bool = False,
     ) -> None:
         """Open a "choose N of these objects" decision (RULE 601.2c-style).
 
@@ -3530,6 +3542,7 @@ class MiscSystemsMixin:
             decline_leaves_untouched=decline_leaves_untouched,
             total_mana_value_budget=total_mana_value_budget,
             then_that_many=then_that_many,
+            distinct_card_types=distinct_card_types,
         ))
     def _apply_choose_objects_tail(
         self,
@@ -3576,6 +3589,7 @@ class MiscSystemsMixin:
         decline_leaves_untouched: bool = False,
         total_mana_value_budget: Optional[int] = None,
         then_that_many: Optional[dict] = None,
+        distinct_card_types: bool = False,
     ) -> dict[str, Any]:
         """Build the serializable `choose_objects` `pending_choice`."""
         options = [
@@ -3637,6 +3651,7 @@ class MiscSystemsMixin:
             "rest_destination": rest_destination,
             "decline_leaves_untouched": decline_leaves_untouched,
             "total_mana_value_budget": total_mana_value_budget,
+            "distinct_card_types": bool(distinct_card_types),
             "then_that_many": dict(then_that_many) if then_that_many else None,
         }
     @continuations.choice("choose_objects", answer=continuations.ANSWER_INT, rule="601.2b")
@@ -3690,6 +3705,15 @@ class MiscSystemsMixin:
                 obj for obj in remaining_pool
                 if int(getattr(obj.card, "converted_mana_cost", 0) or 0) <= int(budget) - spent
             ]
+        if choice.get("distinct_card_types"):
+            # "For each card type, you may put a card of that type…" (Atraxa, Grand Unifier): once a
+            # card is taken, no other card sharing one of its card types may be (a simplification of the
+            # per-type assignment: two multi-type cards that could each cover a different type are
+            # not both offered).
+            taken_types: set[str] = set()
+            for iid in picked:
+                taken_types |= _card_type_words(self._object_by_instance_id(iid))
+            remaining_pool = [o for o in remaining_pool if not (_card_type_words(o) & taken_types)]
         if declined or len(picked) >= choice["count"] or not remaining_pool:
             self.state.pending_choice = None
             self.state.release_batches()
@@ -3730,6 +3754,7 @@ class MiscSystemsMixin:
             decline_leaves_untouched=bool(choice.get("decline_leaves_untouched")),
             total_mana_value_budget=choice.get("total_mana_value_budget"),
             then_that_many=choice.get("then_that_many"),
+            distinct_card_types=bool(choice.get("distinct_card_types")),
         )
         next_choice["commander_taken"] = commander_taken
         next_choice["picked_measure"] = picked_measure

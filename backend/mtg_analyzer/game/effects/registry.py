@@ -250,6 +250,7 @@ EffectRegistry.register(
         max_picks_if_teamwork=p.get("max_picks_if_teamwork"),
         criteria=p.get("criteria"),
         else_effects=p.get("else_effects"),
+        distinct_card_types=bool(p.get("distinct_card_types", False)),
     ),
 )
 EffectRegistry.register(

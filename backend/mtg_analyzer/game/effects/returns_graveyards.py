@@ -1672,6 +1672,7 @@ class InspectTopChooseEffect(GameEffect):
         decline_leaves_untouched: bool = False,
         max_picks: Union[int, str] = 1,
         max_picks_if_teamwork: Optional[int] = None,
+        distinct_card_types: bool = False,
         source: Optional["GameObject"] = None,
         criteria: Optional[dict[str, Any]] = None,
         else_effects: Optional[list[dict[str, Any]]] = None,
@@ -1693,6 +1694,9 @@ class InspectTopChooseEffect(GameEffect):
         self.decline_leaves_untouched = decline_leaves_untouched
         self.max_picks = max_picks
         self.max_picks_if_teamwork = max_picks_if_teamwork
+        #: "For each card type, you may put a card of that type from among them into your hand." (Atraxa,
+        #: Grand Unifier) — no two picks share a card type (`RulesEngine._resume_choose_objects`).
+        self.distinct_card_types = bool(distinct_card_types)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
@@ -1716,6 +1720,7 @@ class InspectTopChooseEffect(GameEffect):
             max_picks=max_picks,
             criteria=criteria,
             else_specs=self.else_effects,
+            distinct_card_types=self.distinct_card_types,
         )
 
     def _resolved_criteria(self) -> Optional[dict[str, Any]]:

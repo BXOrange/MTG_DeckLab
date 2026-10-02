@@ -3040,6 +3040,7 @@ class SearchMixin:
         max_picks: Union[int, str] = 1,
         criteria: Optional[dict[str, Any]] = None,
         else_specs: Optional[list[dict]] = None,
+        distinct_card_types: bool = False,
     ) -> None:
         """Inspect a bounded top-N group from ``player``'s library, offer a
         filtered choice among them, and route the rest to ``rest_destination``
@@ -3127,4 +3128,5 @@ class SearchMixin:
             rest_destination=rest_destination,
             decline_leaves_untouched=decline_leaves_untouched,
             else_specs=else_specs,
+            distinct_card_types=distinct_card_types,
         )
