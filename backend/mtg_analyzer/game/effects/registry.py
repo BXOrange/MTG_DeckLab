@@ -3758,6 +3758,12 @@ EffectRegistry.register(
             # "**Nontoken** creatures you control enter with…" (Gorma) —
             # RULE 111.9 filter on the entering object.
             **({"nontoken": True} if p.get("nontoken") else {}),
+            # Runadi: "creature spell you *cast* with mana value 5 or greater … X additional counters,
+            # where X is its mana value minus 4".
+            **({"cast_only": True} if p.get("cast_only") else {}),
+            **({"min_mana_value": int(p["min_mana_value"])} if p.get("min_mana_value") is not None else {}),
+            **({"count_mana_value_minus": int(p["count_mana_value_minus"])}
+               if p.get("count_mana_value_minus") is not None else {}),
         },
     ),
 )

@@ -390,6 +390,13 @@ class CastingResolutionMixin:
                 for permanent in self.state.battlefield
                 if permanent.controller_id == chosen_id and permanent.is_creature
             )
+        elif condition.get("roll_x_dice_sides"):
+            # "As ~ enters, roll X d6. It enters with a number of +1/+1 counters equal to the total" (Neverwinter
+            # Hydra, RULE 706): X is the announced {X}; the controller rolls and the kept results are summed.
+            roller = self.state.player_by_id(obj.controller_id)
+            dice = int(getattr(obj, "x_paid", 0) or 0)
+            rolled = self.roll_die(roller, sides=int(condition["roll_x_dice_sides"]), count=dice) if dice > 0 else []
+            amount = condition["count"] * sum(rolled)
         elif condition.get("mana_spent_scale"):
             # "…a number of +1/+1 counters equal to the amount of mana spent to cast it" (Kurbis): every mana
             # paid, of any kind (`GameObject.mana_spent_to_cast`; 0 for anything never cast).

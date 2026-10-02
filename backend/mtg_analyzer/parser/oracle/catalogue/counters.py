@@ -252,6 +252,15 @@ _MANA_SPENT_ENTRY_COUNTERS_RE = re.compile(
 )
 
 
+#: "As ~ enters, roll X d6. It enters with a number of +1/+1 counters on it equal to the total of those results."
+#: (Neverwinter Hydra) — X is the announced {X}; `RulesEngine._apply_entry_counters` rolls that many dice.
+_ROLL_X_DICE_ENTRY_COUNTERS_RE = re.compile(
+    rf"^as {_SUBJECT} enters, roll x d(?P<sides>\d+)\. it enters with a number of {_COUNTER_TYPE} counters on it "
+    rf"equal to the total of those results\.?$",
+    re.IGNORECASE,
+)
+
+
 def _fixed_count(amount_raw: str) -> int:
     return 1 if amount_raw.lower() in ("a", "an") else int(amount_raw)
 
@@ -328,6 +337,11 @@ def entry_counters_condition(line: str) -> Optional[dict[str, Any]]:
         return {
             "is_x": False, "count": _fixed_count(match.group(1)),
             "counter_type": match.group(2).lower(), "colors_spent_scale": True,
+        }
+    match = _ROLL_X_DICE_ENTRY_COUNTERS_RE.match(line)  # Neverwinter Hydra
+    if match is not None:
+        return {
+            "is_x": False, "count": 1, "counter_type": match.group(2).lower(), "roll_x_dice_sides": int(match.group("sides")),
         }
     match = _MANA_SPENT_ENTRY_COUNTERS_RE.match(line)  # Kurbis
     if match is not None:

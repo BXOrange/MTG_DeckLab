@@ -4986,10 +4986,20 @@ def extra_etb_counters_for(state: "GameState", obj: "GameObject") -> dict[str, i
         else:
             if obj.controller_id != controller_id or obj is source:
                 continue
+        # "Whenever you cast a creature spell with mana value 5 or greater, that creature enters with X additional
+        # +1/+1 counters on it, where X is its mana value minus 4." (Runadi): only a *cast* creature, with a
+        # mana-value floor, and an amount that scales with its mana value.
+        if ability.params.get("cast_only") and not getattr(obj, "was_cast", False):
+            continue
+        mana_value = int(getattr(obj.card, "converted_mana_cost", 0) or 0)
+        if mana_value < int(ability.params.get("min_mana_value", 0) or 0):
+            continue
         kind = str(ability.params.get("kind", "+1/+1"))
         selector = ability.params.get("count_selector")
         if selector:
             amount = count_selector(state, controller_id, str(selector), source)
+        elif ability.params.get("count_mana_value_minus") is not None:
+            amount = max(0, mana_value - int(ability.params["count_mana_value_minus"]))
         else:
             amount = int(ability.params.get("count", 1) or 1)
         if amount:

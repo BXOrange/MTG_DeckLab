@@ -382,3 +382,70 @@ def test_kurbis_enters_with_a_counter_per_mana_spent_and_shields_another_creatur
     engine.rules.deal_damage(plain, 5, source=None)
     assert with_counter.damage_marked == 0  # all damage to it is prevented this turn
     assert plain.damage_marked == 5  # an unshielded creature is hurt normally
+
+
+def _runadi_board():
+    engine, _ = two_player_game()
+    p1 = engine.state.player_by_id("p1")
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    runadi = battlefield_object(engine, "p1", "Runadi, Behemoth Caller", "Legendary Creature — Elf Shaman", is_creature=True, power=3, toughness=3)
+    bind_from_catalogue(runadi)
+    return engine, p1, runadi
+
+
+def _hand_creature(p1, name, mana_value):
+    from mtg_analyzer.models.game.game_object import GameObject
+
+    obj = GameObject(
+        Card(id=name, name=name, type_line="Creature — Beast", mana_cost_string="{%d}" % mana_value,
+             converted_mana_cost=mana_value, is_creature=True, power=1, toughness=1),
+        owner_id="p1", zone=Zone.HAND,
+    )
+    p1.hand.append(obj)
+    return obj
+
+
+def test_runadi_gives_cast_creatures_with_mana_value_five_plus_extra_counters_and_haste_at_three():
+    engine, p1, runadi = _runadi_board()
+    big = _hand_creature(p1, "Big Beast", 6)
+    small = _hand_creature(p1, "Small Beast", 4)
+    p1.mana_pool.add_many({"C": 10})
+    engine.cast_spell(p1, big)
+    engine.resolve_until_stable()
+    engine.cast_spell(p1, small)
+    engine.resolve_until_stable()
+    assert big.counters.get("+1/+1") == 2  # mana value 6 - 4
+    assert not small.counters  # below the mana-value floor
+
+    cheated = battlefield_object(engine, "p1", "Cheated Beast", "Creature — Beast", is_creature=True, power=1, toughness=1)
+    assert not cheated.counters  # never cast: no extra counters
+
+    from mtg_analyzer.game import combat
+
+    three = battlefield_object(engine, "p1", "Three", "Creature — Bear", is_creature=True, power=1, toughness=1)
+    two = battlefield_object(engine, "p1", "Two", "Creature — Bear", is_creature=True, power=1, toughness=1)
+    three.counters["+1/+1"] = 3
+    two.counters["+1/+1"] = 2
+    engine.recompute_continuous_effects()
+    assert combat.has(three, "haste") and not combat.has(two, "haste")  # "three or more +1/+1 counters"
+
+
+def test_neverwinter_hydra_enters_with_counters_equal_to_x_d6_rolled():
+    from mtg_analyzer.config import DB_PATH
+    from mtg_analyzer.game.game_engine import GameEngine
+    from mtg_analyzer.services.card_database import CardDatabase
+
+    hydra_card = CardDatabase(DB_PATH).get_card("Neverwinter Hydra")
+    engine = GameEngine.new_game([("p1", "A", [hydra_card]), ("p2", "B", [])], starting_hand=1, starting_life=20)
+    for obj in engine.state.players[0].hand:
+        bind_from_catalogue(obj)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    p1 = engine.state.player_by_id("p1")
+    p1.mana_pool.add_many({"G": 2, "C": 6})  # {X}{X}{G}{G} with X = 3
+    hydra = p1.hand[0]
+    engine.cast_spell(p1, hydra, x=3)
+    engine.resolve_until_stable()
+    assert hydra.zone == Zone.BATTLEFIELD
+    assert 3 <= hydra.counters.get("+1/+1", 0) <= 18  # three d6: the total is between 3 and 18

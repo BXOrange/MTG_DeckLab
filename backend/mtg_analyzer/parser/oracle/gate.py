@@ -3877,7 +3877,9 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: pair (Moxite Refinery), encoded as the `artifact_or_creature` permanent word.
 #: 589: "enters with a number of +1/+1 counters on it equal to the amount of mana spent to cast it"
 #: (Kurbis, Harvest Celebrant) -> entry-counters condition ``mana_spent_scale``.
-PARSER_VERSION = "589"
+#: 590: "As ~ enters, roll X d6. It enters with a number of +1/+1 counters on it equal to the total of those
+#: results." (Neverwinter Hydra) -> entry-counters condition ``roll_x_dice_sides``.
+PARSER_VERSION = "590"
 
 
 def parser_source_hash() -> str:

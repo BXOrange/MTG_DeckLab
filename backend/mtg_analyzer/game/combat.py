@@ -712,6 +712,13 @@ def matches_object_filter(
         str(has_counter_kind), 0
     ) <= 0:
         return False
+    # "…with three or more +1/+1 counters on them" (Runadi): ``counter_min`` raises ``has_counter_kind``'s
+    # "at least one" to a threshold.
+    counter_min = filt.get("counter_min")
+    if has_counter_kind is not None and counter_min is not None and (getattr(obj, "counters", {}) or {}).get(
+        str(has_counter_kind), 0
+    ) < int(counter_min):
+        return False
     if filt.get("has_counter") and not any(
         v > 0 for v in (getattr(obj, "counters", {}) or {}).values()
     ):
