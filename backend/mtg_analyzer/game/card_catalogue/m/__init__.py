@@ -57,6 +57,7 @@ from . import mockingbird  # noqa: F401
 from . import modify_memory  # noqa: F401
 from . import moon_blessed_cleric  # noqa: F401
 from . import moonsilver_key  # noqa: F401
+from . import moraug_fury_of_akoum  # noqa: F401
 from . import morcant_s_loyalist  # noqa: F401
 from . import mortality_spear  # noqa: F401
 from . import mother_of_runes  # noqa: F401

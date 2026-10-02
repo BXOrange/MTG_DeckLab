@@ -559,6 +559,10 @@ class GameObject:
         #: main phase so a boast ability is still activatable then; reset each
         #: untap step, like ``activated_loyalty_this_turn``.
         self.attacked_this_turn: bool = False
+        #: How many times this creature has been declared as an attacker this turn (an extra combat phase can make
+        #: it more than one) — "…+1/+0 for each time it has attacked this turn" (Moraug, Fury of Akoum). Reset with
+        #: ``attacked_this_turn`` in the untap step.
+        self.times_attacked_this_turn: int = 0
         #: PAR-28 / RULE 719.3b: the "solved" designation a Case permanent can
         #: have. Once set it stays until the Case leaves the battlefield (not
         #: reset per turn, not a copiable value).

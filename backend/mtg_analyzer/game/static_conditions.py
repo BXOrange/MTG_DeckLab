@@ -93,6 +93,8 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # PAR-28: RULE 702.57b Forecast — "Activate only during the upkeep
         # step of the card's owner." Used as an ``activation_condition`` only.
         "your_upkeep",
+        # "…if it's your main phase" (Moraug, Fury of Akoum): the controller's own precombat or postcombat main phase.
+        "your_main_phase",
         "source_blocking",
         "source_paired",  # RULE 702.94b soulbond
         "source_attached",  # "as long as ~ is attached to a creature"
@@ -629,6 +631,14 @@ def condition_holds(
     if kind == "your_speed_is_max":  # PAR-28 RULE 702.178a / 702.179e
         player = _controller(state, controller_id)
         return player is not None and int(getattr(player, "speed", 0) or 0) >= 4
+    if kind == "your_main_phase":
+        active = getattr(state, "active_player", None)
+        return (
+            active is not None
+            and controller_id is not None
+            and active.id == controller_id
+            and getattr(state, "current_step", "") in ("main1", "main2")
+        )
     if kind == "your_upkeep":  # PAR-28 RULE 702.57b Forecast
         active = getattr(state, "active_player", None)
         return (
@@ -1318,6 +1328,7 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
         "source_equipped": "ausgerüstet",
         "source_enchanted": "verzaubert",
         "source_attacked_this_turn": "hat diesen Zug angegriffen",
+        "your_main_phase": "in deiner Hauptphase",
         "you_attacked_this_turn": "du hast diesen Zug angegriffen",
         "source_solved": "solange gelöst",
     }

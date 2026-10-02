@@ -729,6 +729,7 @@ class CombatMixin:
                 self.rules.set_tapped(obj, True)
             obj.attacking = True
             obj.attacked_this_turn = True  # PAR-28 RULE 702.142a (Boast)
+            obj.times_attacked_this_turn += 1
             obj.combat_defender = defender
             self.state.fire_event(
                 GameEvent(

@@ -356,3 +356,48 @@ def test_a_kicked_tear_asunder_really_exiles_a_creature():
     engine.cast_spell(p1, p1.hand[0], targets=[bear], kicked=1)
     engine.resolve_until_stable()
     assert bear.zone == Zone.EXILE and rock.zone == Zone.BATTLEFIELD
+
+
+def test_moraug_pumps_a_creature_for_each_time_it_attacked_this_turn():
+    engine, p1, p2 = _game()
+    moraug = _battlefield_card(engine, "Moraug, Fury of Akoum")
+    bear = battlefield_object(engine, "p1", "Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    bear.summoning_sick = False
+    engine.recompute_continuous_effects()
+    assert bear.power == 2  # no attack yet
+
+    engine.state.current_step = "declare_attackers"
+    engine.declare_attackers(p1, [{"attacker": bear, "defender": engine.legal_defenders_for(p1)[0]}])
+    engine.recompute_continuous_effects()
+    assert bear.power == 3  # +1/+0 for the one attack
+
+    bear.attacking, bear.tapped = False, False  # the first combat is over; an additional combat follows
+    engine.declare_attackers(p1, [{"attacker": bear, "defender": engine.legal_defenders_for(p1)[0]}])
+    engine.recompute_continuous_effects()
+    assert bear.power == 4 and bear.toughness == 2  # two attacks this turn
+    assert moraug.power == moraug.card.power  # Moraug itself never attacked
+
+
+def test_moraug_landfall_grants_an_extra_combat_only_in_my_main_phase_and_untaps_my_creatures():
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+
+    def play_land(step):
+        engine, p1, p2 = _game()
+        _battlefield_card(engine, "Moraug, Fury of Akoum")
+        bear = battlefield_object(engine, "p1", "Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+        bear.tapped = True
+        engine.state.current_step = step
+        land = battlefield_object(engine, "p1", "Forest", "Basic Land — Forest", is_land=True)
+        engine.state.fire_event(GameEvent(
+            EventType.ENTERS_BATTLEFIELD, instance_id=land.instance_id, controller_id="p1",
+            object_types=["land"], player_id="p1",
+        ))
+        engine.rules.put_triggers_on_stack()
+        engine.resolve_until_stable()
+        return engine, bear
+
+    engine, bear = play_land("main1")
+    assert len(engine.state.pending_extra_combats) == 1 and not bear.tapped  # extra combat + untap
+
+    engine, bear = play_land("declare_attackers")
+    assert not engine.state.pending_extra_combats and bear.tapped  # not a main phase: nothing happens

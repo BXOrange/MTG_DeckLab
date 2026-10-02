@@ -684,6 +684,7 @@ class TurnLoopMixin:
         # once-per-turn speed-increase limiter, per player.
         for obj in self.state.permanents():
             obj.attacked_this_turn = False
+            obj.times_attacked_this_turn = 0
         for pl in self.state.players:
             pl.speed_increased_this_turn = False
         self.state.fire_event(GameEvent(EventType.UNTAP, player_id=active.id))

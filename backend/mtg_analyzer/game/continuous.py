@@ -2029,6 +2029,8 @@ def _pt_mod_count(
     Nettlecyst's "for each artifact and/or enchantment you control")."""
     if selector == "equipment_attached_to_self":
         return _equipment_attached_count(state, obj)
+    if selector == "times_attacked_this_turn_self":
+        return int(getattr(obj, "times_attacked_this_turn", 0) or 0)  # Moraug
     if selector == "auras_attached_to_self":
         # "gets +2/+2 for each Aura attached to it" (Kor Spiritdancer) — the
         # Aura sibling of ``equipment_attached_to_self``.
