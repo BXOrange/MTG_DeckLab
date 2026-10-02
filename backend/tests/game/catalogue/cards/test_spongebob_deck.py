@@ -453,3 +453,31 @@ def test_kethis_exiles_two_legends_to_let_the_rest_be_played_from_the_graveyard_
         else:
             assert graveyard_cast.may_cast_spell_from_graveyard(p1, engine.state, card.card)
     assert not graveyard_cast.may_cast_spell_from_graveyard(p1, engine.state, plain.card)  # not legendary
+
+
+def test_ramos_grows_by_one_for_each_color_of_a_spell_i_cast():
+    engine, p1 = _game()
+    card = CardDatabase(DB_PATH).get_card("Ramos, Dragon Engine")
+    ramos = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    ramos.controller_id = "p1"
+    bind_from_catalogue(ramos)
+    engine.state.add_to_battlefield(ramos)
+
+    def cast(colors, cost):
+        spell = GameObject(
+            Card(id="S", name="Spell", type_line="Sorcery", is_sorcery=True, color_identity=set(colors),
+                 mana_cost_string="{" + str(cost) + "}", converted_mana_cost=cost),
+            owner_id="p1", zone=Zone.HAND,
+        )
+        bind_from_catalogue(spell)
+        p1.add_to_zone(spell, Zone.HAND)
+        p1.mana_pool.add_many({"C": cost})
+        engine.cast_spell(p1, spell)
+        for _ in range(3):
+            engine.rules.put_triggers_on_stack()
+            engine.resolve_until_stable()
+        return ramos.counters.get("+1/+1", 0)
+
+    assert cast({"R"}, 1) == 1
+    assert cast({"W", "U"}, 2) == 3  # +2 for a two-colored spell
+    assert cast(set(), 1) == 3  # a colorless spell: nothing

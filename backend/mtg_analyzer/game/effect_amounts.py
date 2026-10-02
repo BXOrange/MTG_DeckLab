@@ -273,6 +273,8 @@ def _base(
         if not field:
             return 0
         raw = (getattr(context, "trigger_event", None) or {}).get(field)
+        if isinstance(raw, (list, tuple, set, frozenset)):
+            return len(raw)  # "for each of that spell's colors" (Ramos): a collection counts its members
         if isinstance(raw, bool) or not isinstance(raw, int):
             return 0
         return int(raw)
