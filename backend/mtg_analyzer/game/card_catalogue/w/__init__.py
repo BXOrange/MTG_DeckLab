@@ -2,6 +2,7 @@
 from . import wandering_archaic  # noqa: F401
 from . import war_room  # noqa: F401
 from . import water_tribe_rallier  # noqa: F401
+from . import water_wings  # noqa: F401
 from . import waterbender_s_restoration  # noqa: F401
 from . import waterbending_lesson  # noqa: F401
 from . import welcome_to_the_fold  # noqa: F401
@@ -12,6 +13,7 @@ from . import wild_growth  # noqa: F401
 from . import windfall  # noqa: F401
 from . import winds_of_abandon  # noqa: F401
 from . import winds_of_rath  # noqa: F401
+from . import wings_of_velis_vel  # noqa: F401
 from . import winter_orb  # noqa: F401
 from . import wirewood_herald  # noqa: F401
 from . import witch_of_the_moors  # noqa: F401

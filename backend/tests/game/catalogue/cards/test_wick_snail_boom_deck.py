@@ -52,3 +52,37 @@ def test_essence_flux_blinks_and_adds_a_counter_only_to_a_spirit():
 
     engine, p1, human, _ = _blink_spell("Essence Flux", "Creature — Human")
     assert human in engine.state.battlefield and not human.counters
+
+
+def _wings(name, my_type_line="Creature — Bear", on_opponents=False):
+    engine, p1 = _game(name)
+    controller = "p2" if on_opponents else "p1"
+    target = battlefield_object(engine, controller, "Target", my_type_line, is_creature=True, power=1, toughness=1)
+    target.counters["+1/+1"] = 1  # counters still apply on top of a base P/T
+    other = battlefield_object(engine, "p1", "Other", "Creature — Bear", is_creature=True, power=1, toughness=1)
+    p1.mana_pool.add_many({"U": 1, "C": p1.hand[0].card.converted_mana_cost - 1})
+    engine.cast_spell(p1, p1.hand[0], targets=[target])
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    return engine, target, other
+
+
+def test_water_wings_sets_base_4_4_with_flying_and_hexproof_until_end_of_turn():
+    engine, target, other = _wings("Water Wings")
+    assert (target.power, target.toughness) == (5, 5)  # base 4/4 plus the +1/+1 counter
+    assert {"flying", "hexproof"} <= set(target.granted_keywords)
+    assert (other.power, other.toughness) == (1, 1)
+
+    engine._step_cleanup()  # RULE 514.2: "until end of turn" effects end
+    engine.recompute_continuous_effects()
+    assert (target.power, target.toughness) == (2, 2) and "flying" not in target.granted_keywords
+
+
+def test_wings_of_velis_vel_can_target_any_creature_and_grants_all_creature_types():
+    engine, target, other = _wings("Wings of Velis Vel", on_opponents=True)
+    assert (target.power, target.toughness) == (5, 5)
+    assert "flying" in target.granted_keywords
+    from mtg_analyzer.game.continuous import has_subtype
+
+    assert has_subtype(target, "Elf") and has_subtype(target, "Wizard")  # every creature type
+    assert not has_subtype(other, "Wizard")
