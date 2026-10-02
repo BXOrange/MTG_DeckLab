@@ -393,3 +393,27 @@ def test_moxite_refinery_only_at_sorcery_speed():
     with pytest.raises(ValueError):
         engine.activate_ability(p1, refinery, 0, targets=[rock], x=2)
     assert not refinery.tapped and bear.counters["+1/+1"] == 3  # nothing was paid
+
+
+def test_patrolling_peacemaker_proliferates_when_an_opponent_commits_a_crime():
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+
+    engine, p1 = _game("Patrolling Peacemaker")
+    p1.mana_pool.add_many({"W": 1, "C": 2})
+    engine.cast_spell(p1, p1.hand[0])
+    engine.resolve_until_stable()
+    peacemaker = next(o for o in engine.state.battlefield if o.name == "Patrolling Peacemaker")
+    assert peacemaker.counters.get("+1/+1") == 2  # enters with two +1/+1 counters
+    rock = battlefield_object(engine, "p1", "Charged Rock", "Artifact")
+    rock.counters["charge"] = 1
+
+    def crime(by):
+        engine.state.fire_event(GameEvent(EventType.CRIME_COMMITTED, player_id=by, controller_id=by))
+        engine.rules.put_triggers_on_stack()
+        engine.resolve_until_stable()
+
+    crime("p1")  # my own crime: no trigger
+    assert rock.counters["charge"] == 1
+    crime("p2")  # an opponent's: proliferate
+    assert rock.counters["charge"] == 2 and peacemaker.counters["+1/+1"] == 3
+
