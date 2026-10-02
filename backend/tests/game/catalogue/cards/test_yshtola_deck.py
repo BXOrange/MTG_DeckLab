@@ -167,3 +167,33 @@ def test_battlefield_thaumaturge_discounts_one_per_creature_targeted():
     assert cost(spell, [bear_a, land]) == 1  # only creatures count
     assert cost(spell, [land]) == 0
     assert cost(creature_spell, [bear_a]) == 0  # instants and sorceries only
+
+
+def test_sygg_draws_at_end_step_only_after_an_opponent_lost_3_life():
+    from mtg_analyzer.config import DB_PATH
+    from mtg_analyzer.game.game_engine import GameEngine
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+    from mtg_analyzer.services.card_database import CardDatabase
+
+    card = CardDatabase(DB_PATH).get_card("Sygg, River Cutthroat")
+    engine = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])], starting_hand=0, starting_life=20)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    sygg = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    sygg.controller_id = "p1"
+    bind_from_catalogue(sygg)
+    engine.state.add_to_battlefield(sygg)
+    p1, p2 = engine.state.player_by_id("p1"), engine.state.player_by_id("p2")
+    for i in range(2):
+        p1.library.append(GameObject(Card(id=f"F{i}", name=f"Filler {i}", type_line="Land"), owner_id="p1", zone=Zone.LIBRARY))
+
+    engine.rules.lose_life(p2, 2)
+    engine.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="end", phase="ending"))
+    engine.rules.put_triggers_on_stack()
+    assert engine.state.pending_choice is None and not engine.state.stack  # 2 < 3
+
+    engine.rules.lose_life(p2, 1)
+    engine.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="end", phase="ending"))
+    engine.rules.put_triggers_on_stack()
+    _answer_may(engine)
+    assert len(p1.hand) == 1

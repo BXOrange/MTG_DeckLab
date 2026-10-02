@@ -105,5 +105,6 @@ from . import sword_of_once_and_future  # noqa: F401
 from . import sword_of_the_animist  # noqa: F401
 from . import sword_of_truth_and_justice  # noqa: F401
 from . import swords_to_plowshares  # noqa: F401
+from . import sygg_river_cutthroat  # noqa: F401
 from . import sylvan_library  # noqa: F401
 from . import syphon_mind  # noqa: F401
