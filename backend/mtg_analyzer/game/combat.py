@@ -556,6 +556,8 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         "even_mana_value",
         # RULE 700.9 "modified creatures you control" (PAR-134).
         "modified",
+        # RULE 605 "creatures … with a mana ability" (Raggadragga, Goreguts Boss).
+        "has_mana_ability",
         # "a black or red source"/"a source of the chosen colour"/"a creature
         # of the chosen type" (MEC-30 — Greater Realm of Preservation/Story
         # Circle/Prismatic Circle/Circle of Solace).
@@ -787,6 +789,14 @@ def matches_object_filter(
         from .continuous import is_modified  # function-scoped: see `_has_subtype`
 
         if state is None or is_modified(state, obj) != bool(filt["modified"]):
+            return False
+    # "each creature you control **with a mana ability**" (Raggadragga, Goreguts
+    # Boss, RULE 605) — printed or granted (Rishkar-style) alike; reads
+    # `mana_abilities_for`, so a state-less caller sees only the printed ones.
+    if filt.get("has_mana_ability") is not None:
+        from .mana_abilities import mana_abilities_for  # function-scoped: see `_has_subtype`
+
+        if bool(mana_abilities_for(obj, state)) != bool(filt["has_mana_ability"]):
             return False
     if filt.get("has_adventure") and not getattr(obj.card, "is_adventure", False):
         return False

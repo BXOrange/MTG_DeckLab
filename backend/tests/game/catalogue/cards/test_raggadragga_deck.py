@@ -286,3 +286,32 @@ def test_last_march_of_the_ents_draws_greatest_toughness_then_puts_creatures_in(
     assert sorted(o.name for o in on_board_elves) == ["Lib 1", "Lib 2"]  # every drawn creature card, one pick each
     assert not [o for o in p1.hand if "Elf" in (o.card.type_line or "")]
     assert sorted(o.name for o in p1.hand) == ["Lib 3", "Lib 4"]  # the drawn lands stay in hand
+
+
+def test_raggadragga_buffs_and_untaps_attackers_with_a_mana_ability():
+    engine, player = two_player_game()
+    boss = battlefield_object(
+        engine, "p1", "Raggadragga, Goreguts Boss", "Legendary Creature — Troll Shaman",
+        is_creature=True, power=2, toughness=2,
+    )
+    bind_from_catalogue(boss)
+    # a Llanowar-style creature: its mana ability is printed in its own text
+    elf = battlefield_object(
+        engine, "p1", "Llanowar Elves", "Creature — Elf Druid", is_creature=True, power=1, toughness=1,
+        oracle_text="{T}: Add {G}.",
+    )
+    bear = battlefield_object(engine, "p1", "Plain Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    for creature in (boss, elf, bear):
+        creature.summoning_sick = False
+    engine.recompute_continuous_effects()
+
+    assert (elf.power, elf.toughness) == (3, 3)  # 1/1 +2/+2: it has a mana ability
+    assert (bear.power, bear.toughness) == (2, 2)  # no mana ability: untouched
+    assert (boss.power, boss.toughness) == (2, 2)  # Raggadragga has none itself
+
+    engine.state.current_step = "declare_attackers"
+    engine.declare_attackers(player, [elf, bear])
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert not elf.tapped  # untapped by the trigger (it attacked, so it was tapped)
+    assert bear.tapped  # no mana ability: stays tapped from attacking

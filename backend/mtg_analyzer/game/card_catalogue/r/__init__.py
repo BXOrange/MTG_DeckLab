@@ -2,6 +2,7 @@
 from . import radiant_lotus  # noqa: F401
 from . import raffine_s_guidance  # noqa: F401
 from . import ragavan_nimble_pilferer  # noqa: F401
+from . import raggadragga_goreguts_boss  # noqa: F401
 from . import raging_ravine  # noqa: F401
 from . import rain_of_filth  # noqa: F401
 from . import ral_monsoon_mage  # noqa: F401
