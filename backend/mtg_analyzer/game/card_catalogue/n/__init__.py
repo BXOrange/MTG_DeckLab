@@ -22,6 +22,7 @@ from . import nexus_mentality  # noqa: F401
 from . import nezahal_primal_tide  # noqa: F401
 from . import nils_discipline_enforcer  # noqa: F401
 from . import nine_lives  # noqa: F401
+from . import nissa_ascended_animist  # noqa: F401
 from . import nissa_steward_of_elements  # noqa: F401
 from . import nissa_vital_force  # noqa: F401
 from . import noble_heritage  # noqa: F401

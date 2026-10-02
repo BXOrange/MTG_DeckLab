@@ -285,3 +285,46 @@ def test_nissa_vital_force_minus_three_returns_a_permanent_card_from_the_graveya
     p1.graveyard.append(dead)
     activate(-3, targets=[dead])
     assert dead in p1.hand and nissa.counters["loyalty"] == 2
+
+
+def _nissa_ascended_game(loyalty):
+    card = CardDatabase(DB_PATH).get_card("Nissa, Ascended Animist")
+    engine, p1, p2 = _game()
+    nissa = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    nissa.controller_id = "p1"
+    bind_from_catalogue(nissa)
+    engine.state.add_to_battlefield(nissa)
+    nissa.counters["loyalty"] = loyalty
+
+    def activate(amount):
+        index = next(
+            i for i, a in enumerate(nissa.activated_abilities)
+            if getattr(getattr(a, "cost", None), "loyalty", None) == amount
+        )
+        engine.activate_ability(p1, nissa, index)
+        engine.resolve_until_stable()
+        engine.recompute_continuous_effects()
+
+    return engine, p1, nissa, activate
+
+
+def test_nissa_ascended_animist_plus_one_makes_a_horror_as_big_as_her_new_loyalty():
+    engine, p1, nissa, activate = _nissa_ascended_game(loyalty=5)
+    activate(1)
+    horrors = [o for o in engine.state.permanents_controlled_by("p1") if "Horror" in (o.card.type_line or "")]
+    assert nissa.counters["loyalty"] == 6
+    assert len(horrors) == 1 and (horrors[0].power, horrors[0].toughness) == (6, 6)
+
+
+def test_nissa_ascended_animist_minus_seven_pumps_creatures_by_my_forests_and_gives_trample():
+    engine, p1, nissa, activate = _nissa_ascended_game(loyalty=7)
+    for i in range(3):
+        battlefield_object(engine, "p1", f"Forest {i}", "Basic Land — Forest", is_land=True)
+    battlefield_object(engine, "p1", "Island", "Basic Land — Island", is_land=True)
+    mine = battlefield_object(engine, "p1", "My Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    theirs = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    engine.recompute_continuous_effects()
+
+    activate(-7)
+    assert (mine.power, mine.toughness) == (5, 5) and "trample" in mine.granted_keywords  # 3 Forests, not the Island
+    assert (theirs.power, theirs.toughness) == (2, 2) and "trample" not in theirs.granted_keywords
