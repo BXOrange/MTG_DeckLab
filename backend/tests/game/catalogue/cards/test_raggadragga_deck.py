@@ -52,3 +52,41 @@ def test_akromas_memorial_grants_every_creature_you_control_the_full_set():
     assert combat.is_protected_from(mine, black) and combat.is_protected_from(mine, red)
     assert not combat.is_protected_from(mine, green)
     assert not combat.is_protected_from(theirs, black)  # only my creatures
+
+
+def test_saryth_grants_by_tapped_state_and_untaps_another_creature_or_land():
+    engine, player = two_player_game()
+    saryth = battlefield_object(
+        engine, "p1", "Saryth, the Viper's Fang", "Legendary Creature — Human Warlock",
+        is_creature=True, power=2, toughness=2,
+    )
+    bind_from_catalogue(saryth)
+    saryth.summoning_sick = False
+    tapped_bear = battlefield_object(engine, "p1", "Tapped Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    fresh_bear = battlefield_object(engine, "p1", "Fresh Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    forest = battlefield_object(engine, "p1", "Forest", "Basic Land — Forest", is_land=True)
+    tapped_bear.tapped = True
+    forest.tapped = True
+    engine.recompute_continuous_effects()
+    assert "deathtouch" in tapped_bear.granted_keywords and "hexproof" not in tapped_bear.granted_keywords
+    assert "hexproof" in fresh_bear.granted_keywords and "deathtouch" not in fresh_bear.granted_keywords
+
+    index = next(
+        i for i, a in enumerate(saryth.activated_abilities)
+        if any(getattr(e, "untap", False) for e in getattr(a, "effects", []))
+    )
+    player.mana_pool.add_many({"C": 1})
+    engine.activate_ability(player, saryth, index, targets=[tapped_bear])
+    engine.resolve_until_stable()
+    assert not tapped_bear.tapped and saryth.tapped
+
+    saryth.tapped = False
+    player.mana_pool.add_many({"C": 1})
+    engine.activate_ability(player, saryth, index, targets=[forest])
+    engine.resolve_until_stable()
+    assert not forest.tapped  # lands work too
+
+    from mtg_analyzer.game import targeting
+    assert saryth not in targeting.legal_targets(
+        engine.state, player, targeting.TargetSpec(kind="another_creature_or_land_you_control"), source=saryth,
+    )

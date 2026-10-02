@@ -174,6 +174,9 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # "target creature or land you control" (PAR-124, Vengeant Earth) —
         # the land sibling of `creature_or_enchantment_you_control` above.
         "creature_or_land_you_control",
+        # "another target creature or land you control" (Saryth, the Viper's
+        # Fang) — the source-excluding sibling of the entry above.
+        "another_creature_or_land_you_control",
         # "target creature you **don't** control" (Archdruid's Charm's second
         # mode) — the mirror image of `creature_you_control`.
         "creature_you_dont_control",
@@ -635,6 +638,7 @@ class TargetSpec:
             "other_creature_you_control": "andere Kreatur unter deiner Kontrolle",
             "creature_or_enchantment_you_control": "Kreatur oder Verzauberung unter deiner Kontrolle",
             "creature_or_land_you_control": "Kreatur oder Land unter deiner Kontrolle",
+            "another_creature_or_land_you_control": "andere Kreatur oder Land unter deiner Kontrolle",
             "non_human_creature_you_own": "Nicht-Mensch-Kreatur, die du besitzt",
             "creature_you_dont_control": "Kreatur, die du nicht kontrollierst",
             "artifact_you_dont_control": "Artefakt, das du nicht kontrollierst",
@@ -1234,6 +1238,7 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
         "creature_or_enchantment", SCOPE_YOU, exclude_source=False),
     "creature_or_land_you_control": TargetFrame(
         "creature_or_land", SCOPE_YOU, exclude_source=False),
+    "another_creature_or_land_you_control": TargetFrame("creature_or_land", SCOPE_YOU),
     "artifact_or_enchantment": TargetFrame("artifact_or_enchantment"),
     "artifact_or_creature": TargetFrame("artifact_or_creature"),
     "artifact_or_creature_you_control": TargetFrame(
