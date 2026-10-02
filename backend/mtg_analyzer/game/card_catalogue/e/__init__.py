@@ -31,6 +31,7 @@ from . import entrancing_melody  # noqa: F401
 from . import ephemerate  # noqa: F401
 from . import eriette_of_the_charmed_apple  # noqa: F401
 from . import esper_sentinel  # noqa: F401
+from . import essence_flux  # noqa: F401
 from . import etali_primal_conqueror  # noqa: F401
 from . import etali_primal_sickness  # noqa: F401
 from . import etali_primal_storm  # noqa: F401
