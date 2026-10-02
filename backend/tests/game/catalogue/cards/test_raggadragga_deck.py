@@ -90,3 +90,32 @@ def test_saryth_grants_by_tapped_state_and_untaps_another_creature_or_land():
     assert saryth not in targeting.legal_targets(
         engine.state, player, targeting.TargetSpec(kind="another_creature_or_land_you_control"), source=saryth,
     )
+
+
+def test_twitching_doll_taps_for_mana_with_a_nest_counter_then_sacrifices_for_spiders():
+    from mtg_analyzer.config import DB_PATH
+    from mtg_analyzer.services.card_database import CardDatabase
+
+    engine, player = two_player_game()
+    card = CardDatabase(DB_PATH).get_card("Twitching Doll")
+    doll = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    doll.controller_id = "p1"
+    bind_from_catalogue(doll)
+    doll.summoning_sick = False
+    engine.state.add_to_battlefield(doll)
+    engine.state.current_step = "main1"
+
+    engine.tap_for_mana(player, doll)
+    assert doll.counters.get("nest", 0) == 1  # the mana ability's own rider
+    doll.counters["nest"] = 3
+    doll.tapped = False
+
+    index = next(i for i, a in enumerate(doll.activated_abilities) if getattr(a, "cost", None) is not None
+                 and "sacrifice" in str(getattr(a.cost, "raw", getattr(a.cost, "text", a.cost))).lower())
+    engine.activate_ability(player, doll, index)
+    engine.resolve_until_stable()
+
+    spiders = [o for o in engine.state.battlefield if "Spider" in (o.card.type_line or "")]
+    assert doll not in engine.state.battlefield
+    assert len(spiders) == 3  # one per nest counter
+    assert all(s.power == 2 and s.toughness == 2 and "reach" in s.granted_keywords | set(getattr(s.card, "keywords", []) or []) for s in spiders)

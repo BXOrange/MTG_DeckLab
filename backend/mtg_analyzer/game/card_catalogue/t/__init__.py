@@ -65,5 +65,6 @@ from . import trickbind  # noqa: F401
 from . import trinisphere  # noqa: F401
 from . import trystan_callous_cultivator  # noqa: F401
 from . import twinflame  # noqa: F401
+from . import twitching_doll  # noqa: F401
 from . import tymna_the_weaver  # noqa: F401
 from . import tyvar_kell  # noqa: F401
