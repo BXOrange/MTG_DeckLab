@@ -250,3 +250,28 @@ def test_urzas_ruinous_blast_exiles_every_nonland_nonlegendary_permanent():
     assert not ({bear, artifact, theirs} & on_battlefield)
     assert all(o.zone == Zone.EXILE for o in (bear, artifact, theirs))  # exiled, not destroyed
     assert {legend, land, their_legend} <= on_battlefield
+
+
+def test_shalai_gives_me_my_planeswalkers_and_my_other_creatures_hexproof():
+    from mtg_analyzer.game import targeting
+
+    engine, p1 = _game()
+    card = CardDatabase(DB_PATH).get_card("Shalai, Voice of Plenty")
+    shalai = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    shalai.controller_id = "p1"
+    bind_from_catalogue(shalai)
+    engine.state.add_to_battlefield(shalai)
+    bear = battlefield_object(engine, "p1", "My Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    walker = battlefield_object(engine, "p1", "My Walker", "Planeswalker — Test", loyalty=4)
+    theirs = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    engine.recompute_continuous_effects()
+
+    assert "hexproof" in bear.granted_keywords and "hexproof" in walker.granted_keywords
+    assert "hexproof" not in shalai.granted_keywords  # "other creatures"
+    assert "hexproof" not in theirs.granted_keywords
+
+    def player_pool(controller):
+        return {t["player_id"] for t in targeting.legal_targets(engine.state, controller, targeting.TargetSpec(kind="player"))}
+
+    assert player_pool("p2") == {"p2"}  # the opponent can no longer target me, only themself
+    assert player_pool("p1") == {"p1", "p2"}  # I can still target anyone, myself included

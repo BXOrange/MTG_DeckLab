@@ -1529,6 +1529,15 @@ def legal_targets(
     """The currently legal targets for ``spec`` — see `_legal_targets_for`, less the object a
     group trigger fired for when the spec says "other than that creature" (PAR-123)."""
     found = _legal_targets_for(state, controller_id, spec, source, trigger_event)
+    # RULE 702.11b: a player with hexproof can't be targeted by an opponent's spell or ability
+    # (their own can; see `continuous.player_has_hexproof`).
+    from . import continuous  # function-scoped: continuous imports this module
+
+    found = [
+        t for t in found
+        if "player_id" not in t or t["player_id"] == controller_id
+        or not continuous.player_has_hexproof(state, t["player_id"])
+    ]
     if not spec.excluding_trigger_subject:
         return found
     event = trigger_event or {}

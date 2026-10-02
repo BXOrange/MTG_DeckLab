@@ -3729,6 +3729,20 @@ def cost_reduction_for(
     return net, contributors
 
 
+def player_has_hexproof(state: "GameState", player_id: str) -> bool:
+    """RULE 702.11b for a *player*: "You … have hexproof." (Shalai, Voice of Plenty; Leyline of
+    Sanctity-shaped) — true while a `player_hexproof` static controlled by ``player_id`` is on the
+    battlefield (or in an emblem/command zone — `_battlefield_static_abilities`). Not a RULE 613
+    layer: nothing here is a characteristic, so it is read live by `targeting.legal_targets`, which
+    removes such a player from an *opponent's* target pool (the hexproof player can still target
+    themself, like any hexproof object)."""
+    return any(
+        ability.layer == "player_hexproof"
+        and getattr(ability.source, "controller_id", None) == player_id
+        for ability in _battlefield_static_abilities(state)
+    )
+
+
 def mana_production_multiplier_for(state: "GameState", player: "Player") -> int:
     """"If you tap a permanent for mana, it produces N times as much of
     that mana instead." (Nyxbloom Ancient/Mana Reflection/Zendikar
@@ -5593,7 +5607,7 @@ _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
      "uncast_creature_entry_exile",
      "mana_multiplier", "mana_type_override", "skip_step", "search_redirect",
      "cost_restriction", "life_gain_prohibition",
-     "damage_prevention_prohibition", "global_wither", "attack_tax"}
+     "damage_prevention_prohibition", "global_wither", "attack_tax", "player_hexproof"}
 )
 
 

@@ -3850,6 +3850,12 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # "You have hexproof." (Shalai, Voice of Plenty) — a static read by
+    # `continuous.player_has_hexproof`; see its docstring.
+    "player_hexproof",
+    lambda p: StaticAbility("player_hexproof", affects="self", params={}),
+)
+EffectRegistry.register(
     # "Skip your draw step." (MEC-38, Necropotence) — consulted directly by
     # `RulesEngine.should_skip_step` via `continuous.skipped_steps_for`,
     # the same "not a RULE 613 layer, read live off the battlefield" shape
