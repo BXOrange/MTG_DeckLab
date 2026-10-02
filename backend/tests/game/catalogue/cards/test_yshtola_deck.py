@@ -15,6 +15,7 @@ def _spell(player, name, type_line, cost, cmc, colors):
         id=name, name=name, type_line=type_line, mana_cost_string=cost,
         converted_mana_cost=cmc, color_identity=set(colors),
         is_creature="creature" in type_line.lower(),
+        is_instant="instant" in type_line.lower(), is_sorcery="sorcery" in type_line.lower(),
     )
     obj = GameObject(card, owner_id=player.id, zone=Zone.HAND)
     bind_from_catalogue(obj)
@@ -146,3 +147,23 @@ def test_bloodchief_ascension_drains_per_opponent_card_once_it_has_three_quest_c
     _answer_may(engine)
     assert engine.state.player_by_id("p2").life == 18
     assert engine.state.player_by_id("p1").life == 22
+
+
+def test_battlefield_thaumaturge_discounts_one_per_creature_targeted():
+    engine, player = two_player_game()
+    thaum = battlefield_object(
+        engine, player.id, "Battlefield Thaumaturge", "Creature — Human Wizard",
+        is_creature=True, power=1, toughness=3,
+    )
+    bind_from_catalogue(thaum)
+    bear_a = battlefield_object(engine, "p2", "Bear A", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    bear_b = battlefield_object(engine, "p2", "Bear B", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    land = battlefield_object(engine, "p2", "Plains", "Land", is_land=True)
+    spell = _spell(player, "Two Bolts", "Instant", "{2}{R}", 3, "R")
+    creature_spell = _spell(player, "Fat Bear", "Creature — Bear", "{2}{G}", 3, "G")
+
+    cost = lambda obj, targets: continuous.cost_reduction_for(engine.state, player, obj, targets)[0]
+    assert cost(spell, [bear_a, bear_b]) == 2
+    assert cost(spell, [bear_a, land]) == 1  # only creatures count
+    assert cost(spell, [land]) == 0
+    assert cost(creature_spell, [bear_a]) == 0  # instants and sorceries only

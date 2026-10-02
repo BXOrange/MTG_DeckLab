@@ -3631,12 +3631,20 @@ def cost_reduction_for(
         # chosen yet) — treat the discount as available then so
         # affordability isn't understated.
         reduce_if_targets = ability.params.get("reduce_if_targets")
+        matching_targets = 1
         if reduce_if_targets and targets is not None:
-            if not any(
-                _obj_matches_target_criteria(t, reduce_if_targets, state, player.id)
-                for t in targets
-            ):
+            matching_targets = sum(
+                1 for t in targets
+                if _obj_matches_target_criteria(t, reduce_if_targets, state, player.id)
+            )
+            if not matching_targets:
                 continue
+        # "…costs {1} less to cast for each creature it targets." (Battlefield
+        # Thaumaturge) — `per_target` scales the discount by how many chosen
+        # targets matched `reduce_if_targets` instead of applying it once. At
+        # the offer-time probe (``targets is None``) the count is unknown, so
+        # it counts as one, like the other target-gated discounts above.
+        per_target = bool(ability.params.get("per_target")) and reduce_if_targets
         # "Red spells you cast cost {1} less to cast." (the Medallion
         # cycle) — a colour filter, orthogonal to `spell_type`'s card-type
         # one; `GameObject.colors` reads the layer-5 derived colour, same
@@ -3680,6 +3688,8 @@ def cost_reduction_for(
         if ability.params.get("except_caster_own_turn") and state.active_player is player:
             continue
         signed = _cost_static_amount(ability, state, player.id)
+        if per_target:
+            signed *= matching_targets
         net += signed
         contributors.append(
             {

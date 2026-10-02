@@ -4,6 +4,7 @@ from . import backdraft_hellkite  # noqa: F401
 from . import balthier_and_fran  # noqa: F401
 from . import bane_of_progress  # noqa: F401
 from . import banquet_guests  # noqa: F401
+from . import battlefield_thaumaturge  # noqa: F401
 from . import battletide_alchemist  # noqa: F401
 from . import beacon_of_unrest  # noqa: F401
 from . import beast_mode  # noqa: F401

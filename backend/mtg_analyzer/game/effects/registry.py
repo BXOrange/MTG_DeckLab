@@ -4095,6 +4095,7 @@ EffectRegistry.register(
             # _obj_matches_target_criteria`; only meaningful with
             # ``affects="self"``.
             **({"reduce_if_targets": p["reduce_if_targets"]} if p.get("reduce_if_targets") else {}),
+            **({"per_target": True} if p.get("per_target") else {}),
             # "Spells your opponents cast **that target ~** cost {N} more to
             # cast." (Icefall Regent / Boreal Elemental / Charix / Elderwood
             # Scion / Pursued Whale) — a battlefield permanent taxing spells
