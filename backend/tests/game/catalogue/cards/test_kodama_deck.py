@@ -105,3 +105,38 @@ def test_pathbreaker_ibex_pumps_every_creature_by_the_greatest_power_and_gives_t
     assert (theirs.power, theirs.toughness) == (2, 2)
     assert all("trample" in c.granted_keywords for c in (ibex, big, small))
     assert "trample" not in theirs.granted_keywords
+
+
+def test_sapling_nursery_exiles_itself_to_make_treefolk_and_forests_indestructible():
+    engine, p1, p2 = _game()
+    card = CardDatabase(DB_PATH).get_card("Sapling Nursery")
+    nursery = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    nursery.controller_id = "p1"
+    bind_from_catalogue(nursery)
+    engine.state.add_to_battlefield(nursery)
+    treefolk = battlefield_object(engine, "p1", "Treefolk Token", "Creature — Treefolk", is_creature=True, power=3, toughness=4)
+    forest = battlefield_object(engine, "p1", "Forest", "Basic Land — Forest", is_land=True)
+    island = battlefield_object(engine, "p1", "Island", "Basic Land — Island", is_land=True)
+    bear = battlefield_object(engine, "p1", "Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    theirs = battlefield_object(engine, "p2", "Their Forest", "Basic Land — Forest", is_land=True)
+    p1.mana_pool.add_many({"G": 1, "C": 1})
+
+    index = next(i for i, a in enumerate(nursery.activated_abilities) if getattr(a, "cost", None) is not None)
+    engine.activate_ability(p1, nursery, index)
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+
+    assert nursery not in engine.state.battlefield  # exiled as the cost
+    assert "indestructible" in treefolk.granted_keywords and "indestructible" in forest.granted_keywords
+    assert "indestructible" not in island.granted_keywords
+    assert "indestructible" not in bear.granted_keywords
+    assert "indestructible" not in theirs.granted_keywords  # only mine
+
+
+def test_sapling_nursery_keeps_affinity_for_forests_after_being_registered():
+    engine, p1, p2 = _game("Sapling Nursery")
+    spell = p1.hand[0]
+    battlefield_object(engine, "p1", "Forest A", "Basic Land — Forest", is_land=True)
+    battlefield_object(engine, "p1", "Forest B", "Basic Land — Forest", is_land=True)
+    battlefield_object(engine, "p1", "Island", "Basic Land — Island", is_land=True)
+    assert continuous.self_cost_reduction_for(spell, engine.state, "p1")[0] == 2  # one per Forest, not per land

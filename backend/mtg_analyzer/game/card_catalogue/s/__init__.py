@@ -10,6 +10,7 @@ from . import samwise_gamgee  # noqa: F401
 from . import sanctifier_en_vec  # noqa: F401
 from . import sanctum_guardian  # noqa: F401
 from . import sanctum_prelate  # noqa: F401
+from . import sapling_nursery  # noqa: F401
 from . import saradoc_master_of_buckland  # noqa: F401
 from . import saryth_the_viper_s_fang  # noqa: F401
 from . import scab_clan_berserker  # noqa: F401
