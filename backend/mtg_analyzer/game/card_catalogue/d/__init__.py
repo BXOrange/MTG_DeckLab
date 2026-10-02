@@ -25,6 +25,7 @@ from . import delney_streetwise_lookout  # noqa: F401
 from . import delver_of_secrets  # noqa: F401
 from . import demonic_bargain  # noqa: F401
 from . import demonic_consultation  # noqa: F401
+from . import demonspine_whip  # noqa: F401
 from . import derevi_empyrial_tactician  # noqa: F401
 from . import descendants_fury  # noqa: F401
 from . import desperate_gambit  # noqa: F401

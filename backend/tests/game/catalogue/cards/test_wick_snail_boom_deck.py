@@ -86,3 +86,29 @@ def test_wings_of_velis_vel_can_target_any_creature_and_grants_all_creature_type
 
     assert has_subtype(target, "Elf") and has_subtype(target, "Wizard")  # every creature type
     assert not has_subtype(other, "Wizard")
+
+
+def test_demonspine_whip_pumps_only_the_equipped_creature_by_the_paid_x():
+    engine, p1 = _game()
+    whip_card = CardDatabase(DB_PATH).get_card("Demonspine Whip")
+    whip = GameObject(whip_card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    whip.controller_id = "p1"
+    bind_from_catalogue(whip)
+    engine.state.add_to_battlefield(whip)
+    host = battlefield_object(engine, "p1", "Host", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    bystander = battlefield_object(engine, "p1", "Bystander", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    whip.attached_to = host.instance_id
+    engine.recompute_continuous_effects()
+
+    index = next(i for i, a in enumerate(whip.activated_abilities) if getattr(a, "cost", None) is not None)
+    p1.mana_pool.add_many({"C": 3})
+    engine.activate_ability(p1, whip, index, x=3)
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+
+    assert (host.power, host.toughness) == (5, 2)  # +3/+0
+    assert (bystander.power, bystander.toughness) == (2, 2)
+
+    engine._step_cleanup()
+    engine.recompute_continuous_effects()
+    assert host.power == 2  # until end of turn
