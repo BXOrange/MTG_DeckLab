@@ -1189,8 +1189,12 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    "grant_graveyard_cast_permission_this_turn",  # Backdraft Hellkite
-    lambda p: GrantGraveyardCastPermissionThisTurnEffect(),
+    "grant_graveyard_cast_permission_this_turn",  # Backdraft Hellkite, Kethis
+    lambda p: GrantGraveyardCastPermissionThisTurnEffect(
+        spell_criteria=p.get("spell_criteria"),
+        instant_sorcery_only=bool(p.get("instant_sorcery_only", True)),
+        plays_lands=bool(p.get("plays_lands", False)),
+    ),
 )
 EffectRegistry.register(
     # MEC-24: "target instant or sorcery card in your graveyard gains
@@ -4121,6 +4125,8 @@ EffectRegistry.register(
             # ``affects="self"``.
             **({"reduce_if_targets": p["reduce_if_targets"]} if p.get("reduce_if_targets") else {}),
             **({"per_target": True} if p.get("per_target") else {}),
+            # "Legendary spells you cast cost {1} less to cast." (Kethis, the Hidden Hand)
+            **({"spell_legendary": True} if p.get("spell_legendary") else {}),
             # "Spells your opponents cast **that target ~** cost {N} more to
             # cast." (Icefall Regent / Boreal Elemental / Charix / Elderwood
             # Scion / Pursued Whale) — a battlefield permanent taxing spells

@@ -117,6 +117,8 @@ def graveyard_land_play_grant_for(player: "Player", state: "GameState", card: "C
     for effect in active_graveyard_cast_grants(player, state):
         if effect.lands_only:
             return effect
+        if effect.plays_lands and (not effect.spell_criteria or card_query.matches(card, effect.spell_criteria)):
+            return effect  # Kethis: "you may play this card from your graveyard" for legendary lands
         if not effect.per_permanent_type:
             continue
         if "land" not in getattr(effect.source, "graveyard_cast_types_this_turn", set()):

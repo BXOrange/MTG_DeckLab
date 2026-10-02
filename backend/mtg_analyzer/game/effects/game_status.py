@@ -653,8 +653,12 @@ class GraveyardCastPermissionEffect(GameEffect):
         lands_only: bool = False,
         spell_criteria: Optional[dict[str, Any]] = None,
         active_if: Optional[dict[str, Any]] = None,
+        plays_lands: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "…you may **play** this card from your graveyard" (Kethis, the Hidden Hand): the grant also
+        #: covers land cards matching ``spell_criteria`` (`graveyard_cast.graveyard_land_play_grant_for`).
+        self.plays_lands = plays_lands
         #: PAR-105: "you may cast a `<kind>` spell from your graveyard" — the kind as a `card_query`
         #: criteria dict (`graveyard_cast.graveyard_cast_grant_for`), ANDed with the flags below.
         self.spell_criteria = dict(spell_criteria) if spell_criteria else None
@@ -736,16 +740,33 @@ class GrantGraveyardCastPermissionThisTurnEffect(GameEffect):
     only the expiry check `expires_turn` adds.
     """
 
+    def __init__(
+        self,
+        spell_criteria: Optional[dict[str, Any]] = None,
+        instant_sorcery_only: bool = True,
+        plays_lands: bool = False,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        #: Kethis, the Hidden Hand's "each **legendary** card in your graveyard gains 'You may play this
+        #: card from your graveyard'": a `card_query` filter, lands included, instead of Hellkite's
+        #: instant/sorcery-only flashback.
+        self.spell_criteria = dict(spell_criteria) if spell_criteria else None
+        self.instant_sorcery_only = instant_sorcery_only
+        self.plays_lands = plays_lands
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None:
             return
         self.source.static_effects.append(
             GraveyardCastPermissionEffect(
                 permanent_only=False,
-                instant_sorcery_only=True,
+                instant_sorcery_only=self.instant_sorcery_only,
                 once_per_turn=False,
                 expires_turn=context.state.internal_turn.number,
                 source=self.source,
+                spell_criteria=self.spell_criteria,
+                plays_lands=self.plays_lands,
             )
         )
 

@@ -6,6 +6,7 @@ from . import kari_zev_s_expertise  # noqa: F401
 from . import karn_the_great_creator  # noqa: F401
 from . import keen_duelist  # noqa: F401
 from . import kenrith_s_transformation  # noqa: F401
+from . import kethis_the_hidden_hand  # noqa: F401
 from . import kiki_jiki_mirror_breaker  # noqa: F401
 from . import killian_decisive_mentor  # noqa: F401
 from . import killian_ink_duelist  # noqa: F401

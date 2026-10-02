@@ -3703,6 +3703,9 @@ def cost_reduction_for(
         spell_subtype = ability.params.get("spell_subtype")
         if spell_subtype and (obj is None or not has_subtype(obj, str(spell_subtype))):
             continue
+        # "Legendary spells you cast cost {1} less to cast." (Kethis, the Hidden Hand) — RULE 205.4.
+        if ability.params.get("spell_legendary") and (obj is None or not getattr(obj.card, "is_legendary", False)):
+            continue
         # RULE 613.6's ordinary ability-source-relative gate ("During your
         # turn, spells your opponents cast cost {1} more…" — Tithe Taker) —
         # `cost_floor_for` just below already checks this; this function

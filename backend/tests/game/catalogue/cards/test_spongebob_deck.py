@@ -384,3 +384,72 @@ def test_sisay_searches_for_a_legendary_permanent_with_mana_value_below_her_powe
         engine.resolve_pending_choice(pick["id"])
         engine.resolve_until_stable()
     assert small in engine.state.battlefield and big not in engine.state.battlefield
+
+
+def _kethis_game():
+    card = CardDatabase(DB_PATH).get_card("Kethis, the Hidden Hand")
+    engine, p1 = _game()
+    kethis = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    kethis.controller_id = "p1"
+    bind_from_catalogue(kethis)
+    kethis.summoning_sick = False
+    engine.state.add_to_battlefield(kethis)
+    return engine, p1, kethis
+
+
+def _graveyard_card(p1, name, type_line, **kw):
+    obj = GameObject(Card(id=name, name=name, type_line=type_line, **kw), owner_id="p1", zone=Zone.GRAVEYARD)
+    p1.graveyard.append(obj)
+    return obj
+
+
+def test_kethis_makes_legendary_spells_cost_one_less():
+    from mtg_analyzer.game import continuous
+
+    engine, p1, kethis = _kethis_game()
+
+    def spell(name, legendary):
+        obj = GameObject(
+            Card(id=name, name=name, type_line=("Legendary " if legendary else "") + "Creature — Elf", is_creature=True,
+                 is_legendary=legendary, power=1, toughness=1, mana_cost_string="{2}", converted_mana_cost=2),
+            owner_id="p1", zone=Zone.HAND,
+        )
+        p1.add_to_zone(obj, Zone.HAND)
+        return obj
+
+    assert continuous.cost_reduction_for(engine.state, p1, spell("Legend", True))[0] == 1
+    assert continuous.cost_reduction_for(engine.state, p1, spell("Plain", False))[0] == 0
+
+
+def test_kethis_exiles_two_legends_to_let_the_rest_be_played_from_the_graveyard_this_turn():
+    from mtg_analyzer.game import graveyard_cast
+
+    engine, p1, kethis = _kethis_game()
+    fuel_a = _graveyard_card(p1, "Fuel A", "Legendary Creature — Elf", is_creature=True, is_legendary=True, power=1, toughness=1)
+    fuel_b = _graveyard_card(p1, "Fuel B", "Legendary Creature — Elf", is_creature=True, is_legendary=True, power=1, toughness=1)
+    legend = _graveyard_card(p1, "Legend", "Legendary Creature — Elf", is_creature=True, is_legendary=True, power=2, toughness=2,
+                             mana_cost_string="{1}", converted_mana_cost=1)
+    legend_land = _graveyard_card(p1, "Legend Land", "Legendary Land", is_land=True, is_legendary=True)
+    plain = _graveyard_card(p1, "Plain", "Creature — Elf", is_creature=True, power=1, toughness=1,
+                            mana_cost_string="{1}", converted_mana_cost=1)
+
+    assert not graveyard_cast.may_cast_spell_from_graveyard(p1, engine.state, legend.card)  # not yet
+
+    index = next(i for i, a in enumerate(kethis.activated_abilities) if getattr(a, "cost", None) is not None)
+    engine.activate_ability(p1, kethis, index)
+    for _ in range(3):
+        if engine.state.pending_choice:
+            choice = engine.state.pending_choice
+            engine.resolve_pending_choice(choice["options"][0]["id"])
+        engine.resolve_until_stable()
+
+    exiled = [o for o in (fuel_a, fuel_b, legend, legend_land) if o.zone == Zone.EXILE]
+    assert len(exiled) == 2  # the cost: two legendary cards
+    remaining_legends = [o for o in (fuel_a, fuel_b, legend, legend_land) if o.zone == Zone.GRAVEYARD]
+    assert len(remaining_legends) == 2
+    for card in remaining_legends:
+        if card.is_land:
+            assert graveyard_cast.graveyard_land_play_grant_for(p1, engine.state, card.card) is not None
+        else:
+            assert graveyard_cast.may_cast_spell_from_graveyard(p1, engine.state, card.card)
+    assert not graveyard_cast.may_cast_spell_from_graveyard(p1, engine.state, plain.card)  # not legendary
