@@ -3850,6 +3850,12 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # "You may spend mana as though it were mana of any color." (Chromatic Orrery) — read by
+    # `continuous.standing_mana_wildcard` where a spell's cost is checked and paid.
+    "spend_mana_as_any_color",
+    lambda p: StaticAbility("mana_wildcard", affects="self", params={"wildcard": "color"}),
+)
+EffectRegistry.register(
     # "You have hexproof." (Shalai, Voice of Plenty) — a static read by
     # `continuous.player_has_hexproof`; see its docstring.
     "player_hexproof",

@@ -27,6 +27,7 @@ from . import chaos_warp  # noqa: F401
 from . import charm_peddler  # noqa: F401
 from . import cho_arrim_alchemist  # noqa: F401
 from . import chocobo_racetrack  # noqa: F401
+from . import chromatic_orrery  # noqa: F401
 from . import chrome_mox  # noqa: F401
 from . import circle_of_despair  # noqa: F401
 from . import circle_of_protection_artifacts  # noqa: F401

@@ -754,7 +754,10 @@ class CastingResolutionMixin:
             # RULE 605.1a "you may spend mana as though it were mana of any
             # color/type" (Mnemonic Betrayal-shaped), scoped to casting this
             # one exiled card — see `GameState.mana_wildcard_permission`.
-            wildcard = self.state.mana_wildcard_permission.get(obj.instance_id)
+            wildcard = (
+                self.state.mana_wildcard_permission.get(obj.instance_id)
+                or continuous.standing_mana_wildcard(self.state, player)
+            )
             # PAR-19: "Spend only mana produced by basic lands/creatures to
             # cast this spell." (Imperiosaur/Myr Superion) — a standing
             # restriction on the spell's own printed cost, bound onto the

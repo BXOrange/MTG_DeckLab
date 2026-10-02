@@ -275,3 +275,50 @@ def test_shalai_gives_me_my_planeswalkers_and_my_other_creatures_hexproof():
 
     assert player_pool("p2") == {"p2"}  # the opponent can no longer target me, only themself
     assert player_pool("p1") == {"p1", "p2"}  # I can still target anyone, myself included
+
+
+def _orrery(on_battlefield):
+    engine, p1 = _game()
+    if on_battlefield:
+        orrery = battlefield_object(engine, "p1", "Chromatic Orrery", "Legendary Artifact", is_legendary=True)
+        bind_from_catalogue(orrery)
+    spell = GameObject(
+        Card(id="Bolt", name="Red Bolt", type_line="Sorcery", is_sorcery=True, mana_cost_string="{R}{R}",
+             converted_mana_cost=2),
+        owner_id="p1", zone=Zone.HAND,
+    )
+    bind_from_catalogue(spell)
+    p1.add_to_zone(spell, Zone.HAND)
+    p1.mana_pool.add_many({"U": 2})  # blue mana only: no red at all
+    return engine, p1, spell
+
+
+def test_chromatic_orrery_lets_any_mana_pay_for_colored_costs():
+    engine, p1, spell = _orrery(on_battlefield=False)
+    assert not engine.can_cast(p1, spell)  # {R}{R} with two blue mana: no
+
+    engine, p1, spell = _orrery(on_battlefield=True)
+    assert engine.can_cast(p1, spell)
+    engine.cast_spell(p1, spell)
+    assert p1.mana_pool.pool.get("U", 0) == 0  # the blue mana paid the red pips
+
+
+def test_chromatic_orrery_draws_a_card_per_color_among_my_permanents():
+    engine, p1 = _game()
+    card = CardDatabase(DB_PATH).get_card("Chromatic Orrery")
+    orrery = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    orrery.controller_id = "p1"
+    bind_from_catalogue(orrery)
+    orrery.summoning_sick = False
+    engine.state.add_to_battlefield(orrery)
+    battlefield_object(engine, "p1", "Red Bear", "Creature — Bear", is_creature=True, power=2, toughness=2, color_identity={"R"})
+    battlefield_object(engine, "p1", "Blue Bird", "Creature — Bird", is_creature=True, power=1, toughness=1, color_identity={"U"})
+    battlefield_object(engine, "p1", "Red Bear 2", "Creature — Bear", is_creature=True, power=2, toughness=2, color_identity={"R"})
+    engine.recompute_continuous_effects()
+
+    index = next(i for i, a in enumerate(orrery.activated_abilities) if getattr(a, "cost", None) is not None)
+    p1.mana_pool.add_many({"C": 5})
+    hand_before = len(p1.hand)
+    engine.activate_ability(p1, orrery, index)
+    engine.resolve_until_stable()
+    assert len(p1.hand) == hand_before + 2  # red and blue: two colors, not three permanents

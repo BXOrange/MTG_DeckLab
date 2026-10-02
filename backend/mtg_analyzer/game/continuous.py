@@ -3729,6 +3729,17 @@ def cost_reduction_for(
     return net, contributors
 
 
+def standing_mana_wildcard(state: "GameState", player: "Player") -> Optional[str]:
+    """RULE 605.1a: "You may spend mana as though it were mana of any color." (Chromatic Orrery) — the
+    `ManaPool` ``wildcard`` token (``"color"``) while a `mana_wildcard` static controlled by ``player``
+    is on the battlefield, else ``None``. The standing sibling of the per-card
+    `GameState.mana_wildcard_permission` grant; callers use whichever is set."""
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer == "mana_wildcard" and getattr(ability.source, "controller_id", None) == player.id:
+            return str(ability.params.get("wildcard") or "color")
+    return None
+
+
 def player_has_hexproof(state: "GameState", player_id: str) -> bool:
     """RULE 702.11b for a *player*: "You … have hexproof." (Shalai, Voice of Plenty; Leyline of
     Sanctity-shaped) — true while a `player_hexproof` static controlled by ``player_id`` is on the
@@ -5607,7 +5618,8 @@ _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
      "uncast_creature_entry_exile",
      "mana_multiplier", "mana_type_override", "skip_step", "search_redirect",
      "cost_restriction", "life_gain_prohibition",
-     "damage_prevention_prohibition", "global_wither", "attack_tax", "player_hexproof"}
+     "damage_prevention_prohibition", "global_wither", "attack_tax", "player_hexproof",
+     "mana_wildcard"}
 )
 
 

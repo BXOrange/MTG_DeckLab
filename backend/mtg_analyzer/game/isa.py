@@ -852,7 +852,7 @@ _STATIC_TYPES: frozenset[str] = frozenset({
     "no_untap", "no_untap_optional", "untap_each_untap_step", "activate_as_though_haste", "player_cast_restriction", "pt_cda",
     "self_graveyard_or_exile_cast_permission", "set_max_life_total",
     "sorcery_speed_only", "top_library_permission", "trigger_prohibition",
-    "untap_cap", "player_hexproof",
+    "untap_cap", "player_hexproof", "spend_mana_as_any_color",
 })
 
 #: REPLACEMENT — RULE 614/616 event middleware. Also outside the instruction

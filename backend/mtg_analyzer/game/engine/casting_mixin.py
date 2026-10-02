@@ -872,7 +872,10 @@ class CastingMixin:
                 help_pay=help_pay, pay_additional=pay_additional,
             )
             allows_restriction = restriction_predicate_for_cast(obj, has_x=cost.has_variable)
-            wildcard = self.state.mana_wildcard_permission.get(obj.instance_id)
+            wildcard = (
+                self.state.mana_wildcard_permission.get(obj.instance_id)
+                or continuous.standing_mana_wildcard(self.state, player)
+            )
             require_source_kind = getattr(obj, "mana_source_kind_restriction", None)
             # MEC-43: K'rrik, Son of Yawgmoth's standing "pay 2 life instead
             # of a {B} pip" permission (`continuous.life_for_mana_pip_color`).
