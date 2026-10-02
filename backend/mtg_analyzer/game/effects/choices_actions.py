@@ -369,6 +369,18 @@ class CreateDelayedTriggerEffect(GameEffect):
                     effect.objects = made
                 elif hasattr(effect, "target") and made:
                     effect.target = made[0]
+        if self.capture == "previous_targets":
+            # "Sacrifice them at the beginning of the next end step." after an "any number of
+            # target …" clause (Depthshaker Titan): exactly what this resolution's earlier
+            # clause chose — and unlike ``previous_or_self`` *never* the source, so choosing no
+            # target leaves the delayed effect empty instead of sacrificing the ability's own
+            # permanent.
+            chosen = list(context.previous_targets)
+            for effect in inner:
+                if hasattr(effect, "objects"):
+                    effect.objects = chosen
+                elif hasattr(effect, "target"):
+                    effect.target = chosen[0] if chosen else None
         if self.capture == "trigger_related":
             # "Whenever ~ blocks or becomes blocked by a non-Wall creature, destroy **that
             # creature** at end of combat." (the Basilisks, PAR-119) — the creature(s) on the

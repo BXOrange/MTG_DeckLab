@@ -171,3 +171,47 @@ def test_cyberdrive_awakener_animates_noncreature_artifacts_until_end_of_turn():
     engine._step_cleanup()
     engine.recompute_continuous_effects()
     assert not rock.is_creature
+
+
+def _titan_entering(pick_ids):
+    engine, p1 = _game("Depthshaker Titan")
+    rock = battlefield_object(engine, "p1", "Mind Stone", "Artifact")
+    other = battlefield_object(engine, "p1", "Sol Ring", "Artifact")
+    theirs = battlefield_object(engine, "p2", "Their Rock", "Artifact")
+    p1.mana_pool.add_many({"R": 2, "C": 5})
+    engine.cast_spell(p1, p1.hand[0])
+    engine.resolve_until_stable()
+    engine.rules.put_triggers_on_stack()
+    options = {o["label"] for o in engine.state.pending_choice["options"]}
+    for name in pick_ids:
+        engine.resolve_pending_choice(str({"rock": rock, "other": other}[name].instance_id))
+    if engine.state.pending_choice:
+        engine.resolve_pending_choice("stop")
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    return engine, p1, rock, other, theirs, options
+
+
+def test_depthshaker_titan_animates_chosen_artifacts_and_sacrifices_them_at_end_step():
+    engine, p1, rock, other, theirs, options = _titan_entering(["rock"])
+    assert "Their Rock" not in options  # "you control"
+    assert rock.is_creature and (rock.power, rock.toughness) == (3, 3)
+    assert not other.is_creature  # not chosen
+    titan = next(o for o in engine.state.battlefield if o.name == "Depthshaker Titan")
+    assert {"trample", "haste"} <= set(rock.granted_keywords)  # the lord covers every artifact creature
+    assert {"trample", "haste"} <= set(titan.granted_keywords)
+
+    engine._fire_delayed_triggers("end")
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert rock.zone == Zone.GRAVEYARD and other.zone == Zone.BATTLEFIELD
+    assert titan.zone == Zone.BATTLEFIELD
+
+
+def test_depthshaker_titan_choosing_nothing_never_sacrifices_itself():
+    engine, p1, rock, other, theirs, options = _titan_entering([])
+    titan = next(o for o in engine.state.battlefield if o.name == "Depthshaker Titan")
+    engine._fire_delayed_triggers("end")
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert titan.zone == Zone.BATTLEFIELD and rock.zone == Zone.BATTLEFIELD
