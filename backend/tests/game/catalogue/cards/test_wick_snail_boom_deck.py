@@ -392,3 +392,29 @@ def test_teferis_time_twist_returns_at_the_next_end_step_with_a_counter_only_as_
     assert artifact.zone == Zone.EXILE
     _to_end_step(engine)
     assert artifact in engine.state.battlefield and not artifact.counters  # not a creature: no counter
+
+
+def _rampage(mode, target_indices):
+    engine, p1 = _game("Invigorated Rampage")
+    creatures = [
+        battlefield_object(engine, "p1", f"Bear {i}", "Creature — Bear", is_creature=True, power=2, toughness=2)
+        for i in range(3)
+    ]
+    p1.mana_pool.add_many({"R": 1, "C": p1.hand[0].card.converted_mana_cost - 1})
+    engine.cast_spell(p1, p1.hand[0], targets=[creatures[i] for i in target_indices], mode=mode)
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    return creatures
+
+
+def test_invigorated_rampage_mode_one_pumps_a_single_creature_by_four():
+    bears = _rampage(mode=0, target_indices=[0])
+    assert (bears[0].power, bears[0].toughness) == (6, 2) and "trample" in bears[0].granted_keywords
+    assert all((b.power, b.toughness) == (2, 2) and "trample" not in b.granted_keywords for b in bears[1:])
+
+
+def test_invigorated_rampage_mode_two_pumps_two_creatures_by_two_each():
+    bears = _rampage(mode=1, target_indices=[0, 2])
+    assert [(b.power, b.toughness) for b in bears] == [(4, 2), (2, 2), (4, 2)]
+    assert "trample" in bears[0].granted_keywords and "trample" in bears[2].granted_keywords
+    assert "trample" not in bears[1].granted_keywords
