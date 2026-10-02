@@ -14,6 +14,7 @@ from . import teferi_master_of_time  # noqa: F401
 from . import teferi_s_protection  # noqa: F401
 from . import teferi_s_time_twist  # noqa: F401
 from . import teferi_time_raveler  # noqa: F401
+from . import tekuthal_inquiry_dominus  # noqa: F401
 from . import tempting_licid  # noqa: F401
 from . import temur_sabertooth  # noqa: F401
 from . import tenacious_dead  # noqa: F401

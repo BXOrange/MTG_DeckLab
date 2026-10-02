@@ -1047,6 +1047,7 @@ class ActivationMixin:
             holders = [
                 o for o in self.state.permanents_controlled_by(player.id)
                 if continuous.matches_permanent_word(o, cost.remove_counters_from)
+                and not (cost.remove_counters_other and o is source)
             ]
         else:
             holders = [source]
@@ -1089,6 +1090,7 @@ class ActivationMixin:
             holders = [
                 o for o in self.state.permanents_controlled_by(player.id)
                 if continuous.matches_permanent_word(o, cost.remove_counters_from)
+                and not (cost.remove_counters_other and o is source)
             ]
         else:
             holders = [source]

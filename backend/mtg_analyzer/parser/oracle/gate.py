@@ -3870,7 +3870,10 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (Reckless Bushwhacker, Tyrant of Valakut, Crush of Tentacles; 3 cards).
 #: 586: PAR-145 — Sticker Sheets are NEVER_SUPPORTED by their type line,
 #: including sheets whose oracle text contains only ticket symbols and stats.
-PARSER_VERSION = "586"
+#: 587: the "remove N counters from among …" cost reads a list of types and "other" ("from among other
+#: artifacts, creatures, and planeswalkers you control", Tekuthal, Inquiry Dominus) —
+#: `ActivationCost.remove_counters_other` + a `a_or_b_or_c` permanent word.
+PARSER_VERSION = "587"
 
 
 def parser_source_hash() -> str:

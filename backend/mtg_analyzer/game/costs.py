@@ -19,6 +19,7 @@ the engine's job (`GameEngine.activate_ability`).
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Optional, Union
 
@@ -579,6 +580,9 @@ class ActivationCost:
     #: count may be spread over several ("from among creatures you control").
     remove_counters_from: Optional[str] = None
     remove_counters_among: bool = False
+    #: "from among **other** artifacts, creatures, and planeswalkers you control" (Tekuthal): the
+    #: ability's own source is not a legal place to take them from.
+    remove_counters_other: bool = False
     #: ENG-51: "Exert ~" as a cost (RULE 701.43) — it won't untap during its
     #: controller's next untap step.
     exert_self: bool = False
@@ -1126,7 +1130,12 @@ def _parse_text(text: str) -> ActivationCost:
         if removal.group("from_one"):
             cost.remove_counters_from = removal.group("from_one").lower().replace(" ", "_")
         elif removal.group("from_among"):
-            cost.remove_counters_from = _singularize(removal.group("from_among").lower())
+            among = removal.group("from_among").lower()
+            cost.remove_counters_other = among.startswith("other ")
+            among = among.removeprefix("other ")
+            # "artifacts, creatures, and planeswalkers" -> `matches_permanent_word`'s "a_or_b_or_c" union.
+            kinds = [_singularize(w) for w in re.split(r"[\s,]+", among) if w and w != "and"]
+            cost.remove_counters_from = "_or_".join(kinds)
             cost.remove_counters_among = True
 
     exile_graveyard = hits.get("exile_from_graveyard")

@@ -1586,7 +1586,12 @@ class ProliferateEffect(GameEffect):
         self.times = times
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        for _ in range(self.times):
+        from .. import continuous  # local: continuous imports effects' siblings
+
+        # RULE 616: Tekuthal's "proliferate twice instead" replaces the whole action.
+        controller_id = getattr(_controller_of(self.source, context), "id", None)
+        times = self.times * continuous.proliferate_multiplier(context.state, controller_id)
+        for _ in range(times):
             for obj in list(context.state.battlefield):
                 for kind in list(obj.counters.keys()):
                     if obj.counters.get(kind, 0) > 0:

@@ -4019,6 +4019,12 @@ EffectRegistry.register(
     lambda p: StaticAbility("sorcery_speed_only", affects="opponents", params={}),
 )
 EffectRegistry.register(
+    # "If you would proliferate, proliferate twice instead." (Tekuthal, Inquiry Dominus) — a marker
+    # static consumed by `continuous.proliferate_multiplier` from `ProliferateEffect`.
+    "proliferate_twice",
+    lambda p: StaticAbility("proliferate_twice", affects="self", params={}),
+)
+EffectRegistry.register(
     # "As an additional cost to cast this spell, you may exile any number
     # of blue cards from your hand. This spell costs {2} less to cast for
     # each card exiled this way." (March of Swirling Mist, MEC-42) —

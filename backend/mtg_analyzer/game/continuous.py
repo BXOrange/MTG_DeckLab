@@ -3856,6 +3856,20 @@ def search_redirect_controller_for(
     return None
 
 
+def proliferate_multiplier(state: "GameState", controller_id: Optional[str]) -> int:
+    """RULE 701.34 / 616: "If you would proliferate, proliferate twice instead." (Tekuthal, Inquiry
+    Dominus) — how many times a proliferate by ``controller_id`` is performed. Each such permanent
+    replaces the (already doubled) action again, so ``n`` of them give ``2 ** n``; with none it is 1.
+    Read off the standing ``proliferate_twice`` static, outside the layer engine, like the other
+    "permission/restriction" statics here."""
+    doublers = sum(
+        1 for ability in _battlefield_static_abilities(state)
+        if ability.layer == "proliferate_twice"
+        and getattr(ability.source, "controller_id", None) == controller_id
+    )
+    return 2 ** doublers
+
+
 def forced_sorcery_speed_only(state: "GameState", player: "Player") -> bool:
     """Whether ``player`` is under a standing "can cast spells only any
     time they could cast a sorcery" restriction (Teferi, Time Raveler's

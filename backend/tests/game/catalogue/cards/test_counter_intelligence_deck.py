@@ -280,3 +280,48 @@ def test_mycosynth_gardens_becomes_a_copy_of_a_nontoken_artifact_with_mana_value
     engine.resolve_until_stable()
     engine.recompute_continuous_effects()
     assert gardens.name == "Three Rock" and gardens.card.is_artifact and not gardens.is_land
+
+
+def _tekuthal_board():
+    engine, p1 = _game()
+    tek = battlefield_object(
+        engine, "p1", "Tekuthal, Inquiry Dominus", "Legendary Creature — Phyrexian Horror",
+        is_creature=True, power=3, toughness=4,
+    )
+    bind_from_catalogue(tek)
+    tek.summoning_sick = False
+    return engine, p1, tek
+
+
+def test_tekuthal_doubles_proliferate():
+    from mtg_analyzer.game.effects.core import GameContext
+    from mtg_analyzer.game.effects.counters_tokens import ProliferateEffect
+
+    engine, p1, tek = _tekuthal_board()
+    rock = battlefield_object(engine, "p1", "Charged Rock", "Artifact")
+    rock.counters["charge"] = 1
+
+    def proliferate():
+        ProliferateEffect(source=rock).apply(GameContext(engine.state, engine.rules))
+
+    proliferate()
+    assert rock.counters["charge"] == 3  # +1 twice, not once
+
+    engine.state.battlefield.remove(tek)  # Tekuthal gone: back to a single proliferate
+    proliferate()
+    assert rock.counters["charge"] == 4
+
+
+def test_tekuthal_pays_three_counters_from_others_only_for_an_indestructible_counter():
+    engine, p1, tek = _tekuthal_board()
+    rock = battlefield_object(engine, "p1", "Charged Rock", "Artifact")
+    bear = battlefield_object(engine, "p1", "Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    tek.counters["+1/+1"] = 5  # its own counters never pay for it
+    rock.counters["charge"] = 2
+    bear.counters["+1/+1"] = 1
+    p1.mana_pool.add_many({"C": 1, "U": 2})
+    engine.activate_ability(p1, tek, 0)
+    engine.resolve_until_stable()
+    assert tek.counters.get("indestructible") == 1
+    assert tek.counters["+1/+1"] == 5
+    assert rock.counters.get("charge", 0) + bear.counters.get("+1/+1", 0) == 0  # exactly 3 taken from the others
