@@ -4,6 +4,7 @@ from . import call_for_unity  # noqa: F401
 from . import call_of_the_ring  # noqa: F401
 from . import calming_licid  # noqa: F401
 from . import carpet_of_flowers  # noqa: F401
+from . import case_of_the_ransacked_lab  # noqa: F401
 from . import casualties_of_war  # noqa: F401
 from . import cathartic_pyre  # noqa: F401
 from . import cathartic_reunion  # noqa: F401

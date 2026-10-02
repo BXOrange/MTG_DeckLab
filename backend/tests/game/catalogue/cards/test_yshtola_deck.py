@@ -197,3 +197,40 @@ def test_sygg_draws_at_end_step_only_after_an_opponent_lost_3_life():
     engine.rules.put_triggers_on_stack()
     _answer_may(engine)
     assert len(p1.hand) == 1
+
+
+def test_case_of_the_ransacked_lab_solves_after_four_instants_or_sorceries():
+    from mtg_analyzer.config import DB_PATH
+    from mtg_analyzer.game.game_engine import GameEngine
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+    from mtg_analyzer.services.card_database import CardDatabase
+
+    card = CardDatabase(DB_PATH).get_card("Case of the Ransacked Lab")
+    engine = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])], starting_hand=0, starting_life=20)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    case = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    case.controller_id = "p1"
+    bind_from_catalogue(case)
+    engine.state.add_to_battlefield(case)
+    p1 = engine.state.player_by_id("p1")
+
+    def cast(n):
+        for i in range(n):
+            engine.state.fire_event(GameEvent(
+                EventType.SPELL_CAST, player_id="p1", object=f"Bolt {i}",
+                object_types=["instant"], mana_value=1,
+            ))
+
+    def end_step():
+        engine.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="end", phase="ending", player_id="p1"))
+        engine.rules.put_triggers_on_stack()
+        engine.resolve_until_stable()
+
+    cast(3)
+    end_step()
+    assert not case.is_solved  # only 3 this turn
+
+    cast(1)
+    end_step()
+    assert case.is_solved

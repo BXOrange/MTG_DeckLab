@@ -1356,6 +1356,14 @@ def count_selector(
         if controller_id is None:
             return 0
         return state.nonartifact_spells_cast_this_turn.get(controller_id, 0)
+    if selector == "instant_and_sorcery_spells_cast_this_turn":
+        # "You've cast four or more instant and sorcery spells this turn."
+        # (Case of the Ransacked Lab's "To solve") — `turn_history`'s own
+        # ``"instant_or_sorcery"`` tally, read like its siblings above.
+        if controller_id is None:
+            return 0
+        counts = state.spell_type_cast_counts_this_turn.get(controller_id, {})
+        return counts.get("instant_or_sorcery", 0)
     if selector == "colors_among_permanents_you_control":
         # "…gets +1/+1 for each color among permanents you control."
         # (MEC-43 round 2, Conqueror's Flail/Faeburrow Elder) — the P/T-
