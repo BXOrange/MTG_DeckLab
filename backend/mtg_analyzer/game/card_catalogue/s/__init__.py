@@ -24,6 +24,7 @@ from . import seedborn_muse  # noqa: F401
 from . import selfless_safewright  # noqa: F401
 from . import selvala_heart_of_the_wilds  # noqa: F401
 from . import sensei_s_divining_top  # noqa: F401
+from . import serah_farron  # noqa: F401
 from . import serra_paragon  # noqa: F401
 from . import sevinne_s_reclamation  # noqa: F401
 from . import shadowbane  # noqa: F401

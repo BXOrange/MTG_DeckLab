@@ -621,3 +621,38 @@ def test_esika_gives_other_legendary_creatures_vigilance_and_an_any_color_mana_a
 
     engine.tap_for_mana(p1, legend)
     assert sum(p1.mana_pool.pool.get(c, 0) for c in "WUBRG") == 1  # one mana of a chosen color
+
+
+def test_serah_discounts_only_the_first_legendary_creature_spell_each_turn():
+    from mtg_analyzer.game import continuous
+
+    engine, p1 = _game()
+    card = CardDatabase(DB_PATH).get_card("Serah Farron // Crystallized Serah")
+    serah = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    serah.controller_id = "p1"
+    bind_from_catalogue(serah)
+    engine.state.add_to_battlefield(serah)
+
+    def make(name, legendary, creature=True):
+        obj = GameObject(
+            Card(id=name, name=name, type_line=("Legendary " if legendary else "") + ("Creature — Elf" if creature else "Artifact"),
+                 is_creature=creature, is_legendary=legendary, power=1 if creature else None, toughness=1 if creature else None,
+                 mana_cost_string="{3}", converted_mana_cost=3),
+            owner_id="p1", zone=Zone.HAND,
+        )
+        bind_from_catalogue(obj)
+        p1.add_to_zone(obj, Zone.HAND)
+        return obj
+
+    def discount(obj):
+        return continuous.cost_reduction_for(engine.state, p1, obj)[0]
+
+    first, second = make("First Legend", True), make("Second Legend", True)
+    plain, legendary_artifact = make("Plain", False), make("Legendary Artifact", True, creature=False)
+    assert discount(first) == 2 and discount(second) == 2  # nothing cast yet
+    assert discount(plain) == 0 and discount(legendary_artifact) == 0  # not a legendary creature spell
+
+    p1.mana_pool.add_many({"C": 1})  # {3} - 2
+    engine.cast_spell(p1, first)
+    engine.resolve_until_stable()
+    assert discount(second) == 0  # the first legendary creature spell this turn is gone

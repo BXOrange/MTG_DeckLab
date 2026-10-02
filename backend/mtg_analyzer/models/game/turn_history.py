@@ -152,6 +152,10 @@ def spell_type_cast_counts(events: Events) -> "defaultdict[str, dict[str, int]]"
             counts[card_type] = counts.get(card_type, 0) + 1
         if _is_instant_or_sorcery(event):
             counts["instant_or_sorcery"] = counts.get("instant_or_sorcery", 0) + 1
+        words = event.get("object_types") or []
+        if "legendary" in words and "creature" in words:
+            # "The first legendary creature spell you cast each turn…" (Serah Farron)
+            counts["legendary_creature"] = counts.get("legendary_creature", 0) + 1
     return out
 
 

@@ -244,6 +244,10 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # id` hasn't yet cast a spell of that creature subtype this turn
         # (`GameState.creature_type_spells_cast_this_turn`).
         "first_subtype_spell_this_turn",
+        # "The first legendary creature spell you cast each turn costs {2} less to cast." (Serah Farron) —
+        # true until the controller has cast a legendary creature spell this turn, read at cost time
+        # (before the spell being priced is recorded), like `first_subtype_spell_this_turn`.
+        "first_legendary_creature_spell_this_turn",
         # -- The controller's designations (RULE 725/726/702.131c) — MEC-12.
         # No ``of`` subject: "you" in "as long as you're the monarch" always
         # means the static's controller, the same read `your_turn` already
@@ -1072,6 +1076,9 @@ def condition_holds(
         # COUNTER event's causer (``source_controller_id``) ids.
         seen = getattr(state, "counter_placed_on_creature_this_turn", None) or set()
         return controller_id in seen
+    if kind == "first_legendary_creature_spell_this_turn":
+        counts = getattr(state, "spell_type_cast_counts_this_turn", None) or {}
+        return (counts.get(controller_id, {}) or {}).get("legendary_creature", 0) == 0
     if kind == "first_subtype_spell_this_turn":
         # MEC-60 (Acolyte of Bahamut): "The first Dragon spell you cast each
         # turn costs {2} less to cast." True until `controller_id` has cast
