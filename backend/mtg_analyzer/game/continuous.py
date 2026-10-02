@@ -1430,6 +1430,16 @@ def count_selector(
             and not _has_subtype(o, "human")
         ]
         return max(eligible, default=0)
+    if selector == "greatest_toughness_you_control":
+        # "Draw cards equal to the greatest toughness among creatures you
+        # control." (Last March of the Ents) — the toughness sibling of
+        # `greatest_non_human_creature_power_you_control` above, with no
+        # subtype filter; derived toughness is read live (RULE 613) and an
+        # empty board has greatest value zero.
+        return max(
+            (int(o.toughness or 0) for o in bf if o.is_creature and o.controller_id == controller_id),
+            default=0,
+        )
     if selector == "multicolored_permanents_you_control":
         # "…if an opponent controls a multicolored permanent." (Ghostfire
         # Slice's own `active_if`, read via `opponent_count`'s per-opponent

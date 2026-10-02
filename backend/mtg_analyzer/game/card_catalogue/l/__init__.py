@@ -2,6 +2,7 @@
 from . import laelia_the_blade_reforged  # noqa: F401
 from . import lamentation  # noqa: F401
 from . import land_tax  # noqa: F401
+from . import last_march_of_the_ents  # noqa: F401
 from . import lasting_tarfire  # noqa: F401
 from . import lattice_library  # noqa: F401
 from . import lava_coil  # noqa: F401

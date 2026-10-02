@@ -241,3 +241,48 @@ def test_freyalise_plus_two_makes_a_mana_elf_and_minus_six_draws_per_green_creat
     engine.activate_ability(player, freyalise, ability_with_loyalty(-6))
     engine.resolve_until_stable()
     assert len(player.hand) == hand_before + 1
+
+
+def test_last_march_of_the_ents_draws_greatest_toughness_then_puts_creatures_in():
+    from mtg_analyzer.config import DB_PATH
+    from mtg_analyzer.game.game_engine import GameEngine
+    from mtg_analyzer.services.card_database import CardDatabase
+
+    card = CardDatabase(DB_PATH).get_card("Last March of the Ents")
+    engine = GameEngine.new_game([("p1", "A", [card]), ("p2", "B", [])], starting_hand=1, starting_life=20)
+    for obj in engine.state.players[0].hand:
+        bind_from_catalogue(obj)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    p1 = engine.state.player_by_id("p1")
+    battlefield_object(engine, "p1", "Wall", "Creature — Wall", is_creature=True, power=0, toughness=4)
+    battlefield_object(engine, "p1", "Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    battlefield_object(engine, "p2", "Their Titan", "Creature — Giant", is_creature=True, power=9, toughness=9)
+    engine.recompute_continuous_effects()
+
+    def lib(i, type_line, **kw):
+        return GameObject(Card(id=f"L{i}", name=f"Lib {i}", type_line=type_line, **kw), owner_id="p1", zone=Zone.LIBRARY)
+
+    for i in range(3):
+        p1.library.append(lib(i, "Creature — Elf", is_creature=True, power=1, toughness=1))
+    p1.library.append(lib(3, "Land"))
+    p1.library.append(lib(4, "Land"))
+    p1.mana_pool.add_many({"G": 5, "C": 3})
+
+    engine.cast_spell(p1, next(o for o in p1.hand if o.name == "Last March of the Ents"))
+    engine.resolve_until_stable()
+    # greatest toughness among MY creatures is 4 (their 9 does not count): 4 cards drawn
+    assert sum(1 for o in p1.hand if o.name.startswith("Lib")) == 4
+    picks = 0
+    while engine.state.pending_choice and picks < 10:
+        options = [o for o in engine.state.pending_choice["options"] if o["id"] != "decline"]
+        if not options:
+            break
+        engine.resolve_pending_choice(options[0]["id"])
+        engine.resolve_until_stable()
+        picks += 1
+    on_board_elves = [o for o in engine.state.battlefield if "Elf" in (o.card.type_line or "")]
+    # the library is drawn from its end: Lib 4 (land), 3 (land), 2 and 1 (Elves) come into hand
+    assert sorted(o.name for o in on_board_elves) == ["Lib 1", "Lib 2"]  # every drawn creature card, one pick each
+    assert not [o for o in p1.hand if "Elf" in (o.card.type_line or "")]
+    assert sorted(o.name for o in p1.hand) == ["Lib 3", "Lib 4"]  # the drawn lands stay in hand
