@@ -84,4 +84,5 @@ from . import cultural_exchange  # noqa: F401
 from . import currency_converter  # noqa: F401
 from . import curse_of_the_swine  # noqa: F401
 from . import cursed_mirror  # noqa: F401
+from . import cyberdrive_awakener  # noqa: F401
 from . import cyclonic_rift  # noqa: F401

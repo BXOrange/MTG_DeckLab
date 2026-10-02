@@ -146,3 +146,28 @@ def test_empowered_autogenerator_enters_tapped_and_adds_mana_equal_to_its_counte
 
     assert tap_for_mana() == 1 and gen.counters["charge"] == 1
     assert tap_for_mana() == 2 and gen.counters["charge"] == 2
+
+
+def test_cyberdrive_awakener_animates_noncreature_artifacts_until_end_of_turn():
+    engine, p1 = _game("Cyberdrive Awakener")
+    rock = battlefield_object(engine, "p1", "Mind Stone", "Artifact")
+    golem = battlefield_object(engine, "p1", "Golem", "Artifact Creature — Golem", is_creature=True, power=1, toughness=1)
+    theirs = battlefield_object(engine, "p2", "Their Rock", "Artifact")
+    awakener = p1.hand[0]
+    p1.mana_pool.add_many({"U": 1, "C": 5})
+    engine.cast_spell(p1, awakener)
+    engine.resolve_until_stable()
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    assert rock.is_creature and (rock.power, rock.toughness) == (4, 4)
+    assert not theirs.is_creature  # only artifacts *you* control
+    assert (golem.power, golem.toughness) == (1, 1)  # already a creature: not set to 4/4
+    assert "flying" in rock.granted_keywords and "flying" in golem.granted_keywords  # other artifact creatures
+    late = battlefield_object(engine, "p1", "Late Rock", "Artifact")
+    engine.recompute_continuous_effects()
+    assert not late.is_creature  # RULE 611.2c: the group was fixed on resolution
+
+    engine._step_cleanup()
+    engine.recompute_continuous_effects()
+    assert not rock.is_creature
