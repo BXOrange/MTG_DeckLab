@@ -44,6 +44,7 @@ from . import city_on_fire  # noqa: F401
 from . import citywide_bust  # noqa: F401
 from . import claim_jumper  # noqa: F401
 from . import clever_impersonator  # noqa: F401
+from . import cloud_key  # noqa: F401
 from . import cloudstone_curio  # noqa: F401
 from . import coat_of_arms  # noqa: F401
 from . import coercive_recruiter  # noqa: F401

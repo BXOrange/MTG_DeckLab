@@ -3643,6 +3643,11 @@ def cost_reduction_for(
             elif not _spell_targets_hit(targets, if_targets, state, ability.source):
                 continue
         spell_type = ability.params.get("spell_type")
+        if ability.params.get("spell_type_from_source_mode"):
+            # Cloud Key's "spells you cast of the chosen type": the card type picked as it entered
+            # (`ChooseNamedModeReplacement` -> `GameObject.chosen_mode`, read live like
+            # `cast_prohibited`'s ``type_from_source_mode``). Nothing chosen yet discounts nothing.
+            spell_type = getattr(ability.source, "chosen_mode", None) or "none_chosen"
         if spell_type and (obj is None or not _spell_type_matches(obj, spell_type)):
             continue
         # "Spells you cast from anywhere other than your hand cost {N} less."

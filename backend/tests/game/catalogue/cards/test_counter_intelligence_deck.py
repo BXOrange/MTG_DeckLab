@@ -325,3 +325,31 @@ def test_tekuthal_pays_three_counters_from_others_only_for_an_indestructible_cou
     assert tek.counters.get("indestructible") == 1
     assert tek.counters["+1/+1"] == 5
     assert rock.counters.get("charge", 0) + bear.counters.get("+1/+1", 0) == 0  # exactly 3 taken from the others
+
+
+def test_cloud_key_discounts_spells_of_the_chosen_type_only():
+    engine, p1 = _game("Cloud Key")
+    key = p1.hand[0]
+
+    def hand_card(name, type_line, **kw):
+        obj = GameObject(
+            Card(id=name, name=name, type_line=type_line, mana_cost_string="{3}", converted_mana_cost=3, **kw),
+            owner_id="p1", zone=Zone.HAND,
+        )
+        p1.hand.append(obj)
+        return obj
+
+    def cost(obj):
+        return engine.effective_cast_cost(p1, obj).converted_mana_cost
+
+    assert cost(hand_card("Early Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)) == 3
+
+    p1.mana_pool.add_many({"C": 3})
+    engine.cast_spell(p1, key)
+    engine.resolve_until_stable()  # resolving the Key opens its enter choice
+    while engine.state.pending_choice:  # "choose artifact, creature, enchantment, instant, or sorcery"
+        engine.resolve_pending_choice("creature")
+        engine.resolve_until_stable()
+    assert key.zone == Zone.BATTLEFIELD and key.chosen_mode == "creature"
+    assert cost(hand_card("Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)) == 2
+    assert cost(hand_card("Bolt", "Instant")) == 3  # not the chosen type
