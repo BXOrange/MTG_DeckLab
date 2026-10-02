@@ -201,3 +201,43 @@ def test_orochi_merge_keeper_taps_for_gg_only_while_modified():
     keeper.counters["+1/+1"] = 1  # a counter is a modification
     engine.recompute_continuous_effects()
     assert best_amount() == 2
+
+
+def test_freyalise_plus_two_makes_a_mana_elf_and_minus_six_draws_per_green_creature():
+    from mtg_analyzer.config import DB_PATH
+    from mtg_analyzer.services.card_database import CardDatabase
+
+    engine, player = two_player_game()
+    card = CardDatabase(DB_PATH).get_card("Freyalise, Llanowar's Fury")
+    freyalise = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    freyalise.controller_id = "p1"
+    bind_from_catalogue(freyalise)
+    engine.state.add_to_battlefield(freyalise)
+    engine.state.current_step = "main1"
+    freyalise.counters["loyalty"] = 3
+
+    def ability_with_loyalty(amount):
+        return next(
+            i for i, a in enumerate(freyalise.activated_abilities)
+            if getattr(getattr(a, "cost", None), "loyalty", None) == amount
+        )
+
+    engine.activate_ability(player, freyalise, ability_with_loyalty(2))
+    engine.resolve_until_stable()
+    elves = [o for o in engine.state.permanents_controlled_by("p1") if "Elf" in (o.card.type_line or "") and o.is_creature]
+    assert len(elves) == 1 and freyalise.counters["loyalty"] == 5
+
+    elf = elves[0]
+    elf.summoning_sick = False
+    engine.tap_for_mana(player, elf)
+    assert player.mana_pool.pool.get("G", 0) == 1  # the token's quoted mana ability
+
+    # -6: one card per green creature I control (the Elf token is green)
+    freyalise.counters["loyalty"] = 6
+    freyalise.activated_loyalty_this_turn = False  # RULE 606.3: one loyalty ability per turn
+    for i in range(3):
+        player.library.append(GameObject(Card(id=f"L{i}", name=f"Lib {i}", type_line="Land"), owner_id="p1", zone=Zone.LIBRARY))
+    hand_before = len(player.hand)
+    engine.activate_ability(player, freyalise, ability_with_loyalty(-6))
+    engine.resolve_until_stable()
+    assert len(player.hand) == hand_before + 1

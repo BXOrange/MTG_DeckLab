@@ -40,6 +40,7 @@ from . import formidable_speaker  # noqa: F401
 from . import forum_filibuster  # noqa: F401
 from . import fractal_harness  # noqa: F401
 from . import frantic_firebolt  # noqa: F401
+from . import freyalise_llanowar_s_fury  # noqa: F401
 from . import frilled_deathspitter  # noqa: F401
 from . import frodo_sauron_s_bane  # noqa: F401
 from . import furnace_of_rath  # noqa: F401
