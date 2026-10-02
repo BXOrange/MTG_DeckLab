@@ -1136,7 +1136,10 @@ def test_damage_to_each_other_creature_without_flying():
 def test_the_named_selectors_still_win_over_the_general_group_row():
     [spec] = parse_effect_body("~ deals 2 damage to each creature")
     assert spec.params == {"amount": 2, "selector": "each_creature"}
-    assert parse_effect_body("~ deals 2 damage to each creature dealt damage this turn") is None
+    # PAR-107…114 run 2 (Inflame): its own row, the `each_creature` selector narrowed by the marked-damage filter —
+    # never the general group row, which still refuses a "dealt damage" qualifier.
+    [filtered] = parse_effect_body("~ deals 2 damage to each creature dealt damage this turn")
+    assert filtered.params == {"amount": 2, "selector": "each_creature", "selector_filter": {"damaged_this_turn": True}}
 
 
 def test_damage_to_each_creature_target_opponent_controls_uses_the_chosen_player():

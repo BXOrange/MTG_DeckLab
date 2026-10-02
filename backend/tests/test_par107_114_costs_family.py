@@ -86,8 +86,8 @@ def test_or_pay_additional_costs_parse(text, expected):
 
 
 def test_an_unrecognised_half_stays_unclaimed():
-    card = _card("Probe", "Instant", "As an additional cost to cast this spell, tap an untapped artifact you control "
-                                      "or pay {1}.\nProbe deals 1 damage to any target.")
+    card = _card("Probe", "Instant", "As an additional cost to cast this spell, exile a card at random or pay {1}.\n"
+                                      "Probe deals 1 damage to any target.")
     assert not parse_oracle(card).modeled
 
 
@@ -153,6 +153,105 @@ def test_the_older_sacrifice_or_pay_shape_is_unchanged():
     assert _additional(card).additional_cost == {"sacrifice_or_mana": {"sacrifice": "creature", "mana": "{3}"}}
 
 
+# --- "<cost A> or <cost B>" with no mana half (Bone Shards, Final Payment, Disruption Protocol) ----------------------
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("sacrifice a creature or discard a card", {"either": [{"sacrifice": "creature"}, {"discard": 1}]}),
+    ("discard a card or pay 3 life", {"either": [{"discard": 1}, {"pay_life": 3}]}),
+    ("pay 5 life or sacrifice a creature or enchantment",
+     {"either": [{"pay_life": 5}, {"sacrifice": "creature_or_enchantment"}]}),
+    ("discard a card or sacrifice a permanent", {"either": [{"discard": 1}, {"sacrifice": "permanent"}]}),
+    ("sacrifice an artifact or discard a card", {"either": [{"sacrifice": "artifact"}, {"discard": 1}]}),
+    ("tap an untapped artifact you control or pay {1}",
+     {"or_mana": {"cost": {"tap_others": [1, "artifact"]}, "mana": "{1}"}}),
+    # a single compound-type sacrifice is one cost, not two branches
+    ("sacrifice a creature or enchantment", {"sacrifice": "creature_or_enchantment"}),
+    ("sacrifice a creature or land", {"sacrifice": "creature_or_land"}),
+])
+def test_either_or_additional_costs_parse(text, expected):
+    card = _card("Probe", "Instant", f"As an additional cost to cast this spell, {text}.\nProbe deals 1 damage to any target.")
+    assert parse_oracle(card).modeled
+    assert _additional(card).additional_cost == expected
+
+
+def test_either_branch_must_be_in_the_closed_vocabulary():
+    card = _card("Probe", "Instant", "As an additional cost to cast this spell, sacrifice a creature or exile a card at "
+                                      "random.\nProbe deals 1 damage to any target.")
+    assert not parse_oracle(card).modeled
+
+
+def test_either_cost_offers_a_variant_per_payable_branch_and_charges_the_chosen_one():
+    text = ("As an additional cost to cast this spell, sacrifice a creature or discard a card.\n"
+            "~ deals 2 damage to any target.")
+    eng = _engine()
+    p1 = eng.state.player_by_id("p1")
+    p2 = eng.state.player_by_id("p2")
+    bear = _put(eng, _card("Bear"))
+    spare = _put(eng, _card("Spare", "Instant"), zone=Zone.HAND)
+    shards = _put(eng, _card("Bone Shards", "Sorcery", text, converted_mana_cost=1, mana_cost_string="{B}"), zone=Zone.HAND)
+    p1.mana_pool.add_many({"B": 1})
+    offers = [a for a in _cast_variants(eng, shards) if not a.get("locked")]
+    assert {bool(a.get("pay_additional")) for a in offers} == {False, True}
+    by_branch = {bool(a.get("pay_additional")): a for a in offers}
+    assert by_branch[False]["additional_cost_label"].startswith("Sacrifice")
+    assert by_branch[True]["additional_cost_label"].startswith("Discard")
+
+    eng.cast_spell(p1, shards, targets=[p2], pay_additional=True, discard_choices=[spare.instance_id])
+    eng.resolve_until_stable()
+    assert spare in p1.graveyard and bear.zone == Zone.BATTLEFIELD and p2.life == 18
+
+    # the plain branch sacrifices instead
+    shards2 = _put(eng, _card("Bone Shards", "Sorcery", text, converted_mana_cost=1, mana_cost_string="{B}"), zone=Zone.HAND)
+    p1.mana_pool.add_many({"B": 1})
+    eng.cast_spell(p1, shards2, targets=[p2])
+    eng.resolve_until_stable()
+    assert bear.zone == Zone.GRAVEYARD and p2.life == 16
+
+
+def test_either_cost_with_only_one_payable_branch_offers_only_that_one():
+    text = ("As an additional cost to cast this spell, sacrifice a creature or discard a card.\n"
+            "~ deals 2 damage to any target.")
+    eng = _engine()
+    p1 = eng.state.player_by_id("p1")
+    shards = _put(eng, _card("Bone Shards", "Sorcery", text, converted_mana_cost=1, mana_cost_string="{B}"), zone=Zone.HAND)
+    p1.mana_pool.add_many({"B": 1})
+    assert not [a for a in _cast_variants(eng, shards) if not a.get("locked")]  # no creature, no other card
+    _put(eng, _card("Bear"))
+    offers = [a for a in _cast_variants(eng, shards) if not a.get("locked")]
+    assert [bool(a.get("pay_additional")) for a in offers] == [False]
+
+
+def test_pay_life_or_sacrifice_branch_costs_life():
+    text = ("As an additional cost to cast this spell, pay 5 life or sacrifice a creature or enchantment.\n"
+            "~ deals 2 damage to any target.")
+    eng = _engine()
+    p1 = eng.state.player_by_id("p1")
+    p2 = eng.state.player_by_id("p2")
+    spell = _put(eng, _card("Final Payment", "Sorcery", text, converted_mana_cost=1, mana_cost_string="{B}"), zone=Zone.HAND)
+    p1.mana_pool.add_many({"B": 1})
+    eng.cast_spell(p1, spell, targets=[p2])
+    eng.resolve_until_stable()
+    assert p1.life == 15 and p2.life == 18
+
+
+def test_tap_an_artifact_or_pay_taps_the_artifact_when_chosen():
+    text = ("As an additional cost to cast this spell, tap an untapped artifact you control or pay {1}.\n"
+            "~ deals 2 damage to any target.")
+    eng = _engine()
+    p1 = eng.state.player_by_id("p1")
+    p2 = eng.state.player_by_id("p2")
+    rock = _put(eng, _card("Rock", "Artifact"))
+    spell = _put(eng, _card("Disruption Protocol", "Instant", text, converted_mana_cost=1, mana_cost_string="{U}"),
+                 zone=Zone.HAND)
+    p1.mana_pool.add_many({"U": 1})  # the {1} cannot be paid: only the tap branch is offered
+    offers = [a for a in _cast_variants(eng, spell) if not a.get("locked")]
+    assert [bool(a.get("pay_additional")) for a in offers] == [True]
+    eng.cast_spell(p1, spell, targets=[p2], pay_additional=True)
+    eng.resolve_until_stable()
+    assert rock.tapped and p2.life == 18
+
+
 # --- this spell costs {X} less, where X is … --------------------------------------------------------------------
 
 
@@ -172,6 +271,35 @@ def test_cost_reduction_by_greatest_power():
     _put(eng, _card("Small", power=2, toughness=2))
     ghalta = _put(eng, card, zone=Zone.HAND)
     assert eng.effective_cast_cost(p1, ghalta).converted_mana_cost == 12 - 7
+
+
+# --- "Flashback {N}. This spell costs {X} less to cast this way, where X is …" (the Visions cycle) -------------------
+
+
+def test_visions_flashback_discount_applies_only_from_the_graveyard():
+    text = ("Create a 1/1 white Human creature token for each creature you control.\n"
+            "Flashback {8}{W}{W}. This spell costs {X} less to cast this way, where X is the greatest mana value of a "
+            "commander you own on the battlefield or in the command zone. (You may cast this card from your graveyard "
+            "for its flashback cost. Then exile it.)")
+    card = _card("Visions of Glory", "Sorcery", text, converted_mana_cost=5, mana_cost_string="{3}{W}{W}",
+                 keywords=["Flashback"])
+    assert parse_oracle(card).modeled
+
+    eng = _engine()
+    p1 = eng.state.player_by_id("p1")
+    commander = GameObject(_card("Boss", "Legendary Creature — Human", converted_mana_cost=4, mana_cost_string="{2}{W}{W}"),
+                           owner_id="p1", zone=Zone.COMMAND, is_commander=True)
+    p1.add_to_zone(commander, Zone.COMMAND)
+
+    from_hand = _put(eng, card, zone=Zone.HAND)
+    assert eng.effective_cast_cost(p1, from_hand).converted_mana_cost == 5   # printed cost: no discount
+    from_graveyard = _put(eng, card, zone=Zone.GRAVEYARD)
+    assert eng.effective_cast_cost(p1, from_graveyard).converted_mana_cost == 10 - 4  # flashback {8}{W}{W} less 4
+
+    p1.command[0].is_commander = False  # no commander at all: no discount
+    commander.zone = Zone.EXILE
+    p1.remove_from_zone(commander, Zone.COMMAND)
+    assert eng.effective_cast_cost(p1, from_graveyard).converted_mana_cost == 10
 
 
 # --- mana you keep -----------------------------------------------------------------------------------------

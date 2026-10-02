@@ -135,6 +135,9 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # -- Whose turn it is (RULE 613.6's commonest non-board gate).
         "your_turn",
         "not_your_turn",
+        # "This spell costs {X} less to cast **this way**" (the Visions flashback cycle): the card is being cast from its
+        # owner's graveyard, which for these cards is only ever its flashback.
+        "source_in_graveyard",
         # -- The board.
         "control_count",  # + ``selector``/``min``/``max`` — Metalcraft-shaped
         # "as long as you control a permanent of each color" (Spirit of
@@ -757,6 +760,9 @@ def condition_holds(
     if kind == "was_dealt_damage_this_turn":
         return subject is not None and int(getattr(subject, "damage_marked", 0) or 0) > 0
 
+    if kind == "source_in_graveyard":
+        return source is not None and getattr(source, "zone", None) == "graveyard"  # `Zone` is a str enum
+
     if kind in ("your_turn", "not_your_turn"):
         active = getattr(state, "active_player", None)
         is_yours = active is not None and controller_id is not None and active.id == controller_id
@@ -1315,6 +1321,8 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
         return "nur in deinem Zug"
     if kind == "not_your_turn":
         return "nur außerhalb deines Zuges"
+    if kind == "source_in_graveyard":
+        return "nur beim Wirken aus dem Friedhof"
     if kind == "is_monarch":
         return "solange Monarch"
     if kind == "has_initiative":

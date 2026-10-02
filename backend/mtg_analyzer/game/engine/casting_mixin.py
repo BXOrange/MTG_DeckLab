@@ -2149,6 +2149,8 @@ class CastingMixin:
         """
         if cost is None:
             return True
+        if pay_additional and cost.either_alt is not None:
+            cost = cost.either_alt  # RULE 601.2b: the caster took branch B of "<A> or <B>"
         if getattr(cost, "sacrifice_or_mana", False) and not pay_additional:
             return True
         # Yasharn, Implacable Earth (MEC-40): "Players can't pay life or
@@ -2175,6 +2177,10 @@ class CastingMixin:
         if cost.pay_life:
             amount = x if cost.pay_life == PAY_LIFE_X else cost.pay_life
             if player.life < amount:
+                return False
+        if cost.tap_others:
+            count, subtype = cost.tap_others
+            if self._resolve_tap_others(player, obj, count, subtype, None) is None:
                 return False
         # "reveal a `<type>` card from your hand or pay {N}" (Daring Buccaneer): the revealing branch needs such a
         # card in hand besides the spell itself; the mana branch never reaches this check.
@@ -2312,6 +2318,8 @@ class CastingMixin:
         """
         if cost is None:
             return
+        if pay_additional and cost.either_alt is not None:
+            cost = cost.either_alt  # RULE 601.2b: the caster took branch B of "<A> or <B>"
         # RULE 601.2b (PAR-30): an *optional* "you may <…>." additional cost
         # the caster declined (no `pay_additional`) is paid nothing at all —
         # its mana portion is already gated out of `effective_cast_cost`, and
@@ -2346,6 +2354,12 @@ class CastingMixin:
                 with self.state.simultaneous():  # RULE 603.2c: one cost, one event
                     for card in chosen or []:
                         self.rules.discard_specific(card, cause=obj)
+        if cost.tap_others:
+            # "tap an untapped artifact you control" (Disruption Protocol's "… or pay {1}") — `_can_pay_additional_cast_cost`
+            # confirmed a candidate; an auto-pick, the same non-interactive convention the other cast-cost payers use.
+            count, subtype = cost.tap_others
+            for victim in self._resolve_tap_others(player, obj, count, subtype, None) or []:
+                self.rules.set_tapped(victim, True)
         if cost.pay_life:
             amount = x if cost.pay_life == PAY_LIFE_X else cost.pay_life
             self.rules.lose_life(player, amount, cause="cost")

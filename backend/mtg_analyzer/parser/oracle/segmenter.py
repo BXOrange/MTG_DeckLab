@@ -2736,7 +2736,9 @@ _OR_MANA_SACRIFICE_PHRASES: dict[str, str] = {
     "creature": "creature", "artifact": "artifact", "land": "land",
     "artifact or creature": "artifact_or_creature", "creature or artifact": "artifact_or_creature",
     "creature or planeswalker": "creature_or_planeswalker", "creature or enchantment": "creature_or_enchantment",
+    "creature or land": "creature_or_land", "permanent": "permanent",
 }
+_ADDITIONAL_COST_TAP_UNTAPPED_RE = re.compile(r"^tap an untapped (?P<what>artifact|creature|land) you control$", re.IGNORECASE)
 _ADDITIONAL_COST_OR_MANA_SACRIFICE_RE = re.compile(r"^sacrifice an? (?P<what>.+)$", re.IGNORECASE)
 _ADDITIONAL_COST_PAY_N_LIFE_RE = re.compile(r"^pay (?P<n>\d+) life$", re.IGNORECASE)
 _ADDITIONAL_COST_REVEAL_FROM_HAND_RE = re.compile(
@@ -2759,6 +2761,9 @@ def _or_mana_inner_cost(text: str) -> Optional[dict[str, Any]]:
     reveal = _ADDITIONAL_COST_REVEAL_FROM_HAND_RE.match(text)
     if reveal is not None:
         return {"reveal_from_hand": reveal.group("type")}
+    tap = _ADDITIONAL_COST_TAP_UNTAPPED_RE.match(text)
+    if tap is not None:
+        return {"tap_others": [1, tap.group("what")]}
     exile_gy = _ADDITIONAL_COST_EXILE_GRAVEYARD_RE.match(text)
     if exile_gy is not None and not exile_gy.group("type") and exile_gy.group("n").isdigit():
         return {"exile_from_graveyard": {"count": int(exile_gy.group("n"))}}
@@ -2791,6 +2796,18 @@ def _additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
     sac = _ADDITIONAL_COST_SACRIFICE_RE.match(text)
     if sac is not None:
         return {"sacrifice": sac.group(1)}
+    # "sacrifice a creature or enchantment" (Final Flare) — a single compound-type sacrifice, tried before the
+    # "<A> or <B>" split below so its own " or " isn't read as a branch point.
+    compound = _ADDITIONAL_COST_OR_MANA_SACRIFICE_RE.match(text)
+    if compound is not None:
+        inner = _or_mana_inner_cost(text)
+        if inner is not None:
+            return inner
+    # "<cost A> or <cost B>" with no mana half (Bone Shards): the first " or " that leaves two valid single costs.
+    for match in re.finditer(r" or ", text):
+        first, second = _or_mana_inner_cost(text[:match.start()]), _or_mana_inner_cost(text[match.end():])
+        if first is not None and second is not None:
+            return {"either": [first, second]}
     discard = _ADDITIONAL_COST_DISCARD_RE.match(text)
     if discard:
         return {"discard": "x" if discard.group("n").lower() == "x" else 1}
@@ -6668,6 +6685,14 @@ _PHASE_INTERVENING_IF_RE = re.compile(r"^if (?P<cond>[^,]+), (?P<rest>.+)$", re.
 _NEXT_SENTENCE_RE = re.compile(r"\.\s+\S")
 
 
+#: "Flashback {8}{G}{G}. This spell costs {X} less to cast this way, where X is …" (the Visions flashback cycle): a
+#: keyword line carrying a sentence about its own cost, read as the keyword plus a graveyard-gated cost reduction.
+FLASHBACK_DISCOUNT_LINE_RE = re.compile(
+    r"(?P<keyword>flashback (?:\{[^{}]+\})+)\.\s+(?P<discount>this spell costs \{x\} less to cast this way, where x is .+)",
+    re.IGNORECASE,
+)
+
+
 def segment_line(
     line: str,
     *,
@@ -7586,7 +7611,7 @@ def _segment_line_unsplit(
             "spell_effect",
             effects=[],
             additional_cost=cost,
-            additional_cost_optional=is_optional or "sacrifice_or_mana" in cost or "or_mana" in cost,
+            additional_cost_optional=is_optional or "sacrifice_or_mana" in cost or "or_mana" in cost,  # "either": both branches mandatory
             raw_text=raw,
             parser=provenance,
         )

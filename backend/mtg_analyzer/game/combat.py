@@ -551,6 +551,8 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         "blocking_source", "no_counters", "without_counter_kind",
         # "…if it targets a tapped creature" (RULE 601.2f cost reduction).
         "tapped",
+        # "each creature dealt damage this turn" (Inflame) — RULE 514.2: marked damage persists to cleanup.
+        "damaged_this_turn",
         "even_mana_value",
         # RULE 700.9 "modified creatures you control" (PAR-134).
         "modified",
@@ -768,6 +770,10 @@ def matches_object_filter(
     # cost-less-if-it-targets cycle) — RULE 601.2f cost reduction gated on
     # the chosen target's tap state, a boolean flag like `attacking` above.
     if filt.get("tapped") is not None and bool(getattr(obj, "tapped", False)) != bool(filt["tapped"]):
+        return False
+    if filt.get("damaged_this_turn") is not None and (
+        int(getattr(obj, "damage_marked", 0) or 0) > 0
+    ) != bool(filt["damaged_this_turn"]):
         return False
     # "Equip commander {N}" (RULE 702.6e, Commander's Plate, MEC-43) — the
     # target of this Equip cost must be a commander (RULE 903.4).

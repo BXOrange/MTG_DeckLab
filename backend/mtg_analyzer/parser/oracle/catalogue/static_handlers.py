@@ -603,7 +603,7 @@ _SELF_COST_REDUCTION_FOR_EACH_RE = re.compile(
 #: Henge, Molten Monstrosity) — one generic less per point of the amount, so the same `per` selector a "for each"
 #: phrase gives, read from the shared amount grammar (`count_phrase.parse_amount_phrase`).
 _SELF_COST_REDUCTION_WHERE_X_RE = re.compile(
-    r"this spell costs \{x\} less to cast, where x is (?P<phrase>.+?)\.?",
+    r"this spell costs \{x\} less to cast(?P<this_way> this way)?, where x is (?P<phrase>.+?)\.?",
     re.IGNORECASE,
 )
 _DURING_OTHER_TURNS_COST_RE = re.compile(
@@ -4096,7 +4096,40 @@ _AS_LONG_AS_TRAILING_RE = re.compile(
 #: form risks colliding with an "activate only during your turn" *activation*
 #: timing restriction (a different, `condition_query.py` concept) if ever
 #: added later, so that form is deliberately not claimed here.
-_DURING_YOUR_TURN_LEADING_RE = re.compile(r"during your turn,\s*(?P<inner>.+)", re.IGNORECASE)
+#: "During turns other than yours, `<static>`" (Mesa Lynx, Glory of Warfare, Warden of the Wall) is the same gate with the
+#: opposite polarity (`not_your_turn`).
+#: "~ is a 2/3 Gargoyle artifact creature with flying" / "~ is an artifact creature" — the gated self-animation of
+#: Warden of the Wall and Midnight Mangler, a layer-4 `type_change` (with the base P/T when printed) plus a keyword
+#: grant. Only reachable from under a "during …" gate: ungated, the same words would be a printed characteristic.
+_SELF_ANIMATION_RE = re.compile(
+    r"~ is an? (?:(?P<p>\d+)/(?P<t>\d+) )?(?P<words>[a-z]+(?: [a-z]+)*? creature)(?: with (?P<kw>[a-z]+(?:, [a-z]+)*))?",
+    re.IGNORECASE,
+)
+
+
+def _self_animation_specs(text: str) -> Optional[list[EffectSpec]]:
+    m = _SELF_ANIMATION_RE.fullmatch(text.strip().rstrip("."))
+    if m is None:
+        return None
+    type_params = type_addition_params(m.group("words"))
+    if type_params is None or "creature" not in type_params.get("add_types", []):
+        return None
+    if (m.group("p") is None) != (m.group("t") is None):
+        return None
+    if m.group("p") is not None:
+        type_params = {**type_params, "power": int(m.group("p")), "toughness": int(m.group("t"))}
+    specs = [EffectSpec("type_change", {"affects": "self", **type_params})]
+    if m.group("kw"):
+        keywords = _flag_keywords(m.group("kw"))
+        if keywords is None:
+            return None
+        specs.append(EffectSpec("grant_keyword", {"affects": "self", "keywords": keywords}))
+    return specs
+
+
+_DURING_YOUR_TURN_LEADING_RE = re.compile(
+    r"during (?P<which>your turn|turns other than yours),\s*(?P<inner>.+)", re.IGNORECASE
+)
 
 #: "Ward—Pay 2 life." as a *quoted granted* keyword line (Hexing Squelcher's
 #: "Other creatures you control have 'Ward—Pay 2 life.'") — RULE 702.21's
@@ -4485,11 +4518,12 @@ def _conditional_static_specs(text: str) -> Optional[list[EffectSpec]]:
     m = _DURING_YOUR_TURN_LEADING_RE.fullmatch(text)
     if m is not None:
         inner = _INNER_SELF_PRONOUN_RE.sub("~", m.group("inner").strip())
-        specs = _static_or_replacement_specs(inner)
+        specs = _static_or_replacement_specs(inner) or _self_animation_specs(inner)
         if not specs:
             return None
+        kind = "your_turn" if m.group("which").lower() == "your turn" else "not_your_turn"
         for spec in specs:
-            spec.params["active_if"] = {"kind": "your_turn"}
+            spec.params["active_if"] = {"kind": kind}
         return specs
     m = _DURING_YOUR_TURN_TRAILING_KEYWORD_RE.fullmatch(text)
     if m is not None:
@@ -4956,7 +4990,11 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
         selector = parse_amount_phrase(m.group("phrase"))
         if selector is not None:
-            return [EffectSpec("cost_reduction", {"affects": "self", "generic": 1, "per": selector})]
+            params = {"affects": "self", "generic": 1, "per": selector}
+            if m.group("this_way"):
+                # "…to cast this way" (the Visions flashback cycle): only when cast from the graveyard.
+                params["active_if"] = {"kind": "source_in_graveyard"}
+            return [EffectSpec("cost_reduction", params)]
 
     m = _SELF_COST_REDUCTION_FOR_EACH_RE.fullmatch(text)
     if m is not None:

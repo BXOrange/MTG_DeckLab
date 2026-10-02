@@ -51,6 +51,7 @@ from .catalogue.handlers import ACTION_ONCE_PER_TURN_MARKER
 from .catalogue.static_handlers import commander_eligibility_line, deck_any_number_line
 from .normalize import normalize
 from .segmenter import (
+    FLASHBACK_DISCOUNT_LINE_RE,
     Segment,
     _peel_optional,
     _TRIGGER_RE,
@@ -3823,7 +3824,14 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: rows that took "permanent" for it (Banishing Stroke, Banishment Decree, Trapped in the Screen) name it too. A
 #: "Solved —" / "Max speed —" gate on a *replacement* is its `active_if` (it used to append an activation marker that
 #: could not bind — Case of the Pilfered Proof), and a two-event group trigger binds (`_subject_event_key`).
-PARSER_VERSION = "577"
+#: 578 (PAR-107…114 run 2): an "either/or" additional cast cost with no mana half (`additional_cost["either"]`,
+#: `ActivationCost.either_alt` — Bone Shards, Final Payment, Souls of the Lost) plus a compound single sacrifice type
+#: ("a creature or enchantment"/"or land"/"a permanent") and "tap an untapped artifact you control or pay {1}";
+#: `reveal_hand_choose_discard` with a pick `count`/`up_to`/`destination` ("look at target player's hand and choose X
+#: cards", library top / third from the top); "During turns other than yours, `<static>`" (`not_your_turn`) and its
+#: gated self-animation; the Visions flashback discount (`source_in_graveyard`); Magmaquake's "and each planeswalker",
+#: Inflame's `damaged_this_turn` group filter and Cinderclasm's kicked "instead" on a mass hit.
+PARSER_VERSION = "578"
 
 
 def parser_source_hash() -> str:
@@ -4542,6 +4550,11 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         opponent_entry = re.fullmatch(
             r"(?P<choice>as ~ enters, choose an opponent)\.\s*(?P<tail>.+)", line, re.I
         )
+        # "Flashback {8}{G}{G}. This spell costs {X} less to cast this way, where X is …" (the Visions cycle): the
+        # keyword half is `parse_keywords`'s; the sentence about its own cost is a graveyard-gated cost reduction.
+        flashback_discount = FLASHBACK_DISCOUNT_LINE_RE.fullmatch(line)
+        if flashback_discount is not None:
+            line = flashback_discount.group("discount")
         if opponent_entry is not None:
             choice_seg = segment_line(
                 opponent_entry.group("choice"), allow_spell_effect=allow_spell_effect,

@@ -1701,7 +1701,8 @@ def _damage_to_you_per_treasure(m: re.Match[str]) -> list[EffectSpec]:
 _DAMAGE_EACH_CREATURE_KEYWORD_RE = _c(
     rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+|x|twice x) damage to "
     rf"each creature (?P<neg>with|without) (?P<kw>flying|horsemanship)"
-    rf"(?:(?P<and_player> and each player)|(?P<opp>{_MULTI_TARGET_SCOPE_TAIL}))?"
+    # "…without flying and each planeswalker" (Magmaquake): the keyword filter narrows the creatures only.
+    rf"(?:(?P<and_player> and each player)|(?P<and_pw> and each planeswalker)|(?P<opp>{_MULTI_TARGET_SCOPE_TAIL}))?"
 )
 
 
@@ -1711,12 +1712,37 @@ def _damage_each_creature_keyword(m: re.Match[str]) -> list[EffectSpec]:
     # PAR-128: "each creature with flying your opponents control" (Thundermaw Hellkite).
     selector = (
         "each_creature_and_player" if m.group("and_player")
+        else "each_creature_and_planeswalker" if m.group("and_pw")
         else "each_creature_opponents_control" if m.group("opp") else "each_creature"
     )
     return [EffectSpec("damage", {
         "amount": count_or_x_of(n),
         "selector": selector,
         "selector_filter": {key: m.group("kw").lower()},
+    })]
+
+
+#: "~ deals 2 damage to each creature dealt damage this turn." (Inflame) — the `each_creature` mass selector narrowed
+#: by the marked-damage filter — and "~ deals 1 damage to each creature. If it was kicked, it deals 2 damage to each
+#: creature instead." (Cinderclasm), the mass sibling of `_DAMAGE_KICKED_OVERRIDE_RE`'s `amount_if_kicked`.
+_DAMAGE_EACH_DAMAGED_CREATURE_RE = _c(
+    rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+) damage to each creature dealt damage this turn"
+)
+_DAMAGE_EACH_CREATURE_KICKED_RE = _c(
+    rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+) damage to each creature\. if (?:it|this spell) was kicked, "
+    r"(?:it|~) deals (?P<n2>\d+) damage to each creature instead"
+)
+
+
+def _damage_each_damaged_creature(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("damage", {
+        "amount": int(m.group("n")), "selector": "each_creature", "selector_filter": {"damaged_this_turn": True},
+    })]
+
+
+def _damage_each_creature_kicked(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("damage", {
+        "amount": int(m.group("n")), "amount_if_kicked": int(m.group("n2")), "selector": "each_creature",
     })]
 
 
@@ -2258,6 +2284,44 @@ def _hand_disruption_discard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.group("life"):
         specs.append(EffectSpec("lose_life", {"amount": int(m.group("life"))}))
     return specs
+
+
+#: "Target player reveals their hand. You choose a nonland card from it. That player puts that card into their library
+#: third from the top." (Lost Hours) and "Look at target player's hand and choose `<N>` cards from it. `<tail>`" (Mind
+#: Warp / Extortion / Abandon Hope discard them, Agonizing / Painful Memories put them on top of the library): the same
+#: `reveal_hand_choose_discard` effect with a pick count (`count`, `up_to`) and a `destination`. Looking at a hand is
+#: the same zero-effect visibility step as revealing it.
+_HAND_PICK_FILTERS: dict[str, dict] = {"a nonland card": _HAND_DISRUPTION_FILTERS["a nonland card"], "a card": {}}
+_HAND_PICK_TAILS: dict[str, str] = {
+    "that player discards (?:that card|those cards)": "discard",
+    "put (?:that card|them) on top of that player's library(?: in any order)?": "library_top",
+    "that player puts that card into their library third from the top": "library_third",
+}
+_HAND_PICK_RE = _c(
+    r"(?:(?P<reveal>target opponent|target player) reveals their hand\. you choose (?P<rfilter>a nonland card) from it"
+    r"|look at (?P<look>target opponent|target player)'s hand and choose "
+    r"(?:(?P<upto>up to )?(?P<n>\d+|x) cards?|(?P<a>a card)) from it)\. "
+    rf"(?P<tail>{'|'.join(_HAND_PICK_TAILS)})"
+)
+
+
+def _hand_pick(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    target = m.group("reveal") or m.group("look")
+    if resolve_target_kind(target) != "player":
+        return None
+    destination = next(dest for pattern, dest in _HAND_PICK_TAILS.items() if re.fullmatch(pattern, m.group("tail")))
+    if m.group("reveal") and destination != "library_third":
+        return None  # the plain reveal-and-discard form is `hand_disruption_discard`'s
+    params: dict = {"target_kind": "opponent" if target == "target opponent" else "player"}
+    if m.group("rfilter"):
+        params.update(_HAND_PICK_FILTERS[m.group("rfilter")])
+    if m.group("n"):
+        params["count"] = "x" if m.group("n") == "x" else int(m.group("n"))
+    if m.group("upto"):
+        params["up_to"] = True
+    if destination != "discard":
+        params["destination"] = destination
+    return [EffectSpec("reveal_hand_choose_discard", params)]
 
 
 #: RULE 701.20's "defending player reveals the top card of their library.
@@ -16016,6 +16080,8 @@ HANDLERS: list[EffectHandler] = [
         _DAMAGE_EACH_CREATURE_KEYWORD_RE,
         _damage_each_creature_keyword,
     ),
+    EffectHandler("damage_each_damaged_creature", _DAMAGE_EACH_DAMAGED_CREATURE_RE, _damage_each_damaged_creature),
+    EffectHandler("damage_each_creature_kicked", _DAMAGE_EACH_CREATURE_KICKED_RE, _damage_each_creature_kicked),
     EffectHandler(
         "damage_to_you_per_treasure",
         _DAMAGE_TO_YOU_PER_TREASURE_RE,
@@ -16207,6 +16273,7 @@ HANDLERS: list[EffectHandler] = [
         _HAND_DISRUPTION_RE,
         _hand_disruption_discard,
     ),
+    EffectHandler("hand_pick", _HAND_PICK_RE, _hand_pick),
     # "exile target non-Angel creature you control, then return that card
     # to the battlefield under your control." (Restoration Angel-shaped).
     EffectHandler(

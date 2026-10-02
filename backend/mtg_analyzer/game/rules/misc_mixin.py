@@ -3211,6 +3211,8 @@ class MiscSystemsMixin:
             # battlefield tapped / to your hand").
             "return_from_graveyard_tapped", "return_from_graveyard_to_hand", "soulbond_pair", "library_top", "discard",
             "library_to_hand", "sacrifice_for_descendants_fury",
+            # A hand pick the owner puts into their own library (Painful/Agonizing Memories, Lost Hours).
+            "hand_to_library_top", "hand_to_library_third",
             "turn_face_up",  # Zimone — RULE 708.8 by an effect
             # RULE 702.110a/b: an exploit ability's optional sacrifice — a sacrifice that also fires `EXPLOITS`.
             "exploit",
@@ -3820,6 +3822,10 @@ class MiscSystemsMixin:
             self.discard_specific(obj, cause=source)
             if connive and not is_land and source is not None:
                 self.add_counters(source, 1, kind="+1/+1", source=source)
+        elif action in ("hand_to_library_top", "hand_to_library_third"):
+            # Painful Memories / Agonizing Memories / Lost Hours: the hand's owner puts the chosen card into their own
+            # library (RULE 401.7 for "third from the top"); ``player`` here is the chooser, who need not own it.
+            self.return_to_library(obj, "top", 3 if action == "hand_to_library_third" else 1)
         elif action == "reveal":
             # PAR-80 (Ivy Seer/Scent of Ivy): reveal has no mechanical
             # weight of its own (`RevealTopEffect`'s own docstring) — the

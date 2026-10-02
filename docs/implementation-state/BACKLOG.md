@@ -73,8 +73,8 @@ No open tickets.
 
 - **PAR-107 · Small residue batch — graveyard/library/exile.** Adventure/Blitz casts from the graveyard and the
   single-card graveyard/library shapes left over.
-- **PAR-108 · Small residue batch — miscellaneous shapes.** Single-card copy/counter/look-at-hand shapes and the
-  remaining "the sacrificed creature's …" sub-shapes.
+- **PAR-108 · Small residue batch — miscellaneous shapes.** Single-card copy/counter shapes and the remaining
+  "the sacrificed creature's …" sub-shapes.
 - **PAR-109 · Residue of the static/activated-ability batch.** Brad Boimler's until-EOT counter replacement;
   Worldknit's card-pool condition; "can't be regenerated" leftovers (Bone Shaman, Lim-Dûl's Cohort); Desolation of
   Smaug's "spend only to cast Dragon spells"; Luxior's per-counter bonus; Atalya's modal `{X}, {T}` body.
@@ -82,8 +82,8 @@ No open tickets.
   + rider tails, total-power edicts, Living Death.
 - **PAR-113 · Small residue batch — combat triggers.** "Whenever a player attacks" head and kept mana with a
   restriction or a non-trivial head.
-- **PAR-114 · Small residue batch — cost reduction & alternative costs.** Either/or additional costs with no mana
-  half, activation-cost and flashback-cost "where X is …" discounts, "during turns other than yours" on P/T.
+- **PAR-114 · Small residue batch — cost reduction & alternative costs.** Resolve-time "discard a card or pay {N}",
+  same-name discard costs, X-valued sacrifice costs, activation-cost "where X is …" discounts.
 
 > PAR-107…114 counts come from a one-pass `parse_oracle` + `abstract_clause` scan (PV 413, 2026-09-16,
 > vs the 56 saved decks); 107…113 re-measured at PV 447. They were not individually re-diagnosed —

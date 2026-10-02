@@ -328,6 +328,9 @@ EffectRegistry.register(
         max_mana_value=p.get("max_mana_value"),
         optional=bool(p.get("optional", False)),
         else_specs=p.get("else_specs"),
+        count=p.get("count", 1),
+        up_to=bool(p.get("up_to", False)),
+        destination=str(p.get("destination", "discard")),
     ),
 )
 EffectRegistry.register(

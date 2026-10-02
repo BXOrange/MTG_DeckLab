@@ -562,6 +562,10 @@ class ActivationCost:
     #: auto-picks the only available half, or opens a small dedicated
     #: `sacrifice_or_discard` choice when the payer genuinely has both.
     sacrifice_or_discard: bool = False
+    #: RULE 601.2b "<cost A> or <cost B>" additional cast cost with no mana half (Bone Shards "sacrifice a creature or
+    #: discard a card"): this object is branch A, ``either_alt`` is branch B. The caster picks one when casting — A is
+    #: the plain cast, B the `pay_additional` variant (the same two-variant shape `or_mana` uses).
+    either_alt: Optional["ActivationCost"] = None
     raw: str = ""
     #: ENG-49: the words of ``raw`` no cost recognizer read (``None`` when the
     #: whole text was understood). A fragment dropped here is never charged,
@@ -819,6 +823,12 @@ def parse_activation_cost(
         parsed = parse_activation_cost(choice["cost"])
         parsed.mana = ManaCost.parse(str(choice["mana"]))
         parsed.sacrifice_or_mana = True
+        return parsed
+    if cost.get("either"):
+        # "<cost A> or <cost B>" (RULE 601.2b): two single-component branches, A primary and B the alternative.
+        first, second = cost["either"]
+        parsed = parse_activation_cost(first)
+        parsed.either_alt = parse_activation_cost(second)
         return parsed
     # dict: parse any free text, then let explicit structured fields override.
     text = str(cost.get("text") or cost.get("cost_text") or "")

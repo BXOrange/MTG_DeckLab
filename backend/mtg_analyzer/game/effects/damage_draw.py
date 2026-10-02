@@ -1554,6 +1554,12 @@ class DrawMillIfDiscardedEffect(GameEffect):
             context.mill(player, self.mill)
 
 
+#: `RevealHandChooseDiscardEffect.destination` → the `choose_objects` action that moves each pick.
+_HAND_PICK_ACTIONS: dict[str, str] = {
+    "discard": "discard", "library_top": "hand_to_library_top", "library_third": "hand_to_library_third",
+}
+
+
 class RevealHandChooseDiscardEffect(GameEffect):
     """RULE 119/701.8's iconic hand-disruption template — "Target opponent
     reveals their hand. You choose a `<filter>` card from it. That player
@@ -1594,10 +1600,22 @@ class RevealHandChooseDiscardEffect(GameEffect):
         max_mana_value: Optional[int] = None,
         optional: bool = False,
         else_specs: Optional[list[dict[str, Any]]] = None,
+        count: Any = 1,
+        up_to: bool = False,
+        destination: str = "discard",
     ) -> None:
         super().__init__(source)
         self.target_spec = TargetSpec(kind=target_kind)
         self.target = target
+        #: "Look at target player's hand and choose X cards from it" (Mind Warp, Extortion's "up to 2", Agonizing
+        #: Memories' 2): how many the chooser takes. ``"x"`` is the spell's announced X (`_substitute_x`); ``up_to``
+        #: lets the chooser stop early. Looking at a hand is a zero-effect visibility action here, as "reveals".
+        self.count = count
+        self.up_to = bool(up_to)
+        #: What happens to each pick: ``"discard"`` (the owner discards it), ``"library_top"`` (Painful/Agonizing
+        #: Memories — "put on top of that player's library", later picks end up higher: the caster's order) or
+        #: ``"library_third"`` (Lost Hours — third from the top, RULE 401.7).
+        self.destination = str(destination)
         self.exclude_land = exclude_land
         self.exclude_creature = exclude_creature
         self.card_types = card_types
@@ -1644,9 +1662,14 @@ class RevealHandChooseDiscardEffect(GameEffect):
         if caster is None:
             return
         candidates = [obj for obj in revealed_player.hand if self._matches(obj)]
+        count = max(0, int(self.count)) if not isinstance(self.count, str) else 0
+        if count == 0:
+            return  # "choose X cards" with X = 0
+        # An empty pool still opens the (empty) choice: its "if you don't" else-branch (Traumatic Revelation) runs.
+        count = max(1, min(count, len(candidates)))
         context.choose_objects(
-            caster, candidates, "discard", count=1, source=self.source,
-            optional=self.optional,
+            caster, candidates, _HAND_PICK_ACTIONS[self.destination], count=count, source=self.source,
+            optional=self.optional or self.up_to,
             else_specs=self.else_specs or None,
         )
 

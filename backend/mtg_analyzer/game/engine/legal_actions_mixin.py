@@ -489,6 +489,10 @@ class LegalActionsMixin:
             # "pay X life" isn't locked here since X isn't chosen until cast.
             additional_cost = getattr(obj, "additional_cast_cost", None)
             add_optional = getattr(obj, "additional_cast_cost_optional", False)
+            if additional_cost is not None and additional_cost.either_alt is not None and pay_additional:
+                # RULE 601.2b "<A> or <B>": this offer is the variant that pays branch B.
+                action["pay_additional"] = True
+                additional_cost = additional_cost.either_alt
             if additional_cost is not None and not additional_cost.is_free:
                 action["additional_cost_label"] = additional_cost.label()
                 # PAR-30: an *optional* "you may <…>." additional cost never
@@ -500,7 +504,9 @@ class LegalActionsMixin:
                     if pay_additional:
                         action["pay_additional"] = True
                         action["additional_cost_label"] = additional_cost.label()
-                elif not self._can_pay_additional_cast_cost(player, obj, additional_cost, x=0):
+                elif not self._can_pay_additional_cast_cost(
+                    player, obj, getattr(obj, "additional_cast_cost", None), x=0, pay_additional=pay_additional
+                ):
                     action["locked"] = True
                     action["lock_reason"] = "Zusätzliche Kosten nicht bezahlbar"
                 if add_optional and pay_additional and not self.can_cast(
@@ -711,8 +717,9 @@ class LegalActionsMixin:
                     return True
         # RULE 601.2b: an optional additional cost's *paid* variant (`pay_additional`) can be castable when the plain
         # one is not — "discard a card or pay {5}" with no {5} to spare (Lightning Axe): only the discard branch is.
-        if getattr(obj, "additional_cast_cost", None) is not None and getattr(
-            obj, "additional_cast_cost_optional", False
+        _add_cost = getattr(obj, "additional_cast_cost", None)
+        if _add_cost is not None and (
+            getattr(obj, "additional_cast_cost_optional", False) or _add_cost.either_alt is not None
         ):
             if self.can_cast(player, obj, face=face, pay_additional=True):
                 return True
@@ -857,9 +864,10 @@ class LegalActionsMixin:
         # shape as evoke/help_pay above. Its being paid is recorded on
         # `GameObject.additional_cost_paid` for a later
         # "if this spell's additional cost was paid, <effect>." conditional.
+        _add_cost = getattr(obj, "additional_cast_cost", None)
         if (
-            getattr(obj, "additional_cast_cost", None) is not None
-            and getattr(obj, "additional_cast_cost_optional", False)
+            _add_cost is not None
+            and (getattr(obj, "additional_cast_cost_optional", False) or _add_cost.either_alt is not None)
             and self.can_cast(player, obj, pay_additional=True)
         ):
             actions.append(self._cast_action(player, obj, pay_additional=True))

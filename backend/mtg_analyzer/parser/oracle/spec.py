@@ -388,13 +388,15 @@ MANA_SOURCE_KINDS: frozenset[str] = frozenset({"treasure", "basic_land", "creatu
 #: fed this dict the same way it already accepts an `AbilitySpec.cost` dict.
 #: The single additional costs an "…or pay {N}" alternative (`additional_cost["or_mana"]`) may pair with the mana.
 _OR_MANA_COST_KEYS: frozenset[str] = frozenset(
-    {"sacrifice", "discard", "pay_life", "exile_from_graveyard", "reveal_from_hand"}
+    {"sacrifice", "discard", "pay_life", "exile_from_graveyard", "reveal_from_hand", "tap_others"}
 )
 _ADDITIONAL_COST_SACRIFICE_TYPES: frozenset[str] = frozenset(
     {
         "creature", "artifact", "land", "artifact_or_creature",
         # "sacrifice a creature or planeswalker / enchantment or pay {N}" (Silence the Echo, Betrayer's Bargain).
-        "creature_or_planeswalker", "creature_or_enchantment",
+        "creature_or_planeswalker", "creature_or_enchantment", "creature_or_land",
+        # "sacrifice a permanent" (Souls of the Lost).
+        "permanent",
         # "…sacrifice a green creature." (Natural Order, MEC-43) — the
         # same ``"<color>_creature"`` sentinel `_matches_sacrifice_type`
         # (`game/engine/activation_mixin.py`) already recognizes.
@@ -975,6 +977,15 @@ class AbilitySpec:
                 raise SpecValidationError("'additional_cost' or_mana cost must be one of " + ", ".join(sorted(_OR_MANA_COST_KEYS)))
             if "sacrifice" in inner and inner["sacrifice"] not in _ADDITIONAL_COST_SACRIFICE_TYPES:
                 raise SpecValidationError("unsupported or_mana sacrifice type")
+        elif key == "either":
+            # "<cost A> or <cost B>" with no mana half (RULE 601.2b) — two single-key branches from the or_mana vocabulary.
+            if not isinstance(value, list) or len(value) != 2:
+                raise SpecValidationError("'additional_cost' either must list exactly two branches")
+            for branch in value:
+                if not isinstance(branch, dict) or len(branch) != 1 or next(iter(branch)) not in _OR_MANA_COST_KEYS:
+                    raise SpecValidationError("'additional_cost' either branch must be one of " + ", ".join(sorted(_OR_MANA_COST_KEYS)))
+                if "sacrifice" in branch and branch["sacrifice"] not in _ADDITIONAL_COST_SACRIFICE_TYPES:
+                    raise SpecValidationError("unsupported either sacrifice type")
         elif key == "sacrifice_or_mana":
             if not isinstance(value, dict) or set(value) != {"sacrifice", "mana"}:
                 raise SpecValidationError("'additional_cost' sacrifice_or_mana must name sacrifice and mana")
