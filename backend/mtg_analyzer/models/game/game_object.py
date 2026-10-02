@@ -179,6 +179,11 @@ class GameObject:
         #: RULE 702.43a: a spell that "gains sunburst" (Lux Artillery) — set while it is on the stack,
         #: consumed (and cleared) by `RulesEngine._apply_entry_counters` when it enters.
         self.gains_sunburst: bool = False
+        #: Counters this object is about to enter with *in addition* to its own entry-counter clause, stamped
+        #: just before it is put onto the battlefield and consumed (then cleared) by
+        #: `RulesEngine._apply_entry_counters` — "…it enters with three additional +1/+1 counters on it"
+        #: (Turntimber Symbiosis).
+        self.entry_bonus_counters: dict[str, int] = {}
         #: Adamant's per-colour sibling of ``colors_spent_to_cast``.  This
         #: preserves *how much* of each WUBRG colour paid the spell, not just
         #: whether that colour appeared at least once.

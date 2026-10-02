@@ -84,6 +84,10 @@ from .. import continuations
 #: scan (and the one-button-per-value prompt) from running away on a combo's
 #: effectively unbounded pool — 30 is past any X a fair game ever pays.
 PAY_COST_THEN_MAX_X = 30
+#: Turntimber Symbiosis: "If that card has mana value 3 or less, it enters with three additional +1/+1 counters
+#: on it." — the printed mana-value ceiling and the number of bonus counters.
+CHEAP_CREATURE_MAX_MANA_VALUE = 3
+CHEAP_CREATURE_BONUS_COUNTERS = 3
 
 #: ENG-48: the option-id prefix a `pay_cost_then` choice uses for "pay with
 #: X = n" (``"pay_x:3"``); a bare ``"pay"`` still answers, as the largest X.
@@ -3308,6 +3312,9 @@ class MiscSystemsMixin:
             # top card, you may put it onto the battlefield" template to
             # reuse rather than a one-off.
             "library_to_battlefield",
+            # Turntimber Symbiosis: "…onto the battlefield. If that card has mana value 3 or less, it enters with
+            # three additional +1/+1 counters on it." — `library_to_battlefield` plus `entry_bonus_counters`.
+            "library_to_battlefield_cheap_bonus",
             # PAR-144: "put up to two land cards from among them onto the battlefield tapped".
             "library_to_battlefield_tapped",
             # PAR-137: "exile the top two cards … choose 1 of them. You may play that card this turn /
@@ -3972,7 +3979,7 @@ class MiscSystemsMixin:
                 # `remember`'s accumulating sibling, same field
                 # `ExileEffect(track_exiled_with=True)` uses.
                 source.exiled_with_ids.append(obj.instance_id)
-        elif action in ("library_to_battlefield", "library_to_battlefield_tapped"):
+        elif action in ("library_to_battlefield", "library_to_battlefield_tapped", "library_to_battlefield_cheap_bonus"):
             # MEC-41 (Nissa, Steward of Elements' 0 ability): the object is
             # still sitting in the library at this point (unlike every
             # other action above, which acts on a battlefield permanent or
@@ -3980,6 +3987,10 @@ class MiscSystemsMixin:
             # does the same library-pop-then-move split.
             if obj in player.library:
                 player.remove_from_zone(obj, Zone.LIBRARY)
+            if action == "library_to_battlefield_cheap_bonus" and (
+                int(obj.card.converted_mana_cost or 0) <= CHEAP_CREATURE_MAX_MANA_VALUE
+            ):
+                obj.entry_bonus_counters["+1/+1"] = CHEAP_CREATURE_BONUS_COUNTERS  # "enters with" — see `_apply_entry_counters`
             self._put_searched_card(
                 player, obj, "battlefield_tapped" if action.endswith("_tapped") else "battlefield",
             )

@@ -170,3 +170,62 @@ def test_genesis_hydra_puts_one_nonland_permanent_with_mana_value_x_or_less_and_
     assert made["Bear"].zone == Zone.BATTLEFIELD and hydra.zone == Zone.BATTLEFIELD
     assert hydra.counters.get("+1/+1") == 3  # enters with X counters
     assert made["Dragon"] in p1.library and made["Forest"] in p1.library  # the rest were shuffled back in
+
+
+_TURNTIMBER = "Turntimber Symbiosis // Turntimber, Serpentine Wood"
+
+
+def _turntimber(pick_name):
+    engine, p1, made = _genesis_game(_TURNTIMBER, [
+        ("Cheap Bear", "Creature — Bear", 2, {"is_creature": True, "power": 2, "toughness": 2}),
+        ("Big Wurm", "Creature — Wurm", 5, {"is_creature": True, "power": 5, "toughness": 5}),
+        ("Bolt", "Instant", 1, {}),
+        ("Deep Card", "Artifact", 1, {}),
+    ])
+    p1.mana_pool.add_many({"G": 3, "C": 4})
+    engine.cast_spell(p1, p1.hand[0])
+    engine.resolve_until_stable()
+    options = {o["label"] for o in engine.state.pending_choice["options"] if "instance_id" in o}
+    choice = engine.state.pending_choice
+    engine.resolve_pending_choice(next(o["id"] for o in choice["options"] if o.get("label") == pick_name))
+    engine.resolve_until_stable()
+    return engine, p1, made, options
+
+
+def test_turntimber_symbiosis_gives_three_counters_to_a_cheap_creature_it_puts_onto_the_battlefield():
+    engine, p1, made, options = _turntimber("Cheap Bear")
+    assert options == {"Cheap Bear", "Big Wurm"}  # creature cards only
+    bear = made["Cheap Bear"]
+    assert bear.zone == Zone.BATTLEFIELD and bear.counters.get("+1/+1") == 3  # mana value 2 <= 3
+    assert made["Big Wurm"] in p1.library and made["Bolt"] in p1.library  # the rest went to the bottom
+
+
+def test_turntimber_symbiosis_gives_no_counters_to_an_expensive_creature():
+    engine, p1, made, options = _turntimber("Big Wurm")
+    wurm = made["Big Wurm"]
+    assert wurm.zone == Zone.BATTLEFIELD and not wurm.counters  # mana value 5 > 3
+
+
+def test_yarus_returns_a_dying_face_down_creature_but_not_a_face_up_one():
+    engine, player = two_player_game()
+    yarus = battlefield_object(
+        engine, "p1", "Yarus, Roar of the Old Gods", "Legendary Creature — Centaur Druid",
+        is_creature=True, power=3, toughness=5,
+    )
+    bind_from_catalogue(yarus)
+    hidden = battlefield_object(engine, "p1", "Hidden Bear", "Creature — Bear", is_creature=True, power=3, toughness=3)
+    hidden.turn_face_down(
+        Card(id="FD", name="Face-down creature", type_line="Creature", is_creature=True, power=2, toughness=2),
+        "manifest",
+    )
+    plain = battlefield_object(engine, "p1", "Plain Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+
+    engine.rules.destroy(hidden)
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert hidden.zone == Zone.BATTLEFIELD and hidden.name == "Hidden Bear"  # back, as its real self
+
+    engine.rules.destroy(plain)
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert plain.zone == Zone.GRAVEYARD  # a face-up creature just dies
