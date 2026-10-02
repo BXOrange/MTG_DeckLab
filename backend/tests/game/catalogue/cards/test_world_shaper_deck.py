@@ -98,3 +98,41 @@ def test_formless_genesis_makes_an_x_x_shapeshifter_for_the_land_cards_in_my_gra
     token = tokens[0]
     assert (token.power, token.toughness) == (3, 3)  # my graveyard's three lands only
     assert combat.has(token, "deathtouch") and not token.colors
+
+
+def test_multani_counts_lands_i_control_and_land_cards_in_my_graveyard():
+    engine, p1, p2 = _game()
+    multani = _battlefield_card(engine, "Multani, Yavimaya's Avatar")
+    engine.recompute_continuous_effects()
+    base = (multani.power, multani.toughness)
+    for i in range(3):
+        battlefield_object(engine, "p1", f"Forest {i}", "Basic Land — Forest", is_land=True)
+    battlefield_object(engine, "p2", "Their Island", "Basic Land — Island", is_land=True)  # not mine
+    for i in range(2):
+        p1.graveyard.append(GameObject(Card(id=f"G{i}", name=f"Dead Land {i}", type_line="Land", is_land=True), owner_id="p1", zone=Zone.GRAVEYARD))
+    p2.graveyard.append(GameObject(Card(id="OG", name="Their Dead Land", type_line="Land", is_land=True), owner_id="p2", zone=Zone.GRAVEYARD))
+    engine.recompute_continuous_effects()
+    assert (multani.power, multani.toughness) == (base[0] + 5, base[1] + 5)  # 3 lands + 2 graveyard lands (mine only)
+
+
+def test_worldsouls_rage_deals_x_and_puts_up_to_x_lands_from_hand_and_graveyard_tapped():
+    engine, p1, p2 = _game("Worldsoul's Rage")
+    hand_land = GameObject(Card(id="HL", name="Hand Forest", type_line="Basic Land — Forest", is_land=True), owner_id="p1", zone=Zone.HAND)
+    grave_land = GameObject(Card(id="GL", name="Grave Mountain", type_line="Basic Land — Mountain", is_land=True), owner_id="p1", zone=Zone.GRAVEYARD)
+    extra = GameObject(Card(id="XL", name="Extra Forest", type_line="Basic Land — Forest", is_land=True), owner_id="p1", zone=Zone.HAND)
+    p1.hand.extend([hand_land, extra])
+    p1.graveyard.append(grave_land)
+    p1.mana_pool.add_many({"R": 1, "G": 1, "C": 3})
+    life = p2.life
+    engine.cast_spell(p1, p1.hand[0], x=2, targets=[p2])
+    engine.resolve_until_stable()
+    assert p2.life == life - 2  # X damage to the chosen target
+    for name in ("Grave Mountain", "Hand Forest"):  # "up to X": two picks (X = 2), from either zone
+        choice = engine.state.pending_choice
+        assert choice is not None
+        option = next(o for o in choice["options"] if o.get("label") == name)
+        engine.resolve_pending_choice(option["id"])
+        engine.resolve_until_stable()
+    assert grave_land.zone == Zone.BATTLEFIELD and hand_land.zone == Zone.BATTLEFIELD
+    assert grave_land.tapped and hand_land.tapped  # "onto the battlefield tapped"
+    assert extra.zone == Zone.HAND  # only X = 2 lands

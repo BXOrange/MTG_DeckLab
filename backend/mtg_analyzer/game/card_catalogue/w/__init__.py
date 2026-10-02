@@ -24,6 +24,7 @@ from . import woe_strider  # noqa: F401
 from . import wonder  # noqa: F401
 from . import word_of_command  # noqa: F401
 from . import worldgorger_dragon  # noqa: F401
+from . import worldsoul_s_rage  # noqa: F401
 from . import worst_fears  # noqa: F401
 from . import wort_boggart_auntie  # noqa: F401
 from . import wrath_of_god  # noqa: F401

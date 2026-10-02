@@ -2054,7 +2054,8 @@ EffectRegistry.register(
     "put_from_hand_onto_battlefield",
     lambda p: PutFromHandOntoBattlefieldEffect(
         criteria=p.get("criteria", p.get("type", "")),
-        count=int(p.get("count", 1) or 1),
+        # ``"x"`` ("put up to X land cards …", Worldsoul's Rage) stays a sentinel for `_substitute_x`.
+        count=p["count"] if p.get("count") == "x" else int(p.get("count", 1) or 1),
         tapped=bool(p.get("tapped", False)),
         attacking=bool(p.get("attacking", False)),
         trigger_attacks=bool(p.get("trigger_attacks", False)),

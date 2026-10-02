@@ -1644,8 +1644,9 @@ class PutFromHandOntoBattlefieldEffect(GameEffect):
                 # No power on the source → nothing has "lesser power" → an
                 # impossible cap (fail closed) rather than an open pick.
                 criteria["max_power"] = (src_power - 1) if src_power is not None else -1
+        count = int(getattr(self.source, "x_paid", 0) or 0) if self.count == "x" else self.count
         context._request_search(
-            player, criteria, destination, self.count, optional=True, zones=list(self.zones),
+            player, criteria, destination, count, optional=True, zones=list(self.zones),
             then_specs_if_none=self.miss_effect_specs or None, source=self.source,
         )
 

@@ -65,6 +65,7 @@ from . import mox_diamond  # noqa: F401
 from . import moxite_refinery  # noqa: F401
 from . import muddle_the_ever_changing  # noqa: F401
 from . import muldrotha_the_gravetide  # noqa: F401
+from . import multani_yavimaya_s_avatar  # noqa: F401
 from . import mutiny  # noqa: F401
 from . import mycoloth  # noqa: F401
 from . import mystic_remora  # noqa: F401
