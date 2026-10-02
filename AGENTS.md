@@ -28,6 +28,7 @@ dupliziert deren Inhalt bewusst nicht.
 | Wortlaut oder Auslegung einer Comprehensive Rule | [Rules-Wiki](docs/Reference/rules_wiki/README.md) → `MagicCompRules <date>.txt` |
 | Anforderung, Design, Referenz oder Implementierungsstand | [`docs/README.md`](docs/README.md) und das dort geroutete Dokument |
 | Bedienung der Anwendung | [`user-docs/`](user-docs/) |
+| Nächsten Backlog-Auftrag planen, wenn `workingOn.md` leer ist | [Backlog-Loop-Planer](.github/agents/backlog-loop-planner.agent.md) |
 | Paketierte Workflows (Claude-Code-Skills unter `.claude/skills/`, nur für den Claude-Code-Agenten aufrufbar) | [`CLAUDE.md`](CLAUDE.md) |
 
 Bei Widersprüchen gilt: konkrete, näher am Code oder Thema liegende
