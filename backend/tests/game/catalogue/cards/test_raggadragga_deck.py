@@ -152,3 +152,52 @@ def test_march_of_the_world_ooze_makes_my_creatures_6_6_oozes_and_rewards_off_tu
     engine.state.active_player_index = 1  # their own turn: nothing
     opponent_casts()
     assert len(elephants()) == 1
+
+
+def test_rishkar_gives_creatures_with_a_counter_a_green_mana_ability():
+    from mtg_analyzer.game.mana_abilities import mana_abilities_for
+
+    engine, player = two_player_game()
+    rishkar = battlefield_object(
+        engine, "p1", "Rishkar, Peema Renegade", "Legendary Creature — Elf Druid", is_creature=True, power=2, toughness=2,
+    )
+    bind_from_catalogue(rishkar)
+    countered = battlefield_object(engine, "p1", "Grown Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    plain = battlefield_object(engine, "p1", "Plain Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    theirs = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    countered.counters["+1/+1"] = 1
+    theirs.counters["+1/+1"] = 1
+    for creature in (countered, plain, theirs):
+        creature.summoning_sick = False
+    engine.recompute_continuous_effects()
+
+    assert mana_abilities_for(countered, engine.state)
+    assert not mana_abilities_for(plain, engine.state)
+    assert not mana_abilities_for(theirs, engine.state)  # only creatures I control
+
+    engine.tap_for_mana(player, countered)
+    assert player.mana_pool.pool.get("G", 0) == 1
+
+
+def test_orochi_merge_keeper_taps_for_gg_only_while_modified():
+    from mtg_analyzer.config import DB_PATH
+    from mtg_analyzer.services.card_database import CardDatabase
+
+    engine, player = two_player_game()
+    card = CardDatabase(DB_PATH).get_card("Orochi Merge-Keeper")
+    keeper = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    keeper.controller_id = "p1"
+    bind_from_catalogue(keeper)
+    keeper.summoning_sick = False
+    engine.state.add_to_battlefield(keeper)
+    engine.recompute_continuous_effects()
+
+    from mtg_analyzer.game.mana_abilities import mana_abilities_for
+
+    def best_amount():
+        return max(sum(opt.values()) for ability in mana_abilities_for(keeper, engine.state) for opt in ability.options)
+
+    assert best_amount() == 1  # unmodified: just the printed {T}: Add {G}
+    keeper.counters["+1/+1"] = 1  # a counter is a modification
+    engine.recompute_continuous_effects()
+    assert best_amount() == 2

@@ -15,6 +15,7 @@ from . import opposition_agent  # noqa: F401
 from . import oracle_of_mul_daya  # noqa: F401
 from . import oran_rief_the_vastwood  # noqa: F401
 from . import orcish_bowmasters  # noqa: F401
+from . import orochi_merge_keeper  # noqa: F401
 from . import oswald_fiddlebender  # noqa: F401
 from . import otawara_soaring_city  # noqa: F401
 from . import oversimplify  # noqa: F401
