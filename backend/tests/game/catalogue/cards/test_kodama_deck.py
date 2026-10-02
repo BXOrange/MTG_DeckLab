@@ -168,3 +168,34 @@ def test_ancient_animus_skips_the_counter_for_a_nonlegendary_creature_but_still_
     assert mine.counters.get("+1/+1", 0) == 0
     assert victim.damage_marked == 2  # the fight still happens at the creature's own power
     assert mine.damage_marked == 2
+
+
+def _ram_through(power, keywords=()):
+    engine, p1, p2 = _game("Ram Through")
+    dealer = battlefield_object(
+        engine, "p1", "Dealer", "Creature — Rhino", is_creature=True, power=power, toughness=power,
+        keywords=list(keywords),
+    )
+    victim = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=3)
+    p1.mana_pool.add_many({"G": 1, "C": p1.hand[0].card.converted_mana_cost - 1})
+    engine.cast_spell(p1, p1.hand[0], targets=[dealer, victim])
+    engine.resolve_until_stable()
+    return dealer, victim, p2
+
+
+def test_ram_through_without_trample_puts_all_damage_on_the_creature():
+    dealer, victim, p2 = _ram_through(power=5)
+    assert p2.life == 20
+    assert victim.zone != Zone.BATTLEFIELD  # 5 damage kills the 2/3
+    assert dealer.damage_marked == 0  # a one-sided hit, not a fight
+
+
+def test_ram_through_with_trample_sends_the_excess_to_its_controller():
+    dealer, victim, p2 = _ram_through(power=5, keywords=["Trample"])
+    assert p2.life == 18  # 5 damage: 3 lethal to the 2/3, 2 excess
+    assert dealer.damage_marked == 0
+
+
+def test_ram_through_trample_with_deathtouch_needs_only_one_lethal():
+    dealer, victim, p2 = _ram_through(power=5, keywords=["Trample", "Deathtouch"])
+    assert p2.life == 16  # 1 lethal (deathtouch), 4 excess

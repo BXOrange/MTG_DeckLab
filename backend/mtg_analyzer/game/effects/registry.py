@@ -1633,6 +1633,7 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)),
         to_self=bool(p.get("to_self", False)),
         dealer_group=p.get("dealer_group"),
+        excess_to_controller_if_trample=bool(p.get("excess_to_controller_if_trample", False)),
     ),
 )
 EffectRegistry.register(

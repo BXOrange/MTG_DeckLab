@@ -2721,8 +2721,14 @@ class DamageEqualToPowerEffect(GameEffect):
         to_self: bool = False,
         source: Optional["GameObject"] = None,
         dealer_group: Optional[str] = None,
+        excess_to_controller_if_trample: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "If the creature you control has trample, excess damage is dealt to that creature's
+        #: controller instead." (Ram Through) — with a trampling dealer the recipient creature
+        #: takes only lethal damage (RULE 120.4a; 1 from a deathtouch dealer) and the rest goes
+        #: to that creature's controller.
+        self.excess_to_controller_if_trample = excess_to_controller_if_trample
         #: ``"previous_targets"`` — "**each of those creatures** deals damage equal to its power
         #: to ~" (Polukranos, World Eater; PAR-128): every object the preceding clause targeted
         #: is a dealer of its own power, and the recipient is the ability's source. No target of
@@ -2801,6 +2807,18 @@ class DamageEqualToPowerEffect(GameEffect):
         # a player recipient (no ``instance_id``) is always still there.
         if hasattr(recipient, "instance_id") and recipient not in context.state.permanents():
             return
+        if self.excess_to_controller_if_trample and hasattr(recipient, "instance_id"):
+            from .. import combat  # function-scoped: combat is a leaf module, avoid load-order cycles
+
+            if combat.has_trample(dealer):
+                lethal = 1 if combat.has_deathtouch(dealer) else max(0, (recipient.toughness or 0) - (recipient.damage_marked or 0))
+                to_creature = min(amount, lethal)
+                excess = amount - to_creature
+                if to_creature > 0:
+                    context.deal_damage(recipient, to_creature, dealer)
+                if excess > 0:
+                    context.deal_damage(context.state.player_by_id(recipient.controller_id), excess, dealer)
+                return
         context.deal_damage(recipient, amount, dealer)
 
     def _selected_recipients(self, context: GameContext, dealer: Any) -> list[Any]:
