@@ -35,6 +35,7 @@ from . import dina_essence_brewer  # noqa: F401
 from . import dina_soul_steeper  # noqa: F401
 from . import dionus_elvish_archdruid  # noqa: F401
 from . import dirgur_focusmage  # noqa: F401
+from . import disciple_of_bolas  # noqa: F401
 from . import dismantling_wave  # noqa: F401
 from . import display_of_power  # noqa: F401
 from . import distant_melody  # noqa: F401

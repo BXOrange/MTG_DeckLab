@@ -112,3 +112,24 @@ def test_demonspine_whip_pumps_only_the_equipped_creature_by_the_paid_x():
     engine._step_cleanup()
     engine.recompute_continuous_effects()
     assert host.power == 2  # until end of turn
+
+
+def test_disciple_of_bolas_sacrifices_another_creature_and_gains_and_draws_its_power():
+    engine, p1 = _game("Disciple of Bolas")
+    fodder = battlefield_object(engine, "p1", "Fodder", "Creature — Ogre", is_creature=True, power=4, toughness=4)
+    p1.mana_pool.add_many({"B": 1, "C": p1.hand[0].card.converted_mana_cost - 1})
+    life_before, hand_before = p1.life, len(p1.hand)
+
+    engine.cast_spell(p1, p1.hand[0])
+    engine.resolve_until_stable()  # the creature spell, then its enters trigger
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    while engine.state.pending_choice:  # the forced sacrifice has exactly one candidate besides Disciple
+        options = [o for o in engine.state.pending_choice["options"] if o["id"] != "decline"]
+        engine.resolve_pending_choice(options[0]["id"])
+        engine.resolve_until_stable()
+
+    assert fodder.zone != Zone.BATTLEFIELD  # sacrificed
+    assert any(o.name == "Disciple of Bolas" for o in engine.state.battlefield)  # "another": it stays
+    assert p1.life == life_before + 4
+    assert len(p1.hand) == hand_before - 1 + 4  # the Disciple leaves the hand, four cards are drawn

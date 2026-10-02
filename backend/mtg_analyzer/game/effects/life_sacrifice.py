@@ -1848,12 +1848,23 @@ class SacrificeChosenThenEffect(GameEffect):
         effects: Optional[list[dict[str, Any]]] = None,
         trigger: Optional[list[dict[str, Any]]] = None,
         source: Optional["GameObject"] = None,
+        optional: bool = True,
+        exclude_self: bool = False,
+        measure: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.what = what
         self.count = count
         self.effects = list(effects or [])
         self.trigger = list(trigger or [])
+        #: ``False`` for a mandatory "sacrifice another creature" (Disciple of Bolas) rather than
+        #: the "you may" the MEC-103 cards print.
+        self.optional = optional
+        #: "…sacrifice **another** creature" — the source itself is not in the pool.
+        self.exclude_self = exclude_self
+        #: ``"power"`` binds the follow-up's ``"x"`` to the sacrificed creatures' total power
+        #: ("…where X is that creature's power") instead of how many were sacrificed.
+        self.measure = measure
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from .. import continuous  # function-scoped: effects↔continuous cycle
@@ -1865,14 +1876,18 @@ class SacrificeChosenThenEffect(GameEffect):
         pool = [
             o for o in context.state.permanents_controlled_by(player.id)
             if continuous.matches_permanent_word(o, self.what) and not o.cant_be_sacrificed_this_turn
+            and not (self.exclude_self and o is self.source)
         ]
         count = len(pool) if self.count == "any" else min(int(self.count), len(pool))
         if count <= 0:
             return
         context.engine._request_choose_objects(
-            player, pool, "sacrifice", count=count, optional=True, source=self.source,
+            player, pool, "sacrifice", count=count, optional=self.optional, source=self.source,
             prompt="Wähle Permanents zum Opfern",
-            then_that_many={"effects": self.effects, "trigger": self.trigger},
+            then_that_many={
+                "effects": self.effects, "trigger": self.trigger,
+                **({"measure": self.measure} if self.measure else {}),
+            },
         )
 
 

@@ -1692,6 +1692,9 @@ EffectRegistry.register(
         count=p.get("count", "any") if p.get("count") == "any" else int(p.get("count", 1) or 1),
         effects=list(p.get("effects") or []),
         trigger=list(p.get("trigger") or []),
+        optional=bool(p.get("optional", True)),
+        exclude_self=bool(p.get("exclude_self", False)),
+        measure=p.get("measure") if p.get("measure") in ("power",) else None,
     ),
 )
 EffectRegistry.register(

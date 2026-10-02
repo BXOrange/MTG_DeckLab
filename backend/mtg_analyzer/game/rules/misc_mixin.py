@@ -97,6 +97,16 @@ def _cost_with_x(cost: ActivationCost, x: int) -> ActivationCost:
     return replace(cost, mana=cost.mana.with_x(x))
 
 
+def _that_many_value(then_that_many: Optional[dict], objs: list[Any]) -> int:
+    """What "that many" counts after a `choose_objects` pick: how many were picked, or — with
+    ``measure: "power"`` ("you gain X life and draw X cards, where X is that creature's power",
+    Disciple of Bolas) — their total power. Read from the objects *before* they are sacrificed,
+    since a card in the graveyard no longer has a battlefield power."""
+    if (then_that_many or {}).get("measure") == "power":
+        return sum(int(getattr(o, "power", 0) or 0) for o in objs)
+    return len(objs)
+
+
 def _substitute_x_specs(specs: list[dict], x: Optional[int]) -> list[dict]:
     """Serialized branch `EffectSpec` dicts with the ``"x"`` sentinel bound to
     a resolve-time payment's announced X (ENG-48). ``x=None`` — the cost had
@@ -3488,6 +3498,7 @@ class MiscSystemsMixin:
             # Forced: every candidate is taken anyway, so asking would be
             # theatre. (An *optional* one still asks — declining matters.)
             commander_taken = False
+            that_many_value = _that_many_value(then_that_many, list(pool))
             with self.state.simultaneous():  # RULE 603.2c: every forced pick is one event
                 for obj in pool:
                     commander_taken = commander_taken or obj.is_commander
@@ -3503,7 +3514,7 @@ class MiscSystemsMixin:
                 self._handle_rest_inspected(player, unpicked_rest, rest_destination)
             self._apply_choose_objects_tail(
                 source, then_specs, then_specs_if_commander, commander_taken,
-                then_that_many, len(pool),
+                then_that_many, that_many_value,
             )
             return
         self.open_choice(self._choose_objects_choice(
@@ -3651,6 +3662,9 @@ class MiscSystemsMixin:
             # RULE 603.2c: the picks of one multi-pick choice are one event; the batch
             # stays open until the choice completes (`release_batches` below).
             self.state.hold_batches()
+        picked_measure = int(choice.get("picked_measure", 0) or 0)
+        if chosen is not None:
+            picked_measure += _that_many_value(choice.get("then_that_many"), [chosen])
         if chosen is not None and player is not None:
             commander_taken = commander_taken or chosen.is_commander
             self._apply_chosen_object(
@@ -3691,7 +3705,8 @@ class MiscSystemsMixin:
                 self._apply_choose_objects_tail(
                     source, choice.get("then_specs"),
                     choice.get("then_specs_if_commander"), commander_taken,
-                    choice.get("then_that_many"), len(picked),
+                    choice.get("then_that_many"),
+                    picked_measure if (choice.get("then_that_many") or {}).get("measure") else len(picked),
                 )
             elif choice.get("else_specs"):
                 # "If you don't, incubate 3." (Traumatic Revelation) — the
@@ -3717,6 +3732,7 @@ class MiscSystemsMixin:
             then_that_many=choice.get("then_that_many"),
         )
         next_choice["commander_taken"] = commander_taken
+        next_choice["picked_measure"] = picked_measure
         self.open_choice(next_choice)
     def _choose_objects_pool(
         self, choice: dict[str, Any], picked: list[int]
