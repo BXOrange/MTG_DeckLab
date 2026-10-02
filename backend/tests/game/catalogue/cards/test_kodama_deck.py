@@ -242,3 +242,46 @@ def test_chocobo_racetrack_makes_a_bird_per_land_and_each_bird_grows_on_landfall
     play_land()  # second land: another Bird, and the first Bird gets +1/+0
     assert len(birds()) == 2
     assert sorted(b.power for b in birds()) == [2, 3]  # old Bird 3/2, fresh Bird 2/2
+
+
+def _nissa_vital_force_game():
+    card = CardDatabase(DB_PATH).get_card("Nissa, Vital Force")
+    engine, p1, p2 = _game()
+    nissa = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    nissa.controller_id = "p1"
+    bind_from_catalogue(nissa)
+    engine.state.add_to_battlefield(nissa)
+    nissa.counters["loyalty"] = 5
+
+    def activate(loyalty, **kwargs):
+        nissa.activated_loyalty_this_turn = False
+        index = next(
+            i for i, a in enumerate(nissa.activated_abilities)
+            if getattr(getattr(a, "cost", None), "loyalty", None) == loyalty
+        )
+        engine.activate_ability(p1, nissa, index, **kwargs)
+        engine.resolve_until_stable()
+        engine.recompute_continuous_effects()
+
+    return engine, p1, nissa, activate
+
+
+def test_nissa_vital_force_plus_one_untaps_a_land_and_makes_it_a_5_5_haste_elemental():
+    engine, p1, nissa, activate = _nissa_vital_force_game()
+    forest = battlefield_object(engine, "p1", "Forest", "Basic Land — Forest", is_land=True)
+    forest.tapped = True
+
+    activate(1, targets=[forest])
+    assert not forest.tapped and nissa.counters["loyalty"] == 6
+    assert forest.is_creature and forest.is_land  # "it's still a land"
+    assert (forest.power, forest.toughness) == (5, 5)
+    assert "haste" in forest.granted_keywords
+
+
+def test_nissa_vital_force_minus_three_returns_a_permanent_card_from_the_graveyard():
+    engine, p1, nissa, activate = _nissa_vital_force_game()
+    dead = GameObject(Card(id="Dead", name="Dead Bear", type_line="Creature — Bear", is_creature=True, power=2, toughness=2),
+                      owner_id="p1", zone=Zone.GRAVEYARD)
+    p1.graveyard.append(dead)
+    activate(-3, targets=[dead])
+    assert dead in p1.hand and nissa.counters["loyalty"] == 2
