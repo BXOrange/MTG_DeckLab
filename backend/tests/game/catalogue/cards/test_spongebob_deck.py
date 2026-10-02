@@ -481,3 +481,50 @@ def test_ramos_grows_by_one_for_each_color_of_a_spell_i_cast():
     assert cast({"R"}, 1) == 1
     assert cast({"W", "U"}, 2) == 3  # +2 for a two-colored spell
     assert cast(set(), 1) == 3  # a colorless spell: nothing
+
+
+def test_tam_gives_other_creatures_hexproof_only_from_sources_of_their_own_colors():
+    from mtg_analyzer.game import targeting
+
+    engine, p1 = _game()
+    card = CardDatabase(DB_PATH).get_card("Tam, Mindful First-Year")
+    tam = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    tam.controller_id = "p1"
+    bind_from_catalogue(tam)
+    tam.summoning_sick = False
+    engine.state.add_to_battlefield(tam)
+    red = battlefield_object(engine, "p1", "Red Bear", "Creature — Bear", is_creature=True, power=2, toughness=2, color_identity={"R"})
+    engine.recompute_continuous_effects()
+
+    def pool(source_colors):
+        source = battlefield_object(engine, "p2", f"Opposing {''.join(sorted(source_colors)) or 'C'}", "Artifact",
+                                    color_identity=set(source_colors))
+        spec = targeting.TargetSpec(kind="creature")
+        return {t["instance_id"] for t in targeting.legal_targets(engine.state, "p2", spec, source=source)}
+
+    assert red.instance_id not in pool({"R"})  # a red source can't target the red creature
+    assert red.instance_id in pool({"U"})  # a blue source can
+    assert tam.instance_id in pool({"R"})  # "other" creatures only: Tam herself has no hexproof
+
+
+def test_tam_turns_a_creature_into_all_colors_until_end_of_turn():
+    engine, p1 = _game()
+    card = CardDatabase(DB_PATH).get_card("Tam, Mindful First-Year")
+    tam = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    tam.controller_id = "p1"
+    bind_from_catalogue(tam)
+    tam.summoning_sick = False
+    engine.state.add_to_battlefield(tam)
+    bear = battlefield_object(engine, "p1", "Red Bear", "Creature — Bear", is_creature=True, power=2, toughness=2, color_identity={"R"})
+    engine.recompute_continuous_effects()
+    assert set(bear.colors) == {"R"}
+
+    index = next(i for i, a in enumerate(tam.activated_abilities) if getattr(a, "cost", None) is not None)
+    engine.activate_ability(p1, tam, index, targets=[bear])
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    assert set(bear.colors) == {"W", "U", "B", "R", "G"}
+
+    engine._step_cleanup()
+    engine.recompute_continuous_effects()
+    assert set(bear.colors) == {"R"}

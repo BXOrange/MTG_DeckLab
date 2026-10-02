@@ -4,6 +4,7 @@ from . import takenuma_abandoned_mire  # noqa: F401
 from . import tale_of_katara_and_toph  # noqa: F401
 from . import talion_the_kindly_lord  # noqa: F401
 from . import talon_gates_of_madara  # noqa: F401
+from . import tam_mindful_first_year  # noqa: F401
 from . import tanazir_quandrix  # noqa: F401
 from . import tangle_wire  # noqa: F401
 from . import tataru_taru  # noqa: F401

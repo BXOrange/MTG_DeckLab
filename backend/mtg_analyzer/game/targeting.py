@@ -827,6 +827,15 @@ def _targetable_by(obj: GameObject, source: Optional[GameObject]) -> bool:
         return False
     if combat.has_hexproof(obj) and obj.controller_id != source.controller_id:
         return False
+    # "…has hexproof from each of its colors." (Tam, Mindful First-Year) — hexproof only against an
+    # opponent's source that shares a color with ``obj`` (RULE 702.11d, "hexproof from <quality>"),
+    # carried as the synthetic keyword ``hexproof_from_own_colors`` the grant stamps on the object.
+    if (
+        "hexproof_from_own_colors" in combat._obj_keywords(obj)
+        and obj.controller_id != source.controller_id
+        and (set(getattr(source, "colors", None) or set()) & set(getattr(obj, "colors", None) or set()))
+    ):
+        return False
     # RULE 702.18b: shroud can't be targeted by *any* spell or ability,
     # its own controller's included — no opponent-scoping, unlike hexproof
     # just above (PAR-22).
