@@ -776,3 +776,68 @@ def test_kellan_ignores_spells_cast_from_the_hand():
     engine, p1, cheap, dear, bolt, land, cast_from_elsewhere = _kellan_game()
     cast_from_elsewhere(mv=3, from_hand=True)
     assert engine.state.pending_choice is None
+
+
+def _inga_game(creatures_for_mana):
+    card = CardDatabase(DB_PATH).get_card("Inga and Esika")
+    engine, p1 = _game()
+    inga = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    inga.controller_id = "p1"
+    bind_from_catalogue(inga)
+    engine.state.add_to_battlefield(inga)
+    elves = [
+        battlefield_object(engine, "p1", f"Elf {i}", "Creature — Elf", is_creature=True, power=1, toughness=1)
+        for i in range(creatures_for_mana)
+    ]
+    for elf in elves:
+        elf.summoning_sick = False
+    engine.recompute_continuous_effects()
+    return engine, p1, inga, elves
+
+
+def _creature_spell(p1, mv, name="Big Beast", type_line="Creature — Beast", **kw):
+    obj = GameObject(
+        Card(id=name, name=name, type_line=type_line, converted_mana_cost=mv, mana_cost_string="{" + str(mv) + "}", **kw),
+        owner_id="p1", zone=Zone.HAND,
+    )
+    bind_from_catalogue(obj)
+    p1.add_to_zone(obj, Zone.HAND)
+    return obj
+
+
+def test_inga_and_esika_gives_creatures_vigilance_and_a_creature_spell_only_mana_ability():
+    engine, p1, inga, (elf,) = _inga_game(1)
+    assert "vigilance" in elf.granted_keywords
+    engine.tap_for_mana(p1, elf)
+    assert sum(sum(lot["amounts"].values()) for lot in p1.mana_pool.restricted) == 1  # restricted mana, not plain pool
+
+    # that mana is restricted: it can pay for a creature spell but not for a noncreature one
+    creature = _creature_spell(p1, 1, is_creature=True, power=1, toughness=1)
+    sorcery = _creature_spell(p1, 1, name="A Sorcery", type_line="Sorcery", is_sorcery=True)
+    assert engine.can_cast(p1, creature)
+    assert not engine.can_cast(p1, sorcery)
+
+
+def test_inga_and_esika_draws_when_three_or_more_mana_from_creatures_paid_for_a_creature_spell():
+    engine, p1, inga, elves = _inga_game(3)
+    for elf in elves:
+        engine.tap_for_mana(p1, elf)
+    spell = _creature_spell(p1, 3, is_creature=True, power=3, toughness=3)
+    hand_before = len(p1.hand)
+    engine.cast_spell(p1, spell)
+    for _ in range(3):
+        engine.rules.put_triggers_on_stack()
+        engine.resolve_until_stable()
+    assert len(p1.hand) == hand_before - 1 + 1  # the spell leaves, one card is drawn
+
+    engine, p1, inga, elves = _inga_game(2)
+    for elf in elves:
+        engine.tap_for_mana(p1, elf)
+    p1.mana_pool.add_many({"C": 1})  # the third mana does not come from a creature
+    spell = _creature_spell(p1, 3, is_creature=True, power=3, toughness=3)
+    hand_before = len(p1.hand)
+    engine.cast_spell(p1, spell)
+    for _ in range(3):
+        engine.rules.put_triggers_on_stack()
+        engine.resolve_until_stable()
+    assert len(p1.hand) == hand_before - 1  # only two mana from creatures: no draw

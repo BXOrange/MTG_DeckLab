@@ -1705,6 +1705,17 @@ def _trigger_condition(
 
         predicates.append(_spell_mana_spent_ok)
 
+    # "…if three or more mana from creatures was spent to cast it" (Inga and Esika) — the creature-sourced
+    # sibling of `spell_mana_spent_at_least`, read off the SPELL_CAST event's ``creature_mana_spent``.
+    spell_creature_mana_spent_at_least = trigger.get("spell_creature_mana_spent_at_least")
+    if spell_creature_mana_spent_at_least is not None:
+        creature_threshold = int(spell_creature_mana_spent_at_least)
+
+        def _spell_creature_mana_spent_ok(event: Any, context: Any, n=creature_threshold) -> bool:
+            return int(event.get("creature_mana_spent") or 0) >= n
+
+        predicates.append(_spell_creature_mana_spent_ok)
+
     # PAR-96: the complementary half of an "if N or more mana was spent …
     # instead" cast-trigger branch.  Keeping it on the trigger (rather than
     # a resolution-time wrapper) makes the low and high branches mutually

@@ -196,6 +196,8 @@ class GameObject:
         #: enters trigger. The pool's source buckets make this an actual
         #: payment fact, not a guess from which permanents were tapped.
         self.mana_spent_to_cast_treasure: int = 0
+        #: Mana from creature-sourced mana abilities spent on this spell's cast (Inga and Esika).
+        self.mana_spent_to_cast_creature: int = 0
         #: The same fact for this permanent's most recent activation (Jetmir's
         #: Fixer) — stamped at payment like `counters_removed_as_cost`.
         self.mana_spent_to_activate_treasure: int = 0
@@ -1403,6 +1405,7 @@ class GameObject:
         self.mana_by_color_spent_to_cast = {}
         self.mana_spent_to_cast_snow = 0
         self.mana_spent_to_cast_treasure = 0
+        self.mana_spent_to_cast_creature = 0
         self.mana_spent_to_activate_treasure = 0
         self.was_cast = False
         self.cast_outside_sorcery_speed = False

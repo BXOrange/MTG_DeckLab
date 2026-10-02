@@ -783,6 +783,7 @@ class CastingResolutionMixin:
             pool_before = dict(player.mana_pool.pool)
             snow_before = sum(player.mana_pool.snow_pool.values())
             treasure_before = sum(player.mana_pool.pool_by_source.get("treasure", {}).values())
+            creature_before = sum(player.mana_pool.pool_by_source.get("creature", {}).values())
             life_spent = player.mana_pool.pay(
                 cost, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard,
                 require_source_kind=require_source_kind, extra_life_color=extra_life_color,
@@ -801,6 +802,12 @@ class CastingResolutionMixin:
             obj.mana_spent_to_cast_snow = snow_before - sum(player.mana_pool.snow_pool.values())
             obj.mana_spent_to_cast_treasure = (
                 treasure_before - sum(player.mana_pool.pool_by_source.get("treasure", {}).values())
+            )
+            # "…if three or more mana from creatures was spent to cast it" (Inga and Esika) — the creature-sourced
+            # bucket's diff, like the Treasure one just above.
+            obj.mana_spent_to_cast_creature = (
+                creature_before - sum(player.mana_pool.pool_by_source.get("creature", {}).values())
+                + player.mana_pool.last_payment_by_kind.get("creature", 0)  # restricted creature mana (Inga's own)
             )
         self.lose_life(player, life_spent, cause="cost")
         # "The next spell you cast this turn costs {N} less" is used up by
@@ -868,6 +875,7 @@ class CastingResolutionMixin:
                 EventType.SPELL_CAST, player_id=player.id, card_id=obj.card.id, spell=obj.name,
                 instance_id=obj.instance_id, object_types=sorted(obj.type_words),
                 mana_spent=obj.mana_spent_to_cast,
+                creature_mana_spent=getattr(obj, "mana_spent_to_cast_creature", 0) or 0,
                 from_hand=from_hand,
                 # PAR-119: the zone the spell was cast from ("from your graveyard", "from anywhere other than your hand").
                 from_zone=cast_from_zone,

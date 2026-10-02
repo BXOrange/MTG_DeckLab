@@ -106,6 +106,10 @@ class ManaPool:
         #: majority) never does, so this is pure bookkeeping overhead for
         #: them, not a behaviour change.
         self.pool_by_source: dict[Optional[str], dict[str, int]] = {}
+        #: How much *restricted* mana of each source kind (``"creature"``/…) the most recent `pay` took, by
+        #: ``source_kind`` — restricted lots are not in `pool_by_source`, so "mana from creatures was spent"
+        #: (Inga and Esika) reads this for the restricted part of a payment.
+        self.last_payment_by_kind: dict[str, int] = {}
         #: Which type(s) `pay()`'s most recent call actually drained
         #: (colored pips + whichever type(s) covered the generic portion,
         #: `_spend_generic`'s own colorless-first order) — Jeweled Amulet's
@@ -176,10 +180,13 @@ class ManaPool:
                 bucket[mana_type] = bucket.get(mana_type, 0) + amount
             return
         for lot in self.restricted:
-            if lot["restriction"] == restriction:
+            if lot["restriction"] == restriction and lot.get("source_kind") == source_kind:
                 lot["amounts"][mana_type] = lot["amounts"].get(mana_type, 0) + amount
                 return
-        self.restricted.append({"restriction": restriction, "amounts": {mana_type: amount}})
+        lot: dict[str, Any] = {"restriction": restriction, "amounts": {mana_type: amount}}
+        if source_kind is not None:
+            lot["source_kind"] = source_kind  # only when tagged, so untagged lots keep their original shape
+        self.restricted.append(lot)
 
     def add_many(
         self, amounts: dict[str, int], restriction: Optional[dict] = None,
@@ -339,6 +346,7 @@ class ManaPool:
         solution = self._find_payment(available, cost, life_available, wildcard, extra_life_color)
         if solution is None:
             raise ValueError(f"cannot pay {cost!r} from {self.pool!r}")
+        self.last_payment_by_kind = {}
         colored_spends, generic_needed, life_spent = solution
 
         for color in colored_spends:
@@ -400,6 +408,9 @@ class ManaPool:
             if take:
                 lot["amounts"][mana_type] -= take
                 amount -= take
+                kind = lot.get("source_kind")
+                if kind:
+                    self.last_payment_by_kind[kind] = self.last_payment_by_kind.get(kind, 0) + take
         if amount > 0:
             self.pool[mana_type] -= amount
             self._consume_from_source_pool(mana_type, amount, require_source_kind)
