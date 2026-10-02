@@ -87,6 +87,111 @@ Zahlen aus Tickets oder Dokumentation. Im `backend/`:
 - `scripts/deck_coverage.py --uncovered` für Saved-Deck-Payoff, wenn die
   Planung produktnah oder deck-first ist.
 
+## Oracle-Text als Schritte und Relationen analysieren
+
+Die bisherige Musteranalyse hat wiederholt zu falschen Clustern geführt, weil
+ähnliche Textoberflächen als dasselbe Muster behandelt oder mehrteilige
+Fähigkeiten als unzerlegte Klauseln gezählt wurden. **Eine abstrakte
+Klauselhäufigkeit, ein gemeinsames Verb oder ein Report-Bucket ist kein
+Grammatikbefund.** Vor Aussagen zu Wiederverwendung, Einzigartigkeit oder
+Priorität muss der Agent die Fähigkeit strukturell zerlegen.
+
+Arbeite pro repräsentativer Oracle-Fähigkeit mindestens diese Ebenen heraus:
+
+1. **Ability-Grenzen und Linkage:** getrennte gedruckte Fähigkeiten/Zeilen,
+   dann pro Fähigkeit ihre Art (Spell, Trigger, Aktivierung, Static,
+   Replacement, Keyword oder Blockstruktur). Verwechsle nicht mehrere
+   Fähigkeiten einer Karte mit mehreren Schritten einer Fähigkeit.
+2. **Effektschritte:** Teile eine mehrteilige Fähigkeit in geordnete atomare
+   Schritte. Markiere pro Schritt die tatsächlich ausgeführte Operation,
+   nicht bloß den Wortlaut. Halte Verbinder und Scope fest: Sequenz,
+   Alternative/`otherwise`, optionale Handlung, Iteration, Bedingung,
+   Dauer, Prä-/Nachbedingung oder ersetztes Ereignis. Ein Satz kann mehr als
+   einen Schritt enthalten; mehrere Sätze können einen zusammengehörigen
+   Schritt oder eine bedingte/verzögerte Konstruktion ausdrücken.
+3. **Relationen zwischen Schritten:** Notiere explizit, was ein Folgeschritt
+   referenziert oder voraussetzt: Ability-Quelle, Trigger-Gruppensubjekt,
+   gewähltes/gezieltes Objekt oder Spieler, Selector-Menge, erzeugtes Objekt,
+   aufgedeckte Karte, betroffenes/„dieser Weg“-Objekt oder Ereignis. Halte
+   außerdem fest, wer handelt, kontrolliert, besitzt, wählt und von wem
+   etwas gemessen wird; ob eine Bedingung nur einen Schritt, eine Alternative
+   oder den ganzen Körper bindet; und ob Reihenfolge, „if you do“,
+   „otherwise“, „for each“ oder „where X is“ Daten zwischen Schritten
+   transportieren.
+4. **Repräsentation im Parser:** Verfolge dieselbe Fähigkeit durch
+   Normalisierung, Segmentierung/Linkage, Handler bzw. Subgrammar,
+   `AbilitySpec`/`EffectSpec` und – falls nötig – Binder/Engine. Kennzeichne
+   für jeden Schritt und jede Relation: korrekt repräsentiert, nur teilweise
+   repräsentiert, nicht repräsentiert oder von einem anderen Blocker
+   verhindert. `MODELED`/UNCLAIMED allein beschreibt nicht diese interne
+   Struktur.
+
+Verwende dafür konkrete Roh- und normalisierte Oracle-Texte aus mehreren
+Karten. Führe `parser_probe.py card` für jeden gewählten Repräsentanten aus;
+`clause` zeigt Normalisierung, Subjektmodi und passende Handler-Präfixe.
+`composition` (`summary`, `families`, `heads`, `mods`, `conds`) kann
+Head-/Body-Hypothesen isolieren, prüft aber nur die von diesem Probe
+implementierten Formen. Seine Ergebnisse belegen keine allgemeine
+Schritt- oder Relationsanalyse. `abstract_clause` in
+`parser/oracle/processing_list.py` ist eine Priorisierungsabstraktion, kein
+konkreter Syntaxbaum: gleiche abstrahierte Vorlagen können unterschiedliche
+Schrittrelationen haben; verschiedene Vorlagen können dieselbe Grammatik
+realisieren.
+
+Dokumentiere die Stichprobe vor dem Clustering als kompakte Tabelle:
+**Karte/Fähigkeit | Schrittfolge | Relationen/Datenfluss | erkannte
+IR-Repräsentation | echter Restblocker**. Gruppiere erst danach Fähigkeiten
+mit isomorpher Schritt-/Relationsstruktur zu einem Grammatik-Kandidaten;
+Phrasierungsunterschiede werden als Syntaxvarianten desselben Kandidaten
+notiert, strukturelle Unterschiede als getrennte oder zusammensetzbare
+Kandidaten. Bei unbekannter Referenz oder Ambiguität schreibe `ungeklärt`
+statt sie in das naheliegende Cluster zu zwingen. Nenne Anzahl und Auswahl
+der untersuchten Repräsentanten, damit klar bleibt, ob ein Cluster
+stichprobenbasiert oder im relevanten Pool vollständig geprüft ist.
+
+### Parser-Dateien gezielt zuordnen
+
+Orientiere dich an der implementierten Pipeline in
+`backend/mtg_analyzer/parser/oracle/`; lies gezielt die aktuelle Funktion,
+Registrierung und ihre Aufrufer – nicht pauschal riesige Dateien oder alte
+Zeilenzahlen:
+
+- `normalize.py`: Transformation von Oracle-Rohtext in normalisierte
+  Fähigkeitstexte.
+- `gate.py`: `parse_oracle`, Block-/Fähigkeitsaufteilung, Coverage-Gate und
+  fail-closed Verhalten. Die Datei enthält umfangreiche historische
+  Versionsnotizen; nicht als Ganzes laden.
+- `segmenter.py`: Zeilen-/Ability-Segmentierung, Trigger-/Kosten-Erkennung,
+  Effektkörper-Komposition, Connector-Splitting und Weitergabe von
+  Subjekt-/Referenten-Kontext.
+- `catalogue/handlers.py`: One-shot/Body-Handler, deren Reihenfolge,
+  Matcher/Builder und Vollklausel-Claims (`match_clause`).
+- `catalogue/subgrammars.py`: gemeinsam genutzte lexikalische Slots und
+  kleine Grammatikbausteine. Vor Duplikaten prüfen, ob ein Slot wirklich
+  dieselbe semantische Rolle hat.
+- `catalogue/static_handlers.py` und `catalogue/replacements.py`:
+  separate Grammatiken für Static-/Layer-Effekte beziehungsweise
+  Replacement-Effekte. Nicht in die One-shot-Handler verschieben, nur weil
+  Wortlaut ähnelt.
+- `catalogue/keywords.py`: Keyword-Erkennung; Vorhandensein hier beweist
+  weder eine vollständige `AbilitySpec`-Semantik noch Engine-Ausführung.
+- Spezialisierte Module unter `catalogue/` (z. B. `modal.py`, `counters.py`,
+  `dig.py`, `lands.py`, `saga.py`, `levels.py`, `station.py`,
+  `trigger_context.py`, `object_trigger_head.py`,
+  `player_event_head.py`, `referent_condition.py`, `cost_text.py`) prüfen,
+  wenn ihre Fähigkeit, Struktur oder Grammatikachse passt. Zuständigkeit
+  immer gegen aktuelle Imports/Aufrufer verifizieren.
+- `spec.py`: Whitelist und Schema der serialisierbaren `AbilitySpec`-/
+  `EffectSpec`-IR. Das Kompositionsdesign in `14_PARSER_GRAMMAR_DESIGN.md`
+  ist teilweise implementiert; tatsächliche Operatoren und Validierung im
+  Code prüfen.
+
+Die Front-End-Grenze bleibt strikt: `parser/oracle/` hat keine
+`game/`-Imports. Für eine Relation, die im IR scheinbar fehlt, erst
+`spec.py`, den Binder und `game/effects/composition.py` bzw.
+`game/effect_operands.py` prüfen, bevor sie als fehlende Grammatik oder neues
+Engine-Primitive bezeichnet wird.
+
 Die Commander-Tail-Buckets A–F sind **eine erste, heuristische und
 gegenseitig ausschließende Routing-Einteilung**, keine vollständige
 Grammatikzerlegung und kein Beweis, dass ein Ticket existiert. Prüfe speziell
@@ -99,10 +204,11 @@ Suche neben der Ursache nach überlappenden Grammatik-Tags, mindestens:
 
 1. Fähigkeit/Linkage: Spell, Trigger, Aktivierung, Static, Replacement,
    Keyword oder struktureller Block.
-2. Effekt-Atom und Argument-Frame: Operation, Subjekt/Referent, Ziel/Zone,
-   Anzahl/Betrag, Bedingung und Dauer.
-3. Komposition: Sequenz, Verzweigung, Optionalität, Iteration/`for each`,
-   Bindung/`where X is`, verzögerter Effekt oder Wahl.
+2. Schrittfolge: atomare Operationen, deren Reihenfolge sowie Bedingungs-,
+   Alternativ-, Optionalitäts-, Iterations-, Bindungs- und Dauer-Scope.
+3. Argument-Frames **und Relationen**: Operation, Subjekt/Referent,
+   Ziel/Zone, Anzahl/Betrag, Datenquelle/-senke und Abhängigkeit zwischen
+   Schritten.
 4. Reichweite: set-übergreifende Grundgrammatik, wiederverwendbare
    Set-/Precon-Mechanik, Engine-Primitiv-Abhängigkeit, Einzelkartenrest oder
    bestätigtes Nichtziel.
@@ -126,6 +232,8 @@ Priorisiere belegte, wiederverwendbare Grammatikachsen vor
 phrase-spezifischen Handler-Reihen. Für jeden Vorschlag zeige mindestens:
 
 - Grammatikachse und betroffene Parser-/IR-Schicht;
+- repräsentative Zerlegung in geordnete Schritte und ihre Relationen, nicht
+  nur eine Regex-/Template-Bezeichnung;
 - verifizierte SOLO-Karten sowie zusätzliche Karten mit weiteren Blockern;
 - Set-/Deck-Breite und konkreten Saved-Deck-Bezug, falls relevant;
 - angenommene Parser- oder Engine-Abhängigkeiten und welche davon geprüft

@@ -245,9 +245,12 @@ class CombatMixin:
             if obj.attacking and obj.controller_id is not None:
                 declared.setdefault(obj.controller_id, []).append(obj.instance_id)
         for attacker_id, ids in declared.items():
+            # The players this declaration attacks (RULE 508.1), for "whenever a player attacks
+            # one or more of your opponents" — a planeswalker or battle is not a player.
+            defender_ids = list(dict.fromkeys(d for (a, d) in counts if a == attacker_id))
             self.state.fire_event(
                 GameEvent(EventType.ATTACKERS_DECLARED, player_id=attacker_id,
-                          attacker_ids=list(ids), count=len(ids))
+                          attacker_ids=list(ids), count=len(ids), defending_player_ids=defender_ids)
             )
         for (attacker_id, defender_id), count in counts.items():
             self.state.fire_event(

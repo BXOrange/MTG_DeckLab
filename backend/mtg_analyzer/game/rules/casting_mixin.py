@@ -1633,6 +1633,8 @@ class CastingResolutionMixin:
         referent_subject_id = choice.get("referent_subject_id")
         if referent_subject_id is not None:
             self.context.trigger_event = {"instance_id": referent_subject_id}
+        outer_acting = self.context.acting_player_id
+        self.context.acting_player_id = choice.get("acting_player_id")
         try:
             _apply_effects_partitioned(
                 built, self.context, announced or None, None, source=source,
@@ -1640,6 +1642,7 @@ class CastingResolutionMixin:
             )
         finally:
             self.context.trigger_event = outer_trigger_event
+            self.context.acting_player_id = outer_acting
 
     def _resume_iteration(self, frame: dict[str, Any]) -> None:
         """Run one iteration of a parked loop body, then queue the next.

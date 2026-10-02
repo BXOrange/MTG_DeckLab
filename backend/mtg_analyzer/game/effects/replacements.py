@@ -1039,6 +1039,8 @@ def _additional_named_token_replacement(params: dict[str, Any]) -> ReplacementEf
     creation must not trigger *another* extra token).
     """
     extra_name = str(params.get("token_name", "Food"))
+    #: Xorn/Jolene: only a creation of this named token gets the extra one (``None`` = any token).
+    only_token = params.get("only_token")
     effect = ReplacementEffect(
         event_type=EventType.CREATE_TOKENS,
         replacement_fn=lambda e, c: e,
@@ -1049,6 +1051,8 @@ def _additional_named_token_replacement(params: dict[str, Any]) -> ReplacementEf
     def _applies(event: GameEvent, _context: GameContext) -> bool:
         src = effect.source
         if src is None or event.get("controller_id") != src.controller_id:
+            return False
+        if only_token is not None and event.get("token_name") != only_token:
             return False
         return not effect._busy  # type: ignore[attr-defined]
 

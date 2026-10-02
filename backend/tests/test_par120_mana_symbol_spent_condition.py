@@ -99,9 +99,9 @@ def test_gruul_scrapper_gains_haste_only_if_red_mana_paid_for_it():
         ))
 
     _fire_enters()
+    # RULE 603.4: an intervening "if" is checked as the trigger event occurs — no red was spent, so it never triggers
     placed = eng.rules.put_triggers_on_stack()
-    assert placed == 1
-    eng.rules.resolve_top_of_stack()
+    assert placed == 0
     eng.recompute_continuous_effects()
     assert not combat_has_haste(obj)
 

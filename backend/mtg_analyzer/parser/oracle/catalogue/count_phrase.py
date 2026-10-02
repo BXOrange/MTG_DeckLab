@@ -65,6 +65,8 @@ _ENTERED_THIS_TURN = re.compile(r"\s+that entered (?:the battlefield )?this turn
 #: "creatures **blocking it**" / "…that share a creature type with **it**" — counted against the object
 #: a pronoun names (`blocking_source` / `shares_creature_type_with_reference`); the caller says which
 #: object that is (the amount's ``reference``).
+#: "cards in exile **that have an adventure**" (Howling Galefang) — the `has_adventure` filter key.
+_HAS_ADVENTURE = re.compile(r"\s+that (?:has|have) an adventure$")
 _BLOCKING_IT = re.compile(r"\s+blocking (?:it|~)$")
 _SHARES_TYPE_WITH_IT = re.compile(r"\s+that shares? a creature type with (?:it|~)$")
 # One noun phrase can name two disjoint zones (Crackling Drake / Huskburster
@@ -114,6 +116,10 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
     if entered is not None:
         extra["entered_this_turn"] = True
         text = text[: entered.start()].strip()
+    adventure = _HAS_ADVENTURE.search(text)
+    if adventure is not None:
+        extra["has_adventure"] = True
+        text = text[: adventure.start()].strip()
     blocking = _BLOCKING_IT.search(text)
     if blocking is not None:
         extra["blocking_source"] = True
@@ -207,6 +213,8 @@ def _quantity(text: str) -> Optional[tuple[Optional[int], Optional[int], bool, s
 
 
 _CONTROL = re.compile(r"^you control (?P<rest>.+)$")
+#: "you own a card in exile that has an adventure" — ownership, so the count is over *your* zone.
+_OWN = re.compile(r"^you own (?P<rest>.+)$")
 _THERE_ARE = re.compile(r"^there (?:are|is) (?P<rest>.+)$")
 _OPPONENT_MORE = re.compile(r"^an opponent controls more (?P<phrase>.+?) than you$")
 
@@ -228,9 +236,10 @@ def parse_count_condition(text: str) -> Optional[dict[str, Any]]:
         return {"kind": "opponent_has_more", "selector": {**selector, "of": "you"}}
     control = _CONTROL.match(text)
     there = _THERE_ARE.match(text)
-    if control is None and there is None:
+    own = _OWN.match(text)
+    if control is None and there is None and own is None:
         return None
-    rest = (control or there).group("rest")
+    rest = (control or there or own).group("rest")
     quantity = _quantity(rest)
     if quantity is None:
         return None
@@ -241,6 +250,10 @@ def parse_count_condition(text: str) -> Optional[dict[str, Any]]:
     if control is not None:
         if selector.get("zone") != "battlefield" or selector.get("of") != "any":
             return None  # "you control" already fixed the scope
+        selector["of"] = "you"
+    elif own is not None:
+        if selector.get("zone") == "battlefield":
+            return None  # "you own" counts cards in a zone, never permanents
         selector["of"] = "you"
     elif selector.get("zone") == "battlefield":
         pass  # "there are 4 or more creatures on the battlefield": any player's
@@ -298,6 +311,8 @@ _NAMED_TERMS: dict[str, str] = {
     "the amount of life you gained this turn": "life_gained_this_turn",
     "the amount of life you lost this turn": "life_lost_this_turn",
     "the number of experience counters you have": "experience_counters_you_have",
+    # RULE 702.108a: the colours of mana spent on the spell that is resolving (Radiant Flames' "where X is …").
+    "the number of colors of mana spent to cast this spell": "converge",
 }
 #: "the sacrificed creature's power" (Fling, Altar of Dementia, Ghoulcaller Gisa) — what the ability's own
 #: sacrifice (a cost, or "you may sacrifice a creature. When you do, …") stamped on its source

@@ -2130,8 +2130,13 @@ class PumpEffect(GameEffect):
         card_zones: Optional[list[str]] = None,
         card_type: Optional[str] = None,
         keyword_options: Optional[list[str]] = None,
+        group_player: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: "**Creatures target player controls** get -2/-2 until end of turn" (Arms of Hadar, How to Start a Riot):
+        #: the ``selector`` group is written for "you" and evaluated for the player this effect targets
+        #: (``"player"`` / ``"opponent"``, RULE 115), the `DealDamageEffect.group_player` shape.
+        self.group_player = group_player if group_player in ("player", "opponent") else None
         #: PAR-102: "gains your choice of flying, vigilance, or haste until end of turn" — the flag
         #: keywords the controller picks one of at resolution (`RulesEngine._request_keyword_choice`).
         self.keyword_options = [str(k) for k in (keyword_options or [])]
@@ -2249,6 +2254,8 @@ class PumpEffect(GameEffect):
         self._attached_mode = target_kind == "attached_permanent"
         self.target_operand = target_operand
         self.target_group_index = target_group_index
+        if self.group_player is not None and selector is not None and target_kind is None:
+            self.target_spec = TargetSpec(kind=self.group_player)
         if target_kind is not None and not self._attached_mode and not previous_subject and target_operand is None:
             # PAR-15: "any number of target creatures each get +N/+N [and
             # gain `<keyword>`] until end of turn" (Aerial Formation/Ajani's
@@ -2466,6 +2473,11 @@ class PumpEffect(GameEffect):
                 group = previous_group_objects(context, self.source, selector)
             else:
                 controller_id = getattr(self.source, "controller_id", None)
+                if self.group_player is not None:
+                    chosen = targets[0] if targets else None
+                    if chosen is None or getattr(chosen, "instance_id", None) is not None:
+                        return  # the player target is gone / illegal: nothing to scope the group to
+                    controller_id = chosen.id
                 group = group_selector_objects(context.state, controller_id, selector, src=self.source)
             if self.subtypes is not None:
                 group = [

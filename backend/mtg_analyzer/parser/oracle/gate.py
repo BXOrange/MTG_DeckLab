@@ -3847,7 +3847,25 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: last-known information), with "return it" bound to that pick (`ReturnSelfToBattlefieldEffect` ``previous_target``);
 #: "put enchanted creature into its owner's library third from the top"; and the mass "exile all/each `<group>` until ~
 #: leaves the battlefield" (the exile links every card it took, `linked_exile_ids`).
-PARSER_VERSION = "581"
+#: 582 (PAR-107/108/110/113 run 3): a body that speaks of "that attacking player" / "they" under a player-attack head
+#: runs *as* that player (`trigger_subject_referent` ``acting="event_player"``), with the heads "attacks you / enchanted
+#: player / 1 [or more] of your opponents" (`defender_is_*`; Curses, Jolene, Ellie, Everett) and "instead create those
+#: tokens plus an additional Treasure" (`additional_named_token` ``only_token``); "a card that has an adventure" as a
+#: graveyard-return target, an "as long as you own a card in exile …" condition and a group enters-with-counter filter;
+#: "~ deals N damage to each `<group>` and an additional M damage to each `<group>`"; "the number of colors of mana
+#: spent to cast this spell"; "lose X life" (also the whole "lose life equal to …" family it unlocked). Bug fixed on
+#: the way: in "target player gains 3 life and draws a card" the second verb acted on the controller — it now acts on
+#: the player the first clause chose (a verb with no such reading refuses the sentence), and a shared "where X is …"
+#: with a sacrificed/greatest term binds both halves.
+#: 583 (same batch, second increment): "if {w} was spent to cast this spell" (the hybrid cycle: Firespout, Dawnglow
+#: Infusion, Invert the Skies, Unnerving Assault, Revenant Patriarch …), "`<A>` if … and `<N>` damage/life `<B>` if …"
+#: (the second conjunct repeats only the amount noun), "you may have target creature get -2/-2" (14 cards),
+#: "creatures target player controls get +N/+N" (`PumpEffect` ``group_player``), "`<player>` skips their next untap
+#: step / draw step / combat phase" (`SkipNextStepEffect` for another player; a skipped phase skips all its steps),
+#: "N damage to any target and M damage to you", and a "plus the number of" sum after "where X is".
+#: 584: an enters trigger's "if {W} was spent to cast it" is a true RULE 603.4 intervening-if (`trigger["active_if"]`,
+#: checked once at trigger time — Revenant Patriarch no longer asks for a target when white was not spent).
+PARSER_VERSION = "584"
 
 
 def parser_source_hash() -> str:

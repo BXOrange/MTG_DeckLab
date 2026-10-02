@@ -3447,6 +3447,10 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
      lambda m: {"kind": "kicked", "max": 0}),
     (re.compile(r"this spell was kicked", re.I),
      lambda m: {"kind": "kicked", "min": 1}),
+    # The hybrid cycle's "if {w} was spent to cast this spell" (Repel Intruders, Boros Fury-Shield, Firespout's halves):
+    # at least one mana of that colour paid for the spell (`GameObject.mana_by_color_spent_to_cast`, Adamant's fact).
+    (re.compile(r"\{(?P<c>[wubrg])\} was spent to cast (?:this spell|it)", re.I),
+     lambda m: {"kind": "mana_color_spent_to_cast_at_least", "color": m.group("c").upper(), "amount": 1}),
     # MEC-106 / RULE 702.174k: "the gift was[n't] promised" — `GameObject.gift_promised`,
     # stamped when the spell was cast, read by a resolving spell and by a permanent's
     # intervening-if alike (the flag lives on the source either way).
@@ -4558,7 +4562,8 @@ def _granted_trigger_doubler(inner: str) -> Optional[EffectSpec]:
 #: *others* form of a RULE 614.1 entry-counter replacement, `extra_etb_counter` with a ``filter``.
 #: The kind is one `object_filter` plural phrase ("warrior creatures", "dragons", "non-human creatures").
 _EXTRA_ETB_COUNTER_RE = re.compile(
-    r"each (?P<other>other )?(?P<phrase>[a-z' -]+?) you control enters? with an additional "
+    r"each (?P<other>other )?(?P<phrase>[a-z' -]+?) you control(?P<adv> that has an adventure)? "
+    r"enters? with an additional "
     r"(?:(?P<n>\d+|an?|one) )?(?P<kind>[+\-]\d+/[+\-]\d+) counters? on it",
     re.IGNORECASE,
 )
@@ -4574,6 +4579,8 @@ def _extra_etb_counter_specs(text: str) -> Optional[list[EffectSpec]]:
     )
     if not filt:
         return None
+    if m.group("adv"):
+        filt = {**filt, "has_adventure": True}  # Mysterious Pathlighter
     n = (m.group("n") or "1").lower()
     count = int(n) if n.isdigit() else 1
     return [EffectSpec("extra_etb_counter", {

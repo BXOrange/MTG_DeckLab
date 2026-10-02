@@ -1,22 +1,30 @@
 # DeckLab: MVP Use Cases (Revised)
 
+> **Status (2026-10):** This document began as a proposed MVP, not as a
+> description of the current product. Its original CLI/LLM assumptions and
+> week-based phases are obsolete. The use cases and R6 UI requirements below
+> are aligned with the implemented web app; R1–R4 remain useful domain
+> references and are cited by code, but are not an exhaustive statement of
+> current engine coverage. For shipped frontend behavior, see
+> [`../concepts/05_GAME_UI_AND_CARD_INTERACTION.md`](../concepts/05_GAME_UI_AND_CARD_INTERACTION.md),
+> [`../concepts/04_SERVER_CLIENT_ARCHITECTURE.md`](../concepts/04_SERVER_CLIENT_ARCHITECTURE.md),
+> and [`../implementation-state/Done_Frontend.md`](../implementation-state/Done_Frontend.md).
+> For current open work and implementation status, see
+> [`../implementation-state/BACKLOG.md`](../implementation-state/BACKLOG.md)
+> and [`../implementation-state/10_COMPLETION_ROADMAP.md`](../implementation-state/10_COMPLETION_ROADMAP.md).
+
 ---
 
-# STRATEGIC SHIFT
+# PRODUCT SCOPE
 
-Original MVP fokussierte auf **automatische Analyse & Simulation**:
-- Win Condition Detection (Heuristiken)
-- Consistency Scoring (Statistik-Modell)
-- 10-Zug Simulation
-- Automatische Empfehlungen
+DeckLab ist inzwischen eine **browserbasierte Deck-Verwaltung, Analyse und
+Spieloberfläche** mit einer serverseitig maßgeblichen Regel-Engine. Das
+Frontend ist eine statische, buildlose ES-Module-App; eine CLI-Spieloberfläche
+und eine LLM-Integration gehören nicht zum implementierten Produkt.
 
-**Revised MVP fokussiert auf Spielbarkeit & LLM-Intelligence**:
-- Regelkorrektheit als Fundament
-- Mensch-lesbare Spiele (nicht Simulation)
-- LLM für Analyse statt Heuristiken
-- Schrittweise Automatisierung
-
-**Kern-Einsicht:** Ein Regelwerk, das Menschen spielen können, ist wertvoller als eine Simulation, die Spieler nicht verstehen.
+Die nachfolgenden Use Cases beschreiben den heutigen Umfang. Wo ein
+Analysebereich noch nicht umgesetzt ist oder eine Anforderung aus dem alten
+MVP stammt, ist das ausdrücklich markiert.
 
 ---
 
@@ -25,27 +33,34 @@ Original MVP fokussierte auf **automatische Analyse & Simulation**:
 ## USE CASE 1: Deckliste Laden & Validieren
 
 ### Description
-System empfängt eine Commander-Deckliste und validiert sie gegen offizielle Regeln.
+Benutzer fügt eine Commander-Deckliste ein oder importiert sie und erhält
+sofortiges Parse-Feedback sowie anschließend die maßgebliche serverseitige
+Kartenauflösung und Legalitätsprüfung.
 
 ### Actor
-Benutzer (CLI oder Datei-Upload)
+Benutzer im Browser (Deck editieren / externer Deckimport)
 
 ### Preconditions
-- Deckliste liegt vor (Text, Datei, oder String)
+- Deckliste liegt als Text oder unterstützter externer Import vor
 - Kartendatenbank verfügbar
 
 ### Main Flow
-1. System parsed Deckliste (verschiedene Formate)
-2. System validiert gegen Commander-Regeln:
+1. Benutzer fügt eine Liste in Commander-, Mainboard- und Sideboard-Felder
+   ein oder lädt sie über einen unterstützten Importpfad.
+2. Das Frontend parst die Liste lokal für sofortiges Feedback.
+3. Der Server löst Kartennamen auf und prüft die Deckstruktur sowie
+   Commander-Legalität:
    - Legendary Commander
    - Singleton Format (max 1 Kopie außer Basic Lands)
    - 100 Karten Total
    - Color Identity Constraint
    - Ban List
    - Partner Rules (falls vorhanden)
-3. System resolved Kartennamen gegen Kartendatenbank
-4. System lädt vollständige Kartinformationen
-5. System gibt Validierungsergebnis: Legal / Illegal + Fehler
+4. Das Frontend zeigt Parsefehler, nicht aufgelöste Karten und konkrete
+   Legalitätsgründe getrennt an.
+5. Benutzer kann das Deck als neues Deck speichern oder ein geladenes Deck
+   aktualisieren und es anschließend verwalten, analysieren oder im
+   Goldfisch-Modus verwenden.
 
 ### Postconditions
 - Deckliste ist geladen und validiert
@@ -54,269 +69,219 @@ Benutzer (CLI oder Datei-Upload)
 - Bei Fehlern: Klare Fehlermeldung mit Korrektur-Vorschlag
 
 ### Requirements (Architektur)
-- **Parser**: Verschiedene Input-Formate
+- **Parser**: Unterstützte Decklisten- und Importformate
 - **Validator**: Commander-Regeln (Legendary, Singleton, Color Identity, Ban List, Partner)
 - **Card DB**: Vollständige Kartinformationen + Legality Tracking
 - **Error Handling**: Aussagekräftig, mit Suggestions
 
 ---
 
-## USE CASE 2: Deckliste durch LLM Analysieren
+## USE CASE 2: Gespeichertes Deck analysieren
 
 ### Description
-System nutzt ein LLM (Claude, etc.) um die Deckliste zu analysieren: Strategie, Win Conditions, Archetype, Deck-Kohärenz.
+Benutzer öffnet die Analyse eines gespeicherten Decks. Die statische Analyse
+berechnet Kennzahlen und Deckzusammensetzung; die Bracket-Analyse zeigt eine
+inoffizielle Heuristik. Eine dynamische Strategie-/Synergieanalyse ist
+derzeit nicht implementiert.
 
 ### Actor
-System (LLM-powered)
+Benutzer im Browser; statische und Bracket-Auswertung laufen lokal im Frontend
 
 ### Preconditions
-- Deckliste vollständig geladen und validiert
-- LLM API verfügbar
-- Alle Kartinformationen geladen
+- Gespeichertes Deck und aufgelöste Kartendaten verfügbar
 
 ### Main Flow
-1. System erstellt strukturierte Kartenliste:
-   - Gruppiert nach Karttyp
-   - Mit Mana-Kosten, Power/Toughness, Key Abilities
-2. System sendet an LLM mit Prompt:
-   ```
-   "Analyze this Commander deck:
-   [Deck List mit Struktur]
-   
-   Provide:
-   1. Primary Win Conditions (Combat/Burn/Combo/Mill/Other)
-   2. Deck Archetype (Aggro/Midrange/Control/Combo/Ramp/Other)
-   3. Key Synergies (welche Karten interagieren?)
-   4. Deck Cohesion Score (0-10: Wie rein ist die Strategie?)
-   5. Win Condition Probability (Early/Mid/Late game)
-   6. Potential Issues (Zu viele/wenige Threats? No removal? etc.)
-   "
-   ```
-3. LLM analysiert und gibt strukturierte Antwort
-4. System parst LLM Output und speichert Ergebnisse
-5. System zeigt Analyse Benutzer
+1. Benutzer öffnet **Deck analysieren** aus der Deckverwaltung.
+2. Die statische Analyse zeigt unter anderem Manakurve, Land- und
+   Typverteilung, Manaquellen, Starthand-/Landwahrscheinlichkeiten und
+   erkannte funktionale Kategorien.
+3. Die Bracket-Analyse zeigt eine heuristische Mindest-Bracket-Schätzung,
+   ihre Signale und die zugrunde liegenden Karten.
+4. Der Bereich **Dynamische Analyse** weist darauf hin, dass Strategie,
+   Archetyp, Synergien und Gesamtkohärenz noch nicht implementiert sind.
 
 ### Postconditions
-- Deck-Strategie ist analysiert
-- Win Conditions sind identifiziert
-- Potential-Probleme sind aufgezeigt
-- Alle Ergebnisse sind in strukturierter Form verfügbar
-
-### AI Quality Benefits
-- LLM versteht Card Text viel besser als Heuristiken
-- LLM kann Synergien erkennen (z.B. "This creature triggers when enchantment enters")
-- LLM kann nuancierte Analyse machen (z.B. "This is not pure Aggro, it's Tempo")
-- Ergebnisse sind für Menschen lesbar und verständlich
+- Die vorhandenen Kennzahlen und Heuristiken sind sichtbar.
+- Die Oberfläche stellt heuristische Ergebnisse nicht als offizielle
+  Bewertung oder vollständige Strategieanalyse dar.
+- Für die nicht implementierte dynamische Analyse wird kein Ergebnis
+  vorgetäuscht.
 
 ### Requirements (Architektur)
-- **LLM Integration**: API-Call zu Claude/GPT/etc.
-- **Prompt Engineering**: Strukturierte Prompts für Deck-Analyse
-- **Output Parsing**: JSON/Structured Output vom LLM
-- **Caching**: Cache LLM-Responses (teuer, gleiche Decks wiederkehren)
-- **Fallback**: Was tun wenn LLM offline?
-
-### Note on LLM vs. Heuristics
-LLM ist bessere Wahl als Heuristiken weil:
-- Card Text ist komplex (LLM liest besser)
-- Synergien sind nicht-trivial
-- Spieler verstehen LLM-Reasoning besser
-- Wartung ist einfacher (keine neuen Heuristiken)
-- Error Rate ist akzeptabel für "advisory" tool (nicht kritisch)
+- **Statische Analyse:** Kennzahlen nachvollziehbar aus den verfügbaren
+  Deck- und Kartendaten berechnen.
+- **Bracket-Analyse:** Als inoffizielle Heuristik kennzeichnen und ihre
+  erkannten Signale samt Karten zeigen.
+- **Statusanzeige:** Nicht implementierte Analysen eindeutig als solche
+  darstellen; keine LLM-Abhängigkeit voraussetzen.
 
 ---
 
 ## USE CASE 3: Goldfisch-Modus (Solo-Spiel)
 
 ### Description
-Benutzer spielt eine Hand-Simulation gegen die echten MTG-Regeln (aber ohne Gegner).
+Benutzer spielt ein gespeichertes Deck solo gegen einen passiven Dummy mit
+der echten Backend-Regel-Engine. Replay/Puzzle ergänzt diesen Ablauf um einen
+frei erstellbaren oder importierten Spielzustand.
 
 ### Actor
-Benutzer (Mensch)
+Benutzer im Browser
 
 ### Preconditions
-- Deckliste validiert
-- Regelwerk implementiert
-- Game State kann getrackt werden
+- Ein gespeichertes, serverseitig legales Deck für Goldfisch; Replay kann
+  ohne gespeichertes Deck mit einem beliebigen Boardzustand gestartet werden.
 
 ### Main Flow
-1. System initialisiert Spiel:
-   - Shuffled Deck
-   - Zieht 7 Karten (Opening Hand)
-2. Benutzer sieht:
-   - Opening Hand
-   - Mulligan Option
-3. Falls Mulligan: Repeat, sonst beginn Spiel
-4. Für jeden Zug:
-   - **System**: Führt automatische Schritte aus
-     - Untap Step
-     - Draw Step
-     - Resolve Triggered Abilities
-   - **Benutzer**: Macht Decisions
-     - "Cast Spell" (System validiert Legality)
-     - "Activate Ability"
-     - "Attack" (wenn vorhanden)
-     - "Pass Priority"
-   - **System**: Resolves Actions nach Regeln
-     - Validiert Mana-Kosten
-     - Aktualisiert Game State
-     - Triggert Abilities
-     - Managet Stack
-5. Spiel läuft bis Benutzer "Stop" drückt
-6. System zeigt finale Game State
+1. Benutzer wählt ein legales gespeichertes Deck; das Spiel wird gestartet
+   und eine Starthand samt Mulligan-Aktionen angezeigt.
+2. Nach dem Behalten steuert der Benutzer das Spielbrett. Die Engine liefert
+   erlaubte Aktionen; der Benutzer spielt Länder, wirkt Zauber, aktiviert
+   Fähigkeiten, wählt Ziele und führt Kampfaktionen aus.
+3. Die Session verarbeitet Aktionen, Stack und Engine-Entscheidungen; die
+   Oberfläche zeigt den aktualisierten Zustand und gegebenenfalls
+   Ziel-/Entscheidungsdialoge.
+4. Solo-Steuerung erlaubt unter anderem Schrittfortschritt,
+   Zurücknehmen/Neustart und Spielauswertung.
+5. Benutzer kann die aktuelle Position als Replay exportieren.
+6. Im Replay/Puzzle-Modus kann er ein Board frei bearbeiten, importieren oder
+   exportieren und anschließend in denselben interaktiven Spielmodus wechseln.
 
 ### Postconditions
 - Benutzer hat eine komplette Goldfisch-Runde gespielt
 - Alle Züge sind nach echten Regeln aufgelöst worden
-- Game State ist korrekt (Lands, Mana, Creatures, Hand, etc.)
+- Der aktuelle Spielzustand oder die Spielauswertung ist sichtbar.
+- Eine exportierte Replay-Datei kann im Replay/Puzzle-Modus weiterverwendet werden.
 
 ### UI/UX Implications
-- Muss lesbar & navigierbar sein
-- Clear "What can I do now?" Display
-- Easy Mulligan Interface
-- Clear Spell Targeting System
+- Spielzustand, Zug/Phase/Schritt, Zonen und offene Stack-Objekte lesbar
+  darstellen.
+- Vom Server gelieferte legale Aktionen unmittelbar an den betroffenen
+  Karten anbieten; gesperrte Aktionen mit Grund kenntlich machen.
+- Mulligans, Ziele, Kostenwahlen und ausstehende Engine-Entscheidungen
+  verständlich und abbrechbar bedienen lassen, wo die Spielregeln es zulassen.
+- Goldfisch- und Replay-Steuerung als Solo-Funktionen kennzeichnen.
 
 ### Requirements (Architektur)
 - **Full Game Engine**: Alle MTG Regeln implementiert
-- **Game State Display**: CLI oder Web-UI
+- **Game State Display**: Browser-UI
 - **Input Validation**: Nur legale Moves erlaubt
 - **Stack Resolution**: Korrekt nach RULE 608
 - **Mulligan Logic**: Benutzer wählt Keep/Mulligan
-- **Error Messages**: Klar warum eine Action nicht funktioniert ("You need Blue mana for this spell")
+- **Fehlerfeedback**: Serverablehnungen und Sperrgründe verständlich anzeigen
 
 ---
 
-## USE CASE 4: Multiplayer-Modus (2 Menschliche Spieler)
+## USE CASE 4: Multiplayer-Modus
 
 ### Description
-Zwei Benutzer spielen gegeneinander nach echten MTG-Regeln, unterstützt durch das System.
+Zwei bis vier Personen spielen an einem gemeinsamen Tisch gegen dieselbe
+Regel-Engine. Freie Plätze können mit Bots besetzt werden; ein laufendes
+Spiel kann auch beobachtet werden.
 
 ### Actor
-2 Benutzer (Spieler 1 & Spieler 2)
+Host, zwei bis vier menschliche Spieler und optional Bots oder Zuschauer
 
 ### Preconditions
-- Beide Decks validiert
-- Regelwerk implementiert
-- System kann Multiplayer-Game State managen
+- Alle menschlichen Spieler verbinden sich mit demselben Backend.
+- Jeder Spielersitz hat ein legales gespeichertes Deck; ein Bot-Sitz wird
+  vom Host verwaltet.
 
 ### Main Flow
-1. System initialisiert Spiel:
-   - Beide Decks shuffled
-   - Beide Spieler ziehen 7 Karten
-2. Mulligan Phase (standard):
-   - Spieler 1 Keep/Mulligan
-   - Spieler 2 Keep/Mulligan
-   - Repeat bis beide Halten
-3. Spiel läuft Turn für Turn:
-   - Active Player (Sp1 Turn 1):
-     - Untap, Draw, Main Phase I, Combat, Main Phase II, End
-     - System managt alle Regeln
-     - Sp1 macht Decisions (Cast Spell, Attack, etc.)
-   - Non-Active Player (Sp2):
-     - Kann reagieren (Instants, Activated Abilities)
-     - Priority wenn nötig
-   - Stack resolves nach Regeln
-4. Nach Sp1's Turn: Sp2's Turn
-5. Spiel läuft bis jemand:
-   - Auf 0 or negative Life geht
-   - Deck ist leer (Draw X from empty library)
-   - Andere Loses Condition
+1. Spieler öffnen Multiplayer-Setup; ein Host erstellt einen Tisch mit zwei
+   bis vier Plätzen, weitere Spieler treten bei.
+2. Host konfiguriert die Tischoptionen. Alle Sitze wählen ein legales Deck
+   und bestätigen ihre Bereitschaft; der Host kann freie Sitze mit Bots
+   besetzen.
+3. Host startet, sobald alle Plätze besetzt und bereit sind. Jeder
+   menschliche Spieler entscheidet auf seinem eigenen Client über
+   Behalten oder Mulligan.
+4. Das gemeinsame Spiel läuft mit echter Priorität. Spielaktionen werden
+   dem handelnden Sitz zugeordnet und serverseitig validiert.
+5. Das Backend sendet jedem Spielersitz eine eigene, um verdeckte
+   Informationen bereinigte Ansicht. Die Oberfläche aktualisiert das Board
+   über den Lobby-WebSocket.
+6. Bots handeln über ihre eigene bereinigte Ansicht und ausschließlich
+   anhand ihrer eigenen legalen Aktionen.
+7. Spieler können zuschauen, sich wiederverbinden oder – abhängig von der
+   Tischkonfiguration – einen eigenen letzten Zug zurücknehmen.
 
 ### Postconditions
-- Spiel wurde komplett nach Regeln gespielt
-- Ein Gewinner ist bekannt
-- Game History verfügbar
+- Der gemeinsame Spielzustand wird für die jeweiligen Perspektiven angezeigt.
+- Ein beendetes Spiel zeigt den Endzustand und das Ergebnis.
+- Verdeckte Informationen bleiben anderen Spielern und Zuschauern verborgen.
 
 ### Interaction Model
 - Turn-basiert (nicht real-time)
-- System trackt Priority + wer kann was tun
-- Clear prompts: "Spieler 2, können Sie reagieren?" mit Timeout (z.B. 10 sec)
-- Detailed Game Log
+- Priorität und handelnder Sitz werden serverseitig verwaltet.
+- Kein "Zug weiter"-Button: alle Spieler geben Priorität weiter; der Stack
+  löst sich auf oder der Schritt endet nach den Regeln.
+- Nur die eigene Hand wird übertragen; fremde verdeckte Karten bleiben
+  serverseitig verborgen.
+- Wiederverbindung und zeitgesteuertes Auto-Passen unterstützen den
+  Spielfluss.
 
 ### Requirements (Architektur)
 - **Full Game Engine**: Multiplayer-States, Priority System
 - **Priority Tracking**: Wer hat Priority? Wer kann reagieren?
-- **Timeout System**: Gegner sollten nicht ewig zögern können
-- **Game Log**: Alle Actions protokolliert
-- **Network** (falls nicht lokal): Support für remote Players
+- **Verbindung und Präsenz**: gemeinsame Tische und Wiederverbindung
 - **UI**: Beide Spieler sehen relevante Informationen (nicht Gegners Hand!)
 
 ---
 
-## USE CASE 5: Automatisierte Züge (Bot)
+## USE CASE 5: Spiele mit Bots
 
 ### Description
-System spielt automatisch Züge (statt Benutzer manuell jede Action einzugeben).
+Goldfisch- und gierige Bots besetzen Sitze im Multiplayer oder spielen
+gegen einen einzelnen Benutzer im Modus **Solo gegen Bots**. Bots sind
+Spieler am selben Engine-Interface, keine separate Regelausführung.
 
 ### Actor
-System (AI/Bot)
+Benutzer beziehungsweise Host und Bot-Spieler
 
 ### Preconditions
-- Goldfisch-Modus oder Multiplayer läuft
-- Spieler hat "Bot" Mode für seinen Deck gewählt
+- Benutzer startet Solo gegen Bots oder der Host fügt einem vorbereiteten
+  Multiplayer-Tisch einen Bot hinzu.
 
 ### Main Flow
-1. Benutzer wählt vor Spiel: "Bot Play" oder "Manual Play"
-2. Falls Bot:
-   - System macht alle Decisions automatisch
-   - Verwendet heuristische/strategische AI
-3. Bot's Turn:
-   - System evaluiert verfügbare Actions
-   - Wählt beste Action (greedy oder more sophisticated)
-   - Spielt Action
-   - Loop bis Main Phase vorbei
-4. Benutzer sieht alle Bot-Actions in real-time
-5. Nach Bot-Turn: Benutzer/anderer Bot spielen
+1. Benutzer beziehungsweise Host wählt Bot-Typ und Deck.
+2. Bot liest nur seine eigene Session-Ansicht und die darin angebotenen
+   legalen Aktionen.
+3. **Goldfisch-Bot** spielt Länder und passt sonst; **Gieriger Bot**
+   wählt sofort verfügbare Aktionen und einfache Erstziele.
+4. Die Engine validiert alle Bot-Aktionen wie Aktionen menschlicher Spieler.
+5. Ergebnisse erscheinen auf dem gemeinsamen oder Solo-Spielbrett.
 
-### Bot Strategy (MVP Level)
-**Greedy Strategy:**
-- Priorität 1: Spielen Win Condition wenn möglich
-- Priorität 2: Spielen beste Threat (nach Power oder Utility)
-- Priorität 3: Spielen beste Removal (gegen gegnerische Threats)
-- Priorität 4: Spielen beste Draw/Acceleration
-- Priorität 5: Pass
-
-**Better Strategy (später):**
-- Lookahead (T+1 planning)
-- Monte Carlo evaluation
-- Threat assessment (gegnerisches Deck)
+### Bot-Verhalten und Grenzen
+Die vorhandenen Policies sind einfache Spieltests und keine
+strategischen Deck-Piloten. Sie erhalten keine direkten Engine- oder
+verdeckten Gegnerdaten; Lookahead, Monte-Carlo-Auswertung und
+Threat-Assessment sind nicht implementiert.
 
 ### Postconditions
-- Bot spielte jeden Zug vollständig aus
-- Alle Actions sind korrekt nach Regeln
-- Spiel ist spielbar Bot vs. Bot oder Bot vs. Mensch
+- Bot-Aktionen werden durch dieselbe Regel-Engine geprüft wie
+  menschliche Aktionen.
+- Bot-Züge werden zusammen mit den resultierenden Ansichten angezeigt.
 
 ### Requirements (Architektur)
-- **AI/Decision Engine**: Bot Strategy Implementation
-- **Action Evaluation**: Score für jede mögliche Action
-- **Threat Assessment**: Was ist gegnerisches Threat Level?
-- **Logging**: Was hat Bot warum gemacht? (für Learning)
+- **Bot-Richtlinien**: Entscheidungen ausschließlich auf eigener View und
+  legal actions basieren
+- **Policies**: Goldfisch- und gierige Policy für aktuelle Spielmodi
 
 ---
 
 # PART 2: ARCHITECTURE IMPACT
 
-## What Changed from Original MVP?
-
-### REMOVED Requirements (Not in MVP)
-- ❌ Consistency Scoring / Probability Calculation
-- ❌ 10-Turn Simulation & Stats Collection
-- ❌ Sensitivity Analysis (which cards matter)
-- ❌ Recommendation Engine
-- ❌ Mulligan Heuristics (Benutzer wählt)
-
-### ADDED Requirements (New MVP)
-- ✅ **Full Game Engine** (Was wichtiger als Simulation)
-- ✅ **UI/CLI for Playing** (Muss spielbar sein)
-- ✅ **LLM Integration** (Statt Heuristiken)
-- ✅ **Multiplayer Support** (Nicht nur Single Player)
-- ✅ **Priority System** (Wichtig für Mensch vs. Mensch)
-- ✅ **Timeout/Turn Management** (Für Multiplayer)
+Die Anforderungen werden heute als Browser-App umgesetzt. Die statische
+Deckanalyse und die Bracket-Heuristik sind vorhanden; dynamische
+Deckstrategieanalyse und LLM-gestützte Auswertung sind kein implementierter
+Bestandteil. Goldfisch, Replay/Puzzle, Multiplayer und Solo gegen Bots
+verwenden die gemeinsame serverseitige Spiel-Engine.
 
 ### Architecture Layers (Revised)
 
 ```
 Layer 5: UI/Game Interface
-         (CLI or Web for Human Players)
+         (statische Browser-App)
          
 Layer 4: Game Engine (Core)
          Turn Loop, Phase Loop, Priority, Stack, State
@@ -329,51 +294,26 @@ Layer 2: Card Services
          
 Layer 1: Data Layer
          Card DB, Deck Storage, Game State
-         
-Parallel: LLM Integration
-          (For Deck Analysis, UC2)
 ```
+
+Deckanalyse ist ein eigener Produktbereich: statische Kennzahlen und
+heuristische Bracket-Auswertung laufen im Frontend; die dynamische
+Strategieanalyse ist laut aktuellem Produktstand noch nicht implementiert.
 
 ---
 
-## Key Architectural Changes
+## Architektur-Leitplanken des aktuellen Produkts
 
-### 1. Game Engine ist jetzt CENTRAL (nicht optional)
-**Alte MVP**: Simulation war the main thing
-**Neue MVP**: Game Engine ist the foundation, alles andere hängt daran
-
-**Implication**: 
-- Muss absolut regelkorrekt sein
-- Muss Performance haben (aber kein 1000 games/sec nötig)
-- Muss Human-Readable Output haben
-
-### 2. LLM statt Heuristiken
-**Alte MVP**: Consistency Scoring, Win Condition Detection, Archetype Detection = Heuristiken
-**Neue MVP**: LLM macht das alles in UC2
-
-**Implication**:
-- Weniger komplexer Code nötig
-- Aber externe API Abhängigkeit
-- Höhere Fehlerrate akzeptabel (advisory, nicht critical)
-
-### 3. UI ist Anforderung (nicht nice-to-have)
-**Alte MVP**: CLI nur für Report
-**Neue MVP**: CLI muss Spiel spielbar machen
-
-**Implication**:
-- Komplexere UI-Logic nötig
-- Game State Display muss klar sein
-- Input Validation muss freundlich sein
-
-### 4. Multiplayer-State ist komplexer
-**Alte MVP**: Nur single-player Simulation
-**Neue MVP**: Two Player Games mit Priority System
-
-**Implication**:
-- Priority Tracking (wer darf was tun?)
-- Timeout Management (Gegner macht kein Move?)
-- Game Log für Disputes
-- Concurrent Actions (beide Spieler simultane Triggers)
+- Die Backend-Engine ist für Regeln, erlaubte Aktionen und den maßgeblichen
+  Spielzustand zuständig; das Frontend stellt diese Informationen dar und
+  übermittelt Benutzeraktionen.
+- Die Spielmodi teilen Engine und Spielbrett, unterscheiden sich aber in
+  Transport und verfügbaren Steuerungen.
+- Multiplayer ist ein gemeinsamer, serverautoritativ verwalteter Tisch mit
+  Priorität und pro Sitz redigierten Ansichten; es ist keine lokale
+  Zwei-Spieler-Ansicht.
+- Die Analyse darf nicht als LLM-gestützt beschrieben werden: implementiert
+  sind statische Auswertungen und Heuristiken.
 
 ---
 
@@ -525,15 +465,19 @@ Main Loop:
 
 ### R4.4: Player Interaction (NEW)
 - Accept moves from Benutzer
-- Timeout for slow players
-- Error messages when illegal
-- Undo? (Maybe not for MVP)
+- Give clear feedback for rejected or unavailable actions
+- Provide mode-appropriate undo/take-back behavior
 
 ---
 
-## Requirement Category 5: LLM Integration
+## Requirement Category 5: LLM Integration (not implemented)
 
-### R5.1: LLM API Integration
+The requirements in this category describe an earlier proposal only. The
+current application has no LLM integration; deck analysis is static or
+heuristic-based. Do not treat R5.1–R5.3 as implemented or as current MVP
+requirements.
+
+### R5.1: LLM API Integration (historical proposal)
 - Call Claude/GPT/etc. API
 - Structured prompts
 - Structured output parsing
@@ -549,122 +493,108 @@ Main Loop:
 
 ---
 
-## Requirement Category 6: UI/Interface (NEW, Critical)
+## Requirement Category 6: Browser UI (current product)
 
-### R6.1: CLI Interface
-- Display current game state (clear, readable)
-- Display player's options ("What can you do?")
-- Input for player actions ("Cast spell", "Attack", etc.)
-- Display results of actions
+These requirements describe the implemented web application and are derived
+from the current frontend interaction model. The client presents and submits
+actions; game legality, hidden-information access and authoritative state
+remain server responsibilities.
 
-### R6.2: Game State Display
-- Battlefield (creatures, other permanents)
-- Hand (player's cards)
-- Stack (current spells/abilities)
-- Life totals
-- Mana pool
-- Graveyard/Exiled
-- Turn/Phase info
+### R6.1: Navigation and mode entry
+- Provide browser navigation for deck editing/import, saved decks, analysis,
+  Goldfish, Solo gegen Bots, Replay/Puzzle, Multiplayer, card cache,
+  engine status, settings and profile.
+- Keep connection settings (server address) separate from player/profile
+  preferences.
+- Clearly indicate connection/loading states and distinguish failures from
+  valid empty results; provide a retry path where applicable.
 
-### R6.3: Input Handling
-- "Play Spell X"
-- "Target Y with Spell"
-- "Attack with creature Z"
-- "Activate ability"
-- "Pass" / "Done"
-- "Mulligan" / "Keep"
+### R6.2: Deck editing, management and analysis
+- Accept supported pasted/imported decklists and provide prompt local parse
+  feedback followed by server-authoritative card resolution and legality.
+- Show parse errors, unresolved cards and legality reasons distinctly.
+- Support saving as a new deck or updating a loaded deck without accidental
+  overwrite.
+- Display saved-deck legality/coverage state and available edit, analyze,
+  play and delete actions.
+- Present static analysis and bracket heuristics with their limitations;
+  identify the dynamic analysis as not implemented until it exists.
 
-### R6.4: Error Messages
-- Why can't I cast this? (Mana? Timing? Color Identity?)
-- Clear, helpful messages
-- Suggestions for legal moves
-
----
-
-# PART 4: WHAT'S NOT IN MVP
-
-### ❌ Consistency Scoring
-- Was Teil des alten MVP
-- Jetzt: LLM macht das
-
-### ❌ Sensitivity Analysis
-- War für Upgrade-Empfehlungen
-- Nicht nötig für MVP
-
-### ❌ Recommendation Engine
-- Wurde durch LLM ersetzt
-
-### ❌ Mulligan Heuristics
-- Benutzer entscheidet selbst
-
-### ❌ 10-Turn Simulation Statistics
-- War nicht-essential
-- Game Engine ist important
-
-### ❌ Performance (1000 games/sec)
-- Nicht relevant (keine Simulation)
-- ~10-20 games/day ist OK
+### R6.3: Shared interactive game board
+- Present each player's zones, life, mana, turn/phase/step and stack in a
+  readable, navigable layout; support the project's compact/layout
+  preferences.
+- Render exactly the actions supplied by the current server view. Do not
+  infer or authorize game actions client-side.
+- Show locked actions with the server-provided reason and surface failed
+  requests as visible feedback rather than silently ignoring them.
+- Provide appropriate interactions for legal actions, targets, cost choices,
+  pending choices, combat assignments and mulligans.
+- Reuse the shared board across Goldfisch, Replay/Puzzle, Solo gegen Bots
+  and Multiplayer while exposing only controls valid for the current mode.
 
 ---
 
-# PART 5: MVP PHASES
+### R6.4: Multiplayer information and synchronization
+- Show each player only information present in that player's server-provided
+  perspective; never reveal hidden cards through client-side rendering or
+  debug controls.
+- Reflect priority, the acting player, connection/presence and pending
+  decisions in the shared board.
+- Update all clients from server-pushed views and support reconnection
+  without discarding valid in-progress UI selections.
+- Keep spectator views redacted and disable unilateral solo controls in a
+  shared game.
 
-## Phase 1: Rules Infrastructure (Weeks 1-2)
-- Card DB + Parser
-- Game State Model
-- Phase/Step Structure
+### R6.5: Card presentation, localization and preferences
+- Present card imagery/details consistently in deck, cache and game views;
+  use cached/backend-served assets rather than direct third-party image
+  requests from the browser.
+- Localize user-facing UI text and keep MTG keyword names in English.
+- Persist client-only preferences locally; do not imply account-backed
+  identity or settings.
 
-## Phase 2: Core Rules Engine (Weeks 3-4)
-- Casting (RULE 601)
-- Stack (RULE 608)
-- Mana System (RULE 504)
-- Priority (RULE 117)
+### R6.6: Accessibility and interaction semantics
+- Provide useful alternative text for card images and semantic dialog/
+  expanded-state attributes where implemented.
+- Do not claim comprehensive keyboard-only, screen-reader, high-contrast or
+  font-size support until those capabilities are implemented and verified.
 
-## Phase 3: Game Loop (Weeks 5-6)
-- Turn/Phase Loop
-- Action Validation
-- Event System
+# PART 4: NICHT IMPLEMENTIERTE ODER HISTORISCHE VORSCHLÄGE
 
-## Phase 4: UI/Playing (Weeks 7-8)
-- CLI Interface
-- Game State Display
-- Player Input
+Die folgenden Punkte stammen aus früheren MVP-Entwürfen und dürfen nicht
+als vorhandene Funktion oder aktuelle Zusage gelesen werden:
 
-## Phase 5: Multiplayer (Weeks 9-10)
-- Two Player Support
-- Priority Management
-- Timeout System
+- LLM-gestützte Deckanalyse und externe LLM-API
+- CLI-Spieloberfläche
+- Strategische Bot-KI mit Lookahead, Monte-Carlo-Auswertung oder
+  Threat-Assessment
+- Die in R5 genannten Prompt-, Output-Parsing- und LLM-Cache-Anforderungen
 
-## Phase 6: LLM Analysis (Weeks 11-12)
-- LLM Integration
-- Prompt Engineering
-- Output Parsing
+Die Oberfläche kennzeichnet die dynamische Deckstrategieanalyse derzeit
+als nicht implementiert. Für tatsächlich offene Arbeit ist der
+[BACKLOG](../implementation-state/BACKLOG.md) maßgeblich.
 
-## Phase 7: Bot AI (Weeks 13-14)
-- Bot Decision Engine
-- Greedy Strategy
-- Play Automation
+---
+
+# PART 5: IMPLEMENTIERUNGSSTATUS
+
+Die ursprünglich geplanten, linearen MVP-Phasen und Wochenangaben sind
+historisch und bilden den aktuellen Entwicklungsablauf nicht ab. Parser,
+Engine, Frontend und Multiplayer entwickeln sich ticketweise und teilweise
+parallel. Maßgeblich sind die
+[Completion Roadmap](../implementation-state/10_COMPLETION_ROADMAP.md),
+der [Backlog](../implementation-state/BACKLOG.md) und die thematisch
+geordneten [`Done_*`-Kataloge](../implementation-state/).
 
 ---
 
 # CONCLUSION
 
-**Revised MVP is fundamentally different:**
-
-| Aspect | Original MVP | Revised MVP |
-|--------|-------------|------------|
-| **Focus** | Deck Analysis & Simulation | Playable Game Engine |
-| **Complexity** | Heuristics + Statistics | Correct Rules Implementation |
-| **LLM Role** | Optional | Core (for analysis) |
-| **Play Experience** | None (analysis only) | Can play actual games |
-| **AI** | For simulation | For bot players |
-| **Value** | Recommendations | Playable Magic Sim |
-
-**Why this is better:**
-1. **Fundament First**: Correct rules engine is more valuable than any analysis
-2. **LLM-Powered**: Analysis by LLM is better than hand-coded heuristics
-3. **Human-Playable**: Actual games are more useful than reports
-4. **Scalable**: Can add features (Commander 1v1, etc.) without rewriting
-5. **Testable**: Rules can be tested against actual MTG games
-
-**Critical Success Factor**: Rules Engine MUST be correct. Everything else depends on it.
+Das aktuelle Produkt verbindet Commander-Deckimport und -verwaltung,
+statische/heuristische Deckanalyse und mehrere browserbasierte Spielmodi
+mit einer gemeinsamen, serverseitig maßgeblichen Regel-Engine. Die UI muss
+den Spielzustand und die vom Server erlaubten Interaktionen verständlich
+vermitteln, ohne selbst Regeln oder verborgene Informationen abzuleiten.
+Erweiterungs- und Fertigstellungsstatus ergeben sich aus der Roadmap und
+den offenen Tickets, nicht aus den historischen MVP-Phasen dieses Dokuments.

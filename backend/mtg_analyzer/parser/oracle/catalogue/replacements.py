@@ -59,6 +59,14 @@ _ADDITIONAL_NAMED_TOKEN_RE = re.compile(
     r"(?P<name>treasure|clue|food|blood|mutagen) token are created instead",
     re.IGNORECASE,
 )
+#: "If you would create 1 or more [Treasure] tokens, instead create those tokens plus an additional
+#: Treasure token." (Xorn, Jolene, Tippy-Toe Terrific Partner) — the same extra named token, but only
+#: alongside a creation of the *named* kind (``only_token``) or, with no kind, of any token.
+_ADDITIONAL_NAMED_TOKEN_INSTEAD_RE = re.compile(
+    r"if you would create 1 or more (?P<only>treasure |clue |food |blood )?tokens, "
+    r"instead create those tokens plus an? additional (?P<name>treasure|clue|food|blood|mutagen) token",
+    re.IGNORECASE,
+)
 #: Doubling Season's counter-doubling line ("a permanent you control" —
 #: the real card's own wording; engine-side unscoped by ``kind``, but this
 #: specific sentence is target-controller-scoped in its own text).
@@ -564,6 +572,13 @@ def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
     m = _ADDITIONAL_NAMED_TOKEN_RE.fullmatch(text)
     if m is not None:
         return [EffectSpec("additional_named_token", {"token_name": m.group("name").capitalize()})]
+
+    m = _ADDITIONAL_NAMED_TOKEN_INSTEAD_RE.fullmatch(text)
+    if m is not None:
+        params = {"token_name": m.group("name").capitalize()}
+        if m.group("only"):
+            params["only_token"] = m.group("only").strip().capitalize()
+        return [EffectSpec("additional_named_token", params)]
 
     if _DOUBLE_COUNTERS_RE.fullmatch(text):
         return [EffectSpec("double_counters", {})]

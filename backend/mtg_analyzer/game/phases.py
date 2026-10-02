@@ -35,6 +35,10 @@ class GamePhase:
     def __init__(self, name: str, steps: list[GameStep]) -> None:
         self.name = name
         self.steps = steps
+        #: RULE 500.11: a phase a player skipped ("skips their next combat phase") — every step of it is
+        #: passed over. Decided at its first step and kept here, so it covers this phase object only (an
+        #: additional combat phase added later is a different one).
+        self.skipped = False
 
     def __repr__(self) -> str:
         return f"GamePhase({self.name!r}, steps={[s.name for s in self.steps]})"

@@ -230,9 +230,26 @@ class TriggerSubjectReferentEffect(_CompositeEffect):
         #: ``"controller"`` runs the body *as* the firing object's controller ("its controller
         #: creates a token"): every "you" in it — who creates, draws, sacrifices, whose lands
         #: "you control" — is that player (`GameContext.acting_player_id`, RULE 109.5).
-        self.acting = acting if acting == "controller" else None
+        #: ``"event_player"`` is the same for a *player* event ("that attacking player …"): the
+        #: acting player is the one the event names and no firing object is looked up.
+        self.acting = acting if acting in ("controller", "event_player") else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.acting == "event_player":
+            # "Whenever a player attacks …, **that attacking player** creates a Treasure token"
+            # (Jolene, the Curses): there is no firing *object*, only the player the event names
+            # (`player_id`); the body is the second-person clause run as that player (RULE 109.5).
+            event = context.trigger_event or {}
+            player_id = event.get("player_id") or event.get("attacking_player_id")
+            if player_id is None or not self.inner_specs:
+                return
+            outer = context.acting_player_id
+            context.acting_player_id = player_id
+            try:
+                self._run(self.inner_specs, context, targets)
+            finally:
+                context.acting_player_id = outer
+            return
         if self.event_key == REMEMBERED_EVENT_KEY:
             # A body that runs after the trigger's window closed (a payment's "if you do"): the
             # object `PayCostThenEffect(remember_trigger_subject)` stamped on the source.
@@ -477,6 +494,9 @@ class OptionalEffect(_CompositeEffect):
             "revealed_card_id": getattr(
                 getattr(context, "revealed_card", None), "instance_id", None
             ),
+            # RULE 109.5: a body run *as* another player ("that attacking player may create a
+            # token") has to still be that player's once the question is answered.
+            "acting_player_id": getattr(context, "acting_player_id", None),
         })
 
 

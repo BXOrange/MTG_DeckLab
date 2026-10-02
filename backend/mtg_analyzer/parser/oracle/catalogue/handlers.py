@@ -1664,6 +1664,24 @@ def _damage_group(m: re.Match[str], *, that_player: str = "event_player") -> Opt
     return [EffectSpec("damage", params)]
 
 
+#: "~ deals 1 damage to each nonblack creature **and an additional 1 damage to each green creature**." (Kaervek's
+#: Hex) / "…to each creature with flying and 1 additional damage to each blue creature." (Tropical Storm) — two
+#: mass hits by the same source in one resolution, each read by the ordinary mass-damage rows.
+_DAMAGE_PLUS_ADDITIONAL_RE = _c(
+    rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+|x) damage to (?P<first>each [a-z' -]+?) "
+    r"and (?:an additional (?P<n2>\d+|x)|(?P<n3>\d+|x) additional) damage to (?P<second>each [a-z' -]+)"
+)
+
+
+def _damage_plus_additional(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    n2 = m.group("n2") or m.group("n3")
+    first = _match_clause_once(f"~ deals {m.group('n')} damage to {m.group('first')}")
+    second = _match_clause_once(f"~ deals {n2} damage to {m.group('second')}")
+    if not first or not second or any(e.type != "damage" for e in (*first, *second)):
+        return None
+    return [*first, *second]
+
+
 def _damage_that_much_selector(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("damage", {
         "amount_from_trigger_event": "that_much",
@@ -3237,7 +3255,8 @@ def _lose_life(m: re.Match[str]) -> list[EffectSpec]:
     # `LoseLifeEffect`'s ``selector="event_player"``, the same "that player"
     # idiom `_SELECTOR_WORD_MAP`'s ``"event_player"`` row already uses.
     who = (m.groupdict().get("who") or "").strip()
-    params: dict = {"amount": int(m.group("n"))}
+    # "x" is the announced {X} (substituted when the spell resolves) or the one a "where X is …" binds.
+    params: dict = {"amount": "x" if m.group("n").lower() == "x" else int(m.group("n"))}
     if who == "target player":
         params["target_kind"] = "player"
     elif who == "target opponent":
@@ -4826,6 +4845,31 @@ def _skip_your_draw_step_this_turn(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("skip_next_step", {"step": "draw"})]
 
 
+#: "`<player>` skips their next `<untap step | draw step | combat phase>`" (Fatigue, Yosei, Brine Elemental, Blinding
+#: Angel, Stonehorn Dignitary, Moment of Silence): a one-shot skip installed on someone else
+#: (`SkipNextStepEffect` ``target_kind`` / ``selector``). "…this turn" (Moment of Silence) is the same skip — it
+#: is consumed by the first matching step still to come.
+_SKIP_THEIR_NEXT_RE = _c(
+    r"(?P<who>target player|target opponent|each opponent|that player) skips their next "
+    r"(?P<step>untap step|draw step|combat phase)(?: this turn)?"
+)
+_SKIP_STEP_NAMES = {"untap step": "untap", "draw step": "draw", "combat phase": "combat"}
+
+
+def _skip_their_next(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict = {"step": _SKIP_STEP_NAMES[m.group("step")]}
+    who = m.group("who")
+    if who == "target player":
+        params["target_kind"] = "player"
+    elif who == "target opponent":
+        params["target_kind"] = "opponent"
+    elif who == "each opponent":
+        params["selector"] = "each_opponent"
+    else:
+        params["selector"] = "event_player"
+    return [EffectSpec("skip_next_step", params)]
+
+
 #: "Exile ~."/"Exile this card." (Teferi's Protection/Mnemonic Betrayal's
 #: trailing self-exile) — the self form, `ExileEffect`'s `target_kind=None`.
 def _exile_self(m: re.Match[str]) -> list[EffectSpec]:
@@ -5171,7 +5215,7 @@ def _return_from_graveyard_two_color(m: re.Match[str]) -> Optional[list[EffectSp
 #: uses, not a new one.
 _RETURN_FROM_GRAVEYARD_RE = _c(
     rf"return (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<nonleg>nonlegendary) )?"
-    rf"(?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card"
+    rf"(?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card(?P<adv> that has an adventure)?"
     # PAR-143: "with power 2 or less" (Alesha) rides the same slot as the mana-value cap.
     rf"(?: with (?:mana value (?P<mv>\d+)|power (?P<pw>\d+)) or less| with mana value (?P<emv>x))? from "
     rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard to "
@@ -5206,6 +5250,8 @@ def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["max_mana_value"] = int(mv)
     if m.groupdict().get("pw") is not None:
         params["creature_filter"] = {"max_power": int(m.group("pw"))}
+    if m.groupdict().get("adv"):
+        params["creature_filter"] = {"has_adventure": True}  # Edgewall Inn
     if m.groupdict().get("emv"):
         params["exact_mana_value"] = "x"  # Isareth the Awakener: bound by the preceding "pay {X}"
     if m.groupdict().get("tapped") or m.groupdict().get("atk"):
@@ -9941,8 +9987,15 @@ def _pump_target_creature_filter(m: re.Match[str]) -> Optional[dict]:
     return resolve_target_creature_state_filter(target_text)
 
 
+#: "Creatures **target player controls** get -2/-2 until end of turn" — the group scoped to the player the spell
+#: targets (`PumpEffect.group_player`): written for "you", evaluated for that player.
+_TARGET_PLAYER_GROUP_RE = re.compile(r"creatures target (player|opponent) controls")
+
+
 def _pump(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    subject = _pump_target(m)
+    scoped = _TARGET_PLAYER_GROUP_RE.fullmatch(m.groupdict().get("group") or "")
+    subject = (None, {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}) if scoped else (
+        _pump_target(m))
     if subject is None:
         return None
     target_kind, selector = subject
@@ -9950,6 +10003,8 @@ def _pump(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "power": _signed_int(m.group("p")),
         "toughness": _signed_int(m.group("t")),
     }
+    if scoped:
+        params["group_player"] = scoped.group(1)
     keywords: list[str] = []
     parametric: list[dict[str, object]] = []
     if m.groupdict().get("kw"):
@@ -13340,6 +13395,7 @@ _GROUP = (
     r"|all creatures you control"
     r"|creatures you control|all creatures"
     r"|creatures your opponents control|creatures you don'?t control|permanents your opponents control"
+    r"|creatures target (?:player|opponent) controls"
     r"|permanents you control|elves you control|elf creatures you control"
     # PAR-109: "Dragons you control get +1/+0 until end of turn" (Lathliss, Ran and Shaw) — any plural subtype
     # or "<adjective> creatures" group; `_group_selector` (the count-phrase grammar) fails closed on a word that
@@ -16179,6 +16235,13 @@ HANDLERS: list[EffectHandler] = [
         ),
         _damage_that_much_selector,
     ),
+    # "that player" is the firing event's player only under the source's own trigger ("whenever ~ deals combat damage
+    # to a player, that player skips …"); after a clause that chose a player it is that pick, which this does not read.
+    EffectHandler("skip_their_next", _SKIP_THEIR_NEXT_RE, lambda m: None if m.group("who") == "that player" else _skip_their_next(m)),
+    EffectHandler(
+        "skip_their_next_event_player", _SKIP_THEIR_NEXT_RE,
+        lambda m: _skip_their_next(m) if m.group("who") == "that player" else None, self_subject_only=True,
+    ),
     EffectHandler(
         "skip_your_draw_step_this_turn",
         _SKIP_YOUR_DRAW_STEP_THIS_TURN_RE,
@@ -16203,6 +16266,7 @@ HANDLERS: list[EffectHandler] = [
         if m.group("group").endswith(" that player controls") else None,
         previous_subject_only=True,
     ),
+    EffectHandler("damage_plus_additional", _DAMAGE_PLUS_ADDITIONAL_RE, _damage_plus_additional),
     EffectHandler("damage_group", _DAMAGE_GROUP_RE, _damage_group),
     # RULE 202.2f/700.6 "it deals damage to each opponent equal to your
     # devotion to <colour>." (Fanatic of Mogis) — tried before the plain
@@ -16582,7 +16646,7 @@ HANDLERS: list[EffectHandler] = [
     # player — see `_lose_life`'s docstring).
     EffectHandler(
         "lose_life",
-        _c(rf"(?P<who>you |target player |target opponent |they )?loses? {NUMBER} life"),
+        _c(r"(?P<who>you |target player |target opponent |they )?loses? (?P<n>\d+|x) life"),
         _lose_life,
     ),
     # RULE 202.2f/700.6 "each opponent loses X life, where X is your

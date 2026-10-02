@@ -404,6 +404,13 @@ class TurnLoopMixin:
         # Rule-override skips (docs/07 PART 8): "skip your untap step", etc.
         if self.rules.should_skip_step(self.state.active_player, step.name):
             return
+        # RULE 500.11: "skips their next combat phase" — consumed as the phase opens, then every step of it is
+        # passed over (the one-shot skip effect is spent by its first step).
+        if getattr(phase, "skipped", False):
+            return
+        if phase.steps and step is phase.steps[0] and self.rules.should_skip_step(self.state.active_player, phase.name):
+            phase.skipped = True
+            return
 
         if step.name == "draw":
             # MEC-32: reset right as this player's own draw step begins, so

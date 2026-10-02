@@ -27,6 +27,7 @@ from .catalogue.cost_text import scan_cost_text
 from .catalogue.count_phrase import SACRIFICED_TERM, parse_amount_phrase, parse_count_phrase
 from .catalogue.spell_phrase import parse_spell_phrase
 from .catalogue.handlers import (
+    _base_verb,
     ACTIVATE_ONLY_ONCE_MARKER,
     ACTIVATION_CONDITION_MARKER,
     FROM_HAND_MARKER,
@@ -1558,9 +1559,50 @@ _REFERENT_TRANSPARENT_TYPES: frozenset[str] = frozenset({"clash", "take_initiati
 #: sentences). Four covers the longest multi-sentence rows (a dig with its rest and else tail);
 #: a longer window would only be a slower way of failing.
 _MAX_SENTENCE_WINDOW = 4
-_CONNECTORS: tuple[str, ...] = (
-    r"\.\s+", r";\s+", r",?\s+then\s+", _PRONOUN_COMMA_CONNECTOR, r"\s+and\s+",
+_MAY_HAVE_TARGET_GET_RE = re.compile(
+    r"(\byou may )have (target (?:[a-z-]+ )*?creature) (get|gain) ", re.IGNORECASE
 )
+_AND_CONNECTOR = r"\s+and\s+"
+_CONNECTORS: tuple[str, ...] = (
+    r"\.\s+", r";\s+", r",?\s+then\s+", _PRONOUN_COMMA_CONNECTOR, _AND_CONNECTOR,
+)
+#: "**target player|opponent** draws a card" … "and **loses** 2 life": a third-person-singular verb opening a
+#: later "and" part has no subject of its own (the bare "lose" of "you draw and lose" is the controller's).
+_ELIDED_TARGET_LOSS_RE = re.compile(r"\b(?:other|another|planeswalker)\b", re.IGNORECASE)
+_ELIDED_AMOUNT_VERBS: tuple[tuple[str, "re.Pattern[str]"], ...] = (
+    ("~ deals ", re.compile(r"^(?:\d+|x) damage\b", re.IGNORECASE)),
+    ("you gain ", re.compile(r"^(?:\d+|x) life\b", re.IGNORECASE)),
+)
+_TARGET_PLAYER_SUBJECT_RE = re.compile(r"^target (?:player|opponent) ", re.IGNORECASE)
+_ELIDED_PLAYER_VERB_RE = re.compile(r"^(?:loses|gains|draws|discards|mills)\b", re.IGNORECASE)
+#: How each effect type is pointed at the player an earlier clause of the same sentence chose
+#: (`GameContext.previous_targets`): a flag the effect reads, or a ``player`` referent. A type missing here
+#: has no such reading, so the sentence is refused rather than left acting on the controller.
+_PREVIOUS_PLAYER_STAMPS: dict[str, dict[str, Any]] = {
+    "lose_life": {"previous_subject": True},
+    "discard": {"previous_subject": True},
+    "draw": {"player": {"of": "previous_player"}},
+    "gain_life": {"player": {"of": "previous_player"}},
+}
+
+
+def _elides_player_subject(first_part: str, part: str) -> bool:
+    return (_TARGET_PLAYER_SUBJECT_RE.match(first_part.strip()) is not None
+            and _ELIDED_PLAYER_VERB_RE.match(part.strip()) is not None)
+
+
+def _stamp_previous_player(effects: list[EffectSpec]) -> "Optional[list[EffectSpec]]":
+    """See `_PREVIOUS_PLAYER_STAMPS`; ``None`` when an effect has no such reading."""
+    stamped: list[EffectSpec] = []
+    for effect in effects:
+        if any(effect.params.get(k) is not None for k in _TARGET_PARAM_KEYS):
+            stamped.append(effect)  # it names its own target
+            continue
+        extra = _PREVIOUS_PLAYER_STAMPS.get(effect.type)
+        if extra is None:
+            return None
+        stamped.append(EffectSpec(effect.type, {**effect.params, **extra}, condition=effect.condition))
+    return stamped
 
 #: RULE 702.33b/701.x's "if `<this spell was kicked|it was kicked[
 #: twice]|this spell/it was bargained>`, `<effect>`." — a *second,
@@ -3642,6 +3684,8 @@ _FOR_EACH_AMOUNTS: dict[str, dict[str, Any]] = {
     "creatures that left the battlefield under your control this turn": {
         "kind": "count_selector", "selector": "creatures_that_left_battlefield_this_turn",
     },
+    # RULE 702.108a: "where X is the number of colors of mana spent to cast this spell" (Radiant Flames).
+    "colors of mana spent to cast this spell": {"kind": "count_selector", "selector": "converge"},
 }
 
 #: The params an effect states its own magnitude in. A ``bind`` body has to
@@ -4024,6 +4068,12 @@ def _where_x_specs(
         if minus is not None:
             phrase = phrase[: minus.start()]
         amount = _count_amount(phrase, self_subject=self_subject, previous_subject=previous_subject)
+        if amount is None and " plus the number of " in phrase:
+            # "…the number of caves you control **plus the number of** cave cards in your graveyard" (Calamitous
+            # Cave-In): a sum of counts, which the amount grammar reads as one expression.
+            summed = parse_amount_phrase(f"the number of {phrase}")
+            if isinstance(summed, dict) and "terms" in summed:
+                amount = {"kind": "count_selector", "selector": summed}
         if amount is not None and minus is not None:
             amount = {**amount, "minus": int(minus.group("n")), "minimum": 0}
     if amount is None:
@@ -4697,6 +4747,10 @@ def parse_effect_body(
     body = body.strip().rstrip(".").strip()
     if not body:
         return []
+    # "you may **have** target creature get -2/-2 until end of turn" (Blightcaster, Battle-Rattle Shaman, the
+    # cycling trio, Painsmith, …): "have … get" is only how the optional wording carries the verb — the effect is
+    # "target creature gets -2/-2", which every pump / keyword-grant row already reads.
+    body = _MAY_HAVE_TARGET_GET_RE.sub(r"\g<1>\g<2> \g<3>s ", body)
 
     # PAR-130: a per-player target announcement followed by the clause(s)
     # acting on "that/those/the chosen" objects. The generic connector split
@@ -5362,7 +5416,8 @@ def parse_effect_body(
     # "`<A>` and `<B>`, where X is the number of …" — one X for the whole sentence. The
     # connector split below would hand the tail to `<B>` alone and leave `<A>`'s X as
     # the (unpaid) spell X (Tendrils of Corruption dealt 0 damage and gained the life).
-    one_x = _WHERE_X_RE.match(body.strip().rstrip(".").strip())
+    one_x_text = body.strip().rstrip(".").strip()
+    one_x = _WHERE_X_RE.match(one_x_text) or _WHERE_X_AMOUNT_RE.match(one_x_text)
     if one_x is not None and "." not in one_x.group("rest") and re.search(
         r"\s+and\s+", one_x.group("rest")
     ):
@@ -5420,6 +5475,8 @@ def parse_effect_body(
                 # "… . Then <effect>" sentence, unlike the explicit
                 # `, then` connector. It is sequencing, not effect grammar.
                 part = re.sub(r"^then\s+", "", part.strip(), flags=re.IGNORECASE)
+                if sep == _AND_CONNECTOR:
+                    part = part.rstrip(",").strip()  # "…if {g} was spent to cast this spell**,** and …"
                 otherwise = _OTHERWISE_RE.match(part)
                 if otherwise is not None:
                     sub = _otherwise_specs(
@@ -5452,9 +5509,33 @@ def parse_effect_body(
                             previous_subject=referent, previous_selector=referent_selector,
                             group_subject=group_subject,
                         )
+                if sub is None and sep == _AND_CONNECTOR and idx:
+                    # "~ deals 3 damage to X if … **and 3 damage to Y** if …" / "you gain X life if … **and X life**
+                    # if …": the second conjunct repeats only the amount noun, the verb is the first one's.
+                    for verb_head, elided in _ELIDED_AMOUNT_VERBS:
+                        if (
+                            parts[idx - 1].lstrip().lower().startswith(verb_head) and elided.match(part)
+                            # "any other target" / "another …" / "player or planeswalker" lose their meaning in the
+                            # target-kind resolver (the second target would not be kept distinct / could not be a
+                            # planeswalker), so those compounds stay unclaimed.
+                            and not _ELIDED_TARGET_LOSS_RE.search(part)
+                        ):
+                            sub = parse_effect_body(
+                                f"{verb_head}{part}", self_subject=carry_self and not referent,
+                                previous_subject=referent, previous_selector=referent_selector,
+                                group_subject=group_subject,
+                            )
+                            break
                 if sub is None:
                     ok = False
                     break
+                if sep == _AND_CONNECTOR and idx and _elides_player_subject(parts[0], part):
+                    # "target player draws a card **and loses 2 life**": the second verb has no subject of
+                    # its own, so it acts on the player the first clause chose, not on the controller.
+                    sub = _stamp_previous_player(sub)
+                    if sub is None:
+                        ok = False
+                        break
                 if referent:
                     sub = _stamp_counters_on_referent(part, sub)
                 last_len = len(sub)
@@ -6289,6 +6370,105 @@ def _has_bare_seed_deep(node: Any) -> bool:
     if isinstance(node, dict):
         return any(_has_bare_seed_deep(value) for value in node.values())
     return False
+
+
+#: Player-event heads whose body speaks of "that attacking player" / "that player" / "they" (RULE 506.4).
+_ATTACKING_PLAYER_EVENTS = frozenset({"PLAYER_ATTACKED", "ATTACKERS_DECLARED"})
+#: "that attacking player [may] <verb>" / "they <verb>" — the acting player named by the event.
+_ATTACKING_PLAYER_SUBJECT_RE = re.compile(r"\b(?:that (?:attacking )?player|they)\b(?!')")
+#: The effect types that read "you" through `GameContext.acting_player_id` *and* keep it across a pause
+#: ("you may …", "if you do …"); anything else would quietly act for the ability's controller.
+_ACTING_EVENT_PLAYER_TYPES = frozenset({
+    "draw", "create_token", "pay_cost_then", "optional", "lose_life", "gain_life", "discard",
+})
+
+
+def _effect_types(node: Any) -> set[str]:
+    """Every effect ``type`` named anywhere inside a spec dict (nested bodies included)."""
+    found: set[str] = set()
+    if isinstance(node, dict):
+        if isinstance(node.get("type"), str) and "params" in node:
+            found.add(node["type"])
+        for value in node.values():
+            found |= _effect_types(value)
+    elif isinstance(node, list):
+        for value in node:
+            found |= _effect_types(value)
+    return found
+
+
+#: "…creates a tapped `<token>` that's attacking that opponent" — the token joins the combat attacking the
+#: defender the `PLAYER_ATTACKED` event names (RULE 508.4; `attacker_creates_attacking_token`).
+_ATTACKING_THAT_OPPONENT_RE = re.compile(
+    r"^that (?:attacking )?player creates an? tapped (?P<token>.+?) that's attacking that opponent$"
+)
+#: The `create_token` params `attacker_creates_attacking_token` carries over.
+_ATTACKING_TOKEN_PARAMS = ("power", "toughness", "colors", "subtypes", "keywords", "token_name")
+
+
+def _attacking_token_body(body: str) -> Optional[list[EffectSpec]]:
+    """Combat Calligrapher's / Ellie, Brick Master's "that attacking player creates a tapped `<token>`
+    that's attacking that opponent": the token read by the ordinary create-token grammar, then handed to
+    the attacker (not this ability's controller) already attacking the defender."""
+    m = _ATTACKING_THAT_OPPONENT_RE.fullmatch(body.strip().lower().rstrip("."))
+    if m is None:
+        return None
+    token_text, _, name = m.group("token").partition(" named ")
+    effects = parse_effect_body(f"create a {token_text}", self_subject=True)
+    if not effects or len(effects) != 1 or effects[0].type != "create_token":
+        return None
+    params = dict(effects[0].params)
+    if name:
+        params["token_name"] = name.title()
+    if params.get("count", 1) != 1 or any(k not in (*_ATTACKING_TOKEN_PARAMS, "count", "tapped") for k in params):
+        return None
+    return [EffectSpec("attacker_creates_attacking_token", {
+        k: params[k] for k in _ATTACKING_TOKEN_PARAMS if k in params
+    })]
+
+
+#: RULE 603.4: "When ~ enters, if `<condition>`, `<effect>`" — the condition is checked when the trigger event occurs
+#: (the ability does not trigger at all otherwise: no stack object, no target to choose) and again as it resolves.
+#: The per-effect gate every body keeps is the resolution check; this is the trigger-time one (`trigger["active_if"]`).
+#: Only conditions about a fact the entering permanent carries from its cast are read this way so far; the other
+#: leading-if conditions of an enters trigger (kicked, "you control a Forest", …) keep the resolution check alone.
+_INTERVENING_IF_AT_TRIGGER_KINDS = frozenset({"mana_color_spent_to_cast_at_least"})
+_ETB_INTERVENING_IF_RE = re.compile(r"^if (?P<cond>[^,]{2,80}),\s+.+$", re.IGNORECASE | re.S)
+
+
+def _etb_intervening_if(event: Any, condition: Optional[dict[str, Any]], body: str) -> Optional[dict[str, Any]]:
+    if event != "ENTERS_BATTLEFIELD" or (condition or {}).get("subject") != "self":
+        return None
+    lead = _ETB_INTERVENING_IF_RE.match(body.strip())
+    gated = static_condition(lead.group("cond")) if lead is not None else None
+    return gated if gated is not None and gated.get("kind") in _INTERVENING_IF_AT_TRIGGER_KINDS else None
+
+
+def _event_player_body(body: str) -> Optional[list[EffectSpec]]:
+    """"Whenever a player attacks …, **that attacking player** creates a Treasure token" — the body as
+    that player's own second-person clause, run *as* them (`trigger_subject_referent` ``acting``
+    ``"event_player"``, RULE 109.5). Refused when the body also names "you"/a target, or when an effect
+    in it does not honour the acting player."""
+    attacking_token = _attacking_token_body(body)
+    if attacking_token is not None:
+        return attacking_token
+    text = body.lower()
+    if re.search(r"\b(?:you|your|target|opponent)\b", text) or _ATTACKING_PLAYER_SUBJECT_RE.search(text) is None:
+        return None
+    text = re.sub(r"\bif (?:the player|they) does?\b", "if you do", text)
+    text = re.sub(
+        r"\bthat (?:attacking )?player (may )?([a-z]+)\b",
+        lambda m: f"you {m.group(1) or ''}{m.group(2) if m.group(1) else _base_verb(m.group(2))}", text,
+    )
+    text = re.sub(r"\bthey\b", "you", text)
+    if _ATTACKING_PLAYER_SUBJECT_RE.search(text) or "their" in text:
+        return None
+    effects = parse_effect_body(text, self_subject=True)
+    if not effects or not all(_effect_types(e.to_dict()) <= _ACTING_EVENT_PLAYER_TYPES for e in effects):
+        return None
+    return [EffectSpec("trigger_subject_referent", {
+        "acting": "event_player", "effects": [e.to_dict() for e in effects],
+    })]
 
 
 def _stamp_group_pronoun(
@@ -8594,7 +8774,11 @@ def _segment_line_unsplit(
                 and not group_pronoun_names_source,
                 "attached_subject": (condition or {}).get("subject") == "attached_permanent",
             }
-            effects = parse_effect_body(body, **body_flags)
+            effects = (
+                _event_player_body(body)
+                if isinstance(event, str) and event in _ATTACKING_PLAYER_EVENTS
+                and (condition or {}).get("subject") == "player" else None
+            ) or parse_effect_body(body, **body_flags)
             count_amount = _HEAD_COUNT_AMOUNTS.get(event) if isinstance(event, str) else None
             if effects is None and count_amount is not None and _THAT_MANY_RE.search(body):
                 # "put that many +1/+1 counters on ~" off a counting head: the body read
@@ -8638,6 +8822,17 @@ def _segment_line_unsplit(
             effects = _retarget_block_relation(event, head_trigger, effects)
         effects, body_limit = _strip_trigger_once_per_turn_marker(effects)
         limit = limit or body_limit
+        intervening = _etb_intervening_if(event, condition, body)
+        if intervening is not None:
+            head_trigger = {**head_trigger, "active_if": intervening}
+            # What was spent to cast the permanent is history: it cannot change between the trigger event and the
+            # resolution, so the second RULE 603.4 check can only agree with the first — and, read off a source that
+            # has since left the battlefield (a new object, RULE 400.7, with nothing spent), it would wrongly
+            # disagree where last-known information (RULE 608.2h) says it was spent. One check, at trigger time.
+            effects = [
+                EffectSpec(e.type, e.params, condition=None if e.condition == intervening else e.condition)
+                for e in effects
+            ]
         spec = AbilitySpec(
             "triggered",
             effects=effects,

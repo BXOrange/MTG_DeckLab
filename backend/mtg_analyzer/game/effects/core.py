@@ -1538,17 +1538,39 @@ class SkipNextStepEffect(GameEffect):
     turn loop reaches that step (RULE 500.8).
     """
 
-    def __init__(self, step: str = "draw", source: Optional["GameObject"] = None) -> None:
+    def __init__(
+        self, step: str = "draw", source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = None, selector: Optional[str] = None,
+    ) -> None:
         super().__init__(source)
         self.step = step
+        #: "**Target player** skips their next draw step" (Fatigue) / "each opponent skips their next untap
+        #: step" (Brine Elemental) / "that player skips their next combat phase" (Blinding Angel): whose step
+        #: it is — a RULE 115 player target, ``"each_opponent"``, or ``"event_player"`` (the firing event's
+        #: player). Absent, the controller's own.
+        self.selector = selector if selector in ("each_opponent", "event_player") else None
+        if target_kind in ("player", "opponent"):
+            self.target_spec = TargetSpec(kind=target_kind)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None or self.source.controller_id is None:
             return
-        player = context.state.player_by_id(self.source.controller_id)
-        player.player_effects.append(
-            StaticEffect("skip_phase", {"phase": self.step}, duration="once", source=self.source)
-        )
+        if self.selector == "each_opponent":
+            players = [p for p in context.state.living_players() if p.id != self.source.controller_id]
+        elif self.selector == "event_player":
+            # A damage event names the player it hurt as ``target_id`` ("that player" under "deals combat damage
+            # to a player"); other player events name theirs ``player_id``.
+            event_player = _event_player(context, key="target_id") or _event_player(context, key="player_id")
+            players = [event_player] if event_player is not None else []
+        elif self.target_spec is not None:
+            chosen = targets[0] if targets else None
+            players = [chosen] if chosen is not None and getattr(chosen, "instance_id", None) is None else []
+        else:
+            players = [context.state.player_by_id(self.source.controller_id)]
+        for player in players:
+            player.player_effects.append(
+                StaticEffect("skip_phase", {"phase": self.step}, duration="once", source=self.source)
+            )
 
 
 class EstablishDayOnEntryEffect(GameEffect):

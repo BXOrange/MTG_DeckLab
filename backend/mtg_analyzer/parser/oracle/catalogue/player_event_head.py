@@ -68,6 +68,18 @@ _EXPEND = re.compile(r"^expends? (?P<n>\d+)$")
 _MANA_TAP = re.compile(r"^taps? (?:an?|another) (?P<object>.+) for mana$")
 
 _PLAYER_ATTACKS = re.compile(r"^attacks?(?: with (?P<n>\d+) or more creatures)?$")
+#: "attacks you", "attacks enchanted player [with N or more creatures]", "attacks 1 of your opponents",
+#: "attacks 1 or more of your opponents" — a player attack with the *defender* named (RULE 508.1).
+_PLAYER_ATTACKS_DEFENDER = re.compile(
+    r"^attacks? (?:(?P<you>you)|(?P<enchanted>enchanted player)|(?P<opponents>(?P<one>1|1 or more) of your opponents))"
+    r"(?: with (?P<n>\d+) or more creatures)?$"
+)
+#: The trigger keys `binding/core.py` reads off a `PLAYER_ATTACKED` / `ATTACKERS_DECLARED` event for each defender.
+_DEFENDER_KEYS = {
+    "you": {"defender_is_you": True},
+    "enchanted": {"defender_is_enchanted_player": True},
+    "opponents": {"defender_is_opponent": True},
+}
 
 _HEAD = re.compile(r"^(?P<actor>you|an opponent|each opponent|a player)\s+(?P<rest>.+)$")
 
@@ -119,6 +131,20 @@ def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], di
         # player (RULE 508.1), not once per defender as `PLAYER_ATTACKED` would fire.
         spec: dict[str, Any] = {"filter": {"card_type": "creature"}, "min": int(attacks.group("n") or 1)}
         return "ATTACKERS_DECLARED", condition, {"attackers_declared": spec}
+    defended = _PLAYER_ATTACKS_DEFENDER.fullmatch(rest)
+    if defended and m.group("actor") != "you":
+        kind = next(k for k in _DEFENDER_KEYS if defended.group(k))
+        keys = dict(_DEFENDER_KEYS[kind])
+        n = int(defended.group("n") or 1)
+        if defended.group("one") == "1 or more":
+            # Once per declaration, however many of the opponents it names: `ATTACKERS_DECLARED`
+            # (its event lists every attacked player) rather than `PLAYER_ATTACKED`'s once-per-defender.
+            return "ATTACKERS_DECLARED", condition, {
+                **keys, "attackers_declared": {"filter": {"card_type": "creature"}, "min": n},
+            }
+        if n > 1:
+            keys["attackers_at_least"] = n
+        return "PLAYER_ATTACKED", condition, {**trigger, **keys}
     expend = _EXPEND.fullmatch(rest)
     if expend:
         trigger["filter"] = {"amount": int(expend.group("n"))}

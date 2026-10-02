@@ -341,6 +341,8 @@ class MiscSystemsMixin:
             "then_trigger_event": then_trigger_event,
             "captured_previous": list(captured_previous) if captured_previous else None,
             "x_max": x_max,
+            # RULE 109.5: the "if you do" effects belong to whoever the body was run as.
+            "acting_player_id": getattr(self.context, "acting_player_id", None),
         }
         cost_label = cost.label()
         if x_max is None:
@@ -398,15 +400,20 @@ class MiscSystemsMixin:
         targets = pending.get("targets") or None
         captured = pending.get("captured_previous")
         def apply_branch(specs: list[dict]) -> None:
-            if not captured:
-                self._apply_effect_specs(specs, pending["source"], targets)
-                return
-            saved = list(self.context.previous_targets)
-            self.context.previous_targets = list(captured)
+            outer_acting = self.context.acting_player_id
+            self.context.acting_player_id = pending.get("acting_player_id")
             try:
-                self._apply_effect_specs(specs, pending["source"], targets)
+                if not captured:
+                    self._apply_effect_specs(specs, pending["source"], targets)
+                    return
+                saved = list(self.context.previous_targets)
+                self.context.previous_targets = list(captured)
+                try:
+                    self._apply_effect_specs(specs, pending["source"], targets)
+                finally:
+                    self.context.previous_targets = saved
             finally:
-                self.context.previous_targets = saved
+                self.context.acting_player_id = outer_acting
         cost = pending["cost"]
         x_max = pending.get("x_max")
         x: Optional[int] = None

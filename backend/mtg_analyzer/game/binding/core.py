@@ -1371,6 +1371,16 @@ def _contributor_condition(
     return _contributors_ok
 
 
+def _attacked_player_ids(event: Any) -> list[str]:
+    """The player(s) a combat event says were attacked: `PLAYER_ATTACKED` names one
+    (``defending_player_id``), `ATTACKERS_DECLARED` the whole declaration's
+    (``defending_player_ids``)."""
+    single = event.get("defending_player_id")
+    if single is not None:
+        return [single]
+    return list(event.get("defending_player_ids") or [])
+
+
 def _trigger_condition(
     trigger: dict[str, Any], source: Optional[Any]
 ) -> Optional[Callable[[Any, Any], bool]]:
@@ -1817,9 +1827,18 @@ def _trigger_condition(
     # must be this ability's own controller.
     if trigger.get("defender_is_you"):
         def _defender_is_you_ok(event: Any, context: Any, src=source) -> bool:
-            return event.get("defending_player_id") == getattr(src, "controller_id", None)
+            return getattr(src, "controller_id", None) in _attacked_player_ids(event)
 
         predicates.append(_defender_is_you_ok)
+
+    # "Whenever a player attacks enchanted player …" (the Curses, RULE 303.4t) — the attacked player
+    # is the one this Aura is attached to.
+    if trigger.get("defender_is_enchanted_player"):
+        def _defender_is_enchanted_ok(event: Any, context: Any, src=source) -> bool:
+            host = getattr(src, "attached_to", None)
+            return host is not None and host in _attacked_player_ids(event)
+
+        predicates.append(_defender_is_enchanted_ok)
 
     # "Whenever a player attacks one of your opponents, …" (Combat
     # Calligrapher, Breena the Demagogue, PAR-60) — the `PLAYER_ATTACKED`
@@ -1828,8 +1847,7 @@ def _trigger_condition(
     # be anyone, including this controller (they can attack an opponent).
     if trigger.get("defender_is_opponent"):
         def _defender_is_opponent_ok(event: Any, context: Any, src=source) -> bool:
-            did = event.get("defending_player_id")
-            return did is not None and did != getattr(src, "controller_id", None)
+            return any(did != getattr(src, "controller_id", None) for did in _attacked_player_ids(event))
 
         predicates.append(_defender_is_opponent_ok)
 

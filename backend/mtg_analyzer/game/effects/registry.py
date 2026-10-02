@@ -62,7 +62,9 @@ EffectRegistry.register(
     # is a resolving, one-shot skip, unlike the standing ``skip_step``
     # StaticAbility used by Necropotence.
     "skip_next_step",
-    lambda p: SkipNextStepEffect(step=p.get("step", "draw")),
+    lambda p: SkipNextStepEffect(
+        step=p.get("step", "draw"), target_kind=p.get("target_kind"), selector=p.get("selector"),
+    ),
 )
 EffectRegistry.register("establish_day_on_entry", lambda p: EstablishDayOnEntryEffect())
 EffectRegistry.register(
@@ -2630,6 +2632,7 @@ EffectRegistry.register(
     lambda p: PumpEffect(
         power=p.get("power", 0),
         toughness=p.get("toughness", 0),
+        group_player=p.get("group_player"),
         keywords=list(p.get("keywords", [])),
         removed_keywords=list(p.get("removed_keywords", [])),
         trigger_subject=bool(p.get("trigger_subject", False)),

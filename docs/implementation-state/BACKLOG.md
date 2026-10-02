@@ -32,7 +32,16 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## ENG — Game engine
 
-No open tickets.
+- **ENG-52 · Target-kind resolver drops "other"/"another" and the planeswalker half of "player or planeswalker".**
+  `subgrammars.resolve_target_kind` reads "any other target" as plain `any` and "another target `<X>`" as `<X>`
+  (no `distinct_from_others`, RULE 115.3 / 109.5), and "target player or planeswalker" as `player` — so a second
+  target can repeat the first, and a planeswalker can never be chosen. Wrong but `MODELED` for every card already
+  claimed through those rows, and the reason the compound "N damage to X and M damage to Y" (Arc Trail, Boulder Dash, Hungry
+  Flames, Punish the Enemy, Cunning Strike) is refused. Scope: a `player_or_planeswalker` target kind
+  (`TARGET_FRAMES`, label, offer pool), `distinct_from_others` set by the parser for "any other target" /
+  "another target …" across multi-target spells, then lift the refusal in `segmenter._ELIDED_TARGET_LOSS_RE`.
+  **Frontend:** `gameBoardView.js` must offer planeswalkers alongside players for the new kind and keep dropping
+  already-picked objects from a `distinct_from_others` pool (check the replay/solo/multiplayer boards too).
 
 ## PAR — Parser
 
@@ -44,7 +53,7 @@ No open tickets.
   Archenemy card bodies fold in here (~13/309 done).
 
   > **Ids:** `PAR-1`…`PAR-144` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-145`**; next free `MEC`: **`MEC-109`**. A new engine primitive found along the way files
+  > **`PAR-145`**; next free `MEC`: **`MEC-110`**; next free `ENG`: **`ENG-53`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -71,25 +80,9 @@ No open tickets.
 > PAR-99…105 counts confirmed at PV 413 (2026-09-16, vs the 56 saved decks in `deck_coverage.py`),
 > re-verified at PV 447 (2026-09-21). Re-run `parser_probe.py blocked` before starting.
 
-- **PAR-107 · Small residue batch — graveyard/library/exile.** Adventure/Blitz casts from the graveyard and the
-  single-card graveyard/library shapes left over.
-- **PAR-108 · Small residue batch — miscellaneous shapes.** Single-card copy/counter shapes and the remaining
-  "the sacrificed creature's …" sub-shapes.
 - **PAR-109 · Residue of the static/activated-ability batch.** Brad Boimler's until-EOT counter replacement;
   Worldknit's card-pool condition; "can't be regenerated" leftovers (Bone Shaman, Lim-Dûl's Cohort); Desolation of
   Smaug's "spend only to cast Dragon spells"; Luxior's per-counter bonus; Atalya's modal `{X}, {T}` body.
-- **PAR-110 · Small residue batch — board wipes & mass effects.** Mass-damage riders, mass-tap, "destroy/exile all"
-  + rider tails, total-power edicts, Living Death.
-- **PAR-113 · Small residue batch — combat triggers.** "Whenever a player attacks" head and kept mana with a
-  restriction or a non-trivial amount.
-- **PAR-114 · Small residue batch — cost reduction & alternative costs.** Resolve-time "discard a card or pay {N}",
-  same-name discard costs, X-valued sacrifice costs, activation-cost "where X is …" discounts.
-
-> PAR-107…114 counts come from a one-pass `parse_oracle` + `abstract_clause` scan (PV 413, 2026-09-16,
-> vs the 56 saved decks); 107…113 re-measured at PV 447. They were not individually re-diagnosed —
-> run `parser_probe.py card` first, since intervening "if" clauses and self- vs target-referents change
-> the handler shape. Traps: a `<name>` in "`X` has `<name>`" is a wrapper hiding a quoted inner ability
-> (decompose before counting); loyalty costs print a Unicode minus (−).
 
 - **PAR-126 · "A spell or ability an opponent controls causes you to discard `<X>`" — self-subject
   trigger family.** MEC-101 built the primitive (`DISCARD_CARD.cause_controller_id`,
@@ -105,7 +98,13 @@ No open tickets.
 
 ## MEC — Game mechanic
 
-_No open tickets._
+- **MEC-109 · Blitz (RULE 702.152).** The alternative cost (`blitz—{cost}[, additional costs]`) with the rest of the
+  keyword: the cast gives the permanent haste, "when this creature dies, draw a card", and "sacrifice it at the
+  beginning of the next end step"; casting it from the graveyard "using its blitz ability" (Sabin, Master Monk;
+  Tenacious Underdog — the card is exiled if it would leave the battlefield that way); granting blitz ("each
+  creature spell you cast with mana value 4 or greater has blitz" — Henzie "Toolbox" Torre; the perpetual grant of
+  Riveteers Provocateur). The RULE 702 catalogue row is recognition only; add the engine primitive and its
+  oracle-text handlers in one batch.
 
 ## PLR — Player management
 
@@ -159,8 +158,7 @@ _No open tickets._
   Dwarven Mauler, Helitrooper, Plate Armor / A-Plate Armor and Warrior's Blades are `MODELED` without
   their equip-cost discount. Fix: fail the line closed unless it is a bare equip cost, then give the
   discount its own row (activation costs have no `targets` yet — see Kopala/Strong Back).
-- **BUG-2 · "target player draws N cards and loses N life" in a triggered ability costs its controller the life.**
-  The `lose_life` clause carries no player (`previous_subject` unset) and a trigger passes its targets only to the
-  effect that declared one, so it falls back to the controller; as a spell the shared target list hides it. Wrong
-  but `MODELED`: Fell Stinger, Vault Plunderer, Bloodgift Demon, Unscrupulous Contractor (and any other
-  subjectless "and loses/gains …" after a targeted-player clause in a trigger).
+- **BUG-2 · "target player draws N cards and loses N life" in a reflexive / exploit trigger.** The subject-less
+  "and loses …" now carries `previous_subject` (direct triggers and spells are right: Vault Plunderer, Bloodgift
+  Demon); check that Unscrupulous Contractor's reflexive trigger and Fell Stinger's exploit trigger make the
+  *targeted* player lose the life, not the controller.
