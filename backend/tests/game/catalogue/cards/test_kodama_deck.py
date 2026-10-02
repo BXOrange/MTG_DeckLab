@@ -199,3 +199,23 @@ def test_ram_through_with_trample_sends_the_excess_to_its_controller():
 def test_ram_through_trample_with_deathtouch_needs_only_one_lethal():
     dealer, victim, p2 = _ram_through(power=5, keywords=["Trample", "Deathtouch"])
     assert p2.life == 16  # 1 lethal (deathtouch), 4 excess
+
+
+def test_amulet_of_vigor_untaps_only_permanents_that_enter_tapped():
+    engine, p1, p2 = _game("Tranquil Cove", "Forest")
+    amulet = battlefield_object(engine, "p1", "Amulet of Vigor", "Artifact")
+    bind_from_catalogue(amulet)
+    tap_land = next(o for o in p1.hand if o.name == "Tranquil Cove")
+    forest = next(o for o in p1.hand if o.name == "Forest")
+
+    engine.play_land(p1, tap_land)
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert tap_land in engine.state.battlefield
+    assert not tap_land.tapped  # entered tapped, then the Amulet untapped it
+
+    p1.lands_played_this_turn = 0
+    engine.play_land(p1, forest)
+    engine.rules.put_triggers_on_stack()
+    assert not engine.state.stack and engine.state.pending_choice is None  # entered untapped: no trigger
+    assert not forest.tapped
