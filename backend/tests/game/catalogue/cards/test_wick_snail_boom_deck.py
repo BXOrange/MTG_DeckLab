@@ -319,3 +319,45 @@ def test_ghostly_flicker_blinks_two_of_my_artifacts_creatures_or_lands():
     legal_ids = {t["instance_id"] for t in targeting.legal_targets(engine.state, "p1", spec, source=artifact)}
     assert {artifact.instance_id, land.instance_id, creature.instance_id} <= legal_ids
     assert theirs.instance_id not in legal_ids
+
+
+def _turn_inside_out_game():
+    engine, p1 = _game("Turn Inside Out")
+    victim = battlefield_object(engine, "p1", "Doomed Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    bystander = battlefield_object(engine, "p1", "Bystander", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    p1.mana_pool.add_many({"R": 1, "C": p1.hand[0].card.converted_mana_cost - 1})
+    engine.cast_spell(p1, p1.hand[0], targets=[victim])
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    return engine, p1, victim, bystander
+
+
+def _face_down(engine):
+    return [o for o in engine.state.permanents_controlled_by("p1") if getattr(o, "face_down", False)]
+
+
+def _answer_choices(engine):
+    for _ in range(6):
+        if not engine.state.pending_choice:
+            break
+        options = [o for o in engine.state.pending_choice["options"] if o["id"] != "decline"]
+        engine.resolve_pending_choice((options or engine.state.pending_choice["options"])[0]["id"])
+        engine.resolve_until_stable()
+
+
+def test_turn_inside_out_pumps_and_manifests_dread_only_when_that_creature_dies():
+    engine, p1, victim, bystander = _turn_inside_out_game()
+    assert (victim.power, victim.toughness) == (5, 2)  # +3/+0
+    assert (bystander.power, bystander.toughness) == (2, 2)
+
+    engine.rules.destroy(bystander)  # another creature dying does not trigger it
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    _answer_choices(engine)
+    assert not _face_down(engine)
+
+    engine.rules.destroy(victim)
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    _answer_choices(engine)
+    assert len(_face_down(engine)) == 1  # manifested from the top of the library
