@@ -7,6 +7,7 @@ from . import lattice_library  # noqa: F401
 from . import lava_coil  # noqa: F401
 from . import lavinia_azorius_renegade  # noqa: F401
 from . import lazotep_quarry  # noqa: F401
+from . import leadership_vacuum  # noqa: F401
 from . import ledger_shredder  # noqa: F401
 from . import leeching_licid  # noqa: F401
 from . import legolas_s_quick_reflexes  # noqa: F401

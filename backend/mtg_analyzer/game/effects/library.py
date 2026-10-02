@@ -3051,6 +3051,43 @@ class DiscardOrLoseLifeEffect(GameEffect):
             return
 
 
+class ReturnCommandersToCommandZoneEffect(GameEffect):
+    """"Target player returns each commander they control from the battlefield
+    to the command zone." (Leadership Vacuum) — RULE 903.3 / 903.9.
+
+    An instruction, not the owner's RULE 903.9a replacement choice
+    (`RulesEngine._commander_zone_choice`, which only offers the *option* when a
+    commander would change zone elsewhere): the target player moves every
+    commander **they control** — an opponent's or their own — so there is
+    nothing to decline. Fires `LEAVES_BATTLEFIELD` (RULE 603.6c, ``to_zone=
+    "command"``) before the move, resets the object (RULE 400.7: a new object
+    in the command zone, no counters/attachments), and puts it back with its
+    owner, whoever controlled it.
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind="player")
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = targets[0] if targets else _controller_of(self.source, context)
+        if player is None:
+            return
+        for obj in [o for o in context.state.battlefield if o.is_commander and o.controller_id == player.id]:
+            context.fire_event(
+                GameEvent(
+                    EventType.LEAVES_BATTLEFIELD, to_zone="command", object=obj.name,
+                    owner_id=obj.owner_id, controller_id=obj.controller_id,
+                    instance_id=obj.instance_id, object_types=sorted(obj.type_words),
+                    counters=dict(obj.counters), power=obj.power, toughness=obj.toughness,
+                )
+            )
+            context.state.remove_from_battlefield(obj)
+            obj.reset_as_new_object()
+            context.state.player_by_id(obj.owner_id).add_to_zone(obj, Zone.COMMAND)
+        context.recompute()
+
+
 class GainControlOfAllCommandersEffect(GameEffect):
     """"Gain control of all commanders. Put all commanders from the command
     zone onto the battlefield under your control." (Tevesh Szat's −10) —

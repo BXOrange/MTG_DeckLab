@@ -291,3 +291,41 @@ def test_fandaniel_opponent_who_sacrifices_keeps_their_life():
     engine.resolve_until_stable()
     assert engine.state.player_by_id("p2").life == 20
     assert victims[0] not in engine.state.battlefield
+
+
+def test_leadership_vacuum_sends_the_targets_commanders_home_and_draws():
+    from mtg_analyzer.config import DB_PATH
+    from mtg_analyzer.game.game_engine import GameEngine
+    from mtg_analyzer.services.card_database import CardDatabase
+
+    vacuum = CardDatabase(DB_PATH).get_card("Leadership Vacuum")
+    engine = GameEngine.new_game([("p1", "A", [vacuum]), ("p2", "B", [])], starting_hand=1, starting_life=20)
+    for i in range(3):
+        engine.state.player_by_id("p1").library.append(GameObject(
+            Card(id=f"L{i}", name=f"Library {i}", type_line="Land"), owner_id="p1", zone=Zone.LIBRARY,
+        ))
+    for obj in engine.state.players[0].hand:
+        bind_from_catalogue(obj)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    p1, p2 = engine.state.player_by_id("p1"), engine.state.player_by_id("p2")
+    commander = battlefield_object(
+        engine, "p2", "Their Commander", "Legendary Creature — Bear", is_creature=True, power=3, toughness=3,
+    )
+    commander.is_commander = True
+    commander.counters["+1/+1"] = 2
+    bystander = battlefield_object(engine, "p2", "Bystander", "Creature — Bear", is_creature=True, power=1, toughness=1)
+    own = battlefield_object(engine, "p1", "My Commander", "Legendary Creature — Bear", is_creature=True, power=1, toughness=1)
+    own.is_commander = True
+
+    spell = next(o for o in p1.hand if o.name == "Leadership Vacuum")
+    hand_before = len(p1.hand)
+    p1.mana_pool.add_many({"U": 1, "C": 2})
+    engine.cast_spell(p1, spell, targets=[p2])
+    engine.resolve_until_stable()
+
+    assert commander not in engine.state.battlefield and commander in p2.command
+    assert not commander.counters  # RULE 400.7: a new object
+    assert bystander in engine.state.battlefield  # not a commander
+    assert own in engine.state.battlefield  # only the target player's commanders
+    assert len(p1.hand) == hand_before  # -1 for the cast spell, +1 for the draw

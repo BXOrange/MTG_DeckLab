@@ -1818,6 +1818,12 @@ EffectRegistry.register(
     lambda p: GainControlOfAllCommandersEffect(),
 )
 EffectRegistry.register(
+    # RULE 903.3: "Target player returns each commander they control from the
+    # battlefield to the command zone." (Leadership Vacuum)
+    "return_commanders_to_command_zone",
+    lambda p: ReturnCommandersToCommandZoneEffect(),
+)
+EffectRegistry.register(
     # RULE 108.4/110.2 (MEC-43 round 4D, Homeward Path): "each player
     # gains control of all creatures they own."
     "regain_control_of_owned_creatures",

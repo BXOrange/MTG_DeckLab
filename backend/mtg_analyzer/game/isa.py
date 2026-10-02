@@ -645,6 +645,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "return_specific_to_battlefield": "move_object",
     "return_specific_to_hand": "move_object",
     "return_to_hand": "move_object",
+    "return_commanders_to_command_zone": "move_object",
     "return_to_library": "move_object",
     "return_uncast_exiled": "move_object",
     # ENG-37 batch 3 (`14_` S3, B8): one atomic engine primitive each,
