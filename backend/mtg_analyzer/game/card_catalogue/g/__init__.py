@@ -46,6 +46,7 @@ from . import greater_realm_of_preservation  # noqa: F401
 from . import greenwarden_of_murasa  # noqa: F401
 from . import grim_hireling  # noqa: F401
 from . import grinding_station  # noqa: F401
+from . import groundskeeper  # noqa: F401
 from . import guardian_of_faith  # noqa: F401
 from . import guardian_project  # noqa: F401
 from . import guardian_scalelord  # noqa: F401

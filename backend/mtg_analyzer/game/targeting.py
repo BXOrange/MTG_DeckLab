@@ -53,6 +53,8 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
         o.is_creature and (o.attacking or o.blocking is not None)
     ),
     "land": lambda o: o.is_land,
+    # "target basic land card in your graveyard" (Groundskeeper).
+    "basic_land": lambda o: bool(o.card.is_land) and "basic" in o.card.type_line.lower(),
     "artifact": lambda o: bool(o.card.is_artifact),
     "enchantment": lambda o: bool(o.card.is_enchantment),
     # "exile up to one target non-Aura enchantment card from your graveyard"
