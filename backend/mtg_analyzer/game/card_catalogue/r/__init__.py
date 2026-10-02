@@ -27,6 +27,7 @@ from . import rem_karolus_stalwart_slayer  # noqa: F401
 from . import renegade_bull  # noqa: F401
 from . import renewed_faith  # noqa: F401
 from . import resculpt  # noqa: F401
+from . import resourceful_defense  # noqa: F401
 from . import rest_in_peace  # noqa: F401
 from . import restless_cottage  # noqa: F401
 from . import restless_spire  # noqa: F401

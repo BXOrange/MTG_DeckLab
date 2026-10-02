@@ -464,3 +464,42 @@ def _lux_end_step(counters):
 def test_lux_artillery_deals_ten_to_each_opponent_only_with_thirty_counters():
     assert _lux_end_step(30) == 10
     assert _lux_end_step(29) == 0
+
+
+def _defense_board():
+    engine, p1 = _game()
+    defense = battlefield_object(engine, "p1", "Resourceful Defense", "Enchantment")
+    bind_from_catalogue(defense)
+    bear = battlefield_object(engine, "p1", "Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    keeper = battlefield_object(engine, "p1", "Keeper", "Artifact")
+    return engine, p1, defense, bear, keeper
+
+
+def test_resourceful_defense_moves_the_counters_of_a_leaving_permanent_onto_a_target():
+    engine, p1, defense, bear, keeper = _defense_board()
+    bear.counters.update({"+1/+1": 2, "stun": 1})
+    engine.rules.destroy(bear)
+    engine.rules.put_triggers_on_stack()
+    options = engine.state.pending_choice["options"]  # "target permanent you control": only the Keeper is left
+    assert [o["label"] for o in options] == ["Keeper"]
+    engine.resolve_pending_choice(str(keeper.instance_id))
+    engine.resolve_until_stable()
+    assert keeper.counters == {"+1/+1": 2, "stun": 1}
+
+
+def test_resourceful_defense_ignores_a_permanent_without_counters():
+    engine, p1, defense, bear, keeper = _defense_board()
+    engine.rules.destroy(bear)
+    engine.rules.put_triggers_on_stack()
+    assert not engine.state.stack  # the intervening "if it had counters" is not met
+    assert keeper.counters == {}
+
+
+def test_resourceful_defense_ability_moves_every_counter_between_two_permanents():
+    engine, p1, defense, bear, keeper = _defense_board()
+    bear.counters.update({"+1/+1": 3, "charge": 1})
+    p1.mana_pool.add_many({"W": 1, "C": 4})
+    engine.activate_ability(p1, defense, 0, targets=[bear, keeper])
+    engine.resolve_until_stable()
+    assert keeper.counters == {"+1/+1": 3, "charge": 1}
+    assert not any(bear.counters.values())
