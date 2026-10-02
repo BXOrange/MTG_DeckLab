@@ -189,3 +189,24 @@ def test_shanid_also_triggers_on_a_legendary_spell_only():
 
     assert cast(False) == (0, -1)
     assert cast(True) == (-1, 0)
+
+
+def test_desynchronization_bounces_only_nonland_nonhistoric_permanents_to_their_owners():
+    engine, p1 = _game("Desynchronization")
+    bear = battlefield_object(engine, "p1", "Plain Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    enchantment = battlefield_object(engine, "p1", "Aura Thing", "Enchantment")
+    legend = battlefield_object(engine, "p1", "A Legend", "Legendary Creature — Elf", is_creature=True, is_legendary=True, power=2, toughness=2)
+    artifact = battlefield_object(engine, "p1", "Trinket", "Artifact")
+    land = battlefield_object(engine, "p1", "Forest", "Basic Land — Forest", is_land=True)
+    saga = battlefield_object(engine, "p1", "A Saga", "Enchantment — Saga")
+    theirs = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+
+    p1.mana_pool.add_many({"U": 2, "C": p1.hand[0].card.converted_mana_cost - 2})
+    engine.cast_spell(p1, p1.hand[0])
+    engine.resolve_until_stable()
+
+    on_battlefield = set(engine.state.battlefield)
+    assert bear not in on_battlefield and enchantment not in on_battlefield and theirs not in on_battlefield
+    assert bear in p1.hand and enchantment in p1.hand
+    assert theirs in engine.state.player_by_id("p2").hand  # to *its* owner's hand
+    assert {legend, artifact, land, saga} <= on_battlefield  # historic or land: stay

@@ -30,6 +30,7 @@ from . import derevi_empyrial_tactician  # noqa: F401
 from . import descendants_fury  # noqa: F401
 from . import desperate_gambit  # noqa: F401
 from . import destiny_spinner  # noqa: F401
+from . import desynchronization  # noqa: F401
 from . import determined_iteration  # noqa: F401
 from . import dina_essence_brewer  # noqa: F401
 from . import dina_soul_steeper  # noqa: F401
