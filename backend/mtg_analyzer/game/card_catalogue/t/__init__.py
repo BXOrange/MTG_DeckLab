@@ -41,6 +41,7 @@ from . import timetwister  # noqa: F401
 from . import tinder_wall  # noqa: F401
 from . import tireless_provisioner  # noqa: F401
 from . import titan_of_industry  # noqa: F401
+from . import titanic_brawl  # noqa: F401
 from . import tithe_taker  # noqa: F401
 from . import tocasia_s_welcome  # noqa: F401
 from . import tomik_wielder_of_law  # noqa: F401
