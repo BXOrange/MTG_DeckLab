@@ -303,6 +303,18 @@ body {
   flex: 0 0 auto;
 }
 
+/* Error/warning text (headerMessage.js), left of the connection indicator. */
+.header-message {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 40vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  color: var(--warn);
+}
+
 .icon-button {
   display: flex;
   align-items: center;

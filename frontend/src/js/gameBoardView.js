@@ -29,6 +29,7 @@ import {
   BOT_SPEED_MS_OPTIONS,
 } from './settings.js';
 import { t, tPlural } from './i18n.js';
+import { setHeaderMessage } from './headerMessage.js';
 
 const PHASE_LABELS = {
   beginning: t('bd.phase.beginning'),
@@ -895,6 +896,9 @@ export function createGameBoardView(opts = {}) {
   function setStatus(text, kind = '') {
     status = text;
     statusKind = kind;
+    // Warnings go to the title bar (headerMessage.js): the inline status
+    // line is covered by any open modal, e.g. a pending-choice dialog.
+    setHeaderMessage(kind === 'warning' ? text : '');
   }
 
   // A stable-ish signature for one stack item, for spotting which entries
@@ -4040,7 +4044,7 @@ export function createGameBoardView(opts = {}) {
   }
 
   function statusHtml() {
-    if (!status) return '';
+    if (!status || statusKind === 'warning') return '';
     return `<p class="server-status ${statusKind}">${escapeHtml(status)}</p>`;
   }
 
