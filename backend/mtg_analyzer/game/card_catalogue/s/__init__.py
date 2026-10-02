@@ -80,6 +80,7 @@ from . import stifle  # noqa: F401
 from . import stinging_licid  # noqa: F401
 from . import stonesplitter_bolt  # noqa: F401
 from . import storm_kiln_artist  # noqa: F401
+from . import stormscape_familiar  # noqa: F401
 from . import story_circle  # noqa: F401
 from . import strix_serenade  # noqa: F401
 from . import struggle_for_project_purity  # noqa: F401
