@@ -2194,6 +2194,10 @@ class CastingMixin:
             cost = cost.either_alt  # RULE 601.2b: the caster took branch B of "<A> or <B>"
         if getattr(cost, "sacrifice_or_mana", False) and not pay_additional:
             return True
+        # An optional "you may <…>" cost the caster declined is not paid, so it can't make the cast illegal
+        # (`_pay_additional_cast_cost` skips it the same way).
+        if getattr(obj, "additional_cast_cost_optional", False) and not pay_additional:
+            return True
         # Yasharn, Implacable Earth (MEC-40): "Players can't pay life or
         # sacrifice nonland permanents to cast spells or activate
         # abilities." — checked before the ordinary payability gates below
@@ -2223,6 +2227,10 @@ class CastingMixin:
             count, subtype = cost.tap_others
             if self._resolve_tap_others(player, obj, count, subtype, None) is None:
                 return False
+        # RULE 701.59: "you may collect evidence N" as an additional cost (Behind the Mask) needs graveyard
+        # cards of total mana value N or more.
+        if cost.collect_evidence and not self.rules.collect_evidence_possible(player, cost.collect_evidence):
+            return False
         # "reveal a `<type>` card from your hand or pay {N}" (Daring Buccaneer): the revealing branch needs such a
         # card in hand besides the spell itself; the mana branch never reaches this check.
         if cost.reveal_from_hand and not any(
@@ -2404,6 +2412,9 @@ class CastingMixin:
         if cost.pay_life:
             amount = x if cost.pay_life == PAY_LIFE_X else cost.pay_life
             self.rules.lose_life(player, amount, cause="cost")
+        if cost.collect_evidence:
+            # RULE 701.59 / 601.2b: an additional cost that exiles graveyard cards (Behind the Mask's optional one).
+            self.rules.collect_evidence(player, cost.collect_evidence)
         exile_count = x if cost.exile_from_graveyard == EXILE_FROM_GRAVEYARD_X else cost.exile_from_graveyard
         if exile_count:
             # RULE 601.2b (PAR-41): `_can_pay_additional_cast_cost` already

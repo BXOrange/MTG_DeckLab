@@ -21,6 +21,7 @@ from . import chainer_dementia_master  # noqa: F401
 from . import chains_of_custody  # noqa: F401
 from . import chains_of_mephistopheles  # noqa: F401
 from . import chalice_of_the_void  # noqa: F401
+from . import chameleon_master_of_disguise  # noqa: F401
 from . import champion_of_the_weird  # noqa: F401
 from . import chandra_s_incinerator  # noqa: F401
 from . import chaos_warp  # noqa: F401

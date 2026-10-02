@@ -2525,6 +2525,7 @@ EffectRegistry.register(
         keep_own_abilities=bool(p.get("keep_own_abilities", False)),
         max_mana_value_from_mana_spent=bool(p.get("max_mana_value_from_mana_spent", False)),
         not_legendary=bool(p.get("not_legendary", False)),
+        set_name=p.get("set_name"),
     ),
 )
 EffectRegistry.register(

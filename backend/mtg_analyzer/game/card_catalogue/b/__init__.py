@@ -9,6 +9,7 @@ from . import battletide_alchemist  # noqa: F401
 from . import beacon_of_unrest  # noqa: F401
 from . import beast_mode  # noqa: F401
 from . import beast_within  # noqa: F401
+from . import behind_the_mask  # noqa: F401
 from . import beledros_witherbloom  # noqa: F401
 from . import bellowing_aegisaur  # noqa: F401
 from . import benevolent_hydra  # noqa: F401

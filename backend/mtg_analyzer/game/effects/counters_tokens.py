@@ -3723,11 +3723,16 @@ class EnterAsCopyReplacement(GameEffect):
         keep_own_abilities: bool = False,
         max_mana_value_from_mana_spent: bool = False,
         not_legendary: bool = False,
+        set_name: Optional[str] = None,
     ) -> None:
         super().__init__(None)
         self.target_kind = target_kind
         #: "…except it isn't legendary" (Auton Soldier, PAR-142) — `Card.as_copy`'s ``not_legendary``.
         self.not_legendary = bool(not_legendary)
+        #: "…except his name is ~." (Chameleon, Master of Disguise) — the copy keeps this name. Applied by
+        #: `RulesEngine._resolve_enter_as_copy` *after* the copied card's abilities are bound (binding is
+        #: keyed by name, so renaming first would bind this card's own entry instead of the copied one's).
+        self.set_name = str(set_name) if set_name else None
         #: "…of any creature on the battlefield with mana value less than
         #: or equal to the amount of mana spent to cast ~." (Mockingbird) —
         #: `GameObject.mana_spent_to_cast`, read live when the choice is

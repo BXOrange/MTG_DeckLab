@@ -418,3 +418,54 @@ def test_invigorated_rampage_mode_two_pumps_two_creatures_by_two_each():
     assert [(b.power, b.toughness) for b in bears] == [(4, 2), (2, 2), (4, 2)]
     assert "trample" in bears[0].granted_keywords and "trample" in bears[2].granted_keywords
     assert "trample" not in bears[1].granted_keywords
+
+
+def _behind_the_mask(collect_evidence):
+    engine, p1 = _game("Behind the Mask")
+    rock = battlefield_object(engine, "p1", "Mind Stone", "Artifact")
+    if collect_evidence:
+        p1.graveyard.append(GameObject(
+            Card(id="Big", name="Big Spell", type_line="Sorcery", mana_cost_string="{5}{R}", converted_mana_cost=6),
+            owner_id="p1", zone=Zone.GRAVEYARD,
+        ))
+    p1.mana_pool.add_many({"U": 1})
+    engine.cast_spell(p1, p1.hand[0], targets=[rock], pay_additional=collect_evidence)
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    return engine, p1, rock
+
+
+def test_behind_the_mask_makes_a_4_3_artifact_creature_or_a_1_1_when_evidence_was_collected():
+    engine, p1, rock = _behind_the_mask(collect_evidence=False)
+    assert rock.is_creature and rock.card.is_artifact and (rock.power, rock.toughness) == (4, 3)
+
+    engine, p1, rock = _behind_the_mask(collect_evidence=True)
+    assert not p1.graveyard or all(o.name != "Big Spell" for o in p1.graveyard)  # the evidence was exiled
+    assert rock.is_creature and (rock.power, rock.toughness) == (1, 1)  # "instead"
+
+    engine._step_cleanup()
+    engine.recompute_continuous_effects()
+    assert not rock.is_creature  # until end of turn
+
+
+def test_chameleon_enters_as_a_copy_of_my_creature_but_keeps_its_own_name():
+    engine, p1 = _game("Chameleon, Master of Disguise")
+    angel = GameObject(CardDatabase(DB_PATH).get_card("Serra Angel"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    angel.controller_id = "p1"
+    bind_from_catalogue(angel)
+    engine.state.add_to_battlefield(angel)
+    theirs = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    p1.mana_pool.add_many({"U": 1, "C": 3})
+    chameleon = p1.hand[0]
+    engine.cast_spell(p1, chameleon)
+    engine.resolve_until_stable()
+    options = {o["label"] for o in engine.state.pending_choice["options"] if "instance_id" in o}
+    assert options == {"Serra Angel"}  # a creature *you control*
+    engine.resolve_pending_choice(str(angel.instance_id))
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    assert chameleon.zone == Zone.BATTLEFIELD
+    assert chameleon.name == "Chameleon, Master of Disguise"
+    from mtg_analyzer.game import combat
+
+    assert (chameleon.power, chameleon.toughness) == (4, 4) and combat.has(chameleon, "flying")  # the angel's

@@ -18,6 +18,7 @@ engine is the toolbox that loop drives.
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 import re
 from typing import Any, Callable, Optional, Union
@@ -2353,6 +2354,11 @@ class CastingResolutionMixin:
                     add_keywords=effect.add_keywords + conditional_keywords,
                     not_legendary=getattr(effect, "not_legendary", False),
                 )
+                if effect.set_name:
+                    # "…except his name is ~." — after binding (which is keyed by the copied name).
+                    renamed = copy.copy(obj.card)
+                    renamed.name = effect.set_name
+                    obj.card = obj._front_card = renamed
                 if effect.keep_own_abilities:
                     obj.triggered_abilities.extend(own_triggered)
                     obj.static_effects.extend(own_static)
