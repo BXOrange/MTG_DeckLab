@@ -1,5 +1,6 @@
 """Hand-authored card entries whose name starts with 'f' (see game/card_registry for the registration mechanism: `register`/`register_family`/`specs_for`)."""
 from . import fabled_passage  # noqa: F401
+from . import faebloom_trick  # noqa: F401
 from . import faeburrow_elder  # noqa: F401
 from . import faerie_mastermind  # noqa: F401
 from . import fallen_ideal  # noqa: F401

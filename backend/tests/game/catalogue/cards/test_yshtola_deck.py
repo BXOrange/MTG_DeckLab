@@ -57,3 +57,31 @@ def test_generous_gift_destroys_and_gives_its_controller_an_elephant():
     assert victim not in engine.state.battlefield
     elephants = [o for o in engine.state.permanents_controlled_by("p2") if "Elephant" in (o.card.type_line or "")]
     assert len(elephants) == 1 and elephants[0].power == 3 and elephants[0].toughness == 3
+
+
+def test_faebloom_trick_makes_two_fliers_then_taps_an_opposing_creature():
+    from mtg_analyzer.config import DB_PATH
+    from mtg_analyzer.game.game_engine import GameEngine
+    from mtg_analyzer.services.card_database import CardDatabase
+
+    trick = CardDatabase(DB_PATH).get_card("Faebloom Trick")
+    engine = GameEngine.new_game([("p1", "A", [trick]), ("p2", "B", [])], starting_hand=1, starting_life=20)
+    for obj in engine.state.players[0].hand:
+        bind_from_catalogue(obj)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    p1 = engine.state.active_player
+    bear = battlefield_object(engine, "p2", "Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    p1.mana_pool.add_many({"U": 1, "C": 2})
+    engine.cast_spell(p1, p1.hand[0], targets=[])
+    engine.resolve_until_stable()
+    # RULE 603.12: the reflexive trigger's target is picked as it goes on the stack.
+    choice = engine.state.pending_choice
+    assert choice["kind"] == "trigger_target"
+    assert [o["instance_id"] for o in choice["options"]] == [bear.instance_id]
+    engine.resolve_pending_choice(choice["options"][0]["id"])
+    engine.resolve_until_stable()
+
+    faeries = [o for o in engine.state.permanents_controlled_by("p1") if "Faerie" in (o.card.type_line or "")]
+    assert len(faeries) == 2
+    assert bear.tapped
