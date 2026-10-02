@@ -52,3 +52,30 @@ def test_titanic_brawl_is_castable_for_the_reduced_cost_and_fights():
     engine.resolve_until_stable()
     assert victim not in engine.state.battlefield  # 3 damage from the grown bear
     assert grown.damage_marked == 2  # the victim's power comes back
+
+
+def test_inspiring_call_draws_per_countered_creature_and_makes_only_those_indestructible():
+    engine, p1, p2 = _game("Inspiring Call")
+    spell = p1.hand[0]
+    grown = [
+        battlefield_object(engine, "p1", f"Grown {i}", "Creature — Bear", is_creature=True, power=2, toughness=2)
+        for i in range(2)
+    ]
+    plain = battlefield_object(engine, "p1", "Plain Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    theirs = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    for creature in (*grown, theirs):
+        creature.counters["+1/+1"] = 1
+    for i in range(4):
+        p1.library.append(GameObject(Card(id=f"L{i}", name=f"Lib {i}", type_line="Land"), owner_id="p1", zone=Zone.LIBRARY))
+    engine.recompute_continuous_effects()
+
+    p1.mana_pool.add_many({"G": 1, "C": spell.card.converted_mana_cost - 1})
+    hand_before = len(p1.hand)
+    engine.cast_spell(p1, spell)
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+
+    assert len(p1.hand) == hand_before - 1 + 2  # the spell leaves, two creatures had a counter
+    assert all("indestructible" in c.granted_keywords for c in grown)
+    assert "indestructible" not in plain.granted_keywords
+    assert "indestructible" not in theirs.granted_keywords
