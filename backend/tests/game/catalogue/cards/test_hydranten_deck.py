@@ -157,3 +157,39 @@ def test_mind_into_matter_draws_x_then_puts_a_cheap_permanent_in_tapped():
     assert cheap in engine.state.battlefield and cheap.tapped
     assert dear in p1.hand
     assert sum(1 for o in p1.hand if o.name.startswith("Drawn")) == 2  # drew X cards
+
+
+def test_kodama_of_the_west_tree_modified_creatures_trample_and_fetch_a_basic_on_damage():
+    from mtg_analyzer.config import DB_PATH
+    from mtg_analyzer.models.game.game_object import GameObject, Zone
+    from mtg_analyzer.services.card_database import CardDatabase
+
+    engine, player = two_player_game()
+    p2 = engine.state.player_by_id("p2")
+    kodama = battlefield_object(
+        engine, "p1", "Kodama of the West Tree", "Legendary Creature — Spirit", is_creature=True, power=1, toughness=3,
+    )
+    bind_from_catalogue(kodama)
+    modified = battlefield_object(engine, "p1", "Grown Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    plain = battlefield_object(engine, "p1", "Plain Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    modified.counters["+1/+1"] = 1
+    forest = CardDatabase(DB_PATH).get_card("Forest")
+    for _ in range(2):
+        player.library.append(GameObject(forest, owner_id="p1", zone=Zone.LIBRARY))
+    engine.recompute_continuous_effects()
+    assert "trample" in modified.granted_keywords and "trample" not in plain.granted_keywords
+
+    engine.rules.deal_damage(p2, 2, source=plain, combat=True)
+    engine.rules.put_triggers_on_stack()
+    assert engine.state.pending_choice is None and not engine.state.stack  # unmodified: nothing
+
+    lands_before = len([o for o in engine.state.battlefield if o.is_land])
+    engine.rules.deal_damage(p2, 3, source=modified, combat=True)
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    while engine.state.pending_choice:
+        choice = engine.state.pending_choice
+        engine.resolve_pending_choice(choice["options"][0]["id"])
+        engine.resolve_until_stable()
+    lands = [o for o in engine.state.battlefield if o.is_land]
+    assert len(lands) == lands_before + 1 and lands[-1].tapped

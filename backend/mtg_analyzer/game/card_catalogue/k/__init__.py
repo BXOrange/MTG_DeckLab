@@ -15,6 +15,7 @@ from . import kinnan_bonder_prodigy  # noqa: F401
 from . import kithkin_armor  # noqa: F401
 from . import knowledge_pool  # noqa: F401
 from . import kodama_of_the_east_tree  # noqa: F401
+from . import kodama_of_the_west_tree  # noqa: F401
 from . import kogla_the_titan_ape  # noqa: F401
 from . import kor_spiritdancer  # noqa: F401
 from . import korvold_fae_cursed_king  # noqa: F401
