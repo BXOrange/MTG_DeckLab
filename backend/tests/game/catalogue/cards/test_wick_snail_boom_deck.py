@@ -133,3 +133,31 @@ def test_disciple_of_bolas_sacrifices_another_creature_and_gains_and_draws_its_p
     assert any(o.name == "Disciple of Bolas" for o in engine.state.battlefield)  # "another": it stays
     assert p1.life == life_before + 4
     assert len(p1.hand) == hand_before - 1 + 4  # the Disciple leaves the hand, four cards are drawn
+
+
+def _big_apple(opponents):
+    card = CardDatabase(DB_PATH).get_card("Big Apple, 3 a.m.")
+    seats = [("p1", "A", [])] + [(f"p{i}", f"B{i}", []) for i in range(2, 2 + opponents)]
+    engine = GameEngine.new_game(seats, starting_hand=0, starting_life=20)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    p1 = engine.state.player_by_id("p1")
+    land = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    land.controller_id = "p1"
+    bind_from_catalogue(land)
+    land.summoning_sick = False
+    engine.state.add_to_battlefield(land)
+    index = next(i for i, a in enumerate(land.activated_abilities) if getattr(a, "cost", None) is not None)
+    p1.mana_pool.add_many({"C": 5})
+    engine.activate_ability(p1, land, index)
+    engine.resolve_until_stable()
+    return [o for o in engine.state.permanents_controlled_by("p1") if "Rat" in (o.card.type_line or "")], land
+
+
+def test_big_apple_makes_one_rat_per_opponent():
+    rats, land = _big_apple(opponents=1)
+    assert len(rats) == 1 and land.tapped
+    assert (rats[0].power, rats[0].toughness) == (1, 1)
+
+    rats, _ = _big_apple(opponents=3)
+    assert len(rats) == 3  # a Commander pod: three opponents, three Rats
