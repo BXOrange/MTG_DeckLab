@@ -209,3 +209,49 @@ def test_giggling_skitterspike_also_triggers_when_a_spell_targets_it():
     engine.rules.put_triggers_on_stack()
     engine.resolve_until_stable()
     assert p2.life == life_before - spike.power  # the spike's controller's opponent is hit
+
+
+def _wick_game():
+    engine, p1 = _game("Wick, the Whorled Mind")
+    wick = p1.hand[0]
+    p1.mana_pool.add_many({"U": 1, "B": 1, "R": 1, "C": max(0, wick.card.converted_mana_cost - 3)})
+    engine.cast_spell(p1, wick)  # a real entry: casting, then the permanent spell resolving
+    engine.resolve_until_stable()
+    return engine, p1, wick
+
+
+def _resolve_all(engine):
+    for _ in range(4):
+        engine.rules.put_triggers_on_stack()
+        engine.resolve_until_stable()
+        while engine.state.pending_choice:
+            options = [o for o in engine.state.pending_choice["options"] if o["id"] != "decline"]
+            if not options:
+                break
+            engine.resolve_pending_choice(options[0]["id"])
+            engine.resolve_until_stable()
+
+
+def _snails(engine):
+    return [o for o in engine.state.permanents_controlled_by("p1") if "Snail" in (o.card.type_line or "")]
+
+
+def test_wick_makes_a_snail_when_there_is_none_and_feeds_it_when_another_rat_enters():
+    engine, p1, wick = _wick_game()
+    _resolve_all(engine)
+    assert len(_snails(engine)) == 1  # Wick itself entered: no Snail yet -> create one
+    snail = _snails(engine)[0]
+    assert snail.counters.get("+1/+1", 0) == 0
+
+    engine.rules.create_token(
+        "p1", Card(id="Rat", name="Pack Rat", type_line="Token Creature — Rat", is_creature=True, power=1, toughness=1),
+    )
+    _resolve_all(engine)
+    assert len(_snails(engine)) == 1  # a Snail exists now: no second one
+    assert snail.counters.get("+1/+1", 0) == 1
+
+    engine.rules.create_token(
+        "p1", Card(id="Bear", name="Bear", type_line="Token Creature — Bear", is_creature=True, power=2, toughness=2),
+    )
+    _resolve_all(engine)
+    assert snail.counters.get("+1/+1", 0) == 1  # a non-Rat entering does nothing
