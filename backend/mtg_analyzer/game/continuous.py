@@ -5445,6 +5445,34 @@ def has_radiation_life_gain(state: "GameState", player: "Player") -> bool:
     return False
 
 
+def pip_life_options_for(
+    state: "GameState", player: "Player", obj: Optional["GameObject"],
+) -> list[tuple[str, int]]:
+    """The ``(colour, how many pips)`` a spell may pay 2 life for instead of that coloured mana — "As an
+    additional cost to cast green permanent spells, you may pay 2 life. Those spells cost {G} less to cast
+    if you paid life this way. This effect reduces only the amount of green mana you pay." (Defiler of
+    Vigor). Net effect: one ``{G}`` of a green permanent spell becomes ``{G/P}`` (see
+    `ManaCost.with_phyrexian_pips`). ``spell_type`` is a `_spell_type_matches` word/list and ``spell_color``
+    a WUBRG letter, both read off the spell being cast; with no spell (an offer-time probe) nothing
+    applies. Read off the standing ``pip_life_option`` static, outside the layer engine."""
+    if obj is None:
+        return []
+    options: list[tuple[str, int]] = []
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "pip_life_option":
+            continue
+        if getattr(ability.source, "controller_id", None) != player.id:
+            continue
+        spell_color = ability.params.get("spell_color")
+        if spell_color and spell_color not in (obj.colors or ()):
+            continue
+        spell_type = ability.params.get("spell_type")
+        if spell_type and not _spell_type_matches(obj, spell_type):
+            continue
+        options.append((str(ability.params.get("color", "G")), int(ability.params.get("pips", 1))))
+    return options
+
+
 def life_for_mana_pip_color(state: "GameState", player: "Player") -> Optional[str]:
     """The single WUBRG letter ``player`` may pay `mana_pool.
     KRRIK_LIFE_PER_BLACK_PIP` life for instead of a plain colored pip of

@@ -4031,6 +4031,20 @@ EffectRegistry.register(
     lambda p: StaticAbility("proliferate_twice", affects="self", params={}),
 )
 EffectRegistry.register(
+    # "As an additional cost to cast green permanent spells, you may pay 2 life. Those spells cost {G}
+    # less to cast if you paid life this way." (Defiler of Vigor) — consulted by
+    # `continuous.pip_life_options_for` from `GameEngine._adjust_cost`.
+    "pip_life_option",
+    lambda p: StaticAbility(
+        "pip_life_option", affects="self",
+        params={
+            "color": str(p.get("color", "G")), "pips": int(p.get("pips", 1)),
+            **({"spell_color": p["spell_color"]} if p.get("spell_color") else {}),
+            **({"spell_type": p["spell_type"]} if p.get("spell_type") else {}),
+        },
+    ),
+)
+EffectRegistry.register(
     # "As an additional cost to cast this spell, you may exile any number
     # of blue cards from your hand. This spell costs {2} less to cast for
     # each card exiled this way." (March of Swirling Mist, MEC-42) —

@@ -323,6 +323,22 @@ class ManaCost:
                 reduced.append(symbol)
         return ManaCost(reduced, raw=ManaCost(reduced).render())
 
+    def with_phyrexian_pips(self, color: str, amount: int) -> "ManaCost":
+        """Turn up to ``amount`` plain ``{<color>}`` pips into ``{<color>/P}`` — pay that mana *or* 2 life
+        (RULE 107.4f). The cost a "you may pay 2 life instead of {G}" permission (Defiler of Vigor) leaves
+        the payer, so the existing Phyrexian payment path does the rest."""
+        if color not in _COLORS or amount <= 0:
+            return ManaCost(list(self.symbols), raw=self.raw)
+        remaining = amount
+        converted: list[ManaSymbol] = []
+        for symbol in self.symbols:
+            if remaining and symbol.kind == COLOR and symbol.color == color:
+                converted.append(ManaSymbol(PHYREXIAN, color))
+                remaining -= 1
+            else:
+                converted.append(symbol)
+        return ManaCost(converted, raw=ManaCost(converted).render())
+
     def reduce_generic_and_x(self, amount: int) -> "ManaCost":
         """`reduce_generic`'s own sibling for a cost carrying ``{X}``
         (March of Swirling Mist, MEC-42): reduces any printed generic pips

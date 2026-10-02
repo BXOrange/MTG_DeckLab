@@ -516,3 +516,55 @@ def test_springheart_nantuko_attached_but_declined_makes_an_insect():
     engine.resolve_until_stable()
     assert [o.name for o in engine.state.battlefield].count("Grizzly") == 1
     assert sum(1 for o in engine.state.battlefield if o.name == "Insect") == 1
+
+
+def _defiler_board():
+    engine, p1, p2 = _game()
+    defiler = battlefield_object(
+        engine, "p1", "Defiler of Vigor", "Creature — Phyrexian Wurm", is_creature=True, power=6, toughness=6,
+    )
+    bind_from_catalogue(defiler)
+    bear = battlefield_object(engine, "p1", "Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+
+    def hand_card(name, type_line, **kw):
+        obj = GameObject(
+            Card(id=name, name=name, type_line=type_line, mana_cost_string="{1}{G}", converted_mana_cost=2,
+                 color_identity={"G"}, **kw),
+            owner_id="p1", zone=Zone.HAND,
+        )
+        p1.hand.append(obj)
+        return obj
+
+    return engine, p1, defiler, bear, hand_card
+
+
+def test_defiler_of_vigor_pays_two_life_instead_of_the_green_mana_of_a_green_permanent_spell():
+    engine, p1, defiler, bear, hand_card = _defiler_board()
+    cub = hand_card("Green Cub", "Creature — Bear", is_creature=True, power=1, toughness=1)
+    p1.mana_pool.add_many({"C": 1})  # only the generic part — no green mana at all
+    life = p1.life
+    engine.cast_spell(p1, cub)
+    engine.resolve_until_stable()
+    assert cub.zone == Zone.BATTLEFIELD and p1.life == life - 2  # {G} paid with 2 life
+
+
+def test_defiler_of_vigor_does_not_discount_a_green_instant():
+    engine, p1, defiler, bear, hand_card = _defiler_board()
+    growth = hand_card("Green Trick", "Instant")
+    p1.mana_pool.add_many({"C": 1})
+    assert not engine.can_cast(p1, growth)  # "permanent spells" only
+
+
+def test_defiler_of_vigor_puts_a_counter_on_each_creature_for_a_green_permanent_spell_only():
+    engine, p1, defiler, bear, hand_card = _defiler_board()
+    cub = hand_card("Green Cub", "Creature — Bear", is_creature=True, power=1, toughness=1)
+    trick = hand_card("Green Trick", "Instant")
+    p1.mana_pool.add_many({"G": 2, "C": 2})
+    engine.cast_spell(p1, trick)  # a green *instant*: no trigger
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert not defiler.counters and not bear.counters
+    engine.cast_spell(p1, cub)
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert defiler.counters == {"+1/+1": 1} and bear.counters == {"+1/+1": 1}

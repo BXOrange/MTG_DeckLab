@@ -1274,6 +1274,8 @@ class CastingMixin:
             for contributor in self_contributors:
                 for color, amount in contributor.get("colored", {}).items():
                     cost = cost.reduce_colored(color, amount)
+        for pip_color, pips in continuous.pip_life_options_for(self.state, player, obj):
+            cost = cost.with_phyrexian_pips(pip_color, pips)
         floor = continuous.cost_floor_for(self.state, player, obj)
         if floor > cost.converted_mana_cost:
             # RULE 601.2f's reminder text example is explicit: a {1}{B}

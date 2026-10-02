@@ -20,6 +20,7 @@ from . import depthshaker_titan  # noqa: F401
 from . import deekah_fractal_theorist  # noqa: F401
 from . import defense_grid  # noqa: F401
 from . import defense_of_the_heart  # noqa: F401
+from . import defiler_of_vigor  # noqa: F401
 from . import defiling_daemogoth  # noqa: F401
 from . import deflecting_palm  # noqa: F401
 from . import deflecting_swat  # noqa: F401
