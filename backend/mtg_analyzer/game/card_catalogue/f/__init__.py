@@ -4,6 +4,7 @@ from . import faebloom_trick  # noqa: F401
 from . import faeburrow_elder  # noqa: F401
 from . import faerie_mastermind  # noqa: F401
 from . import fallen_ideal  # noqa: F401
+from . import fandaniel_telophoroi_ascian  # noqa: F401
 from . import farewell  # noqa: F401
 from . import farmer_cotton  # noqa: F401
 from . import fateful_tempest  # noqa: F401

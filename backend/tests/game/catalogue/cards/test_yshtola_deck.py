@@ -234,3 +234,60 @@ def test_case_of_the_ransacked_lab_solves_after_four_instants_or_sorceries():
     cast(1)
     end_step()
     assert case.is_solved
+
+
+def _fandaniel_game(opp_creatures):
+    from mtg_analyzer.config import DB_PATH
+    from mtg_analyzer.game.game_engine import GameEngine
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+    from mtg_analyzer.services.card_database import CardDatabase
+
+    card = CardDatabase(DB_PATH).get_card("Fandaniel, Telophoroi Ascian")
+    engine = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])], starting_hand=0, starting_life=20)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    fandaniel = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    fandaniel.controller_id = "p1"
+    bind_from_catalogue(fandaniel)
+    engine.state.add_to_battlefield(fandaniel)
+    p1 = engine.state.player_by_id("p1")
+    for i in range(3):  # two instants/sorceries and a creature in p1's graveyard
+        type_line = "Creature — Bear" if i == 2 else "Instant"
+        p1.graveyard.append(GameObject(
+            Card(id=f"G{i}", name=f"Grave {i}", type_line=type_line, is_instant=i < 2, is_creature=i == 2),
+            owner_id="p1", zone=Zone.GRAVEYARD,
+        ))
+    victims = [
+        battlefield_object(engine, "p2", f"Bear {i}", "Creature — Bear", is_creature=True, power=2, toughness=2)
+        for i in range(opp_creatures)
+    ]
+    engine.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="end", phase="ending", player_id="p1"))
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    return engine, victims
+
+
+def test_fandaniel_opponent_who_declines_loses_two_life_per_instant_or_sorcery():
+    engine, victims = _fandaniel_game(opp_creatures=1)
+    choice = engine.state.pending_choice
+    assert choice is not None
+    engine.resolve_pending_choice("decline")
+    engine.resolve_until_stable()
+    assert engine.state.player_by_id("p2").life == 16  # 2 instants x 2
+    assert victims[0] in engine.state.battlefield
+
+
+def test_fandaniel_opponent_who_sacrifices_keeps_their_life():
+    engine, victims = _fandaniel_game(opp_creatures=1)
+    choice = engine.state.pending_choice
+    assert choice is not None
+    answer = next(o["id"] for o in choice["options"] if o["id"] != "decline")
+    engine.resolve_pending_choice(answer)
+    for _ in range(3):
+        if engine.state.pending_choice is None:
+            break
+        pc = engine.state.pending_choice
+        engine.resolve_pending_choice(pc["options"][0]["id"])
+    engine.resolve_until_stable()
+    assert engine.state.player_by_id("p2").life == 20
+    assert victims[0] not in engine.state.battlefield
