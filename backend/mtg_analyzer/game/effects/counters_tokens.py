@@ -1981,11 +1981,17 @@ class DoubleCountersOnTargetEffect(GameEffect):
         mode: str = "target",
         kind: Optional[str] = None,
         source: Optional["GameObject"] = None,
+        target_count: int = 1,
+        optional: bool = False,
     ) -> None:
         super().__init__(source)
         self.mode = mode
         self.kind = kind
-        self.target_spec = TargetSpec(kind=target_kind) if mode == "target" else None
+        # ``target_count``/``optional`` is RULE 601.2c's "any number of target
+        # X" idiom (Deepglow Skate): a UI cap with ``optional`` so zero is legal.
+        self.target_spec = (
+            TargetSpec(kind=target_kind, count=target_count, optional=optional) if mode == "target" else None
+        )
 
     def _double_on(self, context: GameContext, obj: Any) -> None:
         counters = {k: v for k, v in (getattr(obj, "counters", None) or {}).items() if v and v > 0}
@@ -2009,9 +2015,9 @@ class DoubleCountersOnTargetEffect(GameEffect):
             for o in list(getattr(context, "previous_targets", []) or []):
                 self._double_on(context, o)
             return
-        target = targets[0] if targets else None
-        if target is not None:
-            self._double_on(context, target)
+        for target in list(targets or []):
+            if target is not None:
+                self._double_on(context, target)
 
 
 class CreateTokensPerCounterAmongTargetPlayerCreaturesEffect(GameEffect):

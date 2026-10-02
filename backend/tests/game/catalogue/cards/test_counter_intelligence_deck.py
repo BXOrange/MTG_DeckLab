@@ -103,3 +103,25 @@ def test_darksteel_reactor_wins_when_the_twentieth_charge_counter_lands():
     upkeep()
     assert reactor.counters["charge"] == 20
     assert engine.state.game_over and engine.state.winner_id == "p1"
+
+
+def test_deepglow_skate_doubles_every_counter_kind_on_each_chosen_permanent():
+    engine, p1 = _game("Deepglow Skate")
+    artifact = battlefield_object(engine, "p1", "Charged Thing", "Artifact")
+    bear = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=1, toughness=1)
+    untouched = battlefield_object(engine, "p1", "Other Thing", "Artifact")
+    artifact.counters["charge"] = 2
+    bear.counters.update({"+1/+1": 3, "stun": 1})
+    untouched.counters["charge"] = 5
+    p1.mana_pool.add_many({"U": 5})
+    engine.cast_spell(p1, p1.hand[0])
+    engine.resolve_until_stable()
+    engine.rules.put_triggers_on_stack()
+    for object_id in (str(artifact.instance_id), str(bear.instance_id)):
+        assert engine.state.pending_choice["kind"] == "trigger_target_multi"
+        engine.resolve_pending_choice(object_id)
+    engine.resolve_pending_choice("stop")  # "any number": the player ends the list
+    engine.resolve_until_stable()
+    assert artifact.counters == {"charge": 4}
+    assert bear.counters == {"+1/+1": 6, "stun": 2}  # every kind, opposing permanents included
+    assert untouched.counters == {"charge": 5}  # not chosen

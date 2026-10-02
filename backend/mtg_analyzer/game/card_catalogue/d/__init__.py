@@ -15,6 +15,7 @@ from . import daze  # noqa: F401
 from . import dazzling_reflection  # noqa: F401
 from . import deadeye_navigator  # noqa: F401
 from . import deadly_brew  # noqa: F401
+from . import deepglow_skate  # noqa: F401
 from . import deekah_fractal_theorist  # noqa: F401
 from . import defense_grid  # noqa: F401
 from . import defense_of_the_heart  # noqa: F401

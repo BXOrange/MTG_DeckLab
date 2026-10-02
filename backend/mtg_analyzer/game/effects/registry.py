@@ -3164,6 +3164,8 @@ EffectRegistry.register(
         target_kind=p.get("target_kind", "creature"),
         mode=p.get("mode", "target"),
         kind=p.get("kind"),
+        target_count=int(p.get("target_count", 1)),
+        optional=bool(p.get("optional", False)),
     ),
 )
 EffectRegistry.register(
