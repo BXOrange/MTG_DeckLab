@@ -265,6 +265,7 @@ EffectRegistry.register(
         count_max=p.get("count_max"),
         then_draw_discarded=bool(p.get("then_draw_discarded", False)),
         filter=p.get("filter"),
+        unless_discard=p.get("unless_discard"), player_id=p.get("player_id"),
     ),
 )
 EffectRegistry.register(
@@ -2082,6 +2083,7 @@ EffectRegistry.register(
         then_if_commander=p.get("then_if_commander"),
         player_selector=str(p.get("player_selector", "controller")),
         require_untapped=bool(p.get("require_untapped", False)),
+        else_effects=p.get("else_effects"),
     ),
 )
 EffectRegistry.register(

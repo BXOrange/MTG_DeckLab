@@ -95,13 +95,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   True}` (precedent `_DAMAGE_TRIGGER_RE`); **(c)** Pure Intentions' `create_turn_trigger` (RULE 603.7a)
   needs generalizing to a parser row. Library of Leng / Nephalia Academy ("an effect causes you to
   discard") are a broader, non-opponent-scoped condition — not this cluster.
-- **PAR-145 · Sticker Sheets are `NEVER_SUPPORTED` by type line.** Decided 2026-10-02 (RULE 123, see
-  DEFERRED.md). The 48 Unfinity Sticker Sheets (set `sunf`, type line "Stickers", Commander-legal) are
-  invisible to `gate._mentions_stickers` (it reads oracle text; theirs says `{TK}{TK} — 1/4`), so they sit in
-  the Commander denominator and as the rank-1 Bucket B template. Scope: classify them `NEVER_SUPPORTED` in
-  `gate.parse_oracle` from the type line, bump `PARSER_VERSION`, re-measure with `coverage_report.py`
-  (`--commander-legal-only` too; the denominator drops by 48) and sync the coverage numbers. Accept: 0 `sunf`
-  cards counted as UNMODELED, no other card's verdict changes (`parser_probe.py snapshot`/`diff`).
 - **PAR-146 · `commander_tail_report.py` taxonomy re-validation.** Measured at PARSER_VERSION 584
   (`PARSER_LONG_TAIL.md`, "Commander tail re-validation"): the `roll_die` row ("no dice subsystem at all",
   43 cards) and the `tapped and attacking` row (59) name primitives that exist (`RollDieEffect`,
@@ -110,7 +103,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   evidence/forage/behold 5, suspect 3, incubate 2, clash 1, meld 1, triple 1, waterbend 1) are unchecked —
   exchange control and meld look stale (`Done_Backend.md` Gilded Drake swap; CLAUDE.md lists meld as done).
   Scope: check each remaining row with `parser_probe.py card`/`blocked`, fix or drop the stale ones, list
-  Stickers in Bucket F by type line once PAR-145 lands, and split Bucket E (96% of the tail) by the trigger-
+  Stickers in Bucket F by type line, and split Bucket E (96% of the tail) by the trigger-
   body / modifier axes `composition` reports instead of one rest bucket. Decision open: whether the report
   should print each row's check status.
 - **PAR-147 · Dice grammar axes.** The engine exists (`RollDieEffect`, `roll_die`, `roll_dice_modifier`); 68

@@ -1231,10 +1231,20 @@ class DiscardEffect(GameEffect):
         count_max: Optional[int] = None,
         then_draw_discarded: bool = False,
         filter: Optional[dict[str, Any]] = None,
+        unless_discard: Optional[dict[str, Any]] = None,
+        player_id: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.count = count
         self.player = player
+        #: "Discard N cards **unless** you discard a `<quality>` card." (Thirst for Knowledge, Compulsive
+        #: Research, Alpharael) — the discarding player may instead discard one hand card matching this
+        #: filter (``{"card_type": "land"}`` / ``{"nonland": True}`` / ``{"subtype": "pirate"}``); declining —
+        #: or holding no such card — discards ``count`` cards as usual (RULE 608.2, the choice is theirs).
+        self.unless_discard = dict(unless_discard) if unless_discard else None
+        #: An explicit discarding player by id — what the "declined, so discard N" branch of
+        #: ``unless_discard`` carries across the choice (serialized specs hold no `Player`).
+        self.player_id = player_id
         #: "…discards all cards with that spell's mana value." (PAR-74,
         #: Infernal Kirin) — RULE 601.2c's non-interactive "all `<filter>`"
         #: mass discard, unlike every other mode above (all RULE 701.8
@@ -1299,6 +1309,17 @@ class DiscardEffect(GameEffect):
             return None
         return [{"type": "draw", "params": {"count": self.count}}]
 
+    def _matches_unless_discard(self, obj: Any) -> bool:
+        """Whether ``obj`` is the kind of card ``unless_discard`` accepts in place of ``count`` discards."""
+        spec = self.unless_discard or {}
+        type_line = str(getattr(obj.card, "type_line", "") or "").lower()
+        types, _, subtypes = type_line.partition("—")
+        if spec.get("nonland"):
+            return "land" not in types.split()
+        if spec.get("subtype"):
+            return str(spec["subtype"]).lower() in subtypes.split()
+        return str(spec.get("card_type", "")).lower() in types.split()
+
     def _discard_from(self, context: GameContext, player: Any) -> None:
         if self.filter is not None:
             if self.filter.get("mana_value_from_trigger_event"):
@@ -1307,6 +1328,15 @@ class DiscardEffect(GameEffect):
             return
         count = self._measured(self.count, context)
         if count <= 0:
+            return
+        if self.unless_discard:
+            context.engine._request_choose_objects(
+                player,
+                [o for o in player.hand if self._matches_unless_discard(o)],
+                "discard", count=1, optional=True,
+                prompt="Wähle die Karte, die du stattdessen abwirfst (oder lehne ab)", source=self.source,
+                else_specs=[{"type": "discard", "params": {"count": count, "player_id": player.id}}],
+            )
             return
         if self.whole_hand:
             context.discard(player, len(player.hand), cause=self.source)
@@ -1379,6 +1409,11 @@ class DiscardEffect(GameEffect):
                     player = None
         if player is None and self.target_spec is not None and targets:
             player = targets[0]
+        if player is None and self.player_id is not None:
+            try:
+                player = context.state.player_by_id(self.player_id)
+            except (KeyError, ValueError):
+                player = None
         if player is None:
             player = _controller_of(self.source, context)
         self._discard_from(context, player)

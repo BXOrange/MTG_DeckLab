@@ -42,7 +42,11 @@ def measure(cards, cov_db, use_ledger=True):
     reused = parsed = 0
 
     for card in cards:
-        total += 1
+        # RULE 123.2: Sticker Sheets are inserts, not cards. Keep their
+        # NEVER_SUPPORTED ledger rows/count, but exclude them from coverage's
+        # card denominator (ordinary cards mentioning stickers still count).
+        if (getattr(card, "type_line", "") or "").strip().casefold() != "stickers":
+            total += 1
         chash = cov.content_hash(card)
         row = cov_db.get(chash) if (cov_db and use_ledger) else None
 

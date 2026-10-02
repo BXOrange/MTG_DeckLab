@@ -4391,9 +4391,10 @@ Not ticketed (PLAY-ALL Step 1). The plan called it "cycles through `register_fam
 
 ### Stickers (RULE 123) Declared Permanent Non-Goal
 
-- **What:** The parser gate now recognizes any card mentioning "sticker" and fails closed with a new `NEVER_SUPPORTED` verdict distinct from `UNMODELED`, so it contributes…
+- **What:** The parser gate recognizes any card mentioning "sticker" and fails closed with `NEVER_SUPPORTED`, distinct from `UNMODELED`, so its clauses never enter the processing-list ranking. PAR-145 (2026-10-02, v586) adds the type line "Stickers", including empty or ticket/stat-only text. `coverage_report.py` excludes these non-card inserts from its denominator under RULE 123.2 while retaining their ledger verdicts and never-supported count. All 48 `sunf` sheets move from UNMODELED to NEVER_SUPPORTED; the empty-text Secret Lair "Sticker sheet" moves from MODELED to NEVER_SUPPORTED. Coverage: 20,115 / 35,046 (57.4%); Commander: 19,349 / 32,068 (60.3%).
 - **Files:** `parser/oracle/gate.py`, `parser/oracle/processing_list.py`, `services/coverage_db.py`, `scripts/coverage_report.py`
-- **Why:** No handler will ever claim Sticker text, so leaving it as ordinary `UNMODELED` would permanently pollute the "what to build next" ranking.
+- **Why:** No handler will ever claim Sticker text, so leaving it as ordinary `UNMODELED` would permanently pollute the "what to build next" ranking. Sticker Sheets have no card characteristics (RULE 123.2).
+- **Validation:** `tests/test_stickers_never_supported.py` covers type-line recognition, empty text, case variants, backlog exclusion and the denominator; parser-version lock updated. Full-cache verdict comparison and probe snapshot/diff verify that only Sticker Sheet verdicts change. Full pytest with `--full-cache`: 10,834 passed; two local-server proxy tests were sandbox-blocked and passed on rerun outside the sandbox (all 10,836 tests validated).
 
 ### Oracle-Text Parser Front-End — Phase 0/1 Bootstrap
 

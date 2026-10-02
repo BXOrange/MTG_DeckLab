@@ -2576,6 +2576,46 @@ def _discard(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("discard", params)]
 
 
+#: "Discard N cards unless you discard a `<quality>` card." (Thirst for Knowledge, Compulsive Research, Alpharael,
+#: Arm-Mounted Anchor, …) — `DiscardEffect.unless_discard`: the discarder may give up one matching card instead of N.
+#: "that player" is the player an earlier clause chose (``previous_subject``). The quality is "nonland", a card type
+#: or a creature/permanent subtype the shared count grammar knows (fail-closed on anything else).
+_DISCARD_UNLESS_RE = _c(
+    r"(?:then )?(?:(?P<who>you|that player|target player|target opponent|each opponent|each player) )?"
+    rf"discards? {COUNT} cards? unless (?:you|they) discards? (?:a|an) (?P<quality>[a-z]+) card"
+)
+_DISCARD_UNLESS_CARD_TYPES = frozenset({"artifact", "creature", "land", "enchantment", "instant", "sorcery", "planeswalker"})
+
+
+def _discard_unless(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from .subgrammars import subtype_count_selector
+
+    quality = m.group("quality").lower()
+    if quality == "nonland":
+        unless: dict = {"nonland": True}
+    elif quality in _DISCARD_UNLESS_CARD_TYPES:
+        unless = {"card_type": quality}
+    else:
+        selector = subtype_count_selector(f"{quality}s")
+        subtype = ((selector or {}).get("filter") or {}).get("subtype")
+        if not subtype:
+            return None
+        unless = {"subtype": subtype}
+    who = (m.group("who") or "").strip()
+    params: dict = {"count": count_of(m.group("n")), "unless_discard": unless}
+    if who == "that player":
+        params["previous_subject"] = True
+    elif who == "target player":
+        params["target_kind"] = "player"
+    elif who == "target opponent":
+        params["target_kind"] = "opponent"
+    elif who == "each player":
+        params["scope"] = "each_player"
+    elif who == "each opponent":
+        params["scope"] = "each_opponent"
+    return [EffectSpec("discard", params)]
+
+
 def _that_many_player_discards(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("discard", {"count": 0, "previous_subject": True,
                                     "count_from_trigger_event": "amount"})]
@@ -16458,6 +16498,17 @@ HANDLERS: list[EffectHandler] = [
         "that_player_discards_that_many",
         _c(r"that player discards that many cards?"),
         _that_many_player_discards,
+    ),
+    EffectHandler("discard_unless", _DISCARD_UNLESS_RE, _discard_unless),
+    # "Untap up to three lands." (Frantic Search, Cloud of Faeries, Palinchron, Peregrine Drake) — an untargeted pick
+    # (`choose_objects` with the ``untap`` action), unlike "untap up to two **target** lands" (RULE 115).
+    EffectHandler(
+        "untap_up_to_lands",
+        _c(r"untap up to (?P<n>\d+) lands"),
+        lambda m: [EffectSpec("choose_objects", {
+            "action": "untap", "what": "land", "count": int(m.group("n")), "optional": True,
+            "prompt": "Wähle bis zu %d Länder zum Enttappen" % int(m.group("n")),
+        })],
     ),
     EffectHandler(
         "discard",

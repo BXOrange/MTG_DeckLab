@@ -127,6 +127,20 @@ def _targets_a_permanent(targets: Optional[list[Any]]) -> bool:
     return False
 
 
+def _targets_permanent_or_player(targets: Optional[list[Any]]) -> bool:
+    """Whether any chosen target is a battlefield permanent or a player — Shiko and Narset, Unified's "copy that
+    spell if it targets a permanent or player" (a spell aimed only at a spell on the stack, or at a card in a
+    graveyard, doesn't qualify)."""
+    from ...models.game.player import Player
+
+    for t in targets or []:
+        if isinstance(t, Player):
+            return True
+        if isinstance(t, GameObject) and getattr(t, "zone", None) == Zone.BATTLEFIELD:
+            return True
+    return False
+
+
 def _target_instance_ids(targets: Optional[list[Any]]) -> frozenset:
     """The `instance_id`s of a spell's chosen object targets — stamped onto
     the `SPELL_CAST` event so a Heroic-style "whenever you cast a spell that
@@ -893,6 +907,10 @@ class CastingResolutionMixin:
                 # permanents, incubate 2." (Tiller of Flesh) — RULE 608.2b.
                 targets_a_permanent=_targets_a_permanent(targets),
                 target_instance_ids=_target_instance_ids(targets),
+                # "Whenever you cast a spell with one or more targets, draw that many cards."
+                # (Voracious Bibliophile) — RULE 115.1: how many targets were chosen.
+                target_count=len([t for t in (targets or []) if t is not None]),
+                targets_permanent_or_player=_targets_permanent_or_player(targets),
                 # What `GameState`'s per-turn cast tallies (`turn_history`) read back.
                 **_cast_history_traits(obj),
             )
@@ -1015,6 +1033,10 @@ class CastingResolutionMixin:
                 ),
                 targets_a_permanent=_targets_a_permanent(targets),
                 target_instance_ids=_target_instance_ids(targets),
+                # "Whenever you cast a spell with one or more targets, draw that many cards."
+                # (Voracious Bibliophile) — RULE 115.1: how many targets were chosen.
+                target_count=len([t for t in (targets or []) if t is not None]),
+                targets_permanent_or_player=_targets_permanent_or_player(targets),
                 # What `GameState`'s per-turn cast tallies (`turn_history`) read back.
                 **_cast_history_traits(obj),
             )

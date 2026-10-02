@@ -23,6 +23,7 @@ from . import volcanic_salvo  # noqa: F401
 from . import volcanic_spite  # noqa: F401
 from . import volcanic_torrent  # noqa: F401
 from . import voltage_surge  # noqa: F401
+from . import voracious_bibliophile  # noqa: F401
 from . import vraska_betrayal_s_sting  # noqa: F401
 from . import vraska_golgari_queen  # noqa: F401
 from . import vraska_s_fall  # noqa: F401

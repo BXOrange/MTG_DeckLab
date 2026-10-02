@@ -63,8 +63,8 @@ from .spec import AbilitySpec, EffectSpec, ParserProvenance, contains_marker, fo
 MODELED = "MODELED"
 UNMODELED = "UNMODELED"
 #: Stickers (RULE 123) are a permanent project non-goal — see
-#: `docs/implementation-state/BACKLOG.md` — not a "not yet" gap like an ordinary
-#: UNMODELED card. Any card mentioning them is classified `NEVER_SUPPORTED`
+#: `docs/implementation-state/DEFERRED.md` — not a "not yet" gap like an ordinary
+#: UNMODELED card. Sticker Sheets and cards mentioning them are `NEVER_SUPPORTED`
 #: instead of `UNMODELED` so its unclaimed clauses never surface in the
 #: processing-list backlog ranking (they'd otherwise sit there forever,
 #: since no handler will ever claim them).
@@ -3868,7 +3868,9 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: 585: Surge (RULE 702.117) is an engine mechanic — "if its / this spell's surge cost was paid" reads
 #: `GameObject.surge_cost_paid` as an enters-trigger intervening-if and as a resolving-spell condition
 #: (Reckless Bushwhacker, Tyrant of Valakut, Crush of Tentacles; 3 cards).
-PARSER_VERSION = "585"
+#: 586: PAR-145 — Sticker Sheets are NEVER_SUPPORTED by their type line,
+#: including sheets whose oracle text contains only ticket symbols and stats.
+PARSER_VERSION = "586"
 
 
 def parser_source_hash() -> str:
@@ -3937,7 +3939,7 @@ class ParseResult:
 
 def _mentions_stickers(raw: str) -> bool:
     """RULE 123 Stickers — declared a permanent non-goal (see
-    `docs/implementation-state/BACKLOG.md`), not merely deprioritized. A simple
+    `docs/implementation-state/DEFERRED.md`), not merely deprioritized. A simple
     substring check is deliberate: real sticker cards say "sticker sheet"/
     "sticker" in their own oracle text (there is no other card-text idiom
     that uses the word), so this never needs the segmenter/normalize
@@ -4497,7 +4499,9 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
     keyword_specs = parse_keywords(card)
 
     raw = getattr(card, "oracle_text", "") or ""
-    if _mentions_stickers(raw):
+    # RULE 123.2: sheets may contain only ticket symbols/stats or no text.
+    type_line = (getattr(card, "type_line", "") or "").strip().casefold()
+    if _mentions_stickers(raw) or type_line == "stickers":
         # Fail-closed the same way as an ordinary UNMODELED card (the
         # binder never sees these specs' effects — there are none), but
         # tagged distinctly and with no `unclaimed` seeds so this card

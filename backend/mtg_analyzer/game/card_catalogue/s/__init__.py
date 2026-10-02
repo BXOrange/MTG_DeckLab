@@ -33,6 +33,7 @@ from . import sheoldred_whispering_one  # noqa: F401
 from . import shielded_by_faith  # noqa: F401
 from . import shieldmage_advocate  # noqa: F401
 from . import shifting_woodland  # noqa: F401
+from . import shiko_and_narset_unified  # noqa: F401
 from . import shire_shirriff  # noqa: F401
 from . import sigarda_font_of_blessings  # noqa: F401
 from . import sigarda_s_aid  # noqa: F401

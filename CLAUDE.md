@@ -335,7 +335,7 @@ the process group and reports the last test that had started.
 
 ## Claude Code skills
 
-Six project-scoped skills live in `.claude/skills/` and should be invoked
+Seven project-scoped skills live in `.claude/skills/` and should be invoked
 (not reimplemented ad hoc) for the work they cover:
 
 - **`extend-parser`** (`.claude/skills/extend-parser/SKILL.md`) — extending
@@ -361,6 +361,11 @@ Six project-scoped skills live in `.claude/skills/` and should be invoked
   that part instead of re-deriving it), finds the closest-shaped existing
   catalogue entry to adapt, and assembles a paste-ready factory function +
   `register()` call + test skeleton in one command.
+- **`singleton-sweeper`** (`.claude/skills/singleton-sweeper/SKILL.md`) —
+  re-checks a queued parser singleton against unclaimed clauses across the
+  entire cached card pool, groups exact and fuzzy text neighbors, and promotes
+  confirmed shared shapes into one PAR ticket while removing related rows
+  from `singletons.md`.
 - **`inspect-db`** (`.claude/skills/inspect-db/SKILL.md`) — read-only
   lookups against the five SQLite stores (card cache, raw Scryfall data,
   parser-coverage ledger, saved decks, player assets). A short routing
@@ -592,12 +597,13 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 57.3% (20,116 / 35,095) as of 2026-10-02, measured at
-PARSER_VERSION 585** (parser-`MODELED` or hand-`AUTHORED`, measured against
-the full ~35k-card Oracle universe from `scripts/import_bulk.py`). Re-measure
+**Coverage: 57.4% (20,115 / 35,046) as of 2026-10-02, measured at
+PARSER_VERSION 586** (parser-`MODELED` or hand-`AUTHORED`, measured against
+the full ~35k-card Oracle universe from `scripts/import_bulk.py`, excluding
+Sticker Sheet inserts by type line under RULE 123.2). Re-measure
 with `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset that
-matters for Goldfisch/Deck-Analyzer — is **60.2% (19,349 / 32,116)**; measure
+matters for Goldfisch/Deck-Analyzer — is **60.3% (19,349 / 32,068)**; measure
 it with `scripts/coverage_report.py --commander-legal-only` (records a
 separate `…-commander` snapshot row) and segment the still-UNMODELED
 remainder by *cause* (wrapper re-measure / recurring template → `PAR-*` /

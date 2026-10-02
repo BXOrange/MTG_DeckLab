@@ -35,6 +35,7 @@ from . import throne_of_the_god_pharaoh  # noqa: F401
 from . import thunderclap_drake  # noqa: F401
 from . import tibalt_s_trickery  # noqa: F401
 from . import tifa_martial_artist  # noqa: F401
+from . import time_wipe  # noqa: F401
 from . import timely_ward  # noqa: F401
 from . import timetwister  # noqa: F401
 from . import tinder_wall  # noqa: F401

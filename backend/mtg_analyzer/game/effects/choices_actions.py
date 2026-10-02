@@ -1191,8 +1191,13 @@ class ChooseObjectsEffect(GameEffect):
         source: Optional["GameObject"] = None,
         player_selector: str = "controller",
         require_untapped: bool = False,
+        else_effects: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         super().__init__(source)
+        #: Serialized specs applied when nothing gets picked — an empty candidate pool included ("return a
+        #: creature you control to its owner's hand, **then** destroy all creatures" with no creature to
+        #: return, Time Wipe): `then` is skipped in that case, so the unconditional tail rides both.
+        self.else_effects = else_effects
         self.action = action
         self.what = what
         self.count = count
@@ -1230,6 +1235,7 @@ class ChooseObjectsEffect(GameEffect):
             player, candidates, self.action, count=self.count,
             optional=self.optional, prompt=self.prompt, source=self.source,
             then_specs=self.then, then_specs_if_commander=self.then_if_commander,
+            else_specs=self.else_effects,
         )
 
 

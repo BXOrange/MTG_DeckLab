@@ -2003,6 +2003,25 @@ def _trigger_condition(
 
         predicates.append(_spell_targets_permanent_ok)
 
+    # "Whenever you cast a spell with one or more targets, draw that many cards." (Voracious Bibliophile, RULE 115.1)
+    # — a floor on the SPELL_CAST event's ``target_count`` (every chosen target, players included).
+    min_spell_targets = trigger.get("spell_targets_at_least")
+    if min_spell_targets is not None:
+        def _spell_targets_at_least_ok(event: Any, context: Any, n=int(min_spell_targets)) -> bool:
+            return int(event.get("target_count", 0) or 0) >= n
+
+        predicates.append(_spell_targets_at_least_ok)
+
+    # "…copy that spell if it targets a permanent or player." (Shiko and Narset, Unified) — and its complement,
+    # "If you don't copy a spell this way": the SPELL_CAST event's ``targets_permanent_or_player`` flag must equal
+    # the trigger's boolean.
+    wants_pp = trigger.get("spell_targets_permanent_or_player")
+    if wants_pp is not None:
+        def _spell_targets_pp_ok(event: Any, context: Any, want=bool(wants_pp)) -> bool:
+            return bool(event.get("targets_permanent_or_player")) == want
+
+        predicates.append(_spell_targets_pp_ok)
+
     # "Whenever you cast a spell that targets ~, put a +1/+1 counter on ~."
     # (RULE 702.34a's un-keyworded template — Akroan Skyguard / Battlewise
     # Hoplite / Hero of Iroas / Legolas, Master Archer) — the spell's chosen

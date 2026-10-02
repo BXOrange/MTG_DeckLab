@@ -3213,7 +3213,7 @@ class MiscSystemsMixin:
     #: than passing a continuation closure around.
     CHOOSE_OBJECT_ACTIONS = frozenset(
         {
-            "tap", "sacrifice", "suspect", "return_to_hand", "return_from_graveyard",
+            "tap", "untap", "sacrifice", "suspect", "return_to_hand", "return_from_graveyard",
             # PAR-143: an untargeted graveyard pick ("return a land card from your graveyard to the
             # battlefield tapped / to your hand").
             "return_from_graveyard_tapped", "return_from_graveyard_to_hand", "soulbond_pair", "library_top", "discard",
@@ -3757,6 +3757,9 @@ class MiscSystemsMixin:
         """Do the one thing a `choose_objects` action names to one pick."""
         if action == "tap":
             self.set_tapped(obj, True)
+        elif action == "untap":
+            # "Untap up to three lands." (Frantic Search, Snap-shaped) — untargeted, so a pick, not a target.
+            self.set_tapped(obj, False)
         elif action == "strip_all_counters":
             # Eventide's Shadow: remove every counter from the pick, via the
             # negative-`add_counters` idiom (`ProliferateEffect`/
