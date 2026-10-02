@@ -22,7 +22,7 @@ It also flags the two things a human still has to act on:
     actually apply a drift once you've looked at it.
 
 Usage (from backend/, venv active):
-  python scripts/update_card_pool.py [--db PATH] [--dump PATH] [--reuse-dump] [--skip-reseed]
+  python scripts/update_card_pool.py [--db PATH] [--dump PATH] [--reuse-dump] [--keep-dump] [--skip-reseed]
 """
 
 from __future__ import annotations
@@ -80,6 +80,10 @@ def main() -> None:
                         help="skip the download and diff/reseed from the dump already on disk "
                              "(for offline testing; the whole point of this script is normally "
                              "to fetch a fresh one)")
+    parser.add_argument("--keep-dump", action="store_true",
+                        help="keep the downloaded JSON dump afterwards (by default it is deleted once "
+                             "merged: the raw store already holds every card, so a second ~200 MB copy "
+                             "on disk is redundant)")
     parser.add_argument("--skip-reseed", action="store_true",
                         help="update the raw store and print the diff, but don't rebuild the app cache")
     args = parser.parse_args()
@@ -99,6 +103,9 @@ def main() -> None:
         cards = json.load(fh)
 
     stored = store.upsert_many(cards)
+    if not args.reuse_dump and not args.keep_dump:
+        args.dump.unlink(missing_ok=True)
+        print(f"Removed {args.dump} (raw store is the single copy; --keep-dump to retain).")
     print(f"Merged {stored} cards from the dump into the raw store.")
 
     after_ids = {c.get("oracle_id") or c.get("id") for c in cards if c.get("oracle_id") or c.get("id")}
