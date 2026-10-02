@@ -705,3 +705,74 @@ def test_atraxa_takes_at_most_one_card_of_each_card_type_from_the_top_ten():
     assert len(gained) == 7 and set(gained_types) == seven_types  # exactly one card of each type that was there
     assert "Deep Card" not in {o.name for o in p1.hand}  # beyond the top ten: untouched
     assert len(p1.library) == (10 - 7) + 1  # the three unpicked revealed cards went to the bottom, plus the deep card
+
+
+def _kellan_game():
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+
+    card = CardDatabase(DB_PATH).get_card("Kellan, the Kid")
+    engine, p1 = _game()
+    kellan = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    kellan.controller_id = "p1"
+    bind_from_catalogue(kellan)
+    engine.state.add_to_battlefield(kellan)
+
+    def hand_card(name, type_line, mv, **kw):
+        obj = GameObject(
+            Card(id=name, name=name, type_line=type_line, converted_mana_cost=mv, mana_cost_string="{" + str(mv) + "}", **kw),
+            owner_id="p1", zone=Zone.HAND,
+        )
+        bind_from_catalogue(obj)
+        p1.add_to_zone(obj, Zone.HAND)
+        return obj
+
+    cheap = hand_card("Cheap Bear", "Creature — Bear", 2, is_creature=True, power=2, toughness=2)
+    dear = hand_card("Dear Dragon", "Creature — Dragon", 6, is_creature=True, power=5, toughness=5)
+    bolt = hand_card("Bolt", "Instant", 1, is_instant=True)
+    land = hand_card("Forest", "Basic Land — Forest", 0, is_land=True)
+
+    def cast_from_elsewhere(mv, from_hand):
+        engine.state.fire_event(GameEvent(
+            EventType.SPELL_CAST, player_id="p1", controller_id="p1", object="Flashbacked", object_types=["sorcery"],
+            mana_value=mv, from_hand=from_hand,
+        ))
+        engine.rules.put_triggers_on_stack()
+        engine.resolve_until_stable()
+
+    return engine, p1, cheap, dear, bolt, land, cast_from_elsewhere
+
+
+def test_kellan_offers_a_free_permanent_spell_up_to_the_trigger_spells_mana_value():
+    engine, p1, cheap, dear, bolt, land, cast_from_elsewhere = _kellan_game()
+    cast_from_elsewhere(mv=3, from_hand=False)
+    choice = engine.state.pending_choice
+    offered = {o.get("instance_id") for o in choice["options"]} - {None}  # None is the decline option
+    assert offered == {cheap.instance_id}  # not the MV 6 dragon, not the instant, not the land
+    engine.resolve_pending_choice(next(o["id"] for o in choice["options"] if o.get("instance_id") == cheap.instance_id))
+    engine.resolve_until_stable()
+    assert cheap.instance_id in engine.state.free_cast_instance_ids  # armed: castable without paying
+    engine.state.current_step = "main1"
+    engine.cast_spell(p1, cheap)  # no mana in the pool at all
+    engine.resolve_until_stable()
+    assert cheap in engine.state.battlefield
+
+
+def test_kellan_puts_a_land_onto_the_battlefield_if_no_spell_was_cast_for_free():
+    engine, p1, cheap, dear, bolt, land, cast_from_elsewhere = _kellan_game()
+    cast_from_elsewhere(mv=3, from_hand=False)
+    engine.resolve_pending_choice("decline")  # "if you don't"
+    engine.resolve_until_stable()
+    for _ in range(3):
+        choice = engine.state.pending_choice
+        if not choice:
+            break
+        pick = next((o for o in choice["options"] if o.get("instance_id") == land.instance_id), choice["options"][0])
+        engine.resolve_pending_choice(pick["id"])
+        engine.resolve_until_stable()
+    assert land in engine.state.battlefield
+
+
+def test_kellan_ignores_spells_cast_from_the_hand():
+    engine, p1, cheap, dear, bolt, land, cast_from_elsewhere = _kellan_game()
+    cast_from_elsewhere(mv=3, from_hand=True)
+    assert engine.state.pending_choice is None

@@ -824,9 +824,19 @@ class FreeCastFromHandEffect(GameEffect):
         max_mana_value_selector: Optional[str] = None,
         noncreature_only: bool = False,
         source: Optional["GameObject"] = None,
+        mana_value_from_trigger: bool = False,
+        permanent_only: bool = False,
+        else_effects: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         super().__init__(source)
         self.criteria = dict(criteria or {})
+        #: "…a permanent spell with mana value **equal to or less than that spell's**…" (Kellan, the Kid) — the cap
+        #: is the mana value of the spell whose cast triggered this ability (`trigger_event["mana_value"]`).
+        self.mana_value_from_trigger = bool(mana_value_from_trigger)
+        #: "…cast a **permanent** spell…" — no instants or sorceries (lands are never cast anyway).
+        self.permanent_only = bool(permanent_only)
+        #: "If you don't, …" — run when nothing was cast for free (declined, or nothing was eligible).
+        self.else_effects = list(else_effects or [])
         self.max_mana_value_selector = max_mana_value_selector
         #: ENG-33 (Great Intelligence's Plan) / ENG-32 (Waterbend "cast a
         #: noncreature spell without paying") — an *uncapped* free cast: no
@@ -848,24 +858,32 @@ class FreeCastFromHandEffect(GameEffect):
             max_mv = continuous.count_selector(
                 context.state, player.id, self.max_mana_value_selector, source=source
             )
+        elif self.mana_value_from_trigger:
+            raw = (getattr(context, "trigger_event", None) or {}).get("mana_value")
+            max_mv = int(raw) if isinstance(raw, int) and not isinstance(raw, bool) else None
         elif self.criteria.get("max_mana_value") is not None:
             max_mv = self.criteria.get("max_mana_value")
         # A cap was *asked for* (selector / literal) but didn't resolve to an
         # int → an unresolved "x" sentinel; nothing legal to offer. An
         # uncapped effect (neither given) skips the check entirely.
-        capped = self.max_mana_value_selector is not None or self.criteria.get("max_mana_value") is not None
+        capped = (
+            self.max_mana_value_selector is not None or self.mana_value_from_trigger
+            or self.criteria.get("max_mana_value") is not None
+        )
         if capped and not isinstance(max_mv, int):
             return
         candidates = [
             obj for obj in player.hand
             if not obj.card.is_land
             and (not self.noncreature_only or not obj.card.is_creature)
+            and (not self.permanent_only or not (obj.card.is_instant or obj.card.is_sorcery))
             and (not isinstance(max_mv, int) or (obj.card.converted_mana_cost or 0) <= max_mv)
         ]
         context.engine._request_choose_objects(
             player, candidates, "grant_free_cast", count=1, optional=True,
             prompt=f"{source.name}: Karte kostenlos zaubern?",
             source=source,
+            else_specs=self.else_effects or None,
         )
 
 

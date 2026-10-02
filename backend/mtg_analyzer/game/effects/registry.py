@@ -1012,6 +1012,9 @@ EffectRegistry.register(
         criteria={"max_mana_value": p.get("max_mana_value")},
         max_mana_value_selector=p.get("max_mana_value_selector"),
         noncreature_only=bool(p.get("noncreature_only", False)),
+        mana_value_from_trigger=bool(p.get("mana_value_from_trigger", False)),
+        permanent_only=bool(p.get("permanent_only", False)),
+        else_effects=p.get("else_effects"),
     ),
 )
 EffectRegistry.register(
