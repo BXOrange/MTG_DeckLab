@@ -592,12 +592,12 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 57.3% (20,107 / 35,095) as of 2026-10-02, measured at
-PARSER_VERSION 584** (parser-`MODELED` or hand-`AUTHORED`, measured against
+**Coverage: 57.3% (20,116 / 35,095) as of 2026-10-02, measured at
+PARSER_VERSION 585** (parser-`MODELED` or hand-`AUTHORED`, measured against
 the full ~35k-card Oracle universe from `scripts/import_bulk.py`). Re-measure
 with `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset that
-matters for Goldfisch/Deck-Analyzer — is **60.2% (19,340 / 32,116)**; measure
+matters for Goldfisch/Deck-Analyzer — is **60.2% (19,349 / 32,116)**; measure
 it with `scripts/coverage_report.py --commander-legal-only` (records a
 separate `…-commander` snapshot row) and segment the still-UNMODELED
 remainder by *cause* (wrapper re-measure / recurring template → `PAR-*` /

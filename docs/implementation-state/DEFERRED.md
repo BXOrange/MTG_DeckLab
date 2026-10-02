@@ -85,7 +85,11 @@ Never to be built — not gaps.
 - **Alchemy only cards and mechanics**
 - **Stickers (RULE 123) and Attractions (RULE 717).** `gate.parse_oracle`
   classifies mentions of the former `NEVER_SUPPORTED`, a verdict kept out
-  of both the coverage count and the backlog ranking.
+  of both the coverage count and the backlog ranking. The 48 *Unfinity
+  Sticker Sheets* (set `sunf`, type line "Stickers", Commander-legal in
+  Scryfall's data) are Stickers too, but their text never says "sticker"
+  (`{TK}{TK} — 1/4`), so the text check misses them — decided
+  `NEVER_SUPPORTED` 2026-10-02, implemented by PAR-145.
 - **Contraptions (Unfinity's "crank this contraption" sub-mechanic).**
   Silver-border/Unstable only, like Stickers/Attractions — confirmed via
   `PAR-93`'s legality audit: all 45 cards using the phrase are from

@@ -755,6 +755,7 @@ export function createGameBoardView(opts = {}) {
       send.x = readX(action.instance_id, action.face);
     }
     if (action.evoke) send.evoke = true;
+    if (action.surge) send.surge = true;
     if (action.has_kicker) {
       send.kicker = readKicker(action.instance_id, action.face);
       if (action.kicker_has_x) send.kicker_x = readKickerX(action.instance_id, action.face);
@@ -814,6 +815,7 @@ export function createGameBoardView(opts = {}) {
         send.x = readX(action.instance_id, action.face);
       }
       if (action.evoke) send.evoke = true;
+      if (action.surge) send.surge = true;
       if (action.has_kicker) {
         send.kicker = readKicker(action.instance_id, action.face);
         if (action.kicker_has_x) send.kicker_x = readKickerX(action.instance_id, action.face);
@@ -1073,7 +1075,7 @@ export function createGameBoardView(opts = {}) {
       const ct = draft.castTargeting;
       const action = findTargetableAction(
         ct.instanceId, ct.send.type, ct.send.ability_index, ct.send.face, ct.send.mode,
-        ct.send.pay_additional, ct.send.bargained, ct.send.evoke, ct.send.gift_opponent_id,
+        ct.send.pay_additional, ct.send.bargained, ct.send.evoke, ct.send.gift_opponent_id, ct.send.surge,
       );
       if (action) {
         const expanded = expandMultiTargetRequirements(action.targets || []);
@@ -2321,11 +2323,11 @@ export function createGameBoardView(opts = {}) {
     // click time rather than baking it into a static data-action attribute.
     root.querySelectorAll('[data-cast-x]').forEach((el) => {
       el.addEventListener('click', () => {
-        const { iid, face, mode, entwine, evoke, pay_additional, bargained, gift_opponent_id } = JSON.parse(el.dataset.castX);
+        const { iid, face, mode, entwine, evoke, surge, pay_additional, bargained, gift_opponent_id } = JSON.parse(el.dataset.castX);
         const x = readX(iid, face);
         const kicked = readKicker(iid, face);
         const kicker_x = readKickerX(iid, face);
-        act({ type: 'cast_spell', instance_id: iid, x, face, kicked, kicker_x, mode, entwine, evoke, pay_additional, bargained, gift_opponent_id });
+        act({ type: 'cast_spell', instance_id: iid, x, face, kicked, kicker_x, mode, entwine, evoke, surge, pay_additional, bargained, gift_opponent_id });
       });
     });
 
@@ -2350,7 +2352,7 @@ export function createGameBoardView(opts = {}) {
         const iid = Number(info.iid);
         const action = findTargetableAction(
           iid, info.type, info.ability_index, info.face, info.mode,
-          info.pay_additional, info.bargained, info.evoke, info.gift_opponent_id,
+          info.pay_additional, info.bargained, info.evoke, info.gift_opponent_id, info.surge,
         );
         if (!action) return;
         const x = action.has_x ? readX(iid, info.face) : 0;
@@ -2360,7 +2362,7 @@ export function createGameBoardView(opts = {}) {
           ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, name: action.name }
           : {
             type: 'cast_spell', instance_id: iid, name: action.name, face: info.face, kicked, kicker_x,
-            mode: info.mode, entwine: info.entwine, evoke: action.evoke, pay_additional: action.pay_additional,
+            mode: info.mode, entwine: info.entwine, evoke: action.evoke, surge: action.surge, pay_additional: action.pay_additional,
             bargained: action.bargained, gift_opponent_id: action.gift_opponent_id,
           };
         const {
@@ -2492,7 +2494,7 @@ export function createGameBoardView(opts = {}) {
         const iid = Number(info.iid);
         const action = findTargetableAction(
           iid, 'cast_spell', undefined, info.face, info.mode,
-          info.pay_additional, info.bargained, info.evoke, info.gift_opponent_id,
+          info.pay_additional, info.bargained, info.evoke, info.gift_opponent_id, info.surge,
         );
         if (!action || !action.discard_cost) return;
         const { count, options } = action.discard_cost;
@@ -2507,7 +2509,7 @@ export function createGameBoardView(opts = {}) {
         }));
         const send = {
           type: 'cast_spell', instance_id: iid, name: action.name,
-          face: info.face, mode: info.mode, evoke: action.evoke,
+          face: info.face, mode: info.mode, evoke: action.evoke, surge: action.surge,
           pay_additional: action.pay_additional,
           bargained: action.bargained, gift_opponent_id: action.gift_opponent_id,
         };
@@ -2559,7 +2561,7 @@ export function createGameBoardView(opts = {}) {
   // Compared via JSON (not `===`) since a "choose N" mode is an array of
   // indices; absent on both sides (a non-modal spell/activated ability)
   // normalizes to the same `null` key either way.
-  function findTargetableAction(iid, type, abilityIndex, face, mode, payAdditional, bargained, evoke, giftOpponentId) {
+  function findTargetableAction(iid, type, abilityIndex, face, mode, payAdditional, bargained, evoke, giftOpponentId, surge) {
     const modeKey = JSON.stringify(mode ?? null);
     return (view?.legal_actions || []).find(
       (a) =>
@@ -2571,6 +2573,7 @@ export function createGameBoardView(opts = {}) {
         Boolean(a.pay_additional) === Boolean(payAdditional) &&
         Boolean(a.bargained) === Boolean(bargained) &&
         Boolean(a.evoke) === Boolean(evoke) &&
+        Boolean(a.surge) === Boolean(surge) &&
         // RULE 702.174a: the per-opponent "cast + promise a gift" offers are distinct entries.
         (a.gift_opponent_id || null) === (giftOpponentId || null),
     );
@@ -3331,11 +3334,11 @@ export function createGameBoardView(opts = {}) {
         // of the hand.
         const startInfo = JSON.stringify({
           iid: a.instance_id, face: a.face, mode: a.mode,
-          evoke: a.evoke, pay_additional: a.pay_additional, bargained: a.bargained,
+          evoke: a.evoke, surge: a.surge, pay_additional: a.pay_additional, bargained: a.bargained,
           gift_opponent_id: a.gift_opponent_id,
         });
         buttons.push(
-          `<button type="button" class="gf-card-action" data-discard-choice-start='${escapeAttr(startInfo)}'>${escapeHtml(t(a.evoke ? 'bd.cast.evokePlain' : 'bd.cast.castPlain', { mode: modeHint(a), hint: '', face: faceHint(a) }))}</button>`
+          `<button type="button" class="gf-card-action" data-discard-choice-start='${escapeAttr(startInfo)}'>${escapeHtml(t(a.surge ? 'bd.cast.surgePlain' : a.evoke ? 'bd.cast.evokePlain' : 'bd.cast.castPlain', { mode: modeHint(a), hint: '', face: faceHint(a) }))}</button>`
         );
       } else if (a.type === 'cast_spell' && (a.has_x || a.has_kicker)) {
         const xField = a.has_x
@@ -3351,7 +3354,7 @@ export function createGameBoardView(opts = {}) {
         buttons.push(`
           <div class="gf-cast-x">
             ${xField}${kickerFieldHtml(a)}
-            <button type="button" class="gf-card-action" data-cast-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, face: a.face, mode: a.mode, entwine: a.entwine, evoke: a.evoke, pay_additional: a.pay_additional, bargained: a.bargained, gift_opponent_id: a.gift_opponent_id }))}'>${escapeHtml(t(a.evoke ? 'bd.cast.evokeSuffix' : 'bd.cast.castSuffix', { suffix, mode: modeHint(a), face: faceHint(a) }))}</button>
+            <button type="button" class="gf-card-action" data-cast-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, face: a.face, mode: a.mode, entwine: a.entwine, evoke: a.evoke, surge: a.surge, pay_additional: a.pay_additional, bargained: a.bargained, gift_opponent_id: a.gift_opponent_id }))}'>${escapeHtml(t(a.surge ? 'bd.cast.surgeSuffix' : a.evoke ? 'bd.cast.evokeSuffix' : 'bd.cast.castSuffix', { suffix, mode: modeHint(a), face: faceHint(a) }))}</button>
           </div>
         `);
       } else if (a.type === 'cast_spell') {
@@ -3360,8 +3363,8 @@ export function createGameBoardView(opts = {}) {
           : '';
         buttons.push(
           actionButton(
-            { type: 'cast_spell', instance_id: a.instance_id, name: a.name, face: a.face, mode: a.mode, entwine: a.entwine, evoke: a.evoke, pay_additional: a.pay_additional, bargained: a.bargained, gift_opponent_id: a.gift_opponent_id },
-            t(a.evoke ? 'bd.cast.evokePlain' : 'bd.cast.castPlain', {
+            { type: 'cast_spell', instance_id: a.instance_id, name: a.name, face: a.face, mode: a.mode, entwine: a.entwine, evoke: a.evoke, surge: a.surge, pay_additional: a.pay_additional, bargained: a.bargained, gift_opponent_id: a.gift_opponent_id },
+            t(a.surge ? 'bd.cast.surgePlain' : a.evoke ? 'bd.cast.evokePlain' : 'bd.cast.castPlain', {
               mode: modeHint(a),
               hint: `${hint}${a.pay_additional ? ` + ${a.additional_cost_label || 'Zusatzkosten'}` : ''}${a.bargained ? ' + Bargain' : ''}${giftHint(a)}`,
               face: faceHint(a),
@@ -3554,12 +3557,12 @@ export function createGameBoardView(opts = {}) {
       : '';
     const startInfo = JSON.stringify({
       iid, type: a.type, ability_index: a.ability_index, face: a.face,
-      mode: a.mode, entwine: a.entwine, evoke: a.evoke, pay_additional: a.pay_additional,
+      mode: a.mode, entwine: a.entwine, evoke: a.evoke, surge: a.surge, pay_additional: a.pay_additional,
       bargained: a.bargained, gift_opponent_id: a.gift_opponent_id,
     });
     const label = a.type === 'activate_ability'
       ? t('bd.cast.activateLabel', { cost: a.cost_label || t('bd.cast.activateDefault') })
-      : `${t(a.evoke ? 'bd.cast.evokeLabel' : 'bd.cast.castLabel', { mode: modeHint(a), face: faceHint(a) })}${a.pay_additional ? ` + ${a.additional_cost_label || 'Zusatzkosten'}` : ''}${a.bargained ? ' + Bargain' : ''}${giftHint(a)}`;
+      : `${t(a.surge ? 'bd.cast.surgeLabel' : a.evoke ? 'bd.cast.evokeLabel' : 'bd.cast.castLabel', { mode: modeHint(a), face: faceHint(a) })}${a.pay_additional ? ` + ${a.additional_cost_label || 'Zusatzkosten'}` : ''}${a.bargained ? ' + Bargain' : ''}${giftHint(a)}`;
     const lc = a.type === 'activate_ability' ? loyaltyModifierClass(a.cost_label) : '';
     return `<div class="gf-cast-targets">${xField}${kickerFieldHtml(a)}<button type="button" class="gf-card-action${lc}" data-cast-target-start='${escapeAttr(startInfo)}'>${label}</button></div>`;
   }

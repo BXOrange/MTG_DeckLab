@@ -1040,6 +1040,7 @@ class GameSession:
             free=bool(action.get("free", False)),
             alt_cost=bool(action.get("alt_cost", False)),
             evoke=bool(action.get("evoke", False)),
+            surge=bool(action.get("surge", False)),
             exile_discount=int(action.get("exile_discount", 0)),
             # PAR-23: RULE 702.51 Convoke / 702.66 Delve / 702.126 Improvise —
             # round-trips off the flag `_cast_action` stamps on the "cast

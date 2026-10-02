@@ -52,8 +52,8 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   **set-specific mechanics** (a set/precon's signature keyword, worked deck-first). Planechase/
   Archenemy card bodies fold in here (~13/309 done).
 
-  > **Ids:** `PAR-1`…`PAR-144` are taken — grep `Done_Backend.md` before reusing one. First free:
-  > **`PAR-145`**; next free `MEC`: **`MEC-110`**; next free `ENG`: **`ENG-53`**. A new engine primitive found along the way files
+  > **Ids:** `PAR-1`…`PAR-149` are taken — grep `Done_Backend.md` before reusing one. First free:
+  > **`PAR-150`**; next free `MEC`: **`MEC-111`**; next free `ENG`: **`ENG-53`**; next free `VIS`: **`VIS-12`**. A new engine primitive found along the way files
   > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
   >
   > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
@@ -95,6 +95,44 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   True}` (precedent `_DAMAGE_TRIGGER_RE`); **(c)** Pure Intentions' `create_turn_trigger` (RULE 603.7a)
   needs generalizing to a parser row. Library of Leng / Nephalia Academy ("an effect causes you to
   discard") are a broader, non-opponent-scoped condition — not this cluster.
+- **PAR-145 · Sticker Sheets are `NEVER_SUPPORTED` by type line.** Decided 2026-10-02 (RULE 123, see
+  DEFERRED.md). The 48 Unfinity Sticker Sheets (set `sunf`, type line "Stickers", Commander-legal) are
+  invisible to `gate._mentions_stickers` (it reads oracle text; theirs says `{TK}{TK} — 1/4`), so they sit in
+  the Commander denominator and as the rank-1 Bucket B template. Scope: classify them `NEVER_SUPPORTED` in
+  `gate.parse_oracle` from the type line, bump `PARSER_VERSION`, re-measure with `coverage_report.py`
+  (`--commander-legal-only` too; the denominator drops by 48) and sync the coverage numbers. Accept: 0 `sunf`
+  cards counted as UNMODELED, no other card's verdict changes (`parser_probe.py snapshot`/`diff`).
+- **PAR-146 · `commander_tail_report.py` taxonomy re-validation.** Measured at PARSER_VERSION 584
+  (`PARSER_LONG_TAIL.md`, "Commander tail re-validation"): the `roll_die` row ("no dice subsystem at all",
+  43 cards) and the `tapped and attacking` row (59) name primitives that exist (`RollDieEffect`,
+  `create_token` `attacking`/`enter_attacking`); the Banding/Horsemanship rows describe shipped MEC-87/88;
+  the other Bucket D rows (damage-source tracker 9, exchange control 7, Villainous Choice 6, collect
+  evidence/forage/behold 5, suspect 3, incubate 2, clash 1, meld 1, triple 1, waterbend 1) are unchecked —
+  exchange control and meld look stale (`Done_Backend.md` Gilded Drake swap; CLAUDE.md lists meld as done).
+  Scope: check each remaining row with `parser_probe.py card`/`blocked`, fix or drop the stale ones, list
+  Stickers in Bucket F by type line once PAR-145 lands, and split Bucket E (96% of the tail) by the trigger-
+  body / modifier axes `composition` reports instead of one rest bucket. Decision open: whether the report
+  should print each row's check status.
+- **PAR-147 · Dice grammar axes.** The engine exists (`RollDieEffect`, `roll_die`, `roll_dice_modifier`); 68
+  Commander-legal cards carry roll text, 38 with only roll clauses unclaimed. Axes, each a separate grammar
+  piece: a single die whose result is an amount/filter operand (21 cards, e.g. Bag of Devouring, Bag of
+  Tricks, Ebony Fly); d20 table rows `1—9 | …` (18, Aberrant Mind Sorcerer) — first check whether the IR can
+  express a table block; roll N dice and choose/ignore (10, the `Endeavor` cycle); "whenever you roll" /
+  "if you would roll" (12). Risk: "the result" must read the kept die after Krark's Other Thumb. Verify with
+  `engine_bench.py`, not parse verdicts.
+- **PAR-148 · "Tapped and attacking" residue (PAR-30 batches 179–191 shipped the common shapes).** 59
+  Commander-legal cards; the modifier alone blocks only 4 (Adeline, Flamerush Rider, Jet Rebel Leader, Leonin
+  Warleader). Axes: "whenever 1 or more `<X>` you control attack" head (13, General Kreat); named token plus
+  delayed sacrifice (Fire Navy Trebuchet, Boulder Jockey); "for each opponent … that player or a planeswalker
+  they control" defender (Adeline); reveal/look-until then put tapped and attacking (Hans Eriksson, Jet,
+  Raph & Mikey, Doors of Durin, Fireflux Squad); pay-then (Arni Metalbrow, Grim Reaper, Gut). Risk: a wrong
+  defender (RULE 508.4). Decision open: fold into PAR-132 or keep separate.
+- **PAR-149 · Bucket B candidates to validate before any handler.** Report counts at PARSER_VERSION 584, not yet
+  checked with `blocked`/`card`: "cast this spell only during combat / before blockers / the declare blockers
+  step" (15, three phrasings), "when enchanted creature/land dies, return that card …" (6 + 6), emblem with a
+  quoted ability (48 cards, only 5 SOLO — Dack Fayden, Liliana the Last Hope, Tezzeret Artifice Master,
+  A-Saheeli, The Capitoline Triad; the rest are blocked by other planeswalker abilities). Decision open: which
+  of these earn a handler; the emblem case is weak on SOLO yield.
 
 ## MEC — Game mechanic
 
@@ -105,6 +143,12 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   creature spell you cast with mana value 4 or greater has blitz" — Henzie "Toolbox" Torre; the perpetual grant of
   Riveteers Provocateur). The RULE 702 catalogue row is recognition only; add the engine primitive and its
   oracle-text handlers in one batch.
+- **MEC-110 · Empower Jace (Reality Fracture, `fra`).** "Empower Jace N" (put N loyalty counters on a Jace token
+  you control; with none, first create the blue Jace planeswalker token with `[−1]: Surveil 1` and `[−3]: Draw a
+  card`) — 34 cards pool-wide, 19 SOLO (`parser_probe.py blocked "empower jace"`, e.g. Arcane Amphisbaena, Campus
+  Crier, Academic Ascent). No ticket, Done entry or token data exists. Unchecked: whether the engine supports a
+  *created* planeswalker token with its own loyalty abilities. Engine primitive and oracle handlers in one batch;
+  risk is the "a Jace token you control" referent. The board side is VIS-11.
 
 ## PLR — Player management
 
@@ -127,6 +171,11 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 - **VIS-9 · Accessibility** — alt-text on cards, tab navigation,
   high-contrast mode. docs/05 PART 10.
 - **VIS-10 · Responsive/mobile layout** — only checked at desktop width.
+- **VIS-11 · Planeswalker tokens on the boards (for MEC-110).** Check, then fix, that a *created* planeswalker
+  token (the Jace token) shows its loyalty counters and offers its loyalty abilities on the goldfish, Replay,
+  Solo and Multiplayer boards (`gameBoardView.js`, `resolveImageUrl` for token art), and that the Engine-Status
+  tab (`implementationStatusView.js`, both locales) lists Empower once MEC-110 ships. Unchecked: whether tokens
+  take the same render path as printed planeswalkers.
 
 ## DB — Database
 

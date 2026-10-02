@@ -26,6 +26,8 @@ from . import glissa_sunslayer  # noqa: F401
 from . import glowing_one  # noqa: F401
 from . import go_for_the_throat  # noqa: F401
 from . import goblin_engineer  # noqa: F401
+from . import goblin_matron  # noqa: F401
+from . import goblin_rabblemaster  # noqa: F401
 from . import goblin_recruiter  # noqa: F401
 from . import goldspan_dragon  # noqa: F401
 from . import gollum_obsessed_stalker  # noqa: F401

@@ -3461,6 +3461,9 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # PAR-139 / RULE 702.35: "(if) its / this spell's madness cost was paid" — `GameObject.madness_cost_paid`.
     (re.compile(r"(?:its|this spell'?s) madness cost was paid", re.I),
      lambda m: {"kind": "flag", "flag": "madness_cost_paid"}),
+    # RULE 702.117: "(if) its / this spell's surge cost was paid" — `GameObject.surge_cost_paid`.
+    (re.compile(r"(?:its|this spell'?s) surge cost was paid", re.I),
+     lambda m: {"kind": "flag", "flag": "surge_cost_paid"}),
     (re.compile(r"you control a legendary (?P<subtype>[a-z]+)", re.I),
      lambda m: {"kind": "control_legendary_subtype", "subtype": m.group("subtype").lower()}),
     # PAR-98: reused by conditional activation-cost reductions as well as

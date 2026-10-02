@@ -20,5 +20,6 @@ from . import kor_spiritdancer  # noqa: F401
 from . import korvold_fae_cursed_king  # noqa: F401
 from . import koth_fire_of_resistance  # noqa: F401
 from . import kozilek_butcher_of_truth  # noqa: F401
+from . import krenko_tin_street_kingpin  # noqa: F401
 from . import kulrath_knight  # noqa: F401
 from . import kutzil_malamet_exemplar  # noqa: F401

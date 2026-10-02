@@ -774,6 +774,9 @@ export default {
   'bd.cast.evokePlain': "✨ Evoke{mode}{hint}{face}",
   'bd.cast.evokeSuffix': "✨ Evoke ({suffix}){mode}{face}",
   'bd.cast.evokeLabel': "✨ Evoke{mode}{face}",
+  'bd.cast.surgePlain': "⚡ Surge{mode}{hint}{face}",
+  'bd.cast.surgeSuffix': "⚡ Surge ({suffix}){mode}{face}",
+  'bd.cast.surgeLabel': "⚡ Surge{mode}{face}",
 
   // --- Play modes: Goldfish + Solo (goldfishView.js / soloView.js) ---
   'play.restart': "⟲ Restart",

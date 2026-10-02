@@ -540,7 +540,7 @@ def condition_state(
 
 
 #: Flags the *cast itself* decides, so they are already known when targets are announced.
-ANNOUNCED_FLAGS: frozenset[str] = frozenset({"gift_promised", "madness_cost_paid"})
+ANNOUNCED_FLAGS: frozenset[str] = frozenset({"gift_promised", "madness_cost_paid", "surge_cost_paid"})
 
 
 def announced_state(condition: Optional[dict[str, Any]], source: Any) -> Optional[bool]:
@@ -610,6 +610,7 @@ _FROM_LEGACY: dict[str, Callable[[Any], Optional[dict[str, Any]]]] = {
     "bargained": _flag("bargained"),
     "gift_promised": _flag("gift_promised"),  # RULE 702.174k (MEC-106)
     "madness_cost_paid": _flag("madness_cost_paid"),  # RULE 702.35 (PAR-139)
+    "surge_cost_paid": _flag("surge_cost_paid"),  # RULE 702.117
     "teamwork_paid": _flag("teamwork_paid"),  # RULE 702.194b (PAR-56)
     "additional_cost_paid": _flag("additional_cost_paid"),
     "source_was_cast": _flag("was_cast"),

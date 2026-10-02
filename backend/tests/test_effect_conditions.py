@@ -60,6 +60,7 @@ _LEGACY_SAMPLES: dict[str, list[object]] = {
     "bargained": [True],
     "gift_promised": [True, False],
     "madness_cost_paid": [True, False],  # PAR-139, RULE 702.35
+    "surge_cost_paid": [True, False],  # RULE 702.117
     "teamwork_paid": [True],
     "additional_cost_paid": [True, False],
     "source_was_cast": [True, False],
@@ -240,6 +241,7 @@ class TestTheCollapseIsReal:
             "cast_during_your_main_phase",  # PAR-120, Addendum
             "previous_target_is_suspected", "teamwork_paid", "gift_promised",
             "madness_cost_paid",  # PAR-139
+            "surge_cost_paid",  # RULE 702.117
             # RULE 701.60c's `is_suspected` flag read off two more referents,
             # plus RULE 602.2b's sacrificed-cost-specific flag — always part of
             # the same collapse, just missing their own `_LEGACY_SAMPLES` rows

@@ -3865,7 +3865,10 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: "N damage to any target and M damage to you", and a "plus the number of" sum after "where X is".
 #: 584: an enters trigger's "if {W} was spent to cast it" is a true RULE 603.4 intervening-if (`trigger["active_if"]`,
 #: checked once at trigger time — Revenant Patriarch no longer asks for a target when white was not spent).
-PARSER_VERSION = "584"
+#: 585: Surge (RULE 702.117) is an engine mechanic — "if its / this spell's surge cost was paid" reads
+#: `GameObject.surge_cost_paid` as an enters-trigger intervening-if and as a resolving-spell condition
+#: (Reckless Bushwhacker, Tyrant of Valakut, Crush of Tentacles; 3 cards).
+PARSER_VERSION = "585"
 
 
 def parser_source_hash() -> str:

@@ -225,6 +225,7 @@ class LegalActionsMixin:
         free: bool = False,
         alt_cost: bool = False,
         evoke: bool = False,
+        surge: bool = False,
         help_pay: bool = False,
         bestow: bool = False,
         pay_additional: bool = False,
@@ -273,7 +274,7 @@ class LegalActionsMixin:
             obj._gift_preview = True
             try:
                 action = self._cast_action(player, obj, face=face, mode=mode, entwine=entwine, free=free,
-                                           alt_cost=alt_cost, evoke=evoke, help_pay=help_pay,
+                                           alt_cost=alt_cost, evoke=evoke, surge=surge, help_pay=help_pay,
                                            pay_additional=pay_additional)
             finally:
                 obj.gift_promised, obj.gift_recipient_id = saved
@@ -347,9 +348,9 @@ class LegalActionsMixin:
         if mode is not None:
             action["mode"] = mode
             action["mode_description"] = self._mode_description(obj, mode)
-        if free or alt_cost or evoke:
+        if free or alt_cost or evoke or surge:
             # RULE 601.2f-adjacent free cast / RULE 118.9 alternative cost
-            # (MEC-15) / RULE 702.74b Evoke (MEC-42) — a wholly different
+            # (MEC-15) / RULE 702.74b Evoke (MEC-42) / RULE 702.117 Surge — a wholly different
             # payment method from the printed mana cost, so none of the
             # mana-value/{X}/Kicker/Buyback/cost-reduction/additional-cost
             # fields below apply; only the target-requirement tail (below
@@ -365,6 +366,11 @@ class LegalActionsMixin:
                 )
                 if alt_cast_cost is not None:
                     action["alt_cost_label"] = alt_cast_cost.label()
+            elif surge:
+                action["surge"] = True
+                surge_cost = self._surge_cost(obj)
+                if surge_cost is not None:
+                    action["surge_cost_label"] = surge_cost.raw
             else:
                 action["evoke"] = True
                 evoke_cost = self._evoke_cost(obj) or continuous.granted_evoke_cost_for(self.state, obj)
@@ -704,6 +710,15 @@ class LegalActionsMixin:
                 cost = self.effective_cast_cost(player, obj, face=face, evoke=True)
                 if mana_potential.is_castable_via_potential(self, player, cost):
                     return True
+        # RULE 702.117: Surge is likewise real mana against a different cost,
+        # gated on a spell having been cast earlier this turn (`can_cast`).
+        if self._surge_cost(obj) is not None and self._surge_enabled(player):
+            if self.can_cast(player, obj, face=face, surge=True):
+                return True
+            if self.can_cast(player, obj, face=face, surge=True, assume_mana_available=True):
+                cost = self.effective_cast_cost(player, obj, face=face, surge=True)
+                if mana_potential.is_castable_via_potential(self, player, cost):
+                    return True
         # PAR-23: RULE 702.51/702.66/702.126 — a spell castable only because
         # Convoke/Delve/Improvise can cover the shortfall (`help_pay=True`
         # folds the best-case reduction into `effective_cast_cost`, so the
@@ -838,6 +853,11 @@ class LegalActionsMixin:
         has_evoke = self._has_evoke(obj)
         if has_evoke and self.can_cast(player, obj, evoke=True):
             actions.append(self._cast_action(player, obj, evoke=True))
+        # RULE 702.117a: a Surge cost is a further independent payment
+        # method, offered alongside the plain cast only while a spell has
+        # already been cast this turn (`can_cast` re-checks).
+        if self._surge_cost(obj) is not None and self.can_cast(player, obj, surge=True):
+            actions.append(self._cast_action(player, obj, surge=True))
         # RULE 702.103 (PAR-26): a creature card with Bestow may instead be
         # cast for its bestow cost as an Aura — a further independent
         # payment method, offered alongside the plain creature cast, never

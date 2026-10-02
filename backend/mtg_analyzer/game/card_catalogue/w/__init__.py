@@ -21,6 +21,7 @@ from . import wonder  # noqa: F401
 from . import word_of_command  # noqa: F401
 from . import worldgorger_dragon  # noqa: F401
 from . import worst_fears  # noqa: F401
+from . import wort_boggart_auntie  # noqa: F401
 from . import wrath_of_god  # noqa: F401
 from . import wrenn_s_resolve  # noqa: F401
 from . import wyleth_soul_of_steel  # noqa: F401

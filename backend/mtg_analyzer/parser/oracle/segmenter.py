@@ -682,9 +682,10 @@ _ENTERS_IF_CAST_RE = re.compile(
 )
 
 #: PAR-139, RULE 702.35 / 603.4: "When ~ enters, if its madness cost was paid, `<effect>`." (Grave Scrabbler) — the
-#: intervening-if reads the flag `RulesEngine.cast_spell` stamped (`GameObject.madness_cost_paid`).
+#: intervening-if reads the flag `RulesEngine.cast_spell` stamped (`GameObject.madness_cost_paid`). RULE 702.117's
+#: "if its surge cost was paid" (Reckless Bushwhacker, Tyrant of Valakut) is the same shape on `surge_cost_paid`.
 _ENTERS_IF_MADNESS_PAID_RE = re.compile(
-    r"^when ~ enters, if its madness cost was paid,\s*(?P<body>.+)$", re.IGNORECASE | re.S,
+    r"^when ~ enters, if its (?P<cost>madness|surge) cost was paid,\s*(?P<body>.+)$", re.IGNORECASE | re.S,
 )
 
 _CAST_SPELL_NOT_THEIR_TURN_TRIGGER_RE = re.compile(
@@ -3634,7 +3635,7 @@ def _instead_override_specs(body: str, **flags: Any) -> Optional[list[EffectSpec
 
 #: Flags the cast itself decides before targets are chosen — the parser-side mirror of
 #: `game/effect_conditions.ANNOUNCED_FLAGS` (this package must not import `game/`).
-_ANNOUNCED_FLAGS: frozenset[str] = frozenset({"gift_promised", "madness_cost_paid"})
+_ANNOUNCED_FLAGS: frozenset[str] = frozenset({"gift_promised", "madness_cost_paid", "surge_cost_paid"})
 
 
 def _is_announced_condition(condition: Optional[dict[str, Any]]) -> bool:
@@ -7113,7 +7114,9 @@ def _segment_line_unsplit(
         if effects is None:
             return Segment(raw=raw)
         for e in effects:
-            e.condition = {**(e.condition or {}), "madness_cost_paid": True}
+            e.condition = {
+                **(e.condition or {}), f"{enters_if_madness.group('cost').lower()}_cost_paid": True,
+            }
         spec = AbilitySpec(
             "triggered",
             effects=effects,

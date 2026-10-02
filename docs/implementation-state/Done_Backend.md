@@ -1933,6 +1933,13 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 - **Left open, per card:** Callaphe (a quoted static *granted* to a group: "creatures and enchantments you control have "spells your opponents cast that target this permanent cost {1} more""), Kopala ("abilities your opponents activate that target a merfolk you control cost {2} more to activate" — activation costs never see a target; `activation_cost_reduction_for` has no `targets`, and the spell half needs a subtype slot), Strong Back (same activation half, plus "enchanted creature" as a target). **Found, not fixed:** the segmenter claims a line that starts with "Equip" as a keyword line (`keyword_line=True`), so Strong Back's "Equip abilities you activate that target enchanted creature cost {3} less to activate." is silently swallowed rather than unclaimed — confirmed on the cache (PV 572): Bureau Headmaster, Bladehold War-Whip, Cloud Planet's Champion, Dwarven Mauler, Helitrooper, Plate Armor / A-Plate Armor and Warrior's Blades are `MODELED` with their Equip-cost discount line emitting no spec at all (Bureau Headmaster's only spec is the unrelated Equipment *spell* discount). Ticketed as BUG-1.
 - **Files:** `parser/oracle/catalogue/static_handlers.py`, `gate.py` (PARSER_VERSION 572), `game/continuous.py`, `game/effects/registry.py`, `game/engine/casting_mixin.py`. Tests: `tests/test_par99_targeted_spell_tax.py` (parse, refusals, the five real cards modeled, executes: Kasmina scopes, a stack spell is not a permanent, Esior's commanders, the Siege under each label, Scion's discount, Terror's life payment / unaffordable / controller spared).
 
+### Surge (RULE 702.117) — alternative cast cost after another spell (PARSER_VERSION 585, +3)
+
+- **What:** "Surge {cost}" is a real cast option: `legal_actions` offers a second `cast_spell` entry (`surge: true`, `surge_cost_label`) next to the plain one, only while `spells_cast_this_turn` is above zero for the caster — read before the surge spell itself is cast, so it counts *other* spells. The surge cost replaces the mana cost (RULE 118.9, still subject to reductions and tax) and `GameEngine.cast_spell` stamps `GameObject.surge_cost_paid`, reassigned on every cast so a plain recast clears it. The flag is a `surge_cost_paid` condition beside `madness_cost_paid` (`effect_conditions`, `static_conditions`, `spec._ALLOWED_CONDITION_KEYS`, an announced flag). Parser: "When ~ enters, if its surge cost was paid, …" is the madness intervening-if row widened to `(madness|surge)`, and "if its / this spell's surge cost was paid" is a static-condition row (Reckless Bushwhacker, Tyrant of Valakut, Crush of Tentacles). Teammates (RULE 810) don't exist in the engine, so only the caster's own spells count.
+- **Shape:** `surge` is threaded through `can_cast` / `effective_cast_cost` / `cast_spell` / `_cast_action` exactly like `evoke`; `services/game_session.py` round-trips the flag and `gameBoardView.js` carries it through every cast path (plain, X, targeted, discard-choice) with a ⚡ Surge label (`bd.cast.surge*`).
+- **Left open:** Fall of the Titans (`x` damage "to each of up to 2 targets" is a separate gap). The UI still does not show the surge cost in the button label (`surge_cost_label` is on the action but unused).
+- **Files:** `game/engine/casting_mixin.py` (`_surge_cost`, `_surge_enabled`), `game/engine/legal_actions_mixin.py`, `models/game/game_object.py`, `parser/oracle/segmenter.py`, `parser/oracle/catalogue/static_handlers.py`, `tests/test_surge.py`
+
 ### Commander tax (RULE 903.8)
 
 - **What:** `Player.commander_casts` (instance id → count) increments on each command-zone cast; `effective_cast_cost` adds `{2}` per previous cast (floored generic), surfa…
@@ -4542,6 +4549,11 @@ Not ticketed (PLAY-ALL Step 1). The plan called it "cycles through `register_fam
 
 - **What:** Closed all 18 `UNMODELED` cards of the 99-card Vivi B4 storm-shell Commander deck (11 via general parser handlers, 7 hand-authored), several of the biggest sing…
 - **Files:** `game/rules/search_mixin.py`, `parser/oracle/segmenter.py`, `game/effects/core.py`, `game/ability_catalogue.py`
+
+### Goblins (saved deck, fully playable) (Deck/Cube Playability Batches)
+
+- **What:** Closed the 7 `UNMODELED` cards of the 39-card Goblins deck: six hand-authored (Goblin Matron and Wort, Boggart Auntie reuse the subtype `search` / `return_from_graveyard` shapes; Goblin Rabblemaster grants the synthetic `attacks_if_able` keyword to other Goblins through a layer-6 `grant_keyword`; Krenko, Tin Street Kingpin is `seq(add_counters, bind(power) -> create_token)`; Legion Loyalist is a Battalion `attackers_declared` head over a keyword `pump` plus `combat_restriction_this_turn` with `selector` and a token filter; Coat of Arms is a layer-7d anthem whose per-recipient count uses `shares_creature_type_with_reference`) and Reckless Bushwhacker through the new Surge mechanic (see the Casting & Costs entry).
+- **Files:** `game/card_catalogue/{c,g,k,l,w}/` (one file per card), `tests/game/catalogue/cards/test_goblins_deck.py`
 
 ### Blight Curse — Lorwyn Eclipsed (saved deck, fully playable) (Deck/Cube Playability Batches)
 

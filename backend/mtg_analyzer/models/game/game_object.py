@@ -270,6 +270,10 @@ class GameObject:
         #: exiled by `RulesEngine._maybe_madness`) — stamped at cast time by `RulesEngine.cast_spell`
         #: and read by the ``madness_cost_paid`` flag condition ("if its madness cost was paid").
         self.madness_cost_paid: bool = False
+        #: RULE 702.117: this spell was cast for its Surge cost (stamped by
+        #: `GameEngine.cast_spell`, read by the ``surge_cost_paid`` flag
+        #: condition — "if its surge cost was paid").
+        self.surge_cost_paid: bool = False
         #: RULE 701.20a: this card was exiled **face down** (Beseech the
         #: Mirror's "search your library for a card, exile it face down").
         #: A face-down card in exile has no characteristics anyone but its
@@ -1415,6 +1419,7 @@ class GameObject:
         self.gift_promised = False
         self.gift_recipient_id = None
         self.madness_cost_paid = False
+        self.surge_cost_paid = False
         self.face_down_in_exile = False
         self.cast_via_flashback = False
         self.cast_via_evoke = False
