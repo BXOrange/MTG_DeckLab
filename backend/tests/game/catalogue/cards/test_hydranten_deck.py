@@ -113,3 +113,47 @@ def test_power_of_clamps_its_exponent():
     ctx = cls()
     amount = {"kind": "fixed", "amount": 500, "power_of": 2}
     assert effect_amounts.amount_of(amount, ctx) == 2 ** 30
+
+
+def test_mind_into_matter_draws_x_then_puts_a_cheap_permanent_in_tapped():
+    from mtg_analyzer.config import DB_PATH
+    from mtg_analyzer.game.game_engine import GameEngine
+    from mtg_analyzer.models.game.game_object import GameObject, Zone
+    from mtg_analyzer.services.card_database import CardDatabase
+
+    card = CardDatabase(DB_PATH).get_card("Mind into Matter")
+    engine = GameEngine.new_game([("p1", "A", [card]), ("p2", "B", [])], starting_hand=1, starting_life=20)
+    for obj in engine.state.players[0].hand:
+        bind_from_catalogue(obj)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    p1 = engine.state.player_by_id("p1")
+
+    def hand_card(name, type_line, cost, cmc, **kw):
+        obj = GameObject(
+            Card(id=name, name=name, type_line=type_line, mana_cost_string=cost, converted_mana_cost=cmc, **kw),
+            owner_id="p1", zone=Zone.HAND,
+        )
+        p1.add_to_zone(obj, Zone.HAND)
+        return obj
+
+    cheap = hand_card("Cheap Bear", "Creature — Bear", "{1}{G}", 2, is_creature=True, power=2, toughness=2)
+    dear = hand_card("Dear Dragon", "Creature — Dragon", "{4}{R}{R}", 6, is_creature=True, power=5, toughness=5)
+    for i in range(3):
+        p1.library.append(GameObject(Card(id=f"D{i}", name=f"Drawn {i}", type_line="Instant"), owner_id="p1", zone=Zone.LIBRARY))
+
+    p1.mana_pool.add_many({"G": 1, "U": 1, "C": 2})  # X = 2
+    engine.cast_spell(p1, next(o for o in p1.hand if o.name == "Mind into Matter"), x=2)
+    engine.resolve_until_stable()
+
+    choice = engine.state.pending_choice
+    assert choice is not None
+    ids = [o.get("instance_id") for o in choice["options"]]
+    assert cheap.instance_id in ids and dear.instance_id not in ids  # mana value 2 or less
+    pick = next(o for o in choice["options"] if o.get("instance_id") == cheap.instance_id)
+    engine.resolve_pending_choice(pick["id"])
+    engine.resolve_until_stable()
+
+    assert cheap in engine.state.battlefield and cheap.tapped
+    assert dear in p1.hand
+    assert sum(1 for o in p1.hand if o.name.startswith("Drawn")) == 2  # drew X cards
