@@ -18,6 +18,7 @@ from . import mangara_the_diplomat  # noqa: F401
 from . import maralen_of_the_mornsong  # noqa: F401
 from . import march_of_otherworldly_light  # noqa: F401
 from . import march_of_swirling_mist  # noqa: F401
+from . import march_of_the_world_ooze  # noqa: F401
 from . import marchesa_the_black_rose  # noqa: F401
 from . import mariposa_military_base  # noqa: F401
 from . import martial_coup  # noqa: F401

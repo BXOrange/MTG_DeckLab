@@ -119,3 +119,36 @@ def test_twitching_doll_taps_for_mana_with_a_nest_counter_then_sacrifices_for_sp
     assert doll not in engine.state.battlefield
     assert len(spiders) == 3  # one per nest counter
     assert all(s.power == 2 and s.toughness == 2 and "reach" in s.granted_keywords | set(getattr(s.card, "keywords", []) or []) for s in spiders)
+
+
+def test_march_of_the_world_ooze_makes_my_creatures_6_6_oozes_and_rewards_off_turn_spells():
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+
+    engine, player = two_player_game()  # p1 is the active player
+    march = battlefield_object(engine, "p1", "March of the World Ooze", "Enchantment")
+    bind_from_catalogue(march)
+    mine = battlefield_object(engine, "p1", "My Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    theirs = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    engine.recompute_continuous_effects()
+    assert (mine.power, mine.toughness) == (6, 6) and (theirs.power, theirs.toughness) == (2, 2)
+    from mtg_analyzer.game.continuous import has_subtype
+
+    assert has_subtype(mine, "Ooze") and not has_subtype(theirs, "Ooze")
+
+    def elephants():
+        return [o for o in engine.state.permanents_controlled_by("p1") if "Elephant" in (o.card.type_line or "")]
+
+    def opponent_casts():
+        engine.state.fire_event(GameEvent(
+            EventType.SPELL_CAST, player_id="p2", controller_id="p2", object="Bolt",
+            object_types=["instant"], mana_value=1,
+        ))
+        engine.rules.put_triggers_on_stack()
+        engine.resolve_until_stable()
+
+    opponent_casts()  # during MY turn: it's not their turn -> an Elephant
+    assert len(elephants()) == 1
+
+    engine.state.active_player_index = 1  # their own turn: nothing
+    opponent_casts()
+    assert len(elephants()) == 1
