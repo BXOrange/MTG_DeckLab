@@ -1665,7 +1665,19 @@ class ReturnAllExiledWithEffect(GameEffect):
     by several different players. Each returns under **its own owner's**
     control (`return_from_graveyard`'s default), not this source's
     controller — "each player" in the printed text, not "you".
+
+    ``counter_if_creature`` (``{"kind": "+1/+1", "count": 1}``) is Teferi's Time Twist's "If it
+    enters as a creature, it enters with an additional +1/+1 counter on it": the counter goes on
+    each returned card that is a creature as it arrives. (Placed just after it enters rather than
+    as it enters — nothing between the two can tell the difference except a "whenever a creature
+    enters" trigger seeing the counter late.)
     """
+
+    def __init__(
+        self, counter_if_creature: Optional[dict[str, Any]] = None, source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.counter_if_creature = dict(counter_if_creature or {}) or None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None:
@@ -1677,6 +1689,11 @@ class ReturnAllExiledWithEffect(GameEffect):
             if card_obj is None or card_obj.zone != Zone.EXILE:
                 continue
             context.return_from_graveyard(card_obj, "battlefield")
+            if self.counter_if_creature and card_obj.zone == Zone.BATTLEFIELD and card_obj.is_creature:
+                context.add_counters(
+                    card_obj, int(self.counter_if_creature.get("count", 1) or 1),
+                    str(self.counter_if_creature.get("kind", "+1/+1")), source=self.source,
+                )
 
 
 class CreateTokenForLinkedExileEffect(GameEffect):

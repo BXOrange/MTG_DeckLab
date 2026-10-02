@@ -1109,7 +1109,10 @@ EffectRegistry.register(
     "celestial_reunion_search",
     lambda p: CelestialReunionSearchEffect(),
 )
-EffectRegistry.register("return_all_exiled_with", lambda p: ReturnAllExiledWithEffect())
+EffectRegistry.register(
+    "return_all_exiled_with",
+    lambda p: ReturnAllExiledWithEffect(counter_if_creature=p.get("counter_if_creature")),
+)
 EffectRegistry.register(
     "exile_any_number_you_control",
     lambda p: ExileAnyNumberYouControlEffect(other_only=bool(p.get("other_only", True))),

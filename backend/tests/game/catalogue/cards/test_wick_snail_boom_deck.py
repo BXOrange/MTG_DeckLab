@@ -361,3 +361,34 @@ def test_turn_inside_out_pumps_and_manifests_dread_only_when_that_creature_dies(
     engine.resolve_until_stable()
     _answer_choices(engine)
     assert len(_face_down(engine)) == 1  # manifested from the top of the library
+
+
+def _time_twist(target_type_line, **card_kwargs):
+    engine, p1 = _game("Teferi's Time Twist")
+    target = battlefield_object(engine, "p1", "Twisted", target_type_line, **card_kwargs)
+    target.counters["-1/-1"] = 1  # proves it comes back as a new object
+    p1.mana_pool.add_many({"U": 1, "C": p1.hand[0].card.converted_mana_cost - 1})
+    engine.cast_spell(p1, p1.hand[0], targets=[target])
+    engine.resolve_until_stable()
+    return engine, p1, target
+
+
+def _to_end_step(engine):
+    engine.state.current_step = "end"
+    engine._fire_delayed_triggers("end")  # RULE 603.7: the delayed trigger fires as the end step begins
+    for _ in range(3):
+        engine.rules.put_triggers_on_stack()
+        engine.resolve_until_stable()
+
+
+def test_teferis_time_twist_returns_at_the_next_end_step_with_a_counter_only_as_a_creature():
+    engine, p1, creature = _time_twist("Creature — Bear", is_creature=True, power=2, toughness=2)
+    assert creature.zone == Zone.EXILE and creature not in engine.state.battlefield  # gone for now
+    _to_end_step(engine)
+    assert creature in engine.state.battlefield
+    assert creature.counters.get("+1/+1", 0) == 1 and not creature.counters.get("-1/-1")
+
+    engine, p1, artifact = _time_twist("Artifact")
+    assert artifact.zone == Zone.EXILE
+    _to_end_step(engine)
+    assert artifact in engine.state.battlefield and not artifact.counters  # not a creature: no counter
