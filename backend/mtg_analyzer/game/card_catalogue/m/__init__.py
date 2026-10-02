@@ -9,6 +9,7 @@ from . import mana_breach  # noqa: F401
 from . import mana_crypt  # noqa: F401
 from . import mana_drain  # noqa: F401
 from . import mana_geyser  # noqa: F401
+from . import mana_reflection  # noqa: F401
 from . import mana_vault  # noqa: F401
 from . import mana_web  # noqa: F401
 from . import manabarbs  # noqa: F401

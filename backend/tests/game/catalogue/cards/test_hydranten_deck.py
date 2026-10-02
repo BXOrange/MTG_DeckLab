@@ -52,3 +52,28 @@ def test_herald_of_secret_streams_makes_only_countered_creatures_unblockable():
     countered.counters["+1/+1"] = 0
     engine.recompute_continuous_effects()
     assert engine.can_block(defender, theirs, countered)  # the counter is the whole condition
+
+
+def test_mana_reflection_doubles_mana_from_tapping_only_for_its_controller():
+    from mtg_analyzer.config import DB_PATH
+    from mtg_analyzer.models.game.game_object import GameObject, Zone
+    from mtg_analyzer.services.card_database import CardDatabase
+
+    engine, player = two_player_game()
+    opponent = engine.state.player_by_id("p2")
+    reflection = battlefield_object(engine, "p1", "Mana Reflection", "Enchantment")
+    bind_from_catalogue(reflection)
+    forest_card = CardDatabase(DB_PATH).get_card("Forest")
+
+    def forest_for(player_id):
+        land = GameObject(forest_card, owner_id=player_id, zone=Zone.BATTLEFIELD)
+        land.controller_id = player_id
+        bind_from_catalogue(land)
+        engine.state.add_to_battlefield(land)
+        return land
+
+    mine, theirs = forest_for("p1"), forest_for("p2")
+    engine.tap_for_mana(player, mine)
+    assert player.mana_pool.pool.get("G", 0) == 2
+    engine.tap_for_mana(opponent, theirs)
+    assert opponent.mana_pool.pool.get("G", 0) == 1  # not their Mana Reflection
