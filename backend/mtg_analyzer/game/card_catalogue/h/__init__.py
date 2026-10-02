@@ -19,6 +19,7 @@ from . import helm_of_awakening  # noqa: F401
 from . import helm_of_obedience  # noqa: F401
 from . import helm_of_the_host  # noqa: F401
 from . import herald_of_amity  # noqa: F401
+from . import herald_of_secret_streams  # noqa: F401
 from . import hermit_druid  # noqa: F401
 from . import high_perfect_morcant  # noqa: F401
 from . import hoarding_broodlord  # noqa: F401
