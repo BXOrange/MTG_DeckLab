@@ -28,6 +28,7 @@ from . import the_battle_of_bywater  # noqa: F401
 from . import the_goose_mother  # noqa: F401
 from . import the_jolly_balloon_man  # noqa: F401
 from . import the_master_gallifrey_s_end  # noqa: F401
+from . import the_mycosynth_gardens  # noqa: F401
 from . import the_one_ring  # noqa: F401
 from . import the_reaper_king_no_more  # noqa: F401
 from . import the_wandering_emperor  # noqa: F401

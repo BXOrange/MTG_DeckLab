@@ -256,3 +256,27 @@ def test_emry_lets_you_cast_only_the_chosen_artifact_card_from_the_graveyard():
     engine.cast_spell(p1, rock)
     engine.resolve_until_stable()
     assert rock.zone == Zone.BATTLEFIELD
+
+
+def test_mycosynth_gardens_becomes_a_copy_of_a_nontoken_artifact_with_mana_value_x():
+    from mtg_analyzer.game.targeting import TargetSpec, legal_targets
+
+    engine, p1 = _game()
+    gardens = battlefield_object(engine, "p1", "The Mycosynth Gardens", "Land — Sphere", is_land=True)
+    bind_from_catalogue(gardens)
+    gardens.summoning_sick = False
+    three = battlefield_object(engine, "p1", "Three Rock", "Artifact", mana_cost_string="{3}", converted_mana_cost=3)
+    battlefield_object(engine, "p1", "Two Rock", "Artifact", mana_cost_string="{2}", converted_mana_cost=2)
+    battlefield_object(engine, "p2", "Their Three", "Artifact", mana_cost_string="{3}", converted_mana_cost=3)
+    token = battlefield_object(engine, "p1", "Gold", "Artifact — Gold", mana_cost_string="", converted_mana_cost=3)
+    token.is_token = True
+
+    gardens.x_paid = 3  # the announced X, as `activate_ability` stamps it
+    pool = legal_targets(engine.state, "p1", TargetSpec(kind="nontoken_artifact_you_control", exact_mana_value="x"), source=gardens)
+    assert {o["name"] for o in pool} == {"Three Rock"}  # MV 3, nontoken, yours
+
+    p1.mana_pool.add_many({"C": 3})
+    engine.activate_ability(p1, gardens, 0, targets=[three], x=3)
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    assert gardens.name == "Three Rock" and gardens.card.is_artifact and not gardens.is_land

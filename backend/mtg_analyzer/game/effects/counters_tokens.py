@@ -3932,10 +3932,12 @@ class _BecomeCopyBase(GameEffect):
         add_keywords: Optional[list[str]] = None,
         not_legendary: bool = False,
         keep_own_abilities: bool = False,
+        exact_mana_value: Optional[Any] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
-        self.target_spec = TargetSpec(kind=target_kind)
+        # ``exact_mana_value`` ("with mana value X", The Mycosynth Gardens): an int or the "x" sentinel.
+        self.target_spec = TargetSpec(kind=target_kind, exact_mana_value=exact_mana_value)
         self.add_types = list(add_types or [])
         self.add_subtypes = list(add_subtypes or [])
         self.add_keywords = list(add_keywords or [])

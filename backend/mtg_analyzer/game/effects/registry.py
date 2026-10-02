@@ -2584,6 +2584,7 @@ EffectRegistry.register(
     lambda p: BecomeCopyPermanentEffect(
         target=p.get("target"),
         target_kind=p.get("target_kind", "creature"),
+        exact_mana_value=p.get("exact_mana_value"),
         add_types=p.get("add_types"), add_subtypes=p.get("add_subtypes"), add_keywords=p.get("add_keywords"),
         not_legendary=bool(p.get("not_legendary", False)),
         keep_own_abilities=bool(p.get("keep_own_abilities", False)),

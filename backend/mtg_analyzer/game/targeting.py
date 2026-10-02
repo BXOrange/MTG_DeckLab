@@ -220,8 +220,9 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # Donatello, Adagia): the controller-scoped pools the parser's "you control" slot composes
         # (`subgrammars.YOU_TARGET_KINDS`) plus the bare token pool.
         "token", "token_you_control", "artifact_you_control", "enchantment_you_control",
-        # "target noncreature artifact you control" (Depthshaker Titan).
-        "noncreature_artifact_you_control",
+        # "target noncreature artifact you control" (Depthshaker Titan) /
+        # "target nontoken artifact you control" (The Mycosynth Gardens).
+        "noncreature_artifact_you_control", "nontoken_artifact_you_control",
         "artifact_or_enchantment_you_control",
         # "target nonland permanent" (Retraction Helix-shaped) — any
         # controller's, unlike the `_you_control`/`_you_dont_control`
@@ -656,6 +657,7 @@ class TargetSpec:
             "token_you_control": "Spielstein unter deiner Kontrolle",
             "artifact_you_control": "Artefakt unter deiner Kontrolle",
             "noncreature_artifact_you_control": "Nichtkreatur-Artefakt unter deiner Kontrolle",
+            "nontoken_artifact_you_control": "Artefakt (kein Spielstein) unter deiner Kontrolle",
             "enchantment_you_control": "Verzauberung unter deiner Kontrolle",
             "artifact_or_enchantment_you_control": "Artefakt oder Verzauberung unter deiner Kontrolle",
             "enchantment_you_dont_control": "Verzauberung, die du nicht kontrollierst",
@@ -1097,6 +1099,7 @@ _FRAME_TYPE_PREDICATES: dict[str, Any] = {
     "planeswalker": lambda o: o.is_planeswalker,
     "battle": lambda o: o.is_battle,
     "noncreature_artifact": lambda o: bool(o.card.is_artifact) and not o.is_creature,
+    "nontoken_artifact": lambda o: bool(o.card.is_artifact) and not getattr(o, "is_token", False),
     "nonbasic_land": _fp_nonbasic,
     "basic_land": lambda o: bool(o.is_land) and "basic" in o.card.type_line.lower(),
     "mountain": lambda o: bool(o.is_land) and "mountain" in str(o.card.type_line).lower(),
@@ -1187,6 +1190,7 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     "token_you_control": TargetFrame("token", SCOPE_YOU, exclude_source=False),
     "artifact_you_control": TargetFrame("artifact", SCOPE_YOU, exclude_source=False),
     "noncreature_artifact_you_control": TargetFrame("noncreature_artifact", SCOPE_YOU, exclude_source=False),
+    "nontoken_artifact_you_control": TargetFrame("nontoken_artifact", SCOPE_YOU, apply_max_mana_value=True),
     "enchantment_you_control": TargetFrame("enchantment", SCOPE_YOU, exclude_source=False),
     "artifact_or_enchantment_you_control": TargetFrame(
         "artifact_or_enchantment", SCOPE_YOU, exclude_source=False),
