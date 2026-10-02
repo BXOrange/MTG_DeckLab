@@ -157,6 +157,17 @@ def free_cast_condition_holds(condition: dict[str, Any], obj: "GameObject", stat
             )
             if bool(value) != (you_have_island and opp_has_forest):
                 return False
+        elif key == "control_legendary_creature_or_planeswalker":
+            # RULE 205.4d: "You may cast a legendary sorcery only if you control a legendary creature
+            # or planeswalker." (Urza's Ruinous Blast) — read live off the battlefield, like the
+            # sibling `control_commander` gate above.
+            has_legend = any(
+                o.controller_id == controller_id and getattr(o, "is_legendary", False)
+                and (o.is_creature or o.is_planeswalker)
+                for o in state.battlefield
+            )
+            if bool(value) != has_legend:
+                return False
         elif key == "control_land_type":
             # "If you control a Swamp, you may pay 4 life rather than pay
             # this spell's mana cost." (RULE 118.9, Snuff Out) — the

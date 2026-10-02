@@ -311,6 +311,9 @@ ALLOWED_FREE_CAST_CONDITION_KEYS: frozenset[str] = frozenset(
         # land-type word rather than a plain boolean, unlike every other
         # key above.
         "control_land_type",
+        # "You may cast a legendary sorcery only if you control a legendary creature or
+        # planeswalker." (RULE 205.4d, Urza's Ruinous Blast) — a plain boolean gate.
+        "control_legendary_creature_or_planeswalker",
         # PAR-19: "If 3 or more creatures are attacking, you may pay `<cost>`
         # rather than pay this spell's mana cost." (Lethargy Trap/Arrow
         # Volley Trap-shaped RULE 702 "Trap" template) — the combat-count
@@ -1191,7 +1194,7 @@ class AbilitySpec:
             raise SpecValidationError("'control_commander' condition must be a bool")
         if key in (
             "not_your_turn", "your_turn", "opponent_controls_forest_and_you_control_island",
-            "you_attacked_this_turn",
+            "you_attacked_this_turn", "control_legendary_creature_or_planeswalker",
         ) and not isinstance(value, bool):
             raise SpecValidationError(f"{key!r} condition must be a bool")
         if key == "opponent_spells_cast_this_turn_at_least" and (

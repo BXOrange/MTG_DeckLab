@@ -210,3 +210,43 @@ def test_desynchronization_bounces_only_nonland_nonhistoric_permanents_to_their_
     assert bear in p1.hand and enchantment in p1.hand
     assert theirs in engine.state.player_by_id("p2").hand  # to *its* owner's hand
     assert {legend, artifact, land, saga} <= on_battlefield  # historic or land: stay
+
+
+def _ruinous_blast_game(with_legendary_creature):
+    engine, p1 = _game("Urza's Ruinous Blast")
+    legend = None
+    if with_legendary_creature:
+        legend = battlefield_object(
+            engine, "p1", "A Legend", "Legendary Creature — Elf", is_creature=True, is_legendary=True, power=2, toughness=2,
+        )
+    return engine, p1, legend
+
+
+def test_urzas_ruinous_blast_needs_a_legendary_creature_or_planeswalker_to_be_cast():
+    engine, p1, _ = _ruinous_blast_game(with_legendary_creature=False)
+    p1.mana_pool.add_many({"W": 6})
+    assert not engine.can_cast(p1, p1.hand[0])
+
+    engine, p1, _ = _ruinous_blast_game(with_legendary_creature=True)
+    p1.mana_pool.add_many({"W": 6})
+    assert engine.can_cast(p1, p1.hand[0])
+
+
+def test_urzas_ruinous_blast_exiles_every_nonland_nonlegendary_permanent():
+    engine, p1, legend = _ruinous_blast_game(with_legendary_creature=True)
+    bear = battlefield_object(engine, "p1", "Plain Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    artifact = battlefield_object(engine, "p1", "Trinket", "Artifact")
+    land = battlefield_object(engine, "p1", "Forest", "Basic Land — Forest", is_land=True)
+    theirs = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    their_legend = battlefield_object(
+        engine, "p2", "Their Legend", "Legendary Creature — Elf", is_creature=True, is_legendary=True, power=2, toughness=2,
+    )
+
+    p1.mana_pool.add_many({"W": 6})
+    engine.cast_spell(p1, p1.hand[0])
+    engine.resolve_until_stable()
+
+    on_battlefield = set(engine.state.battlefield)
+    assert not ({bear, artifact, theirs} & on_battlefield)
+    assert all(o.zone == Zone.EXILE for o in (bear, artifact, theirs))  # exiled, not destroyed
+    assert {legend, land, their_legend} <= on_battlefield
