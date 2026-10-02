@@ -15,6 +15,7 @@ from . import ghostfire_slice  # noqa: F401
 from . import ghoulish_impetus  # noqa: F401
 from . import gift_of_immortality  # noqa: F401
 from . import gifts_ungiven  # noqa: F401
+from . import giggling_skitterspike  # noqa: F401
 from . import gilded_drake  # noqa: F401
 from . import gisela_blade_of_goldnight  # noqa: F401
 from . import gitaxian_probe  # noqa: F401

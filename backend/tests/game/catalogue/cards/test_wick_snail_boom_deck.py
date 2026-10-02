@@ -161,3 +161,51 @@ def test_big_apple_makes_one_rat_per_opponent():
 
     rats, _ = _big_apple(opponents=3)
     assert len(rats) == 3  # a Commander pod: three opponents, three Rats
+
+
+def _skitterspike_game(opponents=1):
+    card = CardDatabase(DB_PATH).get_card("Giggling Skitterspike")
+    seats = [("p1", "A", [])] + [(f"p{i}", f"B{i}", []) for i in range(2, 2 + opponents)]
+    engine = GameEngine.new_game(seats, starting_hand=0, starting_life=20)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    spike = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    spike.controller_id = "p1"
+    bind_from_catalogue(spike)
+    spike.summoning_sick = False
+    engine.state.add_to_battlefield(spike)
+    engine.recompute_continuous_effects()
+    return engine, spike
+
+
+def test_giggling_skitterspike_hits_every_opponent_for_its_power_when_it_attacks():
+    engine, spike = _skitterspike_game(opponents=2)
+    power = spike.power
+    assert power and power > 0
+    engine.state.current_step = "declare_attackers"
+    p1 = engine.state.player_by_id("p1")
+    engine.declare_attackers(p1, [{"attacker": spike, "defender": engine.legal_defenders_for(p1)[0]}])
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert engine.state.player_by_id("p2").life == 20 - power
+    assert engine.state.player_by_id("p3").life == 20 - power  # each opponent
+    assert engine.state.player_by_id("p1").life == 20
+
+
+def test_giggling_skitterspike_also_triggers_when_a_spell_targets_it():
+    engine, spike = _skitterspike_game()
+    p2 = engine.state.player_by_id("p2")
+    bolt = GameObject(
+        Card(id="Bolt", name="Opposing Bolt", type_line="Instant", is_instant=True, mana_cost_string="{R}", converted_mana_cost=1),
+        owner_id="p2", zone=Zone.HAND,
+    )
+    bind_from_catalogue(bolt)
+    p2.add_to_zone(bolt, Zone.HAND)
+    p1 = engine.state.player_by_id("p1")
+    life_before = p2.life
+    engine.state.active_player_index = 1
+    p2.mana_pool.add_many({"R": 1})
+    engine.cast_spell(p2, bolt, targets=[spike])
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert p2.life == life_before - spike.power  # the spike's controller's opponent is hit
