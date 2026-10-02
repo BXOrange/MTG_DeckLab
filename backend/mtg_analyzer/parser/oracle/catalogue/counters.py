@@ -242,6 +242,16 @@ _SUNBURST_ENTRY_COUNTERS_RE = re.compile(
 )
 
 
+#: "~ enters with a number of +1/+1 counters on it equal to the amount of mana spent to cast it."
+#: (Kurbis, Harvest Celebrant) — one counter per mana of any kind spent (`GameObject.mana_spent_to_cast`),
+#: the all-colours-and-generic sibling of Sunburst's per-*colour* count above.
+_MANA_SPENT_ENTRY_COUNTERS_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} with a number of {_COUNTER_TYPE} counters on it "
+    rf"equal to the amount of mana spent to cast it\.?$",
+    re.IGNORECASE,
+)
+
+
 def _fixed_count(amount_raw: str) -> int:
     return 1 if amount_raw.lower() in ("a", "an") else int(amount_raw)
 
@@ -318,6 +328,11 @@ def entry_counters_condition(line: str) -> Optional[dict[str, Any]]:
         return {
             "is_x": False, "count": _fixed_count(match.group(1)),
             "counter_type": match.group(2).lower(), "colors_spent_scale": True,
+        }
+    match = _MANA_SPENT_ENTRY_COUNTERS_RE.match(line)  # Kurbis
+    if match is not None:
+        return {
+            "is_x": False, "count": 1, "counter_type": match.group(1).lower(), "mana_spent_scale": True,
         }
     match = _REVOLT_ENTRY_COUNTERS_RE.match(line)  # MEC-84
     if match is not None:

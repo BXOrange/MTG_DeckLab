@@ -345,3 +345,40 @@ def test_power_sink_penalises_a_declined_payment_but_not_a_paid_one():
     engine.resolve_until_stable()
     assert bear.zone == Zone.BATTLEFIELD  # paid {2}: the bear resolves
     assert not any(f.tapped for f in forests) and p1.mana_pool.total() > 0  # no penalty: lands untapped, pool kept
+
+
+def test_kurbis_enters_with_a_counter_per_mana_spent_and_shields_another_creature_with_a_counter():
+    from mtg_analyzer.config import DB_PATH
+    from mtg_analyzer.game.game_engine import GameEngine
+    from mtg_analyzer.services.card_database import CardDatabase
+
+    kurbis_card = CardDatabase(DB_PATH).get_card("Kurbis, Harvest Celebrant")
+    engine = GameEngine.new_game([("p1", "A", [kurbis_card]), ("p2", "B", [])], starting_hand=1, starting_life=20)
+    for obj in engine.state.players[0].hand:
+        bind_from_catalogue(obj)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    p1 = engine.state.player_by_id("p1")
+    p1.mana_pool.add_many({"G": 2, "C": 2})
+    kurbis = p1.hand[0]
+    engine.cast_spell(p1, kurbis, x=2)  # {X}{G}{G} with X = 2: four mana spent
+    engine.resolve_until_stable()
+    assert kurbis.zone == Zone.BATTLEFIELD and kurbis.counters.get("+1/+1") == 4
+
+    with_counter = battlefield_object(engine, "p1", "Buffed Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    with_counter.counters["+1/+1"] = 1
+    plain = battlefield_object(engine, "p1", "Plain Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    from mtg_analyzer.game.targeting import TargetSpec, legal_targets
+
+    pool = legal_targets(
+        engine.state, "p1", TargetSpec(kind="creature", creature_filter={"has_counter_kind": "+1/+1"}), source=kurbis,
+    )
+    assert {o["name"] for o in pool} == {"Buffed Bear"}  # another creature with a +1/+1 counter (not Kurbis itself)
+
+    engine.activate_ability(p1, kurbis, 0, targets=[with_counter])
+    engine.resolve_until_stable()
+    assert kurbis.counters["+1/+1"] == 3  # the removal was the cost
+    engine.rules.deal_damage(with_counter, 5, source=None)
+    engine.rules.deal_damage(plain, 5, source=None)
+    assert with_counter.damage_marked == 0  # all damage to it is prevented this turn
+    assert plain.damage_marked == 5  # an unshielded creature is hurt normally

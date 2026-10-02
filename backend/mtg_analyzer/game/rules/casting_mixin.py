@@ -390,6 +390,10 @@ class CastingResolutionMixin:
                 for permanent in self.state.battlefield
                 if permanent.controller_id == chosen_id and permanent.is_creature
             )
+        elif condition.get("mana_spent_scale"):
+            # "…a number of +1/+1 counters equal to the amount of mana spent to cast it" (Kurbis): every mana
+            # paid, of any kind (`GameObject.mana_spent_to_cast`; 0 for anything never cast).
+            amount = condition["count"] * int(getattr(obj, "mana_spent_to_cast", 0) or 0)
         elif condition.get("colors_spent_scale"):
             # RULE 702.43a Sunburst: ``count`` per distinct colour of mana
             # actually spent to cast ``obj`` (`GameObject.colors_spent_to_

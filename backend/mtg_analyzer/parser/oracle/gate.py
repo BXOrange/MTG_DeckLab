@@ -3875,7 +3875,9 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `ActivationCost.remove_counters_other` + a `a_or_b_or_c` permanent word.
 #: 588: "remove N counters from an artifact or creature you control" — the one-holder phrase takes an "or"
 #: pair (Moxite Refinery), encoded as the `artifact_or_creature` permanent word.
-PARSER_VERSION = "588"
+#: 589: "enters with a number of +1/+1 counters on it equal to the amount of mana spent to cast it"
+#: (Kurbis, Harvest Celebrant) -> entry-counters condition ``mana_spent_scale``.
+PARSER_VERSION = "589"
 
 
 def parser_source_hash() -> str:
