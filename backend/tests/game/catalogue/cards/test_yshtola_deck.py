@@ -35,3 +35,25 @@ def test_stormscape_familiar_discounts_white_and_black_spells_only():
     assert continuous.cost_reduction_for(engine.state, player, white)[0] == 1
     assert continuous.cost_reduction_for(engine.state, player, black)[0] == 1
     assert continuous.cost_reduction_for(engine.state, player, green)[0] == 0
+
+
+def test_generous_gift_destroys_and_gives_its_controller_an_elephant():
+    from mtg_analyzer.game.game_engine import GameEngine
+    from mtg_analyzer.config import DB_PATH
+    from mtg_analyzer.services.card_database import CardDatabase
+
+    gift = CardDatabase(DB_PATH).get_card("Generous Gift")
+    engine = GameEngine.new_game([("p1", "A", [gift]), ("p2", "B", [])], starting_hand=1, starting_life=20)
+    for obj in engine.state.players[0].hand:
+        bind_from_catalogue(obj)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    p1 = engine.state.active_player
+    victim = battlefield_object(engine, "p2", "Victim", "Enchantment")
+    p1.mana_pool.add_many({"W": 1, "C": 2})
+    engine.cast_spell(p1, p1.hand[0], targets=[victim])
+    engine.resolve_until_stable()
+
+    assert victim not in engine.state.battlefield
+    elephants = [o for o in engine.state.permanents_controlled_by("p2") if "Elephant" in (o.card.type_line or "")]
+    assert len(elephants) == 1 and elephants[0].power == 3 and elephants[0].toughness == 3

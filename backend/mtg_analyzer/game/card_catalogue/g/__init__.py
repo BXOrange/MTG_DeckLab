@@ -9,6 +9,7 @@ from . import garnet_princess_of_alexandria  # noqa: F401
 from . import garruk_s_uprising  # noqa: F401
 from . import gauntlets_of_chaos  # noqa: F401
 from . import geistwave  # noqa: F401
+from . import generous_gift  # noqa: F401
 from . import ghost_quarter  # noqa: F401
 from . import ghostfire_slice  # noqa: F401
 from . import ghoulish_impetus  # noqa: F401
