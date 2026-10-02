@@ -1504,6 +1504,8 @@ _SELECTOR_WORD_MAP: dict[str, str] = {
     "each other creature": "each_other_creature",
     "each player": "each_player",
     "each opponent": "each_opponent",
+    # "each of your opponents" (Aurelia, the Law Above) — the same group, spelled for a trigger controlled by "you".
+    "each of your opponents": "each_opponent",
     # Symmetric mass-damage board wipes (RULE 601.2c) — the global-scope
     # union selectors `DealDamageEffect` already resolves. "each creature
     # and each player" (Cave-In / Fire Tempest / Inferno / Pestilence-
@@ -16148,7 +16150,7 @@ HANDLERS: list[EffectHandler] = [
             rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+|x) damage to "
             rf"(?P<selector>each creature and each player|each creature and each planeswalker"
             rf"|each creature your opponents control|each creature an opponent controls"
-            rf"|each other creature|each creature|each player|each opponent|that player|them|you)"
+            rf"|each other creature|each creature|each player|each of your opponents|each opponent|that player|them|you)"
         ),
         _damage_selector,
     ),

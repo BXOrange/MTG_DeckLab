@@ -110,3 +110,52 @@ def test_a_group_filtered_attack_head_with_that_much_is_not_claimed():
     # `PLAYER_ATTACKED`'s group filter has no `ATTACKERS_DECLARED` equivalent, and it carries no amount: fail closed.
     card = _card("Probe", "Whenever one or more artifact creatures you control attack, you gain that much life.")
     assert not parse_oracle(card).modeled
+
+
+# --- "whenever a player attacks [with N or more creatures]" (Avatar Roku, Aurelia) --------------------------------
+
+
+def _attack_by(eng, attacker_id, count):
+    index = 0 if attacker_id == "p1" else 1
+    eng.state.active_player_index = index
+    attacker = eng.state.player_by_id(attacker_id)
+    bears = [_put(eng, _card(f"{attacker_id}Bear{i}", ""), controller=attacker_id) for i in range(count)]
+    eng.state.current_step = "declare_attackers"
+    eng.declare_attackers(attacker, bears)
+    eng._fire_player_attacked_events()
+    eng.resolve_until_stable()
+
+
+def test_a_player_attacking_gives_roku_its_controller_kept_mana():
+    text = "Whenever a player attacks, add six {R}. Until end of combat, you don't lose this mana as steps end."
+    eng = _engine()
+    _put(eng, _card("Roku", text))
+    _attack_by(eng, "p2", 1)  # the opponent attacks: Roku's controller still gets the mana
+    p1 = eng.state.player_by_id("p1")
+    assert p1.mana_pool.pool["R"] == 6 and p1.mana_pool.kept
+
+
+def test_the_trigger_fires_once_per_declaration_not_per_attacker():
+    text = "Whenever a player attacks, add six {R}."
+    eng = _engine()
+    _put(eng, _card("Roku", text))
+    _attack_by(eng, "p2", 3)
+    assert eng.state.player_by_id("p1").mana_pool.pool["R"] == 6
+
+
+def test_aurelia_counts_the_size_of_any_players_attack():
+    text = "Whenever a player attacks with 3 or more creatures, you draw a card."
+    eng = _engine()
+    p1 = eng.state.player_by_id("p1")
+    for i in range(4):
+        p1.library.append(GameObject(Card(id=f"L{i}", name=f"L{i}", type_line="Land"), owner_id="p1", zone=Zone.LIBRARY))
+    _put(eng, _card("Aurelia", text))
+    _attack_by(eng, "p2", 2)
+    assert len(p1.hand) == 0
+    _attack_by(eng, "p2", 3)
+    assert len(p1.hand) == 1
+
+
+def test_each_of_your_opponents_is_the_opponent_selector():
+    [spec] = _effects("Aurelia deals 3 damage to each of your opponents.".replace("Aurelia", "~"), type_line="Sorcery")
+    assert spec.params == {"amount": 3, "selector": "each_opponent"}

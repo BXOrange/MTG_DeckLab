@@ -49,6 +49,11 @@ touches another state document.
    existing subsystem entry in `Done_Backend.md` or `Done_Frontend.md`.
    Extend a related entry instead of duplicating it or appending a
    chronological log.
+8. When shipped work adds a reusable capability or primitive, check whether
+   it closes or narrows other open tickets and update those tickets in the
+   same pass. A repeatedly deferred ticket must not silently roll over;
+   verify its remaining scope and make its next disposition explicit,
+   following the relevant domain skill for any sanctioned stopgap.
 
 ## Guardrails
 

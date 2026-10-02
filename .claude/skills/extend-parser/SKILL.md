@@ -150,20 +150,11 @@ python -m pytest -q                       # whole suite, fast, keep it green
       (`'Gesamtabdeckung Oracle-Parser (…)'`/`'Total oracle-parser coverage (…)'`
       — German decimal comma; moved out of `implementationStatusView.js` itself
       at some point, so grep for the string rather than trusting a line number).
-- [ ] **Backlog discipline**: closing a ticket = *deleting* it from
-      `BACKLOG.md` and appending the narrative to `Done_Backend.md`. No `[x]`,
-      no "shipped" note, no pointer left behind. If only part is done, the
-      **residue goes into the ticket's `workingOn.md` block** (what's left,
-      which cards, next step), never into `BACKLOG.md` — the backlog keeps
-      only the ticket's terse open point (id, title, one-clause scope).
-- [ ] **Sweep for what else your new primitive closes.** If this batch built a
-      new engine primitive, grep `BACKLOG.md` for other tickets that same
-      primitive would now close or narrow, and update them in this pass. This
-      repo has repeatedly built a primitive for card A and left card B's ticket
-      reading "blocked on a new primitive" for three more rounds.
-- [ ] A ticket deferred a **second** time must be hand-authored in
-      `game/card_catalogue/` as the sanctioned stopgap, or explicitly
-      promoted to next-up. It must not roll silently to a third deferral.
+- [ ] Handle ticket state and cross-ticket impact through the
+      **`ticket-management`** skill. For parser tickets that are deferred a
+      second time, this skill's sanctioned stopgap is hand-authoring in
+      `game/card_catalogue/` or explicitly promoting the ticket to next-up;
+      it must not roll silently to a third deferral.
 
 ## When to stop parsing and hand-author
 

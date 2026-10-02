@@ -67,6 +67,8 @@ _DAMAGE = re.compile(r"^(?:are|is) dealt (?P<kind>combat |noncombat )?damage$")
 _EXPEND = re.compile(r"^expends? (?P<n>\d+)$")
 _MANA_TAP = re.compile(r"^taps? (?:an?|another) (?P<object>.+) for mana$")
 
+_PLAYER_ATTACKS = re.compile(r"^attacks?(?: with (?P<n>\d+) or more creatures)?$")
+
 _HEAD = re.compile(r"^(?P<actor>you|an opponent|each opponent|a player)\s+(?P<rest>.+)$")
 
 
@@ -111,6 +113,12 @@ def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], di
         if damage.group("kind"):
             trigger["filter"]["combat"] = damage.group("kind").strip() == "combat"
         return "DAMAGE", condition, trigger
+    attacks = _PLAYER_ATTACKS.fullmatch(rest)
+    if attacks and m.group("actor") != "you":
+        # "whenever a player attacks [with N or more creatures]" (Avatar Roku, Aurelia): once per declaration by that
+        # player (RULE 508.1), not once per defender as `PLAYER_ATTACKED` would fire.
+        spec: dict[str, Any] = {"filter": {"card_type": "creature"}, "min": int(attacks.group("n") or 1)}
+        return "ATTACKERS_DECLARED", condition, {"attackers_declared": spec}
     expend = _EXPEND.fullmatch(rest)
     if expend:
         trigger["filter"] = {"amount": int(expend.group("n"))}

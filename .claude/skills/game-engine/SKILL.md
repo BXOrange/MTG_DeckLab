@@ -169,14 +169,8 @@ Details and worked patterns: **[reference/adding-a-mechanic.md](reference/adding
 
 ## Closing out
 
-- [ ] `BACKLOG.md`: **delete** the ticket, don't tick it. Append the narrative
-      — what shipped and *why it's built that way* — to the matching section
-      of `Done_Backend.md`. If only part is done, the residue goes into the
-      ticket's `workingOn.md` block, not `BACKLOG.md` (which keeps only the
-      ticket's terse open point).
-- [ ] Sweep: grep `BACKLOG.md` for other tickets your new primitive closes or
-      narrows, and update them in the same pass. A primitive landing is
-      exactly when this repo has historically forgotten to look.
+- [ ] Handle ticket state, partial progress, closure and cross-ticket impact
+      through the **`ticket-management`** skill.
 - [ ] `frontend/src/js/implementationStatusView.js` — the user-facing
       Engine-Status tab. Keep it in sync when coverage changes.
 - [ ] `CLAUDE.md`'s "Implementation state" if the change alters the

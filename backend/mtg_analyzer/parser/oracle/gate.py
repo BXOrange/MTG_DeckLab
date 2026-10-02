@@ -3836,7 +3836,10 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: picks); "that much" under "whenever one or more creatures you control attack" now measures `ATTACKERS_DECLARED` via a
 #: `bind` (it read `PLAYER_ATTACKED`, which carries no amount, so "gain that much life" gained 0), and a group-filtered
 #: head of that kind fails closed.
-PARSER_VERSION = "579"
+#: 580 (PAR-113): "whenever a player / an opponent attacks [with N or more creatures]" is `ATTACKERS_DECLARED` (once per
+#: declaration, not once per defender) with the actor scope (`player_event_head._PLAYER_ATTACKS`); "each of your opponents"
+#: is the `each_opponent` damage selector.
+PARSER_VERSION = "580"
 
 
 def parser_source_hash() -> str:
