@@ -49,6 +49,7 @@ from . import simian_sling  # noqa: F401
 from . import simic_ascendancy  # noqa: F401
 from . import sink_into_stupor  # noqa: F401
 from . import siren_s_ruse  # noqa: F401
+from . import sisay_weatherlight_captain  # noqa: F401
 from . import skyclave_apparition  # noqa: F401
 from . import slithermuse  # noqa: F401
 from . import sm_agol_helpful_guide  # noqa: F401

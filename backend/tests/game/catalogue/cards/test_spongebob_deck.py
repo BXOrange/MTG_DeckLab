@@ -322,3 +322,65 @@ def test_chromatic_orrery_draws_a_card_per_color_among_my_permanents():
     engine.activate_ability(p1, orrery, index)
     engine.resolve_until_stable()
     assert len(p1.hand) == hand_before + 2  # red and blue: two colors, not three permanents
+
+
+def _sisay_game():
+    card = CardDatabase(DB_PATH).get_card("Sisay, Weatherlight Captain")
+    engine, p1 = _game()
+    sisay = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    sisay.controller_id = "p1"
+    bind_from_catalogue(sisay)
+    sisay.summoning_sick = False
+    engine.state.add_to_battlefield(sisay)
+    return engine, p1, sisay
+
+
+def test_sisay_gets_plus_one_per_color_among_other_legendary_permanents_only():
+    engine, p1, sisay = _sisay_game()
+    engine.recompute_continuous_effects()
+    base = sisay.power
+    battlefield_object(engine, "p1", "Red Legend", "Legendary Creature — Elf", is_creature=True, is_legendary=True,
+                       power=1, toughness=1, color_identity={"R"})
+    battlefield_object(engine, "p1", "Red Legend 2", "Legendary Creature — Elf", is_creature=True, is_legendary=True,
+                       power=1, toughness=1, color_identity={"R"})
+    battlefield_object(engine, "p1", "Blue Legend", "Legendary Artifact", is_legendary=True, color_identity={"U"})
+    battlefield_object(engine, "p1", "Green Nonlegend", "Creature — Elf", is_creature=True, power=1, toughness=1, color_identity={"G"})
+    battlefield_object(engine, "p2", "Their Legend", "Legendary Creature — Elf", is_creature=True, is_legendary=True,
+                       power=1, toughness=1, color_identity={"B"})
+    engine.recompute_continuous_effects()
+    assert sisay.power == base + 2 and sisay.toughness == base + 2  # red + blue; not green (nonlegendary) or black (theirs)
+
+
+def test_sisay_searches_for_a_legendary_permanent_with_mana_value_below_her_power():
+    engine, p1, sisay = _sisay_game()
+    for colors in ({"R"}, {"U"}, {"B"}):  # three colors among other legends: power = base + 3
+        battlefield_object(engine, "p1", f"Legend {''.join(sorted(colors))}", "Legendary Creature — Elf",
+                           is_creature=True, is_legendary=True, power=1, toughness=1, color_identity=colors)
+    engine.recompute_continuous_effects()
+    power = sisay.power
+
+    def lib(name, mv, type_line, **kw):
+        return GameObject(
+            Card(id=name, name=name, type_line=type_line, converted_mana_cost=mv, mana_cost_string="{" + str(mv) + "}", **kw),
+            owner_id="p1", zone=Zone.LIBRARY,
+        )
+
+    small = lib("Small Legend", power - 1, "Legendary Creature — Elf", is_creature=True, is_legendary=True, power=1, toughness=1)
+    big = lib("Big Legend", power, "Legendary Creature — Elf", is_creature=True, is_legendary=True, power=1, toughness=1)
+    spell = lib("Legendary Sorcery", 1, "Legendary Sorcery", is_sorcery=True, is_legendary=True)
+    p1.library.extend([big, spell, small])
+
+    index = next(i for i, a in enumerate(sisay.activated_abilities) if getattr(a, "cost", None) is not None)
+    p1.mana_pool.add_many({"W": 1, "U": 1, "B": 1, "R": 1, "G": 1})
+    engine.activate_ability(p1, sisay, index)
+    engine.resolve_until_stable()
+    for _ in range(4):
+        if not engine.state.pending_choice:
+            break
+        choice = engine.state.pending_choice
+        offered = {o.get("instance_id") for o in choice["options"]}
+        assert big.instance_id not in offered and spell.instance_id not in offered  # MV too high / not a permanent
+        pick = next(o for o in choice["options"] if o.get("instance_id") == small.instance_id)
+        engine.resolve_pending_choice(pick["id"])
+        engine.resolve_until_stable()
+    assert small in engine.state.battlefield and big not in engine.state.battlefield

@@ -1377,6 +1377,20 @@ def count_selector(
             if permanent.controller_id == controller_id:
                 colors_present |= (permanent.colors or set())
         return len(colors_present)
+    if selector == "colors_among_other_legendary_permanents_you_control":
+        # "…for each color among **other legendary** permanents you control." (Sisay, Weatherlight
+        # Captain) — `colors_among_permanents_you_control` above, minus ``source`` itself (RULE
+        # 109.5 "other") and restricted to legendary permanents.
+        if controller_id is None:
+            return 0
+        legendary_colors: set[str] = set()
+        for permanent in bf:
+            if (
+                permanent.controller_id == controller_id and permanent is not source
+                and getattr(permanent.card, "is_legendary", False)
+            ):
+                legendary_colors |= (permanent.colors or set())
+        return len(legendary_colors)
     if selector == "basic_land_types_among_lands_you_control":
         # Collective Restraint — RULE 305.6's five basic land types count
         # once each, even if several lands share one type or one land has
