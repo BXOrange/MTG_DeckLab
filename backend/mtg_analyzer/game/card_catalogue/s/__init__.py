@@ -77,6 +77,7 @@ from . import spirit_of_the_labyrinth  # noqa: F401
 from . import spirit_water_revival  # noqa: F401
 from . import spiteful_banditry  # noqa: F401
 from . import spoils_of_blood  # noqa: F401
+from . import springheart_nantuko  # noqa: F401
 from . import springleaf_parade  # noqa: F401
 from . import squee_the_immortal  # noqa: F401
 from . import sram_senior_edificer  # noqa: F401

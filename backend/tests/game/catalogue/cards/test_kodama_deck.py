@@ -459,3 +459,60 @@ def test_roaring_earth_channel_animates_a_land_permanently():
     engine._step_cleanup()
     engine.recompute_continuous_effects()
     assert land.is_creature and (land.power, land.toughness) == (2, 2)  # no end-of-turn expiry
+
+
+def _nantuko_landfall(engine, p1, land_name="Forest"):
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+
+    land = battlefield_object(engine, "p1", land_name, "Basic Land — Forest", is_land=True)
+    engine.state.fire_event(GameEvent(
+        EventType.ENTERS_BATTLEFIELD, instance_id=land.instance_id, controller_id="p1",
+        object_types=["land"], player_id="p1",
+    ))
+    engine.rules.put_triggers_on_stack()
+
+
+def _bestowed_nantuko():
+    engine, p1, p2 = _game("Springheart Nantuko")
+    nantuko = p1.hand[0]
+    bear = battlefield_object(engine, "p1", "Grizzly", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    p1.mana_pool.add_many({"G": 2})
+    engine.cast_spell(p1, nantuko, face="bestow", targets=[bear])
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    assert nantuko.attached_to == bear.instance_id and (bear.power, bear.toughness) == (3, 3)  # +1/+1 from the Aura
+    return engine, p1, nantuko, bear
+
+
+def test_springheart_nantuko_unattached_makes_an_insect():
+    engine, p1, p2 = _game("Springheart Nantuko")
+    p1.mana_pool.add_many({"G": 2})
+    engine.cast_spell(p1, p1.hand[0])
+    engine.resolve_until_stable()
+    _nantuko_landfall(engine, p1)
+    engine.resolve_until_stable()
+    insects = [o for o in engine.state.battlefield if o.name == "Insect"]
+    assert len(insects) == 1 and (insects[0].power, insects[0].toughness) == (1, 1)
+
+
+def test_springheart_nantuko_attached_and_paid_copies_the_enchanted_creature():
+    engine, p1, nantuko, bear = _bestowed_nantuko()
+    p1.mana_pool.add_many({"G": 2})
+    _nantuko_landfall(engine, p1)
+    engine.resolve_until_stable()
+    assert engine.state.pending_choice["kind"] == "pay_cost_then"  # "you may pay {1}{G}"
+    engine.resolve_pending_choice("pay")
+    engine.resolve_until_stable()
+    assert [o.name for o in engine.state.battlefield].count("Grizzly") == 2  # a token copy of the bear
+    assert not any(o.name == "Insect" for o in engine.state.battlefield)  # "if you didn't" does not apply
+
+
+def test_springheart_nantuko_attached_but_declined_makes_an_insect():
+    engine, p1, nantuko, bear = _bestowed_nantuko()
+    p1.mana_pool.add_many({"G": 2})
+    _nantuko_landfall(engine, p1)
+    engine.resolve_until_stable()
+    engine.resolve_pending_choice("decline")
+    engine.resolve_until_stable()
+    assert [o.name for o in engine.state.battlefield].count("Grizzly") == 1
+    assert sum(1 for o in engine.state.battlefield if o.name == "Insect") == 1
