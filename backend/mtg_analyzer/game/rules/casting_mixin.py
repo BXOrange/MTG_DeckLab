@@ -395,6 +395,11 @@ class CastingResolutionMixin:
                 for permanent in self.state.battlefield
                 if permanent.controller_id == chosen_id and permanent.is_creature
             )
+        elif condition.get("land_cards_in_graveyards"):
+            # "…equal to the number of land cards in all graveyards" (Centaur Vinecrasher): every player's graveyard.
+            amount = condition["count"] * sum(
+                1 for player in self.state.players for card in player.graveyard if card.card.is_land
+            )
         elif condition.get("roll_x_dice_sides"):
             # "As ~ enters, roll X d6. It enters with a number of +1/+1 counters equal to the total" (Neverwinter
             # Hydra, RULE 706): X is the announced {X}; the controller rolls and the kept results are summed.

@@ -40,6 +40,7 @@ from . import etali_primal_conqueror  # noqa: F401
 from . import etali_primal_sickness  # noqa: F401
 from . import etali_primal_storm  # noqa: F401
 from . import ethersworn_canonist  # noqa: F401
+from . import eumidian_hatchery  # noqa: F401
 from . import eventide_s_shadow  # noqa: F401
 from . import everlasting_torment  # noqa: F401
 from . import evolving_wilds  # noqa: F401

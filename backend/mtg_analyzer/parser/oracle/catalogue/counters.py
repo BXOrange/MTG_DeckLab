@@ -261,6 +261,15 @@ _ROLL_X_DICE_ENTRY_COUNTERS_RE = re.compile(
 )
 
 
+#: "~ enters with a number of +1/+1 counters on it equal to the number of land cards in all graveyards."
+#: (Centaur Vinecrasher) — read live off the graveyards as it enters.
+_LAND_CARDS_IN_GRAVEYARDS_ENTRY_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} with a number of {_COUNTER_TYPE} counters on it "
+    rf"equal to the number of land cards in all graveyards\.?$",
+    re.IGNORECASE,
+)
+
+
 def _fixed_count(amount_raw: str) -> int:
     return 1 if amount_raw.lower() in ("a", "an") else int(amount_raw)
 
@@ -337,6 +346,11 @@ def entry_counters_condition(line: str) -> Optional[dict[str, Any]]:
         return {
             "is_x": False, "count": _fixed_count(match.group(1)),
             "counter_type": match.group(2).lower(), "colors_spent_scale": True,
+        }
+    match = _LAND_CARDS_IN_GRAVEYARDS_ENTRY_RE.match(line)  # Centaur Vinecrasher
+    if match is not None:
+        return {
+            "is_x": False, "count": 1, "counter_type": match.group(1).lower(), "land_cards_in_graveyards": True,
         }
     match = _ROLL_X_DICE_ENTRY_COUNTERS_RE.match(line)  # Neverwinter Hydra
     if match is not None:
