@@ -125,3 +125,24 @@ def test_deepglow_skate_doubles_every_counter_kind_on_each_chosen_permanent():
     assert artifact.counters == {"charge": 4}
     assert bear.counters == {"+1/+1": 6, "stun": 2}  # every kind, opposing permanents included
     assert untouched.counters == {"charge": 5}  # not chosen
+
+
+def test_empowered_autogenerator_enters_tapped_and_adds_mana_equal_to_its_counters():
+    engine, p1 = _game("Empowered Autogenerator")
+    gen = p1.hand[0]
+    p1.mana_pool.add_many({"C": 4})
+    engine.cast_spell(p1, gen)
+    engine.resolve_until_stable()
+    assert gen.zone == Zone.BATTLEFIELD and gen.tapped  # enters tapped
+
+    def tap_for_mana():
+        gen.tapped = False
+        p1.mana_pool.set_amount("W", 0)
+        engine.activate_ability(p1, gen, 0)
+        engine.resolve_until_stable()
+        while engine.state.pending_choice:  # "any one color": every mana is the same chosen colour
+            engine.resolve_pending_choice("W")
+        return p1.mana_pool.to_dict()["W"]
+
+    assert tap_for_mana() == 1 and gen.counters["charge"] == 1
+    assert tap_for_mana() == 2 and gen.counters["charge"] == 2

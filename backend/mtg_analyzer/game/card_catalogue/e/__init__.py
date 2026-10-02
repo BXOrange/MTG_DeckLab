@@ -21,6 +21,7 @@ from . import elvish_warmaster  # noqa: F401
 from . import embercleave  # noqa: F401
 from . import emeria_the_sky_ruin  # noqa: F401
 from . import emiel_the_blessed  # noqa: F401
+from . import empowered_autogenerator  # noqa: F401
 from . import emrakul_the_promised_end  # noqa: F401
 from . import encroaching_wastes  # noqa: F401
 from . import endurance  # noqa: F401
