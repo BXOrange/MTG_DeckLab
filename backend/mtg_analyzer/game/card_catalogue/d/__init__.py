@@ -39,6 +39,7 @@ from . import dionus_elvish_archdruid  # noqa: F401
 from . import dirgur_focusmage  # noqa: F401
 from . import disciple_of_bolas  # noqa: F401
 from . import dismantling_wave  # noqa: F401
+from . import dispatch  # noqa: F401
 from . import display_of_power  # noqa: F401
 from . import distant_melody  # noqa: F401
 from . import djinn_of_infinite_deceits  # noqa: F401

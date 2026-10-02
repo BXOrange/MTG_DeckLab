@@ -1023,7 +1023,8 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    "exile_all_graveyards", lambda p: ExileAllGraveyardsEffect(colors=p.get("colors")),
+    "exile_all_graveyards",
+    lambda p: ExileAllGraveyardsEffect(colors=p.get("colors"), opponents_only=bool(p.get("opponents_only", False))),
 )
 EffectRegistry.register(
     "exile_graveyard_card_counter_if_permanent",  # Lion Sash

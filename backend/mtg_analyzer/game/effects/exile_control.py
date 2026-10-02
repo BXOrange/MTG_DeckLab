@@ -139,6 +139,10 @@ class ExileEffect(GameEffect):
         #: self-acting mode `TapEffect`/`PumpEffect`/
         #: `ShuffleSelfIntoLibraryEffect` already have.
         self._attached_mode = target_kind == "attached_permanent"
+        #: "Tap target creature. Metalcraft — If you control three or more artifacts, exile **that creature**."
+        #: (Dispatch) — the pronoun names whatever the previous clause targeted (`GameContext.previous_targets`),
+        #: so this clause announces no target of its own (the `FightEffect` "previous_target" idiom).
+        self._previous_mode = target_kind == "previous_target"
         self.trigger_event_key = trigger_event_key
         #: "For as long as that card remains exiled, its owner may play
         #: it." (MEC-12, Soul Partition/Praetor's Grasp-shaped) — the
@@ -168,7 +172,7 @@ class ExileEffect(GameEffect):
                 self.target_spec = TargetSpec(kind=self.group_player)
         elif (
             self.selector is None and target_kind is not None
-            and not self._trigger_subject_mode and not self._attached_mode
+            and not self._trigger_subject_mode and not self._attached_mode and not self._previous_mode
         ):
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max, creature_filter=creature_filter,
@@ -226,6 +230,12 @@ class ExileEffect(GameEffect):
                 context.exile(obj)
             context.previous_targets = exiled_now  # as in the group branch above
             self._remember_mass_exile(exiled_now)
+            return
+        if self._previous_mode:
+            for obj in list(context.previous_targets):
+                if getattr(obj, "instance_id", None) is not None and obj in context.state.permanents():
+                    context.exile(obj)
+                    self._post_exile(context, obj)
             return
         if self._attached_mode:
             # "Exile enchanted creature." — this Aura/Equipment's host.
@@ -900,12 +910,18 @@ class ExileAllGraveyardsEffect(GameEffect):
 
     def __init__(
         self, source: Optional["GameObject"] = None, colors: Optional[list[str]] = None,
+        opponents_only: bool = False,
     ) -> None:
         super().__init__(source)
         self.colors = {str(c).upper() for c in colors} if colors else None
+        #: "Exile each **opponent's** graveyard." (Soul-Guide Lantern) — the controller's own graveyard stays.
+        self.opponents_only = bool(opponents_only)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        controller_id = getattr(self.source, "controller_id", None)
         for player in context.players:
+            if self.opponents_only and player.id == controller_id:
+                continue
             for obj in list(player.graveyard):
                 if self.colors and not ((obj.colors or set()) & self.colors):
                     continue

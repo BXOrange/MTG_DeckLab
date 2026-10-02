@@ -65,6 +65,7 @@ from . import solitude  # noqa: F401
 from . import songbirds_blessing  # noqa: F401
 from . import sorin_markov  # noqa: F401
 from . import soul_conduit  # noqa: F401
+from . import soul_guide_lantern  # noqa: F401
 from . import soul_partition  # noqa: F401
 from . import soulless_jailer  # noqa: F401
 from . import spark_double  # noqa: F401

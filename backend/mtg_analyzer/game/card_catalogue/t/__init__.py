@@ -34,6 +34,7 @@ from . import the_wandering_emperor  # noqa: F401
 from . import the_wise_mothman  # noqa: F401
 from . import thought_lash  # noqa: F401
 from . import thrasios_triton_hero  # noqa: F401
+from . import threefold_thunderhulk  # noqa: F401
 from . import throne_of_the_god_pharaoh  # noqa: F401
 from . import thunderclap_drake  # noqa: F401
 from . import tibalt_s_trickery  # noqa: F401
