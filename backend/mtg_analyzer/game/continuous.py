@@ -4358,6 +4358,10 @@ def self_cost_reduction_for(
         # available so affordability isn't understated, the same best-case
         # treatment `help_pay`/kicker get.
         reduce_if_targets = ability.params.get("reduce_if_targets")
+        if reduce_if_targets and targets is None and ability.params.get("increase"):
+            # A *tax* "if it targets a `<criteria>`" (Dragon's Prey) needs the chosen targets; the offer-time
+            # probe has none, and — unlike a discount — must not assume the worst case.
+            continue
         if reduce_if_targets and targets is not None:
             if not any(
                 _obj_matches_target_criteria(t, reduce_if_targets, state, caster_id)

@@ -329,3 +329,58 @@ def test_leadership_vacuum_sends_the_targets_commanders_home_and_draws():
     assert bystander in engine.state.battlefield  # not a commander
     assert own in engine.state.battlefield  # only the target player's commanders
     assert len(p1.hand) == hand_before  # -1 for the cast spell, +1 for the draw
+
+
+def _real_game(*deck_names):
+    from mtg_analyzer.config import DB_PATH
+    from mtg_analyzer.game.game_engine import GameEngine
+    from mtg_analyzer.services.card_database import CardDatabase
+
+    db = CardDatabase(DB_PATH)
+    engine = GameEngine.new_game(
+        [("p1", "A", [db.get_card(n) for n in deck_names]), ("p2", "B", [])],
+        starting_hand=len(deck_names), starting_life=20,
+    )
+    for obj in engine.state.players[0].hand:
+        bind_from_catalogue(obj)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    return engine, engine.state.player_by_id("p1")
+
+
+def test_dragons_prey_costs_two_more_only_when_it_targets_a_dragon():
+    engine, p1 = _real_game("Dragon's Prey")
+    prey = p1.hand[0]
+    dragon = battlefield_object(engine, "p2", "Test Dragon", "Creature — Dragon", is_creature=True, power=5, toughness=5)
+    bear = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    base = engine.effective_cast_cost(p1, prey).converted_mana_cost  # offer-time probe: no targets chosen
+    assert engine.effective_cast_cost(p1, prey, targets=[bear]).converted_mana_cost == base
+    assert engine.effective_cast_cost(p1, prey, targets=[dragon]).converted_mana_cost == base + 2
+
+
+def test_defiler_of_dreams_pays_life_for_blue_and_draws_only_for_blue_permanent_spells():
+    engine, p1 = _real_game()
+    defiler = battlefield_object(engine, "p1", "Defiler of Dreams", "Creature — Phyrexian Wurm", is_creature=True, power=6, toughness=6)
+    bind_from_catalogue(defiler)
+
+    def hand_card(name, type_line, **kw):
+        obj = GameObject(
+            Card(id=name, name=name, type_line=type_line, mana_cost_string="{1}{U}", converted_mana_cost=2,
+                 color_identity={"U"}, **kw),
+            owner_id="p1", zone=Zone.HAND,
+        )
+        p1.hand.append(obj)
+        return obj
+
+    for i in range(3):
+        p1.library.append(GameObject(Card(id=f"L{i}", name=f"Lib {i}", type_line="Land"), owner_id="p1", zone=Zone.LIBRARY))
+    trick = hand_card("Blue Trick", "Instant")
+    cub = hand_card("Blue Cub", "Creature — Fish", is_creature=True, power=1, toughness=1)
+    p1.mana_pool.add_many({"C": 1})
+    life, hand_before = p1.life, len(p1.hand)
+    assert not engine.can_cast(p1, trick)  # no life option for an instant
+    engine.cast_spell(p1, cub)
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert cub.zone == Zone.BATTLEFIELD and p1.life == life - 2  # {U} paid with 2 life
+    assert len(p1.hand) == hand_before - 1 + 1  # the cub left the hand, the trigger drew a card

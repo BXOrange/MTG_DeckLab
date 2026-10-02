@@ -20,6 +20,7 @@ from . import depthshaker_titan  # noqa: F401
 from . import deekah_fractal_theorist  # noqa: F401
 from . import defense_grid  # noqa: F401
 from . import defense_of_the_heart  # noqa: F401
+from . import defiler_of_dreams  # noqa: F401
 from . import defiler_of_vigor  # noqa: F401
 from . import defiling_daemogoth  # noqa: F401
 from . import deflecting_palm  # noqa: F401
@@ -54,6 +55,7 @@ from . import domri_anarch_of_bolas  # noqa: F401
 from . import doomsday  # noqa: F401
 from . import doomsday_excruciator  # noqa: F401
 from . import doubling_season  # noqa: F401
+from . import dragon_s_prey  # noqa: F401
 from . import drain_life  # noqa: F401
 from . import dramatic_reversal  # noqa: F401
 from . import drana_and_linvala  # noqa: F401
