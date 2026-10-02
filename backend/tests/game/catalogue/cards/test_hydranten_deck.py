@@ -258,3 +258,37 @@ def test_simic_ascendancy_counts_plus_one_counters_on_my_creatures_and_wins_at_t
     ascendancy.counters["growth"] = 20
     upkeep()
     assert engine.state.game_over and engine.state.winner_id == "p1"
+
+
+def test_geometers_arthropod_looks_at_the_top_x_cards_when_an_x_spell_is_cast():
+    from mtg_analyzer.config import DB_PATH
+    from mtg_analyzer.game.game_engine import GameEngine
+    from mtg_analyzer.models.game.game_object import GameObject, Zone
+    from mtg_analyzer.services.card_database import CardDatabase
+
+    db = CardDatabase(DB_PATH)
+    engine = GameEngine.new_game(
+        [("p1", "A", [db.get_card("Genesis Wave")]), ("p2", "B", [])], starting_hand=1, starting_life=20,
+    )
+    for obj in engine.state.players[0].hand:
+        bind_from_catalogue(obj)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    p1 = engine.state.player_by_id("p1")
+    arthropod = battlefield_object(engine, "p1", "Geometer's Arthropod", "Creature — Insect", is_creature=True, power=2, toughness=3)
+    bind_from_catalogue(arthropod)
+    p1.library.clear()
+    cards = {}
+    for name in ["Bottom", "Third", "Second", "First"]:  # the end of the list is the top
+        cards[name] = GameObject(Card(id=name, name=name, type_line="Artifact"), owner_id="p1", zone=Zone.LIBRARY)
+        p1.library.append(cards[name])
+    p1.mana_pool.add_many({"G": 3, "C": 2})
+    engine.cast_spell(p1, p1.hand[0], x=2)  # a {X}{G}{G}{G} spell with X = 2
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    choice = engine.state.pending_choice
+    assert {o["label"] for o in choice["options"] if "instance_id" in o} == {"First", "Second"}  # exactly the top X
+    engine.resolve_pending_choice(next(o["id"] for o in choice["options"] if o.get("label") == "Second"))
+    engine.resolve_until_stable()
+    assert cards["Second"] in p1.hand
+    assert p1.library[0] is cards["First"]  # the unpicked card went to the bottom of the library (index 0)
