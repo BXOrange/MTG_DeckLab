@@ -81,3 +81,25 @@ def test_threefold_thunderhulk_makes_gnomes_equal_to_power_on_enter_and_attack()
     engine.rules.put_triggers_on_stack()
     engine.resolve_until_stable()
     assert len(gnomes()) == before + hulk.power
+
+
+def test_darksteel_reactor_wins_when_the_twentieth_charge_counter_lands():
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+
+    engine, p1 = _game()
+    reactor = battlefield_object(engine, "p1", "Darksteel Reactor", "Artifact")
+    bind_from_catalogue(reactor)
+
+    def upkeep():
+        engine.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="upkeep", phase="beginning", player_id="p1"))
+        engine.rules.put_triggers_on_stack()
+        while engine.state.pending_choice:  # "you may" — accept
+            engine.resolve_pending_choice("do")
+        engine.resolve_until_stable()
+
+    reactor.counters["charge"] = 18
+    upkeep()
+    assert reactor.counters["charge"] == 19 and not engine.state.game_over
+    upkeep()
+    assert reactor.counters["charge"] == 20
+    assert engine.state.game_over and engine.state.winner_id == "p1"

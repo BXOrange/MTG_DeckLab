@@ -7,6 +7,7 @@ from . import danny_pink  # noqa: F401
 from . import dark_confidant  # noqa: F401
 from . import dark_petition  # noqa: F401
 from . import darksteel_mutation  # noqa: F401
+from . import darksteel_reactor  # noqa: F401
 from . import dauntless_dismantler  # noqa: F401
 from . import dauthi_voidwalker  # noqa: F401
 from . import day_s_undoing  # noqa: F401
