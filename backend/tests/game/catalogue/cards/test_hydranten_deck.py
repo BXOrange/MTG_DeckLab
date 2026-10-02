@@ -77,3 +77,39 @@ def test_mana_reflection_doubles_mana_from_tapping_only_for_its_controller():
     assert player.mana_pool.pool.get("G", 0) == 2
     engine.tap_for_mana(opponent, theirs)
     assert opponent.mana_pool.pool.get("G", 0) == 1  # not their Mana Reflection
+
+
+def _mathemagics_game(x):
+    from mtg_analyzer.config import DB_PATH
+    from mtg_analyzer.game.game_engine import GameEngine
+    from mtg_analyzer.models.game.game_object import GameObject, Zone
+    from mtg_analyzer.services.card_database import CardDatabase
+
+    card = CardDatabase(DB_PATH).get_card("Mathemagics")
+    engine = GameEngine.new_game([("p1", "A", [card]), ("p2", "B", [])], starting_hand=1, starting_life=20)
+    for obj in engine.state.players[0].hand:
+        bind_from_catalogue(obj)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    p1, p2 = engine.state.player_by_id("p1"), engine.state.player_by_id("p2")
+    for i in range(20):
+        p2.library.append(GameObject(Card(id=f"M{i}", name=f"Card {i}", type_line="Land"), owner_id="p2", zone=Zone.LIBRARY))
+    p1.mana_pool.add_many({"U": 2, "C": 2 * x})  # {X}{X}{U}{U}
+    engine.cast_spell(p1, p1.hand[0], targets=[p2], x=x)
+    engine.resolve_until_stable()
+    return p2
+
+
+def test_mathemagics_draws_two_to_the_x_cards():
+    assert len(_mathemagics_game(3).hand) == 8
+    assert len(_mathemagics_game(0).hand) == 1  # 2^0
+
+
+def test_power_of_clamps_its_exponent():
+    from mtg_analyzer.game import effect_amounts
+
+    assert effect_amounts.MAX_POWER_OF_EXPONENT == 30
+    cls = type("C", (), {})
+    ctx = cls()
+    amount = {"kind": "fixed", "amount": 500, "power_of": 2}
+    assert effect_amounts.amount_of(amount, ctx) == 2 ** 30

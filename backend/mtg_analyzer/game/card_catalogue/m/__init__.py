@@ -28,6 +28,7 @@ from . import massacre_girl_known_killer  # noqa: F401
 from . import master_chef  # noqa: F401
 from . import master_of_the_hunt  # noqa: F401
 from . import masterwork_of_ingenuity  # noqa: F401
+from . import mathemagics  # noqa: F401
 from . import mayhem_devil  # noqa: F401
 from . import mazirek_kraul_death_priest  # noqa: F401
 from . import meek_attack  # noqa: F401

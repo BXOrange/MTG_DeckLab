@@ -165,7 +165,13 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
 #: was otherwise a new ``amount_from_half_*`` parameter.
 #: ``divide`` rounds **down** unless ``round_up`` is set — RULE 107.2's
 #: default.
-_MODIFIER_KEYS = ("multiply", "divide", "round_up", "plus", "minus", "minimum", "maximum")
+_MODIFIER_KEYS = ("power_of", "multiply", "divide", "round_up", "plus", "minus", "minimum", "maximum")
+
+#: Largest exponent ``power_of`` will raise its base to. "Target player draws
+#: 2^X cards" (Mathemagics) is unbounded on the card, but nothing can draw more
+#: than the library holds and a runaway X must not build a huge integer; 30
+#: keeps 2^30 (~1.07 billion) far above any library while staying cheap.
+MAX_POWER_OF_EXPONENT = 30
 
 
 def _players(context: "GameContext", controller_id: Optional[str], scope: str) -> list[Any]:
@@ -446,6 +452,10 @@ def amount_of(
 
     value = _base(amount, context, source, targets)
 
+    # "2^X" — the measured value becomes the exponent of an integer base.
+    power_of = amount.get("power_of")
+    if isinstance(power_of, int) and not isinstance(power_of, bool) and power_of >= 0:
+        value = power_of ** max(0, min(value, MAX_POWER_OF_EXPONENT))
     multiply = amount.get("multiply")
     if isinstance(multiply, int) and not isinstance(multiply, bool):
         value *= multiply
