@@ -225,3 +225,36 @@ def test_icy_blast_taps_x_creatures_and_freezes_them_only_with_ferocious():
 
     plain = _icy_blast_game(my_power=3)
     assert all(v.tapped and not v.skip_next_untap for v in plain)
+
+
+def test_simic_ascendancy_counts_plus_one_counters_on_my_creatures_and_wins_at_twenty():
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+
+    engine, player = two_player_game()
+    ascendancy = battlefield_object(engine, "p1", "Simic Ascendancy", "Enchantment")
+    bind_from_catalogue(ascendancy)
+    mine = battlefield_object(engine, "p1", "My Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    theirs = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+
+    engine.rules.add_counters(mine, 3, "+1/+1")
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert ascendancy.counters.get("growth", 0) == 3  # "that many"
+
+    engine.rules.add_counters(theirs, 2, "+1/+1")  # not a creature I control
+    engine.rules.add_counters(mine, 1, "-1/-1")  # not a +1/+1 counter
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert ascendancy.counters.get("growth", 0) == 3
+
+    def upkeep():
+        engine.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="upkeep", phase="beginning", player_id="p1"))
+        engine.rules.put_triggers_on_stack()
+        engine.resolve_until_stable()
+
+    ascendancy.counters["growth"] = 19
+    upkeep()
+    assert not engine.state.game_over
+    ascendancy.counters["growth"] = 20
+    upkeep()
+    assert engine.state.game_over and engine.state.winner_id == "p1"
