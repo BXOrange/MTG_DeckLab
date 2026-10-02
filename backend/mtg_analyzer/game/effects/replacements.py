@@ -603,7 +603,12 @@ def _double_counters_replacement(params: dict[str, Any]) -> ReplacementEffect:
             src = effect.source
             if src is None or event.get("source_controller_id") != src.controller_id:
                 return False
-        if recipient is not None:
+        if recipient == "creature":
+            # "…put on **a creature**" (Primal Vigor) — any creature, whoever
+            # controls it: the recipient-kind test alone, no controller scope.
+            if event.get("is_player") or not event.get("recipient_is_creature"):
+                return False
+        elif recipient is not None:
             src = effect.source
             if src is None or event.get("recipient_controller_id") != src.controller_id:
                 return False
@@ -946,6 +951,9 @@ def _double_tokens_replacement(params: dict[str, Any]) -> ReplacementEffect:
     mirroring `_double_damage_replacement`'s own ``multiplier`` param.
     """
     multiplier = int(params.get("multiplier", 2) or 2)
+    #: "If one or more tokens would be created" with no "under your control"
+    #: (Primal Vigor) doubles every player's tokens, not just this source's.
+    any_controller = bool(params.get("any_controller", False))
     effect = ReplacementEffect(
         event_type=EventType.CREATE_TOKENS,
         replacement_fn=lambda e, c: e,
@@ -953,6 +961,8 @@ def _double_tokens_replacement(params: dict[str, Any]) -> ReplacementEffect:
     )
 
     def _applies(event: GameEvent, _context: GameContext) -> bool:
+        if any_controller:
+            return True
         src = effect.source
         return src is not None and event.get("controller_id") == src.controller_id
 

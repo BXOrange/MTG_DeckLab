@@ -37,6 +37,7 @@ from . import powerbalance  # noqa: F401
 from . import praetor_s_grasp  # noqa: F401
 from . import price_of_glory  # noqa: F401
 from . import priest_of_forgotten_gods  # noqa: F401
+from . import primal_vigor  # noqa: F401
 from . import primary_research  # noqa: F401
 from . import primo_the_unbounded  # noqa: F401
 from . import prismari_pianist  # noqa: F401
