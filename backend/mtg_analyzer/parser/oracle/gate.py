@@ -3839,7 +3839,15 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: 580 (PAR-113): "whenever a player / an opponent attacks [with N or more creatures]" is `ATTACKERS_DECLARED` (once per
 #: declaration, not once per defender) with the actor scope (`player_event_head._PLAYER_ATTACKS`); "each of your opponents"
 #: is the `each_opponent` damage selector.
-PARSER_VERSION = "580"
+#: 581 (PAR-107/108/110 singletons that were one row away): "with an additional +1/+1 counter" on a graveyard return;
+#: "counter target instant spell, sorcery spell, activated ability, or triggered ability" (the `spell_or_ability`
+#: pool with a spell filter); "defending player mills half their library" (`MillEffect` ``defending_player``);
+#: "return all `<types>` cards from all graveyards … under their owners' control"; "If its/that permanent's mana
+#: value was N or less, …" after a targeting clause (the printed mana value only — power, toughness and keywords are
+#: last-known information), with "return it" bound to that pick (`ReturnSelfToBattlefieldEffect` ``previous_target``);
+#: "put enchanted creature into its owner's library third from the top"; and the mass "exile all/each `<group>` until ~
+#: leaves the battlefield" (the exile links every card it took, `linked_exile_ids`).
+PARSER_VERSION = "581"
 
 
 def parser_source_hash() -> str:

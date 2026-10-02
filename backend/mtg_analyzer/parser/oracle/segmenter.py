@@ -4465,6 +4465,15 @@ def _group_pronoun_condition(
     ``condition`` is what the shared vocabulary made of the phrase (or ``None``); a phrase it does
     not know is tried against the referent grammar (`parse_referent_condition`), and the result is
     scoped to the object that fired the trigger."""
+    if (
+        condition is None and previous_subject and not self_subject and not group_subject
+        and _PRONOUN_CONDITION_RE.match(cond_text) is not None
+    ):
+        # "destroy target … . If that permanent's mana value was 3 or less, …" (Carnivorous Canopy): the printed
+        # mana value reads the same in any zone, so the gate survives the pick having just left the battlefield.
+        # Power, toughness and keywords are last-known information (RULE 608.2h) the engine does not keep here.
+        referent = parse_referent_condition(cond_text)
+        return referent if referent is not None and referent.get("kind") == "mana_value" else None
     if not group_subject or self_subject or previous_subject or _PRONOUN_CONDITION_RE.match(cond_text) is None:
         return condition
     if condition is None:
@@ -4587,6 +4596,11 @@ def _peel_condition(
         gated: list[EffectSpec] = []
         for spec in inner:
             params = dict(spec.params)
+            if (
+                spec.type == "return_self_to_battlefield" and "target_kind" not in params
+                and previous_subject and not self_subject and not group_subject
+            ):
+                params["target_kind"] = "previous_target"  # "return it" after a clause that chose the pick
             if row.rewrite_params is not None:
                 row.rewrite_params(params, match)
             gated.append(EffectSpec(spec.type, params, condition=condition))
@@ -5680,7 +5694,9 @@ _CREATURE_TARGET_KINDS: frozenset[str] = frozenset(
      # must be blocked this turn if able." (Disturbed Slumber/Elemental
      # Uprising/Vengeant Earth) — the animate-land family's own target
      # kinds, referred back to the same "it" way a bare "land" already is.
-     "land_you_control", "creature_or_land_you_control"}
+     "land_you_control", "creature_or_land_you_control",
+     # "destroy target artifact, enchantment, or creature with flying. If that permanent's mana value was …"
+     "artifact_creature_or_enchantment"}
 )
 
 

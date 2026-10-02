@@ -4404,6 +4404,15 @@ def _mill_half(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+#: "defending player mills half their library, rounded up." (Terisian Mindbreaker) — `MillEffect`'s ``defending_player``
+#: selector with the same ``half`` count.
+_MILL_HALF_DEFENDING_RE = _c(r"defending player mills half their library, rounded (?P<dir>down|up)")
+
+
+def _mill_half_defending(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("mill", {"selector": "defending_player", "half": m.group("dir")})]
+
+
 def _mill(m: re.Match[str]) -> list[EffectSpec]:
     # "you mill N" / bare "mill N" → self; "target player/opponent mills N" → targeted.
     who = (m.groupdict().get("who") or "").strip()
@@ -4926,6 +4935,14 @@ _RETURN_SELF_TO_LIBRARY_RE = _c(
 _RETURN_IT_TO_LIBRARY_RE = _c(rf"put it {_LIBRARY_PLACEMENT}")
 
 
+#: "put enchanted creature into its owner's library third from the top" (Shattered Ego) — the Aura's host.
+_RETURN_ATTACHED_TO_LIBRARY_RE = _c(rf"put enchanted (?:creature|permanent) {_LIBRARY_PLACEMENT}")
+
+
+def _return_attached_to_library(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("return_to_library", {"target_kind": "attached_permanent", **_library_placement_params(m)})]
+
+
 def _return_self_to_library(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("return_to_library", {"target_kind": None, **_library_placement_params(m)})]
 
@@ -5166,7 +5183,8 @@ _RETURN_FROM_GRAVEYARD_RE = _c(
     # *keyword*'s in-place return). MEC-108 widened the counter to a +1/+1 or
     # RULE 122.1b keyword counter and its amount ("with a flying counter on it",
     # "with 2 +1/+1 counters on it").
-    rf"(?: with (?P<ewc_n>a|an|\d+) (?P<ewc_kind>-1/-1|\+1/\+1|corpse|{'|'.join(KEYWORD_COUNTER_KINDS)}) counters? on it)?"
+        # "with an additional +1/+1 counter on it" (Prison Break) is the same counter: it adds to what the card enters with.
+    rf"(?: with (?P<ewc_n>a|an|\d+)(?: additional)? (?P<ewc_kind>-1/-1|\+1/\+1|corpse|{'|'.join(KEYWORD_COUNTER_KINDS)}) counters? on it)?"
 )
 _PUT_FROM_GRAVEYARD_OWNER_CONTROL_RE = _c(
     rf"put (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
@@ -5405,8 +5423,10 @@ def _shuffle_target_graveyard_cards(m: re.Match[str]) -> list[EffectSpec]:
 _MASS_RETURN_GRAVEYARD_RE = _c(
     r"(?:(?P<each>each player returns)|you return|return) "
     rf"(?:all|each) (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?cards? from "
-    r"(?:their|your|its owner'?s) graveyards? to "
+    r"(?:their|your|its owner'?s|(?P<all>all)) graveyards? to "
     r"(?P<dest>the battlefield|their hand|your hand)(?P<tapped> tapped)?"
+    # "…from all graveyards to the battlefield under their owners' control" (Open the Vaults): every player's own cards.
+    r"(?P<owners> under their owners'? control)?"
 )
 
 
@@ -5418,8 +5438,12 @@ def _mass_return_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params: dict = {
         "target_kind": kind,
         "destination": "battlefield" if dest == "the battlefield" else "hand",
-        "players": "each_player" if m.group("each") else "you",
+        "players": "each_player" if m.group("each") or m.group("all") else "you",
     }
+    if m.group("owners") and not m.group("all"):
+        return None
+    if m.group("all") and not m.group("owners"):
+        return None  # "all graveyards" without "under their owners' control" would be under the caster's
     if m.group("tapped"):
         params["tapped"] = True
     return [EffectSpec("return_from_graveyard", params)]
@@ -8019,6 +8043,22 @@ def _exile_until_leaves(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if state_filter:
         params["creature_filter"] = state_filter
     return [EffectSpec("exile", params)]
+
+
+#: "exile all creatures with power 5 or greater until ~ leaves the battlefield." / "exile each nonland permanent with mana
+#: value 2 or less until ~ leaves …" (Aligned Hedron Network, Consulate Crackdown, Temporary Lockdown): the plain mass
+#: exile, read by the shared "exile all/each" rows, with the linked-return flags the targeted form carries.
+_EXILE_ALL_UNTIL_LEAVES_RE = _c(r"(?P<head>exile (?:all|each) .+?) until ~ leaves the battlefield")
+
+
+def _exile_all_until_leaves(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    specs = match_clause(m.group("head"))
+    if not specs or len(specs) != 1 or specs[0].type != "exile":
+        return None
+    params = specs[0].params
+    if params.get("selector") is None and params.get("group") is None:
+        return None  # only the untargeted mass exile has a linked set to return
+    return [EffectSpec("exile", {**params, "remember": True, "until_source_leaves": True})]
 
 
 #: PAR-30 "Threaten … tails residue" — the *old two-sentence* O-Ring
@@ -16801,6 +16841,13 @@ HANDLERS: list[EffectHandler] = [
         _c(r"counter target spell, activated ability, or triggered ability"),
         lambda m: [EffectSpec("counter", {"target_kind": "spell_or_ability"})],
     ),
+    # "counter target instant spell, sorcery spell, activated ability, or triggered ability." (Sister of Silence) — the
+    # same union with the spell half narrowed to the two card types.
+    EffectHandler(
+        "counter_typed_spell_or_ability",
+        _c(r"counter target instant spell, sorcery spell, activated ability, or triggered ability"),
+        lambda m: [EffectSpec("counter", {"target_kind": "spell_or_ability", "card_types": ["instant", "sorcery"]})],
+    ),
     # "this spell can't be countered." / "~ can't be countered." (RULE
     # 118-area) — a spell's own property, docked as a marker the counter
     # effect refuses to act on (`RulesEngine._is_cant_be_countered`).
@@ -16840,6 +16887,7 @@ HANDLERS: list[EffectHandler] = [
         _mill,
     ),
     EffectHandler("mill_half", _MILL_HALF_RE, _mill_half),
+    EffectHandler("mill_half_defending", _MILL_HALF_DEFENDING_RE, _mill_half_defending),
     EffectHandler("mill_spell_mv", _MILL_SPELL_MV_RE, _mill_spell_mv),
     EffectHandler("mill_source_pt", _MILL_SOURCE_PT_RE, _mill_source_pt),
     # "exile target creature with power 4 or greater" / "…with flying" —
@@ -17192,6 +17240,8 @@ HANDLERS: list[EffectHandler] = [
     ),
     # "put ~ / it … on the bottom of / third from the top of its owner's library" (self form).
     EffectHandler("return_self_to_library", _RETURN_SELF_TO_LIBRARY_RE, _return_self_to_library),
+    EffectHandler("return_attached_to_library", _RETURN_ATTACHED_TO_LIBRARY_RE, _return_attached_to_library),
+    EffectHandler("exile_all_until_leaves", _EXILE_ALL_UNTIL_LEAVES_RE, _exile_all_until_leaves),
     EffectHandler(
         "return_it_to_library", _RETURN_IT_TO_LIBRARY_RE, _return_self_to_library, self_subject_only=True,
     ),

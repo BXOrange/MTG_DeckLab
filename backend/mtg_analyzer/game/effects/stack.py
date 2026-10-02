@@ -963,6 +963,9 @@ class MillEffect(GameEffect):
                     player = context.state.player_by_id(who_id) if who_id is not None else None
                 except (KeyError, ValueError):
                     player = None
+        elif self.selector == "defending_player":
+            # "Whenever ~ attacks, defending player mills half their library, rounded up." (Terisian Mindbreaker)
+            player = _defending_player_of(self.source, context)
         elif self.selector == "trigger_subject_controller":
             # RULE 603.1 group-subject sibling of "previous_subject_
             # controller" above — "its" is whichever object satisfied this

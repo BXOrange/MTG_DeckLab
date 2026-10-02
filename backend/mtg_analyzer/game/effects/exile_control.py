@@ -189,6 +189,13 @@ class ExileEffect(GameEffect):
     def target_polarity(self) -> Optional[str]:
         return "harmful"
 
+    def _remember_mass_exile(self, exiled: list[Any]) -> None:
+        """"Exile all … until ~ leaves the battlefield." (Aligned Hedron Network, Temporary Lockdown): link every card
+        the mass exile took to the source, for the companion leaves-the-battlefield `ReturnLinkedExileEffect`."""
+        if self.remember and self.source is not None:
+            self.source.linked_exile_ids = [o.instance_id for o in exiled]
+            self.source.linked_exile_id = None
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.group is not None:
             chosen = (targets or [self.target])[0] if (targets or self.target is not None) else None
@@ -201,6 +208,7 @@ class ExileEffect(GameEffect):
             # RULE 608.2: "those cards"/"the exiled cards" in a following clause (a delayed return,
             # PAR-136 — Ghostway, Sudden Disappearance) name exactly what this one exiled.
             context.previous_targets = exiled_now
+            self._remember_mass_exile(exiled_now)
             return
         if self.selector is not None:
             exiled_now = []
@@ -217,6 +225,7 @@ class ExileEffect(GameEffect):
                     self.source.exiled_with_ids.append(obj.instance_id)
                 context.exile(obj)
             context.previous_targets = exiled_now  # as in the group branch above
+            self._remember_mass_exile(exiled_now)
             return
         if self._attached_mode:
             # "Exile enchanted creature." — this Aura/Equipment's host.

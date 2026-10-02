@@ -2019,10 +2019,13 @@ def _legal_targets_for(
             # ``"spell"`` branch's own options, unfiltered by
             # ``spell_filter`` since neither real card restricts by spell
             # type, alongside the ability ones just built.
+            # A `spell_filter` narrows the spell half only ("counter target instant spell, sorcery spell, activated
+            # ability, or triggered ability" — Sister of Silence); the abilities stay offered.
             options = [
                 {"instance_id": item.obj.instance_id, "name": item.description or item.obj.name}
                 for item in state.stack
                 if item.kind == "spell" and item.obj is not None and item.obj is not source
+                and (not spec.spell_filter or _spell_matches_filter(item.obj, dict(spec.spell_filter)))
             ] + options
         return options
     return []

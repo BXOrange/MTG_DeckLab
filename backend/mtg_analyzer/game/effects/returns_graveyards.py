@@ -301,12 +301,22 @@ class ReturnToLibraryEffect(GameEffect):
         #: ``target_kind=None`` — "Put **this**/~ on top of its owner's
         #: library." (Sensei's Divining Top-shaped) — no RULE 115 target at
         #: all, mirroring `ExileEffect`/`TapEffect`'s own self mode.
+        #: ``target_kind="attached_permanent"`` — "{3}{U}{U}: Put enchanted creature into its owner's library third
+        #: from the top." (Shattered Ego): the Aura's host, not a target.
+        self.attached = target_kind == "attached_permanent"
         self.target_spec = (
             TargetSpec(kind=target_kind, optional=optional, count=count, colors=self.colors)
-            if target_kind and self.group is None else None
+            if target_kind and self.group is None and not self.attached else None
         )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.attached:
+            from .. import effect_conditions  # function-scoped: effects↔conditions cycle
+
+            host = effect_conditions.subject_of("attached", context, self.source, targets)
+            if host is not None:
+                context.return_to_library(host, self.position, self.depth)
+            return
         if self.group is not None:
             for obj in _group_objects(context, self.group, None, self.source, None) or []:
                 context.return_to_library(obj, self.position, self.depth)

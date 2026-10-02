@@ -925,11 +925,17 @@ class ReturnSelfToBattlefieldEffect(GameEffect):
         self.extra_counters = dict(extra_counters) if extra_counters else None
         self.lose_all_abilities = bool(lose_all_abilities)
         self._trigger_subject_mode = target_kind == "trigger_subject"
+        #: ``target_kind="previous_target"`` ("Exile target creature or planeswalker. If its mana value was 3 or less,
+        #: return **it** to the battlefield …" — Vindictive Triumph): the pick an earlier clause made.
+        self._previous_target_mode = target_kind == "previous_target"
         self.trigger_event_key = trigger_event_key or "instance_id"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         obj = self.source
-        if self._trigger_subject_mode:
+        if self._previous_target_mode:
+            picked = list(context.previous_targets)
+            obj = picked[0] if picked and hasattr(picked[0], "instance_id") else None
+        elif self._trigger_subject_mode:
             event = context.trigger_event or {}
             iid = event.get(self.trigger_event_key)
             obj = context.state.find_object(iid) if iid is not None else None
