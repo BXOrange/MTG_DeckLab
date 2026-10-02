@@ -1,6 +1,7 @@
 """Hand-authored card entries whose name starts with 't' (see game/card_registry for the registration mechanism: `register`/`register_family`/`specs_for`)."""
 from . import tainted_pact  # noqa: F401
 from . import takenuma_abandoned_mire  # noqa: F401
+from . import tale_of_katara_and_toph  # noqa: F401
 from . import talion_the_kindly_lord  # noqa: F401
 from . import talon_gates_of_madara  # noqa: F401
 from . import tanazir_quandrix  # noqa: F401

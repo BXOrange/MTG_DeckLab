@@ -385,3 +385,33 @@ def test_nissa_who_shakes_the_world_minus_eight_fetches_every_forest_tapped():
     assert len(forests) == 3 and all(f.tapped for f in forests)
     assert all(o.name != "Island" for o in engine.state.battlefield)
     assert nissa not in engine.state.battlefield  # 8 -> 0 loyalty
+
+
+def test_tale_of_katara_and_toph_grows_a_creature_the_first_time_it_taps_each_of_my_turns():
+    engine, p1, p2 = _game()
+    tale = battlefield_object(engine, "p1", "Tale of Katara and Toph", "Enchantment")
+    bind_from_catalogue(tale)
+    mine = battlefield_object(engine, "p1", "My Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    theirs = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    engine.recompute_continuous_effects()
+
+    def tap(obj):
+        engine.rules.set_tapped(obj, True)
+        engine.rules.put_triggers_on_stack()
+        engine.resolve_until_stable()
+
+    tap(mine)
+    assert mine.counters.get("+1/+1", 0) == 1  # first tap this turn
+
+    engine.rules.set_tapped(mine, False)
+    tap(mine)
+    assert mine.counters.get("+1/+1", 0) == 1  # second tap this turn: nothing more
+
+    tap(theirs)
+    assert theirs.counters.get("+1/+1", 0) == 0  # not mine
+
+    engine.state.active_player_index = 1  # an opponent's turn
+    mine.counters.clear()
+    engine.rules.set_tapped(mine, False)
+    tap(mine)
+    assert mine.counters.get("+1/+1", 0) == 0  # only during my turns
