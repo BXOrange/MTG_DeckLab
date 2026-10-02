@@ -601,6 +601,11 @@ class TargetSpec:
     #: target-legality question to resolve and stays a resolve-time trick.
     #: ``None`` (the default) means the filters above always apply.
     unless_flag: Optional[str] = None
+    #: "Exile target artifact or enchantment. If this spell was kicked, exile target nonland permanent instead."
+    #: (Tear Asunder) — ``{"flag": <a `_cast_time_flag` name>, "kind": <the replacement target kind>}``: when the flag
+    #: is set for this spell the *kind* of target changes (kicker is paid, RULE 601.2b, before targets are chosen,
+    #: RULE 601.2c). The sibling of `unless_flag`, which only drops narrowing filters, never changes the kind.
+    kind_if_flag: Optional[dict[str, str]] = None
     #: PAR-123: "…target creature you control **other than that creature**" — the object that fired
     #: the group trigger this ability is on is not a legal choice (`legal_targets` drops it).
     excluding_trigger_subject: bool = False
@@ -1599,6 +1604,8 @@ def _legal_targets_for(
     with no event in hand (an ordinary spell/activated-ability cast) simply
     omits it.
     """
+    if spec.kind_if_flag and _cast_time_flag(source, spec.kind_if_flag.get("flag", "")):
+        spec = replace(spec, kind=spec.kind_if_flag["kind"], kind_if_flag=None)
     kind = spec.kind
     if spec.unless_flag and _cast_time_flag(source, spec.unless_flag):
         # MEC-85: `spec.unless_flag` names a cast-time-conditional flag

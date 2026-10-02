@@ -938,6 +938,7 @@ EffectRegistry.register(
         bend_kind=p.get("bend_kind"),
         count_selector=p.get("count_selector"),
         unless_flag=p.get("unless_flag"),
+        kind_if_flag=p.get("kind_if_flag"),
         group=p.get("group"), group_player=p.get("group_player"),
     ),
 )
@@ -1693,7 +1694,7 @@ EffectRegistry.register(
     # registry.
     "sacrifice",
     lambda p: SacrificeEffect(
-        count=p.get("count", 1) if p.get("count") == "all_but_one" else int(p.get("count", 1) or 1),
+        count=p.get("count", 1) if str(p.get("count")).startswith("all_but_") else int(p.get("count", 1) or 1),
         what=p.get("what", "permanent"),
         player=p.get("player"),
         selector=p.get("selector"),

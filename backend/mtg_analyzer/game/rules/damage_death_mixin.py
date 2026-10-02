@@ -27,6 +27,9 @@ from ...models.game.emblem import Emblem
 from ...models.game.events import EventType, GameEvent
 from ...models.game.game_object import GameObject, Zone
 from ...models.game.game_state import DelayedTrigger, GameState, StackItem
+
+#: Prefix of a `sacrifice` count that keeps N and sacrifices the rest ("all_but_one", "all_but_6").
+ALL_BUT_PREFIX = "all_but_"
 from ...models.mana.mana_cost import ManaCost
 from ...models.game.player import Player
 from ...parser.oracle.catalogue.keywords import parse_keywords
@@ -644,8 +647,11 @@ class DamageDeathMixin:
             # "You can't sacrifice those creatures this turn." (Call for Aid)
             and not obj.cant_be_sacrificed_this_turn
         ]
-        if count == "all_but_one":
-            count = max(0, len(candidates) - 1)
+        if isinstance(count, str) and count.startswith(ALL_BUT_PREFIX):
+            # "all_but_one" (Liliana) and "all_but_6" (Planetary Annihilation: "chooses six lands … then
+            # sacrifices the rest") — keep the named number, sacrifice the others.
+            keep = 1 if count == "all_but_one" else int(count[len(ALL_BUT_PREFIX):])
+            count = max(0, len(candidates) - keep)
         self._request_choose_objects(
             player, candidates, "sacrifice", count=count,
             prompt="Wähle eine bleibende Karte zum Opfern",

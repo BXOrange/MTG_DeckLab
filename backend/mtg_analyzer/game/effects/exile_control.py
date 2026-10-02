@@ -83,6 +83,7 @@ class ExileEffect(GameEffect):
         bend_kind: Optional[str] = None,
         count_selector: Optional[str] = None,
         unless_flag: Optional[str] = None,
+        kind_if_flag: Optional[dict[str, str]] = None,
         group: Optional[dict[str, Any]] = None,
         group_player: Optional[str] = None,
     ) -> None:
@@ -188,6 +189,8 @@ class ExileEffect(GameEffect):
                 # teamwork, instead exile target creature[.]" (MEC-85, Cruel
                 # Alliance) — see `targeting.TargetSpec.unless_flag`.
                 unless_flag=unless_flag,
+                # "…If this spell was kicked, exile target nonland permanent instead." (Tear Asunder)
+                kind_if_flag=dict(kind_if_flag) if kind_if_flag else None,
             )
 
     def target_polarity(self) -> Optional[str]:

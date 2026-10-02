@@ -9,6 +9,7 @@ from . import tanazir_quandrix  # noqa: F401
 from . import tangle_wire  # noqa: F401
 from . import tataru_taru  # noqa: F401
 from . import tavern_brawler  # noqa: F401
+from . import tear_asunder  # noqa: F401
 from . import tectonic_giant  # noqa: F401
 from . import teferi_master_of_time  # noqa: F401
 from . import teferi_s_protection  # noqa: F401

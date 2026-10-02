@@ -304,3 +304,55 @@ def test_loamcrafter_faun_discards_lands_then_returns_that_many_nonland_permanen
         engine.resolve_pending_choice("stop")
     engine.resolve_until_stable()
     assert grave["Dead Rock"] in p1.hand and grave["Dead Bear"] in p1.hand
+
+
+def test_planetary_annihilation_leaves_each_player_six_lands_and_damages_every_creature():
+    engine, p1, p2 = _game("Planetary Annihilation")
+    for i in range(8):
+        battlefield_object(engine, "p1", f"My Land {i}", "Land", is_land=True)
+    for i in range(8):
+        battlefield_object(engine, "p2", f"Their Land {i}", "Land", is_land=True)
+    bear = battlefield_object(engine, "p1", "Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    giant = battlefield_object(engine, "p2", "Giant", "Creature — Giant", is_creature=True, power=7, toughness=7)
+    p1.mana_pool.add_many({"R": 2, "C": 8})
+    engine.cast_spell(p1, p1.hand[0])
+    engine.resolve_until_stable()
+    guard = 0
+    while engine.state.pending_choice and guard < 30:  # each player picks which lands go
+        choice = engine.state.pending_choice
+        engine.resolve_pending_choice(choice["options"][0]["id"])
+        engine.resolve_until_stable()
+        guard += 1
+    lands = lambda pid: [o for o in engine.state.battlefield if o.is_land and o.controller_id == pid]
+    assert len(lands("p1")) == 6 and len(lands("p2")) == 6  # all but six sacrificed (8 -> 6 each)
+    assert bear.zone == Zone.GRAVEYARD  # 6 damage to each creature
+    assert giant.zone == Zone.BATTLEFIELD and giant.damage_marked == 6  # a 7/7 survives
+
+
+def _tear_asunder_board():
+    engine, p1, p2 = _game("Tear Asunder")
+    rock = battlefield_object(engine, "p2", "Their Rock", "Artifact")
+    bear = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    land = battlefield_object(engine, "p2", "Their Land", "Land", is_land=True)
+    return engine, p1, rock, bear, land
+
+
+def test_tear_asunder_targets_only_artifacts_and_enchantments_unless_kicked():
+    from mtg_analyzer.game.targeting import legal_targets
+
+    engine, p1, rock, bear, land = _tear_asunder_board()
+    spell = p1.hand[0]
+    spec = spell.spell_effects[0].target_spec
+
+    names = lambda: {o["name"] for o in legal_targets(engine.state, "p1", spec, source=spell)}
+    assert names() == {"Their Rock"}  # unkicked: artifact or enchantment
+    spell.kicker_count = 1
+    assert names() == {"Their Rock", "Their Bear"}  # kicked: any nonland permanent (not the land)
+
+
+def test_a_kicked_tear_asunder_really_exiles_a_creature():
+    engine, p1, rock, bear, land = _tear_asunder_board()
+    p1.mana_pool.add_many({"G": 1, "B": 1, "C": 2})  # {1}{G} plus the kicker {1}{B}
+    engine.cast_spell(p1, p1.hand[0], targets=[bear], kicked=1)
+    engine.resolve_until_stable()
+    assert bear.zone == Zone.EXILE and rock.zone == Zone.BATTLEFIELD

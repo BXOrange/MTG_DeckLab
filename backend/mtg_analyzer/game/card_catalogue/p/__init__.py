@@ -25,6 +25,7 @@ from . import phyrexian_revoker  # noqa: F401
 from . import pilgrim_of_justice  # noqa: F401
 from . import pilgrim_of_virtue  # noqa: F401
 from . import pithing_needle  # noqa: F401
+from . import planetary_annihilation  # noqa: F401
 from . import plargg_and_nassari  # noqa: F401
 from . import play_with_fire  # noqa: F401
 from . import plumb_the_forbidden  # noqa: F401
