@@ -184,3 +184,49 @@ def test_the_lander_token_fetches_a_basic_land_tapped_when_sacrificed():
         engine.resolve_pending_choice(next(o["id"] for o in choice["options"] if o.get("label") == "Forest"))
         engine.resolve_until_stable()
     assert forest.zone == Zone.BATTLEFIELD and forest.tapped and lander.zone != Zone.BATTLEFIELD
+
+
+def _graveyard_lands(player, n):
+    for i in range(n):
+        player.graveyard.append(GameObject(
+            Card(id=f"GL{player.id}{i}", name=f"Dead Land {i}", type_line="Land", is_land=True),
+            owner_id=player.id, zone=Zone.GRAVEYARD,
+        ))
+
+
+def _sacrifice_a_land(engine, p1):
+    land = battlefield_object(engine, "p1", "Doomed Land", "Land", is_land=True)
+    engine.rules.put_into_graveyard(land)  # the single choke point every genuine sacrifice funnels through
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+
+
+def test_scouring_swarm_makes_an_insect_below_seven_land_cards_and_a_copy_at_seven():
+    engine, p1, p2 = _game()
+    swarm = _battlefield_card(engine, "Scouring Swarm")
+    _graveyard_lands(p1, 5)  # the sacrificed land will be the 6th: not enough
+    _sacrifice_a_land(engine, p1)
+    insects = [o for o in engine.state.battlefield if o.name == "Insect"]
+    assert len(insects) == 1 and insects[0].tapped and (insects[0].power, insects[0].toughness) == (1, 1)
+    assert [o.name for o in engine.state.battlefield].count("Scouring Swarm") == 1
+
+    _sacrifice_a_land(engine, p1)  # the 7th land card in the graveyard
+    copies = [o for o in engine.state.battlefield if o.name == "Scouring Swarm" and o is not swarm]
+    assert len(copies) == 1 and copies[0].tapped
+    assert [o.name for o in engine.state.battlefield].count("Insect") == 1  # no second Insect
+
+
+def test_szarel_puts_counters_equal_to_its_power_when_i_sacrifice_another_nontoken_permanent():
+    engine, p1, p2 = _game()
+    szarel = _battlefield_card(engine, "Szarel, Genesis Shepherd")
+    engine.recompute_continuous_effects()
+    power = szarel.power
+    bear = battlefield_object(engine, "p1", "Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    rock = battlefield_object(engine, "p1", "Rock", "Artifact")
+    engine.rules.put_into_graveyard(rock)
+    engine.rules.put_triggers_on_stack()
+    choice = engine.state.pending_choice
+    assert {o["label"] for o in choice["options"] if "instance_id" in o} == {"Bear"}  # another creature, not Szarel
+    engine.resolve_pending_choice(next(o["id"] for o in choice["options"] if o.get("label") == "Bear"))
+    engine.resolve_until_stable()
+    assert bear.counters.get("+1/+1") == power and power > 0

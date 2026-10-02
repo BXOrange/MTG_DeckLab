@@ -16,6 +16,7 @@ from . import saryth_the_viper_s_fang  # noqa: F401
 from . import scab_clan_berserker  # noqa: F401
 from . import scheming_fence  # noqa: F401
 from . import scion_of_halaster  # noqa: F401
+from . import scouring_swarm  # noqa: F401
 from . import scriv_the_obligator  # noqa: F401
 from . import scroll_rack  # noqa: F401
 from . import seasoned_tactician  # noqa: F401
@@ -118,3 +119,4 @@ from . import swords_to_plowshares  # noqa: F401
 from . import sygg_river_cutthroat  # noqa: F401
 from . import sylvan_library  # noqa: F401
 from . import syphon_mind  # noqa: F401
+from . import szarel_genesis_shepherd  # noqa: F401
