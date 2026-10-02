@@ -3873,7 +3873,9 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: 587: the "remove N counters from among …" cost reads a list of types and "other" ("from among other
 #: artifacts, creatures, and planeswalkers you control", Tekuthal, Inquiry Dominus) —
 #: `ActivationCost.remove_counters_other` + a `a_or_b_or_c` permanent word.
-PARSER_VERSION = "587"
+#: 588: "remove N counters from an artifact or creature you control" — the one-holder phrase takes an "or"
+#: pair (Moxite Refinery), encoded as the `artifact_or_creature` permanent word.
+PARSER_VERSION = "588"
 
 
 def parser_source_hash() -> str:

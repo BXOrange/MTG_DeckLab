@@ -125,7 +125,7 @@ _DISCARD_SELF_RE = re.compile(r"discard this card", re.IGNORECASE)
 #: control", Hopeful Initiate) — `ActivationCost.remove_counters_from`.
 _FROM_SOURCE = (
     r"(?:\s+from\s+(?:~|this\s+\w+|it\b"
-    r"|(?:an?|another)\s+(?P<from_one>(?:nonland\s+)?(?:creature|permanent|artifact))\s+you\s+control"
+    r"|(?:an?|another)\s+(?P<from_one>(?:nonland\s+)?(?:creature|permanent|artifact)(?:\s+or\s+(?:creature|artifact|planeswalker))?)\s+you\s+control"
     r"|among\s+(?P<from_among>(?:other\s+)?(?:(?:artifacts|creatures|planeswalkers|permanents)"
     r"(?:\s*,\s*(?:and\s+)?|\s+and\s+)?)+)\s+you\s+control))?"
 )

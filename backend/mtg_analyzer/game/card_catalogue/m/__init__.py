@@ -62,6 +62,7 @@ from . import mortality_spear  # noqa: F401
 from . import mother_of_runes  # noqa: F401
 from . import motivated_pony  # noqa: F401
 from . import mox_diamond  # noqa: F401
+from . import moxite_refinery  # noqa: F401
 from . import muddle_the_ever_changing  # noqa: F401
 from . import muldrotha_the_gravetide  # noqa: F401
 from . import mutiny  # noqa: F401

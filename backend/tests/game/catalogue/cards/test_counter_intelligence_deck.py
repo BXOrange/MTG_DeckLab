@@ -353,3 +353,43 @@ def test_cloud_key_discounts_spells_of_the_chosen_type_only():
     assert key.zone == Zone.BATTLEFIELD and key.chosen_mode == "creature"
     assert cost(hand_card("Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)) == 2
     assert cost(hand_card("Bolt", "Instant")) == 3  # not the chosen type
+
+
+def _refinery_board():
+    engine, p1 = _game()
+    refinery = battlefield_object(engine, "p1", "Moxite Refinery", "Artifact")
+    bind_from_catalogue(refinery)
+    bear = battlefield_object(engine, "p1", "Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    rock = battlefield_object(engine, "p1", "Charged Rock", "Artifact")
+    bear.counters["+1/+1"] = 3
+    p1.mana_pool.add_many({"C": 2})
+    return engine, p1, refinery, bear, rock
+
+
+def test_moxite_refinery_moves_x_counters_as_charge_counters_onto_an_artifact():
+    engine, p1, refinery, bear, rock = _refinery_board()
+    engine.activate_ability(p1, refinery, 0, targets=[rock], x=2)
+    engine.resolve_until_stable()
+    assert bear.counters["+1/+1"] == 1  # X = 2 removed from the creature
+    assert rock.counters == {"charge": 2}  # ... and X charge counters put on the artifact
+    assert refinery.tapped
+
+
+def test_moxite_refinery_second_mode_puts_plus_one_counters_on_a_creature():
+    engine, p1, refinery, bear, rock = _refinery_board()
+    rock.counters["charge"] = 4
+    other = battlefield_object(engine, "p1", "Other Bear", "Creature — Bear", is_creature=True, power=1, toughness=1)
+    engine.activate_ability(p1, refinery, 1, targets=[other], x=3)
+    engine.resolve_until_stable()
+    assert other.counters == {"+1/+1": 3}
+    assert bear.counters.get("+1/+1", 0) + rock.counters.get("charge", 0) == 4  # 3 of the 7 counters were paid
+
+
+def test_moxite_refinery_only_at_sorcery_speed():
+    import pytest
+
+    engine, p1, refinery, bear, rock = _refinery_board()
+    engine.state.current_step = "declare_attackers"
+    with pytest.raises(ValueError):
+        engine.activate_ability(p1, refinery, 0, targets=[rock], x=2)
+    assert not refinery.tapped and bear.counters["+1/+1"] == 3  # nothing was paid
