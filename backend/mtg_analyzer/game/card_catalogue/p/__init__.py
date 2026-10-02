@@ -6,6 +6,7 @@ from . import parallax_wave  # noqa: F401
 from . import parallel_lives  # noqa: F401
 from . import parasitic_impetus  # noqa: F401
 from . import path_to_exile  # noqa: F401
+from . import pathbreaker_ibex  # noqa: F401
 from . import pawn_of_ulamog  # noqa: F401
 from . import pearl_ear_imperial_advisor  # noqa: F401
 from . import peer_into_the_abyss  # noqa: F401

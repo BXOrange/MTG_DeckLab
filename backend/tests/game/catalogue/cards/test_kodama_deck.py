@@ -79,3 +79,29 @@ def test_inspiring_call_draws_per_countered_creature_and_makes_only_those_indest
     assert all("indestructible" in c.granted_keywords for c in grown)
     assert "indestructible" not in plain.granted_keywords
     assert "indestructible" not in theirs.granted_keywords
+
+
+def test_pathbreaker_ibex_pumps_every_creature_by_the_greatest_power_and_gives_trample():
+    engine, p1, p2 = _game()
+    player = engine.state.active_player
+    ibex = battlefield_object(engine, "p1", "Pathbreaker Ibex", "Creature — Goat", is_creature=True, power=3, toughness=3)
+    bind_from_catalogue(ibex)
+    big = battlefield_object(engine, "p1", "Big Bear", "Creature — Bear", is_creature=True, power=5, toughness=5)
+    small = battlefield_object(engine, "p1", "Small Bear", "Creature — Bear", is_creature=True, power=1, toughness=1)
+    theirs = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    for creature in (ibex, big, small):
+        creature.summoning_sick = False
+    engine.recompute_continuous_effects()
+
+    engine.state.current_step = "declare_attackers"
+    engine.declare_attackers(player, [ibex])
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+
+    assert (big.power, big.toughness) == (10, 10)  # +5/+5: X is read once, before any bonus
+    assert (small.power, small.toughness) == (6, 6)
+    assert (ibex.power, ibex.toughness) == (8, 8)
+    assert (theirs.power, theirs.toughness) == (2, 2)
+    assert all("trample" in c.granted_keywords for c in (ibex, big, small))
+    assert "trample" not in theirs.granted_keywords
