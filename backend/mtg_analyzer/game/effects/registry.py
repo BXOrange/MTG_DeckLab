@@ -4123,6 +4123,8 @@ EffectRegistry.register(
             # families above use) since this checks the object on the stack,
             # not a battlefield selector.
             **({"spell_type": p["spell_type"]} if p.get("spell_type") else {}),
+            # Emet-Selch: only a spell cast from the caster's graveyard.
+            **({"from_graveyard": True} if p.get("from_graveyard") else {}),
             # Cloud Key: the type is the one chosen as the source entered (`chosen_mode`).
             **({"spell_type_from_source_mode": True} if p.get("spell_type_from_source_mode") else {}),
             # "Red spells you cast cost {1} less to cast." (the Medallion

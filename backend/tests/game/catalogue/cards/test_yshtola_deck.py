@@ -384,3 +384,70 @@ def test_defiler_of_dreams_pays_life_for_blue_and_draws_only_for_blue_permanent_
     engine.resolve_until_stable()
     assert cub.zone == Zone.BATTLEFIELD and p1.life == life - 2  # {U} paid with 2 life
     assert len(p1.hand) == hand_before - 1 + 1  # the cub left the hand, the trigger drew a card
+
+
+def test_baral_loots_when_a_spell_you_control_counters_a_spell():
+    engine, p1 = _real_game("Power Sink")
+    baral = battlefield_object(engine, "p1", "Baral, Chief of Compliance", "Legendary Creature — Human Wizard", is_creature=True, power=1, toughness=3)
+    bind_from_catalogue(baral)
+    bear = GameObject(
+        Card(id="Bear", name="Bear", type_line="Creature — Bear", mana_cost_string="{1}", converted_mana_cost=1,
+             is_creature=True, power=1, toughness=1),
+        owner_id="p1", zone=Zone.HAND,
+    )
+    p1.hand.append(bear)
+    for i in range(3):
+        p1.library.append(GameObject(Card(id=f"L{i}", name=f"Lib {i}", type_line="Land"), owner_id="p1", zone=Zone.LIBRARY))
+    p1.mana_pool.add_many({"C": 1})
+    engine.cast_spell(p1, bear)
+    p1.mana_pool.add_many({"U": 2, "C": 1})  # Power Sink {X}{U}{U} costs {1} less with Baral: X = 2 -> {1}{U}{U}
+    engine.cast_spell(p1, p1.hand[0], x=2, targets=[bear])  # the bear's controller (p1) cannot pay {2}
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert bear.zone == Zone.GRAVEYARD  # countered by my own Power Sink
+    choice = engine.state.pending_choice
+    assert choice is not None  # "you may draw a card. If you do, discard a card."
+    hand_before = len(p1.hand)
+    engine.resolve_pending_choice(choice["options"][0]["id"])
+    engine.resolve_until_stable()
+    while engine.state.pending_choice:  # the discard
+        engine.resolve_pending_choice(engine.state.pending_choice["options"][0]["id"])
+        engine.resolve_until_stable()
+    assert len(p1.hand) == hand_before  # drew one, discarded one
+    assert len(p1.library) == 2  # exactly one card was drawn
+
+
+def test_emet_selch_grants_a_graveyard_cast_once_per_turn_when_an_opponent_loses_life():
+    engine, p1 = _real_game()
+    p2 = engine.state.player_by_id("p2")
+    emet = battlefield_object(engine, "p1", "Emet-Selch of the Third Seat", "Legendary Creature — Elf Wizard", is_creature=True, power=2, toughness=3)
+    bind_from_catalogue(emet)
+
+    def graveyard_spell(name, type_line, **flags):
+        obj = GameObject(
+            Card(id=name, name=name, type_line=type_line, mana_cost_string="{2}{R}", converted_mana_cost=3,
+                 color_identity={"R"}, **flags),
+            owner_id="p1", zone=Zone.GRAVEYARD,
+        )
+        p1.graveyard.append(obj)
+        return obj
+
+    burn = graveyard_spell("Big Burn", "Sorcery", is_sorcery=True)
+    other = graveyard_spell("Other Burn", "Instant", is_instant=True)
+    assert engine.effective_cast_cost(p1, burn).converted_mana_cost == 1  # "spells you cast from your graveyard cost {2} less"
+
+    engine.rules.lose_life(p2, 3)
+    engine.rules.put_triggers_on_stack()
+    choice = engine.state.pending_choice
+    assert {o["label"] for o in choice["options"] if "instance_id" in o} == {"Big Burn", "Other Burn"}
+    engine.resolve_pending_choice(str(burn.instance_id))
+    engine.resolve_until_stable()
+    assert burn.instance_id in engine.state.temp_flashback_grants  # may be cast from the graveyard this turn
+    assert other.instance_id not in engine.state.temp_flashback_grants
+
+    engine.rules.lose_life(p2, 2)  # "do this only once each turn"
+    engine.rules.put_triggers_on_stack()
+    assert engine.state.pending_choice is None and not engine.state.stack
+    engine.rules.lose_life(p1, 1)  # my own life loss never triggers it
+    engine.rules.put_triggers_on_stack()
+    assert engine.state.pending_choice is None and not engine.state.stack

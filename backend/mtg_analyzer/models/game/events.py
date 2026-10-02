@@ -372,6 +372,12 @@ class EventType:
     #: The copier is player_id; instance_id/stack_id name the new copy.
     SPELL_COPIED = "SPELL_COPIED"
     SPELL_RESOLVED = "SPELL_RESOLVED"
+    #: RULE 701.5a: a spell was countered. ``player_id`` is the controller of the spell or ability that
+    #: countered it (what Baral, Chief of Compliance's "whenever a spell or ability *you control* counters a
+    #: spell" watches); ``None`` when no counterer is known (a rules-driven counter such as a "can't pay" tax
+    #: with no source), repeated as ``controller_id`` (the key a ``subject: you`` trigger compares).
+    #: ``spell_controller_id`` is the countered spell's controller, ``spell`` its name.
+    SPELL_COUNTERED = "SPELL_COUNTERED"
     LAND_PLAYED = "LAND_PLAYED"
     #: RULE 702.28c: a card was cycled (its Cycling cost paid, discarding
     #: it — `ActivationCost.is_cycling` distinguishes this from Channel's

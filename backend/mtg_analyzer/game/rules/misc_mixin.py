@@ -4570,7 +4570,9 @@ class MiscSystemsMixin:
                         continue
                 return True
         return False
-    def counter_spell(self, target: Any, suspend_time_counters: Optional[int] = None) -> None:
+    def counter_spell(
+        self, target: Any, suspend_time_counters: Optional[int] = None, countered_by: Optional[str] = None,
+    ) -> None:
         """Remove a spell (a `StackItem` or its game object) from the stack.
 
         A countered spell goes to its owner's graveyard (RULE 701.5g) and
@@ -4606,6 +4608,10 @@ class MiscSystemsMixin:
         self.state.fire_event(
             GameEvent(EventType.SPELL_RESOLVED, spell=item.description, countered=True)
         )
+        self.state.fire_event(GameEvent(
+            EventType.SPELL_COUNTERED, player_id=countered_by, controller_id=countered_by, spell=item.description,
+            spell_controller_id=getattr(item.obj, "controller_id", None),
+        ))
     def bounce_spell_or_permanent(self, target: Any) -> None:
         """"Return target spell or nonland permanent … to its owner's
         hand." (Sink into Stupor-shaped) — the RULE 701.3-onto-the-stack
@@ -4733,8 +4739,9 @@ class MiscSystemsMixin:
         obj = item.obj
         if self._is_cant_be_countered(obj):
             return
+        countered_by = getattr(source, "controller_id", None)
         if not unless_pays:
-            self.counter_spell(target, suspend_time_counters=suspend_time_counters)
+            self.counter_spell(target, suspend_time_counters=suspend_time_counters, countered_by=countered_by)
             return
         cost = ManaCost.parse(unless_pays)
         if cost.has_variable:
@@ -4743,7 +4750,7 @@ class MiscSystemsMixin:
         if controller is None or not controller.mana_pool.can_pay(
             cost, life_available=controller.life
         ):
-            self.counter_spell(target, suspend_time_counters=suspend_time_counters)
+            self.counter_spell(target, suspend_time_counters=suspend_time_counters, countered_by=countered_by)
             if tap_lands_empty_pool_if_unpaid and controller is not None:
                 self._tap_lands_and_empty_pool(controller)  # couldn't pay = "doesn't"
             return
@@ -4801,7 +4808,10 @@ class MiscSystemsMixin:
             if on_pay_specs:
                 self._apply_effect_specs(on_pay_specs, on_pay_source)
             return
-        self.counter_spell(target, suspend_time_counters=suspend_time_counters)
+        self.counter_spell(
+            target, suspend_time_counters=suspend_time_counters,
+            countered_by=getattr(on_pay_source, "controller_id", None),
+        )
         if tap_penalty and penalised_player is not None:
             self._tap_lands_and_empty_pool(penalised_player)  # Power Sink: "if that player doesn't"
     def _tap_lands_and_empty_pool(self, player: Player) -> None:

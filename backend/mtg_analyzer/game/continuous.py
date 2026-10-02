@@ -3654,6 +3654,12 @@ def cost_reduction_for(
         # (Advanced Reconstruction level 3, PAR-60) — the spell's own
         # cast-origin flags; ``obj is None`` (offer-time probe) leaves the
         # discount available so affordability isn't understated.
+        # "Spells you cast from your graveyard cost {2} less to cast." (Emet-Selch): the card is still in the
+        # graveyard while its cost is computed (the offer-time probe included).
+        if ability.params.get("from_graveyard") and (
+            obj is None or getattr(getattr(obj, "zone", None), "value", None) != "graveyard"
+        ):
+            continue
         if ability.params.get("not_from_hand") and obj is not None and not (
             getattr(obj, "cast_from_exile", False)
             or getattr(obj, "cast_via_flashback", False)
