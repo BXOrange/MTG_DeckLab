@@ -193,3 +193,35 @@ def test_kodama_of_the_west_tree_modified_creatures_trample_and_fetch_a_basic_on
         engine.resolve_until_stable()
     lands = [o for o in engine.state.battlefield if o.is_land]
     assert len(lands) == lands_before + 1 and lands[-1].tapped
+
+
+def _icy_blast_game(my_power):
+    from mtg_analyzer.config import DB_PATH
+    from mtg_analyzer.game.game_engine import GameEngine
+    from mtg_analyzer.services.card_database import CardDatabase
+
+    card = CardDatabase(DB_PATH).get_card("Icy Blast")
+    engine = GameEngine.new_game([("p1", "A", [card]), ("p2", "B", [])], starting_hand=1, starting_life=20)
+    for obj in engine.state.players[0].hand:
+        bind_from_catalogue(obj)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    p1 = engine.state.player_by_id("p1")
+    battlefield_object(engine, "p1", "My Beast", "Creature — Beast", is_creature=True, power=my_power, toughness=my_power)
+    victims = [
+        battlefield_object(engine, "p2", f"Victim {i}", "Creature — Bear", is_creature=True, power=2, toughness=2)
+        for i in range(2)
+    ]
+    engine.recompute_continuous_effects()
+    p1.mana_pool.add_many({"U": 1, "C": 2})  # {X}{U}, X = 2
+    engine.cast_spell(p1, p1.hand[0], targets=victims, x=2)
+    engine.resolve_until_stable()
+    return victims
+
+
+def test_icy_blast_taps_x_creatures_and_freezes_them_only_with_ferocious():
+    ferocious = _icy_blast_game(my_power=4)
+    assert all(v.tapped and v.skip_next_untap for v in ferocious)
+
+    plain = _icy_blast_game(my_power=3)
+    assert all(v.tapped and not v.skip_next_untap for v in plain)

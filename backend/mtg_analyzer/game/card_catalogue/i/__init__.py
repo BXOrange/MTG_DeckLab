@@ -1,4 +1,5 @@
 """Hand-authored card entries whose name starts with 'i' (see game/card_registry for the registration mechanism: `register`/`register_family`/`specs_for`)."""
+from . import icy_blast  # noqa: F401
 from . import ifnir_deadlands  # noqa: F401
 from . import ikra_shidiqi_the_usurper  # noqa: F401
 from . import immolation_shaman  # noqa: F401
