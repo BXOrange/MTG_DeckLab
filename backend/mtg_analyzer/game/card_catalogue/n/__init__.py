@@ -25,6 +25,7 @@ from . import nine_lives  # noqa: F401
 from . import nissa_ascended_animist  # noqa: F401
 from . import nissa_steward_of_elements  # noqa: F401
 from . import nissa_vital_force  # noqa: F401
+from . import nissa_who_shakes_the_world  # noqa: F401
 from . import noble_heritage  # noqa: F401
 from . import notion_thief  # noqa: F401
 from . import noxious_revival  # noqa: F401

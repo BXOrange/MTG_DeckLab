@@ -328,3 +328,60 @@ def test_nissa_ascended_animist_minus_seven_pumps_creatures_by_my_forests_and_gi
     activate(-7)
     assert (mine.power, mine.toughness) == (5, 5) and "trample" in mine.granted_keywords  # 3 Forests, not the Island
     assert (theirs.power, theirs.toughness) == (2, 2) and "trample" not in theirs.granted_keywords
+
+
+def _nissa_shakes_game(loyalty):
+    card = CardDatabase(DB_PATH).get_card("Nissa, Who Shakes the World")
+    engine, p1, p2 = _game()
+    nissa = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    nissa.controller_id = "p1"
+    bind_from_catalogue(nissa)
+    engine.state.add_to_battlefield(nissa)
+    nissa.counters["loyalty"] = loyalty
+
+    def activate(amount, **kwargs):
+        index = next(
+            i for i, a in enumerate(nissa.activated_abilities)
+            if getattr(getattr(a, "cost", None), "loyalty", None) == amount
+        )
+        engine.activate_ability(p1, nissa, index, **kwargs)
+        engine.resolve_until_stable()
+        while engine.state.pending_choice:
+            options = [o for o in engine.state.pending_choice["options"] if o["id"] != "decline"]
+            if not options:
+                break
+            engine.resolve_pending_choice(options[0]["id"])
+            engine.resolve_until_stable()
+        engine.recompute_continuous_effects()
+
+    return engine, p1, nissa, activate
+
+
+def test_nissa_who_shakes_the_world_taps_forests_for_double_and_animates_a_land_for_good():
+    engine, p1, nissa, activate = _nissa_shakes_game(loyalty=5)
+    forest = battlefield_object(engine, "p1", "Forest", "Basic Land — Forest", is_land=True)
+    forest.summoning_sick = False
+    engine.tap_for_mana(p1, forest)
+    assert p1.mana_pool.pool.get("G", 0) == 2  # the Forest's own {G} plus the additional one
+    forest.tapped = True
+
+    activate(1, targets=[forest])
+    assert not forest.tapped and nissa.counters["loyalty"] == 6
+    assert forest.counters.get("+1/+1") == 3
+    assert forest.is_creature and forest.is_land
+    assert (forest.power, forest.toughness) == (3, 3)  # a 0/0 with three counters
+    assert {"vigilance", "haste"} <= set(forest.granted_keywords)
+
+
+def test_nissa_who_shakes_the_world_minus_eight_fetches_every_forest_tapped():
+    engine, p1, nissa, activate = _nissa_shakes_game(loyalty=8)
+    forest_card = CardDatabase(DB_PATH).get_card("Forest")
+    for _ in range(3):
+        p1.library.append(GameObject(forest_card, owner_id="p1", zone=Zone.LIBRARY))
+    p1.library.append(GameObject(Card(id="Isl", name="Island", type_line="Basic Land — Island", is_land=True),
+                                 owner_id="p1", zone=Zone.LIBRARY))
+    activate(-8)
+    forests = [o for o in engine.state.battlefield if o.name == "Forest"]
+    assert len(forests) == 3 and all(f.tapped for f in forests)
+    assert all(o.name != "Island" for o in engine.state.battlefield)
+    assert nissa not in engine.state.battlefield  # 8 -> 0 loyalty
