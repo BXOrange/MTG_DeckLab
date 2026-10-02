@@ -10,6 +10,8 @@ from . import garruk_s_uprising  # noqa: F401
 from . import gauntlets_of_chaos  # noqa: F401
 from . import geistwave  # noqa: F401
 from . import generous_gift  # noqa: F401
+from . import genesis_hydra  # noqa: F401
+from . import genesis_wave  # noqa: F401
 from . import ghost_quarter  # noqa: F401
 from . import ghostfire_slice  # noqa: F401
 from . import ghostly_flicker  # noqa: F401
