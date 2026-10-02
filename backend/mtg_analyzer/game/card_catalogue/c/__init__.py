@@ -76,6 +76,7 @@ from . import crib_swap  # noqa: F401
 from . import cruel_alliance  # noqa: F401
 from . import crypt_ghast  # noqa: F401
 from . import crypt_incursion  # noqa: F401
+from . import crystal_shard  # noqa: F401
 from . import culling_ritual  # noqa: F401
 from . import cultural_exchange  # noqa: F401
 from . import currency_converter  # noqa: F401

@@ -255,3 +255,39 @@ def test_wick_makes_a_snail_when_there_is_none_and_feeds_it_when_another_rat_ent
     )
     _resolve_all(engine)
     assert snail.counters.get("+1/+1", 0) == 1  # a non-Rat entering does nothing
+
+
+def _crystal_shard_game(opponent_can_pay):
+    card = CardDatabase(DB_PATH).get_card("Crystal Shard")
+    engine, p1 = _game()
+    shard = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    shard.controller_id = "p1"
+    bind_from_catalogue(shard)
+    shard.summoning_sick = False
+    engine.state.add_to_battlefield(shard)
+    victim = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    p2 = engine.state.player_by_id("p2")
+    if opponent_can_pay:
+        p2.mana_pool.add_many({"C": 1})
+    p1.mana_pool.add_many({"U": 1})
+    engine.state.current_step = "main1"
+    index = next(
+        i for i, a in enumerate(shard.activated_abilities)
+        if "U" in str(getattr(getattr(a, "cost", None), "mana", ""))
+    )
+    engine.activate_ability(p1, shard, index, targets=[victim])
+    engine.resolve_until_stable()
+    return engine, p2, victim, shard
+
+
+def test_crystal_shard_bounces_a_creature_unless_its_controller_pays_one():
+    engine, p2, victim, shard = _crystal_shard_game(opponent_can_pay=False)
+    assert victim not in engine.state.battlefield and victim in p2.hand  # could not pay: bounced
+    assert shard.tapped
+
+    engine, p2, victim, shard = _crystal_shard_game(opponent_can_pay=True)
+    choice = engine.state.pending_choice
+    assert choice is not None  # the controller is asked whether to pay {1}
+    engine.resolve_pending_choice("pay" if any(o["id"] == "pay" for o in choice["options"]) else choice["options"][0]["id"])
+    engine.resolve_until_stable()
+    assert victim in engine.state.battlefield  # paid: stays
