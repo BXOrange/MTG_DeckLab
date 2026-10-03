@@ -37,3 +37,7 @@ from . import humility  # noqa: F401
 from . import hunted_by_the_family  # noqa: F401
 from . import hydroelectric_specimen  # noqa: F401
 from . import hydroid_krasis  # noqa: F401
+
+from . import hazels_brewmaster
+
+from . import hazel_of_the_rootbloom

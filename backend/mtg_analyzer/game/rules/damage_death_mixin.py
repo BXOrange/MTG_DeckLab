@@ -952,6 +952,10 @@ class DamageDeathMixin:
         owner = self.state.player_by_id(obj.owner_id)
         self._remove_from_current_zone(owner, obj)
         obj.reset_as_new_object()
+        # RULE 712.8: the back face must be present before entry triggers
+        # inspect characteristics and continuous effects are applied.
+        if transformed and destination in ("battlefield", "battlefield_tapped"):
+            self.transform_permanent(obj)
         if controller_id is not None and destination in ("battlefield", "battlefield_tapped"):
             obj.controller_id = controller_id
             self._put_searched_card(self.state.player_by_id(controller_id), obj, destination)
@@ -964,8 +968,6 @@ class DamageDeathMixin:
             # followed by a return at all).
             obj.controller_id = owner.id
             self._put_searched_card(owner, obj, destination)
-        if transformed and destination in ("battlefield", "battlefield_tapped"):
-            self.transform_permanent(obj)
     def return_dies_as_new_permanent(
         self,
         obj: GameObject,

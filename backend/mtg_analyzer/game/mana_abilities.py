@@ -577,7 +577,7 @@ def _selector_from_subject(subject: str, card_name: Optional[str] = None) -> Opt
 #: mana ability shape (Springjack Pasture). Mirrored by the segmenter's
 #: `_MANA_ABILITY_X_SUPPORTED_RE` (the parser can't import `game/`).
 _ADD_X_ANY_ONE_COLOR_RE = re.compile(
-    r"add x mana of any (?:one|1) colou?r\.?(?:\s*you gain x life\.?)?", re.IGNORECASE
+    r"add x mana (?:of any (?:one|1) colou?r|in any combination of colou?rs)\.?(?:\s*you gain x life\.?)?", re.IGNORECASE
 )
 #: A Station tier line, "12+ | {G}, {T}: Add {G}{G}." (RULE 702.184).
 _STATION_TIER_RE = re.compile(r"^(?P<n>\d+)\+\s*\|\s*(?P<body>.+)$")
@@ -1017,6 +1017,7 @@ def _parse_mana_ability_lines(
                 options=[{color: 1} for color in _ALL_COLORS],
                 x_scaled=True,
                 gain_life_x="gain x life" in effect_text.lower(),
+                any_combination="any combination" in effect_text.lower(),
             ))
             continue
         add_match = _ADD_CLAUSE_RE.search(effect_text)
@@ -1284,7 +1285,7 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
             ManaAbility(cost=u["cost"], options=[dict(opt) for opt in u["options"]])
             for u in upgrades
         ]
-    return printed + granted + derived_basic
+    return printed + granted + list(getattr(obj, "_borrowed_mana_abilities", [])) + derived_basic
 
 
 def _cost_shape(cost: ActivationCost) -> ActivationCost:

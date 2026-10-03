@@ -122,3 +122,14 @@ from . import sygg_river_cutthroat  # noqa: F401
 from . import sylvan_library  # noqa: F401
 from . import syphon_mind  # noqa: F401
 from . import szarel_genesis_shepherd  # noqa: F401
+
+from . import swarmyard
+
+
+from . import skyfisher_spider
+
+from . import saw_in_half
+
+from . import sword_of_the_squeak
+
+from . import swarmyard_massacre

@@ -72,3 +72,7 @@ from . import mutiny  # noqa: F401
 from . import mycoloth  # noqa: F401
 from . import mystic_remora  # noqa: F401
 from . import mystic_sanctuary  # noqa: F401
+
+from . import maelstrom_pulse
+
+from . import maskwood_nexus

@@ -54,3 +54,7 @@ from . import guardian_project  # noqa: F401
 from . import guardian_scalelord  # noqa: F401
 from . import guardian_sunmare  # noqa: F401
 from . import gyome_master_chef  # noqa: F401
+
+from . import gourmands_talent
+
+from . import garruk_cursed_huntsman

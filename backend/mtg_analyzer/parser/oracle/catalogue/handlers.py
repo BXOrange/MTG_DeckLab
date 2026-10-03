@@ -18341,6 +18341,15 @@ HANDLERS: list[EffectHandler] = [
         ),
         _add_counters_selector,
     ),
+    # Garruk's Wolf token carries this printed death-trigger body (RULE 111.3).
+    EffectHandler(
+        "add_loyalty_counter_garruk_group",
+        _c(r"put a loyalty counter on each garruk you control"),
+        lambda m: [EffectSpec("add_counters", {
+            "kind": "loyalty", "count": 1,
+            "group": {"zone": "battlefield", "of": "you", "filter": {"card_type": "planeswalker", "subtype": "Garruk"}},
+        })],
+    ),
     EffectHandler("add_pt_counter_group", _ADD_PT_COUNTER_GROUP_RE, _add_counter_group),
     # "target creature gets +1/+0 until end of turn and can't be blocked
     # this turn" (You Come to a River-shaped) — tried before the plain

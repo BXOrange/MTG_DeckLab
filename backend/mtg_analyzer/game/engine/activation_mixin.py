@@ -43,6 +43,7 @@ from ..costs import (
     REMOVE_COUNTERS_X,
     RETURN_SELF_TO_HAND,
     SACRIFICE_COUNT_X,
+    TAP_OTHERS_X,
     SACRIFICE_ENCHANTED,
     ActivationCost,
     parse_activation_cost,
@@ -344,6 +345,10 @@ class ActivationMixin:
             # ENG-49: "Sacrifice X lands" — X can't exceed what there is to give up.
             sacrifice_bound = len(self._sacrifice_count_pool(player, cost.sacrifice_count[1], source))
             bound = sacrifice_bound if bound is None else min(bound, sacrifice_bound)
+        if cost.tap_others and cost.tap_others[0] == TAP_OTHERS_X:
+            tap_bound = len([obj for obj in self._tap_others_pool(player, source, cost.tap_others[1])
+                             if not (cost.taps_self and obj is source)])
+            bound = tap_bound if bound is None else min(bound, tap_bound)
         return bound if bound is not None else 0
     @staticmethod
     def _activation_mana_with_x(cost: "ActivationCost", x: int) -> "ManaCost":
@@ -603,7 +608,8 @@ class ActivationMixin:
                 return False
         if cost.tap_others:
             count, subtype = cost.tap_others
-            if self._resolve_tap_others(player, source, count, subtype, tap_choices) is None:
+            count = x if count == TAP_OTHERS_X else count
+            if self._resolve_tap_others(player, source, count, subtype, tap_choices, exclude_source=cost.taps_self) is None:
                 return False
         if cost.crew_power:
             if self._resolve_crew_cost(player, source, cost.crew_power, tap_choices) is None:
@@ -686,9 +692,10 @@ class ActivationMixin:
         picks exactly ``count`` of them (RULE 602.1's cost *choice*, not an
         engine auto-pick; see `_resolve_tap_others`)."""
         count, subtype = cost.tap_others
-        pool = self._tap_others_pool(player, source, subtype)
+        pool = [obj for obj in self._tap_others_pool(player, source, subtype)
+                if not (cost.taps_self and obj is source)]
         return {
-            "count": count,
+            "count": "x" if count == TAP_OTHERS_X else count,
             "options": [{"instance_id": o.instance_id, "name": o.name} for o in pool],
         }
     def _resolve_tap_others(
@@ -698,6 +705,7 @@ class ActivationMixin:
         count: int,
         subtype: str,
         chosen_ids: Optional[list[Any]],
+        *, exclude_source: bool = False,
     ) -> Optional[list[GameObject]]:
         """The permanents to actually tap for a `tap_others` cost.
 
@@ -708,7 +716,8 @@ class ActivationMixin:
         non-interactive callers (tests, the goldfish auto-player). See
         `_resolve_pool_cost` for the shared "choose N from a pool" logic.
         """
-        pool = self._tap_others_pool(player, source, subtype)
+        pool = [obj for obj in self._tap_others_pool(player, source, subtype)
+                if not (exclude_source and obj is source)]
         return self._resolve_pool_cost(pool, count, chosen_ids)
     def _crew_pool(self, player: Player, source: GameObject) -> list[GameObject]:
         """Every untapped creature ``player`` controls other than ``source``
@@ -1228,7 +1237,8 @@ class ActivationMixin:
             self.rules.set_tapped(source, False)
         if cost.tap_others:
             count, subtype = cost.tap_others
-            for obj in self._resolve_tap_others(player, source, count, subtype, tap_choices) or []:
+            count = x if count == TAP_OTHERS_X else count
+            for obj in self._resolve_tap_others(player, source, count, subtype, tap_choices, exclude_source=cost.taps_self) or []:
                 self.rules.set_tapped(obj, True)
         if cost.crew_power:
             # RULE 702.122b: a creature "crews" a Vehicle exactly when

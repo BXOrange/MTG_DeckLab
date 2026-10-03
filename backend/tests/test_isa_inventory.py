@@ -248,7 +248,11 @@ class TestBacklogSizes:
         # MEC-108 adds the enter-choice `choose_enter_counter` ("enters with your
         # choice of a flying counter or …", an `enter_choice_effects` sibling), 82 -> 83.
         n = len(isa.types_classified(isa.Classification.CONTINUATION))
-        assert n <= 83, f"continuation types grew to {n}"
+        # Squirreled Away adds five resolution adapters (83 -> 88): conditional
+        # death copies, mill/recover/bonus, graveyard-paid repetition and
+        # sacrifice-or-discard. They delegate to existing replacement and
+        # choose_objects/optional frames; no new answer protocol is introduced.
+        assert n <= 88, f"continuation types grew to {n}"
 
     def test_fusion_backlog_does_not_grow(self) -> None:
         # ENG-37 deletes these outright.

@@ -77,6 +77,7 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 
 from . import durations, static_conditions, variants
 from .costs import parse_activation_cost
+from .creature_types import CREATURE_SUBTYPES
 from .effects.core import (
     ActivatedAbility, ConditionalEffect, EffectRegistry, ReplacementEffect,
     ReplacementRegistry, StaticAbility, TriggeredAbility,
@@ -111,7 +112,7 @@ def _has_subtype(obj: "GameObject", subtype: str) -> bool:
     A case-insensitive match against the printed type line's subtype portion —
     the same substring approach the tutor's `card_query` uses ("Goblin" matches
     "Creature — Goblin Warrior"). Changeling (RULE 702.73) is every creature
-    type, so it matches any subtype.
+    type, so it matches every subtype in the CR creature-type list.
 
     A layer-4 "type overwrite" static (RULE 613.5 — `_derived_subtypes`,
     e.g. Blood Moon's "Nonbasic lands are Mountains") takes priority when
@@ -129,11 +130,11 @@ def _has_subtype(obj: "GameObject", subtype: str) -> bool:
     override = getattr(obj, "_derived_subtypes", None)
     if override is not None:
         words = {s.lower() for s in override}
-        return subtype.lower() in words or ALL_CREATURE_TYPES in words
+        return subtype.lower() in words or (ALL_CREATURE_TYPES in words and subtype.lower().replace("’", "'") in CREATURE_SUBTYPES)
     added = getattr(obj, "_added_subtypes", None)
     # PAR-109: "equipped creature … is every creature type" (Amorphous Axe, Runed Stalactite) adds the
     # `ALL_CREATURE_TYPES` marker — a changeling, granted rather than printed (RULE 702.73a).
-    if added and (subtype.lower() in {s.lower() for s in added} or ALL_CREATURE_TYPES in {s.lower() for s in added}):
+    if added and (subtype.lower() in {s.lower() for s in added} or (ALL_CREATURE_TYPES in {s.lower() for s in added} and subtype.lower().replace("’", "'") in CREATURE_SUBTYPES)):
         # RULE 613.4a: a layer-4 "~ is the chosen type in addition to its
         # other types" grant (`add_subtypes`/`add_subtypes_from_source`,
         # Adaptive Automaton/A-Thran Portal-shaped) — additive, unlike
@@ -141,7 +142,8 @@ def _has_subtype(obj: "GameObject", subtype: str) -> bool:
         return True
     type_line = obj.card.type_line.lower()
     if "changeling" in type_line or "changeling" in obj.intrinsic_keywords:
-        return True
+        if subtype.lower().replace("’", "'") in CREATURE_SUBTYPES:
+            return True
     _, _, sub = type_line.partition("—")  # subtypes follow the em dash
     return subtype.lower() in sub
 
@@ -154,13 +156,19 @@ def derived_subtype_words(obj: "GameObject") -> frozenset[str]:
     """``obj``'s *current* subtypes, lowercased — the printed ones plus any a layer-4 effect added (or, under a
     RULE 613.5 overwrite, only those). The last-known-information snapshot a leaves-the-battlefield event carries
     (RULE 603.10a/608.2h): "…if it wasn't a Demon" must see a Demon the layer engine made it, not just the type
-    line. Changeling is not expanded — a snapshot names words, it does not match them."""
+    line. Changeling expands to RULE 205.3m creature types, never artifact/land types."""
     override = getattr(obj, "_derived_subtypes", None)
     if override is not None:
-        return frozenset(str(s).lower() for s in override)
-    _, _, printed = str(getattr(getattr(obj, "card", None), "type_line", "") or "").partition("—")
-    added = getattr(obj, "_added_subtypes", None) or ()
-    return frozenset({*printed.lower().split(), *(str(s).lower() for s in added)})
+        words = {str(s).lower() for s in override}
+        changeling = ALL_CREATURE_TYPES in words
+    else:
+        _, _, printed = str(getattr(getattr(obj, "card", None), "type_line", "") or "").partition("—")
+        added = getattr(obj, "_added_subtypes", None) or ()
+        words = { *printed.lower().split(), *(str(s).lower() for s in added) }
+        changeling = ALL_CREATURE_TYPES in words or "changeling" in obj.intrinsic_keywords
+    if changeling:
+        words.update(CREATURE_SUBTYPES)
+    return frozenset(words)
 
 
 def has_subtype(obj: "GameObject", subtype: str) -> bool:
@@ -3158,6 +3166,11 @@ def _apply_layer_7_pt(
                 base[obj.instance_id] = [new_p, new_t]
                 _trace(obj, 7, _source_name(ability), f"set to {new_p}/{new_t}", new_p, new_t)
 
+    # Base P/T includes layer 7a/7b, before counters and modifiers (RULE 613.4).
+    for obj in state.battlefield:
+        if obj.instance_id in base:
+            obj._base_power, obj._base_toughness = base[obj.instance_id]
+
     # 7c: counters (RULE 613.7 counters sublayer / 122).
     for obj in state.battlefield:
         if obj.instance_id in base:
@@ -3445,6 +3458,12 @@ def _apply_borrowed_activated_abilities(state: "GameState", abilities: list) -> 
                     # since an exiled card can't also be the battlefield
                     # grantee at the same time.
                     continue
+                # RULE 605.1: mana abilities are activated abilities too.
+                # Preserve their entire cost/production definition and evaluate
+                # self-references against the grantee when it is activated.
+                from copy import deepcopy
+                from .mana_abilities import parse_mana_abilities
+                obj._borrowed_mana_abilities.extend(deepcopy(parse_mana_abilities(donor.card)))
                 for idx, base in enumerate(donor.activated_abilities):
                     if exclude_loyalty and base.cost is not None and base.cost.is_loyalty:
                         continue

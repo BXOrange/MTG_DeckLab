@@ -59,3 +59,5 @@ from . import puca_s_covenant  # noqa: F401
 from . import puppeteer_clique  # noqa: F401
 from . import pure_intentions  # noqa: F401
 from . import pyrohemia  # noqa: F401
+
+from . import plaguecrafter

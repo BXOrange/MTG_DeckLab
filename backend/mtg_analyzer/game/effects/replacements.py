@@ -972,10 +972,37 @@ def _double_tokens_replacement(params: dict[str, Any]) -> ReplacementEffect:
         amount = int(event.get("amount", 0) or 0)
         if amount <= 0:
             return event
-        return event.copy_with(amount=amount * multiplier)
+        return event.copy_with(
+            amount=amount * multiplier,
+            additional_tokens=[{**batch, "amount": batch["amount"] * multiplier}
+                               for batch in event.get("additional_tokens", [])],
+        )
 
     effect.replacement_fn = replace
     effect.condition = _applies  # RULE 616.1e — see _prevent_damage_replacement
+    return effect
+
+
+def _additional_creature_tokens_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """RULE 614/616: add one creature token for each token in this creation.
+
+    Keep the batch in the original event so later doublers apply once to all
+    tokens, and an earlier doubler's increased amount is counted correctly.
+    """
+    effect = ReplacementEffect(EventType.CREATE_TOKENS, lambda event, context: event)
+
+    def applies(event, context):
+        return (effect.source is not None
+                and event.get("controller_id") == effect.source.controller_id
+                and event.get("amount", 0) > 0)
+
+    def replace(event, context):
+        batches = list(event.get("additional_tokens", []))
+        count = event.get("amount", 0) + sum(batch["amount"] for batch in batches)
+        batches.append({"amount": count, "definition": dict(params)})
+        return event.copy_with(additional_tokens=batches)
+
+    effect.condition, effect.replacement_fn = applies, replace
     return effect
 
 
@@ -1345,6 +1372,7 @@ ReplacementRegistry.register("gain_life_replacement", _gain_life_replacement)
 ReplacementRegistry.register("die_to_exile", _die_to_exile_replacement)
 ReplacementRegistry.register("draw_exile_face_up", _draw_exile_face_up_replacement)
 ReplacementRegistry.register("double_tokens", _double_tokens_replacement)
+ReplacementRegistry.register("additional_creature_tokens", _additional_creature_tokens_replacement)
 ReplacementRegistry.register("create_one_of_each_named_token", _create_one_of_each_named_token_replacement)
 ReplacementRegistry.register("additional_named_token", _additional_named_token_replacement)
 ReplacementRegistry.register("win_instead_of_empty_draw", _win_instead_of_empty_draw_replacement)

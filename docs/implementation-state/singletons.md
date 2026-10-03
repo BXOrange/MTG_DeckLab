@@ -1,6 +1,6 @@
 # Singleton queue
 
-**Current queue (2026-10-03, PARSER_VERSION 591): 626 distinct cards remain UNMODELED in 627 rows.** Rechecked every listed card against the local 35,095-card cache using `parse_oracle` and `card_registry.is_registered` (MODELED or AUTHORED counts as covered); removed 223 covered rows, refreshed Batch 2 gap cells and recomputed its deck counts. The Alora row contains two cards. This is the remaining singleton queue, not the full unmodeled card pool; singleton/cluster membership has not been re-audited in this refresh.
+**Current queue (2026-10-03, PARSER_VERSION 594): 607 distinct cards remain UNMODELED in 608 rows.** The Squirreled Away batch removed 19 covered rows after the PARSER_VERSION 591 queue audit. Rechecked every listed card against the local 35,095-card cache using `parse_oracle` and `card_registry.is_registered` (MODELED or AUTHORED counts as covered); removed 223 covered rows, refreshed Batch 2 gap cells and recomputed its deck counts. The Alora row contains two cards. This is the remaining singleton queue, not the full unmodeled card pool; singleton/cluster membership has not been re-audited in this refresh.
 
 Cards found, during backlog triage, to be genuinely one-of-a-kind: each
 was checked with `parser_probe.py blocked` against a regex over its own
@@ -367,7 +367,7 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Witch's Clinic | `<cost>, <cost>: target commander gains lifelink until end of turn.` |  |
 
 
-### Eternal Might - Aetherdrift Commander (18 cards)
+### Eternal Might - Aetherdrift Commander (17 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
@@ -381,7 +381,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Gempalm Polluter | `when you cycle this card, you may have target player lose life equal to the number of zombies on the battlefield.` |  |
 | Lord of the Accursed | `<cost>, <cost>: all zombies gain menace until end of turn.` |  |
 | Lost Monarch of Ifnir | Compound gap — `at the beginning of your second main phase, if a player was dealt combat damage by a zombie this turn, mill <n> cards, then you may return a creature card from your graveyard to your hand.`; `other zombies you control have afflict <n>.` |  |
-| Maskwood Nexus | `creatures you control are every creature type. the same is true for creature spells you control and creature cards you own that aren't on the battlefield.` | Also uncovered in: Squirreled Away - Bloomburrow Commander |
 | On Wings of Gold | `creatures you control that are zombies and/or tokens get +<n>/+<n> and have flying.` |  |
 | Priest of the Crossing | `at the beginning of each end step, put x +<n>/+<n> counters on each creature you control, where x is the number of creatures that died under your control this turn.` |  |
 | Prophet of the Scarab | `when <name> enters, draw cards equal to the number of zombies you control or the number of zombie cards in your graveyard, whichever is greater.` | Also uncovered in: Commander Cube |
@@ -553,12 +552,11 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Triplicate Titan | `when <name> dies, create a <n>/<n> colorless golem artifact creature token with flying, a <n>/<n> colorless golem artifact creature token with vigilance, and a <n>/<n> colorless golem artifact creature token with trample.` |  |
 
 
-### Mardu Surge - Tarkir: Dragonstorm Commander (18 cards)
+### Mardu Surge - Tarkir: Dragonstorm Commander (17 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
 | Bone Devourer | `<name> enters with a number of +<n>/+<n> counters on it equal to the number of creatures that died this turn.` |  |
-| Chittering Witch | `when <name> enters, create a number of <n>/<n> black rat creature tokens equal to the number of opponents you have.` | Also uncovered in: Squirreled Away - Bloomburrow Commander |
 | Commander's Insignia | `creatures you control get +<n>/+<n> for each time you've cast your commander from the command zone this game.` |  |
 | Divine Visitation | `if <n> or more creature tokens would be created under your control, that many <n>/<n> white angel creature tokens with flying and vigilance are created instead.` |  |
 | Eliminate the Competition | `as an additional cost to cast this spell, sacrifice x creatures.` |  |
@@ -746,29 +744,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-
-
-### Squirreled Away - Bloomburrow Commander (17 cards)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Cache Grab | `mill <n> cards. you may put a permanent card from among the cards milled this way into your hand. if you control a squirrel or returned a squirrel card to your hand this way, create a food token.` |  |
-| Chatterfang, Squirrel General | Compound gap — `<cost>, sacrifice x squirrels: target creature gets +x/-x until end of turn.`; `if <n> or more tokens would be created under your control, those tokens plus that many <n>/<n> green squirrel creature tokens are created instead.` |  |
-| Chitterspitter | `squirrels you control get +<n>/+<n> for each acorn counter on <name>.` |  |
-| Garruk, Cursed Huntsman | `<n>: create <n> <n>/<n> black and green wolf creature tokens with <name>` |  |
-| Gourmand's Talent | `during your turn, artifacts you control are foods in addition to their other types and have <name>` |  |
-| Hazel of the Rootbloom | `at the beginning of your end step, create a token that's a copy of target token you control. if that token is a squirrel, instead create <n> tokens that are copies of it.` |  |
-| Hazel's Brewmaster | `foods you control have all activated abilities of all creature cards exiled with <name>.` |  |
-| Insatiable Frugivore | Compound gap — `<cost>, sacrifice x foods: creatures you control get +x/+<n> and gain menace until end of turn.`; `when <name> enters, create a food token, then you may exile <n> cards from your graveyard. if you do, repeat this process.` |  |
-| Maelstrom Pulse | `destroy target nonland permanent and all other permanents with the same name as that permanent.` |  |
-| Nested Shambler | `when <name> dies, create x tapped <n>/<n> green squirrel creature tokens, where x is <name>'s power.` |  |
-| Plaguecrafter | `when <name> enters, each player sacrifices a creature or planeswalker of their choice. each player who can't discards a card.` |  |
-| Saw in Half | `destroy target creature. if that creature dies this way, its controller creates <n> tokens that are copies of that creature, except their power is half that creature's power and their toughness is half that creature's toughness. round up each time.` |  |
-| Skyfisher Spider | `when <name> dies, you may gain <n> life for each creature card in your graveyard. if you do, exile this card from your graveyard.` |  |
-| Swarmyard | `<cost>: regenerate target insect, rat, spider, or squirrel.` |  |
-| Swarmyard Massacre | `create <n> <n>/<n> green squirrel creature tokens. then each creature that isn't an insect, rat, spider, or squirrel gets -<n>/-<n> until end of turn for each creature you control that's an insect, rat, spider, or squirrel.` |  |
-| Sword of the Squeak | Compound gap — `equipped creature gets +<n>/+<n> for each creature you control with base power or toughness <n>.`; `whenever a hamster, mouse, rat, or squirrel you control enters, you may attach <name> to that creature.` |  |
-| The Odd Acorn Gang | `squirrels you control have <name>` |  |
 
 
 ### Sultai Arisen - Tarkir: Dragonstorm Commander (13 cards)

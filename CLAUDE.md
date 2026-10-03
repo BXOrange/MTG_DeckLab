@@ -447,6 +447,10 @@ fully `MODELED` (never half-resolving). The front-end has **no `game/` imports**
 - `continuous.py` — the **RULE 613 layer engine**. `recompute(state)` re-derives
   every battlefield permanent's characteristics in layer order and stamps
   derived P/T, types, granted keywords + a per-object `static_trace`.
+  All-creature-type grants expand only the CR creature subtypes; entry triggers see
+  derived types. Base-P/T filters read layer-7b values before counters.
+  Squirreled Away is fully modeled (85/85); see the Deck/Cube Playability Batches
+  in `docs/implementation-state/Done_Backend.md` for reusable engine support.
 - `costs.py` — regex parser for **activated-ability costs** (`Cost: Effect`).
 - `card_registry/` — card→`AbilitySpec` registry mechanism (bind-on-load
   source, née `ability_catalogue/`): `core.py`'s `register`/`specs_for`

@@ -741,7 +741,7 @@ def _build_group_ok(
     controller_id = getattr(source, "controller_id", None)
     subject_key = _subject_event_key(trigger)
     type_word = condition.get("type")
-    subtypes = condition.get("subtypes")
+    subtypes = [str(s).lower() for s in condition.get("subtypes") or []]
     nontoken = bool(condition.get("nontoken"))
     # "a creature **token** you control deals combat damage to a player"
     # (Curiosity Crafter) — the positive mirror of ``nontoken`` (RULE 111.9).

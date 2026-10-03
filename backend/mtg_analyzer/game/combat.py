@@ -626,7 +626,7 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         "shares_creature_type_with_reference",
         # RULE 707.2 base power: "with base power 0" (Primo) and "with power
         # greater than its base power" (Kutzil).
-        "base_power", "power_gt_base",
+        "base_power", "base_toughness", "power_gt_base",
         # PAR-109: "creatures you control that are enchanted/equipped" — a permanent is enchanted/equipped
         # while an Aura/Equipment is attached to it; needs ``state`` (a scan of the battlefield).
         "enchanted", "equipped",
@@ -679,7 +679,16 @@ def matches_object_filter(
     # is the printed/copied value (`Card.power`, RULE 707.2), not the derived
     # `obj.power` (counters and static boosts).
     base_power = filt.get("base_power")
-    if base_power is not None and int(getattr(obj.card, "power", 0) or 0) != base_power:
+    actual_base_power = getattr(obj, "_base_power", None)
+    if actual_base_power is None:
+        actual_base_power = int(getattr(obj.card, "power", 0) or 0)
+    if base_power is not None and actual_base_power != base_power:
+        return False
+    base_toughness = filt.get("base_toughness")
+    actual_base_toughness = getattr(obj, "_base_toughness", None)
+    if actual_base_toughness is None:
+        actual_base_toughness = int(getattr(obj.card, "toughness", 0) or 0)
+    if base_toughness is not None and actual_base_toughness != base_toughness:
         return False
     if filt.get("power_gt_base") and not (
         (obj.power or 0) > int(getattr(obj.card, "power", 0) or 0)

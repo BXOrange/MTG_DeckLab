@@ -912,6 +912,8 @@ class GameObject:
         #: recompute runs, in which case they supersede the printed values;
         #: they fold in counters too, so an on-battlefield permanent reads its
         #: whole layer stack here. `reset_derived` clears them before a pass.
+        self._base_power: Optional[int] = None
+        self._base_toughness: Optional[int] = None
         self._derived_power: Optional[int] = None
         self._derived_toughness: Optional[int] = None
         self._granted_keywords: set[str] = set()
@@ -1095,6 +1097,7 @@ class GameObject:
         #: Full layer-6 mana grants whose restriction or colour-split mode
         #: cannot be represented by the legacy options-only list above.
         self._granted_mana_abilities: list[dict[str, Any]] = []
+        self._borrowed_mana_abilities: list[Any] = []
         #: MEC-25 sibling of `_granted_mana` above for a granted mana
         #: ability whose cost isn't a bare ``{T}`` — see
         #: `granted_mana_ability_upgrades`. Reset each recompute.
@@ -1325,6 +1328,8 @@ class GameObject:
 
     def reset_derived(self) -> None:
         """Clear layer-engine output before a fresh `continuous.recompute`."""
+        self._base_power = None
+        self._base_toughness = None
         self._derived_power = None
         self._derived_toughness = None
         self._granted_keywords = set()
@@ -1339,6 +1344,7 @@ class GameObject:
         self._loses_all_abilities = False
         self._granted_mana = []
         self._granted_mana_abilities = []
+        self._borrowed_mana_abilities = []
         self._granted_mana_upgrades = []
         self._granted_triggered_abilities = []
         self._granted_activated_abilities = []

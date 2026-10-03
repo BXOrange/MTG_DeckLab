@@ -2338,7 +2338,7 @@ export function createGameBoardView(opts = {}) {
     root.querySelectorAll('[data-tap-x]').forEach((el) => {
       el.addEventListener('click', () => {
         const { iid, ability_index, option_index } = JSON.parse(el.dataset.tapX);
-        act({ type: 'tap_for_mana', instance_id: iid, ability_index, option_index, x: readX(iid, null) });
+        submitManaActivation({ type: 'tap_for_mana', instance_id: iid, ability_index, option_index, x: readX(iid, null) });
       });
     });
 
@@ -2417,7 +2417,9 @@ export function createGameBoardView(opts = {}) {
     // it here avoids a round-trip for the common "forgot to fill it in" slip).
     root.querySelectorAll('.gf-mana-split').forEach((container) => {
       container.querySelector('[data-split-confirm]')?.addEventListener('click', () => {
-        const total = Number(container.dataset.splitTotal);
+        const info = JSON.parse(container.dataset.splitAction);
+        const x = container.dataset.splitTotal === 'x' ? readX(info.instance_id, null) : null;
+        const total = x ?? Number(container.dataset.splitTotal);
         const split = {};
         let sum = 0;
         container.querySelectorAll('[data-split-color]').forEach((inp) => {
@@ -2430,8 +2432,9 @@ export function createGameBoardView(opts = {}) {
           render();
           return;
         }
-        const info = JSON.parse(container.dataset.splitAction);
-        act({ ...info, color_split: split });
+        const send = { ...info, color_split: split, ...(x !== null ? { x } : {}) };
+        if (info.type === 'tap_for_mana') submitManaActivation(send);
+        else act(send);
       });
     });
 
@@ -2532,6 +2535,23 @@ export function createGameBoardView(opts = {}) {
   // on a bare instance_id.
   function xKey(instanceId, face) {
     return face ? `${instanceId}:${face}` : String(instanceId);
+  }
+
+  function submitManaActivation(send) {
+    const action = (view?.legal_actions || []).find(
+      (a) => a.type === send.type && a.instance_id === send.instance_id && a.ability_index === send.ability_index,
+    );
+    if (!action?.tap_cost) { act(send); return; }
+    const count = action.tap_cost.count === 'x' ? send.x : action.tap_cost.count;
+    castTargeting = {
+      instanceId: send.instance_id,
+      requirements: Array.from({ length: count }, () => ({
+        label: 'zu tappende bleibende Karte', options: action.tap_cost.options, optional: false,
+      })),
+      reqIndex: 0, targets: [], x: send.x || 0, send,
+      excludePicked: true, isTapChoice: true,
+    };
+    finishCastIfReady();
   }
 
   function readX(instanceId, face) {
@@ -3431,6 +3451,7 @@ export function createGameBoardView(opts = {}) {
               ${colorButtons}
             </div>
           `);
+          if (a.any_combination) buttons.push(colorSplitHtml(a, 'tap_for_mana'));
           continue;
         }
         for (const opt of optsList) {
@@ -3536,19 +3557,22 @@ export function createGameBoardView(opts = {}) {
   // already do; a bare "any combination of colours" (Flamebraider/Selvala)
   // still lists all five, since its own `options` already does too.
   function colorSplitHtml(a, kind) {
+    const total = a.has_x ? 'x' : a.combination_total;
+    const max = a.has_x ? a.max_x : a.combination_total;
+    const label = a.has_x ? 'X' : a.combination_total;
     const colors = (a.options || [])
       .map((opt) => Object.keys(opt.mana || {})[0])
       .filter(Boolean);
     const inputs = colors
       .map(
         (c) =>
-          `<label class="gf-split-color" title="${c}">${MANA_SYMBOL_EMOJI[c]}<input type="number" min="0" max="${a.combination_total}" value="0" data-split-color="${c}" /></label>`
+          `<label class="gf-split-color" title="${c}">${MANA_SYMBOL_EMOJI[c]}<input type="number" min="0" max="${max}" value="0" data-split-color="${c}" /></label>`
       )
       .join('');
     const actionInfo = JSON.stringify({ type: kind, instance_id: a.instance_id, ability_index: a.ability_index });
     return `
-      <div class="gf-mana-split" data-split-total="${a.combination_total}" data-split-action='${escapeAttr(actionInfo)}'>
-        <span class="gf-split-hint">Farbkombination (${a.combination_total}):</span>
+      <div class="gf-mana-split" data-split-total="${total}" data-split-action='${escapeAttr(actionInfo)}'>
+        <span class="gf-split-hint">Farbkombination (${label}):</span>
         ${inputs}
         <button type="button" class="gf-card-action" data-split-confirm>${t('bd.split.generate')}</button>
       </div>`;

@@ -97,6 +97,8 @@ PAY_LIFE_COMMANDER_COLORS = -3
 #: sacrifice cost component instead of a mana `{X}`/counter-removal one.
 #: Threaded through the same `x` param `activate_ability` already carries.
 SACRIFICE_COUNT_X = -1
+#: Announced X for "Tap X untapped tokens you control" (Hazel).
+TAP_OTHERS_X = -1
 
 
 def _word_to_int(word: str) -> int:
@@ -712,7 +714,7 @@ class ActivationCost:
             parts.append(f"Blight {self.blight}")
         if self.tap_others:
             count, subtype = self.tap_others
-            parts.append(f"Tap {count} untapped {_permanent_phrase(subtype)}(s) you control")
+            parts.append(f"Tap {'X' if count == TAP_OTHERS_X else count} untapped {_permanent_phrase(subtype)}(s) you control")
         if self.sacrifice_count:
             count, subtype = self.sacrifice_count
             parts.append(f"Sacrifice {count} {_permanent_phrase(subtype)}(s)")
@@ -1188,7 +1190,7 @@ def _parse_text(text: str) -> ActivationCost:
     tap_others = hits.get("tap_others")
     if tap_others:
         amount = tap_others.group("n").lower()
-        count = _word_to_int(amount)
+        count = TAP_OTHERS_X if amount == "x" else _word_to_int(amount)
         kind = _permanent_word(
             "other" if amount == "another" else None, tap_others.group("qual"),
             tap_others.group("kw"), _singularize(tap_others.group("type").lower()),

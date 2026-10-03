@@ -145,7 +145,7 @@ class ManaMixin:
         if not ability.options:
             raise ValueError(f"{source.name}'s mana ability produces nothing")
         if ability.any_combination and color_split is not None:
-            total = sum(ability.options[0].values())
+            total = sum(ability.options[0].values()) * (x if ability.x_scaled else 1)
             # `ability.options` already carries only the printed colour
             # subset (one option per allowed colour — Vivi Ornitier's own
             # {U}/{R}, not full WUBRG), so the same list both offers the
@@ -160,7 +160,7 @@ class ManaMixin:
             player, source, cost, x=x, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice,
             is_mana_ability=True,
         )
-        if ability.x_scaled:
+        if ability.x_scaled and not (ability.any_combination and color_split is not None):
             # ENG-51: "Add X mana of any one color" — the chosen colour, X times.
             produced = {color: amount * x for color, amount in produced.items()}
             if ability.gain_life_x and x:

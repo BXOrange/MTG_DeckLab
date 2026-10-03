@@ -4533,6 +4533,13 @@ Not ticketed (PLAY-ALL Step 1). The plan called it "cycles through `register_fam
 
 ## Deck/Cube Playability Batches
 
+### Squirreled Away — Bloomburrow Commander (85/85 unique cards)
+
+The saved deck is fully modeled: 19 explicit card factories close the previous 66/85 coverage. Behavioral tests live in `backend/tests/game/catalogue/cards/test_squirreled_away_deck.py`.
+
+Reusable support includes additional token batches under replacement effects (Chatterfang with token doublers), death-dependent half-sized copies, optional recovery of milled permanents, repeated exact-three graveyard exile payments, borrowed mana abilities, and variable tap costs with mixed-color mana selection. Base power/toughness filters use layer-7b values; all-creature-type grants use the Comprehensive Rules creature-type list and apply before entry-trigger predicates. Garruk's Wolf loyalty trigger is parsed with PARSER_VERSION 594.
+
+
 ### cEDH staples cube (Batches 13, 14, 25 and 26)
 
 - **What:** Five subagent waves (2 generic-parser, 3 hand-authored) raised the 611-card "cEDH staples"/"cEDH staples 2" cube pool from 185 to 271 playable cards, combining…

@@ -3884,7 +3884,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: 592: PAR-100 active-player phase bodies, plural additional draws, other-player
 #: scopes, optional draw/tax, hand-to-library ordering and draw/life prohibitions.
 # MEC-110: Empower Jace, including quantities bound by the shared X grammar.
-PARSER_VERSION = "593"
+PARSER_VERSION = "594"
 
 
 def parser_source_hash() -> str:

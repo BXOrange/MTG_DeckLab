@@ -89,3 +89,13 @@ from . import curse_of_the_swine  # noqa: F401
 from . import cursed_mirror  # noqa: F401
 from . import cyberdrive_awakener  # noqa: F401
 from . import cyclonic_rift  # noqa: F401
+
+from . import chittering_witch
+
+from . import chitterspitter
+
+
+
+from . import chatterfang_squirrel_general
+
+from . import cache_grab

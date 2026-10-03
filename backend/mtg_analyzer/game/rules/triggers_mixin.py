@@ -127,10 +127,8 @@ def _creature_type_options(state: GameState, controller_id: Optional[str]) -> li
     choose a creature type" pick.
 
     RAW technically lets a player name *any* creature type, including one no
-    card in the game has — an unbounded, ~300-entry vocabulary this engine
-    has no canonical list of (unlike a scoped tribal-lord subtype match,
-    which just substring-tests against whatever's actually printed,
-    `continuous._has_subtype`). Offering every official type as a button
+    card in the game has — the vocabulary in `creature_types.CREATURE_SUBTYPES`.
+    Offering every official type as a button
     isn't a real UI, so this instead offers every creature subtype among
     cards ``controller_id`` actually has anywhere in the game (battlefield,
     hand, library, graveyard, exile, command) — the practically relevant
@@ -203,6 +201,13 @@ class TriggerCollectionMixin:
             self.pending_triggers.append(firing)
 
     def _collect_triggers(self, event: GameEvent) -> None:
+        if event.type == EventType.ENTERS_BATTLEFIELD:
+            # RULE 603.6a: continuous effects apply before entry triggers
+            # inspect the entrant (Maskwood Nexus changes its creature types).
+            entrant = self.state.find_object(event.get("instance_id"))
+            if entrant is not None and entrant in self.state.battlefield:
+                continuous.recompute(self.state)
+                event.data["subtypes"] = sorted(continuous.derived_subtype_words(entrant))
         if continuous.trigger_suppressed(self.state, event):
             # RULE 603: "Creatures entering don't cause abilities to
             # trigger." (Tocatli Honor Guard/Hushwing Gryff/Torpor Orb) —

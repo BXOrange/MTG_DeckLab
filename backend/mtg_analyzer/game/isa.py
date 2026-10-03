@@ -453,6 +453,7 @@ _INSTRUCTION_TYPES: dict[str, str] = {
 #: effect` dominates for the same reason: every "gains <keyword> until end
 #: of turn" grant is one operation with a different keyword operand.
 _ALIAS_TYPES: dict[str, str] = {
+    "destroy_same_name": "destroy",
     "add_counters_to_trigger_damaged_player": "put_counter",
     "add_player_counters": "put_counter",
     # Garnet, Princess of Alexandria's own +1/+1 payoff tail (PAR-67) — a
@@ -744,6 +745,11 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
 #: backlog.** Value is the CR rule the choice comes from, so the sweep can
 #: be checked against the rules rather than against a naming convention.
 _CONTINUATION_TYPES: dict[str, str] = {
+    "destroy_and_half_copies": "616",
+    "mill_recover_permanent_subtype_bonus": "601.2b",
+    "repeat_food_exile_process": "118.3",
+    "exile_graveyard_then_repeat_food": "118.3",
+    "sacrifice_permanent_or_discard": "701.17",
     "all_players_decline_or": "118.3",
     "attach_chosen": "601.2b",
     "cascade": "702.85",

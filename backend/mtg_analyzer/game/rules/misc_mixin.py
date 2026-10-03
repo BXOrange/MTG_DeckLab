@@ -1800,6 +1800,7 @@ class MiscSystemsMixin:
         count: int = 1,
         zone: Zone = Zone.BATTLEFIELD,
         on_created: Optional[Callable[[list[GameObject]], None]] = None,
+        _creation_replacements_applied: bool = False,
     ) -> list[GameObject]:
         """Create ``count`` tokens under ``controller_id`` (RULE 111.5).
 
@@ -1911,7 +1912,7 @@ class MiscSystemsMixin:
             _next(max(0, final_count))
             return created
 
-        if zone != Zone.BATTLEFIELD or count <= 0:
+        if zone != Zone.BATTLEFIELD or count <= 0 or _creation_replacements_applied:
             return _build(count)
 
         event = GameEvent(
@@ -1931,6 +1932,18 @@ class MiscSystemsMixin:
             if resolved is None:
                 return
             result = _build(resolved.get("amount", count))
+            for batch in resolved.get("additional_tokens", []):
+                from ...services.token_database import synthesize_token_card
+                definition = batch["definition"]
+                extra_card = synthesize_token_card(
+                    name=definition.get("token_name", "Creature"), power=definition.get("power", 1),
+                    toughness=definition.get("toughness", 1), colors=definition.get("colors", []),
+                    subtypes=definition.get("subtypes", []), keywords=definition.get("keywords", []),
+                )
+                result.extend(self.create_token(
+                    controller_id, extra_card, batch["amount"],
+                    _creation_replacements_applied=True,
+                ))
             # "The first time you create one or more tokens each turn, …"
             # (Mirrormind Crown) — same missing broadcast `add_counters`
             # had: `apply_replacements` only used this event to compute the
