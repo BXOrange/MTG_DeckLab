@@ -2869,6 +2869,7 @@ EffectRegistry.register(
     "amass",  # RULE 701.48 "Amass <Type> N" (Orcish Bowmasters, MEC-42)
     lambda p: AmassEffect(subtype=p.get("subtype", "Zombies"), count=int(p.get("count", 1))),
 )
+EffectRegistry.register("empower_jace", lambda p: EmpowerJaceEffect(count=p.get("count", 1)))
 EffectRegistry.register(
     "copy_permanent",  # "Create a token that's a copy of target creature" (RULE 707)
     lambda p: CopyPermanentEffect(

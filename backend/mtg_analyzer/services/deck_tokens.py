@@ -45,7 +45,11 @@ def producible_tokens(cards: list[Card]) -> list[Card]:
     seen: dict[str, Card] = {}
     for card in _unique_by_id(cards):
         for params in _create_token_params(card, specs_for):
-            token = _resolve_token(params, catalogue, synthesize_token_card)
+            if params.get("empower_jace"):
+                from mtg_analyzer.services.token_database import jace_token_card
+                token = jace_token_card()
+            else:
+                token = _resolve_token(params, catalogue, synthesize_token_card)
             if token is not None and token.id not in seen:
                 seen[token.id] = token
     return list(seen.values())
@@ -72,7 +76,22 @@ def _create_token_params(card: Card, specs_for: Any) -> list[dict[str, Any]]:
         for effect in getattr(spec, "effects", []) or []:
             if getattr(effect, "type", None) == "create_token":
                 out.append(dict(getattr(effect, "params", {}) or {}))
+            elif getattr(effect, "type", None) == "empower_jace" or _contains_empower(
+                getattr(effect, "params", {})
+            ):
+                out.append({"empower_jace": True})
     return out
+
+
+def _contains_empower(node: Any) -> bool:
+    """Empower inside a bind/branch still produces the same Jace token."""
+    if isinstance(node, dict):
+        return node.get("type") == "empower_jace" or any(
+            _contains_empower(value) for value in node.values()
+        )
+    if isinstance(node, (list, tuple)):
+        return any(_contains_empower(value) for value in node)
+    return False
 
 
 def _resolve_token(

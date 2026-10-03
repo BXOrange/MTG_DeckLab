@@ -1842,6 +1842,55 @@ class CastingResolutionMixin:
         that produced it (RULE 608.2m/608.3) — `resolve_top_of_stack`'s body,
         split out only so that method can wrap it in the
         `GameContext.trigger_event` window."""
+        # RULE 608.2b: an untargeted rider (including Empower Jace) must
+        # not run when every announced target of the whole item is illegal.
+        from ..targeting import effects_target_specs, partition_targets
+        body = item.effects
+        if len(body) == 1 and hasattr(body[0], "effects"):
+            body = body[0].effects
+        specs = effects_target_specs(body)
+        groups = item.target_groups or partition_targets(specs, item.targets)
+        checks = zip(specs, groups) if groups is not None else (
+            (spec, item.targets or []) for spec in specs
+        )
+
+        def still_in_target_zone(spec, target):
+            # Stack targets are StackItems, unlike battlefield/graveyard
+            # targets. A zone move cannot leave an untargeted rider alive.
+            if isinstance(target, StackItem):
+                return target in self.state.stack
+            if isinstance(target, Player):
+                return target in self.state.living_players()
+            if isinstance(target, GameObject):
+                if "graveyard" in spec.kind:
+                    return target.zone == Zone.GRAVEYARD and any(
+                        target in player.graveyard for player in self.state.players
+                    )
+                if spec.kind in {"spell", "spell_you_control", "spell_you_dont_control", "spell_or_ability"} or (
+                    "spell" in spec.kind and target.zone == Zone.STACK
+                ):
+                    return any(entry.obj is target for entry in self.state.stack)
+                return target.zone == Zone.BATTLEFIELD and target in self.state.battlefield
+            return True
+
+        if item.targets and specs and not any(
+            still_in_target_zone(spec, target) for spec, group in checks for target in group
+        ):
+            if item.kind == "spell" and item.obj is not None:
+                obj = item.obj
+                if obj.cast_via_flashback:
+                    obj.cast_via_flashback = False
+                    self.exile(obj)
+                else:
+                    if obj.adventure_snapshot is not None:
+                        snapshot = obj.adventure_snapshot
+                        obj.adventure_snapshot = None
+                        self.restore_face(obj, snapshot)
+                    self.state.player_by_id(obj.owner_id).add_to_zone(obj, Zone.GRAVEYARD)
+                    self._flag_commander_zone_choice(obj)
+            self.check_state_based_actions()
+            return item
+
         if (
             item.kind == "spell" and item.obj is not None
             and item.obj.gift_promised and not self.is_permanent_spell(item.obj.card)

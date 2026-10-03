@@ -3883,7 +3883,8 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (Centaur Vinecrasher) -> entry-counters condition ``land_cards_in_graveyards``.
 #: 592: PAR-100 active-player phase bodies, plural additional draws, other-player
 #: scopes, optional draw/tax, hand-to-library ordering and draw/life prohibitions.
-PARSER_VERSION = "592"
+# MEC-110: Empower Jace, including quantities bound by the shared X grammar.
+PARSER_VERSION = "593"
 
 
 def parser_source_hash() -> str:

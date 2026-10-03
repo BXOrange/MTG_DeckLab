@@ -190,6 +190,7 @@ export default [
               ['full', 'Verkümmern / blight N (Bloomburrow) — N −1/−1-Marken auf eine eigene Kreatur (nur die eigenständige Verbform; Kostenform offen)'],
               ['full', 'Ausharren / endure N (701.63) — modal: N +1/+1-Marken auf das Permanent oder ein N/N weißer Geist-Token'],
               ['full', 'Rekrutieren / recruit (701.70) — Karte ziehen, dann abwerfen; bei Nichtland-Abwurf ein 1/1 weißer Mensch-Soldat-Token'],
+              ['full', 'Empower Jace (701.71) — Loyalitätsmarken auf einen eigenen Jace-Planeswalker-Token; erstellt bei Bedarf einen blauen Token mit −1: Surveil 1 und −3: Karte ziehen; Auswahl bei mehreren Tokens'],
               ['full', 'pump (+N/+N bis Zugende)'],
               ['partial', 'Alchemy „perpetually gets +N/+N / gains <Keyword>“ (dauerhaft) — übersteht jeden Zonenwechsel, erreicht Karten in Hand/Bibliothek/Friedhof, wird auf Kopien übertragen (gewährte Fähigkeiten in Anführungszeichen, Typänderungen und „wähle eine Karte in deiner Hand“ noch offen)'],
               ['full', 'Kampfwerte einer Kreatur verdoppeln / verdreifachen (701.10/701.11) — pro Kreatur, liest die aktuellen eigenen Werte; einzelnes Ziel, „jede Kreatur, die du kontrollierst" oder ein zurückverwiesenes Ziel'],
@@ -431,8 +432,8 @@ export default [
             items: [
               ['full', 'Rückgängig / Neustart / Rewind'],
               ['full', 'Passiver Gegner ("Goldfisch") als Ziel für Angriffe/Schaden — bewusst passiv (Zweck ist das Testen ohne Gegenwehr); echte agierende Bots (GoldfishBot/GreedyBot) existieren separat für Multiplayer & die Dynamische Analyse'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (57,9 % · 20.287 / 35.046, PARSER_VERSION 592)'],
-              ['partial', 'Davon Commander-legal (60,9 % · 19.521 / 32.068) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (57,9 % · 20.305 / 35.046, PARSER_VERSION 593)'],
+              ['partial', 'Davon Commander-legal (60,9 % · 19.539 / 32.068) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],
               ['full', 'Unterbrochene Auflösung — mehrere Entscheidungen in einem Effekt (608.2)'],
             ],

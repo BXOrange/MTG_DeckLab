@@ -550,8 +550,10 @@ rules, not one:
 
 Measured with `scripts/commander_tail_report.py --min-cluster 5 --samples 3 --top-b 40` (Commander-legal
 32,116: 19,340 covered, 12,729 UNMODELED, 47 never-supported) plus `parser_probe.py card`/`blocked`/
-`composition` and `inspect-db` raw-store lookups. Nothing was changed; the follow-ups are PAR-145…PAR-149,
-MEC-110 and VIS-11 in `BACKLOG.md`. **Bucket labels are hypotheses, not causes** — two of the D labels were
+`composition` and `inspect-db` raw-store lookups. That measurement produced follow-ups PAR-145…PAR-149,
+MEC-110 and VIS-11. Empower Jace subsequently shipped at PARSER_VERSION 593 (+18 covered cards; see
+the MEC-110 entry in `Done_Backend.md` and VIS-11 in `Done_Frontend.md`).
+**Bucket labels are hypotheses, not causes** — two of the D labels were
 already stale, and the biggest B cluster was not a grammar cluster at all.
 
 | Bucket | Cards | Check status | Finding |

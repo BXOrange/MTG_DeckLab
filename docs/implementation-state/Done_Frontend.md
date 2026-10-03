@@ -166,6 +166,11 @@ repointed there.
 
 ## Goldfish Board Core
 
+### VIS-11: Created planeswalker tokens on shared boards
+
+- **What:** Jace tokens expose `is_planeswalker`, loyalty counters and both loyalty actions through the existing shared board path used by Goldfish, Replay, Solo and Multiplayer. The board already renders the loyalty badge and action buttons for tokens; no token-specific rendering branch is required. Engine-Status lists Empower Jace in both German and English.
+- **Validation:** `tests/test_empower_jace.py` verifies shared session payloads and legal actions, actual loyalty activation, and Replay export/import. Art uses the existing token-library and uploaded-token fallback in `gameBoardView.js`.
+
 ### Goldfisch mode wired to the real engine
 
 - **What:** The "Goldfisch" tab picks a saved deck (only a legal one enables Start), posts to `POST /api/game/goldfish`, and renders/drives the server's authoritative `GameState` via validated actions from `legal_actions`, plus Zurücknehmen (rewind) and Neu starten.

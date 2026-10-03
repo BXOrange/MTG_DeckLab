@@ -422,6 +422,56 @@ class RenownEffect(GameEffect):
         context.fire_event(GameEvent(EventType.RENOWNED, instance_id=self.source.instance_id))
 
 
+class EmpowerJaceEffect(GameEffect):
+    """RULE 701.71: create if absent, then choose a Jace planeswalker token.
+
+    This is untargeted. Token and counter replacements apply before SBAs.
+    """
+
+    def __init__(self, count: Any = 1, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.count = count
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..continuous import derived_subtype_words
+        from ...services.token_database import jace_token_card
+        from ..effect_amounts import amount_of
+
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        measure = {"kind": "x_paid", "of": "source"} if self.count == "x" else self.count
+        amount = max(0, amount_of(measure, context, self.source, targets or []))
+
+        def candidates():
+            return [o for o in context.state.battlefield
+                    if o.controller_id == player.id and o.is_token
+                    and "planeswalker" in o.type_words
+                    and "jace" in derived_subtype_words(o)]
+
+        def empower(made=None):
+            if made:
+                context.created_objects.extend(made)
+            previous = list(context.previous_targets)
+            try:
+                context.engine._request_choose_objects(
+                    player, candidates(), "select_referent", count=1, source=self.source,
+                    prompt="Choose a Jace planeswalker token to empower",
+                    then_specs=[{"type": "add_counters", "params": {
+                        "amount": amount, "kind": "loyalty", "previous_subject": True,
+                    }}],
+                )
+            finally:
+                # Empower does not announce a target or replace a prior
+                # clause's "it". A paused resolution preserves it in its frame.
+                context.previous_targets = previous
+
+        if candidates():
+            empower()
+        else:
+            context.engine.create_token(player.id, jace_token_card(), on_created=empower)
+
+
 class AmassEffect(GameEffect):
     """RULE 701.48 Amass `<Type>` N: "If you don't control an Army creature,
     create a 0/0 black Army `<Type>` creature token first. Put N +1/+1

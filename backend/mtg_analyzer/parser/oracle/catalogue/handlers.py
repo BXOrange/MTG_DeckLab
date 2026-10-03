@@ -15866,6 +15866,8 @@ HANDLERS: list[EffectHandler] = [
     # parses here first (the untyped row's bare NUMBER can never see it —
     # a type word isn't a digit — so the ordering is purely cosmetic).
     EffectHandler("amass", _AMASS_RE, _amass),
+    EffectHandler("empower_jace", _c(rf"empower jace {COUNT_X}"),
+                  lambda m: [EffectSpec("empower_jace", {"count": count_or_x_of(m.group("n"))})]),
     # RULE 701.47d's pre-errata bare "amass N" (no subtype) — see the
     # builder's own docstring; not expected to match any card in today's
     # already-errata'd cache.

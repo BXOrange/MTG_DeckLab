@@ -190,6 +190,7 @@ export default [
               ['full', 'Blight N (Bloomburrow) — N −1/−1 counters on a creature you control (verb form only; cost form open)'],
               ['full', 'Endure N (701.63) — modal: N +1/+1 counters on the permanent, or an N/N white Spirit token'],
               ['full', 'Recruit (701.70) — draw a card, then discard one; on discarding a non-land, a 1/1 white Human Soldier token'],
+              ['full', 'Empower Jace (701.71) — loyalty counters on a Jace planeswalker token you control; creates a blue token with −1: Surveil 1 and −3: Draw a card if needed; choose among multiple tokens'],
               ['full', 'pump (+N/+N until end of turn)'],
               ['partial', 'Alchemy "perpetually gets +N/+N / gains <keyword>" — survives every zone change, reaches cards in hand/library/graveyard, carried onto copies (granted quoted abilities, type changes and "choose a card in your hand" still open)'],
               ['full', 'Double / Triple a creature\'s power and toughness (701.10/701.11) — per-recipient, reads each creature\'s own current stats; single target, "each creature you control", or a back-referenced target'],
@@ -431,8 +432,8 @@ export default [
             items: [
               ['full', 'Undo / Restart / Rewind'],
               ['full', 'Passive opponent ("goldfish") as a target for attacks/damage — deliberately passive (the point is testing without resistance); real acting bots (GoldfishBot/GreedyBot) exist separately for multiplayer & the dynamic analysis'],
-              ['partial', 'Total oracle-parser coverage (57.9% · 20,287 / 35,046, PARSER_VERSION 592)'],
-              ['partial', 'Of which Commander-legal (60.9% · 19,521 / 32,068) — the subset relevant to Goldfish/Deck-Analyzer; remainder by cause in scripts/commander_tail_report.py'],
+              ['partial', 'Total oracle-parser coverage (57.9% · 20,305 / 35,046, PARSER_VERSION 593)'],
+              ['partial', 'Of which Commander-legal (60.9% · 19,539 / 32,068) — the subset relevant to Goldfish/Deck-Analyzer; remainder by cause in scripts/commander_tail_report.py'],
               ['full', 'Interactive choice instead of automation: which object to tap/sacrifice/return'],
               ['full', 'Interrupted resolution — several decisions in one effect (608.2)'],
             ],

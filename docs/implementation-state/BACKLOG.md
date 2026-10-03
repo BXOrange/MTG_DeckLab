@@ -131,12 +131,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   creature spell you cast with mana value 4 or greater has blitz" — Henzie "Toolbox" Torre; the perpetual grant of
   Riveteers Provocateur). The RULE 702 catalogue row is recognition only; add the engine primitive and its
   oracle-text handlers in one batch.
-- **MEC-110 · Empower Jace (Reality Fracture, `fra`).** "Empower Jace N" (put N loyalty counters on a Jace token
-  you control; with none, first create the blue Jace planeswalker token with `[−1]: Surveil 1` and `[−3]: Draw a
-  card`) — 34 cards pool-wide, 19 SOLO (`parser_probe.py blocked "empower jace"`, e.g. Arcane Amphisbaena, Campus
-  Crier, Academic Ascent). No ticket, Done entry or token data exists. Unchecked: whether the engine supports a
-  *created* planeswalker token with its own loyalty abilities. Engine primitive and oracle handlers in one batch;
-  risk is the "a Jace token you control" referent. The board side is VIS-11.
 
 ## PLR — Player management
 
@@ -159,11 +153,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 - **VIS-9 · Accessibility** — alt-text on cards, tab navigation,
   high-contrast mode. docs/05 PART 10.
 - **VIS-10 · Responsive/mobile layout** — only checked at desktop width.
-- **VIS-11 · Planeswalker tokens on the boards (for MEC-110).** Check, then fix, that a *created* planeswalker
-  token (the Jace token) shows its loyalty counters and offers its loyalty abilities on the goldfish, Replay,
-  Solo and Multiplayer boards (`gameBoardView.js`, `resolveImageUrl` for token art), and that the Engine-Status
-  tab (`implementationStatusView.js`, both locales) lists Empower once MEC-110 ships. Unchecked: whether tokens
-  take the same render path as printed planeswalkers.
 
 ## DB — Database
 

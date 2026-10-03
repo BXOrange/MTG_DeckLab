@@ -1799,6 +1799,7 @@ class MiscSystemsMixin:
         token_card: Card,
         count: int = 1,
         zone: Zone = Zone.BATTLEFIELD,
+        on_created: Optional[Callable[[list[GameObject]], None]] = None,
     ) -> list[GameObject]:
         """Create ``count`` tokens under ``controller_id`` (RULE 111.5).
 
@@ -1816,6 +1817,10 @@ class MiscSystemsMixin:
         never "enters the battlefield" at all, and (matching that: it was
         never really "created under a player's control" in the RULE 111.5
         sense either) isn't subject to token-doubling replacements below.
+
+        ``on_created`` continues a battlefield-token effect after creation
+        replacements finish, including an interactive RULE 616 order choice.
+        It runs before the next SBA pass (Empower Jace starts at zero loyalty).
 
         A battlefield-bound ``count`` is routed through `apply_replacements`
         first, so a "create twice that many instead" replacement (RULE
@@ -1931,6 +1936,9 @@ class MiscSystemsMixin:
             # had: `apply_replacements` only used this event to compute the
             # final amount, so nothing ever reached `_collect_triggers`.
             self.state.fire_event(resolved)
+
+            if on_created is not None:
+                on_created(result)
 
         self.apply_replacements(event, on_resolved=_finish)
         return result
@@ -3305,6 +3313,8 @@ class MiscSystemsMixin:
             # flipped and the branch resolved entirely inside
             # `_apply_chosen_object`.
             "remember_source_coinflip",
+            # Untargeted selection for a following effect (RULE 701.71).
+            "select_referent",
             # MEC-41 (Nissa, Steward of Elements' 0 ability — "Look at the
             # top card of your library. ... you may put that card onto the
             # battlefield."): a library-zone pick, unlike every other
@@ -3951,6 +3961,8 @@ class MiscSystemsMixin:
                 self.redirect_damage_from_source(
                     obj, recipient, redirect_shield.get("amount", "all"),
                 )
+        elif action == "select_referent":
+            self.context.previous_targets = [obj]
         elif action == "remember_source_coinflip":
             # Desperate Gambit, MEC-30: "Choose a source you control and
             # flip a coin. If you win the flip, ... double .... If you
