@@ -307,13 +307,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Tromell, Seymour's Butler | `<cost>, <cost>: proliferate x times, where x is the number of nontoken creatures you control that entered this turn.` |  |
 | Wakka, Devoted Guardian | `at the beginning of your end step, if a counter was put on <name> this turn, put a +<n>/+<n> counter on each other creature you control.` |  |
 
-
-### Counter Intelligence - Edge of Eternities Commander Deck (0 cards)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-
-
 ### Death Toll - Duskmourn: House of Horror Commander (18 cards)
 
 | Card | Gap | Notes |
@@ -410,13 +403,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Tetsuko Umezawa, Fugitive | `creatures you control with power or toughness <n> or less can't be blocked.` |  |
 | Zinnia, Valley's Voice | Compound gap — `<name> gets +x/+<n>, where x is the number of other creatures you control with base power <n>.`; `creature spells you cast gain offspring <cost> as you cast them.` |  |
 
-
-### Goblins (0 cards)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-
-
 ### Hope to the last (19 cards)
 
 | Card | Gap | Notes |
@@ -440,13 +426,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Starfield Shepherd | `when <name> enters, search your library for a basic plains card or a creature card with mana value <n> or less, reveal it, put it into your hand, then shuffle.` |  |
 | The Water Crystal | Compound gap — `<cost>, <cost>: each opponent mills cards equal to the number of cards in your hand.`; `if an opponent would mill <n> or more cards, they mill that many cards plus <n> instead.` |  |
 | Well of Lost Dreams | `whenever you gain life, you may pay <cost>, where x is less than or equal to the amount of life you gained. if you do, draw x cards.` |  |
-
-
-### Hydranten (0 cards)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-
 
 ### Jeskai Striker - Tarkir: Dragonstorm Commander (6 cards)
 
@@ -483,13 +462,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Thunderfoot Baloth | `as long as you control your commander, <name> gets +<n>/+<n> and other creatures you control get +<n>/+<n> and have trample.` |  |
 | Whisperwood Elemental | `sacrifice <name>: until end of turn, face-up nontoken creatures you control gain <name>` |  |
 | Yedora, Grave Gardener | `whenever another nontoken creature you control dies, you may return it to the battlefield face down under its owner's control. it's a forest land.` |  |
-
-
-### Kodama (0 cards)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-
 
 ### Limit Break - Final Fantasy Commander (31 cards)
 
@@ -636,12 +608,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Twenty-Toed Toad | Compound gap — `whenever <name> attacks, you win the game if there are twenty or more counters on it or you have twenty or more cards in hand.`; `your maximum hand size is twenty.` |  |
 
 
-### Raggadragga, Goreguts Boss (0 cards)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-
-
 ### Revival Trance - Final Fantasy Commander (23 cards)
 
 | Card | Gap | Notes |
@@ -739,13 +705,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | The Wanderer | `prevent all noncombat damage that would be dealt to you and other permanents you control.` |  |
 | Unwinding Clock | `untap all artifacts you control during each other player's untap step.` |  |
 
-
-### SpongeBob and the legendary Burger (0 cards)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-
-
 ### Sultai Arisen - Tarkir: Dragonstorm Commander (13 cards)
 
 | Card | Gap | Notes |
@@ -820,13 +779,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Shellshock | `for each opponent, choose up to <n> target creature that player controls. <name> deals x damage to each of those creatures. you create a mutagen token for each creature dealt damage this way.` |  |
 | Swift Demise | `<name> deals <n> damage to target creature. then destroy each creature you don't control that was dealt damage this turn.` |  |
 
-
-### Wick Snail Boom (0 cards)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-
-
 ### World Shaper - Edge of Eternities Commander Deck (3 cards)
 
 | Card | Gap | Notes |
@@ -834,13 +786,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Eumidian Wastewaker | `whenever <name> attacks, you and defending player each discard a card or sacrifice a permanent. you draw a card for each land card put into a graveyard this way.` |  |
 | Evendo Brushrazer | Compound gap — `during your turn, as long as you've sacrificed a nontoken permanent this turn, you may play cards exiled with <name>.`; `whenever you sacrifice a nontoken permanent, exile the top card of your library.` |  |
 | Exploration Broodship | `once during each of your turns, you may cast a permanent spell from your graveyard by sacrificing a land in addition to paying its other costs.` |  |
-
-
-### yshtola (0 cards)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-
 
 ## Batch 3 — 2026-09-21 re-evaluation of PAR-99…PAR-113 (PARSER_VERSION 447)
 
