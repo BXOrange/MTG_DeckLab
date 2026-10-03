@@ -2692,6 +2692,14 @@ def _trigger_condition(
             return t is not None and int(t) < n
         predicates.append(_dying_toughness_ok)
 
+    # "Whenever the **chosen player** casts a spell, …" (Sewer Nemesis): the event's acting player is the one picked as
+    # this permanent entered (`GameObject.chosen_player_id`), whoever that is.
+    if trigger.get("actor_is_chosen_player"):
+        def _actor_is_chosen_player(event: Any, context: Any, src=source) -> bool:
+            actor = event.get("player_id")
+            return actor is not None and actor == getattr(src, "chosen_player_id", None)
+        predicates.append(_actor_is_chosen_player)
+
     dying_had_counter = trigger.get("dying_had_counter")
     if dying_had_counter is not None:
         def _dying_had_counter_ok(event: Any, context: Any, kind=str(dying_had_counter)) -> bool:

@@ -176,3 +176,72 @@ def test_phyrexian_furnace_exiles_the_bottom_card_of_a_players_graveyard():
     engine.activate_ability(p1, furnace, 0, targets=[p2])
     engine.resolve_until_stable()
     assert cards[0].zone == Zone.EXILE and cards[1].zone == Zone.GRAVEYARD and cards[2].zone == Zone.GRAVEYARD
+
+
+def test_marchesa_loots_two_cards_for_one_mana_when_i_commit_a_crime():
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+
+    engine, p1, p2 = _game()
+    marchesa = GameObject(CardDatabase(DB_PATH).get_card("Marchesa, Dealer of Death"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    marchesa.controller_id = "p1"
+    bind_from_catalogue(marchesa)
+    engine.state.add_to_battlefield(marchesa)
+    p1.library.clear()
+    cards = {}
+    for name in ("Deep", "Second", "Top"):
+        cards[name] = GameObject(Card(id=name, name=name, type_line="Land"), owner_id="p1", zone=Zone.LIBRARY)
+        p1.library.append(cards[name])
+    p1.mana_pool.add_many({"C": 1})
+
+    engine.state.fire_event(GameEvent(EventType.CRIME_COMMITTED, player_id="p2", controller_id="p2"))
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert engine.state.pending_choice is None and not engine.state.stack  # an opponent's crime does nothing
+
+    engine.state.fire_event(GameEvent(EventType.CRIME_COMMITTED, player_id="p1", controller_id="p1"))
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert engine.state.pending_choice["kind"] == "pay_cost_then"
+    engine.resolve_pending_choice("pay")
+    engine.resolve_until_stable()
+    choice = engine.state.pending_choice
+    assert {o["label"] for o in choice["options"] if "instance_id" in o} == {"Top", "Second"}  # the top two cards
+    engine.resolve_pending_choice(next(o["id"] for o in choice["options"] if o.get("label") == "Second"))
+    engine.resolve_until_stable()
+    assert cards["Second"] in p1.hand and cards["Top"] in p1.graveyard and cards["Deep"] in p1.library
+
+
+def test_scholar_of_the_lost_trove_lets_me_cast_an_instant_sorcery_or_artifact_from_the_graveyard_for_free():
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+
+    engine, p1, p2 = _game()
+    scholar = GameObject(CardDatabase(DB_PATH).get_card("Scholar of the Lost Trove"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    scholar.controller_id = "p1"
+    bind_from_catalogue(scholar)
+    engine.state.add_to_battlefield(scholar)
+
+    def grave(name, type_line, cost, **flags):
+        obj = GameObject(
+            Card(id=name, name=name, type_line=type_line, mana_cost_string=cost, converted_mana_cost=3, **flags),
+            owner_id="p1", zone=Zone.GRAVEYARD,
+        )
+        p1.graveyard.append(obj)
+        return obj
+
+    spell = grave("Big Sorcery", "Sorcery", "{2}{R}", is_sorcery=True)
+    rock = grave("Heavy Rock", "Artifact", "{3}")
+    beast = grave("Beast", "Creature — Beast", "{2}{G}", is_creature=True, power=3, toughness=3)
+    engine.state.fire_event(GameEvent(
+        EventType.ENTERS_BATTLEFIELD, instance_id=scholar.instance_id, controller_id="p1", object_types=["creature"], player_id="p1",
+    ))
+    engine.rules.put_triggers_on_stack()
+    choice = engine.state.pending_choice
+    assert {o["label"] for o in choice["options"] if "instance_id" in o} == {"Big Sorcery", "Heavy Rock"}  # not the creature
+    engine.resolve_pending_choice(next(o["id"] for o in choice["options"] if o.get("label") == "Heavy Rock"))
+    engine.resolve_until_stable()
+
+    assert rock.instance_id in engine.state.temp_flashback_grants and spell.instance_id not in engine.state.temp_flashback_grants
+    assert engine.effective_cast_cost(p1, rock).converted_mana_cost == 0  # without paying its mana cost
+    engine.cast_spell(p1, rock)  # an empty mana pool
+    engine.resolve_until_stable()
+    assert rock.zone == Zone.BATTLEFIELD and beast.zone == Zone.GRAVEYARD

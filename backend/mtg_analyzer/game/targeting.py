@@ -63,6 +63,8 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     "non_aura_enchantment": lambda o: bool(o.card.is_enchantment)
     and "aura" not in o.card.type_line.lower(),
     "instant_or_sorcery": lambda o: bool(o.card.is_instant or o.card.is_sorcery),
+    # "target instant, sorcery, or artifact card from your graveyard" (Scholar of the Lost Trove).
+    "instant_sorcery_or_artifact": lambda o: bool(o.card.is_instant or o.card.is_sorcery or o.card.is_artifact),
     # "target **sorcery** card in your graveyard gains flashback…" (MEC-24,
     # Recoup) — the sorcery-only narrowing of the combined filter above.
     "sorcery": lambda o: bool(o.card.is_sorcery),
