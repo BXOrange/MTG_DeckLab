@@ -1381,6 +1381,7 @@ EffectRegistry.register(
         group=p.get("group"),
     ),
 )
+EffectRegistry.register("put_hand_on_bottom", lambda p: PutHandOnBottomEffect())
 EffectRegistry.register(
     # "Shuffle ~ into its owner's library." (Green Sun's Zenith); with
     # ``subject="attached_permanent"`` the Aura-host form (Watery Grasp).
@@ -4117,6 +4118,7 @@ EffectRegistry.register(
         spell_colors=p.get("spell_colors"),
         face_down=bool(p.get("face_down", False)),
         next_only=bool(p.get("next_only", False)),
+        increase=bool(p.get("increase", False)),
     ),
 )
 EffectRegistry.register(

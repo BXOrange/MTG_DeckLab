@@ -3497,6 +3497,42 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 
 ## Oracle-Text Parser Front-End
 
+### Player-scoped phase bodies and additional draws (PAR-100, PARSER_VERSION 592)
+
+"That player" in a phase-trigger body runs the shared second-person grammar as the active
+player (`trigger_subject_referent.acting="active_player"`), including linked instructions
+and optional choices; an explicit second player referent is refused. Deferred effect tails
+now preserve and restore `acting_player_id`. "Draw an / N additional cards" accepts fixed
+plural counts, and "each other player's" phase scope uses `phase_relation="not_you"`.
+
+The original eleven cards are fully parser-modeled: Academy Loremaster, Anvil of Bogardan,
+Dictate of Kruphix, Font of Mythos, Howling Mine, Kami of the Crescent Moon, Nekusar, Rites of
+Flourishing, Spiteful Visions, Teferi's Puzzle Box, and Mornsong Aria. Well of Ideas closes
+through the plural-count and other-player scope extensions. Howling Mine's intervening-if
+is checked both at trigger time and resolution. Academy Loremaster's optional body asks
+the active player and applies a turn-long spell tax (`reduce_spell_costs_this_turn.increase`)
+only on acceptance; the tax survives its source and expires at cleanup. Mornsong Aria reuses
+`draw_limit.max_per_turn=0`, `prevent_all_life_gain`, life loss, and the existing search.
+
+Puzzle Box uses `bind` to save hand size, `put_hand_on_bottom` (a `move_object` alias) to
+order the whole hand through the existing library-ordering chooser, and an ordinary draw
+of the saved count after that choice. Partner commanders' command-zone choices pause each
+move before the draw, using ordinary deferred effect tails. This also models Arjun and Mindmoil. Cache-wide probe:
+**20 newly covered, zero coverage regressions**; the other gains are Braids, Conjurer Adept,
+Collapsing Borders, Manic Scribe, Seizan, Perverter of Truth, Walking Archive, and Worry Beads.
+The related-card search found five fixed two-additional-card cases (Font, Curse of Obsession,
+Well of Ideas, Sylvan Library, Sarkhan's emblem), no larger fixed count in the cached pool.
+Curse's enchanted-player trigger head and Sarkhan's transformation/emblem remain separate
+unmodeled shapes; Sylvan Library already has a hand-authored implementation.
+
+Validation: `tests/test_par100_draw_steps.py` exercises three-player draw ownership,
+plural counts, Howling Mine's two condition checks, Anvil's active-player discard,
+Loremaster's accept/decline and tax lifecycle, Puzzle Box's ordering/paused draw, Mornsong's
+prohibitions/search, and full-cache parse/bind checks for all twelve cards. The full-cache
+backend suite passed 11,058 tests; its sole Windows-default-decoding failure in the existing
+PAR-119 source scanner passed when its module was rerun with `python -X utf8`. The 504
+focused phase/continuation/ISA/parser-lock tests also passed, including the twelve real cards.
+
 ### PAR-104: the Mutagen token and what the TMNT cards around it needed (PARSER_VERSION 576, +34, 0 regressed)
 
 - **The token:** a `data/tokens.json` entry ("{1}, {T}, Sacrifice this token: Put a +1/+1 counter on target creature. Activate only as a sorcery.", set `ttmt`, art from `token_art.json`) and `handlers._NAMED_TOKEN_WORDS["mutagen"]` — that alone unlocked ten ETB/attack/leave makers (Crustacean Commando, Michelangelo, Ray Fillet, Slithering Cryptid, Genghis Frog, Roadkill Rodney, Splinter, Zoo Escapees, Mona Lisa, Ooze Spill). Executed: the token is an artifact that can be sacrificed for a +1/+1 counter at sorcery speed only.

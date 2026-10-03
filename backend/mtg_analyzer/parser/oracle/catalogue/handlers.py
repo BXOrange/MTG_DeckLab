@@ -1901,10 +1901,26 @@ def _may_wheel(m: re.Match[str]) -> list[EffectSpec]:
     ]})]
 
 
-#: "draw an additional card" — a draw-step trigger's own bonus draw (Overbeing of Myth, Heightened
-#: Awareness, Monastery Siege). "Additional" only says it comes on top of the step's draw; the effect
-#: itself is one more ordinary draw. Fullmatched, so "… for each opponent who …" stays unclaimed.
-_DRAW_ADDITIONAL_RE = _c(r"draw an additional card")
+#: "draw an / N additional cards" — a draw-step trigger's bonus draw (Overbeing of Myth,
+#: Well of Ideas). "Additional" changes no draw semantics; N is an ordinary draw count.
+#: Fullmatched, so a trailing count qualifier must be handled by the composition grammar.
+_DRAW_ADDITIONAL_RE = _c(r"(?:you )?draw (?P<n>an|\d+) additional cards?")
+
+# RULE 401.4: preserve the pre-move hand size across the ordering choice.
+_HAND_BOTTOM_DRAW_RE = _c(
+    r"(?:you )?put the cards in your hand on the bottom of your library in any order, "
+    r"then draw that many cards"
+)
+
+
+def _hand_bottom_draw(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("bind", {
+        "name": "n", "amount": {"kind": "resource", "resource": "hand_size", "of": "you"},
+        "effects": [
+            EffectSpec("put_hand_on_bottom", {}).to_dict(),
+            EffectSpec("draw", {"count": "$n"}).to_dict(),
+        ],
+    })]
 
 
 #: "Target player draws N cards, then discards M cards." (Prismari Command /
@@ -11863,7 +11879,7 @@ _REDUCE_COSTS_COLORS = {"white": "W", "blue": "U", "black": "B", "red": "R", "gr
 _REDUCE_COSTS_THIS_TURN_RE = _c(
     r"(?P<next>the next )?(?P<types>instant or sorcery |instant and sorcery |face-down |)"
     r"spells? you cast this turn(?: that (?:is|are) (?P<c1>white|blue|black|red|green)"
-    r"(?: and/or (?P<c2>white|blue|black|red|green))?)? costs? \{(?P<n>\d+|x)\} less to cast"
+    r"(?: and/or (?P<c2>white|blue|black|red|green))?)? costs? \{(?P<n>\d+|x)\} (?P<direction>less|more) to cast"
     r"(?:, where x is (?P<x>.+?)(?: as this ability resolves)?)?"
 )
 
@@ -11872,6 +11888,8 @@ def _reduce_costs_this_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     from .count_phrase import parse_amount_phrase  # function-scoped, as elsewhere here
 
     params: dict[str, Any] = {"next_only": bool(m.group("next"))}
+    if m.group("direction") == "more":
+        params["increase"] = True
     types = m.group("types").strip()
     if types == "face-down":
         params["face_down"] = True
@@ -16368,10 +16386,11 @@ HANDLERS: list[EffectHandler] = [
     ),
     EffectHandler("wheel", _WHEEL_RE, _wheel),
     EffectHandler("may_wheel", _MAY_WHEEL_RE, _may_wheel),
+    EffectHandler("hand_bottom_draw", _HAND_BOTTOM_DRAW_RE, _hand_bottom_draw),
     EffectHandler(
         "draw_additional",
         _DRAW_ADDITIONAL_RE,
-        lambda m: [EffectSpec("draw", {"count": 1})],
+        lambda m: [EffectSpec("draw", {"count": count_of(m.group("n"))})],
     ),
     # "Target player draws N cards, then discards M cards." (Prismari
     # Command) — tried before the plain `draw` row, whose bare match would

@@ -1349,17 +1349,19 @@ class ReduceSpellCostsThisTurnEffect(GameEffect):
     601.2f) — a player-scoped discount in `GameState.turn_cost_reductions`,
     not a permanent's static, so it outlives its source for the turn. An X
     ("where X is … as this ability resolves") arrives already measured by
-    the enclosing `bind`."""
+    the enclosing `bind`. ``increase=True`` is the corresponding turn-long
+    tax (Academy Loremaster); both expire at cleanup and outlive their source."""
 
     def __init__(self, source: Optional["GameObject"] = None, amount: Any = 0,
                  spell_type: Any = None, spell_colors: Optional[list[str]] = None,
-                 face_down: bool = False, next_only: bool = False) -> None:
+                 face_down: bool = False, next_only: bool = False, increase: bool = False) -> None:
         super().__init__(source)
         self.amount = amount if isinstance(amount, int) and not isinstance(amount, bool) else 0
         self.spell_type = spell_type
         self.spell_colors = [str(c).upper() for c in (spell_colors or [])]
         self.face_down = bool(face_down)
         self.next_only = bool(next_only)
+        self.increase = bool(increase)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
@@ -1369,6 +1371,8 @@ class ReduceSpellCostsThisTurnEffect(GameEffect):
             "player_id": player.id, "amount": self.amount, "next_only": self.next_only,
             "source": getattr(self.source, "name", ""),
         }
+        if self.increase:
+            entry["increase"] = True
         if self.spell_type:
             entry["spell_type"] = self.spell_type
         if self.spell_colors:

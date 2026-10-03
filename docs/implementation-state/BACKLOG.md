@@ -72,11 +72,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
   duration clusters exposed by PAR-130; calibrated clusters live in `PARSER_LONG_TAIL.md`.
 - **PAR-133 · Powerstone tokens.** "create a [tapped] Powerstone token" — a `data/tokens.json` entry
   with its RULE 605.3a-restricted mana ability, then `_NAMED_TOKEN_WORDS` (25 solo cards).
-- **PAR-100 · "At the beginning of each player's draw step, that player draws an additional card".**
-  "That player" binds to the player whose step it is; 10 SOLO + Mornsong Aria (Academy Loremaster,
-  Anvil of Bogardan, Dictate of Kruphix, Font of Mythos, Howling Mine, Kami of the Crescent Moon,
-  Nekusar, Rites of Flourishing, Spiteful Visions, Teferi's Puzzle Box).
-
 > PAR-99…105 counts confirmed at PV 413 (2026-09-16, vs the 56 saved decks in `deck_coverage.py`),
 > re-verified at PV 447 (2026-09-21). Re-run `parser_probe.py blocked` before starting.
 

@@ -1800,26 +1800,34 @@ class CastingResolutionMixin:
             self._resume_iteration(resumed)
             return True
         stack_item = resumed.get("stack_item")
-        deferred_again = _apply_effects_partitioned(
-            resumed["effects"],
-            self.context,
-            resumed["targets"],
-            resumed["target_groups"],
-            source=resumed.get("source"),
-            group_index=resumed.get("group_index", 0),
-            previous_targets=resumed.get("previous_targets"),
-            created_objects=resumed.get("created_objects"),
-            life_lost_this_way=resumed.get("life_lost_this_way", 0),
-            permanents_destroyed_this_way=resumed.get("permanents_destroyed_this_way", 0),
-            objects_exiled_this_way=resumed.get("objects_exiled_this_way", 0),
-            counters_removed_this_way=resumed.get("counters_removed_this_way", 0),
-            damaged_this_way=resumed.get("damaged_this_way"),
-            previous_selector=resumed.get("previous_selector"),
-            revealed_card=resumed.get("revealed_card"),
-            clash_won=resumed.get("clash_won"),
-            clashed_opponent=resumed.get("clashed_opponent"),
-            stack_item=stack_item,
-        )
+        # RULE 109.5: a paused body keeps the player it was acting as.
+        # Restoring the outer scope also prevents that player leaking into
+        # another ability's continuation after this nested body completes.
+        outer_acting = self.context.acting_player_id
+        self.context.acting_player_id = resumed.get("acting_player_id")
+        try:
+            deferred_again = _apply_effects_partitioned(
+                resumed["effects"],
+                self.context,
+                resumed["targets"],
+                resumed["target_groups"],
+                source=resumed.get("source"),
+                group_index=resumed.get("group_index", 0),
+                previous_targets=resumed.get("previous_targets"),
+                created_objects=resumed.get("created_objects"),
+                life_lost_this_way=resumed.get("life_lost_this_way", 0),
+                permanents_destroyed_this_way=resumed.get("permanents_destroyed_this_way", 0),
+                objects_exiled_this_way=resumed.get("objects_exiled_this_way", 0),
+                counters_removed_this_way=resumed.get("counters_removed_this_way", 0),
+                damaged_this_way=resumed.get("damaged_this_way"),
+                previous_selector=resumed.get("previous_selector"),
+                revealed_card=resumed.get("revealed_card"),
+                clash_won=resumed.get("clash_won"),
+                clashed_opponent=resumed.get("clashed_opponent"),
+                stack_item=stack_item,
+            )
+        finally:
+            self.context.acting_player_id = outer_acting
         if not deferred_again and stack_item is not None:
             # RULE 608.2m: this remainder just finished with nothing left
             # to pause on — the spell it belongs to is only *now* actually

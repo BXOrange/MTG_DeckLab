@@ -229,6 +229,11 @@ class SearchMixin:
             "away": None,
             "order": ("Oberste Karten: welche kommt zuoberst?", "Reihenfolge behalten"),
         },
+        "hand_bottom": {
+            "event": None,
+            "away": None,
+            "order": ("Hand unter die Bibliothek: welche Karte liegt oben?", "Reihenfolge behalten"),
+        },
         # MEC-43 round 4F (Scroll Rack): "look at the exiled cards and put
         # them on top of your library in any order" — the order-only
         # sibling of scry/surveil's own ordering phase (`open_scroll_rack_
@@ -540,7 +545,7 @@ class SearchMixin:
             choice["may_shuffle"] = True
         return choice
     @continuations.choice(
-        "scry", "surveil", "scroll_rack", "fateseal", "reorder_top",
+        "scry", "surveil", "scroll_rack", "fateseal", "reorder_top", "hand_bottom",
         answer=continuations.ANSWER_INT,
         rule="701.22",
     )
@@ -623,6 +628,21 @@ class SearchMixin:
         already does in place.
         """
         self.state.pending_choice = None
+        if kind == "hand_bottom":
+            # `top` is topmost first, matching every other ordering choice.
+            # A commander redirect can pause each move, so park remaining
+            # moves before the outer draw rather than overwriting a choice.
+            from ..effects.core import ReturnToLibraryEffect
+
+            effects = []
+            for iid in top:
+                obj = self._object_by_instance_id(iid)
+                if obj is not None and obj in player.hand:
+                    effects.append(ReturnToLibraryEffect(
+                        target=obj, target_kind=None, position="bottom",
+                    ))
+            _apply_effects_partitioned(effects, self.context, None, None)
+            return
         objects = {iid: self._object_by_instance_id(iid) for iid in (*away, *top)}
         source_zone = player.exile if kind == "scroll_rack" else player.library
         for obj in objects.values():
@@ -687,6 +707,18 @@ class SearchMixin:
             player, "reorder_top", "order", remaining, [], [],
             source.name if source is not None else None, library_owner=owner, may_shuffle=may_shuffle,
         ))
+    def open_hand_bottom_order_choice(
+        self, player: Player, source: Optional["GameObject"] = None,
+    ) -> None:
+        remaining = [obj.instance_id for obj in player.hand]
+        if len(remaining) < 2:
+            self._finish_look_top(player, "hand_bottom", [], remaining)
+            return
+        self.open_choice(self._look_top_choice(
+            player, "hand_bottom", "order", remaining, [], [],
+            source.name if source is not None else None,
+        ))
+
     def open_scroll_rack_order_choice(
         self, player: Player, instance_ids: list[int], source: Optional["GameObject"] = None,
     ) -> None:

@@ -3881,7 +3881,9 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: results." (Neverwinter Hydra) -> entry-counters condition ``roll_x_dice_sides``.
 #: 591: "~ enters with a number of +1/+1 counters on it equal to the number of land cards in all graveyards"
 #: (Centaur Vinecrasher) -> entry-counters condition ``land_cards_in_graveyards``.
-PARSER_VERSION = "591"
+#: 592: PAR-100 active-player phase bodies, plural additional draws, other-player
+#: scopes, optional draw/tax, hand-to-library ordering and draw/life prohibitions.
+PARSER_VERSION = "592"
 
 
 def parser_source_hash() -> str:

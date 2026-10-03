@@ -5078,6 +5078,12 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     if _SKIP_UNTAP_STEPS_RE.fullmatch(text):
         return [EffectSpec("skip_untap_step", {})]
 
+    if re.fullmatch(r"players can't draw cards(?: or gain life)?", text):
+        effects = [EffectSpec("draw_limit", {"max_per_turn": 0})]
+        if text.endswith(" or gain life"):
+            effects.append(EffectSpec("prevent_all_life_gain", {}))
+        return effects
+
     m = _PLAYERS_CANT_GAIN_LIFE_RE.fullmatch(text)
     if m is not None:
         params = {"scope": "opponents"} if (m.group("scope") or "").lower() == "your opponents" else {}

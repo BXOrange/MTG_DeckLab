@@ -977,11 +977,38 @@ _ACTIVE_PLAYER_LOSES_LIFE_RE = re.compile(
 
 
 def _active_player_phase_body(rest: str) -> Optional[list[EffectSpec]]:
-    """The known effect-verb shapes an "if that player has …, `<rest>`."
-    phase-trigger body takes — see `_THAT_PLAYER_HAND_IF_RE`. ``None`` if
-    ``rest`` isn't one of them (the caller falls back to `parse_effect_body`,
-    correct for a card whose own effect doesn't name "that player"/"they" at
-    all, e.g. Asylum Visitor's "you draw a card and you lose 1 life.")."""
+    """Read a phase body's "that player" as the player whose step it is.
+
+    Shared second-person grammar handles linked instructions and choices.
+    Bodies naming another player referent fall back to the ordinary parser.
+    """
+    search = re.fullmatch(
+        r"that player loses (?P<n>\d+) life, searches their library for a card, "
+        r"puts it into their hand, then shuffles\.?", rest,
+    )
+    if search is not None:
+        return [EffectSpec("trigger_subject_referent", {
+            "acting": "active_player", "effects": [
+                EffectSpec("lose_life", {"amount": int(search.group("n"))}).to_dict(),
+                EffectSpec("search", {"criteria": "", "destination": "hand", "optional": False}).to_dict(),
+            ],
+        })]
+    # RULE 504 / 109.5: a phase's "that player" is the player whose turn
+    # it is. Reuse second-person bodies, including optional choices and
+    # linked instructions, while retaining the actual ability controller.
+    # Explicit "you" or a target would introduce another player referent.
+    if rest.startswith("that player ") and not re.search(r"\b(?:you|your|target)\b", rest):
+        rewritten = re.sub(r"\bthat player\b|\bthey\b", "you", rest)
+        rewritten = re.sub(r"\btheir\b", "your", rewritten)
+        rewritten = re.sub(r"\byou (draws|loses|gains|searches|puts|discards|shuffles)\b",
+                           lambda m: "you " + _base_verb(m.group(1)), rewritten)
+        rewritten = re.sub(r"\bthen (draws|discards)\b",
+                           lambda m: "then " + _base_verb(m.group(1)), rewritten)
+        effects = parse_effect_body(rewritten)
+        if effects is not None:
+            return [EffectSpec("trigger_subject_referent", {
+                "acting": "active_player", "effects": [e.to_dict() for e in effects],
+            })]
     m = _PHASE_DAMAGE_TO_THEM_RE.match(rest)
     if m is not None:
         return [EffectSpec("damage", {"amount": int(m.group("n")), "selector": "active_player"})]
@@ -1065,6 +1092,7 @@ _PHASE_TRIGGER_RE = re.compile(
     r"|(?P<step_combat_you>combat) on your turn"
     r"|(?P<step_combat_opp>combat) on each opponent'?s turn"
     rf"|each opponent'?s (?P<step_opp>{_PHASE_STEP_ALT})(?:\s+step)?"
+    rf"|each other player'?s (?P<step_other>{_PHASE_STEP_ALT})(?:\s+step)?"
     r"),\s*(?P<body>.+)$",
     re.IGNORECASE,
 )
@@ -8178,6 +8206,7 @@ def _segment_line_unsplit(
             or phase_trig.group("step_combat_you")
             or phase_trig.group("step_combat_opp")
             or phase_trig.group("step_opp")
+            or phase_trig.group("step_other")
         )
         both_mains = bool(phase_trig.group("step_both_mains"))
         step = "main1" if both_mains else _PHASE_STEP_WORDS.get((step_word or "").lower())
@@ -8190,7 +8219,7 @@ def _segment_line_unsplit(
             or phase_trig.group("step_combat_you")
         ):
             relation = "you"
-        elif phase_trig.group("step_opp") or phase_trig.group("step_combat_opp"):
+        elif phase_trig.group("step_opp") or phase_trig.group("step_other") or phase_trig.group("step_combat_opp"):
             relation = "not_you"
         else:
             relation = None
@@ -8280,7 +8309,13 @@ def _segment_line_unsplit(
                 phase_active_if = gated
                 # A condition that names ``~`` ("if …and ~ isn't a creature, it becomes …", Emergent
                 # Haunting) gives a bare "it" in the body its only antecedent: the source.
-                effects = parse_effect_body(
+                active_effects = _active_player_phase_body(gate.group("rest").strip())
+                # RULE 603.4: this newly recognized body must also test the
+                # intervening-if when it resolves (Howling Mine can be tapped
+                # in response). The trigger's active_if handles trigger time.
+                effects = ([EffectSpec("if_else", {
+                    "condition": gated, "then": [e.to_dict() for e in active_effects],
+                })] if active_effects is not None else None) or parse_effect_body(
                     gate.group("rest").strip(), self_subject="~" in gate.group("cond"),
                 )
         if effects is None:

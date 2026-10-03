@@ -3750,11 +3750,12 @@ def cost_reduction_for(
         if entry.get("player_id") != player.id or not turn_cost_reduction_applies(entry, obj):
             continue
         amount = max(0, int(entry.get("amount", 0) or 0))
-        net += amount
+        signed = -amount if entry.get("increase") else amount
+        net += signed
         contributors.append({
             "source": str(entry.get("source") or ""),
-            "amount": amount,
-            "description": f"Spells cost {{{amount}}} less this turn",
+            "amount": signed,
+            "description": f"Spells cost {{{amount}}} {'more' if signed < 0 else 'less'} this turn",
         })
     return net, contributors
 

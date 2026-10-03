@@ -1465,6 +1465,7 @@ def _apply_effects_partitioned(
                         "clash_won": context.clash_won,
                         "clashed_opponent": context.clashed_opponent,
                         "stack_item": stack_item,
+                        "acting_player_id": context.acting_player_id,
                     }
                 )
                 return True

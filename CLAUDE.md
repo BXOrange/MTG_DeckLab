@@ -597,13 +597,19 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 57.4% (20,115 / 35,046) as of 2026-10-02, measured at
-PARSER_VERSION 586** (parser-`MODELED` or hand-`AUTHORED`, measured against
+Phase-trigger bodies can bind "that player" to the active player (PAR-100),
+including linked instructions and optional choices. The acting player is
+preserved across suspended effects. Additional draws accept fixed plural
+counts; Teferi's Puzzle Box uses hand-to-library ordering followed by a draw
+of the saved hand size, and Academy Loremaster uses a turn-scoped spell tax.
+
+**Coverage: 57.9% (20,287 / 35,046) as of 2026-10-03, measured at
+PARSER_VERSION 592** (parser-`MODELED` or hand-`AUTHORED`, measured against
 the full ~35k-card Oracle universe from `scripts/import_bulk.py`, excluding
 Sticker Sheet inserts by type line under RULE 123.2). Re-measure
 with `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
 before trusting this number. The **Commander-legal** slice — the subset that
-matters for Goldfisch/Deck-Analyzer — is **60.3% (19,349 / 32,068)**; measure
+matters for Goldfisch/Deck-Analyzer — is **60.9% (19,521 / 32,068)**; measure
 it with `scripts/coverage_report.py --commander-legal-only` (records a
 separate `…-commander` snapshot row) and segment the still-UNMODELED
 remainder by *cause* (wrapper re-measure / recurring template → `PAR-*` /

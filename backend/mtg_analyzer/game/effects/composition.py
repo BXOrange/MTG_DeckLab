@@ -232,15 +232,19 @@ class TriggerSubjectReferentEffect(_CompositeEffect):
         #: "you control" — is that player (`GameContext.acting_player_id`, RULE 109.5).
         #: ``"event_player"`` is the same for a *player* event ("that attacking player …"): the
         #: acting player is the one the event names and no firing object is looked up.
-        self.acting = acting if acting in ("controller", "event_player") else None
+        #: ``"active_player"`` does the same for phase events (RULE 504), which
+        #: identify the step rather than carrying a player_id.
+        self.acting = acting if acting in ("controller", "event_player", "active_player") else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.acting == "event_player":
+        if self.acting in ("event_player", "active_player"):
             # "Whenever a player attacks …, **that attacking player** creates a Treasure token"
             # (Jolene, the Curses): there is no firing *object*, only the player the event names
             # (`player_id`); the body is the second-person clause run as that player (RULE 109.5).
             event = context.trigger_event or {}
-            player_id = event.get("player_id") or event.get("attacking_player_id")
+            player_id = (getattr(context.state.active_player, "id", None)
+                         if self.acting == "active_player"
+                         else event.get("player_id") or event.get("attacking_player_id"))
             if player_id is None or not self.inner_specs:
                 return
             outer = context.acting_player_id

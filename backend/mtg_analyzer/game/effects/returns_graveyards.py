@@ -265,6 +265,15 @@ class ReturnToHandEffect(GameEffect):
                 context.engine._apply_effect_specs(self.then_specs, self.source)
 
 
+class PutHandOnBottomEffect(GameEffect):
+    """Put the acting player's whole hand under their library in a chosen order."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.engine.open_hand_bottom_order_choice(player, self.source)
+
+
 class ReturnToLibraryEffect(GameEffect):
     """"Put target X on top/the bottom of its owner's library." (RULE 701.3
     "put" — Time Ebb/Griptide/Roil Spout/Vedalken Dismisser-shaped tempo
