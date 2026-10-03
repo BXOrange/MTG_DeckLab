@@ -1015,52 +1015,74 @@ def _damage_each_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: a new primitive. "targets" (unqualified, RULE 115.4 "any target"),
 #: "target creatures", and the Modern Horizons Incarnation wording
 #: "target creatures and/or planeswalkers" are the real phrasings.
+# Plural target phrases for divided damage. Qualifiers stay attached to
+# the target pool, both while choosing targets and when resolving damage.
+_DIVIDED_DAMAGE_TARGETS = {
+    "targets": {"target_kind": "any"},
+    "target creatures and/or planeswalkers": {"target_kind": "creature_or_planeswalker"},
+    "target creatures": {"target_kind": "creature"},
+    "target attacking creatures": {"target_kind": "creature", "creature_filter": {"attacking": True}},
+    "target attacking or blocking creatures": {"target_kind": "attacking_or_blocking_creature"},
+    "target creatures with flying": {"target_kind": "creature", "creature_filter": {"keyword": "flying"}},
+}
+_DIVIDED_DAMAGE_TARGET_ALT = "|".join(re.escape(t) for t in _DIVIDED_DAMAGE_TARGETS)
 _DIVIDED_DAMAGE_RE = _c(
     rf"{SELF_SUBJECT_PREFIX}"
     rf"deals? {COUNT_X} damage divided as you choose among any number of "
-    r"(?P<target>targets|target creatures and/or planeswalkers|target creatures)"
+    rf"(?P<target>{_DIVIDED_DAMAGE_TARGET_ALT})"
     # PAR-128: "… your opponents control" (Dragonlord Atarka, Polukranos).
     rf"(?P<scope>{_MULTI_TARGET_SCOPE_TAIL})?"
 )
 
 
-def _divided_damage(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    target = m.group("target")
-    kind = (
-        "creature" if target == "target creatures"
-        else "creature_or_planeswalker" if target == "target creatures and/or planeswalkers"
-        else "any"
-    )
-    if m.group("scope"):
-        kind = NOT_YOU_TARGET_KINDS.get(kind)
-        if kind is None:  # bare "targets" has no scoped pool
+def _divided_damage_target(m: re.Match[str]) -> Optional[dict[str, Any]]:
+    params = copy.deepcopy(_DIVIDED_DAMAGE_TARGETS[m.group("target")])
+    scope = m.groupdict().get("scope")
+    if scope:
+        kind = params["target_kind"]
+        kind = (_MULTI_TARGET_YOU_KINDS if scope.strip() == "you control" else NOT_YOU_TARGET_KINDS).get(kind)
+        if kind is None:
             return None
+        params["target_kind"] = kind
+    return params
+
+
+def _divided_damage(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _divided_damage_target(m)
+    if params is None:
+        return None
     return [EffectSpec("damage", {
-        "amount": count_or_x_of(m.group("n")), "target_kind": kind,
+        "amount": count_or_x_of(m.group("n")), **params,
         "count": _ANY_NUMBER_TARGET_CAP, "optional": True, "divided": True,
     })]
 
 
-#: ENG-30: "deals N damage divided as you choose among 1 or 2 targets"
-#: (Arc Mage/Chandra's Pyrohelix/Electrolyze/Fire // Ice/Forked Bolt/
-#: Skarrgan Hellkite-shaped) — the *fixed range* sibling of
-#: `_DIVIDED_DAMAGE_RE`'s "any number of": a genuine RULE 601.2c minimum of
-#: one. Same local ``targets|target creatures`` alternation as that row
-#: (not the shared `_MULTI_TARGET_ALT`, which this family has never used).
+# RULE 601.2c/d: a range of target counts, including an enumerated contiguous
+# range ("one, two, or three targets"). Noncontiguous lists must fail closed:
+# count/count_max cannot express a forbidden count inside the interval.
 _DIVIDED_DAMAGE_RANGE_RE = _c(
     rf"{SELF_SUBJECT_PREFIX}"
     rf"deals? {COUNT_X} damage divided as you choose among "
-    r"(?P<range_min>\d+) or (?P<range_max>\d+) (?P<target>targets|target creatures)"
+    r"(?P<range_min>\d+)(?:,\s*(?P<range_middle>\d+(?:,\s*\d+)*),?)? or (?P<range_max>\d+) "
+    rf"(?P<target>{_DIVIDED_DAMAGE_TARGET_ALT})"
+    rf"(?P<scope>{_MULTI_TARGET_SCOPE_TAIL})?"
 )
 
 
 def _divided_damage_range(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     range_min, range_max = int(m.group("range_min")), int(m.group("range_max"))
+    middle = m.group("range_middle")
     if range_min < 1 or range_max <= range_min:
         return None
-    kind = "creature" if m.group("target") == "target creatures" else "any"
+    if middle is not None:
+        counts = [range_min, *(int(n.strip()) for n in middle.split(",")), range_max]
+        if counts != list(range(range_min, range_max + 1)):
+            return None
+    params = _divided_damage_target(m)
+    if params is None:
+        return None
     return [EffectSpec("damage", {
-        "amount": count_or_x_of(m.group("n")), "target_kind": kind,
+        "amount": count_or_x_of(m.group("n")), **params,
         "count": range_min, "count_max": range_max, "divided": True,
     })]
 

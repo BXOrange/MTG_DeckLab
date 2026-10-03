@@ -1198,6 +1198,11 @@ class GameState:
     def living_players(self) -> list[Player]:
         return [p for p in self.players if not p.has_lost]
 
+    def living_players_apnap(self) -> list[Player]:
+        """Living seats in order starting with the active player (RULE 101.4)."""
+        seats = self.players[self.active_player_index:] + self.players[:self.active_player_index]
+        return [player for player in seats if not player.has_lost]
+
     # -- Battlefield -----------------------------------------------------
 
     def permanents(self) -> list[GameObject]:

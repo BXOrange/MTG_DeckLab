@@ -46,3 +46,5 @@ from . import burning_earth  # noqa: F401
 from . import burnt_offering  # noqa: F401
 from . import breach_the_multiverse
 from . import braids_arisen_nightmare
+
+from . import bellowing_mauler

@@ -8,7 +8,7 @@ def _eumidian_wastewaker() -> list[AbilitySpec]:
     """Collect both players' choices, discard/sacrifice, count land cards.
     Encore is bound by the existing keyword catalogue.
     """
-    return [AbilitySpec("triggered", [EffectSpec("discard_or_sacrifice", {
+    return [AbilitySpec("triggered", [EffectSpec("choose_player_objects", {
         "then_that_many": {"card_type": "land", "effects": [
             {"type": "draw", "params": {"count": "x"}},
         ]},

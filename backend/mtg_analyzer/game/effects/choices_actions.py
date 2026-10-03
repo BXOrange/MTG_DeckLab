@@ -1194,7 +1194,7 @@ class ChooseObjectsEffect(GameEffect):
         self,
         action: str = "sacrifice",
         what: str = "permanent",
-        count: int = 1,
+        count: Union[int, str] = 1,
         optional: bool = False,
         exclude_self: bool = False,
         prompt: str = "",
@@ -1205,6 +1205,10 @@ class ChooseObjectsEffect(GameEffect):
         require_untapped: bool = False,
         else_effects: Optional[list[dict[str, Any]]] = None,
         card_types_any: Optional[list[str]] = None,
+        then_that_many: Optional[dict[str, Any]] = None,
+        distinct_card_types: bool = False,
+        pool_zone: str = "battlefield",
+        pool_player_selector: str = "chooser",
     ) -> None:
         super().__init__(source)
         #: Serialized specs applied when nothing gets picked — an empty candidate pool included ("return a
@@ -1212,6 +1216,10 @@ class ChooseObjectsEffect(GameEffect):
         #: return, Time Wipe): `then` is skipped in that case, so the unconditional tail rides both.
         self.else_effects = else_effects
         self.card_types_any = card_types_any
+        self.then_that_many = then_that_many
+        self.distinct_card_types = distinct_card_types
+        self.pool_zone = pool_zone
+        self.pool_player_selector = pool_player_selector
         self.action = action
         self.what = what
         self.count = count
@@ -1234,39 +1242,43 @@ class ChooseObjectsEffect(GameEffect):
 
         if self.player_selector == "active_player":
             player = context.state.active_player
-        elif self.player_selector == "target":
-            player = targets[0] if targets else None
         else:
             player = _controller_of(self.source, context)
         if player is None:
             return
+        pool_player = player
+        if self.pool_player_selector == "defending_player":
+            event = context.trigger_event or {}
+            defender_id = event.get("defending_player_id")
+            pool_player = (context.state.player_by_id(defender_id) if defender_id is not None
+                           else _defending_player_of(self.source, context))
+        elif self.pool_player_selector != "chooser":
+            raise ValueError(f"Unknown choice pool player: {self.pool_player_selector}")
+        if self.pool_zone == "battlefield":
+            pool = context.state.permanents_controlled_by(pool_player.id) if pool_player else []
+        elif self.pool_zone == "graveyard":
+            pool = pool_player.graveyard if pool_player else []
+        else:
+            raise ValueError(f"Unknown choice pool zone: {self.pool_zone}")
         candidates = [
             obj
-            for obj in context.state.permanents_controlled_by(player.id)
+            for obj in pool
             if _matches_permanent_type(obj, self.what)
             and (self.card_types_any is None or set(self.card_types_any) & obj.type_words)
             and not (self.action == "sacrifice" and obj.cant_be_sacrificed_this_turn)
             and not (self.exclude_self and obj is self.source)
             and not (self.require_untapped and obj.tapped)
         ]
-        def bind_player(value):
-            if isinstance(value, dict):
-                if value == {"kind": "choosing_player_id"}:
-                    return player.id
-                return {key: bind_player(item) for key, item in value.items()}
-            if isinstance(value, list):
-                return [bind_player(item) for item in value]
-            return value
-
         context.choose_objects(
-            player, candidates, self.action, count=self.count,
+            player, candidates, self.action, count=len(candidates) if self.count == "all" else self.count,
             optional=self.optional, prompt=self.prompt, source=self.source,
             then_specs=self.then, then_specs_if_commander=self.then_if_commander,
-            else_specs=bind_player(self.else_effects),
+            else_specs=self.else_effects, then_that_many=self.then_that_many,
+            distinct_card_types=self.distinct_card_types,
         )
 
 
-class DiscardOrSacrificeEffect(GameEffect):
+class ChoosePlayerObjectsEffect(GameEffect):
     """Players choose a hand card or sacrificable permanent, then act together.
 
     Selections and remaining players are serialized through choose_objects;
@@ -1274,38 +1286,65 @@ class DiscardOrSacrificeEffect(GameEffect):
     A measured tail counts only cards that actually reach the graveyard.
     """
 
-    def __init__(self, player_ids=None, chosen_ids=None, then_that_many=None, source=None):
+    def __init__(self, player_ids=None, chosen_ids=None, then_that_many=None, source=None,
+                 player_scope="you_and_defending", action="discard_or_sacrifice", optional=False,
+                 card_types_any=None, declined_ids=None, else_effects=None, permanent_filter=None,
+                 else_simultaneous=False):
         super().__init__(source)
         self.player_ids = player_ids
         self.chosen_ids = []
         for item in chosen_ids or []:
             self.chosen_ids.extend(item if isinstance(item, list) else [item])
         self.then_that_many = then_that_many
+        self.player_scope = player_scope
+        self.action = action
+        self.optional = optional
+        self.card_types_any = card_types_any
+        self.permanent_filter = permanent_filter
+        self.else_simultaneous = else_simultaneous
+        self.declined_ids = list(declined_ids or [])
+        self.else_effects = list(else_effects or [])
 
     def apply(self, context, targets=None):
+        from .. import combat
+
         controller = _controller_of(self.source, context)
         if controller is None:
             return
         if self.player_ids is None:
             defender = _defending_player_of(self.source, context)
             wanted = {controller.id, getattr(defender, "id", None)}
-            remaining = [p.id for p in context.state.living_players() if p.id in wanted]
+            remaining = [p.id for p in context.state.living_players_apnap()
+                         if (self.player_scope == "each_player" or
+                             (p.id != controller.id if self.player_scope == "each_opponent" else p.id in wanted))]
         else:
             remaining = list(self.player_ids)
         if remaining:
             player = context.state.player_by_id(remaining[0])
-            candidates = list(player.hand) + [o for o in context.state.permanents_controlled_by(player.id)
-                                             if not o.cant_be_sacrificed_this_turn]
+            candidates = (list(player.hand) if self.action == "discard_or_sacrifice" else []) + [
+                o for o in context.state.permanents_controlled_by(player.id)
+                if not o.cant_be_sacrificed_this_turn
+                and (self.card_types_any is None or set(self.card_types_any) & o.type_words)
+                and combat.matches_object_filter(o, self.permanent_filter, reference=self.source, state=context.state)]
             params = {"player_ids": remaining[1:], "chosen_ids": list(self.chosen_ids),
-                      "then_that_many": self.then_that_many}
-            continuation = {"type": "discard_or_sacrifice", "params": params}
+                      "then_that_many": self.then_that_many, "player_scope": self.player_scope,
+                      "action": self.action, "optional": self.optional, "card_types_any": self.card_types_any,
+                      "declined_ids": self.declined_ids, "else_effects": self.else_effects,
+                      "permanent_filter": self.permanent_filter, "else_simultaneous": self.else_simultaneous}
+            declined = {"type": "choose_player_objects", "params": {
+                **params, "declined_ids": self.declined_ids + [player.id],
+            }}
             if not candidates:
-                context.engine._apply_effect_specs([continuation], self.source)
+                context.engine._apply_effect_specs([declined], self.source)
                 return
-            params["chosen_ids"] += [{"kind": "chosen_instance_ids"}]
+            continuation = {"type": "choose_player_objects", "params": {
+                **params, "chosen_ids": self.chosen_ids + [{"kind": "chosen_instance_ids"}],
+            }}
             context.choose_objects(player, candidates, "select_referent", count=1,
-                                   source=self.source, then_specs=[continuation],
-                                   prompt="Eine Handkarte abwerfen oder ein Permanent opfern")
+                                   source=self.source, then_specs=[continuation], optional=self.optional,
+                                   else_specs=[declined],
+                                   prompt="Handkarte abwerfen oder Permanent opfern" if self.action == "discard_or_sacrifice"
+                                   else "Permanent zum Opfern wählen")
             return
         moved = []
         with context.state.simultaneous():
@@ -1328,6 +1367,23 @@ class DiscardOrSacrificeEffect(GameEffect):
             context.engine._apply_effect_specs(
                 _substitute_x_specs(self.then_that_many.get("effects", []), count), self.source,
             )
+        def apply_declined_effects():
+            for player_id in self.declined_ids:
+                def bind_decliner(value):
+                    if isinstance(value, dict):
+                        if value == {"kind": "choosing_player_id"}:
+                            return player_id
+                        return {key: bind_decliner(item) for key, item in value.items()}
+                    if isinstance(value, list):
+                        return [bind_decliner(item) for item in value]
+                    return value
+                context.engine._apply_effect_specs(bind_decliner(self.else_effects), self.source)
+
+        if self.else_simultaneous:
+            with context.state.simultaneous():
+                apply_declined_effects()
+        else:
+            apply_declined_effects()
 
 
 class ConniveEffect(GameEffect):

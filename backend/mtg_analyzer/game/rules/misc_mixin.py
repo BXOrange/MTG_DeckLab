@@ -104,12 +104,35 @@ def _cost_with_x(cost: ActivationCost, x: int) -> ActivationCost:
 #: RULE 205.2a's card types — the words `_card_type_words` keeps from an object's type words.
 _CARD_TYPE_WORDS = frozenset({
     "artifact", "battle", "creature", "enchantment", "instant", "land", "planeswalker", "sorcery",
+    "conspiracy", "dungeon", "kindred", "phenomenon", "plane", "scheme", "vanguard",
 })
 
 
 def _card_type_words(obj: Any) -> set[str]:
     """The RULE 205.2a card types of ``obj`` (lowercase), without supertypes/subtypes."""
     return set(getattr(obj, "type_words", None) or ()) & _CARD_TYPE_WORDS
+
+
+def _distinct_card_type_assignment(type_sets: list[set[str]]) -> bool:
+    """Can every selected card represent a different card type (RULE 205.2b)?
+
+    Reassign earlier multi-type cards when necessary; an arbitrary initial
+    assignment must not hide a legal later pick.
+    """
+    assigned: dict[str, int] = {}
+
+    def augment(index: int, visited: set[str]) -> bool:
+        for card_type in sorted(type_sets[index]):
+            if card_type in visited:
+                continue
+            visited.add(card_type)
+            previous = assigned.get(card_type)
+            if previous is None or augment(previous, visited):
+                assigned[card_type] = index
+                return True
+        return False
+
+    return all(augment(index, set()) for index in range(len(type_sets)))
 
 
 def _that_many_value(then_that_many: Optional[dict], objs: list[Any]) -> int:
@@ -1412,7 +1435,7 @@ class MiscSystemsMixin:
 
         built = build_effects(
             [
-                EffectSpec(type=d["type"], params=dict(d.get("params") or {}))
+                EffectSpec(type=d["type"], params=dict(d.get("params") or {}), condition=d.get("condition"))
                 for d in effect_specs
             ],
             source,
@@ -3527,6 +3550,8 @@ class MiscSystemsMixin:
         if action not in self.CHOOSE_OBJECT_ACTIONS:
             raise ValueError(f"unknown choose-objects action {action!r}")
         pool = [obj for obj in candidates if obj is not None]
+        if distinct_card_types:
+            pool = [obj for obj in pool if _card_type_words(obj)]
         if total_mana_value_budget is not None:
             pool = [obj for obj in pool if int(
                 getattr(obj.card, "converted_mana_cost", 0) or 0
@@ -3538,7 +3563,9 @@ class MiscSystemsMixin:
             if not pool and count > 0 and else_specs:
                 self._apply_effect_specs(list(else_specs), source)
             return
-        if len(pool) <= count and not optional:
+        if len(pool) <= count and not optional and (
+            not distinct_card_types or _distinct_card_type_assignment([_card_type_words(o) for o in pool])
+        ):
             # Forced: every candidate is taken anyway, so asking would be
             # theatre. (An *optional* one still asks — declining matters.)
             commander_taken = False
@@ -3711,11 +3738,17 @@ class MiscSystemsMixin:
         offered = {o["instance_id"] for o in choice["options"] if "instance_id" in o}
         if instance_id is not None:
             if instance_id not in offered:
+                # resolve_choice claims the continuation before dispatch;
+                # an invalid answer must leave this untouched choice open.
+                self.state.pending_choice = choice
                 raise ValueError(f"{instance_id} is not a legal choice")
             picked.append(instance_id)
         source = self._object_by_instance_id(choice.get("source_id"))
         declined = instance_id is None
         chosen = self._object_by_instance_id(instance_id) if instance_id is not None else None
+        picked_card_types = [set(types) for types in choice.get("picked_card_types", [])]
+        if chosen is not None and choice.get("distinct_card_types"):
+            picked_card_types.append(_card_type_words(chosen))
         # Applied as each pick is made rather than all at the end: tapping
         # or sacrificing one permanent can change what the remaining
         # candidates even are (RULE 608.2's "as the effect resolves").
@@ -3753,14 +3786,9 @@ class MiscSystemsMixin:
                 if int(getattr(obj.card, "converted_mana_cost", 0) or 0) <= int(budget) - spent
             ]
         if choice.get("distinct_card_types"):
-            # "For each card type, you may put a card of that type…" (Atraxa, Grand Unifier): once a
-            # card is taken, no other card sharing one of its card types may be (a simplification of the
-            # per-type assignment: two multi-type cards that could each cover a different type are
-            # not both offered).
-            taken_types: set[str] = set()
-            for iid in picked:
-                taken_types |= _card_type_words(self._object_by_instance_id(iid))
-            remaining_pool = [o for o in remaining_pool if not (_card_type_words(o) & taken_types)]
+            remaining_pool = [o for o in remaining_pool if _distinct_card_type_assignment(
+                picked_card_types + [_card_type_words(o)]
+            )]
         if declined or len(picked) >= choice["count"] or not remaining_pool:
             self.state.pending_choice = None
             self.state.release_batches()
@@ -3806,6 +3834,7 @@ class MiscSystemsMixin:
         )
         next_choice["commander_taken"] = commander_taken
         next_choice["picked_measure"] = picked_measure
+        next_choice["picked_card_types"] = [sorted(types) for types in picked_card_types]
         self.open_choice(next_choice)
     def _choose_objects_pool(
         self, choice: dict[str, Any], picked: list[int]

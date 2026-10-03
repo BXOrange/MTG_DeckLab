@@ -76,6 +76,8 @@ def test_braids_retains_all_sacrificed_types_for_each_opponents_choice(mode):
         assert p2.life == p3.life == 20 and not p1.hand
         return
     for player, permanent in ((p2, rock), (p3, bear)):
+        if player is p3 and mode == "sacrifice_matching":
+            assert rock.zone == Zone.BATTLEFIELD  # all choices precede the simultaneous sacrifices
         choice = engine.state.pending_choice
         assert choice["player_id"] == player.id
         assert {o["instance_id"] for o in choice["options"] if "instance_id" in o} == {permanent.instance_id}
@@ -104,10 +106,13 @@ def test_braids_can_sacrifice_itself_and_penalizes_an_opponent_without_a_matchin
 
 
 @pytest.mark.parametrize("lands", [0, 1, 2])
-def test_wastewaker_collects_both_choices_before_moving_cards_and_draws_for_lands(lands):
+@pytest.mark.parametrize("exile_replacement", [False, True])
+def test_wastewaker_collects_both_choices_before_moving_cards_and_draws_for_lands(lands, exile_replacement):
     engine, p1, p2 = _game()
     wastewaker = _battlefield_card(engine, "Eumidian Wastewaker")
     wastewaker.summoning_sick = False
+    if exile_replacement:
+        _battlefield_card(engine, "Rest in Peace", "p2")
     for i in range(3):
         p1.library.append(GameObject(Card(id=str(i), name="Filler", type_line="Artifact"), owner_id="p1", zone=Zone.LIBRARY))
     discarded = GameObject(Card(id="hand", name="Hand card", type_line="Land" if lands else "Artifact",
@@ -128,9 +133,44 @@ def test_wastewaker_collects_both_choices_before_moving_cards_and_draws_for_land
     assert engine.state.pending_choice["player_id"] == "p2"
     engine.resolve_pending_choice(str(sacrificed.instance_id))
     engine.resolve_until_stable()
-    assert discarded.zone == sacrificed.zone == Zone.GRAVEYARD
-    assert len(p1.hand) == lands and len(p1.library) == 3 - lands
+    assert discarded.zone == sacrificed.zone == (Zone.EXILE if exile_replacement else Zone.GRAVEYARD)
+    drawn = 0 if exile_replacement else lands
+    assert len(p1.hand) == drawn and len(p1.library) == 3 - drawn
     assert "encore" in wastewaker.parametric_keywords
+
+
+def test_wastewaker_asks_the_active_player_first_when_the_second_seat_attacks():
+    engine, p1, p2 = _game()
+    engine.state.active_player_index = 1
+    wastewaker = _battlefield_card(engine, "Eumidian Wastewaker", "p2")
+    wastewaker.summoning_sick = False
+    rock = battlefield_object(engine, "p1", "Rock", "Artifact")
+    for player in (p1, p2):
+        player.hand.append(GameObject(Card(id=player.id, name="Card", type_line="Artifact"), owner_id=player.id, zone=Zone.HAND))
+    engine.state.current_step = "declare_attackers"
+    engine.declare_attackers(p2, [{"attacker": wastewaker, "defender": {"kind": "player", "id": "p1"}}])
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert engine.state.pending_choice["player_id"] == "p2"
+    engine.resolve_pending_choice(str(p2.hand[0].instance_id))
+    engine.resolve_until_stable()
+    assert engine.state.pending_choice["player_id"] == "p1"
+    engine.resolve_pending_choice(str(rock.instance_id))
+    engine.resolve_until_stable()
+    assert not engine.state.pending_choice and rock.zone == Zone.GRAVEYARD
+
+
+@pytest.mark.parametrize("specific", [False, True])
+def test_discard_paths_apply_graveyard_exile_replacement(specific):
+    engine, p1, p2 = _game()
+    _battlefield_card(engine, "Rest in Peace", "p2")
+    card = GameObject(Card(id="card", name="Card", type_line="Land", is_land=True), owner_id="p1", zone=Zone.HAND)
+    p1.hand.append(card)
+    if specific:
+        engine.rules.discard_specific(card)
+    else:
+        engine.rules.discard(p1, 1)
+    assert card in p1.exile and card not in p1.hand and card not in p1.graveyard
 
 
 def test_evendo_exile_permission_is_linked_and_gated_by_turn_and_nontoken_sacrifice():
@@ -510,3 +550,106 @@ def test_moraug_landfall_grants_an_extra_combat_only_in_my_main_phase_and_untaps
 
     engine, bear = play_land("declare_attackers")
     assert not engine.state.pending_extra_combats and bear.tapped  # not a main phase: nothing happens
+
+
+def _broodship_game(charges=8):
+    engine, p1, p2 = _game("Llanowar Elves")
+    spell = p1.hand.pop()
+    spell.zone = Zone.GRAVEYARD
+    p1.graveyard.append(spell)
+    ship = _battlefield_card(engine, "Exploration Broodship")
+    ship.counters["charge"] = charges
+    engine.recompute_continuous_effects()
+    p1.mana_pool.add_many({"G": 2})
+    return engine, p1, p2, ship, spell
+
+
+@pytest.mark.parametrize("charges", [0, 2, 3, 7, 8, 9])
+def test_broodship_station_thresholds_and_graveyard_permission(charges):
+    from mtg_analyzer.game import continuous
+
+    engine, p1, p2, ship, spell = _broodship_game(charges)
+    land = _battlefield_card(engine, "Forest")
+    assert continuous.extra_land_plays_for(engine.state, p1) == (1 if charges >= 3 else 0)
+    assert ship.is_creature == (charges >= 8)
+    from mtg_analyzer.game import combat
+    assert combat.has(ship, "flying") == (charges >= 8)
+    if charges >= 8:
+        assert (ship.power, ship.toughness) == (4, 4)
+    assert engine.can_cast(p1, spell) == (charges >= 8)
+    assert any(a.cost.station for a in ship.activated_abilities)
+
+
+def test_broodship_pays_selected_land_before_resolution_and_spends_its_use():
+    engine, p1, p2, ship, spell = _broodship_game()
+    first = _battlefield_card(engine, "Forest")
+    chosen = _battlefield_card(engine, "Forest")
+    enemy = _battlefield_card(engine, "Forest", "p2")
+    assert not engine.can_cast(p1, spell, graveyard_sacrifice_choice=enemy.instance_id)
+    engine.cast_spell(p1, spell, graveyard_sacrifice_choice=chosen.instance_id)
+    assert chosen in p1.graveyard and first in engine.state.battlefield
+    assert spell.zone == Zone.STACK
+    assert ship.graveyard_casts_this_turn == 1
+    engine.resolve_until_stable()
+    engine.rules.put_into_graveyard(spell)
+    assert not engine.can_cast(p1, spell)
+
+
+def test_broodship_requires_a_sacrificable_land_and_own_turn_and_active_source():
+    engine, p1, p2, ship, spell = _broodship_game()
+    _battlefield_card(engine, "Forest", "p2")
+    assert not engine.can_cast(p1, spell)
+    own = _battlefield_card(engine, "Forest")
+    own.cant_be_sacrificed_this_turn = True
+    assert not engine.can_cast(p1, spell)
+    own.cant_be_sacrificed_this_turn = False
+    assert engine.can_cast(p1, spell)
+    engine.state.active_player_index = 1
+    spell.intrinsic_keywords.add("flash")
+    assert not engine.can_cast(p1, spell)
+    engine.state.active_player_index = 0
+    ship.counters["charge"] = 7
+    assert not engine.can_cast(p1, spell)
+    ship.counters["charge"] = 8
+    engine.rules.put_into_graveyard(ship)
+    assert not engine.can_cast(p1, spell)
+
+
+def test_broodship_does_not_charge_an_overlapping_free_permission():
+    engine, p1, p2, ship, spell = _broodship_game()
+    land = _battlefield_card(engine, "Forest")
+    lurrus = _battlefield_card(engine, "Lurrus of the Dream-Den")
+    engine.cast_spell(p1, spell)
+    assert land in engine.state.battlefield
+    assert ship.graveyard_casts_this_turn == 0
+    assert lurrus.graveyard_casts_this_turn == 1
+
+
+def test_broodship_requires_distinct_objects_for_two_sacrifice_costs():
+    from mtg_analyzer.game.costs import ActivationCost
+
+    engine, p1, p2, ship, spell = _broodship_game()
+    spell.additional_cast_cost = ActivationCost(sacrifice="land")
+    first = _battlefield_card(engine, "Forest")
+    assert not engine.can_cast(p1, spell)
+    second = _battlefield_card(engine, "Forest")
+    assert not engine.can_cast(p1, spell, sacrifice_choice=first.instance_id,
+                               graveyard_sacrifice_choice=first.instance_id)
+    engine.cast_spell(p1, spell, sacrifice_choice=first.instance_id,
+                      graveyard_sacrifice_choice=second.instance_id)
+    assert first in p1.graveyard and second in p1.graveyard
+
+
+
+def test_broodship_finds_a_joint_payment_and_preserves_printed_sacrifice_measurements():
+    from mtg_analyzer.game.costs import ActivationCost
+
+    engine, p1, p2, ship, spell = _broodship_game()
+    spell.additional_cast_cost = ActivationCost(sacrifice="creature_or_land")
+    ship.cant_be_sacrificed_this_turn = True
+    land = _battlefield_card(engine, "Forest")
+    bear = battlefield_object(engine, "p1", "Bear", "Creature", is_creature=True, power=2, toughness=2)
+    assert engine.can_cast(p1, spell)
+    engine.cast_spell(p1, spell)
+    assert land in p1.graveyard and bear in p1.graveyard
+    assert spell.sacrificed_cost_power == 2

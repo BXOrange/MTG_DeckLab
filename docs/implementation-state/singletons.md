@@ -1,6 +1,6 @@
 # Singleton queue
 
-**Current queue (2026-10-03, PARSER_VERSION 594): 607 distinct cards remain UNMODELED in 608 rows.** The Squirreled Away batch removed 19 covered rows after the PARSER_VERSION 591 queue audit. Rechecked every listed card against the local 35,095-card cache using `parse_oracle` and `card_registry.is_registered` (MODELED or AUTHORED counts as covered); removed 223 covered rows, refreshed Batch 2 gap cells and recomputed its deck counts. The Alora row contains two cards. This is the remaining singleton queue, not the full unmodeled card pool; singleton/cluster membership has not been re-audited in this refresh.
+**Current queue (2026-10-03, PARSER_VERSION 598): 591 distinct cards remain UNMODELED in 591 rows.** Every listed card resolves in the local 35,095-card cache and is neither MODELED nor AUTHORED. The Alora row contains two cards. This is the remaining singleton queue, not the full unmodeled card pool; singleton/cluster membership has not been re-audited in this refresh.
 
 Cards found, during backlog triage, to be genuinely one-of-a-kind: each
 was checked with `parser_probe.py blocked` against a regex over its own
@@ -52,7 +52,6 @@ header before treating the two as equally verified.
 | Mistford River Turtle | "Another target attacking **non-human** creature" | A subtype-*negation* qualifier on an attacking-creature target; no other cached card pairs "non-`<type>`" with this target shape. |
 | Shrouded Serpent | "Defending player may pay `{4}`. If that player doesn't, `<effect>`" | A combat-trigger tax-or-else composition, distinct from the shipped attack-tax statics (this one gates a *different* effect on non-payment, not the attack itself). |
 | Temmet, Vizier of Naktamun | "Target creature **token** you control" combined with pump + unblockable in one trigger | The "token" qualifier on this exact combined effect body; the one other cached card sharing "target creature token you control" (Kaya, Geist Hunter) is blocked on unrelated clauses too, so no real shared yield today. |
-| First Responder | Untargeted "return another creature you control to hand, **then** put counters on ~ equal to that creature's power" | Related to Niambi's targeted-return-then-measure shape (PAR-98, closed) but a third, distinct shape: "then" (not "if you do") sequencing, and a magnitude reading the just-returned creature's *power* rather than gating on success. |
 | Indoctrination Attendant | "If you do, create a 1/1 … token with toxic 1 **and** '`<quoted static ability>`'" | A printed-keyword-count-plus-quoted-ability token-creation compound; no token-creation handler combines both yet. |
 | Goblin Ski Patrol | "Activate only once **and only if** you control a snow Mountain." — reversed "only once and only if" order (`_ACTIVATE_ONLY_IF_TRAILING_RE` only recognizes "only if `<cond>` [and only once]"), plus a "snow `<land type>`" control-count selector `_CONTROL_COUNT_SELECTORS` doesn't have | PAR-117's sacrifice-verb closure (PARSER_VERSION 417) unblocked the card's own sacrifice clause; this trailing activation-condition is the sole remaining gap, confirmed 1 SOLO/0 also-blocked via `parser_probe.py blocked "activate only once and only if"`. |
 | Alora, Cheerful Scout / Alora, Cheerful Thief | "If you do, it perpetually gets +1/+1" / "a creature of your choice an opponent controls perpetually gets -1/-0" | Alchemy's `perpetually` is a documented engine non-goal (persistent cross-zone state, see `PARSER_LONG_TAIL.md`'s Alchemy row) — the rest of both cards (the delayed return, PAR-79's eighth increment) already parses. Two cards, one cause; not a ticket. |
@@ -331,12 +330,11 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Wrenn and Seven | `<n>: put any number of land cards from your hand onto the battlefield tapped.` |  |
 
 
-### Endless Punishment - Duskmourn: House of Horror Commander (23 cards)
+### Endless Punishment - Duskmourn: House of Horror Commander (22 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
 | Barbflare Gremlin | `whenever a player taps a land for mana, if <name> is tapped, that player adds <n> mana of any type that land produced. then that land deals <n> damage to that player.` |  |
-| Braids, Arisen Nightmare | `at the beginning of your end step, you may sacrifice an artifact, creature, enchantment, land, or planeswalker. if you do, each opponent may sacrifice a permanent of their choice that shares a card type with it. for each opponent who doesn't, that player loses <n> life and you draw a card.` | Also uncovered in: World Shaper - Edge of Eternities Commander Deck |
 | Combustible Gearhulk | `when <name> enters, target opponent may have you draw <n> cards. if the player doesn't, you mill <n> cards, then <name> deals damage to that player equal to the total mana value of those cards.` | Also uncovered in: Living Energy - Aetherdrift Commander, Revival Trance - Final Fantasy Commander |
 | Enchanter's Bane | `at the beginning of your end step, target enchantment deals damage equal to its mana value to its controller unless that player sacrifices it.` |  |
 | Fear of Burning Alive | `whenever a source you control deals noncombat damage to an opponent, if there are <n> or more card types among cards in your graveyard, <name> deals that amount of damage to target creature that player controls.` |  |
@@ -383,7 +381,7 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Wizened Mentor | `whenever an opponent activates an ability of a permanent that isn't a mana ability, you create a <n>/<n> white zombie creature token. this ability triggers only once each turn.` |  |
 
 
-### Family Matters - Bloomburrow Commander (15 cards)
+### Family Matters - Bloomburrow Commander (14 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
@@ -391,7 +389,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Bident of Thassa | `<cost>, <cost>: creatures your opponents control attack this turn if able.` |  |
 | Boss's Chauffeur | `<name> enters with a number of +<n>/+<n> counters on it equal to <n> plus the number of other creatures you control.` |  |
 | Cut a Deal | `each opponent draws a card, then you draw a card for each opponent who drew a card this way.` | Also uncovered in: Scions & Spellcraft - Final Fantasy Commander |
-| Inferno Titan | `whenever <name> enters or attacks, it deals <n> damage divided as you choose among <n>, <n>, or <n> targets.` | Also uncovered in: Riveteer Rampage - New Capenna Commander |
 | Jacked Rabbit | `whenever <name> attacks, create a number of <n>/<n> white rabbit creature tokens equal to <name>'s power.` |  |
 | Junk Winder | `whenever a token you control enters, tap target nonland permanent an opponent controls. it doesn't untap during its controller's next untap step.` |  |
 | Murmuration | `at the beginning of your end step, for each spell you've cast this turn, create a <n>/<n> blue bird creature token with flying named storm crow.` |  |
@@ -573,17 +570,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | The Master of Keys | `each enchantment card in your graveyard has escape. the escape cost is equal to the card's mana cost plus exile <n> other cards from your graveyard.` |  |
 
 
-### Oops! All Night's Whispers (6 cards)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Breach the Multiverse | `each player mills <n> cards. for each player, choose a creature or planeswalker card in that player's graveyard. put those cards onto the battlefield under your control. then each creature you control becomes a phyrexian in addition to its other types.` |  |
-| Fable of the Mirror-Breaker // Reflection of Kiki-Jiki | Compound gap — `i — create a <n>/<n> red goblin shaman creature token with <name>`; `ii — you may discard up to <n> cards. if you do, draw that many cards.` | Also uncovered in: Commander Cube |
-| Palantír of Orthanc | `at the beginning of your end step, put an influence counter on <name> and scry <n>. then target opponent may have you draw a card. if that player doesn't, you mill x cards, where x is the number of influence counters on <name>, and that player loses life equal to the total mana value of those cards.` |  |
-| Prismari, the Inspiration | `instant and sorcery spells you cast have storm.` |  |
-| Ripples of Undeath | `at the beginning of your first main phase, mill <n> cards. then you may pay <cost> and <n> life. if you do, put a card from among those cards into your hand.` |  |
-| Victimize | `choose <n> target creature cards in your graveyard. sacrifice a creature. if you do, return the chosen cards to the battlefield tapped.` | Also uncovered in: Riveteer Rampage - New Capenna Commander, Sultai Arisen - Tarkir: Dragonstorm Commander |
-
 
 ### Peace Offering - Bloomburrow Commander (17 cards)
 
@@ -637,18 +623,13 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | The Warring Triad | `<cost>, mill a card: target player adds <n> mana of any color.` |  |
 
 
-### Riveteer Rampage - New Capenna Commander (13 cards)
+### Riveteer Rampage - New Capenna Commander (8 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Bellowing Mauler | `at the beginning of your end step, each player loses <n> life unless they sacrifice a nontoken creature of their choice.` |  |
-| Deathbringer Regent | `when <name> enters, if you cast it from your hand and there are <n> or more other creatures on the battlefield, destroy all other creatures.` |  |
-| First Responder | `at the beginning of your end step, you may return another creature you control to its owner's hand, then put a number of +<n>/+<n> counters equal to that creature's power on <name>.` |  |
-| Grime Gorger | `whenever <name> attacks, exile up to <n> card of each card type from defending player's graveyard. put a +<n>/+<n> counter on <name> for each card exiled this way.` |  |
 | Henzie "Toolbox" Torre | `each creature spell you cast with mana value <n> or greater has blitz. the blitz cost is equal to its mana cost.` |  |
 | Industrial Advancement | `at the beginning of your end step, you may sacrifice a creature. if you do, look at the top x cards of your library, where x is that creature's mana value. you may put a creature card from among them onto the battlefield. put the rest on the bottom of your library in a random order.` |  |
 | Mezzio Mugger | `whenever <name> attacks, exile the top card of each player's library. you may play those cards this turn, and you may spend mana as though it were mana of any color to cast those spells.` |  |
-| Mitotic Slime | `when <name> dies, create <n> <n>/<n> green ooze creature tokens. they have <name>` |  |
 | Next of Kin | `when enchanted creature dies, you may put a creature card you own with lesser mana value from your hand or from the command zone onto the battlefield. if you do, return this card to the battlefield attached to that creature at the beginning of the next end step.` |  |
 | Protection Racket | `at the beginning of your upkeep, repeat the following process for each opponent in turn order. reveal the top card of your library. that player may pay life equal to that card's mana value. if they do, exile that card. otherwise, put it into your hand.` |  |
 | The Beamtown Bullies | `<cost>: target opponent whose turn it is puts target nonlegendary creature card from your graveyard onto the battlefield under their control. it gains haste. goad it. at the beginning of the next end step, exile it.` |  |
@@ -779,13 +760,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Shellshock | `for each opponent, choose up to <n> target creature that player controls. <name> deals x damage to each of those creatures. you create a mutagen token for each creature dealt damage this way.` |  |
 | Swift Demise | `<name> deals <n> damage to target creature. then destroy each creature you don't control that was dealt damage this turn.` |  |
 
-### World Shaper - Edge of Eternities Commander Deck (3 cards)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Eumidian Wastewaker | `whenever <name> attacks, you and defending player each discard a card or sacrifice a permanent. you draw a card for each land card put into a graveyard this way.` |  |
-| Evendo Brushrazer | Compound gap — `during your turn, as long as you've sacrificed a nontoken permanent this turn, you may play cards exiled with <name>.`; `whenever you sacrifice a nontoken permanent, exile the top card of your library.` |  |
-| Exploration Broodship | `once during each of your turns, you may cast a permanent spell from your graveyard by sacrificing a land in addition to paying its other costs.` |  |
 
 ## Batch 3 — 2026-09-21 re-evaluation of PAR-99…PAR-113 (PARSER_VERSION 447)
 

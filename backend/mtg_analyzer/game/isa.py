@@ -765,7 +765,7 @@ _CONTINUATION_TYPES: dict[str, str] = {
     "choose_named_mode": "700.2",
     "choose_number_on_enter": "601.2b",
     "choose_objects": "601.2b",
-    "discard_or_sacrifice": "608.2e",
+    "choose_player_objects": "608.2e",
     "choose_opponent_on_enter": "601.2b",
     "choose_permanent": "601.2b",
     "choose_source_coinflip": "705",

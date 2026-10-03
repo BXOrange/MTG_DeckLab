@@ -13,16 +13,13 @@ def _braids_arisen_nightmare() -> list[AbilitySpec]:
     return [AbilitySpec("triggered", [EffectSpec("choose_objects", {
         "action": "sacrifice", "optional": True,
         "card_types_any": ["artifact", "creature", "enchantment", "land", "planeswalker"],
-        "then": [{"type": "for_each", "params": {
-            "over": {"players": "each_opponent"},
-            "effects": [{"type": "choose_objects", "params": {
-                "action": "sacrifice", "optional": True, "player_selector": "target",
+        "then": [{"type": "choose_player_objects", "params": {
+                "action": "sacrifice", "optional": True, "player_scope": "each_opponent",
                 "card_types_any": {"kind": "sacrificed_card_types"},
                 "else_effects": [
                     {"type": "lose_life", "params": {"amount": 2, "player_id": {"kind": "choosing_player_id"}}},
                     {"type": "draw", "params": {"count": 1}},
                 ],
-            }}],
         }}],
     })], trigger={"event": "STEP_BEGIN", "filter": {"step": "end"}, "phase_relation": "you"})]
 

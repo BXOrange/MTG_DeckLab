@@ -8,18 +8,25 @@ def _geistwave() -> list[AbilitySpec]:
     """Return target nonland permanent to its owner's hand. If you
     controlled that permanent, draw a card.
 
-    — Geistwave. The bounce and rider are an ordinary sequence: the draw
-    names the announced object through `previous_target`.
+    Check control before the zone change (RULE 608.2h): returning the
+    permanent restores its owner's control and clears its battlefield state.
     """
     return [
         AbilitySpec(
             "spell_effect",
             [
-                EffectSpec("return_to_hand", {"target_kind": "nonland_permanent"}),
-                EffectSpec(
-                    "draw", {"count": 1},
-                    condition={"kind": "is_you", "of": "previous_target"},
-                ),
+                EffectSpec("if_else", {
+                    "condition": {"kind": "is_you", "of": "target"},
+                    "then": [
+                        {"type": "return_to_hand", "params": {
+                            "target_kind": "nonland_permanent",
+                        }},
+                        {"type": "draw", "params": {"count": 1}},
+                    ],
+                    "else": [{"type": "return_to_hand", "params": {
+                        "target_kind": "nonland_permanent",
+                    }}],
+                }),
             ],
         )
     ]

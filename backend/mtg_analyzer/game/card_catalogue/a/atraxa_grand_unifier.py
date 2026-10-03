@@ -15,11 +15,8 @@ def _atraxa_grand_unifier() -> list[AbilitySpec]:
     The ETB is the PAR-144 dig (`inspect_top_choose`: ten cards, ``max_picks:
     all`` — any number of them — put into hand, the rest to
     ``library_bottom_random``) with the new ``distinct_card_types`` flag:
-    no two picks may share a card type (`RulesEngine._resume_choose_objects`).
-    Documented simplification: the printed rule lets two multi-type cards each
-    cover a *different* type of theirs (an artifact creature for "artifact"
-    and a creature card for "creature" is fine only if they don't overlap);
-    here any two picks that share a type are refused.
+    each selected card must be assignable to a different card type. Shared
+    types are allowed when another assignment exists (RULE 205.2b).
     """
     return [
         AbilitySpec(

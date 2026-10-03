@@ -53,3 +53,5 @@ from . import expressive_iteration  # noqa: F401
 from . import eye_of_ugin  # noqa: F401
 from . import evendo_brushrazer
 from . import eumidian_wastewaker
+
+from . import exploration_broodship

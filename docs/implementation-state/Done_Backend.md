@@ -269,6 +269,58 @@ The World Shaper regression checks the counter immediately after activation.
 
 ## Rules Engine Core Loop
 
+### Choices representing different card types (RULE 205.2a–b)
+
+`distinct_card_types` accepts selected cards whenever each can represent a
+different card type. Earlier multi-type assignments can change as later cards
+are chosen; shared types alone no longer exclude a legal pick. The chooser
+captures each pick's types before its zone move and includes Kindred and the
+other official card types. Integration tests cover both selection orders and
+reject an extra card while keeping the choice open.
+
+`choose_objects` can use the defending player's graveyard as its pool while
+the ability controller chooses. The attacking event preserves that player's
+identity after source removal. Serialized follow-up effects retain their
+conditions, so a departed source does not receive battlefield-only counters.
+
+### Measured choices and battlefield exit state
+
+`choose_objects.then_that_many` measures a chosen creature's power before
+returning it to hand. Battlefield-to-hand moves clear counters and temporary
+modifications, restore the front face and owner's control (RULE 400.7).
+Control-dependent riders can branch before that move to preserve the relevant
+information. Queued triggers capture their source's controller at the triggering
+event, including after a control change (RULE 603.3a).
+
+`choose_player_objects` also supports all living players, permanent filters,
+and simultaneous decline effects while retaining APNAP choice order.
+
+### Quoted abilities on created tokens (PARSER_VERSION 598)
+
+The parser attaches a fully supported quoted ability in “They/Those tokens
+have …” to each created token's Oracle text (RULE 111.3). Each token receives
+its own bound ability; unsupported or partially claimed quotes fail closed.
+Integration tests cover controlled Devil death triggers and the complete
+two-stage Ooze death chain.
+
+### Multi-player selections and simultaneous actions (RULE 101.4 / 608.2e)
+
+`choose_player_objects` collects choices in APNAP order, including optional
+declines, before discarding hand cards or sacrificing permanents simultaneously.
+Its serialized continuation preserves the selected objects and remaining seats;
+measured follow-ups count only nontoken cards that actually reach the graveyard.
+`choose_objects` can filter by shared card types and capture the sacrificed
+permanent's last-known types before subsequent players choose. Both discard
+paths now honor graveyard redirection through the shared zone-move handler.
+
+### Additional costs on standing casting permissions
+
+Standing graveyard permissions can require a sacrifice in addition to the
+spell's other costs. Explicit choices are validated, and automatic selection
+finds distinct objects for both sacrifices. Payment occurs during casting;
+overlapping permissions without this cost remain available. Additional land
+play grants now honor their live conditions, including charge-counter thresholds.
+
 ### Composed graveyard recovery and linked casting permissions
 
 `MillEffect.capture_milled` and `ReturnFromGraveyardEffect.previous_pool` restrict
@@ -915,6 +967,11 @@ source; turn and event-history gates are checked when a card is played or cast.
 
 ### RULE 601.2c Target-Count Range (`count_max`) (ENG-30)
 
+- **Parser extension (v598):** Divided damage accepts contiguous target-count
+  lists, including “one, two, or three,” and preserves creature, flying,
+  attacking, and attacking-or-blocking restrictions. Invalid lists fail closed.
+  Integration tests cover spell casting and both entry and attack triggers.
+  The existing automatic equal division remains a gameplay simplification.
 - **What:** `TargetSpec.count_max` plus `effective_count` property express "N or M target `<X>`" (at least N, at most M) — a genuine third shape alongside exact `count` and…
 - **Files:** `game/targeting.py`, `game/effects/core.py`, `game/rules/misc_mixin.py`, `frontend/src/js/gameBoardView.js`.
 - **Why:** Slicing by the minimum (the pre-existing convention) would silently drop a legally-chosen second target for a range spec.

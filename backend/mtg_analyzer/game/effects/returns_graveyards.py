@@ -1838,7 +1838,8 @@ class InspectTopChooseEffect(GameEffect):
         self.max_picks = max_picks
         self.max_picks_if_teamwork = max_picks_if_teamwork
         #: "For each card type, you may put a card of that type from among them into your hand." (Atraxa,
-        #: Grand Unifier) — no two picks share a card type (`RulesEngine._resume_choose_objects`).
+        #: Grand Unifier) — each pick represents a different card type; multi-type cards may
+        #: share types when a distinct assignment exists (`RulesEngine._resume_choose_objects`).
         self.distinct_card_types = bool(distinct_card_types)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:

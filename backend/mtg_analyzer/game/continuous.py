@@ -5168,6 +5168,9 @@ def extra_land_plays_for(state: "GameState", player: "Player") -> int:
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "extra_land_drop":
             continue
+        gate = ability.params.get("active_if")
+        if gate and not static_conditions.condition_holds(gate, state, ability.source, ability.source.controller_id):
+            continue
         if ability.affects == "each_player" or getattr(ability.source, "controller_id", None) == player.id:
             total += int(ability.params.get("count", 1))
     return total

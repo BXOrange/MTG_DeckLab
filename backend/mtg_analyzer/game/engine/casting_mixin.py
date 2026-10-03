@@ -476,6 +476,7 @@ class CastingMixin:
         surge: bool = False,
         exile_discount: int = 0,
         sacrifice_choice: Optional[int] = None,
+        graveyard_sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
         targets: Optional[list[Any]] = None,
         assume_mana_available: bool = False,
@@ -917,6 +918,11 @@ class CastingMixin:
             # RULE 708.4 again: no text means no "as an additional cost to
             # cast this spell, …" clause either — the {3} is the whole price.
             additional_cost = None
+        grant = self._standing_graveyard_grant(player, obj)
+        if grant is not None and grant.sacrifice_type:
+            if self._graveyard_sacrifice_payment(player, obj, grant, graveyard_sacrifice_choice,
+                                                   sacrifice_choice, pay_additional) is None:
+                return False
         if not self._can_pay_cast_life_tax(player, obj, targets):
             return False
         return self._can_pay_additional_cast_cost(
@@ -924,6 +930,48 @@ class CastingMixin:
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
             pay_additional=pay_additional,
         )
+    def _standing_graveyard_grant(self, player, obj):
+        from ..graveyard_cast import has_temporary_graveyard_play_permission
+
+        if (obj not in player.graveyard or self._graveyard_cast_keyword(obj) is not None
+                or has_temporary_graveyard_play_permission(player, self.state)
+                or self.state.temp_graveyard_cast_permissions.get(obj.instance_id) == player.id
+                or self._self_graveyard_or_exile_cast_permission(obj, player)):
+            return None
+        return graveyard_cast_grant_for(player, self.state, obj.card)
+
+    def _graveyard_sacrifice_payment(self, player, obj, grant, chosen_id, printed_choice, pay_additional):
+        """Find two distinct sacrifices when the spell has its own cost too.
+
+        Explicit choices stay fixed; unspecified choices may use any payable
+        pair. The returned pair is also used by the real payment path.
+        """
+        cost = getattr(obj, "additional_cast_cost", None)
+        if cost is not None and pay_additional and cost.either_alt is not None:
+            cost = cost.either_alt
+        if grant.sacrifice_type != "land" and continuous.cost_restricted(
+            self.state, "sacrifice_nonland_permanent"
+        ):
+            return None
+        candidates = [
+            o for o in self.state.permanents_controlled_by(player.id)
+            if self._matches_sacrifice_type(o, grant.sacrifice_type)
+            and not o.cant_be_sacrificed_this_turn
+            and (chosen_id is None or o.instance_id == chosen_id)
+        ]
+        printed_required = (cost is not None and cost.sacrifice
+                            and (not getattr(obj, "additional_cast_cost_optional", False) or pay_additional))
+        if not printed_required:
+            return (None, candidates[0]) if candidates else None
+        choices = ([printed_choice] if printed_choice is not None else
+                   [o.instance_id for o in self.state.permanents_controlled_by(player.id)])
+        for candidate in candidates:
+            for choice in choices:
+                printed = self._sacrifice_candidate(player, obj, cost.sacrifice, chosen_id=choice)
+                if printed is not None and printed is not candidate:
+                    return printed, candidate
+        return None
+
     def _cast_life_tax(self, player: Player, obj: GameObject, targets: Optional[list[Any]]) -> int:
         """RULE 601.2f: life a standing "cost an additional N life to cast"
         static (Terror of the Peaks) adds to this cast — 0 without chosen
@@ -1340,6 +1388,7 @@ class CastingMixin:
         surge: bool = False,
         exile_discount: int = 0,
         sacrifice_choice: Optional[int] = None,
+        graveyard_sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
         help_pay: bool = False,
         pay_additional: bool = False,
@@ -1472,7 +1521,7 @@ class CastingMixin:
                     player, obj, targets, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback,
                     target_groups=target_groups, free=free, alt_cost=alt_cost, mutate=mutate,
                     mutate_under=mutate_under, bargained=bargained, entwine=entwine, evoke=evoke, surge=surge, exile_discount=exile_discount,
-                    sacrifice_choice=sacrifice_choice, discard_choices=discard_choices, help_pay=help_pay,
+                    sacrifice_choice=sacrifice_choice, graveyard_sacrifice_choice=graveyard_sacrifice_choice, discard_choices=discard_choices, help_pay=help_pay,
                     pay_additional=pay_additional, teamwork=teamwork, teamwork_choices=teamwork_choices,
                 )
             except Exception:
@@ -1496,7 +1545,7 @@ class CastingMixin:
                 player, obj, targets, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback,
                 target_groups=target_groups, free=free, alt_cost=alt_cost, mutate=mutate,
                 mutate_under=mutate_under, bargained=bargained, entwine=entwine, evoke=evoke, surge=surge, exile_discount=exile_discount,
-                sacrifice_choice=sacrifice_choice, discard_choices=discard_choices, help_pay=help_pay,
+                sacrifice_choice=sacrifice_choice, graveyard_sacrifice_choice=graveyard_sacrifice_choice, discard_choices=discard_choices, help_pay=help_pay,
                 pay_additional=pay_additional, teamwork=teamwork, teamwork_choices=teamwork_choices,
             )
         finally:
@@ -1730,6 +1779,7 @@ class CastingMixin:
         surge: bool = False,
         exile_discount: int = 0,
         sacrifice_choice: Optional[int] = None,
+        graveyard_sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
         targets: Optional[list[Any]] = None,
         help_pay: bool = False,
@@ -1775,7 +1825,7 @@ class CastingMixin:
         if free or alt_cost or self.can_cast(
             player, obj, x, face=face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
             alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, evoke=evoke, surge=surge, exile_discount=exile_discount,
-            sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+            sacrifice_choice=sacrifice_choice, graveyard_sacrifice_choice=graveyard_sacrifice_choice, discard_choices=discard_choices,
             targets=targets, help_pay=help_pay, pay_additional=pay_additional,
             teamwork=teamwork, teamwork_choices=teamwork_choices,
         ):
@@ -1783,7 +1833,7 @@ class CastingMixin:
         if not self.can_cast(
             player, obj, x, face=face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
             alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, evoke=evoke, surge=surge, exile_discount=exile_discount,
-            sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+            sacrifice_choice=sacrifice_choice, graveyard_sacrifice_choice=graveyard_sacrifice_choice, discard_choices=discard_choices,
             targets=targets, assume_mana_available=True, help_pay=help_pay, pay_additional=pay_additional,
             teamwork=teamwork, teamwork_choices=teamwork_choices,
         ):
@@ -1818,6 +1868,7 @@ class CastingMixin:
         surge: bool = False,
         exile_discount: int = 0,
         sacrifice_choice: Optional[int] = None,
+        graveyard_sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
         help_pay: bool = False,
         bestow: bool = False,
@@ -1865,14 +1916,14 @@ class CastingMixin:
             self._auto_tap_for_cast_if_needed(
                 player, obj, x, face=bestow_face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
                 alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, evoke=evoke, surge=surge, exile_discount=exile_discount,
-                sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+                sacrifice_choice=sacrifice_choice, graveyard_sacrifice_choice=graveyard_sacrifice_choice, discard_choices=discard_choices,
                 targets=targets, help_pay=help_pay, pay_additional=pay_additional,
                 teamwork=teamwork, teamwork_choices=teamwork_choices,
             )
             if not self.can_cast(
                 player, obj, x, face=bestow_face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
                 alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, evoke=evoke, surge=surge, exile_discount=exile_discount,
-                sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+                sacrifice_choice=sacrifice_choice, graveyard_sacrifice_choice=graveyard_sacrifice_choice, discard_choices=discard_choices,
                 targets=targets, help_pay=help_pay, pay_additional=pay_additional,
                 teamwork=teamwork, teamwork_choices=teamwork_choices,
             ):
@@ -1910,11 +1961,17 @@ class CastingMixin:
             # Lurrus-shaped standing permission, read *before* the cast for
             # the same "off the object's current zone" reason as above — only
             # relevant when no closed-vocabulary keyword already covers it.
-            graveyard_grant = (
-                graveyard_cast_grant_for(player, self.state, obj.card)
-                if obj in player.graveyard and graveyard_keyword is None
-                else None
+            graveyard_grant = self._standing_graveyard_grant(player, obj)
+            graveyard_payment = (
+                self._graveyard_sacrifice_payment(
+                    player, obj, graveyard_grant, graveyard_sacrifice_choice, sacrifice_choice, pay_additional,
+                ) if graveyard_grant is not None and graveyard_grant.sacrifice_type else None
             )
+            graveyard_victim = None
+            if graveyard_payment is not None:
+                printed_victim, graveyard_victim = graveyard_payment
+                if printed_victim is not None:
+                    sacrifice_choice = printed_victim.instance_id
             # PAR-105: a "once each turn" top-of-library grant is spent by this cast — read while the card
             # is still the top card.
             if bool(player.library) and obj is player.library[-1]:
@@ -2047,6 +2104,10 @@ class CastingMixin:
                     sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
                     pay_additional=pay_additional,
                 )
+                if graveyard_victim is not None:
+                    # RULE 601.2h: this mandatory permission cost is independent
+                    # of the spell's own optional/mandatory additional costs.
+                    self.rules.put_into_graveyard(graveyard_victim)
             # RULE 601.2b (PAR-30): record whether the additional cost was
             # paid — a *mandatory* one always (it was), an *optional* "you
             # may <…>" one only when the caller chose the `pay_additional`

@@ -1031,7 +1031,9 @@ class GameSession:
         self.engine.cast_spell(
             active, self._object(action), targets, x, face=face, mode=mode,
             kicked=kicked, kicker_x=kicker_x, target_groups=target_groups,
-            sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+            sacrifice_choice=sacrifice_choice,
+            graveyard_sacrifice_choice=self._resolve_sacrifice_choice(action.get("graveyard_sacrifice_choice")),
+            discard_choices=discard_choices,
             buyback=bool(action.get("buyback", False)),
             mutate=bool(action.get("mutate", False)),
             mutate_under=bool(action.get("mutate_under", False)),

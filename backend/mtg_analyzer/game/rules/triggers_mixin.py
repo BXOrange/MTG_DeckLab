@@ -18,6 +18,7 @@ engine is the toolbox that loop drives.
 
 from __future__ import annotations
 
+import copy
 import re
 from typing import Any, Callable, Optional, Union
 
@@ -196,7 +197,15 @@ class TriggerCollectionMixin:
                 ability.capture_event(event, self.context)
                 if capture and ability.capture_event else event
             )
-            firing: tuple = (ability, captured)
+            firing_ability = ability
+            controller_id = getattr(obj, "controller_id", None)
+            if controller_id is not None and controller_id != ability.controller_id:
+                # RULE 603.3a: the source's controller at triggering time
+                # owns this firing. Keep earlier queued firings independent
+                # when control changes, rather than mutating the bound ability.
+                firing_ability = copy.copy(ability)
+                firing_ability.controller_id = controller_id
+            firing: tuple = (firing_ability, captured)
             if index == 0 and offers:
                 firing = _TapOfferFiring(firing, offers)
             self.pending_triggers.append(firing)

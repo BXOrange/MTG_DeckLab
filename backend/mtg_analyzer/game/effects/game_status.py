@@ -620,6 +620,11 @@ class GraveyardCastPermissionEffect(GameEffect):
     per-object, not per-player, precedent: two copies of the granting
     permanent each grant their own use).
 
+    ``sacrifice_type`` adds a mandatory sacrifice to casts using this
+    permission. Casting validates a joint payment with the spell's own
+    additional costs, so one permanent cannot pay two sacrifices. A second
+    permission without this cost is preferred when both apply.
+
     Bound like `TopLibraryPermissionEffect` (an ordinary ``static`` ability,
     inert to `continuous.recompute` — the only consumer is
     `game/graveyard_cast.py`).
@@ -654,10 +659,12 @@ class GraveyardCastPermissionEffect(GameEffect):
         spell_criteria: Optional[dict[str, Any]] = None,
         active_if: Optional[dict[str, Any]] = None,
         plays_lands: bool = False,
+        sacrifice_type: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         #: "…you may **play** this card from your graveyard" (Kethis, the Hidden Hand): the grant also
         #: covers land cards matching ``spell_criteria`` (`graveyard_cast.graveyard_land_play_grant_for`).
+        self.sacrifice_type = sacrifice_type
         self.plays_lands = plays_lands
         #: PAR-105: "you may cast a `<kind>` spell from your graveyard" — the kind as a `card_query`
         #: criteria dict (`graveyard_cast.graveyard_cast_grant_for`), ANDed with the flags below.

@@ -3471,6 +3471,31 @@ def _created_tokens_have_cda_specs(body: str) -> Optional[list[EffectSpec]]:
     return created
 
 
+_CREATED_TOKENS_HAVE_ABILITY_RE = re.compile(
+    r'^(?P<create>(?:you )?create [^.]+ creature tokens)\.\s*'
+    r'(?:they|those tokens) have "(?P<ability>[^"]+)"$', re.I | re.S,
+)
+
+
+def _created_tokens_have_ability_specs(body: str) -> Optional[list[EffectSpec]]:
+    """RULE 111.3: a fully parsed quoted ability belongs to each new token."""
+    match = _CREATED_TOKENS_HAVE_ABILITY_RE.fullmatch(body)
+    if match is None:
+        return None
+    created = parse_effect_body(match.group("create"))
+    ability = segment_line(match.group("ability"), allow_spell_effect=False, provenance=ParserProvenance())
+    if (not created or len(created) != 1 or created[0].type != "create_token"
+            or not ability.claimed or ability.spec is None):
+        return None
+    # Preserve the token's own Oracle text. create_token binds this text on
+    # each new object, so self references and controllers belong to the token.
+    params = dict(created[0].params)
+    params["oracle_text"] = "\n".join(filter(None, (
+        params.get("oracle_text"), match.group("ability"),
+    )))
+    return [EffectSpec("create_token", params)]
+
+
 def _destroy_target_counter_token_specs(body: str) -> Optional[list[EffectSpec]]:
     """Measure the target before destruction, then branch on that snapshot."""
     match = _DESTROY_TARGET_COUNTER_TOKEN_RE.fullmatch(body)
@@ -5358,6 +5383,10 @@ def parse_effect_body(
             }),
             follow,
         ]
+
+    quoted_token_ability = _created_tokens_have_ability_specs(body)
+    if quoted_token_ability is not None:
+        return quoted_token_ability
 
     distributed_cda = _created_tokens_have_cda_specs(body)
     if distributed_cda is not None:

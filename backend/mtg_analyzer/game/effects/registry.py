@@ -2133,9 +2133,13 @@ EffectRegistry.register(
     "choose_objects",
     lambda p: ChooseObjectsEffect(
         card_types_any=p.get("card_types_any"),
+        then_that_many=p.get("then_that_many"),
+        distinct_card_types=bool(p.get("distinct_card_types", False)),
+        pool_zone=p.get("pool_zone", "battlefield"),
+        pool_player_selector=p.get("pool_player_selector", "chooser"),
         action=str(p.get("action", "sacrifice")),
         what=str(p.get("what", "permanent")),
-        count=int(p.get("count", 1) or 1),
+        count="all" if p.get("count") == "all" else int(p.get("count", 1) or 1),
         optional=bool(p.get("optional", False)),
         exclude_self=bool(p.get("exclude_self", False)),
         prompt=str(p.get("prompt", "")),
@@ -2147,9 +2151,14 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    "discard_or_sacrifice",
-    lambda p: DiscardOrSacrificeEffect(player_ids=p.get("player_ids"), chosen_ids=p.get("chosen_ids"),
-                                      then_that_many=p.get("then_that_many")),
+    "choose_player_objects",
+    lambda p: ChoosePlayerObjectsEffect(
+        player_ids=p.get("player_ids"), chosen_ids=p.get("chosen_ids"), then_that_many=p.get("then_that_many"),
+        player_scope=p.get("player_scope", "you_and_defending"), action=p.get("action", "discard_or_sacrifice"),
+        optional=bool(p.get("optional", False)), card_types_any=p.get("card_types_any"),
+        declined_ids=p.get("declined_ids"), else_effects=p.get("else_effects"),
+        permanent_filter=p.get("permanent_filter"), else_simultaneous=bool(p.get("else_simultaneous", False)),
+    ),
 )
 EffectRegistry.register(
     # RULE 701.47/701.50 (connive, MEC-43 — Ledger Shredder; PAR-29): draw a
@@ -2836,6 +2845,7 @@ EffectRegistry.register(
         lands_only=bool(p.get("lands_only", False)),
         spell_criteria=p.get("spell_criteria"),
         active_if=_top_library_gate(p),
+        sacrifice_type=p.get("sacrifice_type"),
     ),
 )
 EffectRegistry.register(
@@ -4503,7 +4513,8 @@ EffectRegistry.register(
     # one-turn, resolve-time sibling is `ExtraLandPlayEffect`/``extra_land_play``.
     "extra_land_drop",
     lambda p: StaticAbility(
-        "extra_land_drop", affects=p.get("affects", "you"), params={"count": p.get("count", 1)}
+        "extra_land_drop", affects=p.get("affects", "you"),
+        params={"count": p.get("count", 1), "active_if": _top_library_gate(p)}
     ),
 )
 EffectRegistry.register(

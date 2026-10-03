@@ -545,7 +545,7 @@ class ForEachEffect(_CompositeEffect):
             if scope not in PLAYER_SCOPES:
                 return []  # fail closed, like every other whitelisted name
             controller_id = effect_conditions._controller_id(self.source, context)
-            living = list(context.state.living_players())
+            living = list(context.state.living_players_apnap())
             if scope == "each_opponent":
                 return [p for p in living if p.id != controller_id]
             if scope == "you":

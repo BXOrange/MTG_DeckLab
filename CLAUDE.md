@@ -609,8 +609,8 @@ preserved across suspended effects. Additional draws accept fixed plural
 counts; Teferi's Puzzle Box uses hand-to-library ordering followed by a draw
 of the saved hand size, and Academy Loremaster uses a turn-scoped spell tax.
 
-**Coverage: 58.0% (20,338 / 35,046) as of 2026-10-03, measured at
-PARSER_VERSION 597** (parser-`MODELED` or hand-`AUTHORED`, measured against
+**Coverage: 58.1% (20,365 / 35,046) as of 2026-10-03, measured at
+PARSER_VERSION 598** (parser-`MODELED` or hand-`AUTHORED`, measured against
 the full ~35k-card Oracle universe from `scripts/import_bulk.py`, excluding
 Sticker Sheet inserts by type line under RULE 123.2). Re-measure
 with `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)

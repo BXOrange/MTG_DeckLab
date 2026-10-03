@@ -92,7 +92,15 @@ def graveyard_cast_grant_for(
     """
     if card.is_land:
         return None
-    for effect in active_graveyard_cast_grants(player, state):
+    # Prefer an unrestricted route when several permissions overlap.
+    for effect in sorted(active_graveyard_cast_grants(player, state), key=lambda e: bool(e.sacrifice_type)):
+        if effect.sacrifice_type:
+            from .engine.activation_mixin import ActivationMixin
+
+            if not any(ActivationMixin._matches_sacrifice_type(o, effect.sacrifice_type)
+                       and not o.cant_be_sacrificed_this_turn
+                       for o in state.permanents_controlled_by(player.id)):
+                continue
         if effect.permanent_only and not _is_permanent_card(card):
             continue
         if effect.instant_sorcery_only and not (card.is_instant or card.is_sorcery):

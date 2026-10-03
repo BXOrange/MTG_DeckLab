@@ -775,6 +775,15 @@ class DamageDeathMixin:
         obj.damage_marked = 0
         owner.add_to_zone(obj, Zone.HAND)
         self._split_melded_after_move(obj, Zone.HAND)  # RULE 712.19
+        if was_on_battlefield:
+            # RULE 400.7: the hand card is a new object. The leaving event
+            # and measured choice tails have already captured battlefield LKI.
+            previous_card = obj.card
+            obj.reset_as_new_object()
+            obj.reset_derived()
+            obj.controller_id = obj.owner_id
+            if obj.card is not previous_card:
+                self.switch_to_face(obj, obj.card)
         if obj.is_commander:
             self.open_choice(self._commander_zone_choice(obj, Zone.HAND))
     def return_to_library(self, obj: GameObject, position: str = "top", depth: int = 1) -> None:
