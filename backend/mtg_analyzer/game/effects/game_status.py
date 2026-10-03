@@ -802,15 +802,20 @@ class GrantFlashbackToTargetEffect(GameEffect):
         self,
         cost: Optional[str] = None,
         target_kind: str = "graveyard_instant_or_sorcery",
+        as_permission: bool = False,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.cost = cost
+        self.as_permission = as_permission
         self.target_spec = TargetSpec(kind=target_kind, count=1)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = targets[0] if targets else None
         if target is None:
+            return
+        if self.as_permission:
+            context.state.temp_graveyard_cast_permissions[target.instance_id] = self.source.controller_id
             return
         cost = self.cost or getattr(target.card, "mana_cost_string", None) or "{0}"
         context.state.temp_flashback_grants[target.instance_id] = str(cost)

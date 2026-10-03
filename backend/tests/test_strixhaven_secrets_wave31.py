@@ -71,6 +71,23 @@ def test_winds_of_rath_spares_enchanted_creatures():
     assert "Holy" in names
 
 
+def test_killian_discount_requires_a_creature_target():
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
+    from mtg_analyzer.game.continuous import cost_reduction_for
+
+    eng, p1, p2 = _eng()
+    killian = _mk(eng, p1.id, "Killian, Ink Duelist", "Legendary Creature — Human Warlock",
+                  is_creature=True, power=2, toughness=2)
+    bind_from_catalogue(killian)
+    creature = _mk(eng, p2.id, "Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    rock = _mk(eng, p2.id, "Rock", "Artifact")
+    spell = GameObject(Card(id="spell", name="Spell", type_line="Sorcery"), owner_id=p1.id, zone=Zone.HAND)
+    assert cost_reduction_for(eng.state, p1, spell, targets=[creature])[0] == 2
+    assert cost_reduction_for(eng.state, p1, spell, targets=[rock])[0] == 0
+    assert cost_reduction_for(eng.state, p1, spell, targets=[p2])[0] == 0
+    assert cost_reduction_for(eng.state, p1, spell, targets=[])[0] == 0
+
+
 def test_volcanic_salvo_reduces_by_total_power():
     from mtg_analyzer.game.continuous import self_cost_reduction_for
     eng, p1, p2 = _eng()

@@ -3884,7 +3884,9 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: 592: PAR-100 active-player phase bodies, plural additional draws, other-player
 #: scopes, optional draw/tax, hand-to-library ordering and draw/life prohibitions.
 # MEC-110: Empower Jace, including quantities bound by the shared X grammar.
-PARSER_VERSION = "594"
+# 595: optional discard-up-to/draw-the-discarded-count shared grammar.
+# 596: instant/sorcery storm grants (Prismari and Ral's emblem).
+PARSER_VERSION = "597"
 
 
 def parser_source_hash() -> str:

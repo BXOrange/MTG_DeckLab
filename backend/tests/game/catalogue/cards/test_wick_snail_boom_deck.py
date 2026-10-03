@@ -384,9 +384,14 @@ def _to_end_step(engine):
 def test_teferis_time_twist_returns_at_the_next_end_step_with_a_counter_only_as_a_creature():
     engine, p1, creature = _time_twist("Creature — Bear", is_creature=True, power=2, toughness=2)
     assert creature.zone == Zone.EXILE and creature not in engine.state.battlefield  # gone for now
+    from mtg_analyzer.models.game.events import EventType
+    entry_counters = []
+    engine.state.subscribe(lambda event: entry_counters.append(dict(creature.counters))
+                           if event.type == EventType.ENTERS_BATTLEFIELD else None)
     _to_end_step(engine)
     assert creature in engine.state.battlefield
     assert creature.counters.get("+1/+1", 0) == 1 and not creature.counters.get("-1/-1")
+    assert entry_counters == [{"+1/+1": 1}]
 
     engine, p1, artifact = _time_twist("Artifact")
     assert artifact.zone == Zone.EXILE

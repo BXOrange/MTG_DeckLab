@@ -61,3 +61,4 @@ from . import pure_intentions  # noqa: F401
 from . import pyrohemia  # noqa: F401
 
 from . import plaguecrafter
+from . import palantir_of_orthanc

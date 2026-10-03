@@ -231,6 +231,8 @@ class ManaMixin:
             # RULE 728's own rider (Harold and Bob's granted ability) —
             # same "applied right alongside, no stack" treatment.
             self.rules.add_player_counters(player, ability.self_rad_counters, "rad", source=source)
+        for kind, amount in ability.source_counters.items():
+            self.rules.add_counters(source, amount, kind, source=source)
         self.state.record_stat(player.id, "mana", amount=sum(produced.values()))
         mana_potential.record_mana_produced(self, player, produced)
         # RULE 605.1: a "whenever ~ is tapped for mana" trigger (Price of

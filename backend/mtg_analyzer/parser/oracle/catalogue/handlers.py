@@ -1906,6 +1906,12 @@ def _may_wheel(m: re.Match[str]) -> list[EffectSpec]:
 #: Fullmatched, so a trailing count qualifier must be handled by the composition grammar.
 _DRAW_ADDITIONAL_RE = _c(r"(?:you )?draw (?P<n>an|\d+) additional cards?")
 
+# The choice's existing discard delta survives suspension and draws only
+# the number actually discarded, including zero (RULE 701.8).
+_DISCARD_UP_TO_DRAW_RE = _c(
+    r"(?:you may )?discard up to (?P<n>\d+) cards?(?:, then|\. if you do,) draw that many cards"
+)
+
 # RULE 401.4: preserve the pre-move hand size across the ordering choice.
 _HAND_BOTTOM_DRAW_RE = _c(
     r"(?:you )?put the cards in your hand on the bottom of your library in any order, "
@@ -16389,6 +16395,10 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler("wheel", _WHEEL_RE, _wheel),
     EffectHandler("may_wheel", _MAY_WHEEL_RE, _may_wheel),
     EffectHandler("hand_bottom_draw", _HAND_BOTTOM_DRAW_RE, _hand_bottom_draw),
+    EffectHandler("discard_up_to_draw", _DISCARD_UP_TO_DRAW_RE,
+                  lambda m: [EffectSpec("discard", {
+                      "count_max": int(m.group("n")), "then_draw_discarded": True,
+                  })]),
     EffectHandler(
         "draw_additional",
         _DRAW_ADDITIONAL_RE,

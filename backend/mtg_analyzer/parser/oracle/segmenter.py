@@ -6180,6 +6180,9 @@ def _apply_keyword_restriction(spec: AbilitySpec, kw: str) -> bool:
 #: body grammar isn't covered yet).
 _TO_SOLVE_RE = re.compile(r"^to solve\s*[—-]\s*(?P<cond>.+?)\.?$", re.IGNORECASE | re.DOTALL)
 _TO_SOLVE_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
+    (re.compile(r"you'?ve cast (?P<n>\d+) or more instant and sorcery spells this turn", re.I),
+     lambda m: {"kind": "control_count",
+                "selector": "instant_and_sorcery_spells_cast_this_turn", "min": int(m.group("n"))}),
     (re.compile(r"you have no cards in hand", re.I),
      lambda m: {"kind": "cards_in_hand_at_most", "amount": 0}),
     (re.compile(r"you control (?P<n>\d+) or more (?P<what>artifacts|lands|creatures|"

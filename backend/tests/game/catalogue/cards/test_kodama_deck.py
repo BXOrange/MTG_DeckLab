@@ -456,9 +456,11 @@ def test_roaring_earth_channel_animates_a_land_permanently():
     assert land.is_creature and land.is_land  # "it's still a land"
     assert (land.power, land.toughness) == (2, 2)  # 0/0 plus X counters
     assert "haste" in land.granted_keywords
+    assert land.colors == {"G"}
     engine._step_cleanup()
     engine.recompute_continuous_effects()
     assert land.is_creature and (land.power, land.toughness) == (2, 2)  # no end-of-turn expiry
+    assert land.colors == {"G"}
 
 
 def _nantuko_landfall(engine, p1, land_name="Forest"):
@@ -516,6 +518,17 @@ def test_springheart_nantuko_attached_but_declined_makes_an_insect():
     engine.resolve_until_stable()
     assert [o.name for o in engine.state.battlefield].count("Grizzly") == 1
     assert sum(1 for o in engine.state.battlefield if o.name == "Insect") == 1
+
+
+def test_springheart_nantuko_cannot_copy_an_opponent_controlled_host():
+    engine, p1, nantuko, bear = _bestowed_nantuko()
+    bear.controller_id = "p2"
+    p1.mana_pool.add_many({"G": 2})
+    _nantuko_landfall(engine, p1)
+    engine.resolve_until_stable()
+    assert engine.state.pending_choice is None
+    assert sum(o.name == "Insect" for o in engine.state.battlefield) == 1
+    assert sum(o.name == "Grizzly" for o in engine.state.battlefield) == 1
 
 
 def _defiler_board():

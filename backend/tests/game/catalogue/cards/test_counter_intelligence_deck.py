@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
@@ -217,7 +219,8 @@ def test_depthshaker_titan_choosing_nothing_never_sacrifices_itself():
     assert titan.zone == Zone.BATTLEFIELD and rock.zone == Zone.BATTLEFIELD
 
 
-def test_emry_lets_you_cast_only_the_chosen_artifact_card_from_the_graveyard():
+@pytest.mark.parametrize("countered", [False, True])
+def test_emry_lets_you_cast_only_the_chosen_artifact_card_from_the_graveyard(countered):
     engine, p1 = _game()
     emry = battlefield_object(
         engine, "p1", "Emry, Lurker of the Loch", "Legendary Creature — Merfolk Wizard",
@@ -253,7 +256,14 @@ def test_emry_lets_you_cast_only_the_chosen_artifact_card_from_the_graveyard():
 
     p1.mana_pool.add_many({"C": 3})
     assert castable(rock) and not castable(other_rock) and not castable(bear)
+    engine.rules.destroy(emry)
     engine.cast_spell(p1, rock)
+    assert not rock.cast_via_flashback
+    if countered:
+        engine.rules.counter_spell(rock)
+        assert rock.zone == Zone.GRAVEYARD
+        assert not castable(rock)
+        return
     engine.resolve_until_stable()
     assert rock.zone == Zone.BATTLEFIELD
 

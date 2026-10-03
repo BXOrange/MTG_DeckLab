@@ -36,3 +36,4 @@ from . import loxodon_smiter  # noqa: F401
 from . import lukka_coppercoat_outcast  # noqa: F401
 from . import lurrus_of_the_dream_den  # noqa: F401
 from . import lux_artillery  # noqa: F401
+from . import living_death

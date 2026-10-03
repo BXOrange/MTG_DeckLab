@@ -3559,6 +3559,7 @@ class MiscSystemsMixin:
             self._apply_choose_objects_tail(
                 source, then_specs, then_specs_if_commander, commander_taken,
                 then_that_many, that_many_value,
+                chosen_ids=[obj.instance_id for obj in pool],
             )
             return
         self.open_choice(self._choose_objects_choice(
@@ -3584,8 +3585,22 @@ class MiscSystemsMixin:
         commander_taken: bool,
         then_that_many: Optional[dict] = None,
         picked_count: int = 0,
+        chosen_ids: Optional[list[int]] = None,
     ) -> None:
         """Apply a `choose_objects` decision's "if you do" follow-up."""
+        def capture(value):
+            if isinstance(value, dict):
+                if value == {"kind": "sacrificed_card_types"}:
+                    return list(getattr(source, "sacrificed_cost_card_types", []))
+                if value == {"kind": "chosen_instance_ids"}:
+                    return list(chosen_ids or [])
+                return {key: capture(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [capture(item) for item in value]
+            return value
+
+        # Preserve last-known types before subsequent opponents sacrifice.
+        then_specs = capture(then_specs)
         self._apply_effect_specs(list(then_specs or []), source)
         if commander_taken:
             self._apply_effect_specs(list(then_specs_if_commander or []), source)
@@ -3763,6 +3778,7 @@ class MiscSystemsMixin:
                     choice.get("then_specs_if_commander"), commander_taken,
                     choice.get("then_that_many"),
                     picked_measure if (choice.get("then_that_many") or {}).get("measure") else len(picked),
+                    chosen_ids=picked,
                 )
             elif choice.get("else_specs"):
                 # "If you don't, incubate 3." (Traumatic Revelation) — the

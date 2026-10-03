@@ -26,8 +26,7 @@ def _springheart_nantuko() -> list[AbilitySpec]:
     `copy_permanent` of the attached permanent (``target_kind:
     attached_permanent``), *else* (you declined) the Insect; unattached -> the
     Insect straight away (the payment is never offered, as printed).
-    **Documented simplification:** "a creature you control" is not checked — an
-    attached-but-opponent-controlled host still offers the copy.
+    The payment is offered only while attached to a creature you control.
     """
     return [
         AbilitySpec(
@@ -37,7 +36,11 @@ def _springheart_nantuko() -> list[AbilitySpec]:
         AbilitySpec(
             "triggered",
             [EffectSpec("if_else", {
-                "condition": {"kind": "source_attached"},
+                "condition": {"kind": "all", "conditions": [
+                    {"kind": "source_attached"},
+                    {"kind": "is_you", "of": "attached"},
+                    {"kind": "is_card_type", "of": "attached", "card_type": "creature"},
+                ]},
                 "then": [{"type": "pay_cost_then", "params": {
                     "cost": _COPY_COST,
                     "effects": [{"type": "copy_permanent", "params": {"target_kind": "attached_permanent"}}],

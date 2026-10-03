@@ -639,6 +639,15 @@ class CastingMixin:
         ):
             return False
         cast_condition = getattr(obj, "cast_condition", None)
+        # RULE 205.4e applies to every legendary instant and sorcery, including cards
+        # whose catalogue entry does not repeat the reminder-text gate.
+        if (card.is_sorcery or card.is_instant) and "legendary" in (card.type_line or "").lower().split():
+            if not any(
+                permanent.controller_id == player.id and permanent.is_legendary
+                and (permanent.is_creature or permanent.is_planeswalker)
+                for permanent in self.state.battlefield
+            ):
+                return False
         if cast_condition is not None and not condition_query.free_cast_condition_holds(
             cast_condition, obj, self.state
         ):
@@ -2109,6 +2118,7 @@ class CastingMixin:
             # cast (like ``cast_via_flashback``), so a later normal recast
             # this same turn clears it.
             obj.cast_via_escape = graveyard_keyword == "escape"
+            self.state.temp_graveyard_cast_permissions.pop(obj.instance_id, None)
             # RULE 702.74a: record an Evoke cast — consulted right after
             # `_resolve_permanent_spell` adds the object to the battlefield
             # to sacrifice it (a *consequence* of entering, not a

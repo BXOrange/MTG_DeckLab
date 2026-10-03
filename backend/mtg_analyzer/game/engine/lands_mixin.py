@@ -239,7 +239,14 @@ class LandsMixin:
         holder_id, condition = entry
         if holder_id != player.id:
             return False
-        return static_conditions.condition_holds(condition, self.state, obj, player.id)
+        source = obj
+        if "linked_source_id" in condition:
+            source = self.state.find_object(condition["linked_source_id"])
+            if (source is None or source.zone != Zone.BATTLEFIELD
+                    or source.controller_id != player.id or source.loses_all_abilities
+                    or obj.instance_id not in source.exiled_with_ids):
+                return False
+        return static_conditions.condition_holds(condition, self.state, source, player.id)
     def _graveyard_cast_keyword(self, obj: GameObject) -> Optional[str]:
         """Which alt-cost-from-graveyard keyword ``obj`` carries — ``"flashback"``
         (RULE 702.34) or ``"escape"`` (RULE 702.138) — or ``None``. The two
@@ -306,6 +313,7 @@ class LandsMixin:
         return (
             graveyard_cast_grant_for(player, self.state, obj.card) is not None
             or has_temporary_graveyard_play_permission(player, self.state)
+            or self.state.temp_graveyard_cast_permissions.get(obj.instance_id) == player.id
         )
     def _self_graveyard_or_exile_cast_permission(self, obj: GameObject, player: Optional[Player] = None) -> bool:
         """Whether ``obj`` carries its own standing "you may cast this card from your graveyard [or from

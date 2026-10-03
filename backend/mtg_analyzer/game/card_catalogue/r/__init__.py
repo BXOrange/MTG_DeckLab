@@ -68,3 +68,5 @@ from . import rune_of_protection_lands  # noqa: F401
 from . import rune_of_protection_red  # noqa: F401
 from . import rune_of_protection_white  # noqa: F401
 from . import runic_armasaur  # noqa: F401
+from . import reflection_of_kiki_jiki
+from . import ripples_of_undeath

@@ -8,6 +8,67 @@ from ..targeting import graveyard_card_matches, legal_targets
 install(globals())
 
 
+class LivingDeathEffect(GameEffect):
+    """RULE 608.2c/e: exile graveyards, sacrifice boards, return only that exile batch."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        returning = [obj for p in context.state.living_players()
+                     for obj in list(p.graveyard) if obj.card.is_creature]
+        with context.state.simultaneous():
+            for obj in returning:
+                context.exile(obj)
+        returning = [obj for obj in returning if obj.zone == Zone.EXILE]
+        victims = [obj for obj in context.state.battlefield
+                   if obj.is_creature and not obj.cant_be_sacrificed_this_turn]
+        with context.state.simultaneous():
+            for obj in victims:
+                context.engine.put_into_graveyard(obj)
+        with context.state.simultaneous():
+            for obj in returning:
+                if obj.zone == Zone.EXILE:
+                    ReturnFromGraveyardEffect(source=self.source)._apply_one(context, obj)
+
+
+class ReturnRememberedGraveyardCardsEffect(GameEffect):
+    """A serialized continuation returns previously targeted cards, without targeting again."""
+
+    def __init__(self, instance_ids: list[int], tapped: bool = False,
+                 source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.instance_ids = list(instance_ids)
+        self.tapped = tapped
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        with context.state.simultaneous():
+            for iid in self.instance_ids:
+                obj = context.state.find_object(iid)
+                if obj is not None and obj.zone == Zone.GRAVEYARD:
+                    ReturnFromGraveyardEffect(source=self.source, tapped=self.tapped)._apply_one(context, obj)
+
+
+class SacrificeToReturnTargetsEffect(GameEffect):
+    """Victimize: targets at casting, creature sacrifice at resolution, return only if paid."""
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind="graveyard_creature", count=2)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        candidates = [obj for obj in context.state.permanents_controlled_by(player.id)
+                      if obj.is_creature and not obj.cant_be_sacrificed_this_turn]
+        context.engine._request_choose_objects(
+            player, candidates, "sacrifice", count=1, source=self.source,
+            prompt="Kreatur für Victimize opfern",
+            then_specs=[{"type": "return_remembered_graveyard_cards", "params": {
+                "instance_ids": [obj.instance_id for obj in targets or []
+                                 if obj.zone == Zone.GRAVEYARD], "tapped": True,
+            }}],
+        )
+
+
 class ReturnMilledCardsEffect(GameEffect):
     """Return cards named by the firing ``CARDS_MILLED`` batch.
 
@@ -479,9 +540,13 @@ class ReturnFromGraveyardEffect(GameEffect):
         creature_filter: Optional[dict[str, Any]] = None,
         each_player_pick: bool = False,
         destination_if: Optional[dict[str, Any]] = None,
+        previous_pool: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        # "A card from among those [milled] cards": the earlier instruction
+        # supplies the pool; this instruction makes an untargeted choice.
+        self.previous_pool = previous_pool
         #: "Return target creature card to your hand. **Threshold** — Return that card to the battlefield
         #: **instead** if there are seven or more cards in your graveyard." (Stitch Together) —
         #: ``{"condition": <effect condition>, "destination": "battlefield"}``: the destination swaps when the
@@ -689,7 +754,8 @@ class ReturnFromGraveyardEffect(GameEffect):
             context.engine._request_choose_objects(
                 player, candidates, action, count=1, optional=False,
                 prompt="Karte aus dem Friedhof zurückbringen", source=self.source,
-                control_recipient_id=player.id,
+                control_recipient_id=(getattr(_controller_of(self.source, context), "id", None)
+                                      if self.under_your_control else player.id),
             )
             opened = getattr(state, "pending_choice", None)
             if opened is not None and opened is not before and i + 1 < len(players):
@@ -710,6 +776,9 @@ class ReturnFromGraveyardEffect(GameEffect):
             return
         found = legal_targets(context.state, player.id, self._pool_spec, self.source)
         ids = {item["instance_id"] for item in found}
+        if self.previous_pool:
+            ids &= {obj.instance_id for obj in context.previous_targets
+                    if getattr(obj, "instance_id", None) is not None}
         candidates = [
             o for owner in context.state.living_players() for o in owner.graveyard
             if o.instance_id in ids

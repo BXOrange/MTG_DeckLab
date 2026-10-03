@@ -6,6 +6,12 @@ from ._runtime import install, register
 
 install(globals())
 
+EffectRegistry.register("living_death", lambda p: LivingDeathEffect())
+EffectRegistry.register("sacrifice_to_return_targets", lambda p: SacrificeToReturnTargetsEffect())
+EffectRegistry.register("return_remembered_graveyard_cards", lambda p: ReturnRememberedGraveyardCardsEffect(
+    instance_ids=p.get("instance_ids", []), tapped=bool(p.get("tapped", False)),
+))
+
 # Register the core one-shot effects (RULE R3.1 in docs/02).
 EffectRegistry.register(
     "damage",
@@ -805,7 +811,10 @@ EffectRegistry.register(
     # the grant half of the retired `exile_top_then_grant_conditional_cast`
     # fusion; reads the just-exiled batch off `GameContext.created_objects`.
     "grant_conditional_cast_from_exile",
-    lambda p: GrantConditionalCastFromExileEffect(condition=p.get("condition")),
+    lambda p: GrantConditionalCastFromExileEffect(
+        condition=p.get("condition"), all_cards=bool(p.get("all_cards", False)),
+        linked_source=bool(p.get("linked_source", False)),
+    ),
 )
 EffectRegistry.register(
     # "You and target opponent each reveal the top card of your library.
@@ -857,6 +866,7 @@ EffectRegistry.register(
     "mill", lambda p: MillEffect(
         count=p.get("count", 1), target_kind=p.get("target_kind"),
         count_selector=p.get("count_selector"), selector=p.get("selector"), half=p.get("half"),
+        capture_milled=bool(p.get("capture_milled", False)),
     )
 )
 EffectRegistry.register(
@@ -1221,6 +1231,7 @@ EffectRegistry.register(
     "grant_flashback_to_target",
     lambda p: GrantFlashbackToTargetEffect(
         cost=p.get("cost"), target_kind=p.get("target_kind", "graveyard_instant_or_sorcery"),
+        as_permission=bool(p.get("as_permission", False)),
     ),
 )
 EffectRegistry.register(
@@ -1458,6 +1469,7 @@ EffectRegistry.register(
         creature_filter=p.get("creature_filter"),
         each_player_pick=bool(p.get("each_player_pick", False)),
         destination_if=p.get("destination_if"),
+        previous_pool=bool(p.get("previous_pool", False)),
     ),
 )
 EffectRegistry.register(
@@ -2120,6 +2132,7 @@ EffectRegistry.register(
     # picks which; see `RulesEngine._request_choose_objects`.
     "choose_objects",
     lambda p: ChooseObjectsEffect(
+        card_types_any=p.get("card_types_any"),
         action=str(p.get("action", "sacrifice")),
         what=str(p.get("what", "permanent")),
         count=int(p.get("count", 1) or 1),
@@ -2132,6 +2145,11 @@ EffectRegistry.register(
         require_untapped=bool(p.get("require_untapped", False)),
         else_effects=p.get("else_effects"),
     ),
+)
+EffectRegistry.register(
+    "discard_or_sacrifice",
+    lambda p: DiscardOrSacrificeEffect(player_ids=p.get("player_ids"), chosen_ids=p.get("chosen_ids"),
+                                      then_that_many=p.get("then_that_many")),
 )
 EffectRegistry.register(
     # RULE 701.47/701.50 (connive, MEC-43 — Ledger Shredder; PAR-29): draw a
@@ -2573,6 +2591,9 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "choose_opponent_on_enter", lambda p: ChooseOpponentReplacement()
+)
+EffectRegistry.register(
+    "choose_player_on_enter", lambda p: ChooseOpponentReplacement(include_self=True)
 )
 EffectRegistry.register(
     # "~ enters with your choice of a flying counter or a first strike counter

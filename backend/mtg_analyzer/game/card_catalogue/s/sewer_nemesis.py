@@ -11,20 +11,13 @@ def _sewer_nemesis() -> list[AbilitySpec]:
     the chosen player's graveyard.
     Whenever the chosen player casts a spell, that player mills a card.
 
-    — PLAY-ALL Step 2 (Oops! All Night's Whispers). The P/T clause is the parser's
-    own `pt_cda` claim (``of: chosen`` graveyard count). The choice is Stuffy
-    Doll's: an ETB `_request_choose_player` (any living player, yourself included)
-    stashing `GameObject.chosen_player_id`. The cast trigger is a `SPELL_CAST` head
-    with the new trigger key ``actor_is_chosen_player`` (the casting player must be
-    the chosen one) over `mill` of the *caster* (``player_from_trigger_event``).
-    **Simplification:** the choice is made by a trigger as it enters rather than as
-    part of entering, so the P/T reads 0 for that moment.
+    The RULE 614.12 choice is made before entry, including the controller.
+    P/T and the cast trigger both read that chosen player's id.
     """
     return [
         AbilitySpec(
-            "triggered",
-            [EffectSpec("_request_choose_player", {})],
-            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            "enter_replacement",
+            [EffectSpec("choose_player_on_enter", {})],
         ),
         AbilitySpec(
             "static",
@@ -36,7 +29,7 @@ def _sewer_nemesis() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "triggered",
-            [EffectSpec("mill", {"count": 1, "player_from_trigger_event": True})],
+            [EffectSpec("mill", {"count": 1, "selector": "event_player"})],
             trigger={"event": EventType.SPELL_CAST, "actor_is_chosen_player": True},
         ),
     ]

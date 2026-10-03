@@ -39,6 +39,7 @@ from ..effects.core import (
     _apply_effects_partitioned,
     AddCountersEffect,
     CompleteDungeonEffect,
+    CopySpellEffect,
     VentureIntoTheDungeonEffect,
     AddPlayerCountersEffect,
     BecomeMonarchEffect,
@@ -265,6 +266,7 @@ class TriggerCollectionMixin:
                     self.pending_triggers.append((ability, captured))
         self._collect_inherent_triggers(event)
         self._collect_self_cast_triggers(event)
+        self._collect_storm_triggers(event)
         self._collect_impulsive_draw_triggers(event)
         self._collect_rad_counter_damage_triggers(event)
         self._collect_attacks_you_rad_counter_triggers(event)
@@ -1138,6 +1140,45 @@ class TriggerCollectionMixin:
             if isinstance(ability, TriggeredAbility) and ability.check_trigger(event, self.context):
                 # RULE 603.2d: a spell's own cast trigger (cascade, storm) can be doubled too.
                 self._queue_firing(ability, event, obj, capture=False)
+    def _collect_storm_triggers(self, event: GameEvent) -> None:
+        """RULE 702.40: snapshot previous casts and queue each instance of storm.
+
+        Spell copies are not casts. Grants are checked when the spell is cast,
+        and the resulting trigger belongs to that spell, surviving removal of
+        the granting permanent before the trigger resolves.
+        """
+        if event.type != EventType.SPELL_CAST:
+            return
+        obj = self.state.find_object(event.get("instance_id"))
+        if obj is None or obj.zone != Zone.STACK:
+            return
+        instances = int(combat.has(obj, "storm"))
+        if obj.card.is_instant or obj.card.is_sorcery:
+            from .. import static_conditions
+
+            for ability in continuous._battlefield_static_abilities(self.state):
+                src = ability.source
+                if (ability.layer != "ability"
+                    or ability.affects != "instant_sorcery_spells_you_cast"
+                    or "storm" not in ability.params.get("keywords", [])
+                    or getattr(src, "controller_id", None) != obj.controller_id
+                    or getattr(src, "loses_all_abilities", False)):
+                    continue
+                if not static_conditions.condition_holds(
+                    ability.params.get("active_if"), self.state, src, obj.controller_id,
+                ):
+                    continue
+                instances += 1
+        previous_casts = sum(e.type == EventType.SPELL_CAST for e in self.state.events_this_turn()) - 1
+        for _ in range(instances):
+            ability = TriggeredAbility(
+                EventType.SPELL_CAST,
+                [CopySpellEffect(count=max(0, previous_casts), source=obj,
+                                 spell_from_trigger_event="instance_id")],
+                source=obj, controller_id=obj.controller_id, description=f"{obj.name}: Storm",
+            )
+            self._queue_firing(ability, event, obj, capture=False)
+
     def _collect_suspend_triggers(self, event: GameEvent) -> None:
         """RULE 702.62a: Suspend's 2nd/3rd abilities "function in the exile
         zone" — a suspended card is never a permanent, so `_collect_

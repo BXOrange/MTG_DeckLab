@@ -13,7 +13,7 @@ def _killian_ink_duelist() -> list[AbilitySpec]:
             "static",
             [EffectSpec("cost_reduction", {
                 "affects": "your_spells", "generic": 2,
-                "reduce_if_targets": {"is_creature": True},
+                "reduce_if_targets": {"card_type": "creature"},
             })],
         ),
     ]

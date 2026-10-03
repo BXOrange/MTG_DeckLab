@@ -184,6 +184,8 @@ class GameObject:
         #: `RulesEngine._apply_entry_counters` — "…it enters with three additional +1/+1 counters on it"
         #: (Turntimber Symbiosis).
         self.entry_bonus_counters: dict[str, int] = {}
+        #: Conditional entry riders, evaluated after entry-copy choices.
+        self.entry_bonus_creature_counters: dict[str, int] = {}
         #: Adamant's per-colour sibling of ``colors_spent_to_cast``.  This
         #: preserves *how much* of each WUBRG colour paid the spell, not just
         #: whether that colour appeared at least once.
@@ -352,6 +354,7 @@ class GameObject:
         #: magnitude is "the sacrificed creature's mana value" needs its own
         #: channel; read by `SearchLibraryEffect`'s ``mana_value_from``.
         self.sacrificed_cost_mana_value: Optional[int] = None
+        self.sacrificed_cost_card_types: list[str] = []
         self.sacrificed_cost_was_suspected: bool = False
         #: The *power* sibling of the field above (MEC-43, Altar of
         #: Dementia: "Sacrifice a creature: target player mills cards equal
@@ -1429,6 +1432,7 @@ class GameObject:
         self.cast_outside_sorcery_speed = False
         self.cast_during_your_main_phase = False
         self.sacrificed_cost_mana_value = None
+        self.sacrificed_cost_card_types = []
         self.sacrificed_cost_was_suspected = False
         self.sacrificed_cost_power = None
         self.station_tapped_power = None

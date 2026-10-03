@@ -29,3 +29,4 @@ from . import vraska_betrayal_s_sting  # noqa: F401
 from . import vraska_golgari_queen  # noqa: F401
 from . import vraska_s_fall  # noqa: F401
 from . import vrondiss_rage_of_ancients  # noqa: F401
+from . import victimize

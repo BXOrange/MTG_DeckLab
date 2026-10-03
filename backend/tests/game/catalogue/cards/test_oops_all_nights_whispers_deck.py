@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game import combat
 from mtg_analyzer.game.binding.core import bind_from_catalogue
@@ -82,6 +83,251 @@ def test_exhume_lets_each_player_choose_a_creature_from_their_own_graveyard():
 def _fill_graveyard(player, n):
     for i in range(n):
         player.graveyard.append(GameObject(Card(id=f"F{i}", name=f"Filler {i}", type_line="Sorcery", is_sorcery=True), owner_id=player.id, zone=Zone.GRAVEYARD))
+
+
+def test_living_death_returns_old_graveyards_and_leaves_sacrificed_creatures_dead():
+    engine, p1, p2 = _game("Living Death")
+    old = [_creature_card("Old A", "p1"), _creature_card("Old B", "p2")]
+    p1.graveyard.append(old[0])
+    p2.graveyard.append(old[1])
+    live = [battlefield_object(engine, pid, f"Live {pid}", "Creature — Beast",
+                              is_creature=True, power=3, toughness=3)
+            for pid in ("p1", "p2")]
+    live[0].intrinsic_keywords.add("indestructible")
+    live[1].controller_id = "p1"  # stolen creature still returns to its owner's graveyard
+    p1.mana_pool.add_many({"B": 2, "C": 3})
+    engine.cast_spell(p1, p1.hand[0])
+    engine.resolve_until_stable()
+    assert all(obj.zone == Zone.BATTLEFIELD for obj in old)
+    assert [obj.controller_id for obj in old] == ["p1", "p2"]
+    assert all(obj.zone == Zone.GRAVEYARD for obj in live)
+    assert live[1] in p2.graveyard
+
+
+def test_victimize_keeps_targets_across_the_sacrifice_choice_and_returns_them_tapped():
+    engine, p1, p2 = _game("Victimize")
+    old = [_creature_card("Old A", "p1"), _creature_card("Old B", "p1")]
+    p1.graveyard.extend(old)
+    live = [battlefield_object(engine, "p1", f"Live {i}", "Creature — Beast",
+                              is_creature=True, power=3, toughness=3) for i in range(2)]
+    p1.mana_pool.add_many({"B": 1, "C": 2})
+    engine.cast_spell(p1, p1.hand[0], targets=old)
+    engine.resolve_until_stable()
+    choice = engine.state.pending_choice
+    engine.resolve_pending_choice(next(o["id"] for o in choice["options"]
+                                       if o.get("instance_id") == live[1].instance_id))
+    engine.resolve_until_stable()
+    assert live[1].zone == Zone.GRAVEYARD and live[0].zone == Zone.BATTLEFIELD
+    assert all(obj.zone == Zone.BATTLEFIELD and obj.tapped for obj in old)
+
+
+def test_victimize_does_not_return_anything_without_a_sacrificable_creature():
+    engine, p1, p2 = _game("Victimize")
+    old = [_creature_card("Old A", "p1"), _creature_card("Old B", "p1")]
+    p1.graveyard.extend(old)
+    p1.mana_pool.add_many({"B": 1, "C": 2})
+    engine.cast_spell(p1, p1.hand[0], targets=old)
+    engine.resolve_until_stable()
+    assert all(obj.zone == Zone.GRAVEYARD for obj in old)
+
+
+def test_sewer_nemesis_chooses_self_before_entry_and_mills_only_the_chosen_caster():
+    engine, p1, p2 = _game("Sewer Nemesis")
+    _fill_graveyard(p1, 3)
+    nemesis = p1.hand[0]
+    p1.mana_pool.add_many({"B": 1, "C": 3})
+    engine.cast_spell(p1, nemesis)
+    engine.resolve_until_stable()
+    assert nemesis.zone != Zone.BATTLEFIELD
+    assert {o["id"] for o in engine.state.pending_choice["options"]} == {"p1", "p2"}
+    engine.resolve_pending_choice("p1")
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    assert nemesis.zone == Zone.BATTLEFIELD and nemesis.power == nemesis.toughness == 3
+    p1.mana_pool.add_many({"C": 1})
+    rock = GameObject(Card(id="rock", name="Rock", type_line="Artifact", mana_cost_string="{1}"),
+                      owner_id="p1", zone=Zone.HAND)
+    p1.hand.append(rock)
+    before = len(p1.library)
+    engine.cast_spell(p1, rock)
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    assert len(p1.library) == before - 1 and nemesis.power == 4
+
+
+@pytest.mark.parametrize("gift,legendary,copies", [(False, False, 0), (True, False, 1), (True, True, 0)])
+def test_coiling_rebirth_copies_only_a_nonlegendary_return_with_a_promised_gift(gift, legendary, copies):
+    engine, p1, p2 = _game("Coiling Rebirth")
+    creature = GameObject(Card(id="fallen", name="Fallen", type_line="Legendary Creature" if legendary else "Creature",
+                               is_creature=True, is_legendary=legendary, power=4, toughness=5),
+                          owner_id="p1", zone=Zone.GRAVEYARD)
+    p1.graveyard.append(creature)
+    p2.library.append(GameObject(Card(id="gift", name="Gift", type_line="Land"), owner_id="p2", zone=Zone.LIBRARY))
+    p1.mana_pool.add_many({"B": 2, "C": 3})
+    engine.cast_spell(p1, p1.hand[0], targets=[creature], gift_opponent_id="p2" if gift else None)
+    engine.resolve_until_stable()
+    assert creature.zone == Zone.BATTLEFIELD
+    tokens = [o for o in engine.state.battlefield if o.is_token and o.name == "Fallen"]
+    assert len(tokens) == copies
+    assert all((o.power, o.toughness) == (1, 1) for o in tokens)
+    assert len(p2.hand) == int(gift)
+
+
+def test_fable_chapters_make_an_attacking_treasure_goblin_loot_and_transform():
+    engine, p1, p2 = _game("Fable of the Mirror-Breaker")
+    saga = p1.hand[0]
+    p1.mana_pool.add_many({"R": 1, "C": 2})
+    engine.cast_spell(p1, saga)
+    engine.resolve_until_stable()
+    goblin = next(o for o in engine.state.battlefield if o.is_token)
+    assert (goblin.power, goblin.toughness) == (2, 2)
+    goblin.summoning_sick = False
+    engine.state.current_step = "declare_attackers"
+    engine.declare_attackers(p1, [goblin])
+    engine.resolve_until_stable()
+    assert sum(o.name == "Treasure" for o in engine.state.battlefield) == 1
+
+    p1.hand.extend([GameObject(Card(id=f"h{i}", name=f"Hand {i}", type_line="Land"),
+                              owner_id="p1", zone=Zone.HAND) for i in range(3)])
+    engine.rules.advance_sagas(p1)
+    engine.resolve_until_stable()
+    choice = engine.state.pending_choice
+    engine.resolve_pending_choice(next(o["id"] for o in choice["options"] if "instance_id" in o))
+    engine.resolve_until_stable()
+    engine.resolve_pending_choice("decline")
+    engine.resolve_until_stable()
+    assert len(p1.hand) == 3  # one discarded, exactly one drawn
+
+    engine.rules.advance_sagas(p1)
+    engine.resolve_until_stable()
+    assert saga.zone == Zone.BATTLEFIELD and saga.transformed
+    assert saga.name == "Reflection of Kiki-Jiki" and saga.activated_abilities
+    saga.summoning_sick = False
+    engine.state.current_step = "main1"
+    p1.mana_pool.add_many({"C": 1})
+    engine.activate_ability(p1, saga, 0, targets=[goblin])
+    engine.resolve_until_stable()
+    assert sum(o.name == goblin.name for o in engine.state.battlefield) == 2
+
+
+def test_breach_mills_every_player_and_returns_their_chosen_cards_under_my_control():
+    engine, p1, p2 = _game("Breach the Multiverse")
+    mine = [_creature_card("Mine A", "p1"), _creature_card("Mine B", "p1")]
+    theirs = [_creature_card("Theirs A", "p2"), _creature_card("Theirs B", "p2")]
+    p1.graveyard.extend(mine)
+    p2.graveyard.extend(theirs)
+    p1.mana_pool.add_many({"B": 2, "C": 5})
+    engine.cast_spell(p1, p1.hand[0])
+    engine.resolve_until_stable()
+    for chosen in [mine[1], theirs[0]]:
+        choice = engine.state.pending_choice
+        engine.resolve_pending_choice(next(o["id"] for o in choice["options"]
+                                           if o.get("instance_id") == chosen.instance_id))
+        engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    assert not p1.library and not p2.library
+    assert all(o.zone == Zone.BATTLEFIELD and o.controller_id == "p1" for o in [mine[1], theirs[0]])
+    from mtg_analyzer.game.continuous import has_subtype
+    assert all(has_subtype(o, "Phyrexian") for o in [mine[1], theirs[0]])
+    assert mine[0].zone == theirs[1].zone == Zone.GRAVEYARD
+    later = battlefield_object(engine, "p1", "Later", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    engine.recompute_continuous_effects()
+    assert not has_subtype(later, "Phyrexian")
+
+
+@pytest.mark.parametrize("pay", [True, False])
+def test_ripples_payment_recovers_only_one_of_this_mill_batch(pay):
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+
+    engine, p1, p2 = _game()
+    ripples = GameObject(CardDatabase(DB_PATH).get_card("Ripples of Undeath"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    bind_from_catalogue(ripples)
+    engine.state.add_to_battlefield(ripples)
+    old = _creature_card("Old", "p1")
+    p1.graveyard.append(old)
+    milled = list(p1.library[-3:])
+    p1.mana_pool.add_many({"C": 1})
+    engine.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="main1", player_id="p1"))
+    engine.resolve_until_stable()
+    assert all(o.zone == Zone.GRAVEYARD for o in milled)
+    engine.resolve_pending_choice("pay" if pay else "decline")
+    engine.resolve_until_stable()
+    if pay:
+        choice = engine.state.pending_choice
+        assert {o["instance_id"] for o in choice["options"] if "instance_id" in o} == {o.instance_id for o in milled}
+        engine.resolve_pending_choice(next(o["id"] for o in choice["options"] if o.get("instance_id") == milled[0].instance_id))
+        engine.resolve_until_stable()
+        assert milled[0].zone == Zone.HAND
+    assert p1.life == (17 if pay else 20) and old.zone == Zone.GRAVEYARD
+
+
+@pytest.mark.parametrize("draw", [True, False])
+def test_palantir_targets_the_opponent_who_decides_between_a_draw_and_mill_life_loss(draw):
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+
+    engine, p1, p2 = _game()
+    palantir = GameObject(CardDatabase(DB_PATH).get_card("Palantír of Orthanc"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    bind_from_catalogue(palantir)
+    engine.state.add_to_battlefield(palantir)
+    p1.library[-1] = GameObject(Card(id="costly", name="Costly", type_line="Sorcery", is_sorcery=True,
+                                    converted_mana_cost=5), owner_id="p1", zone=Zone.LIBRARY)
+    engine.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="end", player_id="p1"))
+    engine.rules.put_triggers_on_stack()
+    choice = engine.state.pending_choice
+    engine.resolve_pending_choice("p2")
+    engine.resolve_until_stable()
+    while engine.state.pending_choice and engine.state.pending_choice["kind"] == "scry":
+        engine.resolve_pending_choice("decline")
+        engine.resolve_until_stable()
+    assert palantir.counters["influence"] == 1
+    assert engine.state.pending_choice["player_id"] == "p2"
+    engine.resolve_pending_choice("pay" if draw else "decline")
+    engine.resolve_until_stable()
+    assert len(p1.hand) == int(draw)
+    assert p2.life == (20 if draw else 15)
+
+
+def test_prismari_grants_storm_to_the_spell_and_captures_cast_count_before_responses():
+    engine, p1, p2 = _game()
+    prismari = GameObject(CardDatabase(DB_PATH).get_card("Prismari, the Inspiration"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    bind_from_catalogue(prismari)
+    engine.state.add_to_battlefield(prismari)
+
+    def spell(name, text, type_line="Sorcery", **flags):
+        obj = GameObject(Card(id=name, name=name, type_line=type_line, oracle_text=text, **flags), owner_id="p1", zone=Zone.HAND)
+        bind_from_catalogue(obj)
+        p1.hand.append(obj)
+        return obj
+
+    rock = spell("Rock", "", "Artifact")
+    engine.cast_spell(p1, rock)
+    engine.resolve_until_stable()
+    spell_obj = spell("Study", "Draw a card.", is_sorcery=True)
+    engine.cast_spell(p1, spell_obj)
+    engine.rules.put_triggers_on_stack()
+    assert len(engine.state.stack) == 2
+    engine.rules.exile(prismari)  # the spell's trigger survives losing the grant
+    response = spell("Response", "", "Instant", is_instant=True)
+    engine.cast_spell(p1, response)
+    engine.resolve_until_stable()
+    # Exactly one copy for the preceding rock, not a second for the response.
+    assert len(p1.hand) == 2 and len(p1.library) == 2
+
+
+def test_printed_storm_also_copies_only_previous_casts_and_copies_are_not_cast():
+    from mtg_analyzer.models.game.events import EventType
+
+    engine, p1, p2 = _game()
+    for name, text in [("First", ""), ("Storm Draw", "Storm\nDraw a card.")]:
+        obj = GameObject(Card(id=name, name=name, type_line="Sorcery", is_sorcery=True, oracle_text=text,
+                               keywords=["Storm"] if name == "Storm Draw" else []),
+                         owner_id="p1", zone=Zone.HAND)
+        bind_from_catalogue(obj)
+        p1.hand.append(obj)
+        engine.cast_spell(p1, obj)
+        engine.resolve_until_stable()
+    assert len(p1.hand) == 2
+    assert sum(e.type == EventType.SPELL_CAST for e in engine.state.events_this_turn()) == 2
 
 
 def test_stitch_together_returns_to_hand_but_to_the_battlefield_with_threshold():

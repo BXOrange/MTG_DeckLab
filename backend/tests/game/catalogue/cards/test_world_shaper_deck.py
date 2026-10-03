@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
@@ -36,7 +38,9 @@ def test_eumidian_hatchery_collects_hatchling_counters_and_hatches_one_insect_ea
     for expected in (1, 2):
         hatchery.tapped = False
         engine.tap_for_mana(p1, hatchery)
+        assert hatchery.counters.get("hatchling") == expected
         engine.rules.put_triggers_on_stack()
+        assert not engine.state.stack
         engine.resolve_until_stable()
         assert hatchery.counters.get("hatchling") == expected
     assert p1.life == life - 2  # "pay 1 life" each time
@@ -46,6 +50,111 @@ def test_eumidian_hatchery_collects_hatchling_counters_and_hatches_one_insect_ea
     engine.resolve_until_stable()
     insects = [o for o in engine.state.battlefield if o.name == "Insect"]
     assert len(insects) == 2  # one per hatchling counter
+
+
+@pytest.mark.parametrize("mode", ["decline_own", "decline_opponents", "sacrifice_matching"])
+def test_braids_retains_all_sacrificed_types_for_each_opponents_choice(mode):
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+
+    engine = GameEngine.new_game([("p1", "A", []), ("p2", "B", []), ("p3", "C", [])], starting_hand=0, starting_life=20)
+    engine.begin_turn()
+    p1, p2, p3 = engine.state.players
+    for i in range(3):
+        p1.library.append(GameObject(Card(id=str(i), name="Filler", type_line="Land", is_land=True), owner_id="p1", zone=Zone.LIBRARY))
+    braids = _battlefield_card(engine, "Braids, Arisen Nightmare")
+    own = battlefield_object(engine, "p1", "Construct", "Artifact Creature", is_creature=True, power=2, toughness=2)
+    rock = battlefield_object(engine, "p2", "Rock", "Artifact")
+    bear = battlefield_object(engine, "p3", "Bear", "Creature", is_creature=True, power=2, toughness=2)
+    battlefield_object(engine, "p2", "Land", "Land", is_land=True)
+    engine.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="end", phase="ending"))
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    engine.resolve_pending_choice("decline" if mode == "decline_own" else str(own.instance_id))
+    engine.resolve_until_stable()
+    if mode == "decline_own":
+        assert own.zone == Zone.BATTLEFIELD and not engine.state.pending_choice
+        assert p2.life == p3.life == 20 and not p1.hand
+        return
+    for player, permanent in ((p2, rock), (p3, bear)):
+        choice = engine.state.pending_choice
+        assert choice["player_id"] == player.id
+        assert {o["instance_id"] for o in choice["options"] if "instance_id" in o} == {permanent.instance_id}
+        engine.resolve_pending_choice("decline" if mode == "decline_opponents" else str(permanent.instance_id))
+        engine.resolve_until_stable()
+    assert own.zone == Zone.GRAVEYARD and braids.zone == Zone.BATTLEFIELD
+    assert not engine.state.pending_choice
+    assert (p2.life, p3.life, len(p1.hand)) == ((18, 18, 2) if mode == "decline_opponents" else (20, 20, 0))
+
+
+def test_braids_can_sacrifice_itself_and_penalizes_an_opponent_without_a_matching_permanent():
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+
+    engine, p1, p2 = _game()
+    braids = _battlefield_card(engine, "Braids, Arisen Nightmare")
+    battlefield_object(engine, "p2", "Rock", "Artifact")
+    p1.library.append(GameObject(Card(id="f", name="Filler", type_line="Land", is_land=True), owner_id="p1", zone=Zone.LIBRARY))
+    engine.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="end", phase="ending"))
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    engine.resolve_pending_choice(str(braids.instance_id))
+    engine.resolve_until_stable()
+    assert braids.zone == Zone.GRAVEYARD
+    assert p2.life == 18 and len(p1.hand) == 1
+    assert not engine.state.pending_choice
+
+
+@pytest.mark.parametrize("lands", [0, 1, 2])
+def test_wastewaker_collects_both_choices_before_moving_cards_and_draws_for_lands(lands):
+    engine, p1, p2 = _game()
+    wastewaker = _battlefield_card(engine, "Eumidian Wastewaker")
+    wastewaker.summoning_sick = False
+    for i in range(3):
+        p1.library.append(GameObject(Card(id=str(i), name="Filler", type_line="Artifact"), owner_id="p1", zone=Zone.LIBRARY))
+    discarded = GameObject(Card(id="hand", name="Hand card", type_line="Land" if lands else "Artifact",
+                                is_land=lands > 0), owner_id="p1", zone=Zone.HAND)
+    p1.hand.append(discarded)
+    land = battlefield_object(engine, "p2", "Land", "Land", is_land=True)
+    rock = battlefield_object(engine, "p2", "Rock", "Artifact")
+    sacrificed = land if lands == 2 else rock
+    engine.state.current_step = "declare_attackers"
+    engine.declare_attackers(p1, [{"attacker": wastewaker, "defender": {"kind": "player", "id": "p2"}}])
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert engine.state.pending_choice["player_id"] == "p1"
+    engine.resolve_pending_choice(str(discarded.instance_id))
+    engine.resolve_until_stable()
+    assert discarded.zone == Zone.HAND and sacrificed.zone == Zone.BATTLEFIELD
+    assert len(p1.library) == 3
+    assert engine.state.pending_choice["player_id"] == "p2"
+    engine.resolve_pending_choice(str(sacrificed.instance_id))
+    engine.resolve_until_stable()
+    assert discarded.zone == sacrificed.zone == Zone.GRAVEYARD
+    assert len(p1.hand) == lands and len(p1.library) == 3 - lands
+    assert "encore" in wastewaker.parametric_keywords
+
+
+def test_evendo_exile_permission_is_linked_and_gated_by_turn_and_nontoken_sacrifice():
+    engine, p1, p2 = _game()
+    brushrazer = _battlefield_card(engine, "Evendo Brushrazer")
+    forest = GameObject(Card(id="F", name="Forest", type_line="Basic Land — Forest", is_land=True), owner_id="p1", zone=Zone.LIBRARY)
+    rock = GameObject(Card(id="R", name="Rock", type_line="Artifact", mana_cost_string="{1}"), owner_id="p1", zone=Zone.LIBRARY)
+    p1.library.extend([rock, forest])
+    token = battlefield_object(engine, "p1", "Token", "Artifact")
+    token.is_token = True
+    engine.rules.put_into_graveyard(token)
+    engine.rules.put_triggers_on_stack()
+    assert not engine.state.stack
+    land = battlefield_object(engine, "p1", "Land", "Land", is_land=True)
+    engine.rules.put_into_graveyard(land)
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert forest in p1.exile and rock in p1.library
+    assert engine.can_play_land(p1, forest)
+    engine.state.active_player_index = 1
+    assert not engine.can_play_land(p1, forest)
+    engine.state.active_player_index = 0
+    engine.rules.destroy(brushrazer)
+    assert not engine.can_play_land(p1, forest)
 
 
 def test_centaur_vinecrasher_enters_with_a_counter_per_land_card_in_all_graveyards():

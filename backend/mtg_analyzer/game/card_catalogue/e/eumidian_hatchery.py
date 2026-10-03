@@ -12,20 +12,13 @@ def _eumidian_hatchery() -> list[AbilitySpec]:
     flying.
 
     — PLAY-ALL Step 2 (World Shaper). The mana ability (with its life payment)
-    is read off the land's own text; "put a hatchling counter" is a
-    `TAPPED_FOR_MANA` self-trigger placing the counter right after the mana is
-    produced (**simplification:** a trigger on the stack rather than part of
-    the mana ability itself, so it is a hair later than printed). The dies
+    and its hatchling counter are read off the land's own mana-ability text
+    and resolve together without using the stack (RULE 605.3b). The dies
     clause is the parser's own head (`DIES`, subject self) with `create_token`
     whose count is the `trigger_event_counter` operand — the counters the land had
     as it left, off the RULE 603.10a snapshot.
     """
     return [
-        AbilitySpec(
-            "triggered",
-            [EffectSpec("add_counters", {"count": 1, "kind": "hatchling", "target_kind": None})],
-            trigger={"event": EventType.TAPPED_FOR_MANA, "condition": {"subject": "self"}},
-        ),
         AbilitySpec(
             "triggered",
             [EffectSpec("create_token", {

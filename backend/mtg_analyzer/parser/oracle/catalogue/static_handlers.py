@@ -4604,6 +4604,10 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     `_ATTACHED_SUBJECTS` above.
     """
     text = clause.strip().rstrip(".").strip()
+    if text == "instant and sorcery spells you cast have storm":
+        return [EffectSpec("grant_keyword", {
+            "affects": "instant_sorcery_spells_you_cast", "keywords": ["storm"],
+        })]
     # "During turns other than yours, spells you cast cost {1} less to cast." (Geyser Drake, Naiad of Hidden Coves) — a
     # cost discount gated by RULE 613.6's `not_your_turn`, the same `active_if` a condition-gated static carries.
     other_turns = _DURING_OTHER_TURNS_COST_RE.fullmatch(text)

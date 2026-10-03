@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from ....models.game.events import EventType
 from ....parser.oracle.spec import AbilitySpec, EffectSpec
 from ...card_registry.core import register
 
@@ -19,18 +20,18 @@ def _genesis_hydra() -> list[AbilitySpec]:
     spell's announced X (`_resolved_criteria` reads `x_paid` for the one that
     `_substitute_x` does not reach), ``rest_destination: library_shuffled``. The
     counters come from the oracle text's enters-with-X clause.
-    **Documented simplification (Hydroid Krasis' tier):** "when you cast this
-    spell" is a resolution payoff (`spell_effect`), not a cast trigger — it happens
-    as the Hydra resolves, so it cannot be responded to separately.
+    The self-cast trigger functions from the stack and resolves independently
+    of the creature spell, retaining the announced X even if it is countered.
     """
     return [
         AbilitySpec(
-            "spell_effect",
+            "triggered",
             [EffectSpec("inspect_top_choose", {
                 "count": "x", "action": "library_to_battlefield", "optional": True, "max_picks": 1,
                 "criteria": {"type": list(_NONLAND_PERMANENT_TYPES), "max_mana_value": "x"},
                 "rest_destination": "library_shuffled",
             })],
+            trigger={"event": EventType.SPELL_CAST, "condition": {"subject": "self"}},
         ),
     ]
 

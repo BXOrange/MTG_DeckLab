@@ -314,6 +314,11 @@ class CastingResolutionMixin:
             if param and int(param.get("n", 0) or 0) > 0:
                 obj.add_counters(kind, int(param["n"]))
 
+        if obj.entry_bonus_creature_counters:
+            if obj.is_creature:
+                for kind, amount in obj.entry_bonus_creature_counters.items():
+                    obj.entry_bonus_counters[kind] = obj.entry_bonus_counters.get(kind, 0) + amount
+            obj.entry_bonus_creature_counters.clear()
         if obj.entry_bonus_counters:
             for kind, amount in obj.entry_bonus_counters.items():
                 if amount > 0:
@@ -1128,6 +1133,8 @@ class CastingResolutionMixin:
         """
         obj.face_down_in_exile = False
         left_graveyard = obj.zone == Zone.GRAVEYARD
+        if left_graveyard:
+            self.state.temp_graveyard_cast_permissions.pop(obj.instance_id, None)
         for candidate in self.state.players:
             for cards in candidate.zones.values():
                 if obj in cards:
@@ -2547,10 +2554,10 @@ class CastingResolutionMixin:
             options = []
         elif isinstance(effect, ChooseOpponentReplacement):
             kind = "choose_opponent_on_enter"
-            prompt = "Gegner wählen"
+            prompt = "Spieler wählen" if effect.include_self else "Gegner wählen"
             options = [
                 {"id": p.id, "label": p.name}
-                for p in self.state.living_players() if p.id != obj.controller_id
+                for p in self.state.living_players() if effect.include_self or p.id != obj.controller_id
             ]
         else:
             kind = "choose_color"

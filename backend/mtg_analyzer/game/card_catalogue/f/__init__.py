@@ -46,3 +46,4 @@ from . import frilled_deathspitter  # noqa: F401
 from . import frodo_sauron_s_bane  # noqa: F401
 from . import furnace_of_rath  # noqa: F401
 from . import furygale_flocking  # noqa: F401
+from . import fable_of_the_mirror_breaker

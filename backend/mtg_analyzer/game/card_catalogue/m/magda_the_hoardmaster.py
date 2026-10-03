@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from ....models.game.events import EventType
 from ....parser.oracle.spec import AbilitySpec, EffectSpec
 from ...card_registry.core import register
 
@@ -11,17 +12,15 @@ def _magda_the_hoardmaster() -> list[AbilitySpec]:
     Sacrifice three Treasures: Create a 4/4 red Scorpion Dragon creature
     token with flying and haste. Activate only as a sorcery.
 
-    — Imodane deck batch. The sacrifice ability already parses on its
-    own — reproduced verbatim. **Documented simplification**: "whenever
-    you commit a crime" (RULE 701.53 — targeting an opponent, anything
-    they control, or a card in their graveyard) isn't modeled — no
-    single event unifies "any targeting effect resolving against
-    anything opponent-owned" across every effect family in this engine
-    (damage, destroy, exile, counter-removal, graveyard recursion, …), so
-    the trigger never fires; the treasure-cost payoff still works once
-    Treasures exist from any other source.
+    The RULE 700.13 crime event fires when targets are announced. The
+    once-per-turn limit applies to the trigger, not its resolution.
     """
     return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {"token_name": "Treasure", "count": 1, "tapped": True})],
+            trigger={"event": EventType.CRIME_COMMITTED, "condition": {"subject": "you"}, "limit": True},
+        ),
         AbilitySpec(
             "activated",
             [EffectSpec("create_token", {

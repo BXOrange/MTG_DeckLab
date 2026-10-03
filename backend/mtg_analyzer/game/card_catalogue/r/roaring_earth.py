@@ -20,8 +20,7 @@ def _roaring_earth() -> list[AbilitySpec]:
     (`previous_subject`): a layer-4 `type_change` (creature + Spirit, 0/0 —
     ``add_types`` only *adds*, so it is still a land) and haste. The duration is
     ``rest_of_game`` because the printed text has none — the animation is
-    permanent. **Documented simplification:** "green" is not modelled
-    (`type_change` has no colour field — the same call as Hedge Whisperer).
+    permanent. The layer-5 color grant makes the animated land green.
     """
     return [
         AbilitySpec(
@@ -41,7 +40,10 @@ def _roaring_earth() -> list[AbilitySpec]:
                         "add_types": ["creature"], "add_subtypes": ["Spirit"], "power": 0, "toughness": 0,
                     }},
                     "duration": "rest_of_game", "target_kind": None, "previous_subject": True,
-                    "extra_statics": [{"type": "grant_keyword", "params": {"keywords": ["haste"]}}],
+                    "extra_statics": [
+                        {"type": "grant_keyword", "params": {"keywords": ["haste"]}},
+                        {"type": "color", "params": {"colors": ["G"], "set": True}},
+                    ],
                 }),
             ],
             cost={"mana": "{X}{G}{G}", "discard_self": True},

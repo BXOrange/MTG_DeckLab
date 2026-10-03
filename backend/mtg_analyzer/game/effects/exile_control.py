@@ -1723,9 +1723,7 @@ class ReturnAllExiledWithEffect(GameEffect):
 
     ``counter_if_creature`` (``{"kind": "+1/+1", "count": 1}``) is Teferi's Time Twist's "If it
     enters as a creature, it enters with an additional +1/+1 counter on it": the counter goes on
-    each returned card that is a creature as it arrives. (Placed just after it enters rather than
-    as it enters — nothing between the two can tell the difference except a "whenever a creature
-    enters" trigger seeing the counter late.)
+    each returned card that is a creature as it arrives, before its entry event.
     """
 
     def __init__(
@@ -1743,12 +1741,10 @@ class ReturnAllExiledWithEffect(GameEffect):
             card_obj = context.state.find_object(instance_id)
             if card_obj is None or card_obj.zone != Zone.EXILE:
                 continue
+            if self.counter_if_creature:
+                kind = str(self.counter_if_creature.get("kind", "+1/+1"))
+                card_obj.entry_bonus_creature_counters[kind] = int(self.counter_if_creature.get("count", 1))
             context.return_from_graveyard(card_obj, "battlefield")
-            if self.counter_if_creature and card_obj.zone == Zone.BATTLEFIELD and card_obj.is_creature:
-                context.add_counters(
-                    card_obj, int(self.counter_if_creature.get("count", 1) or 1),
-                    str(self.counter_if_creature.get("kind", "+1/+1")), source=self.source,
-                )
 
 
 class CreateTokenForLinkedExileEffect(GameEffect):

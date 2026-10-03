@@ -757,10 +757,13 @@ class GrantConditionalCastFromExileEffect(GameEffect):
 
     def __init__(
         self, condition: Optional[dict[str, Any]] = None,
+        all_cards: bool = False, linked_source: bool = False,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.condition = dict(condition or {})
+        self.all_cards = all_cards
+        self.linked_source = linked_source
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
@@ -768,9 +771,12 @@ class GrantConditionalCastFromExileEffect(GameEffect):
             return
         for obj in list(getattr(context, "created_objects", []) or []):
             card = getattr(obj, "card", None)
-            if getattr(card, "is_creature", False):
+            if self.all_cards or getattr(card, "is_creature", False):
+                condition = dict(self.condition)
+                if self.linked_source:
+                    condition["linked_source_id"] = self.source.instance_id
                 context.state.exile_cast_condition[obj.instance_id] = (
-                    player.id, dict(self.condition)
+                    player.id, condition
                 )
 
 
@@ -3870,9 +3876,10 @@ class ChooseOpponentReplacement(GameEffect):
     the permanent enters, so a later ability can safely refer to it.
     """
 
-    def __init__(self, description: str = "") -> None:
+    def __init__(self, description: str = "", include_self: bool = False) -> None:
         super().__init__(None)
         self.description = description
+        self.include_self = include_self
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         return None

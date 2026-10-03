@@ -959,6 +959,7 @@ class MillEffect(GameEffect):
         selector: Optional[str] = None,
         source: Optional["GameObject"] = None,
         half: Optional[str] = None,
+        capture_milled: bool = False,
     ) -> None:
         super().__init__(source)
         #: "mills **half their library**, rounded down/up" (Cut Your Losses, Kitsune's Technique): the count
@@ -969,6 +970,7 @@ class MillEffect(GameEffect):
         self.count = count
         self.count_selector = count_selector
         self.selector = selector
+        self.capture_milled = capture_milled
         if target_kind is not None:
             self.target_spec = TargetSpec(kind=target_kind)
 
@@ -976,7 +978,9 @@ class MillEffect(GameEffect):
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.selector == "event_controller":
+        if self.selector == "event_player":
+            player = _event_player(context, key="player_id")
+        elif self.selector == "event_controller":
             player = _event_player(context)
         elif self.selector == "previous_subject_controller":
             # "Counter target spell … . Clash … . If you win, **that
@@ -1058,6 +1062,8 @@ class MillEffect(GameEffect):
         # RULE 701.13: "this way" is this one mill instruction, not every
         # card moved earlier in the resolution.
         context.milled_objects = list(milled)
+        if self.capture_milled:
+            context.previous_targets = list(milled)
 
 
 

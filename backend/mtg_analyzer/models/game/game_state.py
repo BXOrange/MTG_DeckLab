@@ -711,6 +711,8 @@ class GameState:
         #: "until end of turn" grant, unlike `temp_play_permissions`' own
         #: "until your next turn" turn-number bookkeeping.
         self.temp_flashback_grants: dict[int, str] = {}
+        #: Single-card normal-cost graveyard permissions, cleared on casting and cleanup.
+        self.temp_graveyard_cast_permissions: dict[int, str] = {}
 
         #: Delayed triggered abilities (RULE 603.7) a resolving spell/ability
         #: has set up to fire at a *future* step ("at the beginning of your

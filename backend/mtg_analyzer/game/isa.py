@@ -643,6 +643,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "return_creatures_by_power_parity": "move_object",
     "return_dying_subject_to_battlefield": "move_object",
     "return_from_graveyard": "move_object",
+    "return_remembered_graveyard_cards": "move_object",
     "return_linked_exile": "move_object",
     "return_self_from_graveyard": "move_object",
     "return_self_from_graveyard_to_hand": "move_object",
@@ -745,6 +746,8 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
 #: backlog.** Value is the CR rule the choice comes from, so the sweep can
 #: be checked against the rules rather than against a naming convention.
 _CONTINUATION_TYPES: dict[str, str] = {
+    "choose_player_on_enter": "614.12",
+    "sacrifice_to_return_targets": "608.2d",
     "destroy_and_half_copies": "616",
     "mill_recover_permanent_subtype_bonus": "601.2b",
     "repeat_food_exile_process": "118.3",
@@ -762,6 +765,7 @@ _CONTINUATION_TYPES: dict[str, str] = {
     "choose_named_mode": "700.2",
     "choose_number_on_enter": "601.2b",
     "choose_objects": "601.2b",
+    "discard_or_sacrifice": "608.2e",
     "choose_opponent_on_enter": "601.2b",
     "choose_permanent": "601.2b",
     "choose_source_coinflip": "705",
@@ -887,6 +891,7 @@ _REPLACEMENT_TYPES: frozenset[str] = frozenset({
 #: ISA. Value names the card (or family) each was written for. This list
 #: shrinking is a better health signal than coverage moving.
 _SPECIAL_TYPES: dict[str, str] = {
+    "living_death": "Living Death's three simultaneous zone-change batches",
     # Bookkeeping, not a rules action: records that an ability's action was performed this turn so its
     # "Do this only once each turn." gate (`action_unused_this_turn`) can refuse a second one (PAR-135).
     "action_stamp": "\"Do this only once each turn\" (Ondu Spiritdancer family)",

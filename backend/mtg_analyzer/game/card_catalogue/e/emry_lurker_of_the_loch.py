@@ -15,13 +15,11 @@ def _emry_lurker_of_the_loch() -> list[AbilitySpec]:
     — PLAY-ALL Step 2 (Counter Intelligence). Affinity is the keyword fold-in
     and the mill the parser's own claim, reproduced. "You may cast that card
     this turn" is MEC-24's per-card `grant_flashback_to_target` (Snapcaster
-    Mage's marker, ``cost=None`` = the card's own mana cost) aimed at
+    Mage's marker, with ``as_permission=True`` for normal casting) aimed at
     ``graveyard_artifact``: it marks exactly the chosen card, survives Emry
-    leaving, and goes through the ordinary flashback cast path, so timing and
-    costs stay the player's to pay. **Documented simplification:** the grant is
-    modelled as flashback, so the card is exiled rather than put in the graveyard
-    if it would leave the stack without resolving — irrelevant for an artifact
-    permanent spell that resolves.
+    leaving, and pays normal costs under normal timing rules. This permission
+    does not impose flashback's exile replacement; a countered spell goes to
+    the graveyard and needs a fresh permission to be cast again.
     """
     return [
         AbilitySpec(
@@ -31,7 +29,7 @@ def _emry_lurker_of_the_loch() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "activated",
-            [EffectSpec("grant_flashback_to_target", {"target_kind": "graveyard_artifact"})],
+            [EffectSpec("grant_flashback_to_target", {"target_kind": "graveyard_artifact", "as_permission": True})],
             cost={"text": "{T}"},
         ),
     ]

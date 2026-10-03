@@ -502,6 +502,8 @@ class ManaAbility:
     #: catalogue.py`); no oracle-text grammar recognizes this compound
     #: mana-ability-plus-rider shape yet.
     self_rad_counters: int = 0
+    #: RULE 605.3b: counters placed on the source resolve with mana production.
+    source_counters: dict[str, int] = field(default_factory=dict)
     min_level: Optional[int] = None
     max_level: Optional[int] = None
     #: RULE 702.184 Station: a "N+ | {T}: Add …" tier ability works only while
@@ -1075,12 +1077,17 @@ def _parse_mana_ability_lines(
         if not options:
             continue
         damage_match = _SELF_DAMAGE_RE.search(effect_text)
+        counter_match = re.search(
+            r"put (?:a|an|one|1) ([a-z][a-z -]*|\+1/\+1|-1/-1) counter on (?:this (?:land|artifact|creature|permanent)|~)\.",
+            _fold_self_name(effect_text, name), re.IGNORECASE,
+        )
         abilities.append(ManaAbility(
             cost=cost,
             options=options,
             amount_selector=selector,
             self_damage=int(damage_match.group(1)) if damage_match else 0,
             self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
+            source_counters={counter_match.group(1).lower(): 1} if counter_match else {},
             restriction=_parse_restriction(effect_text),
         ))
     # ENG-51: a cost part the grammar can't read would never be charged, so
@@ -1240,6 +1247,7 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
             amount_selector=None,
             self_damage=ability.self_damage,
             self_rad_counters=ability.self_rad_counters,
+            source_counters=dict(ability.source_counters),
             restriction=ability.restriction,
             any_combination=ability.any_combination,
             color_selector=ability.color_selector,
@@ -1324,6 +1332,7 @@ def hand_mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaA
             amount_selector=None,
             self_damage=ability.self_damage,
             self_rad_counters=ability.self_rad_counters,
+            source_counters=dict(ability.source_counters),
             restriction=ability.restriction,
             any_combination=ability.any_combination,
         )

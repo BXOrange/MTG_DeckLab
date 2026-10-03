@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
@@ -153,7 +155,8 @@ def test_genesis_wave_puts_any_number_of_cheap_permanents_and_the_rest_into_the_
     assert made["Dragon"] in p1.library and made["Filler"] in p1.library  # beyond the top 3: untouched
 
 
-def test_genesis_hydra_puts_one_nonland_permanent_with_mana_value_x_or_less_and_shuffles_the_rest():
+@pytest.mark.parametrize("countered", [False, True])
+def test_genesis_hydra_puts_one_nonland_permanent_with_mana_value_x_or_less_and_shuffles_the_rest(countered):
     engine, p1, made = _genesis_game("Genesis Hydra", [
         ("Dragon", "Creature — Dragon", 6, {"is_creature": True, "power": 6, "toughness": 6}),
         ("Forest", "Basic Land — Forest", 0, {"is_land": True}),
@@ -163,12 +166,18 @@ def test_genesis_hydra_puts_one_nonland_permanent_with_mana_value_x_or_less_and_
     p1.mana_pool.add_many({"G": 2, "C": 3})
     hydra = p1.hand[0]
     engine.cast_spell(p1, hydra, x=3)
+    engine.rules.put_triggers_on_stack()
+    assert engine.state.stack[-1].category == "triggered_ability"
+    if countered:
+        engine.rules.counter_spell(hydra)
     engine.resolve_until_stable()
     # top 3 = Dragon, Forest, Bear: only the Bear is a nonland permanent with mana value <= 3.
     assert {o["label"] for o in engine.state.pending_choice["options"] if "instance_id" in o} == {"Bear"}
     _answer(engine, ["Bear"])
-    assert made["Bear"].zone == Zone.BATTLEFIELD and hydra.zone == Zone.BATTLEFIELD
-    assert hydra.counters.get("+1/+1") == 3  # enters with X counters
+    assert made["Bear"].zone == Zone.BATTLEFIELD
+    assert hydra.zone == (Zone.GRAVEYARD if countered else Zone.BATTLEFIELD)
+    if not countered:
+        assert hydra.counters.get("+1/+1") == 3  # enters with X counters
     assert made["Dragon"] in p1.library and made["Forest"] in p1.library  # the rest were shuffled back in
 
 

@@ -99,3 +99,4 @@ from . import chitterspitter
 from . import chatterfang_squirrel_general
 
 from . import cache_grab
+from . import coiling_rebirth

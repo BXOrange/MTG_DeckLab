@@ -88,6 +88,13 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 
 ## Mana System
 
+### Mana-ability source counters (RULE 605.3b)
+
+The mana grammar recognizes a single named counter placed on the source after
+ordinary mana production. `ManaAbility.source_counters` survives runtime option
+resolution and applies through the counter-replacement path without a stack item.
+The World Shaper regression checks the counter immediately after activation.
+
 ### Mana cost model: Hybrid and Phyrexian mana
 
 - **What:** A real per-symbol mana cost model (`ManaCost.parse` → `ManaSymbol`s tagged generic/variable/color/colorless/hybrid/mono-hybrid/Phyrexian, exposing `payment_opti…
@@ -261,6 +268,21 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 - **Files:** `game/mana_abilities.py`. Tests: `tests/test_par135_named_counters.py`.
 
 ## Rules Engine Core Loop
+
+### Composed graveyard recovery and linked casting permissions
+
+`MillEffect.capture_milled` and `ReturnFromGraveyardEffect.previous_pool` restrict
+a subsequent recovery choice to the cards from that mill, including across an
+optional payment. `each_player_pick` can return the selected cards under the
+ability controller's control. Living Death uses separate simultaneous exile,
+sacrifice and return stages; targeted sacrifice-to-return effects preserve their
+announced targets across the sacrifice choice.
+
+Single-card graveyard grants can authorize normal-cost casting without
+flashback's exile replacement. They survive removal of the granting permanent,
+expire at cleanup, and are consumed when the card leaves the graveyard.
+Conditional exile permissions can cover lands and spells linked to an active
+source; turn and event-history gates are checked when a card is played or cast.
 
 ### Effect system foundation
 
@@ -1078,6 +1100,13 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 - **Files:** `models/game/events.py` (`WOULD_DISCARD`), `game/effects/
 
 ## Triggered Abilities & Trigger Ordering
+
+### Storm triggers and cast-time spell counts (RULE 702.40)
+
+Native storm and grants to instant/sorcery spells queue independent cast
+triggers. Each captures the preceding spell count when the spell is cast;
+responses and removal of the granting permanent do not change its copy count.
+Copies use the existing spell-copy primitive and do not count as casts.
 
 ### Expend (RULE 700.14, MEC-107; PARSER_VERSION 553)
 
@@ -2472,6 +2501,15 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 
 ## Card Types & Structures
 
+### Choices and counters before entry; legendary spell casting
+
+The entry-player chooser can include the entering permanent's controller;
+the choice is made before characteristic-defining abilities and state-based
+actions inspect the permanent. Conditional creature-entry bonus counters are
+applied before the entry event, after entry-copy choices. RULE 205.4e's casting
+restriction applies to all legendary instant and sorcery spells, independently
+of their reminder text or catalogue entry.
+
 ### Loyalty / planeswalker abilities (RULE 606)
 
 - **What:** `ActivationCost.loyalty` parses signed `[±N]` costs; planeswalkers enter with printed starting loyalty; activation is gated to sorcery speed + once-per-turn; da…
@@ -3504,6 +3542,21 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 - **Files:** `models/game/game_state.py` (trackers + `remove_from_
 
 ## Oracle-Text Parser Front-End
+
+### Case solve conditions based on instant/sorcery casts (PARSER_VERSION 597)
+
+“You've cast N or more instant and sorcery spells this turn” maps to the existing
+cast-history selector and intervening-if solve trigger. Tests exercise configurable
+thresholds, reject a different cast filter, and verify the parsed Case against real
+spell casts: a creature cast does not contribute to solving it.
+
+### Optional discard followed by drawing the discarded count (PARSER_VERSION 595–596)
+
+The effect grammar recognizes “discard up to N cards, then draw that many cards”
+and its optional “if you do” form using the existing discard chooser. Its parser
+regressions cover trigger bodies and reject additional draw riders. The full
+cache comparison added five covered cards and regressed none. Version 596 also
+recognizes the standing storm grant to instant and sorcery spells.
 
 ### Player-scoped phase bodies and additional draws (PAR-100, PARSER_VERSION 592)
 

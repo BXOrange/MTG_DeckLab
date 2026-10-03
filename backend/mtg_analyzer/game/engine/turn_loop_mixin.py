@@ -971,6 +971,7 @@ class TurnLoopMixin:
         # own "until your next turn" survival above) — cleared unconditionally.
         if self.state.temp_flashback_grants:
             self.state.temp_flashback_grants = {}
+        self.state.temp_graveyard_cast_permissions.clear()
     def resolve_until_stable(self) -> None:
         """Resolve triggers + the stack until empty, stable, or blocked.
 

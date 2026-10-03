@@ -252,7 +252,10 @@ class TestBacklogSizes:
         # death copies, mill/recover/bonus, graveyard-paid repetition and
         # sacrifice-or-discard. They delegate to existing replacement and
         # choose_objects/optional frames; no new answer protocol is introduced.
-        assert n <= 88, f"continuation types grew to {n}"
+        # PLAY-ALL adds the pre-entry player choice and Victimize's
+        # sacrifice/target linkage; both reuse existing answer protocols.
+        # Multi-player discard-or-sacrifice collects choices before moving cards.
+        assert n <= 91, f"continuation types grew to {n}"
 
     def test_fusion_backlog_does_not_grow(self) -> None:
         # ENG-37 deletes these outright.
@@ -264,4 +267,5 @@ class TestBacklogSizes:
         # bookkeeping (no Comprehensive Rules action decomposes into it), so it is the honest residue rather
         # than an `INSTRUCTIONS` entry — examined, not a stray.
         n = len(isa.types_classified(isa.Classification.SPECIAL))
-        assert n <= 58, f"one-card specials grew to {n}"
+        # Living Death tracks its exile batch across three simultaneous actions.
+        assert n <= 59, f"one-card specials grew to {n}"
