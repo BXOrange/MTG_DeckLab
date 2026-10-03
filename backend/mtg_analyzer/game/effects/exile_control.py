@@ -900,6 +900,24 @@ class FreeCastFromHandEffect(GameEffect):
         )
 
 
+class ExileBottomGraveyardCardEffect(GameEffect):
+    """"Exile the bottom card of target player's graveyard." (Phyrexian Furnace) — the target is a *player*
+    (RULE 115.1); the card is the oldest in that graveyard (``graveyard[0]``, the end of the list is the top).
+    Nothing happens if the graveyard is empty."""
+
+    def __init__(self, source: Optional["GameObject"] = None, target_kind: str = "player") -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = targets[0] if targets else None
+        player = target if hasattr(target, "graveyard") else (
+            context.state.player_by_id(target.get("player_id")) if isinstance(target, dict) else None
+        )
+        if player is not None and player.graveyard:
+            context.exile(player.graveyard[0])
+
+
 class ExileAllGraveyardsEffect(GameEffect):
     """"Exile all graveyards." (RULE 406 mass exile, Farewell-shaped) —
     every card in every player's graveyard, untargeted.

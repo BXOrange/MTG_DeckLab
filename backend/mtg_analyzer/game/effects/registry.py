@@ -1025,6 +1025,10 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    "exile_bottom_graveyard_card",  # "Exile the bottom card of target player's graveyard." (Phyrexian Furnace)
+    lambda p: ExileBottomGraveyardCardEffect(target_kind=p.get("target_kind", "player")),
+)
+EffectRegistry.register(
     "exile_all_graveyards",
     lambda p: ExileAllGraveyardsEffect(colors=p.get("colors"), opponents_only=bool(p.get("opponents_only", False))),
 )

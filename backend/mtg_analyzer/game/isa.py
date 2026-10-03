@@ -522,6 +522,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "exchange_life_total_with_toughness": "exchange",
     "exchange_life_totals": "exchange",
     "exile_all_graveyards": "exile",
+    "exile_bottom_graveyard_card": "exile",
     "exile_any_number_you_control": "exile",
     # ENG-37 B7: "exile all the cards from your hand" — one atomic move of a
     # hidden zone, the sibling of `exile_library`. The fused

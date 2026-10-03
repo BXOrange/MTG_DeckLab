@@ -12,6 +12,7 @@ from . import advanced_reconstruction  # noqa: F401
 from . import aetherflux_reservoir  # noqa: F401
 from . import agatha_s_soul_cauldron  # noqa: F401
 from . import agent_maria_hill  # noqa: F401
+from . import agent_of_treachery  # noqa: F401
 from . import airtight_alibi  # noqa: F401
 from . import ajani_nacatl_pariah  # noqa: F401
 from . import ajani_s_chosen  # noqa: F401

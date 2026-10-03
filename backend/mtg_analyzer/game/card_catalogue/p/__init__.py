@@ -19,6 +19,7 @@ from . import perplexing_chimera  # noqa: F401
 from . import perplexing_test  # noqa: F401
 from . import pest_infestation  # noqa: F401
 from . import phantasmal_image  # noqa: F401
+from . import phyrexian_furnace  # noqa: F401
 from . import phyrexian_incubator  # noqa: F401
 from . import phyrexian_metamorph  # noqa: F401
 from . import phyrexian_revoker  # noqa: F401

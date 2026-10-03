@@ -110,3 +110,69 @@ def test_ghastly_demise_destroys_a_nonblack_creature_only_while_its_toughness_fi
 
     assert cast(3, "G").zone != Zone.BATTLEFIELD  # toughness 3 <= 3 cards (+ the resolved spell makes 4 anyway)
     assert cast(1, "G").zone == Zone.BATTLEFIELD  # toughness 3 > 1 card in the graveyard: nothing happens
+
+
+def test_agent_of_treachery_draws_three_at_my_end_step_with_three_permanents_i_dont_own():
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+
+    def end_step(foreign):
+        engine, p1, p2 = _game()
+        agent = GameObject(CardDatabase(DB_PATH).get_card("Agent of Treachery"), owner_id="p1", zone=Zone.BATTLEFIELD)
+        agent.controller_id = "p1"
+        bind_from_catalogue(agent)
+        engine.state.add_to_battlefield(agent)
+        for i in range(foreign):  # opponent-owned permanents under my control
+            stolen = battlefield_object(engine, "p2", f"Stolen {i}", "Artifact")
+            stolen.controller_id = "p1"
+        for i in range(5):
+            p1.library.append(GameObject(Card(id=f"X{i}", name=f"Extra {i}", type_line="Land"), owner_id="p1", zone=Zone.LIBRARY))
+        before = len(p1.hand)
+        engine.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="end", phase="ending", player_id="p1"))
+        engine.rules.put_triggers_on_stack()
+        engine.resolve_until_stable()
+        return len(p1.hand) - before
+
+    assert end_step(2) == 0  # one short
+    assert end_step(3) == 3
+
+
+def test_liquimetal_torque_adds_the_artifact_type_until_end_of_turn_without_removing_others():
+    from mtg_analyzer.game.targeting import TargetSpec, legal_targets
+
+    engine, p1, p2 = _game()
+    torque = GameObject(CardDatabase(DB_PATH).get_card("Liquimetal Torque"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    torque.controller_id = "p1"
+    bind_from_catalogue(torque)
+    engine.state.add_to_battlefield(torque)
+    torque.summoning_sick = False
+    bear = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    land = battlefield_object(engine, "p2", "Their Land", "Land", is_land=True)
+
+    pool = legal_targets(engine.state, "p1", TargetSpec(kind="nonland_permanent"), source=torque)
+    assert land.name not in {o["name"] for o in pool} and bear.name in {o["name"] for o in pool}
+    engine.activate_ability(p1, torque, 0, targets=[bear])
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    assert "artifact" in bear.type_words  # an artifact ...
+    assert bear.is_creature  # ... in addition to being a creature
+
+    engine._step_cleanup()
+    engine.recompute_continuous_effects()
+    assert "artifact" not in bear.type_words and bear.is_creature
+
+
+def test_phyrexian_furnace_exiles_the_bottom_card_of_a_players_graveyard():
+    engine, p1, p2 = _game()
+    furnace = GameObject(CardDatabase(DB_PATH).get_card("Phyrexian Furnace"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    furnace.controller_id = "p1"
+    bind_from_catalogue(furnace)
+    engine.state.add_to_battlefield(furnace)
+    furnace.summoning_sick = False
+    cards = []
+    for name in ("Oldest", "Middle", "Newest"):  # appended in order: the last one is on top
+        obj = GameObject(Card(id=name, name=name, type_line="Sorcery", is_sorcery=True), owner_id="p2", zone=Zone.GRAVEYARD)
+        p2.graveyard.append(obj)
+        cards.append(obj)
+    engine.activate_ability(p1, furnace, 0, targets=[p2])
+    engine.resolve_until_stable()
+    assert cards[0].zone == Zone.EXILE and cards[1].zone == Zone.GRAVEYARD and cards[2].zone == Zone.GRAVEYARD

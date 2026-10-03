@@ -23,6 +23,7 @@ from . import liliana_dreadhorde_general  # noqa: F401
 from . import lily_bowen_raging_grandma  # noqa: F401
 from . import lim_d_l_s_vault  # noqa: F401
 from . import lion_sash  # noqa: F401
+from . import liquimetal_torque  # noqa: F401
 from . import lithomantic_barrage  # noqa: F401
 from . import llawan_cephalid_empress  # noqa: F401
 from . import loamcrafter_faun  # noqa: F401
