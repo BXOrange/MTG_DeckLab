@@ -3539,6 +3539,12 @@ of their reminder text or catalogue entry.
 - **What:** Attacks with everything first, then in its own main phase plays a land, taps for its scarcest colour, casts/activates cheapest-first (never `{X}`=0), blocks by…
 - **Files:** `services/bots.py`
 
+### Smart Bot — deck-aware play and combo assembly
+
+- **What:** Additional `smart` seat policy available through the existing Solo/Multiplayer catalogue. Detects own-deck colour identity, commander themes and archetype, prioritizes WinCons and visible combo progress, tutors missing ingredients, fixes mana, handles bounded mulligans and evaluates combat/interaction. Uses installed Spellbook matches without triggering downloads; ignores unresolved template matches. Oracle + Demonic Consultation has an engine-tested UU+B/trigger-response/name-card winning sequence. Other combos receive assembly heuristics rather than generic combo execution.
+- **Boundary:** Only own setup deck definitions as prior knowledge; live decisions use the perspective-redacted view and validated legal offers. Free-text naming is now an explicit parameterized `choose` offer. Repeatable abilities require visible progress and stop at 64 uses per ability/turn; session memory survives bot reconstruction and resets on restart.
+- **Files:** `services/bots.py`, `services/bot_strategy.py`, `services/game_session.py`; reference and upstream research in `docs/Reference/SMART_BOT.md`.
+
 ### Bot seats in the lobby
 
 - **What:** A bot is an ordinary `LobbyPlayer`/`Seat` (plus `Seat.bot_kind`, opaque to the lobby) so the rules engine never learns bots exist; a bot seat with a deck counts…

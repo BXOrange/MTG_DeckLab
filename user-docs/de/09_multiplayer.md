@@ -161,6 +161,14 @@ Auswahl und der Schaltfläche **🤖 Hinzufügen**:
   optimiert nichts; er ist ein Gegner, der Druck macht, kein guter
   Spieler.
 
+- **Smart Bot** — erkennt Archetyp, Farbidentität und Commander-Synergien
+  automatisch. Entwickelt Mana und WinCons, sucht fehlende Combo-Teile,
+  schützt wichtige Kreaturen und reagiert mit Countern/Removal. Nutzt vorhandene
+  lokale Commander-Spellbook-Daten; Oracle + Demonic Consultation kann er als
+  konkrete Siegsequenz spielen. Andere Combos priorisiert er beim Aufbau;
+  beliebige Combo-Sequenzen sind nicht garantiert. Auch unter **Solo gegen Bots**
+  auswählbar.
+
 Ein Bot sitzt danach wie jeder andere in der Platzliste (mit 🤖 markiert).
 Zwei Dinge macht der Host für ihn, weil ein Bot keine eigene Ansicht hat:
 
@@ -168,8 +176,8 @@ Zwei Dinge macht der Host für ihn, weil ein Bot keine eigene Ansicht hat:
   Deck hat, gilt er als *bereit*.
 - **Ihn wieder entfernen** — mit dem **✕** in seiner Zeile.
 
-Danach läuft alles wie sonst: **▶ Spiel starten**, und der Bot behält
-seine Starthand und zieht seine Züge von selbst. Sein ganzer Zug erscheint
+Danach läuft alles wie sonst: **▶ Spiel starten**, und der Bot trifft
+seine Mulligan-Entscheidungen und zieht seine Züge von selbst. Sein ganzer Zug erscheint
 bei dir in einem Rutsch, sobald du am Zug bist. Ein Tisch, an dem nur
 noch Bots sitzen, wird aufgelöst — Bots spielen nicht allein weiter, und
 sie können auch niemanden einladen oder ein Spiel starten.

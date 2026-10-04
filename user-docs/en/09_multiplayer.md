@@ -155,6 +155,14 @@ and a **🤖 Hinzufügen** (add) button:
   first legal target. It optimizes nothing; it's an opponent that applies
   pressure, not a good player.
 
+- **Smart Bot** — automatically detects archetype, colour identity and
+  commander synergies. Develops mana and win conditions, tutors missing combo
+  pieces, protects important creatures and responds with counters/removal.
+  Uses an existing local Commander Spellbook snapshot; Oracle + Demonic
+  Consultation has a supported winning sequence. Other combos are assembly
+  priorities; arbitrary combo execution is not guaranteed. Also available in
+  **Solo gegen Bots**.
+
 A bot then sits in the seat list like anyone else (marked 🤖). Two things
 the host does *for* it, since a bot has no screen of its own:
 
@@ -163,7 +171,7 @@ the host does *for* it, since a bot has no screen of its own:
 - **Remove it** — the **✕** in its row.
 
 Everything after that is the usual flow: **▶ Spiel starten**, and the bot
-keeps its opening hand and takes its turns by itself. Its whole turn
+makes its mulligan decisions and takes its turns by itself. Its whole turn
 arrives on your screen in one go, as soon as the turn comes back to you.
 A table with nothing but bots left at it is dropped — bots don't play on
 by themselves, and they can't invite anyone or start a game either.

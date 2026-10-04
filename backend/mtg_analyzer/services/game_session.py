@@ -612,6 +612,8 @@ class GameSession:
         self._history.clear()
         self.move_log.clear()
         self._mulligan_counts.clear()
+        self._smart_ability_uses = {}
+        self._smart_ability_positions = {}
         self._setup_pending = (
             {p.id for p in self.engine.state.players if not p.is_dummy}
             if self._require_setup
@@ -2019,6 +2021,11 @@ class GameSession:
                             "instance_id": opt.get("instance_id"),
                         }
                     )
+            if pending.get('free_text'):
+                # Naming a card already accepts any text through the browser
+                # choice UI. Expose that parameterized action to bots too,
+                # rather than restricting them to convenience suggestions.
+                actions.append({'type': 'choose', 'free_text': True, 'option_id': 'Island'})
             return actions
         if self.interactive_priority and state.priority_player is not None:
             # RULE 117.1: only the player who *has* priority may act. A
@@ -2356,6 +2363,13 @@ class GameSessionManager:
             takebacks_per_player=takebacks_per_player,
             spell_timer_seconds=spell_timer_seconds,
         )
+        # Unordered own-deck knowledge, copied from setup inputs rather than
+        # read from live libraries. Bots never receive draw order or opponents' decks.
+        session._bot_decklists = {
+            str(seat['player_id']): {'cards': sorted(seat['library'], key=lambda card: card.id),
+                                    'commanders': sorted(seat.get('commanders') or [], key=lambda card: card.id)}
+            for seat in seats
+        }
         self._sessions[session.id] = session
         return session
 

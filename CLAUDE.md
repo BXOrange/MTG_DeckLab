@@ -181,7 +181,19 @@ fixes the *order* a seat handles things in (`decide`: pending choice →
 mulligan → RULE 509.1a declare-blockers, which the defender takes while the
 attacker holds priority → `play()` only if it holds priority) and
 subclasses override policy only — `GoldfishBot` (lands, else pass) and
-`GreedyBot` (everything, immediately, first legal target). Bots have no
+`GreedyBot` (everything, immediately, first legal target), `ManaMaximizerBot`
+(diagnostic mana ceiling) and `SmartBot` (deck-aware heuristic opponent).
+Smart Bot detects colour identity, archetype and commander themes from its
+own unordered setup deck list (`services/bot_strategy.py`), caches local
+Spellbook matches per session without downloading at game start, ranks visible
+combo progress/tutor choices, fixes mana colours, preserves combo pieces in
+combat and responds with counters/removal. Oracle + Demonic Consultation has
+an explicit engine-tested win sequence, including coherent UU+B mana planning
+and card naming through a parameterized `free_text` choice offer. Other combos
+are assembly priorities, not guaranteed executable winning lines. Repeatable
+abilities require visible progress and are capped at 64 uses per ability/turn;
+this memory survives lobby bot rebuilds and clears on restart. See
+[Smart Bot design and sources](docs/Reference/SMART_BOT.md). Bots have no
 loop of their own: `run_bots(session, bots)` is called after each human
 action, right after `lobby.start()` (so a bot keeps its opening hand before
 the humans see the mulligan screen), and once a second by the sweeper —
@@ -896,7 +908,7 @@ English and German.
 | Goldfish UI | `frontend/src/js/goldfishView.js` |
 | Solo vs. bots (Multiplayer engine, no lobby) | `backend/mtg_analyzer/api/solo.py`, `frontend/src/js/soloView.js`; shared picker/mulligan/banner markup in `frontend/src/js/gameSetup.js` (also used by goldfish/multiplayer) |
 | Multiplayer (lobby, seats, shared board) | `backend/mtg_analyzer/services/lobby.py`, `api/multiplayer.py`, `api/multiplayer_ws.py`, `frontend/src/js/multiplayerView.js`, `lobbySocket.js`, `bannerColors.js` (seat banner colours) |
-| Bots filling a multiplayer seat (UC5) | `backend/mtg_analyzer/services/bots.py` (`Bot`/`GoldfishBot`/`GreedyBot`/`run_bots`), `services/lobby.py` (`Seat.bot_kind`, `add_bot`), `frontend/src/js/multiplayerView.js` (`addBotHtml`/`seatRowHtml`) |
+| Bots filling a multiplayer seat (UC5) | `backend/mtg_analyzer/services/bots.py` (`Bot`/`GoldfishBot`/`GreedyBot`/`SmartBot`/`run_bots`; deck planning in `services/bot_strategy.py`), `services/lobby.py` (`Seat.bot_kind`, `add_bot`), `frontend/src/js/multiplayerView.js` (`addBotHtml`/`seatRowHtml`) |
 | Replay/Puzzle mode (build+save/load a board) | `backend/mtg_analyzer/services/replay.py`, `game_session.py` (`edit_*` actions), `frontend/src/js/replayView.js` |
 | Archidekt deck import proxy | `backend/mtg_analyzer/services/archidekt_client.py`, `api/import_external.py` (Moxfield was tried and reverted twice — Cloudflare-blocked; don't re-add it without checking that's changed) |
 | Refreshing the full Oracle card pool (new set) | `backend/scripts/update_card_pool.py` — re-downloads the Scryfall `oracle_cards` bulk dump, merges it into `RawCardStore`, reseeds the app cache, and prints a ban-list drift heads-up (`scripts/import_bulk.py` is first-load only; its default reuses an on-disk dump) |

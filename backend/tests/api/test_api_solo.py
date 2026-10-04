@@ -311,3 +311,18 @@ def test_get_view_and_delete(env):
     assert client.delete(f"/api/solo/{sid}").json() == {"deleted": True}
     assert client.get(f"/api/solo/{sid}").status_code == 404
     assert client.delete(f"/api/solo/{sid}").status_code == 404
+
+
+def test_smart_bot_is_selectable_and_retains_own_strategy_on_restart(env):
+    deck = _legal_deck(env['decks'])
+    response = _start(env['client'], deck.id, opponents=[{'kind': 'smart', 'deckId': deck.id}])
+    assert response.status_code == 200, response.json()
+    v = response.json()
+    session = env['sessions'].get(v['session_id'])
+    bot_id = _bot_ids(v)[0]
+    strategy = session._bot_strategies[bot_id]
+    assert strategy.commanders == {'test commander'}
+    assert _player(v, bot_id)['hand'] == []
+    restarted = env['client'].post(f"/api/solo/{v['session_id']}/restart")
+    assert restarted.status_code == 200
+    assert session._bot_strategies[bot_id] is strategy

@@ -105,9 +105,9 @@ def run_to_turn(session, bots, turn, human_ids=(), limit=4000):
 
 class TestRegistry:
     def test_all_bots_are_registered_and_described(self):
-        assert set(BOT_TYPES) == {"goldfish", "greedy", "mana_maximizer"}
+        assert set(BOT_TYPES) == {"goldfish", "greedy", "smart", "mana_maximizer"}
         catalogue = bot_catalogue()
-        assert {b["kind"] for b in catalogue} == {"goldfish", "greedy", "mana_maximizer"}
+        assert {b["kind"] for b in catalogue} == {"goldfish", "greedy", "smart", "mana_maximizer"}
         assert all(b["label"] and b["description"] for b in catalogue)
 
     def test_create_bot_rejects_an_unknown_kind(self):
