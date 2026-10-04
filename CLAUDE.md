@@ -907,3 +907,28 @@ English and German.
 | Looking up a `RULE <n>` in the CR text | `docs/Reference/rules_wiki/` (rule#/term → source line; see its `README.md`) |
 | Full docs/ map (requirements/concepts/Reference/implementation-state) | [docs/README.md](docs/README.md) |
 | How to *use* the app (not build it) | [user-docs/](user-docs/) (English + German) |
+
+## Local bug reports
+
+The bug icon beside Settings opens a report dialog. `POST /api/bug-reports`
+saves UTF-8 JSON in the Git-ignored **`bug-reports/`** directory at the repo
+root (override: `MTG_BUG_REPORT_DIR` or config.json `paths.bug_report_dir`).
+Reports include the description, originating view, session mode, current
+portable replay and diagnostic state, plus the last **12 actions** by default
+(user-selectable up to the retained history limit). Each retained action has
+its label, actor, step cursor, pre-action replay and diagnostic state. Reports
+outside a game have `game: null`. Files contain hidden game zones and are local
+user data; do not commit them or delete them without an explicit request.
+
+When asked to analyze a bug report, inspect this folder (or its configured
+location), read the relevant JSON and start with `description` and
+`game.recent_actions` in chronological order. Extract `game.replay` or an
+entry's `replay_before` into a temporary JSON file to import in Replay mode.
+Use `state`/`state_before` to inspect stack, pending choices and other diagnostic
+context. Portable Replay restores an editable board, not every runtime engine
+continuation; do not assume it faithfully reproduces a pending stack/choice.
+Action labels are descriptive, not executable action payloads. Reproduce the
+reported interaction, consult the Rules-Wiki when rules are involved, and add
+an appropriate regression test before fixing it. Keep investigation notes
+in temporary unversioned files; record only verified lasting conclusions in
+project documentation. Preserve the original report.

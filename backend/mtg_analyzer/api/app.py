@@ -134,6 +134,8 @@ def create_app() -> FastAPI:
     app.include_router(cards_router)
     app.include_router(combos_router)
     app.include_router(images_router)
+    from mtg_analyzer.api.bug_reports import router as bug_reports_router
+    app.include_router(bug_reports_router)
     app.include_router(game_router)
     app.include_router(game_ws_router)
     app.include_router(dynamic_analysis_router)

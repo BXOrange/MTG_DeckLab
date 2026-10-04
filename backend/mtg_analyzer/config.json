@@ -12,9 +12,10 @@
   ],
 
   "paths": {
-    "_comment": "cache_dir: disposable Scryfall cache, empty = backend/cache (MTG_CACHE_DIR). data_dir: persistent user data, empty = backend/data (MTG_DATA_DIR).",
+    "_comment": "cache_dir: disposable Scryfall cache, empty = backend/cache (MTG_CACHE_DIR). data_dir: persistent user data, empty = backend/data (MTG_DATA_DIR). bug_report_dir: local reports, empty = repo-root/bug-reports (MTG_BUG_REPORT_DIR).",
     "cache_dir": "",
-    "data_dir": ""
+    "data_dir": "",
+    "bug_report_dir": ""
   },
 
   "logging": {

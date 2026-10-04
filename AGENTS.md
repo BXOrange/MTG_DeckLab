@@ -64,3 +64,9 @@ seinen Indizes; der aktuelle Code und seine Tests vor veralteter Beschreibung.
   Nur dauerhaft relevante, nach Abschluss geprüfte Entscheidungen,
   Anforderungen oder gelieferte Ergebnisse werden prägnant in die passende
   Projektdokumentation übernommen.
+
+## Lokale Fehlerberichte
+
+Bei der Analyse gemeldeter Fehler dem Abschnitt **Local bug reports** in
+[`CLAUDE.md`](CLAUDE.md) folgen. Die unversionierten JSON-Berichte liegen
+standardmäßig in `bug-reports/` und enthalten Replay sowie letzte Aktionen.

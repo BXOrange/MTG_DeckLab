@@ -102,3 +102,12 @@ heute schon sichtbar auswirkt.
 Unter **Lieblingsdecks** kannst du eine Teilmenge deiner gespeicherten
 Decks mit einem Stern markieren. Markierte Decks stehen in der
 Deck-Auswahl im Goldfisch-Modus und in der Mehrspieler-Lobby zuerst.
+
+## Fehlerberichte
+
+Das Käfer-Symbol neben Einstellungen öffnet den Fehlerbericht. Beschreibe das
+Problem und das erwartete Verhalten. Im Spiel enthält der Bericht den aktuellen
+Replay und standardmäßig die letzten 12 Aktionen; die Anzahl ist anpassbar.
+Der Server speichert JSON-Dateien im lokalen, unversionierten Ordner
+`bug-reports/`. Außerhalb eines Spiels werden Beschreibung und Ansicht ohne
+Replay gespeichert. Der Dialog bestätigt den gespeicherten Dateinamen.

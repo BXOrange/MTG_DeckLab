@@ -953,6 +953,7 @@ export function createGameBoardView(opts = {}) {
     const prevStack = view?.state?.stack || [];
     const samePriorSessionForStack = sessionId === lastDraftSessionId;
     view = data;
+    if (root) root.dataset.bugReportSession = sessionId || "";
     // Ghost-trail: entries that were on the stack last view and aren't now
     // (resolved or countered) linger briefly so it stays visible what just
     // happened — in the solo modes too, where the engine auto-drains it.
@@ -4089,6 +4090,7 @@ export function createGameBoardView(opts = {}) {
     endTurnArmed = false;
     endTurnAtTurnNumber = null;
     sessionId = null;
+    if (root) delete root.dataset.bugReportSession;
     view = null;
     resolvedGhosts = [];
     stopped = true;

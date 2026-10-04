@@ -97,3 +97,11 @@ rather than something you'll see change much today.
 Under **Lieblingsdecks** (favorite decks) you can star a subset of your
 saved decks. Starred decks are listed first in the deck pickers in the
 Goldfisch mode and the multiplayer lobby.
+
+## Bug reports
+
+Click the bug icon beside Settings to describe a problem. During a game, the
+report includes the current Replay and the last 12 actions by default; you can
+change that number. JSON reports are saved on the backend in the local,
+unversioned `bug-reports/` folder. A report outside a game contains only the
+description and view context. The dialog confirms the saved filename.

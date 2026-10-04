@@ -3,6 +3,15 @@
 // en.js — see its header.
 
 export default {
+  'bug.title': "Fehler melden",
+  'bug.description': "Was ist passiert? Beschreibe die Schritte und das erwartete Verhalten.",
+  'bug.actions': "Anzahl letzter Aktionen",
+  'bug.context': "Der aktuelle Replay und die letzten Spielpositionen werden auf dem Server gespeichert.",
+  'bug.noGame': "In dieser Ansicht ist kein Spiel geöffnet. Die Beschreibung wird ohne Replay gespeichert.",
+  'bug.save': "Bericht speichern",
+  'bug.saved': "Bericht gespeichert: {filename}",
+  'bug.error': "Bericht konnte nicht gespeichert werden. Bitte erneut versuchen.",
+
   // --- common -----------------------------------------------------------
   'common.save': 'Speichern',
   'common.cancel': 'Abbrechen',

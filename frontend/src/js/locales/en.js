@@ -10,6 +10,15 @@
 //     into several keys around the tags at the call site.
 
 export default {
+  'bug.title': "Report a bug",
+  'bug.description': "What went wrong? Describe the steps and expected behavior.",
+  'bug.actions': "Recent actions to include",
+  'bug.context': "The current game replay and recent positions will be saved on the server.",
+  'bug.noGame': "No game is open in this view. Your description will be saved without a replay.",
+  'bug.save': "Save report",
+  'bug.saved': "Report saved: {filename}",
+  'bug.error': "Could not save report. Please try again.",
+
   // --- common -----------------------------------------------------------
   'common.save': 'Save',
   'common.cancel': 'Cancel',

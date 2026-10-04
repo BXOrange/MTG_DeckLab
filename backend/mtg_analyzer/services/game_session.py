@@ -548,6 +548,29 @@ class GameSession:
 
     # -- Snapshot / restore --------------------------------------------
 
+    def bug_report_context(self, action_count: int) -> dict:
+        """Export diagnostic positions without mutating the live game or undo history."""
+        from mtg_analyzer.services.replay import serialize_replay
+
+        history = self._history[-action_count:]
+        return {
+            "mode": self.mode,
+            "replay": serialize_replay(self.engine.state.clone()),
+            "state": self.engine.state.clone().to_dict(),
+            "step_cursor": self.engine.step_cursor,
+            "interactive_priority": self.interactive_priority,
+            "recent_actions": [
+                {
+                    "label": label, "actor_id": actor_id, "step_cursor": cursor,
+                    "replay_before": serialize_replay(state.clone()),
+                    "state_before": state.clone().to_dict(),
+                }
+                for label, state, cursor, actor_id in history
+            ],
+            "available_history_count": len(self._history),
+            "recent_move_log": self.move_log[-action_count:],
+        }
+
     def _snapshot(self, label: str, actor_id: Optional[str] = None) -> None:
         if not self._keep_history:
             return
