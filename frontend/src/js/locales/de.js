@@ -89,6 +89,7 @@ export default {
   'help.chapter.cardCache': 'Karten-Cache',
   'help.chapter.engineStatus': 'Engine-Status',
   'help.chapter.multiplayer': 'Multiplayer',
+  'help.chapter.sourcesAndLicenses': 'Quellen & Lizenzen',
 
   // --- connection status (connectionStatus.js) ------------------------
   'connection.checking': 'Prüfe …',

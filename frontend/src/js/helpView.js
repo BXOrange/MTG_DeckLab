@@ -14,6 +14,7 @@ const CHAPTERS = [
   ['07_card_cache', 'help.chapter.cardCache'],
   ['08_engine_status', 'help.chapter.engineStatus'],
   ['09_multiplayer', 'help.chapter.multiplayer'],
+  ['10_sources_and_licenses', 'help.chapter.sourcesAndLicenses'],
 ];
 
 function escapeHtml(value) {
