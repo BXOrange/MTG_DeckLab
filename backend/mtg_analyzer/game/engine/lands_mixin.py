@@ -78,6 +78,7 @@ class LandsMixin:
         # (Oracle of Mul Daya-shaped) when some permanent grants that.
         in_playable_zone = (
             obj in player.hand
+            or self._has_resolution_play_permission(player, obj)
             or (
                 bool(player.library)
                 and obj is player.library[-1]
@@ -100,8 +101,8 @@ class LandsMixin:
         return (
             card is not None
             and player is self.state.active_player
-            and self._in_main_phase()
-            and not self.state.stack
+            and (self._has_resolution_play_permission(player, obj)
+                 or (self._in_main_phase() and not self.state.stack))
             and player.lands_played_this_turn < (
                 player.max_lands_per_turn
                 + continuous.extra_land_plays_for(self.state, player)
@@ -137,8 +138,7 @@ class LandsMixin:
             graveyard_land_play_grant_for(player, self.state, obj.card)
             if obj.zone == Zone.GRAVEYARD else None
         )
-        if face == "back":
-            self.rules.switch_to_face(obj, obj.card.back_face())
+        chosen_card = self._face_card(obj, face)
         # Zone-agnostic (not just hand) so a land can be played from the top
         # of the library (Oracle of Mul Daya-shaped, `can_play_land` above) —
         # ``obj.zone`` is always accurate (set on creation/every zone move),
@@ -146,8 +146,13 @@ class LandsMixin:
         # `RulesEngine._remove_from_current_zone` uses for casting.
         from_zone = obj.zone.value
         if from_zone == "library":
-            record_top_library_use(player, self.state, obj.card, land=True)
-        player.remove_from_zone(obj, obj.zone)
+            record_top_library_use(player, self.state, chosen_card, land=True)
+        self.state.player_by_id(obj.owner_id).remove_from_zone(obj, obj.zone)
+        obj.reset_as_new_object()
+        if face == "back":
+            self.rules.switch_to_face(obj, chosen_card)
+        obj.controller_id = player.id
+        obj.face_down_in_exile = False
 
         def _finish() -> None:
             obj.summoning_sick = True

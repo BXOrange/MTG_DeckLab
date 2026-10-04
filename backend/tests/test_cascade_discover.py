@@ -95,11 +95,12 @@ def test_cascade_exiles_until_a_cheaper_nonland_then_offers_a_free_cast():
 
     eng.rules._request_cascade(p1, max_mana_value=4)  # hits mana value <= 3
     choice = eng.state.pending_choice
-    assert choice["kind"] == "cascade"
-    assert [e["name"] for e in choice["eligible"]] == ["Small"]
+    assert choice["kind"] == "play_during_resolution"
+    assert [eng.state.find_object(i).name for i in choice["instance_ids"]] == ["Small"]
     assert len(p1.exile) == 3  # Land, Big, Small revealed
 
-    eng.rules.resolve_choice("cast")  # cast it for free
+    eng.play_resolution_card(p1, small)
+    assert small.zone == Zone.STACK  # opponents can respond before it resolves
     eng.resolve_until_stable()
     assert small in eng.state.battlefield
     # The non-hits went to the bottom; nothing is left in exile.
@@ -161,8 +162,8 @@ def test_cascade_effect_derives_threshold_from_its_source_spell():
     source = GameObject(spell("Maelstrom", 4, is_creature=False), owner_id="p1", zone=Zone.STACK)
     effect = CascadeEffect(source=source)
     effect.apply(eng.rules.context)
-    assert eng.state.pending_choice["kind"] == "cascade"
-    assert eng.state.pending_choice["eligible"][0]["name"] == "Small"
+    assert eng.state.pending_choice["kind"] == "play_during_resolution"
+    assert eng.state.find_object(eng.state.pending_choice["instance_ids"][0]).name == "Small"
 
 
 def test_registry_builds_cascade_and_discover():
@@ -175,20 +176,23 @@ def test_engine_resolve_pending_choice_routes_cascade():
     eng, p1 = engine_with_library(lib)
     small = next(o for o in p1.library if o.name == "Small")
     eng.rules._request_cascade(p1, max_mana_value=4)
-    eng.resolve_pending_choice("cast")  # option id, through the kind dispatch
+    eng.play_resolution_card(p1, small)
     assert eng.state.pending_choice is None
+    assert small.zone == Zone.STACK
+    eng.resolve_until_stable()
     assert small in eng.state.battlefield
 
 
 # --- The choice options (what a popup renders) ------------------------------
 
 
-def test_cascade_offers_a_yes_no_option_pair():
+def test_cascade_offers_a_cast_action_and_decline():
     lib = [land("Filler"), spell("Small", 2), land("TopLand")]
     eng, p1 = engine_with_library(lib)
     eng.rules._request_cascade(p1, max_mana_value=4)
-    ids = [o["id"] for o in eng.state.pending_choice["options"]]
-    assert ids == ["cast", "decline"]
+    actions = eng.resolution_play_actions(p1)
+    assert {action["type"] for action in actions} == {"cast_spell", "decline"}
+    assert all(action["type"] != "play_land" for action in actions)
     assert eng.state.pending_choice["prompt"]
 
 

@@ -134,3 +134,4 @@ from . import sword_of_the_squeak
 
 from . import swarmyard_massacre
 from . import sewer_nemesis
+from . import spinerock_knoll

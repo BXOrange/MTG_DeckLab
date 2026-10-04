@@ -215,8 +215,11 @@ def test_graveyard_ability_exiles_its_own_source():
 def test_rootha_returns_itself_to_hand_as_the_cost():
     eng, p1 = engine()
     rootha = battlefield(eng, "Rootha, Mercurial Artist")
+    spell = in_zone(eng, "Lightning Bolt", Zone.HAND)
+    p1.mana_pool.add("R", 1)
+    eng.cast_spell(p1, spell, targets=[eng.state.player_by_id("p2")])
     p1.mana_pool.add("C", 2)
-    eng.activate_ability(p1, rootha, 0)
+    eng.activate_ability(p1, rootha, 0, targets=[spell])
     assert rootha in p1.hand
 
 

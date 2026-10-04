@@ -1178,9 +1178,14 @@ class ReturnSelfFromGraveyardToBattlefieldEffect(GameEffect):
     def __init__(
         self, tapped: bool = False, source: Optional["GameObject"] = None, attacking: bool = False,
         extra_counters: Optional[dict[str, Any]] = None,
+        attach_to_previous: bool = False,
     ):
         super().__init__(source)
         self.tapped = tapped
+        self.attach_to_previous = bool(attach_to_previous)
+        self.target = None
+        self.attachment_incarnation = None
+        self.source_incarnation = None
         #: "…with 2 +1/+1 counters on it" — ``{"kind", "count"}``, placed right after it lands
         #: (`ReturnFromGraveyardEffect.extra_counters`' own shape).
         self.extra_counters = dict(extra_counters) if extra_counters else None
@@ -1190,8 +1195,17 @@ class ReturnSelfFromGraveyardToBattlefieldEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None or self.source.zone != Zone.GRAVEYARD:
             return
+        host = None
+        if self.attach_to_previous:
+            host = self.target
+            if (host is None or host.zone != Zone.BATTLEFIELD
+                    or host.hideaway_incarnation != self.attachment_incarnation
+                    or self.source.hideaway_incarnation != self.source_incarnation
+                    or not context.engine._attachment_legal(self.source, host, False)):
+                return  # RULE 303.4i / 603.7c: an invalid or new host prevents entry.
         destination = "battlefield_tapped" if self.tapped else "battlefield"
-        context.return_from_graveyard(self.source, destination)
+        controller_id = (context.resolving_controller_id or self.source.controller_id) if host is not None else None
+        context.return_from_graveyard(self.source, destination, attach_to=host, controller_id=controller_id)
         if self.extra_counters:
             context.add_counters(
                 self.source, int(self.extra_counters.get("count", 1) or 1),

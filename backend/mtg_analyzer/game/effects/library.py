@@ -607,10 +607,13 @@ class CascadeEffect(GameEffect):
         self.player = player
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = self.player or context.active_player
+        player = self.player or _controller_of(self.source, context)
         mana_value = self.mana_value
+        if mana_value is None:
+            mana_value = (context.trigger_event or {}).get("mana_value")
         if mana_value is None and self.source is not None:
-            mana_value = self.source.card.converted_mana_cost
+            from ...models.mana.mana_cost import ManaCost
+            mana_value = ManaCost.from_card(self.source.card).with_x(getattr(self.source, "x_paid", 0)).resolved_value
         context.cascade(player, mana_value or 0)
 
 

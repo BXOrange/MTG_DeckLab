@@ -47,6 +47,86 @@ def _zone_card(engine, name, type_line, owner, zone):
     return obj
 
 
+def test_industrial_advancement_catalogue_returns_fresh_complete_abilities():
+    from mtg_analyzer.game.card_registry import specs_for
+
+    card = CardDatabase(DB_PATH).get_card("Industrial Advancement")
+    first, second = specs_for(card), specs_for(card)
+    assert [spec.ability_kind for spec in first] == ["triggered"]
+    assert first[0] is not second[0]
+    assert first[0].effects[0].params is not second[0].effects[0].params
+    first[0].effects[0].params["then_that_many"]["effects"][0]["params"]["count"] = 99
+    assert second[0].effects[0].params["then_that_many"]["effects"][0]["params"]["count"] == "x"
+    engine = _game()
+    obj = _card(engine, card.name)
+    assert len(obj.triggered_abilities) == 1
+
+
+@pytest.mark.parametrize("sacrifice,pick", [(False, False), (True, False), (True, True)])
+@pytest.mark.parametrize("transformed", [False, True])
+def test_industrial_advancement_sacrifices_then_inspects_exact_mana_value(sacrifice, pick, transformed):
+    engine = _game()
+    p1, p2 = engine.state.players
+    advancement = _card(engine, "Industrial Advancement")
+    victim = battlefield_object(engine, "p1", "Four Mana Bear", "Creature", is_creature=True,
+                                power=2, toughness=2, converted_mana_cost=4,
+                                mana_cost_string="{3}{G}", layout="transform",
+                                back_name="Back Bear", back_type_line="Creature",
+                                back_power=3, back_toughness=3)
+    if transformed:
+        assert engine.rules.transform_permanent(victim)
+        assert victim.card.converted_mana_cost == 0
+    enemy = battlefield_object(engine, "p2", "Enemy", "Creature", is_creature=True, power=2, toughness=2)
+    for _ in range(10):
+        engine.advance_step()
+        if engine.state.current_step == "main1":
+            break
+    p1.library.clear()
+    deep = _zone_card(engine, "Deep Creature", "Creature", "p1", Zone.LIBRARY)
+    land = _zone_card(engine, "Top Land", "Land", "p1", Zone.LIBRARY)
+    spell = _zone_card(engine, "Top Spell", "Sorcery", "p1", Zone.LIBRARY)
+    first = _zone_card(engine, "Top Creature A", "Creature", "p1", Zone.LIBRARY)
+    second = _zone_card(engine, "Top Creature B", "Creature", "p1", Zone.LIBRARY)
+    before = list(p1.library)
+    _end_step(engine)
+    assert {o["instance_id"] for o in engine.state.pending_choice["options"] if "instance_id" in o} == {victim.instance_id}
+    engine.resolve_pending_choice(str(victim.instance_id) if sacrifice else "decline")
+    engine.resolve_until_stable()
+    if not sacrifice:
+        assert victim in engine.state.battlefield and p1.library == before
+        assert not engine.state.pending_choice
+        return
+    assert victim in p1.graveyard
+    assert {o["instance_id"] for o in engine.state.pending_choice["options"] if "instance_id" in o} == {first.instance_id, second.instance_id}
+    engine.resolve_pending_choice(str(first.instance_id) if pick else "decline")
+    engine.resolve_until_stable()
+    rest = {land, spell, second} | (set() if pick else {first})
+    assert set(p1.library[:len(rest)]) == rest  # unchosen inspected cards moved to bottom
+    assert p1.library[-1] is deep  # fifth card was never inspected
+    assert (first in engine.state.battlefield) == pick
+    assert enemy in engine.state.battlefield and advancement in engine.state.battlefield
+    assert not engine.state.pending_choice
+
+
+def test_industrial_advancement_zero_mana_token_and_opponents_end_step():
+    engine = _game()
+    advancement = _card(engine, "Industrial Advancement")
+    token = battlefield_object(engine, "p1", "Token", "Creature", is_creature=True, power=1, toughness=1)
+    token.is_token = True
+    _end_step(engine)
+    before = list(engine.state.players[0].library)
+    engine.resolve_pending_choice(str(token.instance_id))
+    engine.resolve_until_stable()
+    assert token not in engine.state.battlefield
+    assert engine.state.players[0].library == before and not engine.state.pending_choice
+    engine.advance_step()
+    engine.advance_step()
+    assert engine.state.active_player.id == "p2"
+    _end_step(engine)
+    assert not engine.state.pending_choice and not engine.state.stack
+    assert advancement in engine.state.battlefield
+
+
 @pytest.mark.parametrize("remove_source,decline", [(False, False), (True, False), (False, True)])
 def test_grime_gorger_chooses_from_defending_graveyard_and_counts_multitype_cards(remove_source, decline):
     engine = _game(3)

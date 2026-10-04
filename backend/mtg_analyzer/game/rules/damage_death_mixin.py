@@ -922,12 +922,19 @@ class DamageDeathMixin:
         obj.controller_id = new_controller.id
         # "…then return them to the battlefield **tapped** under their owner's control" (Gandalf, Shadow's Foe).
         self._put_searched_card(new_controller, obj, "battlefield_tapped" if tapped else "battlefield")
+    @staticmethod
+    def _last_known_mana_value(obj: GameObject) -> int:
+        from .misc_mixin import _that_many_value
+
+        return _that_many_value({"measure": "mana_value"}, [obj])
+
     def return_from_graveyard(
         self,
         obj: GameObject,
         destination: str = "battlefield",
         controller_id: Optional[str] = None,
         transformed: bool = False,
+        attach_to: Optional[GameObject] = None,
     ) -> None:
         """Return ``obj`` from a graveyard to ``destination`` (RULE 701.3,
         the Regrowth/Reanimate-shaped recursion family).
@@ -961,9 +968,12 @@ class DamageDeathMixin:
         counters must not bring them back via Reanimate/Regrowth) before it
         lands anywhere.
         """
+        # An explicit attachment is established before the entry event.
         owner = self.state.player_by_id(obj.owner_id)
         self._remove_from_current_zone(owner, obj)
         obj.reset_as_new_object()
+        if attach_to is not None:
+            obj.attached_to = attach_to.instance_id
         # RULE 712.8: the back face must be present before entry triggers
         # inspect characteristics and continuous effects are applied.
         if transformed and destination in ("battlefield", "battlefield_tapped"):
@@ -2186,6 +2196,7 @@ class DamageDeathMixin:
                     # dying object may already be gone from the
                     # battlefield by the time that check runs.
                     counters=dict(obj.counters),
+                    mana_value=self._last_known_mana_value(obj),
                     # A tribal "another nontoken Zombie or Mutant you
                     # control dies" subject filter (The Ghoul, Gunslinger,
                     # `effect_binder._build_group_ok`) needs both off the

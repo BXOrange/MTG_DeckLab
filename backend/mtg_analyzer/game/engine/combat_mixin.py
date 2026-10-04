@@ -169,6 +169,8 @@ class CombatMixin:
                 if (defender := self._defending_player(spec)) is not None
                 and defender.id not in goaded_by
                 and self._attack_conditions_ok(obj, active, defender)
+                and (not combat.has_defender(obj) or self._defender_attack_permission(
+                    obj, active, defender, spec.get("kind", "player")))
             ]
             if alternatives:
                 raise ValueError(
@@ -684,7 +686,7 @@ class CombatMixin:
             # RULE 508.1a is checked against the *assigned* defender, not just
             # "somebody" — "~ can't attack unless defending player controls an
             # Island" is only legal against the player who actually has one.
-            if not self._can_attack(player, obj, self._defending_player(assigned)):
+            if not self._can_attack(player, obj, self._defending_player(assigned), defender_kind=(assigned or {}).get("kind", "player")):
                 raise ValueError(f"{obj.name} cannot attack")
             resolved.append((obj, assigned, exert))
 
@@ -742,6 +744,7 @@ class CombatMixin:
                     # turn" (`GameState.players_attacked_this_turn`); a creature put onto the
                     # battlefield attacking fires ATTACKS too, without this.
                     declared=True,
+                    defender_kind=(defender or {}).get("kind", "player"),
                     # "…destroy target artifact or enchantment defending
                     # player controls." (Kogla, the Titan Ape, MEC-43) — the
                     # already-resolved defending player (`_defending_player`
@@ -852,7 +855,7 @@ class CombatMixin:
             return a.get("id") == b.get("id")
         return a.get("instance_id") == b.get("instance_id")
     def _can_attack(
-        self, player: Player, obj: GameObject, defending_player: Optional[Player] = None
+        self, player: Player, obj: GameObject, defending_player: Optional[Player] = None, *, defender_kind: str = "player"
     ) -> bool:
         """RULE 508.1a: whether ``obj`` may be declared as an attacker.
 
@@ -879,7 +882,7 @@ class CombatMixin:
             # stays: this lifts the attack restriction only.
             and (
                 not combat.has_defender(obj)
-                or bool(combat.combat_restrictions(obj, "attacks_as_though_no_defender"))
+                or self._defender_attack_permission(obj, player, defending_player, defender_kind)
             )
             # "~ can't attack." / "enchanted creature can't attack [or
             # block]." — a synthetic layer-6 flag, not a real keyword; see
@@ -918,6 +921,17 @@ class CombatMixin:
                 )
             )
         )
+    def _defender_attack_permission(self, obj, player, defending_player, defender_kind):
+        candidates = [defending_player] if defending_player is not None else [p for p in self.state.living_players() if p.id != player.id]
+        for entry in combat.combat_restrictions(obj, "attacks_as_though_no_defender"):
+            if entry.get("defender_kind") not in (None, defender_kind):
+                continue
+            if not entry.get("condition"):
+                return True
+            if any(self._combat_condition_met(obj, entry["condition"], opponent, obj) for opponent in candidates):
+                return True
+        return False
+
     def _attack_conditions_ok(
         self, obj: GameObject, player: Player, defending_player: Optional[Player]
     ) -> bool:
@@ -969,6 +983,7 @@ class CombatMixin:
             "opponent_is_monarch",
             "opponent_is_poisoned",
             "creature_died_this_turn",
+            "opponent_attacked_you_last_turn",
         }
     )
 
@@ -1003,6 +1018,8 @@ class CombatMixin:
             opponent = self.state.player_by_id(attacker.controller_id)  # a block restriction
         mine = self.state.permanents_controlled_by(controller.id)
 
+        if kind == "opponent_attacked_you_last_turn":
+            return opponent is not None and self.state.attacked_player_during_last_turn(opponent.id, controller.id)
         if kind == "defending_player_controls":
             if opponent is None:
                 return False

@@ -563,6 +563,8 @@ class TargetSpec:
     #: the `_GRAVEYARD_TARGET_KINDS` branch today (the only printed shape
     #: that needs it); ignored elsewhere.
     exclude_legendary: bool = False
+    # A player target restricted to the player whose turn is in progress.
+    active_player_only: bool = False
     #: Best-effort "is this target on the receiving end of something good or
     #: bad" hint — ``"harmful"``/``"beneficial"``/``None`` (no opinion).
     #: Not rules data and never read by the engine itself: stamped by
@@ -1226,7 +1228,7 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     # --- single permanent types -----------------------------------------
     "artifact": TargetFrame("artifact", apply_color=True, apply_max_mana_value=True),
     "enchantment": TargetFrame("enchantment", apply_color=True, apply_max_mana_value=True),
-    "land": TargetFrame("land", apply_color=True, apply_max_mana_value=True),
+    "land": TargetFrame("land", exclude_source=False, apply_color=True, apply_max_mana_value=True),
     "noncreature_artifact": TargetFrame(
         "noncreature_artifact", apply_color=True, apply_max_mana_value=True),
     "nonbasic_land": TargetFrame("nonbasic_land"),
@@ -1843,6 +1845,7 @@ def _legal_targets_for(
         return [
             {"player_id": p.id, "name": p.name}
             for p in state.living_players()
+            if not spec.active_player_only or p is state.active_player
         ]
     if kind == "player_dealt_combat_damage_by_source":
         # "target player who was dealt combat damage by ~ this turn" (Hope of
@@ -1989,6 +1992,7 @@ def _legal_targets_for(
             {"player_id": p.id, "name": p.name}
             for p in state.living_players()
             if p.id != controller_id
+            and (not spec.active_player_only or p is state.active_player)
         ]
     if kind in _GRAVEYARD_TARGET_KINDS:
         # RULE 115: a card of some type in some graveyard — the Regrowth/
@@ -2017,7 +2021,7 @@ def _legal_targets_for(
             for gy in graveyards
             for o in gy
             if type_filter(o)
-            and (not spec.subtype or spec.subtype in o.card.type_line.lower())
+            and (not spec.subtype or spec.subtype.lower() in o.card.type_line.lower())
             and not (spec.exclude_legendary and o.card.is_legendary)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
             and (spec.min_mana_value is None or o.card.converted_mana_cost >= spec.min_mana_value)

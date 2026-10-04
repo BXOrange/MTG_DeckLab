@@ -19,6 +19,7 @@ from . import nettlecyst  # noqa: F401
 from . import nev_the_practical_dean  # noqa: F401
 from . import new_way_forward  # noqa: F401
 from . import nexus_mentality  # noqa: F401
+from . import next_of_kin  # noqa: F401
 from . import nezahal_primal_tide  # noqa: F401
 from . import nils_discipline_enforcer  # noqa: F401
 from . import nine_lives  # noqa: F401

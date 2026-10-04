@@ -252,12 +252,6 @@ class RulesEngine(
         #: populated only while that choice is pending.
         self._pending_land_choice_obj: Optional[GameObject] = None
         self._pending_land_choice_amount: int = 0
-        #: Backing state for a `pay_cost_then` `pending_choice` — the
-        #: general "you may pay <cost>. If you do, <effect>." optional
-        #: payment (Mana Vault's upkeep untap, Wandering Archaic's per-
-        #: opponent {2}); see `_request_pay_cost_then`/
-        #: `_resume_pay_cost_then`.
-        self._pending_pay_cost_then: Optional[dict[str, Any]] = None
         #: MEC-108: the "put your choice of a flying counter or a lifelink counter"
         #: effect awaiting its kind pick — see `RulesEngine._request_counter_kind_choice`.
         self._pending_counter_kind: Optional[dict[str, Any]] = None

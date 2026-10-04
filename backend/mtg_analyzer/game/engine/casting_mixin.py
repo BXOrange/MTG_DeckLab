@@ -576,6 +576,7 @@ class CastingMixin:
                 return False
         in_castable_zone = (
             obj in player.hand
+            or self._has_resolution_play_permission(player, obj)
             or obj in player.command
             or (obj in player.exile and self._castable_from_exile(obj))
             or (obj.zone == Zone.EXILE and self._has_temp_play_permission(obj, player))
@@ -864,7 +865,8 @@ class CastingMixin:
                 return False
             if not self._can_pay_alt_cast_cost(player, obj, alt_cast_cost):
                 return False
-        elif obj.instance_id in self.state.free_cast_instance_ids:
+        elif (obj.instance_id in self.state.free_cast_instance_ids
+              and not self._has_resolution_play_permission(player, obj)):
             # RULE 702.88b Rebound's own free-cast window
             # (`RulesEngine.grant_free_cast_window_from_exile`) — already
             # armed for this specific instance, no mana check needed.
@@ -1190,7 +1192,11 @@ class CastingMixin:
                 # and ordinary cost adjustments (RULE 118.9).
                 return self._adjust_cost(ManaCost.parse("{0}"), player, obj)
         override = self.state.exile_cast_cost_override.get(obj.instance_id)
-        if self._can_cast_foretold(player, obj):
+        if self._has_resolution_play_permission(player, obj):
+            # RULE 118.9d: replace only the mana cost; additional costs
+            # and taxes below still apply to a cast during resolution.
+            cost = ManaCost()
+        elif self._can_cast_foretold(player, obj):
             cost = self._foretell_cost(obj) or self.rules.mana_cost_of(card)
         elif override is not None and getattr(obj, "zone", None) == Zone.EXILE:
             # RULE 701.65 (Airbend, PAR-29): "its owner may cast it for {2}
@@ -1947,6 +1953,22 @@ class CastingMixin:
             if target_groups is None:
                 target_groups = partition_targets(spell_target_specs(obj), targets)
             validate_that_player_groups(spell_target_specs(obj), target_groups, obj.name)
+            if self.state.resolution_play_choice is not None:
+                # The resolving effect uses the ordinary modal target specs
+                # after the selected mode has been applied, not a targetless
+                # cast_without_paying shortcut (RULE 601.2c).
+                specs = spell_target_specs(obj)
+                groups = target_groups or ([targets or []] if len(specs) == 1 else [])
+                if len(groups) != len(specs):
+                    raise ValueError("the spell's target requirements must be answered")
+                for spec, picks in zip(specs, groups):
+                    minimum = 0 if spec.optional else resolved_count(spec, self.state, player.id, obj)
+                    maximum = spec.count_max if spec.count_max is not None else resolved_count(spec, self.state, player.id, obj)
+                    options = legal_targets(self.state, player.id, spec, source=obj)
+                    legal_ids = {option.get("instance_id", option.get("player_id")) for option in options}
+                    picked_ids = [getattr(pick, "instance_id", getattr(pick, "id", None)) for pick in picks]
+                    if not minimum <= len(picks) <= maximum or len(set(picked_ids)) != len(picked_ids) or any(pid not in legal_ids for pid in picked_ids):
+                        raise ValueError("illegal targets for the spell")
             # RULE 903.8: record this command-zone cast so the next one is
             # taxed {2} more. Read *before* the cast moves the card off the
             # command zone.

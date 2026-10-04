@@ -1,6 +1,6 @@
 # Singleton queue
 
-**Current queue (2026-10-03, PARSER_VERSION 598): 591 distinct cards remain UNMODELED in 591 rows.** Every listed card resolves in the local 35,095-card cache and is neither MODELED nor AUTHORED. The Alora row contains two cards. This is the remaining singleton queue, not the full unmodeled card pool; singleton/cluster membership has not been re-audited in this refresh.
+**Current queue (2026-10-04, PARSER_VERSION 604): 584 distinct cards remain UNMODELED in 584 rows.** Every listed card resolves in the local 35,095-card cache and is neither MODELED nor AUTHORED. The Alora row contains two cards. This is the remaining singleton queue, not the full unmodeled card pool; singleton/cluster membership has not been re-audited in this refresh.
 
 Cards found, during backlog triage, to be genuinely one-of-a-kind: each
 was checked with `parser_probe.py blocked` against a regex over its own
@@ -70,7 +70,7 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 **Re-evaluated 2026-09-29 at PARSER_VERSION 501, again 2026-09-30 at PARSER_VERSION 552** (whole file, all batches): 59 newly covered rows deleted, 17 gap cells updated to the card's current unclaimed clauses, deck counts recomputed. The exact-template test (below) still finds no shared clause, but a phrase-level sweep did: **~55 rows shared an *axis* with 4–31 other uncovered cards** and were promoted out into `BACKLOG.md` (PAR-136 blink at next end step, PAR-137 impulse draw, PAR-138 "N or more counters are put on", PAR-139 batch, MEC-106 Gift, MEC-107 expend) — their cards are named in those tickets. Re-run that sweep, not only the exact-template check, at the next re-evaluation: the exact-template check cannot see a shared *phrase* under different surrounding text.
 
 
-### Abzan Armor - Tarkir: Dragonstorm Commander (18 cards)
+### Abzan Armor - Tarkir: Dragonstorm Commander (17 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
@@ -91,10 +91,9 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Walking Bulwark | `<cost>: until end of turn, target creature with defender gains haste, can attack as though it didn't have defender, and assigns combat damage equal to its toughness rather than its power. activate only as a sorcery.` |  |
 | Wall of Limbs | `<cost>, sacrifice <name>: target player loses x life, where x is <name>'s power.` |  |
 | Wall of Reverence | `at the beginning of your end step, you may gain life equal to the power of target creature you control.` | Also uncovered in: Hope to the last |
-| Weathered Sentinels | `<name> can attack players who attacked you during their last turn as though it didn't have defender.` | Also uncovered in: Riveteer Rampage - New Capenna Commander |
 
 
-### Animated Army - Bloomburrow Commander (12 cards)
+### Animated Army - Bloomburrow Commander (10 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
@@ -105,9 +104,7 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Evercoat Ursine | `whenever <name> deals combat damage to a player, if there are cards exiled with it, you may play <n> of them without paying its mana cost.` |  |
 | Goreclaw, Terror of Qal Sisma | Compound gap — `creature spells you cast with power <n> or greater cost <cost> less to cast.`; `whenever <name> attacks, each creature you control with power <n> or greater gets +<n>/+<n> and gains trample until end of turn.` | Also uncovered in: Commander Cube |
 | Grothama, All-Devouring | Compound gap — `other creatures have <name>`; `when <name> leaves the battlefield, each player draws cards equal to the amount of damage dealt to <name> this turn by sources they controlled.` |  |
-| Mosswort Bridge | `<cost>, <cost>: you may play the exiled card without paying its mana cost if creatures you control have total power <n> or greater.` | Also uncovered in: Jump Scare! - Duskmourn: House of Horror Commander, Riveteer Rampage - New Capenna Commander, Temur Roar - Tarkir: Dragonstorm Commander |
 | Prosperous Bandit | `whenever <name> deals combat damage to a player, create that many tapped treasure tokens.` |  |
-| Rain of Riches | `the first spell you cast each turn that mana from a treasure was spent to cast has cascade.` | Also uncovered in: Riveteer Rampage - New Capenna Commander |
 | Thickest in the Thicket | Compound gap — `at the beginning of your end step, draw <n> cards if you control the creature with the greatest power or tied for the greatest power.`; `when <name> enters, put x +<n>/+<n> counters on target creature, where x is that creature's power.` |  |
 | Wildsear, Scouring Maw | `enchantment spells you cast from your hand have cascade.` |  |
 
@@ -330,7 +327,7 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Wrenn and Seven | `<n>: put any number of land cards from your hand onto the battlefield tapped.` |  |
 
 
-### Endless Punishment - Duskmourn: House of Horror Commander (22 cards)
+### Endless Punishment - Duskmourn: House of Horror Commander (21 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
@@ -349,7 +346,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Rakdos, Lord of Riots | Compound gap — `creature spells you cast cost <cost> less to cast for each <n> life your opponents have lost this turn.`; `you can't cast <name> unless an opponent lost life this turn.` |  |
 | Sadistic Shell Game | `starting with the next opponent in turn order, each player chooses a creature you don't control. destroy the chosen creatures.` |  |
 | Spiked Corridor // Torture Pit | `when you unlock this door, create <n> <n>/<n> red devil creature tokens with <name>` |  |
-| Spinerock Knoll | `<cost>, <cost>: you may play the exiled card without paying its mana cost if an opponent was dealt <n> or more damage this turn.` | Also uncovered in: Riveteer Rampage - New Capenna Commander |
 | Star Athlete | `whenever <name> attacks, choose up to <n> target nonland permanent. its controller may sacrifice it. if they don't, <name> deals <n> damage to that player.` |  |
 | Suspended Sentence | `destroy target creature an opponent controls. that player loses <n> life. exile <name> with <n> time counters on it.` |  |
 | The Lord of Pain | `whenever a player casts their first spell each turn, choose another target player. <name> deals damage equal to that spell's mana value to the chosen player.` |  |
@@ -623,15 +619,12 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | The Warring Triad | `<cost>, mill a card: target player adds <n> mana of any color.` |  |
 
 
-### Riveteer Rampage - New Capenna Commander (8 cards)
+### Riveteer Rampage - New Capenna Commander (5 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
 | Henzie "Toolbox" Torre | `each creature spell you cast with mana value <n> or greater has blitz. the blitz cost is equal to its mana cost.` |  |
-| Industrial Advancement | `at the beginning of your end step, you may sacrifice a creature. if you do, look at the top x cards of your library, where x is that creature's mana value. you may put a creature card from among them onto the battlefield. put the rest on the bottom of your library in a random order.` |  |
 | Mezzio Mugger | `whenever <name> attacks, exile the top card of each player's library. you may play those cards this turn, and you may spend mana as though it were mana of any color to cast those spells.` |  |
-| Next of Kin | `when enchanted creature dies, you may put a creature card you own with lesser mana value from your hand or from the command zone onto the battlefield. if you do, return this card to the battlefield attached to that creature at the beginning of the next end step.` |  |
-| Protection Racket | `at the beginning of your upkeep, repeat the following process for each opponent in turn order. reveal the top card of your library. that player may pay life equal to that card's mana value. if they do, exile that card. otherwise, put it into your hand.` |  |
 | The Beamtown Bullies | `<cost>: target opponent whose turn it is puts target nonlegendary creature card from your graveyard onto the battlefield under their control. it gains haste. goad it. at the beginning of the next end step, exile it.` |  |
 | Turf War | `whenever a creature deals combat damage to a player, if that player controls <n> or more lands with contested counters on them, that creature's controller gains control of <n> of those lands of their choice and untaps it.` |  |
 | Wave of Rats | `when <name> dies, if it dealt combat damage to a player this turn, return it to the battlefield under its owner's control.` |  |
@@ -733,7 +726,7 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Whirlwing Stormbrood // Dynamic Soar | `you may cast sorcery spells and dragon spells as though they had flash.` |  |
 
 
-### Turtle Power! - Teenage Mutant Ninja Turtles Commander Deck (22 cards)
+### Turtle Power! - Teenage Mutant Ninja Turtles Commander Deck (31 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |

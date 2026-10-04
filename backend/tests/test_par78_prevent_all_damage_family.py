@@ -365,7 +365,8 @@ def test_shieldmage_advocate_returns_and_shields_off_one_activation():
     gy_card = GameObject(_card("GYCard", type_line="Instant"), owner_id="p2", zone=Zone.GRAVEYARD)
     p2.graveyard.append(gy_card)
 
-    eng.activate_ability(p1, advocate, ability_index=0, targets=[gy_card])
+    creature = _bf(state, _card("Protected Creature", is_creature=True))
+    eng.activate_ability(p1, advocate, ability_index=0, targets=[gy_card, creature])
     eng.resolve_until_stable()
     assert gy_card in p2.hand and gy_card not in p2.graveyard
 

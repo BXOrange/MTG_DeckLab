@@ -1604,6 +1604,32 @@ class ActivationMixin:
             # see every chosen target, even when the groups are what the
             # effects actually resolve against.
             targets = [t for group in target_groups for t in group]
+        groups = target_groups or ([targets or []] if len(resolved_specs) == 1 else [])
+        if len(groups) != len(resolved_specs):
+            raise ValueError("the ability's target requirements must be answered")
+        # RULE 602.2b/601.2c: choose legal targets before paying costs.
+        # Announced X already constrains those targets; a rejected activation
+        # must not overwrite the source's previously recorded X.
+        previous_x = source.x_paid
+        source.x_paid = x
+        try:
+            for spec, picks in zip(resolved_specs, groups):
+                if spec.per_player:
+                    continue  # per_player_target_groups validated every scoped round.
+                count = resolved_count(spec, self.state, player.id, source)
+                minimum = 0 if spec.optional else count
+                maximum = spec.count_max if spec.count_max is not None else count
+                options = legal_targets(self.state, player.id, spec, source=source)
+                legal_ids = {o.get("instance_id", o.get("player_id", o.get("stack_id"))) for o in options}
+                picked_ids = [p.get("instance_id", p.get("player_id", p.get("stack_id")))
+                              if isinstance(p, dict) else
+                              getattr(p, "instance_id", getattr(p, "id", getattr(p, "stack_id", None)))
+                              for p in picks]
+                if (not minimum <= len(picks) <= maximum or len(set(picked_ids)) != len(picked_ids)
+                        or any(pid not in legal_ids for pid in picked_ids)):
+                    raise ValueError("illegal targets for the ability")
+        finally:
+            source.x_paid = previous_x
         self._auto_tap_for_activation_if_needed(
             player, source, ability, x, tap_choices=tap_choices,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
@@ -1616,6 +1642,15 @@ class ActivationMixin:
         ):
             raise ValueError(f"cannot activate {source.name}'s ability")
 
+        hideaway_event = None
+        if getattr(source, "hideaway_exile_ids", None):
+            linked = [self.state.find_object(iid) for iid in source.hideaway_exile_ids]
+            hideaway_event = GameEvent(
+                EventType.ACTIVATED_ABILITY, controller_id=player.id, source_id=source.instance_id,
+                hideaway_exile_ids=sorted(source.hideaway_exile_ids),
+                hideaway_card_incarnations={str(obj.instance_id): obj.hideaway_incarnation
+                                           for obj in linked if obj is not None},
+            )
         # RULE 602.2b/601.2h: the total cost is paid in one step, so what it sacrifices or
         # discards is one event (RULE 603.2c).
         with self.state.simultaneous():
@@ -1660,6 +1695,9 @@ class ActivationMixin:
             x=x,
             source=source,
             ability_key=ability.description or None,
+            # RULE 607.2a / 400.7: preserve this incarnation's links on
+            # the ability, independently of a later source zone change.
+            trigger_event=hideaway_event,
         )
         self.state.stack.append(item)
         self.rules._note_crime(item)

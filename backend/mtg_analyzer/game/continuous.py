@@ -3307,7 +3307,7 @@ def _apply_post_layer_combat_restrictions_and_goad(state: "GameState", abilities
         # be read as a blocker filter if they leaked through.
         entry = {
             k: ability.params[k]
-            for k in ("kind", "filter", "count", "condition")
+            for k in ("kind", "filter", "count", "condition", "defender_kind")
             if ability.params.get(k) is not None
         }
         for obj in affected_objects(state, ability):
@@ -3537,6 +3537,14 @@ def recompute(state: "GameState") -> None:
             _apply_layer_6_ability(state, nested_ability_statics)
     _apply_layer_7_pt(state, abilities, animation_pt)
     _apply_post_layer_combat_restrictions_and_goad(state, abilities)
+    # RULE 702.75a / 406.3: controlling the Hideaway source permits looking;
+    # that permission persists after a later control change or source removal.
+    for player in state.players:
+        for card in player.exile:
+            source = state.find_object(getattr(card, "hideaway_source_id", None))
+            if (source is not None and source in state.permanents()
+                    and card.instance_id in source.hideaway_exile_ids):
+                card.face_down_exile_viewers.add(source.controller_id)
 
 
 def _cost_static_amount(ability: StaticAbility, state: "GameState", controller_id: Optional[str]) -> int:
@@ -6090,3 +6098,37 @@ def trigger_doubler_bonus(
     `TriggerDoublerEffect.cause` is set (see `_composed_doubler_applies`).
     """
     return sum(1 for _, effect in _active_doublers(state, obj, event, context) if not effect.tap_cost)
+
+
+def granted_cast_keyword_instances(state, obj, event, keyword):
+    """Spell keyword grants are evaluated once the cast's mana is paid."""
+    from . import static_conditions
+    from ..models.game.events import EventType
+
+    instances = 0
+    for ability in _battlefield_static_abilities(state):
+        src = ability.source
+        if (ability.layer != "ability"
+                or ability.affects not in ("spells_you_cast", "instant_sorcery_spells_you_cast")
+                or keyword not in ability.params.get("keywords", [])
+                or getattr(src, "controller_id", None) != obj.controller_id
+                or getattr(src, "loses_all_abilities", False)):
+            continue
+        def matches(cast):
+            if cast.type != EventType.SPELL_CAST or cast.get("player_id") != obj.controller_id:
+                return False
+            if (ability.affects == "instant_sorcery_spells_you_cast"
+                    and not {"instant", "sorcery"}.intersection(cast.get("object_types", []))):
+                return False
+            kind = ability.params.get("mana_source_kind")
+            return kind is None or cast.get("mana_spent_by_source", {}).get(kind, 0) > 0
+        if not matches(event):
+            continue
+        if (ability.params.get("first_matching_each_turn")
+                and any(e is not event and matches(e) for e in state.events_this_turn())):
+            continue
+        if not static_conditions.condition_holds(
+                ability.params.get("active_if"), state, src, obj.controller_id):
+            continue
+        instances += 1
+    return instances

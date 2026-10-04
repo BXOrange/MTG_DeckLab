@@ -255,7 +255,10 @@ class TestBacklogSizes:
         # PLAY-ALL adds the pre-entry player choice and Victimize's
         # sacrifice/target linkage; both reuse existing answer protocols.
         # Multi-player discard-or-sacrifice collects choices before moving cards.
-        assert n <= 91, f"continuation types grew to {n}"
+        # Hideaway adds one reviewed adapter to the shared immediate-play
+        # frame: it preserves linked identities and ordinary cast choices
+        # under RULE 607.3/608.2g (tests/test_hideaway_lands.py).
+        assert n <= 92, f"continuation types grew to {n}"
 
     def test_fusion_backlog_does_not_grow(self) -> None:
         # ENG-37 deletes these outright.

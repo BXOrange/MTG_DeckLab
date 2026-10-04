@@ -176,6 +176,52 @@ def _creature_type_options(state: GameState, controller_id: Optional[str]) -> li
 
 
 class SearchMixin:
+    def _request_resolution_play(self, player: Player, cards: list[GameObject], *, repeat: bool = False,
+                                 only_spells: bool = False, max_mana_value: Optional[int] = None,
+                                 bottom_remaining: Optional[list[int]] = None) -> None:
+        """RULE 608.2g: offer one exile card now, without a turn-long grant."""
+        if self.state.pending_choice or self.state.resolution_play_choice:
+            raise ValueError("another resolution choice is already pending")
+        cards = [obj for obj in cards if obj.zone == Zone.EXILE]
+        if not cards:
+            return
+        choice = {
+            "kind": "play_during_resolution", "player_id": player.id,
+            "repeat": repeat, "only_spells": only_spells, "max_mana_value": max_mana_value,
+            "bottom_remaining": list(bottom_remaining or []),
+            "instance_ids": [obj.instance_id for obj in cards],
+            "options": [{"id": "decline", "label": "Decline"}],
+            "prior_free": [obj.instance_id for obj in cards
+                           if obj.instance_id in self.state.free_cast_instance_ids],
+            "prior_timing": [obj.instance_id for obj in cards
+                             if obj.instance_id in self.state.free_cast_ignore_timing_instance_ids],
+        }
+        self.state.resolution_play_choice = choice
+        self.state.resolution_play_waiting = True
+        self.state.free_cast_instance_ids.update(choice["instance_ids"])
+        self.state.free_cast_ignore_timing_instance_ids.update(choice["instance_ids"])
+        self.open_choice(choice)
+
+    def _finish_resolution_play_permission(self, played_id: Optional[int] = None) -> None:
+        choice = self.state.resolution_play_choice
+        if choice is None:
+            return
+        ids = set(choice["instance_ids"])
+        self.state.free_cast_instance_ids.difference_update(ids)
+        self.state.free_cast_instance_ids.update(iid for iid in choice["prior_free"] if iid != played_id)
+        self.state.free_cast_ignore_timing_instance_ids.difference_update(ids)
+        self.state.free_cast_ignore_timing_instance_ids.update(iid for iid in choice["prior_timing"] if iid != played_id)
+        self.state.resolution_play_choice = None
+        if choice.get("bottom_remaining"):
+            self._bottom_remaining(self.state.player_by_id(choice["player_id"]), choice["bottom_remaining"])
+
+    @continuations.choice("play_during_resolution", answer=continuations.ANSWER_STR, rule="608.2g")
+    def _resume_play_during_resolution(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        if answer not in (None, "decline"):
+            self.state.pending_choice = choice
+            raise ValueError("play the card through the ordinary casting or land action")
+        self._finish_resolution_play_permission()
+
     """Library search/dig/cascade/discover, scry/surveil, and every other 'look at N cards' shape."""
 
     #: Scry (RULE 701.18) and surveil (RULE 701.31) are one keyword action
@@ -2225,31 +2271,20 @@ class SearchMixin:
         free; the rest go to the bottom in a random order.
 
         Exiles eagerly, then — if a hit was found — opens a "may cast" choice
-        (`_resume_cascade`). With no hit it just bottoms what it
-        exiled. The bottoming is deferred to the choice so a card that is cast
-        leaves exile first (RULE 702.85e ordering).
+        through the ordinary immediate-play path. With no hit it bottoms
+        what it exiled. The bottoming is deferred to the choice so a card that is cast
+        leaves exile first (RULE 702.85a ordering).
         """
         criteria = {"max_mana_value": max_mana_value - 1}
         matched, exiled = self._exile_top_until(player, criteria, exclude_lands=True)
         if matched is None:
             self._bottom_exiled(player, exiled)
             return
-        self.open_choice({
-            "kind": "cascade",
-            "player_id": player.id,
-            "optional": True,  # "you may cast it"
-            "description": f"Cascade: {matched.name}",
-            "prompt": f"Cascade — {matched.name} kostenlos wirken?",
-            "matched_id": matched.instance_id,
-            "eligible": [{"instance_id": matched.instance_id, "name": matched.name}],
-            # A yes/no decision (RULE 702.85d "you may cast it").
-            "options": [
-                {"id": "cast", "label": f"„{matched.name}“ kostenlos wirken",
-                 "instance_id": matched.instance_id},
-                {"id": "decline", "label": "Nicht wirken (unter die Bibliothek)"},
-            ],
-            "exiled": [o.instance_id for o in exiled],
-        })
+        self._request_resolution_play(
+            player, [matched], only_spells=True, max_mana_value=max_mana_value,
+            bottom_remaining=[obj.instance_id for obj in exiled],
+        )
+        self.state.pending_choice["prompt"] = f"Cascade — {matched.name} kostenlos wirken?"
     @continuations.choice(
         "cascade",
         answer=continuations.ANSWER_FLAG,
@@ -3162,3 +3197,8 @@ class SearchMixin:
             else_specs=else_specs,
             distinct_card_types=distinct_card_types,
         )
+        if action == "exile_face_down_linked" and self.state.pending_choice:
+            event = self.context.trigger_event or {}
+            self.state.pending_choice["hideaway_incarnation"] = event.get(
+                "hideaway_incarnation", getattr(source, "hideaway_incarnation", None),
+            )

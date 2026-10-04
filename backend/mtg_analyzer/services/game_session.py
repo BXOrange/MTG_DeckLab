@@ -290,7 +290,9 @@ _FACE_DOWN_IN_EXILE_HIDDEN_FIELDS: dict[str, Any] = {
 
 def _redact_face_down_exile(state_dict: dict[str, Any], perspective: Optional[str]) -> None:
     """RULE 701.20a: scrub every `GameObject.face_down_in_exile` card's
-    identity out of ``state_dict``, for every player except its own owner.
+    identity out of ``state_dict`` except for permitted viewers. Hideaway
+    records those viewers under RULE 702.75a / 406.3; existing other face-down
+    exile paths retain their owner-based visibility.
 
     The frontend already renders a face-down-in-exile card as a card back
     (`gameBoardView.js`'s `resolveImageUrl`, checked ahead of everything
@@ -301,11 +303,12 @@ def _redact_face_down_exile(state_dict: dict[str, Any], perspective: Optional[st
     (RULE 708.5-adjacent). A multiplayer opponent is not that owner.
     """
     for player in state_dict.get("players", []):
-        if player.get("id") == perspective:
-            continue
         for obj in player.get("exile", []):
             if obj.get("face_down_in_exile"):
-                obj.update(_FACE_DOWN_IN_EXILE_HIDDEN_FIELDS)
+                allowed = (set(obj.get("face_down_exile_viewers") or [])
+                           if obj.get("hideaway_source_id") is not None else {player.get("id")})
+                if perspective is None or perspective not in allowed:
+                    obj.update(_FACE_DOWN_IN_EXILE_HIDDEN_FIELDS)
 
 
 def _redact_hidden_zones(
@@ -847,7 +850,19 @@ class GameSession:
 
         # While the engine is blocked on a choice (e.g. a library search),
         # only the choice may be answered.
-        if state.pending_choice and kind not in ("choose", "decline"):
+        resolution_play = bool(state.pending_choice and state.pending_choice.get("kind") == "play_during_resolution"
+                               and kind in ("cast_spell", "play_land"))
+        if state.pending_choice and state.pending_choice.get("kind") == "play_during_resolution":
+            owner_id = state.pending_choice["player_id"]
+            if actor is not None and actor.id != state.decider_for(owner_id):
+                raise GameActionError("this player is not answering the resolution choice")
+            if actor is None:
+                active = state.player_by_id(owner_id)
+        if resolution_play:
+            owner_id = state.pending_choice["player_id"]
+            if active.id != owner_id or (actor is not None and actor.id != state.decider_for(owner_id)):
+                raise GameActionError("this player is not answering the resolution choice")
+        if state.pending_choice and kind not in ("choose", "decline") and not resolution_play:
             raise GameActionError("a choice is pending — answer it first")
 
         # MEC-51 (RULE 720): a choice addressed to a player whose turn/combat
@@ -878,6 +893,7 @@ class GameSession:
         # choice (nobody holds priority while the game is blocked on one).
         if (
             self.interactive_priority
+            and not resolution_play
             and kind not in ("declare_blockers", "choose", "decline")
             and state.priority_player is not None
             and active is not state.priority_player
@@ -935,7 +951,10 @@ class GameSession:
 
     def _dispatch_play_land(self, action: dict[str, Any], active: Player) -> None:
         face = action.get("face", "front")
-        self.engine.play_land(active, self._object(action), face=face)
+        if self.engine.state.resolution_play_choice is not None:
+            self.engine.play_resolution_card(active, self._object(action), face=face)
+        else:
+            self.engine.play_land(active, self._object(action), face=face)
 
     def _dispatch_set_skip_untap(self, action: dict[str, Any], active: Player) -> None:
         # RULE 502.1 "you may choose not to untap ~ during your untap
@@ -1028,7 +1047,9 @@ class GameSession:
         # `GameEngine._cast_action` stamps on that specific offer (a
         # *different* action entry from the plain mana-cost one, not a
         # toggle on it — see `_offer_cast`).
-        self.engine.cast_spell(
+        cast = (self.engine.play_resolution_card if self.engine.state.resolution_play_choice is not None
+                else self.engine.cast_spell)
+        cast(
             active, self._object(action), targets, x, face=face, mode=mode,
             kicked=kicked, kicker_x=kicker_x, target_groups=target_groups,
             sacrifice_choice=sacrifice_choice,
@@ -1951,6 +1972,10 @@ class GameSession:
             return actions
         pending = state.pending_choice
         if pending:
+            if pending.get("kind") == "play_during_resolution":
+                if perspective is None:
+                    seat = state.player_by_id(pending["player_id"])
+                return self.engine.resolution_play_actions(seat)
             # A choice is pending: the only legal actions are answering it —
             # one per option (a decline option maps to the `decline` action) —
             # and only for the player it's addressed to (`pending["player_id"]`).
@@ -2095,13 +2120,22 @@ class GameSession:
                 also_visible_hand_ids=reveal_hands,
                 choice_decider_id=choice_decider,
             )
+        actions = self.legal_actions(perspective)
+        pc = state_dict.get("pending_choice")
+        if pc and pc.get("kind") == "play_during_resolution":
+            state_dict["pending_choice"] = {**pc, "options": [
+                {"id": "decline" if action["type"] == "decline" else f"play-{index}",
+                 "label": action.get("mode_description") or action.get("name") or "Decline",
+                 "instance_id": action.get("instance_id"), "action": action}
+                for index, action in enumerate(actions)
+            ]}
         return {
             "session_id": self.id,
             "mode": self.mode,
             "perspective": perspective,
             "acting_as": acting_as,
             "state": state_dict,
-            "legal_actions": self.legal_actions(perspective),
+            "legal_actions": actions,
             "pending_choice": state_dict.get("pending_choice"),
             # PLR-6: the caller's own in-progress, not-yet-submitted UI
             # selection (`set_ui_draft`) — never anyone else's, though

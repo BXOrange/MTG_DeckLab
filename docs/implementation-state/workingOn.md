@@ -47,18 +47,18 @@ Block template (copy below the line, fill in):
 
 ## PLAY-ALL · Make every saved deck playable
 
-- **Started / last update:** 2026-10-01 / 2026-10-03
+- **Started / last update:** 2026-10-01 / 2026-10-04
 - **Goal:** Bring every non-cube saved deck to N/N in `scripts/deck_coverage.py`; Commander Cube last and optional.
 - **Done:** Step 0 (War Room and alternate-name resolution) and Step 1 handler batches completed. General parser results are documented in `Done_Backend.md`. Completed deck coverage: Goblins 39/39, yshtola 97/97, Hydranten 81/81, Raggadragga 84/84, Kodama 75/75, Wick Snail Boom 84/84, Counter Intelligence 94/94, Oops! All Night's Whispers 99/99, World Shaper 87/87; SpongeBob's last recorded missing card (Gogo) is authored. Individual card implementations and their limitations live in `game/card_catalogue/` and `tests/game/catalogue/cards/test_*_deck.py`, not in the Done catalogue.
-- **In progress:** Riveteer Rampage 76/88. No half-built change recorded.
-- **Next step:** Complete the 12 remaining cards in Riveteer Rampage. Check MEC-109 (Blitz) for the shared Henzie / Mezzio Mugger / Wave of Rats gap; before authoring other cards, check existing parser claims and engine primitives and size shared clause families with `parser_probe.py blocked`.
+- **In progress:** Riveteer Rampage 83/88. Rain of Riches is authored with real Treasure-payment, spell-owned cascade, X, turn-reset and face-legality tests in `tests/test_rain_of_riches.py`. The full backend suite passes. Shared cascade now uses the immediate-play path for normal targets/modes/costs and deferred bottoming of uncast exile cards.
+- **Next step:** Complete The Beamtown Bullies next, then Turf War and MEC-109 (Blitz) for Henzie / Mezzio Mugger / Wave of Rats. Use the explicitly authorized Claude-Code skills and keep the recorded correctness/parser/integration residue in scope.
 - **Decisions:** Prioritize shared parser axes, then decks by marginal cost. Reuse existing primitives before adding new ones. Hand-author isolated gaps; Alchemy is a permanent non-goal. Coverage N/N means MODELED or AUTHORED, not proof that every printed ability is rules-exact.
-- **Baselines:** PARSER_VERSION 598; full-cache coverage 20,365/35,046 (58.1%), measured 2026-10-03. Latest full-cache pytest: 11,223 passed. Saved decklists are available on this PC; remaining counts below have been remeasured.
-- **Known failures:** Intermittent random-planar-die failure in `tests/test_casual_variants.py::test_a_phenomenon_planeswalks_the_table_straight_on`; previously passed alone and in repeated full-file runs.
+- **Baselines:** PARSER_VERSION 604; full-cache coverage 20,372/35,046 (58.1%), measured 2026-10-04. Latest full-cache pytest: 11,331 passed. Saved decklists are available on this PC; remaining counts below have been remeasured.
+- **Known failures:** None in the latest full backend suite. The phenomenon regression now uses inert departure/destination planes to isolate the encounter trigger from random catalogue effects. Frontend lint remains unverified because Node/npm is unavailable; the changed choice renderer passed V8 syntax/render checks.
 
 ### Residue · cards and remaining deck order
 
-- **Then, remaining missing-card counts:** Riveteer Rampage 12; Miracle Worker 20; Death Toll 21; Jump Scare! 21; Shorikai Vehicles 22; Hope to the last 25; Endless Punishment 25; Turtle Power! 28; then Commander Cube.
+- **Then, remaining missing-card counts:** Riveteer Rampage 5; Miracle Worker 20; Jump Scare! 20; Death Toll 21; Shorikai Vehicles 22; Endless Punishment 23; Hope to the last 25; Turtle Power! 28; then Commander Cube.
 - **Other decks from the original plan, not subsequently accounted for:** Jeskai Striker; Family Matters; Animated Army; Abzan Armor; Eternal Might; Sultai Arisen; Mardu Surge; Scions & Spellcraft; Peace Offering; Living Energy; Temur Roar; Revival Trance; Counter Blitz; Limit Break. Also include Wretched Ranks; Tramplesaurus Rex; Reign of Dragons; Keen Engineering; Calling All Angels; Multiverse Reforged. Remeasure with `scripts/deck_coverage.py --uncovered` before ordering further batches.
 
 ### Residue · known correctness gaps

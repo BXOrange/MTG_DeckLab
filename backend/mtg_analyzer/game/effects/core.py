@@ -630,6 +630,10 @@ class GameContext:
     def sacrifice(self, player: "Player", what: str = "permanent", count: int = 1) -> None:
         self.engine.sacrifice(player, what, count)
 
+    def offer_play_during_resolution(self, player: "Player", cards: list["GameObject"], *, repeat: bool = False) -> None:
+        """RULE 608.2g: ask for an immediate play through the ordinary actions."""
+        self.engine._request_resolution_play(player, cards, repeat=repeat)
+
     def _request_search(
         self,
         player: "Player",
@@ -830,9 +834,10 @@ class GameContext:
         destination: str = "battlefield",
         controller_id: Optional[str] = None,
         transformed: bool = False,
+        attach_to: Optional["GameObject"] = None,
     ) -> None:
         self.engine.return_from_graveyard(
-            target, destination, controller_id=controller_id, transformed=transformed
+            target, destination, controller_id=controller_id, transformed=transformed, attach_to=attach_to
         )
 
     def blink(self, target: "GameObject", controller: Optional["Player"] = None, tapped: bool = False) -> None:
@@ -926,11 +931,13 @@ def _group_objects(
 def _controller_of(source: Optional["GameObject"], context: GameContext) -> Optional["Player"]:
     """The `Player` controlling ``source`` (RULE 109.4), else the active player.
 
-    An untargeted effect ("scry 2", "you draw a card") affects its own
-    controller; if the effect has no source yet (a fixture/direct call), fall
+    An untargeted effect ("scry 2", "you draw a card") affects the resolving
+    ability's controller even after the source changes zones; if the effect has no source yet (a fixture/direct call), fall
     back to the active player.
     """
-    controller_id = getattr(context, "acting_player_id", None) or getattr(source, "controller_id", None)
+    controller_id = (getattr(context, "acting_player_id", None)
+                     or getattr(context, "resolving_controller_id", None)
+                     or getattr(source, "controller_id", None))
     if controller_id is not None:
         try:
             return context.state.player_by_id(controller_id)

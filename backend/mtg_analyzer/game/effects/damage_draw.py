@@ -1094,10 +1094,8 @@ class RevealTopEffect(GameEffect):
     Thrasios). ENG-37 B5: the referent half of retiring the `reveal_top_*`
     fusion family.
 
-    Reveal has no mechanical weight of its own in this engine (no face-up/
-    face-down public-knowledge tracking for a solo game), so this only
-    records the card — the *acting* on it (move to hand/battlefield, lose
-    life, …) is a separate body clause. An empty library reveals nothing
+    Records the card and emits a public REVEAL event. Acting on it
+    (move to hand/battlefield, lose life, …) is a separate body clause. An empty library reveals nothing
     and leaves `revealed_card` as it was reset to (``None``).
     """
 
@@ -1106,10 +1104,15 @@ class RevealTopEffect(GameEffect):
         self.whose = str(whose or "you")
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        context.revealed_card = None
         player = _reveal_whose_player(self.whose, self.source, context)
         if player is None or not player.library:
             return
         context.revealed_card = player.library[-1]
+        context.state.fire_event(GameEvent(
+            EventType.REVEAL, player_id=player.id, object=context.revealed_card.name,
+            instance_id=context.revealed_card.instance_id, from_zone=Zone.LIBRARY.value,
+        ))
 
 
 class PutRevealedCardEffect(GameEffect):
@@ -1137,6 +1140,9 @@ class PutRevealedCardEffect(GameEffect):
             return
         player = _reveal_whose_player(self.whose, self.source, context)
         if player is None or not player.library or player.library[-1] is not card:
+            return
+        if self.destination == "exile":
+            context.exile(card)
             return
         player.library.pop()
         if self.destination in ("battlefield", "battlefield_tapped"):

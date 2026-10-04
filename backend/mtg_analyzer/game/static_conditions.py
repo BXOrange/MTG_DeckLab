@@ -319,6 +319,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # "if an opponent lost N or more life this turn" — any one opponent,
         # the same "an opponent" reading as ``opponent_count`` above.
         "opponent_lost_life_this_turn",  # + ``min``/``max``
+        "opponent_was_dealt_damage_this_turn",  # + ``min``/``max``; one opponent
         "life_lost_this_turn",  # + ``scope`` (you/any), ``min``/``max``
         "life_lost_last_turn",  # + ``scope`` (you/opponents), ``min``/``max``
         "source_dealt_damage_to_opponent_this_turn",
@@ -1172,6 +1173,15 @@ def condition_holds(
     if kind == "creature_left_battlefield_this_turn":  # MEC-84
         left = getattr(state, "creatures_left_battlefield_this_turn", None) or {}
         return _within(int(left.get(controller_id, 0) or 0), condition, default_min=1)
+    if kind == "opponent_was_dealt_damage_this_turn":
+        # RULE 120.3a–b: damage is independent of life loss (including
+        # infect), and "an opponent" tests each opponent separately.
+        dealt = state.damage_dealt_to_players_this_turn
+        return any(
+            _within(int(dealt.get(p.id, 0) or 0), condition, default_min=1)
+            for p in state.living_players()
+            if p.id != controller_id
+        )
     if kind == "opponent_lost_life_this_turn":
         # True when *any one* opponent is inside the bounds — the same "an
         # opponent" reading as ``opponent_count``/``opponent_life_at_most``.

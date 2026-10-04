@@ -7,6 +7,7 @@ from ._runtime import install, register
 install(globals())
 
 EffectRegistry.register("living_death", lambda p: LivingDeathEffect())
+EffectRegistry.register("play_hideaway_card", lambda p: PlayHideawayCardEffect(p["condition"]))
 EffectRegistry.register("sacrifice_to_return_targets", lambda p: SacrificeToReturnTargetsEffect())
 EffectRegistry.register("return_remembered_graveyard_cards", lambda p: ReturnRememberedGraveyardCardsEffect(
     instance_ids=p.get("instance_ids", []), tapped=bool(p.get("tapped", False)),
@@ -1470,6 +1471,8 @@ EffectRegistry.register(
         each_player_pick=bool(p.get("each_player_pick", False)),
         destination_if=p.get("destination_if"),
         previous_pool=bool(p.get("previous_pool", False)),
+        controller_target_kind=p.get("controller_target_kind"),
+        controller_target_active=bool(p.get("controller_target_active", False)),
     ),
 )
 EffectRegistry.register(
@@ -2136,6 +2139,8 @@ EffectRegistry.register(
         then_that_many=p.get("then_that_many"),
         distinct_card_types=bool(p.get("distinct_card_types", False)),
         pool_zone=p.get("pool_zone", "battlefield"),
+        pool_zones=p.get("pool_zones"),
+        mana_value_less_than_trigger=bool(p.get("mana_value_less_than_trigger", False)),
         pool_player_selector=p.get("pool_player_selector", "chooser"),
         action=str(p.get("action", "sacrifice")),
         what=str(p.get("what", "permanent")),
@@ -3079,6 +3084,7 @@ EffectRegistry.register(
     lambda p: ReturnSelfFromGraveyardToBattlefieldEffect(
         tapped=bool(p.get("tapped", False)), attacking=bool(p.get("attacking", False)),
         extra_counters=p.get("extra_counters"),
+        attach_to_previous=bool(p.get("attach_to_previous", False)),
     ),
 )
 EffectRegistry.register(
@@ -3359,6 +3365,8 @@ EffectRegistry.register(
         affects=p.get("affects", "creatures_you_control"),
         params={
             "keywords": list(p.get("keywords", [])),
+            **({"mana_source_kind": p["mana_source_kind"]} if p.get("mana_source_kind") else {}),
+            **({"first_matching_each_turn": True} if p.get("first_matching_each_turn") else {}),
             # ENG-31: parametric keyword grants ("~ has firebending N …") —
             # ``[{"name": str, "n": int}, ...]``, stamped onto
             # `GameObject._granted_parametric_keywords` by `continuous._apply_
@@ -4338,6 +4346,7 @@ EffectRegistry.register(
         affects=p.get("affects", "self"),
         params={
             "kind": str(p.get("kind", "")),
+            **({"defender_kind": str(p["defender_kind"])} if p.get("defender_kind") else {}),
             **({"filter": dict(p["filter"])} if p.get("filter") else {}),
             **({"condition": dict(p["condition"])} if p.get("condition") else {}),
             **({"count": int(p["count"])} if p.get("count") is not None else {}),

@@ -1281,7 +1281,8 @@ class GoadEffect(GameEffect):
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        goader_id = getattr(self.source, "controller_id", None)
+        controller = _controller_of(self.source, context)
+        goader_id = controller.id if controller is not None else None
         if goader_id is None:
             return
         if self.selector == "suspected_creatures":

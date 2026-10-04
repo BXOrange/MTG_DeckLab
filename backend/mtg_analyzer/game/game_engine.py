@@ -71,3 +71,97 @@ class GameEngine(
         #: `pass_priority(player)` around the table (`services/
         #: game_session.py`). See `GameSession._pass_priority`.
         self.interactive_priority = False
+
+    def _has_resolution_play_permission(self, player, obj) -> bool:
+        choice = self.state.resolution_play_choice
+        return bool(choice and choice["player_id"] == player.id
+                    and obj.instance_id in choice["instance_ids"]
+                    and obj.zone.value == "exile")
+
+    def play_resolution_card(self, player, obj, targets=None, x=0, *, face="front", **cast_options):
+        """Play an offered card using ordinary target, mode and cost validation.
+
+        Finish the suspended outer effect before giving priority; the new
+        spell stays on the stack so other players can respond (RULE 608.2g).
+        """
+        cast_options.update(targets=targets, x=x)
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "play_during_resolution" or not self._has_resolution_play_permission(player, obj):
+            raise ValueError("this card is not offered for playing during resolution")
+        if face in ("face_down", "bestow", "fuse") or any(cast_options.get(key) for key in (
+            "free", "alt_cost", "evoke", "surge", "mutate", "exile_discount",
+        )):
+            raise ValueError("cannot combine alternative costs with this free cast")
+        card = self._face_card(obj, face)
+        if card is None:
+            raise ValueError("this card has no playable requested face")
+        if choice.get("only_spells") and card.is_land:
+            raise ValueError("this effect permits casting spells only")
+        if choice.get("max_mana_value") is not None and card.converted_mana_cost >= choice["max_mana_value"]:
+            raise ValueError("the resulting spell must have lesser mana value")
+        if cast_options.get("x", 0) and "{X}" in (card.mana_cost_string or ""):
+            raise ValueError("X in a free spell's mana cost must be zero")
+        self.state.pending_choice = None
+        previous_controller = obj.controller_id
+        obj.controller_id = player.id
+        try:
+            if card.is_land:
+                result = self.play_land(player, obj, face=face)
+            else:
+                result = self.cast_spell(player, obj, face=face, **cast_options)
+        except Exception:
+            obj.controller_id = previous_controller
+            self.state.pending_choice = choice
+            raise
+        self.rules._finish_resolution_play_permission(played_id=obj.instance_id)
+        if choice.get("repeat"):
+            self.state.resolution_play_followup = {
+                "player_id": player.id,
+                "instance_ids": [iid for iid in choice["instance_ids"] if iid != obj.instance_id],
+            }
+        self._finish_resolution_play()
+        return result
+
+    def _finish_resolution_play(self):
+        if not self.state.pending_choice and self.state.resolution_play_followup is not None:
+            followup = self.state.resolution_play_followup
+            self.state.resolution_play_followup = None
+            cards = [self.state.find_object(iid) for iid in followup["instance_ids"]]
+            cards = [obj for obj in cards if obj is not None and obj.zone.value == "exile"]
+            self.rules._request_resolution_play(self.state.player_by_id(followup["player_id"]), cards, repeat=True)
+        while not self.state.pending_choice and self.rules.resume_deferred_effects():
+            pass
+        if not self.state.pending_choice:
+            self.state.resolution_play_waiting = False
+            self.give_priority(self.state.active_player)
+
+    def resolution_play_actions(self, player):
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "play_during_resolution" or choice["player_id"] != player.id:
+            return []
+        actions = [{"type": "decline"}]
+        for iid in choice["instance_ids"]:
+            obj = self.state.find_object(iid)
+            if obj is None or not self._has_resolution_play_permission(player, obj):
+                continue
+            for face in ("front", "back"):
+                card = self._face_card(obj, face)
+                if card is None:
+                    continue
+                if ((choice.get("only_spells") and card.is_land)
+                        or (choice.get("max_mana_value") is not None
+                            and card.converted_mana_cost >= choice["max_mana_value"])):
+                    continue
+                if card.is_land and self.can_play_land(player, obj, face=face):
+                    actions.append(self._land_action(obj, face=face))
+                elif not card.is_land:
+                    if face == "front":
+                        self._offer_cast(actions, player, obj)
+                    elif self.can_cast(player, obj, face=face):
+                        actions.append(self._cast_action(player, obj, face=face))
+        for action in actions:
+            if action["type"] == "cast_spell":
+                action["has_x"] = False
+                action["max_x"] = 0
+        return [action for action in actions if action.get("face") not in ("face_down", "bestow", "fuse")
+                and not any(action.get(key) for key in ("free", "alt_cost", "evoke", "surge", "mutate", "exile_discount"))]

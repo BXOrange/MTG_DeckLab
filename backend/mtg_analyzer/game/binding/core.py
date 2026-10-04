@@ -2347,12 +2347,13 @@ def _trigger_condition(
     if phase_relation in ("you", "not_you"):
         controller_id = getattr(source, "controller_id", None)
 
-        def _phase_relation_ok(event: Any, context: Any, cid=controller_id, rel=phase_relation) -> bool:
+        def _phase_relation_ok(event: Any, context: Any, cid=controller_id, rel=phase_relation, src=source) -> bool:
             state = getattr(context, "state", None)
             active = getattr(state, "active_player", None) if state is not None else None
             if active is None:
                 return False
-            is_yours = active.id == cid
+            current_controller = getattr(src, "controller_id", cid)
+            is_yours = active.id == current_controller
             return is_yours if rel == "you" else not is_yours
 
         predicates.append(_phase_relation_ok)
@@ -3977,6 +3978,24 @@ def _kw_backup(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
     ]
 
 
+def _kw_hideaway(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    """RULE 702.75a: a normal ETB trigger with a mandatory hidden pick."""
+    if n is None or int(n) <= 0:
+        return []
+    from ..effects.returns_graveyards import InspectTopChooseEffect
+
+    return [TriggeredAbility(
+        trigger_event=EventType.ENTERS_BATTLEFIELD,
+        effects=[InspectTopChooseEffect(
+            count=int(n), action="exile_face_down_linked", optional=False,
+            rest_destination="library_bottom_random", source=obj,
+        )],
+        condition=_self_only_condition(getattr(obj, "instance_id", None)),
+        source=obj, description=_ability_description(obj, spec) or f"Hideaway {n}",
+        capture_event=lambda event, context: event.copy_with(hideaway_incarnation=obj.hideaway_incarnation),
+    )]
+
+
 def _kw_exploit(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
     """RULE 702.110a Exploit — "When this creature enters, you may sacrifice a creature." A flag keyword, so
     ``n`` is unused. The sacrifice (the exploiter itself included) is what fires `EventType.EXPLOITS`, which
@@ -4043,6 +4062,7 @@ def _kw_firebending(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbilit
 #: real triggered abilities to synthesize for that keyword (or ``[]`` if
 #: its own ``n`` requirement isn't met) — see `_keyword_triggered_abilities`.
 _KEYWORD_TRIGGERED_BUILDERS: dict[str, Callable[[Any, AbilitySpec, Any], list[TriggeredAbility]]] = {
+    "hideaway": _kw_hideaway,
     "soulbond": _kw_soulbond,
     "living_weapon": _kw_living_weapon,
     "fading": _kw_fading,

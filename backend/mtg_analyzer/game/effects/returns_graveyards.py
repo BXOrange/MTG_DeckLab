@@ -8,6 +8,30 @@ from ..targeting import graveyard_card_matches, legal_targets
 install(globals())
 
 
+class PlayHideawayCardEffect(GameEffect):
+    """RULE 607.2a / 608.2g: play a captured linked exile card now."""
+
+    def __init__(self, condition: dict[str, Any], source=None) -> None:
+        super().__init__(source)
+        self.condition = condition
+
+    def apply(self, context, targets=None) -> None:
+        from ..static_conditions import condition_holds
+
+        controller_id = context.resolving_controller_id or getattr(self.source, "controller_id", None)
+        if controller_id is None or not condition_holds(self.condition, context.state, self.source, controller_id):
+            return
+        event = context.trigger_event
+        ids = event.get("hideaway_exile_ids", []) if event is not None else []
+        cards = [context.state.find_object(iid) for iid in ids]
+        cards = [obj for obj in cards if obj is not None and obj.zone == Zone.EXILE
+                 and obj.hideaway_source_id == event.get("source_id")
+                 and obj.hideaway_incarnation == event.get("hideaway_card_incarnations", {}).get(str(obj.instance_id))]
+        # RULE 607.3: "the exiled card" acts on each linked card when a
+        # copied Hideaway trigger exiled several, with a separate play choice.
+        context.offer_play_during_resolution(context.state.player_by_id(controller_id), cards, repeat=True)
+
+
 class LivingDeathEffect(GameEffect):
     """RULE 608.2c/e: exile graveyards, sacrifice boards, return only that exile batch."""
 
@@ -541,9 +565,15 @@ class ReturnFromGraveyardEffect(GameEffect):
         each_player_pick: bool = False,
         destination_if: Optional[dict[str, Any]] = None,
         previous_pool: bool = False,
+        controller_target_kind: Optional[str] = None,
+        controller_target_active: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        self.controller_target_spec = (
+            TargetSpec(kind=controller_target_kind, active_player_only=controller_target_active)
+            if controller_target_kind is not None else None
+        )
         # "A card from among those [milled] cards": the earlier instruction
         # supplies the pool; this instruction makes an untargeted choice.
         self.previous_pool = previous_pool
@@ -673,7 +703,12 @@ class ReturnFromGraveyardEffect(GameEffect):
         self._pool_spec = spec
         self.target_spec = None if (self.pick or self.each_player_pick or self.players is not None) else spec
 
-    def _apply_one(self, context: GameContext, target: Any) -> None:
+    @property
+    def target_specs(self) -> list[TargetSpec]:
+        specs = super().target_specs
+        return ([self.controller_target_spec] + specs) if self.controller_target_spec is not None else specs
+
+    def _apply_one(self, context: GameContext, target: Any, controller_override: Optional[str] = None) -> None:
         if self.destination == "battlefield":
             # RULE 601.3a-adjacent: "`<type>` cards in graveyards … can't
             # enter the battlefield." (Grafdigger's Cage/Weathered
@@ -697,8 +732,8 @@ class ReturnFromGraveyardEffect(GameEffect):
             if continuous.uncast_creature_entry_exiled(context.state, target.card):
                 context.exile(target)
                 return
-        controller_id = None
-        if self.under_your_control and self.destination == "battlefield":
+        controller_id = controller_override
+        if controller_id is None and self.under_your_control and self.destination == "battlefield":
             player = _controller_of(self.source, context)
             controller_id = player.id if player is not None else None
         mv = getattr(getattr(target, "card", None), "converted_mana_cost", 0) or 0
@@ -810,6 +845,21 @@ class ReturnFromGraveyardEffect(GameEffect):
             self.destination = original
 
     def _apply_resolved(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.controller_target_spec is not None:
+            controller = _controller_of(self.source, context)
+            player_ids = {o["player_id"] for o in legal_targets(
+                context.state, controller.id, self.controller_target_spec, source=self.source,
+            )}
+            recipient = next((t for t in targets or [] if getattr(t, "id", None) in player_ids), None)
+            if recipient is None:
+                return
+            card_ids = {o["instance_id"] for o in legal_targets(
+                context.state, controller.id, self.target_spec, source=self.source,
+            )}
+            for target in targets or []:
+                if getattr(target, "instance_id", None) in card_ids:
+                    self._apply_one(context, target, controller_override=recipient.id)
+            return
         if self._remaining_players is not None:
             self._pick_each_in_order(context, self._remaining_players)
             return

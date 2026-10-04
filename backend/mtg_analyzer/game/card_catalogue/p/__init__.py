@@ -62,3 +62,5 @@ from . import pyrohemia  # noqa: F401
 
 from . import plaguecrafter
 from . import palantir_of_orthanc
+
+from . import protection_racket  # noqa: F401

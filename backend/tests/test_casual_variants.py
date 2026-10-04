@@ -388,7 +388,7 @@ def test_real_catalogue_cards_parse_without_crashing():
             )
 
 
-def test_a_phenomenon_planeswalks_the_table_straight_on(monkeypatch):
+def test_a_phenomenon_planeswalks_the_table_straight_on():
     """RULE 901.17/901.18: a phenomenon is encountered, then left at once."""
     eng = make_engine("planechase")
     from mtg_analyzer.game.binding.core import bind_from_catalogue
@@ -399,12 +399,16 @@ def test_a_phenomenon_planeswalks_the_table_straight_on(monkeypatch):
         owner_id="p1", zone=Zone.COMMAND,
     )
     bind_from_catalogue(phenomenon)
-    # Put the phenomenon directly under the top card, so one planeswalk lands
-    # on it and RULE 901.18 must carry the table off it again.
-    eng.state.planar_deck.insert(len(eng.state.planar_deck) - 1, phenomenon)
+    # Isolate the phenomenon from the random catalogue planes: an arriving
+    # plane can have its own choice/trigger and suspend resolution before
+    # the phenomenon's life gain. Two inert planes pin the actual behavior
+    # under test: encounter the phenomenon, then leave it immediately.
+    eng.state.planar_deck = [
+        _plane_object("Destination"), phenomenon, _plane_object("Departure"),
+    ]
     player = eng.state.player_by_id("p1")
     arrived = eng.rules.planeswalk(player)
-    assert arrived is not phenomenon
+    assert arrived.name == "Destination"
     assert not variants.is_phenomenon(arrived)
     eng.rules.put_triggers_on_stack()
     eng.resolve_until_stable()

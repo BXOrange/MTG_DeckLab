@@ -1834,11 +1834,12 @@ export function createGameBoardView(opts = {}) {
 
     const buttons = options
       .map((opt) => {
+        if (opt.action?.type === 'cast_spell') return `<span>${escapeHtml(opt.action.name || '')}</span>${castTargetHtml(opt.action)}`;
         if (opt.id === 'decline') {
           const action = JSON.stringify({ type: 'decline' });
           return `<button type="button" class="gf-decline" data-action='${escapeAttr(action)}'>${escapeHtml(opt.label || t('bd.choice.chooseNothing'))}</button>`;
         }
-        const action = JSON.stringify({ type: 'choose', option_id: opt.id, instance_id: opt.instance_id, name: opt.label });
+        const action = JSON.stringify(opt.action || { type: 'choose', option_id: opt.id, instance_id: opt.instance_id, name: opt.label });
         const hover = opt.instance_id != null ? ` data-hover-card="${escapeHtml(opt.label || '')}"` : '';
         return `<button type="button"${hover} data-action='${escapeAttr(action)}'>${escapeHtml(opt.label || opt.id)}</button>`;
       })

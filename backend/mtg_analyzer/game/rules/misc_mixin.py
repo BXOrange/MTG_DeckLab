@@ -142,6 +142,23 @@ def _that_many_value(then_that_many: Optional[dict], objs: list[Any]) -> int:
     since a card in the graveyard no longer has a battlefield power."""
     if (then_that_many or {}).get("measure") == "power":
         return sum(int(getattr(o, "power", 0) or 0) for o in objs)
+    if (then_that_many or {}).get("measure") == "mana_value":
+        # RULE 202.3 / 608.2h: capture the battlefield card face before
+        # sacrificing it, rather than reading a reset graveyard object.
+        def mana_value(obj):
+            if getattr(obj, "face_down", False):
+                return 0
+            if getattr(obj, "is_melded", False):
+                return sum(mana_value(part) for part in obj.melded_components)
+            card = getattr(obj, "card", None)
+            front = getattr(obj, "_front_card", None)
+            # RULE 202.3b: a genuine transforming back uses the front's
+            # cost. A copy of just that back has no two-face card metadata.
+            if (getattr(obj, "transformed", False) and front is not None
+                    and (front.back_name or front.back_type_line) and front.layout != "modal_dfc"):
+                card = front
+            return int(getattr(card, "converted_mana_cost", 0) or 0)
+        return sum(mana_value(obj) for obj in objs)
     return len(objs)
 
 
@@ -377,7 +394,7 @@ class MiscSystemsMixin:
             finally:
                 self.context.previous_targets = saved
             return
-        self._pending_pay_cost_then = {
+        self.state.pending_pay_cost_then = {
             "player_id": player.id,
             "cost": cost,
             "effect_specs": specs,
@@ -390,7 +407,8 @@ class MiscSystemsMixin:
             "captured_previous": list(captured_previous) if captured_previous else None,
             "x_max": x_max,
             # RULE 109.5: the "if you do" effects belong to whoever the body was run as.
-            "acting_player_id": getattr(self.context, "acting_player_id", None),
+            "acting_player_id": self.context.acting_player_id or self.context.resolving_controller_id,
+            "revealed_card": self.context.revealed_card,
         }
         cost_label = cost.label()
         if x_max is None:
@@ -440,8 +458,8 @@ class MiscSystemsMixin:
         """Answer a pending `pay_cost_then` choice. ``answer == "pay"``
         charges the cost and resolves the "if you do" effects; anything else
         resolves the "if you don't" branch (usually empty)."""
-        pending = self._pending_pay_cost_then
-        self._pending_pay_cost_then = None
+        pending = self.state.pending_pay_cost_then
+        self.state.pending_pay_cost_then = None
         if pending is None:
             return
         player = self.state.player_by_id(pending["player_id"])
@@ -450,6 +468,8 @@ class MiscSystemsMixin:
         def apply_branch(specs: list[dict]) -> None:
             outer_acting = self.context.acting_player_id
             self.context.acting_player_id = pending.get("acting_player_id")
+            outer_revealed = self.context.revealed_card
+            self.context.revealed_card = pending.get("revealed_card")
             try:
                 if not captured:
                     self._apply_effect_specs(specs, pending["source"], targets)
@@ -462,6 +482,7 @@ class MiscSystemsMixin:
                     self.context.previous_targets = saved
             finally:
                 self.context.acting_player_id = outer_acting
+                self.context.revealed_card = outer_revealed
         cost = pending["cost"]
         x_max = pending.get("x_max")
         x: Optional[int] = None
@@ -3313,6 +3334,7 @@ class MiscSystemsMixin:
             # another hand-zone pick, general enough for any future "exile a
             # card from your hand" cost/effect to reuse.
             "exile",
+            "exile_face_down_linked",  # RULE 702.75a Hideaway's selected library card
             # MEC-20 (the "Expertise" cycle): another hand-zone pick, but
             # unlike ``"cast_free"`` this only *arms* the pick's temporary
             # free-cast permission (`GameState.free_cast_instance_ids`)
@@ -3377,6 +3399,7 @@ class MiscSystemsMixin:
             # ``not_entered_via_self`` condition) can tell a card THIS
             # ability just placed apart from any other entering permanent.
             "hand_to_battlefield",
+            "zone_to_battlefield",
             # MEC-73: Sneak Attack / Incandescent Soulstoke's selected hand
             # creature enters with haste and a RULE 603.7 delayed sacrifice.
             "hand_to_battlefield_haste_sacrifice",
@@ -3677,6 +3700,7 @@ class MiscSystemsMixin:
         label = prompt or "Wähle ein Objekt"
         return {
             "kind": "choose_objects",
+            "effect_controller_id": self.context.acting_player_id or self.context.resolving_controller_id,
             "player_id": player.id,
             "action": action,
             "source_id": source_id,
@@ -3735,6 +3759,9 @@ class MiscSystemsMixin:
         decline — RULE 601.2c's "up to"/"may" shape)."""
         player = self.state.player_by_id(choice["player_id"])
         picked: list[int] = list(choice["picked"])
+        if instance_id is None and not choice.get("optional"):
+            self.state.pending_choice = choice
+            raise ValueError("This choice is mandatory")
         offered = {o["instance_id"] for o in choice["options"] if "instance_id" in o}
         if instance_id is not None:
             if instance_id not in offered:
@@ -3769,6 +3796,7 @@ class MiscSystemsMixin:
                 redirect_shield=choice.get("redirect_shield"),
                 connive=bool(choice.get("connive")),
                 control_recipient_id=choice.get("control_recipient_id"),
+                hideaway_incarnation=choice.get("hideaway_incarnation"),
             )
         remaining_pool = [
             obj
@@ -3798,21 +3826,26 @@ class MiscSystemsMixin:
                 else:
                     unpicked_rest = [iid for iid in choice["rest_ids"] if iid not in picked]
                     self._handle_rest_inspected(player, unpicked_rest, choice["rest_destination"])
-            if picked:
-                # RULE 601.2c: "if you do, …" only fires when something was
-                # actually chosen — a declined optional choice does nothing.
-                self._apply_choose_objects_tail(
-                    source, choice.get("then_specs"),
-                    choice.get("then_specs_if_commander"), commander_taken,
-                    choice.get("then_that_many"),
-                    picked_measure if (choice.get("then_that_many") or {}).get("measure") else len(picked),
-                    chosen_ids=picked,
-                )
-            elif choice.get("else_specs"):
-                # "If you don't, incubate 3." (Traumatic Revelation) — the
-                # declined-optional-choice branch `then_specs` deliberately
-                # skips.
-                self._apply_effect_specs(list(choice["else_specs"]), source)
+            outer_controller = self.context.resolving_controller_id
+            self.context.resolving_controller_id = choice.get("effect_controller_id")
+            try:
+                if picked:
+                    # RULE 601.2c: "if you do, …" only fires when something was
+                    # actually chosen — a declined optional choice does nothing.
+                    self._apply_choose_objects_tail(
+                        source, choice.get("then_specs"),
+                        choice.get("then_specs_if_commander"), commander_taken,
+                        choice.get("then_that_many"),
+                        picked_measure if (choice.get("then_that_many") or {}).get("measure") else len(picked),
+                        chosen_ids=picked,
+                    )
+                elif choice.get("else_specs"):
+                    # "If you don't, incubate 3." (Traumatic Revelation) — the
+                    # declined-optional-choice branch `then_specs` deliberately
+                    # skips.
+                    self._apply_effect_specs(list(choice["else_specs"]), source)
+            finally:
+                self.context.resolving_controller_id = outer_controller
             return
         next_choice = self._choose_objects_choice(
             player, remaining_pool, choice["action"], choice["count"],
@@ -3832,6 +3865,7 @@ class MiscSystemsMixin:
             then_that_many=choice.get("then_that_many"),
             distinct_card_types=bool(choice.get("distinct_card_types")),
         )
+        next_choice["effect_controller_id"] = choice.get("effect_controller_id")
         next_choice["commander_taken"] = commander_taken
         next_choice["picked_measure"] = picked_measure
         next_choice["picked_card_types"] = [sorted(types) for types in picked_card_types]
@@ -3866,6 +3900,7 @@ class MiscSystemsMixin:
         action: str,
         source: Optional[GameObject],
         remember: bool = False,
+        hideaway_incarnation: Optional[int] = None,
         track_exiled_with: bool = False,
         prevent_shield: Optional[dict] = None,
         redirect_shield: Optional[dict] = None,
@@ -4031,8 +4066,20 @@ class MiscSystemsMixin:
                 self.grant_damage_multiplier_from_source(obj)
             else:
                 self.prevent_damage_from_source(obj, "all")
-        elif action == "exile":
+        elif action in ("exile", "exile_face_down_linked"):
             self.exile(obj)
+            if action == "exile_face_down_linked":
+                obj.face_down_in_exile = True
+                obj.face_down_exile_viewers = {player.id}
+                obj.hideaway_source_id = getattr(source, "instance_id", None)
+                event = self.context.trigger_event or {}
+                incarnation = (hideaway_incarnation if hideaway_incarnation is not None else
+                               event.get("hideaway_incarnation", getattr(source, "hideaway_incarnation", None)))
+                if source is not None and source.hideaway_incarnation == incarnation:
+                    source.hideaway_exile_ids.add(obj.instance_id)
+                    source.linked_exile_id = obj.instance_id
+                    if obj.instance_id not in source.linked_exile_ids:
+                        source.linked_exile_ids.append(obj.instance_id)
             # RULE 608.2's "it"/"that card" referent for a following clause
             # (MEC-52 — Back from the Brink prices "pay its mana cost" off
             # the just-exiled graveyard card), the same seeding
@@ -4091,6 +4138,15 @@ class MiscSystemsMixin:
                 hit_destination="battlefield",
                 rest_destination="library_bottom_random",
             )
+        elif action == "zone_to_battlefield":
+            if obj.zone not in (Zone.HAND, Zone.COMMAND, Zone.GRAVEYARD, Zone.EXILE):
+                return
+            owner = self.state.player_by_id(obj.owner_id)
+            self._remove_from_current_zone(owner, obj)
+            obj.reset_as_new_object()
+            obj.controller_id = player.id
+            self._put_searched_card(player, obj, "battlefield")
+            self.context.previous_targets = [obj]
         elif action == "hand_to_battlefield":
             # MEC-43 round 4D (Kodama of the East Tree): the hand-zone
             # sibling of "library_to_battlefield" just above — the object

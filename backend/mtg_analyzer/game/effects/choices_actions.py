@@ -470,8 +470,19 @@ class CreateDelayedTriggerEffect(GameEffect):
             for effect in inner:
                 if hasattr(effect, "player") and getattr(effect, "player", None) is None:
                     effect.player = target_player
+        for effect in inner:
+            if (hasattr(effect, "_captured_target_incarnation") and effect.target_spec is None
+                    and self.capture in {"created_objects", "previous_or_self", "previous_targets",
+                                         "trigger_related", "trigger_subject", "self"}):
+                effect._captured_target_incarnation = getattr(effect.target, "hideaway_incarnation", -1)
+                effect._captured_target_zone = getattr(effect.target, "zone", None)
+            if getattr(effect, "attach_to_previous", False):
+                effect.attachment_incarnation = getattr(effect.target, "hideaway_incarnation", None)
+                effect.source_incarnation = getattr(self.source, "hideaway_incarnation", None)
         controller_id = (
             target_controller_id
+            or context.acting_player_id
+            or context.resolving_controller_id
             or getattr(self.source, "controller_id", None)
             or context.active_player.id
         )
@@ -1033,7 +1044,8 @@ class PayCostThenEffect(GameEffect):
             # fresh when the choice is answered rather than sitting on the
             # stack item where the usual target dispatch would find them.
             targets=list(targets or []),
-            prompt=self.prompt,
+            prompt=(self.prompt.replace("{revealed_card}", context.revealed_card.name)
+                    if self.prompt and context.revealed_card is not None else self.prompt),
             then_trigger_specs=self.then_trigger_specs or None,
             then_trigger_modes=self.then_trigger_modes or None,
             # The outer trigger's own event, so a "When you do" payoff that
@@ -1209,6 +1221,8 @@ class ChooseObjectsEffect(GameEffect):
         distinct_card_types: bool = False,
         pool_zone: str = "battlefield",
         pool_player_selector: str = "chooser",
+        pool_zones: Optional[list[str]] = None,
+        mana_value_less_than_trigger: bool = False,
     ) -> None:
         super().__init__(source)
         #: Serialized specs applied when nothing gets picked — an empty candidate pool included ("return a
@@ -1219,6 +1233,8 @@ class ChooseObjectsEffect(GameEffect):
         self.then_that_many = then_that_many
         self.distinct_card_types = distinct_card_types
         self.pool_zone = pool_zone
+        self.pool_zones = list(pool_zones) if pool_zones else None
+        self.mana_value_less_than_trigger = bool(mana_value_less_than_trigger)
         self.pool_player_selector = pool_player_selector
         self.action = action
         self.what = what
@@ -1254,7 +1270,13 @@ class ChooseObjectsEffect(GameEffect):
                            else _defending_player_of(self.source, context))
         elif self.pool_player_selector != "chooser":
             raise ValueError(f"Unknown choice pool player: {self.pool_player_selector}")
-        if self.pool_zone == "battlefield":
+        if self.pool_zones is not None:
+            if any(zone not in {"hand", "command", "graveyard", "exile"} for zone in self.pool_zones):
+                raise ValueError("Unsupported choice pool zone")
+            pool = [obj for zone in self.pool_zones
+                    for obj in (getattr(pool_player, zone) if pool_player else [])
+                    if obj.owner_id == player.id]
+        elif self.pool_zone == "battlefield":
             pool = context.state.permanents_controlled_by(pool_player.id) if pool_player else []
         elif self.pool_zone == "graveyard":
             pool = pool_player.graveyard if pool_player else []
@@ -1265,6 +1287,8 @@ class ChooseObjectsEffect(GameEffect):
             for obj in pool
             if _matches_permanent_type(obj, self.what)
             and (self.card_types_any is None or set(self.card_types_any) & obj.type_words)
+            and (not self.mana_value_less_than_trigger
+                 or obj.card.converted_mana_cost < (context.trigger_event or {}).get("mana_value", 0))
             and not (self.action == "sacrifice" and obj.cant_be_sacrificed_this_turn)
             and not (self.exclude_self and obj is self.source)
             and not (self.require_untapped and obj.tapped)

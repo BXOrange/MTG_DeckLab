@@ -1101,17 +1101,23 @@ class LegalActionsMixin:
                 if obj.attacking:
                     continue
                 if self._can_attack(player, obj):
+                    allowed = list(range(len(defenders)))
+                    if any(entry.get("condition") or entry.get("defender_kind")
+                           for entry in combat.combat_restrictions(obj, "attacks_as_though_no_defender")):
+                        allowed = [index for index, defender in enumerate(defenders)
+                                   if self._can_attack(player, obj, self._defending_player(defender),
+                                                       defender_kind=defender.get("kind", "player"))]
                     actions.append(
                         {
                             "type": "attack",
                             "instance_id": obj.instance_id,
                             "name": obj.name,
-                            "legal_defenders": defenders,
+                            "legal_defenders": [defenders[index] for index in allowed],
                             # RULE 508.1g is a may-pay cost. The matching
                             # positional list lets the client ask before it
                             # submits its one-attacker declaration instead
                             # of silently spending floating mana.
-                            "attack_tax_amounts": attack_tax_amounts,
+                            "attack_tax_amounts": [attack_tax_amounts[index] for index in allowed],
                             # RULE 702.19a: whether the client may offer an
                             # "exert as it attacks" checkbox alongside this
                             # declaration (`GameEngine.declare_attackers`'s

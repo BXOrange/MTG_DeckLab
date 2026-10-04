@@ -32,3 +32,4 @@ from . import isengard_unleashed  # noqa: F401
 from . import isochron_scepter  # noqa: F401
 
 from . import insatiable_frugivore
+from . import industrial_advancement

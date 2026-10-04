@@ -276,6 +276,7 @@ class TriggerCollectionMixin:
         self._collect_inherent_triggers(event)
         self._collect_self_cast_triggers(event)
         self._collect_storm_triggers(event)
+        self._collect_granted_cascade_triggers(event)
         self._collect_impulsive_draw_triggers(event)
         self._collect_rad_counter_damage_triggers(event)
         self._collect_attacks_you_rad_counter_triggers(event)
@@ -1162,22 +1163,7 @@ class TriggerCollectionMixin:
         if obj is None or obj.zone != Zone.STACK:
             return
         instances = int(combat.has(obj, "storm"))
-        if obj.card.is_instant or obj.card.is_sorcery:
-            from .. import static_conditions
-
-            for ability in continuous._battlefield_static_abilities(self.state):
-                src = ability.source
-                if (ability.layer != "ability"
-                    or ability.affects != "instant_sorcery_spells_you_cast"
-                    or "storm" not in ability.params.get("keywords", [])
-                    or getattr(src, "controller_id", None) != obj.controller_id
-                    or getattr(src, "loses_all_abilities", False)):
-                    continue
-                if not static_conditions.condition_holds(
-                    ability.params.get("active_if"), self.state, src, obj.controller_id,
-                ):
-                    continue
-                instances += 1
+        instances += continuous.granted_cast_keyword_instances(self.state, obj, event, "storm")
         previous_casts = sum(e.type == EventType.SPELL_CAST for e in self.state.events_this_turn()) - 1
         for _ in range(instances):
             ability = TriggeredAbility(
@@ -1185,6 +1171,23 @@ class TriggerCollectionMixin:
                 [CopySpellEffect(count=max(0, previous_casts), source=obj,
                                  spell_from_trigger_event="instance_id")],
                 source=obj, controller_id=obj.controller_id, description=f"{obj.name}: Storm",
+            )
+            self._queue_firing(ability, event, obj, capture=False)
+
+    def _collect_granted_cascade_triggers(self, event: GameEvent) -> None:
+        if event.type != EventType.SPELL_CAST:
+            return
+        obj = self.state.find_object(event.get("instance_id"))
+        if obj is None or obj.zone != Zone.STACK:
+            return
+        from ..effects.library import CascadeEffect
+
+        for _ in range(continuous.granted_cast_keyword_instances(self.state, obj, event, "cascade")):
+            ability = TriggeredAbility(
+                EventType.SPELL_CAST,
+                [CascadeEffect(mana_value=event.get("mana_value", 0),
+                               player=self.state.player_by_id(event.get("player_id")), source=obj)],
+                source=obj, controller_id=obj.controller_id, description=f"{obj.name}: Cascade",
             )
             self._queue_firing(ability, event, obj, capture=False)
 

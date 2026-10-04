@@ -89,6 +89,8 @@ class ExileEffect(GameEffect):
     ) -> None:
         super().__init__(source)
         self.target = target
+        self._captured_target_incarnation = None
+        self._captured_target_zone = None
         #: PAR-128: "exile all artifacts and enchantments your opponents control" — a structured
         #: battlefield selector (`_group_objects`), the mass sibling `DestroyEffect.group` has.
         self.group = dict(group) if isinstance(group, dict) and group.get("zone", "battlefield") == "battlefield" else None
@@ -204,6 +206,10 @@ class ExileEffect(GameEffect):
             self.source.linked_exile_id = None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self._captured_target_incarnation is not None:
+            if (self.target is None or self.target.zone != self._captured_target_zone
+                    or self.target.hideaway_incarnation != self._captured_target_incarnation):
+                return  # RULE 603.7c: only the original object in its expected zone.
         if self.group is not None:
             chosen = (targets or [self.target])[0] if (targets or self.target is not None) else None
             exiled_now = []

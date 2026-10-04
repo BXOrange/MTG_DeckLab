@@ -269,6 +269,108 @@ The World Shaper regression checks the counter immediately after activation.
 
 ## Rules Engine Core Loop
 
+### Cast-time keyword grants and scoped cascade
+
+`grant_keyword` supports `spells_you_cast`, a required `mana_source_kind`
+and `first_matching_each_turn`. Cast events snapshot actual mana by source
+kind, including restricted lots, and stack mana value including announced
+X. The shared grant evaluator also serves existing instant/sorcery storm
+grants. Each granted cascade queues a separate spell-owned trigger, with
+its caster and threshold captured independently of the granting permanent.
+Earlier matching casts count even if the grant was not yet present.
+
+Cascade uses the immediate-play path for ordinary target, face, mode and
+additional-cost choices. Its scoped permission permits spells only and
+enforces the resulting spell's lesser mana value under RULE 702.85a.
+Uncast exiled cards are randomized onto the library bottom after either
+casting or declining, before priority is offered. The cast spell remains
+on the stack for responses.
+
+### Revealed-card payments inside player iterations
+
+`reveal_top` resets its referent for an empty library and emits a public
+REVEAL event. `put_revealed_card` supports exile through the ordinary zone
+move and hand placement without a draw. Optional payment continuations keep
+the revealed card and acting controller through their answer; their frame
+now belongs to GameState so rewind preserves both the payment and its card.
+Player iterations preserve that controller across each suspended body.
+
+Resolution drains outstanding choices and deferred bodies before checking
+state-based actions, allowing a player to pay their entire life total during
+a multi-player process before the enclosing ability finishes. Phase-relation
+predicates consult the source's current controller at triggering time.
+State clones retain earlier turn/attack events for permissions based on an
+opponent's most recent turn.
+
+### Mixed-zone choices and delayed attached returns
+
+`choose_objects` accepts an owned-card pool across hand and command zones,
+with `mana_value_less_than_trigger` using the DIES event's last-known mana
+value. The shared measurement handles face-down, transformed and melded
+creatures. `zone_to_battlefield` resets the selected card before entry and
+retains it as the follow-up referent without invoking library-search rules.
+
+`create_delayed_trigger` captures the original host and source incarnations
+for `return_self_from_graveyard` with `attach_to_previous`. An invalid host,
+protection or a host that left and returned prevents Aura entry under
+RULE 303.4i / 603.7c. Successful entry establishes the attachment before
+the entry event. Object choices and delayed effects preserve the resolving
+ability's controller when the source changes zones or has another owner.
+
+### Conditional defender permission (RULE 702.3b / 508.4)
+
+`attacks_as_though_no_defender` supports a defender kind and a combat
+condition. Attack offers, declaration validation and goad checks apply the
+same permission to the actual defender. Removing defender independently
+still permits ordinary attacks. `opponent_attacked_you_last_turn` reads
+declared attacks during each opponent's own most recent turn; attacks on
+planeswalkers or battles and creatures put onto the battlefield attacking
+do not qualify. Declared attack events retain their defender kind, while
+solo goldfish attacks remain valid without a defender object.
+
+### Hideaway entry trigger (RULE 702.75a / 406.3)
+
+The existing `Hideaway N` keyword spec now binds an ordinary entry trigger.
+It inspects the top N cards, requires one selection, exiles it face down and
+randomizes the rest onto the library bottom. Linked cards and visibility
+permissions survive separate trigger firings. New source controllers gain
+permission to look; previous viewers retain it after control changes or source
+removal. A source incarnation captured by the trigger prevents attaching an
+old selection to a returned permanent. Mandatory object choices reject declines
+without discarding the pending choice.
+Activated stack items capture `hideaway_exile_ids` in their event context when
+the source has links, preserving the original association after source removal
+or new links on a returned incarnation (RULE 607.2a / 400.7).
+The snapshot also records each linked card's incarnation before activation
+costs are paid. Leaving exile invalidates that incarnation and the card's
+source link, so an older activation cannot play a later exile of the same card.
+
+`play_hideaway_card` checks a shared state predicate at resolution and offers
+the captured linked cards through the ordinary immediate-play path. Under
+RULE 607.3, multiple cards from duplicated entry triggers may each be played
+in the same activation, with choices and targets preserved for each.
+The shared state predicate `opponent_was_dealt_damage_this_turn` reads actual
+damage events per opponent, including infect, independently of life loss or
+subsequent life gain. It supports the numeric bounds needed by Spinerock Knoll.
+
+### Playing an exile card during resolution (RULE 608.2g / 305.2–3)
+
+`GameContext.offer_play_during_resolution` opens a scoped optional play choice;
+`GameEngine.play_resolution_card` uses the ordinary casting/land path with
+targets, modes and additional costs. Casting another player's card transfers
+spell control to its caster. Alternative costs cannot be combined, and mana-cost
+X must be zero. Lands still require the player's turn and an available land
+play, but do not require an empty stack or main phase. Declining or playing
+revokes the scoped permission. Deferred outer effects finish before the nested
+spell resolves; the active player receives priority afterward.
+
+Game sessions expose ordinary cast/land actions to the choice's player and
+validate the acting seat independently of priority. The board reuses its
+target/modal cast controls inside the choice. The primitive is tested in
+`tests/test_resolution_play.py`. Repeated offers wait for a played land's own
+entry choice before offering the remaining cards; no nested spell resolves
+between those choices.
+
 ### Choices representing different card types (RULE 205.2a–b)
 
 `distinct_card_types` accepts selected cards whenever each can represent a
@@ -286,7 +388,11 @@ conditions, so a departed source does not receive battlefield-only counters.
 ### Measured choices and battlefield exit state
 
 `choose_objects.then_that_many` measures a chosen creature's power before
-returning it to hand. Battlefield-to-hand moves clear counters and temporary
+returning it to hand, or its mana value before sacrificing it. The mana-value
+measurement uses the front face for transformed permanents, sums meld components,
+and treats face-down permanents as zero (RULE 202.3). It can supply the count
+for a subsequent optional top-library selection without re-reading the card
+after the zone change. Battlefield-to-hand moves clear counters and temporary
 modifications, restore the front face and owner's control (RULE 400.7).
 Control-dependent riders can branch before that move to preserve the relevant
 information. Queued triggers capture their source's controller at the triggering

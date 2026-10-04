@@ -787,7 +787,11 @@ class CastingResolutionMixin:
         # RULE 702.88b's own free-cast window (`ReboundFreeCastWindowEffect`)
         # — consumed the instant it's used, same "check, then discard" shape
         # `mana_wildcard_permission`'s per-card grant already uses.
-        free_cast = obj.instance_id in self.state.free_cast_instance_ids
+        free_cast = (obj.instance_id in self.state.free_cast_instance_ids
+                     and self.state.resolution_play_choice is None)
+        source_mana_spent = {}
+        obj.mana_spent_to_cast_treasure = 0
+        obj.mana_spent_to_cast_creature = 0
         if free_cast:
             life_spent = 0
         else:
@@ -822,9 +826,9 @@ class CastingResolutionMixin:
             # so this diffs the pool before/after instead of touching the
             # payment solver (`GameObject.colors_spent_to_cast`).
             pool_before = dict(player.mana_pool.pool)
+            sources_before = {kind: sum(pool.values()) for kind, pool in player.mana_pool.pool_by_source.items()
+                              if kind is not None}
             snow_before = sum(player.mana_pool.snow_pool.values())
-            treasure_before = sum(player.mana_pool.pool_by_source.get("treasure", {}).values())
-            creature_before = sum(player.mana_pool.pool_by_source.get("creature", {}).values())
             life_spent = player.mana_pool.pay(
                 cost, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard,
                 require_source_kind=require_source_kind, extra_life_color=extra_life_color,
@@ -841,15 +845,14 @@ class CastingResolutionMixin:
             # MEC-43 round 3: the snow sibling of the Converge diff just
             # above (`GameObject.mana_spent_to_cast_snow`).
             obj.mana_spent_to_cast_snow = snow_before - sum(player.mana_pool.snow_pool.values())
-            obj.mana_spent_to_cast_treasure = (
-                treasure_before - sum(player.mana_pool.pool_by_source.get("treasure", {}).values())
-            )
-            # "…if three or more mana from creatures was spent to cast it" (Inga and Esika) — the creature-sourced
-            # bucket's diff, like the Treasure one just above.
-            obj.mana_spent_to_cast_creature = (
-                creature_before - sum(player.mana_pool.pool_by_source.get("creature", {}).values())
-                + player.mana_pool.last_payment_by_kind.get("creature", 0)  # restricted creature mana (Inga's own)
-            )
+            source_mana_spent = {
+                kind: sources_before.get(kind, 0)
+                      - sum(player.mana_pool.pool_by_source.get(kind, {}).values())
+                      + player.mana_pool.last_payment_by_kind.get(kind, 0)
+                for kind in sources_before.keys() | player.mana_pool.last_payment_by_kind.keys()
+            }
+            obj.mana_spent_to_cast_treasure = source_mana_spent.get("treasure", 0)
+            obj.mana_spent_to_cast_creature = source_mana_spent.get("creature", 0)
         self.lose_life(player, life_spent, cause="cost")
         # "The next spell you cast this turn costs {N} less" is used up by
         # this cast, whether or not the discount mattered (RULE 601.2f).
@@ -889,6 +892,7 @@ class CastingResolutionMixin:
         # be cast from exile (RULE 715.3d) with no dedicated branch here.
         self._remove_from_current_zone(player, obj)
         obj.adventure_castable = False
+        obj.controller_id = player.id
         if obj.prepared_source_id is not None:
             # RULE 722.3c: the source loses "prepared" the moment its
             # exiled copy becomes cast — not when the copy later resolves.
@@ -917,6 +921,7 @@ class CastingResolutionMixin:
                 instance_id=obj.instance_id, object_types=sorted(obj.type_words),
                 mana_spent=obj.mana_spent_to_cast,
                 creature_mana_spent=getattr(obj, "mana_spent_to_cast_creature", 0) or 0,
+                mana_spent_by_source=source_mana_spent,
                 from_hand=from_hand,
                 # PAR-119: the zone the spell was cast from ("from your graveyard", "from anywhere other than your hand").
                 from_zone=cast_from_zone,
@@ -928,7 +933,7 @@ class CastingResolutionMixin:
                 # requiring a lookup back to a stack item that may have
                 # already resolved and left the stack by the time a
                 # triggered ability referencing it does.
-                mana_value=obj.card.converted_mana_cost,
+                mana_value=ManaCost.from_card(obj.card).with_x(x).resolved_value,
                 # "Whenever you cast a spell with {X} in its mana cost, create a
                 # 0/0 Hydra token, then put X +1/+1 counters on it." (Zaxara, the
                 # Exemplary) — its ruling: X is the cast spell's X. Carried on
@@ -1132,6 +1137,9 @@ class CastingResolutionMixin:
         change, and this is the one point every cast path funnels through.
         """
         obj.face_down_in_exile = False
+        if obj.zone == Zone.EXILE:
+            obj.hideaway_incarnation += 1
+        obj.hideaway_source_id = None
         left_graveyard = obj.zone == Zone.GRAVEYARD
         if left_graveyard:
             self.state.temp_graveyard_cast_permissions.pop(obj.instance_id, None)
@@ -1639,6 +1647,7 @@ class CastingResolutionMixin:
             "source": source,
             "targets": targets,
             "item_as_target": bool(item_as_target),
+            "acting_player_id": self.context.acting_player_id or self.context.resolving_controller_id,
         })
 
     @continuations.choice(
@@ -1740,6 +1749,7 @@ class CastingResolutionMixin:
                 specs=frame.get("specs"),
                 item_as_target=bool(frame.get("item_as_target")),
             )
+            self.state.deferred_effects[-1]["acting_player_id"] = frame.get("acting_player_id")
         item = items[index]
         specs = frame.get("specs")
         if specs is not None:
@@ -1758,6 +1768,8 @@ class CastingResolutionMixin:
         targets = [item] if frame.get("item_as_target") else frame.get("targets")
         outer_item = getattr(self.context, "iteration_item", None)
         self.context.iteration_item = item
+        outer_acting = self.context.acting_player_id
+        self.context.acting_player_id = frame.get("acting_player_id")
         try:
             _apply_effects_partitioned(
                 effects,
@@ -1768,6 +1780,7 @@ class CastingResolutionMixin:
             )
         finally:
             self.context.iteration_item = outer_item
+            self.context.acting_player_id = outer_acting
 
     def resume_deferred_effects(self) -> bool:
         """Pick a suspended effect list back up (RULE 608.2), innermost first.

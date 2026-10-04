@@ -30,7 +30,7 @@ def _chainer_dementia_master() -> list[AbilitySpec]:
             "activated",
             [
                 EffectSpec("return_from_graveyard", {
-                    "target_kind": "graveyard_creature", "under_your_control": True,
+                    "target_kind": "any_graveyard_creature", "under_your_control": True,
                 }),
                 EffectSpec("grant_until", {
                     "previous_subject": True, "duration": "rest_of_game",

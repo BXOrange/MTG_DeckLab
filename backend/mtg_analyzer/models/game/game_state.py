@@ -536,6 +536,13 @@ class GameState:
         #: engine isn't blocked on a choice. Set/consumed by the rules
         #: engine (mtg_analyzer/game/rules_engine.py).
         self.pending_choice: Optional[dict[str, Any]] = None
+        # Resolve-time payment frame belongs to state so rewind preserves it.
+        self.pending_pay_cost_then: Optional[dict[str, Any]] = None
+        # RULE 608.2g: scoped permission while a resolving effect offers
+        # playing a card; separate from pending_choice while casting it.
+        self.resolution_play_choice: Optional[dict[str, Any]] = None
+        self.resolution_play_followup: Optional[dict[str, Any]] = None
+        self.resolution_play_waiting = False
 
         #: RULE 701.30c: cards currently revealed by a clash.  These are
         #: public information even though they remain in normally hidden
@@ -1339,11 +1346,10 @@ class GameState:
 
         Event subscribers (bound methods of a live `RulesEngine`) are
         intentionally *not* copied: the clone is inert game data, and whoever
-        restores it wraps a fresh engine around it that re-subscribes. Of the
-        event log only the *current turn's* events travel (ENG-47: a "…this turn"
-        condition reads them, so an undo must not make "you gained life this
-        turn" false again); earlier turns are never asked about. Because the
-        underlying `Card` definitions are
+        restores it wraps a fresh engine around it that re-subscribes. The event
+        log retains the current turn and earlier turn/attack events, needed
+        for conditions referring to each opponent's own most recent turn.
+        Because the underlying `Card` definitions are
         immutable and share via ``Card.__deepcopy__``, and `GameObject`
         instance ids are plain values, all in-state references (an object
         on the battlefield vs. referenced from the stack) stay consistent
@@ -1351,7 +1357,10 @@ class GameState:
         """
         subscribers, log = self._subscribers, self.event_log
         turn = self.internal_turn.number
-        self._subscribers, self.event_log = [], [e for e in log if e.turn == turn]
+        self._subscribers, self.event_log = [], [
+            e for e in log
+            if e.turn == turn or e.type in (EventType.TURN_BEGIN, EventType.ATTACKS)
+        ]
         try:
             clone = copy.deepcopy(self)
         finally:
@@ -1521,6 +1530,18 @@ class GameState:
             if event.turn < previous:
                 break
             yield event
+
+    def attacked_player_during_last_turn(self, attacker_id: str, defender_id: str) -> bool:
+        """RULE 508.1/508.4: declarations in that player's latest own turn."""
+        last_turn = next((event.turn for event in reversed(self.event_log)
+                          if event.type == EventType.TURN_BEGIN and event.get("player_id") == attacker_id), None)
+        if last_turn is None:
+            return False
+        return any(event.type == EventType.ATTACKS and event.turn == last_turn
+                   and event.get("player_id") == attacker_id and event.get("declared")
+                   and event.get("defender_kind") == "player"
+                   and event.get("defending_player_id") == defender_id
+                   for event in reversed(self.event_log))
 
     # -- Per-turn history, derived from the event log (ENG-47) -------------------
     # Each of these was a counter bumped at one site and reset in `GameEngine.begin_turn`;

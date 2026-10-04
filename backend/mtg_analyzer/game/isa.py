@@ -794,6 +794,7 @@ _CONTINUATION_TYPES: dict[str, str] = {
     "immoral_bargain_destroy": "601.2b",
     "impulsive_look": "601.2b",
     "inspect_top_choose": "601.2b",
+    "play_hideaway_card": "608.2g",
     "intuition_search": "701.23",
     "land_or_free_cast": "601.2b",
     "look_top_keep_one_on_top": "601.2b",

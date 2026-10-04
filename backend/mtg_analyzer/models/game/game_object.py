@@ -294,6 +294,10 @@ class GameObject:
         #: is turned face up — nothing keeps a card face down across a zone
         #: change (RULE 400.7).
         self.face_down_in_exile: bool = False
+        self.face_down_exile_viewers: set[str] = set()
+        self.hideaway_source_id: Optional[int] = None
+        self.hideaway_exile_ids: set[int] = set()
+        self.hideaway_incarnation: int = 0
         #: RULE 701.42a / 712: whether this permanent is a **melded**
         #: permanent — a single object representing two cards, its
         #: characteristics coming from the meld pair's back-face result card
@@ -1446,6 +1450,10 @@ class GameObject:
         self.madness_cost_paid = False
         self.surge_cost_paid = False
         self.face_down_in_exile = False
+        self.face_down_exile_viewers = set()
+        self.hideaway_source_id = None
+        self.hideaway_exile_ids = set()
+        self.hideaway_incarnation += 1
         self.cast_via_flashback = False
         self.cast_via_evoke = False
         self.cast_via_dash = False
@@ -2008,6 +2016,8 @@ class GameObject:
             # the payload: this app's goldfish/Replay views are all shown to
             # the card's own owner, who is exactly who *may* look at it.
             "face_down_in_exile": self.face_down_in_exile,
+            "face_down_exile_viewers": sorted(self.face_down_exile_viewers),
+            "hideaway_source_id": self.hideaway_source_id,
             # RULE 708.2: a face-down spell/permanent — the board renders the
             # active card-back sleeve rather than art, and shows the 2/2 that
             # `power`/`toughness` above already report. ``face_down_kind``

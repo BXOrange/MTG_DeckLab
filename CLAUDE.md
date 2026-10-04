@@ -609,8 +609,8 @@ preserved across suspended effects. Additional draws accept fixed plural
 counts; Teferi's Puzzle Box uses hand-to-library ordering followed by a draw
 of the saved hand size, and Academy Loremaster uses a turn-scoped spell tax.
 
-**Coverage: 58.1% (20,365 / 35,046) as of 2026-10-03, measured at
-PARSER_VERSION 598** (parser-`MODELED` or hand-`AUTHORED`, measured against
+**Coverage: 58.1% (20,372 / 35,046) as of 2026-10-04, measured at
+PARSER_VERSION 604** (parser-`MODELED` or hand-`AUTHORED`, measured against
 the full ~35k-card Oracle universe from `scripts/import_bulk.py`, excluding
 Sticker Sheet inserts by type line under RULE 123.2). Re-measure
 with `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
@@ -847,9 +847,10 @@ English and German.
 
 | Task | Start in |
 | --- | --- |
+| Playing a card during a resolving effect (RULE 608.2g) | `effects.GameContext.offer_play_during_resolution`, `GameEngine.play_resolution_card` / `resolution_play_actions`, and the matching `services/game_session.py` action/choice path; preserves targets, modes, additional costs and land-play limits without a turn-long grant |
 | Combat / keywords | `game/combat.py`, `game/game_engine.py` (`_step_combat_damage`) |
 | Static abilities / P/T / anthems | `game/continuous.py`, `models/game_object.py` |
-| "As long as …" conditions on a static (RULE 613.6) | `game/static_conditions.py` — the project's **single state-predicate vocabulary**, read by statics' `active_if`, trigger intervening-ifs, `binding/core.py`'s replacement gate and (via `game/effect_conditions.py`) resolving effects; plus `parser/oracle/catalogue/static_handlers.py` (`_STATIC_CONDITION_RES`, `_conditional_static_specs`) |
+| "As long as …" conditions on a static (RULE 613.6) | `game/static_conditions.py` — the project's **single state-predicate vocabulary**, read by statics' `active_if`, trigger intervening-ifs, `binding/core.py`'s replacement gate and (via `game/effect_conditions.py`) resolving effects; includes `opponent_was_dealt_damage_this_turn` (damage per opponent, distinct from life loss); plus `parser/oracle/catalogue/static_handlers.py` (`_STATIC_CONDITION_RES`, `_conditional_static_specs`) |
 | "Until …" durations on a continuous effect (RULE 611) | `game/durations.py`, `GameState.floating_statics`, `effects.GrantUntilEffect` — note "until end of turn" stays on the `temp_*` path |
 | How many targets a spell/ability wants (RULE 115.1/601.2c) | `game/targeting.py` (`TargetSpec.count`/`count_max`/`count_selector`, `effective_count`, `resolved_count`, `expand_counts`/`collapse_groups`) |
 | A clause naming what a previous clause targeted, created, or revealed | `effects.GameContext.previous_targets` / `created_objects` / `revealed_card` (all maintained by `_apply_effects_partitioned`; `revealed_card` is the `of: "revealed"` referent, set by `reveal_top`) |

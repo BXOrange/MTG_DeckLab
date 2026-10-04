@@ -985,9 +985,6 @@ class TurnLoopMixin:
         `RulesEngine.resume_deferred_effects`.
         """
         for _ in range(_MAX_RESOLUTIONS):
-            self.rules.check_state_based_actions()
-            if self.state.game_over:
-                return
             if self.state.pending_choice:
                 return  # await a player decision before resolving further
             if self.rules.resume_deferred_effects():
@@ -996,6 +993,9 @@ class TurnLoopMixin:
                 # on the stack — its remaining effects are still part of
                 # that same, still-resolving object.
                 continue
+            self.rules.check_state_based_actions()
+            if self.state.game_over:
+                return
             self.rules.put_triggers_on_stack()
             if self.state.pending_choice:
                 # `put_triggers_on_stack` itself just opened one (RULE
@@ -1120,7 +1120,11 @@ class TurnLoopMixin:
         `resolve_until_stable` is the turn-loop's job, which is why it lives
         here and not there.
         """
+        immediate_play = self.state.resolution_play_waiting
         self.rules.resolve_choice(answer)
+        if immediate_play:
+            self._finish_resolution_play()
+            return
         self.resolve_until_stable()
     def set_skip_untap(self, player: Player, obj: GameObject, value: bool) -> None:
         """Toggle RULE 502.1's "you may choose not to untap ~ during your
