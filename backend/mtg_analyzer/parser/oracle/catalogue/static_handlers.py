@@ -4604,6 +4604,18 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     `_ATTACHED_SUBJECTS` above.
     """
     text = clause.strip().rstrip(".").strip()
+    # RULE 702.152: a grant, a cost adjustment, and a restricted zone permission.
+    match = re.fullmatch(r"each creature spell you cast with mana value (\d+) or greater has blitz\. the blitz cost is equal to its mana cost", text)
+    if match:
+        return [EffectSpec("grant_blitz", {"min_mana_value": int(match.group(1))})]
+    if text == "blitz costs you pay cost {1} less for each time you've cast your commander from the command zone this game":
+        return [EffectSpec("blitz_cost_reduction", {"amount": 1})]
+    if text in {"you may cast ~ from your graveyard using its blitz ability",
+                "you may cast this card from your graveyard using its blitz ability"}:
+        return [EffectSpec("blitz_graveyard_permission", {})]
+    match = re.fullmatch(r"creature spells you cast from your hand have blitz ((?:\{[^}]+\})+)", text)
+    if match:
+        return [EffectSpec("grant_blitz", {"from_hand": True, "cost": match.group(1)})]
     if text == "instant and sorcery spells you cast have storm":
         return [EffectSpec("grant_keyword", {
             "affects": "instant_sorcery_spells_you_cast", "keywords": ["storm"],

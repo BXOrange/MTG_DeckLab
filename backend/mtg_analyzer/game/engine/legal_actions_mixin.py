@@ -224,6 +224,7 @@ class LegalActionsMixin:
         entwine: bool = False,
         free: bool = False,
         alt_cost: bool = False,
+        blitz: Optional[int] = None,
         evoke: bool = False,
         surge: bool = False,
         help_pay: bool = False,
@@ -274,7 +275,7 @@ class LegalActionsMixin:
             obj._gift_preview = True
             try:
                 action = self._cast_action(player, obj, face=face, mode=mode, entwine=entwine, free=free,
-                                           alt_cost=alt_cost, evoke=evoke, surge=surge, help_pay=help_pay,
+                                           alt_cost=alt_cost, blitz=blitz, evoke=evoke, surge=surge, help_pay=help_pay,
                                            pay_additional=pay_additional)
             finally:
                 obj.gift_promised, obj.gift_recipient_id = saved
@@ -348,6 +349,23 @@ class LegalActionsMixin:
         if mode is not None:
             action["mode"] = mode
             action["mode_description"] = self._mode_description(obj, mode)
+        if blitz is not None:
+            from ..blitz import costs_for
+
+            option = costs_for(self.state, player, obj)[blitz]
+            payment = option.payment
+            action["blitz"] = blitz
+            action["blitz_cost_label"] = payment.label()
+            action["cost_label"] = self.effective_cast_cost(player, obj, option.minimum_x(obj.card), blitz=blitz, mode=mode).raw
+            action["mana_value"] = obj.card.converted_mana_cost
+            if payment.discard:
+                action["discard_cost"] = {
+                    "count": payment.discard,
+                    "options": [
+                        {"instance_id": candidate.instance_id, "name": candidate.name}
+                        for candidate in player.hand if candidate is not obj
+                    ],
+                }
         if free or alt_cost or evoke or surge:
             # RULE 601.2f-adjacent free cast / RULE 118.9 alternative cost
             # (MEC-15) / RULE 702.74b Evoke (MEC-42) / RULE 702.117 Surge — a wholly different
@@ -567,6 +585,20 @@ class LegalActionsMixin:
             if not all_requirements_satisfiable(requirements):
                 action["locked"] = True
                 action["lock_reason"] = "Kein gültiges Ziel im Spiel"
+        if blitz is not None:
+            cost = self.effective_cast_cost(player, obj, option.minimum_x(obj.card), blitz=blitz, mode=mode)
+            if payment.mana.has_variable:
+                action["has_x"] = True
+                action["min_x"] = option.minimum_x(obj.card)
+                action["max_x"] = self.max_affordable_x(player, obj, blitz=blitz)
+            else:
+                action.pop("has_x", None)
+                action.pop("max_x", None)
+            action["effective_cost"] = cost.raw
+            # Blitz has its own cost; ordinary mana reductions must not show
+            # the printed payment alongside this alternative payment.
+            action["base_cost"] = payment.mana.raw
+            action.pop("cast_from_graveyard", None)
         if teamwork:
             delattr(obj, "_modal_announced_teamwork")
         return action
@@ -698,6 +730,15 @@ class LegalActionsMixin:
             and self.can_cast(player, obj, face=face, alt_cost=True)
         ):
             return True
+        from ..blitz import costs_for
+
+        if face == "front":
+            for index, option in enumerate(costs_for(self.state, player, obj)):
+                minimum_x = option.minimum_x(obj.card)
+                if self.can_cast(player, obj, minimum_x, blitz=index, assume_mana_available=True):
+                    cost = self.effective_cast_cost(player, obj, minimum_x, blitz=index)
+                    if mana_potential.is_castable_via_potential(self, player, cost):
+                        return True
         # RULE 702.74b (MEC-42): Evoke pays real mana (just a different
         # amount), so — unlike free/alt_cost's zero-mana paths above — it
         # needs the same mana-potential probe `_plain_castable_now_or_via_
@@ -847,6 +888,14 @@ class LegalActionsMixin:
             and self.can_cast(player, obj, alt_cost=True)
         ):
             actions.append(self._cast_action(player, obj, alt_cost=True))
+        from ..blitz import costs_for
+
+        for index, option in enumerate(costs_for(self.state, player, obj)):
+            minimum_x = option.minimum_x(obj.card)
+            if self.can_cast(player, obj, minimum_x, blitz=index, assume_mana_available=True):
+                cost = self.effective_cast_cost(player, obj, minimum_x, blitz=index)
+                if mana_potential.is_castable_via_potential(self, player, cost):
+                    actions.append(self._cast_action(player, obj, blitz=index))
         # RULE 702.74b (MEC-42): a printed or granted Evoke cost is a third,
         # independent payment method — same "offered alongside, never in
         # place of" treatment as free/alt_cost above.
@@ -1038,6 +1087,8 @@ class LegalActionsMixin:
                 if castable and self._castable_now_or_via_potential(player, obj):
                     self._offer_cast(actions, player, obj)
 
+        from ..blitz import graveyard_permission as blitz_graveyard_permission
+
         for obj in list(player.graveyard):
             # RULE 702.34 / 702.138: Flashback/Escape let a card be cast
             # from the graveyard for an alternative cost — or some other
@@ -1045,6 +1096,7 @@ class LegalActionsMixin:
             # the Dream-Den-shaped, `_graveyard_cast_permission`).
             castable = (
                 self._castable_from_graveyard(obj)
+                or blitz_graveyard_permission(obj)
                 or self._graveyard_cast_permission(player, obj)
             )
             if castable and self._castable_now_or_via_potential(player, obj):

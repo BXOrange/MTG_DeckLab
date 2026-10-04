@@ -132,6 +132,8 @@ class GameObject:
         #: Multikicker. Set once at cast time by `GameEngine._cast_current_face`
         #: and left on the object afterward as a record of what was paid.
         self.kicker_count: int = 0
+        # RULE 601.2b/602.2b: no X has been announced on a fresh object.
+        self.x_paid: int = 0
         #: RULE 702.33b: the value announced for Kicker's own ``{X}`` (PAR-7,
         #: Emblazoned Golem-shaped — a Kicker cost that is itself variable,
         #: distinct from the *spell's* own announced X `_apply_entry_counters`
@@ -402,6 +404,7 @@ class GameObject:
         #: sacrifices it right after it enters the battlefield (a
         #: consequence, not a replacement — its own ETB trigger still
         #: fires first), then clears this flag.
+        self.blitz_cost_paid: bool = False  # RULE 702.152, through stack→battlefield.
         self.cast_via_evoke: bool = False
         #: RULE 702.109c/d (PAR-26): whether this creature spell was cast
         #: for its Dash cost — if so, `RulesEngine`'s permanent-spell
@@ -1421,6 +1424,7 @@ class GameObject:
         self.conjured_into_hand = False
         self.ability_resolutions = {}
         self.kicker_count = 0
+        self.x_paid = 0
         self.kicker_x_paid = 0
         self.buyback_paid = False
         self.additional_cost_paid = False
@@ -1455,6 +1459,7 @@ class GameObject:
         self.hideaway_exile_ids = set()
         self.hideaway_incarnation += 1
         self.cast_via_flashback = False
+        self.blitz_cost_paid = False
         self.cast_via_evoke = False
         self.cast_via_dash = False
         self.granted_suspend_haste = False

@@ -20194,6 +20194,12 @@ def _match_clause_reading(
     clause: str, *, self_subject: bool, previous_subject: bool, group_subject: bool,
     previous_selector: bool, attached_subject: bool,
 ) -> Optional[list[EffectSpec]]:
+    # MEC-109: the choice and its persistent grant are one instruction.
+    if clause.strip().rstrip(".") == (
+        "choose a creature card in your hand without blitz. it perpetually gains blitz. "
+        "the blitz cost is equal to its mana cost"
+    ):
+        return [EffectSpec("choose_perpetual_blitz", {})]
     other_than = _OTHER_THAN_THAT_RE.search(clause) if group_subject else None
     if other_than is not None:
         # "put a +1/+1 counter on target creature you control **other than that creature**": the

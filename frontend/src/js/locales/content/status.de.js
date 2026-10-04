@@ -298,6 +298,7 @@ export default [
               ['full', 'Affinity (702.41) — Kostenreduktion je Artefakt / Land-Typ'],
               ['partial', 'Convoke / Delve / Improvise (702.51/702.66/702.126) — generischer Anteil per Kreatur/Friedhofkarte/Artefakt, Auto-Minimal (noch keine Einzelauswahl, nur generisch)'],
               ['full', 'Backup (702.165) — ETB-Marken auf Zielkreatur (auch sich selbst); geliehene Fähigkeiten vereinfacht'],
+              ['full', 'Blitz (702.152) — alternative Kosten, Eile, Sterben/Karte ziehen, Opfer im nächsten Endsegment; Henzie und Friedhof-Casts'],
               ['full', 'Dash (702.109) — Dash-Kosten, Eile, Rückkehr auf die Hand im Endsegment'],
               ['full', 'Madness (702.35) — beim Abwerfen exiliert, für die Madness-Kosten wirkbar, sonst in den Friedhof'],
               ['partial', 'Miracle (702.94) — erste gezogene Karte des Zuges, Fenster gilt vereinfacht den ganzen Zug'],

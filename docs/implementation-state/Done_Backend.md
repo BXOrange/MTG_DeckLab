@@ -2122,6 +2122,13 @@ Copies use the existing spell-copy primitive and do not count as casts.
 
 ## Casting & Costs
 
+### MEC-109: Blitz (RULE 702.152, PARSER_VERSION 605)
+
+- **What:** Printed and granted Blitz costs are separate cast choices, including mana, life and discard payments, commander taxes, additional costs and Henzie's commander-cast discount. Henzie's mana-value threshold includes announced X. Sabin and Tenacious Underdog can use Blitz from the graveyard; Blitz itself does not exile them.
+- **Lifetime:** Paying Blitz grants haste and a dies/draw trigger to the resulting permanent, plus a respondable sacrifice trigger at the next end step. Zone changes clear the payment; the delayed sacrifice tracks that incarnation and cannot sacrifice an opponent's permanent. Spell copies retain the payment decision. Riveteers Provocateur uses the object chooser to grant perpetual Blitz.
+- **Integration:** Parser handlers, executable IR, legal actions and the session API carry the selected Blitz instance. The board exposes distinct Blitz actions and preserves the choice through X, target and discard selection. `game/blitz.py` owns the mechanic; `tests/test_blitz.py` covers payments, grants, copies, ability loss and zone transitions.
+
+
 ### PAR-99: the targeted-spell tax — "Spells `<you|your opponents>` cast that target `<X>` cost …" (PARSER_VERSION 572, +5, 0 regressed)
 
 - **What:** Monastery Siege's Dragons mode, Esior, Kasmina, Terror of the Peaks, Elderwood Scion's "spells you cast that target ~ cost {2} less". The ticket began as the Khans/Dragons Siege cycle; Batch 6 closed that cycle (and a lot besides), which left this tax as the only residue. One row (`static_handlers._SPELL_COST_TAX_THAT_TARGET_RE`) replaces the old opponents-only "that target ~" row with the same output for it, over two axes: **who** (you / your opponents → `affects`) and **what the tax is** (`{N}` more/less, or "an additional N life").

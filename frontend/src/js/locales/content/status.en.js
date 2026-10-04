@@ -298,6 +298,7 @@ export default [
               ['full', 'Affinity (702.41) — cost reduction per artifact / land type'],
               ['partial', 'Convoke / Delve / Improvise (702.51/702.66/702.126) — generic portion per creature/graveyard card/artifact, auto-minimal (no individual selection yet, generic only)'],
               ['full', 'Backup (702.165) — ETB counters on a target creature (including itself); granted abilities simplified'],
+              ['full', 'Blitz (702.152) — alternative costs, haste, dies/draw, next-end-step sacrifice; Henzie and graveyard casts'],
               ['full', 'Dash (702.109) — dash cost, haste, return to hand in the end step'],
               ['full', 'Madness (702.35) — exiled on discard, castable for the madness cost, otherwise to the graveyard'],
               ['partial', 'Miracle (702.94) — first card drawn this turn, window simplified to the whole turn'],

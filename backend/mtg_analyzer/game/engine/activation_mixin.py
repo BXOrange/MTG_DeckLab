@@ -1610,7 +1610,7 @@ class ActivationMixin:
         # RULE 602.2b/601.2c: choose legal targets before paying costs.
         # Announced X already constrains those targets; a rejected activation
         # must not overwrite the source's previously recorded X.
-        previous_x = source.x_paid
+        previous_x = getattr(source, "x_paid", 0)
         source.x_paid = x
         try:
             for spec, picks in zip(resolved_specs, groups):

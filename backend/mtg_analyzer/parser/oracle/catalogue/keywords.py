@@ -615,6 +615,10 @@ def _extract_param(kdef: KeywordDef, text: str, forced_quality: Optional[str]) -
         fallback = _WARD_TEXT_COST_RE.search(text)
         if fallback:
             param["cost"] = fallback.group("cost").strip()
+    if kdef.slug == "blitz":
+        match = re.search(r"(?:^|\n)blitz\s*[—-]?\s*(?P<cost>[^.\n(]+)", text, re.I)
+        if match:
+            param["cost"] = match.group("cost").strip()
     if kdef.slug == "escape":
         # Always prefer the full clause over the mana-only match above (if
         # any) — Escape's exile-count component only lives in this capture.

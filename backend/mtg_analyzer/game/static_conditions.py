@@ -373,6 +373,7 @@ SUBJECT_FLAGS: frozenset[str] = frozenset(
         "bargained",  # RULE 601.2b, Beseech the Mirror — was ``bargained``
         "gift_promised",  # RULE 702.174k (MEC-106) — "if the gift was promised"
         "madness_cost_paid",  # RULE 702.35 (PAR-139) — "if its/this spell's madness cost was paid"
+        "blitz_cost_paid",  # RULE 702.152: this instance was cast for blitz.
         "surge_cost_paid",  # RULE 702.117 — "if its/this spell's surge cost was paid"
         # RULE 601.2b's generic optional additional cost, stamped by
         # `GameEngine.cast_spell` — was ``additional_cost_paid``.

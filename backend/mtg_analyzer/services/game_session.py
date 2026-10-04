@@ -1085,6 +1085,7 @@ class GameSession:
             entwine=bool(action.get("entwine", False)),
             free=bool(action.get("free", False)),
             alt_cost=bool(action.get("alt_cost", False)),
+            blitz=action.get("blitz"),
             evoke=bool(action.get("evoke", False)),
             surge=bool(action.get("surge", False)),
             exile_discount=int(action.get("exile_discount", 0)),

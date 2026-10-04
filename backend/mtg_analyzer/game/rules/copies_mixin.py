@@ -322,6 +322,8 @@ class CopiesMixin:
             copy_obj.is_token = True
             copy_obj.is_copy = True
             copy_obj.x_paid = item.x
+            # RULE 707.10: copying a spell copies alternative-cost decisions.
+            copy_obj.blitz_cost_paid = item.obj.blitz_cost_paid
             bind_from_catalogue(copy_obj)
             copy_item = StackItem(
                 kind="spell",

@@ -1322,6 +1322,9 @@ class GameState:
             )
 
     def remove_from_battlefield(self, obj: GameObject) -> None:
+        # RULE 400.7: the new object has not paid this permanent's blitz cost.
+        # Departure events have already captured its last-known abilities.
+        obj.blitz_cost_paid = False
         if obj in self.battlefield:
             self.battlefield.remove(obj)
         # RULE 708.9: "if a face-down permanent moves from the battlefield to

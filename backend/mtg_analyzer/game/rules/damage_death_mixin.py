@@ -710,6 +710,7 @@ class DamageDeathMixin:
             self._remove_from_current_zone(owner, obj)
         obj.tapped = False
         obj.damage_marked = 0
+        obj.blitz_cost_paid = False  # RULE 400.7, including a countered spell.
         owner.add_to_zone(obj, Zone.EXILE)
         self._split_melded_after_move(obj, Zone.EXILE)  # RULE 712.19
         self._flag_commander_zone_choice(obj)
@@ -2284,6 +2285,7 @@ class DamageDeathMixin:
 
         obj.tapped = False
         obj.damage_marked = 0
+        obj.blitz_cost_paid = False  # RULE 400.7, including a countered spell.
         owner.add_to_zone(obj, Zone.GRAVEYARD)
         self._split_melded_after_move(obj, Zone.GRAVEYARD)  # RULE 712.19
         self._flag_commander_zone_choice(obj)

@@ -2127,7 +2127,10 @@ class CastingResolutionMixin:
             # happen first.
             read_ahead_count = self._pending_read_ahead_count
             self._pending_read_ahead_count = None
+            from ..blitz import resolve_blitz
+
             self.state.add_to_battlefield(obj, saga_lore_override=read_ahead_count)
+            resolve_blitz(self.state, obj, item.controller_id)
             if self._attachment_kind(obj) == "enchant":
                 targets = [t for t in item.targets if isinstance(t, (GameObject, Player))]
                 target = targets[0] if targets else None
@@ -2323,6 +2326,7 @@ class CastingResolutionMixin:
         remove it *from* first — `resolve_top_of_stack` already popped it).
         """
         owner = self.state.player_by_id(obj.owner_id)
+        obj.blitz_cost_paid = False  # RULE 400.7: this spell did not become a permanent.
         owner.add_to_zone(obj, Zone.GRAVEYARD)
         self.state.fire_event(
             GameEvent(EventType.SPELL_RESOLVED, spell=obj.name, controller_id=obj.controller_id)

@@ -451,6 +451,7 @@ fully `MODELED` (never half-resolving). The front-end has **no `game/` imports**
   derived types. Base-P/T filters read layer-7b values before counters.
   Squirreled Away is fully modeled (85/85); see the Deck/Cube Playability Batches
   in `docs/implementation-state/Done_Backend.md` for reusable engine support.
+- `blitz.py` — Blitz payments, grants, discounts and delayed sacrifice (RULE 702.152).
 - `costs.py` — regex parser for **activated-ability costs** (`Cost: Effect`).
 - `card_registry/` — card→`AbilitySpec` registry mechanism (bind-on-load
   source, née `ability_catalogue/`): `core.py`'s `register`/`specs_for`
@@ -689,6 +690,10 @@ files, and the original phased `IMPLEMENTATION_GUIDE.md`). See
 (how to *use* the app — deck import, Goldfisch, Replay/Puzzle, settings —
 not how it's built) lives separately in [`user-docs/`](user-docs/), in
 English and German.
+
+### Blitz (MEC-109)
+
+`backend/mtg_analyzer/game/blitz.py` implements RULE 702.152: alternative payments, Henzie grants/discounts, perpetual grants and the next-end-step sacrifice. Casting and legal-action mixins pass a zero-based `blitz` instance index through the session API. `backend/tests/test_blitz.py` covers the lifecycle and costs; Blitz does not inherently exile the creature.
 
 ## Conventions & gotchas
 

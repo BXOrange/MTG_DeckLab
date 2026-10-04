@@ -5000,3 +5000,19 @@ EffectRegistry.register(
 
 
 register(globals())
+
+# RULE 702.152: casting-time statics, queried by game.blitz.
+for _blitz_static in ("grant_blitz", "blitz_cost_reduction", "blitz_graveyard_permission"):
+    EffectRegistry.register(
+        _blitz_static,
+        lambda p, kind=_blitz_static: StaticAbility(kind, affects="self", params=dict(p)),
+    )
+
+
+def _choose_perpetual_blitz(params):
+    from ..blitz import ChoosePerpetualBlitzEffect
+
+    return ChoosePerpetualBlitzEffect()
+
+
+EffectRegistry.register("choose_perpetual_blitz", _choose_perpetual_blitz)

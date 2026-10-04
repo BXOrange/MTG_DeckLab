@@ -26,7 +26,7 @@ from ...models.game.game_state import GameState, StackItem
 from ...models.mana.mana_cost import ManaCost
 from ...models.game.player import Player
 from .. import (
-    card_registry, combat, condition_query, continuous, durations, face_down, mana_potential, variants,
+    blitz as blitz_mechanic, card_registry, combat, condition_query, continuous, durations, face_down, mana_potential, variants,
 )
 from ...models.decks import formats as game_format
 from ...models.decks.formats import GameFormat, get_format
@@ -472,6 +472,7 @@ class CastingMixin:
         mutate: bool = False,
         bargained: bool = False,
         entwine: bool = False,
+        blitz: Optional[int] = None,
         evoke: bool = False,
         surge: bool = False,
         exile_discount: int = 0,
@@ -574,15 +575,28 @@ class CastingMixin:
             params = (getattr(obj, "parametric_keywords", None) or {}).get("teamwork")
             if not params or self._teamwork_selection(player, obj, teamwork_choices) is None:
                 return False
+        if blitz is not None:
+            options = blitz_mechanic.costs_for(self.state, player, obj)
+            if isinstance(blitz, bool) or not isinstance(blitz, int) or not 0 <= blitz < len(options):
+                return False
+            if not options[blitz].available(obj.card, x):
+                return False
+            if free or alt_cost or evoke or surge or mutate or face != "front":
+                return False  # RULE 118.9a: only one alternative cost.
+            if not self._can_pay_additional_cast_cost(
+                player, obj, options[blitz].payment, x, sacrifice_choice, discard_choices, True,
+            ):
+                return False
         in_castable_zone = (
             obj in player.hand
+            or (obj in player.graveyard and blitz is not None and blitz_mechanic.graveyard_permission(obj))
             or self._has_resolution_play_permission(player, obj)
             or obj in player.command
             or (obj in player.exile and self._castable_from_exile(obj))
             or (obj.zone == Zone.EXILE and self._has_temp_play_permission(obj, player))
             or (obj.zone == Zone.EXILE and self._has_conditional_exile_permission(obj, player))
             or self._can_cast_foretold(player, obj)
-            or (obj in player.graveyard and self._castable_from_graveyard(obj))
+            or (obj in player.graveyard and blitz is None and self._castable_from_graveyard(obj))
             or (obj in player.graveyard and self._graveyard_cast_permission(player, obj))
             or (
                 obj in player.graveyard
@@ -821,7 +835,7 @@ class CastingMixin:
                 # Bargain is optional, but choosing it requires something to
                 # sacrifice.
                 return False
-        if obj in player.graveyard and self._graveyard_cast_keyword(obj) == "escape":
+        if blitz is None and obj in player.graveyard and self._graveyard_cast_keyword(obj) == "escape":
             # RULE 702.138b: "exile N *other* cards from your graveyard" —
             # ``obj`` itself doesn't count toward that N.
             escape_cost = self._escape_cost(obj)
@@ -880,7 +894,7 @@ class CastingMixin:
         elif not assume_mana_available:
             cost = self.effective_cast_cost(
                 player, obj, x, face=face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback,
-                mutate=mutate, entwine=entwine, evoke=evoke, surge=surge, exile_discount=exile_discount, targets=targets,
+                mutate=mutate, entwine=entwine, blitz=blitz, evoke=evoke, surge=surge, exile_discount=exile_discount, targets=targets,
                 help_pay=help_pay, pay_additional=pay_additional,
             )
             allows_restriction = restriction_predicate_for_cast(obj, has_x=cost.has_variable)
@@ -1108,6 +1122,7 @@ class CastingMixin:
         buyback: bool = False,
         mutate: bool = False,
         entwine: bool = False,
+        blitz: Optional[int] = None,
         evoke: bool = False,
         surge: bool = False,
         exile_discount: int = 0,
@@ -1192,7 +1207,12 @@ class CastingMixin:
                 # and ordinary cost adjustments (RULE 118.9).
                 return self._adjust_cost(ManaCost.parse("{0}"), player, obj)
         override = self.state.exile_cast_cost_override.get(obj.instance_id)
-        if self._has_resolution_play_permission(player, obj):
+        if blitz is not None:
+            options = blitz_mechanic.costs_for(self.state, player, obj)
+            if not 0 <= blitz < len(options):
+                raise ValueError("invalid blitz cost")
+            cost = options[blitz].payment.mana
+        elif self._has_resolution_play_permission(player, obj):
             # RULE 118.9d: replace only the mana cost; additional costs
             # and taxes below still apply to a cast during resolution.
             cost = ManaCost()
@@ -1224,7 +1244,8 @@ class CastingMixin:
             # restriction` above/`ActivationCost.spend_only_chosen_color`).
             x_color = getattr(obj, "x_spend_color_restriction", None)
             cost = cost.with_x_colored(x, x_color) if x_color else cost.with_x(x)
-        cost = self._adjust_cost(cost, player, obj, targets=targets)
+        if blitz is None:
+            cost = self._adjust_cost(cost, player, obj, targets=targets)
         tax = self.commander_tax(player, obj)
         if tax:
             cost = cost.increase_generic(tax)
@@ -1300,6 +1321,13 @@ class CastingMixin:
             # (`_consume_cast_help`), but `can_cast`/the displayed cost want
             # the best case this help could reach.
             cost = self._cast_help_capacity(player, obj, cost)
+        if blitz is not None:
+            # RULE 601.2f: reductions and floors apply to the total cost.
+            # Combine Henzie with ordinary increases before reducing.
+            cost = self._adjust_cost(
+                cost, player, obj, targets=targets,
+                extra_reduction=blitz_mechanic.reduction_for(self.state, player),
+            )
         return cost
     @staticmethod
     def commander_tax(player: Player, obj: GameObject) -> int:
@@ -1313,6 +1341,7 @@ class CastingMixin:
     def _adjust_cost(
         self, cost: "ManaCost", player: Player, obj: Optional[GameObject] = None,
         targets: Optional[list[Any]] = None,
+        extra_reduction: int = 0,
     ) -> "ManaCost":
         """Apply the net static generic adjustment (reduce or increase).
 
@@ -1324,6 +1353,7 @@ class CastingMixin:
         static resolve; ``None`` at every offer-time caller (best case).
         """
         reduction, _ = continuous.cost_reduction_for(self.state, player, obj, targets=targets)
+        reduction += extra_reduction
         if obj is not None:
             self_reduction, self_contributors = continuous.self_cost_reduction_for(
                 obj, self.state, caster_id=player.id, targets=targets,
@@ -1347,7 +1377,7 @@ class CastingMixin:
             # shortfall is added as generic, leaving colored pips alone.
             cost = cost.increase_generic(floor - cost.converted_mana_cost)
         return cost
-    def max_affordable_x(self, player: Player, obj: GameObject) -> int:
+    def max_affordable_x(self, player: Player, obj: GameObject, blitz: Optional[int] = None) -> int:
         """The highest X ``player`` could announce and still pay for ``obj``.
 
         MEC-13: mana-potential-aware, not real-pool-only — a player with
@@ -1366,9 +1396,9 @@ class CastingMixin:
         """
         bound = player.mana_pool.total() + mana_potential.max_potential_total(self, player)
         for x in range(bound, -1, -1):
-            if not self.can_cast(player, obj, x, assume_mana_available=True):
+            if not self.can_cast(player, obj, x, blitz=blitz, assume_mana_available=True):
                 continue
-            cost = self.effective_cast_cost(player, obj, x)
+            cost = self.effective_cast_cost(player, obj, x, blitz=blitz)
             if mana_potential.is_castable_via_potential(self, player, cost):
                 return x
         return 0
@@ -1390,6 +1420,7 @@ class CastingMixin:
         mutate_under: bool = False,
         bargained: bool = False,
         entwine: bool = False,
+        blitz: Optional[int] = None,
         evoke: bool = False,
         surge: bool = False,
         exile_discount: int = 0,
@@ -1526,7 +1557,7 @@ class CastingMixin:
                 result = self._cast_current_face(
                     player, obj, targets, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback,
                     target_groups=target_groups, free=free, alt_cost=alt_cost, mutate=mutate,
-                    mutate_under=mutate_under, bargained=bargained, entwine=entwine, evoke=evoke, surge=surge, exile_discount=exile_discount,
+                    mutate_under=mutate_under, bargained=bargained, entwine=entwine, blitz=blitz, evoke=evoke, surge=surge, exile_discount=exile_discount,
                     sacrifice_choice=sacrifice_choice, graveyard_sacrifice_choice=graveyard_sacrifice_choice, discard_choices=discard_choices, help_pay=help_pay,
                     pay_additional=pay_additional, teamwork=teamwork, teamwork_choices=teamwork_choices,
                 )
@@ -1550,7 +1581,7 @@ class CastingMixin:
             return self._cast_current_face(
                 player, obj, targets, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback,
                 target_groups=target_groups, free=free, alt_cost=alt_cost, mutate=mutate,
-                mutate_under=mutate_under, bargained=bargained, entwine=entwine, evoke=evoke, surge=surge, exile_discount=exile_discount,
+                mutate_under=mutate_under, bargained=bargained, entwine=entwine, blitz=blitz, evoke=evoke, surge=surge, exile_discount=exile_discount,
                 sacrifice_choice=sacrifice_choice, graveyard_sacrifice_choice=graveyard_sacrifice_choice, discard_choices=discard_choices, help_pay=help_pay,
                 pay_additional=pay_additional, teamwork=teamwork, teamwork_choices=teamwork_choices,
             )
@@ -1781,6 +1812,7 @@ class CastingMixin:
         mutate: bool = False,
         bargained: bool = False,
         entwine: bool = False,
+        blitz: Optional[int] = None,
         evoke: bool = False,
         surge: bool = False,
         exile_discount: int = 0,
@@ -1830,7 +1862,7 @@ class CastingMixin:
         """
         if free or alt_cost or self.can_cast(
             player, obj, x, face=face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
-            alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, evoke=evoke, surge=surge, exile_discount=exile_discount,
+            alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, blitz=blitz, evoke=evoke, surge=surge, exile_discount=exile_discount,
             sacrifice_choice=sacrifice_choice, graveyard_sacrifice_choice=graveyard_sacrifice_choice, discard_choices=discard_choices,
             targets=targets, help_pay=help_pay, pay_additional=pay_additional,
             teamwork=teamwork, teamwork_choices=teamwork_choices,
@@ -1838,7 +1870,7 @@ class CastingMixin:
             return
         if not self.can_cast(
             player, obj, x, face=face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
-            alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, evoke=evoke, surge=surge, exile_discount=exile_discount,
+            alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, blitz=blitz, evoke=evoke, surge=surge, exile_discount=exile_discount,
             sacrifice_choice=sacrifice_choice, graveyard_sacrifice_choice=graveyard_sacrifice_choice, discard_choices=discard_choices,
             targets=targets, assume_mana_available=True, help_pay=help_pay, pay_additional=pay_additional,
             teamwork=teamwork, teamwork_choices=teamwork_choices,
@@ -1846,7 +1878,7 @@ class CastingMixin:
             return  # illegal for a reason other than mana — never auto-tap
         cost = self.effective_cast_cost(
             player, obj, x, face=face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, mutate=mutate,
-            entwine=entwine, evoke=evoke, surge=surge, exile_discount=exile_discount, targets=targets, help_pay=help_pay,
+            entwine=entwine, blitz=blitz, evoke=evoke, surge=surge, exile_discount=exile_discount, targets=targets, help_pay=help_pay,
             pay_additional=pay_additional,
         )
         try:
@@ -1870,6 +1902,7 @@ class CastingMixin:
         mutate_under: bool = False,
         bargained: bool = False,
         entwine: bool = False,
+        blitz: Optional[int] = None,
         evoke: bool = False,
         surge: bool = False,
         exile_discount: int = 0,
@@ -1921,14 +1954,14 @@ class CastingMixin:
             bestow_face = "bestow" if bestow else "front"
             self._auto_tap_for_cast_if_needed(
                 player, obj, x, face=bestow_face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
-                alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, evoke=evoke, surge=surge, exile_discount=exile_discount,
+                alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, blitz=blitz, evoke=evoke, surge=surge, exile_discount=exile_discount,
                 sacrifice_choice=sacrifice_choice, graveyard_sacrifice_choice=graveyard_sacrifice_choice, discard_choices=discard_choices,
                 targets=targets, help_pay=help_pay, pay_additional=pay_additional,
                 teamwork=teamwork, teamwork_choices=teamwork_choices,
             )
             if not self.can_cast(
                 player, obj, x, face=bestow_face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
-                alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, evoke=evoke, surge=surge, exile_discount=exile_discount,
+                alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, blitz=blitz, evoke=evoke, surge=surge, exile_discount=exile_discount,
                 sacrifice_choice=sacrifice_choice, graveyard_sacrifice_choice=graveyard_sacrifice_choice, discard_choices=discard_choices,
                 targets=targets, help_pay=help_pay, pay_additional=pay_additional,
                 teamwork=teamwork, teamwork_choices=teamwork_choices,
@@ -1978,7 +2011,7 @@ class CastingMixin:
             # going to the graveyard on resolution (Escape has no such
             # after-resolving clause).
             graveyard_keyword = (
-                self._graveyard_cast_keyword(obj) if obj in player.graveyard else None
+                self._graveyard_cast_keyword(obj) if obj in player.graveyard and blitz is None else None
             )
             # Lurrus-shaped standing permission, read *before* the cast for
             # the same "off the object's current zone" reason as above — only
@@ -2033,6 +2066,8 @@ class CastingMixin:
                     # apart from an ordinary attack/tap-ability transition.
                     self.rules.set_tapped(creature, True, reason="teamwork")
                 obj.teamwork_paid = True
+            blitz_payment = blitz_mechanic.costs_for(self.state, player, obj)[blitz].payment if blitz is not None else None
+            obj.blitz_cost_paid = blitz is not None
             if free:
                 result = self.rules.cast_without_paying(player, obj, targets, target_groups)
             elif bestow:
@@ -2072,7 +2107,7 @@ class CastingMixin:
             else:
                 cost = self.effective_cast_cost(
                     player, obj, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, mutate=mutate,
-                    entwine=entwine, evoke=evoke, surge=surge, exile_discount=exile_discount, targets=targets,
+                    entwine=entwine, blitz=blitz, evoke=evoke, surge=surge, exile_discount=exile_discount, targets=targets,
                     pay_additional=pay_additional,
                 )
                 if help_pay and self._help_pay_keyword(obj) is not None:
@@ -2206,6 +2241,10 @@ class CastingMixin:
             # `_resolve_permanent_spell` adds the object to the battlefield
             # to sacrifice it (a *consequence* of entering, not a
             # replacement of it, so its own ETB trigger still fires first).
+            if blitz_payment is not None:
+                self._pay_additional_cast_cost(
+                    player, obj, blitz_payment, x, sacrifice_choice, discard_choices, True,
+                )
             obj.cast_via_evoke = evoke
             # RULE 702.117: "if its surge cost was paid" — reassigned every
             # cast like ``cast_via_evoke``, so a later plain recast clears it.

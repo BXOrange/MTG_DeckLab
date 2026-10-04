@@ -124,13 +124,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## MEC — Game mechanic
 
-- **MEC-109 · Blitz (RULE 702.152).** The alternative cost (`blitz—{cost}[, additional costs]`) with the rest of the
-  keyword: the cast gives the permanent haste, "when this creature dies, draw a card", and "sacrifice it at the
-  beginning of the next end step"; casting it from the graveyard "using its blitz ability" (Sabin, Master Monk;
-  Tenacious Underdog — the card is exiled if it would leave the battlefield that way); granting blitz ("each
-  creature spell you cast with mana value 4 or greater has blitz" — Henzie "Toolbox" Torre; the perpetual grant of
-  Riveteers Provocateur). The RULE 702 catalogue row is recognition only; add the engine primitive and its
-  oracle-text handlers in one batch.
+**NONE** Nothing to Do!
 
 ## PLR — Player management
 

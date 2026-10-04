@@ -574,6 +574,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "grant_die_to_exile_this_turn": "create_continuous_effect",
     "grant_escape": "create_continuous_effect",
     "grant_evoke": "create_continuous_effect",
+    "choose_perpetual_blitz": "create_continuous_effect",
     "grant_flash_until_eot": "create_continuous_effect",
     "grant_flashback_to_target": "create_continuous_effect",
     "grant_graveyard_cast_permission_this_turn": "create_continuous_effect",
@@ -848,6 +849,7 @@ _CONTINUATION_TYPES: dict[str, str] = {
 #: (`14_` §1.1): they are continuously re-derived by `continuous.recompute`,
 #: never executed. Composition operators do not apply to them.
 _STATIC_TYPES: frozenset[str] = frozenset({
+    "grant_blitz", "blitz_cost_reduction", "blitz_graveyard_permission",
     "activation_prohibition", "anthem", "attack_tax", "cant_attack_defender",
     "cant_be_countered", "cast_limit", "cast_prohibition", "color_change",
     "combat_restriction", "commander_damage_multiplier", "cost_reduction", "cost_restriction",

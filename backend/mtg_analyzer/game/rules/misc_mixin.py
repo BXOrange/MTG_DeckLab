@@ -3303,6 +3303,7 @@ class MiscSystemsMixin:
     #: than passing a continuation closure around.
     CHOOSE_OBJECT_ACTIONS = frozenset(
         {
+            "grant_perpetual_blitz",  # MEC-109: chosen hand card retains blitz.
             "tap", "untap", "sacrifice", "suspect", "return_to_hand", "return_from_graveyard",
             # RULE 702.26: "those permanents phase out" (Ripples of Potential).
             "phase_out",
@@ -4054,6 +4055,9 @@ class MiscSystemsMixin:
                 self.redirect_damage_from_source(
                     obj, recipient, redirect_shield.get("amount", "all"),
                 )
+        elif action == "grant_perpetual_blitz":
+            obj.perpetual_keywords.add("blitz")
+            obj.perpetual_effects.append({"source": source.name if source else "Blitz", "keywords": ["blitz"]})
         elif action == "select_referent":
             self.context.previous_targets = [obj]
         elif action == "remember_source_coinflip":
@@ -4733,6 +4737,7 @@ class MiscSystemsMixin:
             return
         self.state.stack.remove(item)
         if item.obj is not None:
+            item.obj.blitz_cost_paid = False  # RULE 400.7: the countered spell is a new object.
             owner = self.state.player_by_id(item.obj.owner_id)
             if suspend_time_counters:
                 owner.add_to_zone(item.obj, Zone.EXILE)

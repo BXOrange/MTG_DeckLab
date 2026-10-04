@@ -3067,6 +3067,9 @@ _GIFT_TOKEN_RE = re.compile(r"^gift an? (?P<quality>[a-z][a-z ]*?)\s*$", re.IGNO
 
 
 def _is_keyword_token(tok: str) -> bool:
+    # MEC-109: a cost-adjustment sentence is an ability, not a keyword line.
+    if tok.startswith("blitz costs "):
+        return False
     gift = _GIFT_TOKEN_RE.match(tok)
     if gift is not None and gift.group("quality").lower() not in GIFT_QUALITIES:
         # An un-card's "Gift a Rhystic Study": recognising the keyword would claim a gift the
