@@ -154,8 +154,8 @@ intuition, and bump `PARSER_VERSION` in the same session you add a handler.
 
 - **Deck analysis (UC2):** the static/heuristic half ships client-side
   (mana curve, types, land archetypes, Command Zone categories, a
-  Commander-Brackets heuristic). The LLM-backed narrative half is
-  [ANA-1] → [ANA-2] [ANA-3]. Use the latest Claude models.
+  Commander-Brackets heuristic). The ANA-1 backend ships with configurable Claude/compatible providers and caching;
+  [ANA-2] narrative UI and [ANA-3] cache-age presentation remain open.
 - **Auth & persistence:** [PLR-9] accounts (saved decks are unscoped until
   this exists) → [PLR-10] game history.
 - **Bot AI (UC5):** seats are filled and playing; what's open is judgment —
@@ -169,7 +169,7 @@ intuition, and bump `PARSER_VERSION` in the same session you add a handler.
 M1 (parser gaps → mechanics → tail)  ── standing; the ONLY path to "most decks playable"
 M6 residue ([PAR-13] card text → folds into M1's tail; [PLR-13] format switch → [PLR-14] teams)
 M5 residue ([PLR-8] bots in a pod)                              ── independent
-M7 ([ANA-1] → [ANA-2]/[ANA-3];  [PLR-9] → [PLR-10])              ── independent
+M7 ([ANA-2]/[ANA-3];  [PLR-9] → [PLR-10])              ── independent
 M2 / M3 / M4 ── closed, no open residue
 ```
 

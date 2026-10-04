@@ -3,6 +3,36 @@
 // en.js — see its header.
 
 export default {
+  'settings.llm.selectModel': 'Modell auswählen …',
+  'settings.llm.manualModel': 'Modell-ID manuell eingeben',
+  'settings.llm.reloadModels': 'Modelle neu laden',
+  'settings.llm.loadingModels': 'Modelle werden geladen …',
+  'settings.llm.modelsLoaded': '{count} Modelle verfügbar',
+  'settings.llm.noModels': 'Keine Modelle gemeldet. Eine Modell-ID kann manuell eingegeben werden.',
+  'settings.llm.modelsFailed': 'Modelle konnten nicht geladen werden: {error}. API-Key prüfen oder Modell-ID manuell eingeben.',
+
+  'settings.llm.heading': 'LLM / AI Bot',
+  'settings.llm.hint': 'Serverweite Verbindung für AI Bot und narrative Deckanalyse. Eigene Deckliste und die geschützte Spielansicht werden an diesen Anbieter gesendet. Bei Ausfällen übernimmt der Smart Bot.',
+  'settings.llm.enabled': 'LLM aktivieren',
+  'settings.llm.provider': 'Anbieter',
+  'settings.llm.compatible': 'OpenAI-kompatible API (auch lokal)',
+  'settings.llm.endpoint': 'API-Basisadresse (mit /v1)',
+  'settings.llm.model': 'Modell',
+  'settings.llm.key': 'API-Key (leer = für denselben Endpunkt behalten)',
+  'settings.llm.clearKey': 'Gespeicherten API-Key entfernen',
+  'settings.llm.keySet': 'API-Key auf dem Server gesetzt',
+  'settings.llm.keyMissing': 'Kein API-Key gesetzt (lokale APIs können ohne Key arbeiten)',
+  'settings.llm.calls': 'Max. LLM-Anfragen pro Bot und Zug',
+  'settings.llm.timeout': 'Zeitlimit pro Anfrage (Sekunden)',
+  'settings.llm.save': 'LLM-Einstellungen speichern',
+  'settings.llm.saved': 'LLM-Einstellungen gespeichert',
+  'settings.llm.test': 'Gespeicherte Verbindung testen',
+  'settings.llm.connected': 'LLM-Verbindung erfolgreich',
+  'settings.llm.working': 'LLM-Anfrage läuft …',
+  'settings.llm.failed': 'LLM: {error}',
+  'settings.llm.botThinking': 'AI Bot entscheidet …',
+  'settings.llm.botFallback': 'AI Bot nutzt den Smart Bot als Ersatz',
+
   'bug.title': "Fehler melden",
   'bug.description': "Was ist passiert? Beschreibe die Schritte und das erwartete Verhalten.",
   'bug.actions': "Anzahl letzter Aktionen",
@@ -107,14 +137,10 @@ export default {
 
   // --- Settings tab (connectionSettingsView.js) -----------------------
   'settings.title': 'Einstellungen',
-  'settings.serverAddress': 'Server-Adresse',
-  'settings.saveButton': 'Speichern',
   'settings.testConnection': 'Verbindung testen',
   'settings.status.checking': 'Prüfe Verbindung …',
   'settings.status.connected': 'Verbunden',
   'settings.status.disconnected': 'Nicht erreichbar',
-  'settings.hintChangesApply':
-    'Änderungen gelten sofort für neue Anfragen und werden im Browser (Cookie) gespeichert — nicht serverseitig, ein anderer Browser/Rechner sieht sie nicht.',
   'settings.hintOtherSettings':
     'Spielername, Mehrspieler-Standardeinstellungen, eigene Token-Bilder, Karten-Sleeves und Lieblingsdecks findest du im Tab "Profil". Spielfeld-Einstellungen stehen hier weiter unten.',
   'settings.data.heading': 'Lokale Daten',

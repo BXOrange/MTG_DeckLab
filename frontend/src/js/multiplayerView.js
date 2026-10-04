@@ -128,7 +128,7 @@ export function createMultiplayerView(hooks = {}) {
   //: The bot kinds the server offers (GET /api/multiplayer/bots), fetched
   //: once — they're a property of the backend, not of this table.
   let botKinds = null;
-  let botKindToAdd = '';
+  let botKindToAdd = 'smart';
   //: PLR-13: the RULE 8/9 format catalogue (GET /api/game/formats), fetched
   //: once like `botKinds` — a property of the backend, not of this table.
   let gameFormats = null;

@@ -21,12 +21,9 @@ class Deck:
     re-parsed on demand rather than persisting derived data that could
     drift from the parser's actual current behavior.
 
-    `analysis_id` is a reserved hook for a future LLM deck analysis
-    feature (UC2, docs/implementation-state/BACKLOG.md ANA-1): nothing
-    populates or reads it yet, but the field exists now so that feature
-    can link a deck to its analysis without a storage migration later.
-    Treat its exact shape (a single id vs. something richer) as
-    provisional until that feature is actually built.
+    `analysis_id` links the current ANA-1 narrative result in analyses.db.
+    Section/archetype edits invalidate the link; cosmetic edits preserve it.
+    See docs/Reference/LLM_INTEGRATION.md for the API and cache contract.
 
     `sleeve_id` optionally references one of this deck owner's uploaded
     card-back designs (`services/player_assets.py`, `api/player_assets.py`

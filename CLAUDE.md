@@ -23,12 +23,12 @@ Two halves:
   Multiplayer (**Setup** = lobby + game configuration, **Board** = the
   shared game, disabled until you're at a table), and
   an **"Engine-Status"** tab documenting engine coverage, plus two header icon
-  buttons: **"Einstellungen"** (`connectionSettingsView.js` — *only* the
-  backend server address + connection test now) and **"Profil"**
+  buttons: **"Einstellungen"** (`connectionSettingsView.js` — automatic backend connection, data updates and
+  optional server-wide LLM configuration) and **"Profil"**
   (`profileView.js` — everything player-facing: player name, multiplayer
   default settings, auto-pass / board-comfort toggles, player-uploaded token
   art + card-back sleeves, favorite decks). Anything about *who you are* /
-  *how you play* is Profil; anything about *reaching the server* is
+  *how you play* is Profil; anything about *reaching/configuring the server* is
   Einstellungen. UI language is **German**; MTG keyword names stay
   English ("Flying", "Trample").
 
@@ -182,7 +182,20 @@ mulligan → RULE 509.1a declare-blockers, which the defender takes while the
 attacker holds priority → `play()` only if it holds priority) and
 subclasses override policy only — `GoldfishBot` (lands, else pass) and
 `GreedyBot` (everything, immediately, first legal target), `ManaMaximizerBot`
-(diagnostic mana ceiling) and `SmartBot` (deck-aware heuristic opponent).
+(diagnostic mana ceiling), `SmartBot` (deck-aware heuristic opponent), and
+`AIBot` (configured LLM, with Smart fallback).
+`SmartBot` is the default in Solo, Multiplayer and dynamic analysis, including
+API requests that omit the bot kind; explicitly selected policies are preserved.
+Classes live individually in
+`services/bot_policies/`; `services/bots.py` reexports them and owns the registry
+and driver. `prepare(session)` attaches policy context before each fresh view.
+AI requests run in bounded background workers and preserve priority while pending;
+solo view polling and the multiplayer watchdog collect completed decisions.
+Settings exposes Claude/Anthropic and compatible endpoints with automatically
+loaded model dropdowns and manual fallback; the same transport
+implements ANA-1 narrative analysis, structured validation and persistent caching.
+See [LLM integration](docs/Reference/LLM_INTEGRATION.md); ANA-2 narrative UI and
+ANA-3 cache-age presentation remain open.
 Smart Bot detects colour identity, archetype and commander themes from its
 own unordered setup deck list (`services/bot_strategy.py`), caches local
 Spellbook matches per session without downloading at game start, ranks visible
@@ -886,6 +899,7 @@ English and German.
 | "As long as …" conditions on a static (RULE 613.6) | `game/static_conditions.py` — the project's **single state-predicate vocabulary**, read by statics' `active_if`, trigger intervening-ifs, `binding/core.py`'s replacement gate and (via `game/effect_conditions.py`) resolving effects; includes `opponent_was_dealt_damage_this_turn` (damage per opponent, distinct from life loss); plus `parser/oracle/catalogue/static_handlers.py` (`_STATIC_CONDITION_RES`, `_conditional_static_specs`) |
 | "Until …" durations on a continuous effect (RULE 611) | `game/durations.py`, `GameState.floating_statics`, `effects.GrantUntilEffect` — note "until end of turn" stays on the `temp_*` path |
 | How many targets a spell/ability wants (RULE 115.1/601.2c) | `game/targeting.py` (`TargetSpec.count`/`count_max`/`count_selector`, `effective_count`, `resolved_count`, `expand_counts`/`collapse_groups`) |
+| "Another target land" / "another target land you control" | `game/targeting.py` (`other_land` / `other_land_you_control` exclude the source; ordinary land kinds include it), `parser/oracle/catalogue/subgrammars.py` (`OTHER_TARGET_KINDS`) |
 | A clause naming what a previous clause targeted, created, or revealed | `effects.GameContext.previous_targets` / `created_objects` / `revealed_card` (all maintained by `_apply_effects_partitioned`; `revealed_card` is the `of: "revealed"` referent, set by `reveal_top`) |
 | "It" / "that creature" under a group trigger ("whenever a creature you control enters …", RULE 603.1) | `game/effects/composition.py`'s `TriggerSubjectReferentEffect` (`trigger_subject_referent`: seeds `previous_targets`, runs a body *against* the firing object, `acting="controller"` for "its controller …", `event_key="remembered"` inside a payment's "if you do"); the parser reaches it from `parser/oracle/catalogue/handlers.py`'s `match_clause` (group fallbacks, tried only after every row written for the group subject), `parser/oracle/catalogue/referent_condition.py` (conditions on "it") and `segmenter._referent_characteristic_specs` / `_hoist_referent_seed`; a bare `it` read as the *source* under a group trigger is wrong-but-MODELED — see the PAR-123 lesson in `PARSER_LONG_TAIL.md` |
 | Activated abilities / costs | `game/costs.py`, `game/game_engine.py` (`activate_ability`) |
@@ -908,7 +922,7 @@ English and German.
 | Goldfish UI | `frontend/src/js/goldfishView.js` |
 | Solo vs. bots (Multiplayer engine, no lobby) | `backend/mtg_analyzer/api/solo.py`, `frontend/src/js/soloView.js`; shared picker/mulligan/banner markup in `frontend/src/js/gameSetup.js` (also used by goldfish/multiplayer) |
 | Multiplayer (lobby, seats, shared board) | `backend/mtg_analyzer/services/lobby.py`, `api/multiplayer.py`, `api/multiplayer_ws.py`, `frontend/src/js/multiplayerView.js`, `lobbySocket.js`, `bannerColors.js` (seat banner colours) |
-| Bots filling a multiplayer seat (UC5) | `backend/mtg_analyzer/services/bots.py` (`Bot`/`GoldfishBot`/`GreedyBot`/`SmartBot`/`run_bots`; deck planning in `services/bot_strategy.py`), `services/lobby.py` (`Seat.bot_kind`, `add_bot`), `frontend/src/js/multiplayerView.js` (`addBotHtml`/`seatRowHtml`) |
+| Bots filling a multiplayer seat (UC5) | `backend/mtg_analyzer/services/bots.py` (registry/driver, compatible class exports; individual policies in `services/bot_policies/`, deck planning in `services/bot_strategy.py`), `services/lobby.py` (`Seat.bot_kind`, `add_bot`), `frontend/src/js/multiplayerView.js` (`addBotHtml`/`seatRowHtml`) |
 | Replay/Puzzle mode (build+save/load a board) | `backend/mtg_analyzer/services/replay.py`, `game_session.py` (`edit_*` actions), `frontend/src/js/replayView.js` |
 | Archidekt deck import proxy | `backend/mtg_analyzer/services/archidekt_client.py`, `api/import_external.py` (Moxfield was tried and reverted twice — Cloudflare-blocked; don't re-add it without checking that's changed) |
 | Refreshing the full Oracle card pool (new set) | `backend/scripts/update_card_pool.py` — re-downloads the Scryfall `oracle_cards` bulk dump, merges it into `RawCardStore`, reseeds the app cache, and prints a ban-list drift heads-up (`scripts/import_bulk.py` is first-load only; its default reuses an on-disk dump) |

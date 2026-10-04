@@ -146,8 +146,8 @@ def start(
 def get_view(
     session_id: str, sessions: GameSessionManager = Depends(get_game_session_manager)
 ) -> dict[str, Any]:
-    """The human's current (redacted) view — for a reload / tab re-open."""
-    return _session(sessions, session_id).view(perspective=SOLO_HUMAN_ID)
+    """Collect ready AI decisions and return the human perspective."""
+    return _advance_solo_bots(_session(sessions, session_id))
 
 
 @router.post("/{session_id}/action")

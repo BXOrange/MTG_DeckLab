@@ -158,16 +158,12 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## ANA — Deck analysis
 
-- **ANA-1 · `POST /api/decks/{id}/analyze`.** Claude API integration, prompt
-  templates, structured output parsing, caching (docs/02 UC2, docs/04 Phase
-  6). `Deck.analysis_id` is reserved to link a saved deck to the result, but
-  no `Analysis` model/table exists — design it alongside the endpoint rather
-  than assuming the reserved field's shape is final.
 - **ANA-2 · Narrative analysis UI** — win conditions, archetype, synergies,
   cohesion score, issues. Sits alongside the existing static/Bracket
-  sub-tabs, not replacing them. Blocked on [ANA-1].
+  sub-tabs, not replacing them. ANA-1 backend contract is available (see
+  [LLM integration](../Reference/LLM_INTEGRATION.md)).
 - **ANA-3 · Cache indicator** ("Analysis from X ago") for that LLM result.
-  Blocked on [ANA-1].
+  The backend provides `created_at` and `cached`.
 
 ## BUG — Bugs
 

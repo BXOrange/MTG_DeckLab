@@ -161,7 +161,7 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # opponent **at random**" — see the catalogue entry) — `player`
         # narrowed to exclude the ability's own controller.
         "opponent",
-        "creature_you_control", "land_you_control",
+        "creature_you_control", "land_you_control", "other_land", "other_land_you_control",
         # "target land an opponent controls" (Political Trickery/Vedalken
         # Plotter's own exchange-control targets, PAR-29) — the
         # `land_you_control` mirror, same "you control"/"you don't
@@ -724,6 +724,8 @@ class TargetSpec:
             "attached_aura_or_equipment_you_control":
                 "Aura oder Ausrüstung an einer Kreatur unter deiner Kontrolle",
             "land_you_control": "Land unter deiner Kontrolle",
+            "other_land": "anderes Land",
+            "other_land_you_control": "anderes Land unter deiner Kontrolle",
             "land_you_dont_control": "Land, das du nicht kontrollierst",
             "attached_equipment_you_control": "befestigte Ausrüstung unter deiner Kontrolle",
             "equipment_you_control": "Ausrüstung unter deiner Kontrolle",
@@ -1229,6 +1231,7 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     "artifact": TargetFrame("artifact", apply_color=True, apply_max_mana_value=True),
     "enchantment": TargetFrame("enchantment", apply_color=True, apply_max_mana_value=True),
     "land": TargetFrame("land", exclude_source=False, apply_color=True, apply_max_mana_value=True),
+    "other_land": TargetFrame("land", apply_color=True, apply_max_mana_value=True),
     "noncreature_artifact": TargetFrame(
         "noncreature_artifact", apply_color=True, apply_max_mana_value=True),
     "nonbasic_land": TargetFrame("nonbasic_land"),
@@ -1250,6 +1253,8 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     "land_you_control": TargetFrame(
         "land", SCOPE_YOU, exclude_source=False,
         apply_color=True, apply_creature_filter=True),
+    "other_land_you_control": TargetFrame(
+        "land", SCOPE_YOU, apply_color=True, apply_creature_filter=True),
     "creature_you_dont_control": TargetFrame(
         "creature", SCOPE_NOT_YOU, exclude_source=False,
         apply_creature_filter=True, apply_max_mana_value=True),

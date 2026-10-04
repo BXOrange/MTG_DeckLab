@@ -702,6 +702,7 @@ NOT_YOU_TARGET_KINDS: dict[str, str] = {
 #: ``SCOPE_YOU`` over that kind's pool; `tests/test_par102_...`-style sync test in `test_batch4_token_copy`).
 YOU_TARGET_KINDS: dict[str, str] = {
     "token": "token_you_control",
+    "other_land": "other_land_you_control",
     "artifact": "artifact_you_control",
     "enchantment": "enchantment_you_control",
     "artifact_or_enchantment": "artifact_or_enchantment_you_control",
@@ -721,13 +722,17 @@ THAT_PLAYER_TARGET_KINDS: dict[str, str] = {
 #: ``permanent`` branches), so "another target `<X>`" is the same kind. A kind
 #: that includes its source has an "other" sibling here or fails closed.
 SOURCE_EXCLUDED_TARGET_KINDS: frozenset[str] = frozenset({
-    "creature", "permanent", "nonland_permanent", "artifact", "enchantment", "land",
+    "creature", "permanent", "nonland_permanent", "artifact", "enchantment",
     "nonbasic_land", "artifact_or_creature", "artifact_or_enchantment",
     "attacking_or_blocking_creature", "permanent_you_control", "permanent_you_dont_control",
     "nonland_permanent_you_control", "nonland_permanent_you_dont_control",
     "other_creature_you_control", "creature_or_planeswalker",
 })
-OTHER_TARGET_KINDS: dict[str, str] = {"creature_you_control": "other_creature_you_control"}
+OTHER_TARGET_KINDS: dict[str, str] = {
+    "creature_you_control": "other_creature_you_control",
+    "land": "other_land",
+    "land_you_control": "other_land_you_control",
+}
 #: A controller-/"another"-scoped kind → the unscoped kind whose pool it
 #: narrows (RULE 109.5/115.1). A verb that can act on the unscoped kind can act
 #: on any narrowing of it, so `target_kind_allowed` reads a verb's whitelist
@@ -740,6 +745,8 @@ SCOPED_TARGET_BASE: dict[str, str] = {
     "permanent_you_control": "permanent",
     "nonland_permanent_you_control": "nonland_permanent",
     "land_you_control": "land",
+    "other_land": "land",
+    "other_land_you_control": "other_land",
     "artifact_or_creature_you_control": "artifact_or_creature",
     "token_you_control": "token",
     "token": "permanent",

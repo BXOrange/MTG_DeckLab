@@ -326,3 +326,36 @@ def test_smart_bot_is_selectable_and_retains_own_strategy_on_restart(env):
     restarted = env['client'].post(f"/api/solo/{v['session_id']}/restart")
     assert restarted.status_code == 200
     assert session._bot_strategies[bot_id] is strategy
+
+
+def test_ai_bot_completed_job_advances_on_solo_view_poll(env):
+    from tests.services.test_ai_bot import Client, Settings
+    client = env['client']
+    deck = _legal_deck(env['decks'])
+    response = _start(client, deck.id, opponents=[{'kind':'ai', 'deckId':deck.id}])
+    assert response.status_code == 200
+    session_id = response.json()['session_id']
+    session = env['sessions'].get(session_id)
+    policy = next(iter(session._solo_bots.values()))
+    policy.client = Client()
+    policy.settings_store = Settings()
+    response = client.post(f'/api/solo/{session_id}/action', json={'type':'keep_hand', 'bottom_instance_ids':[]})
+    assert response.status_code == 200, response.text
+    # Pass the human through turn one until the AI has a pending decision.
+    for _ in range(80):
+        if policy.context.get('future'):
+            break
+        actions = session.legal_actions(perspective=SOLO_HUMAN_ID)
+        if any(a['type'] == 'pass_priority' for a in actions):
+            response = client.post(f'/api/solo/{session_id}/action', json={'type':'pass_priority'})
+            assert response.status_code == 200, response.text
+        else:
+            response = client.get(f'/api/solo/{session_id}')
+    assert policy.context.get('future') is not None
+    policy.context['future'].result(timeout=5)
+    result = client.get(f'/api/solo/{session_id}')
+    assert result.status_code == 200
+    assert _controls(result.json(), policy.player_id, is_land=True)
+    sent = policy.client.payloads[0]['state']['players']
+    assert next(p for p in sent if p['id'] == SOLO_HUMAN_ID)['hand'] == []
+    assert all(p['library'] == [] for p in sent)

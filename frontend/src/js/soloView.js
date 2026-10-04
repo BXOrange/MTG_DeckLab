@@ -12,6 +12,7 @@
 
 import {
   startSolo,
+  getSoloView,
   sendSoloAction,
   concedeSolo,
   restartSolo,
@@ -88,7 +89,7 @@ export function createSoloView() {
   let botKinds = null;
   // One row per bot opponent: { kind, deckId }. deckId '' → mirror-matches
   // the human's deck at start.
-  let opponents = [{ kind: '', deckId: '' }];
+  let opponents = [{ kind: 'smart', deckId: '' }];
   let startingPlayer = 'you'; // 'you' | 'random'
   //: The per-priority auto-pass countdown for this solo session (seconds;
   //: 0 = off). Sent to POST /api/solo/start as `spellTimerSeconds`; seeded
@@ -112,7 +113,7 @@ export function createSoloView() {
     allowRewind: false,
     allowFastForward: false,
     onViewChange: (v) => {
-      if (v) view = v;
+      if (v) { view = v; scheduleAIPoll(); }
     },
     // `boardBusy` is the board's own "an action is in flight" flag — use it
     // for the disabled state (our own `busy` only tracks the pre-game
@@ -145,6 +146,12 @@ export function createSoloView() {
           onClick: concede,
         });
       }
+      const botStatuses = Object.values(view?.bot_status || {});
+      if (botStatuses.some((s) => s.status === 'thinking')) {
+        controls.push({ id: 'ai-status', label: t('settings.llm.botThinking'), disabled: true });
+      } else if (botStatuses.some((s) => s.status === 'fallback')) {
+        controls.push({ id: 'ai-status', label: t('settings.llm.botFallback'), disabled: true });
+      }
       return controls;
     },
     // No lobby → connection state comes from the game state itself (the
@@ -155,6 +162,31 @@ export function createSoloView() {
       return p ? { connected: true, banner_color: p.banner_color || null } : null;
     },
   });
+
+  let aiPollTimer = null;
+  let aiPolling = false;
+  function scheduleAIPoll() {
+    clearTimeout(aiPollTimer);
+    if (!sessionId || view?.state?.game_over || !Object.values(view?.bot_status || {}).some((s) => s.status === 'thinking')) return;
+    aiPollTimer = setTimeout(async () => {
+      if (aiPolling || busy) { scheduleAIPoll(); return; }
+      const currentId = sessionId;
+      const requestedView = view;
+      aiPolling = true;
+      try {
+        const result = await getSoloView(currentId);
+        if (result.ok && currentId === sessionId && view === requestedView) {
+          view = result.data;
+          if (phase === 'mulligan') applyView(result.data);
+          else board.refresh(result.data);
+          render();
+        }
+      } finally {
+        aiPolling = false;
+        scheduleAIPoll();
+      }
+    }, 1000);
+  }
 
   function mount(el) {
     root = el;
@@ -242,7 +274,7 @@ export function createSoloView() {
 
   function addOpponent() {
     if (opponents.length >= MAX_OPPONENTS) return;
-    opponents = [...opponents, { kind: botKinds?.[0]?.kind || '', deckId: '' }];
+    opponents = [...opponents, { kind: botKinds?.[0]?.kind || 'smart', deckId: '' }];
     render();
   }
 
@@ -270,7 +302,7 @@ export function createSoloView() {
       return;
     }
     const rows = opponents.map((row) => ({
-      kind: row.kind || botKinds?.[0]?.kind || 'goldfish',
+      kind: row.kind || botKinds?.[0]?.kind || 'smart',
       deckId: row.deckId || selectedDeckId, // mirror match by default
     }));
 
@@ -425,6 +457,7 @@ export function createSoloView() {
       } else if (res.status === 404) {
         setStatus(t('play.sessionExpired'), 'warning');
         sessionId = null;
+    clearTimeout(aiPollTimer);
         view = null;
         phase = 'pick';
       } else {
@@ -489,6 +522,7 @@ export function createSoloView() {
     summary = view ? { analysis: view.analysis, state: view.state } : null;
     board.stop();
     sessionId = null;
+    clearTimeout(aiPollTimer);
     view = null;
     phase = summary ? 'summary' : 'pick';
     setStatus('', '');
@@ -499,6 +533,7 @@ export function createSoloView() {
   function applyView(data) {
     sessionId = data.session_id;
     view = data;
+    scheduleAIPoll();
     const setupDone = data.setup ? data.setup.complete : true;
     if (!setupDone) {
       phase = 'mulligan';
@@ -642,7 +677,7 @@ export function createSoloView() {
         (b) =>
           `<option value="${escapeAttr(b.kind)}"${b.kind === row.kind ? ' selected' : ''}>${escapeHtml(b.label)}</option>`,
       )
-      .join('') || '<option value="goldfish">Goldfisch-Bot</option>';
+      .join('') || '<option value="smart">Smart Bot</option>';
     const chosen = (botKinds || []).find((b) => b.kind === row.kind);
     return `
       <div class="solo-opponent-row">
@@ -743,6 +778,7 @@ export function createSoloView() {
     root.querySelector('#solo-summary-new')?.addEventListener('click', () => {
       const id = sessionId;
       sessionId = null;
+    clearTimeout(aiPollTimer);
       view = null;
       summary = null;
       phase = 'pick';

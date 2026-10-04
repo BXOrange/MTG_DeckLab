@@ -41,10 +41,15 @@ repointed there.
 - **What:** Collapsible left sidebar nav (replacing old top-bar tabs) plus a header connection indicator polling `GET /api/health` every 5s, shared via pub/sub between the header and the Einstellungen status line.
 - **Files:** `index.html`, `app.js`, `connectionStatus.js`
 
-### Einstellungen tab + cookie-persisted settings
+### Einstellungen tab and automatic server connection
 
-- **What:** Server-address field with "Speichern"/"Verbindung testen"; settings persist device-locally in cookies (`mtg_server_url`, `mtg_player_name`, 1-year expiry).
+- **What:** Backend requests use the page origin, with explicit development/deployment defaults in `settings.js`. The server-address field and cookie override are removed; stale `mtg_server_url` cookies are ignored. Connection status and "Verbindung testen" remain. Player preferences still persist device-locally in cookies.
 - **Files:** `connectionSettingsView.js`, `cookies.js`, `settings.js`
+
+### LLM settings and AI Bot status
+
+- **What:** Settings configures a server-wide Claude/Anthropic or compatible endpoint, an automatically populated model dropdown (provider model-list API, manual fallback, reload and stale-response protection), enable flag, key, timeout and per-turn bot call budget, plus save/connection-test controls. Keys are never loaded into the browser; empty preserves and explicit clear removes the stored key. German/English copy explains that deck/game context goes to the provider. AI Bot is selectable through the existing bot catalogue. Solo shows thinking/fallback status and polls pending decisions without overwriting a newer action/restart view.
+- **Files:** `connectionSettingsView.js`, `api.js`, `soloView.js`, `locales/{de,en}.js`; [LLM integration](../Reference/LLM_INTEGRATION.md).
 
 ### Local card-pool and combo-data updates
 
@@ -53,8 +58,8 @@ repointed there.
 
 ### Einstellungen ↔ Profil split (everything player-facing → Profil)
 
-- **What:** The **Einstellungen** header tab is now *only* the backend
-  server address + connection test. Everything about the player moved to
+- **What:** The **Einstellungen** header tab provides backend connection tests,
+  data updates and optional LLM configuration. Everything about the player moved to
   the **Profil** tab: player name (already there), multiplayer default
   settings + favorite decks (already there), and — newly relocated —
   the **Mehrspieler: Auto-Pass** / **Mehrspieler: Spielfeld** comfort

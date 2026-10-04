@@ -10,7 +10,6 @@
     "the server always starts. See mtg_analyzer/config.py for a full",
     "description of every value and its env var / start.py flag."
   ],
-
   "paths": {
     "_comment": "cache_dir: disposable Scryfall cache, empty = backend/cache (MTG_CACHE_DIR). data_dir: persistent user data, empty = backend/data (MTG_DATA_DIR). bug_report_dir: local reports, empty = repo-root/bug-reports (MTG_BUG_REPORT_DIR).",
     "cache_dir": "",
@@ -48,5 +47,16 @@
   "frontend": {
     "_comment": "origin: internal address the backend reverse-proxies non-/api//ws requests to (setup/start.py's static frontend server by default; a browser only ever needs to reach the backend port). Env MTG_FRONTEND_ORIGIN.",
     "origin": ""
+  },
+
+  "llm": {
+    "_comment": "Optional server-wide LLM, configured in Settings. Runtime data/llm_settings.json overrides this; MTG_LLM_<FIELD> env vars override both. Keep API keys in environment or the unversioned settings file.",
+    "enabled": false,
+    "provider": "anthropic",
+    "base_url": "https://api.anthropic.com/v1",
+    "model": "",
+    "timeout_seconds": 15,
+    "max_tokens": 2048,
+    "bot_calls_per_turn": 8
   }
 }

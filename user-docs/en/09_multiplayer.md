@@ -2,8 +2,8 @@
 
 **Multiplayer** lets two people play a real game against each other,
 through the same rules engine Goldfisch and Puzzle/Replay use. Both
-players run the app in their own browser, pointed at the same backend
-server (see chapter 6, "Einstellungen" / Settings — the server address).
+players open the same app URL in their own browser. The shared backend
+address is derived automatically from that URL.
 
 The sidebar group **Multiplayer** has two entries:
 

@@ -58,7 +58,7 @@ The sidebar on the left is grouped into sections:
   - **Puzzle/Replay** — build and play an arbitrary board state
 - **Multiplayer** — lobby setup, real shared-table play, bots, spectator
   mode and reconnect handling
-- **Einstellungen** (settings) — the backend server address only
+- **Einstellungen** (settings) — connection status, local data and LLM configuration
 - **Profil** (profile) — player name, multiplayer preferences, custom
   token art, card sleeves and favorite decks
 - **Information**

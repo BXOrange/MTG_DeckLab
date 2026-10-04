@@ -2,9 +2,8 @@
 
 Im **Multiplayer** spielen zwei Personen eine echte Partie gegeneinander —
 gegen dieselbe Regel-Engine, die auch Goldfisch und Puzzle/Replay
-antreibt. Beide öffnen die App in ihrem eigenen Browser und zeigen auf
-denselben Backend-Server (siehe Kapitel 6, **Einstellungen** —
-Server-Adresse).
+antreibt. Beide öffnen dieselbe App-Adresse in ihrem eigenen Browser. Die Verbindung
+zum gemeinsamen Backend wird automatisch aus dieser Adresse abgeleitet.
 
 Die Sidebar-Gruppe **Multiplayer** hat zwei Einträge:
 

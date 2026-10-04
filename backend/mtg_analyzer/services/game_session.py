@@ -612,6 +612,12 @@ class GameSession:
         self._history.clear()
         self.move_log.clear()
         self._mulligan_counts.clear()
+        for context in getattr(self, '_ai_bot_context', {}).values():
+            future = context.get('future')
+            if future:
+                future.cancel()
+        self._ai_bot_context = {}
+        self._bot_status = {}
         self._smart_ability_uses = {}
         self._smart_ability_positions = {}
         self._setup_pending = (
@@ -2162,6 +2168,7 @@ class GameSession:
             ]}
         return {
             "session_id": self.id,
+            "bot_status": {k: dict(v) for k, v in getattr(self, "_bot_status", {}).items()},
             "mode": self.mode,
             "perspective": perspective,
             "acting_as": acting_as,

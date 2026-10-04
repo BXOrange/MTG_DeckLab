@@ -1199,3 +1199,29 @@ def test_damage_to_each_other_creature_without_flying_and_each_opponent():
     [spec] = parse_effect_body("~ deals 1 damage to each other creature without flying and each opponent")
     assert spec.params["group_and_players"] == "each_opponent"
     assert spec.params["group"]["filter"]["without_keyword"] == "flying"
+
+
+@pytest.mark.parametrize("phrase,kind,include_source,include_opponent", [
+    ("target land", "land", True, True),
+    ("another target land", "other_land", False, True),
+    ("other target land", "other_land", False, True),
+    ("target land you control", "land_you_control", True, False),
+    ("another target land you control", "other_land_you_control", False, False),
+])
+def test_land_source_exclusion_matches_the_printed_another_scope(phrase, kind, include_source, include_opponent):
+    _, state = _engine()
+    land = Card(id="forest", name="Forest", type_line="Basic Land — Forest", is_land=True)
+    source = _bf(state, land, "p1")
+    other = _bf(state, land, "p1")
+    opponent = _bf(state, land, "p2")
+    assert resolve_target_kind(phrase) == kind
+    [spec] = match_clause("untap " + phrase)
+    assert spec.params["target_kind"] == kind
+    offered = {d["instance_id"] for d in targeting.legal_targets(
+        state, "p1", targeting.TargetSpec(kind=kind), source=source)}
+    expected = {other.instance_id}
+    if include_source:
+        expected.add(source.instance_id)
+    if include_opponent:
+        expected.add(opponent.instance_id)
+    assert offered == expected

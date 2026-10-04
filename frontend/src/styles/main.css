@@ -1115,7 +1115,14 @@ textarea {
 .goldfish.compact-view .gf-battlefield .card.has-image {
   width: 116px;
   height: 84px;
+  overflow: visible;
+}
+
+/* Crop only the artwork: card modifiers and corner badges stay visible. */
+.goldfish.compact-view .gf-battlefield .card.has-image .gf-card-art {
+  height: 100%;
   overflow: hidden;
+  border-radius: inherit;
 }
 
 .goldfish.compact-view .gf-battlefield .card.has-image img {
@@ -1486,6 +1493,31 @@ textarea {
 }
 
 /* --- Einstellungen --- */
+
+.connection-settings-groups {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 1.25rem;
+}
+
+.connection-settings-groups > .connection-settings-panel {
+  flex: 1 1 360px;
+  width: 100%;
+  min-width: 0;
+}
+
+.llm-settings-panel > label {
+  display: block;
+  margin: 0.85rem 0 0.3rem;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
+.llm-settings-panel > button,
+.llm-settings-panel > .import-actions {
+  margin-top: 0.85rem;
+}
 
 .connection-settings-panel {
   max-width: 480px;
@@ -3215,6 +3247,10 @@ textarea {
   gap: 0.25rem;
 }
 
+.gf-card-slot > .card {
+  position: relative;
+}
+
 /* Stack items carry a type badge above the art and a resolution-order
    hint below, so the stack reads as spells vs. triggered/activated
    abilities and shows what resolves next (RULE 608.2, LIFO). */
@@ -3698,8 +3734,8 @@ textarea {
    under a later card) and is positioned at the badge by gameBoardView.js. */
 .gf-effects {
   position: absolute;
-  top: -0.4rem;
-  left: -0.4rem;
+  top: 0.15rem;
+  left: 0.15rem;
   z-index: 3;
 }
 
@@ -3724,6 +3760,11 @@ textarea {
 .gf-effects-badge:hover {
   background: var(--accent);
   color: #10151c;
+}
+
+/* Keep the face-preview control beside the modifier on double-faced cards. */
+.card:has(> .gf-effects) > .gf-card-flip {
+  left: 1.5rem;
 }
 
 .gf-effects-pop {

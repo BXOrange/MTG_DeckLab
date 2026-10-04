@@ -3545,6 +3545,11 @@ of their reminder text or catalogue entry.
 - **Boundary:** Only own setup deck definitions as prior knowledge; live decisions use the perspective-redacted view and validated legal offers. Free-text naming is now an explicit parameterized `choose` offer. Repeatable abilities require visible progress and stop at 64 uses per ability/turn; session memory survives bot reconstruction and resets on restart.
 - **Files:** `services/bots.py`, `services/bot_strategy.py`, `services/game_session.py`; reference and upstream research in `docs/Reference/SMART_BOT.md`.
 
+### Individual bot policies and AI Bot
+
+- **What:** Each bot class now lives in its own `services/bot_policies` module; `services/bots.py` retains registry/driver and compatible exports. The new `ai` policy shares Smart Bot's detected deck/commander/combo profile, asks a configured LLM to select offered actions, validates parameters, then uses the ordinary engine action path. Bounded background workers preserve priority while waiting; stale results are discarded. Unconfigured/failed/over-budget requests fall back to Smart. Solo polls pending jobs; lobby rebuilds preserve session context; restart clears it.
+- **Files:** `services/bot_policies/`, `services/bots.py`, `api/solo.py`, `services/game_session.py`; configuration/transport in `services/llm_settings.py`, `services/llm_client.py`, `api/llm.py`. See [LLM integration](../Reference/LLM_INTEGRATION.md).
+
 ### Bot seats in the lobby
 
 - **What:** A bot is an ordinary `LobbyPlayer`/`Seat` (plus `Seat.bot_kind`, opaque to the lobby) so the rules engine never learns bots exist; a bot seat with a deck counts…
@@ -4369,6 +4374,7 @@ Not ticketed (PLAY-ALL Step 1). The plan called it "cycles through `register_fam
 ### PAR-128: controller scope, "another", and the player subject as target-grammar slots (PARSER_VERSION 485)
 
 - **Scope slot.** `subgrammars.TARGET` accepts " an opponent controls / you don't control" after any row and "another/other" before it; `resolve_target_kind` composes them onto the row's kind — `NOT_YOU_TARGET_KINDS` (engine `SCOPE_NOT_YOU` frames; new `enchantment_/artifact_or_enchantment_/artifact_or_creature_you_dont_control`) and, for "another", the kind itself when its pool already excludes the source (`SOURCE_EXCLUDED_TARGET_KINDS`) or `OTHER_TARGET_KINDS`. `test_par128_target_scope.py` holds both tables to `targeting.TARGET_FRAMES`, since the parser can't import it.
+- **Land source exclusion (PARSER_VERSION 606).** Ordinary `land` targets include their source, so they cannot be in `SOURCE_EXCLUDED_TARGET_KINDS`. Dedicated `other_land`/`other_land_you_control` frames now preserve land filters and controller scope while excluding the source for "another/other target land". Grammar, verb binding and offered-target regressions cover both ordinary and source-excluded forms.
 - **Verb whitelists.** 37 per-verb `kind not in (...)` checks became `target_kind_allowed(kind, allowed)`, which walks `SCOPED_TARGET_BASE` (a scoped kind or type union narrows its base), so "destroy/return/tap/put a counter on target creature an opponent controls" work without each verb listing each scope. The pronoun-antecedent check in the segmenter reads the same way.
 - **Union bug.** The N-way "target X, Y, or Z" row also matched "target artifact or enchantment", so Naturalize, Disenchant and ~100 others could target any permanent; the dedicated two-type rows now sit above it (`artifact_or_enchantment`, `artifact_or_creature` in either order). 124 already-covered cards changed kind accordingly.
 - **One gate over "A, then B".** "If `<cond>`, A, then B" handed B to the connector split ungated: Canyon Crab, Wistfulness, Statute of Denial, Contaminant Grafter, Scion of Vitu-Ghazi and So Shiny did their second half regardless, and Airbender Ascension's "exile …, then return it" became "return the source". The existing one-gate rule now covers ", then" as well as "and".
@@ -5098,6 +5104,12 @@ Reusable support includes additional token batches under replacement effects (Ch
 - **Files:** `services/coverage_db.py`, `scripts/coverage_report.py`.
 
 ## Deck Analysis
+
+### Narrative saved-deck analysis (ANA-1)
+
+- **What:** `POST /api/decks/{id}/analyze` resolves the saved deck, requests a structured Claude/compatible-provider narrative and validates summary, archetype, WinCons, synergies, cohesion, issues and recommendations. Persistent `analyses.db` caches by deck/Oracle context, language, prompt version and provider/model; concurrent repeated requests reuse results, `force` refreshes. `Deck.analysis_id` and `GET /api/decks/{id}/analysis` expose the current result. Section/archetype edits invalidate the link; provider failures cannot persist malformed output. Settings are server-wide, keys redacted, with environment overrides and an explicit connection test. ANA-2/ANA-3 remain UI work.
+- **Files:** `api/narrative_analysis.py`, `services/narrative_analysis.py`, `models/analysis/narrative.py`, `api/saved_decks.py`; [configuration and API contract](../Reference/LLM_INTEGRATION.md).
+
 
 ### Dynamic (simulated) deck analysis (ANA-4)
 

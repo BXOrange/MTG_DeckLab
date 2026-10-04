@@ -10,6 +10,36 @@
 //     into several keys around the tags at the call site.
 
 export default {
+  'settings.llm.selectModel': 'Select a model …',
+  'settings.llm.manualModel': 'Enter model ID manually',
+  'settings.llm.reloadModels': 'Reload models',
+  'settings.llm.loadingModels': 'Loading models …',
+  'settings.llm.modelsLoaded': '{count} models available',
+  'settings.llm.noModels': 'No models reported. You can enter a model ID manually.',
+  'settings.llm.modelsFailed': 'Could not load models: {error}. Check the API key or enter a model ID manually.',
+
+  'settings.llm.heading': 'LLM / AI Bot',
+  'settings.llm.hint': 'Server-wide connection for AI Bot and narrative deck analysis. The own decklist and redacted game view are sent to this provider. Smart Bot takes over on failures.',
+  'settings.llm.enabled': 'Enable LLM',
+  'settings.llm.provider': 'Provider',
+  'settings.llm.compatible': 'OpenAI-compatible API (including local)',
+  'settings.llm.endpoint': 'API base address (including /v1)',
+  'settings.llm.model': 'Model',
+  'settings.llm.key': 'API key (blank = keep for the same endpoint)',
+  'settings.llm.clearKey': 'Remove saved API key',
+  'settings.llm.keySet': 'API key is set on the server',
+  'settings.llm.keyMissing': 'No API key set (local APIs can work without one)',
+  'settings.llm.calls': 'Maximum LLM requests per bot per turn',
+  'settings.llm.timeout': 'Request timeout (seconds)',
+  'settings.llm.save': 'Save LLM settings',
+  'settings.llm.saved': 'LLM settings saved',
+  'settings.llm.test': 'Test saved connection',
+  'settings.llm.connected': 'LLM connection succeeded',
+  'settings.llm.working': 'LLM request in progress …',
+  'settings.llm.failed': 'LLM: {error}',
+  'settings.llm.botThinking': 'AI Bot is thinking …',
+  'settings.llm.botFallback': 'AI Bot is using Smart Bot as fallback',
+
   'bug.title': "Report a bug",
   'bug.description': "What went wrong? Describe the steps and expected behavior.",
   'bug.actions': "Recent actions to include",
@@ -114,14 +144,10 @@ export default {
 
   // --- Settings tab (connectionSettingsView.js) -----------------------
   'settings.title': 'Settings',
-  'settings.serverAddress': 'Server address',
-  'settings.saveButton': 'Save',
   'settings.testConnection': 'Test connection',
   'settings.status.checking': 'Checking connection …',
   'settings.status.connected': 'Connected',
   'settings.status.disconnected': 'Unreachable',
-  'settings.hintChangesApply':
-    'Changes apply immediately to new requests and are stored in the browser (cookie) — not on the server; another browser/machine will not see them.',
   'settings.hintOtherSettings':
     'Player name, multiplayer defaults, custom token images, card sleeves and favorite decks are on the "Profile" tab. Board settings are available below.',
   'settings.data.heading': 'Local data',

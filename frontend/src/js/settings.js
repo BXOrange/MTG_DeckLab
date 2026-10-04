@@ -1,13 +1,9 @@
-// User-configurable connection settings (backend server address, player
-// name), persisted in a cookie so they survive a reload without needing
-// an account/backend of their own. api.js and gameSocket.js read the
-// server address through getServerUrl() instead of a fixed constant, so
-// changing it here (see connectionSettingsView.js) takes effect
-// immediately for the next request/connection, no reload needed.
+// Client preferences persist in cookies. API and WebSocket clients derive
+// their backend address from the page origin (with development/deployment
+// defaults below); an old server-address cookie no longer overrides it.
 
 import { getCookie, setCookie } from './cookies.js';
 
-const SERVER_URL_COOKIE = 'mtg_server_url';
 const PLAYER_NAME_COOKIE = 'mtg_player_name';
 const CLIENT_TOKEN_COOKIE = 'mtg_client_token';
 //: The player's preferred per-priority auto-pass countdown, in seconds
@@ -65,7 +61,7 @@ const FRONTEND_DEV_PORT = 8765;
 
 //: Same override convention as the rest of the frontend (see api.js) — set
 //: window.MTG_API_BASE_URL before app.js loads (e.g. in index.html) to
-//: change the out-of-the-box default without a cookie. Absent that, default
+//: change the deployment default. Absent that, default
 //: to the page's own origin: the backend now reverse-proxies the frontend
 //: (api/frontend_proxy.py), so browser and backend are always same-origin
 //: through that path — local or over the LAN, whatever host/port the page
@@ -85,7 +81,7 @@ function normalizeServerUrl(url) {
 }
 
 export function getServerUrl() {
-  return normalizeServerUrl(getCookie(SERVER_URL_COOKIE));
+  return normalizeServerUrl(DEFAULT_SERVER_URL);
 }
 
 export function getPlayerName() {
@@ -181,7 +177,6 @@ export function getMpDefaultRandomStartingPlayer() {
 
 export function getSettings() {
   return {
-    serverUrl: getServerUrl(),
     playerName: getPlayerName(),
     clientToken: getClientToken(),
     passTimerSeconds: getPassTimerSeconds(),
@@ -198,7 +193,7 @@ export function getSettings() {
 }
 
 /**
- * @param {{serverUrl?: string, playerName?: string,
+ * @param {{playerName?: string,
  *          passTimerSeconds?: number, showOpponentHand?: boolean,
  *          compactView?: boolean,
  *          botSpeedMs?: number,
@@ -208,9 +203,6 @@ export function getSettings() {
  *          mpDefaultRandomStartingPlayer?: boolean}} patch
  */
 export function saveSettings(patch) {
-  if (patch.serverUrl !== undefined) {
-    setCookie(SERVER_URL_COOKIE, normalizeServerUrl(patch.serverUrl), COOKIE_MAX_AGE_DAYS);
-  }
   if (patch.playerName !== undefined) {
     setCookie(PLAYER_NAME_COOKIE, patch.playerName.trim(), COOKIE_MAX_AGE_DAYS);
   }

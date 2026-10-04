@@ -131,7 +131,7 @@ class DynamicAnalysisRequest(BaseModel):
     commander_text: str = Field(default="", alias="commanderText")
     mainboard_text: str = Field(default="", alias="mainboardText")
     sideboard_text: str = Field(default="", alias="sideboardText")
-    bot_kind: str = Field(default="goldfish", alias="botKind")
+    bot_kind: str = Field(default="smart", alias="botKind")
     num_matches: int = Field(default=20, ge=1, le=200, alias="numMatches")
     max_turns: int = Field(default=10, ge=1, le=30, alias="maxTurns")
     starting_life: int = Field(default=40, alias="startingLife")
@@ -274,7 +274,7 @@ class MultiplayerBannerColorRequest(MultiplayerPlayerRequest):
 class MultiplayerBotRequest(MultiplayerPlayerRequest):
     """Request body for POST /api/multiplayer/games/{id}/bots (host only)."""
 
-    kind: str
+    kind: str = "smart"
     name: str = ""
 
 
@@ -331,8 +331,8 @@ class SoloOpponent(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    #: A `services/bots.py` `Bot.kind` (goldfish / greedy / mana_maximizer).
-    kind: str = "goldfish"
+    #: A `services/bots.py` `Bot.kind` (smart / goldfish / greedy / ai / mana_maximizer).
+    kind: str = "smart"
     #: The saved deck this bot plays — resolved and legality-gated exactly
     #: like the human's (`api/game.resolve_seat_deck`).
     deck_id: str = Field(alias="deckId")

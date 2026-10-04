@@ -103,7 +103,12 @@ def save_deck(
         mainboard_text=request.mainboard_text,
         sideboard_text=request.sideboard_text,
         created_at=existing.created_at if existing else None,
-        analysis_id=existing.analysis_id if existing else None,
+        analysis_id=(
+            existing.analysis_id
+            if existing and not text_changed and (
+                request.archetypes is None or _clean_archetypes(request.archetypes) == existing.archetypes
+            ) else None
+        ),
         # Settable via this same endpoint (the saved-decks list re-saves the
         # full deck with a new sleeveId), but preserved across unrelated
         # edits (e.g. re-saving decklist text) when the caller omits it.

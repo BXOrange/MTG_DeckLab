@@ -5,10 +5,8 @@
 // docs/concepts/06_CARD_GRAPHICS_AND_LAZY_LOADING.md,
 // docs/Reference/08_CARD_CACHE_EXPORT_IMPORT.md.
 //
-// The backend address is user-configurable at runtime (see settings.js,
-// connectionSettingsView.js) rather than a fixed constant, so every call
-// here resolves it fresh via getServerUrl() instead of reading it once at
-// module load.
+// Requests use the page's backend origin through getServerUrl(), with
+// explicit development/deployment defaults defined in settings.js.
 
 import { getServerUrl } from './settings.js';
 import { t } from './i18n.js';
@@ -882,4 +880,25 @@ async function deleteRequest(path) {
     return false;
   }
   return response.ok;
+}
+
+// Server-side LLM credentials are write-only; they never enter cookies.
+export async function getLLMSettings() {
+  return gameRequest('GET', '/api/llm/settings');
+}
+export async function saveLLMSettings(payload) {
+  return gameRequest('PUT', '/api/llm/settings', payload);
+}
+export async function testLLMConnection() {
+  return gameRequest('POST', '/api/llm/test', {});
+}
+export async function analyzeNarrativeDeck(deckId, payload = {}) {
+  return gameRequest('POST', `/api/decks/${encodeURIComponent(deckId)}/analyze`, payload);
+}
+export async function getNarrativeDeckAnalysis(deckId) {
+  return gameRequest('GET', `/api/decks/${encodeURIComponent(deckId)}/analysis`);
+}
+
+export async function fetchLLMModels(payload = {}) {
+  return gameRequest('POST', '/api/llm/models', payload);
 }

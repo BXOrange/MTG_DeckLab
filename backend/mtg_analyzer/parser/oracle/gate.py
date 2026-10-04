@@ -3886,8 +3886,9 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 # MEC-110: Empower Jace, including quantities bound by the shared X grammar.
 # 595: optional discard-up-to/draw-the-discarded-count shared grammar.
 # 596: instant/sorcery storm grants (Prismari and Ral's emblem).
+# 606: PAR-128 — separate source-excluded land targets from ordinary land targets.
 # 605: MEC-109 — complete Blitz costs, restricted graveyard casts and grants.
-PARSER_VERSION = "605"
+PARSER_VERSION = "606"
 
 
 def parser_source_hash() -> str:
