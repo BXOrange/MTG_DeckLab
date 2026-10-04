@@ -21,6 +21,14 @@ device; a different browser or computer starts from defaults again.
 **Verbindung testen** (test connection) re-checks reachability on
 demand; the same status also shows live in the page header.
 
+## Einstellungen: refreshing local data
+
+Under **Lokale Daten** (local data), you can manually refresh the full
+Scryfall card pool and the Commander Spellbook combo database. Otherwise
+the combo database is downloaded only when the first static deck
+analysis needs it. Both data sets are stored server-side in SQLite; the
+combo update reports how many variants were added, changed, or removed.
+
 ## Profil: player name
 
 - **Spielername** (player name) — free text, no account or password

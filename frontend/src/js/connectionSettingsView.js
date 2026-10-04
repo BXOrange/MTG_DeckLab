@@ -10,6 +10,11 @@
 
 import { getSettings, saveSettings } from './settings.js';
 import {
+  getComboDatabaseStatus,
+  updateCardPool,
+  updateComboDatabase,
+} from './api.js';
+import {
   getConnectionStatus,
   subscribeConnectionStatus,
   refreshConnectionStatus,
@@ -48,6 +53,19 @@ export function renderConnectionSettingsView(container) {
       <p class="hint">${t('settings.hintOtherSettings')}</p>
 
       <div class="deck-section">
+        <h3>${t('settings.data.heading')}</h3>
+        <p class="hint">${t('settings.data.hint')}</p>
+        <div class="import-actions">
+          <button id="update-card-pool-btn" type="button">${t('settings.data.updateCards')}</button>
+          <p class="server-status" id="update-card-pool-status" aria-live="polite"></p>
+        </div>
+        <div class="import-actions">
+          <button id="update-combo-database-btn" type="button">${t('settings.data.updateCombos')}</button>
+          <p class="server-status" id="update-combo-database-status" aria-live="polite"></p>
+        </div>
+      </div>
+
+      <div class="deck-section">
         <label for="lang-select">${t('settings.language')}</label>
         <select id="lang-select">${langOptions}</select>
       </div>
@@ -81,12 +99,84 @@ export function renderConnectionSettingsView(container) {
   const themeSelect = container.querySelector('#theme-select');
   const showOpponentHand = container.querySelector('#show-opponent-hand');
   const compactView = container.querySelector('#compact-view');
+  const updateCardsBtn = container.querySelector('#update-card-pool-btn');
+  const updateCombosBtn = container.querySelector('#update-combo-database-btn');
+  const updateCardsStatus = container.querySelector('#update-card-pool-status');
+  const updateCombosStatus = container.querySelector('#update-combo-database-status');
 
   urlInput.value = getSettings().serverUrl;
   langSelect.value = getLang();
   themeSelect.value = getVisualTheme();
   showOpponentHand.checked = getSettings().showOpponentHand;
   compactView.checked = getSettings().compactView;
+
+  function setUpdateStatus(element, state, message) {
+    element.textContent = message;
+    element.className = `server-status ${state}`;
+  }
+
+  async function runDataUpdate(button, status, operation, successMessage) {
+    button.disabled = true;
+    setUpdateStatus(status, 'pending', t('settings.data.updating'));
+    try {
+      const result = await operation();
+      if (!result.ok) {
+        setUpdateStatus(status, 'warning', t('settings.data.failed', { error: result.error }));
+        return;
+      }
+      setUpdateStatus(status, 'ok', successMessage(result));
+    } catch (error) {
+      setUpdateStatus(
+        status,
+        'warning',
+        t('settings.data.failed', {
+          error: error instanceof Error ? error.message : String(error),
+        })
+      );
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  updateCardsBtn.addEventListener('click', () =>
+    runDataUpdate(
+      updateCardsBtn,
+      updateCardsStatus,
+      updateCardPool,
+      (result) => t('settings.data.cardsUpdated', { count: result.cachedCardCount })
+    )
+  );
+  updateCombosBtn.addEventListener('click', () =>
+    runDataUpdate(
+      updateCombosBtn,
+      updateCombosStatus,
+      updateComboDatabase,
+      (result) =>
+        t('settings.data.combosUpdated', {
+          count: result.summary.variantCount,
+          added: result.summary.added,
+          changed: result.summary.changed,
+          removed: result.summary.removed,
+        })
+    )
+  );
+  getComboDatabaseStatus().then((status) => {
+    if (updateCombosBtn.disabled) return;
+    if (!status) {
+      setUpdateStatus(updateCombosStatus, 'warning', t('settings.data.statusUnavailable'));
+    } else if (!status.initialized) {
+      setUpdateStatus(updateCombosStatus, 'pending', t('settings.data.notLoaded'));
+    } else {
+      setUpdateStatus(
+        updateCombosStatus,
+        'ok',
+        t('settings.data.comboStatus', {
+          count: status.variantCount,
+          timestamp: status.sourceTimestamp || '—',
+        })
+      );
+    }
+  });
 
   function renderStatus() {
     const status = getConnectionStatus();

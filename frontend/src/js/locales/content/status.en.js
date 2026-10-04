@@ -26,11 +26,21 @@ export default [
     sections: [
       {
         items: [
-          ['full', 'Static analysis (mana curve, card types, pips vs. sources, opening-hand odds)'],
+          ['full', 'Static analysis (mana curve, card types, pips vs. sources, opening-hand odds, lazy Commander Spellbook combo matches)'],
           ['full', 'Dynamic analysis (Monte-Carlo simulation: bot plays N test games, mana-potential curve ± spread, card advantage & library searches per turn)'],
-          ['full', 'Bracket analysis (Commander Brackets heuristic)'],
+          ['full', 'Bracket analysis (Commander Brackets heuristic including detected early two-card infinite combos)'],
           ['full', 'Review (post-game statistics)'],
           ['planned', 'Narrative AI analysis (LLM: archetype/synergy/coherence, ANA-1/2) — separate from the dynamic analysis above'],
+        ],
+      },
+    ],
+  },
+  {
+    title: 'Data maintenance',
+    sections: [
+      {
+        items: [
+          ['full', 'Manual refresh of the full Scryfall card pool and Commander Spellbook combo snapshot (local SQLite databases)'],
         ],
       },
     ],

@@ -46,6 +46,11 @@ repointed there.
 - **What:** Server-address field with "Speichern"/"Verbindung testen"; settings persist device-locally in cookies (`mtg_server_url`, `mtg_player_name`, 1-year expiry).
 - **Files:** `connectionSettingsView.js`, `cookies.js`, `settings.js`
 
+### Local card-pool and combo-data updates
+
+- **What:** Settings exposes separate controls to refresh the full Scryfall card pool and the Commander Spellbook SQLite snapshot. The latter's current source version/time and added/changed/removed variant counts are surfaced inline; the combo snapshot still remains lazy-loaded during analysis unless explicitly updated here.
+- **Files:** `connectionSettingsView.js`, `api.js`
+
 ### Einstellungen ↔ Profil split (everything player-facing → Profil)
 
 - **What:** The **Einstellungen** header tab is now *only* the backend
@@ -450,7 +455,7 @@ repointed there.
 
 ### Static deck analysis (UC2)
 
-- **What:** A fully local/static analysis (no backend call, no AI) over resolved card data: mana curve, type distribution, pip-vs-source counts, land-archetype breakdown, and a deckbuilding-template split (Lands/Ramp/Card Advantage/Disruption/Plan) — card classification is a display-only oracle-text heuristic, never affecting real game behavior.
+- **What:** Static browser-side deck metrics plus a lazy backend match against Commander Spellbook's locally stored snapshot; matched fixed-card variants display their uses, outputs, mana-value total and curve-estimated earliest turn. Unresolved card lists skip combo matching, and template requirements remain explicitly unverified.
 - **Files:** `analyzeView.js`, `deckAnalysis.js`
 
 ### Dynamic simulation UI (ANA-4)
@@ -460,5 +465,5 @@ repointed there.
 
 ### Bracket-Analyse heuristic
 
-- **What:** A heuristic approximation of WotC's 5-tier Commander Brackets, flagging Game Changers/Mass Land Denial/Extra Turn spells via hand-maintained name/pattern lists plus a tutor count, explicitly labeled unofficial since real brackets also weigh un-derivable factors like combo speed.
+- **What:** The unofficial heuristic now also uses Commander Spellbook matches, narrowly requiring a two-card variant with an explicit infinite output, no unverified template requirements, and known card mana values. Combined card mana value is compared with the deck's max expected-mana curve: payable by turn 6 suggests Bracket 4; later suggests Bracket 3. This project-defined threshold is labeled as a heuristic, not an official WotC numeric rule or a game simulation.
 - **Files:** `deckAnalysis.js`

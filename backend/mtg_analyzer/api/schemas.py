@@ -13,6 +13,22 @@ class CardResolveRequest(BaseModel):
     names: list[str] = Field(default_factory=list)
 
 
+class ComboDeckCard(BaseModel):
+    """One resolved deck-list card used to match local Spellbook variants."""
+
+    name: str = Field(min_length=1)
+    quantity: int = Field(default=1, ge=1)
+    mana_value: float = Field(default=0, ge=0, alias="manaValue")
+
+
+class ComboAnalysisRequest(BaseModel):
+    """Deck cards for POST /api/combos/matches."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    cards: list[ComboDeckCard] = Field(default_factory=list)
+
+
 class SaveDeckRequest(BaseModel):
     """Request body for POST /api/decks/save.
 

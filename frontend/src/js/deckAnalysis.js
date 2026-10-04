@@ -88,6 +88,23 @@ function manaAbilityCostText(card) {
   return match ? match[1] : '';
 }
 
+function manaAbilityActivationCost(card) {
+  const cost = manaAbilityCostText(card);
+  return [...cost.matchAll(/\{(\d+)\}/g)].reduce((total, match) => total + Number(match[1]), 0);
+}
+
+function manaAbilityMinimumLandCount(card) {
+  const match = oracleText(card).match(
+    /\bactivate(?: this ability)? only if you control (one|two|three|four|five|six|seven|eight|nine|ten|\d+) or more lands\b/i
+  );
+  if (!match) return 0;
+  const number = Number(match[1]);
+  if (Number.isFinite(number)) return number;
+  return ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'].indexOf(
+    match[1].toLowerCase()
+  ) + 1;
+}
+
 /**
  * A mana source consumed the instant it's used — paid for by sacrificing
  * itself (Lotus Petal, Lion's Eye Diamond) or by exiling itself from hand
@@ -447,9 +464,9 @@ export function isTutor(card) {
 // theoretically detectable from a decklist — WotC dropped tutors from
 // the system in their Oct 2025 update ("remove the tutor restrictions
 // ... and rely on Game Changers to catch the most efficient tutors").
-// Two-card infinite combos (the other bracket-3 criterion) need
-// cross-card interaction knowledge no single-card text heuristic has —
-// deliberately not attempted here; see Commander Spellbook for that.
+// Two-card infinite combos require cross-card knowledge. They are matched
+// against the local Commander Spellbook snapshot in analyzeView.js; only
+// explicitly infinite produced features can affect the bracket heuristic.
 
 //: The official Game Changers list — unlike every other heuristic in
 //: this file, this must be an exact name match against a WotC-curated
@@ -674,47 +691,150 @@ export function expectedLandsOverTime(librarySize, landCount, fetchCount, maxTur
 }
 
 /**
+ * Exact expected land drops on the play, including fetches that can find a
+ * non-fetch land. Unlike `min(turn, expected lands drawn)`, this averages
+ * `min(actual lands in hand, turn)` over the hypergeometric draw outcomes.
+ */
+export function expectedLandDropsOverTime(librarySize, landCount, fetchCount, maxTurn = 8) {
+  const initialState = [librarySize, landCount, fetchCount, 0, 0, 0];
+  let states = new Map([[initialState.join(','), { state: initialState, probability: 1 }]]);
+  const turns = [];
+
+  function mergeState(target, state, probability) {
+    const key = state.join(',');
+    const existing = target.get(key);
+    if (existing) existing.probability += probability;
+    else target.set(key, { state, probability });
+  }
+
+  for (let turn = 1; turn <= maxTurn; turn++) {
+    const draws = turn === 1 ? 7 : 1;
+    for (let draw = 0; draw < draws; draw++) {
+      const nextStates = new Map();
+      for (const { state, probability } of states.values()) {
+        const [remainingCards, remainingLands, remainingFetches, handLands, handFetches, landDrops] = state;
+        if (remainingCards <= 0) {
+          mergeState(nextStates, state, probability);
+          continue;
+        }
+
+        if (remainingCards > remainingLands) {
+          mergeState(
+            nextStates,
+            [remainingCards - 1, remainingLands, remainingFetches, handLands, handFetches, landDrops],
+            (probability * (remainingCards - remainingLands)) / remainingCards
+          );
+        }
+        if (remainingLands > remainingFetches) {
+          mergeState(
+            nextStates,
+            [remainingCards - 1, remainingLands - 1, remainingFetches, handLands + 1, handFetches, landDrops],
+            (probability * (remainingLands - remainingFetches)) / remainingCards
+          );
+        }
+        if (remainingFetches > 0) {
+          mergeState(
+            nextStates,
+            [remainingCards - 1, remainingLands - 1, remainingFetches - 1, handLands, handFetches + 1, landDrops],
+            (probability * remainingFetches) / remainingCards
+          );
+        }
+      }
+      states = nextStates;
+    }
+
+    const afterLandDrop = new Map();
+    for (const { state, probability } of states.values()) {
+      const [remainingCards, remainingLands, remainingFetches, handLands, handFetches, landDrops] = state;
+      if (handFetches > 0) {
+        const canFetch = remainingLands > remainingFetches;
+        mergeState(
+          afterLandDrop,
+          [
+            remainingCards - (canFetch ? 1 : 0),
+            remainingLands - (canFetch ? 1 : 0),
+            remainingFetches,
+            handLands,
+            handFetches - 1,
+            landDrops + 1,
+          ],
+          probability
+        );
+      } else if (handLands > 0) {
+        mergeState(
+          afterLandDrop,
+          [remainingCards, remainingLands, remainingFetches, handLands - 1, handFetches, landDrops + 1],
+          probability
+        );
+      } else {
+        mergeState(afterLandDrop, state, probability);
+      }
+    }
+    states = afterLandDrop;
+
+    const expectedLandDrops = [...states.values()].reduce(
+      (total, { state, probability }) => total + state[5] * probability,
+      0
+    );
+    turns.push({ turn, expectedLandDrops });
+  }
+  return turns;
+}
+
+/**
  * Idealized "mana available if played on curve" for turns 1..maxTurn, as a
  * greedy turn-by-turn simulation rather than a flat "sum everything cheap
  * enough" formula — the latter allowed impossible turns (e.g. "casting"
  * a {1} rock, a {2} rock, and a {1} dork on turn 2 off of 2 mana). Each
  * turn: last turn's newly-cast accelerants come online, then as many
- * not-yet-cast accelerants as the turn's mana pool (land drops so far +
- * already-online bonus) affords are cast, cheapest first. One-shot
+ * not-yet-cast accelerants as the best-case whole-mana budget allows are
+ * cast, cheapest first. Mana rocks can be tapped immediately; other
+ * accelerants start paying off next turn. One-shot
  * rituals are excluded from `accelerants` by the caller: their burst
  * doesn't compound turn over turn.
  *
- * The land-mana baseline is the same deck-specific, fetch-aware land
- * expectation as "Starthand & Landziehungen" (`expectedLandsOverTime`),
- * not a flat "1 per turn" assumption — a screwed or flooded manabase
- * shows up here too, capped at one land *played* per turn (RULE 305.1;
- * extra drawn lands just sit in hand, they don't add mana).
- *
- * Without `accelerantDrawsByTurn`, this is the "maximum Beschleunigung"
- * curve: every accelerant is treated as cast the instant its mana cost is
- * affordable — but still capped at the total number of cards seen by that
- * turn (7 opening-hand cards, +1 per turn since, on the play), the hard
- * upper bound on how many accelerants *could* physically be in hand even
- * in the luckiest draw (a 99-card deck's 14 rocks still can't all be cast
- * by turn 4 — that's only 10 cards seen). Passing `accelerantDrawsByTurn`
- * additionally tightens that to the *expected* number drawn by then (same
- * hypergeometric expectation as lands, via `expectedLandsOverTime` applied
- * to the accelerant count instead of the land count) — the "realistic"
- * curve.
- * @param {{cmc: number, manaProduced: number, qty: number}[]} accelerants
- * @param {number[]} expectedLandsByTurn `expectedLandsOverTime(...).expectedLands`
- *   (or the fetch-adjusted equivalent), one entry per turn 1..maxTurn.
+ * This is the optimistic "maximum acceleration" curve: every accelerant
+ * is available as soon as affordable and land drops are capped by the
+ * deck's actual land count. It uses each land's recognized output, deducts
+ * activation costs from mana-source output, and reserves one hand slot per
+ * played land before counting accelerants. The realistic line instead
+ * comes from shuffled hands and draws in `estimateExpectedManaCurve`.
+ * @param {{name?: string, cmc: number, manaProduced: number, activationCost?: number, qty: number, kind?: string}[]} accelerants
+ * @param {number[]} expectedLandsByTurn Expected land drops, one entry per
+ *   turn 1..maxTurn (for example, `expectedLandDropsOverTime`).
  * @param {number} [maxTurn]
- * @param {number[]|null} [accelerantDrawsByTurn] cumulative expected number
- *   of accelerant copies drawn by each turn, one entry per turn 1..maxTurn —
- *   omit (or pass null) for the uncapped "maximum acceleration" curve.
+ * @param {{name?: string, qty: number, manaProduced: number, activationCost?: number, minimumLands?: number}[]|null} [landSources]
  */
-export function simulateManaCurve(accelerants, expectedLandsByTurn, maxTurn = 8, accelerantDrawsByTurn = null) {
+export function simulateManaCurve(accelerants, expectedLandsByTurn, maxTurn = 8, landSources = null) {
   const pool = [];
   for (const a of accelerants) {
-    for (let i = 0; i < a.qty; i++) pool.push({ cmc: a.cmc, manaProduced: a.manaProduced });
+    for (let i = 0; i < a.qty; i++) {
+      pool.push({
+        name: a.name,
+        cmc: a.cmc,
+        manaProduced: a.manaProduced,
+        activationCost: a.activationCost || 0,
+        kind: a.kind,
+      });
+    }
   }
-  pool.sort((a, b) => a.cmc - b.cmc || b.manaProduced - a.manaProduced);
+  pool.sort((a, b) => {
+    const costOrder = a.cmc - b.cmc;
+    const rockPriority = Number(b.kind === 'manaRock') - Number(a.kind === 'manaRock');
+    return costOrder || rockPriority ||
+      Math.max(0, b.manaProduced - b.activationCost) - Math.max(0, a.manaProduced - a.activationCost);
+  });
+  const availableLandSources = landSources
+    .flatMap((source) =>
+      Array.from(
+        { length: source.qty },
+        () => ({
+          netProduction: Math.max(0, source.manaProduced - (source.activationCost || 0)),
+          minimumLands: source.minimumLands || 0,
+        })
+      )
+    );
+  const deckLandCount = landSources?.reduce((total, source) => total + source.qty, 0) ?? 0;
 
   const turns = [];
   let onlineBonus = 0; // extra mana already paying off, from accelerants cast in strictly earlier turns
@@ -724,23 +844,237 @@ export function simulateManaCurve(accelerants, expectedLandsByTurn, maxTurn = 8,
   for (let turn = 1; turn <= maxTurn; turn++) {
     onlineBonus += pendingBonus;
     pendingBonus = 0;
-    const landMana = Math.min(turn, expectedLandsByTurn[turn - 1] ?? turn);
-    turns.push({ turn, withoutRamp: landMana, withRamp: landMana + onlineBonus });
-
+    const landDrops = landSources
+      ? Math.min(turn, deckLandCount)
+      : Math.min(turn, Math.ceil(expectedLandsByTurn[turn - 1] ?? turn));
+    const landMana = landSources
+      ? availableLandSources
+          .filter((source) => source.minimumLands <= landDrops)
+          .sort((a, b) => b.netProduction - a.netProduction)
+          .slice(0, landDrops)
+          .reduce((total, source) => total + source.netProduction, 0)
+      : landDrops;
     const available = landMana + onlineBonus;
     // 7 opening-hand cards, +1 draw per turn since (on the play) — the hard
     // physical cap on cards seen so far, so even the uncapped "maximum"
     // curve can't cast more accelerants than could possibly be in hand yet.
     const cardsSeen = 6 + turn;
-    const drawnSoFar = accelerantDrawsByTurn ? (accelerantDrawsByTurn[turn - 1] ?? pool.length) : cardsSeen;
+    const drawnSoFar = Math.max(0, cardsSeen - landDrops);
     let spent = 0;
-    while (idx < pool.length && idx < drawnSoFar && spent + pool[idx].cmc <= available) {
+    let manaToSpend = Math.ceil(available);
+    let producedThisTurn = 0;
+    const rampCardsCast = [];
+    // This is the best-case curve: fractional expected mana is rounded up
+    // only for deciding whether a source can be cast, never in the displayed
+    // mana value itself.
+    while (idx < pool.length && idx < drawnSoFar && pool[idx].cmc <= manaToSpend) {
       spent += pool[idx].cmc;
-      pendingBonus += pool[idx].manaProduced;
+      manaToSpend -= pool[idx].cmc;
+      const netProduction = Math.max(0, pool[idx].manaProduced - pool[idx].activationCost);
+      pendingBonus += netProduction;
+      if (pool[idx].kind === 'manaRock') {
+        manaToSpend += netProduction;
+        producedThisTurn += netProduction;
+      }
+      if (pool[idx].name) rampCardsCast.push(pool[idx].name);
       idx++;
     }
+    turns.push({
+      turn,
+      withoutRamp: landMana,
+      withRamp: available + producedThisTurn,
+      spentOnRamp: spent,
+      rampCardsCast,
+    });
   }
   return turns;
+}
+
+const EXPECTED_MANA_CURVE_TRIALS = 8192; // Stable sample size for a smooth, repeatable expected value.
+const MANA_CURVE_OPENING_HAND_SIZE = 7;
+const MANA_CURVE_HASH_OFFSET_BASIS = 2166136261;
+const MANA_CURVE_HASH_PRIME = 16777619;
+const MANA_CURVE_RNG_LEFT_SHIFT_A = 13;
+const MANA_CURVE_RNG_RIGHT_SHIFT = 17;
+const MANA_CURVE_RNG_LEFT_SHIFT_B = 5;
+const MANA_CURVE_UINT32_RANGE = 2 ** 32;
+
+function seededRandom(seed) {
+  let state = seed || MANA_CURVE_HASH_OFFSET_BASIS;
+  return () => {
+    state ^= state << MANA_CURVE_RNG_LEFT_SHIFT_A;
+    state ^= state >>> MANA_CURVE_RNG_RIGHT_SHIFT;
+    state ^= state << MANA_CURVE_RNG_LEFT_SHIFT_B;
+    return (state >>> 0) / MANA_CURVE_UINT32_RANGE;
+  };
+}
+
+/**
+ * Expected mana production from shuffled opening hands and draws. The
+ * expected land count cannot be used as a casting threshold: an average of
+ * 0.96 lands on turn one still means most hands can cast a one-mana dork.
+ * Reproducible sampling preserves those discrete draw/cast outcomes. It
+ * assumes one land drop per turn, that fetchlands find a remaining land,
+ * that mana rocks can be tapped immediately, and that creatures wait a turn.
+ * @param {{name?: string, cmc: number, manaProduced: number, qty: number, kind?: string}[]} accelerants
+ * @param {number} librarySize
+ * @param {number} landCount
+ * @param {number} fetchCount
+ * @param {number} [maxTurn]
+ */
+export function estimateExpectedManaCurve(accelerants, librarySize, landCount, fetchCount, maxTurn = 8) {
+  const rampCards = accelerants.flatMap((accelerant) =>
+    Array.from({ length: accelerant.qty }, () => ({
+      type: 'ramp',
+      name: accelerant.name,
+      cmc: accelerant.cmc,
+      manaProduced: accelerant.manaProduced,
+      activationCost: accelerant.activationCost || 0,
+      kind: accelerant.kind,
+    }))
+  );
+  const fetchLands = Math.min(fetchCount, landCount);
+  const deck = [
+    ...Array.from({ length: Math.max(0, landCount - fetchLands) }, () => ({ type: 'land' })),
+    ...Array.from({ length: fetchLands }, () => ({ type: 'fetch' })),
+    ...rampCards,
+  ];
+  while (deck.length < librarySize) deck.push({ type: 'other' });
+
+  const stableInputs = [
+    librarySize,
+    landCount,
+    fetchCount,
+    ...accelerants
+      .map(({ name, cmc, manaProduced, qty, kind }) => `${name}:${cmc}:${manaProduced}:${qty}:${kind}`)
+      .sort(),
+  ].join('|');
+  let seed = MANA_CURVE_HASH_OFFSET_BASIS;
+  for (let i = 0; i < stableInputs.length; i++) {
+    seed = Math.imul(seed ^ stableInputs.charCodeAt(i), MANA_CURVE_HASH_PRIME);
+  }
+  const random = seededRandom(seed >>> 0);
+  const totals = Array(maxTurn).fill(0);
+  const sampledLandTotals = Array(maxTurn).fill(0);
+
+  for (let trial = 0; trial < EXPECTED_MANA_CURVE_TRIALS; trial++) {
+    const shuffled = [...deck];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+
+    const hand = shuffled.slice(0, MANA_CURVE_OPENING_HAND_SIZE);
+    let nextCard = MANA_CURVE_OPENING_HAND_SIZE;
+    let playedLands = 0;
+    let onlineBonus = 0;
+    let pendingBonus = 0;
+
+    for (let turn = 1; turn <= maxTurn; turn++) {
+      if (turn > 1 && nextCard < shuffled.length) hand.push(shuffled[nextCard++]);
+      onlineBonus += pendingBonus;
+      pendingBonus = 0;
+
+      const landIndex = hand.findIndex((card) => card.type === 'fetch');
+      const basicLandIndex = hand.findIndex((card) => card.type === 'land');
+      const playedIndex = landIndex >= 0 ? landIndex : basicLandIndex;
+      if (playedIndex >= 0) {
+        const playedLand = hand.splice(playedIndex, 1)[0];
+        playedLands++;
+        if (playedLand.type === 'fetch') {
+          const targetIndex = shuffled.findIndex(
+            (card, index) => index >= nextCard && card.type === 'land'
+          );
+          if (targetIndex >= 0) shuffled.splice(targetIndex, 1);
+        }
+      }
+
+      let manaToSpend = playedLands + onlineBonus;
+      let producedThisTurn = 0;
+      hand.sort((a, b) => {
+        const costA = a.type === 'ramp' ? a.cmc : Infinity;
+        const costB = b.type === 'ramp' ? b.cmc : Infinity;
+        if (costA !== costB) return costA - costB;
+        if (costA === Infinity) return 0;
+        const rockPriority = Number(b.kind === 'manaRock') - Number(a.kind === 'manaRock');
+        return rockPriority || Math.max(0, b.manaProduced - (b.activationCost || 0)) -
+          Math.max(0, a.manaProduced - (a.activationCost || 0));
+      });
+      for (let i = 0; i < hand.length;) {
+        const card = hand[i];
+        if (card.type !== 'ramp' || manaToSpend < card.cmc) {
+          i++;
+          continue;
+        }
+        hand.splice(i, 1);
+        manaToSpend -= card.cmc;
+        const netProduction = Math.max(0, card.manaProduced - card.activationCost);
+        pendingBonus += netProduction;
+        if (card.kind === 'manaRock') {
+          manaToSpend += netProduction;
+          producedThisTurn += netProduction;
+        }
+      }
+      totals[turn - 1] += playedLands + onlineBonus + producedThisTurn;
+      sampledLandTotals[turn - 1] += playedLands;
+    }
+  }
+
+  const expectedLandDrops = expectedLandDropsOverTime(librarySize, landCount, fetchCount, maxTurn);
+  return totals.map((total, index) => ({
+    turn: index + 1,
+    withRamp:
+      expectedLandDrops[index].expectedLandDrops +
+      (total - sampledLandTotals[index]) / EXPECTED_MANA_CURVE_TRIALS,
+  }));
+}
+
+/**
+ * Estimate the first turn by which every combo card can be cast using the
+ * per-turn mana curve. Unspent mana does not carry between turns; combo
+ * pieces can be cast on separate turns and remain available for the combo.
+ * This assumes all pieces are available to cast and is not a game simulation.
+ * @param {{name: string, cost: number}[]} comboCards Required combo card copies.
+ * @param {{turn: number, withRampMax: number, rampSpentMax?: number, rampCardsCastMax?: string[]}[]} manaCurve
+ * @returns {number|null}
+ */
+export function estimateComboCastTurn(comboCards, manaCurve) {
+  if (!comboCards.length || comboCards.some(({ cost }) => !Number.isFinite(cost) || cost < 0)) {
+    return null;
+  }
+
+  const remainingCards = comboCards.map((card) => ({ ...card }));
+  let latestPieceCastTurn = 0;
+  for (const point of manaCurve) {
+    for (const rampName of point.rampCardsCastMax || []) {
+      const name = rampName.trim().toLowerCase();
+      const comboIndex = remainingCards.findIndex(
+        (card) => card.name.trim().toLowerCase() === name
+      );
+      if (comboIndex >= 0) {
+        remainingCards.splice(comboIndex, 1);
+        latestPieceCastTurn = point.turn;
+      }
+    }
+
+    const rampSpent = point.rampSpentMax ?? 0;
+    if (!Number.isFinite(point.withRampMax) || !Number.isFinite(rampSpent)) continue;
+    // The maximum-ramp curve already commits this mana to accelerants; do not
+    // spend the same mana again on combo pieces in that turn.
+    let manaLeft = Math.max(0, point.withRampMax - rampSpent);
+    remainingCards.sort((a, b) => b.cost - a.cost);
+    for (let i = 0; i < remainingCards.length;) {
+      if (remainingCards[i].cost <= manaLeft) {
+        manaLeft -= remainingCards[i].cost;
+        remainingCards.splice(i, 1);
+        latestPieceCastTurn = point.turn;
+      } else {
+        i++;
+      }
+    }
+    if (!remainingCards.length) return latestPieceCastTurn;
+  }
+  return null;
 }
 
 /**
@@ -752,7 +1086,7 @@ export function simulateManaCurve(accelerants, expectedLandsByTurn, maxTurn = 8,
  * @param {Map<string, {card: object}>} resolved Lowercased name → resolved
  *   entry, as returned by cardImages.js's resolveCardImages().
  */
-export function analyzeDeck(commanderEntries, libraryEntries, resolved) {
+export function analyzeDeck(commanderEntries, libraryEntries, resolved, comboData = null) {
   const cardFor = (name) => resolved.get(name.trim().toLowerCase())?.card ?? null;
 
   const unresolvedNames = [];
@@ -781,6 +1115,7 @@ export function analyzeDeck(commanderEntries, libraryEntries, resolved) {
   const rituals = []; // one-shot bursts: Dark Ritual, Jeska's Will, …
   const treasureGenerators = []; // Storm-Kiln Artist, Goldspan Dragon, …
   const recurringAccelerants = []; // rocks + dorks + landAuras + landRamp only (feeds simulateManaCurve)
+  const manaProducingLands = [];
 
   // --- Land archetypes ---------------------------------------------------
   const landArchetypeCounts = Object.fromEntries(LAND_ARCHETYPES.map((a) => [a.key, { count: 0, names: [] }]));
@@ -856,6 +1191,14 @@ export function analyzeDeck(commanderEntries, libraryEntries, resolved) {
       landArchetypeCounts[archetype.key].count += qty;
       landArchetypeCounts[archetype.key].names.push({ name: card.name, qty });
       if (archetype.key === 'fetch') fetchCount += qty;
+      const landMana = archetype.key === 'fetch' ? 1 : producesMana(card) ? manaProduced(card) : 0;
+      manaProducingLands.push({
+        name: card.name,
+        qty,
+        manaProduced: landMana,
+        activationCost: archetype.key === 'fetch' ? 0 : manaAbilityActivationCost(card),
+        minimumLands: archetype.key === 'fetch' ? 0 : manaAbilityMinimumLandCount(card),
+      });
       commandZoneCounts.lands.count += qty;
       commandZoneCounts.lands.names.push({ name: card.name, qty });
       continue; // lands don't count toward the CMC curve/mana value
@@ -878,19 +1221,40 @@ export function analyzeDeck(commanderEntries, libraryEntries, resolved) {
       treasureGenerators.push({ name: card.name, qty, cmc });
     } else if (isManaRock(card)) {
       manaRocks.push({ name: card.name, qty, cmc });
-      recurringAccelerants.push({ cmc, manaProduced: manaProduced(card), qty });
+      recurringAccelerants.push({
+        name: card.name,
+        cmc,
+        manaProduced: manaProduced(card),
+        activationCost: manaAbilityActivationCost(card),
+        qty,
+        kind: 'manaRock',
+      });
       for (const color of COLORS) {
         if ((card.color_identity || []).includes(color)) sourcePips[color] += qty;
       }
     } else if (isManaDork(card)) {
       manaDorks.push({ name: card.name, qty, cmc });
-      recurringAccelerants.push({ cmc, manaProduced: manaProduced(card), qty });
+      recurringAccelerants.push({
+        name: card.name,
+        cmc,
+        manaProduced: manaProduced(card),
+        activationCost: manaAbilityActivationCost(card),
+        qty,
+        kind: 'manaDork',
+      });
       for (const color of COLORS) {
         if ((card.color_identity || []).includes(color)) sourcePips[color] += qty;
       }
     } else if (isManaLandAura(card)) {
       manaLandAuras.push({ name: card.name, qty, cmc });
-      recurringAccelerants.push({ cmc, manaProduced: manaProduced(card), qty });
+      recurringAccelerants.push({
+        name: card.name,
+        cmc,
+        manaProduced: manaProduced(card),
+        activationCost: manaAbilityActivationCost(card),
+        qty,
+        kind: 'manaLandAura',
+      });
       for (const color of COLORS) {
         if ((card.color_identity || []).includes(color)) sourcePips[color] += qty;
       }
@@ -904,7 +1268,7 @@ export function analyzeDeck(commanderEntries, libraryEntries, resolved) {
       const kind = rampSpellKind(card);
       if (kind === 'landFetch') {
         landRampSpells.push({ name: card.name, qty, cmc });
-        recurringAccelerants.push({ cmc, manaProduced: 1, qty });
+        recurringAccelerants.push({ name: card.name, cmc, manaProduced: 1, qty, kind: 'landRamp' });
       } else if (kind === 'ritual') {
         rituals.push({ name: card.name, qty, cmc });
       } else {
@@ -969,27 +1333,89 @@ export function analyzeDeck(commanderEntries, libraryEntries, resolved) {
     withFetchBonus: landsOverTimeWithFetch[i].expectedLands,
   }));
 
-  // Expected cumulative number of accelerant copies drawn by each turn —
-  // the same hypergeometric-expectation machinery as `landsOverTime`
-  // above, just applied to the accelerant count instead of the land
-  // count, so "realistic" below can't assume more accelerants in hand
-  // than the deck could plausibly have drawn by then.
-  const accelerantDrawsOverTime = expectedLandsOverTime(librarySize, accelerantCount, 0);
-
-  const landManaBasis = landsOverTime.map((t) => t.withFetchBonus);
-  const expectedManaCurveMax = simulateManaCurve(recurringAccelerants, landManaBasis);
-  const expectedManaCurveRealistic = simulateManaCurve(
+  const landManaBasis = expectedLandDropsOverTime(librarySize, landCount, fetchCount).map(
+    (t) => t.expectedLandDrops
+  );
+  const expectedManaCurveMax = simulateManaCurve(recurringAccelerants, landManaBasis, 8, manaProducingLands);
+  const expectedManaCurveRealistic = estimateExpectedManaCurve(
     recurringAccelerants,
-    landManaBasis,
-    8,
-    accelerantDrawsOverTime.map((t) => t.expectedLands)
+    librarySize,
+    landCount,
+    fetchCount
   );
   const expectedManaCurve = expectedManaCurveMax.map((p, i) => ({
     turn: p.turn,
     withoutRamp: p.withoutRamp,
     withRampMax: p.withRamp,
+    rampSpentMax: p.spentOnRamp,
+    rampCardsCastMax: p.rampCardsCast,
     withRampRealistic: expectedManaCurveRealistic[i].withRamp,
   }));
+
+  const resolvedByCanonicalName = new Map(
+    [...resolved.values()]
+      .filter((entry) => entry?.card?.name)
+      .map((entry) => [entry.card.name.trim().toLowerCase(), entry.card])
+  );
+  const comboAnalysis = (comboData?.combos || []).map((combo) => {
+    const uses = Array.isArray(combo.uses) ? combo.uses : [];
+    const cardCount = uses.reduce((sum, use) => sum + (Number(use.quantity) || 1), 0);
+    const comboCards = [];
+    let totalManaValue = 0;
+    let manaValueKnown = true;
+    for (const use of uses) {
+      const card = resolvedByCanonicalName.get(String(use.name || '').trim().toLowerCase());
+      const cmc = card?.converted_mana_cost;
+      if (!Number.isFinite(cmc)) {
+        manaValueKnown = false;
+        break;
+      }
+      totalManaValue += cmc * (Number(use.quantity) || 1);
+      for (let i = 0; i < (Number(use.quantity) || 1); i++) {
+        comboCards.push({ name: String(use.name).trim(), cost: cmc });
+      }
+    }
+    const hasUnverifiedRequirements = Boolean(combo.requirements?.length);
+    const producesInfinite = (combo.produces || []).some((feature) =>
+      /\binfinite\b/i.test(feature)
+    );
+    const earliestTurn = manaValueKnown ? estimateComboCastTurn(comboCards, expectedManaCurve) : null;
+    const bracketImpact =
+      hasUnverifiedRequirements || cardCount !== 2 || !producesInfinite || !manaValueKnown
+        ? 'unverified'
+        : earliestTurn !== null && earliestTurn <= 6
+          ? 'bracket4'
+          : 'bracket3';
+    return {
+      ...combo,
+      cardCount,
+      totalManaValue: manaValueKnown ? totalManaValue : null,
+      earliestTurn,
+      hasUnverifiedRequirements,
+      producesInfinite,
+      bracketImpact,
+    };
+  });
+  const twoCardCombos = comboAnalysis.filter(
+    (combo) =>
+      combo.cardCount === 2 &&
+      combo.producesInfinite &&
+      !combo.hasUnverifiedRequirements &&
+      Number.isFinite(combo.totalManaValue)
+  );
+  const earlyTwoCardCombos = twoCardCombos.filter((combo) => combo.bracketImpact === 'bracket4');
+  let minimumBracket = bracketSuggestion.minimumBracket;
+  if (twoCardCombos.length) minimumBracket = Math.max(minimumBracket || 0, 3);
+  if (earlyTwoCardCombos.length) minimumBracket = Math.max(minimumBracket || 0, 4);
+  const bracketReasons = [...bracketSuggestion.reasons];
+  if (twoCardCombos.length) {
+    bracketReasons.push(t('da.bracket.twoCardCombos', { count: twoCardCombos.length }));
+  }
+  if (earlyTwoCardCombos.length) {
+    bracketReasons.push(
+      t('da.bracket.earlyTwoCardCombos', { count: earlyTwoCardCombos.length })
+    );
+  }
 
   return {
     unresolvedNames,
@@ -1061,8 +1487,13 @@ export function analyzeDeck(commanderEntries, libraryEntries, resolved) {
       gameChangers,
       massLandDenial,
       extraTurnSpells,
-      minimumBracket: bracketSuggestion.minimumBracket,
-      reasons: bracketSuggestion.reasons,
+      combos: comboAnalysis,
+      comboDataLoaded: comboData !== null,
+      comboTwoCardCount: twoCardCombos.length,
+      comboEarlyTwoCardCount: earlyTwoCardCombos.length,
+      comboUnknownCount: comboAnalysis.filter((combo) => combo.bracketImpact === 'unverified').length,
+      minimumBracket,
+      reasons: bracketReasons,
     },
   };
 }

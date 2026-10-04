@@ -5,9 +5,11 @@ Open a deck's analysis via **Decks verwalten** (manage decks) →
 three sub-tabs: **Statische Analyse**, **Dynamische Analyse**, and
 **Bracket-Analyse**.
 
-Everything here is computed **locally in your browser** from the
-deck's card data — there is no AI/LLM call involved, and no new
-network request beyond fetching card data. The classifications
+Everything except combo matching is computed **locally in your
+browser** from the deck's card data — there is no AI/LLM call involved.
+The combo list is matched by the backend against a local Commander
+Spellbook snapshot, fetched lazily on first use and stored in SQLite.
+The classifications
 (mana rock, fetchland, board wipe, and so on) are pattern-matching
 heuristics over each card's rules text, not an official or verified
 categorization — an unusually worded card can occasionally be
@@ -26,13 +28,20 @@ what "Dynamische Analyse" is for (see below).
   by mana value.
 - **Erwartete verfügbare Mana pro Zug** (expected available mana per
   turn): a line chart estimating how much mana you'll have on each
-  turn, based on your deck's actual land count (adjusted for
-  fetchlands' deck-thinning effect) — capped at one land played per
-  turn. Three lines are shown: lands only, lands + accelerants
-  ("realistic" — i.e. how many accelerants you'd statistically have
-  drawn by then), and lands + accelerants ("maximum" — the best case
-  if every accelerant were cast the instant it's affordable). This is
-  a simplified estimate, not a full simulation.
+  turn, based on the exact expected number of land drops from your
+  opening hand and draws; fetchlands are cracked when played and
+  assumed to find a land if one remains in the library. Three lines
+  are shown: lands only, lands + accelerants
+  ("realistic" — the reproducible mean over 8,192 shuffled opening
+  hands and draw sequences), and lands + accelerants ("maximum" — favorable draws and
+  affordability). Recognized lands use their actual output (e.g. Ancient
+  Tomb produces two mana); mana-rock activation costs (e.g. a Signet's
+  generic mana cost) are subtracted. Mana rocks can be used the turn
+  they are cast; mana dorks produce starting on the next turn. The
+  maximum curve also limits accelerants to hand slots remaining after
+  land drops. This is
+  a simplified estimate, not a full simulation; mana is an expected
+  value, not the probability of being able to pay a particular card's cost.
 - **Kartentyp-Verteilung** (card type distribution): counts by type
   (creature, land, artifact, instant, etc. — a card with two types
   counts in both bars).
@@ -61,6 +70,12 @@ what "Dynamische Analyse" is for (see below).
   rest) — with sub-breakdowns (e.g. Targeted Disruption splits into
   counterspells, removal, bounce, etc.) and a separate tutor list
   (tutors cut across categories, so they're not their own bucket).
+- **Commander Spellbook combos**: listed variants whose cards are
+  present in the deck. On first use the server downloads the compressed
+  full snapshot from Commander Spellbook; later analyses use the local
+  SQLite database. Cards are matched by exact name. Additional template
+  requirements are shown but not checked against the deck, so those
+  variants do not affect the bracket estimate.
 
 ## Dynamische Analyse (dynamic analysis)
 
@@ -75,9 +90,8 @@ An **unofficial heuristic approximation** of Wizards of the Coast's
 meant to set power-level expectations before a game. This is **not an
 authoritative ruling**, just a rough estimate.
 
-Of the criteria that distinguish brackets, only three can even
-theoretically be read off a decklist, and this tab checks exactly
-those three:
+Not every criterion that distinguishes brackets can be read from a
+decklist. This tab checks the following signals:
 
 - **Game Changers** — cards on WotC's official Game Changers list (not
   allowed at all in Brackets 1–2, up to 3 in Bracket 3, unlimited in
@@ -88,10 +102,19 @@ those three:
   you to judge; a single one is fine, repeated/looped ones are not
   intended below Bracket 4.
 
-Two other official criteria simply can't be checked this way: **two-card
-infinite combos** need cross-card interaction knowledge no single-card
-heuristic has (use a tool like Commander Spellbook for that), and
-tutors stopped being a bracket criterion in WotC's October 2025 update.
+Two-card infinite combos are derived from Commander Spellbook variants
+whose listed outputs explicitly contain "Infinite". Variants with
+unverified template requirements are excluded. To estimate when the
+combo's pieces can be cast, the app pays each card's mana value from the
+maximum mana curve turn by turn. Pieces may be cast over multiple turns;
+unused mana does not carry forward, and mana spent on ramp is not counted
+again for combo cards. If all pieces can be cast by turn 6, the combo
+counts as early (suggested minimum Bracket 4); later combos count as a
+Bracket 3 signal. This assumes every combo card is available and does not
+simulate a specific combo hand, colors, or actual game states; it uses
+expected land drops as a mana budget. It is a
+project heuristic, not an official numeric WotC definition of "early".
+Tutors stopped being a bracket criterion in WotC's October 2025 update.
 
 The tab shows a suggested **minimum bracket** with its reasoning, plus
 the actual cards behind each signal. Absence of a signal never proves

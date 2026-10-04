@@ -70,6 +70,12 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 - **What:** `GET /api/cards` (list cached cards), `GET /api/cards/search?name=` (exact-name resolve via `LazyCardLoader`), `POST /api/cards/resolve` (bulk name resolution i…
 - **Files:** `mtg_analyzer/api/cards.py`, `api/images.py`, `services/image_cache.py`
 
+### Commander Spellbook combo snapshot
+
+- **What:** A lazy `CommanderSpellbookDatabase` downloads Spellbook's compressed full variants/aliases export only when the first combo match needs it (or via explicit update), streams it into staging SQLite, then transactionally syncs full JSON records, indexed card uses, checksums, version and source timestamp. Refresh reports added/changed/removed variant and alias counts; failed download/import leaves the old snapshot intact. `GET /api/combos/status` never initializes it, `POST /api/combos/matches` initializes only if needed, and `POST /api/combos/update` forces refresh.
+- **Files:** `services/commander_spellbook_database.py`, `api/combos.py`, `api/dependencies.py`, `config.py`, `api/schemas.py`
+- **Why:** The upstream OpenAPI documentation explicitly says not to paginate through the whole `/variants/` API; use the compressed bulk snapshot with a named User-Agent. The durable local SQLite copy avoids repeated upstream calls and exposes source diffs. Full implementation and contract limits: [COMMANDER_SPELLBOOK.md](../Reference/COMMANDER_SPELLBOOK.md).
+
 ### Deck persistence: save/load/delete/validate saved decks
 
 - **What:** `POST /api/decks/save`, `GET /api/decks`, `GET /api/decks/{id}`, `DELETE /api/decks/{id}` persist a decklist distinct from the parse-only `POST /api/decks`; `GE…

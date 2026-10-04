@@ -26,11 +26,21 @@ export default [
     sections: [
       {
         items: [
-          ['full', 'Statische Analyse (Mana-Kurve, Kartentypen, Pips vs. Quellen, Hand-Odds)'],
+          ['full', 'Statische Analyse (Mana-Kurve, Kartentypen, Pips vs. Quellen, Hand-Odds, bei Bedarf geladene Commander-Spellbook-Combos)'],
           ['full', 'Dynamische Analyse (Monte-Carlo-Simulation: Bot spielt N Testpartien, Mana-Potenzial-Kurve ± Streuung, Kartenvorteil & Bibliothekssuchen pro Zug)'],
-          ['full', 'Bracket-Analyse (Commander-Brackets-Heuristik)'],
+          ['full', 'Bracket-Analyse (Commander-Brackets-Heuristik mit erkannten frühen Zwei-Karten-Infinite-Combos)'],
           ['full', 'Auswertung (Post-Game-Statistik)'],
           ['planned', 'Narrative KI-Analyse (LLM: Archetyp/Synergien/Kohärenz, ANA-1/2) — eigenständig neben der Dynamischen Analyse oben'],
+        ],
+      },
+    ],
+  },
+  {
+    title: 'Datenpflege',
+    sections: [
+      {
+        items: [
+          ['full', 'Vollständiger Scryfall-Kartenpool und Commander-Spellbook-Combo-Snapshot manuell aktualisierbar (lokale SQLite-Datenbanken)'],
         ],
       },
     ],

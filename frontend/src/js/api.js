@@ -181,6 +181,103 @@ export async function listCoverageBySet() {
 }
 
 /**
+ * Refreshes the complete Scryfall Oracle-card pool via the backend's
+ * established bulk-import script.
+ * @returns {Promise<{ok: true, cachedCardCount: number} | {ok: false, error: string}>}
+ */
+export async function updateCardPool() {
+  let response;
+  try {
+    response = await fetch(`${getServerUrl()}/api/cards/update`, { method: 'POST' });
+  } catch {
+    return { ok: false, error: t('common.serverUnreachable') };
+  }
+  if (!response.ok) {
+    try {
+      const body = await response.json();
+      return { ok: false, error: body?.detail || `HTTP ${response.status}` };
+    } catch {
+      return { ok: false, error: `HTTP ${response.status}` };
+    }
+  }
+  try {
+    return { ok: true, ...(await response.json()) };
+  } catch {
+    return { ok: false, error: t('api.invalidResponse') };
+  }
+}
+
+/**
+ * Update the local Commander Spellbook SQLite snapshot.
+ * @returns {Promise<{ok: true, summary: object} | {ok: false, error: string}>}
+ */
+export async function updateComboDatabase() {
+  let response;
+  try {
+    response = await fetch(`${getServerUrl()}/api/combos/update`, { method: 'POST' });
+  } catch {
+    return { ok: false, error: t('common.serverUnreachable') };
+  }
+  if (!response.ok) {
+    try {
+      const body = await response.json();
+      return { ok: false, error: body?.detail || `HTTP ${response.status}` };
+    } catch {
+      return { ok: false, error: `HTTP ${response.status}` };
+    }
+  }
+  try {
+    return { ok: true, summary: await response.json() };
+  } catch {
+    return { ok: false, error: t('api.invalidResponse') };
+  }
+}
+
+/**
+ * Read the local Commander Spellbook snapshot state without initializing it.
+ * @returns {Promise<object | null>} null on network/server failure
+ */
+export async function getComboDatabaseStatus() {
+  let response;
+  try {
+    response = await fetch(`${getServerUrl()}/api/combos/status`);
+  } catch {
+    return null;
+  }
+  if (!response.ok) return null;
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Lazily initialize the local combo database if needed and find variants
+ * whose named card uses are contained in the deck.
+ * @param {{name: string, quantity: number}[]} cards
+ * @returns {Promise<{combos: object[], database: object} | null>} null on request failure
+ */
+export async function findDeckCombos(cards) {
+  let response;
+  try {
+    response = await fetch(`${getServerUrl()}/api/combos/matches`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cards }),
+    });
+  } catch {
+    return null;
+  }
+  if (!response.ok) return null;
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Save a new deck, or update one already saved (pass its `id` back).
  * @param {{id?: string, name: string, commanderText: string, mainboardText: string, sideboardText: string, sleeveId?: string | null, author?: string | null, isCube?: boolean}} deck
  * @returns {Promise<object | null>} the saved deck (with its id), or null on failure

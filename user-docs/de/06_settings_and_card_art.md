@@ -23,6 +23,15 @@ wieder mit den Standardwerten. **Verbindung testen** prüft die
 Erreichbarkeit auf Wunsch erneut; derselbe Status wird auch live im
 Kopfbereich der Seite angezeigt.
 
+## Einstellungen: lokale Daten aktualisieren
+
+Unter **Lokale Daten** kannst du den vollständigen Scryfall-Kartenpool
+und die Commander-Spellbook-Combo-Datenbank manuell aktualisieren. Die
+Combo-Datenbank wird ansonsten erst bei der ersten statischen
+Deckanalyse heruntergeladen. Beide Datenbestände werden serverseitig in
+SQLite gespeichert; das Combo-Update zeigt die Zahl neu
+hinzugefügter, geänderter und entfernter Varianten.
+
 ## Profil: Spielername
 
 - **Spielername** — freier Text, ohne Konto oder Passwort dahinter. Er

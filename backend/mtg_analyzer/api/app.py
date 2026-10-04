@@ -18,6 +18,7 @@ from mtg_analyzer import config
 
 from mtg_analyzer.api.archetypes import router as archetypes_router
 from mtg_analyzer.api.cards import router as cards_router
+from mtg_analyzer.api.combos import router as combos_router
 from mtg_analyzer.api.decks import router as decks_router
 from mtg_analyzer.api.dynamic_analysis import router as dynamic_analysis_router
 from mtg_analyzer.api.frontend_proxy import router as frontend_proxy_router
@@ -131,6 +132,7 @@ def create_app() -> FastAPI:
     app.include_router(saved_decks_router)
     app.include_router(archetypes_router)
     app.include_router(cards_router)
+    app.include_router(combos_router)
     app.include_router(images_router)
     app.include_router(game_router)
     app.include_router(game_ws_router)

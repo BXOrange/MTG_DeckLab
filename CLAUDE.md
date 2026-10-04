@@ -545,6 +545,22 @@ version is the frontend **Engine-Status tab**
 coverage changes. Search those for a mechanic's name rather than re-deriving
 its state from the code or duplicating detail here.
 
+**Deck analysis: Commander Spellbook combos.** The backend's local
+`CommanderSpellbookDatabase` (`services/commander_spellbook_database.py`)
+downloads Spellbook's compressed bulk snapshot only on first combo matching
+or explicit refresh, stores canonical variant/alias JSON plus indexed card
+uses and checksums in SQLite, and reports snapshot diffs. The static deck
+analysis lists exact-name fixed-use matches; template requirements are
+displayed but not verified. Only two-card matches with explicit infinite
+outputs and no template requirements affect the unofficial Bracket estimate.
+Its early/late split schedules the individual combo-card mana values across
+the deck's max-expected per-turn curve (no mana carries over; ramp payments
+are subtracted so they aren't spent twice) through turn 6; it assumes all
+pieces are available and is a project heuristic, not an official WotC numeric
+rule. See
+[docs/Reference/COMMANDER_SPELLBOOK.md](docs/Reference/COMMANDER_SPELLBOOK.md)
+for the upstream contract and limits.
+
 **The rules engine is broadly complete.** Implemented, in brief:
 
 - **Turn structure** — full turn/phase/step loop, the stack, RULE 117
@@ -879,6 +895,7 @@ English and German.
 | Replay/Puzzle mode (build+save/load a board) | `backend/mtg_analyzer/services/replay.py`, `game_session.py` (`edit_*` actions), `frontend/src/js/replayView.js` |
 | Archidekt deck import proxy | `backend/mtg_analyzer/services/archidekt_client.py`, `api/import_external.py` (Moxfield was tried and reverted twice — Cloudflare-blocked; don't re-add it without checking that's changed) |
 | Refreshing the full Oracle card pool (new set) | `backend/scripts/update_card_pool.py` — re-downloads the Scryfall `oracle_cards` bulk dump, merges it into `RawCardStore`, reseeds the app cache, and prints a ban-list drift heads-up (`scripts/import_bulk.py` is first-load only; its default reuses an on-disk dump) |
+| Commander Spellbook combo snapshot, lazy matching, and Bracket signals | `backend/mtg_analyzer/services/commander_spellbook_database.py`, `api/combos.py`, `frontend/src/js/analyzeView.js`, `deckAnalysis.js`; full data contract, DB lifecycle, matching limits, and the narrow infinite-combo heuristic in [docs/Reference/COMMANDER_SPELLBOOK.md](docs/Reference/COMMANDER_SPELLBOOK.md) |
 | Applying a ban-list update | `backend/scripts/update_ban_lists.py` — rewrites a hand-maintained ban-list constant (`BAN_LIST_TARGETS`, just `services/commander_legality.py`'s `BANNED_COMMANDER_CARDS` today) straight from the raw store's live `legalities` data; no network of its own, run `update_card_pool.py` first. `--format <key>`/`--dry-run` |
 | Player-uploaded token art / card-back sleeves | `backend/mtg_analyzer/services/player_assets.py`, `api/player_assets.py`, `frontend/src/js/profileView.js` (upload UI + player name), `gameBoardView.js` (`resolveImageUrl`/`setAssets`) |
 | Default art for a vanilla ("1/1 white Soldier") token | `backend/mtg_analyzer/services/token_database.py` (`TokenArtLibrary`, keyed by exact name/power/toughness/colors — a token name is reprinted at multiple stat lines across sets), `data/token_art.json`, `scripts/build_token_art_library.py` (rebuild from a fresh Scryfall bulk dump); consumed by `synthesize_token_card` and `services/replay.py`'s `_token_card` |

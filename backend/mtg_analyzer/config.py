@@ -205,6 +205,10 @@ DECKS_DB_PATH = DATA_DIR / "decks.db"
 #: Default on-disk location for player-uploaded token art / sleeves.
 PLAYER_ASSETS_DB_PATH = DATA_DIR / "player_assets.db"
 
+#: Persistent Commander Spellbook combo snapshot; separate from the
+#: disposable card cache so it can be refreshed and diffed in place.
+COMMANDER_SPELLBOOK_DB_PATH = DATA_DIR / "commander_spellbook.db"
+
 # -- Scryfall -------------------------------------------------------
 
 #: User-Agent sent to Scryfall — both api.scryfall.com and the
