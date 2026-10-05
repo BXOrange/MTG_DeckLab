@@ -553,6 +553,53 @@ class PreventLifeGainEffect(GameEffect):
             context.prevent_life_gain_this_turn(players)
 
 
+class DoubleTokensThisTurnEffect(GameEffect):
+    """RULE 614/616: "Until end of turn, if one or more tokens would be created under your control,
+    twice that many of those tokens are created instead." (Kaya, Geist Hunter's −2) — the turn-scoped
+    sibling of the standing `double_tokens` replacement. A `ReplacementEffect` on the controller's
+    `Player.player_effects` (already scanned by `_all_replacement_effects`, the `prevent_life_gain_this_turn`
+    home), tied to the turn it was made in: once that turn is over its own condition removes it, so it needs
+    no cleanup hook in the turn loop. ``multiplier`` is 2 for every real card.
+    """
+
+    def __init__(self, multiplier: int = 2, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.multiplier = int(multiplier)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        multiplier = self.multiplier
+        turn = context.state.internal_turn.number
+        effect = ReplacementEffect(
+            event_type=EventType.CREATE_TOKENS,
+            replacement_fn=lambda e, c: e,
+            description=f"{player.name}: Tokens werden bis zum Zugende vervielfacht",
+        )
+
+        def _applies(event: GameEvent, ctx: GameContext) -> bool:
+            if ctx.state.internal_turn.number != turn:
+                if effect in player.player_effects:
+                    player.player_effects.remove(effect)  # the turn is over: the effect has ended
+                return False
+            return event.get("controller_id") == player.id
+
+        def _replace(event: GameEvent, ctx: GameContext) -> Optional[GameEvent]:
+            amount = int(event.get("amount", 0) or 0)
+            if amount <= 0:
+                return event
+            return event.copy_with(
+                amount=amount * multiplier,
+                additional_tokens=[{**batch, "amount": batch["amount"] * multiplier}
+                                   for batch in event.get("additional_tokens", [])],
+            )
+
+        effect.replacement_fn = _replace
+        effect.condition = _applies
+        player.player_effects.append(effect)
+
+
 class DisableDamagePreventionEffect(GameEffect):
     """RULE 615: "Damage can't be prevented this turn." (Insult //
     Injury/Isengard Unleashed, MEC-30) — untargeted, no recipient at all;

@@ -13,6 +13,7 @@ from . import incinerator_of_the_guilty  # noqa: F401
 from . import incubator  # noqa: F401
 from . import indomitable_archangel  # noqa: F401
 from . import indoraptor_the_perfect_hybrid  # noqa: F401
+from . import infantry_shield  # noqa: F401
 from . import infesting_radroach  # noqa: F401
 from . import inga_and_esika  # noqa: F401
 from . import ingenious_prodigy  # noqa: F401

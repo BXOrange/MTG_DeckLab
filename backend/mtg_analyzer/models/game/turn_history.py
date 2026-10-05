@@ -314,6 +314,13 @@ def nontoken_creatures_entered(events: Events) -> "defaultdict[str, int]":
                   where=lambda e: "creature" in (e.get("object_types") or []) and not e.get("is_token"))
 
 
+def tokens_entered(events: Events) -> "defaultdict[str, int]":
+    """Tokens that entered under each player's control (Thalisse, Reverent Medium's "the number of
+    tokens you created this turn"): every token is created onto the battlefield here, so its entry is its
+    creation."""
+    return _tally(events, EventType.ENTERS_BATTLEFIELD, "controller_id", where=lambda e: bool(e.get("is_token")))
+
+
 def lands_entered(events: Events) -> "defaultdict[str, int]":
     """Lands that entered under each player's control (Zimone, All-Questioning)."""
     return _tally(events, EventType.ENTERS_BATTLEFIELD, "controller_id",

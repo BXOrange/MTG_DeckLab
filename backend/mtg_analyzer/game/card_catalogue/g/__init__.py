@@ -25,6 +25,7 @@ from . import gilded_drake  # noqa: F401
 from . import gisela_blade_of_goldnight  # noqa: F401
 from . import gitaxian_probe  # noqa: F401
 from . import giver_of_runes  # noqa: F401
+from . import gix_yawgmoth_praetor  # noqa: F401
 from . import glarb_calamity_s_augur  # noqa: F401
 from . import gliding_licid  # noqa: F401
 from . import glint_horn_buccaneer  # noqa: F401
@@ -50,6 +51,7 @@ from . import gratuitous_violence  # noqa: F401
 from . import grave_venerations  # noqa: F401
 from . import greater_realm_of_preservation  # noqa: F401
 from . import greenwarden_of_murasa  # noqa: F401
+from . import grenzo_havoc_raiser  # noqa: F401
 from . import grim_hireling  # noqa: F401
 from . import grinding_station  # noqa: F401
 from . import grothama_all_devouring  # noqa: F401

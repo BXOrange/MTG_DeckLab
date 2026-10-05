@@ -13,6 +13,7 @@ from . import necroskitter  # noqa: F401
 from . import necrotic_ooze  # noqa: F401
 from . import nelly_borca_impulsive_accuser  # noqa: F401
 from . import neoform  # noqa: F401
+from . import neriv_crackling_vanguard  # noqa: F401
 from . import nesting_grounds  # noqa: F401
 from . import nether_traitor  # noqa: F401
 from . import nether_void  # noqa: F401

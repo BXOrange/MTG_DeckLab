@@ -1311,6 +1311,14 @@ def count_selector(
             return 0
         entered = getattr(state, "nontoken_creatures_entered_this_turn", None) or {}
         return int(entered.get(controller_id, 0) or 0)
+    if selector == "tokens_you_created_this_turn":
+        # "…where X is the number of tokens you created this turn." (Thalisse, Reverent Medium) — a
+        # token's creation is its entry (`turn_history.tokens_entered`), counted per controller.
+        if controller_id is None:
+            return 0
+        from ..models.game import turn_history
+
+        return int(turn_history.tokens_entered(state.events_this_turn()).get(controller_id, 0) or 0)
     if selector == "creatures_that_left_battlefield_this_turn":
         # MEC-84 — "…for each creature that left the battlefield under your
         # control this turn." (Kutzil's Flanker). `GameState.creatures_left_

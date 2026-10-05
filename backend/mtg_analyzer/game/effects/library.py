@@ -386,8 +386,14 @@ class ImpulsiveDrawEffect(GameEffect):
         choose_one: bool = False,
         each_player: bool = False,
         mana_wildcard: Optional[str] = None,
+        library_of: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: ``"that_player"``: exile from the library of the player the firing trigger names ("Exile the top
+        #: card of **that player's** library", Grenzo, Havoc Raiser — the damaged player of a
+        #: `DAMAGE`/`CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER` event, `targeting.trigger_player_antecedent`).
+        #: Permission stays with this effect's controller.
+        self.library_of = library_of
         #: "Exile the top card of **each player's** library. You may play those cards this turn,
         #: and you may spend mana as though it were mana of any color to cast those spells."
         #: (Mezzio Mugger) — one exile per living player, all playable by this effect's controller.
@@ -419,10 +425,20 @@ class ImpulsiveDrawEffect(GameEffect):
         # "read the source's live controller, not the turn" pattern
         # `CastExiledFaceDownEffect.apply` already uses above.
         player = self.player
-        if player is None and self.source is not None:
-            player = context.state.player_by_id(self.source.controller_id)
+        controller = (
+            context.state.player_by_id(self.source.controller_id) if self.source is not None else None
+        )
+        if player is None and self.library_of == "that_player":
+            from ..targeting import trigger_player_antecedent  # function-scoped: targeting↔effects cycle
+
+            antecedent_id = trigger_player_antecedent(context.state, context.trigger_event)
+            if antecedent_id is None:
+                return
+            player = context.state.player_by_id(antecedent_id)
+        if player is None:
+            player = controller
         player = player or context.active_player
-        permission_player = self.permission_player or player
+        permission_player = self.permission_player or (controller if self.library_of else None) or player
         source_name = self.source.name if self.source is not None else None
         count = self._measured(self.count, context, targets)
         if count <= 0:

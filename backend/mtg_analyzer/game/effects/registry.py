@@ -191,12 +191,13 @@ EffectRegistry.register(
     # Immoral Bargain — "sacrifice X creatures. Destroy X target nonland
     # permanents." X defined by the additional-cost sacrifice. (PAR-60 rd 4)
     "immoral_bargain",
-    lambda p: ImmoralBargainEffect(),
+    lambda p: ImmoralBargainEffect(destroy_kind=str(p.get("destroy_kind", "nonland_permanent"))),
 )
 EffectRegistry.register(
     "immoral_bargain_destroy",
     lambda p: ImmoralBargainDestroyTailEffect(
         player_id=p.get("player_id"), before=int(p.get("before", 0) or 0),
+        destroy_kind=str(p.get("destroy_kind", "nonland_permanent")),
     ),
 )
 EffectRegistry.register(
@@ -479,6 +480,12 @@ EffectRegistry.register(
     # RULE 615's unscoped Fog-shaped shield — distinct from
     # "prevent_damage_shield" above, which always shields one recipient.
     lambda p: PreventAllCombatDamageEffect(exclude_subtype=p.get("exclude_subtype")),
+)
+EffectRegistry.register(
+    # Kaya, Geist Hunter's −2 — "until end of turn, … twice that many of those tokens are created
+    # instead": `double_tokens`' turn-scoped sibling (`DoubleTokensThisTurnEffect`).
+    "double_tokens_this_turn",
+    lambda p: DoubleTokensThisTurnEffect(multiplier=int(p.get("multiplier", 2) or 2)),
 )
 EffectRegistry.register(
     "prevent_life_gain",
@@ -820,6 +827,7 @@ EffectRegistry.register(
     lambda p: GrantConditionalCastFromExileEffect(
         condition=p.get("condition"), all_cards=bool(p.get("all_cards", False)),
         linked_source=bool(p.get("linked_source", False)),
+        cost_override=p.get("cost_override"),
     ),
 )
 EffectRegistry.register(
@@ -1014,9 +1022,10 @@ EffectRegistry.register(
     lambda p: ExileTopOfLibraryEffect(
         face_down=bool(p.get("face_down", False)),
         player_selector=p.get("player_selector", "controller"),
-        count=int(p.get("count", 1) or 1),
+        count=p["count"] if isinstance(p.get("count"), dict) else int(p.get("count", 1) or 1),
         keep_bottom=p.get("keep_bottom"),
         track_exiled_with=bool(p.get("track_exiled_with", False)),
+        target_kind=p.get("target_kind"),
     ),
 )
 EffectRegistry.register(
@@ -3099,6 +3108,7 @@ EffectRegistry.register(
         choose_one=bool(p.get("choose_one", False)),
         each_player=bool(p.get("each_player", False)),  # Mezzio Mugger
         mana_wildcard=p.get("mana_wildcard"),
+        library_of=p.get("library_of"),  # Grenzo, Havoc Raiser: "that player's library"
     ),
 )
 EffectRegistry.register(

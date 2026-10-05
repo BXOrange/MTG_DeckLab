@@ -58,6 +58,7 @@ from . import combat_celebrant  # noqa: F401
 from . import command_beacon  # noqa: F401
 from . import commandeer  # noqa: F401
 from . import commander_s_insight  # noqa: F401
+from . import commander_s_insignia  # noqa: F401
 from . import commander_s_plate  # noqa: F401
 from . import communal_brewing  # noqa: F401
 from . import conduit_of_worlds  # noqa: F401

@@ -431,17 +431,24 @@ class ExileTopOfLibraryEffect(GameEffect):
         count: int = 1, keep_bottom: Optional[int] = None,
         track_exiled_with: bool = False,
         source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.face_down = face_down
         self.player_selector = player_selector
+        #: "Exile the top X cards of **target opponent's** library." (Gix, Yawgmoth Praetor) — a real RULE 115
+        #: player target of this effect's own, read back by ``player_selector="target"``.
+        if target_kind is not None:
+            self.target_spec = TargetSpec(kind=target_kind)
         #: "Exile the top **thirteen** cards of your library, …" (MEC-43
         #: round 4C, Demonic Bargain) — the flat-count sibling of the
         #: original top-**one**-card-only shape; each exiled card is still
         #: appended to `GameContext.created_objects` in library order, so a
         #: following clause reading the whole batch (not just the last one)
         #: remains possible for a future card.
-        self.count = int(count)
+        #: "…exile a number of cards from the top of your library equal to the number of differently named
+        #: tokens you control" (Neriv, Crackling Vanguard) — an `effect_amounts` operand measured at resolution.
+        self.count = count if isinstance(count, dict) else int(count)
         self.keep_bottom = keep_bottom
         self.track_exiled_with = track_exiled_with
 
@@ -458,7 +465,7 @@ class ExileTopOfLibraryEffect(GameEffect):
         for player in players:
             if player is None:
                 continue
-            count = self.count
+            count = int(self._measured(self.count, context, targets))
             if self.keep_bottom is not None:
                 count = max(0, len(player.library) - self.keep_bottom)
             for _ in range(count):

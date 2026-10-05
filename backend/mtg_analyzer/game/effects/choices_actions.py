@@ -1000,6 +1000,17 @@ class PayCostThenEffect(GameEffect):
             player = _event_player(context)
         elif self.payer == "event_player":
             player = _event_player(context, key="player_id")
+        elif self.payer == "trigger_subject_controller":
+            # "Whenever a creature deals combat damage to one of your opponents, **its controller** may pay
+            # 1 life." (Gix, Yawgmoth Praetor) — whoever controls the creature that satisfied this group
+            # trigger (`effect_conditions.subject_of("entering")`, a DAMAGE event's ``source_id`` included).
+            from .. import effect_conditions  # function-scoped: effects↔conditions cycle
+
+            subject = effect_conditions.subject_of("entering", context, self.source, targets)
+            player = (
+                context.state.player_by_id(subject.controller_id)
+                if getattr(subject, "controller_id", None) is not None else None
+            )
         elif self.payer == "previous_target_controller":
             # "…that permanent's controller may sacrifice a land…" (Chain of
             # Vapor) — the controller of whatever this same resolution's
@@ -1036,6 +1047,18 @@ class PayCostThenEffect(GameEffect):
             cost.pay_life = int(getattr(self.source, "x_paid", 0) or 0)
         if self.sacrifice_or_discard:
             cost.sacrifice_or_discard = True
+        # "…its controller may pay 1 life. If they do, **they** draw a card." (Gix) — the paid branch is
+        # resolved later, as the payer: its untargeted "you"/"they" default (`_controller_of`) reads
+        # `GameContext.acting_player_id`, which `_request_pay_cost_then` snapshots into the pending choice.
+        outer_acting = context.acting_player_id
+        if self.payer == "trigger_subject_controller":
+            context.acting_player_id = player.id
+        try:
+            self._open_pay_cost_then(context, player, cost, targets)
+        finally:
+            context.acting_player_id = outer_acting
+
+    def _open_pay_cost_then(self, context: GameContext, player: Any, cost: Any, targets: Optional[list[Any]]) -> None:
         context.engine._request_pay_cost_then(
             player,
             cost,

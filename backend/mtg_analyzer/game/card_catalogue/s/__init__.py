@@ -108,6 +108,7 @@ from . import storm_of_souls  # noqa: F401
 from . import stormscape_familiar  # noqa: F401
 from . import story_circle  # noqa: F401
 from . import strix_serenade  # noqa: F401
+from . import stroke_of_midnight  # noqa: F401
 from . import struggle_for_project_purity  # noqa: F401
 from . import stuffy_doll  # noqa: F401
 from . import subterfuge  # noqa: F401

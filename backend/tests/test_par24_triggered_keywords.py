@@ -151,7 +151,7 @@ def test_battle_cry_pumps_each_other_attacker():
 def test_mentor_puts_counter_on_lesser_power_attacker():
     eng = _engine()
     state = eng.state
-    mentor = _put(state, _creature("Legion Warboss", keywords=["Mentor"],
+    mentor = _put(state, _creature("Mentor Captain", keywords=["Mentor"],
                                    power=3, toughness=2))
     smaller = _put(state, _creature("Goblin", power=1, toughness=1))
     _to_attackers(eng)
@@ -168,7 +168,7 @@ def test_mentor_puts_counter_on_lesser_power_attacker():
 def test_mentor_has_no_target_when_no_attacker_has_lesser_power():
     eng = _engine()
     state = eng.state
-    mentor = _put(state, _creature("Legion Warboss", keywords=["Mentor"],
+    mentor = _put(state, _creature("Mentor Captain", keywords=["Mentor"],
                                    power=2, toughness=2))
     bigger = _put(state, _creature("Ogre", power=4, toughness=4))
     _to_attackers(eng)

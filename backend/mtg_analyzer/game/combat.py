@@ -618,6 +618,9 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # "**another** creature you control" as a count/condition operand — the
         # object is not the *reference* (the ability's own source).
         "not_reference",
+        # "…attack with **this creature** and/or your commander" — the object *is* the reference (the
+        # ability's own source); the positive sibling of ``not_reference``, meant for ``any_of`` unions.
+        "is_reference",
         # RULE 205.4a supertype: "basic lands you control" / "nonbasic land".
         "basic", "nonbasic",
         # RULE 205.4g supertype: "the number of **snow** permanents you control"
@@ -1006,6 +1009,8 @@ def matches_object_filter(
             return False
         if filt.get("nonbasic") and is_basic:
             return False
+    if filt.get("is_reference") and (reference is None or obj is not reference):
+        return False
     if filt.get("not_reference") and reference is not None and obj is reference:
         return False
     if filt.get("snow") and "snow" not in str(getattr(obj.card, "type_line", "") or "").lower().split("—")[0].split():

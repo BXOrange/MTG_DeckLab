@@ -46,6 +46,7 @@ from . import mesmeric_orb  # noqa: F401
 from . import midnight_banshee  # noqa: F401
 from . import mikaeus_the_unhallowed  # noqa: F401
 from . import mind_into_matter  # noqa: F401
+from . import mindblade_render  # noqa: F401
 from . import mindslaver  # noqa: F401
 from . import mirage_mirror  # noqa: F401
 from . import mirkwood_bats  # noqa: F401

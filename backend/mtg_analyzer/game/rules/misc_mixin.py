@@ -2041,6 +2041,9 @@ class MiscSystemsMixin:
             # just how many; `_double_tokens_replacement`'s own amount-only
             # scaling can't express either.
             token_name=token_card.name,
+            # "If one or more creature tokens would be created under your control, …" (Divine
+            # Visitation) — whether this token is a creature, which the name alone doesn't say.
+            is_creature=bool(getattr(token_card, "is_creature", False)),
         )
         result: list[GameObject] = []
 

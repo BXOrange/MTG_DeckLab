@@ -4,6 +4,7 @@ from . import kaldra_compleat  # noqa: F401
 from . import kamahl_heart_of_krosa  # noqa: F401
 from . import kari_zev_s_expertise  # noqa: F401
 from . import karn_the_great_creator  # noqa: F401
+from . import kaya_geist_hunter  # noqa: F401
 from . import keen_duelist  # noqa: F401
 from . import kellan_the_kid  # noqa: F401
 from . import kenrith_s_transformation  # noqa: F401

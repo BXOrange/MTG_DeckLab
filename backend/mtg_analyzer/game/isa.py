@@ -897,7 +897,7 @@ _STATIC_TYPES: frozenset[str] = frozenset({
 #: whether these get their own operators (`instead`, `rather than`) instead
 #: of reusing the branch node.
 _REPLACEMENT_TYPES: frozenset[str] = frozenset({
-    "dungeon_room_trigger_doubler", "enters_tapped_static", "extra_etb_counter",
+    "double_tokens_this_turn", "dungeon_room_trigger_doubler", "enters_tapped_static", "extra_etb_counter",
     "global_wither", "graveyard_redirect", "graveyard_redirect_to_exile_this_turn",
     "mana_multiplier", "mana_type_override", "mirror_produced_mana",
     "multiply_damage_from_target", "prevent_all_life_gain", "prevent_life_gain",

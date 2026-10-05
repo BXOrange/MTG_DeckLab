@@ -764,12 +764,16 @@ class GrantConditionalCastFromExileEffect(GameEffect):
     def __init__(
         self, condition: Optional[dict[str, Any]] = None,
         all_cards: bool = False, linked_source: bool = False,
-        source: Optional["GameObject"] = None,
+        source: Optional["GameObject"] = None, cost_override: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.condition = dict(condition or {})
         self.all_cards = all_cards
         self.linked_source = linked_source
+        #: "…cast spells from among cards exiled this way **without paying their mana costs**." (Gix, Yawgmoth
+        #: Praetor) — a fixed mana cost ("{0}") the holder pays instead of the printed one, for as long as the
+        #: card stays in exile (`GameState.exile_cast_cost_override`, Airbend's own mechanism).
+        self.cost_override = cost_override
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
@@ -784,6 +788,8 @@ class GrantConditionalCastFromExileEffect(GameEffect):
                 context.state.exile_cast_condition[obj.instance_id] = (
                     player.id, condition
                 )
+                if self.cost_override:
+                    context.state.exile_cast_cost_override[obj.instance_id] = self.cost_override
 
 
 class MutualRevealCompareManaValueEffect(GameEffect):

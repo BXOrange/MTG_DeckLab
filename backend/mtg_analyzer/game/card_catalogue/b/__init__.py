@@ -32,6 +32,7 @@ from . import bloodghast  # noqa: F401
 from . import bloodroot_apothecary  # noqa: F401
 from . import blossoming_bogbeast  # noqa: F401
 from . import blowfly_infestation  # noqa: F401
+from . import bone_devourer  # noqa: F401
 from . import bone_mask  # noqa: F401
 from . import bontu_s_monument  # noqa: F401
 from . import borne_upon_a_wind  # noqa: F401

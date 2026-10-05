@@ -1551,10 +1551,18 @@ class ImmoralBargainEffect(GameEffect):
     nonland permanents chosen the same way (the new ``destroy`` action of
     `_request_choose_objects`).
 
+    ``destroy_kind`` is what the X targets may be: ``"nonland_permanent"`` (Immoral
+    Bargain, the default) or ``"creature"`` (Eliminate the Competition — "Destroy X target
+    creatures").
+
     Documented simplification: both the additional-cost sacrifice and the
     number of targets are resolved at *resolution* rather than at
     announcement.
     """
+
+    def __init__(self, destroy_kind: str = "nonland_permanent", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.destroy_kind = destroy_kind
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
@@ -1571,7 +1579,7 @@ class ImmoralBargainEffect(GameEffect):
             source=self.source, prompt="Opfere X Kreaturen",
             then_specs=[{
                 "type": "immoral_bargain_destroy",
-                "params": {"player_id": player.id, "before": before},
+                "params": {"player_id": player.id, "before": before, "destroy_kind": self.destroy_kind},
             }],
         )
 
@@ -1584,21 +1592,27 @@ class ImmoralBargainDestroyTailEffect(GameEffect):
 
     def __init__(
         self, player_id: Optional[str] = None, before: int = 0,
-        source: Optional["GameObject"] = None,
+        source: Optional["GameObject"] = None, destroy_kind: str = "nonland_permanent",
     ) -> None:
         super().__init__(source)
         self.player_id = player_id
         self.before = int(before)
+        self.destroy_kind = destroy_kind
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         try:
             player = context.state.player_by_id(self.player_id)
         except (KeyError, ValueError):
             return
-        n = len(player.graveyard) - self.before
+        # The spell itself lands in the graveyard once it finishes resolving — which can already have
+        # happened by the time the last sacrifice pick is answered — and is not a sacrificed creature.
+        n = len(player.graveyard) - self.before - (1 if self.source in player.graveyard else 0)
         if n <= 0:
             return
-        cands = [o for o in context.state.battlefield if not o.card.is_land]
+        if self.destroy_kind == "creature":
+            cands = [o for o in context.state.battlefield if o.is_creature]
+        else:
+            cands = [o for o in context.state.battlefield if not o.card.is_land]
         if not cands:
             return
         context.engine._request_choose_objects(

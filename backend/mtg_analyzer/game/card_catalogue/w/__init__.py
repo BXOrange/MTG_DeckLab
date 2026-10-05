@@ -14,6 +14,7 @@ from . import wick_the_whorled_mind  # noqa: F401
 from . import wickersmith_s_tools  # noqa: F401
 from . import wild_growth  # noqa: F401
 from . import wildsear_scouring_maw  # noqa: F401
+from . import windbrisk_heights  # noqa: F401
 from . import windfall  # noqa: F401
 from . import winds_of_abandon  # noqa: F401
 from . import winds_of_rath  # noqa: F401
@@ -24,6 +25,7 @@ from . import witch_of_the_moors  # noqa: F401
 from . import witch_s_clinic  # noqa: F401
 from . import witch_s_mark  # noqa: F401
 from . import witherbloom_command  # noqa: F401
+from . import within_range  # noqa: F401
 from . import woe_strider  # noqa: F401
 from . import wonder  # noqa: F401
 from . import word_of_command  # noqa: F401

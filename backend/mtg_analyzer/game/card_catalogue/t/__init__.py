@@ -21,6 +21,7 @@ from . import teferi_time_raveler  # noqa: F401
 from . import tekuthal_inquiry_dominus  # noqa: F401
 from . import tempt_with_bunnies  # noqa: F401
 from . import tempt_with_discovery  # noqa: F401
+from . import tempt_with_vengeance  # noqa: F401
 from . import tempting_licid  # noqa: F401
 from . import temur_sabertooth  # noqa: F401
 from . import tenacious_dead  # noqa: F401
@@ -32,6 +33,7 @@ from . import teshar_ancestor_s_apostle  # noqa: F401
 from . import tetsuko_umezawa_fugitive  # noqa: F401
 from . import tevesh_szat_doom_of_fools  # noqa: F401
 from . import tezzeret_the_seeker  # noqa: F401
+from . import thalisse_reverent_medium  # noqa: F401
 from . import thassa_s_oracle  # noqa: F401
 from . import the_battle_of_bywater  # noqa: F401
 from . import the_elder_dragon_war  # noqa: F401
