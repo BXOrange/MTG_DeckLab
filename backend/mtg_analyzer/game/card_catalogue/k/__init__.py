@@ -28,3 +28,4 @@ from . import kulrath_knight  # noqa: F401
 from . import kurbis_harvest_celebrant  # noqa: F401
 from . import kutzil_malamet_exemplar  # noqa: F401
 from . import kwain_itinerant_meddler  # noqa: F401
+from . import kalitas_traitor_of_ghet

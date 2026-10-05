@@ -67,3 +67,4 @@ from . import avenger_of_zendikar  # noqa: F401
 from . import awakening_zone  # noqa: F401
 from . import awe_strike  # noqa: F401
 from . import accursed_duneyard
+from . import army_of_the_damned

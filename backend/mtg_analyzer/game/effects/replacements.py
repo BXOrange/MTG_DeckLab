@@ -785,6 +785,10 @@ def _die_to_exile_replacement(params: dict[str, Any]) -> ReplacementEffect:
     ability's own source).
     """
     subject = params.get("subject", "self")
+    nontoken_only = bool(params.get("nontoken_only", False))
+    #: "…instead exile that card **and create a 2/2 black Zombie creature token**" (Kalitas, Traitor of Ghet) —
+    #: a token description (power/toughness/colors/subtypes/token_name) the source's controller creates.
+    token = dict(params["create_token"]) if isinstance(params.get("create_token"), dict) else None
     effect = ReplacementEffect(
         event_type=EventType.WOULD_DIE,
         replacement_fn=lambda e, c: e,
@@ -795,6 +799,10 @@ def _die_to_exile_replacement(params: dict[str, Any]) -> ReplacementEffect:
         src = effect.source
         controller_id = event.get("controller_id")
         target_id = event.get("target_id")
+        if nontoken_only:
+            dying = _context.state.find_object(target_id)
+            if dying is None or getattr(dying, "is_token", False):
+                return False  # a token is not "that card" and would just cease to exist
         if subject == "self":
             return src is not None and target_id == getattr(src, "instance_id", None)
         if subject == "you_control":
@@ -821,6 +829,15 @@ def _die_to_exile_replacement(params: dict[str, Any]) -> ReplacementEffect:
         if obj is None:
             return event  # already gone — let the normal path no-op
         context.engine.exile(obj)
+        if token is not None and effect.source is not None:
+            from ...services.token_database import synthesize_token_card  # avoid a services↔effects cycle
+
+            card = synthesize_token_card(
+                str(token.get("token_name") or "Token"), power=token.get("power"), toughness=token.get("toughness"),
+                colors=list(token.get("colors", [])), subtypes=list(token.get("subtypes", [])),
+                keywords=list(token.get("keywords", [])),
+            )
+            context.create_token(effect.source.controller_id, card, 1)
         return None  # event consumed; the graveyard move is replaced by exile
 
     effect.replacement_fn = replace

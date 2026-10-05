@@ -323,7 +323,7 @@ class CastingResolutionMixin:
             if getattr(ability, "layer", None) != "entry_counters_self":
                 continue
             amount = int(ability.params.get("base", 0)) + continuous.count_selector(
-                self.state, obj.controller_id, str(ability.params.get("count_selector", "")), source=obj,
+                self.state, obj.controller_id, ability.params.get("count_selector", ""), source=obj,
             )
             if amount > 0:
                 obj.add_counters(str(ability.params.get("kind", "+1/+1")), amount)

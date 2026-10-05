@@ -42,3 +42,4 @@ from . import lux_artillery  # noqa: F401
 from . import living_death
 from . import lord_of_the_accursed
 from . import lost_monarch_of_ifnir
+from . import lord_of_the_undead

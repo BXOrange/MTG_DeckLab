@@ -148,3 +148,4 @@ from . import spinerock_knoll
 from . import stormbreath_dragon
 from . import sarkhan_soul_aflame
 from . import selvala_s_stampede
+from . import syphon_flesh

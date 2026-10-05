@@ -180,6 +180,9 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # Archaeomancer's Map, Claim Jumper, PAR-60) — true when any one
         # opponent's land count exceeds the controller's.
         "opponent_controls_more_lands",
+        # "…if an opponent controls four or more nonbasic lands" (Razorlash Transmogrant) — some one opponent's
+        # permanents matching a `combat.matches_object_filter` ``filter`` number at least ``min`` (default 1).
+        "opponent_controls_at_least",
         # PAR-120: the general form — some one opponent's count of a structured
         # ``selector`` exceeds the controller's ("an opponent controls more
         # creatures than you"). `opponent_controls_more_lands` is its special case.
@@ -1131,6 +1134,15 @@ def condition_holds(
         if active is None:
             return False
         return len(getattr(active, "hand", [])) <= int(condition.get("amount", 0))
+    if kind == "opponent_controls_at_least":
+        from .combat import matches_object_filter  # function-scoped: combat imports models lazily
+
+        need = int(condition.get("min", 1) or 1)
+        return any(
+            sum(1 for o in state.permanents_controlled_by(p.id)
+                if matches_object_filter(o, condition.get("filter"), state=state)) >= need
+            for p in state.living_players() if p.id != controller_id
+        )
     if kind == "opponent_controls_more_lands":
         from .continuous import count_selector
         mine = count_selector(state, controller_id, "lands_you_control")

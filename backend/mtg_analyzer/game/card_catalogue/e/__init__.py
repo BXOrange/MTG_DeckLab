@@ -60,3 +60,4 @@ from . import eumidian_wastewaker
 from . import exploration_broodship
 from . import ezuri_s_predation  # noqa: F401
 from . import eshki_temur_s_roar
+from . import endless_ranks_of_the_dead

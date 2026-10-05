@@ -74,3 +74,5 @@ from . import deathbringer_regent
 from . import dragon_egg
 from . import deceptive_frostkite
 from . import dread_summons
+from . import death_baron
+from . import diregraf_colossus

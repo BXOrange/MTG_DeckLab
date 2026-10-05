@@ -110,3 +110,4 @@ from . import coiling_rebirth
 from . import commence_the_endgame
 from . import champion_of_wits
 from . import corpse_augur
+from . import cemetery_recruitment

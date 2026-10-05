@@ -881,7 +881,9 @@ EffectRegistry.register(
     "enters_with_counters_count",
     lambda p: StaticAbility("entry_counters_self", affects="self", params={
         "kind": str(p.get("kind", "+1/+1")), "base": int(p.get("base", 0)),
-        "count_selector": str(p.get("count_selector", "")),
+        # A named selector, or a structured ``{zone, of, filter}`` one (Diregraf Colossus's Zombie cards in
+        # your graveyard) — `continuous.count_selector` takes both.
+        "count_selector": p["count_selector"] if isinstance(p.get("count_selector"), dict) else str(p.get("count_selector", "")),
     }),
 )
 EffectRegistry.register(

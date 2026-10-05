@@ -38,3 +38,4 @@ from . import nyxbloom_ancient  # noqa: F401
 
 from . import nested_shambler
 from . import nesting_dragon
+from . import noxious_ghoul

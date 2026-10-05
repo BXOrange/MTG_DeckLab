@@ -10,3 +10,4 @@ from . import jodah_the_unifier  # noqa: F401
 from . import jolrael_mwonvuli_recluse  # noqa: F401
 from . import junk_winder  # noqa: F401
 from . import juxtapose  # noqa: F401
+from . import josu_vess_lich_knight

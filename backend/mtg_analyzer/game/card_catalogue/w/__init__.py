@@ -36,3 +36,4 @@ from . import wyleth_soul_of_steel  # noqa: F401
 from . import weathered_sentinels
 from . import whirlwing_stormbrood
 from . import wizened_mentor
+from . import witch_s_cottage
