@@ -115,6 +115,12 @@ class TestRunOneMatch:
         result = run_one_match(_library(), None, bot=GoldfishBot("p1"), max_turns=12)
         assert result.turns_reached == 12
 
+    def test_smart_bot_can_take_two_mulligans_and_counts_them(self):
+        from mtg_analyzer.services.bots import SmartBot
+
+        result = run_one_match(_library(), None, bot=SmartBot("p1"), max_turns=1)
+        assert result.mulligans_taken == 2
+
     def test_infinite_mana_guard_aborts_the_match(self, monkeypatch):
         # Exercises the real detection path (`GameState.mana_produced_
         # this_turn`) against an ordinary, finite land-only deck rather than
@@ -171,6 +177,28 @@ class TestRunOneMatch:
     def test_no_favorite_card_names_yields_empty_dict(self):
         result = run_one_match(_library(), None, bot=GoldfishBot("p1"), max_turns=2)
         assert result.favorite_cards == {}
+
+    def test_combo_turn_is_recorded_when_its_cards_are_on_battlefield(self):
+        combo_cards = [_cheap_creature("Combo A"), _cheap_creature("Combo B")]
+        combo_specs = [
+            {
+                "id": "assembled",
+                "uses": [
+                    {"name": "Combo A", "quantity": 1},
+                    {"name": "Combo B", "quantity": 1},
+                ],
+            },
+            {"id": "not-assembled", "uses": [{"name": "Never Drawn", "quantity": 1}]},
+        ]
+        result = run_one_match(
+            [_forest()] * 38 + combo_cards,
+            None,
+            bot=GreedyBot("p1"),
+            max_turns=4,
+            combo_specs=combo_specs,
+        )
+        assert result.combo_turns["assembled"] == 2
+        assert "not-assembled" not in result.combo_turns
 
     def test_aggressive_deck_does_not_end_the_match_early(self):
         # `DUMMY_ANALYSIS_LIFE` gives the dummy far more than a real game's
@@ -318,6 +346,44 @@ class TestRunDynamicAnalysis:
     def test_no_favorite_card_names_yields_empty_dict(self):
         result = run_dynamic_analysis(_library(), None, bot_kind="goldfish", num_matches=2, max_turns=2)
         assert result.favorite_cards == {}
+
+    def test_aggregates_any_combo_separately_from_each_combo(self, monkeypatch):
+        import mtg_analyzer.services.dynamic_analysis as dynamic_analysis
+
+        monkeypatch.setattr(dynamic_analysis.random, "shuffle", lambda seq: None)
+        combo_specs = [
+            {"id": "present", "uses": [{"name": "Test Spell", "quantity": 1}]},
+            {"id": "absent", "uses": [{"name": "Never Drawn", "quantity": 1}]},
+        ]
+        result = run_dynamic_analysis(
+            _library_with_favorite_on_top(),
+            None,
+            bot_kind="greedy",
+            num_matches=2,
+            max_turns=3,
+            combo_specs=combo_specs,
+        )
+        stats = {combo["id"]: combo for combo in result.to_dict()["comboStats"]}
+        assert stats["present"]["assembledFraction"] == 1.0
+        assert stats["present"]["assembledTurn"]["mean"] == 1.0
+        assert stats["absent"]["assembledFraction"] == 0.0
+        assert stats["absent"]["assembledTurn"]["n"] == 0
+        assert result.any_combo_stats["assembledFraction"] == 1.0
+        assert result.any_combo_stats["assembledTurn"]["mean"] == 1.0
+
+    def test_aggregates_mulligan_mean_and_distribution(self):
+        result = run_dynamic_analysis(
+            _library(), None, bot_kind="smart", num_matches=2, max_turns=1,
+        )
+        assert result.mulligans_taken == {"mean": 2.0, "stddev": 0.0, "n": 2}
+        assert result.mulligan_distribution == {"2": 2}
+
+    def test_goldfish_bot_keeps_without_mulligans(self):
+        result = run_dynamic_analysis(
+            _library(), None, bot_kind="goldfish", num_matches=2, max_turns=1,
+        )
+        assert result.mulligans_taken == {"mean": 0.0, "stddev": 0.0, "n": 2}
+        assert result.mulligan_distribution == {"0": 2}
 
     def test_aggressive_deck_does_not_lose_later_turn_samples(self):
         # Regression test for a real survivorship-bias bug: before
@@ -467,6 +533,36 @@ class TestDynamicAnalysisApi:
         assert body["status"] == "done"
         assert body["result"]["matchesRun"] == 3
         assert len(body["result"]["perTurn"]) == 3
+        assert body["result"]["anyComboStats"]["assembledFraction"] == 0.0
+
+    def test_combo_specs_are_tracked_through_the_api(self):
+        _setup()
+        client = TestClient(app)
+        start = client.post(
+            "/api/analysis/dynamic",
+            json={
+                **LEGAL_DECK,
+                "botKind": "greedy",
+                "numMatches": 1,
+                "maxTurns": 3,
+                "combos": [
+                    {"id": "commander-combo", "uses": [{"name": "Test Commander", "quantity": 1}]}
+                ],
+            },
+        )
+        assert start.status_code == 200
+        job_id = start.json()["jobId"]
+
+        deadline = time.time() + 10
+        body = {"status": "queued"}
+        while body["status"] in ("queued", "running") and time.time() < deadline:
+            time.sleep(0.02)
+            body = client.get(f"/api/analysis/dynamic/{job_id}").json()
+
+        assert body["status"] == "done"
+        assert body["result"]["comboStats"][0]["id"] == "commander-combo"
+        assert body["result"]["comboStats"][0]["assembledFraction"] == 1.0
+        assert body["result"]["anyComboStats"]["assembledFraction"] == 1.0
 
     def test_favorite_cards_from_request_are_tracked(self):
         _setup()

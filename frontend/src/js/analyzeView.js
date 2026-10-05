@@ -182,7 +182,7 @@ export function renderAnalyzeView(container) {
       // string builder (`resultShellHtml`) can't do.
       const simRoot = container.querySelector('#analyze-simulation-root');
       if (simRoot) {
-        renderDynamicAnalysisPanel(
+        const dynamicPanel = renderDynamicAnalysisPanel(
           simRoot,
           {
             commanderText: savedDeck.commanderText,
@@ -190,8 +190,13 @@ export function renderAnalyzeView(container) {
             sideboardText: savedDeck.sideboardText,
             favoriteCards: savedDeck.favoriteCards || [],
           },
-          stats.expectedManaCurve
+          stats.expectedManaCurve,
+          comboState === 'loading' ? 'loading' : 'incomplete'
         );
+        if (comboState !== 'loading') dynamicPanel.setCombos([], 'incomplete');
+        if (comboState === 'loading') {
+          loadComboAnalysis(savedDeck, parsed, resolved, myRequestId, stats, dynamicPanel.setCombos);
+        }
       }
 
       // Playstyle/archetype suggestions come from the backend
@@ -202,13 +207,10 @@ export function renderAnalyzeView(container) {
       const playstyleRoot = container.querySelector('#toc-playstyle-content');
       if (playstyleRoot) loadArchetypeSuggestions(playstyleRoot, deckSource, myRequestId);
 
-      if (comboState === 'loading') {
-        loadComboAnalysis(savedDeck, parsed, resolved, myRequestId, stats);
-      }
     });
   }
 
-  function loadComboAnalysis(savedDeck, parsed, resolved, myRequestId, initialStats) {
+  function loadComboAnalysis(savedDeck, parsed, resolved, myRequestId, initialStats, setDynamicCombos) {
     const cards = [...parsed.commanders, ...parsed.mainDeck]
       .map((entry) => {
         const card = resolved.get(entry.name.trim().toLowerCase())?.card;
@@ -218,15 +220,17 @@ export function renderAnalyzeView(container) {
     findDeckCombos(cards).then((data) => {
       if (myRequestId !== requestId || !document.body.contains(container)) return;
       if (!data) {
+        setDynamicCombos([], 'error');
         container.querySelector('#toc-combos').innerHTML = comboAnalysisSectionHtml(initialStats, 'error');
         container.querySelector('#bracket-analysis-content').innerHTML =
           bracketAnalysisSectionHtml(initialStats, 'error');
         container.querySelector('#combo-analysis-retry')?.addEventListener('click', () =>
-          loadComboAnalysis(savedDeck, parsed, resolved, myRequestId, initialStats)
+          loadComboAnalysis(savedDeck, parsed, resolved, myRequestId, initialStats, setDynamicCombos)
         );
         return;
       }
       const stats = analyzeDeck(parsed.commanders, parsed.mainDeck, resolved, data);
+      setDynamicCombos(stats.bracketAnalysis.combos, 'ready');
       container.querySelector('#toc-combos').innerHTML = comboAnalysisSectionHtml(stats, 'loaded');
       container.querySelector('#bracket-analysis-content').innerHTML =
         bracketAnalysisSectionHtml(stats, 'loaded');

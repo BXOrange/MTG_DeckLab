@@ -479,7 +479,7 @@ repointed there.
 
 ### Dynamic simulation UI (ANA-4)
 
-- **What:** The "Dynamische Analyse" sub-tab starts a background job (`POST /api/analysis/dynamic`) and polls for progress, then renders stat tiles and an SVG chart plotting simulated mana potential (mean ± stddev) against the static tab's already-computed curve, plus per-turn bar charts and an infinite-mana-guard warning count.
+- **What:** The "Dynamische Analyse" sub-tab starts a background job (`POST /api/analysis/dynamic`) and polls for progress, then renders stat tiles and an SVG chart plotting simulated mana potential (mean ± stddev) against the static tab's already-computed curve, plus per-turn bar charts and an infinite-mana-guard warning count. It also tracks each matched Commander Spellbook combo independently, reports when at least one combo's required cards first appear together on the player's battlefield, and displays the mulligan mean/distribution per game; the chart shows overlapping static-curve turns even when the simulation runs longer.
 - **Files:** `dynamicAnalysisPanel.js`
 
 ### Bracket-Analyse heuristic

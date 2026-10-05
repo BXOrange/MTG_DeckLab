@@ -5182,7 +5182,7 @@ Reusable support includes additional token batches under replacement effects (Ch
 
 ### Dynamic (simulated) deck analysis (ANA-4)
 
-- **What:** New `services/dynamic_analysis.py`: runs N solo goldfish matches headlessly against a `Bot`, aggregating turn-by-turn stats (lands drawn, mana potential, card a…
+- **What:** `services/dynamic_analysis.py` runs N solo goldfish matches headlessly against a `Bot` and aggregates turn-by-turn stats. Matched Commander Spellbook combos are tracked independently: each records its first turn with all required copies on the player's battlefield, and the aggregate also records the first turn with any combo assembled. The successful mulligan actions taken in each match are aggregated as a mean/distribution; the Smart Bot uses its existing land-count heuristic, up to two mulligans. Combo assembly is board presence, not verification of template requirements or successful execution.
 - **Files:** `services/dynamic_analysis.py`, `api/dynamic_analysis.py`
 
 ### Bot-driven goldfish match loop via `advance_to_decision` (ANA-4)

@@ -114,12 +114,27 @@ class DeckTokensRequest(BaseModel):
     sideboard_text: str = Field(default="", alias="sideboardText")
 
 
+class DynamicAnalysisComboUse(BaseModel):
+    """One card and required quantity in a matched Commander Spellbook combo."""
+
+    name: str = Field(min_length=1)
+    quantity: int = Field(default=1, ge=1)
+
+
+class DynamicAnalysisCombo(BaseModel):
+    """The fixed card components needed to track a matched combo in-game."""
+
+    id: str = Field(min_length=1)
+    uses: list[DynamicAnalysisComboUse] = Field(min_length=1)
+
+
 class DynamicAnalysisRequest(BaseModel):
     """Request body for POST /api/analysis/dynamic (ANA-4).
 
     Same deck-source shape as `StartGoldfishRequest` (a saved `deckId` or
-    decklist text), plus which bot drives the simulated matches and how
-    many to run. `numMatches`/`maxTurns` are clamped again in
+    decklist text), plus which bot drives the simulated matches, how many
+    to run, and any matched combo definitions to track. `numMatches`/
+    `maxTurns` are clamped again in
     `services/dynamic_analysis.py` (`MAX_NUM_MATCHES`/`MAX_MAX_TURNS`) —
     the bounds here just reject an obviously-bad request before it starts a
     background job at all.
@@ -137,6 +152,7 @@ class DynamicAnalysisRequest(BaseModel):
     starting_life: int = Field(default=40, alias="startingLife")
     starting_hand: int = Field(default=7, alias="startingHand")
     game_format: Optional[str] = Field(default=None, alias="gameFormat")
+    combos: list[DynamicAnalysisCombo] = Field(default_factory=list)
     # A per-request simulation input, not a persisted field — empty-list
     # default is fine here (unlike SaveDeckRequest's archetypes/
     # favorite_cards, there's no "omitted vs. explicitly cleared"

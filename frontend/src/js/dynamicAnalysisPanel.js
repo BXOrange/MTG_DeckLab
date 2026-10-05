@@ -35,7 +35,7 @@ function escapeAttr(str) {
  *   `stats.expectedManaCurve`) — its `withRampRealistic` series is the
  *   reference line the simulated result is compared against.
  */
-export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) {
+export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve, initialComboState = 'loading') {
   let botKinds = null;
   let numMatches = 20;
   let maxTurns = 10;
@@ -43,6 +43,8 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
   let job = null; // {status, completed, total, result, error} | null
   let starting = false;
   let startError = '';
+  let combos = [];
+  let comboState = initialComboState;
 
   // A container that's been replaced (a different deck was loaded — see
   // analyzeView.js's `loadDeck`, which reassigns `container.innerHTML`
@@ -77,7 +79,8 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
     // MTG_DYNAMIC_ANALYSIS_WORKERS) hasn't picked this job up yet — still
     // in progress from the UI's perspective, just not running matches yet.
     const inProgress = job && (job.status === 'running' || job.status === 'queued');
-    const disabled = starting || inProgress;
+    const waitingForCombos = comboState === 'loading';
+    const disabled = starting || inProgress || waitingForCombos;
     return `
       <form class="analyze-sim-form">
         <label>${t('dyn.numMatches')}
@@ -90,8 +93,9 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
           <select id="sim-bot-kind" ${disabled ? 'disabled' : ''}>${options}</select>
         </label>
         <button type="submit" class="primary" ${disabled ? 'disabled' : ''}>
-          ${job && job.status === 'queued' ? t('dyn.waitingWorker') : inProgress ? t('dyn.running') : t('dyn.start')}
+          ${waitingForCombos ? t('dyn.combosLoading') : job && job.status === 'queued' ? t('dyn.waitingWorker') : inProgress ? t('dyn.running') : t('dyn.start')}
         </button>
+        ${waitingForCombos ? `<p class="hint">${escapeHtml(t('dyn.combosLoadingHint'))}</p>` : ''}
         ${startError ? `<p class="issue-list">🛑 ${escapeHtml(startError)}</p>` : ''}
       </form>
     `;
@@ -117,6 +121,15 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
 
   function resultHtml(result) {
     const tutors = result.tutorsResolved;
+    const mulligans = result.mulligansTaken;
+    const mulliganDistribution = Object.entries(result.mulliganDistribution || {})
+      .sort(([a], [b]) => Number(a) - Number(b))
+      .map(([count, matches]) =>
+        tPlural('dyn.mulliganDistributionEntry', Number(count), {
+          matches: tPlural('dyn.mulliganMatches', matches),
+        })
+      )
+      .join(' · ');
     const commanderTiles = Object.entries(result.commanderTurns || {})
       .map(
         ([name, stat]) => `
@@ -136,10 +149,16 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
           <span class="analyze-stat-label">${t('dyn.tutors')}</span>
           <span class="analyze-stat-hint">${t('dyn.tutorsHint')}</span>
         </div>
+        <div class="analyze-stat-tile">
+          <span class="analyze-stat-value">${fmt(mulligans.mean)} ± ${fmt(mulligans.stddev)}</span>
+          <span class="analyze-stat-label">${t('dyn.mulligans')}</span>
+          <span class="analyze-stat-hint">${escapeHtml(t('dyn.mulliganHint', { distribution: mulliganDistribution }))}</span>
+        </div>
         ${commanderTiles}
       </div>
 
       ${favoriteCardsHtml(result.favoriteCards)}
+      ${comboStatsHtml(result.comboStats, result.anyComboStats)}
 
       <h4>${t('dyn.manaComparisonHeading')}</h4>
       <p class="hint">${escapeHtml(t('dyn.manaComparisonHint'))}</p>
@@ -183,6 +202,47 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
       <p class="hint">${escapeHtml(t('dyn.favoritesHint'))}</p>
       <table class="analyze-table">
         <thead><tr><th>${t('dyn.favCard')}</th><th>${t('dyn.favDrawn')}</th><th>${t('dyn.favPlayed')}</th><th>${t('dyn.favPlayableNotPlayed')}</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  }
+
+  function comboStatsHtml(comboStats, anyCombo) {
+    const entries = comboStats || [];
+    if (!entries.length) {
+      const message = comboState === 'error'
+        ? t('dyn.combosUnavailable')
+        : comboState === 'incomplete'
+          ? t('dyn.combosIncomplete')
+          : t('dyn.noCombos');
+      return `<h4>${t('dyn.combosHeading')}</h4><p class="empty-state">${escapeHtml(message)}</p>`;
+    }
+    const rows = entries.map((combo) => {
+      const cards = combo.uses
+        .map((use) => `${escapeHtml(use.name)}${use.quantity > 1 ? ` ×${use.quantity}` : ''}`)
+        .join(' + ');
+      const turn = combo.assembledTurn?.n
+        ? t('dyn.comboTurnLabel', {
+            pct: Math.round(combo.assembledFraction * 100),
+            turn: fmt(combo.assembledTurn.mean),
+          })
+        : t('dyn.comboNeverAssembled');
+      return `<tr><td>${cards}</td><td>${escapeHtml(turn)}</td></tr>`;
+    }).join('');
+    return `
+      <h4>${t('dyn.combosHeading')}</h4>
+      <p class="hint">${escapeHtml(t('dyn.combosHint'))}</p>
+      <div class="analyze-stat-tile">
+        <span class="analyze-stat-value">${anyCombo?.assembledTurn?.n
+          ? t('dyn.anyComboTurnLabel', {
+              pct: Math.round(anyCombo.assembledFraction * 100),
+              turn: fmt(anyCombo.assembledTurn.mean),
+            })
+          : t('dyn.anyComboNeverAssembled')}</span>
+        <span class="analyze-stat-label">${t('dyn.anyComboLabel')}</span>
+      </div>
+      <table class="analyze-table">
+        <thead><tr><th>${t('dyn.comboCards')}</th><th>${t('dyn.comboAssembly')}</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     `;
@@ -261,8 +321,16 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
 
     const potentialValues = perTurn.map((r) => r.mana_potential);
     const producedValues = perTurn.map((r) => r.mana_produced);
-    const staticLine = perTurn.every((r) => staticByTurn.has(r.turn))
-      ? `<polyline points="${perTurn.map((r, i) => `${xFor(i)},${yFor(staticByTurn.get(r.turn))}`).join(' ')}" class="chart-line chart-line--context" fill="none" stroke-dasharray="4 3" />`
+    const staticPoints = perTurn
+      .map((r, i) => staticByTurn.has(r.turn) ? `${xFor(i)},${yFor(staticByTurn.get(r.turn))}` : null)
+      .filter((point) => point !== null);
+    const staticDots = perTurn
+      .map((r, i) => staticByTurn.has(r.turn)
+        ? `<circle cx="${xFor(i)}" cy="${yFor(staticByTurn.get(r.turn))}" r="3" class="chart-dot chart-dot--context" />`
+        : '')
+      .join('');
+    const staticLine = staticPoints.length
+      ? `<polyline points="${staticPoints.join(' ')}" class="chart-line chart-line--context" fill="none" stroke-dasharray="4 3" />`
       : '';
 
     return `
@@ -276,6 +344,7 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
         <polygon points="${bandPolygon(potentialValues)}" class="chart-band--accent" style="fill:var(--info)" />
         <polygon points="${bandPolygon(producedValues)}" class="chart-band--accent" />
         ${staticLine}
+        ${staticDots}
         ${line(potentialValues, 'chart-line chart-line--info')}
         ${line(producedValues, 'chart-line chart-line--accent')}
         ${dots(potentialValues, 'chart-dot chart-dot--info')}
@@ -336,7 +405,16 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
     startError = '';
     starting = true;
     render();
-    const res = await startDynamicAnalysis({ ...deckSource, botKind, numMatches, maxTurns });
+    const res = await startDynamicAnalysis({
+      ...deckSource,
+      botKind,
+      numMatches,
+      maxTurns,
+      combos: combos.map(({ id, uses }) => ({
+        id,
+        uses: uses.map(({ name, quantity }) => ({ name, quantity })),
+      })),
+    });
     if (!isLive()) return;
     starting = false;
     if (!res.ok || !res.data?.jobId) {
@@ -363,4 +441,11 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
 
   render();
   if (botKinds === null) loadBotKinds();
+  return {
+    setCombos(nextCombos, status = 'ready') {
+      combos = nextCombos || [];
+      comboState = status;
+      render();
+    },
+  };
 }
