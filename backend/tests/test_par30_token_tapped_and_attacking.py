@@ -3,21 +3,21 @@
 
 `RulesEngine.put_onto_battlefield_attacking` is the shared primitive: a
 creature is put into the current combat *attacking* without being declared
-(no tap for the attack, summoning sickness irrelevant), an `ATTACKS` event
-fires, and RULE 508.4a's defender choice is auto-made when there's one
-obvious defender. `CreateTokenEffect` gained an `attacking` flag; the
+(no tap for the attack, summoning sickness irrelevant), and RULE 508.4a's
+defender choice is auto-made when there's one obvious defender. RULE 508.3a
+means no `ATTACKS` event fires. `CreateTokenEffect` gained an `attacking` flag; the
 inline-token regexes gained an optional "…that's/are tapped and attacking"
 suffix.
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import build_effects
-from mtg_analyzer.game.effects import GameContext
-from mtg_analyzer.models.events import EventType
+from mtg_analyzer.game.binding.core import build_effects
+from mtg_analyzer.game.effects.core import GameContext
+from mtg_analyzer.models.game.events import EventType
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec
@@ -70,6 +70,8 @@ def test_hanweir_garrison_modeled():
 
 
 def _make_attacking_token(eng, state):
+    state.current_phase = "combat"
+    state.current_step = "declare_attackers"
     src = GameObject(Card(id="src", name="Garrison", type_line="Creature — Soldier",
                           is_creature=True, power=2, toughness=2),
                      owner_id="p1", zone=Zone.BATTLEFIELD)
@@ -85,17 +87,17 @@ def _make_attacking_token(eng, state):
     return token, events
 
 
-def test_token_enters_tapped_and_attacking_and_fires_attacks():
+def test_token_enters_tapped_and_attacking_without_declaring_an_attack():
     eng, state = _engine()
     token, events = _make_attacking_token(eng, state)
 
     assert token.tapped is True
     assert token.attacking is True
-    assert token.attacked_this_turn is True
+    assert token.attacked_this_turn is False
     # RULE 508.4a: the sole opponent is auto-assigned as the defender.
     assert (token.combat_defender or {}).get("id") == "p2"
-    assert any(e.type == EventType.ATTACKS
-               and e.get("instance_id") == token.instance_id for e in events)
+    assert not any(e.type == EventType.ATTACKS
+                   and e.get("instance_id") == token.instance_id for e in events)
 
 
 def test_non_attacking_token_is_untouched():
@@ -111,3 +113,32 @@ def test_non_attacking_token_is_untouched():
 
     assert token.attacking is False
     assert token.combat_defender is None
+
+
+def test_entering_attacking_requires_a_valid_defender_and_active_controller():
+    eng = GameEngine.new_game(
+        [("p1", "Alice", []), ("p2", "Bob", []), ("p3", "Cara", [])],
+        starting_life=20, starting_hand=0,
+    )
+    state = eng.state
+    state.current_phase = "combat"
+    state.current_step = "declare_blockers"
+    card = Card(id="tok", name="Soldier", type_line="Token Creature — Soldier",
+                is_creature=True, power=1, toughness=1)
+    token = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    token.controller_id = "p1"
+    token.summoning_sick = True  # RULE 508.4: irrelevant without declaration
+    state.add_to_battlefield(token)
+
+    assert eng.rules.put_onto_battlefield_attacking(
+        token, {"kind": "player", "id": "p3", "label": "Cara"}
+    )
+    assert token.attacking and token.combat_defender["id"] == "p3"
+
+    other = GameObject(card, owner_id="p2", zone=Zone.BATTLEFIELD)
+    other.controller_id = "p2"
+    state.add_to_battlefield(other)
+    assert not eng.rules.put_onto_battlefield_attacking(
+        other, {"kind": "player", "id": "p1", "label": "Alice"}
+    )
+    assert not other.attacking

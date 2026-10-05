@@ -2,7 +2,7 @@
 
 Batch 25 made all 43 cards of the pool playable but left a documented
 residue of narrow simplifications behind, each recorded in its card's
-`game/ability_catalogue.py` entry. This file covers the mechanisms that
+`game/card_registry.py` entry. This file covers the mechanisms that
 close that residue:
 
 * **Entwine** (RULE 702.42a) as a real priced modal upgrade — Tooth and Nail.
@@ -20,12 +20,12 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 
 
 def _engine():

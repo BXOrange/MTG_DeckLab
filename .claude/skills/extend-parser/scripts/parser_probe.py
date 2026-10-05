@@ -17,6 +17,9 @@ Subcommands
   clause    run one clause through normalize + the handler table; say where it
             falls over
   card      full per-line parse trace for one cached card
+  composition  which HALF of an unclaimed trigger/activated clause is missing
+            (trigger head vs effect body), ranked by shared axis — the tool
+            for finding a generalization instead of another per-phrase row
   snapshot  write a baseline of which cards are currently covered
   diff      compare current parse against a snapshot: newly covered AND newly
             broken (over-matching regressions)
@@ -59,7 +62,7 @@ def _find_backend() -> Path:
 
 sys.path.insert(0, str(_find_backend()))
 
-from mtg_analyzer.game.ability_catalogue import is_registered  # noqa: E402
+from mtg_analyzer.game.card_registry import is_registered  # noqa: E402
 from mtg_analyzer.parser.oracle import (  # noqa: E402
     NEVER_SUPPORTED,
     PARSER_VERSION,
@@ -86,7 +89,7 @@ def scan(cards):
 
     A row is (name, covered, unclaimed_clauses). "Covered" matches
     `scripts/coverage_report.py`: parser-MODELED **or** hand-AUTHORED in
-    `game/ability_catalogue.py`, so a probe never credits a handler for a card
+    `game/card_catalogue/`, so a probe never credits a handler for a card
     that was already behaving via the hand-authored escape valve.
     """
     rows = []
@@ -334,6 +337,213 @@ def cmd_diff(args):
         print("  (none)")
 
 
+# --- composition ------------------------------------------------------------
+
+#: A trigger clause is "<when/whenever/at cond>, <body>"; an activated one is
+#: "<cost>: <body>". The head/body split is what `composition` probes.
+_TRIGGER_SPLIT = re.compile(r"^(?P<head>(?:when|whenever|at)\b[^,]*),\s*(?P<body>.+)$", re.S)
+_ACTIVATED_SPLIT = re.compile(
+    r"^(?P<head>[^:\"]{1,80}(?:\{[^}]+\}|sacrifice|discard|pay|exile|tap|untap|remove|return)[^:\"]{0,80}):\s*(?P<body>.+)$",
+    re.S,
+)
+_SENTENCE_SPLIT = re.compile(r"(?<=[a-z\)\"'])\.\s+(?=[a-z])")
+
+#: Trigger-head event families, first match wins (a head is filed under one).
+_HEAD_FAMILIES = [
+    ("cast", r"\byou cast\b|\bcasts? (a|an|your|their|another)\b|\bplayer casts\b|\bis cast\b"),
+    ("sacrifice", r"\bsacrifices?\b"),
+    ("discard", r"\bdiscards?\b"),
+    ("cycle", r"\bcycles?\b"),
+    ("attack/block", r"\battacks?\b|\battack with\b|\bbecomes blocked\b|\bisn't blocked\b|\bblocks?\b"),
+    ("enter/leave/die", r"\benters?\b|\bleaves?\b|\bdies\b|\bdie\b|\bexiled\b|\bput into\b"),
+    ("damage/life", r"\bdeals?\b.*\bdamage\b|\bdealt damage\b|\blos(?:e|es) life\b|\bgains? life\b"),
+    ("draw/mill/counter", r"\bdraws?\b|\bmilled?\b|\bcounters?\b"),
+    ("phase/step", r"^at\b"),
+]
+
+#: Modifier phrases removed one at a time from a failing effect sentence: if the
+#: shortened sentence parses, that modifier axis is what the parser lacks.
+_MODIFIER_AXES = {
+    "leading 'if <cond>,'": r"^if [^,]+, ",
+    "for each <count>": r",? for each [^.,]+",
+    "where X is / equal to <amount>": r",? where x is [^.]+|,? equal to [^.,]+",
+    "trailing 'if <cond>'": r",? if [^.]+$",
+    "trailing 'unless <cond>'": r",? unless [^.]+$",
+    "'you may' optional": r"^you may ",
+    "scope word (each opponent / target player)": r"^(each opponent|each player|target opponent|target player) ",
+    "'you don't control / an opponent controls'": r" (you don't control|an opponent controls|your opponents control)",
+    "'another / other'": r"\b(another|other) ",
+    "'up to N'": r"up to \d+ ",
+    "'then <clause>'": r",? then [^.]+$",
+    "duration (until / this turn)": r",? (until [^.,]+|this turn)",
+    "'tapped'": r" tapped\b",
+    "'instead'": r",? instead",
+}
+
+
+def _claims(line: str, provenance) -> bool:
+    try:
+        return segment_line(line, allow_spell_effect=True, provenance=provenance).claimed
+    except Exception:  # a probe must never die on one odd clause
+        return False
+
+
+def cmd_composition(args):
+    """Which half of an unclaimed trigger/activated clause is the missing part?
+
+    The gate is all-or-nothing, so "the trigger head is unparsed" and "the
+    effect body is unparsed" look identical in `blocked`. This splits every
+    unclaimed clause into head/body and tests each against a known-good
+    partner (head + "draw a card"; "when ~ enters," + body), so a *shared*
+    axis — the same trigger condition fronting many bodies the parser already
+    handles — shows up as one row instead of hundreds. Views:
+
+      summary   H±/B± table (H- B+ = trigger head is the ONLY gap)
+      heads     ranked unparsed trigger heads whose body parses alone
+      families  the same, grouped by event family, with the cast/enter/attack
+                sub-axes visible (`--family cast` lists that family's heads)
+      mods      which modifier axis (leading "if", "for each", …) repairs how
+                many failing effect sentences
+      conds     the leading-"if" conditions among those, grouped by shape
+    """
+    provenance = ParserProvenance(version=PARSER_VERSION, source="probe")
+    rows, _counts = scan(load_cards(args.card_db, args.limit))
+
+    clauses: dict[str, dict[str, set[str]]] = {}
+    for name, covered, unclaimed in rows:
+        if covered:
+            continue
+        for clause in unclaimed:
+            info = clauses.setdefault(clause, {"cards": set(), "solo": set()})
+            info["cards"].add(name)
+            if len(unclaimed) == 1:
+                info["solo"].add(name)
+
+    head_cache: dict[str, bool] = {}
+    body_cache: dict[str, bool] = {}
+    split = []
+    for text, info in clauses.items():
+        kind = "trigger"
+        m = _TRIGGER_SPLIT.match(text)
+        if not m:
+            kind, m = "activated", _ACTIVATED_SPLIT.match(text)
+        if not m:
+            continue
+        head, body = m.group("head").strip(), m.group("body").strip()
+        hprobe = f"{head}, draw a card." if kind == "trigger" else f"{head}: draw a card."
+        bprobe = f"when ~ enters, {body}" if kind == "trigger" else f"{{t}}: {body}"
+        head_ok = head_cache.setdefault(hprobe, _claims(hprobe, provenance))
+        body_ok = body_cache.setdefault(bprobe, _claims(bprobe, provenance))
+        split.append((text, kind, head, body, head_ok, body_ok, info))
+
+    def label(head_ok: bool, body_ok: bool) -> str:
+        return ("H+" if head_ok else "H-") + ("B+" if body_ok else "B-")
+
+    if args.view == "summary":
+        for kind in ("trigger", "activated"):
+            part = [r for r in split if r[1] == kind]
+            print(f"\n{kind}: {len(part)} unclaimed clauses")
+            for lab in ("H+B+", "H-B+", "H+B-", "H-B-"):
+                sel = [r for r in part if label(r[4], r[5]) == lab]
+                cards = set().union(*[r[6]["cards"] for r in sel]) if sel else set()
+                solo = set().union(*[r[6]["solo"] for r in sel]) if sel else set()
+                print(f"  {lab}: {len(sel):5d} clauses  {len(cards):5d} cards  {len(solo):5d} cards where it is the ONLY gap")
+        return
+
+    if args.view in ("heads", "families"):
+        heads: dict[str, dict[str, set[str]]] = {}
+        for text, kind, head, _body, head_ok, body_ok, info in split:
+            if kind != "trigger" or head_ok or not body_ok:
+                continue
+            slot = heads.setdefault(abstract_clause(head), {"cards": set(), "solo": set()})
+            slot["cards"] |= info["cards"]
+            slot["solo"] |= info["solo"]
+        if args.view == "heads":
+            pattern = re.compile(args.family, re.IGNORECASE) if args.family else None
+            ranked = sorted(heads.items(), key=lambda kv: (-len(kv[1]["solo"]), -len(kv[1]["cards"])))
+            print(f"{len(heads)} distinct unparsed trigger heads whose effect parses alone")
+            shown = 0
+            for head, v in ranked:
+                if pattern and not pattern.search(head):
+                    continue
+                print(f"  {len(v['solo']):4d} solo / {len(v['cards']):4d} cards  {head}")
+                shown += 1
+                if shown >= args.top:
+                    break
+            return
+        fam: dict[str, dict] = {}
+        for head, v in heads.items():
+            name = next((n for n, rx in _HEAD_FAMILIES if re.search(rx, head)), "other")
+            slot = fam.setdefault(name, {"heads": 0, "cards": set(), "solo": set()})
+            slot["heads"] += 1
+            slot["cards"] |= v["cards"]
+            slot["solo"] |= v["solo"]
+        print("event family of the unparsed trigger head (effect parses alone):")
+        for name, v in sorted(fam.items(), key=lambda kv: -len(kv[1]["solo"])):
+            print(f"  {name:18s} {v['heads']:4d} heads  {len(v['solo']):4d} cards blocked ONLY by the head  ({len(v['cards'])} total)")
+        return
+
+    # mods / conds: single effect sentences of trigger bodies whose head is fine
+    sentences: dict[str, dict[str, set[str]]] = {}
+    for text, kind, _head, body, head_ok, body_ok, info in split:
+        if kind != "trigger" or not head_ok or body_ok:
+            continue
+        for sentence in (s.strip() for s in _SENTENCE_SPLIT.split(body) if s.strip()):
+            slot = sentences.setdefault(sentence, {"cards": set(), "solo": set()})
+            slot["cards"] |= info["cards"]
+            slot["solo"] |= info["solo"]
+    sentence_cache: dict[str, bool] = {}
+
+    def sentence_ok(s: str) -> bool:
+        return sentence_cache.setdefault(s, _claims(f"when ~ enters, {s}", provenance))
+
+    if args.view == "mods":
+        present: Counter[str] = Counter()
+        repaired: dict[str, dict] = {}
+        # A failing body can hold sentences that parse on their own; only the
+        # failing ones say anything about a missing modifier axis.
+        sentences = {s: i for s, i in sentences.items() if not sentence_ok(s.strip(" ."))}
+        for sentence, info in sentences.items():
+            for axis, rx in _MODIFIER_AXES.items():
+                if not re.search(rx, sentence):
+                    continue
+                present[axis] += 1
+                shorter = re.sub(rx, "", sentence, count=1).strip(" ,.")
+                if shorter and shorter != sentence and sentence_ok(shorter):
+                    slot = repaired.setdefault(axis, {"n": 0, "solo": set(), "ex": sentence[:110], "all": []})
+                    slot["n"] += 1
+                    slot["solo"] |= info["solo"]
+                    slot["all"].append((len(info["solo"]), sentence, sorted(info["solo"] or info["cards"])[:3]))
+        if args.axis:
+            pattern = re.compile(args.axis, re.IGNORECASE)
+            for axis, v in repaired.items():
+                if not pattern.search(axis):
+                    continue
+                print(f"== {axis}: {v['n']} repaired sentences, {len(v['solo'])} solo cards")
+                for solo, sentence, names in sorted(v["all"], key=lambda t: (-t[0], t[1])):
+                    print(f"  {solo:3d}  {sentence}   [{'; '.join(names)}]")
+            return
+        print(f"{len(sentences)} distinct failing effect sentences (trigger bodies, head parses)")
+        print(f"{'modifier axis':46s} present  repaired  solo-cards")
+        for axis, v in sorted(repaired.items(), key=lambda kv: -len(kv[1]["solo"])):
+            print(f"{axis:46s} {present[axis]:6d}  {v['n']:8d}  {len(v['solo']):5d}   e.g. {v['ex']}")
+        return
+
+    # conds: leading "if <cond>," whose remaining effect parses
+    reflexive = re.compile(r"^(you do|you don't|you can't|they do|they don't|a player does|that player does)$")
+    conds: dict[str, dict] = {}
+    for sentence, info in sentences.items():
+        m = re.match(r"^if ([^,]+), (.+)$", sentence)
+        if not m or reflexive.match(m.group(1)) or not sentence_ok(m.group(2).strip(" .")):
+            continue
+        slot = conds.setdefault(abstract_clause(m.group(1)), {"n": 0, "solo": set()})
+        slot["n"] += 1
+        slot["solo"] |= info["solo"]
+    print(f"{len(conds)} distinct leading-if conditions (reflexive 'if you do' excluded)")
+    for cond, v in sorted(conds.items(), key=lambda kv: -len(kv[1]["solo"]))[: args.top]:
+        print(f"  {len(v['solo']):4d} solo  if {cond}")
+
+
 # --- cli --------------------------------------------------------------------
 
 
@@ -362,6 +572,13 @@ def main() -> None:
     p = sub.add_parser("card", help="full parse trace for one cached card")
     p.add_argument("name")
     p.set_defaults(func=cmd_card)
+
+    p = sub.add_parser("composition", help="head-vs-body split of unclaimed trigger/activated clauses")
+    p.add_argument("view", choices=["summary", "heads", "families", "mods", "conds"], nargs="?", default="summary")
+    p.add_argument("--family", default=None, help="heads view: only heads matching this regex")
+    p.add_argument("--axis", default=None, help="mods view: list every repaired sentence of the axes matching this regex")
+    p.add_argument("--top", type=int, default=40)
+    p.set_defaults(func=cmd_composition)
 
     p = sub.add_parser("snapshot", help="write a covered-cards baseline")
     p.add_argument("path", type=Path)

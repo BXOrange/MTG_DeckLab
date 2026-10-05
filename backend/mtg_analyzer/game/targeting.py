@@ -14,17 +14,17 @@ none, the action is offered **locked** rather than castable — the offer-time
 half of RULE 601.2c.
 
 Kept dependency-light: it reads models and duck-types an effect's
-``target_spec`` attribute, so `game/effects.py` can import `TargetSpec` from
+``target_spec`` attribute, so `game/effects/core.py` can import `TargetSpec` from
 here without a cycle.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
-from ..models.game_object import GameObject, Zone
-from ..models.game_state import GameState
+from ..models.game.game_object import GameObject, Zone
+from ..models.game.game_state import GameState
 from . import combat
 
 #: A graveyard-card target's *scope* — whose graveyard(s) are searched — by
@@ -49,7 +49,12 @@ _GRAVEYARD_SCOPE_PREFIXES: dict[str, str] = {
 _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     "card": lambda o: True,
     "creature": lambda o: o.is_creature,
+    "attacking_or_blocking_creature": lambda o: (
+        o.is_creature and (o.attacking or o.blocking is not None)
+    ),
     "land": lambda o: o.is_land,
+    # "target basic land card in your graveyard" (Groundskeeper).
+    "basic_land": lambda o: bool(o.card.is_land) and "basic" in o.card.type_line.lower(),
     "artifact": lambda o: bool(o.card.is_artifact),
     "enchantment": lambda o: bool(o.card.is_enchantment),
     # "exile up to one target non-Aura enchantment card from your graveyard"
@@ -58,6 +63,8 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     "non_aura_enchantment": lambda o: bool(o.card.is_enchantment)
     and "aura" not in o.card.type_line.lower(),
     "instant_or_sorcery": lambda o: bool(o.card.is_instant or o.card.is_sorcery),
+    # "target instant, sorcery, or artifact card from your graveyard" (Scholar of the Lost Trove).
+    "instant_sorcery_or_artifact": lambda o: bool(o.card.is_instant or o.card.is_sorcery or o.card.is_artifact),
     # "target **sorcery** card in your graveyard gains flashback…" (MEC-24,
     # Recoup) — the sorcery-only narrowing of the combined filter above.
     "sorcery": lambda o: bool(o.card.is_sorcery),
@@ -69,10 +76,22 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     # battlefield…" (MEC-43 round 2, Beacon of Unrest) — the artifact
     # sibling of `creature_or_planeswalker` below.
     "artifact_or_creature": lambda o: o.is_creature or bool(o.card.is_artifact),
+    # "return all artifact and enchantment cards from your graveyard to the battlefield" (Brilliant
+    # Restoration, Redress Fate) — the artifact/enchantment union, same idiom as above.
+    "artifact_or_enchantment": lambda o: bool(o.card.is_artifact or o.card.is_enchantment),
     # "return a creature or planeswalker card from your graveyard to your
     # hand" (Takenuma, Abandoned Mire's Channel ability) — the union of the
     # two single-type filters, same idiom as `instant_or_sorcery` above.
     "creature_or_planeswalker": lambda o: o.is_creature or o.is_planeswalker,
+    # "return target rebel/mercenary permanent card … from your graveyard
+    # to the battlefield." (PAR-77, Ramosian Revivalist) — Rebel/Mercenary
+    # are exclusively creature subtypes in paper Magic, so a type-line
+    # substring check alone already narrows correctly (mirrors PAR-70's
+    # identical reasoning for the search-criteria sibling of this filter).
+    "rebel_permanent": lambda o: "rebel" in o.card.type_line.lower(),
+    "mercenary_permanent": lambda o: "mercenary" in o.card.type_line.lower(),
+    # "target Zombie card from your graveyard" (Unholy Grotto, Rot Hulk) — a creature subtype on the printed type line.
+    "zombie_card": lambda o: "zombie" in o.card.type_line.lower(),
 }
 #: Every ``{prefix}_{suffix}`` combination — the full graveyard-target kind
 #: vocabulary (docs/09's Regrowth/Reanimate/Deathrite Shaman/Virtue of
@@ -116,7 +135,7 @@ _ENCHANT_QUALITY_PREDICATES: dict[str, Any] = {
 
 ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
     {
-        "any", "creature", "permanent", "player", "spell",
+        "any", "creature", "attacking_or_blocking_creature", "creature_blocking_source", "permanent", "player", "spell",
         # RULE 702.165a Backup — "target creature" that explicitly includes
         # the source itself (PAR-26); the plain `creature` branch minus its
         # RULE 115.6-style self-exclusion.
@@ -144,7 +163,7 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # opponent **at random**" — see the catalogue entry) — `player`
         # narrowed to exclude the ability's own controller.
         "opponent",
-        "creature_you_control", "land_you_control",
+        "creature_you_control", "land_you_control", "other_land", "other_land_you_control",
         # "target land an opponent controls" (Political Trickery/Vedalken
         # Plotter's own exchange-control targets, PAR-29) — the
         # `land_you_control` mirror, same "you control"/"you don't
@@ -158,12 +177,40 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # Heliod, Sun-Crowned) — the two-type-union sibling of
         # `creature_you_control`, same "you control" scoping.
         "creature_or_enchantment_you_control",
+        # "target creature or land you control" (PAR-124, Vengeant Earth) —
+        # the land sibling of `creature_or_enchantment_you_control` above.
+        "creature_or_land_you_control",
+        # "target creature or Vehicle you control" (Roaring Earth).
+        "creature_or_vehicle_you_control",
+        # "another target creature or land you control" (Saryth, the Viper's
+        # Fang) — the source-excluding sibling of the entry above.
+        "another_creature_or_land_you_control",
+        # "two target artifacts, creatures, and/or lands you control" (Ghostly
+        # Flicker) — the three-type union sibling of the entries above.
+        "artifact_creature_or_land_you_control",
+        # "target permanent you own" (Venser, the Sojourner) — owner-scoped, unlike
+        # `permanent_you_control`: a permanent an opponent controls but you own counts.
+        "permanent_you_own",
         # "target creature you **don't** control" (Archdruid's Charm's second
         # mode) — the mirror image of `creature_you_control`.
         "creature_you_dont_control",
+        "werewolf_creature",
+        "creature_defending_player_controls",
         # "target artifact you don't control" (Vandalblast) — the same
         # mirror-image shape as `creature_you_dont_control`, for artifacts.
         "artifact_you_dont_control",
+        # PAR-128: the rest of the "an opponent controls / you don't control"
+        # scope over a permanent-type pool, composed by the parser's target
+        # grammar (`subgrammars.NOT_YOU_TARGET_KINDS`) rather than per phrase.
+        "enchantment_you_dont_control",
+        "artifact_or_enchantment_you_dont_control",
+        "artifact_or_creature_you_dont_control",
+        # "choose target Human or artifact an opponent controls" (Opportunistic Dragon) — a creature-subtype
+        # word unioned with the artifact type, scoped to an opponent's permanents.
+        "human_or_artifact_you_dont_control",
+        # PAR-104: the three-type union scoped to an opponent ("exile target artifact, creature, or enchantment an
+        # opponent controls" — Trapped in the Screen, Banishment-shaped), composed by the same target grammar.
+        "artifact_creature_or_enchantment_you_dont_control",
         # "target permanent an opponent controls" (Assassin's Trophy/
         # Geomancer's Gambit) — the same mirror-image shape, unscoped by
         # permanent type (unlike the narrower `nonland_permanent_you_dont_
@@ -178,20 +225,43 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         "permanent_you_neither_own_nor_control",
         # "{T}: Transform target Incubator token you control." (Progenitor
         # Exarch) — a name-keyed token target, the Incubate family's own
-        # two-state token (`ability_catalogue` "Incubator").
+        # two-state token (`card_registry` "Incubator").
         "incubator_token_you_control",
+        # Batch 4 ("create a token that's a copy of target token/artifact you control" — Esika's Chariot,
+        # Donatello, Adagia): the controller-scoped pools the parser's "you control" slot composes
+        # (`subgrammars.YOU_TARGET_KINDS`) plus the bare token pool.
+        "token", "token_you_control", "artifact_you_control", "enchantment_you_control",
+        # "target noncreature artifact you control" (Depthshaker Titan) /
+        # "target nontoken artifact you control" (The Mycosynth Gardens).
+        "noncreature_artifact_you_control", "nontoken_artifact_you_control",
+        "artifact_or_enchantment_you_control",
         # "target nonland permanent" (Retraction Helix-shaped) — any
         # controller's, unlike the `_you_control`/`_you_dont_control`
         # suffixed forms (which have their own `legal_targets` branch); the
         # bare unscoped form's own `legal_targets` branch already existed
         # but was never whitelisted.
         "nonland_permanent",
+        # "Exile target monocolored permanent." (Vanishing Verse, PAR-60) —
+        # RULE 105.3: exactly one colour.
+        "monocolored_permanent",
+        # "destroy target noncreature, nonland permanent with mana value 2
+        # or less" (Witherbloom Command mode 2) — `nonland_permanent`
+        # further excluding creatures (an artifact creature is still a
+        # creature and stays out).
+        "noncreature_nonland_permanent",
+        # "destroy target noncreature permanent" (Bramblecrush, PAR-128) — any
+        # permanent that is not a creature; unlike the nonland sibling above,
+        # lands are legal (RULE 205.4a — a land is a noncreature permanent).
+        "noncreature_permanent",
         # "target nonland permanent an opponent controls" / "… you don't
         # control" (Lyev Skyknight/New Prahv Guildmage's detain, PAR-29) and
         # its "you control" mirror — the `legal_targets` branch has always
         # handled both (see the ``nonland_permanent_you_control`` case), just
         # never whitelisted here until a real card's TARGET row needed it.
         "nonland_permanent_you_control", "nonland_permanent_you_dont_control",
+        # PAR-98: "another target historic permanent you control" (Guardians
+        # of Koilos) — artifact, legendary or Saga (RULE 700.6), your own.
+        "historic_permanent_you_control",
         # "target spell or nonland permanent an opponent controls" (Sink
         # into Stupor) — the ``"spell"``/``nonland_permanent_you_dont_
         # control`` union.
@@ -200,7 +270,7 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         "spell_or_creature",
         # "target spell you don't control" (Hullbreaker Horror) — the
         # controller-scoped mirror of the plain ``"spell"`` kind.
-        "spell_you_dont_control",
+        "spell_you_control", "spell_you_dont_control",
         # RULE 702.140a's "target **non-Human** creature you own" — mutate's
         # own target line. Note *own*, not control (RULE 108.3): a creature
         # you own but an opponent controls is still a legal mutate host, and
@@ -245,9 +315,14 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # Ancients' +1: "you may attach an Equipment you control to it") —
         # broader than `attached_equipment_you_control` above.
         "equipment_you_control",
+        # PAR-135: "target Equipment" (any player's) and "target Equipment an opponent controls"
+        # (Ogre Geargrabber) — the unscoped and not-you siblings of `equipment_you_control`.
+        "equipment", "equipment_you_dont_control",
         # "Target nonbasic land" (Encroaching Wastes) — any player's, unlike
-        # the controller-restricted kinds above.
-        "nonbasic_land", "basic_land",
+        # the controller-restricted kinds above. ``nonbasic_land_you_dont_
+        # control`` is the "an opponent controls" narrowing (Field of Ruin).
+        "nonbasic_land", "basic_land", "nonbasic_land_you_dont_control",
+        "mountain", "forest",
         # "Target legendary permanent" (Minamo, School at Water's Edge,
         # RULE 205.4a) — any player's, supertype-filtered.
         "legendary_permanent",
@@ -279,11 +354,21 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # "goad target creature that player controls" — the damaged player
         # off `CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER`).
         "creature_that_player_controls",
+        # PAR-130: the same "that player" scope over every other base pool
+        # the parser's target grammar names (`THAT_PLAYER_KINDS`, below).
+        *(f"{base}_that_player_controls" for base in (
+            "permanent", "nonland_permanent", "land", "nonbasic_land", "artifact",
+            "enchantment", "artifact_or_enchantment", "artifact_or_creature", "equipment",
+        )),
         # "target creature or planeswalker" (Imodane deck batch —
         # Stonesplitter Bolt/Lithomantic Barrage/Torch Breath/Torch the
         # Tower, a hugely common modern removal-spell template) — the
         # two-kind union idiom `artifact_or_enchantment` already uses.
         "creature_or_planeswalker",
+        # "target creature or planeswalker you don't control" / "… an opponent
+        # controls" (Bite Down, Dreadbore's scoped siblings — PAR-127) — the
+        # opponent-scoped sibling of the bare union just above.
+        "creature_or_planeswalker_you_dont_control",
         # "a creature or planeswalker you control" (Spark Double's own
         # enter-as-copy candidate pool) — the controller-scoped sibling of
         # the bare union kind just above.
@@ -312,11 +397,16 @@ _GRAVEYARD_TYPE_LABELS: dict[str, str] = {
     "creature": "Kreaturenkarte",
     "land": "Landkarte",
     "artifact": "Artefaktkarte",
+    "artifact_or_enchantment": "Artefakt- oder Verzauberungskarte",
+    "artifact_or_creature": "Artefakt- oder Kreaturenkarte",
     "enchantment": "Verzauberungskarte",
     "non_aura_enchantment": "Nicht-Aura-Verzauberungskarte",
     "instant_or_sorcery": "Spontanzauber- oder Hexereikarte",
     "permanent": "Karte eines bleibenden Kartentyps",
     "nonland_permanent": "Karte eines nichtländlichen bleibenden Kartentyps",
+    "rebel_permanent": "Rebellenkarte",
+    "mercenary_permanent": "Söldnerkarte",
+    "zombie_card": "Zombiekarte",
 }
 #: German "whose graveyard" phrase per `_GRAVEYARD_SCOPE_PREFIXES` scope.
 _GRAVEYARD_SCOPE_LABELS: dict[str, str] = {
@@ -401,6 +491,21 @@ class TargetSpec:
     #: is never a legal target to begin with, not merely a no-op if chosen),
     #: mirroring ``color``'s narrowing. ``None`` means unfiltered.
     max_mana_value: Optional[int] = None
+    #: The floor sibling of ``max_mana_value`` ("exile target permanent with mana value 4 or greater" —
+    #: Despark, Kin-Tree Severance), gated by the same ``apply_max_mana_value`` frame flag.
+    min_mana_value: Optional[int] = None
+    #: The exact-match sibling of ``max_mana_value`` (PAR-74, Skyfire Kirin
+    #: — "gain control of target creature with **that spell's** mana
+    #: value") — a fixed mana value the target must equal, not a ceiling.
+    #: Resolved the same "sentinel string → real int off `trigger_event`"
+    #: way `max_mana_value`'s own ``"trigger_damage_amount"``/``"source_
+    #: power"`` sentinels are (`legal_targets`'s dispatch, not this field's
+    #: own concern) — a bare int is accepted too, for symmetry, though no
+    #: real card has needed a literal-int "exactly N" target bound yet.
+    #: ``None`` means unfiltered. Gated by the same ``apply_max_mana_value``
+    #: frame flag as ``max_mana_value`` — any frame that cares about a
+    #: target's mana value at all cares about both comparisons.
+    exact_mana_value: Optional[Union[int, str]] = None
     #: A power/toughness/keyword quality filter on a ``"creature"``/
     #: ``"permanent"`` target (RULE 115/601.2c, "destroy target creature
     #: with power 4 or greater"/"…with flying"-shaped) — checked at offer
@@ -459,11 +564,18 @@ class TargetSpec:
     #: match `_has_subtype`'s own convention. ``None`` means unfiltered.
     #: Only meaningful for a graveyard kind; ignored elsewhere.
     subtype: Optional[str] = None
+    #: RULE 205.4a supertype exclusion — "target **nonlegendary** creature
+    #: card from your graveyard" (Persist). Like ``subtype``, only wired for
+    #: the `_GRAVEYARD_TARGET_KINDS` branch today (the only printed shape
+    #: that needs it); ignored elsewhere.
+    exclude_legendary: bool = False
+    # A player target restricted to the player whose turn is in progress.
+    active_player_only: bool = False
     #: Best-effort "is this target on the receiving end of something good or
     #: bad" hint — ``"harmful"``/``"beneficial"``/``None`` (no opinion).
     #: Not rules data and never read by the engine itself: stamped by
     #: `spell_target_specs`/`ability_target_specs` from the owning
-    #: `GameEffect.target_polarity()` (see `game/effects.py`) purely so
+    #: `GameEffect.target_polarity()` (see `game/effects/core.py`) purely so
     #: `services/bots.py`'s `GreedyBot` can point a removal spell at an
     #: opponent's permanent and a pump spell at its own — see that method's
     #: docstring for the classification and its documented blind spots.
@@ -476,11 +588,52 @@ class TargetSpec:
     #: means the ordinary fixed/``optional`` shapes above apply unchanged;
     #: only meaningful when it's a genuine value greater than ``count``.
     #: Read by `effective_count` (the resolve-time slicing cap every
-    #: `game/effects.py` consumer uses instead of ``count`` directly),
+    #: `game/effects/core.py` consumer uses instead of ``count`` directly),
     #: `expand_counts` (which rounds are mandatory vs. declinable) and
     #: `requirements_with_targets`/`gameBoardView.js` (how many rounds to
     #: offer, and where the "stop early" boundary sits).
     count_max: Optional[int] = None
+    #: RULE 601.2b/c (MEC-85): the name of a cast-time-conditional flag
+    #: (see `_cast_time_flag` just below) that, when true for this
+    #: requirement's own spell/ability ``source``, drops every narrowing
+    #: filter above (`max_mana_value`, `creature_filter`, `color`,
+    #: `colors`) back to unfiltered for this one requirement — "Exile
+    #: target creature **with mana value 3 or less**. If this spell was
+    #: cast using teamwork, instead exile target creature[.]" (Cruel
+    #: Alliance) / "Choose target creature card in your graveyard **with
+    #: mana value 4 or less**. If this spell was cast using teamwork,
+    #: instead choose target creature card in your graveyard[.]" (Too Evil
+    #: to Stay Dead). An additional cost like Teamwork is chosen and paid
+    #: (RULE 601.2b) before targets are chosen (RULE 601.2c), so *which*
+    #: filter applies is already decided by the time targets are offered —
+    #: answerable here at offer time, unlike a flat-magnitude "instead"
+    #: override (`DealDamageEffect.amount_if_teamwork`), which has no
+    #: target-legality question to resolve and stays a resolve-time trick.
+    #: ``None`` (the default) means the filters above always apply.
+    unless_flag: Optional[str] = None
+    #: "Exile target artifact or enchantment. If this spell was kicked, exile target nonland permanent instead."
+    #: (Tear Asunder) — ``{"flag": <a `_cast_time_flag` name>, "kind": <the replacement target kind>}``: when the flag
+    #: is set for this spell the *kind* of target changes (kicker is paid, RULE 601.2b, before targets are chosen,
+    #: RULE 601.2c). The sibling of `unless_flag`, which only drops narrowing filters, never changes the kind.
+    kind_if_flag: Optional[dict[str, str]] = None
+    #: PAR-123: "…target creature you control **other than that creature**" — the object that fired
+    #: the group trigger this ability is on is not a legal choice (`legal_targets` drops it).
+    excluding_trigger_subject: bool = False
+    #: PAR-130: "**for each opponent**/**for each player**, `<verb>` [up to 1]
+    #: target `<X>` **that player** controls" — one requirement per player
+    #: (`PER_PLAYER_SCOPES`), each scoped to that player's permanents.
+    #: `expand_counts` splits it into one round per player with
+    #: ``scoped_player_id`` set; a round whose player controls nothing legal
+    #: is skipped rather than dropping the whole ability (RULE 601.2c: no
+    #: target is chosen for that player). ``None`` = an ordinary requirement.
+    per_player: Optional[str] = None
+    #: The player one expanded `per_player` round is scoped to — read by the
+    #: ``SCOPE_THAT_PLAYER`` frames ahead of the trigger event's antecedent.
+    scoped_player_id: Optional[str] = None
+    #: A preceding target requirement supplies this spec's "that player"
+    #: antecedent.  This is stamped only after the full ordered requirement
+    #: list is known; a standalone spec therefore remains fail-closed.
+    prior_target_antecedent: bool = False
 
     @property
     def effective_count(self) -> int:
@@ -491,6 +644,8 @@ class TargetSpec:
         its callers): for a range spec ``count`` is the RULE 601.2c
         *minimum*, and a shorter cap would silently drop a legally chosen
         target above the minimum."""
+        if self.per_player in PER_PLAYER_SCOPES:
+            return PER_PLAYER_TARGET_CAP
         return self.count_max if self.count_max is not None else self.count
 
     def label(self) -> str:
@@ -510,9 +665,30 @@ class TargetSpec:
             "creature_you_control": "Kreatur unter deiner Kontrolle",
             "other_creature_you_control": "andere Kreatur unter deiner Kontrolle",
             "creature_or_enchantment_you_control": "Kreatur oder Verzauberung unter deiner Kontrolle",
+            "creature_or_land_you_control": "Kreatur oder Land unter deiner Kontrolle",
+            "creature_or_vehicle_you_control": "Kreatur oder Fahrzeug unter deiner Kontrolle",
+            "another_creature_or_land_you_control": "andere Kreatur oder Land unter deiner Kontrolle",
+            "artifact_creature_or_land_you_control": "Artefakt, Kreatur oder Land unter deiner Kontrolle",
+            "permanent_you_own": "Permanent, das du besitzt",
             "non_human_creature_you_own": "Nicht-Mensch-Kreatur, die du besitzt",
             "creature_you_dont_control": "Kreatur, die du nicht kontrollierst",
             "artifact_you_dont_control": "Artefakt, das du nicht kontrollierst",
+            "token": "Spielstein",
+            "token_you_control": "Spielstein unter deiner Kontrolle",
+            "artifact_you_control": "Artefakt unter deiner Kontrolle",
+            "noncreature_artifact_you_control": "Nichtkreatur-Artefakt unter deiner Kontrolle",
+            "nontoken_artifact_you_control": "Artefakt (kein Spielstein) unter deiner Kontrolle",
+            "enchantment_you_control": "Verzauberung unter deiner Kontrolle",
+            "artifact_or_enchantment_you_control": "Artefakt oder Verzauberung unter deiner Kontrolle",
+            "enchantment_you_dont_control": "Verzauberung, die du nicht kontrollierst",
+            "artifact_or_enchantment_you_dont_control":
+                "Artefakt oder Verzauberung, das du nicht kontrollierst",
+            "artifact_or_creature_you_dont_control":
+                "Artefakt oder Kreatur, das du nicht kontrollierst",
+            "human_or_artifact_you_dont_control":
+                "Mensch oder Artefakt, das du nicht kontrollierst",
+            "artifact_creature_or_enchantment_you_dont_control":
+                "Artefakt, Kreatur oder Verzauberung, das du nicht kontrollierst",
             "artifact_or_enchantment": "Artefakt oder Verzauberung",
             "artifact_or_creature": "Artefakt oder Kreatur",
             "artifact_or_creature_you_control": "Artefakt oder Kreatur unter deiner Kontrolle",
@@ -527,24 +703,50 @@ class TargetSpec:
             "artifact_creature_enchantment_or_planeswalker":
                 "Artefakt, Kreatur, Verzauberung oder Planeswalker",
             "creature_or_planeswalker": "Kreatur oder Planeswalker",
+            "creature_or_planeswalker_you_dont_control":
+                "Kreatur oder Planeswalker, die du nicht kontrollierst",
             "creature_or_planeswalker_you_control":
                 "Kreatur oder Planeswalker unter deiner Kontrolle",
             "creature_or_planeswalker_that_player_controls":
                 "Kreatur oder Planeswalker unter der Kontrolle dieses Spielers",
             "creature_that_player_controls":
                 "Kreatur unter der Kontrolle dieses Spielers",
+            "permanent_that_player_controls":
+                "bleibende Karte unter der Kontrolle dieses Spielers",
+            "nonland_permanent_that_player_controls":
+                "bleibende Nichtland-Karte unter der Kontrolle dieses Spielers",
+            "land_that_player_controls": "Land unter der Kontrolle dieses Spielers",
+            "nonbasic_land_that_player_controls":
+                "nichtgrundlegendes Land unter der Kontrolle dieses Spielers",
+            "artifact_that_player_controls": "Artefakt unter der Kontrolle dieses Spielers",
+            "enchantment_that_player_controls":
+                "Verzauberung unter der Kontrolle dieses Spielers",
+            "artifact_or_enchantment_that_player_controls":
+                "Artefakt oder Verzauberung unter der Kontrolle dieses Spielers",
+            "artifact_or_creature_that_player_controls":
+                "Artefakt oder Kreatur unter der Kontrolle dieses Spielers",
+            "equipment_that_player_controls":
+                "Ausrüstung unter der Kontrolle dieses Spielers",
             "battle_or_opponent": "Schlacht oder Gegner",
             "creature_planeswalker_or_battle": "Kreatur, Planeswalker oder Schlacht",
             "attached_aura_or_equipment_you_control":
                 "Aura oder Ausrüstung an einer Kreatur unter deiner Kontrolle",
             "land_you_control": "Land unter deiner Kontrolle",
+            "other_land": "anderes Land",
+            "other_land_you_control": "anderes Land unter deiner Kontrolle",
             "land_you_dont_control": "Land, das du nicht kontrollierst",
             "attached_equipment_you_control": "befestigte Ausrüstung unter deiner Kontrolle",
             "equipment_you_control": "Ausrüstung unter deiner Kontrolle",
+            "equipment": "Ausrüstung",
+            "equipment_you_dont_control": "Ausrüstung, die du nicht kontrollierst",
             "nonbasic_land": "nichtgrundlegendes Land",
+            "nonbasic_land_you_dont_control": "nichtgrundlegendes Land, das du nicht kontrollierst",
             "legendary_permanent": "legendäre bleibende Karte",
             "forest_you_control": "Wald unter deiner Kontrolle",
             "creature_source_is_blocking": "Kreatur, die dies blockiert",
+            "noncreature_nonland_permanent":
+                "bleibende Karte, die weder Kreatur noch Land ist",
+            "noncreature_permanent": "bleibende Karte, die keine Kreatur ist",
         }.get(self.kind, self.kind)
 
 
@@ -558,26 +760,29 @@ def spell_target_specs(obj: GameObject) -> list[TargetSpec]:
     (draw/gain-life/search/…) carry ``target_spec = None`` and add nothing.
 
     An Aura is the other permanent-spell exception (RULE 303.4a): it must
-    target what it will enchant *as it's cast*, so an "enchant" attachment
-    kind synthesizes a "permanent" requirement here — `legal_targets` then
-    narrows it by the Aura's own "enchant" quality (creature/land/…).
+    target what it will enchant *as it's cast*. Most enchant qualities name
+    permanents, while ``Enchant player`` names a player (Curse Auras), so the
+    synthesized requirement follows the printed quality rather than assuming
+    every Aura has a battlefield-object host.
     """
     specs: list[TargetSpec] = []
     for effect in getattr(obj, "spell_effects", []) or []:
         # `target_specs` (not ``target_spec``) so an effect that genuinely
         # needs two differently-typed targets in one clause announces both
-        # — see `game/effects.py`'s `GameEffect.extra_target_specs`.
+        # — see `game/effects/core.py`'s `GameEffect.extra_target_specs`.
         polarity = effect.target_polarity()
         specs.extend(_with_polarity(spec, polarity) for spec in (getattr(effect, "target_specs", None) or []))
     if not specs and "enchant" in (getattr(obj, "parametric_keywords", None) or {}):
+        enchant = (getattr(obj, "parametric_keywords", None) or {}).get("enchant") or {}
+        quality = str(enchant.get("quality", "")).strip().lower()
         specs.append(
             TargetSpec(
-                kind="permanent",
+                kind="player" if quality == "player" else "opponent" if quality == "opponent" else "permanent",
                 description="zu verzauberndes Ziel",
                 polarity=_aura_enchant_polarity(obj),
             )
         )
-    return specs
+    return _mark_prior_target_antecedents(specs)
 
 
 def _with_polarity(spec: TargetSpec, polarity: Optional[str]) -> TargetSpec:
@@ -620,7 +825,7 @@ def _aura_enchant_polarity(obj: GameObject) -> Optional[str]:
 def _is_human(obj: "GameObject") -> bool:
     """RULE 205.3m: whether ``obj`` currently has the Human creature type —
     layer-4 aware, via a function-scoped import of `game/continuous.py`
-    (which imports `game/effects.py`, which imports this module, so a
+    (which imports `game/effects/core.py`, which imports this module, so a
     module-level import would cycle)."""
     from . import continuous
 
@@ -651,6 +856,15 @@ def _targetable_by(obj: GameObject, source: Optional[GameObject]) -> bool:
         return False
     if combat.has_hexproof(obj) and obj.controller_id != source.controller_id:
         return False
+    # "…has hexproof from each of its colors." (Tam, Mindful First-Year) — hexproof only against an
+    # opponent's source that shares a color with ``obj`` (RULE 702.11d, "hexproof from <quality>"),
+    # carried as the synthetic keyword ``hexproof_from_own_colors`` the grant stamps on the object.
+    if (
+        "hexproof_from_own_colors" in combat._obj_keywords(obj)
+        and obj.controller_id != source.controller_id
+        and (set(getattr(source, "colors", None) or set()) & set(getattr(obj, "colors", None) or set()))
+    ):
+        return False
     # RULE 702.18b: shroud can't be targeted by *any* spell or ability,
     # its own controller's included — no opponent-scoping, unlike hexproof
     # just above (PAR-22).
@@ -679,6 +893,7 @@ def _creature_matches_filter(
     filt: dict[str, Any],
     reference: Optional[GameObject] = None,
     state: Optional[GameState] = None,
+    trigger_event: Optional[Any] = None,
 ) -> bool:
     """Whether ``obj`` satisfies a `TargetSpec.creature_filter` (see its
     docstring for the key vocabulary).
@@ -694,7 +909,37 @@ def _creature_matches_filter(
     the ``creature`` branch, ``None`` elsewhere (no `TargetSpec` outside
     that branch sets a relative key).
     """
-    return combat.matches_object_filter(obj, filt, reference=reference, state=state)
+    # A current-combat role is orthogonal to `combat.matches_object_filter`'s
+    # printed-characteristic vocabulary. Keep it structural so callers can
+    # use the ordinary ``creature`` target frame (Iconic Shield's "another
+    # target attacking creature") rather than adding a name branch.
+    # "target **nonattacking** creature" (Alarum) is ``attacking: False`` — enforced here too, since this
+    # key is handled structurally rather than by `combat.matches_object_filter`.
+    if "attacking" in filt and bool(filt["attacking"]) != bool(obj.attacking):
+        return False
+    # "…that's attacking you" (PAR-141, Snow Fortress) — RULE 506.2: it attacks the ability's controller.
+    if filt.get("attacking_you"):
+        defender = getattr(obj, "combat_defender", None) or {}
+        if (
+            reference is None or not obj.attacking
+            or defender.get("kind") != "player" or defender.get("id") != reference.controller_id
+        ):
+            return False
+    # "…choose target nontoken creature that's attacking that player." (Echoing Assault) — attacking the player the
+    # firing `PLAYER_ATTACKED`/attack event names (`defending_player_id`).
+    if filt.get("attacking_trigger_defender"):
+        defender = getattr(obj, "combat_defender", None) or {}
+        wanted = (trigger_event or {}).get("defending_player_id") if trigger_event else None
+        if wanted is None or not obj.attacking or defender.get("kind") != "player" or defender.get("id") != wanted:
+            return False
+    if filt.get("max_power_from_source_x"):
+        if reference is None or (obj.power or 0) > int(getattr(reference, "x_paid", 0) or 0):
+            return False
+    combat_filter = {
+        key: value for key, value in filt.items()
+        if key not in {"attacking", "attacking_you", "attacking_trigger_defender", "max_power_from_source_x"}
+    }
+    return combat.matches_object_filter(obj, combat_filter, reference=reference, state=state)
 
 
 def _spell_matches_filter(obj: GameObject, spell_filter: dict[str, Any]) -> bool:
@@ -726,13 +971,643 @@ def _spell_matches_filter(obj: GameObject, spell_filter: dict[str, Any]) -> bool
         }
         if not any(type_checks.get(t, False) for t in card_types):
             return False
+    # "counter target **spirit or arcane** spell." (PAR-74, Hisoka's
+    # Defiance) — a creature-subtype-or-"Arcane" OR filter, unlike
+    # ``card_types``' fixed main-type lookup above: substring-matched
+    # against the spell's own printed type line, the same reading
+    # `card_query.matches`' ``type`` key gives a library search.
+    subtype_any = spell_filter.get("subtype_any")
+    if subtype_any:
+        type_line = (obj.card.type_line or "").lower()
+        if not any(str(s).lower() in type_line for s in subtype_any):
+            return False
     mana_value = spell_filter.get("mana_value")
     if mana_value is not None and obj.card.converted_mana_cost != mana_value:
+        return False
+    # "…spell with mana value 4 or less" (Expansion // Explosion).
+    max_mana_value = spell_filter.get("max_mana_value")
+    if max_mana_value is not None and obj.card.converted_mana_cost > max_mana_value:
         return False
     return True
 
 
+# --- ENG-34 S0b: the battlefield target frame ------------------------------
+#
+# `14_` §4 names `TargetSpec.kind` as the place axis 2 (operands) is spelled
+# out instead of declared: 59 explicit opaque strings dispatched by as many
+# hand-written `kind == …` branches, with union types written as single
+# strings (`artifact_creature_planeswalker_or_opponent`) rather than
+# composed. Reading those branches shows they are one shape:
+#
+#     [descriptor(o) for o in state.permanents()
+#      if <type predicate> and <controller scope>
+#      and <source exclusion> and _targetable_by(o, source)
+#      and <optional colour / mana-value / creature filters>]
+#     (+ optionally the opponent players, on one side or the other)
+#
+# So the frame below is that shape's parameters, and `_legal_from_frame` is
+# the single branch. The **graveyard family already worked this way** — 36
+# kinds composed as scope × type-filter through one branch
+# (`_GRAVEYARD_SCOPE_PREFIXES` × `_GRAVEYARD_TYPE_FILTERS`), which `14_` §4
+# calls out as "the one place the codebase already demonstrates the
+# alternative". This extends that demonstration to the battlefield.
+#
+# The kind *strings* are deliberately unchanged: they are `AbilitySpec` IR
+# and part of the security whitelist, so renaming them would be a schema
+# break for no gain. What changes is that they now decompose — a parser
+# handler or a `PAR-63` slot grammar can ask "what types, whose, excluding
+# what" instead of matching a name.
+#
+# Kinds NOT here read from somewhere other than the battlefield (the stack,
+# a player list, a per-turn damage record, `source.blocking`) or carry
+# attachment-legality logic of their own, and keep their branches: `any`,
+# `creature`, `creature_including_self`, `permanent`, `player`, `opponent`,
+# `player_dealt_combat_damage_by_source`, `spell`, `ability`, the
+# `spell_or_*` unions, `creature_source_is_blocking`, and the graveyard
+# family.
+
+#: Controller/ownership scopes a frame can restrict to (RULE 108.3/109.5).
+#: ``not_you`` and ``not_you_strict`` differ on an ownerless permanent:
+#: the strict form (`permanent_you_dont_control`) excludes a `None`
+#: controller, the plain one does not. That difference is real in the
+#: branches this replaces, so it is preserved rather than smoothed over.
+SCOPE_ANY = "any"
+SCOPE_YOU = "you"
+SCOPE_NOT_YOU = "not_you"
+SCOPE_NOT_YOU_STRICT = "not_you_strict"
+SCOPE_NEITHER_OWN_NOR_CONTROL = "neither_own_nor_control"
+SCOPE_OWNER_YOU = "owner_you"
+#: Whoever the firing trigger event named — the RULE 508.1a defender
+#: (`defending_player_id`) or a damage event's player recipient
+#: (`target_id` + `is_player`). Both fail closed to an empty list with no
+#: event in hand rather than guessing a fixed role.
+SCOPE_DEFENDING = "defending"
+SCOPE_THAT_PLAYER = "that_player"
+
+#: `TargetSpec.per_player` vocabulary (PAR-130): whose permanents each round
+#: of a "for each opponent/player, … target `<X>` that player controls"
+#: requirement is scoped to. ``any_opponents`` is "for **any number of**
+#: opponents, …" (Windgrace's Judgment): the opponent rounds, each declinable.
+PER_PLAYER_SCOPES: frozenset[str] = frozenset({"opponents", "players", "any_opponents"})
+#: The resolve-time slicing cap for a `per_player` requirement
+#: (`TargetSpec.effective_count`): one pick per round, and the number of
+#: rounds is the number of players, known only at announce time. Any value at
+#: least the largest table works; this is comfortably above the four seats the
+#: board UI supports (`services/lobby.MAX_SEATS`) without being unbounded.
+PER_PLAYER_TARGET_CAP = 16
+
+
+@dataclass(frozen=True)
+class TargetFrame:
+    """The decomposition of one `TargetSpec.kind` into structured operands.
+
+    This is axis 2 of `14_` §2 for battlefield targets: an operand shape,
+    not a name. ``types`` is a key into `_FRAME_TYPE_PREDICATES` (itself
+    composed from single-type predicates, so a union is spelled as a tuple
+    rather than as a new word).
+
+    The remaining fields exist because the branches being replaced are not
+    uniform, and ENG-34 is a no-behaviour-change ticket: several kinds
+    silently ignore `spec.color` / `spec.max_mana_value` / `spec.
+    creature_filter`, one skips `_targetable_by` entirely, and only three
+    emit ``controller_id`` in their descriptors. Those are recorded here
+    per kind rather than normalized, so this refactor cannot change what
+    any card does. **Normalizing them is a real follow-up** — a spec that
+    sets `color` on a kind that ignores it is a latent bug — but it is a
+    behaviour change and belongs in its own ticket.
+    """
+
+    types: str
+    scope: str = SCOPE_ANY
+    #: RULE 115.6-style self-exclusion. Not universal: "target creature you
+    #: control" deliberately includes the source (Mother of Runes protecting
+    #: herself is the card's whole point), which is why
+    #: `other_creature_you_control` (RULE 109.5 "*another*") is a separate
+    #: kind rather than a flag on the same one.
+    exclude_source: bool = True
+    #: Whether RULE 702.11b/702.16b targetability filtering applies.
+    #: ``False`` only for `creature_or_planeswalker_you_control`, which is
+    #: an enter-as-copy candidate pool (RULE 614.12 "any"), not a target.
+    targetable: bool = True
+    apply_color: bool = False
+    apply_max_mana_value: bool = False
+    apply_creature_filter: bool = False
+    #: ``creature_filter`` narrows only the *creatures* of a mixed pool ("target artifact, enchantment, or creature
+    #: **with flying**" — the quality belongs to the creature alternative, never to the artifact or the enchantment).
+    creature_filter_creatures_only: bool = False
+    #: Descriptors carry ``controller_id`` only where the branch being
+    #: replaced did — it flows to the UI and back through
+    #: `game_session._resolve_targets`, so the shape is not free to change.
+    emit_controller: bool = False
+    #: Union this frame's permanents with the opponent players (RULE 115.1's
+    #: "target … or opponent"). ``players_first`` preserves each branch's
+    #: printed order, which is the order the UI offers.
+    with_opponents: bool = False
+    players_first: bool = False
+    #: Attachment narrowing (RULE 701.3): ``"any"`` = attached to anything,
+    #: ``"to_source"`` = attached to this ability's own source,
+    #: ``"host_you_control"`` = attached to a creature this controller
+    #: controls (both the attachment and its host must be theirs).
+    attached: str = ""
+
+
+def _fp_nonbasic(o: "GameObject") -> bool:
+    return bool(o.is_land) and "basic" not in o.card.type_line.lower()
+
+
+def _fp_subtype(o: "GameObject", word: str) -> bool:
+    return word in o.card.type_line.lower()
+
+
+#: Type predicates a frame's ``types`` names. Unions are composed from the
+#: single-type rows rather than written as new words — the thing `14_` §4
+#: says `artifact_creature_planeswalker_or_opponent` fails to do.
+_FRAME_TYPE_PREDICATES: dict[str, Any] = {
+    "permanent": lambda o: True,
+    "creature": lambda o: o.is_creature,
+    "attacking_or_blocking_creature": lambda o: (
+        o.is_creature and (o.attacking or o.blocking is not None)
+    ),
+    "werewolf_creature": lambda o: o.is_creature and _fp_subtype(o, "werewolf"),
+    "land": lambda o: o.is_land,
+    "artifact": lambda o: bool(o.card.is_artifact),
+    "enchantment": lambda o: bool(o.card.is_enchantment),
+    "planeswalker": lambda o: o.is_planeswalker,
+    "battle": lambda o: o.is_battle,
+    "noncreature_artifact": lambda o: bool(o.card.is_artifact) and not o.is_creature,
+    "nontoken_artifact": lambda o: bool(o.card.is_artifact) and not getattr(o, "is_token", False),
+    "nonbasic_land": _fp_nonbasic,
+    "basic_land": lambda o: bool(o.is_land) and "basic" in o.card.type_line.lower(),
+    "mountain": lambda o: bool(o.is_land) and "mountain" in str(o.card.type_line).lower(),
+    "forest": lambda o: bool(o.is_land) and "forest" in str(o.card.type_line).lower(),
+    "forest": lambda o: bool(o.is_land) and _fp_subtype(o, "forest"),
+    "legendary_permanent": lambda o: bool(o.card.is_legendary),
+    "historic_permanent": lambda o: (
+        bool(o.card.is_artifact) or bool(o.card.is_legendary)
+        or "saga" in o.card.type_line.lower()
+    ),
+    # RULE 105.3: exactly one colour — a colourless permanent is not
+    # monocolored.
+    "monocolored_permanent": lambda o: len(o.colors or ()) == 1,
+    "nonland_permanent": lambda o: (
+        o.is_creature or o.is_planeswalker
+        or bool(o.card.is_artifact) or bool(o.card.is_enchantment)
+    ),
+    "noncreature_nonland_permanent": lambda o: (
+        (o.is_planeswalker or bool(o.card.is_artifact) or bool(o.card.is_enchantment))
+        and not o.is_creature
+    ),
+    "noncreature_permanent": lambda o: not o.is_creature,
+    "creature_or_enchantment": lambda o: o.is_creature or bool(o.card.is_enchantment),
+    # "target creature or land you control" (PAR-124, Vengeant Earth) — the
+    # land sibling of `creature_or_enchantment` just above.
+    "creature_or_land": lambda o: o.is_creature or o.is_land,
+    "creature_or_vehicle": lambda o: o.is_creature or "vehicle" in o.card.type_line.lower(),
+    "human_or_artifact": lambda o: bool(o.card.is_artifact) or (o.is_creature and _fp_subtype(o, "human")),
+    "artifact_creature_or_land": lambda o: o.is_creature or o.is_land or o.card.is_artifact,
+    "creature_or_planeswalker": lambda o: o.is_creature or o.is_planeswalker,
+    "creature_planeswalker_or_battle": lambda o: (
+        o.is_creature or o.is_planeswalker or o.is_battle
+    ),
+    "artifact_or_creature": lambda o: bool(o.card.is_artifact) or o.is_creature,
+    "artifact_or_enchantment": lambda o: (
+        bool(o.card.is_artifact) or bool(o.card.is_enchantment)
+    ),
+    "artifact_creature_or_enchantment": lambda o: (
+        bool(o.card.is_artifact) or o.is_creature or bool(o.card.is_enchantment)
+    ),
+    "artifact_creature_or_planeswalker": lambda o: (
+        bool(o.card.is_artifact) or o.is_creature or o.is_planeswalker
+    ),
+    "artifact_creature_enchantment_or_planeswalker": lambda o: (
+        bool(o.card.is_artifact) or o.is_creature
+        or bool(o.card.is_enchantment) or o.is_planeswalker
+    ),
+    "artifact_enchantment_or_nonbasic_land": lambda o: (
+        bool(o.card.is_artifact) or bool(o.card.is_enchantment) or _fp_nonbasic(o)
+    ),
+    "equipment": lambda o: _fp_subtype(o, "equipment"),
+    "aura_or_equipment": lambda o: (
+        _fp_subtype(o, "aura") or _fp_subtype(o, "equipment")
+    ),
+    # RULE 702.140a mutate's own target, keyed to ownership and excluding
+    # Humans by subtype (RULE 205.3m).
+    "non_human_creature": lambda o: o.is_creature and not _is_human(o),
+    # "{T}: Transform target Incubator token you control." (Progenitor
+    # Exarch) — the Incubate family's own two-state token (RULE 111.1).
+    "incubator_token": lambda o: (
+        bool(getattr(o, "is_token", False)) and (o.name or "") == "Incubator"
+    ),
+    # "target token [you control]" (RULE 111.1) — any token, whatever its type.
+    "token": lambda o: bool(getattr(o, "is_token", False)),
+}
+
+
+#: `TargetSpec.kind` -> its decomposition. **This table is ENG-34's S0b
+#: deliverable**: the shared operand vocabulary, in one place, machine-
+#: readable by both the engine (`_legal_from_frame` below) and the parser
+#: (PAR-63's slot grammars). `tests/test_target_frames.py` asserts every
+#: kind here is a real `ALLOWED_TARGET_KINDS` entry and that the ones left
+#: out are exactly the irreducible list documented above.
+TARGET_FRAMES: dict[str, TargetFrame] = {
+    # --- whole-permanent, by controller scope ---------------------------
+    "permanent_you_control": TargetFrame(
+        "permanent", SCOPE_YOU, apply_color=True, apply_max_mana_value=True,
+        emit_controller=True),
+    "permanent_you_dont_control": TargetFrame(
+        "permanent", SCOPE_NOT_YOU_STRICT, apply_color=True,
+        apply_max_mana_value=True, emit_controller=True),
+    "permanent_you_neither_own_nor_control": TargetFrame(
+        "permanent", SCOPE_NEITHER_OWN_NOR_CONTROL, apply_color=True,
+        emit_controller=True),
+    "legendary_permanent": TargetFrame("legendary_permanent", apply_color=True),
+    "historic_permanent_you_control": TargetFrame("historic_permanent", SCOPE_YOU, apply_color=True),
+    "monocolored_permanent": TargetFrame("monocolored_permanent"),
+    "incubator_token_you_control": TargetFrame("incubator_token", SCOPE_YOU),
+    "token": TargetFrame("token"),
+    "token_you_control": TargetFrame("token", SCOPE_YOU, exclude_source=False),
+    "artifact_you_control": TargetFrame("artifact", SCOPE_YOU, exclude_source=False),
+    "noncreature_artifact_you_control": TargetFrame("noncreature_artifact", SCOPE_YOU, exclude_source=False),
+    "nontoken_artifact_you_control": TargetFrame("nontoken_artifact", SCOPE_YOU, apply_max_mana_value=True),
+    "enchantment_you_control": TargetFrame("enchantment", SCOPE_YOU, exclude_source=False),
+    "artifact_or_enchantment_you_control": TargetFrame(
+        "artifact_or_enchantment", SCOPE_YOU, exclude_source=False),
+
+    # --- nonland permanents ---------------------------------------------
+    "nonland_permanent": TargetFrame(
+        "nonland_permanent", apply_color=True, apply_max_mana_value=True),
+    "nonland_permanent_you_control": TargetFrame(
+        "nonland_permanent", SCOPE_YOU, apply_color=True,
+        apply_max_mana_value=True),
+    "nonland_permanent_you_dont_control": TargetFrame(
+        "nonland_permanent", SCOPE_NOT_YOU, apply_color=True,
+        apply_max_mana_value=True),
+    "noncreature_nonland_permanent": TargetFrame(
+        "noncreature_nonland_permanent", apply_color=True,
+        apply_max_mana_value=True),
+    "noncreature_permanent": TargetFrame(
+        "noncreature_permanent", apply_color=True, apply_max_mana_value=True),
+
+    # --- single permanent types -----------------------------------------
+    "artifact": TargetFrame("artifact", apply_color=True, apply_max_mana_value=True),
+    "enchantment": TargetFrame("enchantment", apply_color=True, apply_max_mana_value=True),
+    "land": TargetFrame("land", exclude_source=False, apply_color=True, apply_max_mana_value=True),
+    "other_land": TargetFrame("land", apply_color=True, apply_max_mana_value=True),
+    "noncreature_artifact": TargetFrame(
+        "noncreature_artifact", apply_color=True, apply_max_mana_value=True),
+    "nonbasic_land": TargetFrame("nonbasic_land"),
+    "basic_land": TargetFrame("basic_land"),
+    "mountain": TargetFrame("mountain"),
+    "forest": TargetFrame("forest"),
+    "forest": TargetFrame("forest"),
+    "forest_you_control": TargetFrame("forest", SCOPE_YOU),
+
+    # --- controller-scoped single types ---------------------------------
+    # RULE 115: "target creature you control" includes the source itself,
+    # which is why `other_creature_you_control` (RULE 109.5's "another")
+    # is its own kind rather than a flag.
+    "creature_you_control": TargetFrame(
+        "creature", SCOPE_YOU, exclude_source=False,
+        apply_color=True, apply_creature_filter=True),
+    "other_creature_you_control": TargetFrame(
+        "creature", SCOPE_YOU, apply_color=True, apply_creature_filter=True),
+    "land_you_control": TargetFrame(
+        "land", SCOPE_YOU, exclude_source=False,
+        apply_color=True, apply_creature_filter=True),
+    "other_land_you_control": TargetFrame(
+        "land", SCOPE_YOU, apply_color=True, apply_creature_filter=True),
+    "creature_you_dont_control": TargetFrame(
+        "creature", SCOPE_NOT_YOU, exclude_source=False,
+        apply_creature_filter=True, apply_max_mana_value=True),
+    "werewolf_creature": TargetFrame("werewolf_creature", apply_creature_filter=True),
+    "attacking_or_blocking_creature": TargetFrame("attacking_or_blocking_creature"),
+    "artifact_you_dont_control": TargetFrame(
+        "artifact", SCOPE_NOT_YOU, exclude_source=False),
+    "enchantment_you_dont_control": TargetFrame(
+        "enchantment", SCOPE_NOT_YOU, exclude_source=False,
+        apply_color=True, apply_max_mana_value=True),
+    "artifact_or_enchantment_you_dont_control": TargetFrame(
+        "artifact_or_enchantment", SCOPE_NOT_YOU, exclude_source=False),
+    "artifact_or_creature_you_dont_control": TargetFrame(
+        "artifact_or_creature", SCOPE_NOT_YOU, exclude_source=False),
+    "human_or_artifact_you_dont_control": TargetFrame(
+        "human_or_artifact", SCOPE_NOT_YOU, exclude_source=False),
+    "artifact_creature_or_enchantment_you_dont_control": TargetFrame(
+        "artifact_creature_or_enchantment", SCOPE_NOT_YOU, exclude_source=False,
+        apply_max_mana_value=True, apply_creature_filter=True, creature_filter_creatures_only=True),
+    "land_you_dont_control": TargetFrame(
+        "land", SCOPE_NOT_YOU, exclude_source=False),
+    "nonbasic_land_you_dont_control": TargetFrame(
+        "nonbasic_land", SCOPE_NOT_YOU, exclude_source=False),
+    "non_human_creature_you_own": TargetFrame(
+        "non_human_creature", SCOPE_OWNER_YOU, exclude_source=False),
+    "permanent_you_own": TargetFrame("permanent", SCOPE_OWNER_YOU, exclude_source=False),
+
+    # --- type unions -----------------------------------------------------
+    "creature_or_enchantment_you_control": TargetFrame(
+        "creature_or_enchantment", SCOPE_YOU, exclude_source=False),
+    "creature_or_land_you_control": TargetFrame(
+        "creature_or_land", SCOPE_YOU, exclude_source=False),
+    "creature_or_vehicle_you_control": TargetFrame(
+        "creature_or_vehicle", SCOPE_YOU, exclude_source=False),
+    "another_creature_or_land_you_control": TargetFrame("creature_or_land", SCOPE_YOU),
+    "artifact_creature_or_land_you_control": TargetFrame(
+        "artifact_creature_or_land", SCOPE_YOU, exclude_source=False),
+    "artifact_or_enchantment": TargetFrame("artifact_or_enchantment"),
+    "artifact_or_creature": TargetFrame("artifact_or_creature"),
+    "artifact_or_creature_you_control": TargetFrame(
+        "artifact_or_creature", SCOPE_YOU),
+    "artifact_creature_or_enchantment": TargetFrame(
+        "artifact_creature_or_enchantment", apply_max_mana_value=True,
+        apply_creature_filter=True, creature_filter_creatures_only=True),
+    "artifact_creature_enchantment_or_planeswalker": TargetFrame(
+        "artifact_creature_enchantment_or_planeswalker"),
+    "artifact_enchantment_or_nonbasic_land": TargetFrame(
+        "artifact_enchantment_or_nonbasic_land"),
+    # PAR-127: the mana-value bound applies ("destroy target creature or
+    # planeswalker with mana value 3 or less" — Bloodchief's Thirst-shaped),
+    # as it does on the plain `creature` branch these kinds replaced.
+    "creature_or_planeswalker": TargetFrame(
+        "creature_or_planeswalker", apply_max_mana_value=True),
+    "creature_or_planeswalker_you_dont_control": TargetFrame(
+        "creature_or_planeswalker", SCOPE_NOT_YOU, exclude_source=False,
+        apply_max_mana_value=True),
+    "creature_planeswalker_or_battle": TargetFrame("creature_planeswalker_or_battle"),
+    # RULE 614.12 enter-as-copy candidate pool, not a RULE 115 target —
+    # which is why targetability filtering is off.
+    "creature_or_planeswalker_you_control": TargetFrame(
+        "creature_or_planeswalker", SCOPE_YOU, targetable=False),
+
+    # --- trigger-event-scoped -------------------------------------------
+    "artifact_or_enchantment_defending_player_controls": TargetFrame(
+        "artifact_or_enchantment", SCOPE_DEFENDING),
+    "creature_defending_player_controls": TargetFrame("creature", SCOPE_DEFENDING),
+    # PAR-130: "target `<X>` that player controls" over every base pool the
+    # parser composes the slot onto; the per-kind filter flags mirror the
+    # unscoped kind's, so "that player" narrows the pool and nothing else.
+    "creature_that_player_controls": TargetFrame(
+        "creature", SCOPE_THAT_PLAYER, exclude_source=False, apply_color=True,
+        apply_max_mana_value=True, apply_creature_filter=True),
+    "creature_or_planeswalker_that_player_controls": TargetFrame(
+        "creature_or_planeswalker", SCOPE_THAT_PLAYER, exclude_source=False,
+        apply_max_mana_value=True),
+    "permanent_that_player_controls": TargetFrame(
+        "permanent", SCOPE_THAT_PLAYER, exclude_source=False, apply_color=True,
+        apply_max_mana_value=True),
+    "nonland_permanent_that_player_controls": TargetFrame(
+        "nonland_permanent", SCOPE_THAT_PLAYER, exclude_source=False,
+        apply_color=True, apply_max_mana_value=True),
+    "land_that_player_controls": TargetFrame(
+        "land", SCOPE_THAT_PLAYER, exclude_source=False, apply_color=True,
+        apply_max_mana_value=True),
+    "nonbasic_land_that_player_controls": TargetFrame(
+        "nonbasic_land", SCOPE_THAT_PLAYER, exclude_source=False),
+    "artifact_that_player_controls": TargetFrame(
+        "artifact", SCOPE_THAT_PLAYER, exclude_source=False, apply_color=True,
+        apply_max_mana_value=True),
+    "enchantment_that_player_controls": TargetFrame(
+        "enchantment", SCOPE_THAT_PLAYER, exclude_source=False, apply_color=True,
+        apply_max_mana_value=True),
+    "artifact_or_enchantment_that_player_controls": TargetFrame(
+        "artifact_or_enchantment", SCOPE_THAT_PLAYER, exclude_source=False),
+    "artifact_or_creature_that_player_controls": TargetFrame(
+        "artifact_or_creature", SCOPE_THAT_PLAYER, exclude_source=False),
+    "equipment_that_player_controls": TargetFrame(
+        "equipment", SCOPE_THAT_PLAYER, exclude_source=False),
+
+    # --- attachments (RULE 701.3) ---------------------------------------
+    "equipment": TargetFrame("equipment", exclude_source=False),
+    "equipment_you_control": TargetFrame(
+        "equipment", SCOPE_YOU, exclude_source=False),
+    "equipment_you_dont_control": TargetFrame(
+        "equipment", SCOPE_NOT_YOU, exclude_source=False),
+    "attached_equipment_you_control": TargetFrame(
+        "equipment", SCOPE_YOU, exclude_source=False, attached="any"),
+    "equipment_attached_to_source": TargetFrame(
+        "equipment", exclude_source=False, attached="to_source"),
+    "attached_aura_or_equipment_you_control": TargetFrame(
+        "aura_or_equipment", SCOPE_YOU, exclude_source=False,
+        attached="host_you_control"),
+
+    # --- permanents unioned with the opponent players --------------------
+    "opponent_or_planeswalker": TargetFrame(
+        "planeswalker", with_opponents=True, players_first=True),
+    "battle_or_opponent": TargetFrame("battle", with_opponents=True),
+    "artifact_creature_planeswalker_or_opponent": TargetFrame(
+        "artifact_creature_or_planeswalker", with_opponents=True),
+}
+
+
+def _frame_scope_ok(
+    obj: "GameObject", frame: TargetFrame, controller_id: str,
+    scoped_player_id: Optional[str],
+) -> bool:
+    """Whether ``obj`` satisfies ``frame``'s controller/ownership scope."""
+    scope = frame.scope
+    if scope == SCOPE_ANY:
+        return True
+    if scope == SCOPE_YOU:
+        return obj.controller_id == controller_id
+    if scope == SCOPE_NOT_YOU:
+        return obj.controller_id != controller_id
+    if scope == SCOPE_NOT_YOU_STRICT:
+        return obj.controller_id not in (None, controller_id)
+    if scope == SCOPE_NEITHER_OWN_NOR_CONTROL:
+        # RULE 108.3/701.12: excludes both a permanent this controller owns
+        # but has lost control of and one they control but do not own, so an
+        # exchange cannot simply hand a card straight back.
+        return obj.owner_id != controller_id and obj.controller_id != controller_id
+    if scope == SCOPE_OWNER_YOU:
+        return obj.owner_id == controller_id
+    # The two event-scoped forms; `scoped_player_id` is None when the
+    # firing event named nobody, which `_legal_from_frame` fails closed on
+    # before reaching here.
+    return obj.controller_id == scoped_player_id
+
+
+def trigger_player_antecedent(state: "GameState", event: Any) -> Optional[str]:
+    """The player a trigger's "that player" names (PAR-130), or ``None``.
+
+    Read off the firing event, per event family: a damage event's player
+    recipient (`DAMAGE` / the RULE 510.2 `CREATURES_DEALT_COMBAT_DAMAGE_TO_
+    PLAYER` batch — ``target_id`` with ``is_player``), the RULE 508.1a
+    defender of an attack event, the controller of the spell or ability
+    that targeted something (`BECOMES_TARGET`), and the active player of a
+    "at the beginning of each [opponent's|player's] `<step>`" trigger (RULE
+    102.1). The parser only emits a ``…_that_player_controls`` kind under one
+    of these heads (`gate._that_player_antecedent_ok`); anything else answers
+    ``None`` and the requirement fails closed.
+    """
+    if not event:
+        return None
+    event_type = getattr(event, "type", None) or event.get("type")
+    if event.get("is_player") and event.get("target_id") is not None:
+        return event.get("target_id")
+    if event.get("defending_player_id") is not None:
+        return event.get("defending_player_id")
+    if event_type == "BECOMES_TARGET":
+        return event.get("controller_id")
+    if event_type == "STEP_BEGIN":
+        active = getattr(state, "active_player", None)
+        return getattr(active, "id", None)
+    return None
+
+
+def _legal_from_frame(
+    state: "GameState",
+    controller_id: str,
+    spec: "TargetSpec",
+    frame: TargetFrame,
+    source: Optional["GameObject"],
+    trigger_event: Optional[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """One branch for every kind in `TARGET_FRAMES` (ENG-34 S0b).
+
+    Replaces ~40 hand-written `kind == …` bodies that differed only in the
+    operands now carried by ``frame``.
+    """
+    scoped_player_id: Optional[str] = None
+    deferred_that_player_scope = False
+    if frame.scope in (SCOPE_DEFENDING, SCOPE_THAT_PLAYER):
+        event = trigger_event or {}
+        if frame.scope == SCOPE_DEFENDING:
+            scoped_player_id = event.get("defending_player_id")
+        else:
+            # A `per_player` round names its player outright (PAR-130).
+            scoped_player_id = spec.scoped_player_id or trigger_player_antecedent(state, event)
+        if scoped_player_id is None:
+            if frame.scope == SCOPE_THAT_PLAYER and spec.prior_target_antecedent:
+                # A spell/activation may establish "that player" with an
+                # earlier player target. Offer the union here; the finalized
+                # target groups are cross-validated by
+                # ``validate_that_player_groups`` below. Parser gating means
+                # a context-free standalone phrase never reaches the engine.
+                deferred_that_player_scope = True
+            else:
+                return []
+
+    type_ok = _FRAME_TYPE_PREDICATES[frame.types]
+    hosts: set[int] = set()
+    if frame.attached == "host_you_control":
+        hosts = {
+            o.instance_id for o in state.permanents()
+            if o.is_creature and o.controller_id == controller_id
+        }
+    source_id = getattr(source, "instance_id", None)
+
+    objects: list[dict[str, Any]] = []
+    for obj in state.permanents():
+        if not type_ok(obj):
+            continue
+        if deferred_that_player_scope:
+            if obj.controller_id is None:
+                continue
+        elif not _frame_scope_ok(obj, frame, controller_id, scoped_player_id):
+            continue
+        if frame.exclude_source and obj is source:
+            continue
+        if frame.attached == "any" and obj.attached_to is None:
+            continue
+        if frame.attached == "to_source" and (
+            source_id is None or obj.attached_to != source_id
+        ):
+            continue
+        if frame.attached == "host_you_control" and obj.attached_to not in hosts:
+            continue
+        if frame.targetable and not _targetable_by(obj, source):
+            continue
+        if frame.apply_color and not _color_ok(spec, obj.colors):
+            continue
+        if frame.apply_max_mana_value and spec.max_mana_value is not None and (
+            obj.card.converted_mana_cost > spec.max_mana_value
+        ):
+            continue
+        if frame.apply_max_mana_value and spec.min_mana_value is not None and (
+            obj.card.converted_mana_cost < spec.min_mana_value
+        ):
+            continue
+        if frame.apply_max_mana_value and spec.exact_mana_value is not None and (
+            obj.card.converted_mana_cost != spec.exact_mana_value
+        ):
+            continue
+        if frame.apply_creature_filter and spec.creature_filter and not (
+            frame.creature_filter_creatures_only and not obj.is_creature
+        ) and not _creature_matches_filter(obj, spec.creature_filter):
+            continue
+        descriptor = {"instance_id": obj.instance_id, "name": obj.name}
+        if frame.emit_controller:
+            descriptor["controller_id"] = obj.controller_id
+        objects.append(descriptor)
+
+    if not frame.with_opponents:
+        return objects
+    players = [
+        {"player_id": p.id, "name": p.name}
+        for p in state.living_players()
+        if p.id != controller_id
+    ]
+    return players + objects if frame.players_first else objects + players
+
+
+def _cast_time_flag(source: Optional[GameObject], flag: str) -> bool:
+    """Resolve a `TargetSpec.unless_flag` name against ``source`` (MEC-85).
+
+    Mirrors the two-phase reading `GameEngine._modal_override_active` (game/
+    engine/casting_mixin.py) already does for its own conditional-modal
+    vocabulary: while a cast's targets are still being offered (`_cast_
+    action`'s preview) or checked (`_cast_current_face`'s real window), only
+    the *announced* value is known yet (`GameObject._modal_announced_
+    teamwork`/``_modal_announced_kicked``); once casting is complete, the
+    flag actually stamped for real (``teamwork_paid``/``kicker_count``)
+    takes over. Falls back to a plain attribute read for any other flag
+    name, so this isn't wired to Teamwork specifically.
+    """
+    if source is None:
+        return False
+    if flag == "teamwork_paid":
+        return bool(getattr(source, "_modal_announced_teamwork", getattr(source, "teamwork_paid", False)))
+    if flag == "kicked":
+        return bool(getattr(source, "_modal_announced_kicked", getattr(source, "kicker_count", 0)))
+    return bool(getattr(source, flag, False))
+
+
+def graveyard_card_matches(kind: str, obj: GameObject) -> bool:
+    """Whether ``obj`` is a card of the type a `_GRAVEYARD_TARGET_KINDS` ``kind`` names — the
+    type half of `legal_targets`' graveyard branch, for an untargeted mass/pick (PAR-143)."""
+    prefix = next((p for p in _GRAVEYARD_SCOPE_PREFIXES if kind.startswith(p + "_")), None)
+    if prefix is None:
+        return False
+    type_filter = _GRAVEYARD_TYPE_FILTERS.get(kind[len(prefix) + 1:])
+    return bool(type_filter and type_filter(obj))
+
+
 def legal_targets(
+    state: GameState,
+    controller_id: str,
+    spec: TargetSpec,
+    source: Optional[GameObject] = None,
+    trigger_event: Optional[dict[str, Any]] = None,
+) -> list[dict[str, Any]]:
+    """The currently legal targets for ``spec`` — see `_legal_targets_for`, less the object a
+    group trigger fired for when the spec says "other than that creature" (PAR-123)."""
+    found = _legal_targets_for(state, controller_id, spec, source, trigger_event)
+    # RULE 702.11b: a player with hexproof can't be targeted by an opponent's spell or ability
+    # (their own can; see `continuous.player_has_hexproof`).
+    from . import continuous  # function-scoped: continuous imports this module
+
+    found = [
+        t for t in found
+        if "player_id" not in t or t["player_id"] == controller_id
+        or not continuous.player_has_hexproof(state, t["player_id"])
+    ]
+    if not spec.excluding_trigger_subject:
+        return found
+    event = trigger_event or {}
+    firing = event.get("instance_id", event.get("source_id"))
+    return [option for option in found if option.get("instance_id") != firing]
+
+
+def _legal_targets_for(
     state: GameState,
     controller_id: str,
     spec: TargetSpec,
@@ -761,7 +1636,19 @@ def legal_targets(
     with no event in hand (an ordinary spell/activated-ability cast) simply
     omits it.
     """
+    if spec.kind_if_flag and _cast_time_flag(source, spec.kind_if_flag.get("flag", "")):
+        spec = replace(spec, kind=spec.kind_if_flag["kind"], kind_if_flag=None)
     kind = spec.kind
+    if spec.unless_flag and _cast_time_flag(source, spec.unless_flag):
+        # MEC-85: `spec.unless_flag` names a cast-time-conditional flag
+        # (Teamwork's `teamwork_paid`) that already decided, before targets
+        # are chosen (RULE 601.2b precedes 601.2c), that this requirement's
+        # own narrowing filters don't apply this cast — see `TargetSpec.
+        # unless_flag`'s own docstring for the exact card shapes.
+        spec = replace(
+            spec, max_mana_value=None, creature_filter=None, color=None,
+            colors=None, unless_flag=None,
+        )
     # "…with mana value X or less." as a genuine RULE 115 target bound
     # (March of Otherworldly Light, MEC-43) — unlike `_substitute_x`'s
     # resolve-time-only substitution (a search/mass-effect criteria dict,
@@ -771,9 +1658,76 @@ def legal_targets(
     # early (before this target-offer step runs) precisely so this can
     # read it, not just at the usual post-resolution point `cast_spell`
     # stamps it for real.
+    if spec.exact_mana_value == "x":
+        spec = replace(spec, exact_mana_value=int(getattr(source, "x_paid", 0) or 0))
     if spec.max_mana_value in ("x", "-x"):
         x_paid = int(getattr(source, "x_paid", 0) or 0)
         spec = replace(spec, max_mana_value=x_paid if spec.max_mana_value == "x" else -x_paid)
+    if spec.max_mana_value == "trigger_dying_counters":
+        # "…with mana value less than or equal to the number of counters on
+        # that creature…" (Puca's Covenant) — "that creature" is the one
+        # whose death fired this triggered ability; its counter total is on
+        # the DIES event's RULE 400.7 snapshot (the object is gone).
+        _snap = (trigger_event or {}).get("counters") or {}
+        _total = sum(v for v in _snap.values() if isinstance(v, int) and v > 0)
+        spec = replace(spec, max_mana_value=_total)
+    if spec.max_mana_value == "source_power":
+        # "…with mana value X or less, where X is ~'s power." (Guardian
+        # Scalelord, PAR-60) — the ability's own source, read live.
+        spec = replace(spec, max_mana_value=int(getattr(source, "power", 0) or 0))
+    if spec.max_mana_value == "trigger_damage_amount":
+        # "…with mana value X or less, where X is the amount of damage ~
+        # dealt to that player." (Venerable Warsinger, PAR-60) — the firing
+        # DAMAGE event's own ``amount``.
+        spec = replace(spec, max_mana_value=int((trigger_event or {}).get("amount", 0) or 0))
+    if spec.max_mana_value == "trigger_spell_mana_value":
+        # "…with mana value less than or equal to that spell's mana value." (Hammerhead Tyrant) — the
+        # firing SPELL_CAST event's own ``mana_value``, as a ceiling (`exact_mana_value`'s sibling).
+        spec = replace(spec, max_mana_value=int((trigger_event or {}).get("mana_value", 0) or 0))
+    if spec.exact_mana_value == "trigger_subject_mana_value":
+        # "…up to one target creature you don't control with the same mana value." (PAR-123, Boxing
+        # Ring) — "the same" as the object that fired this group trigger: the event's own subject,
+        # read live. With no such object nothing has "the same" mana value, so nothing is legal.
+        event = trigger_event or {}
+        firing = state.find_object(event.get("instance_id", event.get("source_id")))
+        spec = replace(spec, exact_mana_value=(
+            int(getattr(getattr(firing, "card", None), "converted_mana_cost", 0) or 0)
+            if firing is not None else -1
+        ))
+    if spec.exact_mana_value == "trigger_spell_mana_value":
+        # "…with that spell's mana value." (PAR-74, Skyfire Kirin) — the
+        # firing SPELL_CAST event's own ``mana_value`` (PAR-71's established
+        # "that spell's mana value" referent, applied to a RULE 115 target
+        # bound instead of a resolve-time amount).
+        spec = replace(spec, exact_mana_value=int((trigger_event or {}).get("mana_value", 0) or 0))
+
+    # ENG-34 S0b: every battlefield kind that decomposes into a structured
+    # frame is dispatched here, on structure, instead of by one hand-written
+    # `kind == …` branch apiece. What is left below reads from somewhere
+    # other than the battlefield (the stack, a player list, a per-turn
+    # damage record, `source.blocking`) or carries attachment-legality logic
+    # of its own — see `TARGET_FRAMES`' own docstring for the list.
+    frame = TARGET_FRAMES.get(kind)
+    if frame is not None:
+        return _legal_from_frame(state, controller_id, spec, frame, source, trigger_event)
+
+    if kind == "player_or_planeswalker_or_creature_subtype":
+        # MEC-45's own sibling family: unlike `with_opponents`' opponents-only
+        # union, this wants *every* player (RULE 115.1's plain "target player or
+        # planeswalker"), and its type predicate depends on `spec.creature_
+        # filter`'s subtype at call time rather than being fixed — neither fits
+        # `TargetFrame`'s existing shape, so it stays its own branch.
+        from . import continuous
+        subtype = str((spec.creature_filter or {}).get("subtype", ""))
+        players = [{"player_id": p.id, "name": p.name} for p in state.players]
+        objects = [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if o is not source and _targetable_by(o, source)
+            and (o.is_planeswalker or (o.is_creature and continuous.has_subtype(o, subtype)))
+        ]
+        return players + objects
+
     if kind == "permanent" and source is not None:
         attachment_kind = None
         if hasattr(source, "parametric_keywords"):
@@ -923,6 +1877,7 @@ def legal_targets(
         return [
             {"player_id": p.id, "name": p.name}
             for p in state.living_players()
+            if not spec.active_player_only or p is state.active_player
         ]
     if kind == "player_dealt_combat_damage_by_source":
         # "target player who was dealt combat damage by ~ this turn" (Hope of
@@ -955,6 +1910,9 @@ def legal_targets(
             for o in state.permanents()
             if o.is_creature and o is not source and _targetable_by(o, source)
             and _color_ok(spec, o.colors)
+            # PAR-135: "any target that isn't a Dinosaur" — the identity filter reads the creature; a
+            # player/planeswalker/battle is none of those things and stays legal.
+            and (not spec.creature_filter or _creature_matches_filter(o, spec.creature_filter, source, state, trigger_event))
         ]
         other_permanents = [
             {"instance_id": o.instance_id, "name": o.name}
@@ -964,7 +1922,7 @@ def legal_targets(
         ]
         players = [{"player_id": p.id, "name": p.name} for p in state.living_players()]
         return objs + other_permanents + (players if not (spec.color or spec.colors) else [])
-    if kind in ("creature", "permanent", "creature_including_self"):
+    if kind in ("creature", "permanent", "creature_including_self", "attacking_or_blocking_creature"):
         # RULE 702.165a Backup — "put N +1/+1 counters on target creature"
         # explicitly *may* target the source itself (the common line: it
         # enters alone). `"creature_including_self"` is the plain `creature`
@@ -978,104 +1936,17 @@ def legal_targets(
             {"instance_id": o.instance_id, "name": o.name, "controller_id": o.controller_id}
             for o in state.permanents()
             if (not want_creature or o.is_creature)
+            and (kind != "attacking_or_blocking_creature" or o.attacking or o.blocking is not None)
             and (allow_self or o is not source)
             and _targetable_by(o, source)
             and _color_ok(spec, o.colors)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
+            and (spec.min_mana_value is None or o.card.converted_mana_cost >= spec.min_mana_value)
+            and (spec.exact_mana_value is None or o.card.converted_mana_cost == spec.exact_mana_value)
             and (
                 not spec.creature_filter
-                or _creature_matches_filter(o, spec.creature_filter, source, state)
+                or _creature_matches_filter(o, spec.creature_filter, source, state, trigger_event)
             )
-        ]
-    if kind == "permanent_you_control":
-        # RULE 115: "target permanent you own/control." (Reality Scramble-
-        # shaped) — the controller-scoped mirror of ``permanent_you_dont_
-        # control`` just below.
-        return [
-            {"instance_id": o.instance_id, "name": o.name, "controller_id": o.controller_id}
-            for o in state.permanents()
-            if o.controller_id == controller_id
-            and o is not source
-            and _targetable_by(o, source)
-            and _color_ok(spec, o.colors)
-            and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
-        ]
-    if kind == "incubator_token_you_control":
-        # "{T}: Transform target Incubator token you control." (Progenitor
-        # Exarch) — a token named "Incubator" (RULE 111.1) this ability's
-        # controller controls; the Incubate family's own two-state token.
-        return [
-            {"instance_id": o.instance_id, "name": o.name, "controller_id": o.controller_id}
-            for o in state.permanents()
-            if o.controller_id == controller_id
-            and getattr(o, "is_token", False)
-            and (o.name or "") == "Incubator"
-            and o is not source
-            and _targetable_by(o, source)
-        ]
-    if kind == "permanent_you_dont_control":
-        # RULE 115: "target permanent an opponent controls." (Assassin's
-        # Trophy/Geomancer's Gambit-shaped) — the controller-scoped sibling
-        # of the bare ``permanent`` branch above (any permanent type,
-        # including lands, unlike ``nonland_permanent_you_dont_control``
-        # just below), narrowed to whoever isn't this ability's controller.
-        return [
-            {"instance_id": o.instance_id, "name": o.name, "controller_id": o.controller_id}
-            for o in state.permanents()
-            if o.controller_id not in (None, controller_id)
-            and o is not source
-            and _targetable_by(o, source)
-            and _color_ok(spec, o.colors)
-            and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
-        ]
-    if kind == "permanent_you_neither_own_nor_control":
-        # RULE 115 (PAR-30 — Conjured Currency's "target permanent you
-        # **neither own nor control**"): excludes both this ability's
-        # controller's own cards (even one they've lost control of, unlike
-        # ``permanent_you_dont_control``'s controller-only exclusion) and
-        # any permanent someone else owns but *this* controller currently
-        # controls (a control-effect target that already changed hands) —
-        # the double negative RULE 108.4/701.10 exchange cards specifically
-        # want so the target can't be swapped right back to where it came
-        # from another way.
-        return [
-            {"instance_id": o.instance_id, "name": o.name, "controller_id": o.controller_id}
-            for o in state.permanents()
-            if o.owner_id != controller_id
-            and o.controller_id != controller_id
-            and o is not source
-            and _targetable_by(o, source)
-            and _color_ok(spec, o.colors)
-        ]
-    if kind == "nonland_permanent":
-        # RULE 115: every permanent that isn't a land (Geistwave/Beast
-        # Within-adjacent). Mirrors the "permanent" branch above, minus lands.
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if (o.is_creature or o.is_planeswalker
-                or o.card.is_artifact or o.card.is_enchantment)
-            and o is not source
-            and _targetable_by(o, source)
-            and _color_ok(spec, o.colors)
-            and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
-        ]
-    if kind in ("nonland_permanent_you_control", "nonland_permanent_you_dont_control"):
-        # RULE 115 controller-scoped nonland-permanent bounce: Cyclonic Rift
-        # ("… you don't control"), Alchemist's Retrieval / Chain of Vapor
-        # ("… you control"). The `nonland_permanent` branch above, narrowed
-        # by whose permanent it is.
-        wants_own = kind == "nonland_permanent_you_control"
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if (o.is_creature or o.is_planeswalker
-                or o.card.is_artifact or o.card.is_enchantment)
-            and ((o.controller_id == controller_id) == wants_own)
-            and o is not source
-            and _targetable_by(o, source)
-            and _color_ok(spec, o.colors)
-            and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
         ]
     if kind == "creature_source_is_blocking":
         # "{R}, Sacrifice ~: It deals 2 damage to target creature it's
@@ -1092,6 +1963,16 @@ def legal_targets(
             {"instance_id": o.instance_id, "name": o.name}
             for o in state.permanents()
             if o.instance_id in attacker_ids
+            and _targetable_by(o, source)
+        ]
+    if kind == "creature_blocking_source":
+        # "target creature that's blocking it" (Arc Spitter): the granted
+        # ability's source is the attacker, so select only creatures whose
+        # combat assignment names that attacker.
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if o.is_creature and o.blocking == source.instance_id
             and _targetable_by(o, source)
         ]
     if kind == "spell_or_nonland_permanent_you_dont_control":
@@ -1134,397 +2015,16 @@ def legal_targets(
             if o.is_creature and o is not source and _targetable_by(o, source)
         ]
         return spells + creatures
-    if kind == "creature_you_dont_control":
-        # RULE 115: the mirror image of `creature_you_control` — an
-        # opponent's creature (or, strictly, any creature this ability's
-        # controller doesn't control). ``creature_filter`` (Oko, Thief of
-        # Crowns' -5, MEC-43 round 4E — "…with power 3 or less") narrows it
-        # the same way the `creature_you_control` family below already
-        # honours; every existing caller that never sets it is unaffected.
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if o.is_creature
-            and o.controller_id != controller_id
-            and _targetable_by(o, source)
-            and (not spec.creature_filter or _creature_matches_filter(o, spec.creature_filter))
-        ]
-    if kind == "artifact_you_dont_control":
-        # RULE 115: the artifact-typed mirror of `creature_you_dont_control`
-        # (Vandalblast's base, non-Overload mode — RULE 702.96 Overload
-        # itself is a documented non-goal, same as Winds of Abandon/Damn/
-        # Cyclonic Rift).
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if o.card.is_artifact
-            and o.controller_id != controller_id
-            and _targetable_by(o, source)
-        ]
-    if kind == "attached_aura_or_equipment_you_control":
-        # "target Aura or Equipment attached to a creature you control"
-        # (Halvar) — both the attachment *and* its host must be yours, which
-        # is what makes this narrower than a bare "Equipment you control".
-        hosts = {
-            o.instance_id
-            for o in state.permanents()
-            if o.is_creature and o.controller_id == controller_id
-        }
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if o.controller_id == controller_id
-            and o.attached_to in hosts
-            and ("aura" in o.card.type_line.lower() or "equipment" in o.card.type_line.lower())
-            and _targetable_by(o, source)
-        ]
-    if kind == "land_you_dont_control":
-        # "target land an opponent controls" (PAR-29) — the controller-
-        # scoped mirror of `land_you_control` just below, same "you don't
-        # control" shape `nonland_permanent_you_dont_control` already has.
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if o.is_land
-            and o.controller_id != controller_id
-            and _targetable_by(o, source)
-        ]
-    if kind in (
-        "creature_you_control", "land_you_control", "other_creature_you_control"
-    ):
-        # RULE 115/603.3c controller-restricted pick — and the same shape for
-        # a non-"target" resolve-time choice among the controller's own
-        # permanents (a bounce-land's "return a land you control…").
-        #
-        # ``other_creature_you_control`` is the RULE 109.5 "*another* target
-        # creature you control" narrowing (Giver of Runes), which excludes
-        # the ability's own source; the two unprefixed kinds deliberately do
-        # *not* — "target creature you control" includes the source itself
-        # (Mother of Runes protecting herself is the card's whole point).
-        wants_land = kind == "land_you_control"
-        exclude_source = kind.startswith("other_")
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if (o.is_land if wants_land else o.is_creature)
-            and o.controller_id == controller_id
-            and not (exclude_source and o is source)
-            and _targetable_by(o, source)
-            and (not spec.creature_filter or _creature_matches_filter(o, spec.creature_filter))
-            # "return target `<c1>` or `<c2>` creature you control …" (Escape
-            # Routes) — the same `_color_ok` narrowing every other creature
-            # branch above applies; a no-op when ``colors``/``color`` unset.
-            and _color_ok(spec, o.colors)
-        ]
-    if kind == "creature_or_enchantment_you_control":
-        # "put a +1/+1 counter on target creature or enchantment you
-        # control." (MEC-43 round 4D, Heliod, Sun-Crowned) — the two-type
-        # union sibling of `creature_you_control`/`artifact_or_enchantment`,
-        # same "you control" scoping, source included (no printed "another").
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if (o.is_creature or o.card.is_enchantment)
-            and o.controller_id == controller_id
-            and _targetable_by(o, source)
-        ]
-    if kind == "non_human_creature_you_own":
-        # RULE 702.140a: mutate's own target. Keyed to *ownership* (RULE
-        # 108.3), not control, and excluding Humans by subtype (RULE 205.3m).
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if o.is_creature
-            and o.owner_id == controller_id
-            and not _is_human(o)
-            and _targetable_by(o, source)
-        ]
-    if kind in ("opponent", "opponent_or_planeswalker"):
+    if kind == "opponent":
         # "target opponent" — a living player besides this ability's own
-        # controller. "target opponent or planeswalker" unions it with the
-        # planeswalker half, the same `artifact_or_enchantment`-style
-        # two-kind union.
-        players = [
+        # controller. Purely a player list, so it stays a branch; its
+        # ``opponent_or_planeswalker`` sibling, which unions this with a
+        # permanent filter, is a `TARGET_FRAMES` row (``with_opponents``).
+        return [
             {"player_id": p.id, "name": p.name}
             for p in state.living_players()
             if p.id != controller_id
-        ]
-        if kind == "opponent":
-            return players
-        planeswalkers = [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if o.is_planeswalker and o is not source and _targetable_by(o, source)
-        ]
-        return players + planeswalkers
-    if kind == "artifact_creature_planeswalker_or_opponent":
-        # "target artifact, creature, planeswalker, or opponent" (PAR-2,
-        # Price of Betrayal) — three permanent types unioned with a player,
-        # the same `artifact_or_enchantment`/`opponent_or_planeswalker`
-        # two-kind-union idiom, just wider.
-        permanents = [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if (o.card.is_artifact or o.is_creature or o.is_planeswalker)
-            and o is not source
-            and _targetable_by(o, source)
-        ]
-        players = [
-            {"player_id": p.id, "name": p.name}
-            for p in state.living_players()
-            if p.id != controller_id
-        ]
-        return permanents + players
-    if kind == "artifact_creature_enchantment_or_planeswalker":
-        # "target artifact, creature, enchantment, or planeswalker"
-        # (Otawara, Soaring City's Channel ability) — the same four-
-        # permanent-type union idiom as `artifact_creature_planeswalker_
-        # or_opponent`, minus the player half and with enchantment added.
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if (o.card.is_artifact or o.is_creature or o.card.is_enchantment or o.is_planeswalker)
-            and o is not source
-            and _targetable_by(o, source)
-        ]
-    if kind == "artifact_or_enchantment":
-        # "Exile target artifact or enchantment." (Archdruid's Charm's third
-        # mode) — the union of the two single-type kinds below, which is a
-        # common enough printed phrasing to deserve its own kind rather than
-        # two effects with two prompts.
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if (o.card.is_artifact or o.card.is_enchantment)
-            and o is not source
-            and _targetable_by(o, source)
-        ]
-    if kind == "artifact_or_enchantment_defending_player_controls":
-        # "…destroy target artifact or enchantment defending player
-        # controls." (Kogla, the Titan Ape, MEC-43) — "defending player" is
-        # the firing `ATTACKS` event's own ``defending_player_id`` (the
-        # already-resolved RULE 508.1a defender), the same trigger-event-
-        # scoped idiom `creature_or_planeswalker_that_player_controls` uses
-        # for a DAMAGE event's recipient; no event in hand means no legal
-        # player to scope to, so this fails closed to an empty list.
-        event = trigger_event or {}
-        defending_player_id = event.get("defending_player_id")
-        if defending_player_id is None:
-            return []
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if (o.card.is_artifact or o.card.is_enchantment)
-            and o.controller_id == defending_player_id
-            and o is not source
-            and _targetable_by(o, source)
-        ]
-    if kind == "artifact_or_creature":
-        # "Exile target artifact or creature." (Touch the Spirit Realm,
-        # MEC-42) — the same union idiom as ``artifact_or_enchantment``
-        # just above, just the other pairing.
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if (o.card.is_artifact or o.is_creature)
-            and o is not source
-            and _targetable_by(o, source)
-        ]
-    if kind == "artifact_or_creature_you_control":
-        # "Exchange control of target artifact or creature you control…"
-        # (Oko, Thief of Crowns' -5, MEC-43 round 4E) — the controller-
-        # scoped sibling of the bare union just above.
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if (o.card.is_artifact or o.is_creature)
-            and o.controller_id == controller_id
-            and o is not source
-            and _targetable_by(o, source)
-        ]
-    if kind == "artifact_creature_or_enchantment":
-        # "Exile target artifact, creature, or enchantment with mana
-        # value X or less." (March of Otherworldly Light, MEC-43) —
-        # the three-kind union, honouring ``spec.max_mana_value`` like
-        # the plain ``permanent``/``permanent_you_control`` kinds do.
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if (o.card.is_artifact or o.is_creature or o.card.is_enchantment)
-            and o is not source
-            and _targetable_by(o, source)
-            and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
-        ]
-    if kind == "artifact_enchantment_or_nonbasic_land":
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if (
-                o.card.is_artifact
-                or o.card.is_enchantment
-                or (o.is_land and "basic" not in o.card.type_line.lower())
-            )
-            and o is not source
-            and _targetable_by(o, source)
-        ]
-    if kind == "battle_or_opponent":
-        battles = [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if o.is_battle and o is not source and _targetable_by(o, source)
-        ]
-        players = [
-            {"player_id": p.id, "name": p.name}
-            for p in state.living_players()
-            if p.id != controller_id
-        ]
-        return battles + players
-    if kind == "creature_planeswalker_or_battle":
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if (o.is_creature or o.is_planeswalker or o.is_battle)
-            and o is not source
-            and _targetable_by(o, source)
-        ]
-    if kind == "creature_or_planeswalker":
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if (o.is_creature or o.is_planeswalker)
-            and o is not source
-            and _targetable_by(o, source)
-        ]
-    if kind in (
-        "creature_or_planeswalker_that_player_controls",
-        "creature_that_player_controls",
-    ):
-        # "target creature [or planeswalker] **that player** controls"
-        # (Chandra's Incinerator, MEC-45; Popular Entertainer's granted
-        # goad, PAR-32) — "that player" is whoever the firing trigger event
-        # named as its recipient (``target_id``, only meaningful when
-        # ``is_player`` is set); no event in hand (or a non-player
-        # recipient) means no legal player to scope to, so this fails
-        # closed to an empty list rather than guessing a fixed role.
-        planeswalkers_ok = kind == "creature_or_planeswalker_that_player_controls"
-        event = trigger_event or {}
-        target_player_id = event.get("target_id") if event.get("is_player") else None
-        if target_player_id is None:
-            return []
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if (o.is_creature or (planeswalkers_ok and o.is_planeswalker))
-            and o.controller_id == target_player_id
-            and o is not source
-            and _targetable_by(o, source)
-        ]
-    if kind == "creature_or_planeswalker_you_control":
-        # "…a copy of a creature or planeswalker **you control**." (Spark
-        # Double) — the controller-scoped sibling of the bare kind above;
-        # not a RULE 115 "target" (RULE 614.12's "any" phrasing), but this
-        # engine's enter-as-copy choice reuses the same candidate-pool
-        # machinery regardless.
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if (o.is_creature or o.is_planeswalker)
-            and o.controller_id == controller_id
-            and o is not source
-        ]
-    if kind in ("artifact", "enchantment", "land", "noncreature_artifact"):
-        # RULE 115 single-type permanent target (also the enter-as-copy
-        # candidate pool for Copy Artifact / Copy Enchantment). Any
-        # controller's, unlike `land_you_control`. ``noncreature_artifact``
-        # (Karn, the Great Creator's own "becomes an artifact creature"
-        # animate — RULE 115.1c excludes an already-creature artifact, the
-        # one real printed qualifier no other row here needs).
-        _SINGLE_TYPE_PREDICATE = {
-            "artifact": lambda o: o.card.is_artifact,
-            "enchantment": lambda o: o.card.is_enchantment,
-            "land": lambda o: o.is_land,
-            "noncreature_artifact": lambda o: o.card.is_artifact and not o.is_creature,
-        }
-        predicate = _SINGLE_TYPE_PREDICATE[kind]
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if predicate(o)
-            and o is not source
-            and _targetable_by(o, source)
-            and _color_ok(spec, o.colors)
-            and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
-        ]
-    if kind == "nonbasic_land":
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if o.is_land and "basic" not in o.card.type_line.lower()
-            and o is not source and _targetable_by(o, source)
-        ]
-    if kind == "basic_land":
-        # "Untap target basic land." (Earthcraft, MEC-43) — the inverse
-        # filter of ``nonbasic_land`` just above.
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if o.is_land and "basic" in o.card.type_line.lower()
-            and o is not source and _targetable_by(o, source)
-        ]
-    if kind == "forest":
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if o.is_land and "forest" in o.card.type_line.lower()
-            and o is not source and _targetable_by(o, source)
-        ]
-    if kind == "forest_you_control":
-        # "enchant Forest you control" (Harold and Bob, First Numens's own
-        # dies-return-as-an-Aura shape) — `land_you_control` narrowed to
-        # just the Forest subtype, the same split `forest` above is to
-        # `nonbasic_land`.
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if o.is_land and "forest" in o.card.type_line.lower()
-            and o.controller_id == controller_id
-            and o is not source and _targetable_by(o, source)
-        ]
-    if kind == "legendary_permanent":
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if o.card.is_legendary and o is not source and _targetable_by(o, source)
-            and _color_ok(spec, o.colors)
-        ]
-    if kind == "attached_equipment_you_control":
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if "equipment" in o.card.type_line.lower()
-            and o.controller_id == controller_id
-            and o.attached_to is not None
-            and _targetable_by(o, source)
-        ]
-    if kind == "equipment_attached_to_source":
-        # "destroy target Equipment attached to **it**" — "it" is this
-        # ability's own source (Shackles of Treachery's granted trigger:
-        # the creature it handed the quoted ability to).
-        src_id = getattr(source, "instance_id", None)
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if "equipment" in o.card.type_line.lower()
-            and src_id is not None and o.attached_to == src_id
-            and _targetable_by(o, source)
-        ]
-    if kind == "equipment_you_control":
-        return [
-            {"instance_id": o.instance_id, "name": o.name}
-            for o in state.permanents()
-            if "equipment" in o.card.type_line.lower()
-            and o.controller_id == controller_id
-            and _targetable_by(o, source)
+            and (not spec.active_player_only or p is state.active_player)
         ]
     if kind in _GRAVEYARD_TARGET_KINDS:
         # RULE 115: a card of some type in some graveyard — the Regrowth/
@@ -1553,31 +2053,43 @@ def legal_targets(
             for gy in graveyards
             for o in gy
             if type_filter(o)
-            and (not spec.subtype or spec.subtype in o.card.type_line.lower())
+            and (not spec.subtype or spec.subtype.lower() in o.card.type_line.lower())
+            and not (spec.exclude_legendary and o.card.is_legendary)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
+            and (spec.min_mana_value is None or o.card.converted_mana_cost >= spec.min_mana_value)
+            # "…creature card with mana value X from your graveyard" (Isareth the Awakener, PAR-139).
+            and (spec.exact_mana_value is None or o.card.converted_mana_cost == spec.exact_mana_value)
+            # "return target creature card with power 2 or less from your graveyard" (Alesha,
+            # PAR-143) — the same filter vocabulary a battlefield creature target reads.
+            and (not spec.creature_filter or _creature_matches_filter(o, spec.creature_filter, source, state, trigger_event))
             # "exile target red, white, or black creature card from your
             # graveyard" (Offspring's Revenge) — the same `_color_ok` colour
             # narrowing the battlefield-object branches apply (RULE 105).
             and _color_ok(spec, o.colors)
             and o is not source
         ]
-    if kind in ("spell", "spell_you_dont_control"):
+    if kind in ("spell", "spell_you_control", "spell_you_dont_control"):
         items = [
             item
             for item in state.stack
             if item.kind == "spell" and item.obj is not None and item.obj is not source
         ]
-        if kind == "spell_you_dont_control":
-            # "Return target spell you don't control…" (Hullbreaker
-            # Horror) — the controller-scoped sibling of the plain
-            # ``"spell"`` kind, keyed by `StackItem.controller_id` (RULE
-            # 115.4a: whoever put it on the stack), not the underlying
-            # object's own `controller_id` — the two agree for a spell
-            # (it has no controller of its own until it resolves), but
-            # ``item.controller_id`` is the one RULE 115 actually means.
-            items = [item for item in items if item.controller_id != controller_id]
+        # "Copy target instant or sorcery spell you control" (Dual Casting)
+        # and "Return target spell you don't control" (Hullbreaker Horror)
+        # are keyed by `StackItem.controller_id` (RULE 115.4a: whoever put
+        # it on the stack), not the underlying object's controller.  Keep
+        # the two controller-scoped spell kinds in this one structural stack
+        # branch rather than growing a name-dispatch branch for each.
+        items = [
+            item for item in items
+            if (kind != "spell_you_control" or item.controller_id == controller_id)
+            and (kind != "spell_you_dont_control" or item.controller_id != controller_id)
+        ]
         if spec.spell_filter:
             card_filter = dict(spec.spell_filter)
+            if card_filter.get("mana_value") == "x":
+                # "counter target spell with mana value X" — the announced {X}, as for `exact_mana_value`.
+                card_filter["mana_value"] = int(getattr(source, "x_paid", 0) or 0)
             if card_filter.pop("single_target", False):
                 items = [item for item in items if len(item.targets) == 1]
             if card_filter:
@@ -1603,10 +2115,13 @@ def legal_targets(
             # ``"spell"`` branch's own options, unfiltered by
             # ``spell_filter`` since neither real card restricts by spell
             # type, alongside the ability ones just built.
+            # A `spell_filter` narrows the spell half only ("counter target instant spell, sorcery spell, activated
+            # ability, or triggered ability" — Sister of Silence); the abilities stay offered.
             options = [
                 {"instance_id": item.obj.instance_id, "name": item.description or item.obj.name}
                 for item in state.stack
                 if item.kind == "spell" and item.obj is not None and item.obj is not source
+                and (not spec.spell_filter or _spell_matches_filter(item.obj, dict(spec.spell_filter)))
             ] + options
         return options
     return []
@@ -1615,7 +2130,9 @@ def legal_targets(
 #: The vocabulary `TargetSpec.count_selector` may name. Whitelisted like
 #: every other card-text-derived name in this package; an unknown one falls
 #: back to the printed ``count``.
-TARGET_COUNT_SELECTORS: frozenset[str] = frozenset({"opponents", "source_monstrosity_x", "source_x_paid"})
+TARGET_COUNT_SELECTORS: frozenset[str] = frozenset({
+    "opponents", "source_monstrosity_x", "source_x_paid", "source_twice_x_paid",
+})
 
 
 def resolved_count(
@@ -1643,6 +2160,10 @@ def resolved_count(
         # stamped by `RulesEngine.cast_spell`), read fresh at target-
         # gathering time rather than a fixed printed count.
         return max(0, int(getattr(source, "x_paid", 0) or 0))
+    if selector == "source_twice_x_paid":
+        # "Exile up to twice X target cards from graveyards." (Erebos's Intervention) — 2 × the
+        # announced {X}, read the same way as ``source_x_paid``.
+        return max(0, 2 * int(getattr(source, "x_paid", 0) or 0))
     # "goad up to X target creatures" where X is the monstrosity just
     # announced — `GameObject.monstrosity_x` is stamped by
     # `RulesEngine.monstrosity` precisely so a *later* ability of the same
@@ -1680,6 +2201,21 @@ def expand_counts(
     expanded: list[TargetSpec] = []
     spans: list[int] = []
     for spec in specs:
+        if spec.per_player in PER_PLAYER_SCOPES and state is not None:
+            # PAR-130: one round per player, in turn order from the
+            # controller, each scoped to that player (`scoped_player_id`).
+            players = list(state.living_players())
+            start = next((i for i, p in enumerate(players) if p.id == controller_id), 0)
+            rounds = [
+                replace(spec, per_player=None, scoped_player_id=p.id, count=1,
+                        count_max=None, count_selector=None,
+                        optional=spec.optional or spec.per_player == "any_opponents")
+                for p in players[start:] + players[:start]
+                if spec.per_player == "players" or p.id != controller_id
+            ]
+            expanded.extend(rounds)
+            spans.append(len(rounds))
+            continue
         minimum = max(0, resolved_count(spec, state, controller_id, source))
         n = spec.count_max if spec.count_max is not None else minimum
         if n <= 1:
@@ -1725,7 +2261,36 @@ def effects_target_specs(effects: Any) -> list[TargetSpec]:
     for effect in effects or []:
         polarity = effect.target_polarity()
         specs.extend(_with_polarity(spec, polarity) for spec in (getattr(effect, "target_specs", None) or []))
-    return specs
+    return _mark_prior_target_antecedents(specs)
+
+
+def _mark_prior_target_antecedents(specs: list[TargetSpec]) -> list[TargetSpec]:
+    """Mark dependent requirements backed by the immediately prior target.
+
+    The parser gate admits only printed shapes where the preceding target is
+    a player/opponent or an opponent-controlled permanent.  Keeping the same
+    structural check here makes a bare ``TargetSpec`` unable to broaden its
+    own scope merely because its kind contains ``that_player``.
+    """
+    marked: list[TargetSpec] = []
+    for index, spec in enumerate(specs):
+        frame = TARGET_FRAMES.get(spec.kind)
+        previous = specs[index - 1] if index else None
+        previous_frame = TARGET_FRAMES.get(previous.kind) if previous else None
+        has_antecedent = bool(
+            frame is not None
+            and frame.scope == SCOPE_THAT_PLAYER
+            and previous is not None
+            and (
+                previous.kind in {"player", "opponent"}
+                or (
+                    previous_frame is not None
+                    and previous_frame.scope in {SCOPE_NOT_YOU, SCOPE_NOT_YOU_STRICT}
+                )
+            )
+        )
+        marked.append(replace(spec, prior_target_antecedent=True) if has_antecedent else spec)
+    return marked
 
 
 def ability_target_specs(ability: Any) -> list[TargetSpec]:
@@ -1737,12 +2302,129 @@ def ability_target_specs(ability: Any) -> list[TargetSpec]:
     return effects_target_specs(getattr(ability, "effects", None) or [])
 
 
+def target_rounds(
+    state: GameState, controller_id: str, source: GameObject, specs: list[TargetSpec]
+) -> tuple[list[TargetSpec], list[int]]:
+    """Requirements as offered to a player, plus a span per original spec.
+
+    PAR-130: a `per_player` requirement ("for each opponent, gain control of
+    target permanent that player controls") is announced as one round per
+    player, each scoped to that player — shared by casts and activated
+    abilities, and sibling to the trigger path's
+    `_continue_trigger_multi_target` rounds. A round whose player
+    controls nothing legal is left out (RULE 601.2c: no target is chosen for
+    that player), so it never locks the spell. Every other requirement is
+    offered as-is; its "up to N" rounds stay the client's own expansion.
+    """
+    rounds: list[TargetSpec] = []
+    spans: list[int] = []
+    for spec in specs:
+        if spec.per_player not in PER_PLAYER_SCOPES:
+            rounds.append(spec)
+            spans.append(1)
+            continue
+        expanded, _ = expand_counts([spec], state, controller_id, source)
+        live = []
+        for round_spec in expanded:
+            if not legal_targets(state, controller_id, round_spec, source=source):
+                continue
+            player = state.player_by_id(round_spec.scoped_player_id)
+            name = getattr(player, "name", None) or round_spec.scoped_player_id
+            live.append(replace(round_spec, description=f"{round_spec.label()} ({name})"))
+        rounds.extend(live)
+        spans.append(len(live))
+    return rounds, spans
+
+
+def spell_target_rounds(
+    state: GameState, controller_id: str, obj: GameObject
+) -> tuple[list[TargetSpec], list[int]]:
+    """``obj``'s cast requirements expanded by :func:`target_rounds`."""
+    return target_rounds(state, controller_id, obj, spell_target_specs(obj))
+
+
+def per_player_groups(
+    state: GameState,
+    controller_id: str,
+    obj: GameObject,
+    targets: Optional[list[Any]],
+    target_groups: Optional[list[list[Any]]],
+) -> Optional[list[list[Any]]]:
+    """The cast path's picks for a spell with a `per_player` requirement,
+    validated round by round and merged back to one group per
+    `spell_target_specs` entry (PAR-130).
+
+    The caster answers the requirements `requirements_with_targets` offered —
+    one per *round* — either as ``target_groups`` (one group per round) or,
+    when only one round was offered or an "up to 1" round was declined, as the
+    flat ``targets`` list. Each `per_player` round takes at most one pick,
+    legal for that round (so controlled by that round's player); the rounds
+    are then collapsed so the effect receives one flat list of its picks.
+    Returns ``target_groups`` untouched for a spell with no `per_player`
+    requirement.
+    """
+    return per_player_target_groups(
+        state, controller_id, obj, spell_target_specs(obj), targets, target_groups,
+    )
+
+
+def per_player_target_groups(
+    state: GameState,
+    controller_id: str,
+    source: GameObject,
+    specs: list[TargetSpec],
+    targets: Optional[list[Any]],
+    target_groups: Optional[list[list[Any]]],
+) -> Optional[list[list[Any]]]:
+    """General cast/activation implementation behind ``per_player_groups``."""
+    if not any(spec.per_player in PER_PLAYER_SCOPES for spec in specs):
+        return target_groups
+    rounds, spans = target_rounds(state, controller_id, source, specs)
+    name = source.name
+    if target_groups is None and len(specs) == 1:
+        # The only requirement: the flat list is its picks, from any rounds.
+        picks = list(targets or [])
+        owners = [
+            next((r for r in rounds if getattr(p, "instance_id", None) in _round_ids(state, controller_id, source, r)), None)
+            for p in picks
+        ]
+        if any(owner is None for owner in owners) or len({id(o) for o in owners}) != len(owners):
+            raise ValueError(f"{name}: one legal target per player")
+        missing = [r for r in rounds if not r.optional and not any(o is r for o in owners)]
+        if missing:
+            raise ValueError(f"{name}: a target is required for {missing[0].label()}")
+        return [picks]
+    if target_groups is None and len(rounds) <= 1:
+        target_groups = [list(targets or [])] if rounds else []
+    elif target_groups is None:
+        target_groups = partition_targets(rounds, targets)
+    if target_groups is None or len(target_groups) != len(rounds):
+        raise ValueError(f"{name}: send one target group per offered requirement")
+    for round_spec, group in zip(rounds, target_groups):
+        if round_spec.scoped_player_id is None:
+            continue
+        if len(group) > 1:
+            raise ValueError(f"{name}: one target per player")
+        legal = _round_ids(state, controller_id, source, round_spec)
+        if any(getattr(pick, "instance_id", None) not in legal for pick in group):
+            raise ValueError(f"{name}: illegal target for {round_spec.label()}")
+        if not group and not round_spec.optional:
+            raise ValueError(f"{name}: a target is required for {round_spec.label()}")
+    return collapse_groups(target_groups, spans)
+
+
+def _round_ids(state: GameState, controller_id: str, obj: GameObject, spec: TargetSpec) -> set[Any]:
+    """The instance ids one requirement round may legally pick."""
+    return {o.get("instance_id") for o in legal_targets(state, controller_id, spec, source=obj)}
+
+
 def requirements_with_targets(
     state: GameState, controller_id: str, obj: GameObject
 ) -> list[dict[str, Any]]:
-    """Each of ``obj``'s target requirements paired with its legal options."""
+    """Each of ``obj``'s target requirements paired with its legal options
+    (a `per_player` requirement as one entry per round — `spell_target_rounds`)."""
     out: list[dict[str, Any]] = []
-    for spec in spell_target_specs(obj):
+    for spec in spell_target_rounds(state, controller_id, obj)[0]:
         entry = {
             "kind": spec.kind,
             "optional": spec.optional,
@@ -1796,6 +2478,37 @@ def partition_targets(
         groups.append(list(targets[index:index + take]))
         index += take
     return groups
+
+
+def validate_that_player_groups(
+    specs: list[TargetSpec], target_groups: Optional[list[list[Any]]], source_name: str,
+) -> None:
+    """Validate a prior player target as a later ``that player`` scope.
+
+    The offer for the dependent requirement is necessarily the union of all
+    players' matching permanents. RULE 601.2c finalization is the point at
+    which both choices are known, so reject a permanent not controlled by
+    the immediately preceding target's player/controller.
+    """
+    if target_groups is None:
+        return
+    for index, (spec, group) in enumerate(zip(specs, target_groups)):
+        if not spec.prior_target_antecedent:
+            continue
+        if not group:
+            # An "up to one" dependent requirement may be declined; there
+            # is then no controller relation to validate.
+            continue
+        previous = target_groups[index - 1] if index else []
+        antecedent_id: Optional[str] = None
+        if len(previous) == 1:
+            antecedent_id = getattr(previous[0], "id", None)
+            if antecedent_id is None:
+                antecedent_id = getattr(previous[0], "controller_id", None)
+        if antecedent_id is None or any(
+            getattr(target, "controller_id", None) != antecedent_id for target in group
+        ):
+            raise ValueError(f"{source_name}: target is not controlled by that player")
 
 
 def all_requirements_satisfiable(requirements: list[dict[str, Any]]) -> bool:

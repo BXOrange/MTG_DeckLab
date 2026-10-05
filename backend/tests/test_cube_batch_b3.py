@@ -1,4 +1,4 @@
-"""cEDH staples cube — batch B3: hand-authored `ability_catalogue.py` entries
+"""cEDH staples cube — batch B3: hand-authored `card_registry.py` entries
 plus the reusable engine/parser primitives this batch built along the way.
 
 Reference: CLAUDE.md's oracle-text-parser pipeline; docs/Reference/
@@ -10,8 +10,10 @@ specific) additions, each proven here on the real card that motivated it:
 
 1. `destroy_create_token` (`DestroyCreateTokenEffect`) — the destroy sibling
    of B1's `ExileCreateTokenEffect` (Beast Within).
-2. `destroy_gain_life_to_controller` — a fixed-amount destroy-and-heal
-   (Nature's Claim).
+2. A fixed-amount destroy-and-heal (Nature's Claim). Originally the welded
+   `destroy_gain_life_to_controller` effect; ENG-37 retired it — the card is
+   now a plain `destroy` plus a `gain_life` whose recipient names a referent
+   (`effect_operands`).
 3. `RulesEngine._substitute_x`'s new `"-x"` sentinel rewriting a `pump`
    effect's `power`/`toughness` for an X-scaled debuff paid as life
    (Toxic Deluge).
@@ -42,12 +44,12 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game import ability_catalogue as ac
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game import card_registry as ac
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 
 pytestmark = pytest.mark.skipif(
@@ -299,7 +301,7 @@ def test_leonin_relic_warder_exiles_then_returns_on_leaving():
         # Choose to exile the artifact.
         opt = next((o for o in choice.get("options", [])
                     if o.get("instance_id") == art_obj.instance_id), None)
-        eng.rules.resolve_trigger_target_choice(opt["id"] if opt else "do")
+        eng.rules.resolve_choice(opt["id"] if opt else "do")
         eng.resolve_until_stable()
 
     assert art_obj.zone == Zone.EXILE
@@ -358,7 +360,7 @@ def test_zealous_conscripts_steals_a_permanent_until_end_of_turn():
     if choice is not None and choice.get("kind") == "trigger_target":
         opt = next((o for o in choice.get("options", [])
                     if o.get("instance_id") == victim.instance_id), None)
-        eng.rules.resolve_trigger_target_choice(opt["id"] if opt else "do")
+        eng.rules.resolve_choice(opt["id"] if opt else "do")
         eng.resolve_until_stable()
 
     assert victim.controller_id == "p1"
@@ -420,6 +422,12 @@ def test_snap_bounces_a_creature_and_untaps_two_lands():
 
 
 def test_ponder_draws_a_card():
+    """RULE 608.2: the scry is *finished* — including the player's own
+    choice — before the draw happens. The draw parks behind the pending
+    choice and resumes when it is answered; this test originally asserted
+    the draw straight after `resolve_until_stable()` and so could only ever
+    have passed if the two ran out of order (ENG-38).
+    """
     eng = _engine()
     state = eng.state
     p1 = state.active_player
@@ -433,6 +441,19 @@ def test_ponder_draws_a_card():
     eng.cast_spell(p1, ponder_obj)
     eng.resolve_until_stable()
 
+    # The scry stops the resolution and the draw has *not* happened yet.
+    choice = state.pending_choice
+    assert choice is not None and choice["kind"] == "scry"
+    assert len(p1.hand) == hand_before
+
+    # "Put them back in any order": the scry runs two phases — which cards
+    # go away, then how the kept ones are ordered. Decline both.
+    for phase in ("away", "order"):
+        assert state.pending_choice["phase"] == phase
+        eng.rules.resolve_choice("decline")
+        eng.resolve_until_stable()
+
+    assert state.pending_choice is None
     assert len(p1.hand) == hand_before + 1
 
 
@@ -486,6 +507,30 @@ def test_geistwave_no_draw_when_bouncing_an_opponents_permanent():
     assert opp_art in p2.hand
     # No draw (didn't control it), and the bounced card went to p2's hand.
     assert len(p1.hand) == hand_before
+
+
+def test_geistwave_draws_when_bouncing_a_stolen_permanent():
+    # ENG-50: "if you controlled" reads the permanent's controller, not its
+    # owner — a stolen permanent goes to its owner's hand and still draws.
+    art = Card(id="GWArt3", name="GWArt3", type_line="Artifact",
+               mana_cost_string="{1}", converted_mana_cost=1)
+    eng = _engine(p1_cards=[_card("Geistwave")])
+    state = eng.state
+    p1 = state.active_player
+    p2 = state.players[1]
+    for i in range(5):
+        lib = Card(id=f"GWLibC{i}", name=f"GWLibC{i}", type_line="Creature", is_creature=True)
+        p1.library.append(GameObject(lib, owner_id="p1", zone=Zone.LIBRARY))
+    stolen = _battlefield(state, art, controller="p2")
+    stolen.controller_id = "p1"
+
+    library_before = len(p1.library)
+    p1.mana_pool.add_many({"U": 1, "C": 1})  # {1}{U}
+    eng.cast_spell(p1, p1.hand[0], targets=[stolen])
+    eng.resolve_until_stable()
+
+    assert stolen in p2.hand
+    assert len(p1.library) == library_before - 1
 
 
 # ---------------------------------------------------------------------------
@@ -542,7 +587,7 @@ def test_endurance_puts_a_graveyard_on_the_bottom_of_library():
     if choice is not None and choice.get("kind") == "trigger_target":
         opt = next((o for o in choice.get("options", [])
                     if o.get("player_id") == "p1" or o.get("id") == "p1"), None)
-        eng.rules.resolve_trigger_target_choice(opt["id"] if opt else "do")
+        eng.rules.resolve_choice(opt["id"] if opt else "do")
         eng.resolve_until_stable()
 
     assert len(p1.graveyard) == 0

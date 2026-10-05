@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 from mtg_analyzer.config import DATA_DIR, DECKS_DB_PATH
-from mtg_analyzer.models.deck import Deck
+from mtg_analyzer.models.decks.deck import Deck
 from mtg_analyzer.services.schema_version import reconcile_schema
 
 _log = logging.getLogger(__name__)
@@ -55,7 +55,7 @@ CREATE INDEX IF NOT EXISTS idx_decks_created_at ON decks (created_at);
 #: data — see `_note_schema_change`.
 _SCHEMA_SOURCE_FILES = [
     Path(__file__),  # this file
-    Path(__file__).resolve().parent.parent / "models" / "deck.py",
+    Path(__file__).resolve().parent.parent / "models" / "decks" / "deck.py",
 ]
 
 

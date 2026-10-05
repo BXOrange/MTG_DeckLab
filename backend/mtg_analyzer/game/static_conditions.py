@@ -53,8 +53,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:  # models must not be imported at runtime (module boundary)
-    from ..models.game_object import GameObject
-    from ..models.game_state import GameState
+    from ..models.game.game_object import GameObject
+    from ..models.game.game_state import GameState
 
 
 #: Every recognized ``kind``. A condition naming anything else is false.
@@ -65,9 +65,13 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # spelled ``source_*`` in every shipped spec; which object they
         # actually read is now chosen by the condition's ``of`` key (see
         # `CONDITION_SUBJECTS`), defaulting to the source.
+        # PAR-135: "Do this only once each turn." — true while this ability's action (``key``) hasn't been
+        # performed yet this turn (`GameObject.action_turns`, stamped by `ActionStampEffect`).
+        "action_unused_this_turn",
         "source_tapped",  # "as long as ~ is tapped"
         "source_untapped",  # "as long as ~ is untapped"
         "source_monstrous",  # RULE 701.37b
+        "source_harnessed",  # MEC-79 / RULE 701.64b — the Infinity Stones' ∞
         "is_licid_aura",  # MEC-47 — this Licid is currently an Aura
         "not_licid_aura",  # MEC-47 — this Licid is still a creature
         "source_attacking",  # "as long as ~ is attacking"
@@ -76,6 +80,9 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # reset each untap step (unlike ``source_attacking``, which clears
         # the instant combat ends, RULE 511.3).
         "source_attacked_this_turn",
+        # PAR-62: Raid's player-scoped declaration history, not Boast's
+        # source-only flag.
+        "you_attacked_this_turn",
         # PAR-28: RULE 702.169b/719.3b Solved — "As long as this Case is
         # solved, …" (and its activate-/trigger-only siblings). A permanent
         # designation that persists until the Case leaves the battlefield.
@@ -86,12 +93,17 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # PAR-28: RULE 702.57b Forecast — "Activate only during the upkeep
         # step of the card's owner." Used as an ``activation_condition`` only.
         "your_upkeep",
+        # "…if it's your main phase" (Moraug, Fury of Akoum): the controller's own precombat or postcombat main phase.
+        "your_main_phase",
         "source_blocking",
         "source_paired",  # RULE 702.94b soulbond
         "source_attached",  # "as long as ~ is attached to a creature"
         "source_equipped",  # "as long as ~ is equipped"
         "source_enchanted",  # "as long as ~ is enchanted"
         "source_counters",  # + ``counter``/``min``/``max``
+        # "As ~ enters, choose Khans or Dragons." (Siege cycle) — the source's own
+        # stored ``chosen_mode`` label slug equals ``mode``.
+        "chosen_mode",
         # "for as long as you control ~" / "…as long as ~ remains on the
         # battlefield" — the lock-down family's own duration (PAR-11): the
         # effect lasts while its *source* is still around, which is not
@@ -106,11 +118,34 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "is_card_type",  # + ``card_type``
         "is_color",  # + ``color`` (a WUBRG letter)
         "is_subtype",  # + ``subtype``
+        # PAR-117 (conditional-wrapper residue): RULE 205.4a's legendary
+        # supertype, read off `GameObject.is_legendary` (the printed
+        # supertype *or* a granted one) rather than `is_card_type`/
+        # `is_subtype`, neither of which covers a supertype. "that creature
+        # is legendary" (Ringwraiths) is the only printed phrasing so far —
+        # no ``of`` default beyond the usual "source".
+        "is_legendary",
+        # RULE 205.4a's basic supertype, off the printed type line (a `Card`
+        # has no flag for it) — "a basic land card" (Rowen, PAR-120).
+        "is_basic",
+        # PAR-117: "that creature wasn't dealt damage this turn" (Faller's
+        # Faithful) — RULE 514.2 only clears `GameObject.damage_marked` at
+        # cleanup, so nonzero marked damage at any other point in the same
+        # turn is exactly "dealt damage this turn", with no separate
+        # per-turn tracker needed.
+        "was_dealt_damage_this_turn",
         # -- Whose turn it is (RULE 613.6's commonest non-board gate).
         "your_turn",
         "not_your_turn",
+        # "This spell costs {X} less to cast **this way**" (the Visions flashback cycle): the card is being cast from its
+        # owner's graveyard, which for these cards is only ever its flashback.
+        "source_in_graveyard",
         # -- The board.
         "control_count",  # + ``selector``/``min``/``max`` — Metalcraft-shaped
+        # "as long as you control a permanent of each color" (Spirit of
+        # Resistance, PAR-78) — a devotion-shaped five-colour AND, not a
+        # single-selector count.
+        "control_permanent_of_each_color",
         "control_named",  # + ``name`` — "as long as you control a <card>"
         # "as long as an opponent has N or more cards in their graveyard" —
         # `control_count`'s opponent-scoped sibling: true when *any one*
@@ -119,8 +154,52 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # -- The controller's own resources.
         "life_at_least",  # + ``amount``
         "life_at_most",
+        # "as long as an opponent has N or less life" (Bloodghast, PAR-60) —
+        # true when any one opponent satisfies it. + ``amount``.
+        "opponent_life_at_most",
         "cards_in_hand_at_least",
         "cards_in_hand_at_most",
+        # "at the beginning of each opponent's upkeep, if that player has N or
+        # fewer cards in hand, …" (Davriel/Hellfire Mongrel/Shrieking
+        # Affliction, PAR-120) — "that player" is whoever's step just began
+        # (RULE 502.1's active player), not this ability's own controller;
+        # `cards_in_hand_at_most`'s ``player = _controller(state,
+        # controller_id)`` read would answer the wrong player's hand size for
+        # this per-opponent trigger shape.
+        "active_player_cards_in_hand_at_most",
+        # "if you gained life this turn" (PAR-60) — reads
+        # `GameState.life_gained_this_turn`; optional ``amount`` (default 1).
+        "gained_life_this_turn",
+        # "if you descended this turn" (RULE 700.11 — a permanent card was put into your
+        # graveyard from anywhere: died, discarded or milled here; a countered spell is not seen) — reads `GameState.permanent_card_to_graveyard_this_turn`.
+        "descended_this_turn",
+        # "if a card left your graveyard this turn" (Primary Research, Relic
+        # Retriever, PAR-60) — reads `GameState.cards_left_graveyard_this_turn`.
+        "card_left_graveyard_this_turn",
+        # "if an opponent controls more lands than you" (Land Tax,
+        # Archaeomancer's Map, Claim Jumper, PAR-60) — true when any one
+        # opponent's land count exceeds the controller's.
+        "opponent_controls_more_lands",
+        # PAR-120: the general form — some one opponent's count of a structured
+        # ``selector`` exceeds the controller's ("an opponent controls more
+        # creatures than you"). `opponent_controls_more_lands` is its special case.
+        "opponent_has_more",  # + ``selector``
+        # ENG-47: "…happened this turn" — how many events of the current turn match a
+        # trigger-shaped ``trigger`` dict (the same ``event`` / ``condition`` /
+        # ``filter`` keys a triggered ability of that shape carries), read off the
+        # turn-stamped `GameState.event_log`. + ``min``/``max``. Replaces one
+        # hand-kept `*_this_turn` tracker per phrase.
+        "event_this_turn",
+        # "if there are N or more <type> and/or <type> cards in your
+        # graveyard" (Lorehold Archivist, PAR-60). + ``types`` + ``amount``.
+        "graveyard_card_type_count_at_least",
+        "distinct_mana_values_in_graveyard_at_least",
+        # "if a player has one or fewer cards in hand" (Naktamun Lorespinner,
+        # PAR-60) — any player. + ``amount``.
+        "any_player_cards_in_hand_at_most",
+        # "if you control no creatures with decayed" (Jadar, PAR-60). +
+        # ``keyword``.
+        "control_no_creatures_with_keyword",
         # PAR-30: "as long as there's a `<subtype>` card in your graveyard"
         # (the Avatar: TLA "Lesson" cards — Aang A Lot to Learn, Fire Nation
         # Cadets, First-Time Flyer, Platypus-Bear). + ``subtype`` (a
@@ -138,7 +217,10 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # `condition_query.entered_this_turn` makes). No per-turn tracker
         # needed — the per-object entry flag already exists.
         "another_subtype_entered_this_turn",  # + ``subtype``
-        "drawn_cards_at_least",  # + ``amount`` — "…you've drawn N cards this turn"
+        "drawn_cards_at_least",  # + ``amount``; optional ``scope`` (you/opponents)
+        "mana_color_spent_to_cast_at_least",  # + ``color`` + ``amount`` (Adamant)
+        "treasure_mana_spent_to_cast",  # actual source-tagged mana payment
+        "treasure_mana_spent_to_activate",  # the same, for the last activation
         # "…you've cast an instant or sorcery spell this turn" (PAR-10) —
         # `GameState.cast_instant_or_sorcery_this_turn`, reset for *every*
         # player each `begin_turn` (unlike `spells_cast_this_turn`'s
@@ -148,16 +230,27 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # use (Hall of Oracles/Jin-Gitaxias — only reachable at sorcery speed
         # anyway, but the state itself must stay correct regardless).
         "cast_instant_or_sorcery_this_turn",
+        "cast_noncreature_spell_this_turn",
+        "cast_spell_this_turn",  # "As long as you've cast a spell this turn" (Fortune Teller's Talent)
+        "control_legendary_subtype",
         # PAR-32 phase-trigger intervening-ifs (Cloakwood Hermit / Dragon
         # Cultist) — new per-turn `GameState` trackers.
         "creature_card_to_graveyard_this_turn",
         "you_dealt_damage_this_turn_at_least",
+        # "At the beginning of each end step, if you put a counter on a
+        # creature this turn, …" (Lasting Tarfire) — `GameState.
+        # counter_placed_on_creature_this_turn`, a set of causer ids.
+        "you_placed_counter_on_creature_this_turn",
         # MEC-60 (Acolyte of Bahamut): "The first `<subtype>` spell you cast
         # each turn costs `{N}` less to cast." + ``subtype`` — a
         # `cost_reduction` ``active_if`` gate, true only while `controller_
         # id` hasn't yet cast a spell of that creature subtype this turn
         # (`GameState.creature_type_spells_cast_this_turn`).
         "first_subtype_spell_this_turn",
+        # "The first legendary creature spell you cast each turn costs {2} less to cast." (Serah Farron) —
+        # true until the controller has cast a legendary creature spell this turn, read at cost time
+        # (before the spell being priced is recorded), like `first_subtype_spell_this_turn`.
+        "first_legendary_creature_spell_this_turn",
         # -- The controller's designations (RULE 725/726/702.131c) — MEC-12.
         # No ``of`` subject: "you" in "as long as you're the monarch" always
         # means the static's controller, the same read `your_turn` already
@@ -165,6 +258,102 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "is_monarch",  # "as long as you're the monarch"
         "has_initiative",  # "as long as you have the initiative"
         "has_city_blessing",  # "as long as you have the city's blessing"
+        "has_enduring_story",  # "as long as you have an enduring story" (RULE 702.195b, PAR-51)
+        # -- Subject-scoped predicates over an arbitrary object (ENG-36).
+        # These carry no subject of their own: whichever object ``of`` names
+        # (or, from `effect_conditions`, an effect-only referent such as the
+        # clause's previous target) is the thing asked about. They exist as
+        # one row each instead of one row per (predicate × referent) pair,
+        # which is what `parser/oracle/spec.py`'s flat vocabulary had been
+        # writing out by hand (``source_has_subtype`` *and*
+        # ``previous_target_has_subtype``, and so on).
+        #
+        # ``flag`` is the degenerate case — "read a boolean the engine
+        # already stamped on this object" — with the attribute name itself a
+        # parameter drawn from `SUBJECT_FLAGS`. Eight flat condition keys
+        # (``bargained``, ``source_was_cast``, ``cast_via_escape``, …) were
+        # that one predicate at eight attributes; a ninth costs a whitelist
+        # row rather than a branch. Same shape, and the same security
+        # posture, as `continuous.count_selector`'s selector names.
+        "flag",  # + ``flag`` (a `SUBJECT_FLAGS` name)
+        "power",  # + ``min``/``max`` — the subject's *derived* power
+        # PAR-123: the rest of what a group trigger's "it" is asked about — "if its toughness is
+        # 4 or greater", "…mana value is 3 or less", "if it has flying", "if it entered this turn".
+        "toughness",  # + ``min``/``max`` — the subject's *derived* toughness
+        "mana_value",  # + ``min``/``max`` — printed mana value (RULE 202.3)
+        "has_keyword",  # + ``keyword`` (a lowercase slug), granted or intrinsic
+        "entered_this_turn",  # RULE 400.7 — the subject came to the battlefield this turn
+        # "…if it dealt combat damage to a player this turn" (Wave of Rats, RULE 603.4) — the
+        # subject's own entry in `GameState.combat_damage_to_players_this_turn` (event-derived,
+        # keyed by the stable `instance_id`, so it still answers once the creature has died).
+        "dealt_combat_damage_to_player_this_turn",
+        # "…if a player was dealt combat damage by a Zombie this turn" (Lost Monarch of Ifnir) — any creature of
+        # ``subtype`` among `combat_damage_to_players_this_turn`'s dealers (found in any zone: it may have died).
+        "subtype_dealt_combat_damage_to_player_this_turn",  # + ``subtype``
+        # "…if you control the creature with the greatest power or tied for the greatest power" (Thickest
+        # in the Thicket) — the controller's best creature power is at least every creature's.
+        "controls_greatest_power_creature",
+        # "…if you control the artifact with the greatest mana value or tied for the greatest mana value"
+        # (Padeem, Consul of Innovation) — the artifact-mana-value sibling.
+        "controls_greatest_mana_value_artifact",
+        # "…unless that player is the monarch" (Fall from Favor) — the ``of`` subject's *controller* is
+        # the monarch (RULE 724), unlike ``is_monarch``, which asks about the static's own controller.
+        "controlled_by_monarch",
+        # Celebration (Goddric, Cloaked Reveler): "as long as two or more nonland permanents entered the battlefield
+        # under your control this turn" — event-derived, + ``min`` (default 2).
+        "nonland_permanents_entered_this_turn",
+        # "…enters during the declare attackers step" (Misleading Signpost) — RULE 500's current step.
+        "during_step",  # + ``step``
+        # "if that player is you" / "…if you control that creature" — the
+        # subject (a player, or a player resolved off a firing event) against
+        # the ability's own controller.
+        "is_you",
+        # "~ deals N damage to any target. **If it's a creature**, …" — an
+        # "any target" clause can land on a player, so the rider needs to ask
+        # which kind of thing the referent turned out to be.
+        "is_player",
+        "is_ring_bearer",  # RULE 701.52a — the subject is "your" Ring-bearer
+        # RULE 702.33b/702.34a Kicker and RULE 107.3c's announced {X}, both
+        # read off the subject's own cast-time record. ``min``/``max``, so
+        # "was it kicked at all", "was it kicked twice" and "was it *not*
+        # kicked" are one row rather than three keys.
+        "kicked",  # + ``min``/``max`` (`GameObject.kicker_count`)
+        "x_paid",  # + ``min``/``max`` (`GameObject.x_paid`)
+        # -- Board/turn facts a *resolving* ability asks (ENG-36). They live
+        # here rather than in `effect_conditions` because they need nothing
+        # but the state: that module owns only what needs a `GameContext`.
+        "no_creatures_on_battlefield",  # RULE 603.4 (Pyrohemia)
+        "combats_this_turn",  # + ``min``/``max`` — RULE 603.4, "first combat phase"
+        # The pre-daybound Innistrad werewolf day/night check — "no spells
+        # were cast last turn" (``max`` 0) and "a player cast 2 or more
+        # spells last turn" (``min`` 2) are one quantity at two thresholds.
+        "spells_cast_last_turn",  # + ``min``/``max``
+        "spells_cast_this_turn",  # + ``min``/``max``, controller-scoped
+        "cards_played_from_exile_this_turn",  # + ``min``/``max``, controller-scoped (Visions of Phyrexia)
+        "graveyard_count",  # + ``min``/``max`` — raw card count, RULE 702.19
+        "ring_tempted",  # + ``min``/``max`` — RULE 701.51b `Player.ring_level`
+        "creatures_died_this_turn",  # + ``min``/``max``
+        # MEC-84 (Revolt / Disappear): "a permanent left the battlefield under
+        # your control this turn" — a controller-scoped turn history, ``min``
+        # 1 by default. ``creature_…`` is the RULE 700.4-narrowed sibling.
+        "permanent_left_battlefield_this_turn",  # + ``min``/``max``
+        "creature_left_battlefield_this_turn",  # + ``min``/``max``
+        # "if an opponent lost N or more life this turn" — any one opponent,
+        # the same "an opponent" reading as ``opponent_count`` above.
+        "opponent_lost_life_this_turn",  # + ``min``/``max``
+        "opponent_was_dealt_damage_this_turn",  # + ``min``/``max``; one opponent
+        "life_lost_this_turn",  # + ``scope`` (you/any), ``min``/``max``
+        "life_lost_last_turn",  # + ``scope`` (you/opponents), ``min``/``max``
+        "source_dealt_damage_to_opponent_this_turn",
+        "source_damage_received_this_turn",  # + ``min``; includes damage before dying
+        "opponent_poison_at_least",  # + ``amount`` — any one opponent
+        # "if you don't control a Food" — a controller-scoped count of a
+        # printed *subtype* word, which neither ``control_count`` (selector
+        # vocabulary) nor ``control_named`` (a specific card name) can spell.
+        # The "don't" is the ``not`` combinator below, not a second kind.
+        "controls_subtype",  # + ``subtype``, ``min``/``max`` (``min`` 1)
+        "opponent_cast_color_this_turn",  # + ``colors`` (WUBRG letters)
+        "another_spell_cast_this_turn",  # + ``color`` or ``spell_type``
         # -- Combinator (MEC-43 round 2, Conqueror's Flail's "As long as
         # this Equipment is attached to a creature, your opponents can't
         # cast spells during your turn." — two independent gates ANDed in
@@ -172,6 +361,72 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # own). + ``conditions`` — a list of these same condition dicts,
         # every one of which must hold.
         "all",
+        # Negation (ENG-36). ``{"kind": "not", "condition": {...}}``. Added
+        # for the resolution-time vocabulary, where roughly half of the flat
+        # keys it replaces were booleans whose ``False`` spelling meant
+        # exactly this ("unless its additional cost was paid", "if you chose
+        # a creature *other than* ~"). The paired kinds above
+        # (``source_tapped``/``source_untapped``, ``your_turn``/
+        # ``not_your_turn``, ``is_licid_aura``/``not_licid_aura``) predate it
+        # and stay as they are — every shipped spec spells them that way —
+        # but a new predicate needs only its positive form now.
+        "not",
+        # PAR-120: the OR sibling of ``all`` — "you control a desert or there
+        # is a desert card in your graveyard" (Desert's Hold and the rest of
+        # the Amonkhet Desert-payoff cluster), reached on a static's own "as
+        # long as"/an activation condition, not just the resolution-time
+        # vocabulary `effect_conditions.py`'s own ``any`` already had (ENG-36)
+        # — that module recurses through *this* one for every referent-free
+        # sub-condition, so one combinator here now covers both surfaces
+        # rather than needing a second. + ``conditions`` — true when *any one*
+        # holds.
+        "any",
+    }
+)
+
+#: Attribute names a ``flag`` condition may read off its subject.
+#:
+#: Every one is a boolean the engine itself stamps at a known choke point,
+#: never anything derived from card text; the whitelist is what keeps a
+#: condition from turning into an arbitrary attribute read (docs/09). The
+#: flat `EffectSpec.condition` key each replaces is named alongside.
+SUBJECT_FLAGS: frozenset[str] = frozenset(
+    {
+        "bargained",  # RULE 601.2b, Beseech the Mirror — was ``bargained``
+        "gift_promised",  # RULE 702.174k (MEC-106) — "if the gift was promised"
+        "madness_cost_paid",  # RULE 702.35 (PAR-139) — "if its/this spell's madness cost was paid"
+        "blitz_cost_paid",  # RULE 702.152: this instance was cast for blitz.
+        "surge_cost_paid",  # RULE 702.117 — "if its/this spell's surge cost was paid"
+        # RULE 601.2b's generic optional additional cost, stamped by
+        # `GameEngine.cast_spell` — was ``additional_cost_paid``.
+        "additional_cost_paid",
+        "was_cast",  # RULE 601.2 — was ``source_was_cast``
+        "foretold",  # RULE 702.143d — was ``source_was_foretold``
+        "cast_via_escape",  # RULE 702.139 — was ``cast_via_escape``
+        # RULE 601.3a (Necromancy) — was ``cast_outside_sorcery_speed``.
+        "cast_outside_sorcery_speed",
+        "cast_during_your_main_phase",  # Addendum (RULE 505.1)
+        "renowned",  # RULE 702.111b — was ``source_is_renowned``
+        "is_suspected",  # RULE 701.60c — was ``previous_target_is_suspected``
+        # RULE 602.2b (an activated ability's sacrifice cost) — "if the sacrificed
+        # creature was suspected, draw 2 cards instead" — stamped onto the
+        # activating source by `GameEngine`'s cost-payment step, read off *that*
+        # object rather than the (now-gone) sacrificed one.
+        "sacrificed_cost_was_suspected",
+        # RULE 702.194b (PAR-56) — Teamwork's own cast-time record
+        # (`GameObject.teamwork_paid`, stamped by `GameEngine.cast_spell`
+        # exactly like `bargained`/`additional_cost_paid` above), for
+        # resolve-time riders beyond the modal "choose both instead"
+        # shape `_modal_override_active` already special-cases.
+        "teamwork_paid",
+        # RULE 601.2/400.1 (PAR-120) — "if you cast it from your hand" (the
+        # "~ enters, if you cast it[ from your hand], …" ETB cluster,
+        # distinguishing a cast permanent from one reanimated/cheated in) —
+        # `GameObject.was_cast_from_hand`, already stamped by `GameEngine.
+        # cast_spell` (`obj.was_cast_from_hand = obj.zone == Zone.HAND`) for
+        # an unrelated counter-amount gate; this is its first boolean-
+        # condition route.
+        "was_cast_from_hand",
     }
 )
 
@@ -222,6 +477,24 @@ def _counter_count(source: Any, kind: Optional[str]) -> int:
     return total + int(getattr(source, "plus_one_counters", 0) or 0)
 
 
+def _within(n: int, condition: dict[str, Any], default_min: Optional[int] = None) -> bool:
+    """``n`` against the condition's optional ``min``/``max`` bounds.
+
+    The counted rows all share this, which is what lets one quantity at two
+    thresholds be one ``kind`` — "the Ring has tempted you 3 or more times"
+    and "…no more than 3 times" differ only in which bound is set, where the
+    flat vocabulary spelled them as two unrelated keys whose relationship
+    nothing recorded.
+    """
+    minimum = condition.get("min", default_min)
+    maximum = condition.get("max")
+    if minimum is not None and n < int(minimum):
+        return False
+    if maximum is not None and n > int(maximum):
+        return False
+    return True
+
+
 def _subject(
     condition: dict[str, Any],
     state: "GameState",
@@ -249,6 +522,54 @@ def _subject(
         if getattr(obj, "instance_id", None) == host_id:
             return obj
     return None
+
+
+def _events_this_turn_matching(
+    state: Any, trigger: dict[str, Any], source: Any, controller_id: str
+) -> int:
+    """How many events of the current turn a trigger-shaped dict matches (ENG-47).
+
+    The predicate is the binder's own `_trigger_condition` — so "a creature you
+    controlled died this turn" means exactly what "whenever a creature you control
+    dies" means, including a departed object's last-known values — evaluated against
+    the logged events, with ``source`` (or, for a condition with none, the asking
+    player) standing in for "you".
+    """
+    from types import SimpleNamespace
+
+    from .binding.core import _trigger_condition  # local: binding imports this module
+
+    events = trigger["event"] if isinstance(trigger["event"], (list, tuple)) else [trigger["event"]]
+    asker = source if source is not None else SimpleNamespace(
+        controller_id=controller_id, instance_id=None
+    )
+    context = SimpleNamespace(state=state)
+    predicates = {
+        name: _trigger_condition({**trigger, "event": name}, asker) for name in events
+    }
+    count = 0
+    for event in state.events_this_turn():
+        name = getattr(event.type, "name", str(event.type))
+        if name not in predicates:
+            continue
+        predicate = predicates[name]
+        if predicate is None or predicate(event, context):
+            count += 1
+    return count
+
+
+def _selector_arg(selector: Any) -> Any:
+    """A count selector as `continuous.count_selector` takes it: a structured dict as
+    is, anything else as its string name."""
+    return selector if isinstance(selector, dict) else str(selector)
+
+
+def _selector_label(selector: Any) -> str:
+    """A short human label for a selector (named, or a structured dict)."""
+    if not isinstance(selector, dict):
+        return str(selector)
+    filt = ", ".join(str(v) if v is not True else str(k) for k, v in (selector.get("filter") or {}).items())
+    return f"{selector.get('zone', 'battlefield')}/{selector.get('of', 'you')}" + (f" [{filt}]" if filt else "")
 
 
 def condition_holds(
@@ -281,11 +602,34 @@ def condition_holds(
             condition_holds(sub, state, source, controller_id, affected)
             for sub in (condition.get("conditions") or [])
         )
+    if kind == "any":
+        # The OR sibling of ``all`` above — true the moment one sub-condition
+        # holds. An empty list is fail-closed (no disjunct to satisfy), the
+        # same direction ``all``'s own vacuous-true reading doesn't need to
+        # guard against a printed card never producing.
+        return any(
+            condition_holds(sub, state, source, controller_id, affected)
+            for sub in (condition.get("conditions") or [])
+        )
+    if kind == "not":
+        # A missing ``condition`` would make this trivially true, which is
+        # the wrong direction for a fail-closed vocabulary — so an empty
+        # ``not`` is false, like an unrecognized ``kind``.
+        inner = condition.get("condition")
+        if not inner or inner.get("kind") not in STATIC_CONDITION_KINDS:
+            # An unrecognized inner ``kind`` is *unanswerable*, so neither
+            # polarity holds: negating it must not turn "we don't model this"
+            # into a gate that always fires.
+            return False
+        return not condition_holds(inner, state, source, controller_id, affected)
 
     # Which object the subject-scoped rows below read: the source itself by
     # default, or an attached host / a floating static's affected permanent.
     subject = _subject(condition, state, source, affected)
 
+    if kind == "action_unused_this_turn":
+        performed = getattr(source, "action_turns", None) or {}
+        return performed.get(str(condition.get("key"))) != state.internal_turn.number
     if kind == "source_tapped":
         return bool(getattr(subject, "tapped", False))
     if kind == "source_untapped":
@@ -294,6 +638,8 @@ def condition_holds(
         return subject is not None and not getattr(subject, "tapped", False)
     if kind == "source_monstrous":
         return bool(getattr(subject, "is_monstrous", False))
+    if kind == "source_harnessed":  # MEC-79 / RULE 701.64b
+        return bool(getattr(subject, "harnessed", False))
     if kind == "is_licid_aura":  # MEC-47 — this Licid is currently an Aura
         return bool(getattr(subject, "is_licid_aura", False))
     if kind == "not_licid_aura":  # MEC-47 — this Licid is still a creature
@@ -302,11 +648,21 @@ def condition_holds(
         return bool(getattr(subject, "attacking", False))
     if kind == "source_attacked_this_turn":  # PAR-28 RULE 702.142a
         return bool(getattr(subject, "attacked_this_turn", False))
+    if kind == "you_attacked_this_turn":  # PAR-62 / RULE 508.1a (Raid)
+        return controller_id in (getattr(state, "players_attacked_this_turn", None) or set())
     if kind == "source_solved":  # PAR-28 RULE 702.169b / 719.3b
         return bool(getattr(subject, "is_solved", False))
     if kind == "your_speed_is_max":  # PAR-28 RULE 702.178a / 702.179e
         player = _controller(state, controller_id)
         return player is not None and int(getattr(player, "speed", 0) or 0) >= 4
+    if kind == "your_main_phase":
+        active = getattr(state, "active_player", None)
+        return (
+            active is not None
+            and controller_id is not None
+            and active.id == controller_id
+            and getattr(state, "current_step", "") in ("main1", "main2")
+        )
     if kind == "your_upkeep":  # PAR-28 RULE 702.57b Forecast
         active = getattr(state, "active_player", None)
         return (
@@ -339,6 +695,10 @@ def condition_holds(
             return False
         instance_id = getattr(subject, "instance_id", None)
         return any(o.instance_id == instance_id for o in state.permanents())
+    if kind == "chosen_mode":
+        if subject is None:
+            return False
+        return getattr(subject, "chosen_mode", None) == condition.get("mode")
     if kind == "source_counters":
         if subject is None:
             return False
@@ -350,6 +710,112 @@ def condition_holds(
         if maximum is not None and n > int(maximum):
             return False
         return True
+
+    if kind == "flag":
+        # See `SUBJECT_FLAGS`. An unlisted name is false rather than an
+        # attribute read, so card text can never name its own field.
+        name = str(condition.get("flag", ""))
+        if subject is None or name not in SUBJECT_FLAGS:
+            return False
+        return bool(getattr(subject, name, False))
+    if kind == "power":
+        # Derived power (the layer engine's output), so a pump/anthem that
+        # already resolved counts — the same read every other characteristic
+        # row here makes.
+        if subject is None or not hasattr(subject, "instance_id"):
+            return False
+        return _within(int(getattr(subject, "power", 0) or 0), condition)
+    if kind == "toughness":
+        if subject is None or not hasattr(subject, "instance_id"):
+            return False
+        return _within(int(getattr(subject, "toughness", 0) or 0), condition)
+    if kind == "mana_value":
+        card = getattr(subject, "card", None)
+        if card is None:
+            return False
+        return _within(int(getattr(card, "converted_mana_cost", 0) or 0), condition)
+    if kind == "has_keyword":
+        if subject is None or not hasattr(subject, "instance_id"):
+            return False
+        from .combat import _obj_keywords  # local: combat imports this module
+
+        return str(condition.get("keyword", "")).lower() in {str(k).lower() for k in _obj_keywords(subject)}
+    if kind == "entered_this_turn":
+        entered = getattr(subject, "turn_entered", None)
+        return entered is not None and entered == state.internal_turn.number
+    if kind == "controls_greatest_power_creature":
+        creatures = [o for o in state.permanents() if o.is_creature]
+        mine = [o for o in creatures if o.controller_id == controller_id]
+        if not mine:
+            return False
+        return max(o.power or 0 for o in mine) >= max(o.power or 0 for o in creatures)
+    if kind == "during_step":
+        return getattr(state, "current_step", "") == str(condition.get("step", ""))
+    if kind == "nonland_permanents_entered_this_turn":
+        from ..models.game.events import EventType  # function-scoped: models must not import game at load
+
+        entered = sum(
+            1 for e in state.events_this_turn()
+            if e.type == EventType.ENTERS_BATTLEFIELD and e.get("controller_id") == controller_id
+            and "land" not in (e.get("object_types") or [])
+        )
+        return entered >= int(condition.get("min", 2))
+    if kind == "controlled_by_monarch":
+        owner_id = getattr(subject, "controller_id", None)
+        return owner_id is not None and getattr(state, "monarch_id", None) == owner_id
+    if kind == "controls_greatest_mana_value_artifact":
+        artifacts = [o for o in state.permanents() if o.card.is_artifact]
+        mine = [o for o in artifacts if o.controller_id == controller_id]
+        if not mine:
+            return False
+        value = lambda o: int(getattr(o.card, "converted_mana_cost", 0) or 0)  # noqa: E731
+        return max(map(value, mine)) >= max(map(value, artifacts))
+    if kind == "dealt_combat_damage_to_player_this_turn":
+        instance_id = getattr(subject, "instance_id", None)
+        if instance_id is None:
+            return False
+        return bool(state.combat_damage_to_players_this_turn.get(instance_id))
+    if kind == "subtype_dealt_combat_damage_to_player_this_turn":
+        from .continuous import derived_subtype_words  # function-scoped: continuous imports this module
+
+        wanted = str(condition.get("subtype") or "").lower()
+        if not wanted:
+            return False
+        for instance_id in state.combat_damage_to_players_this_turn:
+            dealer = state.find_object(instance_id)
+            if dealer is None:
+                continue
+            if wanted in {w.lower() for w in derived_subtype_words(dealer)} or wanted in dealer.card.type_line.lower():
+                return True
+        return False
+    if kind == "is_you":
+        if subject is None or controller_id is None:
+            return False
+        if getattr(subject, "instance_id", None) is not None:
+            # An object subject reads its controller — "if you controlled
+            # that permanent" (Geistwave), RULE 109.4. A player has no
+            # ``instance_id``, the same test `is_player` uses.
+            return getattr(subject, "controller_id", None) == controller_id
+        return getattr(subject, "id", None) == controller_id
+    if kind == "is_player":
+        # A `Player` has no ``instance_id``; that absence is what the
+        # targeting code already uses to tell the two apart.
+        return subject is not None and not hasattr(subject, "instance_id")
+    if kind == "is_ring_bearer":
+        # RULE 701.52a — the controller's chosen bearer, against this
+        # subject's own identity.
+        player = _controller(state, controller_id)
+        bearer_id = getattr(player, "ring_bearer_id", None)
+        subject_id = getattr(subject, "instance_id", None)
+        return bearer_id is not None and subject_id is not None and bearer_id == subject_id
+    if kind == "kicked":  # RULE 702.33b/702.34a
+        if subject is None:
+            return False
+        return _within(int(getattr(subject, "kicker_count", 0) or 0), condition)
+    if kind == "x_paid":  # RULE 107.3c
+        if subject is None:
+            return False
+        return _within(int(getattr(subject, "x_paid", 0) or 0), condition)
 
     if kind in ("is_card_type", "is_color", "is_subtype"):
         # RULE 109.3 characteristics, read through `continuous`'s own matchers
@@ -369,6 +835,18 @@ def condition_holds(
         subtype = condition.get("subtype")
         return bool(subtype) and _has_subtype(subject, str(subtype))
 
+    if kind == "is_legendary":
+        return subject is not None and bool(getattr(subject, "is_legendary", False))
+    if kind == "is_basic":
+        card = getattr(subject, "card", None)
+        supertypes = str(getattr(card, "type_line", "") or "").split("—")[0].lower().split()
+        return "basic" in supertypes
+    if kind == "was_dealt_damage_this_turn":
+        return subject is not None and int(getattr(subject, "damage_marked", 0) or 0) > 0
+
+    if kind == "source_in_graveyard":
+        return source is not None and getattr(source, "zone", None) == "graveyard"  # `Zone` is a str enum
+
     if kind in ("your_turn", "not_your_turn"):
         active = getattr(state, "active_player", None)
         is_yours = active is not None and controller_id is not None and active.id == controller_id
@@ -381,6 +859,9 @@ def condition_holds(
     if kind == "has_city_blessing":
         player = _controller(state, controller_id)
         return bool(player is not None and player.has_city_blessing)
+    if kind == "has_enduring_story":
+        player = _controller(state, controller_id)
+        return bool(player is not None and player.has_enduring_story)
 
     if kind == "control_count":
         selector = condition.get("selector")
@@ -402,7 +883,12 @@ def condition_holds(
         else:
             from .continuous import count_selector  # local: continuous imports this module
 
-            n = count_selector(state, controller_id, str(selector))
+            # ``source`` matters to two selectors (``exiled_with_source``,
+            # ``source_x_paid``) that count something about the ability's own
+            # permanent rather than the board; it was omitted here while no
+            # static named one, and `effect_conditions` routes the shipped
+            # ``count_selector_at_least`` gate through this row (ENG-36).
+            n = count_selector(state, controller_id, _selector_arg(selector), source=source)
         minimum = condition.get("min")
         maximum = condition.get("max")
         if minimum is not None and n < int(minimum):
@@ -410,6 +896,31 @@ def condition_holds(
         if maximum is not None and n > int(maximum):
             return False
         return True
+    if kind == "control_legendary_subtype":
+        # "as long as you control a legendary Assassin" (Brotherhood Spy and
+        # the like) — a live board read, like `control_count` above.
+        subtype = str(condition.get("subtype", "")).lower()
+        return bool(subtype and controller_id is not None and any(
+            o.is_creature and o.controller_id == controller_id
+            and "legendary" in str(o.card.type_line).lower()
+            and subtype in str(o.card.type_line).lower()
+            for o in state.battlefield
+        ))
+    if kind == "control_permanent_of_each_color":
+        # "As long as you control a permanent of each color" (Spirit of
+        # Resistance, PAR-78) — unlike `control_count`'s single min/max
+        # threshold on one selector, this is five independent booleans
+        # (one per WUBRG colour) ANDed together; a devotion-shaped check,
+        # not a count.
+        if controller_id is None:
+            return False
+        present = {
+            c
+            for o in state.battlefield
+            if o.controller_id == controller_id
+            for c in o.colors
+        }
+        return {"W", "U", "B", "R", "G"}.issubset(present)
     if kind == "opponent_count":
         # "As long as **an** opponent has N or more cards in their graveyard"
         # (Blackbloom Rogue) — the same `count_selector` vocabulary as
@@ -426,13 +937,41 @@ def condition_holds(
         for other in getattr(state, "players", []):
             if other.id == controller_id:
                 continue
-            n = count_selector(state, other.id, str(selector))
+            n = count_selector(state, other.id, _selector_arg(selector), source=source)
             if minimum is not None and n < int(minimum):
                 continue
             if maximum is not None and n > int(maximum):
                 continue
             return True
         return False
+    if kind == "event_this_turn":
+        trigger = condition.get("trigger")
+        if not isinstance(trigger, dict) or controller_id is None:
+            return False
+        n = _events_this_turn_matching(state, trigger, source, controller_id)
+        minimum = condition.get("min")
+        maximum = condition.get("max")
+        if minimum is not None and n < int(minimum):
+            return False
+        if maximum is not None and n > int(maximum):
+            return False
+        return True
+    if kind == "opponent_has_more":
+        # "…if an opponent controls more lands than you" — some one opponent's
+        # count of the selector exceeds the ability controller's own (RULE 107.1
+        # comparison of two counts of the same structured selector, each read from
+        # its own player's point of view).
+        from .continuous import count_selector  # local: continuous imports this module
+
+        selector = condition.get("selector")
+        if not selector or controller_id is None:
+            return False
+        mine = count_selector(state, controller_id, _selector_arg(selector), source=source)
+        return any(
+            count_selector(state, other.id, _selector_arg(selector), source=source) > mine
+            for other in getattr(state, "players", [])
+            if other.id != controller_id
+        )
     if kind == "control_named":
         # "As long as you control a <specific card>" — matched on name, the
         # only stable identity a parsed condition can carry (an instance id
@@ -447,6 +986,44 @@ def condition_holds(
             for o in state.permanents()
         )
 
+    if kind == "no_creatures_on_battlefield":
+        # "At the beginning of the end step, if no creatures are on the
+        # battlefield, sacrifice ~." (Pyrohemia) — global, unlike
+        # ``controls_subtype``'s controller-scoped count.
+        return not any(o.is_creature for o in state.battlefield)
+    if kind == "combats_this_turn":
+        # RULE 603.4's textbook example — "if it's the first combat phase of
+        # the turn" is ``max`` 1, and the extra-combat self-loop guard every
+        # such grant needs is the same quantity's other bound, rather than a
+        # second key.
+        return _within(int(getattr(state, "combats_this_turn", 0) or 0), condition)
+    if kind == "spells_cast_last_turn":
+        # The pre-daybound werewolf day/night check (RULE 603.4), reading
+        # `GameState._last_turn_spell_count` — the same field
+        # `RulesEngine.apply_day_night_turn_check` (RULE 731.2a/2b) uses.
+        # No previous turn (turn 1) means neither bound is answerable, so
+        # the condition simply doesn't hold, matching that check's own
+        # turn-1 no-op.
+        if getattr(state, "_last_turn_player_id", None) is None:
+            return False
+        return _within(int(getattr(state, "_last_turn_spell_count", 0) or 0), condition)
+
+    if kind == "spells_cast_this_turn":
+        if controller_id is None:
+            return False
+        return _within(
+            int((getattr(state, "spells_cast_this_turn", {}) or {}).get(controller_id, 0)),
+            condition,
+        )
+
+    if kind == "cards_played_from_exile_this_turn":
+        if controller_id is None:
+            return False
+        return _within(
+            int((getattr(state, "cards_played_from_exile_this_turn", {}) or {}).get(controller_id, 0)),
+            condition,
+        )
+
     player = _controller(state, controller_id)
     if player is None:
         return False
@@ -454,6 +1031,16 @@ def condition_holds(
         return int(getattr(player, "life", 0)) >= int(condition.get("amount", 0))
     if kind == "life_at_most":
         return int(getattr(player, "life", 0)) <= int(condition.get("amount", 0))
+    if kind == "opponent_life_at_most":
+        # "as long as an opponent has 10 or less life" (Bloodghast, PAR-60) —
+        # true when *any one* opponent satisfies it, the same "an opponent"
+        # semantics as ``opponent_count``.
+        threshold = int(condition.get("amount", 0))
+        return any(
+            int(getattr(p, "life", 0)) <= threshold
+            for p in getattr(state, "players", [])
+            if p.id not in (None, controller_id)
+        )
     if kind == "cards_in_hand_at_least":
         return len(getattr(player, "hand", [])) >= int(condition.get("amount", 0))
     if kind == "cards_in_hand_at_most":
@@ -466,10 +1053,92 @@ def condition_holds(
         # reset per turn by the same bookkeeping, so this is a read, not a new
         # counter.
         drawn = getattr(state, "cards_drawn_this_turn", None) or {}
-        return int(drawn.get(controller_id, 0) or 0) >= int(condition.get("amount", 0))
+        amount = int(condition.get("amount", 0))
+        if condition.get("scope") == "opponents":
+            return any(
+                int(drawn.get(p.id, 0) or 0) >= amount
+                for p in state.living_players() if p.id != controller_id
+            )
+        return int(drawn.get(controller_id, 0) or 0) >= amount
+    if kind == "mana_color_spent_to_cast_at_least":
+        color = str(condition.get("color", "")).upper()
+        return int((getattr(source, "mana_by_color_spent_to_cast", None) or {}).get(color, 0)) >= int(condition.get("amount", 1))
+    if kind == "treasure_mana_spent_to_cast":
+        return int(getattr(source, "mana_spent_to_cast_treasure", 0) or 0) > 0
+    if kind == "treasure_mana_spent_to_activate":
+        return int(getattr(source, "mana_spent_to_activate_treasure", 0) or 0) > 0
     if kind == "cast_instant_or_sorcery_this_turn":
         cast = getattr(state, "cast_instant_or_sorcery_this_turn", None) or {}
         return bool(cast.get(controller_id, False))
+    if kind == "cast_spell_this_turn":
+        return bool((getattr(state, "spells_cast_this_turn", None) or {}).get(controller_id, 0))
+    if kind == "cast_noncreature_spell_this_turn":
+        cast = getattr(state, "noncreature_spells_cast_this_turn", None) or {}
+        return int(cast.get(controller_id, 0) or 0) > 0
+    if kind == "gained_life_this_turn":
+        # "if you gained life this turn" (Eccentric Pestfinder / Witch of the
+        # Moors / Mortality Spear, PAR-60) — `GameState.life_gained_this_turn`
+        # is bumped at `RulesEngine.gain_life`'s single choke point and reset
+        # per turn, so this is a read, not a new counter. Optional ``amount``
+        # (default 1) for the rare "gained N or more life this turn" phrasing.
+        gained = getattr(state, "life_gained_this_turn", None) or {}
+        return int(gained.get(controller_id, 0) or 0) >= int(condition.get("amount", 1) or 1)
+    if kind == "descended_this_turn":
+        return controller_id in (getattr(state, "permanent_card_to_graveyard_this_turn", None) or set())
+    if kind == "card_left_graveyard_this_turn":
+        return controller_id in getattr(state, "cards_left_graveyard_this_turn", set())
+    if kind == "graveyard_card_type_count_at_least":
+        # "if there are 3 or more artifact and/or creature cards in your
+        # graveyard" (Lorehold Archivist, PAR-60). + ``types`` (a list of
+        # lowercase card-type words, ORed per card) and ``amount``.
+        want = {str(t).lower() for t in (condition.get("types") or [])}
+        need = int(condition.get("amount", 1) or 1)
+        hits = sum(
+            1 for o in getattr(player, "graveyard", [])
+            if want & {w for w in getattr(o, "type_words", set()) if w != "permanent"}
+        )
+        return hits >= need
+    if kind == "control_no_creatures_with_keyword":
+        # "if you control no creatures with decayed" (Jadar, Ghoulcaller of
+        # Nephalia, PAR-60) — a keyword-scoped control-count, unlike
+        # ``control_count``'s subtype selectors. + ``keyword`` (a lowercase
+        # keyword slug checked against each creature's granted + intrinsic
+        # keyword union).
+        word = str(condition.get("keyword", "")).lower()
+        try:
+            from .continuous import _obj_keywords
+        except Exception:  # pragma: no cover - defensive
+            _obj_keywords = None
+        for o in getattr(state, "battlefield", []):
+            if not (o.is_creature and o.controller_id == controller_id):
+                continue
+            kws = _obj_keywords(o) if _obj_keywords else (
+                set(getattr(o, "granted_keywords", set()))
+                | set(getattr(o, "intrinsic_keywords", set()))
+            )
+            if word in {str(k).lower() for k in kws}:
+                return False
+        return True
+    if kind == "any_player_cards_in_hand_at_most":
+        # "if a player has one or fewer cards in hand" (Naktamun Lorespinner,
+        # PAR-60) — "a player" = any player, including you. + ``amount``.
+        n = int(condition.get("amount", 0))
+        return any(
+            len(getattr(p, "hand", [])) <= n for p in getattr(state, "players", [])
+        )
+    if kind == "active_player_cards_in_hand_at_most":
+        active = getattr(state, "active_player", None)
+        if active is None:
+            return False
+        return len(getattr(active, "hand", [])) <= int(condition.get("amount", 0))
+    if kind == "opponent_controls_more_lands":
+        from .continuous import count_selector
+        mine = count_selector(state, controller_id, "lands_you_control")
+        return any(
+            count_selector(state, p.id, "lands_you_control") > mine
+            for p in getattr(state, "players", [])
+            if p.id not in (None, controller_id)
+        )
     if kind == "you_dealt_damage_this_turn_at_least":
         # PAR-32 (Dragon Cultist): "if a source you controlled dealt N or
         # more damage this turn" — `GameState.damage_dealt_by_this_turn`,
@@ -482,6 +1151,15 @@ def condition_holds(
         # graveyard_this_turn`, a set of owner ids.
         seen = getattr(state, "creature_card_to_graveyard_this_turn", None) or set()
         return controller_id in seen
+    if kind == "you_placed_counter_on_creature_this_turn":
+        # Lasting Tarfire: "if you put a counter on a creature this turn" —
+        # `GameState.counter_placed_on_creature_this_turn`, a set of the
+        # COUNTER event's causer (``source_controller_id``) ids.
+        seen = getattr(state, "counter_placed_on_creature_this_turn", None) or set()
+        return controller_id in seen
+    if kind == "first_legendary_creature_spell_this_turn":
+        counts = getattr(state, "spell_type_cast_counts_this_turn", None) or {}
+        return (counts.get(controller_id, {}) or {}).get("legendary_creature", 0) == 0
     if kind == "first_subtype_spell_this_turn":
         # MEC-60 (Acolyte of Bahamut): "The first Dragon spell you cast each
         # turn costs {2} less to cast." True until `controller_id` has cast
@@ -508,6 +1186,13 @@ def condition_holds(
             if word in obj.card.type_line.lower()
         )
         return hits >= minimum
+    if kind == "distinct_mana_values_in_graveyard_at_least":
+        # Sewer Crocodile: cards with the same mana value count only once.
+        minimum = int(condition.get("min", 1) or 1)
+        return len({
+            int(getattr(obj.card, "converted_mana_cost", 0) or 0)
+            for obj in getattr(player, "graveyard", [])
+        }) >= minimum
     if kind == "another_subtype_entered_this_turn":
         # MEC-46 (Galadriel): a permanent other than the source, controlled
         # by "you", carrying the named type word, that entered this turn.
@@ -527,18 +1212,129 @@ def condition_holds(
                 return True
         return False
     if kind == "card_types_in_graveyard_at_least":
-        # RULE 702.137's "Delirium" — count *distinct printed card types*
-        # among cards in your graveyard (Dragon's Rage Channeler/Winter,
-        # Misanthropic Guide-shaped). `GameObject.type_words` always
-        # includes the synthetic "permanent" marker (RULE 110.1) — not a
-        # real card type, so it's excluded from the count the same way a
-        # land/instant/sorcery card in the graveyard (not itself a
-        # permanent) still counts toward delirium.
+        # RULE 702.137's "Delirium" — count *distinct card types* (RULE
+        # 205.2a) among cards in your graveyard (Dragon's Rage Channeler/
+        # Winter, Misanthropic Guide-shaped). `continuous.card_types_of`
+        # drops what `GameObject.type_words` carries that isn't a card type:
+        # the synthetic "permanent" marker and every supertype — a Legendary
+        # Sorcery used to count as two types here.
+        from .continuous import card_types_of  # local: continuous imports this module
+
         types: set[str] = set()
         for obj in getattr(player, "graveyard", []):
-            types |= obj.type_words
-        types.discard("permanent")
+            types |= card_types_of(obj)
         return len(types) >= int(condition.get("amount", 0))
+    if kind == "graveyard_count":
+        # RULE 702.19 Threshold's raw card count, unlike
+        # ``card_types_in_graveyard_at_least`` (distinct types) or
+        # ``graveyard_card_type_count_at_least`` (a type filter).
+        return _within(len(getattr(player, "graveyard", []) or []), condition)
+    if kind == "ring_tempted":
+        # RULE 701.51b — `Player.ring_level`, capped at 4.
+        return _within(int(getattr(player, "ring_level", 0) or 0), condition)
+    if kind == "creatures_died_this_turn":
+        # `GameState.creatures_died_this_turn`, tallied at
+        # `RulesEngine._move_to_graveyard`'s own DIES handling.
+        died = getattr(state, "creatures_died_this_turn", None) or {}
+        return _within(int(died.get(controller_id, 0) or 0), condition)
+    if kind == "permanent_left_battlefield_this_turn":  # MEC-84 — Revolt
+        left = getattr(state, "permanents_left_battlefield_this_turn", None) or {}
+        return _within(int(left.get(controller_id, 0) or 0), condition, default_min=1)
+    if kind == "creature_left_battlefield_this_turn":  # MEC-84
+        left = getattr(state, "creatures_left_battlefield_this_turn", None) or {}
+        return _within(int(left.get(controller_id, 0) or 0), condition, default_min=1)
+    if kind == "opponent_was_dealt_damage_this_turn":
+        # RULE 120.3a–b: damage is independent of life loss (including
+        # infect), and "an opponent" tests each opponent separately.
+        dealt = state.damage_dealt_to_players_this_turn
+        return any(
+            _within(int(dealt.get(p.id, 0) or 0), condition, default_min=1)
+            for p in state.living_players()
+            if p.id != controller_id
+        )
+    if kind == "opponent_lost_life_this_turn":
+        # True when *any one* opponent is inside the bounds — the same "an
+        # opponent" reading as ``opponent_count``/``opponent_life_at_most``.
+        lost = getattr(state, "life_lost_this_turn", None) or {}
+        return any(
+            _within(int(lost.get(p.id, 0) or 0), condition)
+            for p in state.living_players()
+            if p.id != controller_id
+        )
+    if kind == "life_lost_this_turn":
+        lost = getattr(state, "life_lost_this_turn", None) or {}
+        if condition.get("scope") == "you":
+            return _within(int(lost.get(controller_id, 0) or 0), condition)
+        if condition.get("scope") == "any":
+            return any(_within(int(lost.get(p.id, 0) or 0), condition)
+                       for p in state.living_players())
+        return False
+    if kind == "life_lost_last_turn":
+        lost: dict[str, int] = {}
+        for event in state.events_last_turn():
+            if event.type == "LIFE_LOST":
+                pid = event.get("player_id")
+                if pid is not None:
+                    lost[pid] = lost.get(pid, 0) + int(event.get("amount") or 0)
+        if condition.get("scope") == "you":
+            return _within(lost.get(controller_id, 0), condition, default_min=1)
+        if condition.get("scope") == "opponents":
+            return any(_within(lost.get(p.id, 0), condition, default_min=1)
+                       for p in state.living_players() if p.id != controller_id)
+        return False
+    if kind == "source_dealt_damage_to_opponent_this_turn":
+        source_id = getattr(source, "instance_id", None)
+        return source_id is not None and any(
+            event.type == "DAMAGE" and event.get("source_id") == source_id
+            and event.get("is_player") and event.get("target_id") != event.get("source_controller_id")
+            and int(event.get("amount") or 0) > 0
+            for event in state.events_this_turn()
+        )
+    if kind == "source_damage_received_this_turn":
+        source_id = getattr(source, "instance_id", None)
+        if source_id is None:
+            return False
+        total = sum(int(event.get("amount") or 0) for event in state.events_this_turn()
+                    if event.type == "DAMAGE" and not event.get("is_player")
+                    and event.get("target_id") == source_id)
+        return _within(total, condition)
+    if kind == "opponent_poison_at_least":
+        amount = int(condition.get("amount", 0))
+        return any(int(getattr(p, "poison", 0) or 0) >= amount
+                   for p in state.living_players() if p.id != controller_id)
+    if kind == "controls_subtype":
+        # A live battlefield scan for the controller's own permanents whose
+        # printed *subtype* portion carries the word — the same word-list
+        # convention `segmenter._SACRIFICE_TYPE_TRIGGER_RE`/
+        # `_NAMED_TOKEN_WORDS` already trust. ``min`` defaults to 1, since
+        # "you control a Food" is the only phrasing that reaches here
+        # without an explicit bound.
+        word = str(condition.get("subtype", "")).lower()
+        if not word:
+            return False
+        n = sum(
+            1 for o in state.battlefield
+            if o.controller_id == controller_id
+            and word in o.card.type_line.partition("—")[2].strip().lower().split()
+        )
+        return _within(n, condition, default_min=1)
+    if kind == "opponent_cast_color_this_turn":
+        # "…if an opponent has cast a blue or black spell this turn."
+        # (Veil of Summer) — any opponent's `GameState.
+        # spell_colors_cast_this_turn` intersecting ``colors``.
+        wanted = {str(c).upper() for c in (condition.get("colors") or [])}
+        cast = getattr(state, "spell_colors_cast_this_turn", None) or {}
+        return any(colors & wanted for pid, colors in cast.items() if pid != controller_id)
+    if kind == "another_spell_cast_this_turn":
+        color = condition.get("color")
+        spell_type = condition.get("spell_type")
+        if color and not spell_type:
+            counts = getattr(state, "spell_color_cast_counts_this_turn", None) or {}
+            return int((counts.get(controller_id, {}) or {}).get(str(color).upper(), 0)) >= 2
+        if spell_type and not color:
+            counts = getattr(state, "spell_type_cast_counts_this_turn", None) or {}
+            return int((counts.get(controller_id, {}) or {}).get(str(spell_type).lower(), 0)) >= 2
+        return False
     return False
 
 
@@ -589,6 +1385,12 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
     if kind == "all":
         parts = [describe(sub).removeprefix("solange ") for sub in (condition.get("conditions") or [])]
         return "solange " + " und ".join(p for p in parts if p) if parts else "bedingt"
+    if kind == "any":
+        parts = [describe(sub).removeprefix("solange ") for sub in (condition.get("conditions") or [])]
+        return "solange " + " oder ".join(p for p in parts if p) if parts else "bedingt"
+    if kind == "not":
+        inner = describe(condition.get("condition")).removeprefix("solange ")
+        return f"solange nicht {inner}" if inner else "bedingt"
     # The subject-scoped rows read "solange <X>"; with ``of`` naming something
     # other than the source, say which permanent is meant.
     of = condition.get("of") or "source"
@@ -598,6 +1400,7 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
         "source_tapped": "getappt",
         "source_untapped": "ungetappt",
         "source_monstrous": "monströs",
+        "source_harnessed": "gezähmt",
         "source_attacking": "angreifend",
         "source_blocking": "blockend",
         "source_paired": "verbündet",
@@ -605,6 +1408,8 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
         "source_equipped": "ausgerüstet",
         "source_enchanted": "verzaubert",
         "source_attacked_this_turn": "hat diesen Zug angegriffen",
+        "your_main_phase": "in deiner Hauptphase",
+        "you_attacked_this_turn": "du hast diesen Zug angegriffen",
         "source_solved": "solange gelöst",
     }
     if kind == "your_speed_is_max":
@@ -615,12 +1420,16 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
         return "nur in deinem Zug"
     if kind == "not_your_turn":
         return "nur außerhalb deines Zuges"
+    if kind == "source_in_graveyard":
+        return "nur beim Wirken aus dem Friedhof"
     if kind == "is_monarch":
         return "solange Monarch"
     if kind == "has_initiative":
         return "solange Initiative"
     if kind == "has_city_blessing":
         return "solange Segen der Stadt"
+    if kind == "has_enduring_story":
+        return "solange andauernde Geschichte"
     if kind == "source_on_battlefield":
         return prefix + "im Spiel"
     if kind == "is_card_type":
@@ -631,10 +1440,16 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
         return prefix + f"vom Typ {condition.get('subtype', '')}"
     if kind == "source_counters":
         return prefix + f"≥{condition.get('min', 1)} {condition.get('counter', 'Marken')}"
+    if kind == "chosen_mode":
+        return f"solange {condition.get('mode', '')} gewählt ist"
     if kind == "control_count":
-        return f"solange ≥{condition.get('min', 1)} {condition.get('selector', '')}"
+        return f"solange ≥{condition.get('min', 1)} {_selector_label(condition.get('selector', ''))}"
     if kind == "opponent_count":
-        return f"solange Gegner ≥{condition.get('min', 1)} {condition.get('selector', '')}"
+        return f"solange Gegner ≥{condition.get('min', 1)} {_selector_label(condition.get('selector', ''))}"
+    if kind == "opponent_has_more":
+        return f"solange ein Gegner mehr hat als du: {_selector_label(condition.get('selector', ''))}"
+    if kind == "event_this_turn":
+        return f"falls diesen Zug {condition.get('trigger', {}).get('event', '')} eingetreten ist"
     if kind == "control_named":
         return f"solange du {condition.get('name', '')} kontrollierst"
     if kind == "drawn_cards_at_least":
@@ -645,6 +1460,10 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
         return f"solange ≥{condition.get('min', 1)} {condition.get('subtype', '')}-Karte im Friedhof"
     if kind == "another_subtype_entered_this_turn":
         return f"falls diesen Zug ein weiterer {condition.get('subtype', '')} ins Spiel kam"
+    if kind == "permanent_left_battlefield_this_turn":
+        return "Revolt (ein bleibende Karte hat diesen Zug unter deiner Kontrolle das Schlachtfeld verlassen)"
+    if kind == "creature_left_battlefield_this_turn":
+        return "falls diesen Zug eine Kreatur unter deiner Kontrolle das Schlachtfeld verlassen hat"
     if kind.startswith("life_"):
         return f"solange Leben {'≥' if kind.endswith('least') else '≤'}{condition.get('amount', 0)}"
     if kind.startswith("cards_in_hand_"):

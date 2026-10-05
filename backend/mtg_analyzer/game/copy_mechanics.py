@@ -1,4 +1,4 @@
-"""RULE 706/707 "becomes a copy of" — the shared mutate/snapshot/restore
+"""RULE 707 "becomes a copy of" — the shared mutate/snapshot/restore
 primitives used by all three copy mechanisms this engine models:
 
 * the one-shot eager `become_copy` (Clever Impersonator-style ETB copies,
@@ -30,11 +30,11 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from ..models.card import Card
-from ..models.game_object import GameObject
+from ..models.cards.card import Card
+from ..models.game.game_object import GameObject
 
 #: The catalogue-derived fields a copy (or a face switch) replaces wholesale
-#: — RULE 706.2's "loses its own, gains the copied object's" — captured by
+#: — RULE 707.2's "loses its own, gains the copied object's" — captured by
 #: `snapshot_face` and restored by `restore_face`.
 _FACE_ATTRS: tuple[str, ...] = (
     "spell_effects",
@@ -82,15 +82,17 @@ def become_copy(
     add_subtypes: Optional[list[str]] = None,
     only_types: Optional[list[str]] = None,
     add_keywords: Optional[list[str]] = None,
+    not_legendary: bool = False,
+    set_colors: Optional[list[str]] = None,
 ) -> None:
-    """``obj`` itself becomes a copy of ``target`` (RULE 706/707.2).
+    """``obj`` itself becomes a copy of ``target`` (RULE 707.2).
 
     Mutates ``obj`` in place: its `Card` is replaced by ``target``'s copiable
-    values (RULE 706.2 — name, mana cost, colours, card type/subtypes, rules
+    values (RULE 707.2 — name, mana cost, colours, card type/subtypes, rules
     text, P/T, loyalty), and its own catalogue-derived abilities/keywords are
     cleared and rebound from that new card, since a copy gains the copied
-    object's abilities rather than keeping its own (RULE 706.2). Everything
-    RULE 706.2 *doesn't* cover — instance id, zone, owner, controller,
+    object's abilities rather than keeping its own (RULE 707.2). Everything
+    RULE 707.2 *doesn't* cover — instance id, zone, owner, controller,
     counters, tapped state, attachments, summoning sickness — is untouched,
     since none of that lives on `Card`.
 
@@ -109,19 +111,20 @@ def become_copy(
     ``obj._front_card`` is updated the same way once ``obj`` becomes a copy,
     so a *further* copy of ``obj`` sees this copy rather than ``obj``'s own
     original printed card — the chain composes."""
-    from .effect_binder import bind_from_catalogue  # function-scoped: avoid a cycle
+    from .binding.core import bind_from_catalogue  # function-scoped: avoid a cycle
 
     copiable = getattr(target, "_front_card", target.card)
     obj.card = copiable.as_copy(
         add_types=add_types, add_subtypes=add_subtypes,
-        only_types=only_types, add_keywords=add_keywords,
+        only_types=only_types, add_keywords=add_keywords, not_legendary=not_legendary,
+        set_colors=set_colors,
     )
     obj._front_card = obj.card
 
     # A copy replaces the object's own copiable-derived abilities/keywords
     # wholesale — static/triggered/activated/replacement effects granted
     # by *other* permanents (auras, anthems) live on those objects, not
-    # here, so clearing these is exactly RULE 706.2's "loses its own,
+    # here, so clearing these is exactly RULE 707.2's "loses its own,
     # gains the copied object's" without touching anything external.
     obj.static_effects = []
     obj.triggered_abilities = []

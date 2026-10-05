@@ -18,6 +18,7 @@ from mtg_analyzer import config
 
 from mtg_analyzer.api.archetypes import router as archetypes_router
 from mtg_analyzer.api.cards import router as cards_router
+from mtg_analyzer.api.combos import router as combos_router
 from mtg_analyzer.api.decks import router as decks_router
 from mtg_analyzer.api.dynamic_analysis import router as dynamic_analysis_router
 from mtg_analyzer.api.frontend_proxy import router as frontend_proxy_router
@@ -32,6 +33,8 @@ from mtg_analyzer.api.multiplayer_ws import sweeper
 from mtg_analyzer.api.player_assets import router as player_assets_router
 from mtg_analyzer.api.saved_decks import router as saved_decks_router
 from mtg_analyzer.api.solo import router as solo_router
+from mtg_analyzer.api.llm import router as llm_router
+from mtg_analyzer.api.narrative_analysis import router as narrative_analysis_router
 
 #: The frontend is a plain static server (setup/start.py, default port
 #: 8765, overridable via --port) with no backend origin baked in, so any
@@ -131,7 +134,10 @@ def create_app() -> FastAPI:
     app.include_router(saved_decks_router)
     app.include_router(archetypes_router)
     app.include_router(cards_router)
+    app.include_router(combos_router)
     app.include_router(images_router)
+    from mtg_analyzer.api.bug_reports import router as bug_reports_router
+    app.include_router(bug_reports_router)
     app.include_router(game_router)
     app.include_router(game_ws_router)
     app.include_router(dynamic_analysis_router)
@@ -140,6 +146,8 @@ def create_app() -> FastAPI:
     app.include_router(multiplayer_router)
     app.include_router(multiplayer_ws_router)
     app.include_router(solo_router)
+    app.include_router(llm_router)
+    app.include_router(narrative_analysis_router)
 
     @app.get("/api/health")
     def health() -> dict[str, str]:

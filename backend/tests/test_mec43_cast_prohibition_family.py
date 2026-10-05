@@ -14,12 +14,13 @@ Reference: docs/implementation-state/Done_Backend.md "MEC-43" entry.
 from __future__ import annotations
 
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
+from tests import turn_history_events as history
 
 
 def _named(name):
@@ -129,7 +130,7 @@ def test_sanctum_prelate_choose_number_stamps_chosen_number():
     choice = state.pending_choice
     assert choice["kind"] == "choose_number"
     assert choice.get("free_text") is True
-    engine.rules.resolve_enter_choice("3")
+    engine.rules.resolve_choice("3")
 
     prelate = next(o for o in state.battlefield if o.name == "Sanctum Prelate")
     assert prelate.chosen_number == 3
@@ -216,7 +217,7 @@ def test_ethersworn_canonist_prohibits_a_second_nonartifact_spell():
     _catalogue_obj(state, "Ethersworn Canonist", controller="p1")
     engine.recompute_continuous_effects()
 
-    state.nonartifact_spells_cast_this_turn[p2.id] = 1
+    history.cast_spell(state, p2.id, types=["instant"])
     spell = _card("Shock", "Instant", "{R}", 1, is_instant=True)
     artifact_spell = _card("Sol Ring", "Artifact", "{1}", 1)
 
@@ -297,7 +298,7 @@ def test_sacrifice_stamp_resets_between_activations():
     assert pod.sacrificed_cost_mana_value == 2
     engine.rules.resolve_top_of_stack()  # clear the stack for the next sorcery-speed activation
     if state.pending_choice is not None:
-        engine.rules.resolve_search_choice(None)  # decline — nothing to find in an empty library
+        engine.rules.resolve_choice(None)  # decline — nothing to find in an empty library
     pod.tapped = False  # no untap step ran in this unit test; untap by hand for the 2nd activation
 
     second = _bf(state, _bear("Second", "{5}{G}", 6))
@@ -339,7 +340,7 @@ def test_chandras_incinerator_copies_noncombat_damage_at_a_named_target():
     option_ids = {o.get("instance_id") for o in choice["options"]}
     assert option_ids == {theirs.instance_id}  # only p2's own creature is legal
     option = next(o for o in choice["options"] if o["instance_id"] == theirs.instance_id)
-    engine.rules.resolve_trigger_target_choice(option["id"])
+    engine.rules.resolve_choice(option["id"])
     engine.rules.resolve_top_of_stack()
     engine.rules.check_state_based_actions()
 

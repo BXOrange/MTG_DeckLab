@@ -8,7 +8,7 @@ play, and their art is otherwise lazy-loaded the first time one hits the
 battlefield (a visible "pop-in"). This module walks a deck's cards, finds
 every ``create_token`` effect they carry, and resolves each to the token
 `Card` definition it would create — **using the exact same resolution path as
-`CreateTokenEffect.apply`** (game/effects.py), so the preloaded set matches
+`CreateTokenEffect.apply`** (game/effects/core.py), so the preloaded set matches
 what actually appears in play:
 
 * a bare *named* token (no inline P/T) → the curated `TokenDatabase`, keeping
@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.cards.card import Card
 
 
 def producible_tokens(cards: list[Card]) -> list[Card]:
@@ -35,7 +35,7 @@ def producible_tokens(cards: list[Card]) -> list[Card]:
     engine pieces function-scoped so this stays cheap to import and keeps the
     model→game boundary clean (CLAUDE.md "Model → game import boundary").
     """
-    from mtg_analyzer.game.ability_catalogue import specs_for
+    from mtg_analyzer.game.card_registry import specs_for
     from mtg_analyzer.services.token_database import (
         default_token_database,
         synthesize_token_card,
@@ -45,7 +45,11 @@ def producible_tokens(cards: list[Card]) -> list[Card]:
     seen: dict[str, Card] = {}
     for card in _unique_by_id(cards):
         for params in _create_token_params(card, specs_for):
-            token = _resolve_token(params, catalogue, synthesize_token_card)
+            if params.get("empower_jace"):
+                from mtg_analyzer.services.token_database import jace_token_card
+                token = jace_token_card()
+            else:
+                token = _resolve_token(params, catalogue, synthesize_token_card)
             if token is not None and token.id not in seen:
                 seen[token.id] = token
     return list(seen.values())
@@ -72,7 +76,22 @@ def _create_token_params(card: Card, specs_for: Any) -> list[dict[str, Any]]:
         for effect in getattr(spec, "effects", []) or []:
             if getattr(effect, "type", None) == "create_token":
                 out.append(dict(getattr(effect, "params", {}) or {}))
+            elif getattr(effect, "type", None) == "empower_jace" or _contains_empower(
+                getattr(effect, "params", {})
+            ):
+                out.append({"empower_jace": True})
     return out
+
+
+def _contains_empower(node: Any) -> bool:
+    """Empower inside a bind/branch still produces the same Jace token."""
+    if isinstance(node, dict):
+        return node.get("type") == "empower_jace" or any(
+            _contains_empower(value) for value in node.values()
+        )
+    if isinstance(node, (list, tuple)):
+        return any(_contains_empower(value) for value in node)
+    return False
 
 
 def _resolve_token(

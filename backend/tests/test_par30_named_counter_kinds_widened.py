@@ -6,19 +6,17 @@ claims 26 pure card-text-driven counter kinds (charge, oil, storage, …) —
 each verified to have *no* reader anywhere in `game/`, so the generic
 free-string `AddCountersEffect.kind` path models them completely.
 
-Keyword counters (RULE 122.1e — no layer-engine reader), subsystem
-counters (age / time / level / loyalty / lore / rad / energy) and
-replacement-carrying counters (stun / shield) stay out of the whitelist:
-they would half-model.
+Subsystem counters (age / time / level / loyalty / lore / rad / energy) stay reserved: they would
+half-model. (Keyword counters and stun/shield joined later — MEC-108, PAR-135.)
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import build_effects
-from mtg_analyzer.game.effects import GameContext
+from mtg_analyzer.game.binding.core import build_effects
+from mtg_analyzer.game.effects.core import GameContext
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec
@@ -52,11 +50,20 @@ def test_various_new_kinds_parse():
         assert specs == [EffectSpec("add_counters", {"count": 1, "kind": kind})], kind
 
 
-def test_keyword_counter_stays_unclaimed():
-    # RULE 122.1e keyword counter — the layer engine has no reader, so this
-    # must stay fail-closed rather than half-model.
-    assert match_clause("put a flying counter on ~") is None
-    assert match_clause("put an indestructible counter on ~") is None
+def test_keyword_counter_is_claimed_now_the_layer_engine_reads_it():
+    # RULE 122.1b (MEC-108): `continuous.KEYWORD_COUNTER_SLUGS` is the layer-6 reader.
+    assert match_clause("put a flying counter on ~") == [
+        EffectSpec("add_counters", {"count": 1, "kind": "flying"})
+    ]
+    assert match_clause("put an indestructible counter on ~") == [
+        EffectSpec("add_counters", {"count": 1, "kind": "indestructible"})
+    ]
+
+
+def test_keyword_counters_the_layer_engine_does_not_read_stay_unclaimed():
+    # RULE 122.1b also lists decayed/exalted, but nothing reads them as a counter.
+    assert match_clause("put a decayed counter on ~") is None
+    assert match_clause("put an exalted counter on ~") is None
 
 
 def test_subsystem_counter_stays_unclaimed():
@@ -64,7 +71,8 @@ def test_subsystem_counter_stays_unclaimed():
     # the engine keys off these by name; a generic bump would half-model.
     assert match_clause("put an age counter on ~") is None
     assert match_clause("put a level counter on ~") is None
-    assert match_clause("put a stun counter on ~") is None
+    # `stun` joined the open kinds in PAR-135 once shield/stun were both engine-enforced.
+    assert match_clause("put a stun counter on ~") is not None
 
 
 # --- real cards -------------------------------------------------------------

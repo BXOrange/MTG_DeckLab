@@ -1,0 +1,583 @@
+"""Hand-authored cards of the saved "Kodama" deck (PLAY-ALL Step 2)."""
+
+from __future__ import annotations
+
+from mtg_analyzer.config import DB_PATH
+from mtg_analyzer.game import continuous
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.game_engine import GameEngine
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.services.card_database import CardDatabase
+from tests.support.catalogue import battlefield_object
+
+
+def _game(*deck_names):
+    cards = [CardDatabase(DB_PATH).get_card(name) for name in deck_names]
+    engine = GameEngine.new_game([("p1", "A", cards), ("p2", "B", [])], starting_hand=len(cards), starting_life=20)
+    for obj in engine.state.players[0].hand:
+        bind_from_catalogue(obj)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    return engine, engine.state.player_by_id("p1"), engine.state.player_by_id("p2")
+
+
+def test_titanic_brawl_costs_one_less_only_when_it_targets_my_creature_with_a_counter():
+    engine, p1, p2 = _game("Titanic Brawl")
+    spell = p1.hand[0]
+    plain = battlefield_object(engine, "p1", "Plain Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    grown = battlefield_object(engine, "p1", "Grown Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    grown.counters["+1/+1"] = 1
+    victim = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    victim.counters["+1/+1"] = 1  # an opposing counter must not count
+
+    def discount(*targets):
+        return continuous.self_cost_reduction_for(spell, engine.state, "p1", list(targets))[0]
+
+    assert discount(grown, victim) == 1
+    assert discount(plain, victim) == 0
+    assert discount(victim) == 0
+
+
+def test_titanic_brawl_is_castable_for_the_reduced_cost_and_fights():
+    engine, p1, p2 = _game("Titanic Brawl")
+    spell = p1.hand[0]
+    grown = battlefield_object(engine, "p1", "Grown Bear", "Creature — Bear", is_creature=True, power=3, toughness=3)
+    grown.counters["+1/+1"] = 1
+    victim = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    full_cost = spell.card.converted_mana_cost
+    p1.mana_pool.add_many({"G": 1, "C": full_cost - 2})  # one less than printed
+
+    engine.cast_spell(p1, spell, targets=[grown, victim])
+    engine.resolve_until_stable()
+    assert victim not in engine.state.battlefield  # 3 damage from the grown bear
+    assert grown.damage_marked == 2  # the victim's power comes back
+
+
+def test_inspiring_call_draws_per_countered_creature_and_makes_only_those_indestructible():
+    engine, p1, p2 = _game("Inspiring Call")
+    spell = p1.hand[0]
+    grown = [
+        battlefield_object(engine, "p1", f"Grown {i}", "Creature — Bear", is_creature=True, power=2, toughness=2)
+        for i in range(2)
+    ]
+    plain = battlefield_object(engine, "p1", "Plain Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    theirs = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    for creature in (*grown, theirs):
+        creature.counters["+1/+1"] = 1
+    for i in range(4):
+        p1.library.append(GameObject(Card(id=f"L{i}", name=f"Lib {i}", type_line="Land"), owner_id="p1", zone=Zone.LIBRARY))
+    engine.recompute_continuous_effects()
+
+    p1.mana_pool.add_many({"G": 1, "C": spell.card.converted_mana_cost - 1})
+    hand_before = len(p1.hand)
+    engine.cast_spell(p1, spell)
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+
+    assert len(p1.hand) == hand_before - 1 + 2  # the spell leaves, two creatures had a counter
+    assert all("indestructible" in c.granted_keywords for c in grown)
+    assert "indestructible" not in plain.granted_keywords
+    assert "indestructible" not in theirs.granted_keywords
+
+
+def test_pathbreaker_ibex_pumps_every_creature_by_the_greatest_power_and_gives_trample():
+    engine, p1, p2 = _game()
+    player = engine.state.active_player
+    ibex = battlefield_object(engine, "p1", "Pathbreaker Ibex", "Creature — Goat", is_creature=True, power=3, toughness=3)
+    bind_from_catalogue(ibex)
+    big = battlefield_object(engine, "p1", "Big Bear", "Creature — Bear", is_creature=True, power=5, toughness=5)
+    small = battlefield_object(engine, "p1", "Small Bear", "Creature — Bear", is_creature=True, power=1, toughness=1)
+    theirs = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    for creature in (ibex, big, small):
+        creature.summoning_sick = False
+    engine.recompute_continuous_effects()
+
+    engine.state.current_step = "declare_attackers"
+    engine.declare_attackers(player, [ibex])
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+
+    assert (big.power, big.toughness) == (10, 10)  # +5/+5: X is read once, before any bonus
+    assert (small.power, small.toughness) == (6, 6)
+    assert (ibex.power, ibex.toughness) == (8, 8)
+    assert (theirs.power, theirs.toughness) == (2, 2)
+    assert all("trample" in c.granted_keywords for c in (ibex, big, small))
+    assert "trample" not in theirs.granted_keywords
+
+
+def test_sapling_nursery_exiles_itself_to_make_treefolk_and_forests_indestructible():
+    engine, p1, p2 = _game()
+    card = CardDatabase(DB_PATH).get_card("Sapling Nursery")
+    nursery = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    nursery.controller_id = "p1"
+    bind_from_catalogue(nursery)
+    engine.state.add_to_battlefield(nursery)
+    treefolk = battlefield_object(engine, "p1", "Treefolk Token", "Creature — Treefolk", is_creature=True, power=3, toughness=4)
+    forest = battlefield_object(engine, "p1", "Forest", "Basic Land — Forest", is_land=True)
+    island = battlefield_object(engine, "p1", "Island", "Basic Land — Island", is_land=True)
+    bear = battlefield_object(engine, "p1", "Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    theirs = battlefield_object(engine, "p2", "Their Forest", "Basic Land — Forest", is_land=True)
+    p1.mana_pool.add_many({"G": 1, "C": 1})
+
+    index = next(i for i, a in enumerate(nursery.activated_abilities) if getattr(a, "cost", None) is not None)
+    engine.activate_ability(p1, nursery, index)
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+
+    assert nursery not in engine.state.battlefield  # exiled as the cost
+    assert "indestructible" in treefolk.granted_keywords and "indestructible" in forest.granted_keywords
+    assert "indestructible" not in island.granted_keywords
+    assert "indestructible" not in bear.granted_keywords
+    assert "indestructible" not in theirs.granted_keywords  # only mine
+
+
+def test_sapling_nursery_keeps_affinity_for_forests_after_being_registered():
+    engine, p1, p2 = _game("Sapling Nursery")
+    spell = p1.hand[0]
+    battlefield_object(engine, "p1", "Forest A", "Basic Land — Forest", is_land=True)
+    battlefield_object(engine, "p1", "Forest B", "Basic Land — Forest", is_land=True)
+    battlefield_object(engine, "p1", "Island", "Basic Land — Island", is_land=True)
+    assert continuous.self_cost_reduction_for(spell, engine.state, "p1")[0] == 2  # one per Forest, not per land
+
+
+def _animus(my_type_line):
+    engine, p1, p2 = _game("Ancient Animus")
+    mine = battlefield_object(
+        engine, "p1", "My Creature", my_type_line, is_creature=True, power=2, toughness=3,
+        is_legendary="Legendary" in my_type_line,
+    )
+    victim = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=5)
+    p1.mana_pool.add_many({"G": 1, "C": p1.hand[0].card.converted_mana_cost - 1})
+    engine.cast_spell(p1, p1.hand[0], targets=[mine, victim])
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    return mine, victim
+
+
+def test_ancient_animus_adds_a_counter_only_to_a_legendary_creature_then_fights():
+    mine, victim = _animus("Legendary Creature — Elf")
+    assert mine.counters.get("+1/+1", 0) == 1
+    assert victim.damage_marked == 3  # fought as a 3/4: counter first, then damage = new power
+    assert mine.damage_marked == 2
+
+
+def test_ancient_animus_skips_the_counter_for_a_nonlegendary_creature_but_still_fights():
+    mine, victim = _animus("Creature — Elf")
+    assert mine.counters.get("+1/+1", 0) == 0
+    assert victim.damage_marked == 2  # the fight still happens at the creature's own power
+    assert mine.damage_marked == 2
+
+
+def _ram_through(power, keywords=()):
+    engine, p1, p2 = _game("Ram Through")
+    dealer = battlefield_object(
+        engine, "p1", "Dealer", "Creature — Rhino", is_creature=True, power=power, toughness=power,
+        keywords=list(keywords),
+    )
+    victim = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=3)
+    p1.mana_pool.add_many({"G": 1, "C": p1.hand[0].card.converted_mana_cost - 1})
+    engine.cast_spell(p1, p1.hand[0], targets=[dealer, victim])
+    engine.resolve_until_stable()
+    return dealer, victim, p2
+
+
+def test_ram_through_without_trample_puts_all_damage_on_the_creature():
+    dealer, victim, p2 = _ram_through(power=5)
+    assert p2.life == 20
+    assert victim.zone != Zone.BATTLEFIELD  # 5 damage kills the 2/3
+    assert dealer.damage_marked == 0  # a one-sided hit, not a fight
+
+
+def test_ram_through_with_trample_sends_the_excess_to_its_controller():
+    dealer, victim, p2 = _ram_through(power=5, keywords=["Trample"])
+    assert p2.life == 18  # 5 damage: 3 lethal to the 2/3, 2 excess
+    assert dealer.damage_marked == 0
+
+
+def test_ram_through_trample_with_deathtouch_needs_only_one_lethal():
+    dealer, victim, p2 = _ram_through(power=5, keywords=["Trample", "Deathtouch"])
+    assert p2.life == 16  # 1 lethal (deathtouch), 4 excess
+
+
+def test_amulet_of_vigor_untaps_only_permanents_that_enter_tapped():
+    engine, p1, p2 = _game("Tranquil Cove", "Forest")
+    amulet = battlefield_object(engine, "p1", "Amulet of Vigor", "Artifact")
+    bind_from_catalogue(amulet)
+    tap_land = next(o for o in p1.hand if o.name == "Tranquil Cove")
+    forest = next(o for o in p1.hand if o.name == "Forest")
+
+    engine.play_land(p1, tap_land)
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert tap_land in engine.state.battlefield
+    assert not tap_land.tapped  # entered tapped, then the Amulet untapped it
+
+    p1.lands_played_this_turn = 0
+    engine.play_land(p1, forest)
+    engine.rules.put_triggers_on_stack()
+    assert not engine.state.stack and engine.state.pending_choice is None  # entered untapped: no trigger
+    assert not forest.tapped
+
+
+def test_chocobo_racetrack_makes_a_bird_per_land_and_each_bird_grows_on_landfall():
+    engine, p1, p2 = _game("Forest", "Forest", "Forest")
+    racetrack = battlefield_object(engine, "p1", "Chocobo Racetrack", "Enchantment")
+    bind_from_catalogue(racetrack)
+
+    def birds():
+        return [o for o in engine.state.permanents_controlled_by("p1") if "Bird" in (o.card.type_line or "")]
+
+    def play_land():
+        engine.play_land(p1, next(o for o in p1.hand if o.is_land))
+        p1.lands_played_this_turn = 0
+        for _ in range(5):  # let every landfall trigger (the Racetrack's and any Bird's) resolve
+            engine.rules.put_triggers_on_stack()
+            engine.resolve_until_stable()
+
+    play_land()
+    assert len(birds()) == 1 and (birds()[0].power, birds()[0].toughness) == (2, 2)
+
+    play_land()  # second land: another Bird, and the first Bird gets +1/+0
+    assert len(birds()) == 2
+    assert sorted(b.power for b in birds()) == [2, 3]  # old Bird 3/2, fresh Bird 2/2
+
+
+def _nissa_vital_force_game():
+    card = CardDatabase(DB_PATH).get_card("Nissa, Vital Force")
+    engine, p1, p2 = _game()
+    nissa = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    nissa.controller_id = "p1"
+    bind_from_catalogue(nissa)
+    engine.state.add_to_battlefield(nissa)
+    nissa.counters["loyalty"] = 5
+
+    def activate(loyalty, **kwargs):
+        nissa.activated_loyalty_this_turn = False
+        index = next(
+            i for i, a in enumerate(nissa.activated_abilities)
+            if getattr(getattr(a, "cost", None), "loyalty", None) == loyalty
+        )
+        engine.activate_ability(p1, nissa, index, **kwargs)
+        engine.resolve_until_stable()
+        engine.recompute_continuous_effects()
+
+    return engine, p1, nissa, activate
+
+
+def test_nissa_vital_force_plus_one_untaps_a_land_and_makes_it_a_5_5_haste_elemental():
+    engine, p1, nissa, activate = _nissa_vital_force_game()
+    forest = battlefield_object(engine, "p1", "Forest", "Basic Land — Forest", is_land=True)
+    forest.tapped = True
+
+    activate(1, targets=[forest])
+    assert not forest.tapped and nissa.counters["loyalty"] == 6
+    assert forest.is_creature and forest.is_land  # "it's still a land"
+    assert (forest.power, forest.toughness) == (5, 5)
+    assert "haste" in forest.granted_keywords
+
+
+def test_nissa_vital_force_minus_three_returns_a_permanent_card_from_the_graveyard():
+    engine, p1, nissa, activate = _nissa_vital_force_game()
+    dead = GameObject(Card(id="Dead", name="Dead Bear", type_line="Creature — Bear", is_creature=True, power=2, toughness=2),
+                      owner_id="p1", zone=Zone.GRAVEYARD)
+    p1.graveyard.append(dead)
+    activate(-3, targets=[dead])
+    assert dead in p1.hand and nissa.counters["loyalty"] == 2
+
+
+def _nissa_ascended_game(loyalty):
+    card = CardDatabase(DB_PATH).get_card("Nissa, Ascended Animist")
+    engine, p1, p2 = _game()
+    nissa = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    nissa.controller_id = "p1"
+    bind_from_catalogue(nissa)
+    engine.state.add_to_battlefield(nissa)
+    nissa.counters["loyalty"] = loyalty
+
+    def activate(amount):
+        index = next(
+            i for i, a in enumerate(nissa.activated_abilities)
+            if getattr(getattr(a, "cost", None), "loyalty", None) == amount
+        )
+        engine.activate_ability(p1, nissa, index)
+        engine.resolve_until_stable()
+        engine.recompute_continuous_effects()
+
+    return engine, p1, nissa, activate
+
+
+def test_nissa_ascended_animist_plus_one_makes_a_horror_as_big_as_her_new_loyalty():
+    engine, p1, nissa, activate = _nissa_ascended_game(loyalty=5)
+    activate(1)
+    horrors = [o for o in engine.state.permanents_controlled_by("p1") if "Horror" in (o.card.type_line or "")]
+    assert nissa.counters["loyalty"] == 6
+    assert len(horrors) == 1 and (horrors[0].power, horrors[0].toughness) == (6, 6)
+
+
+def test_nissa_ascended_animist_minus_seven_pumps_creatures_by_my_forests_and_gives_trample():
+    engine, p1, nissa, activate = _nissa_ascended_game(loyalty=7)
+    for i in range(3):
+        battlefield_object(engine, "p1", f"Forest {i}", "Basic Land — Forest", is_land=True)
+    battlefield_object(engine, "p1", "Island", "Basic Land — Island", is_land=True)
+    mine = battlefield_object(engine, "p1", "My Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    theirs = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    engine.recompute_continuous_effects()
+
+    activate(-7)
+    assert (mine.power, mine.toughness) == (5, 5) and "trample" in mine.granted_keywords  # 3 Forests, not the Island
+    assert (theirs.power, theirs.toughness) == (2, 2) and "trample" not in theirs.granted_keywords
+
+
+def _nissa_shakes_game(loyalty):
+    card = CardDatabase(DB_PATH).get_card("Nissa, Who Shakes the World")
+    engine, p1, p2 = _game()
+    nissa = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    nissa.controller_id = "p1"
+    bind_from_catalogue(nissa)
+    engine.state.add_to_battlefield(nissa)
+    nissa.counters["loyalty"] = loyalty
+
+    def activate(amount, **kwargs):
+        index = next(
+            i for i, a in enumerate(nissa.activated_abilities)
+            if getattr(getattr(a, "cost", None), "loyalty", None) == amount
+        )
+        engine.activate_ability(p1, nissa, index, **kwargs)
+        engine.resolve_until_stable()
+        while engine.state.pending_choice:
+            options = [o for o in engine.state.pending_choice["options"] if o["id"] != "decline"]
+            if not options:
+                break
+            engine.resolve_pending_choice(options[0]["id"])
+            engine.resolve_until_stable()
+        engine.recompute_continuous_effects()
+
+    return engine, p1, nissa, activate
+
+
+def test_nissa_who_shakes_the_world_taps_forests_for_double_and_animates_a_land_for_good():
+    engine, p1, nissa, activate = _nissa_shakes_game(loyalty=5)
+    forest = battlefield_object(engine, "p1", "Forest", "Basic Land — Forest", is_land=True)
+    forest.summoning_sick = False
+    engine.tap_for_mana(p1, forest)
+    assert p1.mana_pool.pool.get("G", 0) == 2  # the Forest's own {G} plus the additional one
+    forest.tapped = True
+
+    activate(1, targets=[forest])
+    assert not forest.tapped and nissa.counters["loyalty"] == 6
+    assert forest.counters.get("+1/+1") == 3
+    assert forest.is_creature and forest.is_land
+    assert (forest.power, forest.toughness) == (3, 3)  # a 0/0 with three counters
+    assert {"vigilance", "haste"} <= set(forest.granted_keywords)
+
+
+def test_nissa_who_shakes_the_world_minus_eight_fetches_every_forest_tapped():
+    engine, p1, nissa, activate = _nissa_shakes_game(loyalty=8)
+    forest_card = CardDatabase(DB_PATH).get_card("Forest")
+    for _ in range(3):
+        p1.library.append(GameObject(forest_card, owner_id="p1", zone=Zone.LIBRARY))
+    p1.library.append(GameObject(Card(id="Isl", name="Island", type_line="Basic Land — Island", is_land=True),
+                                 owner_id="p1", zone=Zone.LIBRARY))
+    activate(-8)
+    forests = [o for o in engine.state.battlefield if o.name == "Forest"]
+    assert len(forests) == 3 and all(f.tapped for f in forests)
+    assert all(o.name != "Island" for o in engine.state.battlefield)
+    assert nissa not in engine.state.battlefield  # 8 -> 0 loyalty
+
+
+def test_tale_of_katara_and_toph_grows_a_creature_the_first_time_it_taps_each_of_my_turns():
+    engine, p1, p2 = _game()
+    tale = battlefield_object(engine, "p1", "Tale of Katara and Toph", "Enchantment")
+    bind_from_catalogue(tale)
+    mine = battlefield_object(engine, "p1", "My Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    theirs = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    engine.recompute_continuous_effects()
+
+    def tap(obj):
+        engine.rules.set_tapped(obj, True)
+        engine.rules.put_triggers_on_stack()
+        engine.resolve_until_stable()
+
+    tap(mine)
+    assert mine.counters.get("+1/+1", 0) == 1  # first tap this turn
+
+    engine.rules.set_tapped(mine, False)
+    tap(mine)
+    assert mine.counters.get("+1/+1", 0) == 1  # second tap this turn: nothing more
+
+    tap(theirs)
+    assert theirs.counters.get("+1/+1", 0) == 0  # not mine
+
+    engine.state.active_player_index = 1  # an opponent's turn
+    mine.counters.clear()
+    engine.rules.set_tapped(mine, False)
+    tap(mine)
+    assert mine.counters.get("+1/+1", 0) == 0  # only during my turns
+
+
+def test_roaring_earth_landfall_counter_on_a_creature_or_vehicle_you_control():
+    from mtg_analyzer.game.targeting import TargetSpec, legal_targets
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+
+    engine, p1, p2 = _game()
+    earth = battlefield_object(engine, "p1", "Roaring Earth", "Enchantment")
+    bind_from_catalogue(earth)
+    bear = battlefield_object(engine, "p1", "Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    ride = battlefield_object(engine, "p1", "Ride", "Artifact — Vehicle")
+    rock = battlefield_object(engine, "p1", "Rock", "Artifact")
+    theirs = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+
+    pool = legal_targets(engine.state, "p1", TargetSpec(kind="creature_or_vehicle_you_control"), source=earth)
+    assert {o["name"] for o in pool} == {"Bear", "Ride"}  # not the plain artifact, not the opponent's creature
+
+    land = battlefield_object(engine, "p1", "Forest", "Basic Land — Forest", is_land=True)
+    engine.state.fire_event(GameEvent(
+        EventType.ENTERS_BATTLEFIELD, instance_id=land.instance_id, controller_id="p1",
+        object_types=["land"], player_id="p1",
+    ))
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_pending_choice(str(ride.instance_id))
+    engine.resolve_until_stable()
+    assert ride.counters == {"+1/+1": 1} and not bear.counters and not rock.counters and not theirs.counters
+
+
+def test_roaring_earth_channel_animates_a_land_permanently():
+    engine, p1, p2 = _game("Roaring Earth")
+    earth = p1.hand[0]
+    land = battlefield_object(engine, "p1", "Forest", "Basic Land — Forest", is_land=True)
+    p1.mana_pool.add_many({"G": 4})
+    engine.activate_ability(p1, earth, 0, targets=[land], x=2)
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    assert earth.zone == Zone.GRAVEYARD  # discarded as the cost
+    assert land.counters == {"+1/+1": 2}
+    assert land.is_creature and land.is_land  # "it's still a land"
+    assert (land.power, land.toughness) == (2, 2)  # 0/0 plus X counters
+    assert "haste" in land.granted_keywords
+    assert land.colors == {"G"}
+    engine._step_cleanup()
+    engine.recompute_continuous_effects()
+    assert land.is_creature and (land.power, land.toughness) == (2, 2)  # no end-of-turn expiry
+    assert land.colors == {"G"}
+
+
+def _nantuko_landfall(engine, p1, land_name="Forest"):
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+
+    land = battlefield_object(engine, "p1", land_name, "Basic Land — Forest", is_land=True)
+    engine.state.fire_event(GameEvent(
+        EventType.ENTERS_BATTLEFIELD, instance_id=land.instance_id, controller_id="p1",
+        object_types=["land"], player_id="p1",
+    ))
+    engine.rules.put_triggers_on_stack()
+
+
+def _bestowed_nantuko():
+    engine, p1, p2 = _game("Springheart Nantuko")
+    nantuko = p1.hand[0]
+    bear = battlefield_object(engine, "p1", "Grizzly", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    p1.mana_pool.add_many({"G": 2})
+    engine.cast_spell(p1, nantuko, face="bestow", targets=[bear])
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    assert nantuko.attached_to == bear.instance_id and (bear.power, bear.toughness) == (3, 3)  # +1/+1 from the Aura
+    return engine, p1, nantuko, bear
+
+
+def test_springheart_nantuko_unattached_makes_an_insect():
+    engine, p1, p2 = _game("Springheart Nantuko")
+    p1.mana_pool.add_many({"G": 2})
+    engine.cast_spell(p1, p1.hand[0])
+    engine.resolve_until_stable()
+    _nantuko_landfall(engine, p1)
+    engine.resolve_until_stable()
+    insects = [o for o in engine.state.battlefield if o.name == "Insect"]
+    assert len(insects) == 1 and (insects[0].power, insects[0].toughness) == (1, 1)
+
+
+def test_springheart_nantuko_attached_and_paid_copies_the_enchanted_creature():
+    engine, p1, nantuko, bear = _bestowed_nantuko()
+    p1.mana_pool.add_many({"G": 2})
+    _nantuko_landfall(engine, p1)
+    engine.resolve_until_stable()
+    assert engine.state.pending_choice["kind"] == "pay_cost_then"  # "you may pay {1}{G}"
+    engine.resolve_pending_choice("pay")
+    engine.resolve_until_stable()
+    assert [o.name for o in engine.state.battlefield].count("Grizzly") == 2  # a token copy of the bear
+    assert not any(o.name == "Insect" for o in engine.state.battlefield)  # "if you didn't" does not apply
+
+
+def test_springheart_nantuko_attached_but_declined_makes_an_insect():
+    engine, p1, nantuko, bear = _bestowed_nantuko()
+    p1.mana_pool.add_many({"G": 2})
+    _nantuko_landfall(engine, p1)
+    engine.resolve_until_stable()
+    engine.resolve_pending_choice("decline")
+    engine.resolve_until_stable()
+    assert [o.name for o in engine.state.battlefield].count("Grizzly") == 1
+    assert sum(1 for o in engine.state.battlefield if o.name == "Insect") == 1
+
+
+def test_springheart_nantuko_cannot_copy_an_opponent_controlled_host():
+    engine, p1, nantuko, bear = _bestowed_nantuko()
+    bear.controller_id = "p2"
+    p1.mana_pool.add_many({"G": 2})
+    _nantuko_landfall(engine, p1)
+    engine.resolve_until_stable()
+    assert engine.state.pending_choice is None
+    assert sum(o.name == "Insect" for o in engine.state.battlefield) == 1
+    assert sum(o.name == "Grizzly" for o in engine.state.battlefield) == 1
+
+
+def _defiler_board():
+    engine, p1, p2 = _game()
+    defiler = battlefield_object(
+        engine, "p1", "Defiler of Vigor", "Creature — Phyrexian Wurm", is_creature=True, power=6, toughness=6,
+    )
+    bind_from_catalogue(defiler)
+    bear = battlefield_object(engine, "p1", "Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+
+    def hand_card(name, type_line, **kw):
+        obj = GameObject(
+            Card(id=name, name=name, type_line=type_line, mana_cost_string="{1}{G}", converted_mana_cost=2,
+                 color_identity={"G"}, **kw),
+            owner_id="p1", zone=Zone.HAND,
+        )
+        p1.hand.append(obj)
+        return obj
+
+    return engine, p1, defiler, bear, hand_card
+
+
+def test_defiler_of_vigor_pays_two_life_instead_of_the_green_mana_of_a_green_permanent_spell():
+    engine, p1, defiler, bear, hand_card = _defiler_board()
+    cub = hand_card("Green Cub", "Creature — Bear", is_creature=True, power=1, toughness=1)
+    p1.mana_pool.add_many({"C": 1})  # only the generic part — no green mana at all
+    life = p1.life
+    engine.cast_spell(p1, cub)
+    engine.resolve_until_stable()
+    assert cub.zone == Zone.BATTLEFIELD and p1.life == life - 2  # {G} paid with 2 life
+
+
+def test_defiler_of_vigor_does_not_discount_a_green_instant():
+    engine, p1, defiler, bear, hand_card = _defiler_board()
+    growth = hand_card("Green Trick", "Instant")
+    p1.mana_pool.add_many({"C": 1})
+    assert not engine.can_cast(p1, growth)  # "permanent spells" only
+
+
+def test_defiler_of_vigor_puts_a_counter_on_each_creature_for_a_green_permanent_spell_only():
+    engine, p1, defiler, bear, hand_card = _defiler_board()
+    cub = hand_card("Green Cub", "Creature — Bear", is_creature=True, power=1, toughness=1)
+    trick = hand_card("Green Trick", "Instant")
+    p1.mana_pool.add_many({"G": 2, "C": 2})
+    engine.cast_spell(p1, trick)  # a green *instant*: no trigger
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert not defiler.counters and not bear.counters
+    engine.cast_spell(p1, cub)
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert defiler.counters == {"+1/+1": 1} and bear.counters == {"+1/+1": 1}

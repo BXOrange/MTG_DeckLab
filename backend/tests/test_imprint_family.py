@@ -2,7 +2,7 @@
 
 Two new primitives, both general rather than Chrome-Mox-specific:
 
-* `RulesEngine.request_choose_objects`'s new ``remember=True`` param
+* `RulesEngine._request_choose_objects`'s new ``remember=True`` param
   (`game/rules/misc_mixin.py`) — stamps whichever object gets
   ``action="exile"``ed onto the calling permanent's own
   `GameObject.linked_exile_id`, the same field `ExileEffect(remember=True)`
@@ -12,26 +12,26 @@ Two new primitives, both general rather than Chrome-Mox-specific:
   colors," a menu built fresh every tap off whatever `linked_exile_id`
   currently points at.
 
-`ImprintEffect` (`game/effects.py`) is the ETB half — "you may exile a
-`<filter>` card from your hand" — riding `request_choose_objects` exactly
+`ImprintEffect` (`game/effects/core.py`) is the ETB half — "you may exile a
+`<filter>` card from your hand" — riding `_request_choose_objects` exactly
 like Gemstone Caverns' own pregame "exile a card from your hand" tail
 already does, just with `remember=True` added.
 
-Reference: mtg_analyzer/game/effects.py (`ImprintEffect`),
+Reference: mtg_analyzer/game/effects/core.py (`ImprintEffect`),
 game/mana_abilities.py (`_IMPRINTED_COLOR_ADD_RE`, `resolve_options`),
-game/rules/misc_mixin.py (`request_choose_objects`), game/ability_catalogue.py.
+game/rules/misc_mixin.py (`_request_choose_objects`), game/card_registry.py.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game import ability_catalogue, mana_abilities
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game import card_registry, mana_abilities
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 
 pytestmark = pytest.mark.skipif(
@@ -82,8 +82,8 @@ def enter_mox(eng, mox):
 
 
 def test_chrome_mox_is_registered_on_imprint():
-    assert ability_catalogue.is_registered("Chrome Mox")
-    specs = ability_catalogue.specs_for(_card("Chrome Mox"))
+    assert card_registry.is_registered("Chrome Mox")
+    specs = card_registry.specs_for(_card("Chrome Mox"))
     assert len(specs) == 1
     effect = specs[0].effects[0]
     assert effect.type == "imprint"

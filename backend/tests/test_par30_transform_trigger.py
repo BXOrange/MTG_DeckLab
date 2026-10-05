@@ -14,8 +14,8 @@ from mtg_analyzer.parser.oracle.segmenter import segment_line
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.spec import ParserProvenance
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 
 _PROV = ParserProvenance(version="test", source="rule:oracle", confidence=1.0)
@@ -87,7 +87,7 @@ def test_execute_transform_into_front_fires_the_trigger():
 
 
 def test_transformed_event_carries_face_name_and_instance():
-    from mtg_analyzer.models.events import EventType
+    from mtg_analyzer.models.game.events import EventType
 
     db = CardDatabase(DEFAULT_DB_PATH)
     eng = GameEngine.new_game(

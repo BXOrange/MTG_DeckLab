@@ -6,7 +6,7 @@ ability's plain "discard N cards" cost component
 (`GameEngine._pay_activation_cost`) used to auto-pick — the first matching
 permanent, the back of hand — even though RULE 602.1 makes both a genuine
 player choice. Cost payment is one synchronous call inside `cast_spell`/
-`activate_ability`, so it can't pause for a `request_choose_objects`
+`activate_ability`, so it can't pause for a `_request_choose_objects`
 `pending_choice` the way an *effect* resolving can (see ENG-2,
 `RulesEngine.sacrifice`) — instead the choice is threaded in as an action
 parameter, the same `tap_choices`/`sacrifice_choice` shape the mana-tap and
@@ -25,11 +25,11 @@ from __future__ import annotations
 import pytest
 
 from mtg_analyzer.game.costs import ActivationCost
-from mtg_analyzer.game.effects import ActivatedAbility, DrawCardEffect
+from mtg_analyzer.game.effects.core import ActivatedAbility, DrawCardEffect
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.mana_cost import ManaCost
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.mana.mana_cost import ManaCost
 
 
 def creature(name="Bear", cost="{1}{G}", power=2, toughness=2):

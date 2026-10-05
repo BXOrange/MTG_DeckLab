@@ -40,9 +40,10 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional
 
 from ..spec import AbilitySpec, ParserProvenance
+from .subgrammars import COLOR_LETTERS
 
 if TYPE_CHECKING:  # pragma: no cover - typing only; keeps the front-end pure
-    from ....models.card import Card
+    from ....models.cards.card import Card
 
 
 class KeywordShape(Enum):
@@ -133,7 +134,8 @@ _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
     "offering": re.compile(r"(?P<quality>[a-z]+) offering", re.I),
     # RULE 702.72 — "Champion a/an <type>".
     "champion": re.compile(r"champion an? (?P<quality>[a-z][a-z ]*?)(?=[.\n(]|$)", re.I),
-    # RULE 702.174 — "Gift a/an <something>".
+    # RULE 702.174 — "Gift a/an <something>". `GIFT_QUALITIES` below is the
+    # closed set the CR defines (702.174d-i); any other word stays unclaimed.
     "gift": re.compile(r"gift an? (?P<quality>[a-z][a-z ]*?)(?=[.\n(]|$)", re.I),
     # RULE 702.6e (MEC-43): "Equip commander {N}" is a genuinely *separate*
     # ability that coexists with the plain "Equip {M}" line (not a
@@ -147,10 +149,16 @@ _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
     # past an "Equip commander {N}" line to find the real plain-Equip cost
     # instead. "Equip commander" itself isn't separately recognized here —
     # only 2 cards cache-wide print it, and Commander's Plate's own is
-    # hand-authored (`game/ability_catalogue.py`) rather than built as a
+    # hand-authored (`game/card_catalogue`) rather than built as a
     # second keyword shape for that small a yield.
     "equip": re.compile(rf"\bEquip\b(?!\s+commander\b){_GAP}(?P<cost>{_COST_RUN})", re.I),
 }
+
+#: RULE 702.174d-i (MEC-106): the gifts the Comprehensive Rules define, as the lowercased
+#: ``quality`` of "Gift a/an `<quality>`". A card promising anything else (an un-card's
+#: "Gift a Rhystic Study") must stay unclaimed rather than parse to a gift that does nothing.
+GIFT_QUALITIES: tuple[str, ...] = ("card", "food", "treasure", "tapped fish", "extra turn", "octopus")
+
 
 #: RULE 702.74b's Modern Horizons Incarnation cycle uses a non-mana Evoke
 #: payment.  The narrow grammar is intentional: one coloured card from hand
@@ -159,7 +167,8 @@ _EVOKE_EXILE_COLOR_RE = re.compile(
     r"evoke\s*[—-]\s*exile a (?P<color>white|blue|black|red|green) card from your hand",
     re.I,
 )
-_COLOR_LETTERS = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}
+#: PAR-63: the shared map.
+_COLOR_LETTERS = COLOR_LETTERS
 
 #: Ward's cost line may be a non-mana clause ("Ward—Discard a card.",
 #: "Ward—Pay 3 life.", "Ward—Sacrifice a creature.") that the mana-only
@@ -365,6 +374,15 @@ _TABLE: list[tuple[str, KeywordShape, str]] = [
     # card whose only ability is this reach `MODELED` instead of parking on
     # an otherwise-fully-modeled card forever, exactly like bare `Partner`.
     ("Choose a Background", _F, "702.124"),
+    # PAR-69: "Doctor's companion" (Doctor Who, RULE 702.124m) — the third
+    # partner-ability variant alongside Partner/Choose a Background above,
+    # and just as inert in-game (RULE 702.124a: it "modifies the rules for
+    # deck construction … and functions before the game begins"). Pairing a
+    # Doctor's-companion card with a legendary Time Lord Doctor creature is
+    # `services/commander_legality.py`'s job (BACKLOG.md's DB-3), not the
+    # engine's — recognizing it here just lets a card whose only ability is
+    # this reach `MODELED` instead of parking forever, same as its siblings.
+    ("Doctor's Companion", _F, "702.124"),
     ("Undaunted", _F, "702.125"),
     ("Improvise", _F, "702.126"),
     ("Aftermath", _F, "702.127"),
@@ -436,6 +454,10 @@ _TABLE: list[tuple[str, KeywordShape, str]] = [
     ("Paradigm", _F, "702.192"),
     ("Power-up", _F, "702.193"),
     ("Teamwork", _N, "702.194"),
+    # PAR-51: a plain flag static ability, the same "grants a designation
+    # once a board-state threshold is crossed" shape Ascend (702.131) above
+    # already has — see `game/rules/sba_mixin.py`'s `_sba_check_storied`.
+    ("Storied", _F, "702.195"),
     # Specialize (Alchemy Horizons: Baldur's Gate) is an Arena-only digital
     # keyword with no paper CR entry — a COST-shape activated ability,
     # "Specialize {cost}" = "{cost}, Discard a card: This permanent
@@ -486,6 +508,12 @@ _ALIASES: dict[str, str] = {
 ALIAS_DISPLAYS: tuple[str, ...] = tuple(
     sorted((alias.replace("_", " ") for alias in _ALIASES), key=len, reverse=True)
 )
+
+
+#: FLAG keywords that are a *triggered ability* the engine binds only for a printed keyword
+#: (`binding.core._KEYWORD_TRIGGERED_BUILDERS`): a grant would add the slug and no trigger, so a grant of
+#: one stays unclaimed ("have exploit" — RULE 702.110a's ETB sacrifice would never happen).
+UNGRANTABLE_FLAG_KEYWORDS: frozenset[str] = frozenset({"exploit"})
 
 
 def keyword_slug(name: str) -> str:
@@ -587,6 +615,10 @@ def _extract_param(kdef: KeywordDef, text: str, forced_quality: Optional[str]) -
         fallback = _WARD_TEXT_COST_RE.search(text)
         if fallback:
             param["cost"] = fallback.group("cost").strip()
+    if kdef.slug == "blitz":
+        match = re.search(r"(?:^|\n)blitz\s*[—-]?\s*(?P<cost>[^.\n(]+)", text, re.I)
+        if match:
+            param["cost"] = match.group("cost").strip()
     if kdef.slug == "escape":
         # Always prefer the full clause over the mana-only match above (if
         # any) — Escape's exile-count component only lives in this capture.
@@ -674,6 +706,19 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
         seen.add(dedupe_key)
 
         param = _extract_param(kdef, text, forced_quality)
+        if kdef.slug == "specialize":
+            rider = re.search(
+                r"specialize\s+\{[^}]+\}\.\s*this ability costs \{(?P<discount>\d+)\} "
+                r"less to activate if there are (?P<minimum>\d+) or more instant and/or sorcery "
+                r"cards in your graveyard", text, re.I,
+            )
+            if rider:
+                param["dynamic_reduction"] = {
+                    "generic_per": int(rider.group("discount")),
+                    "active_if": {"kind": "graveyard_card_type_count_at_least",
+                                  "types": ["instant", "sorcery"],
+                                  "amount": int(rider.group("minimum"))},
+                }
         if _slug(str(raw_name)) == "multikicker":
             # RULE 702.34a: Multikicker is Kicker's repeatable variant — both
             # alias onto the same "kicker" slug/behaviour, but the "may pay

@@ -41,15 +41,25 @@ repointed there.
 - **What:** Collapsible left sidebar nav (replacing old top-bar tabs) plus a header connection indicator polling `GET /api/health` every 5s, shared via pub/sub between the header and the Einstellungen status line.
 - **Files:** `index.html`, `app.js`, `connectionStatus.js`
 
-### Einstellungen tab + cookie-persisted settings
+### Einstellungen tab and automatic server connection
 
-- **What:** Server-address field with "Speichern"/"Verbindung testen"; settings persist device-locally in cookies (`mtg_server_url`, `mtg_player_name`, 1-year expiry).
+- **What:** Backend requests use the page origin, with explicit development/deployment defaults in `settings.js`. The server-address field and cookie override are removed; stale `mtg_server_url` cookies are ignored. Connection status and "Verbindung testen" remain. Player preferences still persist device-locally in cookies.
 - **Files:** `connectionSettingsView.js`, `cookies.js`, `settings.js`
+
+### LLM settings and AI Bot status
+
+- **What:** Settings configures a server-wide Claude/Anthropic or compatible endpoint, an automatically populated model dropdown (provider model-list API, manual fallback, reload and stale-response protection), enable flag, key, timeout and per-turn bot call budget, plus save/connection-test controls. Keys are never loaded into the browser; empty preserves and explicit clear removes the stored key. German/English copy explains that deck/game context goes to the provider. AI Bot is selectable through the existing bot catalogue. Solo shows thinking/fallback status and polls pending decisions without overwriting a newer action/restart view.
+- **Files:** `connectionSettingsView.js`, `api.js`, `soloView.js`, `locales/{de,en}.js`; [LLM integration](../Reference/LLM_INTEGRATION.md).
+
+### Local card-pool and combo-data updates
+
+- **What:** Settings exposes separate controls to refresh the full Scryfall card pool and the Commander Spellbook SQLite snapshot. The latter's current source version/time and added/changed/removed variant counts are surfaced inline; the combo snapshot still remains lazy-loaded during analysis unless explicitly updated here.
+- **Files:** `connectionSettingsView.js`, `api.js`
 
 ### Einstellungen ↔ Profil split (everything player-facing → Profil)
 
-- **What:** The **Einstellungen** header tab is now *only* the backend
-  server address + connection test. Everything about the player moved to
+- **What:** The **Einstellungen** header tab provides backend connection tests,
+  data updates and optional LLM configuration. Everything about the player moved to
   the **Profil** tab: player name (already there), multiplayer default
   settings + favorite decks (already there), and — newly relocated —
   the **Mehrspieler: Auto-Pass** / **Mehrspieler: Spielfeld** comfort
@@ -166,6 +176,11 @@ repointed there.
 
 ## Goldfish Board Core
 
+### VIS-11: Created planeswalker tokens on shared boards
+
+- **What:** Jace tokens expose `is_planeswalker`, loyalty counters and both loyalty actions through the existing shared board path used by Goldfish, Replay, Solo and Multiplayer. The board already renders the loyalty badge and action buttons for tokens; no token-specific rendering branch is required. Engine-Status lists Empower Jace in both German and English.
+- **Validation:** `tests/test_empower_jace.py` verifies shared session payloads and legal actions, actual loyalty activation, and Replay export/import. Art uses the existing token-library and uploaded-token fallback in `gameBoardView.js`.
+
 ### Goldfisch mode wired to the real engine
 
 - **What:** The "Goldfisch" tab picks a saved deck (only a legal one enables Start), posts to `POST /api/game/goldfish`, and renders/drives the server's authoritative `GameState` via validated actions from `legal_actions`, plus Zurücknehmen (rewind) and Neu starten.
@@ -218,6 +233,12 @@ repointed there.
 - **What:** `castTargetHtml`/`castTargetModalHtml` turn any `cast_spell`/`activate_ability` with `requires_target` into a modal that walks each target requirement in turn (multi-target support), offering "∅ Kein Ziel" when optional. One mechanism covers spell targeting, Aura-attach targeting, and Equip/Fortify/Reconfigure — no separate "equip control" was built.
 - **Files:** `gameBoardView.js`
 
+### Target controller tag and click-on-board picking (VIS-13, VIS-14)
+
+- **What:** Every target candidate in the cast/activate picker and in the `trigger_target` choice popup carries a chip with the controlling player's name (banner colour, "(you)" for your own seat), so same-named permanents on different boards are distinguishable. The target picker gained the same **push aside** toggle pending choices already had; while it is pushed aside the board stays live, each legal candidate (battlefield/hand/exile card, stack entry, or a player's title bar) is outlined, and clicking it answers the popup exactly like its button (`pickablesForBoard`/`wirePickTargets`). The `trigger_target` choice reuses its existing aside toggle for the same board picking.
+- **Files:** `gameBoardView.js`, `main.css`, `locales/{en,de}.js`
+- **Why:** The controller is looked up from the view (`targetControllerId`: battlefield controller, stack item controller, else zone owner) because the server's target descriptors only carry `controller_id` for some target kinds. Graveyard candidates are a text list with no card element, and cost choices (tap/sacrifice/discard) are not RULE 115 targets, so both stay popup-only.
+
 ### Per-requirement target groups (MEC-10)
 
 - **What:** Each expanded targeting round now remembers which requirement it belongs to, so a cast/activate with 2+ *different* targeting clauses ("pump target creature... it fights target creature you don't control") sends per-requirement `target_groups` instead of one flat list that could conflate them; the server derives the partition itself when unambiguous, but only the client can express a declined "up to one" slot.
@@ -266,6 +287,14 @@ repointed there.
 
 ## Casting & Costs (frontend)
 
+### Gift recipient cast offers (RULE 702.174)
+
+- **What:** Each server-provided Gift cast offer is rendered as a distinct button naming the
+  recipient. `gift_opponent_id` is preserved through plain, `{X}`/Kicker, discard-cost and
+  multi-step target-selection flows, and is part of legal-action matching so one opponent's
+  target requirements cannot be confused with another cast offer.
+- **Files:** `gameBoardView.js`, `locales/{de,en}.js`
+
 ### X-spell and Kicker payment UI
 
 - **What:** A hand/command-zone card with `{X}` in its cost gets a number input (defaults to max) instead of a plain cast button; a kickable spell separately gets a Kicker number input (defaults to 0, since it's an opt-in extra cost) — both compose when a spell is kickable and X-costed.
@@ -309,6 +338,12 @@ repointed there.
 - **Why:** All 32 combinations render through one CSS rule fed two `linear-gradient` custom properties per seat, rather than 32 enumerated classes.
 
 ## Multiplayer Board & Shared-Game UX
+
+### Table emotes and action announcements (VIS-4)
+
+- **What:** The shared board shows a table feed below the stack/trigger feed in the left rail. Players send only preset emotes (👍, 👏, GG, 🤔, ⏳), without a free-text input or a priority requirement. Public land plays, spell casts and ability activations are announced with player names; priority passes are omitted. Observers can read the feed. New messages follow the scroll position only when the reader is already near the bottom.
+- **Files:** `gameBoardView.js`, `soloView.js`, `locales/en.js`, `locales/de.js`, `main.css`.
+- **Layout:** On desktop and landscape tablets the left rail fills the available viewport height, accounting for board zoom. The message feed expands into remaining space; short viewports keep controls reachable through scrolling. Narrow screens retain the horizontal layout above the board. Verified in Chromium at desktop/tablet widths and 75–150% board zoom.
 
 ### Redacted opponent hands + observer mode
 
@@ -356,10 +391,12 @@ repointed there.
 - **Files:** `gameBoardView.js`, `styles/main.css`, `locales/{en,de}.js`
 - **Bug fixed:** Could spam the server with redundant `pass_priority` calls fast enough to break the UI, because the multiplayer transport returns no fresh data from `act()` (it waits for the socket push) so the priority-window key could stay unchanged across renders while a pass was still in flight; fixed with a `skipAttemptedForKey` latch capping it to one attempt per window, verified via a headless JS-engine harness since there's no browser test runner.
 
-### "End the turn" (manual speed-up, deliberate)
+### "Pass this turn", "Skip to end step", stops and shortcuts (VIS-12)
 
-- **What:** A button on the priority holder's own banner, next to "Passen" — click it and every priority window this client holds for the rest of *this* turn auto-passes via `pass_priority`, **regardless of what `legal_actions` offers** (`endTurnActiveHere`). Unlike the automatic skip-empty above, it deliberately overrides "there's something you could do here" — the point is a player who's decided they have nothing left they want to do this turn and would rather fast-forward than click "Passen" through every remaining window (own main phases/combat included: it also force-passes those). Armed for exactly the internal turn it was clicked on (`endTurnAtTurnNumber` vs. `GameState.internal_turn.number`, RULE 500.1), so it never bleeds into the next turn; self-disarms once that turn ends, and on any genuine board interaction (`cancelAutoPassForThisWindow`, the same "you're clearly still deciding" signal the countdown listens to — checked unconditionally there, since a forced pass never starts `autoPassTimer` for the early-return guard to catch). It never answers a `pending_choice` or a turn-based action (declare attackers/blockers) — neither goes through `pass_priority`, so it can't silently skip one. Button text is the literal English "End the turn" in both locales (`bd.ctrl.endTurn`/`bd.ctrl.endTurnTitle`), by request.
-- **Files:** `gameBoardView.js`, `styles/main.css`, `locales/{en,de}.js`
+- **What:** The old client-only "End the turn" force-pass became a **server-side yield**: `set_yield` (`turn` / `end_step` / `clear`) arms `GameSession._yields`, and `_auto_pass_followups` — beside the RULE 720 controller auto-pass, so Solo gets it for free — passes that seat's priority until an **opponent's** turn ends (`turn`, "Pass this turn" — refused on your own turn) or, on **your own** turn, up to the end step (`end_step`, "Skip to end step" — where it disarms and the seat holds priority; refused on an opponent's turn). Interruption is the design: it never passes with another player's stack item to respond to (keeps the yield armed, resumes after resolution), never over a `pending_choice`; any real action of the seat, a take-back (`_restore`) or `clear` ends it; arming/cancelling needs no priority (`set_yield` is exempt from the RULE 117.1 guard — a yielding seat is passed for and so seldom holds it). Yields are public in the view (`priority.yields`, a "⏩" badge on the banner), so the table sees who is passing. **Stops** (`set_stops`, `priority.stops`): per step, own turn vs. opponents' turns, main phases locked on your own turn; a step without a stop is passed for that seat on an empty stack. The default (no entry) is the old behaviour, so only an opt-in changes anything. Stops panel in the rail, saved in a cookie (`mtg_priority_stops`) and re-offered once per game. Keys follow Arena/MTGO: Space = pass priority (Arena Space / MTGO F2), Enter = pass this (opponent's) turn (Arena Enter / MTGO F4 — stops for opponent actions), E = skip to end step (own turn).
+- **Bots + dynamic Pass label:** a bot accepts the same yield (`Bot.wants_turn_yield` → `set_yield`, gated per policy by `can_pass_turn`; Goldfish/Greedy/Mana always, Smart unless its own Oracle trigger is up, AI only when no cast/activate/land/attack is on offer), read off its own redacted view, so the "bots use only the client surface" rule holds; its yield shows as the same banner badge and Solo needs one bot tick fewer per window. The "Pass" button names the next step with an empty stack (`priority.next_step` from `GameEngine.next_priority_step`: next scheduled step that gives priority, else `next_turn`; a still-pending skip or unqueued extra combat is not predicted), "Pass (resolve stack)" otherwise.
+- **Why:** "Agreement" is by yield + visible stops rather than a consent dialog (user's choice): a dialog stalls a table and every opponent already keeps their own response windows. Stops are own-turn/opponents'-turn, not per individual opponent (UI weight at 3-4 seats). Arena's Shift+Enter (pass even if the opponent acts, MTGO F6) is not built. The button labels are literal English in both locales (carried over from "End the turn"); tooltips are translated. Solo: `_advance_solo_bots` still never passes for the human except for what the human armed.
+- **Files:** `services/game_session.py`, `gameBoardView.js`, `settings.js`, `styles/main.css`, `locales/{en,de}.js`; tests `tests/services/test_priority_yield.py`, `tests/api/test_api_solo.py`.
 
 ### Board polish: player counters, round vs. turn
 
@@ -437,7 +474,7 @@ repointed there.
 
 ### Static deck analysis (UC2)
 
-- **What:** A fully local/static analysis (no backend call, no AI) over resolved card data: mana curve, type distribution, pip-vs-source counts, land-archetype breakdown, and a deckbuilding-template split (Lands/Ramp/Card Advantage/Disruption/Plan) — card classification is a display-only oracle-text heuristic, never affecting real game behavior.
+- **What:** Static browser-side deck metrics plus a lazy backend match against Commander Spellbook's locally stored snapshot; matched fixed-card variants display their uses, outputs, mana-value total and curve-estimated earliest turn. Unresolved card lists skip combo matching, and template requirements remain explicitly unverified.
 - **Files:** `analyzeView.js`, `deckAnalysis.js`
 
 ### Dynamic simulation UI (ANA-4)
@@ -447,5 +484,5 @@ repointed there.
 
 ### Bracket-Analyse heuristic
 
-- **What:** A heuristic approximation of WotC's 5-tier Commander Brackets, flagging Game Changers/Mass Land Denial/Extra Turn spells via hand-maintained name/pattern lists plus a tutor count, explicitly labeled unofficial since real brackets also weigh un-derivable factors like combo speed.
+- **What:** The unofficial heuristic now also uses Commander Spellbook matches, narrowly requiring a two-card variant with an explicit infinite output, no unverified template requirements, and known card mana values. Combined card mana value is compared with the deck's max expected-mana curve: payable by turn 6 suggests Bracket 4; later suggests Bracket 3. This project-defined threshold is labeled as a heuristic, not an official WotC numeric rule or a game simulation.
 - **Files:** `deckAnalysis.js`

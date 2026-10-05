@@ -29,7 +29,7 @@ Eight cards, each a genuinely different shape:
   the *per-unit* multiplier) plus a new `LegendarySpellFreeDigEffect`
   riding `RulesEngine.dig_until`.
 * Kodama of the East Tree — a new `PutEqualOrLesserManaValueFromHandEffect`,
-  a new ``"hand_to_battlefield"`` `request_choose_objects` action stamping
+  a new ``"hand_to_battlefield"`` `_request_choose_objects` action stamping
   `GameObject.entered_via_ability_id`, and a new ``not_entered_via_self``
   RULE 603.1 group-trigger condition (the Panharmonicon-shaped
   self-recursion guard the printed card requires).
@@ -38,11 +38,11 @@ Eight cards, each a genuinely different shape:
 from __future__ import annotations
 
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 
 
 def _named(name):
@@ -152,7 +152,7 @@ def test_heliod_sun_crowned_life_gain_counter_and_lifelink_grant():
 
     choice = eng.state.pending_choice
     assert choice is not None and choice["kind"] == "trigger_target"
-    eng.rules.resolve_trigger_target_choice(bear.instance_id)
+    eng.rules.resolve_choice(bear.instance_id)
     eng.resolve_until_stable()
 
     assert bear.counters.get("+1/+1", 0) == 1
@@ -170,7 +170,7 @@ def test_heliod_sun_crowned_life_gain_counter_and_lifelink_grant():
 
 
 def test_containment_priest_exiles_a_reanimated_creature_instead():
-    from mtg_analyzer.game.effects import GameContext, ReturnFromGraveyardEffect
+    from mtg_analyzer.game.effects.core import GameContext, ReturnFromGraveyardEffect
 
     eng = make_engine("p1", "p2")
     _bf(eng.state, _named("Containment Priest"))
@@ -187,7 +187,7 @@ def test_containment_priest_exiles_a_reanimated_creature_instead():
 
 
 def test_without_containment_priest_reanimation_still_works():
-    from mtg_analyzer.game.effects import GameContext, ReturnFromGraveyardEffect
+    from mtg_analyzer.game.effects.core import GameContext, ReturnFromGraveyardEffect
 
     eng = make_engine("p1", "p2")
     victim = GameObject(_card("Fodder"), owner_id="p1", zone=Zone.GRAVEYARD)
@@ -216,7 +216,7 @@ def test_archon_of_valors_reach_locks_out_the_chosen_type_for_every_player():
     assert choice is not None and choice["kind"] == "choose_named_mode"
     option_ids = {o["id"] for o in choice["options"]}
     assert option_ids == {"artifact", "enchantment", "instant", "sorcery", "planeswalker"}
-    eng.rules.resolve_enter_choice("sorcery")
+    eng.rules.resolve_choice("sorcery")
     eng.state.add_to_battlefield(archon)
     assert archon.chosen_mode == "sorcery"
 
@@ -354,7 +354,7 @@ def test_kodama_of_the_east_tree_puts_a_permanent_from_hand_and_does_not_loop_on
     assert cheap.instance_id in offered_ids
     assert too_expensive.instance_id not in offered_ids  # mana value too high
 
-    eng.rules.resolve_choose_objects_choice(cheap.instance_id)
+    eng.rules.resolve_choice(cheap.instance_id)
     eng.resolve_until_stable()
 
     assert cheap in eng.state.battlefield

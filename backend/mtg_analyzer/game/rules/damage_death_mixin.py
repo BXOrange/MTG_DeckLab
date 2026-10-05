@@ -21,21 +21,24 @@ from __future__ import annotations
 import re
 from typing import Any, Callable, Optional, Union
 
-from ...models import card_query
-from ...models.card import Card
-from ...models.emblem import Emblem
-from ...models.events import EventType, GameEvent
-from ...models.game_object import GameObject, Zone
-from ...models.game_state import DelayedTrigger, GameState, StackItem
-from ...models.mana_cost import ManaCost
-from ...models.player import Player
+from ...models.cards import card_query
+from ...models.cards.card import Card
+from ...models.game.emblem import Emblem
+from ...models.game.events import EventType, GameEvent
+from ...models.game.game_object import GameObject, Zone
+from ...models.game.game_state import DelayedTrigger, GameState, StackItem
+
+#: Prefix of a `sacrifice` count that keeps N and sacrifices the rest ("all_but_one", "all_but_6").
+ALL_BUT_PREFIX = "all_but_"
+from ...models.mana.mana_cost import ManaCost
+from ...models.game.player import Player
 from ...parser.oracle.catalogue.keywords import parse_keywords
 from ...parser.oracle.catalogue.saga import all_chapter_numbers
-from .. import ability_catalogue, combat, continuous, copy_mechanics, dungeons, face_down, variants
+from .. import card_registry, combat, continuous, copy_mechanics, dungeons, face_down, variants
 from ..combat import has_infect, has_wither, is_protected_from, toxic_value
 from ..costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from ..mana_abilities import restriction_predicate_for_cast
-from ..effects import (
+from ..effects.core import (
     _apply_effects_partitioned,
     AddCountersEffect,
     CompleteDungeonEffect,
@@ -72,6 +75,7 @@ from ..effects import (
     WinConditionEffect,
 )
 from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_targets
+from .. import continuations
 
 def _saga_final_chapter(card: Card) -> int:
     """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
@@ -104,6 +108,12 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
         return obj.card.is_planeswalker
     if what == "battle":
         return obj.card.is_battle
+    if what.startswith("subtype:"):
+        # "…tap X untapped Myr you control" (Myr Battlesphere) — a creature subtype word, derived (layer 4).
+        return continuous.has_subtype(obj, what.partition(":")[2])
+    if what == "colored":
+        # "Each player sacrifices all permanents they control that are one or more colors." (All Is Dust)
+        return bool(obj.colors)
     if what == "nonland":
         # "…sacrifice a nonland permanent of their choice or discard a
         # card." (Tergrid's Lantern, MEC-43 round 4E) — the negated-type
@@ -120,10 +130,16 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
         # Deadly Dispute/Costly Plunder-shaped "sacrifice an artifact or
         # creature" additional cost.
         return obj.is_creature or obj.card.is_artifact
+    if what == "creature_or_enchantment":
+        return obj.is_creature or obj.card.is_enchantment
     if what == "creature_or_planeswalker":
         # RULE 306/302: Tevesh Szat's "another creature or planeswalker" —
         # the one compound word any shipped card needs.
         return obj.is_creature or obj.card.is_planeswalker
+    if what == "creature_or_land":
+        # PAR-117: Tainted Aether's own edict — "its controller sacrifices
+        # a creature or land of their choice."
+        return obj.is_creature or obj.is_land
     if what == "creature_artifact_or_land":
         # PAR-13: "sacrifice a creature, artifact, or land of their choice"
         # (Tomb of Annihilation's "Sandfall Cell" dungeon room) — the
@@ -131,6 +147,60 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
         # wrongly also license sacrificing an enchantment/planeswalker).
         return obj.is_creature or obj.card.is_artifact or obj.is_land
     return True  # unknown type word → any permanent, so the cost is payable
+
+
+#: PAR-78: a damage-prevention shield's own source qualifier — "Prevent all
+#: damage that would be dealt to `<recipient>` **by `<source filter>`**."
+#: (Argothian Pixies/Champion Lancer/Prismatic Ward/…, ~50 real cards on
+#: this template family). A closed, fail-closed whitelist matching
+#: `_matches_permanent_type`'s own discipline: an unrecognized filter key
+#: never silently widens to "any source" — the caller (the parser) simply
+#: doesn't build a `source_filter` dict for a phrase this doesn't cover, so
+#: that card stays unclaimed rather than half-modeled. Checked once per
+#: `DAMAGE` event, against whatever `GameObject` `event["source_id"]`
+#: names (fails closed — no live source object, e.g. a spell already off
+#: the stack, never matches a filtered shield).
+def _damage_source_matches(
+    state: GameState, event: GameEvent, source_filter: Optional[dict], protected_player_id: Optional[str],
+) -> bool:
+    if not source_filter:
+        return True
+    source_id = event.get("source_id")
+    source = state.find_object(source_id) if source_id is not None else None
+    if source is None:
+        return False
+    if source_filter.get("creature") and not source.is_creature:
+        return False
+    if source_filter.get("artifact") and not source.card.is_artifact:
+        return False
+    subtype = source_filter.get("subtype")
+    if subtype and subtype.lower() not in source.card.type_line.lower():
+        return False
+    keyword = source_filter.get("keyword")
+    if keyword and not combat.has(source, keyword):
+        return False
+    without_keyword = source_filter.get("without_keyword")
+    if without_keyword and combat.has(source, without_keyword):
+        return False
+    controller = source_filter.get("controller")
+    if controller == "you" and source.controller_id != protected_player_id:
+        return False
+    if controller == "not_you" and source.controller_id == protected_player_id:
+        return False
+    color = source_filter.get("color")
+    if color and color.upper() not in (source.colors or set()):
+        return False
+    if source_filter.get("attacking") and not getattr(source, "attacking", False):
+        return False
+    if source_filter.get("enchanted"):
+        # "…by enchanted creatures." (Wall of Putrid Flesh) — the source
+        # itself currently has an Aura attached, not the shield's own host.
+        if not any(
+            o.attached_to == source.instance_id and "aura" in o.card.type_line.lower()
+            for o in state.permanents()
+        ):
+            return False
+    return True
 
 
 class _MaxLifeTotalMarker:
@@ -191,6 +261,13 @@ class DamageDeathMixin:
         single_target_hint: bool = False,
     ) -> None:
         is_player = isinstance(target, Player)
+        # RULE 615/510.1e: a source-scoped prevention effect (Loafing Giant),
+        # or a creature that assigns no combat damage this turn (Gaze of
+        # Pain, MEC-99), stops all combat damage this object would deal,
+        # irrespective of recipient — a one-shot ability the creature deals
+        # separately (`combat=False`) is unaffected either way.
+        if combat and source is not None and getattr(source, "temp_prevent_combat_damage_dealt", False):
+            return
         # RULE 702.16c: protection prevents *all* damage from a source of the
         # stated quality, not just combat damage — a burn spell from a
         # protected colour fizzles here same as a blocked attacker would.
@@ -275,6 +352,15 @@ class DamageDeathMixin:
                 final_target = self.state.player_by_id(resolved.get("target_id")) or target
             else:
                 final_target = self.state.find_object(resolved.get("target_id")) or target
+            # RULE 122.1c: "If damage would be dealt to this permanent, prevent that damage and
+            # remove a shield counter from it." Checked on the *resolved* recipient (after any
+            # redirect, RULE 616.1c) and before any result of the damage — infect/wither's -1/-1
+            # counters, loyalty/defense loss, the DAMAGE event its triggers watch — because
+            # prevented damage is never dealt (RULE 615.1). One counter per damage event,
+            # however large the damage.
+            if not final_is_player and getattr(final_target, "counters", {}).get("shield", 0) > 0:
+                self.add_counters(final_target, -1, "shield")
+                return
             # RULE 702.90b/c: damage from an infect source is never marked/
             # doesn't cause life loss at all — it is dealt as -1/-1 counters
             # (creature) or poison counters (player) instead. RULE 702.91a's
@@ -285,25 +371,26 @@ class DamageDeathMixin:
             # below (neither rule mentions those permanent types).
             infect = source is not None and has_infect(source)
             wither = source is not None and has_wither(source)
+            if not wither:
+                # "All damage is dealt as though its source had wither."
+                # (Everlasting Torment) — RULE 609.4b as-though, a standing
+                # battlefield static that recolours *every* source's damage
+                # to creatures into -1/-1 counters.
+                from .. import continuous  # local: avoid the continuous↔rules cycle
+
+                wither = continuous.global_wither_active(self.state)
             if final_is_player and infect:
                 self.add_player_counters(final_target, final, "poison", source=source)
                 self.state.record_stat(final_target.id, "damage_taken", amount=final)
                 # RULE 120.3 (Final Punishment, MEC-43): damage is still
                 # "dealt" here even though 702.90b redirects its life-loss
-                # consequence into poison counters instead.
-                counts = self.state.damage_dealt_to_players_this_turn
-                counts[final_target.id] = counts.get(final_target.id, 0) + final
+                # consequence into poison counters instead — the DAMAGE event fired
+                # below is what the per-turn damage history is derived from.
                 if source is not None:
                     self.state.record_stat(source.controller_id, "damage_dealt", amount=final)
-                    if source.controller_id is not None:
-                        by = self.state.damage_dealt_by_this_turn
-                        by[source.controller_id] = by.get(source.controller_id, 0) + final
                     if combat and source.is_commander:
-                        final_target.add_commander_damage(source.instance_id, source.name, final)
-                    if combat:
-                        self.state.combat_damage_to_players_this_turn.setdefault(
-                            source.instance_id, set()
-                        ).add(final_target.id)
+                        final_target.add_commander_damage(source.instance_id, source.name,
+                                                          final * self._commander_damage_multiplier(final_target))
             elif final_is_player:
                 # RULE 120.3: damage dealt to a player causes that much life
                 # loss. This is a *consequence* of damage, not a separate
@@ -313,40 +400,13 @@ class DamageDeathMixin:
                 # cause.
                 self.lose_life(final_target, final, cause="damage")
                 self.state.record_stat(final_target.id, "damage_taken", amount=final)
-                # RULE 120.3 (Final Punishment, MEC-43): the running total
-                # a later "damage already dealt to that player this turn"
-                # effect reads — incremented here (the ordinary branch) and
-                # in the ``infect`` branch just above, since RULE 702.90b
-                # redirects infect's life-loss consequence into poison
-                # counters without the damage itself stopping being "dealt".
-                counts = self.state.damage_dealt_to_players_this_turn
-                counts[final_target.id] = counts.get(final_target.id, 0) + final
                 if source is not None:
                     self.state.record_stat(source.controller_id, "damage_dealt", amount=final)
-                    if source.controller_id is not None:
-                        by = self.state.damage_dealt_by_this_turn
-                        by[source.controller_id] = by.get(source.controller_id, 0) + final
                     # RULE 903.10a: combat damage from a commander is tallied
                     # separately toward the 21-damage loss threshold.
                     if combat and source.is_commander:
-                        final_target.add_commander_damage(source.instance_id, source.name, final)
-                    if combat:
-                        # RULE 120.3: remember *who* this source hit this turn
-                        # — "target player who was dealt combat damage by ~
-                        # this turn" (Hope of Ghirapur) is asked long after
-                        # the damage step, when no live state records it. See
-                        # `GameState.combat_damage_to_players_this_turn`.
-                        self.state.combat_damage_to_players_this_turn.setdefault(
-                            source.instance_id, set()
-                        ).add(final_target.id)
-                    elif source.controller_id is not None and source.controller_id != final_target.id:
-                        # Chandra's Incinerator (MEC-45): "the total amount
-                        # of noncombat damage dealt to your opponents this
-                        # turn" — summed per dealing player, the amount-sum
-                        # sibling of `combat_damage_to_players_this_turn`'s
-                        # own per-source hit-set (which only tracks combat).
-                        counts = self.state.noncombat_damage_to_opponents_this_turn
-                        counts[source.controller_id] = counts.get(source.controller_id, 0) + final
+                        final_target.add_commander_damage(source.instance_id, source.name,
+                                                          final * self._commander_damage_multiplier(final_target))
             elif getattr(final_target, "is_planeswalker", False):
                 # RULE 306.9: damage to a planeswalker removes that many
                 # loyalty counters (the 0-loyalty SBA then sends it to the
@@ -392,26 +452,19 @@ class DamageDeathMixin:
                 toxic_n = toxic_value(source)
                 if toxic_n:
                     self.add_player_counters(final_target, toxic_n, "poison", source=source)
-            # MEC-49: remember which sources dealt damage to this creature
-            # this turn — "whenever a creature dealt damage by ~ this turn
-            # dies, …" (`GameState.creatures_damaged_by_source_this_turn`).
-            # Any damage to a creature, combat or not, infect/wither
-            # included (RULE 702.90b/702.91a still deal damage, just recolor
-            # its result), so it sits here rather than in a type-specific
-            # branch above.
-            if not final_is_player and source is not None and getattr(
-                final_target, "is_creature", False
-            ):
-                self.state.creatures_damaged_by_source_this_turn.setdefault(
-                    final_target.instance_id, set()
-                ).add(source.instance_id)
+            # MEC-49: "whenever a creature dealt damage by ~ this turn dies, …"
+            # (`GameState.creatures_damaged_by_source_this_turn`, derived from the
+            # DAMAGE event below, which is flagged when its recipient is a creature).
+            # Any damage to a creature, combat or not, infect/wither included
+            # (RULE 702.90b/702.91a still deal damage, just recolor its result).
+            target_is_creature = not final_is_player and getattr(final_target, "is_creature", False)
             # `copy_with` (not a fresh `GameEvent`) so `source_id`/`combat`/
             # `source_controller_id` survive onto the broadcast event — a
             # "whenever equipped creature deals combat damage to a player"
             # trigger (`effect_binder._trigger_condition`'s ``filter``) reads
             # exactly these fields, and they'd otherwise be silently dropped
             # here even though the pre-replacement ``event`` above carried them.
-            self.state.fire_event(resolved.copy_with(amount=final))
+            self.state.fire_event(resolved.copy_with(amount=final, target_is_creature=target_is_creature))
 
         self.apply_replacements(event, on_resolved=_finish)
     def lose_life(self, player: Player, amount: int, cause: str = "effect") -> None:
@@ -445,17 +498,14 @@ class DamageDeathMixin:
             self.gain_life(player, amount)
             return
         player.lose_life(amount)
-        # RULE 118-119 running per-turn total, the mirror of `gain_life`'s own
-        # `life_gained_this_turn` bump — every life-loss path funnels through
-        # here (see this method's docstring), so this one site covers damage,
-        # life-paid costs and "loses N life" alike.
-        self.state.life_lost_this_turn[player.id] = (
-            self.state.life_lost_this_turn.get(player.id, 0) + amount
-        )
+        # Every life-loss path funnels through here (see this method's docstring), so
+        # this one event is what `GameState.life_lost_this_turn` is derived from.
         self.state.fire_event(
             GameEvent(EventType.LIFE_LOST, player_id=player.id, amount=amount, cause=cause)
         )
-    def destroy(self, obj: GameObject, can_be_regenerated: bool = True) -> None:
+    def destroy(
+        self, obj: GameObject, can_be_regenerated: bool = True, by_effect: bool = True,
+    ) -> None:
         """RULE 701.6: destroy ``obj`` — replaceable (RULE 616), chiefly by a
         regeneration shield (RULE 701.16, `regenerate`) consuming the event
         instead of letting the permanent reach the graveyard. Not the entry
@@ -468,9 +518,24 @@ class DamageDeathMixin:
         regenerated.") skips the replacement pass entirely — a card-specific
         override of RULE 701.16, not RULE 701.16c (which is about sacrifice/
         0-toughness, unrelated to this) — so an existing shield simply
-        doesn't get a chance to intercept this particular destroy.
+        doesn't get a chance to intercept this particular destroy. A creature
+        carrying ``temp_cant_be_regenerated`` ("can't be regenerated this
+        turn", `CantBeRegeneratedEffect`) is treated the same way.
+
+        ``by_effect`` is RULE 122.1c's own qualifier: a shield counter replaces destruction
+        "as the result of an effect" only, so the RULE 704.5g lethal-damage pass
+        (`_sba_check_lethal_damage`, ``by_effect=False``) is not protected by one. It sits
+        ahead of the regeneration opt-out because "can't be regenerated" says nothing about a
+        shield counter, which isn't regeneration.
         """
-        if not can_be_regenerated:
+        if combat.has_indestructible(obj):
+            # RULE 702.12b: an indestructible permanent can't be destroyed — no shield or
+            # regeneration is spent either, since nothing is replaced.
+            return
+        if by_effect and obj.counters.get("shield", 0) > 0:
+            self.add_counters(obj, -1, "shield")
+            return
+        if not can_be_regenerated or getattr(obj, "temp_cant_be_regenerated", False):
             self._move_to_graveyard(obj)
             return
         event = GameEvent(EventType.DESTROY, target_id=obj.instance_id, object=obj.name)
@@ -522,6 +587,24 @@ class DamageDeathMixin:
 
         effect.replacement_fn = _replace
         obj.replacement_effects.append(effect)
+    def heal(self, obj: GameObject) -> int:
+        """RULE 701.69a: heal the damage already dealt to ``obj`` — remove
+        all marked damage from it. Returns how much was removed (0 if there
+        was none, or ``obj`` isn't a permanent that marks damage).
+
+        The narrower "heal N damage" (701.69a's first sentence) isn't a
+        shape any card prints — every real use is "heal all damage" / "…is
+        healed", the second sentence — so this takes no amount. The
+        `-1/-1`-counter removal a caller might also want (regeneration's own
+        `_regenerate_replacement` above already does its own
+        ``damage_marked = 0``, and infect/wither damage is counters, not
+        marked damage, so "heal" per the CR never touches them) stays
+        `remove_counters`' job.
+        """
+        removed = int(getattr(obj, "damage_marked", 0) or 0)
+        if removed:
+            obj.damage_marked = 0
+        return removed
     def put_into_graveyard(self, obj: GameObject) -> None:
         """Move ``obj`` to its owner's graveyard *without* going through
         `destroy` (RULE 701.16c: sacrifice is not destruction and can't be
@@ -531,6 +614,23 @@ class DamageDeathMixin:
         sacrifice (RULE 701.17) uses this too, for the same reason.
         """
         self._move_to_graveyard(obj, cause="sacrifice")
+    def note_sacrificed(self, source: Optional[GameObject], victim: GameObject) -> None:
+        """Remember on ``source`` what was just sacrificed, for a "the sacrificed creature's
+        power / toughness / mana value" amount (`continuous.count_selector`'s ``sacrificed_cost_*``).
+        Called with the victim still on the battlefield, so its derived (RULE 613) power and
+        toughness are the ones read — RULE 608.2h last-known information. A cost (RULE 601.2b /
+        602.2b) and an effect's own sacrifice ("you may sacrifice another creature. When you do, ...")
+        both stamp, so a clause measuring "the sacrificed creature" reads the same fields either way."""
+        if source is None:
+            return
+        source.sacrificed_cost_mana_value = victim.card.converted_mana_cost
+        source.sacrificed_cost_card_types = sorted(victim.type_words & {
+            "artifact", "battle", "creature", "enchantment", "land", "planeswalker",
+        })
+        source.sacrificed_cost_was_suspected = bool(getattr(victim, "is_suspected", False))
+        source.sacrificed_cost_power = victim.power
+        source.sacrificed_cost_toughness = victim.toughness
+
     def sacrifice(self, player: Player, what: str = "permanent", count: "int | str" = 1) -> None:
         """``player`` sacrifices up to ``count`` permanents matching ``what``
         (RULE 701.17) — an effect-driven sacrifice (annihilator, RULE
@@ -539,7 +639,7 @@ class DamageDeathMixin:
         call and can't pause for a chooser — see `GameEngine._pay_activation_
         cost`'s own ``sacrifice_choice``).
 
-        A real interactive choice via `request_choose_objects` (RULE 601.2c-
+        A real interactive choice via `_request_choose_objects` (RULE 601.2c-
         style) rather than an auto-pick: with ``count`` >= however many
         candidates exist there's nothing to decide (every one is taken, same
         as before), but a defending player facing Annihilator on a board
@@ -560,9 +660,14 @@ class DamageDeathMixin:
             # "You can't sacrifice those creatures this turn." (Call for Aid)
             and not obj.cant_be_sacrificed_this_turn
         ]
-        if count == "all_but_one":
-            count = max(0, len(candidates) - 1)
-        self.request_choose_objects(
+        if count == "all":
+            count = len(candidates)  # "sacrifices all permanents they control that …": nothing to choose
+        if isinstance(count, str) and count.startswith(ALL_BUT_PREFIX):
+            # "all_but_one" (Liliana) and "all_but_6" (Planetary Annihilation: "chooses six lands … then
+            # sacrifices the rest") — keep the named number, sacrifice the others.
+            keep = 1 if count == "all_but_one" else int(count[len(ALL_BUT_PREFIX):])
+            count = max(0, len(candidates) - keep)
+        self._request_choose_objects(
             player, candidates, "sacrifice", count=count,
             prompt="Wähle eine bleibende Karte zum Opfern",
         )
@@ -575,6 +680,13 @@ class DamageDeathMixin:
         SBA-offered move to the command zone.
         """
         was_on_battlefield = obj in self.state.battlefield
+        # RULE 400.7 / Laelia, the Blade Reforged (PAR-60): the zone this
+        # card is leaving, snapshotted before the move for the `EXILE`
+        # event's own ``from_zone`` — a "…put into exile from your library
+        # and/or your graveyard" trigger needs to know where it came from.
+        _from_zone = getattr(getattr(obj, "zone", None), "value", None) or (
+            "battlefield" if was_on_battlefield else None
+        )
         owner = self.state.player_by_id(obj.owner_id)
         if was_on_battlefield:
             # RULE 603.6a "look back in time" — fire before removal, see
@@ -582,11 +694,16 @@ class DamageDeathMixin:
             self.state.fire_event(
                 GameEvent(
                     EventType.LEAVES_BATTLEFIELD,
+                    # Where it went — "leaves the battlefield without dying" (PAR-119).
+                    to_zone="exile",
                     object=obj.name,
                     owner_id=obj.owner_id,
                     controller_id=obj.controller_id,
                     instance_id=obj.instance_id,
                     object_types=sorted(obj.type_words),
+                    # RULE 603.10a last-known counters — a "for each counter on it" leaves-the-
+                    # battlefield trigger of this same object reads them after it is gone.
+                    counters=dict(obj.counters),
                     # "…target opponent loses life equal to its power."
                     # (Rapacious Guest-shaped) — snapshotted for the same
                     # RULE 400.7 reason `counters`/`subtypes` are elsewhere
@@ -605,10 +722,15 @@ class DamageDeathMixin:
             self._remove_from_current_zone(owner, obj)
         obj.tapped = False
         obj.damage_marked = 0
+        obj.blitz_cost_paid = False  # RULE 400.7, including a countered spell.
         owner.add_to_zone(obj, Zone.EXILE)
+        self._split_melded_after_move(obj, Zone.EXILE)  # RULE 712.19
         self._flag_commander_zone_choice(obj)
         self.state.fire_event(
-            GameEvent(EventType.EXILE, object=obj.name, owner_id=obj.owner_id)
+            GameEvent(
+                EventType.EXILE, object=obj.name, owner_id=obj.owner_id,
+                instance_id=obj.instance_id, from_zone=_from_zone,
+            )
         )
     def return_to_hand(self, obj: GameObject) -> None:
         """Return ``obj`` to its owner's hand (RULE 701.3 "return"), from
@@ -636,11 +758,16 @@ class DamageDeathMixin:
             self.state.fire_event(
                 GameEvent(
                     EventType.LEAVES_BATTLEFIELD,
+                    # Where it went — "leaves the battlefield without dying" (PAR-119).
+                    to_zone="hand",
                     object=obj.name,
                     owner_id=obj.owner_id,
                     controller_id=obj.controller_id,
                     instance_id=obj.instance_id,
                     object_types=sorted(obj.type_words),
+                    # RULE 603.10a last-known counters — a "for each counter on it" leaves-the-
+                    # battlefield trigger of this same object reads them after it is gone.
+                    counters=dict(obj.counters),
                     # "…target opponent loses life equal to its power."
                     # (Rapacious Guest-shaped) — snapshotted for the same
                     # RULE 400.7 reason `counters`/`subtypes` are elsewhere
@@ -660,16 +787,29 @@ class DamageDeathMixin:
         obj.tapped = False
         obj.damage_marked = 0
         owner.add_to_zone(obj, Zone.HAND)
+        self._split_melded_after_move(obj, Zone.HAND)  # RULE 712.19
+        if was_on_battlefield:
+            # RULE 400.7: the hand card is a new object. The leaving event
+            # and measured choice tails have already captured battlefield LKI.
+            previous_card = obj.card
+            obj.reset_as_new_object()
+            obj.reset_derived()
+            obj.controller_id = obj.owner_id
+            if obj.card is not previous_card:
+                self.switch_to_face(obj, obj.card)
         if obj.is_commander:
-            self.state.pending_choice = self._commander_zone_choice(obj, Zone.HAND)
-    def return_to_library(self, obj: GameObject, position: str = "top") -> None:
+            self.open_choice(self._commander_zone_choice(obj, Zone.HAND))
+    def return_to_library(self, obj: GameObject, position: str = "top", depth: int = 1) -> None:
         """Put ``obj`` on top (default) or the bottom of its owner's library
         (RULE 701.3's "put" — Time Ebb/Griptide/Roil Spout-shaped tempo
         bounce, distinct from `shuffle_into_library`'s "shuffle into", which
         randomizes rather than placing), from anywhere — the same "move to
         another zone, from wherever it is" shape as `return_to_hand`/
         `exile`. RULE 903.9b's commander redirect applies here exactly as it
-        does for a commander headed to hand.
+        does for a commander headed to hand. ``depth`` > 1 is "Nth from the
+        top" (God-Eternal Oketra's "third from the top"): ``depth - 1`` cards
+        stay above it; a library with fewer than ``depth`` cards puts it on the
+        bottom (RULE 401.7).
         """
         was_on_battlefield = obj in self.state.battlefield
         owner = self.state.player_by_id(obj.owner_id)
@@ -677,11 +817,16 @@ class DamageDeathMixin:
             self.state.fire_event(
                 GameEvent(
                     EventType.LEAVES_BATTLEFIELD,
+                    # Where it went — "leaves the battlefield without dying" (PAR-119).
+                    to_zone="library",
                     object=obj.name,
                     owner_id=obj.owner_id,
                     controller_id=obj.controller_id,
                     instance_id=obj.instance_id,
                     object_types=sorted(obj.type_words),
+                    # RULE 603.10a last-known counters — a "for each counter on it" leaves-the-
+                    # battlefield trigger of this same object reads them after it is gone.
+                    counters=dict(obj.counters),
                 )
             )
             self.state.remove_from_battlefield(obj)
@@ -692,10 +837,20 @@ class DamageDeathMixin:
         if position == "bottom":
             obj.zone = Zone.LIBRARY
             owner.library.insert(0, obj)
+        elif depth > 1:
+            self._insert_library_nth_from_top(owner, obj, depth)
         else:
             owner.add_to_zone(obj, Zone.LIBRARY)  # top (index -1)
+        self._split_melded_after_move(obj, Zone.LIBRARY)  # RULE 712.19
         if obj.is_commander:
-            self.state.pending_choice = self._commander_zone_choice(obj, Zone.LIBRARY)
+            self.open_choice(self._commander_zone_choice(obj, Zone.LIBRARY))
+    def _insert_library_nth_from_top(self, owner: Player, obj: GameObject, depth: int) -> None:
+        """Put ``obj`` ``depth``-th from the top of ``owner``'s library (RULE 401.7:
+        the top of the library is the list end, so ``depth - 1`` cards stay above
+        it; a library with fewer than ``depth`` cards puts it on the bottom)."""
+        obj.zone = Zone.LIBRARY
+        owner.library.insert(max(0, len(owner.library) - (depth - 1)), obj)
+
     def shuffle_into_library(self, obj: GameObject) -> None:
         """Move ``obj`` into its owner's library, then shuffle (RULE 701.20 —
         Green Sun's Zenith's own trailing "Shuffle ~ into its owner's
@@ -715,11 +870,16 @@ class DamageDeathMixin:
             self.state.fire_event(
                 GameEvent(
                     EventType.LEAVES_BATTLEFIELD,
+                    # Where it went — "leaves the battlefield without dying" (PAR-119).
+                    to_zone="library",
                     object=obj.name,
                     owner_id=obj.owner_id,
                     controller_id=obj.controller_id,
                     instance_id=obj.instance_id,
                     object_types=sorted(obj.type_words),
+                    # RULE 603.10a last-known counters — a "for each counter on it" leaves-the-
+                    # battlefield trigger of this same object reads them after it is gone.
+                    counters=dict(obj.counters),
                 )
             )
             self.state.remove_from_battlefield(obj)
@@ -728,8 +888,9 @@ class DamageDeathMixin:
         obj.tapped = False
         obj.damage_marked = 0
         owner.add_to_zone(obj, Zone.LIBRARY)
+        self._split_melded_after_move(obj, Zone.LIBRARY)  # RULE 712.19
         self.shuffle_library(owner)
-    def blink(self, obj: GameObject, controller: Optional[Player] = None) -> None:
+    def blink(self, obj: GameObject, controller: Optional[Player] = None, tapped: bool = False) -> None:
         """Exile ``obj``, then immediately return it to the battlefield under
         its owner's control (RULE 400.7's "leaves and re-enters" — Ephemerate/
         Momentary Blink-shaped "exile target permanent, then return it").
@@ -772,13 +933,21 @@ class DamageDeathMixin:
         owner.remove_from_zone(obj, Zone.EXILE)
         obj.reset_as_new_object()
         obj.controller_id = new_controller.id
-        self._put_searched_card(new_controller, obj, "battlefield")
+        # "…then return them to the battlefield **tapped** under their owner's control" (Gandalf, Shadow's Foe).
+        self._put_searched_card(new_controller, obj, "battlefield_tapped" if tapped else "battlefield")
+    @staticmethod
+    def _last_known_mana_value(obj: GameObject) -> int:
+        from .misc_mixin import _that_many_value
+
+        return _that_many_value({"measure": "mana_value"}, [obj])
+
     def return_from_graveyard(
         self,
         obj: GameObject,
         destination: str = "battlefield",
         controller_id: Optional[str] = None,
         transformed: bool = False,
+        attach_to: Optional[GameObject] = None,
     ) -> None:
         """Return ``obj`` from a graveyard to ``destination`` (RULE 701.3,
         the Regrowth/Reanimate-shaped recursion family).
@@ -812,9 +981,16 @@ class DamageDeathMixin:
         counters must not bring them back via Reanimate/Regrowth) before it
         lands anywhere.
         """
+        # An explicit attachment is established before the entry event.
         owner = self.state.player_by_id(obj.owner_id)
         self._remove_from_current_zone(owner, obj)
         obj.reset_as_new_object()
+        if attach_to is not None:
+            obj.attached_to = attach_to.instance_id
+        # RULE 712.8: the back face must be present before entry triggers
+        # inspect characteristics and continuous effects are applied.
+        if transformed and destination in ("battlefield", "battlefield_tapped"):
+            self.transform_permanent(obj)
         if controller_id is not None and destination in ("battlefield", "battlefield_tapped"):
             obj.controller_id = controller_id
             self._put_searched_card(self.state.player_by_id(controller_id), obj, destination)
@@ -827,8 +1003,6 @@ class DamageDeathMixin:
             # followed by a return at all).
             obj.controller_id = owner.id
             self._put_searched_card(owner, obj, destination)
-        if transformed and destination in ("battlefield", "battlefield_tapped"):
-            self.transform_permanent(obj)
     def return_dies_as_new_permanent(
         self,
         obj: GameObject,
@@ -897,7 +1071,7 @@ class DamageDeathMixin:
         # to tell a real Aura attachment from an illegal one, and that has
         # to see this permanent's new "enchant" quality, not the old
         # creature's (cleared) keyword set.
-        from ..effect_binder import attach_keyword
+        from ..binding.core import attach_keyword
 
         for kw_spec in parse_keywords(obj.card):
             attach_keyword(obj, kw_spec)
@@ -987,9 +1161,6 @@ class DamageDeathMixin:
             if final <= 0:
                 return
             player.gain_life(final)
-            self.state.life_gained_this_turn[player.id] = (
-                self.state.life_gained_this_turn.get(player.id, 0) + final
-            )
             self.state.fire_event(
                 GameEvent(EventType.LIFE_GAINED, player_id=player.id, amount=final)
             )
@@ -1024,6 +1195,8 @@ class DamageDeathMixin:
         amount: Union[int, str] = "all",
         watched_source_id: Optional[int] = None,
         rider: Optional[dict] = None,
+        combat_only: bool = False,
+        source_filter: Optional[dict] = None,
     ) -> None:
         """RULE 615: grant ``player`` a turn-scoped damage-prevention shield
         (Riot Control's "all", Thought Lash's repeatable "the next 1") —
@@ -1054,6 +1227,16 @@ class DamageDeathMixin:
         before even if that source never actually deals damage this turn.
         ``rider`` fires a follow-up off the real prevented amount — see
         `apply_prevent_rider` (Deflecting Palm/Reverse Damage-shaped).
+
+        ``combat_only`` (Inkshield — "Prevent all combat damage that would be
+        dealt to you this turn") narrows the shield to RULE 510 combat
+        damage, checked against the `DAMAGE` event's own ``combat`` flag the
+        same way `prevent_all_combat_damage_this_turn` does.
+
+        ``source_filter`` (PAR-78 — "…by creatures"/"…by sources you don't
+        control"/…) narrows the shield to damage from a matching source,
+        via `_damage_source_matches` (checked against this player's own id
+        for the ``"controller"`` key).
         """
         remaining = None if amount == "all" else int(amount)
         effect = ReplacementEffect(
@@ -1062,6 +1245,8 @@ class DamageDeathMixin:
             condition=lambda e, c: (
                 bool(e.get("is_player")) and e.get("target_id") == player.id
                 and (watched_source_id is None or e.get("source_id") == watched_source_id)
+                and (not combat_only or bool(e.get("combat")))
+                and _damage_source_matches(c.state, e, source_filter, player.id)
             ),
             description=f"{player.name}: Schadensverhinderung",
         )
@@ -1147,29 +1332,34 @@ class DamageDeathMixin:
         amount: Union[int, str] = "all",
         watched_source_id: Optional[int] = None,
         rider: Optional[dict] = None,
+        scope: str = "creatures",
+        source_filter: Optional[dict] = None,
     ) -> None:
         """RULE 615/616.1d's "…would deal damage to you **and/or creatures
         you control** this turn" (Shadowbane, MEC-30) — the recipient-union
         sibling of `prevent_damage_to_player` just above: same one-chosen-
         source shield shape, but the condition matches *either* ``player``
-        themself *or* any creature they currently control (checked live —
-        control can change mid-turn), instead of one fixed id. Kept as its
-        own method rather than a generic `recipient_union` list on the
-        one-shot chooser (Family A's own standing-shield vocabulary) since
-        exactly one real card needs this shape.
+        themself *or* any permanent of ``scope`` they currently control
+        (checked live — control can change mid-turn), instead of one fixed
+        id. ``scope="creatures"`` (the original, Shadowbane-shaped) or
+        ``"permanents"`` (PAR-78 — "…you and **permanents** you control
+        this turn" — Endure/Channel Harm).
+
+        ``source_filter`` (PAR-78) — see `prevent_damage_to_player`.
         """
         remaining = None if amount == "all" else int(amount)
 
         def _condition(e: GameEvent, c: Any) -> bool:
             if watched_source_id is not None and e.get("source_id") != watched_source_id:
                 return False
+            if not _damage_source_matches(c.state, e, source_filter, player.id):
+                return False
             if e.get("is_player"):
                 return e.get("target_id") == player.id
             target_obj = c.state.find_object(e.get("target_id"))
-            return (
-                target_obj is not None and target_obj.is_creature
-                and target_obj.controller_id == player.id
-            )
+            if target_obj is None or target_obj.controller_id != player.id:
+                return False
+            return target_obj.is_creature if scope == "creatures" else True
 
         effect = ReplacementEffect(
             event_type=EventType.DAMAGE,
@@ -1205,6 +1395,8 @@ class DamageDeathMixin:
         amount: Union[int, str] = "all",
         watched_source_id: Optional[int] = None,
         rider: Optional[dict] = None,
+        source_filter: Optional[dict] = None,
+        shield_controller_id: Optional[str] = None,
     ) -> None:
         """RULE 615, the *any-target* sibling of `prevent_damage_to_player`
         (PAR-15's "prevent the next N damage ... to any number of targets,
@@ -1226,6 +1418,7 @@ class DamageDeathMixin:
         """
         is_player = isinstance(target, Player)
         target_id = target.id if is_player else target.instance_id
+        protected_player_id = target.id if is_player else target.controller_id
         remaining = None if amount == "all" else int(amount)
         effect = ReplacementEffect(
             event_type=EventType.DAMAGE,
@@ -1233,6 +1426,7 @@ class DamageDeathMixin:
             condition=lambda e, c: (
                 bool(e.get("is_player")) == is_player and e.get("target_id") == target_id
                 and (watched_source_id is None or e.get("source_id") == watched_source_id)
+                and _damage_source_matches(c.state, e, source_filter, protected_player_id)
             ),
             description="Schadensverhinderung",
         )
@@ -1250,7 +1444,12 @@ class DamageDeathMixin:
                 remaining -= prevented
                 if remaining <= 0 and effect in holder:
                     holder.remove(effect)
-            self.apply_prevent_rider(rider, prevented, event, target_id if is_player else getattr(target, "controller_id", None))
+            # ``shield_controller_id``: whose "you" a rider means — the spell's controller (PAR-139, "you gain
+            # life equal to the damage prevented"), not necessarily the shielded permanent's.
+            self.apply_prevent_rider(
+                rider, prevented, event,
+                shield_controller_id or (target_id if is_player else getattr(target, "controller_id", None)),
+            )
             if remaining is None:
                 return None  # "all" — every point prevented, shield persists
             new_amount = dealt - prevented
@@ -1258,6 +1457,67 @@ class DamageDeathMixin:
 
         effect.replacement_fn = _replace
         holder.append(effect)
+
+    def _request_prevent_damage_chosen_color(
+        self, player: Player, recipient: Any, amount: Union[int, str] = "all",
+    ) -> None:
+        """RULE 615/616.1d's "sources of **the color of your choice**"
+        (Avacyn, Guardian Angel, PAR-78) — genuinely different from
+        `RequestPreventDamageSourceEffect`'s "**a source** of your choice"
+        (Circle of Protection family): the shield here matches *every*
+        source of a chosen colour for the rest of the turn, not one
+        specific permanent, so there is no object to open `_request_choose_
+        objects`'s chooser over.
+
+        Also distinct from RULE 601.2b's own ``"choose_color"`` kind
+        (`casting_mixin._offer_enter_choices`): that one only ever fires
+        once, as a permanent enters, and stamps `GameObject.chosen_color`
+        for its whole battlefield lifetime. Avacyn's colour is picked fresh
+        at *each* activation, so it can't reuse that stamp — this opens its
+        own ``"prevent_damage_chosen_color"`` choice instead and, once
+        answered, feeds the pick straight into `prevent_damage_to_player`/
+        `_to_target`'s existing ``source_filter={"color": …}`` key (PAR-78)
+        rather than adding a new filter shape.
+        """
+        recipient_is_player = isinstance(recipient, Player)
+        self.open_choice({
+            "kind": "prevent_damage_chosen_color",
+            "player_id": player.id,
+            "prompt": "Farbe wählen",
+            "options": [{"id": color, "label": label} for color, label in self._ANY_COLOR_LABELS.items()],
+            "recipient_id": recipient.id if recipient_is_player else recipient.instance_id,
+            "recipient_is_player": recipient_is_player,
+            "amount": amount,
+        })
+
+    @continuations.choice(
+        "prevent_damage_chosen_color", answer=continuations.ANSWER_STR, rule="615",
+    )
+    def _resume_prevent_damage_chosen_color(
+        self, choice: dict[str, Any], answer: Optional[str]
+    ) -> None:
+        """Answer a pending `prevent_damage_chosen_color` choice, then open
+        the shield for whichever colour was picked. Mandatory (no decline
+        offered) — an unrecognized/missing answer defaults to the first
+        offered colour, the same fallback RULE 601.2b's own colour choice
+        (`casting_mixin._resume_choose_creature_type`) gives a skipped pick.
+        """
+        options = choice["options"]
+        valid_ids = {str(o["id"]) for o in options}
+        chosen = str(answer) if answer is not None and str(answer) in valid_ids else (
+            str(options[0]["id"]) if options else None
+        )
+        if chosen is None:
+            return
+        amount = choice.get("amount", "all")
+        if choice.get("recipient_is_player"):
+            recipient = self.state.player_by_id(choice["recipient_id"])
+            if recipient is not None:
+                self.prevent_damage_to_player(recipient, amount, source_filter={"color": chosen})
+        else:
+            recipient = self._object_by_instance_id(choice["recipient_id"])
+            if recipient is not None:
+                self.prevent_damage_to_target(recipient, amount, source_filter={"color": chosen})
 
     def redirect_damage_from_source(
         self, source: GameObject, new_recipient: Any, amount: Union[int, str] = "all",
@@ -1321,6 +1581,55 @@ class DamageDeathMixin:
                     self.deal_damage(
                         original_target, leftover, source=source, combat=bool(event.get("combat", False)),
                     )
+            overrides: dict[str, Any] = {
+                "amount": redirected,
+                "target_id": new_recipient.id if new_is_player else new_recipient.instance_id,
+                "is_player": new_is_player,
+            }
+            if not new_is_player:
+                overrides["target_controller_id"] = new_recipient.controller_id
+            return event.copy_with(**overrides)
+
+        effect.replacement_fn = _replace
+        controller.player_effects.append(effect)
+
+    def redirect_damage_from_target(
+        self, protected: GameObject, new_recipient: Any, amount: Union[int, str] = "all",
+    ) -> None:
+        """Redirect the next damage headed to one permanent (en-Kor).
+
+        Unlike :meth:`redirect_damage_from_source`, the watched side of the
+        DAMAGE event is its recipient.  This is a redirect, not prevention,
+        and a finite shield can split one event exactly like the source-based
+        sibling above.
+        """
+        controller = self.state.player_by_id(protected.controller_id) if protected.controller_id else None
+        if controller is None:
+            return
+        protected_id = protected.instance_id
+        remaining = None if amount == "all" else int(amount)
+        new_is_player = not hasattr(new_recipient, "instance_id")
+        effect = ReplacementEffect(
+            event_type=EventType.DAMAGE,
+            replacement_fn=lambda e, c: e,
+            condition=lambda e, c: not e.get("is_player") and e.get("target_id") == protected_id,
+            description=f"{protected.name}: Schadensumleitung",
+        )
+        effect.damage_prevention_shield = True
+
+        def _replace(event: GameEvent, context: Any) -> Optional[GameEvent]:
+            nonlocal remaining
+            dealt = int(event.get("amount", 0) or 0)
+            redirected = dealt if remaining is None else min(remaining, dealt)
+            if remaining is not None:
+                remaining -= redirected
+                if remaining <= 0 and effect in controller.player_effects:
+                    controller.player_effects.remove(effect)
+            if redirected <= 0:
+                return event
+            leftover = dealt - redirected
+            if leftover > 0:
+                self.deal_damage(protected, leftover, source=self.state.find_object(event.get("source_id")), combat=bool(event.get("combat", False)))
             overrides: dict[str, Any] = {
                 "amount": redirected,
                 "target_id": new_recipient.id if new_is_player else new_recipient.instance_id,
@@ -1440,7 +1749,7 @@ class DamageDeathMixin:
         Palm's "deals that much damage to that source's controller", Nine
         Lives's "…and put an incarnation counter on this enchantment", and
         siblings. Mirrors `_prevent_damage_convert_counters_replacement`'s
-        (`game/effects.py`) established pattern of calling an ordinary
+        (`game/effects/core.py`) established pattern of calling an ordinary
         engine method mid-replacement with the real computed amount, rather
         than a second effect resolving independently later.
 
@@ -1476,7 +1785,38 @@ class DamageDeathMixin:
         wanted_color = rider.get("if_source_color")
         if wanted_color is not None and wanted_color not in (event.get("source_colors") or ()):
             return
+        # "…from a black **or red** source…" (Samite Ministration, PAR-78) —
+        # ``if_source_color``'s multi-colour sibling, same "any of" idiom
+        # `color_any` uses elsewhere in this file.
+        wanted_colors_any = rider.get("if_source_color_any")
+        if wanted_colors_any and not any(
+            c in (event.get("source_colors") or ()) for c in wanted_colors_any
+        ):
+            return
         kind = rider.get("kind")
+        if kind == "reflexive_damage":
+            # PAR-139, Phyrexian Vindicator: "…prevent that damage. When damage is prevented this way, ~ deals
+            # that much damage to any other target." — a fresh triggered ability (RULE 603.11: its target is
+            # chosen when it is put on the stack), sized by the amount actually prevented.
+            if shield_source is not None:
+                self.enqueue_reflexive_trigger(
+                    [{"type": "damage", "params": {"amount": prevented, "target_kind": "any"}}],
+                    shield_source, event,
+                )
+            return
+        if kind == "add_scaled_counters":
+            # PAR-139: "…prevent that damage. Put a -1/-1 counter on ~ for each 1 damage prevented this
+            # way." (Phyrexian Hydra, Stormwild Capridor) / "… on that creature …" (Vigor) — one counter
+            # per point actually prevented, on the shield's own permanent (``on="self"``) or on the
+            # permanent the damage was going to hit (``on="recipient"``, the DAMAGE event's target).
+            if rider.get("on") == "recipient":
+                target_id = event.get("target_id")
+                counted_on = self.state.find_object(target_id) if target_id is not None else None
+            else:
+                counted_on = shield_source
+            if counted_on is not None:
+                self.add_counters(counted_on, prevented, str(rider.get("counter", "+1/+1")), source=shield_source)
+            return
         if kind == "add_self_counter":
             if shield_source is not None:
                 self.add_counters(shield_source, 1, str(rider.get("counter", "+1/+1")), source=shield_source)
@@ -1490,10 +1830,12 @@ class DamageDeathMixin:
             # last +1/+1 counter goes the RULE 704.5g "0 toughness" SBA
             # (these are printed 0/0) kills it, no extra code.
             if shield_source is not None:
-                self.add_counters(
-                    shield_source, -int(rider.get("count", 1)),
-                    str(rider.get("counter", "+1/+1")),
-                )
+                counter = str(rider.get("counter", "+1/+1"))
+                count = prevented if rider.get("scaled") else int(rider.get("count", 1))
+                # "…remove that many +1/+1 counters from it" (PAR-139, Ugin's Conjurant): only as many as
+                # it actually holds.
+                held = shield_source.plus_one_counters if counter == "+1/+1" else shield_source.counters.get(counter, 0)
+                self.add_counters(shield_source, -min(count, held), counter)
             return
         if kind == "deal_damage_to_source_controller":
             # Always the *source's* controller, unconditionally — never the
@@ -1530,7 +1872,8 @@ class DamageDeathMixin:
         elif kind == "draw_cards":
             self.draw(recipient, prevented)
         elif kind == "mill":
-            self.mill(recipient, prevented)
+            # "…prevent that damage and mill twice that many cards" (Angel of Suffering): ``factor``.
+            self.mill(recipient, prevented * int(rider.get("factor", 1)))
         elif kind == "exile_top_of_library_scaled":
             # Bone Mask (MEC-30): "Exile cards from the top of your library
             # equal to the damage prevented this way." — `mill`'s
@@ -1611,6 +1954,70 @@ class DamageDeathMixin:
         effect.prevents_damage = True  # MEC-30: "damage can't be prevented" filter
         controller.player_effects.append(effect)
 
+    def _prevent_damage_to_creatures(
+        self,
+        controller: Player,
+        recipient_scope: str = "all",
+        recipient_filter: Optional[dict] = None,
+        source_filter: Optional[dict] = None,
+    ) -> None:
+        """RULE 615: "Prevent all damage that would be dealt to creatures
+        [you control] this turn." (PAR-78 — Forfend/Bubble Matrix/Inner
+        Sanctum/Emmara Tandris/Iroas/Ethersworn Shieldmage) — unlike
+        `prevent_damage_to_player`/`_to_target` (a shield for one chosen
+        recipient) or `prevent_all_combat_damage_this_turn` (unscoped by
+        recipient entirely), this shields *every* creature matching
+        ``recipient_scope``/``recipient_filter`` live, board-wide, the same
+        "no RULE 115 target was ever chosen" shape Fog's own method is, just
+        narrowed to creature-only recipients instead of "everyone".
+
+        ``recipient_scope`` is ``"all"`` (every creature) or
+        ``"you_control"`` (only ``controller``'s own, checked live).
+        ``recipient_filter`` narrows further by the recipient's own
+        characteristics — ``{"token": True}`` (Emmara Tandris' "creature
+        **tokens** you control"), ``{"subtype": "artifact"}``-shaped via
+        ``{"artifact": True}`` (Ethersworn Shieldmage's "artifact
+        creatures"), ``{"attacking": True}`` (Iroas' "attacking creatures
+        you control"). ``source_filter`` — see `prevent_damage_to_player`
+        (Light of Sanction's "…by sources you control").
+
+        Lives on ``controller``'s own `Player.player_effects` purely as a
+        physical home (cleanup-swept the same way every other RULE 615
+        shield is) — the condition itself never reads ``controller`` for
+        ``recipient_scope="all"``.
+        """
+        def _recipient_ok(target_obj: GameObject) -> bool:
+            if not target_obj.is_creature:
+                return False
+            if recipient_scope == "you_control" and target_obj.controller_id != controller.id:
+                return False
+            if recipient_filter:
+                if recipient_filter.get("token") and not getattr(target_obj, "is_token", False):
+                    return False
+                if recipient_filter.get("artifact") and not target_obj.card.is_artifact:
+                    return False
+                if recipient_filter.get("attacking") and not target_obj.attacking:
+                    return False
+            return True
+
+        def _condition(e: GameEvent, c: Any) -> bool:
+            if e.get("is_player"):
+                return False
+            target_obj = c.state.find_object(e.get("target_id"))
+            if target_obj is None or not _recipient_ok(target_obj):
+                return False
+            return _damage_source_matches(c.state, e, source_filter, controller.id)
+
+        effect = ReplacementEffect(
+            event_type=EventType.DAMAGE,
+            replacement_fn=lambda e, c: None,  # every matching point prevented
+            condition=_condition,
+            description="Kreaturen: Schadensverhinderung",
+        )
+        effect.damage_prevention_shield = True
+        effect.prevents_damage = True  # MEC-30: "damage can't be prevented" filter
+        controller.player_effects.append(effect)
+
     def disable_damage_prevention_this_turn(self) -> None:
         """RULE 615: "Damage can't be prevented this turn." (Insult //
         Injury/Isengard Unleashed, MEC-30) — a plain `GameState`-level flag
@@ -1629,7 +2036,7 @@ class DamageDeathMixin:
     ) -> None:
         """RULE 616: "If a source you control would deal damage this turn,
         it deals double/triple that damage instead." — the *spell-cast*
-        sibling of `_double_damage_replacement` (`game/effects.py`): that
+        sibling of `_double_damage_replacement` (`game/effects/core.py`): that
         factory only ever attaches to a *permanent's* own `replacement_
         effects` (Furnace of Rath/Fiery Emancipation-shaped); a one-shot
         sorcery (Insult // Injury/Isengard Unleashed, MEC-30) has no
@@ -1653,6 +2060,17 @@ class DamageDeathMixin:
         effect.damage_multiplier_grant = True
         controller.player_effects.append(effect)
 
+    def _commander_damage_multiplier(self, recipient: Player) -> int:
+        """Replacement multiplier for commander-damage bookkeeping only."""
+        multiplier = 1
+        for permanent in self.state.battlefield:
+            for ability in getattr(permanent, "static_effects", []):
+                if getattr(ability, "layer", None) != "commander_damage_multiplier":
+                    continue
+                if permanent.controller_id == recipient.id:
+                    multiplier *= int(ability.params.get("multiplier", 3))
+        return multiplier
+
     def _move_to_graveyard(self, obj: GameObject, cause: Optional[str] = None) -> None:
         """Put ``obj`` into its owner's graveyard (RULE 704.5), firing the
         leave/dies triggers. ``cause="sacrifice"`` additionally fires
@@ -1668,6 +2086,10 @@ class DamageDeathMixin:
         exile it instead" clause (`GraveyardCastPermissionEffect.exile_
         if_would_be_put_into_graveyard`).
         """
+        if getattr(obj, "exile_after_free_cast", False):
+            obj.exile_after_free_cast = False
+            self.exile(obj)
+            return
         if obj.cast_via_graveyard_cast_permission_until_turn == self.state.internal_turn.number:
             self.exile(obj)
             return
@@ -1696,6 +2118,14 @@ class DamageDeathMixin:
         # void-counter redirect just above.
         if continuous.graveyard_redirect_active(self.state, obj):
             self.exile(obj)
+            return
+        # A self-only replacement granted through layer 6.  This common
+        # choke point covers destruction, sacrifice and non-damage moves;
+        # the derived flag means the granting static can use any ordinary
+        # affected-object group.  Beneficial optional replacements follow
+        # the engine's established default and are taken.
+        if getattr(obj, "_graveyard_to_library_replacement", False):
+            self.return_to_library(obj, "top")
             return
         was_on_battlefield = obj in self.state.battlefield
         was_creature = obj.is_creature
@@ -1727,11 +2157,16 @@ class DamageDeathMixin:
             self.state.fire_event(
                 GameEvent(
                     EventType.LEAVES_BATTLEFIELD,
+                    # Where it went — "leaves the battlefield without dying" (PAR-119).
+                    to_zone="graveyard",
                     object=obj.name,
                     owner_id=obj.owner_id,
                     controller_id=obj.controller_id,
                     instance_id=obj.instance_id,
                     object_types=sorted(obj.type_words),
+                    # RULE 603.10a last-known counters — a "for each counter on it" leaves-the-
+                    # battlefield trigger of this same object reads them after it is gone.
+                    counters=dict(obj.counters),
                     # "…target opponent loses life equal to its power."
                     # (Rapacious Guest-shaped) — snapshotted for the same
                     # RULE 400.7 reason `counters`/`subtypes` are elsewhere
@@ -1743,6 +2178,10 @@ class DamageDeathMixin:
                     # that creature's toughness" on a DIES trigger (Abattoir
                     # Ghoul), read the same RULE 400.7 last-known way.
                     toughness=obj.toughness,
+                    # The characteristics "if it was a `<type>`" asks about (`trigger_event_object`), on
+                    # the leaves event too so a self "leaves the battlefield" trigger can read them.
+                    subtypes=sorted(continuous.derived_subtype_words(obj)),
+                    colors=sorted(obj.colors),
                 )
             )
             # RULE 700.4: "dies" means "is put into a graveyard from the
@@ -1770,6 +2209,7 @@ class DamageDeathMixin:
                     # dying object may already be gone from the
                     # battlefield by the time that check runs.
                     counters=dict(obj.counters),
+                    mana_value=self._last_known_mana_value(obj),
                     # A tribal "another nontoken Zombie or Mutant you
                     # control dies" subject filter (The Ghoul, Gunslinger,
                     # `effect_binder._build_group_ok`) needs both off the
@@ -1777,7 +2217,15 @@ class DamageDeathMixin:
                     # gone from the battlefield by the time that check
                     # runs.
                     is_token=obj.is_token,
-                    subtypes=obj.card.type_line.partition("—")[2].strip().lower().split(),
+                    # Derived, not just printed (RULE 603.10a): a Demon the layer engine made it is still a
+                    # Demon when "if it wasn't a Demon" is asked (Infernal Vessel).
+                    subtypes=sorted(continuous.derived_subtype_words(obj)),
+                    # "whenever a **green** creature dies" (Bereavement,
+                    # PAR-117) — `_build_group_ok`'s ``color`` key needs the
+                    # same RULE 400.7 last-known snapshot as ``object_types``/
+                    # ``subtypes`` just above; a live re-lookup after this
+                    # fires would miss a dead object entirely.
+                    colors=sorted(obj.colors),
                     # RULE 701.15b's designation, for the same reason: "whenever
                     # a **goaded** attacking or blocking creature dies" (Baeloth
                     # Barrityl) can't re-derive it once the object is gone. Also
@@ -1792,6 +2240,24 @@ class DamageDeathMixin:
                     # since a live re-lookup after this fires sees nothing.
                     # Mirrors the same snapshot on LEAVES_BATTLEFIELD above.
                     power=obj.power,
+                    # "…dies, **if its toughness was less than 1**, draw a
+                    # card." (Massacre Girl, Known Killer —
+                    # `ConditionalEffect.dying_creature_toughness_below`),
+                    # the same RULE 400.7 last-known snapshot as ``power``.
+                    toughness=obj.toughness,
+                    # "Whenever an enchanted creature dies, draw a card for
+                    # each Aura you controlled that was attached to it."
+                    # (Hateful Eidolon, PAR-60) — the DIES trigger resolves
+                    # after RULE 704.5m has already put every attached Aura
+                    # in a graveyard, so the per-controller tally of Auras
+                    # on this creature is snapshotted here (fired while
+                    # `obj` is still on the battlefield, RULE 603.6a), the
+                    # same last-known-info idiom as ``counters``/``power``.
+                    attached_aura_controller_ids=[
+                        a.controller_id for a in self.state.battlefield
+                        if getattr(a, "attached_to", None) == obj.instance_id
+                        and "aura" in (getattr(a.card, "type_line", "") or "").lower()
+                    ],
                 )
             )
             if cause == "sacrifice":
@@ -1804,6 +2270,11 @@ class DamageDeathMixin:
                         object=obj.name,
                         owner_id=obj.owner_id,
                         controller_id=obj.controller_id,
+                        # The player who sacrificed (RULE 701.17a: only a
+                        # permanent's controller can) — the key a "…deals 2
+                        # damage to them"/"that player" body reads through
+                        # `event_player`, as on every other player-acted event.
+                        player_id=obj.controller_id,
                         instance_id=obj.instance_id,
                         object_types=sorted(obj.type_words),
                         # "Whenever you sacrifice a Food/Clue/Treasure, …"
@@ -1826,7 +2297,9 @@ class DamageDeathMixin:
 
         obj.tapped = False
         obj.damage_marked = 0
+        obj.blitz_cost_paid = False  # RULE 400.7, including a countered spell.
         owner.add_to_zone(obj, Zone.GRAVEYARD)
+        self._split_melded_after_move(obj, Zone.GRAVEYARD)  # RULE 712.19
         self._flag_commander_zone_choice(obj)
     def _flag_commander_zone_choice(self, obj: GameObject) -> None:
         """RULE 903.9a: a commander that just landed in a graveyard or exile
@@ -1865,17 +2338,14 @@ class DamageDeathMixin:
                 {"id": "decline", "label": f"{stay_prefix} {label} bleiben"},
             ],
         }
-    def resolve_commander_zone_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice("commander_zone", answer=continuations.ANSWER_STR, rule="903.9")
+    def _resume_commander_zone(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending RULE 903.9a/9b `commander_zone` choice.
 
         ``"command"`` moves the commander into the command zone from
         whichever zone currently holds it; anything else (``None``/
         ``"decline"``) leaves it exactly where it already is.
         """
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "commander_zone":
-            raise ValueError("no pending commander-zone choice to resolve")
-        self.state.pending_choice = None
         if answer != "command":
             return
         obj = self.state.find_object(choice["instance_id"])

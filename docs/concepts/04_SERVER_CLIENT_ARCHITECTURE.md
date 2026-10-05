@@ -1,819 +1,414 @@
-# DeckLab: Server-Client Web Architecture
+# DeckLab: Server/Client Architecture
+
+This document is the detailed companion to
+[`03_ARCHITECTURE_AND_BUILDPLAN.md`](03_ARCHITECTURE_AND_BUILDPLAN.md)'s
+system overview: the actual FastAPI REST/WebSocket surface, the
+`GameSession`/`Lobby` split, and the security posture this project actually
+ships with — not the aspirational client/server plan an earlier version of
+this file described (React/Vue frontend, matchmaking, user accounts, LLM
+integration). None of that exists here; see Part 6 for exactly what got
+dropped and why.
+
+For diagrams, see
+[`12_ARCHITECTURE_DIAGRAMS.md`](12_ARCHITECTURE_DIAGRAMS.md). For the
+frontend's own interaction model (the board, drag targets, the stack
+overlay), see
+[`05_GAME_UI_AND_CARD_INTERACTION.md`](05_GAME_UI_AND_CARD_INTERACTION.md).
 
 ---
 
-# STRATEGIC SHIFT: From Monolith to Distributed System
+# PART 1: ONE PROCESS, ONE PORT
 
-## Before (CLI Monolith)
-```
-[Local CLI]
-  ├─ Card DB
-  ├─ Parser
-  ├─ Game Engine
-  ├─ Rules
-  ├─ UI
-  └─ Analysis
+## Why a single uvicorn process
 
-Problem: Single machine, single user, hard to scale
-```
+The backend runs as **one** uvicorn process on purpose
+(`setup/start.py`) — see `CLAUDE.md`'s "Concurrency / workers" section.
+The game-session manager, the multiplayer lobby, and the dynamic-analysis
+job registry are all in-memory, process-wide singletons
+(`api/dependencies.py`'s `get_game_session_manager()` /
+`get_lobby()` / job registry): a game or a lobby seat lives in a Python
+object inside this one process, not in a shared database row, so
+`uvicorn --workers N` would silently split every running game across N
+processes that don't know about each other. There is no Redis, no
+sticky-session load balancer, no horizontal scaling story — a game session,
+a lobby table, and an analysis job all live and die with this one process.
 
-## After (Server-Client Web)
-```
-[Web Browser Client - HTML5]        [Server]
-  ├─ Game UI Display                ├─ Card DB
-  ├─ User Input                     ├─ Parser & Validator
-  ├─ Game State Display             ├─ Game Engine (Turn Loop, Rules)
-  └─ Network Layer                  ├─ Game Session Manager
-       ↕ (WebSocket)                ├─ Matchmaking
-       ↕                            ├─ LLM Integration
-       ↕                            ├─ Persistence (Decks, Users, Games)
-                                    ├─ Bot AI
-                                    └─ Analysis Engine
-```
+Concurrency *within* that one process is real, though: every gameplay
+endpoint is a synchronous `def`, so Starlette hands each request to an
+AnyIO worker-thread pool sized by `config.SERVER_THREAD_WORKERS`
+(`MTG_SERVER_THREAD_WORKERS` / `--server-threads`, default 40,
+`api/app.py`'s `_apply_server_thread_workers`) — that number is the ceiling
+on how many games can be mid-step at once. Deck analysis has its own,
+separate pair of knobs: `DYNAMIC_ANALYSIS_WORKERS` caps how many analysis
+*jobs* may run concurrently, and `DYNAMIC_ANALYSIS_MATCH_WORKERS` fans one
+job's independent match simulations across a `ProcessPoolExecutor` to get
+around the GIL (`config.py`).
 
-**Benefits**:
-- ✅ Multi-player (people from different machines)
-- ✅ Web-based UI (responsive, modern)
-- ✅ Server-side game logic (no cheating possible)
-- ✅ Scalable (multiple clients → one server)
-- ✅ Persistent storage (save games, decks, stats)
-- ✅ Matchmaking service (find opponents)
-- ✅ Analysis centralized (expensive computation on server)
+The one thing the process does run as a genuine background task is the
+**multiplayer watchdog** — `api/multiplayer_ws.sweeper`, started from
+`api/app.py`'s `_lifespan` and cancelled on shutdown. It calls
+`sweep_once` once a second (`SWEEP_INTERVAL_SECONDS`) to disconnect idle
+players, expire lapsed seats and PLR-4 client tokens, and keep a table
+moving when nobody is currently able to act — see Part 4.
 
----
+## One port for the browser
 
-# PART 1: SYSTEM ARCHITECTURE OVERVIEW
+**A browser only ever needs to reach the backend's port.** The frontend is
+a separate, plain static-file process (`setup/no_cache_server.py`, default
+`http://127.0.0.1:8765`), but the backend reverse-proxies anything outside
+`/api`/`/ws` straight through to it (`api/frontend_proxy.py`,
+`config.FRONTEND_ORIGIN`). `proxy_to_frontend` is registered **last** in
+`api/app.py` (its catch-all `/{path:path}` route would otherwise shadow
+every other route if registered earlier) and refuses to proxy anything
+already reserved for the API (`_is_reserved_path`: `api/*`, `ws/*`) with a
+plain 404, as a second, defensive line against exactly that mistake.
 
-## High-Level Diagram
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│ PLAYER 1 BROWSER                   PLAYER 2 BROWSER             │
-│ ┌────────────────────┐             ┌────────────────────┐       │
-│ │ HTML5 Web Client   │             │ HTML5 Web Client   │       │
-│ │ ├─ React/Vue/etc   │             │ ├─ React/Vue/etc   │       │
-│ │ ├─ Game UI Display │             │ ├─ Game UI Display │       │
-│ │ ├─ Input Handler   │             │ ├─ Input Handler   │       │
-│ │ └─ Network Layer   │             │ └─ Network Layer   │       │
-│ └────────────┬───────┘             └────────────┬───────┘       │
-│              │                                   │               │
-│              └───────────────┬────────────────────┘               │
-│                              │ WebSocket/REST                    │
-└──────────────────────────────┼─────────────────────────────────┘
-                               │
-                  ┌────────────▼─────────────┐
-                  │  BACKEND SERVER          │
-                  │                          │
-                  │  ┌──────────────────┐   │
-                  │  │ Game Manager     │   │
-                  │  │ ├─ Sessions      │   │
-                  │  │ ├─ Turn Manager  │   │
-                  │  │ └─ Game Loop     │   │
-                  │  └──────────────────┘   │
-                  │                          │
-                  │  ┌──────────────────┐   │
-                  │  │ Rules Engine     │   │
-                  │  │ ├─ Casting       │   │
-                  │  │ ├─ Stack         │   │
-                  │  │ └─ Mana System   │   │
-                  │  └──────────────────┘   │
-                  │                          │
-                  │  ┌──────────────────┐   │
-                  │  │ Persistence      │   │
-                  │  │ ├─ Deck DB       │   │
-                  │  │ ├─ User DB       │   │
-                  │  │ └─ Game History  │   │
-                  │  └──────────────────┘   │
-                  │                          │
-                  │  ┌──────────────────┐   │
-                  │  │ Services         │   │
-                  │  │ ├─ Matchmaking   │   │
-                  │  │ ├─ Analysis      │   │
-                  │  │ ├─ Bot AI        │   │
-                  │  │ └─ LLM Integration  │
-                  │  └──────────────────┘   │
-                  │                          │
-                  └──────────────────────────┘
-                        │
-                  ┌─────▼──────────┐
-                  │ External Data  │
-                  │ ├─ Scryfall API│
-                  │ └─ LLM API     │
-                  └────────────────┘
-```
+This is a server-to-server HTTP call (`httpx`), not a browser request, so
+it is **not subject to CORS** — which is why `_LOCAL_DEV_ORIGIN_REGEX` in
+`api/app.py` only ever has to admit `localhost`/`127.0.0.1` origins: the
+two-origin-in-one-browser problem the CORS middleware exists for only
+arises with `setup/start.py --frontend-only`, not the default path. The
+frontend process itself stays loopback-only always; only the backend is
+ever opened beyond `127.0.0.1`, and only when explicitly started with
+`setup/start.py --host HOST` — see Part 5 for why that's opt-in.
 
 ---
 
-# PART 2: SERVER-SIDE ARCHITECTURE
+# PART 2: THE REST API SURFACE
 
-## Server Components (Layers)
+`backend/mtg_analyzer/api/` is a set of FastAPI `APIRouter`s, each mounted
+once in `api/app.py`'s `create_app()`. None of them touch a user/auth
+table — there isn't one.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│ ORCHESTRATION LAYER                                          │
-│ ├─ WebSocket Message Router                                 │
-│ ├─ HTTP REST API Router                                     │
-│ ├─ Session Manager (which player, which game?)              │
-│ └─ Event Broadcaster (send to all clients in game)          │
-└────────────────┬────────────────────────────────────────────┘
-                 │
-┌────────────────▼────────────────────────────────────────────┐
-│ GAME LOGIC LAYER (Rules-Driven)                             │
-│ ├─ Game Manager (lifecycle: create, play, end)              │
-│ ├─ Turn Manager (turn progression)                          │
-│ ├─ Rules Engine (RULE 601/608/504/117/603/607)             │
-│ ├─ Action Processor (cast spell, attack, etc.)              │
-│ └─ Event System (triggered abilities, etc.)                │
-└────────────────┬────────────────────────────────────────────┘
-                 │
-┌────────────────▼────────────────────────────────────────────┐
-│ SERVICE LAYER                                                │
-│ ├─ Matchmaking Service (find opponent)                       │
-│ ├─ Bot Service (automated players)                           │
-│ ├─ Analysis Service (LLM, deck analysis)                     │
-│ ├─ Persistence Service (save/load)                           │
-│ └─ Notification Service (game updates)                       │
-└────────────────┬────────────────────────────────────────────┘
-                 │
-┌────────────────▼────────────────────────────────────────────┐
-│ DATA LAYER                                                   │
-│ ├─ Card Repository (card data)                              │
-│ ├─ Deck Repository (save decks)                              │
-│ ├─ User Repository (users, accounts)                         │
-│ ├─ Game Repository (game history)                            │
-│ └─ Session Repository (active games)                         │
-└────────────────┬────────────────────────────────────────────┘
-                 │
-┌────────────────▼────────────────────────────────────────────┐
-│ DATABASE (PostgreSQL or similar)                             │
-│ ├─ Cards table (name, mana_cost, type, etc.)               │
-│ ├─ Decks table (user_id, commander, cards)                  │
-│ ├─ Users table (username, password_hash, etc.)              │
-│ ├─ Games table (game_history, result, players)              │
-│ ├─ Sessions table (active_games, state)                     │
-│ └─ Matches table (pending games, matchmaking queue)         │
-└─────────────────────────────────────────────────────────────┘
-```
+| Router | Responsibility |
+| --- | --- |
+| `decks.py` | Parse/validate a decklist submitted as raw text (`POST /api/decks`) — the deck-import/analysis tab's non-persisted path. |
+| `saved_decks.py` | CRUD on the one shared `DeckDatabase` (save, list, update, delete a `Deck` — author, sleeve, cube flag, favorites all live on this record). |
+| `archetypes.py` | Archetype/synergy lookups backing the deck-analysis tab. |
+| `cards.py` | Card-cache lookups (`POST /api/cards/resolve` batch name→`Card`, search) — the `CardDatabase`/`LazyCardLoader` front door. |
+| `images.py` | Serves cached card art (`ImageCache`) so the browser never calls Scryfall directly. |
+| `game.py` | Goldfish and Replay/Puzzle sessions: start, act, rewind, restart, delete, export a replay descriptor — see Part 3. |
+| `game_ws.py` | `/ws/game/{game_id}` — a relay that exists but is not wired into any current frontend view; see Part 4. |
+| `multiplayer.py` | The lobby-to-session bridge: create/join/configure a table, seat bots, start, act, concede, take back — see Part 4. |
+| `multiplayer_ws.py` | `/ws/lobby` — presence plus the live push channel multiplayer actually uses; also owns `sweeper`/`sweep_once`. |
+| `solo.py` | Solo-vs-Bots (PLR-14): the same multiplayer engine minus the lobby, one human seat plus 1–3 bot seats, plain REST. |
+| `dynamic_analysis.py` | Kicks off/polls simulated-match deck analysis jobs (`services/dynamic_analysis.py`). |
+| `import_external.py` | Server-side Archidekt import proxy (`services/archidekt_client.py`) — Moxfield was tried twice and reverted, Cloudflare-blocked. |
+| `player_assets.py` | Player-uploaded token art and card-back sleeves, keyed by free-text player name (`services/player_assets.py`). |
+| `frontend_proxy.py` | The catch-all described in Part 1; mounted last. |
 
-## Server Responsibilities
-
-### S1: Authentication & Session Management
-```
-When user connects:
-1. Browser sends auth token (or login)
-2. Server validates token
-3. Server creates/resumes session
-4. Server tracks user connection (IP, browser, session_id)
-5. Server can later:
-   - Reconnect if browser refreshes
-   - Kick if inactive too long
-   - Support multiple tabs (careful!)
-```
-
-### S2: Game Session Management
-```
-When game starts:
-1. Server creates GameSession object
-2. Stores: Player1, Player2, GameState, Turn, Phase, Priority
-3. Stores: All actions taken (game log)
-4. Sends initial state to both clients
-5. Listens for actions from each client
-6. Validates actions server-side
-7. Updates game state
-8. Broadcasts updates to both clients
-9. When game ends: saves to database, sends result
-```
-
-### S3: Action Processing Pipeline
-```
-Client sends action: "CastSpell Lightning Bolt targeting Player 2"
-
-Server-side:
-1. Validate: Is this player's turn?
-2. Validate: Is action legal (mana cost, timing, etc.)?
-3. Execute: Call RulesEngine.CastSpell()
-4. Update: GameState
-5. Trigger: Any triggered abilities?
-6. Broadcast: "Player1 cast Lightning Bolt, dealing 3 damage to Player2"
-7. Send: Updated GameState to both clients
-8. Next: Game loop (check whose priority, etc.)
-```
-
-### S4: Persistence
-```
-Before Game Starts:
-- Load Player1's deck from database
-- Load Player2's deck from database
-
-During Game:
-- Optional: Save game state every N actions (for resume)
-
-After Game:
-- Save final game state
-- Save winner/loser/result
-- Update player statistics (win/loss count)
-- Allow replay of game
-```
-
-### S5: Matchmaking
-```
-Player clicks "Find Opponent":
-1. Join matchmaking queue
-2. Server waits for another player
-3. When 2nd player joins:
-   - Remove both from queue
-   - Create game session
-   - Load both decks
-   - Start game
-   - Send "game ready" to both clients
-```
+`GET /api/health` is inlined directly in `create_app()` rather than its own
+router — used by the frontend's `checkHealth()` (`frontend/src/js/api.js`)
+to test the configured backend address on the Einstellungen tab.
 
 ---
 
-# PART 3: CLIENT-SIDE ARCHITECTURE
+# PART 3: THE SESSION MODEL
 
-## Client Components
+## `GameSession` wraps one `GameEngine`
 
-```
-┌──────────────────────────────────────────────────────────┐
-│ HTML5 WEB CLIENT (Browser)                               │
-│                                                           │
-│ ┌────────────────────────────────────────────────────┐  │
-│ │ PRESENTATION LAYER (React/Vue Components)          │  │
-│ │ ├─ Game Board Display                              │  │
-│ │ │  ├─ Player Info (life, hand size, library)      │  │
-│ │ │  ├─ Battlefield (creatures, permanents)         │  │
-│ │ │  ├─ Stack Display                               │  │
-│ │ │  └─ Graveyard/Exile View                        │  │
-│ │ ├─ Action Panel                                    │  │
-│ │ │  ├─ List of legal actions                       │  │
-│ │ │  ├─ Spell casting interface                     │  │
-│ │ │  ├─ Attack/Block interface                      │  │
-│ │ │  └─ Pass button                                 │  │
-│ │ └─ Game Chat/Log                                   │  │
-│ │    ├─ Recent actions ("P1 cast Lightning Bolt")   │  │
-│ │    └─ Player chat (optional)                       │  │
-│ └────────────────────────────────────────────────────┘  │
-│                                                           │
-│ ┌────────────────────────────────────────────────────┐  │
-│ │ STATE MANAGEMENT (Redux or Vuex)                   │  │
-│ │ ├─ myPlayer state (hand, life, mana pool)         │  │
-│ │ ├─ opponentPlayer state (partial, not hand!)      │  │
-│ │ ├─ GameState (phase, turn, stack, etc.)           │  │
-│ │ ├─ UI state (what can I do now?)                  │  │
-│ │ └─ Connection state (connected? latency?)         │  │
-│ └────────────────────────────────────────────────────┘  │
-│                                                           │
-│ ┌────────────────────────────────────────────────────┐  │
-│ │ INPUT HANDLER                                       │  │
-│ │ ├─ Parse clicks/form submissions                   │  │
-│ │ ├─ Build action objects                            │  │
-│ │ ├─ Validate input locally (optional early check)  │  │
-│ │ └─ Send to server via WebSocket                    │  │
-│ └────────────────────────────────────────────────────┘  │
-│                                                           │
-│ ┌────────────────────────────────────────────────────┐  │
-│ │ NETWORK LAYER (WebSocket + REST)                   │  │
-│ │ ├─ WebSocket connection to /ws/game/{game_id}     │  │
-│ │ ├─ Receive: GameState updates                      │  │
-│ │ ├─ Send: Player actions                            │  │
-│ │ ├─ Receive: Error messages                         │  │
-│ │ ├─ REST calls for: Auth, Deck management, etc.    │  │
-│ │ └─ Handle disconnection/reconnection               │  │
-│ └────────────────────────────────────────────────────┘  │
-│                                                           │
-└──────────────────────────────────────────────────────────┘
-```
+`services/game_session.py`'s `GameSession` is the layer between the pure
+rules engine (`game/game_engine.py`'s `GameEngine`, `models/game/
+game_state.py`'s `GameState`) and the wire. It adds exactly what a
+*play-a-real-game-over-HTTP* session needs that the engine itself has no
+reason to know about:
 
-## Client Responsibilities
+- **Undo/rewind.** Every action is preceded by a full `GameState.clone()`
+  snapshot pushed onto a bounded history (`MAX_HISTORY = 100`); `rewind(n)`
+  restores real cloned state rather than replaying a log, so it can never
+  diverge from what actually happened. `take_back` (multiplayer only) is a
+  narrower, RULE-free convenience: it undoes back through the caller's own
+  most recent `_history` entry — since there is one shared timeline, that
+  also discards anything an opponent did afterward — and is legal
+  regardless of who currently holds priority, the same exemption
+  `concede` gets. See `CLAUDE.md`'s "Take-backs" section for the exact
+  `_history`/`move_log` slicing discipline.
+- **A wire-safe `view(perspective=...)`.** `GameSession.view()` renders the
+  engine's state as plain JSON, redacting any zone the requesting
+  `perspective` shouldn't see (RULE 400.2 — an opponent's hand or library
+  order never serializes at all when it isn't yours to see) and computing
+  `legal_actions` for that seat specifically rather than for whoever is
+  active. `observer_view()` is the further-redacted form for a multiplayer
+  spectator: nobody's hand.
+- **Actions carry an actor.** `apply_action(action, actor_id=...)` — solo
+  modes leave `actor_id` implicit (the active/human seat), multiplayer and
+  solo-vs-bots always pass it explicitly. The engine's own per-player
+  timing checks (RULE 601.3a's active-player gate on casting, RULE
+  509.1a's "the attacking player does not declare blockers") already take
+  an explicit player argument, so a non-active seat naturally gets exactly
+  the instant-speed/response subset of `legal_actions` and nothing more —
+  this isn't a separate permission layer bolted on top.
 
-### C1: Presentation Only
-- Display GameState (never calculate it)
-- Show what actions are legal (based on server state)
-- Render UI updates in real-time
-- **NO Game Logic**: Client cannot decide if spell is legal
-- **NO Cheating**: All validation happens server-side
+`GameSessionManager` (also in `services/game_session.py`) holds every open
+`GameSession` in memory, keyed by a generated session id — the same
+in-memory, single-process, not-persisted-across-restarts pattern as the
+lobby and the WebSocket connection registries.
 
-### C2: User Input
-- Capture clicks/form submissions
-- Build action messages (structured JSON)
-- Send to server
-- Wait for response
-- Do NOT execute action locally (wait for server confirmation)
+## One engine, four front doors
 
-### C3: State Synchronization
-- Client maintains local copy of GameState
-- Server is authoritative source
-- When server sends update: update local state
-- When local action fires: wait for server echo (or error)
-- If disconnected: ask server for current state
+Goldfish, Replay/Puzzle, Solo-vs-Bots and Multiplayer are **the same
+`GameEngine`/`GameState`**, reached through `GameSessionManager.
+create_goldfish` / `create_replay` / `create_multiplayer` — they differ in
+session *configuration*, never in engine code:
 
-### C4: Responsive UI
-- While waiting for server: show "Thinking..." or spinner
-- If action fails: show error message
-- If latency > 1s: show latency indicator
-- Support reconnection if disconnected
+| Mode | Built via | What's different |
+| --- | --- | --- |
+| Goldfisch | `sessions.create_goldfish(...)` (`api/game.py`) | A passive dummy opponent (`_build_dummy_player`) fills the second seat; `interactive_priority` off, so `_run_step` auto-drains the stack exactly as it always has. |
+| Replay/Puzzle | `sessions.create_replay(descriptor, loader)` (`api/game.py`) | `mode="replay"`, `require_setup=False`; a family of `edit_*` actions mutate state directly instead of the normal action set; save/load is JSON export/import of a re-resolvable descriptor (`services/replay.py`). |
+| Solo gegen Bots | `sessions.create_multiplayer(seats, ...)` (`api/solo.py`), one human seat plus 1–3 bot seats, no `Lobby` involved | `interactive_priority` is on (`mode == MULTIPLAYER`) — real turns and priority — but there is no socket: `_advance_solo_bots` runs the bot(s) synchronously inside the same request and auto-passes the human through any opponent-turn window where passing is its only legal move. |
+| Multiplayer | `sessions.create_multiplayer(seats, ...)` (`api/multiplayer.py`), seats resolved from a started `Lobby` game | Same engine config as Solo; reached over `/ws/lobby` pushes instead of being computed inline in one request/response — see Part 4. |
+
+`GameSession.interactive_priority` (set from `mode == MULTIPLAYER` at
+construction, mirrored onto `GameEngine.interactive_priority`) is the one
+flag that actually changes engine behaviour: off, a step auto-resolves the
+stack the moment nothing responds; on, RULE 117 priority is played out for
+real turn by turn, and `GameSession._pass_priority` drives `GameEngine.
+pass_priority(player)`. See `CLAUDE.md`'s "RULE 117 priority" section for
+the exact mechanics (the empty-stack-ends-the-step branch the engine can't
+own itself, the "Passen"/"End the turn" button split, the declare-blockers
+carve-out).
 
 ---
 
-# PART 4: COMMUNICATION PROTOCOL (API)
+# PART 4: THE MULTIPLAYER LAYER
 
-## WebSocket Messages (Real-time Game Updates)
+## Lobby vs. session — two things kept strictly apart
 
-### Client → Server (Player Action)
+`services/lobby.py` and `services/game_session.py` are deliberately two
+separate modules with no shared vocabulary:
 
-```json
-{
-  "type": "player_action",
-  "game_id": "game_12345",
-  "player_id": "player_1",
-  "action": {
-    "type": "cast_spell",
-    "card_id": "card_lightning_bolt",
-    "targets": ["player_2"]
-  }
-}
-```
+- **`Lobby`** (people and tables, **rules-free** — it has never heard of
+  Magic) tracks every connected `LobbyPlayer` (presence: `online` /
+  `available` / `playing`) and every `LobbyGame` (status: `setup` /
+  `running` / `finished`, with `Seat`s holding a deck pick, an accept flag,
+  and the purely cosmetic `Seat.banner_color`). A player is identified by
+  **name** (`normalize_name` — case/whitespace-insensitive), not a
+  server-issued id — see Part 5 for what that trades away and how the
+  PLR-4 client token narrows it.
+- **`GameSession`** (Part 3) is the one real `GameEngine`, once a table has
+  actually started.
 
-### Server → Client (Game State Update)
+`api/multiplayer.py` is **the only bridge** between them: `POST /api/
+multiplayer/games/{id}/start` resolves each seat's saved deck exactly the
+way `api/game.py`'s `start_goldfish` resolves a goldfish deck (the shared
+`expand_entries`/`resolve_seat_deck` helpers, the same Commander-legality
+gate), builds the `GameSession` via `sessions.create_multiplayer(seats,
+...)`, and hands the resulting session id to `Lobby.start(game_id,
+session_id)`. The lobby never imports the engine or the card loader; the
+session never imports the lobby.
 
-```json
-{
-  "type": "game_state_update",
-  "timestamp": "2026-07-01T10:30:45Z",
-  "turn": 1,
-  "active_player": "player_1",
-  "phase": "main1",
-  "game_state": {
-    "player_1": {
-      "id": "player_1",
-      "life": 20,
-      "hand": ["Island", "Mountain", "Lightning Bolt"],
-      "library_size": 97,
-      "graveyard": [],
-      "battlefield": ["Island", "Mountain"],
-      "mana_pool": {"blue": 1, "red": 1}
-    },
-    "player_2": {
-      "id": "player_2",
-      "life": 20,
-      "hand_size": 7,
-      "library_size": 100,
-      "graveyard": [],
-      "battlefield": []
-    },
-    "stack": [],
-    "game_log": [
-      "Turn 1: Player 1 plays Island",
-      "Turn 1: Player 1 plays Mountain"
-    ]
-  },
-  "legal_actions": [
-    {
-      "type": "cast_spell",
-      "card_id": "card_lightning_bolt",
-      "valid_targets": ["player_2"]
-    },
-    {
-      "type": "pass"
-    }
-  ]
-}
-```
+## Bots are ordinary seats
 
-### Server → Client (Action Result)
+A seat can be filled by a bot (`Seat.bot_kind`) instead of a human — from
+the lobby's point of view a bot is just a `LobbyPlayer` with no socket
+(exempt from both watchdogs, host picks its deck, it "accepts" the table
+automatically). `services/bots.py`'s `Bot` base class is the load-bearing
+part: **a bot plays through exactly the surface a browser has and
+nothing else.** It reads `session.view(perspective=<its own id>)` — so
+RULE 400.2 redaction means an opponent's hand and every library simply
+aren't in its data — and only ever submits an entry from its own
+`legal_actions` via `apply_action(action, actor_id=...)`. It never reads
+`engine.state` directly. `GoldfishBot` (lands, else pass), `GreedyBot`
+(everything, immediately, first legal target) and `ManaMaximizerBot` (a
+dynamic-analysis diagnostic bot) are the three concrete policies; every
+bot game this project runs doubles as a live test that the redaction
+actually holds, because the bot has no other way to know what to do.
 
-```json
-{
-  "type": "action_result",
-  "success": true,
-  "action": "cast_spell",
-  "message": "Player 1 cast Lightning Bolt",
-  "game_state_update": { ... }
-}
-```
+`run_bots(session, bots)` is called from two places: `api/multiplayer.py`
+after every human action (right after `lobby.start()`, so a bot keeps its
+opening hand before the humans see the mulligan screen, and again inside
+`_after_move` so a human's move and every bot response to it are one
+broadcast, never a flicker of intermediate boards) and once a second from
+`api/multiplayer_ws.sweep_once`, which is what drives a table with no
+human at it at all. `MAX_BOT_ACTIONS` is a yield point, not an error
+budget.
 
-Or if failed:
+## The redaction contract: `actor_id` + `view(perspective=...)`
 
-```json
-{
-  "type": "action_result",
-  "success": false,
-  "action": "cast_spell",
-  "error": "Insufficient mana: need 1 Red, have 0 Red"
-}
-```
+Two properties turn a `GameSession` from solo to genuinely shared, both
+already covered structurally in Part 3 but worth restating as the
+multiplayer-specific guarantee:
 
-## REST API Endpoints (Non-game)
+- **Every action names its actor.** `POST /api/multiplayer/games/{id}/
+  action` takes `player_id` from the request body (`MultiplayerActionRequest`,
+  a `MultiplayerPlayerRequest` plus an `action` dict) — never from inside
+  the action payload itself — so a client can only ever act *as itself*;
+  `_dispatch` inside the engine additionally refuses an action from anyone
+  but the current priority holder (not merely omitting it from that seat's
+  `legal_actions` — a client could still post one it was never offered),
+  with the one documented exception being RULE 509.1a's declare-blockers,
+  a turn-based action the *defending* player takes while the attacker
+  still holds priority.
+- **Every push is redacted per recipient.** `LobbyConnectionManager.
+  broadcast_game` (`api/multiplayer_ws.py`) iterates the game's own seats
+  and observers and sends **each one their own** `session.
+  view(perspective=seat.player_id)` / `session.observer_view()` — never one
+  shared payload. This is why the socket sends per-connection rather than
+  a single `broadcast()` call: the payloads genuinely differ per player,
+  and that asymmetry *is* RULE 400.2 in wire form.
 
-```
-POST /api/auth/login
-  Input: username, password
-  Output: auth_token
+## `/ws/lobby`: presence and the push channel
 
-POST /api/auth/signup
-  Input: username, password, email
-  Output: auth_token
+`api/multiplayer_ws.py`'s `/ws/lobby` is one socket per browser tab,
+opened the first time the Multiplayer tab is visited and held for the
+whole session — holding it open **is** the presence signal, since this app
+has no other liveness mechanism. It carries three kinds of thing:
 
-POST /api/decks
-  Input: deck_list, commander_id
-  Output: deck_id
-  
-GET /api/decks/{deck_id}
-  Output: deck object
+1. **Presence.** Connecting makes a player `online`; a `{"type":
+   "presence", "state": "available"}` client message (sent whenever the
+   Multiplayer tab is actually in view) reports `available`; `playing` is
+   derived server-side from holding a seat, never client-reported.
+2. **Lobby snapshots.** Any change (someone connects, a table forms, a
+   seat readies up) triggers `broadcast_lobby` — a fresh
+   `lobby.snapshot()` to everyone — so the Setup screen never polls.
+3. **Board pushes.** `broadcast_game`, described above — each participant's
+   own redacted view, sent whenever a table's state changes.
 
-POST /api/decks/{deck_id}/analyze
-  Input: (none, uses deck)
-  Output: deck analysis (calls LLM)
+Frontend: `frontend/src/js/lobbySocket.js`'s `connectLobbySocket` opens it,
+auto-reconnects with backoff (`RECONNECT_DELAYS_MS`), re-sends presence and
+a `subscribe_game` request on every (re)connect, and pings every 30s
+(`PING_INTERVAL_MS`) purely as a liveness signal — a `ping` counts as
+activity server-side (`lobby.touch`) exactly like a real game action does,
+so a player who is still there but just thinking doesn't get disconnected
+by `MTG_MULTIPLAYER_IDLE_TIMEOUT_SECONDS`.
 
-GET /api/cards/search
-  Input: query
-  Output: matching cards
+**Reads (state) go over the socket; writes (actions) go over REST.** Every
+multiplayer action a player *takes* — `POST /api/multiplayer/games/{id}/
+action`, `/concede`, `/takeback`, and every Setup-screen call
+(`/deck`, `/banner`, `/bots`, `/options`, `/ready`, `/start`) — is a plain
+REST call; the socket only ever pushes the resulting state out, never
+carries a player's own move in. That split is why every mutating REST
+route in `api/multiplayer.py` both returns its own result to the caller
+*and* calls `lobby_connections.broadcast_lobby`/`broadcast_game` before
+returning — the REST response is what the caller who has no socket yet (or
+whose socket lags) still gets; the broadcast is what reaches everyone else.
 
-POST /api/games/matchmake
-  Input: deck_id
-  Output: game_id (when opponent found)
+## Reconnects, timers, and the watchdog
 
-POST /api/games/{game_id}/actions
-  Input: action object
-  Output: result
-
-WebSocket /ws/game/{game_id}
-  Bi-directional: Player actions ↔ Game updates
-```
-
----
-
-# PART 5: DATA FLOW EXAMPLES
-
-## Example 1: Cast a Spell
-
-```
-PLAYER 1 (Browser)
-  ├─ Sees "Lightning Bolt" in hand
-  ├─ Clicks it
-  ├─ Selects target: "Player 2"
-  ├─ Clicks "Cast"
-  └─ Sends WebSocket message:
-     {
-       "type": "player_action",
-       "action": {
-         "type": "cast_spell",
-         "card_id": "lightning_bolt",
-         "targets": ["player_2"]
-       }
-     }
-       ↓
-SERVER
-  ├─ Validates: Is it Player 1's turn?
-  ├─ Validates: Does Player 1 have priority?
-  ├─ Validates: Can Player 1 pay mana cost?
-  ├─ Executes: RulesEngine.CastSpell(spell, target)
-  ├─ Updates: GameState
-  ├─ Checks: Are there triggered abilities?
-  ├─ Creates: Event ("spell_cast")
-  ├─ Resolves: Any immediate triggers
-  └─ Broadcasts WebSocket to BOTH players:
-     {
-       "type": "game_state_update",
-       "message": "Player 1 cast Lightning Bolt, dealing 3 damage",
-       "game_state": { ... updated state ... }
-     }
-       ↓
-BOTH CLIENTS
-  ├─ Receive update
-  ├─ Update local GameState
-  ├─ Update UI
-  │  ├─ Remove Lightning Bolt from hand
-  │  ├─ Show Lightning Bolt on stack (briefly)
-  │  ├─ Resolve stack (show damage)
-  │  └─ Update Player 2 life (20 → 17)
-  └─ Update legal actions
-```
-
-## Example 2: Multiplayer Simultaneous Triggers
-
-```
-SERVER
-  ├─ Spell resolves
-  ├─ Event: "creature_enters_battlefield"
-  ├─ Finds: Both players have triggered abilities
-  │  - Player 1: Goblin Electromancer (+1/+2)
-  │  - Player 2: Faerie Guard (draw a card)
-  ├─ Applies: RULE 607.1 (Active player orders)
-  ├─ Sends to BOTH clients:
-     {
-       "type": "triggers_pending",
-       "active_player": "player_1",
-       "triggers": [
-         { "source": "goblin_electromancer", "effect": "+1/+2" },
-         { "source": "faerie_guard", "effect": "draw" }
-       ],
-       "message": "Player 1: order your triggers"
-     }
-       ↓
-PLAYER 1 (Browser)
-  ├─ Sees prompt: "Order your triggers"
-  ├─ Sees list: [Goblin, Faerie Guard]
-  ├─ Drags to order them
-  ├─ Clicks "Continue"
-  └─ Sends:
-     {
-       "type": "player_action",
-       "action": {
-         "type": "order_triggers",
-         "order": ["goblin_electromancer", "faerie_guard"]
-       }
-     }
-       ↓
-SERVER
-  ├─ Resolves triggers in order
-  ├─ Updates: GameState
-  └─ Broadcasts: Updated state to both clients
-```
+`api/multiplayer_ws.sweep_once`, run once a second by the app-lifespan
+`sweeper` task, is the mechanism behind every multiplayer timer described
+in `CLAUDE.md`'s "Presence, reconnects and timers" section: it closes an
+idle priority-holder's socket
+(`config.MULTIPLAYER_IDLE_TIMEOUT_SECONDS`), drops a seat whose disconnect
+grace period lapsed (`MULTIPLAYER_DISCONNECT_GRACE_SECONDS`, conceding for
+them if a game is running), forgets an abandoned PLR-4 `client_token` past
+`CLIENT_TOKEN_VALIDITY_SECONDS` (purging that name's uploaded sleeves/token
+art too if no other still-recognized player shares it), and — every pass,
+unconditionally — passes RULE 117 priority for anyone currently
+disconnected (`pass_for_absent_players`) and runs any bot whose turn it now
+is, which is what keeps a table with nobody currently connected moving (or
+lets an all-bot table play itself out).
 
 ---
 
-# PART 6: DEPLOYMENT MODEL
+# PART 5: `/ws/game/{game_id}` — the relay that exists but isn't used
 
-## Local Development
+`api/game_ws.py` defines a second WebSocket, `/ws/game/{game_id}`,
+structurally similar to `/ws/lobby`: a client sends a `player_action`
+message, the server runs it through the `GameSession` already registered
+under that `game_id` in the same `GameSessionManager` the REST API uses,
+and broadcasts the resulting (unredacted — it has no `perspective`
+argument) `view` to every connection on that `game_id`. `frontend/src/js/
+gameSocket.js` implements a matching client (`connectGameSocket`), but by
+its own doc comment "isn't wired into any view yet" — Goldfisch and Replay
+both drive their sessions purely over REST (`goldfishView.js`/
+`replayView.js` calling straight into `api.js`-style `fetch` wrappers
+against `api/game.py`), and Multiplayer/Solo use the `/ws/lobby` +
+`api/multiplayer.py`/`api/solo.py` REST surface described in Part 4
+instead. Treat `/ws/game/{game_id}` as present-but-dormant infrastructure,
+not a channel anything currently depends on, when reasoning about the live
+system.
 
-```
-Backend (Python):
-  python -m mtg_server --port 5000
-
-Frontend (Node.js):
-  npm start → webpack dev server :3000
-  Browser: http://localhost:3000
-
-Both running locally
-```
-
-## Production Deployment
-
-```
-Architecture:
-┌──────────────────┐
-│ Nginx/Reverse    │
-│ Proxy            │
-├──────────────────┤
-│ Backend Server   │ (Python Flask/FastAPI)
-│ (Docker)         │ 1+ instances for load balancing
-├──────────────────┤
-│ PostgreSQL DB    │ Cloud managed or self-hosted
-├──────────────────┤
-│ Redis (optional) │ For session caching, pub/sub
-└──────────────────┘
-
-Clients:
-┌──────────────────┐
-│ CDN              │ HTML/CSS/JS static files
-│ (CloudFront)     │
-└──────────────────┘
-```
-
-## Scaling Considerations
-
-**Horizontal Scaling**:
-- Multiple backend servers behind load balancer
-- Sessions use Redis/memcached for shared state
-- Each game session "sticks" to one server (sticky sessions)
-
-**WebSocket Scaling**:
-- Use Redis pub/sub for broadcasting updates
-- Each server receives: needs to forward to connected clients
-
-**Database Scaling**:
-- Read replicas for queries
-- Master for writes
-- Indexed heavily (game lookups, user lookups)
+The underlying reason goldfish/replay don't need a socket at all: they're
+single-player-perspective by construction (a goldfish dummy opponent never
+acts on its own; a replay board has no other client to push to unless it's
+a 2-player puzzle, which — like Solo-vs-Bots — computes everything
+synchronously inside one request/response instead). A push channel earns
+its keep exactly where state must reach *several independent browsers*
+without polling, which is Multiplayer's actual shape and Goldfisch/Replay's
+is not.
 
 ---
 
-# PART 7: REVISED 7-PHASE BUILD PLAN
+# PART 6: SECURITY POSTURE
 
-## PHASE 1: Data Layer + API Foundation (Weeks 1-2)
+**This app has no authentication.** There is no login, no password, no
+session cookie that grants access to anything. A player is identified by
+free-text **name** (`services/lobby.py`'s `normalize_name`) plus, once a
+browser has ever saved a Profil name, an unsigned **`client_token`**
+cookie (PLR-4 stub, `settings.js`'s `mtg_client_token`, 90-day sliding
+validity via `MTG_CLIENT_TOKEN_VALIDITY`): once presented, `Lobby.connect`
+resolves that browser by its token rather than by name at all, so two
+browsers sharing a display name stay distinct players instead of merging
+into one seat. This is explicitly **not real auth** — it's client-trusted,
+unsigned, and anyone who knows (or guesses) a token could present it —
+just enough for one browser to keep recognizing itself across reloads
+without colliding with someone else using the same name. Actually closing
+that gap is tracked as its own open item (PLR-9), not solved.
 
-**Server-Side (Weeks 1-2)**:
-- [ ] Database schema (Card, Deck, User, Game, Session, Match tables)
-- [ ] Card DB + Scryfall integration
-- [ ] Deckliste Parser
-- [ ] Validator (Commander rules)
-- [ ] Flask/FastAPI server setup
-- [ ] Basic REST API endpoints (/api/cards, /api/decks)
-- [ ] User authentication (login/signup)
-- [ ] Session management
+Because there is no accounts system, saved decks, player-uploaded token
+art/sleeves, and every running game are **readable and writable by anyone
+who can reach the process** — there is no per-player ownership check on a
+saved deck, and player assets are keyed by free-text name, not a verified
+identity. **This must never become the default posture on an open
+network.** `setup/start.py` binds to loopback by default; reaching it from
+another machine on the LAN is opt-in via `setup/start.py --host HOST`
+(passed straight through as uvicorn's own `--host`), and only the backend
+process is ever meant to bind beyond loopback — the frontend static
+process stays loopback-only unconditionally, reached only through the
+backend's own reverse proxy (Part 1). See `CLAUDE.md`'s "Run & test"
+section for the exact flags and the macOS Local-Network-permission caveat
+on binding beyond loopback.
 
-**Client-Side (Weeks 1-2)**:
-- [ ] React/Vue project setup
-- [ ] Basic layout (navbar, sidebar, main area)
-- [ ] Login page
-- [ ] Deck builder page (list decks)
-- [ ] Cards display (search cards)
-- [ ] HTTP client setup (fetch, axios)
-
-### Deliverables:
-- ✅ Backend server with database
-- ✅ REST API for auth, decks, cards
-- ✅ Frontend with login and deck management
-- ✅ Can create/load decks
-
----
-
-## PHASE 2: Core Rules Engine (Weeks 3-4)
-
-**Server-Side (Weeks 3-4)**:
-- [ ] All rules implementation (same as before)
-  - RULE 601 (Casting)
-  - RULE 608 (Stack)
-  - RULE 504 (Mana)
-  - RULE 117 (Priority)
-  - RULE 603/607 (Triggered Abilities)
-  - Combat, State-Based Actions
-- [ ] GameSession class (in-memory game state)
-- [ ] Action processing pipeline
-- [ ] WebSocket server setup (/ws/game/{game_id})
-
-**Client-Side (Weeks 3-4)**:
-- [ ] No changes (not used yet)
-
-### Deliverables:
-- ✅ Working rules engine (server-side)
-- ✅ WebSocket server ready
-- ✅ Can process game actions
+Validation is still fully server-side, in the one sense that *is* true of
+this project: every action a client sends is checked against `GameEngine.
+legal_actions`/`_dispatch` before it changes any state, and hidden zones
+are redacted server-side per Part 4 — a client cannot see an opponent's
+hand by inspecting network traffic, and cannot make an illegal move stick
+by sending one directly. What's absent is any notion of *who is allowed to
+be at this table at all* — that's a LAN-trust model, not a security
+boundary, and the app is built and documented accordingly.
 
 ---
 
-## PHASE 3: Game Loop & WebSocket Integration (Weeks 5-6)
+# PART 7: WHAT GOT DROPPED FROM THE OLD PLAN
 
-**Server-Side (Weeks 5-6)**:
-- [ ] Game loop (turn progression)
-- [ ] Turn manager
-- [ ] Phase manager
-- [ ] Action validator
-- [ ] State broadcasts (send GameState to clients)
-- [ ] Connect WebSocket to game loop
-- [ ] Handle disconnects/reconnects
+The version of this document being replaced described a "Before: CLI
+Monolith / After: Server-Client Web" transition aimed at a browser client
+built on "React/Vue/etc", a server with a "Matchmaking" service, a "User
+DB" (`Users` table, `username`/`password_hash`), an "LLM Integration"
+service, and a generic PostgreSQL/Redis/CDN production deployment sketch.
+None of that describes this project:
 
-**Client-Side (Weeks 5-6)**:
-- [ ] Game display component (battlefields, hands, stack)
-- [ ] State management (Redux/Vuex)
-- [ ] WebSocket client setup
-- [ ] Connect to server, receive GameState updates
-- [ ] Display state (read-only for now)
-- [ ] Mulligan interface
+- **No frontend framework.** `frontend/src/js/` is buildless ES modules —
+  `render*(container)` functions that set `innerHTML` and wire DOM
+  listeners directly (`CLAUDE.md`, `05_GAME_UI_AND_CARD_INTERACTION.md`).
+  There is no React/Vue, no JSX, no `npm start`/webpack dev server, no
+  build step at all; editing a file under `frontend/src/**` and reloading
+  the browser is the entire workflow.
+- **No matchmaking.** A table is opened and joined explicitly through the
+  lobby (Part 4) — there is no queue, no "find opponent" service, and no
+  code anywhere resembling one.
+- **No user accounts.** Nothing in this codebase has a password hash or a
+  `Users` table; identity is the free-text name / `client_token` pair
+  described in Part 6, full stop.
+- **No LLM integration anywhere in the running app.** Deck analysis
+  (`services/archetype_analysis.py`, `services/dynamic_analysis.py`, the
+  Analyze tab) is heuristic/simulation-based — real bots playing real
+  simulated games against a deck, not a model call. There is no Claude/
+  OpenAI/etc. API client in this codebase.
+- **No PostgreSQL, no Redis, no CDN, no Docker deployment.** Persistent
+  data (saved decks, player assets) is SQLite under `MTG_DATA_DIR`; the
+  disposable card cache is SQLite under `MTG_CACHE_DIR` (`config.py`).
+  There is exactly one deployable unit: the single uvicorn process
+  described in Part 1.
 
-### Deliverables:
-- ✅ Server can run full game (automated)
-- ✅ Client can view game state in real-time
-- ✅ WebSocket communication works
-
----
-
-## PHASE 4: Player Input & Goldfisch Mode (Weeks 7-8)
-
-**Server-Side (Weeks 7-8)**:
-- [ ] Accept player actions via WebSocket
-- [ ] Validate actions
-- [ ] Update GameState
-- [ ] Broadcast results
-- [ ] Handle: cast spell, attack, block, pass, mulligan
-
-**Client-Side (Weeks 7-8)**:
-- [ ] Action panel (show legal actions)
-- [ ] Input handlers (buttons, forms for actions)
-- [ ] Send actions to server
-- [ ] Handle action results (success/error)
-- [ ] Show error messages
-- [ ] Game log display (action history)
-- [ ] Mulligan UI
-
-### Deliverables:
-- ✅ Can play goldfisch (1 player vs. nothing)
-- ✅ Full UI for playing
-- ✅ Error handling
-
----
-
-## PHASE 5: Multiplayer & Matchmaking (Weeks 9-10)
-
-**Server-Side (Weeks 9-10)**:
-- [ ] Matchmaking service
-  - [ ] Matchmaking queue (Redis or DB)
-  - [ ] Find opponent
-  - [ ] Create game session with 2 players
-- [ ] Priority system for 2 players
-- [ ] Turn switching (Player 1 turn → Player 2 turn)
-- [ ] Opponent info tracking (don't reveal hand)
-- [ ] Game result tracking (winner/loser)
-- [ ] Persistence (save completed games)
-
-**Client-Side (Weeks 9-10)**:
-- [ ] Matchmaking UI
-  - [ ] "Find Opponent" button
-  - [ ] Waiting screen ("Searching...")
-  - [ ] "Cancel search" button
-- [ ] Opponent info display (life, permanents, hand size)
-- [ ] "Your turn" vs. "Opponent's turn" indicator
-- [ ] Show: whose priority is it?
-- [ ] Timeout handling (auto-pass if opponent takes too long)
-
-### Deliverables:
-- ✅ 2-player matchmaking works
-- ✅ Can play full 2-player game
-- ✅ Proper turn/priority management
-- ✅ Games saved to database
-
----
-
-## PHASE 6: LLM Deck Analysis (Weeks 11-12)
-
-**Server-Side (Weeks 11-12)**:
-- [ ] LLM integration (Claude API)
-- [ ] Deck formatter
-- [ ] Prompt templates
-- [ ] Output parser
-- [ ] Analysis caching
-- [ ] REST endpoint: POST /api/decks/{deck_id}/analyze
-
-**Client-Side (Weeks 11-12)**:
-- [ ] Analyze button on deck view
-- [ ] Loading spinner during analysis
-- [ ] Analysis results display
-  - [ ] Win conditions
-  - [ ] Archetype
-  - [ ] Synergies
-  - [ ] Issues
-  - [ ] Scores
-- [ ] Cache display ("Analysis from X ago")
-
-### Deliverables:
-- ✅ Can analyze any deck via LLM
-- ✅ Results displayed nicely
-- ✅ Caching works
-
----
-
-## PHASE 7: Bot Automation (Weeks 13-14)
-
-**Server-Side (Weeks 13-14)**:
-- [ ] Bot service (AI player)
-- [ ] Action evaluator
-- [ ] Strategy engine
-- [ ] Decision maker
-- [ ] Can take turns automatically
-- [ ] Game modes:
-  - [ ] Bot vs. Bot
-  - [ ] Human vs. Bot (selectable)
-
-**Client-Side (Weeks 13-14)**:
-- [ ] Game creation: pick opponent type (Human / Bot)
-- [ ] Bot speed control (fast / slow for readability)
-- [ ] Suggestions mode (bot suggests moves without playing)
-
-### Deliverables:
-- ✅ Bot AI works
-- ✅ Can play bot vs. bot
-- ✅ Can play human vs. bot
-- ✅ Bot suggestions available
-
----
-
-# PART 8: KEY ARCHITECTURAL BENEFITS
-
-## Security
-- **No cheating**: All validation server-side
-- **Hidden information**: Client never sees opponent's hand
-- **Authentication**: Users logged in, verified
-- **Action audit trail**: All actions logged
-
-## Scalability
-- **Horizontal**: Add more backend servers
-- **Concurrent games**: Each game runs independently
-- **Multi-region**: Deploy servers in different regions
-- **Database**: Can grow as user base grows
-
-## User Experience
-- **Web-based**: Access from browser (any device)
-- **Real-time**: WebSocket updates (no polling)
-- **Responsive**: Updates reflect immediately
-- **Offline graceful**: Reconnect if connection drops
-
-## Development
-- **Separation of concerns**: Client (UI) vs. Server (Logic)
-- **Testable**: Rules engine is testable on server
-- **Extensible**: Can add features (Discord integration, stats, etc.)
-
----
-
-# CONCLUSION
-
-Server-Client Web Architecture:
-1. ✅ Enables multiplayer (crucial for MVP)
-2. ✅ Web-based UI (better than CLI)
-3. ✅ Secure (validation server-side)
-4. ✅ Scalable (multiple users)
-5. ✅ Professional (proper architecture)
-6. ✅ Extensible (easy to add features)
-
-**Next**: Start Phase 1 (Backend + Frontend setup).
+For what actually replaced the old plan's phase framing (the engine was
+N-player throughout rather than bolted on later, bots are ordinary
+players rather than a "strategy engine" layer, …), see
+[`03_ARCHITECTURE_AND_BUILDPLAN.md`](03_ARCHITECTURE_AND_BUILDPLAN.md)'s
+own Part 5. For what's actually still open on the server/client surface
+covered by this document, use
+[`../implementation-state/BACKLOG.md`](../implementation-state/BACKLOG.md)
+rather than trusting anything that looks like a phase checklist — none
+exists any more.

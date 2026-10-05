@@ -11,11 +11,11 @@ Reference: docs/implementation-state/Done_Backend.md "MEC-12" entries.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import Zone
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import Zone
 
-from tests.test_game_engine import make_engine, obj_on_battlefield
+from tests.support.game import make_engine, obj_on_battlefield
 
 
 def _named(name):
@@ -33,7 +33,7 @@ def _creature_card(name, cmc):
 
 
 def test_protean_hulk_finds_multiple_creatures_within_total_budget():
-    from mtg_analyzer.models.game_object import GameObject
+    from mtg_analyzer.models.game.game_object import GameObject
 
     eng = make_engine([], [], hand=0)
     hulk = obj_on_battlefield(eng.state, eng, _named("Protean Hulk"), controller="p1")
@@ -52,13 +52,13 @@ def test_protean_hulk_finds_multiple_creatures_within_total_budget():
     eligible_names = {e["name"] for e in choice["eligible"]}
     assert eligible_names == {"Five", "One", "Six"}
 
-    eng.rules.resolve_search_choice(five.instance_id)
+    eng.rules.resolve_choice(five.instance_id)
     # Budget now 6 - 5 = 1 remaining: "Six" no longer fits, "One" still does.
     choice = eng.state.pending_choice
     eligible_names = {e["name"] for e in choice["eligible"]}
     assert eligible_names == {"One"}
 
-    eng.rules.resolve_search_choice(one.instance_id)
+    eng.rules.resolve_choice(one.instance_id)
     # Budget exhausted (0 remaining) — search auto-finishes with no more choice.
     assert eng.state.pending_choice is None
     assert five in eng.state.battlefield
@@ -68,7 +68,7 @@ def test_protean_hulk_finds_multiple_creatures_within_total_budget():
 
 
 def test_protean_hulk_declining_early_still_keeps_earlier_picks():
-    from mtg_analyzer.models.game_object import GameObject
+    from mtg_analyzer.models.game.game_object import GameObject
 
     eng = make_engine([], [], hand=0)
     hulk = obj_on_battlefield(eng.state, eng, _named("Protean Hulk"), controller="p1")
@@ -80,7 +80,7 @@ def test_protean_hulk_declining_early_still_keeps_earlier_picks():
     eng.rules.destroy(hulk)
     eng.resolve_until_stable()
 
-    eng.rules.resolve_search_choice(two.instance_id)
+    eng.rules.resolve_choice(two.instance_id)
     # Still eligible (budget 6-2=4 > 0) but only "Two" existed and it's now
     # picked, so the search should have auto-finished already.
     assert eng.state.pending_choice is None

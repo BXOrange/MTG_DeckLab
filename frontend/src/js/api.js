@@ -5,10 +5,8 @@
 // docs/concepts/06_CARD_GRAPHICS_AND_LAZY_LOADING.md,
 // docs/Reference/08_CARD_CACHE_EXPORT_IMPORT.md.
 //
-// The backend address is user-configurable at runtime (see settings.js,
-// connectionSettingsView.js) rather than a fixed constant, so every call
-// here resolves it fresh via getServerUrl() instead of reading it once at
-// module load.
+// Requests use the page's backend origin through getServerUrl(), with
+// explicit development/deployment defaults defined in settings.js.
 
 import { getServerUrl } from './settings.js';
 import { t } from './i18n.js';
@@ -173,6 +171,103 @@ export async function listCoverageBySet() {
 
   if (!response.ok) return null;
 
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Refreshes the complete Scryfall Oracle-card pool via the backend's
+ * established bulk-import script.
+ * @returns {Promise<{ok: true, cachedCardCount: number} | {ok: false, error: string}>}
+ */
+export async function updateCardPool() {
+  let response;
+  try {
+    response = await fetch(`${getServerUrl()}/api/cards/update`, { method: 'POST' });
+  } catch {
+    return { ok: false, error: t('common.serverUnreachable') };
+  }
+  if (!response.ok) {
+    try {
+      const body = await response.json();
+      return { ok: false, error: body?.detail || `HTTP ${response.status}` };
+    } catch {
+      return { ok: false, error: `HTTP ${response.status}` };
+    }
+  }
+  try {
+    return { ok: true, ...(await response.json()) };
+  } catch {
+    return { ok: false, error: t('api.invalidResponse') };
+  }
+}
+
+/**
+ * Update the local Commander Spellbook SQLite snapshot.
+ * @returns {Promise<{ok: true, summary: object} | {ok: false, error: string}>}
+ */
+export async function updateComboDatabase() {
+  let response;
+  try {
+    response = await fetch(`${getServerUrl()}/api/combos/update`, { method: 'POST' });
+  } catch {
+    return { ok: false, error: t('common.serverUnreachable') };
+  }
+  if (!response.ok) {
+    try {
+      const body = await response.json();
+      return { ok: false, error: body?.detail || `HTTP ${response.status}` };
+    } catch {
+      return { ok: false, error: `HTTP ${response.status}` };
+    }
+  }
+  try {
+    return { ok: true, summary: await response.json() };
+  } catch {
+    return { ok: false, error: t('api.invalidResponse') };
+  }
+}
+
+/**
+ * Read the local Commander Spellbook snapshot state without initializing it.
+ * @returns {Promise<object | null>} null on network/server failure
+ */
+export async function getComboDatabaseStatus() {
+  let response;
+  try {
+    response = await fetch(`${getServerUrl()}/api/combos/status`);
+  } catch {
+    return null;
+  }
+  if (!response.ok) return null;
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Lazily initialize the local combo database if needed and find variants
+ * whose named card uses are contained in the deck.
+ * @param {{name: string, quantity: number}[]} cards
+ * @returns {Promise<{combos: object[], database: object} | null>} null on request failure
+ */
+export async function findDeckCombos(cards) {
+  let response;
+  try {
+    response = await fetch(`${getServerUrl()}/api/combos/matches`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cards }),
+    });
+  } catch {
+    return null;
+  }
+  if (!response.ok) return null;
   try {
     return await response.json();
   } catch {
@@ -398,13 +493,13 @@ export async function fetchGameFormats() {
  * Start a solo game.
  * @param {{deckId: string, opponents: Array<{kind: string, deckId: string}>,
  *   gameFormat?: string, mulliganStyle?: string,
- *   startingPlayer?: "you"|"random"}} payload
+ *   startingPlayer?: "you"|"random", playerName?: string}} payload
  */
 export async function startSolo(payload) {
   return gameRequest('POST', '/api/solo/start', payload);
 }
 
-/** Apply one action (from `legal_actions`) as the human; the bots answer. */
+/** Apply one human action; bot answers arrive separately through view polls. */
 export async function sendSoloAction(sessionId, action) {
   return gameRequest('POST', `/api/solo/${encodeURIComponent(sessionId)}/action`, action);
 }
@@ -785,4 +880,25 @@ async function deleteRequest(path) {
     return false;
   }
   return response.ok;
+}
+
+// Server-side LLM credentials are write-only; they never enter cookies.
+export async function getLLMSettings() {
+  return gameRequest('GET', '/api/llm/settings');
+}
+export async function saveLLMSettings(payload) {
+  return gameRequest('PUT', '/api/llm/settings', payload);
+}
+export async function testLLMConnection() {
+  return gameRequest('POST', '/api/llm/test', {});
+}
+export async function analyzeNarrativeDeck(deckId, payload = {}) {
+  return gameRequest('POST', `/api/decks/${encodeURIComponent(deckId)}/analyze`, payload);
+}
+export async function getNarrativeDeckAnalysis(deckId) {
+  return gameRequest('GET', `/api/decks/${encodeURIComponent(deckId)}/analysis`);
+}
+
+export async function fetchLLMModels(payload = {}) {
+  return gameRequest('POST', '/api/llm/models', payload);
 }

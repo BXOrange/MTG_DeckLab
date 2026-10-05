@@ -9,8 +9,8 @@ Each closes a real subsystem rather than a one-off card:
   (`_QUOTED_GRANT_RE`) — only a new `"destroy_unless_pay"` verb alongside
   the existing `"sacrifice_unless_pay"` (RULE 701.16 destruction, so a
   regeneration shield can still save it, unlike sacrifice): `Destroy
-  UnlessPayEffect`, `RulesEngine.request_destroy_unless_pay`/
-  `resolve_destroy_unless_pay_choice`. Fully parser-MODELED, no
+  UnlessPayEffect`, `RulesEngine._request_destroy_unless_pay`/
+  `_resume_destroy_unless_pay`. Fully parser-MODELED, no
   hand-authoring needed.
 * **Rings of Brighthearth** (RULE 706.10) needed `CopyAbilityEffect`/
   `RulesEngine.copy_ability` — the ability-item sibling of the existing
@@ -45,7 +45,7 @@ Each closes a real subsystem rather than a one-off card:
   the same player who'd cast it, but Knowledge Pool's shared pool can hand
   a player a free cast of a card sitting in *another* player's exile.
 
-Reference: mtg_analyzer/game/{effects,continuous,ability_catalogue}.py,
+Reference: mtg_analyzer/game/{effects,continuous,card_registry}.py,
 mtg_analyzer/game/engine/{casting_mixin,legal_actions_mixin,
 activation_mixin}.py, mtg_analyzer/game/rules/{misc_mixin,copies_mixin,
 sba_mixin}.py, mtg_analyzer/models/game_object.py.
@@ -55,13 +55,13 @@ from __future__ import annotations
 
 from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.services.card_database import CardDatabase
 
-from tests.test_game_engine import creature, make_engine
+from tests.support.game import creature, make_engine
 
 
 def _named(name):
@@ -134,7 +134,7 @@ def test_tabernacle_destroys_every_creature_unless_its_controller_pays():
 
 def test_rings_of_brighthearth_copies_a_paid_for_activated_ability():
     from mtg_analyzer.game.costs import ActivationCost
-    from mtg_analyzer.game.effects import ActivatedAbility, DealDamageEffect
+    from mtg_analyzer.game.effects.core import ActivatedAbility, DealDamageEffect
 
     eng = make_engine([], [])
     p1 = eng.state.player_by_id("p1")
@@ -163,7 +163,7 @@ def test_rings_of_brighthearth_copies_a_paid_for_activated_ability():
 
 def test_declining_the_copy_leaves_a_single_activation():
     from mtg_analyzer.game.costs import ActivationCost
-    from mtg_analyzer.game.effects import ActivatedAbility, DealDamageEffect
+    from mtg_analyzer.game.effects.core import ActivatedAbility, DealDamageEffect
 
     eng = make_engine([], [])
     p1 = eng.state.player_by_id("p1")

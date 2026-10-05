@@ -1,6 +1,6 @@
 """RULE 701.14 fight — the engine primitive and its parser handlers (MEC-1).
 
-Two halves, as every mechanic batch has: `game/effects.py`'s `FightEffect`
+Two halves, as every mechanic batch has: `game/effects/core.py`'s `FightEffect`
 (both creatures deal damage equal to their power to each other, 701.14a, and
 neither does if either one has left or stopped being a creature, 701.14b), and
 the `catalogue/handlers.py` rows that read the four printed subjects off real
@@ -11,13 +11,13 @@ rather than the spell itself.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import FightEffect
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import FightEffect
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle import parse_oracle
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 
@@ -64,7 +64,7 @@ def _creature(state, name, power, toughness, controller="p1"):
 def _resolve(engine, effect, targets=None):
     """Apply ``effect`` straight against the engine's context, then let the
     SBA pass run — the shape a resolving one-shot effect sees."""
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     effect.apply(GameContext(engine.state, engine.rules), targets)
     engine.rules.check_state_based_actions()
@@ -345,7 +345,7 @@ def test_epic_confrontation_pumps_one_creature_and_fights_with_it():
 
 
 def test_a_pronoun_fight_binds_to_the_previous_clauses_target_at_resolution():
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     engine, state, _, _ = _engine()
     pumped = _creature(state, "Pumped", 4, 4)
@@ -364,8 +364,8 @@ def test_a_chosen_pair_fights_each_other():
     """Ancient Animus-shaped: "Choose target creature you control and target
     creature you don't control. … Then those creatures fight each other." —
     the fight clause announces no requirement of its own."""
-    from mtg_analyzer.game.effects import ChooseTargetsEffect, _apply_effects_partitioned
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import ChooseTargetsEffect, _apply_effects_partitioned
+    from mtg_analyzer.game.effects.core import GameContext
 
     engine, state, _, _ = _engine()
     mine = _creature(state, "Mine", 3, 3)
@@ -389,10 +389,10 @@ def test_a_chosen_group_is_returned_to_hand():
     owners' hands." — the return clause announces no requirement of its
     own, unlike `test_a_chosen_pair_fights_each_other`'s two independently-
     kinded picks: this is one *quantified* group of the same kind."""
-    from mtg_analyzer.game.effects import (
+    from mtg_analyzer.game.effects.core import (
         ChooseTargetsEffect, GameContext, ReturnToHandEffect, _apply_effects_partitioned,
     )
-    from mtg_analyzer.models.game_object import Zone
+    from mtg_analyzer.models.game.game_object import Zone
 
     engine, state, _, _ = _engine()
     mine = _creature(state, "Mine", 3, 3)
@@ -453,7 +453,7 @@ def test_a_declined_optional_target_never_turns_into_a_self_fight():
     """A caller that sends a *flat* list can't say which "up to one" it
     declined (`partition_targets` returns None), so the pronoun clause would
     otherwise read the previous clause's pick as its own target."""
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     engine, state, _, _ = _engine()
     pumped = _creature(state, "Pumped", 3, 3)
@@ -488,7 +488,7 @@ def test_a_dead_creature_still_deals_damage_equal_to_its_power():
     """RULE 608.2h last known information: the commonest printed form of this
     clause is a dies trigger, where the dealer is already in the graveyard as
     the ability resolves — unlike a fight, it isn't required to be around."""
-    from mtg_analyzer.game.effects import DamageEqualToPowerEffect, GameContext
+    from mtg_analyzer.game.effects.core import DamageEqualToPowerEffect, GameContext
 
     engine, state, p1, p2 = _engine()
     dead = _creature(state, "Dead", 5, 5)
@@ -503,7 +503,7 @@ def test_a_dead_creature_still_deals_damage_equal_to_its_power():
 
 
 def test_damage_equal_to_power_can_hit_each_opponent():
-    from mtg_analyzer.game.effects import DamageEqualToPowerEffect, GameContext
+    from mtg_analyzer.game.effects.core import DamageEqualToPowerEffect, GameContext
 
     engine, state, p1, p2 = _engine()
     mine = _creature(state, "Mine", 3, 3)
@@ -519,10 +519,10 @@ def test_the_one_sided_family_parses_off_real_cards():
     for name, params in [
         ("Rabid Bite", {"dealer_kind": "creature_you_control",
                         "target_kind": "creature_you_dont_control"}),
-        # "target creature or planeswalker you don't control" — the
-        # planeswalker half is dropped, as the unscoped row already does.
+        # "target creature or planeswalker you don't control" — both halves
+        # of the union kept (PAR-127).
         ("Bite Down", {"dealer_kind": "creature_you_control",
-                       "target_kind": "creature_you_dont_control"}),
+                       "target_kind": "creature_or_planeswalker_you_dont_control"}),
     ]:
         result = parse_oracle(_named(name))
         assert result.modeled, name

@@ -1,0 +1,58 @@
+"""Hand-authored card entries whose name starts with 'b' (see game/card_registry for the registration mechanism: `register`/`register_family`/`specs_for`)."""
+from . import back_from_the_brink  # noqa: F401
+from . import backdraft_hellkite  # noqa: F401
+from . import balthier_and_fran  # noqa: F401
+from . import bane_of_progress  # noqa: F401
+from . import banquet_guests  # noqa: F401
+from . import baral_and_kari_zev  # noqa: F401
+from . import baral_chief_of_compliance  # noqa: F401
+from . import battlefield_thaumaturge  # noqa: F401
+from . import battletide_alchemist  # noqa: F401
+from . import beacon_of_unrest  # noqa: F401
+from . import beast_mode  # noqa: F401
+from . import beast_within  # noqa: F401
+from . import behind_the_mask  # noqa: F401
+from . import beledros_witherbloom  # noqa: F401
+from . import bello_bard_of_the_brambles  # noqa: F401
+from . import bellowing_aegisaur  # noqa: F401
+from . import benevolent_hydra  # noqa: F401
+from . import beseech_the_mirror  # noqa: F401
+from . import bident_of_thassa  # noqa: F401
+from . import big_apple_3_a_m  # noqa: F401
+from . import bilbo_birthday_celebrant  # noqa: F401
+from . import birgi_god_of_storytelling  # noqa: F401
+from . import birthing_pod  # noqa: F401
+from . import black_market_connections  # noqa: F401
+from . import blackblade_reforged  # noqa: F401
+from . import blasphemous_act  # noqa: F401
+from . import bloatfly_swarm  # noqa: F401
+from . import bloodchief_ascension  # noqa: F401
+from . import bloodforged_battle_axe  # noqa: F401
+from . import bloodghast  # noqa: F401
+from . import bloodroot_apothecary  # noqa: F401
+from . import blossoming_bogbeast  # noqa: F401
+from . import blowfly_infestation  # noqa: F401
+from . import bone_mask  # noqa: F401
+from . import bontu_s_monument  # noqa: F401
+from . import borne_upon_a_wind  # noqa: F401
+from . import boromir_warden_of_the_tower  # noqa: F401
+from . import boros_charm  # noqa: F401
+from . import boseiju_who_endures  # noqa: F401
+from . import boss_s_chauffeur  # noqa: F401
+from . import brainstorm  # noqa: F401
+from . import brass_squire  # noqa: F401
+from . import brawn  # noqa: F401
+from . import breaching_dragonstorm  # noqa: F401
+from . import breena_the_demagogue  # noqa: F401
+from . import brightcap_badger  # noqa: F401
+from . import bring_to_light  # noqa: F401
+from . import brudiclad_telchor_engineer  # noqa: F401
+from . import bruenor_battlehammer  # noqa: F401
+from . import burning_curiosity  # noqa: F401
+from . import burning_earth  # noqa: F401
+from . import burnt_offering  # noqa: F401
+from . import breach_the_multiverse
+from . import braids_arisen_nightmare
+
+from . import bellowing_mauler
+from . import broodcaller_scourge

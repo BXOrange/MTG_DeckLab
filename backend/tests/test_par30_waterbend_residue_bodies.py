@@ -2,11 +2,10 @@
 hand-authored over new engine primitives.
 
 Primitives added this batch:
-* `TemporaryPlayerTrigger` gained ``duration="this_turn"`` (armed active
-  immediately, dropped at the next `TURN_BEGIN`) + ``event_player_scope=
-  "any"``, and `InstallTemporaryPlayerTriggerEffect` a ``recipient=
-  "controller"`` — Ruinous Waterbending's "whenever a creature dies this
-  turn, you gain 1 life".
+* Ruinous Waterbending's "whenever a creature dies this turn, you gain 1
+  life" is now plain parser output — a `create_turn_trigger` (RULE 603.7a,
+  ENG-47) gated on the additional cost; the `this_turn` mode this batch had
+  added to `TemporaryPlayerTrigger` was retired with it.
 * `look_top_select` gained ``select_optional`` + ``select_filter`` — Water
   Tribe Rallier's "you may reveal a creature card with power 3 or less".
 * `no_max_hand_size_rest_of_game` (`GameState.no_max_hand_size_player_ids`)
@@ -19,18 +18,33 @@ Primitives added this batch:
 
 from __future__ import annotations
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.ability_catalogue import specs_for
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.card_registry import specs_for
 
-from tests.test_game_engine import creature, make_engine, obj_on_battlefield
+from tests.support.game import creature, make_engine, obj_on_battlefield
 
 
 def _spell(name, tl="Sorcery", mc="{1}{U}{U}", **kw):
     return Card(id=name, name=name, type_line=tl, mana_cost_string=mc,
                 converted_mana_cost=3, is_sorcery=True, oracle_text="x", **kw)
+
+
+RUINOUS_ORACLE = (
+    "As an additional cost to cast this spell, you may waterbend {4}. (While paying a waterbend "
+    "cost, you can tap your artifacts and creatures to help. Each one pays for {1}.)\n"
+    "All creatures get -2/-2 until end of turn. If this spell's additional cost was paid, "
+    "whenever a creature dies this turn, you gain 1 life."
+)
+
+
+def _ruinous(eng):
+    return _hand_bound(eng, Card(
+        id="Ruinous Waterbending", name="Ruinous Waterbending", type_line="Sorcery — Lesson",
+        mana_cost_string="{1}{B}{B}", converted_mana_cost=3, is_sorcery=True,
+        oracle_text=RUINOUS_ORACLE))
 
 
 def _hand_bound(eng, card):
@@ -55,7 +69,7 @@ def _advance_until_step(eng, step, limit=30, active=None):
 
 def test_all_residue_cards_registered():
     for name in [
-        "Waterbending Lesson", "Water Tribe Rallier", "Ruinous Waterbending",
+        "Waterbending Lesson", "Water Tribe Rallier",
         "Spirit Water Revival", "Waterbender's Restoration", "Foggy Swamp Visions",
         "Crashing Wave", "Invasion Submersible",
     ]:
@@ -64,53 +78,59 @@ def test_all_residue_cards_registered():
 
 # --- Ruinous Waterbending -----------------------------------------
 
-def test_ruinous_waterbending_paid_installs_this_turn_death_lifegain():
-    eng = make_engine([_spell("Ruinous Waterbending")] * 10,
-                      [creature("B")] * 10, hand=0)
+def _ruinous_setup(library=10):
+    eng = make_engine([_spell("Ruinous Waterbending")] * library, [creature("B")] * library, hand=0)
     eng.begin_turn()
     eng.state.current_step = "main1"
     p1 = eng.state.player_by_id("p1")
+    p1.mana_pool.add("B", 20)
+    return eng, p1
+
+
+def test_ruinous_waterbending_parses_from_oracle_text():
+    eng, _ = _ruinous_setup()
+    obj = _ruinous(eng)
+    assert obj.additional_cast_cost_optional
+    assert any(type(e).__name__ == "ConditionalEffect" for e in obj.spell_effects)
+
+
+def test_ruinous_waterbending_paid_installs_this_turn_death_lifegain():
+    eng, p1 = _ruinous_setup()
     bear = obj_on_battlefield(eng.state, eng, creature("Bear", power=2, toughness=2),
                               controller="p2")
-    o = _hand_bound(eng, _spell("Ruinous Waterbending", tl="Sorcery — Lesson"))
-    p1.mana_pool.add("U", 20)
+    o = _ruinous(eng)
     life0 = p1.life
     eng.cast_spell(p1, o, pay_additional=True)
     eng.resolve_until_stable()
     assert bear not in eng.state.battlefield          # -2/-2 killed it
     assert p1.life - life0 == 1                        # paid → +1 on its death
-    assert len(eng.state.temporary_player_triggers) == 1
+    assert len(eng.state.turn_scoped_triggers) == 1
 
 
 def test_ruinous_waterbending_unpaid_no_lifegain():
-    eng = make_engine([_spell("Ruinous Waterbending")] * 10,
-                      [creature("B")] * 10, hand=0)
-    eng.begin_turn()
-    eng.state.current_step = "main1"
-    p1 = eng.state.player_by_id("p1")
+    eng, p1 = _ruinous_setup()
     obj_on_battlefield(eng.state, eng, creature("Bear", power=2, toughness=2), controller="p2")
-    o = _hand_bound(eng, _spell("Ruinous Waterbending", tl="Sorcery — Lesson"))
-    p1.mana_pool.add("U", 20)
+    o = _ruinous(eng)
     life0 = p1.life
     eng.cast_spell(p1, o)  # decline the optional waterbend
     eng.resolve_until_stable()
     assert p1.life == life0
-    assert not eng.state.temporary_player_triggers
+    assert not eng.state.turn_scoped_triggers
 
 
 def test_ruinous_this_turn_trigger_expires_next_turn():
-    eng = make_engine([_spell("Ruinous Waterbending")] * 40,
-                      [creature("B")] * 40, hand=0)
-    eng.begin_turn()
-    eng.state.current_step = "main1"
-    p1 = eng.state.player_by_id("p1")
-    o = _hand_bound(eng, _spell("Ruinous Waterbending", tl="Sorcery — Lesson"))
-    p1.mana_pool.add("U", 20)
+    eng, p1 = _ruinous_setup(library=40)
+    o = _ruinous(eng)
     eng.cast_spell(p1, o, pay_additional=True)
     eng.resolve_until_stable()
-    assert len(eng.state.temporary_player_triggers) == 1
+    assert len(eng.state.turn_scoped_triggers) == 1
     eng.run_turn()  # p2's turn begins → the "this turn" trigger drops
-    assert not eng.state.temporary_player_triggers
+    life = p1.life
+    obj_on_battlefield(eng.state, eng, creature("Late", power=1, toughness=1), controller="p2")
+    eng.rules.deal_damage(next(o for o in eng.state.battlefield if o.name == "Late"), 5,
+                          source=None)
+    eng.resolve_until_stable()
+    assert p1.life == life
 
 
 # --- Spirit Water Revival ----------------------------------------
@@ -247,7 +267,7 @@ def test_water_tribe_rallier_reveals_a_small_creature():
     labels = {opt["label"] for opt in ch["options"]}
     assert "Small" in labels and "Big" not in labels
     small_id = next(opt["instance_id"] for opt in ch["options"] if opt["label"] == "Small")
-    eng.rules.resolve_look_top_select_choice(small_id)
+    eng.rules.resolve_choice(small_id)
     eng.resolve_until_stable()
     assert any(o.name == "Small" for o in p1.hand)
 

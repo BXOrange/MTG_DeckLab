@@ -303,6 +303,18 @@ body {
   flex: 0 0 auto;
 }
 
+/* Error/warning text (headerMessage.js), left of the connection indicator. */
+.header-message {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 40vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  color: var(--warn);
+}
+
 .icon-button {
   display: flex;
   align-items: center;
@@ -1043,9 +1055,15 @@ textarea {
   box-shadow: 0 0 0 2px rgba(255, 221, 88, 0.85);
 }
 
+.card.gf-ability-source {
+  box-shadow: 0 0 0 3px rgba(72, 156, 255, 0.95), 0 0 12px rgba(72, 156, 255, 0.55);
+  border-color: rgba(72, 156, 255, 0.95);
+}
+
 .gf-card-slot.gf-drag-target-valid > .card,
 .gf-zone.gf-battlefield.gf-drag-target-valid,
-.gf-player-board.gf-drag-target-valid {
+.gf-player-board.gf-drag-target-valid,
+.gf-opponent.gf-drag-target-valid {
   box-shadow: 0 0 0 3px rgba(88, 183, 255, 0.8);
   border-color: rgba(88, 183, 255, 0.8);
 }
@@ -1060,6 +1078,7 @@ textarea {
   width: 100px;
   max-width: none;
   padding: 0;
+  position: relative;
   overflow: visible;
   white-space: normal;
   border-radius: 6px;
@@ -1088,6 +1107,64 @@ textarea {
 .card.has-image.castable-highlight img {
   outline: 2px solid var(--ok);
   outline-offset: -2px;
+}
+
+/* Compact board: the cache stores complete 488x680 card images, not art-only
+   images. The normal frame's artwork is approximately x=35..453 and
+   y=76..378, so this scales and offsets the full image into that window. */
+.goldfish.compact-view .gf-battlefield .card.has-image {
+  width: 116px;
+  height: 84px;
+  overflow: visible;
+}
+
+/* Crop only the artwork: card modifiers and corner badges stay visible. */
+.goldfish.compact-view .gf-battlefield .card.has-image .gf-card-art {
+  height: 100%;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+.goldfish.compact-view .gf-battlefield .card.has-image img {
+  width: 117%;
+  max-width: none;
+  height: auto;
+  aspect-ratio: auto;
+  object-fit: initial;
+  transform: translate(-7.2%, -11.2%);
+  border-radius: 0;
+}
+
+.goldfish.compact-view .gf-battlefield .card:not(.has-image) {
+  min-height: 5rem;
+}
+
+.gf-compact-pt {
+  position: absolute;
+  right: 0.2rem;
+  bottom: 0.2rem;
+  z-index: 3;
+  padding: 0.08rem 0.24rem;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1.15;
+  text-shadow: 0 1px 2px #000;
+}
+
+.gf-compact-pt.is-changed {
+  color: #ff5c5c;
+}
+
+.goldfish.compact-view .gf-battlefield .gf-keyword-badge {
+  right: 0.2rem;
+  bottom: 0.2rem;
+}
+
+.goldfish.compact-view .gf-battlefield .gf-compact-pt {
+  bottom: 0.2rem;
 }
 
 .board-controls {
@@ -1416,6 +1493,31 @@ textarea {
 }
 
 /* --- Einstellungen --- */
+
+.connection-settings-groups {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 1.25rem;
+}
+
+.connection-settings-groups > .connection-settings-panel {
+  flex: 1 1 360px;
+  width: 100%;
+  min-width: 0;
+}
+
+.llm-settings-panel > label {
+  display: block;
+  margin: 0.85rem 0 0.3rem;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
+.llm-settings-panel > button,
+.llm-settings-panel > .import-actions {
+  margin-top: 0.85rem;
+}
 
 .connection-settings-panel {
   max-width: 480px;
@@ -2082,6 +2184,9 @@ textarea {
    overlaid stack popup, so player interactions on the stage are never
    covered any more. */
 .goldfish {
+  /* Header: 44px logo + 4/3rem padding + 1px border; main: 3rem padding.
+     Divide by board zoom so the rail still fills the visible height. */
+  --gf-rail-height: calc((100dvh - 45px - 13rem / 3) / var(--gf-scale, 1));
   display: flex;
   flex-direction: row;
   align-items: flex-start;
@@ -2098,7 +2203,8 @@ textarea {
   position: sticky;
   top: 0;
   align-self: flex-start;
-  max-height: calc(100vh - 4.5rem);
+  height: var(--gf-rail-height);
+  max-height: var(--gf-rail-height);
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -2117,6 +2223,18 @@ textarea {
   flex-direction: column;
   gap: 0.6rem;
 }
+
+.gf-rail > * { flex-shrink: 0; }
+.gf-chat { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 6rem; min-width: 0; border-top: 1px solid var(--border); padding-top: 0.5rem; }
+.gf-chat h4 { margin: 0 0 0.4rem; font-size: 0.9rem; }
+.gf-chat-messages { flex: 1 1 auto; min-height: 0; list-style: none; margin: 0; padding: 0; overflow-y: auto; font-size: 0.78rem; }
+.gf-chat-message { padding: 0.35rem 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; white-space: pre-wrap; }
+.gf-chat-author { font-weight: 700; margin-right: 0.3rem; }
+.gf-chat-message.is-announcement { opacity: 0.8; }
+.gf-chat-emotes { display: flex; gap: 0.3rem; margin-top: 0.3rem; }
+.gf-chat-emotes button { flex: 1; padding: 0.3rem; font-size: 0.8rem; }
+.gf-chat-error { font-size: 0.75rem; color: var(--danger, #f99); }
+@media (max-width: 1199px) { .gf-chat { flex: 1 1 100%; } }
 
 .gf-rail-turn {
   display: flex;
@@ -2158,6 +2276,7 @@ textarea {
     flex: 1 1 auto;
     width: 100%;
     position: static;
+    height: auto;
     max-height: none;
     flex-direction: row;
     flex-wrap: wrap;
@@ -2168,6 +2287,7 @@ textarea {
   .gf-rail-stack {
     flex: 1 1 12rem;
   }
+  .gf-chat-messages { flex: none; height: 15rem; }
   .gf-rail-controls {
     flex: 1 1 100%;
     flex-direction: row;
@@ -2207,11 +2327,14 @@ textarea {
     width: auto;
     position: sticky;
     top: 0;
-    max-height: calc(100vh - 4.5rem);
+    height: var(--gf-rail-height);
+    max-height: var(--gf-rail-height);
     flex-direction: column;
     flex-wrap: nowrap;
     align-items: stretch;
   }
+  .gf-chat { flex: 1 1 auto; }
+  .gf-chat-messages { flex: 1 1 auto; height: auto; }
   .gf-rail-turn,
   .gf-rail-timer,
   .gf-rail-stack {
@@ -3145,6 +3268,10 @@ textarea {
   gap: 0.25rem;
 }
 
+.gf-card-slot > .card {
+  position: relative;
+}
+
 /* Stack items carry a type badge above the art and a resolution-order
    hint below, so the stack reads as spells vs. triggered/activated
    abilities and shows what resolves next (RULE 608.2, LIFO). */
@@ -3628,8 +3755,8 @@ textarea {
    under a later card) and is positioned at the badge by gameBoardView.js. */
 .gf-effects {
   position: absolute;
-  top: -0.4rem;
-  left: -0.4rem;
+  top: 0.15rem;
+  left: 0.15rem;
   z-index: 3;
 }
 
@@ -3654,6 +3781,11 @@ textarea {
 .gf-effects-badge:hover {
   background: var(--accent);
   color: #10151c;
+}
+
+/* Keep the face-preview control beside the modifier on double-faced cards. */
+.card:has(> .gf-effects) > .gf-card-flip {
+  left: 1.5rem;
 }
 
 .gf-effects-pop {
@@ -3999,6 +4131,27 @@ textarea {
   gap: 0.5rem;
 }
 
+/* RULE 701.30c: unlike scry, every clashing player's revealed card is
+   public. These are display-only faces; the top/bottom decision follows
+   below in the ordinary pending-choice buttons. */
+.gf-clash-reveal {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.gf-clash-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 9rem;
+  padding: 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-alt);
+}
+
 .gf-lt-card {
   display: flex;
   flex-direction: column;
@@ -4149,6 +4302,48 @@ textarea {
   max-height: 60vh;
   transform: scale(0.97);
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
+}
+
+/* VIS-13: who controls a target candidate, beside its name in the picker.
+   Tinted in the controller's seat banner colour when they picked one. */
+.gf-target-ctrl {
+  display: inline-block;
+  margin-left: 0.5em;
+  padding: 0 0.45em;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  background: var(--banner-bg, var(--panel-alt));
+  vertical-align: baseline;
+}
+
+.gf-target-ctrl--mine {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Same near-white-on-colour rule as the board title bars above. */
+.gf-target-ctrl.gf-banner-tinted {
+  color: #f6f3ea;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+}
+
+/* VIS-14: with the target popup pushed aside, every legal target on the
+   board is outlined and clickable. */
+.gf-pick-target {
+  cursor: pointer;
+  outline: 3px solid var(--accent);
+  outline-offset: 1px;
+  animation: gf-pick-pulse 1.2s ease-in-out infinite;
+}
+
+.gf-pick-target:hover {
+  outline-color: var(--text);
+}
+
+@keyframes gf-pick-pulse {
+  50% { outline-offset: 3px; }
 }
 
 /* Target-picker modal: a cancel row under the offered targets. */
@@ -5303,7 +5498,7 @@ textarea {
   font-weight: 600;
 }
 
-/* The bot-speed control still uses this class in the rail's control block. */
+/* Legacy inline rail-control styling. */
 .gf-autopass {
   display: inline-flex;
   align-items: center;
@@ -5333,8 +5528,7 @@ textarea {
   flex-wrap: wrap;
 }
 
-.gf-banner-pass,
-.gf-banner-end-turn {
+.gf-banner-pass {
   padding: 0.25rem 0.7rem;
   font-size: 0.82rem;
 }
@@ -5423,4 +5617,59 @@ textarea {
 .mp-inline-option input[type='checkbox'] {
   flex: none;
   margin: 0;
+}
+
+.bug-report-dialog { width: min(36rem, calc(100vw - 2rem)); border-radius: .6rem; padding: 1.5rem; background: var(--panel); color: var(--text); }
+.bug-report-dialog::backdrop { background: #0009; }
+.bug-report-dialog form { display: grid; gap: .8rem; }
+.bug-report-dialog textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+.bug-report-dialog input { width: 6rem; }
+.bug-report-buttons { display: flex; justify-content: flex-end; gap: .6rem; }
+
+/* VIS-12: yield buttons, the armed-yield badge and the rail's stops panel. */
+.gf-banner-yield {
+  padding: 0.25rem 0.7rem;
+  font-size: 0.82rem;
+}
+
+.gf-yield-active {
+  font-weight: 600;
+}
+
+.gf-yield-badge {
+  font-size: 0.8rem;
+  opacity: 0.85;
+  white-space: nowrap;
+}
+
+.gf-rail-stops {
+  font-size: 0.8rem;
+}
+
+.gf-rail-stops summary {
+  cursor: pointer;
+}
+
+.gf-rail-stops-help {
+  margin: 0.3rem 0;
+  opacity: 0.75;
+}
+
+.gf-rail-stops table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.gf-rail-stops th {
+  font-weight: 500;
+  text-align: center;
+}
+
+.gf-rail-stops td:first-child {
+  text-align: left;
+}
+
+.gf-rail-stops td {
+  padding: 0.1rem 0.2rem;
+  text-align: center;
 }

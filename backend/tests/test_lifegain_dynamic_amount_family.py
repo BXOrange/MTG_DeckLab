@@ -25,18 +25,18 @@ case (a literal fixed amount) doesn't cover:
   Necropolis Regent) "it" means whichever group member fired it, so the
   clause must stay unclaimed rather than silently buff the wrong object.
 
-Reference: mtg_analyzer/game/effects.py, mtg_analyzer/game/continuous.py,
+Reference: mtg_analyzer/game/effects/core.py, mtg_analyzer/game/continuous.py,
 mtg_analyzer/parser/oracle/{segmenter,catalogue/{handlers,static_handlers}}.py.
 """
 
 from __future__ import annotations
 
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec
@@ -94,7 +94,7 @@ def test_group_subject_it_clause_is_unclaimed_not_mismodeled():
     assert match_clause("put that many +1/+1 counters on it", self_subject=False) is None
 
 
-def test_necropolis_regent_is_still_unmodeled():
+def test_necropolis_regent_is_modeled_now():  # PAR-123: "that many" after a damage head, on "it"
     card = Card(
         id="Necropolis Regent", name="Necropolis Regent", type_line="Creature — Dragon",
         is_creature=True, power=4, toughness=4,
@@ -104,7 +104,7 @@ def test_necropolis_regent_is_still_unmodeled():
             "put that many +1/+1 counters on it."
         ),
     )
-    assert parse_oracle(card).modeled is False
+    assert parse_oracle(card).modeled is True
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +128,7 @@ def test_sanguine_bond_drains_the_opponent_for_the_amount_gained():
     # (a documented simplification, subgrammars._TARGET_ROWS), so both
     # players are offered — pick the actual opponent explicitly.
     option = next(o for o in state.pending_choice["options"] if o["id"] == "p2")
-    eng.rules.resolve_trigger_target_choice(option["id"])
+    eng.rules.resolve_choice(option["id"])
     eng.rules.resolve_top_of_stack()
 
     assert p1.life == 25

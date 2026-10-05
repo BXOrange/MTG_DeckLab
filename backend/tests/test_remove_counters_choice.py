@@ -3,18 +3,18 @@
 Heartless Act/Render Inert-shaped) — a genuinely different effect from the
 unconditional "remove all counters" shape covered in
 `test_remove_counters_effect.py`. Resolution opens a `pending_choice`
-(`RulesEngine.request_remove_counters_choice`) asking how many, then — only
+(`RulesEngine._request_remove_counters_choice`) asking how many, then — only
 if 2+ counter kinds are present — which kind, one at a time.
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effects import GameContext, RemoveCountersEffect
+from mtg_analyzer.game.effects.core import GameContext, RemoveCountersEffect
 from mtg_analyzer.game.rules_engine import RulesEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 from mtg_analyzer.parser.oracle.spec import EffectSpec
@@ -100,7 +100,7 @@ def test_single_counter_kind_needs_no_kind_choice():
     RemoveCountersEffect(target_kind="permanent", max_count=3).apply(ctx, targets=[victim])
     assert state.pending_choice["kind"] == "remove_counters_amount"
 
-    engine.resolve_remove_counters_amount_choice("2")
+    engine.resolve_choice("2")
     # Only one kind present — resolved directly, no follow-up choice.
     assert state.pending_choice is None
     assert victim.counters.get("+1/+1") == 1
@@ -114,18 +114,18 @@ def test_multiple_counter_kinds_ask_one_at_a_time():
     ctx = GameContext(state, engine)
 
     RemoveCountersEffect(target_kind="permanent", max_count=3).apply(ctx, targets=[victim])
-    engine.resolve_remove_counters_amount_choice("3")
+    engine.resolve_choice("3")
 
     choice = state.pending_choice
     assert choice["kind"] == "remove_counters_kind"
     ids = {o["id"] for o in choice["options"]}
     assert ids == {"+1/+1", "stun"}
 
-    engine.resolve_remove_counters_kind_choice("stun")
+    engine.resolve_choice("stun")
     assert state.pending_choice["kind"] == "remove_counters_kind"
     assert victim.counters.get("stun") == 1
 
-    engine.resolve_remove_counters_kind_choice("stun")
+    engine.resolve_choice("stun")
     # "stun" is now exhausted — only "+1/+1" remains, so the last removal
     # resolves directly with no further choice.
     assert state.pending_choice is None
@@ -140,7 +140,7 @@ def test_choosing_zero_removes_nothing():
     ctx = GameContext(state, engine)
 
     RemoveCountersEffect(target_kind="permanent", max_count=3).apply(ctx, targets=[victim])
-    engine.resolve_remove_counters_amount_choice("0")
+    engine.resolve_choice("0")
 
     assert state.pending_choice is None
     assert victim.counters.get("+1/+1") == 3
@@ -153,7 +153,7 @@ def test_declining_the_amount_choice_removes_nothing():
     ctx = GameContext(state, engine)
 
     RemoveCountersEffect(target_kind="permanent", max_count=3).apply(ctx, targets=[victim])
-    engine.resolve_remove_counters_amount_choice(None)
+    engine.resolve_choice(None)
 
     assert state.pending_choice is None
     assert victim.counters.get("+1/+1") == 3
@@ -169,7 +169,7 @@ def test_amount_is_capped_at_counters_actually_present():
     RemoveCountersEffect(target_kind="permanent", max_count=5).apply(ctx, targets=[victim])
     assert state.pending_choice["max"] == 2
 
-    engine.resolve_remove_counters_amount_choice("5")  # over-request, clamped to 2
+    engine.resolve_choice("5")  # over-request, clamped to 2
     assert state.pending_choice is None
     assert "+1/+1" not in victim.counters
 
@@ -181,7 +181,7 @@ def test_out_of_range_answer_clamps_to_max():
     ctx = GameContext(state, engine)
 
     RemoveCountersEffect(target_kind="permanent", max_count=3).apply(ctx, targets=[victim])
-    engine.resolve_remove_counters_amount_choice("999")
+    engine.resolve_choice("999")
 
     assert state.pending_choice is None
     assert "+1/+1" not in victim.counters
@@ -195,10 +195,10 @@ def test_kind_choice_defaults_to_first_option_on_invalid_answer():
     ctx = GameContext(state, engine)
 
     RemoveCountersEffect(target_kind="permanent", max_count=2).apply(ctx, targets=[victim])
-    engine.resolve_remove_counters_amount_choice("2")
+    engine.resolve_choice("2")
     first_kind = state.pending_choice["options"][0]["id"]
 
-    engine.resolve_remove_counters_kind_choice("not-a-real-kind")
+    engine.resolve_choice("not-a-real-kind")
     # Defaulted to the first offered kind — one counter removed from it.
     assert victim.counters.get(first_kind, 0) == 0
 
@@ -258,7 +258,7 @@ def test_removing_counters_from_a_targeted_opponent_removes_their_poison():
     ).apply(ctx, targets=[p2])
     assert state.pending_choice["kind"] == "remove_counters_amount"
 
-    engine.resolve_remove_counters_amount_choice("2")
+    engine.resolve_choice("2")
     assert state.pending_choice is None
     assert p2.poison == 1
 
@@ -272,16 +272,16 @@ def test_removing_counters_from_a_targeted_opponent_offers_every_kind():
     RemoveCountersEffect(
         target_kind="artifact_creature_planeswalker_or_opponent", max_count=4,
     ).apply(ctx, targets=[p2])
-    engine.resolve_remove_counters_amount_choice("4")
+    engine.resolve_choice("4")
 
     choice = state.pending_choice
     assert choice["kind"] == "remove_counters_kind"
     assert choice["player_id"] == p2.id  # a player makes their own choice
     assert {o["id"] for o in choice["options"]} == {"poison", "energy"}
 
-    engine.resolve_remove_counters_kind_choice("poison")
+    engine.resolve_choice("poison")
     assert p2.poison == 1
-    engine.resolve_remove_counters_kind_choice("poison")
+    engine.resolve_choice("poison")
     assert p2.poison == 0
 
     # "poison" is exhausted — only "energy" remains, resolved directly.

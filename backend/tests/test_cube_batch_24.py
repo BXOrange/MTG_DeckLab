@@ -18,13 +18,13 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game import ability_catalogue as ac
+from mtg_analyzer.game import card_registry as ac
 from mtg_analyzer.game import combat, continuous
-from mtg_analyzer.game.effect_binder import bind_ability, bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_ability, bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec
 
 
@@ -102,7 +102,7 @@ def test_ability_strip_suppresses_triggered_abilities():
     assert obj.loses_all_abilities
 
     # Firing its trigger event now collects nothing.
-    from mtg_analyzer.models.events import GameEvent
+    from mtg_analyzer.models.game.events import GameEvent
     eng.rules.pending_triggers.clear()
     eng.state.fire_event(GameEvent(EventType.ATTACKS, player_id="p1",
                                    instance_id=obj.instance_id,

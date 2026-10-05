@@ -26,9 +26,9 @@ Two things are new:
 
 Reference: mtg_analyzer/models/events.py (`EventType.BECOMES_TARGET`),
 mtg_analyzer/game/rules/misc_mixin.py (`check_ward`,
-`_fire_becomes_target_events`), mtg_analyzer/game/effect_binder.py
-(`caster_relation`), mtg_analyzer/game/effects.py
-(`CounterUnlessPayEffect`), mtg_analyzer/game/ability_catalogue.py
+`_fire_becomes_target_events`), mtg_analyzer/game/binding/core.py
+(`caster_relation`), mtg_analyzer/game/effects/core.py
+(`CounterUnlessPayEffect`), mtg_analyzer/game/card_registry.py
 (Goldspan Dragon, Tectonic Giant), RULE 115/601.2c/603.1/702.21.
 """
 
@@ -36,11 +36,11 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game.effect_binder import bind_ability, bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_ability, bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
@@ -277,8 +277,10 @@ def test_battle_mammoth_is_fully_modeled_with_group_subject_and_caster_relation(
     triggered = [s for s in result.specs if s.ability_kind == "triggered"]
     assert any(s.trigger.get("event") == "BECOMES_TARGET" for s in triggered)
     mammoth_trig = next(s for s in triggered if s.trigger.get("event") == "BECOMES_TARGET")
+    # PAR-131: "a permanent" composes to no filter at all (every group
+    # subject of a BECOMES_TARGET event is already a permanent).
     assert mammoth_trig.trigger["condition"] == {
-        "subject": "group", "type": "permanent", "other": False, "controller": "you",
+        "subject": "group", "other": False, "controller": "you",
     }
     assert mammoth_trig.trigger.get("caster_relation") == "opponent"
 

@@ -18,13 +18,13 @@ then-engine-drive split.
 
 import pytest
 
-from mtg_analyzer.game.effects import DealDamageEffect, DestroyEffect, ExileEffect
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.effects.core import DealDamageEffect, DestroyEffect, ExileEffect
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.targeting import all_requirements_satisfiable, requirements_with_targets
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.mana_cost import ManaCost
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.mana.mana_cost import ManaCost
 from mtg_analyzer.parser.oracle.gate import MODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 
@@ -84,7 +84,8 @@ def test_optional_up_to_two_recognized_for_destroy_with_and_or_types():
     # enchantments."
     (spec,) = parse_effect_body("destroy up to 2 target artifacts and/or enchantments")
     assert spec.type == "destroy"
-    assert spec.params == {"target_kind": "permanent", "count": 2, "optional": True}
+    # the real "artifact or enchantment" pool, not any permanent (batch 6)
+    assert spec.params == {"target_kind": "artifact_or_enchantment", "count": 2, "optional": True}
 
 
 def test_optional_up_to_three_recognized_for_exile():

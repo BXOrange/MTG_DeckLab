@@ -16,10 +16,10 @@ that's a copy of that card."
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 
 
 def _engine(players=3, life=20):
@@ -67,7 +67,7 @@ def _artifact_creature(st, pid="p1", name="Servo") -> GameObject:
 
 
 def test_registered_and_binds_one_triggered_ability():
-    from mtg_analyzer.game import ability_catalogue as ac
+    from mtg_analyzer.game import card_registry as ac
     card = Card(id="x", name="The Master, Gallifrey's End",
                 type_line="Legendary Creature — Time Lord Rogue",
                 is_creature=True, power=4, toughness=3)

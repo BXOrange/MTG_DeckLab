@@ -18,27 +18,29 @@ engine is the toolbox that loop drives.
 
 from __future__ import annotations
 
+import copy
 import re
 from typing import Any, Callable, Optional, Union
 
-from ...models import card_query
-from ...models.card import Card
-from ...models.emblem import Emblem
-from ...models.events import EventType, GameEvent
-from ...models.game_object import GameObject, Zone
-from ...models.game_state import DelayedTrigger, GameState, StackItem
-from ...models.mana_cost import ManaCost
-from ...models.player import Player
+from ...models.cards import card_query
+from ...models.cards.card import Card
+from ...models.game.emblem import Emblem
+from ...models.game.events import EventType, GameEvent
+from ...models.game.game_object import GameObject, Zone
+from ...models.game.game_state import DelayedTrigger, GameState, StackItem
+from ...models.mana.mana_cost import ManaCost
+from ...models.game.player import Player
 from ...parser.oracle.catalogue.keywords import parse_keywords
 from ...parser.oracle.catalogue.saga import all_chapter_numbers
-from .. import ability_catalogue, combat, continuous, copy_mechanics, dungeons, face_down, variants
+from .. import card_registry, combat, continuous, copy_mechanics, dungeons, face_down, variants
 from ..combat import is_protected_from
 from ..costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from ..mana_abilities import restriction_predicate_for_cast
-from ..effects import (
+from ..effects.core import (
     _apply_effects_partitioned,
     AddCountersEffect,
     CompleteDungeonEffect,
+    CopySpellEffect,
     VentureIntoTheDungeonEffect,
     AddPlayerCountersEffect,
     BecomeMonarchEffect,
@@ -54,6 +56,7 @@ from ..effects import (
     TheRingTemptsYouEffect,
     GameContext,
     GameEffect,
+    HauntLinkedDeathEffect,
     ImpulsiveDrawEffect,
     IncreaseSpeedEffect,
     MarchesaDelayedReturnEffect,
@@ -62,6 +65,7 @@ from ..effects import (
     RadiationMillEffect,
     ReboundFreeCastWindowEffect,
     ReplacementEffect,
+    ReturnFromGraveyardEffect,
     ReturnSelfFromGraveyardEffect,
     SiegeDefeatedEffect,
     StaticAbility,
@@ -74,6 +78,7 @@ from ..effects import (
     WinConditionEffect,
 )
 from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_targets
+from .. import continuations
 
 def _saga_final_chapter(card: Card) -> int:
     """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
@@ -124,10 +129,8 @@ def _creature_type_options(state: GameState, controller_id: Optional[str]) -> li
     choose a creature type" pick.
 
     RAW technically lets a player name *any* creature type, including one no
-    card in the game has — an unbounded, ~300-entry vocabulary this engine
-    has no canonical list of (unlike a scoped tribal-lord subtype match,
-    which just substring-tests against whatever's actually printed,
-    `continuous._has_subtype`). Offering every official type as a button
+    card in the game has — the vocabulary in `creature_types.CREATURE_SUBTYPES`.
+    Offering every official type as a button
     isn't a real UI, so this instead offers every creature subtype among
     cards ``controller_id`` actually has anywhere in the game (battlefield,
     hand, library, graveyard, exile, command) — the practically relevant
@@ -155,10 +158,66 @@ def _creature_type_options(state: GameState, controller_id: Optional[str]) -> li
 
 
 
+class _TapOfferFiring(tuple):
+    """A queued ``(ability, event)`` firing that also carries the paid doublers
+    (`TriggerDoublerEffect.tap_cost`) still to be offered to its controller — a plain tuple
+    everywhere else, so every consumer of `pending_triggers` unpacks it unchanged."""
+
+    def __new__(cls, firing: tuple, offers: list[tuple[GameObject, Any]]) -> "_TapOfferFiring":
+        item = super().__new__(cls, firing)
+        item.tap_offers = list(offers)
+        return item
+
+
 class TriggerCollectionMixin:
     """Trigger collection (per-firing built and inherent) and placement/ordering/mode/target interactive choices (RULE 603)."""
 
+    def _queue_firing(
+        self, ability: "TriggeredAbility", event: GameEvent, obj: Any, capture: bool = True
+    ) -> None:
+        """Queue ``ability``'s firing for placement — once, plus one extra copy per free
+        doubler that applies (RULE 603.2d, Roaming Throne-shaped "if a triggered ability of
+        another creature you control of the chosen type triggers, it triggers an additional
+        time"). The extras are independent copies rather than a multiplier baked into the
+        ability, since each copy is separately orderable/targetable (RULE 603.3b) once 2+ end
+        up pending together.
+
+        A *paid* doubler (`TriggerDoublerEffect.tap_cost`, The Fish Brewer) rides on the first
+        copy as `_TapOfferFiring.tap_offers`; `_place_triggers` asks its controller how many
+        to tap when that copy is placed.
+        """
+        copies = 1 + continuous.trigger_doubler_bonus(
+            self.state, obj, event=event, context=self.context
+        )
+        offers = continuous.trigger_doubler_tap_offers(
+            self.state, obj, event=event, context=self.context
+        )
+        for index in range(copies):
+            captured = (
+                ability.capture_event(event, self.context)
+                if capture and ability.capture_event else event
+            )
+            firing_ability = ability
+            controller_id = getattr(obj, "controller_id", None)
+            if controller_id is not None and controller_id != ability.controller_id:
+                # RULE 603.3a: the source's controller at triggering time
+                # owns this firing. Keep earlier queued firings independent
+                # when control changes, rather than mutating the bound ability.
+                firing_ability = copy.copy(ability)
+                firing_ability.controller_id = controller_id
+            firing: tuple = (firing_ability, captured)
+            if index == 0 and offers:
+                firing = _TapOfferFiring(firing, offers)
+            self.pending_triggers.append(firing)
+
     def _collect_triggers(self, event: GameEvent) -> None:
+        if event.type == EventType.ENTERS_BATTLEFIELD:
+            # RULE 603.6a: continuous effects apply before entry triggers
+            # inspect the entrant (Maskwood Nexus changes its creature types).
+            entrant = self.state.find_object(event.get("instance_id"))
+            if entrant is not None and entrant in self.state.battlefield:
+                continuous.recompute(self.state)
+                event.data["subtypes"] = sorted(continuous.derived_subtype_words(entrant))
         if continuous.trigger_suppressed(self.state, event):
             # RULE 603: "Creatures entering don't cause abilities to
             # trigger." (Tocatli Honor Guard/Hushwing Gryff/Torpor Orb) —
@@ -194,16 +253,7 @@ class TriggerCollectionMixin:
                         # late to spend, which is the entire point of both.
                         self._resolve_mana_trigger(ability, event)
                         continue
-                    # RULE 603.3d: Roaming Throne-shaped "if a triggered
-                    # ability of another creature you control of the chosen
-                    # type triggers, it triggers an additional time" —
-                    # placed as extra, independent copies rather than a
-                    # multiplier baked into the ability itself, since each
-                    # copy is separately orderable/targetable (RULE 603.3b)
-                    # once 2+ end up pending together.
-                    copies = 1 + continuous.trigger_doubler_bonus(self.state, obj, event=event)
-                    for _ in range(copies):
-                        self.pending_triggers.append((ability, event))
+                    self._queue_firing(ability, event, obj)
         # RULE 114.4: an emblem's abilities function in the command zone —
         # scanned the same way as a permanent's, just off `Player.emblems`
         # instead of the battlefield (see `models/emblem.py`).
@@ -211,7 +261,7 @@ class TriggerCollectionMixin:
             for emblem in player.emblems:
                 for ability in emblem.triggered_abilities:
                     if ability.check_trigger(event, self.context):
-                        self.pending_triggers.append((ability, event))
+                        self._queue_firing(ability, event, emblem)
         # RULE 901.7/902.4/904.9: likewise for the casual variants' own
         # command-zone cards — the face-up plane's planeswalk/chaos
         # abilities, a scheme's "when you set this scheme in motion", a
@@ -221,20 +271,27 @@ class TriggerCollectionMixin:
                 if isinstance(ability, TriggeredAbility) and ability.check_trigger(
                     event, self.context
                 ):
-                    self.pending_triggers.append((ability, event))
+                    captured = ability.capture_event(event, self.context) if ability.capture_event else event
+                    self.pending_triggers.append((ability, captured))
         self._collect_inherent_triggers(event)
         self._collect_self_cast_triggers(event)
+        self._collect_storm_triggers(event)
+        self._collect_demonstrate_triggers(event)
+        self._collect_granted_cascade_triggers(event)
         self._collect_impulsive_draw_triggers(event)
         self._collect_rad_counter_damage_triggers(event)
         self._collect_attacks_you_rad_counter_triggers(event)
         self._collect_temporary_player_triggers(event)
+        self._collect_turn_scoped_triggers(event)
         self._advance_turn_controls(event)
         self._collect_counter_death_return_triggers(event)
         self._collect_undying_persist_triggers(event)
         self._collect_mill_return_from_graveyard_triggers(event)
         self._collect_graveyard_function_triggers(event)
         self._collect_cycled_triggers(event)
+        self._collect_discarded_triggers(event)
         self._collect_suspend_triggers(event)
+        self._collect_last_time_counter_triggers(event)
     def _resolve_mana_trigger(self, ability: "TriggeredAbility", event: GameEvent) -> None:
         """Apply a triggered mana ability immediately (RULE 605.4).
 
@@ -540,7 +597,7 @@ class TriggerCollectionMixin:
         effect>`" scaffold: the damaged player (and, per-marker, the amount)
         varies per firing, which a bind-on-load `TriggeredAbility`'s one
         fixed ``effects`` list can't carry (see that class's docstring,
-        `game/effects.py`) — so this is built fresh right here, the same
+        `game/effects/core.py`) — so this is built fresh right here, the same
         "per-firing data baked in right when the event fires" shape
         `_collect_inherent_triggers` above uses for the Monarch/Initiative
         combat-damage swap, queued through the ordinary ``pending_triggers``
@@ -697,24 +754,15 @@ class TriggerCollectionMixin:
                 remaining.append(trig)
                 continue
             # phase == "active": the *next* TURN_BEGIN (anyone's) after their
-            # own turn started means their turn just ended — drop it. For a
-            # ``"this_turn"`` trigger (armed active immediately, `active_
-            # since_turn` == install turn), that same check is exactly
-            # "until end of this turn".
+            # own turn started means their turn just ended — drop it.
             if (
                 event.type == EventType.TURN_BEGIN
                 and trig.active_since_turn is not None
                 and int(event.get("turn", 0)) > trig.active_since_turn
             ):
                 continue
-            # RULE 603.1: ``"self"`` scope fires only when the event names
-            # this player; ``"any"`` fires on every matching event_type
-            # (Ruinous Waterbending's "whenever **a** creature dies").
-            _player_ok = (
-                trig.event_player_scope == "any"
-                or event.get("player_id") == trig.player_id
-            )
-            if event.type == trig.event_type and _player_ok:
+            # RULE 603.1: fires only when the event names this player.
+            if event.type == trig.event_type and event.get("player_id") == trig.player_id:
                 ability = TriggeredAbility(
                     trigger_event=trig.event_type,
                     effects=trig.effects,
@@ -724,6 +772,25 @@ class TriggerCollectionMixin:
                 self.pending_triggers.append((ability, event))
             remaining.append(trig)
         self.state.temporary_player_triggers = remaining
+    def _collect_turn_scoped_triggers(self, event: GameEvent) -> None:
+        """RULE 603.7a: fire the triggered abilities a spell or ability created for the
+        rest of the turn (`GameState.turn_scoped_triggers`, PAR-124) and drop the ones
+        whose turn is over. A ``once`` entry is removed the moment it triggers."""
+        entries = self.state.turn_scoped_triggers
+        if not entries:
+            return
+        turn = self.state.internal_turn.number
+        remaining = []
+        for entry in entries:
+            if entry.install_turn != turn:
+                continue
+            if entry.ability.check_trigger(event, self.context):
+                self.pending_triggers.append((entry.ability, event))
+                if entry.once:
+                    continue
+            remaining.append(entry)
+        self.state.turn_scoped_triggers = remaining
+
     def _advance_turn_controls(self, event: GameEvent) -> None:
         """MEC-51 (RULE 720): run the `TURN_BEGIN` state machine for
         `GameState.turn_controls` — the twin of
@@ -796,21 +863,46 @@ class TriggerCollectionMixin:
         dying_counters = event.get("counters") or {}
         for obj in self.state.permanents():
             marker = getattr(obj, "counter_death_return", None)
-            if not marker or obj.controller_id != dying_controller_id:
+            if not marker:
+                continue
+            # Marchesa scope: the dying creature is one *this* permanent's
+            # controller owns. ``opponent`` flips it (Necroskitter / The
+            # Reaper, King No More — "a creature an opponent controls …").
+            if marker.get("opponent"):
+                if dying_controller_id == obj.controller_id:
+                    continue
+            elif obj.controller_id != dying_controller_id:
                 continue
             kind = marker.get("counter_kind", "+1/+1")
             if dying_counters.get(kind, 0) <= 0:
                 continue
+            # RULE 603.2 per-instance "do this only once each turn" (Reaper).
+            if marker.get("once_per_turn") and getattr(obj, "_counter_death_return_turn", None) == self.state.turn_nr:
+                continue
             dying_obj = self.state.find_object(dying_id)
             if dying_obj is None:
                 continue
-            effect = MarchesaDelayedReturnEffect(dying_object=dying_obj, source=obj)
+            if marker.get("once_per_turn"):
+                obj._counter_death_return_turn = self.state.turn_nr
+            if marker.get("immediate"):
+                # "return/put that card to the battlefield under your
+                # control" with no "next end step" delay — resolve now.
+                effect: GameEffect = ReturnFromGraveyardEffect(
+                    target=dying_obj, destination="battlefield",
+                    under_your_control=True, optional=bool(marker.get("optional")),
+                    source=obj,
+                )
+                desc = f"{obj.name}: {dying_obj.name} unter deine Kontrolle zurückbringen"
+            else:
+                effect = MarchesaDelayedReturnEffect(dying_object=dying_obj, source=obj)
+                desc = f"{obj.name}: {dying_obj.name} zum Ende des Zuges zurückbringen"
             ability = TriggeredAbility(
                 trigger_event=EventType.DIES,
                 effects=[effect],
                 controller_id=obj.controller_id,
                 source=obj,
-                description=f"{obj.name}: {dying_obj.name} zum Ende des Zuges zurückbringen",
+                optional=bool(marker.get("optional")),
+                description=desc,
             )
             self.pending_triggers.append((ability, event))
     def _collect_undying_persist_triggers(self, event: GameEvent) -> None:
@@ -823,7 +915,7 @@ class TriggerCollectionMixin:
         synthesized at bind time in `effect_binder._KEYWORD_TRIGGERED_
         BUILDERS`, specifically so a *granted* undying/persist works too
         (Mikaeus, the Unhallowed; the hand-authored undying grant in
-        `ability_catalogue/entries_003.py`) — the ticket's own headline gap
+        `card_registry/graveyard.py`) — the ticket's own headline gap
         was that a granted "undying" did nothing, since a layer-6 grant
         lands in `granted_keywords`, never on the keyword-spec list the bind
         pass reads. A `loses_all_abilities` creature reports no keywords at
@@ -929,6 +1021,26 @@ class TriggerCollectionMixin:
                         continue
                     if isinstance(ability, TriggeredAbility) and ability.check_trigger(event, self.context):
                         self.pending_triggers.append((ability, event))
+
+    def _collect_haunt_triggers(self, event: GameEvent) -> None:
+        """RULE 702.55: an exiled haunter sees its linked creature die."""
+        if event.type != EventType.DIES:
+            return
+        dying_id = event.get("instance_id")
+        if dying_id is None:
+            return
+        for owner in self.state.players:
+            for obj in owner.exile:
+                if getattr(obj, "haunting_instance_id", None) != dying_id:
+                    continue
+                for ability in obj.triggered_abilities:
+                    if not isinstance(ability, TriggeredAbility):
+                        continue
+                    if ability.trigger_event != EventType.DIES:
+                        continue
+                    if not any(isinstance(effect, HauntLinkedDeathEffect) for effect in ability.effects):
+                        continue
+                    self.pending_triggers.append((ability, event))
     def _collect_cycled_triggers(self, event: GameEvent) -> None:
         """RULE 702.28c: "When you cycle this card, `<effect>`." fires from
         the graveyard the Cycling cost's own ``discard_self`` just put its
@@ -950,6 +1062,45 @@ class TriggerCollectionMixin:
                         continue
                     if isinstance(ability, TriggeredAbility) and ability.check_trigger(event, self.context):
                         self.pending_triggers.append((ability, event))
+
+    def _collect_discarded_triggers(self, event: GameEvent) -> None:
+        """RULE 603.1/701.8: "When a spell or ability an opponent controls
+        causes you to discard this card, `<effect>`." (MEC-101 — Pure
+        Intentions, Guerrilla Tactics, Mangara's Blessing and the rest of the
+        "caused discard" cycle) — a self-subject trigger that has to fire off
+        its *own* discard, so `_collect_triggers`'s main loop (`state.
+        permanents()`, battlefield-only) can never see it: by the time
+        `DISCARD_CARD` fires, `RulesEngine.discard`/`discard_specific` has
+        already moved the card into its owner's graveyard (unlike Cycling's
+        own graveyard-residence, this one wasn't put there *by* the ability;
+        the ability just has to still be watching once it lands there).
+        Scoped the same bare-event-identity way `_collect_cycled_triggers`
+        just above is: no real card prints a `DISCARD_CARD`-watching ability
+        anywhere but on the discarded card's own self-subject "this card"/
+        "~", so the event type alone is enough — `check_trigger`'s own
+        subject condition (an exact `instance_id` match) already guarantees
+        this only ever fires for the card that was actually just discarded,
+        never a bystander sitting in the same graveyard.
+
+        Skips any ability `TriggeredAbility.functions_from_graveyard` already
+        flagged (RULE 113.6a/PAR-16, `_collect_graveyard_function_triggers`
+        just above) — Pure Intentions' own second ability's inner body *is* a
+        "return this card from your graveyard" effect (wrapped in a delayed
+        trigger), so `binding.core`'s inference already marks it, and both
+        scans would otherwise queue the same firing twice.
+        """
+        if event.type != EventType.DISCARD_CARD:
+            return
+        for player in self.state.players:
+            for obj in player.graveyard:
+                for ability in obj.triggered_abilities:
+                    if getattr(ability, "trigger_event", None) != EventType.DISCARD_CARD:
+                        continue
+                    if getattr(ability, "functions_from_graveyard", False):
+                        continue
+                    if isinstance(ability, TriggeredAbility) and ability.check_trigger(event, self.context):
+                        self.pending_triggers.append((ability, event))
+
     def _collect_self_cast_triggers(self, event: GameEvent) -> None:
         """RULE 601.2i/603.2: "When you cast this spell, `<effect>`."
         (Kozilek, Butcher of Truth's "draw four cards", the Eldrazi titan
@@ -998,7 +1149,71 @@ class TriggerCollectionMixin:
             if not getattr(ability, "functions_from_stack", False):
                 continue
             if isinstance(ability, TriggeredAbility) and ability.check_trigger(event, self.context):
-                self.pending_triggers.append((ability, event))
+                # RULE 603.2d: a spell's own cast trigger (cascade, storm) can be doubled too.
+                self._queue_firing(ability, event, obj, capture=False)
+    def _collect_storm_triggers(self, event: GameEvent) -> None:
+        """RULE 702.40: snapshot previous casts and queue each instance of storm.
+
+        Spell copies are not casts. Grants are checked when the spell is cast,
+        and the resulting trigger belongs to that spell, surviving removal of
+        the granting permanent before the trigger resolves.
+        """
+        if event.type != EventType.SPELL_CAST:
+            return
+        obj = self.state.find_object(event.get("instance_id"))
+        if obj is None or obj.zone != Zone.STACK:
+            return
+        instances = int(combat.has(obj, "storm"))
+        instances += continuous.granted_cast_keyword_instances(self.state, obj, event, "storm")
+        previous_casts = sum(e.type == EventType.SPELL_CAST for e in self.state.events_this_turn()) - 1
+        for _ in range(instances):
+            ability = TriggeredAbility(
+                EventType.SPELL_CAST,
+                [CopySpellEffect(count=max(0, previous_casts), source=obj,
+                                 spell_from_trigger_event="instance_id")],
+                source=obj, controller_id=obj.controller_id, description=f"{obj.name}: Storm",
+            )
+            self._queue_firing(ability, event, obj, capture=False)
+
+    def _collect_demonstrate_triggers(self, event: GameEvent) -> None:
+        """RULE 702.144a: "When you cast this spell, you may copy it. If you do, choose an opponent to
+        also copy it." The trigger belongs to the spell (like Storm's), so it survives anything
+        happening to other permanents before it resolves; the "you may" is an ``optional`` node.
+        """
+        if event.type != EventType.SPELL_CAST:
+            return
+        obj = self.state.find_object(event.get("instance_id"))
+        if obj is None or obj.zone != Zone.STACK or not combat.has(obj, "demonstrate"):
+            return
+        from ..effects.composition import OptionalEffect
+
+        ability = TriggeredAbility(
+            EventType.SPELL_CAST,
+            [OptionalEffect(
+                effects=[{"type": "demonstrate_copy", "params": {}}],
+                prompt="Demonstrate: Zauberspruch kopieren?", source=obj,
+            )],
+            source=obj, controller_id=obj.controller_id, description=f"{obj.name}: Demonstrate",
+        )
+        self._queue_firing(ability, event, obj, capture=False)
+
+    def _collect_granted_cascade_triggers(self, event: GameEvent) -> None:
+        if event.type != EventType.SPELL_CAST:
+            return
+        obj = self.state.find_object(event.get("instance_id"))
+        if obj is None or obj.zone != Zone.STACK:
+            return
+        from ..effects.library import CascadeEffect
+
+        for _ in range(continuous.granted_cast_keyword_instances(self.state, obj, event, "cascade")):
+            ability = TriggeredAbility(
+                EventType.SPELL_CAST,
+                [CascadeEffect(mana_value=event.get("mana_value", 0),
+                               player=self.state.player_by_id(event.get("player_id")), source=obj)],
+                source=obj, controller_id=obj.controller_id, description=f"{obj.name}: Cascade",
+            )
+            self._queue_firing(ability, event, obj, capture=False)
+
     def _collect_suspend_triggers(self, event: GameEvent) -> None:
         """RULE 702.62a: Suspend's 2nd/3rd abilities "function in the exile
         zone" — a suspended card is never a permanent, so `_collect_
@@ -1033,6 +1248,26 @@ class TriggerCollectionMixin:
                     ),
                 )
                 self.pending_triggers.append((ability, event))
+    def _collect_last_time_counter_triggers(self, event: GameEvent) -> None:
+        """RULE 702.62a: "When the last time counter is removed from this card
+        while it's exiled, …" (Riftmarked Knight, Veiling Oddity) — a trigger
+        of the *exiled card itself*, which `_collect_triggers`'s battlefield
+        scan can't see. `EventType.LAST_TIME_COUNTER_REMOVED` carries the
+        card's ``instance_id`` (`RulesEngine.remove_suspend_time_counter`), so
+        this looks the card up directly, exactly like
+        `_collect_self_cast_triggers` does for a spell on the stack."""
+        if event.type != EventType.LAST_TIME_COUNTER_REMOVED:
+            return
+        obj = self.state.find_object(event.get("instance_id"))
+        if obj is None:
+            return
+        for ability in obj.triggered_abilities + obj.granted_triggered_abilities:
+            if (
+                isinstance(ability, TriggeredAbility)
+                and ability.trigger_event == EventType.LAST_TIME_COUNTER_REMOVED
+                and ability.check_trigger(event, self.context)
+            ):
+                self.pending_triggers.append((ability, event))
     def put_triggers_on_stack(self) -> int:
         """Move fired triggers onto the stack (RULE 603.3). Returns count.
 
@@ -1053,7 +1288,7 @@ class TriggerCollectionMixin:
             self._ordering_active = mine
             self._ordering_rest = rest
             self.pending_triggers.clear()
-            self.state.pending_choice = self._trigger_order_choice()
+            self.open_choice(self._trigger_order_choice())
             return 0
 
         count = len(self.pending_triggers)
@@ -1111,13 +1346,13 @@ class TriggerCollectionMixin:
         A mandatory, non-modal trigger with no targeting effect is placed
         immediately (unaffected — the overwhelming common case). One that's
         modal, targets, or is optional, opens a `pending_choice`:
-        `resolve_trigger_mode_choice`/`resolve_trigger_target_choice` places
+        `_resume_trigger_mode`/`_resume_trigger_target` places
         it (or not, if declined) and resumes this same queue. A *required*
         target with no legal option at all doesn't go on the stack (RULE
         603.3c) — dropped, not placed.
 
         A trigger chosen via the (opt-in, off-by-default) RULE 603.3b
-        interactive-ordering choice (`resolve_trigger_order_choice`) is
+        interactive-ordering choice (`_resume_order_triggers`) is
         placed through this same method — as a one-item ``queue`` — so it
         pauses for its own mode/target/"you may" choice exactly like the
         deterministic path; `_maybe_continue_ordering` (called once this
@@ -1125,7 +1360,14 @@ class TriggerCollectionMixin:
         ordering flow for whatever's still unordered afterward.
         """
         while queue:
-            ability, event = queue.pop(0)
+            firing = queue.pop(0)
+            ability, event = firing
+            if getattr(ability, "action_key", None) is not None and ability.action_used_this_turn(self.context):
+                # PAR-135: "Do this only once each turn" — already done; offering it again would only
+                # ask a question whose answer can no longer do anything.
+                continue
+            if getattr(firing, "tap_offers", None) and self._open_doubler_tap_offer(firing, queue):
+                return
             if getattr(ability, "reflexive", False):
                 # RULE 603.3d "that permanent/spell": the target is the object
                 # that fired ``event``, not a chosen one — bake it in and
@@ -1147,7 +1389,7 @@ class TriggerCollectionMixin:
                     self._pending_trigger_queue = queue
                     self._pending_trigger_event = event
                     self._pending_trigger_reflexive_target = obj
-                    self.state.pending_choice = self._trigger_may_choice(ability, event=event)
+                    self.open_choice(self._trigger_may_choice(ability, event=event))
                     return
                 self._place_trigger(ability, targets=[obj], event=event)
                 continue
@@ -1161,11 +1403,79 @@ class TriggerCollectionMixin:
                 self._pending_trigger_ability = ability
                 self._pending_trigger_queue = queue
                 self._pending_trigger_event = event
-                self.state.pending_choice = self._trigger_mode_choice(ability)
+                self.open_choice(self._trigger_mode_choice(ability))
                 return
             if not self._place_or_pause_trigger(ability, ability.effects, queue, event=event):
                 return
         self._maybe_continue_ordering()
+    def _open_doubler_tap_offer(self, firing: "_TapOfferFiring", queue: list[Any]) -> bool:
+        """RULE 603.2d: ask the controller how many permanents to tap for the next paid
+        doubler (`TriggerDoublerEffect.tap_cost`) on ``firing`` — one extra copy of the
+        trigger per permanent tapped. Returns ``True`` when a `trigger_doubler_tap` choice
+        is now open (the caller must stop; `_resume_trigger_doubler_tap` re-enters
+        `_place_triggers`); an offer with nothing left to tap is dropped and the next tried."""
+        while firing.tap_offers:
+            holder, effect = firing.tap_offers[0]
+            if continuous.doubler_tap_candidates(self.state, holder, effect):
+                self._pending_doubler_tap = {
+                    "firing": firing, "queue": queue, "holder": holder, "effect": effect, "picked": [],
+                }
+                self.open_choice(self._doubler_tap_choice())
+                return True
+            firing.tap_offers.pop(0)
+        return False
+
+    def _doubler_tap_choice(self) -> dict[str, Any]:
+        """The serializable `trigger_doubler_tap` `pending_choice`: one option per permanent
+        still untapped and eligible, plus "done" once the player has tapped enough."""
+        pending = self._pending_doubler_tap
+        holder, effect = pending["holder"], pending["effect"]
+        picked = pending["picked"]
+        options = [
+            {"id": str(o.instance_id), "label": o.name, "instance_id": o.instance_id}
+            for o in continuous.doubler_tap_candidates(self.state, holder, effect)
+            if o not in picked
+        ]
+        options.append({"id": "decline", "label": "Fertig"})
+        return {
+            "kind": "trigger_doubler_tap",
+            "player_id": holder.controller_id,
+            "source_id": holder.instance_id,
+            "prompt": (
+                f"{holder.name}: Tappe beliebig viele Permanents – jedes lässt die "
+                f"Fähigkeit ein weiteres Mal auslösen (getappt: {len(picked)})"
+            ),
+            "options": options,
+        }
+
+    @continuations.choice("trigger_doubler_tap", answer=continuations.ANSWER_STR, rule="603.2d")
+    def _resume_trigger_doubler_tap(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        """Answer a `trigger_doubler_tap` choice: add the picked permanent and re-ask while any
+        remain, or (on "done"/decline) tap everything picked and place the trigger once plus one
+        extra copy per permanent tapped (RULE 603.2d, The Fish Brewer)."""
+        pending = self._pending_doubler_tap
+        if pending is None:
+            return
+        picked: list[Any] = pending["picked"]
+        if answer is not None and answer != "decline":
+            chosen = self._resolve_choice_option(choice["options"], str(answer))
+            if chosen is None or chosen in picked:
+                raise ValueError(f"{answer} is not a legal choice")
+            picked.append(chosen)
+            left = continuous.doubler_tap_candidates(self.state, pending["holder"], pending["effect"])
+            if any(o not in picked for o in left):
+                self.open_choice(self._doubler_tap_choice())
+                return
+        self._pending_doubler_tap = None
+        for permanent in picked:
+            self.set_tapped(permanent, True)
+        firing = pending["firing"]
+        firing.tap_offers.pop(0)
+        ability, event = firing
+        extra = [(ability, event)] * len(picked)
+        # the original re-enters first: any further paid doubler is offered before it is placed
+        self._place_triggers([firing, *extra, *pending["queue"]])
+
     def _place_or_pause_trigger(
         self,
         ability: "TriggeredAbility",
@@ -1183,7 +1493,7 @@ class TriggerCollectionMixin:
 
         ``effects`` is ``ability.effects`` for an ordinary trigger, or a
         modal trigger's already-chosen mode's effects (`_trigger_mode_
-        choice`/`resolve_trigger_mode_choice`) — only in the latter case
+        choice`/`_resume_trigger_mode`) — only in the latter case
         does the placed `StackItem` carry ``effects`` directly instead of
         the `TriggeredAbility` wrapper (`_place_trigger`'s
         ``effects_override``), since the ability's own fixed ``effects``
@@ -1214,7 +1524,7 @@ class TriggerCollectionMixin:
             self._pending_trigger_effects = override
             self._pending_trigger_queue = queue
             self._pending_trigger_event = event
-            self.state.pending_choice = self._trigger_may_choice(ability, event=event)
+            self.open_choice(self._trigger_may_choice(ability, event=event))
             return False
         if len(specs) == 1:
             # The overwhelming common case — one targeting effect, unchanged
@@ -1224,7 +1534,7 @@ class TriggerCollectionMixin:
             controller_id = self._trigger_controller_id(ability, event)
             options = legal_targets(self.state, controller_id, spec, source=ability.source, trigger_event=event)
             if not options:
-                if spec.optional:
+                if spec.optional or spec.scoped_player_id is not None:
                     # RULE 115.1a: "up to one target" is satisfied by
                     # choosing *zero* targets, so an empty board doesn't
                     # stop the ability going on the stack — it resolves with
@@ -1248,9 +1558,9 @@ class TriggerCollectionMixin:
             # optional` correctly; this prompt-building branch didn't, so
             # "up to one" only ever showed a decline button when the whole
             # ability happened to *also* be a "you may".
-            self.state.pending_choice = self._trigger_target_choice(
+            self.open_choice(self._trigger_target_choice(
                 ability, options, allow_decline=spec.optional or ability.optional, event=event,
-            )
+            ))
             return False
         # RULE 115.1/603.3c generalized: 2+ *different* targeting effects (or
         # one effect wanting 2+ targets, expanded above) — gather one target
@@ -1287,11 +1597,14 @@ class TriggerCollectionMixin:
         if not spans:
             return set()
         start, _ = cls._span_bounds(spans, idx)
+        # A player has no instance id: it is picked (and excluded) by its player id (RULE 601.2c — "any number
+        # of target opponents" can't name the same opponent twice).
         return {
-            getattr(obj, "instance_id", None)
+            getattr(obj, "instance_id", None) if getattr(obj, "instance_id", None) is not None
+            else getattr(obj, "id", None)
             for group in groups[start:idx]
             for obj in group
-            if getattr(obj, "instance_id", None) is not None
+            if getattr(obj, "instance_id", None) is not None or getattr(obj, "id", None) is not None
         }
     def _continue_trigger_multi_target(
         self,
@@ -1335,9 +1648,14 @@ class TriggerCollectionMixin:
         # different rule and stays `distinct_from_others`' job.
         picked = self._span_picks(groups, spans, idx)
         if picked:
-            options = [o for o in options if o.get("instance_id") not in picked]
+            options = [
+                o for o in options
+                if o.get("instance_id", o.get("player_id")) not in picked
+            ]
         if not options:
-            if spec.optional:
+            # A `per_player` round (PAR-130) whose player controls nothing
+            # legal is skipped: no target is chosen for that player.
+            if spec.optional or spec.scoped_player_id is not None:
                 return self._continue_trigger_multi_target(
                     ability, override, queue, specs, groups + [[]], event, spans
                 )
@@ -1366,7 +1684,7 @@ class TriggerCollectionMixin:
         _, span_len = self._span_bounds(spans, idx)
         if spec.optional and span_len > 1:
             choice["options"].append({"id": "stop", "label": "Keine weiteren"})
-        self.state.pending_choice = choice
+        self.open_choice(choice)
         return False
     def _trigger_modal_choice_config(self, ability: "TriggeredAbility") -> tuple[int, bool]:
         """Active count for a triggered conditional modal header."""
@@ -1383,8 +1701,7 @@ class TriggerCollectionMixin:
         if kind == "card_types_in_graveyard_at_least":
             types: set[str] = set()
             for card in player.graveyard:
-                types |= card.type_words
-            types.discard("permanent")
+                types |= continuous.card_types_of(card)  # RULE 205.2a: no supertypes
             active = len(types) >= int(condition.get("amount", 0))
         elif kind == "life_total_exactly":
             active = player.life == int(condition.get("amount", -1))
@@ -1402,7 +1719,7 @@ class TriggerCollectionMixin:
         """Build the `pending_choice` for a modal triggered ability's mode
         (RULE 700.2) — chosen as it's put on the stack, before any target/
         "you may" choice the chosen mode's own effects might still need
-        (`resolve_trigger_mode_choice` hands off to `_place_or_pause_
+        (`_resume_trigger_mode` hands off to `_place_or_pause_
         trigger` for that).
 
         ``chosen`` is the indices already picked in an earlier round of a
@@ -1454,7 +1771,8 @@ class TriggerCollectionMixin:
             "chosen": list(chosen or []),
             "mode_history_key": history_key,
         }
-    def resolve_trigger_mode_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice("trigger_mode", answer=continuations.ANSWER_STR, rule="700.2")
+    def _resume_trigger_mode(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `trigger_mode` choice (RULE 700.2): pick which
         mode(s) this firing uses, then continue exactly like a non-modal
         trigger via `_place_or_pause_trigger` — the chosen mode's own
@@ -1468,7 +1786,7 @@ class TriggerCollectionMixin:
         For a "choose *N*" ability (``modes_choose > 1``, RULE 700.2) this
         picks one mode per call — once fewer than ``modes_choose`` are
         picked, the choice re-opens (excluding what's already picked)
-        instead of placing anything, exactly like `resolve_search_choice`
+        instead of placing anything, exactly like `_resume_search`
         offering a library search "one card at a time". For "choose *N* or
         more" (``modes_at_least``) the choice keeps re-opening past the
         minimum too, until either every mode is picked or the player answers
@@ -1477,9 +1795,6 @@ class TriggerCollectionMixin:
         in the order the ability's text lists them, same as RULE 700.2e
         "both" already did.
         """
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "trigger_mode":
-            raise ValueError("no pending trigger mode choice to resolve")
         ability = self._pending_trigger_ability
         queue = self._pending_trigger_queue
         event = self._pending_trigger_event
@@ -1554,14 +1869,13 @@ class TriggerCollectionMixin:
             )
             if more_needed:
                 # RULE 700.2 "choose N"/"choose N or more": re-open, excluding what's picked.
-                self.state.pending_choice = self._trigger_mode_choice(ability, chosen=picked)
+                self.open_choice(self._trigger_mode_choice(ability, chosen=picked))
                 return
             # Enough modes picked — combine in printed order, not pick order.
             effects = []
             for i in sorted(picked):
                 effects.extend(options[i]["effects"])
 
-        self.state.pending_choice = None
         self._pending_trigger_ability = None
         self._pending_trigger_queue = []
         self._pending_trigger_event = None
@@ -1583,7 +1897,7 @@ class TriggerCollectionMixin:
         ``kind``/``allow_decline`` are only overridden by
         `_continue_trigger_multi_target` (2+ *different* targeting effects,
         ``"trigger_target_multi"`` — its own resolver,
-        `resolve_trigger_target_multi_choice`, so the single-spec path below
+        `_resume_trigger_target_multi`, so the single-spec path below
         stays byte-for-byte unchanged); ``allow_decline=None`` keeps this
         method's original behaviour of following ``ability.optional``
         (RULE 603.5 "you may"). ``event`` is only consulted (via
@@ -1614,7 +1928,7 @@ class TriggerCollectionMixin:
         """Build the `pending_choice` for a targetless "you may" trigger
         (RULE 603.5) — do it, or don't. Reuses the ``trigger_target`` kind
         (same resolver, same generic choice UI); ``"do"`` is the sentinel
-        `resolve_trigger_target_choice` recognizes as "yes, without a
+        `_resume_trigger_target` recognizes as "yes, without a
         target"."""
         return {
             "kind": "trigger_target",
@@ -1625,7 +1939,8 @@ class TriggerCollectionMixin:
                 {"id": "decline", "label": "Nichts tun"},
             ],
         }
-    def resolve_trigger_target_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice("trigger_target", answer=continuations.ANSWER_STR, rule="603.3")
+    def _resume_trigger_target(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `trigger_target` choice, then resume `_place_
         triggers` on whatever was still queued behind it.
 
@@ -1634,10 +1949,6 @@ class TriggerCollectionMixin:
         may" — or `None`/``"decline"`` to not do the (optional) ability at
         all, which simply never goes on the stack.
         """
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "trigger_target":
-            raise ValueError("no pending trigger target choice to resolve")
-        self.state.pending_choice = None
         ability = self._pending_trigger_ability
         queue = self._pending_trigger_queue
         effects_override = self._pending_trigger_effects
@@ -1670,23 +1981,20 @@ class TriggerCollectionMixin:
                     ability, targets=[target], effects_override=effects_override, event=event
                 )
         self._place_triggers(queue)
-    def resolve_trigger_target_multi_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice("trigger_target_multi", answer=continuations.ANSWER_STR, rule="603.3")
+    def _resume_trigger_target_multi(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `trigger_target_multi` choice — one target for
         the *next* not-yet-filled targeting effect of a trigger with 2+
         *different* targeting effects (`_continue_trigger_multi_target`).
 
         ``answer`` is the chosen option's ``id``, same shape as
-        `resolve_trigger_target_choice`. A decline (only ever offered on the
+        `_resume_trigger_target`. A decline (only ever offered on the
         first spec, RULE 603.5 "you may") abandons the whole ability — every
         spec after the first is already committed to. Once every spec has a
         target (or an empty pick for one that's "up to N" with nothing
         legal), the ability is placed with `target_groups` so each effect
         resolves against its own pick, not a shared list.
         """
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "trigger_target_multi":
-            raise ValueError("no pending multi-target trigger choice to resolve")
-        self.state.pending_choice = None
         ability = self._pending_trigger_ability
         queue = self._pending_trigger_queue
         effects_override = self._pending_trigger_effects
@@ -1781,8 +2089,14 @@ class TriggerCollectionMixin:
             target_groups=target_groups,
             source=ability.source,
             trigger_event=event,
+            ability_key=ability.description or None,
+            # A cast trigger never announces an X of its own, so an X in its
+            # text is the cast spell's (Zaxara, the Exemplary's ruling).
+            x=int((event or {}).get("x_paid", 0) or 0)
+            if getattr(event, "type", None) == EventType.SPELL_CAST else 0,
         )
         self.state.stack.append(item)
+        self._note_crime(item)
         try:
             controller = self.state.player_by_id(controller_id)
         except KeyError:
@@ -1796,7 +2110,7 @@ class TriggerCollectionMixin:
         to put on the stack next (RULE 603.3b). Picked first → placed first →
         resolves last (the stack is LIFO). ``label`` is the ability's own
         oracle text (`description` is `spec.raw_text` wherever the binder set
-        it — see `effect_binder.py`), and ``source_name`` the permanent/card
+        it — see `binding/core.py`), and ``source_name`` the permanent/card
         it's on, kept as a separate field (rather than folded into the
         label) so the frontend can tell two identically-worded triggers from
         different sources apart without string-parsing a combined label."""
@@ -1814,7 +2128,8 @@ class TriggerCollectionMixin:
             "prompt": "Reihenfolge der ausgelösten Fähigkeiten wählen",
             "options": options,
         }
-    def resolve_trigger_order_choice(self, index: Optional[int]) -> None:
+    @continuations.choice("order_triggers", answer=continuations.ANSWER_INT, rule="603.3")
+    def _resume_order_triggers(self, choice: dict[str, Any], index: Optional[int]) -> None:
         """Place the chosen trigger next (RULE 603.3b), then re-ask or finish.
 
         ``index`` selects one of the remaining active-player triggers (by its
@@ -1827,13 +2142,11 @@ class TriggerCollectionMixin:
         only one is left, then flushing the non-active-player triggers the
         same way."""
         if not self._ordering_active:
-            self.state.pending_choice = None
             return
         # Default to the first if the index is missing/out of range.
         if index is None or not 0 <= index < len(self._ordering_active):
             index = 0
         ability, event = self._ordering_active.pop(index)
-        self.state.pending_choice = None
         self._place_triggers([(ability, event)])
     def _maybe_continue_ordering(self) -> None:
         """Resume the RULE 603.3b ordering flow once a `_place_triggers`
@@ -1850,7 +2163,7 @@ class TriggerCollectionMixin:
         placed the same pause-aware way."""
         if self._ordering_active:
             if len(self._ordering_active) > 1:
-                self.state.pending_choice = self._trigger_order_choice()
+                self.open_choice(self._trigger_order_choice())
                 return
             ability, event = self._ordering_active.pop(0)
             self._place_triggers([(ability, event)])

@@ -1,4 +1,4 @@
-"""cEDH staples cube — batch B2: hand-authored `ability_catalogue.py` entries
+"""cEDH staples cube — batch B2: hand-authored `card_registry.py` entries
 plus the small set of generic engine primitives this batch found were cheap
 enough to build as reusable extensions instead of one-off catalogue entries.
 
@@ -20,19 +20,23 @@ additions, each proven here on the *real* card that motivated it:
    entry (``"LAND_PLAYED": "player_id"``, also ``"UNTAP": "player_id"``) so
    "whenever you play another land" can scope by controller and exclude the
    land's own play — City of Traitors.
-4. `RulesEngine.blink`/`game/effects.py`'s `BlinkEffect` — a new RULE 400.7
+4. `RulesEngine.blink`/`game/effects/core.py`'s `BlinkEffect` — a new RULE 400.7
    "exile then immediately return" primitive (Ephemerate; Rebound stays
    unmodeled, a documented drop).
 5. `RulesEngine.put_hand_cards_on_top`/`PutHandCardsOnTopEffect` — "put N
    cards from your hand on top of your library" (Brainstorm).
-6. `RulesEngine.shuffle_hand_and_graveyard_into_library`/`WheelEffect` — the
-   "each player shuffles their hand and graveyard into their library, then
-   draws seven cards" template shared by Timetwister/Time Reversal/Echo of
-   Eons (written generically, not Timetwister-specific).
-7. `WindfallEffect` — Windfall's own "each player discards their hand, then
-   draws cards equal to the greatest number discarded" shape.
+6. `RulesEngine.shuffle_hand_and_graveyard_into_library` /
+   `ShuffleHandAndGraveyardIntoLibraryEffect` — the "each player shuffles
+   their hand and graveyard into their library, then draws seven cards"
+   template shared by Timetwister/Time Reversal/Echo of Eons. ENG-37 B7
+   retired the fused `wheel` type: it is now a `seq` of this (mass, via
+   ``scope="each_player"``) and a `draw` with ``selector="each_player"``.
+7. Windfall — "each player discards their hand, then draws cards equal to
+   the greatest number discarded". ENG-37 B7 retired the fused `windfall`
+   type to a `bind` whose ``amount`` measures ``resource: hand_size`` with
+   ``aggregate: max`` over ``each_player`` (before the mass `discard`).
 
-Every other card below is a genuinely hand-authored `ability_catalogue.py`
+Every other card below is a genuinely hand-authored `card_registry.py`
 entry, two deliberately *partial* (documented drop of one sub-clause neither
 the parser nor the effect library has a primitive for yet — Damn's Overload,
 Ephemerate's Rebound) per the file's existing Sword of Forge and
@@ -43,13 +47,13 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game import ability_catalogue as ac
+from mtg_analyzer.game import card_registry as ac
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 
@@ -124,7 +128,29 @@ def test_temur_sabertooth_returns_a_creature_and_gains_indestructible():
     eng.resolve_until_stable()
 
     assert bear_obj in p1.hand
-    assert "indestructible" in saber_obj.temp_keywords
+    # ENG-37 B6: the grant is now a real RULE 613 floating static
+    # (`grant_until` self_subject), not a `temp_keywords` shortcut.
+    from mtg_analyzer.game import combat
+
+    eng.recompute_continuous_effects()
+    assert combat.has(saber_obj, "indestructible")
+
+
+def test_temur_sabertooth_no_return_no_indestructible():
+    # "If you do" — declining the up-to-one return leaves the source plain.
+    eng = _engine()
+    state = eng.state
+    p1 = state.active_player
+    saber_obj = _battlefield(state, _card("Temur Sabertooth"), controller="p1")
+    p1.mana_pool.add_many({"G": 1, "C": 1})
+
+    eng.activate_ability(p1, saber_obj, 0, targets=[])
+    eng.resolve_until_stable()
+
+    from mtg_analyzer.game import combat
+
+    eng.recompute_continuous_effects()
+    assert not combat.has(saber_obj, "indestructible")
 
 
 # ---------------------------------------------------------------------------
@@ -358,7 +384,7 @@ def test_nether_void_counters_a_spell_unless_its_caster_pays_three():
     choice = state.pending_choice
     assert choice["kind"] == "trigger_target"
     option = next(o for o in choice["options"] if o["instance_id"] == bolt_obj.instance_id)
-    eng.rules.resolve_trigger_target_choice(option["id"])
+    eng.rules.resolve_choice(option["id"])
     eng.resolve_until_stable()
 
     # p2 already spent its only mana casting the bolt, so it genuinely can't
@@ -403,7 +429,7 @@ def test_spellseeker_etb_searches_for_a_cheap_instant_or_sorcery():
     assert "SSBolt" in names  # mana value 1, eligible
     assert "SSBigSorc" not in names  # mana value 4, filtered out
     option = next(e for e in choice["eligible"] if e["name"] == "SSBolt")
-    eng.rules.resolve_search_choice(option["instance_id"])
+    eng.rules.resolve_choice(option["instance_id"])
     eng.resolve_until_stable()
 
     assert any(o.name == "SSBolt" for o in p1.hand)

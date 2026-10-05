@@ -30,6 +30,7 @@ followed by its translation, so you can match what's on screen either way.
 7. Card Cache / Karten-Cache
 8. Engine Status / Engine-Status
 9. Multiplayer / Multiplayer
+10. Sources & Licenses / Quellen & Lizenzen
 
 ---
 
@@ -66,3 +67,4 @@ Oberfläche passen.
 7. Card Cache / Karten-Cache
 8. Engine Status / Engine-Status
 9. Multiplayer / Multiplayer
+10. Sources & Licenses / Quellen & Lizenzen

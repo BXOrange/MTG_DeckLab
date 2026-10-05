@@ -23,15 +23,15 @@ New primitives this closes with:
   the player-flavoured mirror of `ExileTriggerDamagedCreatureEffect`'s
   "that creature" pronoun off the firing `DAMAGE` event.
 
-Reference: mtg_analyzer/game/{ability_catalogue,effects,continuous,costs}.py.
+Reference: mtg_analyzer/game/{card_registry,effects,continuous,costs}.py.
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 
 
 def _engine():

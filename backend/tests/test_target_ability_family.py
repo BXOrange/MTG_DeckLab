@@ -13,21 +13,21 @@ ability too (Deflecting Swat's real printed "spell or ability" scope,
 previously narrowed to spell-only — see `test_change_target_family.py`).
 
 Reference: mtg_analyzer/game/{effects,targeting}.py,
-mtg_analyzer/game/rules/misc_mixin.py, mtg_analyzer/game/ability_catalogue.py,
+mtg_analyzer/game/rules/misc_mixin.py, mtg_analyzer/game/card_registry.py,
 mtg_analyzer/models/game_state.py (`StackItem.stack_id`).
 """
 
-from mtg_analyzer.game import ability_catalogue, targeting
-from mtg_analyzer.game.effects import (
+from mtg_analyzer.game import card_registry, targeting
+from mtg_analyzer.game.effects.core import (
     CantBeCounteredEffect,
     CounterAbilityEffect,
     DealDamageEffect,
 )
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import StackItem
-from mtg_analyzer.models.mana_cost import ManaCost
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import StackItem
+from mtg_analyzer.models.mana.mana_cost import ManaCost
 
 
 def instant(name, cost="{0}"):
@@ -228,20 +228,20 @@ def test_resolve_change_target_choice_retargets_the_ability():
     eng.rules.change_target(ability_item, optional=True, source=swat)
     choice = eng.state.pending_choice
     pick = next(o for o in choice["options"] if o["label"] == "Other Victim")
-    eng.rules.resolve_change_target_choice(pick["id"])
+    eng.rules.resolve_choice(pick["id"])
     assert eng.state.pending_choice is None
     assert ability_item.targets == [other]
 
 
 # ---------------------------------------------------------------------------
-# Hand-authored cards (game/ability_catalogue.py)
+# Hand-authored cards (game/card_registry.py)
 # ---------------------------------------------------------------------------
 
 
 def test_stifle_and_trickbind_are_registered_as_counter_ability():
     for name in ("Stifle", "Trickbind"):
-        assert ability_catalogue.is_registered(name)
-        specs = ability_catalogue.specs_for(instant(name))
+        assert card_registry.is_registered(name)
+        specs = card_registry.specs_for(instant(name))
         assert len(specs) == 1
         assert specs[0].effects[0].type == "counter_ability"
 

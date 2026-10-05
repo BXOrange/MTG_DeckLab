@@ -12,16 +12,21 @@
 //
 // Opened from "Decks verwalten" (savedDecksView.js)'s "Deck analysieren"
 // button, mirroring how "Deck editieren" hands a saved deck to
-// deckImportView.js's loadDeck(). Everything here is computed client-side
-// from already-resolved card data (deckAnalysis.js) — no new backend
-// endpoint.
+// deckImportView.js's loadDeck(). Most statistics are computed client-side
+// from already-resolved card data (deckAnalysis.js); Commander Spellbook
+// combo matching is fetched lazily from the backend when this analysis opens.
 
 import { parseDeckSections } from './parser.js';
 import { resolveCardImages } from './cardImages.js';
 import { analyzeDeck } from './deckAnalysis.js';
 import { escapeHtml } from './cardTile.js';
 import { renderDynamicAnalysisPanel } from './dynamicAnalysisPanel.js';
-import { analyzeArchetypes, listSavedDecks, listFavoriteDecks } from './api.js';
+import {
+  analyzeArchetypes,
+  findDeckCombos,
+  listSavedDecks,
+  listFavoriteDecks,
+} from './api.js';
 import { getPlayerName } from './settings.js';
 import { t, tPlural, fmtNumber } from './i18n.js';
 
@@ -159,7 +164,8 @@ export function renderAnalyzeView(container) {
     resolveCardImages(names).then((resolved) => {
       if (myRequestId !== requestId) return; // superseded by a later loadDeck() call
       const stats = analyzeDeck(parsed.commanders, parsed.mainDeck, resolved);
-      container.innerHTML = resultShellHtml(savedDeck.name, stats, deckPickerHtml());
+      const comboState = stats.unresolvedNames.length ? 'incomplete' : 'loading';
+      container.innerHTML = resultShellHtml(savedDeck.name, stats, deckPickerHtml(), comboState);
       wireDeckPicker();
       wireAnalyzeTabs(container);
 
@@ -195,6 +201,35 @@ export function renderAnalyzeView(container) {
       // fetch into a placeholder rather than part of `stats`.
       const playstyleRoot = container.querySelector('#toc-playstyle-content');
       if (playstyleRoot) loadArchetypeSuggestions(playstyleRoot, deckSource, myRequestId);
+
+      if (comboState === 'loading') {
+        loadComboAnalysis(savedDeck, parsed, resolved, myRequestId, stats);
+      }
+    });
+  }
+
+  function loadComboAnalysis(savedDeck, parsed, resolved, myRequestId, initialStats) {
+    const cards = [...parsed.commanders, ...parsed.mainDeck]
+      .map((entry) => {
+        const card = resolved.get(entry.name.trim().toLowerCase())?.card;
+        return card ? { name: card.name, quantity: entry.qty } : null;
+      })
+      .filter(Boolean);
+    findDeckCombos(cards).then((data) => {
+      if (myRequestId !== requestId || !document.body.contains(container)) return;
+      if (!data) {
+        container.querySelector('#toc-combos').innerHTML = comboAnalysisSectionHtml(initialStats, 'error');
+        container.querySelector('#bracket-analysis-content').innerHTML =
+          bracketAnalysisSectionHtml(initialStats, 'error');
+        container.querySelector('#combo-analysis-retry')?.addEventListener('click', () =>
+          loadComboAnalysis(savedDeck, parsed, resolved, myRequestId, initialStats)
+        );
+        return;
+      }
+      const stats = analyzeDeck(parsed.commanders, parsed.mainDeck, resolved, data);
+      container.querySelector('#toc-combos').innerHTML = comboAnalysisSectionHtml(stats, 'loaded');
+      container.querySelector('#bracket-analysis-content').innerHTML =
+        bracketAnalysisSectionHtml(stats, 'loaded');
     });
   }
 
@@ -271,6 +306,7 @@ const TOC_ENTRIES = [
   { id: 'toc-opening-hand', label: t('an.toc.openingHand') },
   { id: 'toc-accelerants', label: t('an.toc.accelerants') },
   { id: 'toc-command-zone', label: t('an.toc.commandZone') },
+  { id: 'toc-combos', label: t('an.toc.combos') },
   { id: 'toc-playstyle', label: t('an.toc.playstyle') },
 ];
 
@@ -284,7 +320,7 @@ function tableOfContentsHtml() {
   `;
 }
 
-function resultShellHtml(deckName, stats, pickerHtml) {
+function resultShellHtml(deckName, stats, pickerHtml, comboState) {
   return `
     <div class="analyze-panel">
       <h2>${t('an.title')}</h2>
@@ -309,6 +345,7 @@ function resultShellHtml(deckName, stats, pickerHtml) {
           <div id="toc-opening-hand">${openingHandSectionHtml(stats)}</div>
           <div id="toc-accelerants">${accelerantsSectionHtml(stats)}</div>
           <div id="toc-command-zone">${commandZoneSectionHtml(stats)}</div>
+          <div id="toc-combos">${comboAnalysisSectionHtml(stats, comboState)}</div>
           <div id="toc-playstyle"><div id="toc-playstyle-content"></div></div>
         </section>
       </div>
@@ -318,7 +355,7 @@ function resultShellHtml(deckName, stats, pickerHtml) {
       </div>
 
       <div class="analyze-subtab-panel" data-subtab-panel="bracket">
-        ${bracketAnalysisSectionHtml(stats)}
+        <div id="bracket-analysis-content">${bracketAnalysisSectionHtml(stats, comboState)}</div>
       </div>
     </div>
   `;
@@ -834,10 +871,86 @@ function archetypeSuggestionsHtml({ suggestions = [], typalSignals = [] }) {
   `;
 }
 
+function comboAnalysisSectionHtml(stats, state) {
+  if (state === 'loading') {
+    return `
+      <section class="analyze-section">
+        <h3>${t('an.combos.heading')}</h3>
+        <p class="hint">${escapeHtml(t('an.combos.hint'))}</p>
+        <p class="empty-state"><span class="spinner" aria-hidden="true"></span>${t('an.combos.loading')}</p>
+      </section>`;
+  }
+  if (state === 'incomplete') {
+    return `
+      <section class="analyze-section">
+        <h3>${t('an.combos.heading')}</h3>
+        <p class="hint">${escapeHtml(t('an.combos.hint'))}</p>
+        <p class="server-status warning">${t('an.combos.incomplete')}</p>
+      </section>`;
+  }
+  if (state === 'error') {
+    return `
+      <section class="analyze-section">
+        <h3>${t('an.combos.heading')}</h3>
+        <p class="hint">${escapeHtml(t('an.combos.hint'))}</p>
+        <p class="server-status warning">${t('an.combos.unavailable')}</p>
+        <button type="button" id="combo-analysis-retry">${t('an.combos.retry')}</button>
+      </section>`;
+  }
+
+  const combos = stats.bracketAnalysis.combos;
+  if (!combos.length) {
+    return `
+      <section class="analyze-section">
+        <h3>${t('an.combos.heading')}</h3>
+        <p class="hint">${escapeHtml(t('an.combos.hint'))}</p>
+        <p class="empty-state">${t('an.combos.none')}</p>
+      </section>`;
+  }
+
+  const rows = combos.map((combo) => {
+    const cards = combo.uses
+      .map((use) => `${cardNameHtml(use.name, use.quantity)}`)
+      .join(' + ');
+    const results = combo.produces?.length
+      ? `<p>${escapeHtml(t('an.combos.produces', { results: combo.produces.join(', ') }))}</p>`
+      : '';
+    const manaValue = combo.totalManaValue === null
+      ? t('an.combos.unknownManaValue')
+      : t('an.combos.manaValue', { value: fmtNumber(combo.totalManaValue) });
+    const turn = combo.earliestTurn === null
+      ? t('an.combos.afterCurve')
+      : t('an.combos.earliestTurn', { turn: combo.earliestTurn });
+    const requirements = combo.hasUnverifiedRequirements
+      ? `<p class="hint">${escapeHtml(t('an.combos.requirements', { requirements: combo.requirements.join(', ') }))}</p>`
+      : '';
+    return `<li>
+      <strong>${cards}</strong>
+      <span class="hint"> — ${escapeHtml(t('an.combos.cardCount', { count: combo.cardCount }))}; ${escapeHtml(manaValue)}; ${escapeHtml(turn)}</span>
+      ${results}${requirements}
+    </li>`;
+  }).join('');
+
+  return `
+    <section class="analyze-section">
+      <h3>${t('an.combos.heading')} (${combos.length})</h3>
+      <p class="hint">${escapeHtml(t('an.combos.hint'))}</p>
+      <ul class="card-list">${rows}</ul>
+    </section>`;
+}
+
 // --- Bracket analysis (WotC "Commander Brackets" heuristic approximation) --
 
-function bracketAnalysisSectionHtml(stats) {
-  const { gameChangers, massLandDenial, extraTurnSpells, minimumBracket, reasons } = stats.bracketAnalysis;
+function bracketAnalysisSectionHtml(stats, comboState) {
+  const {
+    gameChangers,
+    massLandDenial,
+    extraTurnSpells,
+    combos,
+    comboUnknownCount,
+    minimumBracket,
+    reasons,
+  } = stats.bracketAnalysis;
 
   const list = (title, items) => {
     const total = items.reduce((s, c) => s + c.qty, 0);
@@ -859,6 +972,54 @@ function bracketAnalysisSectionHtml(stats) {
   const reasonsHtml = reasons.length
     ? `<ul class="issue-list">${reasons.map((r) => `<li>${escapeHtml(r)}</li>`).join('')}</ul>`
     : '';
+  const comboSignals = combos.filter(
+    (combo) => combo.bracketImpact === 'bracket3' || combo.bracketImpact === 'bracket4'
+  );
+  const comboSignalRows = comboSignals.map((combo) => {
+    const cards = combo.uses
+      .map((use) => cardNameHtml(use.name, use.quantity))
+      .join(' + ');
+    const impact = combo.bracketImpact === 'bracket4'
+      ? t('an.bracket.comboImpact4')
+      : t('an.bracket.comboImpact3');
+    const turn = combo.earliestTurn === null
+      ? t('an.bracket.comboSignalManaUnknown')
+      : t('an.bracket.comboSignalTurn', { turn: combo.earliestTurn });
+    const output = combo.produces?.length
+      ? `<span class="hint">${escapeHtml(t('an.bracket.comboSignalOutput', { results: combo.produces.join(', ') }))}</span>`
+      : '';
+    return `<li><strong>${cards}</strong> — ${escapeHtml(impact)}; ${escapeHtml(turn)}${output ? `<br>${output}` : ''}</li>`;
+  }).join('');
+  const comboSignalGroup = comboState === 'loaded'
+    ? `<div class="accelerant-group">
+        <strong>${escapeHtml(t('an.bracket.combos'))}</strong>
+        <p class="hint">${escapeHtml(t('an.bracket.comboSignalCount', { found: combos.length, signals: comboSignals.length }))}</p>
+        ${
+          comboSignalRows
+            ? `<ul class="card-list">${comboSignalRows}</ul>`
+            : `<p class="empty-state">${t('an.bracket.noneDetected')}</p>`
+        }
+        ${
+          comboUnknownCount
+            ? `<p class="hint">${escapeHtml(t('an.bracket.comboNotCounted', { count: comboUnknownCount }))}</p>`
+            : ''
+        }
+      </div>`
+    : '';
+  const comboSummary =
+    comboState === 'loading'
+      ? `<p class="hint"><span class="spinner" aria-hidden="true"></span>${t('an.bracket.combosLoading')}</p>`
+      : comboState === 'error'
+        ? `<p class="server-status warning">${t('an.bracket.combosUnavailable')}</p>`
+        : comboState === 'incomplete'
+          ? `<p class="server-status warning">${t('an.bracket.combosIncomplete')}</p>`
+          : `<p class="hint">${escapeHtml(
+              t('an.bracket.comboSummary', {
+                total: stats.bracketAnalysis.combos.length,
+                twoCard: stats.bracketAnalysis.comboTwoCardCount,
+                early: stats.bracketAnalysis.comboEarlyTwoCardCount,
+              })
+            )}</p>`;
 
   return `
     <section class="analyze-section">
@@ -867,6 +1028,7 @@ function bracketAnalysisSectionHtml(stats) {
       <div class="analyze-chart-card">
         <h4>${escapeHtml(verdictText)}</h4>
         ${reasonsHtml}
+        ${comboSummary}
       </div>
       <div class="analyze-chart-card">
         <h4>${t('an.bracket.signalsHeading')}</h4>
@@ -874,6 +1036,7 @@ function bracketAnalysisSectionHtml(stats) {
           ${list(t('an.bracket.gameChangers'), gameChangers)}
           ${list(t('an.bracket.massLandDenial'), massLandDenial)}
           ${list(t('an.bracket.extraTurns'), extraTurnSpells)}
+          ${comboSignalGroup}
         </div>
       </div>
     </section>

@@ -7,7 +7,7 @@
 wipes it on any `Card`-model schema drift, and it re-populates lazily from
 the network (or `scripts/import_bulk.py` for the full ~34k-card bulk load).
 Never treat a row here as a source of truth to hand-edit — if a card's stored
-data is wrong, the fix is in `models/card.py`/`services/scryfall_client.py`,
+data is wrong, the fix is in `models/cards/card.py`/`services/scryfall_client.py`,
 not the row.
 
 ## Schema
@@ -27,8 +27,8 @@ CREATE INDEX idx_cards_flavor_name ON cards (flavor_name COLLATE NOCASE);
 per printing. `data` is the full `Card.to_dict()` blob: `mana_cost_string`,
 `converted_mana_cost`, `type_line`, `oracle_text`, `keywords`, `power`/
 `toughness`/`loyalty`/`defense`, `set_code`, `rarity`, `layout`, plus an
-entire parallel `back_*` group for a DFC's back face. See `models/card.py`'s
-`to_dict` for the exhaustive field list.
+entire parallel `back_*` group for a DFC's back face. See
+`models/cards/card.py`'s `to_dict` for the exhaustive field list.
 
 ## Gotchas
 

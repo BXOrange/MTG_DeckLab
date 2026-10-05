@@ -12,11 +12,11 @@ upkeep → that player).
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import build_effects
-from mtg_analyzer.game.effects import GameContext
+from mtg_analyzer.game.binding.core import build_effects
+from mtg_analyzer.game.effects.core import GameContext
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 from mtg_analyzer.parser.oracle.spec import EffectSpec
@@ -41,7 +41,7 @@ def _fill_hand(state, pid, n):
 
 def test_discard_at_random_parses():
     assert parse_effect_body("target opponent discards a card at random") == [
-        EffectSpec("discard", {"count": 1, "target_kind": "player", "random": True})
+        EffectSpec("discard", {"count": 1, "target_kind": "opponent", "random": True})
     ]
     assert parse_effect_body("target player discards 2 cards at random") == [
         EffectSpec("discard", {"count": 2, "target_kind": "player", "random": True})
@@ -56,7 +56,7 @@ def test_each_player_discard_at_random_parses():
 
 def test_plain_discard_still_has_no_random_flag():
     assert parse_effect_body("target opponent discards a card") == [
-        EffectSpec("discard", {"count": 1, "target_kind": "player"})
+        EffectSpec("discard", {"count": 1, "target_kind": "opponent"})
     ]
 
 

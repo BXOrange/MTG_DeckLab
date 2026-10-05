@@ -2,7 +2,7 @@
 
 Syphon Mind, Spoils of Blood, Dark Petition, Demonic Bargain, Doomsday
 Excruciator, Mizzix's Mastery, Poison the Cup, Hoarding Broodlord — all
-hand-authored in `game/ability_catalogue.py`.
+hand-authored in `game/card_registry.py`.
 
 New/widened primitives exercised here:
 * `DiscardEffect.draw_per_discard` (Syphon Mind) — the discarding player's
@@ -23,11 +23,11 @@ New/widened primitives exercised here:
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 
-from tests.test_game_engine import make_engine
+from tests.support.game import make_engine
 
 
 def _named(name):
@@ -109,7 +109,7 @@ def test_syphon_mind_opponent_discards_then_caster_draws():
     assert choice["kind"] == "choose_objects"
     assert choice["player_id"] == "p2"
     picked = choice["options"][0]["instance_id"]
-    eng.rules.resolve_choose_objects_choice(picked)
+    eng.rules.resolve_choice(picked)
 
     assert len(p2.hand) == 1
     assert any(o.instance_id == picked for o in p2.graveyard)
@@ -184,7 +184,7 @@ def test_dark_petition_searches_and_adds_spell_mastery_bonus_mana():
     choice = state.pending_choice
     assert choice is not None and choice.get("kind") == "search"
     picked = choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(picked)
+    eng.rules.resolve_choice(picked)
     eng.resolve_until_stable()
 
     assert any(o.instance_id == picked for o in p1.hand)
@@ -204,7 +204,7 @@ def test_dark_petition_no_bonus_mana_without_spell_mastery():
     eng.resolve_until_stable()
 
     picked = state.pending_choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(picked)
+    eng.rules.resolve_choice(picked)
     eng.resolve_until_stable()
 
     assert p1.mana_pool.pool.get("B", 0) == 0
@@ -233,7 +233,7 @@ def test_demonic_bargain_exiles_thirteen_then_searches_the_rest():
     choice = state.pending_choice
     assert choice is not None and choice.get("kind") == "search"
     picked = choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(picked)
+    eng.rules.resolve_choice(picked)
     eng.resolve_until_stable()
 
     assert any(o.instance_id == picked for o in p1.hand)
@@ -276,7 +276,7 @@ def test_doomsday_excruciator_etb_is_gated_on_actually_being_cast():
     # Put directly onto the battlefield — not cast — so `was_cast` is False
     # and the ETB clause must not fire at all.
     obj = _put(state, _named("Doomsday Excruciator"))
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
 
     state.fire_event(
         GameEvent(
@@ -362,7 +362,7 @@ def test_hoarding_broodlord_etb_searches_and_grants_a_standing_exile_cast_permis
     assert choice is not None and choice.get("kind") == "search"
     assert choice.get("player_id") == "p1"
     picked = choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(picked)
+    eng.rules.resolve_choice(picked)
 
     obj = state.find_object(picked)
     assert obj.zone == Zone.EXILE

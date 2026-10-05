@@ -23,6 +23,7 @@ from mtg_analyzer.config import (
 )
 from mtg_analyzer.services.archidekt_client import ArchidektClient
 from mtg_analyzer.services.card_database import CardDatabase
+from mtg_analyzer.services.commander_spellbook_database import CommanderSpellbookDatabase
 from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.dynamic_analysis import DynamicAnalysisJobs
 from mtg_analyzer.services.game_session import GameSessionManager
@@ -51,6 +52,11 @@ def _image_cache() -> ImageCache:
 @lru_cache(maxsize=1)
 def _deck_database() -> DeckDatabase:
     return DeckDatabase(DECKS_DB_PATH)
+
+
+@lru_cache(maxsize=1)
+def _commander_spellbook_database() -> CommanderSpellbookDatabase:
+    return CommanderSpellbookDatabase()
 
 
 @lru_cache(maxsize=1)
@@ -106,6 +112,10 @@ def get_image_cache() -> ImageCache:
 
 def get_deck_database() -> DeckDatabase:
     return _deck_database()
+
+
+def get_commander_spellbook_database() -> CommanderSpellbookDatabase:
+    return _commander_spellbook_database()
 
 
 def get_game_session_manager() -> GameSessionManager:

@@ -1,12 +1,12 @@
 """Incubate (RULE 701.53) residue — the three cache singletons the PAR-30
-parser trail left, now hand-authored in `ability_catalogue/entries_016.py`
+parser trail left, now hand-authored in `card_registry/special_mechanics.py`
 (docs/Reference/11 escape valve). Each was blocked on its own bespoke
 shape, not on incubate grammar (v160/v162 shipped that):
 
 - **Traumatic Revelation** — "you may choose … If you don't, incubate 3.":
   an *else*-branch on an optional `reveal_hand_choose_discard`. New
   ``optional`` + ``else_specs`` on the effect, threaded through
-  `request_choose_objects`' new ``else_specs`` (mirror of ``then_specs``,
+  `_request_choose_objects`' new ``else_specs`` (mirror of ``then_specs``,
   fires only when nothing is picked / the pool is empty). "battle" joins
   the effect's ``card_types`` filter.
 - **Phyrexian Incubator** — "incubate 2 **that many times**", the count
@@ -26,17 +26,17 @@ shape, not on incubate grammar (v160/v162 shipped that):
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue, build_effects
-from mtg_analyzer.game.effects import GameContext
+from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
+from mtg_analyzer.game.effects.core import GameContext
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.targeting import TargetSpec, legal_targets
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
-from mtg_analyzer.game.ability_catalogue import is_registered, specs_for
+from mtg_analyzer.game.card_registry import is_registered, specs_for
 
 
 def _db():
@@ -118,7 +118,7 @@ def test_traumatic_revelation_discards_the_chosen_creature_card():
     # an object choice is now pending on p1; pick the bear
     choice = st.pending_choice
     assert choice is not None and choice["kind"] == "choose_objects"
-    eng.rules.resolve_choose_objects_choice(bear.instance_id)
+    eng.rules.resolve_choice(bear.instance_id)
 
     assert bear in p2.graveyard
     assert not _tokens(st)  # the else-branch did NOT fire
@@ -154,9 +154,9 @@ def test_phyrexian_incubator_incubates_once_per_exiled_card():
         assert choice["kind"] == "search"
         elig = [e for e in choice["eligible"] if e["name"].startswith("Phyrexian")]
         if elig:
-            eng.rules.resolve_search_choice(elig[0]["instance_id"])
+            eng.rules.resolve_choice(elig[0]["instance_id"])
         else:
-            eng.rules.resolve_search_choice(None)  # decline
+            eng.rules.resolve_choice(None)  # decline
     eng.resolve_until_stable()
 
     toks = _tokens(eng.state)
@@ -187,7 +187,7 @@ def test_phyrexian_incubator_makes_no_token_when_nothing_found():
     guard = 0
     while eng.state.pending_choice is not None and guard < 10:
         guard += 1
-        eng.rules.resolve_search_choice(None)
+        eng.rules.resolve_choice(None)
     eng.resolve_until_stable()
 
     # RULE 701.53a: incubate 0 times = no Incubator token at all

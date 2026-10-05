@@ -11,9 +11,9 @@ Reference: docs/implementation-state/Done_Backend.md "MEC-35" entry.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 
-from tests.test_game_engine import creature, make_engine, obj_on_battlefield
+from tests.support.game import creature, make_engine, obj_on_battlefield
 
 
 def _named(name):
@@ -29,7 +29,7 @@ def _engine_with_arbiter():
     arbiter = p1.hand[0]
     bind_from_catalogue(arbiter)
     p1.hand.remove(arbiter)
-    from mtg_analyzer.models.game_object import Zone
+    from mtg_analyzer.models.game.game_object import Zone
 
     arbiter.zone = Zone.BATTLEFIELD
     eng.state.add_to_battlefield(arbiter)
@@ -40,10 +40,10 @@ def _engine_with_arbiter():
 def test_leonin_arbiter_prohibits_every_player_including_its_controller():
     eng, p1, p2 = _engine_with_arbiter()
 
-    eng.rules.request_search(p1, "Creature", "hand", count=1)
+    eng.rules._request_search(p1, "Creature", "hand", count=1)
     assert eng.state.pending_choice is None
 
-    eng.rules.request_search(p2, "Creature", "hand", count=1)
+    eng.rules._request_search(p2, "Creature", "hand", count=1)
     assert eng.state.pending_choice is None
 
 
@@ -53,7 +53,7 @@ def test_paying_the_exemption_lets_only_that_player_search_this_turn():
 
     own_bear = obj_on_battlefield(eng.state, eng, creature("OwnBear"), controller="p1")
     eng.state.battlefield.remove(own_bear)
-    from mtg_analyzer.models.game_object import Zone
+    from mtg_analyzer.models.game.game_object import Zone
 
     own_bear.zone = Zone.LIBRARY
     p1.library.append(own_bear)
@@ -61,11 +61,11 @@ def test_paying_the_exemption_lets_only_that_player_search_this_turn():
     eng.pay_search_exemption(p1)
     assert p1.mana_pool.total() == 0
 
-    eng.rules.request_search(p1, "Creature", "hand", count=1)
+    eng.rules._request_search(p1, "Creature", "hand", count=1)
     assert eng.state.pending_choice is not None
     eng.state.pending_choice = None  # leave it unresolved for this check
 
-    eng.rules.request_search(p2, "Creature", "hand", count=1)
+    eng.rules._request_search(p2, "Creature", "hand", count=1)
     assert eng.state.pending_choice is None
 
 

@@ -19,15 +19,15 @@ import itertools
 from contextlib import contextmanager
 from typing import Any, Optional
 
-from ...models.card import Card
-from ...models.events import EventType, GameEvent
-from ...models.game_object import GameObject, Zone
-from ...models.game_state import GameState, StackItem
-from ...models.mana_cost import ManaCost
-from ...models.player import Player
+from ...models.cards.card import Card
+from ...models.game.events import EventType, GameEvent
+from ...models.game.game_object import GameObject, Zone
+from ...models.game.game_state import GameState, StackItem
+from ...models.mana.mana_cost import ManaCost
+from ...models.game.player import Player
 from .. import combat, condition_query, continuous, durations, face_down, static_conditions, variants
-from ...models import game_format
-from ...models.game_format import GameFormat, get_format
+from ...models.decks import formats as game_format
+from ...models.decks.formats import GameFormat, get_format
 from ..costs import (
     DISCARD_HAND,
     PAY_LIFE_X,
@@ -36,7 +36,7 @@ from ..costs import (
     ActivationCost,
     parse_activation_cost,
 )
-from ..effects import ActivatedAbility
+from ..effects.core import ActivatedAbility
 from ..mana_abilities import (
     hand_mana_abilities_for,
     mana_abilities_for,
@@ -62,6 +62,7 @@ from ..top_library import (
     may_cast_flash_from_top_of_library,
     may_cast_spell_from_top_of_library,
     may_play_land_from_top_of_library,
+    record_top_library_use,
     top_library_life_payment_required,
 )
 
@@ -77,10 +78,11 @@ class LandsMixin:
         # (Oracle of Mul Daya-shaped) when some permanent grants that.
         in_playable_zone = (
             obj in player.hand
+            or self._has_resolution_play_permission(player, obj)
             or (
                 bool(player.library)
                 and obj is player.library[-1]
-                and may_play_land_from_top_of_library(player, self.state)
+                and may_play_land_from_top_of_library(player, self.state, card)
             )
             or (
                 obj.zone == Zone.EXILE
@@ -99,8 +101,8 @@ class LandsMixin:
         return (
             card is not None
             and player is self.state.active_player
-            and self._in_main_phase()
-            and not self.state.stack
+            and (self._has_resolution_play_permission(player, obj)
+                 or (self._in_main_phase() and not self.state.stack))
             and player.lands_played_this_turn < (
                 player.max_lands_per_turn
                 + continuous.extra_land_plays_for(self.state, player)
@@ -136,14 +138,21 @@ class LandsMixin:
             graveyard_land_play_grant_for(player, self.state, obj.card)
             if obj.zone == Zone.GRAVEYARD else None
         )
-        if face == "back":
-            self.rules.switch_to_face(obj, obj.card.back_face())
+        chosen_card = self._face_card(obj, face)
         # Zone-agnostic (not just hand) so a land can be played from the top
         # of the library (Oracle of Mul Daya-shaped, `can_play_land` above) —
         # ``obj.zone`` is always accurate (set on creation/every zone move),
         # the same "read the object's own zone" idiom
         # `RulesEngine._remove_from_current_zone` uses for casting.
-        player.remove_from_zone(obj, obj.zone)
+        from_zone = obj.zone.value
+        if from_zone == "library":
+            record_top_library_use(player, self.state, chosen_card, land=True)
+        self.state.player_by_id(obj.owner_id).remove_from_zone(obj, obj.zone)
+        obj.reset_as_new_object()
+        if face == "back":
+            self.rules.switch_to_face(obj, chosen_card)
+        obj.controller_id = player.id
+        obj.face_down_in_exile = False
 
         def _finish() -> None:
             obj.summoning_sick = True
@@ -164,6 +173,8 @@ class LandsMixin:
                     player_id=player.id,
                     card_id=obj.card.id,
                     land=obj.name,
+                    # RULE 305.1 / 601.2a: "played a card from exile" (Visions of Phyrexia) counts lands too.
+                    from_exile=from_zone == "exile",
                     # A "whenever you play another land" trigger (City of
                     # Traitors) needs to exclude its own play event via
                     # `effect_binder`'s "group"/"other" subject condition.
@@ -173,10 +184,13 @@ class LandsMixin:
             self.state.fire_event(
                 GameEvent(
                     EventType.ENTERS_BATTLEFIELD,
+                    from_zone=from_zone,
                     controller_id=player.id,
                     object=obj.name,
                     instance_id=obj.instance_id,
                     object_types=sorted(obj.type_words),
+                    # RULE 305.1: played, not put — "enter without being played" (PAR-119).
+                    played=True,
                 )
             )
             # RULE 117.3c: taking an action reclaims priority for its taker.
@@ -230,7 +244,14 @@ class LandsMixin:
         holder_id, condition = entry
         if holder_id != player.id:
             return False
-        return static_conditions.condition_holds(condition, self.state, obj, player.id)
+        source = obj
+        if "linked_source_id" in condition:
+            source = self.state.find_object(condition["linked_source_id"])
+            if (source is None or source.zone != Zone.BATTLEFIELD
+                    or source.controller_id != player.id or source.loses_all_abilities
+                    or obj.instance_id not in source.exiled_with_ids):
+                return False
+        return static_conditions.condition_holds(condition, self.state, source, player.id)
     def _graveyard_cast_keyword(self, obj: GameObject) -> Optional[str]:
         """Which alt-cost-from-graveyard keyword ``obj`` carries — ``"flashback"``
         (RULE 702.34) or ``"escape"`` (RULE 702.138) — or ``None``. The two
@@ -297,21 +318,30 @@ class LandsMixin:
         return (
             graveyard_cast_grant_for(player, self.state, obj.card) is not None
             or has_temporary_graveyard_play_permission(player, self.state)
+            or self.state.temp_graveyard_cast_permissions.get(obj.instance_id) == player.id
         )
-    def _self_graveyard_or_exile_cast_permission(self, obj: GameObject) -> bool:
-        """Whether ``obj`` carries its own standing "you may cast this card
-        from your graveyard or from exile" permission (Squee, the
-        Immortal-shaped, MEC-40) — unlike `_graveyard_cast_permission`
-        above, granted by no *other* permanent, so it's read straight off
-        ``obj``'s own `static_effects` regardless of which of the two
-        zones it's currently sitting in.
+    def _self_graveyard_or_exile_cast_permission(self, obj: GameObject, player: Optional[Player] = None) -> bool:
+        """Whether ``obj`` carries its own standing "you may cast this card from your graveyard [or from
+        exile]" permission (Squee, the Immortal-shaped, MEC-40; Gravecrawler's "…as long as you control a
+        Zombie") — unlike `_graveyard_cast_permission` above, granted by no *other* permanent, so it's read
+        straight off ``obj``'s own `static_effects`. It covers only the zones it names (``zones``) and only
+        while its own gate (``active_if``) holds for the casting player.
         """
-        from ..effects import SelfGraveyardOrExileCastPermissionEffect
+        from ..effects.core import SelfGraveyardOrExileCastPermissionEffect
 
-        return any(
-            isinstance(e, SelfGraveyardOrExileCastPermissionEffect)
-            for e in getattr(obj, "static_effects", None) or []
-        )
+        zone = "graveyard" if obj.zone == Zone.GRAVEYARD else ("exile" if obj.zone == Zone.EXILE else None)
+        caster = player.id if player is not None else (obj.controller_id or obj.owner_id)
+        for effect in getattr(obj, "static_effects", None) or []:
+            if not isinstance(effect, SelfGraveyardOrExileCastPermissionEffect):
+                continue
+            if zone is not None and zone not in effect.zones:
+                continue
+            if effect.active_if is not None and not static_conditions.condition_holds(
+                effect.active_if, self.state, obj, caster,
+            ):
+                continue
+            return True
+        return False
     def _castable_from_library(self, player: Player, obj: GameObject) -> bool:
         """Whether the top-of-library card ``obj`` is castable from there
         right now (Oracle of Mul Daya/Glarb, Calamity's Augur-shaped — see

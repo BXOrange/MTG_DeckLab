@@ -6,12 +6,12 @@ so they're routed through the ordinary `ActivatedAbility`/`activate_ability`
 path with a hand-zone source instead.
 """
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.game.effects import ActivatedAbility, DrawCardEffect, DestroyEffect, TriggeredAbility
+from mtg_analyzer.game.effects.core import ActivatedAbility, DrawCardEffect, DestroyEffect, TriggeredAbility
 from mtg_analyzer.game.costs import ActivationCost, parse_activation_cost
 from mtg_analyzer.parser.oracle import MODELED, parse_oracle
 
@@ -155,12 +155,12 @@ def test_legal_actions_surfaces_the_hand_zone_ability():
 
 
 # ---------------------------------------------------------------------------
-# Real deck card: Dismantling Wave's Cycling clause (ability_catalogue.py)
+# Real deck card: Dismantling Wave's Cycling clause (card_registry.py)
 # ---------------------------------------------------------------------------
 
 
 def test_dismantling_wave_cycling_destroys_all_artifacts_and_enchantments():
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
 
     eng = make_engine(hand=0)
     eng.begin_turn()
@@ -196,7 +196,7 @@ def test_dismantling_wave_cycling_destroys_all_artifacts_and_enchantments():
 
 
 def test_renewed_faith_cycling_gains_life():
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
 
     eng = make_engine(hand=0)
     eng.begin_turn()
@@ -243,7 +243,7 @@ def _unregistered_cycler(name="Not A Real Card", cost="{2}", keywords=None, orac
 
 
 def test_bare_cycling_on_an_unregistered_card_gets_a_real_activated_ability():
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
 
     obj = _unregistered_cycler()
     bind_from_catalogue(obj)
@@ -260,7 +260,7 @@ def test_bare_cycling_end_to_end_draws_a_card_and_discards_itself():
     p1 = eng.state.active_player
     p1.mana_pool.add_many({"C": 2})
     obj = _unregistered_cycler()
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
     bind_from_catalogue(obj)
     p1.add_to_zone(obj, Zone.HAND)
     hand_before = len(p1.hand)
@@ -283,7 +283,7 @@ def test_typecycling_variant_does_not_get_the_generic_draw_ability():
     # A type-restricted variant searches the library, not "draw a card";
     # never guess here — no activated ability at all is the correct,
     # fail-closed outcome until that shape is modeled for real.
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
 
     obj = _unregistered_cycler(
         name="Ash Barrens", cost="{1}",
@@ -301,9 +301,9 @@ def test_hand_authored_cycling_is_not_duplicated_by_the_generic_binder():
     # Regression: Dismantling Wave's own hand-authored discard-self ability
     # (destroy all artifacts/enchantments) must stay the *only* one — the
     # generic fallback must not also bind a competing plain "draw a card"
-    # for the same cost just because `ability_catalogue.specs_for` folds in
+    # for the same cost just because `card_registry.specs_for` folds in
     # `parse_keywords`' own "cycling" spec for every card, registered or not.
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
 
     card = Card(id="Dismantling Wave", name="Dismantling Wave", type_line="Sorcery",
                 mana_cost_string="{2}{W}", converted_mana_cost=3, is_sorcery=True)
@@ -362,7 +362,7 @@ def _hand_cycling_grantor(controller="p1", cost="{2}{W}", card_type="historic",
         is_creature=True, is_legendary=True, power=2, toughness=4,
         oracle_text=f"Each {filter_word}card in your hand has cycling {cost}.",
     )
-    from mtg_analyzer.models.game_object import GameObject as _GO
+    from mtg_analyzer.models.game.game_object import GameObject as _GO
     obj = _GO(card, owner_id=controller, zone=Zone.BATTLEFIELD)
     obj.summoning_sick = False
     return obj
@@ -370,9 +370,9 @@ def _hand_cycling_grantor(controller="p1", cost="{2}{W}", card_type="historic",
 
 def test_only_matching_hand_cards_are_granted_cycling():
     from mtg_analyzer.game import continuous
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
-    from mtg_analyzer.models.game_state import GameState
-    from mtg_analyzer.models.player import Player
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
+    from mtg_analyzer.models.game.game_state import GameState
+    from mtg_analyzer.models.game.player import Player
 
     p1, p2 = Player(id="p1", life=20), Player(id="p2", life=20)
     state = GameState(players=[p1, p2])
@@ -401,9 +401,9 @@ def test_only_matching_hand_cards_are_granted_cycling():
 
 def test_hand_cycling_grant_disappears_when_its_source_leaves():
     from mtg_analyzer.game import continuous
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
-    from mtg_analyzer.models.game_state import GameState
-    from mtg_analyzer.models.player import Player
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
+    from mtg_analyzer.models.game.game_state import GameState
+    from mtg_analyzer.models.game.player import Player
 
     p1, p2 = Player(id="p1", life=20), Player(id="p2", life=20)
     state = GameState(players=[p1, p2])
@@ -429,7 +429,7 @@ def test_hand_cycling_grant_end_to_end_is_offered_and_activatable():
     eng.state.current_step = "main1"
     p1 = eng.state.active_player
 
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
     source = _hand_cycling_grantor(card_type=None, cost="{2}", name="Generic Cycler")
     source.card.type_line = "Enchantment"
     source.card.is_creature = False

@@ -4,13 +4,13 @@ Commander "Battlebond" lands (``unless_opponents``), the basic-land-
 counting fast/slow-land variant (``unless_count`` with ``basic: True``),
 and the "Turbulent" land cycle's opponents'-lands-count variant
 (``unless_opponents_count``). The pre-existing kinds (always/pay_life/
-unless_types/unless_count) are already covered by `test_ability_catalogue.py`.
+unless_types/unless_count) are already covered by `game/catalogue/test_catalogue.py`.
 """
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.services.game_session import build_goldfish_engine
 
@@ -150,7 +150,7 @@ def test_reveal_land_declining_leaves_it_tapped():
     state = GameState(players=[p1, p2])
     engine = GameEngine(state)
     engine.rules.enter_land_tapped(land_obj)
-    engine.rules.resolve_land_tapped_reveal_choice(None)
+    engine.rules.resolve_choice(None)
     assert land_obj.tapped is True
     assert state.pending_choice is None
 
@@ -164,7 +164,7 @@ def test_reveal_land_revealing_enters_untapped():
     state = GameState(players=[p1, p2])
     engine = GameEngine(state)
     engine.rules.enter_land_tapped(land_obj)
-    engine.rules.resolve_land_tapped_reveal_choice("reveal")
+    engine.rules.resolve_choice("reveal")
     assert land_obj.tapped is False
     assert state.pending_choice is None
 
@@ -179,7 +179,7 @@ def test_reveal_land_played_via_engine_action_end_to_end():
     engine.play_land(p1, land)
     assert land.tapped is True
     assert engine.state.pending_choice["kind"] == "land_tapped_reveal"
-    engine.rules.resolve_land_tapped_reveal_choice("reveal")
+    engine.rules.resolve_choice("reveal")
     assert land.tapped is False
 
 

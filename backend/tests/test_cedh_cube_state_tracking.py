@@ -23,15 +23,15 @@ engine-level test plus an end-to-end, catalogue-driven one:
 from __future__ import annotations
 
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import GameContext, LookTopKeepOneOnTopEffect
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import GameContext, LookTopKeepOneOnTopEffect
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.rules_engine import RulesEngine
 from mtg_analyzer.game.targeting import TargetSpec, legal_targets
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 
 
 def _rules():
@@ -354,7 +354,7 @@ def test_thassas_oracle_only_digs_when_the_library_is_bigger_than_devotion():
     # "Put **up to one** of them on top" is the player's choice now.
     choice = state.pending_choice
     assert choice["kind"] == "choose_objects"
-    engine.rules.resolve_choose_objects_choice(top_before.instance_id)
+    engine.rules.resolve_choice(top_before.instance_id)
     assert p1.library[-1] is top_before
 
 

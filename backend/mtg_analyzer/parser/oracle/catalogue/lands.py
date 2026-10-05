@@ -2,13 +2,13 @@
 
 A tapped-entry clause isn't resolved through the generic effect-handler
 table (step 3, `catalogue/handlers.py`) — the engine has its own dedicated
-machinery for it (`game/ability_catalogue.land_tap_condition`, consumed by
+machinery for it (`game/card_registry.land_tap_condition`, consumed by
 `RulesEngine.enter_land_tapped`), the same way a mana ability's "add {g}" is
 covered without an effect spec (`segmenter.py`'s `_MANA_EFFECT_RE`). This
 module is the **single source of truth** for recognising those clauses in
 oracle text; both the coverage gate (`gate.py`, claims the line without
 emitting a spec) and the engine-facing card-level API
-(`game/ability_catalogue.land_tap_condition`, which the engine actually
+(`game/card_registry.land_tap_condition`, which the engine actually
 resolves off of) call into it, so the shapes the gate claims and the shapes
 the engine resolves can never drift apart.
 
@@ -32,6 +32,9 @@ _ENTERS = r"enters(?: the battlefield)?"
 #: Plain tap-land: "~ enters tapped." / "this land enters the battlefield
 #: tapped." (35+ cards — the single biggest unclaimed cluster).
 _ALWAYS_RE = re.compile(rf"^{_SUBJECT} {_ENTERS} tapped\.?$", re.IGNORECASE)
+_TAPPED_WITH_COUNTERS_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} tapped with (?:a|an|\d+) [a-z]+ counters? on it\.?$", re.IGNORECASE
+)
 #: Thriving lands: "~ enters tapped. As it enters, choose a color other
 #: than red."  The first sentence is still an unconditional RULE 614.1
 #: tapped-entry replacement; ``tapped_entry_choice_tail`` exposes the second
@@ -135,6 +138,16 @@ _REVEAL_TYPES_RE = re.compile(
     rf"if you don'?t, {_SUBJECT} enters tapped\.?$",
     re.IGNORECASE,
 )
+#: Tarkir/Brothers' War's "reveal or control" lands (Temple of the Dragon Queen,
+#: Fortified Beachhead): the reveal land's interactive choice *plus* a board
+#: check that skips it — "As ~ enters, you may reveal a Dragon card from your
+#: hand. ~ enters tapped unless you revealed a Dragon card this way or you
+#: control a Dragon." The one type repeats across all three mentions.
+_REVEAL_OR_CONTROL_RE = re.compile(
+    rf"^as {_SUBJECT} {_ENTERS}, you may reveal an? (.+?) card from your hand\. "
+    rf"{_SUBJECT} enters tapped unless you revealed an? \1 card this way or you control an? \1\.?$",
+    re.IGNORECASE,
+)
 
 
 def _split_types_clause(clause: str) -> list[str]:
@@ -185,7 +198,9 @@ def tap_clause_condition(line: str) -> Optional[dict[str, Any]]:
     - ``{"kind": "reveal_types", "types": [...]}`` — the "reveal land" cycle:
       the controller may reveal a card of one of these types from hand to
       keep it untapped, a genuine interactive choice (like ``pay_life``),
-      not a deterministic board check (like ``unless_types``).
+      not a deterministic board check (like ``unless_types``). With
+      ``"or_control": True`` (Temple of the Dragon Queen) controlling a
+      permanent of one of the types also keeps it untapped, with no choice.
     """
     if _ALWAYS_THEN_ENTER_CHOICE_RE.match(line):
         return {"kind": "always"}
@@ -240,7 +255,12 @@ def tap_clause_condition(line: str) -> Optional[dict[str, Any]]:
         types = _split_types_clause(match.group(1))
         if types:
             return {"kind": "reveal_types", "types": types}
-    if _ALWAYS_RE.match(line):
+    match = _REVEAL_OR_CONTROL_RE.match(line)
+    if match:
+        types = _split_types_clause(match.group(1))
+        if types:
+            return {"kind": "reveal_types", "types": types, "or_control": True}
+    if _ALWAYS_RE.match(line) or _TAPPED_WITH_COUNTERS_RE.match(line):
         return {"kind": "always"}
     return None
 

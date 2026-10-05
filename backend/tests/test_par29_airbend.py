@@ -15,10 +15,10 @@ handlers.py (`_airbend`).
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec
@@ -181,8 +181,8 @@ def test_airbend_trigger_subject_exiles_the_triggering_creature():
 
 
 def test_airbend_a_spell_pulls_it_off_the_stack_into_exile():
-    from mtg_analyzer.game.effect_binder import build_effects
-    from mtg_analyzer.models.game_state import StackItem
+    from mtg_analyzer.game.binding.core import build_effects
+    from mtg_analyzer.models.game.game_state import StackItem
     from mtg_analyzer.parser.oracle.spec import EffectSpec as ES
 
     eng, state = _engine()
@@ -215,7 +215,7 @@ def test_airbend_a_spell_pulls_it_off_the_stack_into_exile():
 
 
 def test_airbend_spell_or_creature_effect_also_handles_a_battlefield_creature():
-    from mtg_analyzer.game.effect_binder import build_effects
+    from mtg_analyzer.game.binding.core import build_effects
     from mtg_analyzer.parser.oracle.spec import EffectSpec as ES
 
     eng, state = _engine()

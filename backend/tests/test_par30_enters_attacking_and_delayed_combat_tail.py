@@ -17,11 +17,11 @@ route (RULE 508.4 / 603.7).
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import build_effects
-from mtg_analyzer.game.effects import GameContext
+from mtg_analyzer.game.binding.core import build_effects
+from mtg_analyzer.game.effects.core import GameContext
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
@@ -32,6 +32,8 @@ def _engine():
     eng = GameEngine.new_game(
         [("p1", "Alice", []), ("p2", "Bob", [])], starting_life=20, starting_hand=0
     )
+    eng.state.current_phase = "combat"
+    eng.state.current_step = "declare_attackers"
     return eng, eng.state
 
 
@@ -39,9 +41,13 @@ def _engine():
 
 
 def test_exile_that_token_at_end_of_combat_parses():
+    # "that token" can only mean what an earlier clause of this same resolution
+    # created (RULE 608.2), never a RULE 115 target — `_DELAYED_TAIL_TOKEN_
+    # SUBJECTS` captures `created_objects` directly rather than the general
+    # `previous_or_self` fallback "it"/"that creature" use.
     assert match_clause("exile that token at end of combat") == [
         EffectSpec("create_delayed_trigger", {
-            "step": "end_combat", "scope": "any", "capture": "previous_or_self",
+            "step": "end_combat", "scope": "any", "capture": "created_objects",
             "effects": [{"type": "exile_specific", "params": {}}],
         })
     ]
@@ -50,7 +56,7 @@ def test_exile_that_token_at_end_of_combat_parses():
 def test_sacrifice_the_tokens_at_end_of_combat_parses():
     assert match_clause("sacrifice the tokens at end of combat") == [
         EffectSpec("create_delayed_trigger", {
-            "step": "end_combat", "scope": "any", "capture": "previous_or_self",
+            "step": "end_combat", "scope": "any", "capture": "created_objects",
             "effects": [{"type": "sacrifice_specific", "params": {}}],
         })
     ]

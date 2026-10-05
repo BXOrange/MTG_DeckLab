@@ -17,12 +17,12 @@ Mirrors `test_multi_target.py`'s fixture pattern and parser-recognition-
 then-engine-drive split.
 """
 
-from mtg_analyzer.game.effects import DestroyEffect, ExileEffect, ReturnToHandEffect
+from mtg_analyzer.game.effects.core import DestroyEffect, ExileEffect, ReturnToHandEffect
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.targeting import legal_targets, requirements_with_targets, TargetSpec
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.mana_cost import ManaCost
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.mana.mana_cost import ManaCost
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 
 
@@ -69,7 +69,8 @@ def test_exile_up_to_two_controlled_by_different_players_is_recognized():
     )
     assert spec.type == "exile"
     assert spec.params == {
-        "target_kind": "permanent", "count": 2, "optional": True, "distinct_controllers": True,
+        # the real "artifact or enchantment" pool, not any permanent (batch 6)
+        "target_kind": "artifact_or_enchantment", "count": 2, "optional": True, "distinct_controllers": True,
     }
 
 

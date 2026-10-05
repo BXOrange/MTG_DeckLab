@@ -1,21 +1,21 @@
 """PAR-30 "copy of a named card" body singletons (v196) — The Vast Scrier.
 
-`PutFromHandOntoBattlefieldEffect` / `request_search` gain
+`PutFromHandOntoBattlefieldEffect` / `_request_search` gain
 `then_specs_if_none` — "If you don't put a card onto the battlefield this
 way, `<body>`." runs `<body>` (here `scry 2`) when the from-hand pick
-places nothing: declined in `resolve_search_choice`, or nothing eligible
-in `request_search`. The "if it has any 'whenever ~ attacks' triggers,
-those trigger" reminder sentence is consumed as a no-op (the engine
-re-fires ATTACKS for the placed creature via
-`put_onto_battlefield_attacking` already).
+places nothing: declined in `_resume_search`, or nothing eligible
+in `_request_search`. The "if it has any 'whenever ~ attacks' triggers,
+those trigger" sentence is an explicit override of RULE 508.3a, and fires
+only the placed creature's attack event after it enters combat.
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import build_effects
+from mtg_analyzer.game.binding.core import build_effects
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.game.events import EventType
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import segment_line
 from mtg_analyzer.parser.oracle.spec import EffectSpec, ParserProvenance
@@ -43,6 +43,7 @@ def test_vast_scrier_body_threads_miss_effect_specs():
     assert eff.type == "put_from_hand_onto_battlefield"
     assert eff.params["criteria"] == {"type": ["soldier", "warrior", "wizard"]}
     assert eff.params["tapped"] and eff.params["attacking"]
+    assert eff.params["trigger_attacks"] is True
     assert eff.params["miss_effect_specs"] == [{"type": "scry", "params": {"count": 2}}]
 
 
@@ -86,6 +87,8 @@ def _mk():
     )
     src.controller_id = "p1"
     eng.state.add_to_battlefield(src)
+    eng.state.current_phase = "combat"
+    eng.state.current_step = "declare_attackers"
     for i in range(3):
         o = GameObject(Card(id=f"lib{i}", name=f"Lib{i}",
                             type_line="Creature — Bear"),
@@ -118,7 +121,7 @@ def test_scry_fires_when_player_declines():
     eng.state.player_by_id("p1").hand.append(sol)
     build_effects(_SPEC, src)[0].apply(eng.rules.context, None)
     assert eng.state.pending_choice["kind"] == "search"
-    eng.rules.resolve_search_choice(None)  # decline
+    eng.rules.resolve_choice(None)  # decline
     assert eng.state.pending_choice is not None
     assert eng.state.pending_choice["kind"] == "scry"
 
@@ -131,9 +134,32 @@ def test_no_scry_when_a_card_is_placed():
     sol.controller_id = "p1"
     eng.state.player_by_id("p1").hand.append(sol)
     build_effects(_SPEC, src)[0].apply(eng.rules.context, None)
-    eng.rules.resolve_search_choice(sol.instance_id)
+    eng.rules.resolve_choice(sol.instance_id)
     assert sol in eng.state.battlefield and sol.attacking and sol.tapped
     assert eng.state.pending_choice is None
+
+
+def test_explicit_those_trigger_clause_replays_only_the_placed_attack_event():
+    eng, src = _mk()
+    sol = GameObject(Card(id="s", name="Grunt", type_line="Creature — Soldier",
+                          is_creature=True, power=1, toughness=1),
+                     owner_id="p1", zone=Zone.HAND)
+    sol.controller_id = "p1"
+    eng.state.player_by_id("p1").hand.append(sol)
+    events = []
+    eng.state.subscribe(events.append)
+    spec = [EffectSpec("put_from_hand_onto_battlefield", {
+        "criteria": {"type": ["soldier"]}, "count": 1, "tapped": True,
+        "attacking": True, "trigger_attacks": True,
+    })]
+    build_effects(spec, src)[0].apply(eng.rules.context, None)
+    eng.rules.resolve_choice(sol.instance_id)
+    assert sol.attacking and sol.attacked_this_turn is False
+    attack_events = [
+        e for e in events
+        if e.type == EventType.ATTACKS and e.get("instance_id") == sol.instance_id
+    ]
+    assert len(attack_events) == 1
 
 
 def test_search_without_miss_specs_is_unaffected():

@@ -12,15 +12,15 @@ RULE 731.2 check uses).
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 
 
 def test_front_condition_parses():
     specs = parse_effect_body("if no spells were cast last turn, transform ~")
     assert specs == [
-        type(specs[0])("transform", {}, condition={"no_spells_cast_last_turn": True})
+        type(specs[0])("transform", {}, condition={"kind": "spells_cast_last_turn", "max": 0})
     ]
 
 
@@ -31,7 +31,7 @@ def test_back_condition_parses_digit_and_word():
     ):
         specs = parse_effect_body(text)
         assert specs is not None
-        assert specs[0].condition == {"two_or_more_spells_cast_last_turn": True}
+        assert specs[0].condition == {"kind": "spells_cast_last_turn", "min": 2}
 
 
 def test_fail_closed_on_unmodelable_body():

@@ -19,15 +19,16 @@ import itertools
 from contextlib import contextmanager
 from typing import Any, Optional
 
-from ...models.card import Card
-from ...models.events import EventType, GameEvent
-from ...models.game_object import GameObject, Zone
-from ...models.game_state import GameState, StackItem
-from ...models.mana_cost import ManaCost
-from ...models.player import Player
+from ...models.cards.card import Card
+from ...models.game.events import EventType, GameEvent
+from ...models.game.game_object import GameObject, Zone
+from ...models.game.game_state import GameState, StackItem
+from ...models.mana.mana_cost import ManaCost
+from ...models.mana.mana_pool import kept_mana_expiring_at
+from ...models.game.player import Player
 from .. import combat, condition_query, continuous, durations, face_down, variants
-from ...models import game_format
-from ...models.game_format import GameFormat, get_format
+from ...models.decks import formats as game_format
+from ...models.decks.formats import GameFormat, get_format
 from ..costs import (
     DISCARD_HAND,
     PAY_LIFE_X,
@@ -36,7 +37,7 @@ from ..costs import (
     ActivationCost,
     parse_activation_cost,
 )
-from ..effects import ActivatedAbility, GrantSkipExtraTurnsEffect
+from ..effects.core import ActivatedAbility, GrantSkipExtraTurnsEffect
 from ..mana_abilities import (
     hand_mana_abilities_for,
     mana_abilities_for,
@@ -123,6 +124,8 @@ class TurnLoopMixin:
             # cards its controller starts with, so it has to be settled
             # before the opening hand is drawn.
             player.draw(max(0, starting_hand + player.hand_size_modifier))
+        # Baseline for `GameState.announce_graveyard_arrivals` (RULE 603.6c).
+        state.resync_graveyard_watch()
         return engine
     def _setup_variants(self, fmt: "GameFormat", archenemy_id: Optional[str]) -> None:
         """Put the RULE 9 variants' command-zone cards in place for a new game."""
@@ -229,87 +232,21 @@ class TurnLoopMixin:
         self.state.internal_turn.player_id = active.id
         active.lands_played_this_turn = 0
         active.extra_land_plays_this_turn = 0
-        # RULE 901.6b: the planar die costs {X} where X is how many times its
-        # roller has already rolled it *this turn*, so the tally resets with
-        # every other per-turn counter here.
-        self.state.planar_die_rolls_this_turn.clear()
-        # MEC-36: widened from `active.id`-only to every player (Damping
-        # Sphere needs a non-active player's own running total to stay
-        # accurate too — see the field's own docstring), the same
-        # game-wide reset scope `noncreature_spells_cast_this_turn` below
-        # already uses.
-        for player in self.state.players:
-            self.state.spells_cast_this_turn[player.id] = 0
-            # RULE 500.1 — reset for *every* player, not just the incoming
-            # active one: Davros, Dalek Creator's own end-step trigger reads
-            # each *opponent's* `life_lost_this_turn`, so a stale value from
-            # someone else's turn must be cleared here.
-            self.state.life_lost_this_turn[player.id] = 0
-        self.state.combats_this_turn = 0
-        self.state.cards_drawn_this_turn[active.id] = 0
-        self.state.cards_drawn_this_turn_ids[active.id] = []
-        self.state.cards_discarded_this_turn[active.id] = 0
-        self.state.life_gained_this_turn[active.id] = 0
-        # RULE 120.3 history ("dealt combat damage by ~ *this turn*", Hope of
-        # Ghirapur) — game-wide, not per active player: last turn's combat
-        # damage is stale for everyone once a new turn starts.
-        self.state.combat_damage_to_players_this_turn.clear()
-        # Chandra's Incinerator's own running per-turn amount total, same
-        # game-wide reset scope as the row above.
-        self.state.noncombat_damage_to_opponents_this_turn.clear()
-        # Final Punishment's own running per-turn amount total (MEC-43) —
-        # same game-wide reset scope as the two rows above.
-        self.state.damage_dealt_to_players_this_turn.clear()
-        # RULE 700.4 history ("unless a creature died under your control this
-        # turn", Bontu the Glorified) — game-wide for the same reason.
-        self.state.creatures_died_this_turn.clear()
-        # PAR-32: "if a source you controlled dealt N or more damage this
-        # turn" (Dragon Cultist) / "if a creature card was put into your
-        # graveyard from anywhere this turn" (Cloakwood Hermit) — per-
-        # controller / per-owner history, game-wide reset like the rows
-        # around it.
-        self.state.damage_dealt_by_this_turn.clear()
-        self.state.creature_card_to_graveyard_this_turn.clear()
-        self.state.permanent_card_to_graveyard_this_turn.clear()
+        # ENG-47: the per-turn history counters (spells cast, life gained/lost, cards
+        # drawn/discarded, creatures died, damage dealt, …) are derived from the
+        # turn-stamped event log (`models/game/turn_history.py`) — a new turn is a new
+        # window, so none of them is reset here.
+        self.state.cards_left_graveyard_this_turn.clear()
         # MEC-57: "the first time you would draw a card each turn, instead
         # …" (Scion of Halaster) — game-wide, same reason.
         self.state.first_draw_replaced_this_turn.clear()
-        # MEC-60: "the first `<subtype>` spell you cast each turn …"
-        # (Acolyte of Bahamut) — game-wide, same reason.
-        self.state.creature_type_spells_cast_this_turn.clear()
-        # MEC-49 history ("whenever a creature dealt damage by ~ this turn
-        # dies", Baron Sengir) — game-wide, same reason.
-        self.state.creatures_damaged_by_source_this_turn.clear()
-        # RULE 701.6x history ("then if you've done all four this turn",
-        # Avatar Aang) — game-wide, same as the row above; a bend by any
-        # player is a per-turn fact none of them carry on the board.
-        self.state.bends_this_turn.clear()
         # Mana-potential tracking (`game/mana_potential.py`) — game-wide,
-        # not `active.id`-only like `spells_cast_this_turn` above: a
-        # non-active player can still tap mana at instant speed under
-        # `interactive_priority` (Multiplayer), and "open + used = total
-        # capacity accessed this turn" must hold for the turn now beginning
-        # regardless of whose turn it is.
+        # not `active.id`-only: a non-active player can still tap mana at
+        # instant speed under `interactive_priority` (Multiplayer), and "open
+        # + used = total capacity accessed this turn" must hold for the turn
+        # now beginning regardless of whose turn it is.
         for player in self.state.players:
             self.state.mana_produced_this_turn[player.id] = {}
-        # PAR-10 (`static_conditions.py`'s `cast_instant_or_sorcery_this_
-        # turn`) — game-wide for the same reason as `mana_produced_this_
-        # turn` above: a non-active player's static condition must read
-        # correctly too, not just the active player's own activation check.
-        for player in self.state.players:
-            self.state.cast_instant_or_sorcery_this_turn[player.id] = False
-        # Same game-wide reset scope as the row above — Magebane Lizard's
-        # own running per-player noncreature-spell count.
-        for player in self.state.players:
-            self.state.noncreature_spells_cast_this_turn[player.id] = 0
-        # Ethersworn Canonist's own running per-player nonartifact-spell
-        # count (MEC-43) — same game-wide reset scope as the row above.
-        for player in self.state.players:
-            self.state.nonartifact_spells_cast_this_turn[player.id] = 0
-        # Veil of Summer-shaped "if an opponent has cast a blue or black
-        # spell this turn" — same game-wide reset scope as the row above.
-        for player in self.state.players:
-            self.state.spell_colors_cast_this_turn[player.id] = set()
         # "Until your next turn, …" (RULE 611.2b) — a player-scoped effect
         # granted on someone's turn lapses the moment *that* player's next
         # turn begins, which is exactly now for `active`. Swept across every
@@ -388,6 +325,23 @@ class TurnLoopMixin:
     def step_cursor(self) -> int:
         """How far through the current turn's steps we are (for snapshots)."""
         return self._cursor
+    def next_priority_step(self) -> str:
+        """The name of the next step in which anyone will get priority, or
+        ``"next_turn"`` once this turn has none left (VIS-12: what the
+        board's "Pass" button says comes next).
+
+        Reads the scheduled steps only: untap/cleanup give nobody priority
+        (RULE 502.3/514.3) and a combat phase already marked skipped is
+        passed over, but a skip that is still only *pending* (a "skip your
+        next combat" not yet consumed) or an extra combat not yet queued
+        into the list can't be known here.
+        """
+        for phase, step in self._turn_steps[self._cursor:]:
+            if getattr(phase, "skipped", False) or not step.gives_priority:
+                continue
+            return step.name
+        return "next_turn"
+
     def resume_at(self, cursor: int) -> None:
         """Restore the stepping position after a state was swapped in (undo).
 
@@ -445,11 +399,13 @@ class TurnLoopMixin:
         if self.state.current_step == "declare_attackers":
             self._enforce_attacks_if_able()
             self._enforce_goad_requirements()
+            self._enforce_must_attack_player()
             self._enforce_attack_alone_restrictions()
             self._fire_player_attacked_events()
             self._fire_attacks_alone_event()
         if self.state.current_step == "declare_blockers":
             self._enforce_block_requirements()
+            self._fire_unblocked_events()
         if not self._turn_steps or self._cursor >= len(self._turn_steps):
             self.state.fire_event(
                 GameEvent(EventType.TURN_END, player_id=self.state.active_player.id)
@@ -466,13 +422,14 @@ class TurnLoopMixin:
         # Rule-override skips (docs/07 PART 8): "skip your untap step", etc.
         if self.rules.should_skip_step(self.state.active_player, step.name):
             return
+        # RULE 500.11: "skips their next combat phase" — consumed as the phase opens, then every step of it is
+        # passed over (the one-shot skip effect is spent by its first step).
+        if getattr(phase, "skipped", False):
+            return
+        if phase.steps and step is phase.steps[0] and self.rules.should_skip_step(self.state.active_player, phase.name):
+            phase.skipped = True
+            return
 
-        if step.name == "begin_combat":
-            # RULE 603.4: "if it's the first combat phase of the turn" —
-            # game-wide (not per-player), so an extra combat phase granted
-            # mid-turn is correctly the *second* one regardless of who
-            # controls the effect that grants it.
-            self.state.combats_this_turn += 1
         if step.name == "draw":
             # MEC-32: reset right as this player's own draw step begins, so
             # `RulesEngine._single_draw` can tell "the step's own first
@@ -512,9 +469,9 @@ class TurnLoopMixin:
             else:
                 self.resolve_until_stable()
 
-        # RULE 500.4: unused mana empties as the step ends.
+        # RULE 500.4: unused mana empties as the step ends — except mana an effect lets you keep (`ManaPool.kept`).
         for player in self.state.players:
-            player.mana_pool.empty()
+            continuous.empty_mana_pool(self.state, player, kept_mana_expiring_at(step.name))
         self.state.fire_event(GameEvent(EventType.STEP_END, step=step.name, phase=phase.name))
     def insert_additional_combat_phase(self, main_phase_too: bool = False) -> None:
         """RULE 500.4-adjacent "after this combat phase, there is an
@@ -632,7 +589,7 @@ class TurnLoopMixin:
         condition = getattr(dt, "condition", None)
         if not condition:
             return True
-        from ..effects import ConditionalEffect
+        from ..effects.core import ConditionalEffect
 
         src = getattr(dt.effects[0], "source", None) if dt.effects else None
         probe = ConditionalEffect(condition, dt.effects[0], source=src) if dt.effects else None
@@ -672,6 +629,16 @@ class TurnLoopMixin:
         # same "whole step skipped" treatment `should_skip_step` gets, not
         # `has_no_untap_static`'s "just don't untap this one").
         skip_whole_step = continuous.all_untap_steps_skipped(self.state)
+        # PAR-109: "Untap ~ during each other player's untap step" — permanents of the players whose untap
+        # step this is *not* untap now as well (the step's own skip/no-untap gates still apply).
+        if not skip_whole_step:
+            for obj in list(self.state.battlefield):
+                if (
+                    obj.controller_id != active.id and obj.tapped
+                    and continuous.untaps_in_every_untap_step(self.state, obj)
+                    and not continuous.has_no_untap_static(self.state, obj)
+                ):
+                    self.rules.set_tapped(obj, False)
         for obj in self.state.permanents_controlled_by(active.id):
             if skip_whole_step or self.rules.should_skip_step(
                 active, "untap_permanents"
@@ -713,6 +680,7 @@ class TurnLoopMixin:
             # during each of your turns" restriction (Lurrus-shaped) resets
             # the same way.
             obj.graveyard_casts_this_turn = 0
+            obj.top_library_uses_this_turn = 0
             obj.graveyard_cast_types_this_turn = set()
             # ENG-27: "if you haven't added mana with this ability this
             # turn" (Carpet of Flowers) resets the same way too.
@@ -734,6 +702,7 @@ class TurnLoopMixin:
         # once-per-turn speed-increase limiter, per player.
         for obj in self.state.permanents():
             obj.attacked_this_turn = False
+            obj.times_attacked_this_turn = 0
         for pl in self.state.players:
             pl.speed_increased_this_turn = False
         self.state.fire_event(GameEvent(EventType.UNTAP, player_id=active.id))
@@ -796,6 +765,7 @@ class TurnLoopMixin:
         self._deal_combat_damage_step(first_strike_step=False)
         self.rules.check_state_based_actions()
     def _step_end_combat(self) -> None:
+        self._record_last_combat()  # before the assignments go: "didn't attack during your last combat"
         # RULE 511.3: creatures are removed from combat as it ends.
         self._clear_combat()
         # …and RULE 611's combat-scoped continuous effects end with it
@@ -827,18 +797,26 @@ class TurnLoopMixin:
         for obj in self.state.permanents():
             obj.damage_marked = 0
             if (obj.temp_power or obj.temp_toughness or obj.temp_keywords
+                    or obj.temp_removed_keywords
                     or obj.temp_parametric_keywords):
                 obj.temp_power = 0
                 obj.temp_toughness = 0
                 obj.temp_keywords.clear()
+                obj.temp_removed_keywords.clear()  # MEC-105, layer-6 removal
                 obj.temp_parametric_keywords.clear()  # ENG-31
                 obj.temp_effects.clear()
                 ended_effects = True
             if obj.temp_unblockable:
                 obj.temp_unblockable = False
                 ended_effects = True
+            if obj.temp_pt_switch_count:
+                obj.temp_pt_switch_count = 0
+                ended_effects = True
             if obj.temp_cant_block:
                 obj.temp_cant_block = False
+                ended_effects = True
+            if obj.temp_cant_be_regenerated:
+                obj.temp_cant_be_regenerated = False
                 ended_effects = True
             if obj.cant_be_sacrificed_this_turn:
                 obj.cant_be_sacrificed_this_turn = False  # Call for Aid rider
@@ -865,6 +843,8 @@ class TurnLoopMixin:
                 obj.controller_id = obj.control_change_until_eot
                 obj.control_change_until_eot = None
                 ended_effects = True
+            if getattr(obj, "temp_prevent_combat_damage_dealt", False):
+                obj.temp_prevent_combat_damage_dealt = False
             # RULE 701.16a: an unused regeneration shield lasts only "that
             # turn" — sweep it here rather than only on consumption
             # (`RulesEngine.regenerate`'s own removal handles the used case).
@@ -941,6 +921,8 @@ class TurnLoopMixin:
         # RULE 615 (MEC-30): "Damage can't be prevented this turn." also
         # lapses here, the same window every other "this turn" flag clears.
         self.state.damage_prevention_disabled = False
+        # "… you cast this turn cost {N} less" ends with the turn too.
+        self.state.turn_cost_reductions = []
         # MEC-46 (RULE 701.38f): "You choose how each player votes this
         # turn." (Illusion of Choice) lapses on the same RULE 514.2 window.
         self.state.forced_vote_controller_id = None
@@ -1008,6 +990,7 @@ class TurnLoopMixin:
         # own "until your next turn" survival above) — cleared unconditionally.
         if self.state.temp_flashback_grants:
             self.state.temp_flashback_grants = {}
+        self.state.temp_graveyard_cast_permissions.clear()
     def resolve_until_stable(self) -> None:
         """Resolve triggers + the stack until empty, stable, or blocked.
 
@@ -1021,9 +1004,6 @@ class TurnLoopMixin:
         `RulesEngine.resume_deferred_effects`.
         """
         for _ in range(_MAX_RESOLUTIONS):
-            self.rules.check_state_based_actions()
-            if self.state.game_over:
-                return
             if self.state.pending_choice:
                 return  # await a player decision before resolving further
             if self.rules.resume_deferred_effects():
@@ -1032,6 +1012,9 @@ class TurnLoopMixin:
                 # on the stack — its remaining effects are still part of
                 # that same, still-resolving object.
                 continue
+            self.rules.check_state_based_actions()
+            if self.state.game_over:
+                return
             self.rules.put_triggers_on_stack()
             if self.state.pending_choice:
                 # `put_triggers_on_stack` itself just opened one (RULE
@@ -1142,364 +1125,25 @@ class TurnLoopMixin:
         ``answer`` is the chosen option's ``id`` (a string like ``"cast"`` /
         ``"hand"`` / ``"decline"`` or a card's instance id as a string), or —
         for backward compatibility — a bare ``int`` instance id / ``None`` to
-        decline. Dispatches on the choice ``kind`` so search, cascade and
-        discover share one choose/decline path from the session and UI.
-        """
-        choice = self.state.pending_choice
-        kind = choice.get("kind") if choice else None
-        declined = answer is None or answer == "decline"
+        decline.
 
-        if kind == "cascade":
-            self.rules.resolve_cascade_choice(cast=(answer == "cast"))
-        elif kind == "discover":
-            # Two positive options: cast (default) or take to hand.
-            self.rules.resolve_discover_choice(to_hand=(answer == "hand"))
-        elif kind == "explore_bin":
-            # RULE 701.44a's "may put the revealed card into your graveyard"
-            # — a yes/no; declining ("top") leaves it on the library.
-            self.rules.resolve_explore_bin_choice(to_graveyard=(answer == "graveyard"))
-        elif kind == "populate":
-            # RULE 701.36a: the option id is which creature token you control
-            # to copy — mandatory (no "you may"), so a missing answer defaults
-            # to the first offered token in `resolve_populate_choice`.
-            self.rules.resolve_populate_choice(None if declined else int(answer))
-        elif kind == "bolster":
-            # RULE 701.39a's tie clause: the option id is which least-toughness
-            # creature to put the +1/+1 counters on — mandatory (no "you may"),
-            # a missing answer defaults to the first tied creature.
-            self.rules.resolve_bolster_choice(None if declined else int(answer))
-        elif kind == "blight":
-            # "Blight N": the option id is which creature you control gets the
-            # -1/-1 counters — a missing answer defaults to the first offered.
-            self.rules.resolve_blight_choice(None if declined else int(answer))
-        elif kind == "endure":
-            # RULE 701.63a "Endure N": "counters" (default) or "token"
-            # (an N/N white Spirit) — a yes/no, not an object pick.
-            self.rules.resolve_endure_choice(to_token=(answer == "token"))
-        elif kind == "recruit":
-            # RULE 701.70a "Recruit": the option id is which hand card to
-            # discard — mandatory, a missing answer defaults to the first.
-            self.rules.resolve_recruit_choice(None if declined else int(answer))
-        elif kind == "order_triggers":
-            # RULE 603.3b: the option id is the index of the trigger to place next.
-            index = None if declined else int(answer)
-            self.rules.resolve_trigger_order_choice(index)
-        elif kind == "trigger_target":
-            # RULE 115/603.3c: the option id is a permanent's instance id or a
-            # player's id (not always int-castable, unlike the other kinds).
-            self.rules.resolve_trigger_target_choice(None if declined else str(answer))
-        elif kind == "trigger_target_multi":
-            # RULE 115.1/603.3c generalized: a trigger with 2+ *different*
-            # targeting effects — one of these fires per effect, in turn
-            # (`_continue_trigger_multi_target`), same option shape as
-            # "trigger_target" above.
-            self.rules.resolve_trigger_target_multi_choice(None if declined else str(answer))
-        elif kind == "trigger_mode":
-            # RULE 700.2: the option id is a mode's index, or "both" (700.2e)
-            # — a mandatory choice, so a decline still resolves the first mode
-            # rather than dropping it (`resolve_trigger_mode_choice` defaults
-            # an unrecognized/missing answer the same way).
-            self.rules.resolve_trigger_mode_choice(None if declined else str(answer))
-        elif kind == "opening_hand_battlefield":
-            # RULE 103.6a: "you may begin the game with it on the
-            # battlefield" (the Leyline cycle) — "battlefield" moves the
-            # card there straight from the opening hand, anything else
-            # leaves it in hand.
-            self.rules.resolve_opening_hand_battlefield_choice(
-                None if declined else str(answer)
-            )
-        elif kind == "land_tapped":
-            # RULE 614.1: a shock land's "pay life to stay untapped" choice.
-            self.rules.resolve_land_tapped_choice(None if declined else str(answer))
-        elif kind == "land_tapped_bonus":
-            # RULE 614.1's "you may have this land enter tapped. If you do,
-            # <bonus>." (Mariposa Military Base) — the mirror-image choice:
-            # untapped by default, tap it for the bonus instead.
-            self.rules.resolve_land_tapped_bonus_choice(None if declined else str(answer))
-        elif kind == "land_tapped_reveal":
-            # RULE 614.1's "reveal land" cycle: reveal a matching card from
-            # hand to stay untapped, only offered when one is actually held.
-            self.rules.resolve_land_tapped_reveal_choice(None if declined else str(answer))
-        elif kind == "choose_objects":
-            # The general "which one?" chooser (`request_choose_objects`) —
-            # Cloudstone Curio's bounce, Tangle Wire's tap, Tevesh Szat's
-            # and Professor Onyx's sacrifices, Deadeye Navigator's Soulbond
-            # partner, a library reorder. Declining is only legal when the
-            # effect said "you may"/"up to", which the choice records.
-            self.rules.resolve_choose_objects_choice(None if declined else int(answer))
-        elif kind == "choose_type_for_source":
-            # `RulesEngine.request_choose_creature_type_grant` — a
-            # triggered ability's own resolve-time "choose a creature
-            # type" (Selfless Safewright-shaped), distinct from RULE
-            # 601.2b's as-it-enters `choose_creature_type` above. Mandatory
-            # (no decline offered), same "default to the first option"
-            # treatment `resolve_enter_choice` gives a missing answer.
-            self.rules.resolve_choose_type_for_source_choice(None if declined else str(answer))
-        elif kind == "choose_player_for_source":
-            # `RulesEngine.request_choose_player` (Stuffy Doll-shaped "as
-            # ~ enters, choose a player") — mandatory, same "default to
-            # the first option" treatment as the type-choice sibling above.
-            self.rules.resolve_choose_player_choice(None if declined else str(answer))
-        elif kind == "ring_bearer":
-            # RULE 701.52a: "you choose a creature you control as your
-            # Ring-bearer" — mandatory (the choice only opens with 2+
-            # candidates), so a decline isn't offered or accepted.
-            self.rules.resolve_ring_bearer_choice(int(answer))
-        elif kind == "name_card":
-            # RULE 701's naming action (Demonic Consultation) — the one
-            # choice whose answer space isn't enumerable, so the raw string
-            # is passed straight through rather than matched against the
-            # offered options (which are only suggestions).
-            self.rules.resolve_name_card_choice(None if declined else str(answer))
-        elif kind == "look_top_pay_life":
-            # Lim-Dûl's Vault's open-ended "as many times as you choose"
-            # loop — "again" pays the life and re-opens; anything else stops.
-            self.rules.resolve_look_top_pay_life_loop_choice(
-                None if declined else str(answer)
-            )
-        elif kind == "reveal_top_hand_lose_life_loop":
-            # Ad Nauseam's own open-ended "you may repeat this process any
-            # number of times" — "again" reveals/hands/loses-life and
-            # re-opens; anything else stops.
-            self.rules.resolve_reveal_top_hand_lose_life_loop_choice(
-                None if declined else str(answer)
-            )
-        elif kind == "tap_or_untap":
-            # Derevi, Empyrial Tactician's own "you may tap or untap target
-            # permanent" (MEC-42) — a genuine two-way choice on top of RULE
-            # 115's own target, not just an "up to one" decline.
-            self.rules.resolve_tap_or_untap_choice(None if declined else str(answer))
-        elif kind == "pay_cost_then":
-            # RULE 118.3: "you may pay <cost>. If you do, <effect>." (Mana
-            # Vault, Wandering Archaic) — "pay" charges the cost and runs
-            # the follow-up; anything else runs the "if you don't" branch.
-            self.rules.resolve_pay_cost_then_choice(None if declined else str(answer))
-        elif kind == "exile_source_then":
-            self.rules.resolve_exile_source_then_choice(None if declined else str(answer))
-        elif kind == "pay_life_or_return_to_library":
-            # Sylvan Library (MEC-40): "…pay 4 life or put the card on top
-            # of your library." — a mandatory per-card either/or, not a
-            # "may" (declining maps to "return", the same treatment a
-            # missing/invalid answer gets).
-            self.rules.resolve_pay_life_or_return_choice(str(answer) if not declined else "return")
-        elif kind == "all_decline_or":
-            # RULE 118.3-adjacent multi-player tax: "Any player may pay
-            # <cost>. If no one does, <effect>." (Rhystic Circle, MEC-30) —
-            # "pay" cancels the whole sweep; anything else moves on to the
-            # next player.
-            self.rules.resolve_all_decline_or_choice(None if declined else str(answer))
-        elif kind == "vote":
-            # RULE 701.38: "starting with you, each player votes for <A> or
-            # <B>." — the option id is the vote index; a decline/missing
-            # answer defaults to option 0 (each player must vote).
-            self.rules.resolve_vote_choice(None if declined else str(answer))
-        elif kind == "vote_object":
-            # MEC-46 / RULE 701.38: "each player votes for a nonland
-            # permanent you don't control" / "…a card in your graveyard" —
-            # the option id is the chosen object's instance id; a decline/
-            # missing answer defaults to the first candidate.
-            self.rules.resolve_object_vote_choice(None if declined else str(answer))
-        elif kind == "villainous_choice":
-            # RULE 701.55: "<player> faces a villainous choice — <A>, or
-            # <B>." — the option id is "0"/"1"; a decline/missing answer
-            # defaults to option A.
-            self.rules.resolve_villainous_choice(None if declined else str(answer))
-        elif kind == "word_of_command":
-            # MEC-51b: the option id is which card in the target's hand the
-            # WoC caster picks (its instance id) — mandatory (the caster
-            # must choose; a missing/invalid answer defaults to the first
-            # card in `resolve_word_of_command_choice`).
-            self.rules.resolve_word_of_command_choice(None if declined else int(answer))
-        elif kind == "pay_energy_then":
-            # RULE 122: "you may pay {E}{E}. If you do, <effect>." (Aether
-            # Chaser) — "pay" spends the energy and resolves the follow-up,
-            # anything else declines.
-            self.rules.resolve_pay_energy_then_choice(None if declined else str(answer))
-        elif kind == "add_mana_any_color":
-            # RULE 106.4: which color to add — a mandatory choice, so a
-            # decline still resolves to a color rather than adding nothing
-            # (`resolve_add_mana_any_color_choice` defaults an
-            # unrecognized/missing answer the same way trigger_mode does).
-            self.rules.resolve_add_mana_any_color_choice(None if declined else str(answer))
-        elif kind == "grant_protection_color":
-            # RULE 702.16: which colour (or colorless) to gain protection from
-            # — a mandatory choice, defaulted like add_mana_any_color.
-            self.rules.resolve_grant_protection_choice(None if declined else str(answer))
-        elif kind == "replacement_order":
-            # RULE 616.1: the option id is the index of the replacement
-            # effect to apply next.
-            index = None if declined else int(answer)
-            self.rules.resolve_replacement_order_choice(index)
-        elif kind == "enter_as_copy":
-            # RULE 614.1c/614.12: the option id is a permanent's instance id,
-            # or decline to enter as itself.
-            self.rules.resolve_enter_as_copy_choice(None if declined else str(answer))
-        elif kind == "enter_or_graveyard":
-            # RULE 614.12: the option id is a land card's instance id, or
-            # decline to send the permanent straight to the graveyard
-            # instead of letting it enter (Mox Diamond).
-            self.rules.resolve_enter_or_graveyard_choice(None if declined else str(answer))
-        elif kind == "tainted_pact":
-            # Tainted Pact: "take" the just-exiled card, or "continue"
-            # digging further at the risk of a duplicate name. A decline/
-            # missing answer defaults to "take" (the safe option).
-            self.rules.resolve_tainted_pact_choice("take" if declined else str(answer))
-        elif kind == "transmute_sacrifice":
-            # Transmute Artifact stage 1: which of the player's own
-            # artifacts to sacrifice — the option id is its instance id.
-            self.rules.resolve_transmute_sacrifice_choice(None if declined else str(answer))
-        elif kind == "transmute_search":
-            # Transmute Artifact stage 2: which artifact card was found (or
-            # decline) — the option id is a library card's instance id.
-            self.rules.resolve_transmute_search_choice(None if declined else str(answer))
-        elif kind == "transmute_pay_x":
-            # Transmute Artifact stage 3: pay the mana-value difference, or
-            # let the found card go to its owner's graveyard instead.
-            self.rules.resolve_transmute_pay_x_choice(None if declined else str(answer))
-        elif kind in (
-            "choose_creature_type", "choose_color", "choose_named_mode", "choose_basic_land_type",
-            "choose_card_name", "choose_number",
-        ):
-            # RULE 601.2b(-adjacent): a mandatory pick (no "decline" option
-            # is ever offered) — the option id is a creature-type name, a
-            # WUBRG colour letter, (``choose_named_mode``) a lowercase mode
-            # slug (Struggle for Project Purity's "choose Brotherhood or
-            # Enclave"), (``choose_basic_land_type``, PAR-4) a basic land
-            # type name, (``choose_card_name``, MEC-12) an arbitrary card
-            # name, or (``choose_number``, MEC-43) an integer as a string —
-            # `resolve_enter_choice` defaults an unrecognized/missing answer
-            # to the first offered option for every kind except the last
-            # two, whose free-text answer is passed straight through
-            # (``choose_number`` further defaults an unparseable answer to
-            # 0, since it has no offered options to fall back on at all).
-            self.rules.resolve_enter_choice(None if declined else str(answer))
-        elif kind == "choose_protector":
-            # RULE 310.8a/310.11a: which player protects an entering battle —
-            # a mandatory pick (no "decline" is offered), the option id being
-            # a player id; `resolve_protector_choice` defaults an
-            # unrecognized/missing answer to the first eligible player, same
-            # treatment as choose_creature_type above.
-            self.rules.resolve_protector_choice(None if declined else str(answer))
-        elif kind == "read_ahead":
-            # RULE 702.155/714.3b: a mandatory pick (no "decline" option is
-            # ever offered) — the option id is the chosen lore-counter count
-            # as a string; `resolve_read_ahead_choice` defaults an
-            # unrecognized/missing answer to 1 (no read-ahead), same
-            # treatment as choose_creature_type.
-            self.rules.resolve_read_ahead_choice(None if declined else str(answer))
-        elif kind == "counter_unless_pays":
-            # RULE 601: "pay" saves the target spell, anything else counters it.
-            self.rules.resolve_counter_unless_pays_choice(None if declined else str(answer))
-        elif kind == "change_target":
-            # RULE 115.4/601.2c: Misdirection/Deflecting Swat's own
-            # retarget — the option id is the new target's instance id or
-            # player id, or a decline (only offered when optional) leaving
-            # the spell's existing target untouched.
-            self.rules.resolve_change_target_choice(None if declined else str(answer))
-        elif kind == "ward":
-            # RULE 702.21: "pay" saves the caster's spell/ability, anything
-            # else counters it — the caster decides, not the target's
-            # controller (unlike counter_unless_pays).
-            self.rules.resolve_ward_choice(None if declined else str(answer))
-        elif kind == "sacrifice_unless_pay":
-            # RULE 701.17: "sacrifice ~ unless you pay <cost>" (Arcades
-            # Sabboth/Breeding Pit) — "pay" keeps the permanent, anything
-            # else sacrifices it. Same pay-or-lose-it shape as ward.
-            self.rules.resolve_sacrifice_unless_pay_choice(
-                None if declined else str(answer)
-            )
-        elif kind == "sacrifice_or_discard":
-            # "…sacrifice a nonland permanent of their choice or discard a
-            # card." (Tergrid's Lantern, MEC-43 round 4E) — mandatory (no
-            # decline offered here; declining the *cost itself* already
-            # happened one level up, in the enclosing pay_cost_then
-            # choice), so a missing/unrecognized answer re-checks both
-            # halves rather than silently paying nothing.
-            self.rules.resolve_sacrifice_or_discard_choice(None if declined else str(answer))
-        elif kind == "destroy_unless_pay":
-            # RULE 701.16 + an "unless" payment (The Tabernacle at Pendrell
-            # Vale's granted upkeep trigger) — "pay" keeps the permanent,
-            # anything else destroys it (regenerable, unlike
-            # sacrifice_unless_pay above).
-            self.rules.resolve_destroy_unless_pay_choice(
-                None if declined else str(answer)
-            )
-        elif kind == "commander_zone":
-            # RULE 903.9a/9b: "command" moves the commander to the command
-            # zone instead of wherever it landed/was headed; anything else
-            # leaves it there.
-            self.rules.resolve_commander_zone_choice(None if declined else str(answer))
-        elif kind == "choose_dungeon":
-            # RULE 309.2a: which dungeon card to bring in from outside the
-            # game — mandatory (venturing always enters one), so a decline
-            # still picks rather than aborting the venture.
-            self.rules.resolve_choose_dungeon_choice(None if declined else str(answer))
-        elif kind == "venture_room":
-            # RULE 701.49b: which arrow to follow out of the current room —
-            # mandatory for the same reason; the option id is the room name.
-            self.rules.resolve_venture_room_choice(None if declined else str(answer))
-        elif kind == "scry":
-            # RULE 701.18: the option id is one of the looked-at cards
-            # (bottom it, or — in the ordering phase — place it next from
-            # the top). Declining means "leave what's left as it is" in
-            # both phases; see `RulesEngine._LOOK_TOP_KINDS`.
-            self.rules.resolve_scry_choice(None if declined else int(answer))
-        elif kind == "surveil":
-            # RULE 701.31: the same decision as scry with the graveyard
-            # where scry has the bottom of the library.
-            self.rules.resolve_surveil_choice(None if declined else int(answer))
-        elif kind == "intuition_search":
-            # Intuition's own first phase: the searching player picks each
-            # card one at a time — mandatory unless ``search_optional``
-            # (MEC-41, Gifts Ungiven's "up to four") offers a real decline.
-            self.rules.resolve_intuition_search_choice(None if declined else int(answer))
-        elif kind == "intuition_choose":
-            # Intuition's own second phase: the *targeted opponent* (not
-            # the searcher) picks which revealed card goes to the
-            # searcher's hand — also mandatory ("chooses one").
-            self.rules.resolve_intuition_choose_choice(int(answer))
-        elif kind == "look_top_select":
-            # RULE 701.19-adjacent "look at top N, put M into hand, rest
-            # <destination>" (Anticipate-shaped) — the option id is one of
-            # the looked-at cards (select it for hand, or — in the
-            # ordering phase — place it next); decline only appears in the
-            # ordering phase, see `RulesEngine._look_top_select_choice`.
-            self.rules.resolve_look_top_select_choice(None if declined else int(answer))
-        elif kind == "manifest_dread":
-            # RULE 701.40a: which of the two looked-at cards is manifested
-            # face down (the other is milled) — mandatory, so a decline
-            # still manifests the top card rather than neither.
-            self.rules.resolve_manifest_dread_choice(None if declined else int(answer))
-        elif kind == "impulsive_look":
-            # Grisly Salvage/Commune with the Gods-shaped: the option id is
-            # one of the *peeled* cards' instance ids, or decline.
-            instance_id = None if declined else int(answer)
-            self.rules.resolve_impulsive_look_choice(instance_id)
-        elif kind == "remove_counters_amount":
-            # RULE 122: "remove up to N counters from target permanent" —
-            # the option id is the chosen amount (a string digit); a
-            # decline/missing answer defaults to 0 (remove nothing), unlike
-            # a mandatory pick, since 0 is itself always a legal answer here.
-            self.rules.resolve_remove_counters_amount_choice(None if declined else str(answer))
-        elif kind == "remove_counters_kind":
-            # The follow-up "which counter kind" choice, only opened when
-            # the target carries 2+ kinds — a mandatory pick (no "decline"
-            # option is ever offered), defaulted like choose_creature_type.
-            self.rules.resolve_remove_counters_kind_choice(None if declined else str(answer))
-        elif kind == "dredge":
-            # RULE 702.52a-c: replace a would-draw by milling a dredge
-            # card's N and returning it to hand — "you may", so a plain
-            # "draw" option / decline falls back to the deferred draw.
-            self.rules.resolve_dredge_choice(None if declined else str(answer))
-        elif kind == "peek_top_land":
-            # Explorer's Scope's "look at the top card, if it's a land you
-            # may put it onto the battlefield tapped" — "put" is the only
-            # option that does anything; a decline, or the non-land "ok"
-            # acknowledgement, both leave the library untouched.
-            self.rules.resolve_peek_top_land_choice(None if declined else str(answer))
-        else:  # search: a card's instance id, or decline
-            instance_id = None if declined else int(answer)
-            self.rules.resolve_search_choice(instance_id)
+        ENG-35: this used to be a 367-line ``if kind == …`` cascade, one
+        branch per choice kind, each naming a bespoke
+        `RulesEngine.resolve_*_choice` method and inlining that kind's answer
+        coercion. Both halves now live with the handler itself, registered in
+        `game/continuations.py`, so this is the client-facing wrapper it
+        always should have been: resume, then settle the board.
+
+        The split is deliberate. `RulesEngine.resolve_choice` is the rules
+        primitive — one step, like every other `RulesEngine` method — and
+        `resolve_until_stable` is the turn-loop's job, which is why it lives
+        here and not there.
+        """
+        immediate_play = self.state.resolution_play_waiting
+        self.rules.resolve_choice(answer)
+        if immediate_play:
+            self._finish_resolution_play()
+            return
         self.resolve_until_stable()
     def set_skip_untap(self, player: Player, obj: GameObject, value: bool) -> None:
         """Toggle RULE 502.1's "you may choose not to untap ~ during your

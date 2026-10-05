@@ -8,19 +8,19 @@ now). `segmenter._ADDITIONAL_COST_EXILE_GRAVEYARD_RE` +
 `_additional_cost_dict` recognise the clause; `GameEngine.
 _can_pay_additional_cast_cost` gates the cast on the graveyard holding
 enough matching cards and `_pay_additional_cast_cost` exiles them (auto-
-picked, like Escape's own cost). The "exile **x** cards" variant stays
-UNMODELED (no X-scaled additional cost field yet).
+picked, like Escape's own cost). X-scaled discard/exile costs use the spell's
+announced X exactly like the pre-existing pay-X-life family.
 """
 
 from __future__ import annotations
 
 from mtg_analyzer.game.costs import parse_activation_cost
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import _additional_cost_dict
 
-from tests.test_game_engine import creature, make_engine
+from tests.support.game import creature, make_engine
 
 
 # --- parse ---------------------------------------------------------------
@@ -35,9 +35,11 @@ def test_additional_cost_dict_recognises_typed_and_untyped_forms():
     }
 
 
-def test_additional_cost_dict_rejects_the_x_form():
-    # "exile x creature cards …" has no X-scaled additional-cost field yet.
-    assert _additional_cost_dict("exile x creature cards from your graveyard") is None
+def test_additional_cost_dict_recognises_the_x_forms():
+    assert _additional_cost_dict("discard x cards") == {"discard": "x"}
+    assert _additional_cost_dict("exile x creature cards from your graveyard") == {
+        "exile_from_graveyard": {"count": "x", "type": "creature"},
+    }
 
 
 def test_parse_activation_cost_threads_the_filter():
@@ -86,7 +88,7 @@ def _setup(gy_cards):
     p1.mana_pool.add_many({"U": 3})
     for c in gy_cards:
         p1.graveyard.append(GameObject(c, owner_id="p1", zone=Zone.GRAVEYARD))
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
     lancer = p1.hand[0]
     bind_from_catalogue(lancer)
     return eng, p1, lancer
@@ -108,3 +110,19 @@ def test_casts_and_exiles_a_creature_card_from_graveyard():
 
     assert all(o.card.id != "db" for o in p1.graveyard)      # left the graveyard
     assert any(o.card.id == "db" for o in p1.exile)          # …to exile, as the cost
+
+
+def test_x_scaled_graveyard_cost_uses_the_announced_x():
+    dead_bears = [
+        Card(id=f"db{i}", name=f"Dead Bear {i}", type_line="Creature — Bear",
+             is_creature=True, power=2, toughness=2)
+        for i in range(2)
+    ]
+    eng, p1, lancer = _setup(dead_bears)
+    lancer.additional_cast_cost = parse_activation_cost({
+        "exile_from_graveyard": {"count": "x", "type": "creature"},
+    })
+    assert eng.can_cast(p1, lancer, x=2) is True
+    assert eng.can_cast(p1, lancer, x=3) is False
+    eng.cast_spell(p1, lancer, x=2)
+    assert len(p1.exile) == 2

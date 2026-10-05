@@ -3,10 +3,10 @@
 Four shapes split out of PAR-30 once its parser-reachable vote grammar was
 exhausted:
 
-* **per-winning-option** (`request_vote(winner_specs=...)`) — apply *every*
+* **per-winning-option** (`_request_vote(winner_specs=...)`) — apply *every*
   tied-for-most option's spec list, plus an indefinite (RULE 611, no
   duration) self-scoped "protection from <colour>" grant. Council Guardian.
-* **targeted-tally** (`request_object_vote`) — each voter picks a board /
+* **targeted-tally** (`_request_object_vote`) — each voter picks a board /
   graveyard *object*, then exile / return each most-voted one. Council's
   Judgment, Custodi Squire.
 * **forced vote** (`set_forced_voter` / `GameState.forced_vote_controller_id`)
@@ -18,8 +18,8 @@ Plus Galadriel, Elven-Queen's parser residue (ring-tempts bare body, "your
 Ring-bearer" counter selector, "if another Elf entered … this turn"
 intervening-if).
 
-Reference: game/rules/misc_mixin.py (`request_vote`/`request_object_vote`/
-`_advance_expropriate_gain_control`), game/effects.py (`VoteEffect`/
+Reference: game/rules/misc_mixin.py (`_request_vote`/`_request_object_vote`/
+`_advance_expropriate_gain_control`), game/effects/core.py (`VoteEffect`/
 `ObjectVoteEffect`/`SetForcedVoterEffect`/`AddCountersEffect.ring_bearer`),
 game/static_conditions.py (`another_subtype_entered_this_turn`),
 parser/oracle/catalogue/handlers.py, parser/oracle/segmenter.py.
@@ -28,8 +28,8 @@ parser/oracle/catalogue/handlers.py, parser/oracle/segmenter.py.
 from __future__ import annotations
 
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 
@@ -190,7 +190,7 @@ def test_winner_specs_grants_indefinite_protection_from_every_leader():
     eng = _engine()
     src = _put(eng, "Council Guardian", "Creature — Giant Soldier",
                is_creature=True, power=5, toughness=5)
-    eng.rules.request_vote(
+    eng.rules._request_vote(
         source=src, controller_id="p1", options=["blue", "black", "red", "green"],
         winner_specs=[
             [{"type": "grant_until", "params": {
@@ -223,7 +223,7 @@ def test_object_vote_exiles_most_voted_nonland_permanent_not_yours():
              power=2, toughness=2)
     mine = _put(eng, "My Bear", "Creature — Bear", owner="p1", is_creature=True,
                 power=2, toughness=2)
-    eng.rules.request_object_vote(
+    eng.rules._request_object_vote(
         source=src, controller_id="p1",
         candidates=[a, b, mine], outcome="exile", prompt="x",
     )
@@ -241,7 +241,7 @@ def test_object_vote_returns_most_voted_graveyard_card_to_hand():
     relic = _put(eng, "Relic", "Artifact", owner="p1", zone=Zone.GRAVEYARD)
     bear = _put(eng, "Dead Bear", "Creature — Bear", owner="p1", zone=Zone.GRAVEYARD,
                 is_creature=True, power=2, toughness=2)
-    eng.rules.request_object_vote(
+    eng.rules._request_object_vote(
         source=src, controller_id="p1",
         candidates=[relic, bear], outcome="return_to_hand", prompt="x",
     )
@@ -259,7 +259,7 @@ def test_forced_voter_answers_every_ballot_and_clears_at_cleanup():
     assert eng.state.forced_vote_controller_id == "p1"
 
     voter = _put(eng, "Src", "Enchantment")
-    eng.rules.request_vote(
+    eng.rules._request_vote(
         source=voter, controller_id="p1", options=["a", "b"],
         majority_specs=[
             [{"type": "gain_life", "params": {"amount": 7}}],
@@ -282,7 +282,7 @@ def test_forced_voter_answers_every_ballot_and_clears_at_cleanup():
 def test_expropriate_time_votes_queue_extra_turns():
     eng = _engine()
     src = _put(eng, "Expropriate", "Sorcery", zone=Zone.STACK, is_sorcery=True)
-    eng.rules.request_vote(
+    eng.rules._request_vote(
         source=src, controller_id="p1", options=["time", "money"],
         per_vote_specs=[
             {"option": 0,
@@ -301,7 +301,7 @@ def test_expropriate_money_vote_gains_control_of_a_permanent_the_voter_owns():
     src = _put(eng, "Expropriate", "Sorcery", zone=Zone.STACK, is_sorcery=True)
     rock = _put(eng, "Bob Rock", "Artifact", owner="p2")
     gem = _put(eng, "Bob Gem", "Artifact", owner="p2")
-    eng.rules.request_vote(
+    eng.rules._request_vote(
         source=src, controller_id="p1", options=["time", "money"],
         per_vote_specs=[
             {"option": 0,
@@ -385,7 +385,7 @@ def test_winner_specs_noop_when_no_votes_cast():
     eng = _engine(players=1)
     src = _put(eng, "Council Guardian", "Creature — Giant Soldier",
                is_creature=True, power=5, toughness=5)
-    eng.rules.request_vote(
+    eng.rules._request_vote(
         source=src, controller_id="p1", options=["blue", "red"],
         winner_specs=[None, None],
     )

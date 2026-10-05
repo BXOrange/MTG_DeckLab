@@ -14,8 +14,11 @@ resolved kind straight into an effect's params.
 
 from __future__ import annotations
 
+import copy
 import re
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
+
+from .characteristic_phrase import KEYWORD_WORDS, parse_absent_quality
 
 #: The canonical vocabulary of nouns that name a permanent type/group,
 #: singular, concrete types first then the two abstract/negated readings
@@ -36,10 +39,33 @@ PERMANENT_TYPE_WORDS: tuple[str, ...] = (
     "artifact", "creature", "enchantment", "land", "planeswalker",
     "nonland permanent", "permanent",
 )
-#: `PERMANENT_TYPE_WORDS`, alternated (longest/most-specific member first,
-#: this file's usual convention — "nonland permanent" above bare
-#: "permanent"), for embedding inline in a handler's own regex.
-PERMANENT_TYPE_WORD = "|".join(PERMANENT_TYPE_WORDS)
+#: The five **printed card types** that name a permanent (RULE 300.1), as a
+#: regex alternation for embedding inline — `PERMANENT_TYPE_WORDS[:5]`, i.e.
+#: the concrete subset with the two abstract readings ("permanent", "nonland
+#: permanent") dropped: those are not card types, so a row that emitted one
+#: as a `card_type` selector would build a check that can never hold.
+#: PAR-63: replaced the zero-use full-list `PERMANENT_TYPE_WORD` join — no
+#: site ever wanted all seven words. Shared by `_TARGET_ROWS`' N-way
+#: permanent row below and `static_handlers`' `is_card_type` condition row.
+#: The one site that stays hand-rolled is `static_handlers`'
+#: `_GRAVEYARD_LIBRARY_ENTRY_PROHIBITION_RE`: it wants four of these (no
+#: "land") *plus* the non-card-type "nonland permanent" sentinel, a
+#: different member set this alternation deliberately doesn't carry.
+CARD_TYPE_WORD_ALT = "|".join(PERMANENT_TYPE_WORDS[:5])
+
+#: RULE 105.1's five colours → their WUBRG symbol. **The** map: PAR-63 found
+#: this exact five-entry dict declared eight times across five modules under
+#: six different private names (`_COLOR_WORDS`, `_COLOR_LETTERS`,
+#: `_COLOR_WORD_TO_LETTER`, `_COLOR_CONDITION_WORDS`, `_DEVOTION_COLOR_WORDS`),
+#: which is the cross-module duplication `14_` S5 is about — the colour words
+#: are a fact about Magic, not about any one handler family. Import it rather
+#: than re-declaring; a variant that needs colourless spells it as
+#: ``{**COLOR_LETTERS, "colorless": "C"}`` so the shared part stays shared.
+COLOR_LETTERS: dict[str, str] = {
+    "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G",
+}
+
+
 
 
 def pluralize_permanent_type(word: str) -> str:
@@ -53,11 +79,106 @@ def pluralize_permanent_type(word: str) -> str:
 
 
 def all_permanent_type_selector(word: str) -> str:
-    """A `PERMANENT_TYPE_WORDS` member (singular) → `game/effects.py`'s mass
+    """A `PERMANENT_TYPE_WORDS` member (singular) → `game/effects/core.py`'s mass
     ``all_<type>`` selector name (`DestroyEffect`/`ExileEffect`'s
     ``selector`` param) — "nonland permanent" → ``"all_nonland_permanents"``.
     """
     return "all_" + pluralize_permanent_type(word).replace(" ", "_")
+
+
+#: PAR-134: scope adjectives that name a characteristic other than a creature
+#: subtype → the `combat.matches_object_filter` fragment they mean. A word
+#: here must never reach the ``subtype`` param: ``_has_subtype`` would then
+#: look for a creature type nobody has and the static would silently affect
+#: nothing (or, for a negation, everything).
+SCOPE_ADJECTIVES: dict[str, dict] = {
+    "tapped": {"tapped": True},
+    "untapped": {"tapped": False},
+    "legendary": {"legendary": True},
+    "nonlegendary": {"nonlegendary": True},
+    "nontoken": {"nontoken": True},
+    "multicolored": {"multicolored": True},
+    "colorless": {"colorless": True},
+    "snow": {"snow": True},
+    "modified": {"modified": True},
+    "nonattacking": {"attacking": False},
+    "commander": {"is_commander": True},
+    # RULE 700.6: legendary supertype, artifact card type or Saga subtype.
+    "historic": {"any_of": [{"legendary": True}, {"card_type": "artifact"}, {"subtype": "Saga"}]},
+}
+
+#: Card types a "non<type>" adjective may negate (RULE 205.2a).
+_NEGATABLE_CARD_TYPES: frozenset[str] = frozenset(
+    {"artifact", "creature", "enchantment", "land", "planeswalker", "battle", "instant", "sorcery"}
+)
+
+#: "non<word>" / "non-<word>" — the negation of a colour, card type or subtype.
+_NON_WORD_RE = re.compile(r"non-?(?P<word>[a-z]+)")
+
+
+def scope_adjective(word: str) -> Optional[dict]:
+    """The filter fragment for one scope adjective (PAR-134), else ``None``."""
+    if word in SCOPE_ADJECTIVES:
+        return copy.deepcopy(SCOPE_ADJECTIVES[word])  # callers merge into their own dict
+    m = _NON_WORD_RE.fullmatch(word)
+    if m is None:
+        return None
+    negated = m.group("word")
+    if negated == "snow":  # a supertype (RULE 205.4g), not a subtype
+        return {"without_snow": True}
+    if negated in COLOR_LETTERS:
+        return {"without_color": [COLOR_LETTERS[negated]]}
+    if negated in _NEGATABLE_CARD_TYPES:
+        return {"without_card_type": negated}
+    return {"without_subtype": negated.capitalize()}  # "non-Wall", "nonhuman"
+
+
+#: PAR-141: an adjective before the noun of a targeted creature — "target **nontoken** creature", "target
+#: **legendary** creature you control", "target **Zombie** creature", "target **artifact** creature" — a slot
+#: like the quality/scope tails, not a row per word. One vocabulary: the scope adjectives above, a
+#: "non<word>" negation, a colour, a card-type word, or a subtype from the generated list. The combat-state
+#: words (attacking/blocking/tapped/untapped) keep their own older row.
+_UNMODELED_SUPERTYPES = frozenset({"basic", "world", "ongoing"})
+_ADJECTIVE_STATE_WORDS = frozenset({"attacking", "blocking", "tapped", "untapped"})
+_ADJECTIVE_COLOR_WORDS = frozenset(w for w in COLOR_LETTERS if w != "colorless")
+_ADJECTIVE_TYPE_WORDS = frozenset({"artifact", "enchantment", "land", "planeswalker"})
+
+
+def target_adjective_filter(word: str) -> Optional[dict]:
+    """One pre-noun adjective of a target phrase → its `combat.matches_object_filter` fragment, else
+    ``None`` (fail closed — a word that is none of the vocabulary is never guessed to be a subtype)."""
+    from .subtype_vocabulary import SUBTYPES
+
+    w = word.lower()
+    if w in _ADJECTIVE_STATE_WORDS:
+        return None
+    if w == "werewolf":
+        return {}  # its own kind (`werewolf_creature`) already is the filter — nothing to merge
+    # A negated *supertype* other than the ones `scope_adjective` models would become a bogus
+    # subtype filter ("nonbasic" → Basic): fail closed instead.
+    if w.startswith("non") and re.sub(r"^non-?", "", w) in _UNMODELED_SUPERTYPES:
+        return None
+    scoped = scope_adjective(w)
+    if scoped is not None:
+        return scoped
+    if w in _ADJECTIVE_COLOR_WORDS:
+        return {"color": COLOR_LETTERS[w]}
+    if w in _ADJECTIVE_TYPE_WORDS:
+        return {"card_type": w}
+    if w in SUBTYPES:
+        return {"subtype": w.capitalize()}
+    return None
+
+
+def _adjective_alternation() -> str:
+    from .subtype_vocabulary import SUBTYPES
+
+    words = {*SCOPE_ADJECTIVES, *_ADJECTIVE_COLOR_WORDS, *_ADJECTIVE_TYPE_WORDS, *SUBTYPES}
+    words -= _ADJECTIVE_STATE_WORDS
+    return r"non-?[a-z]+|" + "|".join(sorted((re.escape(w) for w in words), key=len, reverse=True))
+
+
+TARGET_ADJECTIVE = _adjective_alternation()
 
 
 #: Ordered (regex-fragment, target_kind) rows. **Longest / most specific
@@ -86,14 +207,23 @@ _TARGET_ROWS: list[tuple[str, str]] = [
      "artifact_creature_planeswalker_or_opponent"),
     # "target creature or planeswalker you don't control" (Bite Down) — the
     # controller-scoped sibling of the bare row just below, and above it by
-    # the longest-first convention. Both drop the planeswalker half (this
-    # engine's ``creature`` kinds are creature-only): a *narrowing*, never a
-    # widening, and the same simplification the unscoped row already makes.
+    # the longest-first convention. PAR-127: both used to drop the
+    # planeswalker half onto a ``creature`` kind (83 MODELED cards that could
+    # never target a planeswalker); they now name the real two-type unions.
     (r"target creature or planeswalker (?:an opponent controls|you don't control)",
-     "creature_you_dont_control"),
-    (r"target creature or planeswalker", "creature"),
-    (r"target attacking or blocking creature", "creature"),
+     "creature_or_planeswalker_you_dont_control"),
+    (r"target creature or planeswalker", "creature_or_planeswalker"),
+    (r"target attacking or blocking creature", "attacking_or_blocking_creature"),
     (r"target (?:attacking|blocking|tapped|untapped) creature", "creature"),
+    (r"target werewolf creature", "werewolf_creature"),
+    # PAR-141: "target `<adjective>` creature [you control]" — the adjective is read back as a filter
+    # fragment by `target_adjective_filter` (`resolve_target_creature_state_filter`), never dropped:
+    # `handlers.EffectHandler.match` refuses a builder that loses it.
+    (rf"target (?:{TARGET_ADJECTIVE}) creature you control", "creature_you_control"),
+    (rf"target (?:{TARGET_ADJECTIVE}) creature", "creature"),
+    # An ATTACKS trigger's defending player is carried on the event; this is
+    # narrower than an arbitrary opponent-controlled creature.
+    (r"target creature defending player controls", "creature_defending_player_controls"),
     # "another target creature you control" (RULE 109.5 — the ability's own
     # source is excluded; Duke Ulder Ravengard, Blooming Stinger, Heavenly
     # Qilin). The engine's `other_creature_you_control` kind (targeting.py)
@@ -112,11 +242,18 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # mirror image, onto the already-existing `creature_you_dont_control`
     # kind. Also above the bare "target creature" row.
     (r"target creature (?:an opponent controls|you don't control)", "creature_you_dont_control"),
+    # "another target creature" (RULE 109.5 — The Scorpion God's "{1}{B}{R}:
+    # Put a -1/-1 counter on another target creature") — "another" adds no
+    # distinct engine kind (the bare `creature` pick already excludes the
+    # ability's own source, RULE 115.6), exactly like the "another target
+    # permanent" → `permanent` row further down.
+    (r"(?:another|other) target creature", "creature"),
     (r"target creature", "creature"),
     # "target legendary permanent" (Minamo, School at Water's Edge) — a
     # supertype-filtered pick (RULE 205.4a), above the bare "target
     # permanent" row below so the longer phrase wins.
     (r"target legendary permanent", "legendary_permanent"),
+    (r"(?:another |other )?target historic permanent you control", "historic_permanent_you_control"),
     # "target permanent an opponent controls" (Assassin's Trophy/
     # Geomancer's Gambit) — the controller-scoped sibling of the bare
     # "target permanent" row below, mirroring "target creature an opponent
@@ -141,9 +278,24 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # ``"permanent"`` branch offers every permanent regardless of type, not
     # just the printed subset — the same simplification the 2-way row below
     # already ships).
-    (rf"target (?:{'|'.join(PERMANENT_TYPE_WORDS[:5])})"
-     rf"(?:, (?:{'|'.join(PERMANENT_TYPE_WORDS[:5])}))*"
-     rf",? or (?:{'|'.join(PERMANENT_TYPE_WORDS[:5])})", "permanent"),
+    # PAR-128: the two-type unions the engine has a dedicated pool for sit
+    # *above* the N-way row — it matches a two-word "X or Y" too, and used to
+    # turn Naturalize's "target artifact or enchantment" into any permanent.
+    (r"target artifact or enchantment", "artifact_or_enchantment"),
+    (r"target (?:artifact or creature|creature or artifact)", "artifact_or_creature"),
+    # PAR-104: "target artifact, enchantment, or creature [with flying]" (Mutant Chain Reaction, Spider Food, Broken
+    # Wings, Exorcise, Vivien Reid, …) — the three-type union in any printed order, with the dedicated pool the engine
+    # already has rather than the broad ``"permanent"`` the N-way row below would pick (which also offers lands). A
+    # trailing quality narrows only its creature members (`TargetFrame.creature_filter_creatures_only`).
+    (r"target (?:artifact, enchantment,? or creature|artifact, creature,? or enchantment|"
+     r"enchantment, artifact,? or creature|enchantment, creature,? or artifact|"
+     r"creature, artifact,? or enchantment|creature, enchantment,? or artifact)",
+     "artifact_creature_or_enchantment"),
+    # Batch 4: "target token [you control]" — any token (RULE 111.1), its controller scope composed below.
+    (r"target token", "token"),
+    (rf"target (?:{CARD_TYPE_WORD_ALT})"
+     rf"(?:, (?:{CARD_TYPE_WORD_ALT}))*"
+     rf",? or (?:{CARD_TYPE_WORD_ALT})", "permanent"),
     # "target artifact or enchantment" (Archdruid's Charm) — the dedicated
     # union kind `targeting.legal_targets` already implements, rather than
     # the broad ``"permanent"`` the N-way row above deliberately keeps (RULE
@@ -160,9 +312,20 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # type phrase there too.
     (r"target artifact", "artifact"),
     (r"target enchantment", "enchantment"),
+    # PAR-135: "target Equipment [you control]" (Magnetic Theft, Auriok Windwalker) — the subtype-filtered
+    # pool `targeting` already had for `equipment_you_control`; the bare row is any player's Equipment and
+    # an "an opponent controls"/"that player controls" tail composes onto it like any other row.
+    (r"target equipment you control", "equipment_you_control"),
+    (r"target equipment", "equipment"),
     # "target Forest" (Arbor Elf) — a specific basic land subtype, above
     # the bare "target land" row so the longer/more specific phrase wins.
     (r"target forest", "forest"),
+    # "target creature or land you control" (PAR-124, Vengeant Earth's own
+    # animate-either spell) — a type union scoped to the controller, above
+    # the bare "target land you control" row so the longer phrase wins;
+    # mirrors `creature_or_enchantment_you_control`'s own union shape
+    # (targeting.py) but over creature/land instead of creature/enchantment.
+    (r"target creature or land you control", "creature_or_land_you_control"),
     # "target land you control" / "target land an opponent controls" (PAR-29
     # — Political Trickery/Vedalken Plotter's own exchange-control targets)
     # — the controller-scoped pair, above the bare "target land" row so the
@@ -170,6 +333,20 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # creature an opponent controls" above.
     (r"target land you control", "land_you_control"),
     (r"target land (?:an opponent controls|you don't control)", "land_you_dont_control"),
+    # "target nonbasic land [an opponent controls]" (Fulminator Mage / Dust
+    # Bowl / Field of Ruin / Demolition Field / Ravenous Baboons — 21 SOLO
+    # blockers) — RULE 205.4 supertype filter. `targeting.legal_targets`
+    # already has a fully-implemented ``nonbasic_land`` branch (built for
+    # Encroaching Wastes); the controller-scoped ``nonbasic_land_you_dont_
+    # control`` mirror is new, matching the `land_you_dont_control` pattern.
+    # Above the bare "target land" row so the longer phrase wins.
+    (r"target nonbasic land (?:an opponent controls|you don't control)",
+     "nonbasic_land_you_dont_control"),
+    (r"target nonbasic land", "nonbasic_land"),
+    # PAR-98: Siege of Towers' basic-land-subtype target.  This is a land
+    # characteristic, not the generic ``target land`` frame.
+    (r"target mountain", "mountain"),
+    (r"target forest", "forest"),
     # "target land" (Sinkhole) — same RULE 115.1c precision as the artifact/
     # enchantment rows just above.
     (r"target land", "land"),
@@ -187,18 +364,26 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # "target nonland permanent you control" (PAR-30 — Daring Thief / Puca's
     # Mischief exchange-control targets); the controller-scoped sibling,
     # above the bare row so the longer phrase wins.
-    (r"target nonland permanent you control", "nonland_permanent_you_control"),
+    (r"(?:another |other )?target nonland permanent you control", "nonland_permanent_you_control"),
     # "[up to one] other target nonland permanent" (RULE 109.5 — Invasion
     # Submersible's ETB); "other" adds no distinct kind, same call as the
     # "another target permanent" row just below.
     (r"(?:another|other) target nonland permanent", "nonland_permanent"),
     (r"target nonland permanent", "nonland_permanent"),
+    # "destroy target noncreature permanent" (Bramblecrush, Woodfall Primus — PAR-128):
+    # the engine's `noncreature_permanent` pool, lands included (RULE 205.4a).
+    (r"target noncreature permanent", "noncreature_permanent"),
     # "another target permanent" (RULE 109.5 — Legerdemain's second
     # exchange-control target; `other_permanent` isn't a distinct engine
     # kind, so it routes to the plain broad ``permanent`` pool like the
     # N-way row above, the same precision this file already accepts there).
     (r"(?:another|other) target permanent", "permanent"),
     (r"target spell", "spell"),
+    # The opponent-only sibling is already a real engine pool (built for
+    # the Enrage reflection family); keep it distinct from the broader
+    # "player or planeswalker" row below so its player half cannot choose
+    # the controller.
+    (r"target opponent or planeswalker", "opponent_or_planeswalker"),
     (r"target player or planeswalker", "player"),
     (r"target opponent", "player"),
     (r"target player", "player"),
@@ -210,6 +395,17 @@ _TARGET_ROWS: list[tuple[str, str]] = [
 #: chosen player). `catalogue.handlers`'s selector-based damage handler
 #: (``each_creature``/``each_player``/``each_opponent``) claims those
 #: phrases on its own, bypassing TARGET entirely.
+
+#: An optional self-subject prefix a resolve-time effect clause may open
+#: with — "~ deals 3 damage…"/"it deals 3 damage…" (a triggered ability's
+#: own elided-source subject, English writing "it" for the permanent whose
+#: ability this is)/"this creature deals…"/"this land deals…"/"this
+#: permanent deals…". Purely cosmetic: the source is already bound at bind
+#: time regardless of which word prints, so every consumer just needs it
+#: stripped the same way. Was hand-typed identically at many separate call
+#: sites in `handlers.py`'s damage family before this existed (docs/09
+#: "Factor shared sub-grammars"; PAR-61's port of the `81c3320` prototype).
+SELF_SUBJECT_PREFIX = r"(?:(?:~|it|he|she|this creature|this land|this permanent) )?"
 
 #: An optional "up to one "/"up to 1 " prefix (RULE 115.1a) a TARGET phrase
 #: may carry — "destroy up to one target creature" is the same choice as
@@ -229,7 +425,58 @@ UP_TO_ONE = r"(?:up to (?:one|1) )?"
 #: anchored itself. The optional ``up_to_one`` group sits *outside* ``target``
 #: so `resolve_target_kind` keeps seeing exactly the row text it already
 #: matches against.
-_TARGET_ALT = "|".join(f"(?:{frag})" for frag, _ in _TARGET_ROWS)
+#: PAR-128: the controller scope ("an opponent controls" / "you don't control")
+#: is a slot after *any* row, not a row per type × scope. `resolve_target_kind`
+#: composes it onto the row's kind through `NOT_YOU_TARGET_KINDS`; a row that
+#: already names its own scope still wins (it is tried first, full-match).
+NOT_YOU_TAIL = r" (?:an opponent controls|you don't control)"
+#: Batch 4: "you control" is the same kind of slot — composed onto the pools the engine has a
+#: ``*_you_control`` frame for (`YOU_TARGET_KINDS`); a pool without one stays unclaimed.
+YOU_TAIL = r" you control"
+#: PAR-130: "that player controls" is the same kind of slot, scoped to a
+#: player the *trigger head* names (the damaged/attacked/active player, the
+#: controller of a targeting spell). The slot itself can't see its antecedent,
+#: so `gate` rejects any ability that carries a ``THAT_PLAYER_TARGET_KINDS``
+#: kind without such a head (`gate._that_player_antecedent_ok`).
+THAT_PLAYER_TAIL = r" that player controls"
+#: PAR-128: RULE 109.5's "another"/"other" is the same kind of slot, before any row.
+OTHER_PREFIX = r"(?:another|other) "
+#: PAR-141: a negated quality on a targeted creature ("target creature **without flying**", "target
+#: creature you control **that doesn't have a +1/+1 counter on it**") — a slot like the controller
+#: scope above, not a row per phrase. The same vocabulary as `characteristic_phrase`'s "without …"
+#: tail (keyword words, counter kinds). `target_quality_filter` reads it back as a
+#: `combat.matches_object_filter` fragment and `resolve_target_kind` drops it; a handler that
+#: matched one without merging that fragment is refused by `handlers.EffectHandler.match`.
+_QUALITY_KEYWORDS = "|".join(sorted(KEYWORD_WORDS, key=len, reverse=True))
+#: PAR-135: "any target **that isn't a Dinosaur**" / "target creature that isn't a commander" — the
+#: negated *identity* of a target (a subtype, a card type or the commander designation), the sibling of
+#: the negated keyword/counter above. The word is read back by `isnt_a_filter`; one outside that
+#: vocabulary makes the kind unresolved (`resolve_target_kind`) rather than a silently dropped filter.
+_ISNT_A_TAIL = r" that isn'?t an? [a-z]+"
+TARGET_QUALITY_TAIL = (
+    r"(?: (?:without|that doesn't have|that has no) "
+    rf"(?:(?:{_QUALITY_KEYWORDS})|(?:an? )?(?:(?:\+1/\+1|-1/-1|[a-z]+) )?counters? on it)"
+    rf"|{_ISNT_A_TAIL})"
+)
+#: The pools whose `targeting.TargetFrame` applies ``creature_filter`` — the only kinds a quality
+#: may narrow (any other would carry a filter nothing reads).
+_QUALITY_TARGET_KINDS = frozenset({
+    "creature", "creature_you_control", "other_creature_you_control",
+    "creature_you_dont_control", "creature_that_player_controls",
+    "artifact_creature_or_enchantment",  # its creature members only
+})
+_TARGET_SCOPE_TAIL = f"(?:{NOT_YOU_TAIL}|{THAT_PLAYER_TAIL}|{YOU_TAIL})"
+#: "target creature without flying **that's attacking you**" (Snow Fortress, Hunting Kavu) — the creature
+#: attacks the ability's controller (RULE 506.2): `targeting._creature_matches_filter`'s ``attacking_you``.
+ATTACKING_YOU_TAIL = r" that'?s attacking you"
+_TARGET_ALT = (
+    f"(?:{OTHER_PREFIX})?"
+    "(?:" + "|".join(f"(?:{frag})" for frag, _ in _TARGET_ROWS) + ")"
+    # The quality may sit on either side of a trailing scope ("without flying you don't control",
+    # Street Spasm) but appears at most once.
+    f"(?:{TARGET_QUALITY_TAIL}{_TARGET_SCOPE_TAIL}?|{_TARGET_SCOPE_TAIL}?(?:{TARGET_QUALITY_TAIL})?)"
+    f"(?:{ATTACKING_YOU_TAIL})?"
+)
 TARGET = (
     r"(?P<up_to_one>" + UP_TO_ONE + r")"
     r"(?P<target>" + _TARGET_ALT + r")"
@@ -273,7 +520,7 @@ COUNT = r"(?P<n>a|an|\d+)"
 #: specific handler to `COUNT_X` (+ `count_or_x_of`) as a real card needs
 #: it, the same "generalize the fragment, not blindly the call sites"
 #: split `_rad_counter_amount` used before this existed.
-COUNT_X = r"(?P<n>a|an|x|\d+)"
+COUNT_X = r"(?P<n>a|an|x|twice x|\d+)"
 
 #: RULE 202.2f/700.6 "your devotion to <colour>[ and <colour>[ and
 #: <colour>]]" (Purphoros/Heliod/Athreos/Karametra-shaped) or one of the five
@@ -287,9 +534,8 @@ COUNT_X = r"(?P<n>a|an|x|\d+)"
 #: once each, regardless of which two colours it's between, unlike ordinary
 #: devotion where a hybrid pip counts toward *both* its colours) is its own
 #: ``devotion_to_hybrid`` reading, not a colour/wedge name at all.
-_DEVOTION_COLOR_WORDS: dict[str, str] = {
-    "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G",
-}
+#: PAR-63: was its own copy of the five-colour map, in this same file.
+_DEVOTION_COLOR_WORDS = COLOR_LETTERS
 _DEVOTION_WEDGE_WORDS: frozenset[str] = frozenset({"abzan", "jeskai", "mardu", "sultai", "temur"})
 #: RULE 613.7c's much wider "X is the number of `<noun phrase>` you
 #: control" family (MEC-12's own count-amount resolver gap — 446 cards
@@ -310,26 +556,12 @@ _DEVOTION_WEDGE_WORDS: frozenset[str] = frozenset({"abzan", "jeskai", "mardu", "
 #: `tapped_creatures_you_control` name every existing caller/test already
 #: expects). Still fail-closed on anything wider — a toughness qualifier, or
 #: a power qualifier on anything but the bare "creatures" word — same as
-#: every other row here. The type-word branch only strips a trailing "s"
-#: (`_singularize`) — a real but rarer gap on irregular plurals ("Elves",
-#: "Wolves") than building a full pluralization table is worth for now.
+#: every other row here. The single-word branch is read by the shared count
+#: grammar (`subtype_count_selector`), which knows irregular plurals and
+#: non-creature subtypes.
 _COUNT_PHRASE_BARE_WORDS: frozenset[str] = frozenset(
     {"creatures", "permanents", "artifacts", "lands", "enchantments", "planeswalkers"}
 )
-#: Single-word noun phrases the `count_subtype` catch-all must *not* guess as
-#: a creature subtype — real cards printing "the number of `<X>` you
-#: control" where `<X>` is an artifact-subtype (Bobblehead) or enchantment-
-#: subtype (Shrine) token name, found while sizing MEC-27's own "draw"/
-#: "life-gain" verb-family widening: `devotion_selector`'s catch-all always
-#: emits `creatures_you_control_of_type_<word>`, which is simply wrong for
-#: these (no card's Shrine/Bobblehead is also a creature), so the count
-#: would always read 0 rather than the printed value — the same
-#: "guessing produces a card that resolves to nothing" failure this file's
-#: fail-closed convention exists to avoid. A denylist rather than an
-#: allowlist of real creature types, matching `static_handlers.
-#: _NONCREATURE_TYPES`'s own idiom: this module has no card database to
-#: validate a subtype word against, only specific words already known bad.
-_COUNT_PHRASE_NONCREATURE_SUBTYPE_WORDS: frozenset[str] = frozenset({"shrines", "bobbleheads"})
 #: Two-word compound noun phrases with their own dedicated
 #: `continuous.count_selector` entry, rather than the bare-word ``_you_
 #: control`` suffix pattern above (Eiganjo, Seat of the Empire/Ghostfire
@@ -366,7 +598,7 @@ DEVOTION = (
 )
 
 
-def devotion_selector(m: "re.Match[str]") -> Optional[str]:
+def devotion_selector(m: "re.Match[str]") -> "Optional[str | dict[str, Any]]":
     """A `DEVOTION` match's groups → `continuous.count_selector`'s name, or
     ``None`` if somehow no group fired. Named for its original, narrower
     devotion-only purpose; also resolves the wider "the number of `<noun
@@ -431,13 +663,161 @@ def devotion_selector(m: "re.Match[str]") -> Optional[str]:
             parts.append(_tapped_part(tapped2))
         return f"tapped_{'_and_or_'.join(parts)}_you_control"
     subtype = m.groupdict().get("count_subtype")
-    if (
-        subtype
-        and subtype not in _COUNT_PHRASE_BARE_WORDS
-        and subtype not in _COUNT_PHRASE_NONCREATURE_SUBTYPE_WORDS
-    ):
-        return f"creatures_you_control_of_type_{_singularize(subtype)}"
+    if subtype and subtype not in _COUNT_PHRASE_BARE_WORDS:
+        # "the number of `<word>` you control": the shared count grammar reads
+        # the word — a subtype on any permanent (Gates, Auras, Shrines, Forests),
+        # a card type ("lands"), an irregular plural ("Elves") — and refuses a
+        # word it doesn't know, rather than guessing a creature type.
+        return subtype_count_selector(subtype)
     return None
+
+
+def subtype_count_selector(word: str) -> Optional[dict[str, Any]]:
+    """ "`<word>` you control" → the structured count selector, or ``None``."""
+    from .count_phrase import parse_count_phrase  # function-scoped: count_phrase is a sibling grammar
+
+    return parse_count_phrase(f"{word.lower()} you control")
+
+
+#: PAR-128: a target kind → the same pool scoped to permanents you don't
+#: control (`targeting.TARGET_FRAMES`' ``SCOPE_NOT_YOU`` over that kind's type
+#: pool; `tests/test_par128_target_scope.py` keeps the two in step — this
+#: module can't import `game/`). A kind missing here has no scoped engine
+#: kind, so its scoped phrase stays unclaimed.
+NOT_YOU_TARGET_KINDS: dict[str, str] = {
+    "creature": "creature_you_dont_control",
+    "permanent": "permanent_you_dont_control",
+    "nonland_permanent": "nonland_permanent_you_dont_control",
+    "land": "land_you_dont_control",
+    "nonbasic_land": "nonbasic_land_you_dont_control",
+    "artifact": "artifact_you_dont_control",
+    "enchantment": "enchantment_you_dont_control",
+    "equipment": "equipment_you_dont_control",
+    "artifact_or_enchantment": "artifact_or_enchantment_you_dont_control",
+    "artifact_or_creature": "artifact_or_creature_you_dont_control",
+    "artifact_creature_or_enchantment": "artifact_creature_or_enchantment_you_dont_control",
+    "creature_or_planeswalker": "creature_or_planeswalker_you_dont_control",
+}
+#: Batch 4: a target kind → the same pool scoped to permanents you control (`targeting.TARGET_FRAMES`'
+#: ``SCOPE_YOU`` over that kind's pool; `tests/test_par102_...`-style sync test in `test_batch4_token_copy`).
+YOU_TARGET_KINDS: dict[str, str] = {
+    "token": "token_you_control",
+    "other_land": "other_land_you_control",
+    "artifact": "artifact_you_control",
+    "enchantment": "enchantment_you_control",
+    "artifact_or_enchantment": "artifact_or_enchantment_you_control",
+}
+#: PAR-130: a target kind → the same pool scoped to "that player"
+#: (`targeting.TARGET_FRAMES`' ``SCOPE_THAT_PLAYER`` rows). Same contract as
+#: `NOT_YOU_TARGET_KINDS`: a kind missing here stays unclaimed.
+THAT_PLAYER_TARGET_KINDS: dict[str, str] = {
+    base: f"{base}_that_player_controls" for base in (
+        "creature", "creature_or_planeswalker", "permanent", "nonland_permanent", "land",
+        "nonbasic_land", "artifact", "enchantment", "artifact_or_enchantment",
+        "artifact_or_creature", "equipment",
+    )
+}
+#: PAR-128: kinds whose engine pool already leaves out the ability's own source
+#: (`targeting.TARGET_FRAMES`' ``exclude_source``, and the plain ``creature``/
+#: ``permanent`` branches), so "another target `<X>`" is the same kind. A kind
+#: that includes its source has an "other" sibling here or fails closed.
+SOURCE_EXCLUDED_TARGET_KINDS: frozenset[str] = frozenset({
+    "creature", "permanent", "nonland_permanent", "artifact", "enchantment",
+    "nonbasic_land", "artifact_or_creature", "artifact_or_enchantment",
+    "attacking_or_blocking_creature", "permanent_you_control", "permanent_you_dont_control",
+    "nonland_permanent_you_control", "nonland_permanent_you_dont_control",
+    "other_creature_you_control", "creature_or_planeswalker",
+})
+OTHER_TARGET_KINDS: dict[str, str] = {
+    "creature_you_control": "other_creature_you_control",
+    "land": "other_land",
+    "land_you_control": "other_land_you_control",
+}
+#: A controller-/"another"-scoped kind → the unscoped kind whose pool it
+#: narrows (RULE 109.5/115.1). A verb that can act on the unscoped kind can act
+#: on any narrowing of it, so `target_kind_allowed` reads a verb's whitelist
+#: through this instead of every verb listing every scope.
+SCOPED_TARGET_BASE: dict[str, str] = {
+    **{scoped: base for base, scoped in NOT_YOU_TARGET_KINDS.items()},
+    **{scoped: base for base, scoped in THAT_PLAYER_TARGET_KINDS.items()},
+    "creature_you_control": "creature",
+    "other_creature_you_control": "creature",
+    "permanent_you_control": "permanent",
+    "nonland_permanent_you_control": "nonland_permanent",
+    "land_you_control": "land",
+    "other_land": "land",
+    "other_land_you_control": "other_land",
+    "artifact_or_creature_you_control": "artifact_or_creature",
+    "token_you_control": "token",
+    "token": "permanent",
+    "artifact_you_control": "artifact",
+    "enchantment_you_control": "enchantment",
+    "artifact_or_enchantment_you_control": "artifact_or_enchantment",
+    # a type union is a narrowing of "any permanent"
+    "artifact_or_enchantment": "permanent",
+    "artifact_or_creature": "permanent",
+    "creature_or_planeswalker": "permanent",
+    # PAR-128: "noncreature permanent" narrows "any permanent" by a type exclusion.
+    "noncreature_permanent": "permanent",
+}
+
+
+def target_kind_allowed(kind: Optional[str], allowed: "Iterable[str]") -> bool:
+    """Whether a verb whose whitelist is ``allowed`` can take a ``kind`` target —
+    the kind itself, or a scoped narrowing of an allowed kind."""
+    if kind is None:
+        return False
+    allowed = allowed if isinstance(allowed, (set, frozenset, dict)) else tuple(allowed)
+    while kind is not None:
+        if kind in allowed:
+            return True
+        kind = SCOPED_TARGET_BASE.get(kind)
+    return False
+
+
+_TARGET_QUALITY_RE = re.compile(TARGET_QUALITY_TAIL, re.IGNORECASE)
+_ATTACKING_YOU_RE = re.compile(ATTACKING_YOU_TAIL, re.IGNORECASE)
+_QUALITY_OBJECT_RE = re.compile(r"^ (?:without|that doesn't have|that has no) ")
+_ISNT_A_RE = re.compile(r"^ that isn'?t an? (?P<word>[a-z]+)$", re.IGNORECASE)
+
+
+def isnt_a_filter(word: str) -> Optional[dict]:
+    """The negated-identity fragment for "that isn't a `<word>`" (PAR-135), else ``None`` (fail closed).
+
+    A creature subtype → ``without_subtype``, a card type → ``without_card_type``, and "commander" (RULE
+    903.3) → ``is_commander: False``. Players, planeswalkers and battles are never a subtype, so a filter
+    that only ever inspects a creature leaves them legal, which is what the English means."""
+    from .subtype_vocabulary import SUBTYPES
+
+    w = word.lower()
+    if w == "commander":
+        return {"is_commander": False}
+    if w in _NEGATABLE_CARD_TYPES:
+        return {"without_card_type": w}
+    if w in SUBTYPES:
+        return {"without_subtype": w.capitalize()}
+    return None
+
+
+def target_quality_filter(phrase: str) -> dict:
+    """The quality a TARGET phrase carries beyond its kind (PAR-141) — a negated keyword/counter and/or
+    "that's attacking you" — as a filter fragment, else ``{}``."""
+    text = phrase.strip()
+    fragment: dict = {}
+    adjective = _TARGET_ADJECTIVE_RE.fullmatch(_ATTACKING_YOU_RE.sub("", _TARGET_QUALITY_RE.sub("", text)))
+    if adjective is not None:
+        fragment.update(target_adjective_filter(adjective.group(1)) or {})
+    if _ATTACKING_YOU_RE.search(text):
+        fragment.update({"attacking": True, "attacking_you": True})
+    quality = _TARGET_QUALITY_RE.search(text)
+    if quality is not None:
+        head = _QUALITY_OBJECT_RE.match(quality.group(0))
+        isnt = _ISNT_A_RE.match(quality.group(0))
+        if head:
+            fragment.update(parse_absent_quality(quality.group(0)[head.end():]) or {})
+        elif isnt:
+            fragment.update(isnt_a_filter(isnt.group("word")) or {})
+    return fragment
 
 
 def resolve_target_kind(phrase: str) -> Optional[str]:
@@ -447,10 +827,111 @@ def resolve_target_kind(phrase: str) -> Optional[str]:
     leaves the clause unclaimed rather than guessing ``"any"``).
     """
     text = phrase.strip()
+    attacking_you = _ATTACKING_YOU_RE.search(text)
+    quality = _TARGET_QUALITY_RE.search(text)
+    if attacking_you is not None or quality is not None:
+        rest = text
+        for found in (attacking_you, quality):
+            if found is not None:
+                rest = rest.replace(found.group(0), "", 1)
+        if _TARGET_QUALITY_RE.search(rest) is not None or _ATTACKING_YOU_RE.search(rest) is not None:
+            return None  # one slot of each per target phrase
+        base = resolve_target_kind(rest)
+        isnt = _ISNT_A_RE.match(quality.group(0)) if quality is not None else None
+        if isnt is not None:
+            # PAR-135: an unknown word would drop the filter; "any target" is the one extra pool it may narrow.
+            if isnt_a_filter(isnt.group("word")) is None:
+                return None
+            return base if base in _QUALITY_TARGET_KINDS or base == "any" else None
+        return base if base in _QUALITY_TARGET_KINDS else None
+    adjective = _TARGET_ADJECTIVE_RE.fullmatch(text)
+    if (
+        adjective is not None and adjective.group(1).lower() not in _ADJECTIVE_STATE_WORDS
+        and target_adjective_filter(adjective.group(1)) is None
+    ):
+        return None  # an adjective with no filter reading would be dropped silently (e.g. "nonbasic")
     for pattern, kind in _TARGET_LOOKUP:
         if pattern.match(text):
             return kind
+    tail = re.search(NOT_YOU_TAIL + r"\Z", text, re.IGNORECASE)
+    if tail is not None:
+        base = resolve_target_kind(text[: tail.start()])
+        return NOT_YOU_TARGET_KINDS.get(base) if base is not None else None
+    tail = re.search(THAT_PLAYER_TAIL + r"\Z", text, re.IGNORECASE)
+    if tail is not None:
+        base = resolve_target_kind(text[: tail.start()])
+        return THAT_PLAYER_TARGET_KINDS.get(base) if base is not None else None
+    tail = re.search(YOU_TAIL + r"\Z", text, re.IGNORECASE)
+    if tail is not None:
+        base = resolve_target_kind(text[: tail.start()])
+        scoped = YOU_TARGET_KINDS.get(base) if base is not None else None
+        if scoped is not None:
+            return scoped
+        # No ``*_you_control`` pool for it: fall through ("another target red creature you control" is
+        # resolved by the "another" prefix below, over the row that already names its own scope).
+    other = re.match(OTHER_PREFIX, text, re.IGNORECASE)
+    if other is not None:
+        base = resolve_target_kind(text[other.end():])
+        if base in SOURCE_EXCLUDED_TARGET_KINDS:
+            return base
+        return OTHER_TARGET_KINDS.get(base) if base is not None else None
     return None
+
+
+#: "target attacking/blocking/tapped/untapped creature" (RULE 508/509's
+#: combat-state qualifiers) is a real, separate filter axis
+#: `resolve_target_kind` doesn't carry — the `_TARGET_ROWS` row for it
+#: deliberately collapses all four onto the bare ``"creature"`` kind (this
+#: file's existing "target `<state>` creature" → `creature` precision-loss
+#: convention, matching how "target attacking or blocking creature" already
+#: collapses too), so a caller that needs the qualifier reads it from the
+#: same raw phrase via this sibling function and merges it into whatever
+#: `creature_filter` it already builds. The four words map straight onto
+#: `combat.matches_object_filter`'s own existing boolean keys — "untapped"
+#: is ``{"tapped": False}``, the negative of the printed ``"tapped"`` key,
+#: not a fifth key of its own. Found auditing PAR-79's own "target legendary
+#: creature" fix: the identical shape existed here too (Assassinate's
+#: "Destroy target tapped creature" silently destroyed *any* creature,
+#: confirmed via `inspect-db` against the real cache — a live rules bug, not
+#: a coverage gap), just one layer up from where that fix landed.
+_TARGET_COMBAT_STATE_RE = re.compile(
+    r"(?:" + OTHER_PREFIX + r")?target (attacking|blocking|tapped|untapped) creature(?:" + NOT_YOU_TAIL + r")?",
+    re.IGNORECASE,
+)
+
+
+_TARGET_ADJECTIVE_RE = re.compile(
+    r"(?:" + OTHER_PREFIX + r")?target ([a-z-]+) creature(?: you control)?(?:" + NOT_YOU_TAIL + r")?",
+    re.IGNORECASE,
+)
+
+
+def resolve_target_creature_state_filter(phrase: str) -> Optional[dict]:
+    """"target `<state>` creature" → a `combat.matches_object_filter`
+    fragment (``{"attacking": True}``/``{"tapped": False}``/…), or ``None``
+    if ``phrase`` carries no such qualifier. Call alongside
+    `resolve_target_kind` on the same raw text and merge the result into
+    the caller's own ``creature_filter``.
+    """
+    quality = _TARGET_QUALITY_RE.search(phrase)
+    attacking_you = _ATTACKING_YOU_RE.search(phrase)
+    if quality is not None or attacking_you is not None:
+        # PAR-141: the quality slots ride the same channel as the combat-state adjective.
+        rest = phrase
+        for found in (attacking_you, quality):
+            if found is not None:
+                rest = rest.replace(found.group(0), "", 1)
+        return {**(resolve_target_creature_state_filter(rest) or {}), **target_quality_filter(phrase)}
+    m = _TARGET_COMBAT_STATE_RE.fullmatch(phrase.strip())
+    if m is None:
+        # PAR-134: the same shape for a supertype/designation/negation adjective
+        # ("target legendary creature", "target nonattacking creature",
+        # "target multicolored creature") — `scope_adjective`'s vocabulary, so a
+        # caller that falls back to "the word is a subtype" never guesses it.
+        m = _TARGET_ADJECTIVE_RE.fullmatch(phrase.strip())
+        return None if m is None else target_adjective_filter(m.group(1))
+    word = m.group(1).lower()
+    return {"tapped": word != "untapped"} if word in ("tapped", "untapped") else {word: True}
 
 
 def target_is_optional(m: "re.Match[str]", suffix: str = "") -> bool:
@@ -474,8 +955,11 @@ def count_of(token: str) -> int:
 def count_or_x_of(token: str) -> "int | str":
     """A captured `COUNT_X` token → its integer value, or the ``"x"``
     sentinel `RulesEngine._substitute_x` resolves against the spell/
-    ability's actually-announced {X} at resolve time."""
-    return "x" if token.strip().lower() == "x" else count_of(token)
+    ability's actually-announced {X} at resolve time (``"twice_x"`` for "twice X" — 2 × that X)."""
+    word = token.strip().lower()
+    if word == "twice x":
+        return "twice_x"
+    return "x" if word == "x" else count_of(token)
 
 
 #: WUBRG colour words → letters, for the old-templating "target blue
@@ -491,9 +975,7 @@ def count_or_x_of(token: str) -> "int | str":
 #: can reuse this word list rather than re-declaring it.
 COLOR_WORD_ALT = r"white|blue|black|red|green"
 _COLOR_ALT = COLOR_WORD_ALT
-_COLOR_LETTERS: dict[str, str] = {
-    "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G",
-}
+_COLOR_LETTERS = COLOR_LETTERS
 
 
 def resolve_color_word(word: Optional[str]) -> Optional[str]:
@@ -530,6 +1012,19 @@ _SPELL_TYPE_LIST = (
     rf"{_SPELL_TYPE_WORD}(?:,\s*{_SPELL_TYPE_WORD})*(?:,?\s+or\s+{_SPELL_TYPE_WORD})?"
 )
 
+#: PAR-74: "target **spirit or arcane** spell" (Hisoka's Defiance) — a
+#: creature-subtype-or-"Arcane" OR filter, not a main card type
+#: (`_SPELL_TYPE_WORD` deliberately excludes subtypes — no real card's
+#: "target `<type>` spell" filter needed one until now). A small curated
+#: whitelist, same fail-closed discipline as `segmenter._CAST_SPELL_
+#: SUBTYPE_WORDS`' own "arcane" special case (RULE 702.15's Kamigawa
+#: instant/sorcery subtype has no creature-type meaning of its own, so it's
+#: listed separately from the real creature-subtype words rather than
+#: folded into one open vocabulary).
+_SPELL_SUBTYPE_WORD = r"(?:spirit|arcane)"
+_SPELL_SUBTYPE_LIST = (
+    rf"{_SPELL_SUBTYPE_WORD}(?:,\s*{_SPELL_SUBTYPE_WORD})*(?:,?\s+or\s+{_SPELL_SUBTYPE_WORD})?"
+)
 #: The bare "target [noncreature|<type list>] spell [with mana value N]"
 #: phrase, unanchored (embedded inside a handler's own regex via `SPELL_
 #: TARGET`) — never both ``noncreature`` and ``types`` (no real card prints
@@ -538,9 +1033,13 @@ _SPELL_TARGET_BODY = (
     r"target "
     rf"(?:(?P<color>{_COLOR_ALT})\s+)?"
     r"(?:(?P<noncreature>noncreature)\s+)?"
-    rf"(?:(?P<types>{_SPELL_TYPE_LIST})\s+)?"
+    rf"(?:(?P<subtypes>{_SPELL_SUBTYPE_LIST})\s+|(?P<types>{_SPELL_TYPE_LIST})\s+)?"
     r"spell"
-    r"(?:\s+with mana value (?P<mv>\d+))?"
+    # "…with mana value X" (Spell Blast / Spell Burst) is the spell's announced {X} — the sentinel is
+    # read back at target-offer time (`targeting.legal_targets`).
+    r"(?:\s+with mana value (?P<mv>\d+|x))?"
+    # PAR-128: the controller scope slot — "counter target spell **you don't control**".
+    r"(?P<scope> (?:you don'?t control|an opponent controls|your opponents control))?"
 )
 #: The same phrase captured under a ``target`` group, for embedding inline in
 #: a handler regex the way `TARGET` is (e.g. ``counter {SPELL_TARGET}``).
@@ -570,8 +1069,13 @@ def resolve_spell_filter(phrase: str) -> Optional[dict[str, Any]]:
         # a stray "or " glued onto the final type word.
         types = [t for t in re.split(r",\s*or\s+|,\s*|\s+or\s+", m.group("types")) if t]
         filt["card_types"] = types
+    if m.group("subtypes"):
+        subtypes = [t for t in re.split(r",\s*or\s+|,\s*|\s+or\s+", m.group("subtypes")) if t]
+        filt["subtype_any"] = subtypes
     if m.group("mv"):
-        filt["mana_value"] = int(m.group("mv"))
+        filt["mana_value"] = "x" if m.group("mv") == "x" else int(m.group("mv"))
+    if m.group("scope"):
+        filt["target_kind"] = "spell_you_dont_control"
     return filt
 
 

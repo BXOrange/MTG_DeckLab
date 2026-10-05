@@ -19,7 +19,7 @@ Two independent primitives shipped alongside the parser recognition itself:
 A third, unrelated discovery made while sizing Dread Wanderer's own SOLO
 closure got its own primitive too: "Return this card from your graveyard to
 the battlefield[, tapped]." was entirely unrecognized — 69+ cache cards
-(`game/effects.py`'s `ReturnSelfFromGraveyardToBattlefieldEffect`,
+(`game/effects/core.py`'s `ReturnSelfFromGraveyardToBattlefieldEffect`,
 `catalogue.handlers._RETURN_SELF_FROM_GRAVEYARD_RE`).
 
 Reference: mtg_analyzer/game/{costs,static_conditions,effects,effect_binder,
@@ -31,17 +31,18 @@ from __future__ import annotations
 
 from mtg_analyzer.game import static_conditions
 from mtg_analyzer.game.costs import parse_activation_cost
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import EffectRegistry
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import EffectRegistry
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.catalogue.static_handlers import static_effect_specs
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
+from tests import turn_history_events as history
 
 
 def _creature(name, oracle_text="", power=2, toughness=2, keywords=None):
@@ -96,11 +97,19 @@ def test_activate_only_if_cast_instant_or_sorcery_is_recognized():
     assert spec.params["condition"] == {"kind": "cast_instant_or_sorcery_this_turn"}
 
 
-def test_unrecognized_activation_condition_stays_unclaimed():
-    # The other ~150 "Activate only if …" phrasings in the cache (`you
-    # control a Plains`, `this creature is attacking`, …) are real,
-    # standing tail work — not silently guessed at.
-    assert match_clause("activate only if you control a Plains") is None
+def test_activation_condition_falls_back_to_the_shared_static_vocabulary():
+    # PAR-120: `_activation_condition_dict` now falls back to
+    # `static_handlers.static_condition()` once its own closed table
+    # declines — "you control a Plains" was never a *different* concept,
+    # just a phrase this table hadn't copied by hand; it reaches the shared
+    # count-phrase grammar the same way "as long as you control a Plains"
+    # already did. A genuinely unmodeled phrase (`this creature is
+    # attacking` — no `static_condition()` row for that exact wording
+    # either) still fails closed.
+    (spec,) = match_clause("activate only if you control a Plains")
+    assert spec.params["condition"] == {
+        "kind": "control_count", "selector": "lands_you_control_of_type_plains", "min": 1,
+    }
     assert match_clause(
         "activate only as a sorcery and only if this creature is attacking"
     ) is None
@@ -134,7 +143,7 @@ def test_condition_holds_reads_the_new_state_flag():
     assert static_conditions.condition_holds(
         {"kind": "cast_instant_or_sorcery_this_turn"}, state, controller_id="p1"
     ) is False
-    state.cast_instant_or_sorcery_this_turn["p1"] = True
+    history.cast_spell(state, "p1", types=["instant"])
     assert static_conditions.condition_holds(
         {"kind": "cast_instant_or_sorcery_this_turn"}, state, controller_id="p1"
     ) is True
@@ -158,8 +167,9 @@ def test_spell_cast_event_flips_the_flag_only_for_instants_and_sorceries():
 def test_flag_resets_for_every_player_at_begin_turn_not_just_the_active_one():
     eng = _engine()
     state = eng.state
-    state.cast_instant_or_sorcery_this_turn["p1"] = True
-    state.cast_instant_or_sorcery_this_turn["p2"] = True
+    history.cast_spell(state, "p1", types=["instant"])
+    history.cast_spell(state, "p2", types=["sorcery"])
+    assert state.cast_instant_or_sorcery_this_turn["p1"] and state.cast_instant_or_sorcery_this_turn["p2"]
     eng.begin_turn()
     assert state.cast_instant_or_sorcery_this_turn[state.active_player.id] is False
     # game-wide reset — the *other* player's flag is cleared too, unlike
@@ -195,7 +205,7 @@ def test_activation_condition_blocks_and_permits_activation():
     ability_cost = parse_activation_cost("{T}")
     ability_cost.sorcery_speed_only = True
     ability_cost.activation_condition = {"kind": "cast_instant_or_sorcery_this_turn"}
-    from mtg_analyzer.game.effects import ActivatedAbility
+    from mtg_analyzer.game.effects.core import ActivatedAbility
     ability = ActivatedAbility(
         effects=[EffectRegistry.create("draw", {"count": 1})],
         cost=ability_cost, source=source,
@@ -203,7 +213,7 @@ def test_activation_condition_blocks_and_permits_activation():
     source.activated_abilities = [ability]
 
     assert eng.can_activate(p1, source, ability) is False
-    eng.state.cast_instant_or_sorcery_this_turn["p1"] = True
+    history.cast_spell(eng.state, "p1", types=["instant"])
     assert eng.can_activate(p1, source, ability) is True
 
 
@@ -335,7 +345,7 @@ def test_return_self_from_graveyard_end_to_end_tapped():
 def test_return_self_from_graveyard_is_a_noop_if_no_longer_in_the_graveyard():
     # RULE 603.3c/608.2b: something else moved it between trigger and
     # resolution (or, here, it's simply already elsewhere) — must not raise.
-    from mtg_analyzer.game.effects import GameContext, ReturnSelfFromGraveyardToBattlefieldEffect
+    from mtg_analyzer.game.effects.core import GameContext, ReturnSelfFromGraveyardToBattlefieldEffect
 
     eng = _engine(hand=0)
     p1 = eng.state.active_player

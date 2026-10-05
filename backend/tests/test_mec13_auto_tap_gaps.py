@@ -59,11 +59,11 @@ mtg_analyzer/game/engine/mana_mixin.py.
 from __future__ import annotations
 
 from mtg_analyzer.game import continuous, mana_potential
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.mana_cost import ManaCost
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.mana.mana_cost import ManaCost
 
 
 def _engine():

@@ -3,25 +3,52 @@
 Zwei Icon-Buttons im Kopfbereich teilen den früheren einzelnen
 Einstellungs-Bildschirm in zwei Teile:
 
-- **Einstellungen** — *nur* wie dieser Browser den Backend-Server
-  erreicht.
+- **Einstellungen** — Server-Verbindung, lokale Daten und optionale
+  LLM-Konfiguration.
 - **Profil** — alles über *dich*: dein Spielername, deine
   Mehrspieler-Vorgaben und alle selbst hochgeladenen Bilder.
 
 Als Faustregel: *den Server erreichen* ist Einstellungen, *wer du bist
 und wie du spielst* ist Profil.
 
-## Einstellungen: Server-Adresse
+## Einstellungen: Server-Verbindung
 
-- **Server-Adresse** — wo das Backend läuft (z. B.
-  `http://localhost:8000`).
+Unter **Einstellungen → Spielbrett** lässt sich das **Bot-Tempo** auf
+**Sofort**, **Normal** oder **Langsam** setzen. Es bestimmt den Abstand zwischen
+angezeigten Bot-Aktionen, wird lokal gespeichert und gilt direkt für alle
+Spielansichten.
 
-Klicke auf **Speichern**, um sie zu übernehmen. Sie wird in einem
-**Browser-Cookie** abgelegt, nicht serverseitig, gilt also nur für
-diesen Browser/dieses Gerät; ein anderer Browser oder Rechner startet
-wieder mit den Standardwerten. **Verbindung testen** prüft die
-Erreichbarkeit auf Wunsch erneut; derselbe Status wird auch live im
-Kopfbereich der Seite angezeigt.
+Die Anwendung verwendet automatisch die Adresse, unter der du sie geöffnet
+hast. Ein Server-Adressfeld und das Speichern dieser Adresse sind nicht mehr
+nötig; frühere Adress-Cookies werden ignoriert. **Verbindung testen** prüft
+die Erreichbarkeit erneut. Derselbe Status erscheint im Kopfbereich.
+
+## Einstellungen: lokale Daten aktualisieren
+
+Unter **Lokale Daten** kannst du den vollständigen Scryfall-Kartenpool
+und die Commander-Spellbook-Combo-Datenbank manuell aktualisieren. Die
+Combo-Datenbank wird ansonsten erst bei der ersten statischen
+Deckanalyse heruntergeladen. Beide Datenbestände werden serverseitig in
+SQLite gespeichert; das Combo-Update zeigt die Zahl neu
+hinzugefügter, geänderter und entfernter Varianten.
+
+## Einstellungen: LLM und AI Bot
+
+Unter **LLM** kannst du Claude/Anthropic oder einen kompatiblen Server
+aktivieren. Trage API-Basisadresse (einschließlich `/v1`), eine vom Anbieter
+unterstützte Modell-ID und gegebenenfalls den API-Schlüssel ein. Speichere
+zuerst, teste dann die Verbindung. Ein leeres Schlüsselfeld behält einen
+vorhandenen Schlüssel; die Löschoption entfernt ihn. Der Schlüssel wird
+serverseitig gespeichert und nicht zurück an den Browser übertragen.
+
+Diese Einstellungen gelten für alle Spieler auf diesem Server. Der
+**AI Bot** ist in Solo und Multiplayer auswählbar. Er erhält sein eigenes
+Deck, die erlaubten Aktionen und den sichtbaren Spielzustand; gegnerische
+Hände und Bibliotheksreihenfolgen bleiben verborgen. Diese Daten gehen an
+den gewählten Anbieter; auch der Verbindungstest ist eine LLM-Anfrage.
+Anbieter können dafür Kosten berechnen. Timeout und Anfragebudget pro Zug
+begrenzen die Arbeit. Bei fehlender Konfiguration oder Fehlern übernimmt
+der Smart Bot. Die Solo-Ansicht zeigt, wenn das LLM gerade entscheidet.
 
 ## Profil: Spielername
 
@@ -93,3 +120,13 @@ heute schon sichtbar auswirkt.
 Unter **Lieblingsdecks** kannst du eine Teilmenge deiner gespeicherten
 Decks mit einem Stern markieren. Markierte Decks stehen in der
 Deck-Auswahl im Goldfisch-Modus und in der Mehrspieler-Lobby zuerst.
+
+## Fehlerberichte
+
+Das Käfer-Symbol neben Einstellungen öffnet den Fehlerbericht. Beschreibe das
+Problem und das erwartete Verhalten. Im Spiel enthält der Bericht den aktuellen
+Replay und standardmäßig die letzten 12 Aktionen; die Anzahl ist anpassbar.
+Der Server speichert komprimierte JSON-Dateien (`.json.gz`) im lokalen,
+unversionierten Ordner
+`bug-reports/`. Außerhalb eines Spiels werden Beschreibung und Ansicht ohne
+Replay gespeichert. Der Dialog bestätigt den gespeicherten Dateinamen.

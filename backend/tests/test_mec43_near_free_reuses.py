@@ -21,13 +21,13 @@ Reference: docs/implementation-state/Done_Backend.md "MEC-43" entry.
 from __future__ import annotations
 
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 
 
 def _named(name):
@@ -201,7 +201,7 @@ def test_acererak_attack_makes_no_token_when_opponent_sacrifices():
     # paying should remove the bear and create no token.
     assert state.pending_choice is not None
     assert state.pending_choice.get("kind") == "pay_cost_then"
-    engine.rules.resolve_pay_cost_then_choice("pay")
+    engine.rules.resolve_choice("pay")
     engine.resolve_until_stable()
 
     assert victim not in state.battlefield
@@ -376,7 +376,7 @@ def test_burnt_offering_adds_mana_equal_to_sacrificed_creatures_mana_value():
     engine.cast_spell(p1, spell, sacrifice_choice=victim.instance_id)
     engine.resolve_until_stable()
     if state.pending_choice and state.pending_choice.get("kind") == "add_mana_any_color":
-        engine.rules.resolve_add_mana_any_color_choice("B")
+        engine.rules.resolve_choice("B")
         engine.resolve_until_stable()
 
     total = sum(p1.mana_pool.pool.get(c, 0) for c in ("B", "R"))

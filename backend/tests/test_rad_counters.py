@@ -10,7 +10,7 @@ this way, that player loses 1 life and removes one rad counter from
 themselves." (RULE 728.1)
 
 Modeled the same way as Monarch/Initiative (`RulesEngine.
-_collect_inherent_triggers`, `game/effects.py`'s `RadiationMillEffect`):
+_collect_inherent_triggers`, `game/effects/core.py`'s `RadiationMillEffect`):
 built fresh off live state each time a matching `STEP_BEGIN`/"main1" event
 fires, rather than attached to any permanent — nothing hosts this ability.
 Reuses the existing generic `Player.counters["rad"]` slot (the same one
@@ -21,11 +21,11 @@ energy/experience already use) and `RulesEngine.add_player_counters`/`mill`/
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import attach_to_object, bind_from_catalogue
+from mtg_analyzer.game.binding.core import attach_to_object, bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec
 
@@ -204,7 +204,7 @@ def test_add_player_counters_effect_selectors_and_defending_player():
     state = eng.state
     p1, p2 = state.player_by_id("p1"), state.player_by_id("p2")
 
-    from mtg_analyzer.game.effects import AddPlayerCountersEffect
+    from mtg_analyzer.game.effects.core import AddPlayerCountersEffect
 
     # Untargeted (self/controller).
     obj = GameObject(_creature("Src"), owner_id="p1", zone=Zone.BATTLEFIELD)
@@ -229,10 +229,36 @@ def test_lose_all_player_counters_effect():
     p1 = state.player_by_id("p1")
     p1.counters["rad"] = 5
 
-    from mtg_analyzer.game.effects import LoseAllPlayerCountersEffect
+    from mtg_analyzer.game.effects.core import LoseAllPlayerCountersEffect
 
     LoseAllPlayerCountersEffect(kind="rad", player=p1).apply(eng.rules.context)
     assert p1.counters.get("rad", 0) == 0
+
+
+def test_dies_rad_counters_equal_power_parses_as_bind_node():
+    # ENG-37: retired `dies_grants_rad_counters_equal_power` — this clause is
+    # now `bind` (measure the dying creature's power, floored at 0) over the
+    # generic each-opponent `add_player_counters`, not a fused effect type.
+    card = _creature("iso_feral", power=2, toughness=2)
+    card.oracle_text = (
+        "When this creature dies, each opponent gets a number of rad counters "
+        "equal to its power."
+    )
+    result = parse_oracle(card)
+    assert result.modeled
+    node = next(
+        e for s in result.specs for e in s.effects if e.type == "bind"
+    )
+    assert node.params["amount"] == {
+        "kind": "characteristic", "characteristic": "power",
+        "of": "source", "minimum": 0,
+    }
+    body = node.params["effects"][0]
+    assert body["type"] == "add_player_counters"
+    assert body["params"] == {
+        "kind": "rad", "selector": "each_opponent",
+        "amount": f"${node.params['name']}",
+    }
 
 
 def test_dies_grants_rad_counters_equal_power_end_to_end():
@@ -253,6 +279,35 @@ def test_dies_grants_rad_counters_equal_power_end_to_end():
 
     assert p2.counters.get("rad", 0) == 3
     assert p1.counters.get("rad", 0) == 0
+
+
+def test_dies_rad_counters_equal_power_negative_power_is_floored_to_zero():
+    # The retired effect guarded `power <= 0`; the `minimum: 0` on the bind
+    # amount reproduces it. Without it, `add_player_counters`' non-positive
+    # path would *remove* opponents' rad counters (RULE 122.1).
+    eng = _engine()
+    state = eng.state
+    p1, p2 = state.player_by_id("p1"), state.player_by_id("p2")
+    p2.counters["rad"] = 4
+
+    card = _creature("Weak Ghoul Test", power=1, toughness=1)
+    card.oracle_text = (
+        "When this creature dies, each opponent gets a number of rad counters "
+        "equal to its power."
+    )
+    obj = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    bind_from_catalogue(obj)
+    state.add_to_battlefield(obj)
+    # -3/-3 until end of turn: derived power is -2 when it dies.
+    from mtg_analyzer.game.effects.core import PumpEffect
+    PumpEffect(power=-3, toughness=-3, source=obj).apply(eng.rules.context)
+    eng.recompute_continuous_effects()
+
+    eng.rules.destroy(obj)
+    eng.rules.put_triggers_on_stack()
+    eng.rules.resolve_top_of_stack()
+
+    assert p2.counters.get("rad", 0) == 4  # unchanged — not reduced
 
 
 def test_hand_authored_glowing_one_grants_flat_rad_counters_on_combat_damage():

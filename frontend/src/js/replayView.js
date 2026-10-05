@@ -417,6 +417,7 @@ export function createReplayView() {
   // --- Rendering ----------------------------------------------------------
 
   function render() {
+    if (root) root.dataset.bugReportSession = sessionId || "";
     if (!root) return;
     if (!view) {
       mode = 'edit';

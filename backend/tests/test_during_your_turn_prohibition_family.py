@@ -17,12 +17,12 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 
 
 def _engine():
@@ -49,7 +49,7 @@ def _bf(state, card, controller="p1", obj=None):
 def _named(name):
     """The real cached card, parsed+bound through `specs_for`'s oracle-text
     fallback (Grand Abolisher/Myrel/Linvala are all MODELED, not
-    hand-authored — see `ability_catalogue.specs_for`)."""
+    hand-authored — see `card_registry.specs_for`)."""
     from mtg_analyzer.config import DB_PATH
     from mtg_analyzer.services.card_database import CardDatabase
 

@@ -1,18 +1,27 @@
 ---
 name: hand-author-card
-description: Hand-author a card's abilities into backend/mtg_analyzer/game/ability_catalogue.py — fast. Use when a card needs a catalogue entry (a replacement effect, a triggered ability with a real conditional predicate, or any card the oracle-text parser can't fully claim) rather than a parser handler. Ships author_card.py, which pulls the card's real oracle text, shows what the parser already claims (copy that part instead of re-deriving it), finds an existing catalogue entry with the closest shape to adapt, and assembles a paste-ready factory function + register() call + test skeleton in one command.
+description: Hand-author a card's abilities into backend/mtg_analyzer/game/card_catalogue/ — fast. Use when a card needs a catalogue entry (a replacement effect, a triggered ability with a real conditional predicate, or any card the oracle-text parser can't fully claim) rather than a parser handler. Ships author_card.py, which pulls the card's real oracle text, shows what the parser already claims (copy that part instead of re-deriving it), finds an existing catalogue entry with the closest shape to adapt (searched across every one-file-per-card module under card_catalogue/), and assembles a paste-ready standalone module — imports, factory function, register() call, test skeleton — at the exact path the card belongs at.
 ---
 
 # Hand-authoring a card, fast
 
-`game/ability_catalogue.py` is ~12k lines, one factory function per card. The
-full field reference is
+`game/card_registry/` is the registration *mechanism* — `core.py`'s
+`register`/`specs_for`/`registry_signature`, `families.py`'s
+`register_family` for a mechanically-identical cycle. The actual card
+*content* lives next door in `game/card_catalogue/`: a folder per lowercased
+first letter of the card's name (`a/`, `b/`, ... `z/`), one module per card
+inside (~990 of them), e.g. `c/circle_of_solace.py`, `t/
+the_master_gallifreys_end.py`. `card_catalogue/_shared/` is the one carve-out
+— helpers genuinely reused by several cards that don't fit
+`register_family`'s single-`EffectSpec`-shape template (e.g.
+`_shared/licid.py` for the Tempest Licid cycle); most cards need nothing
+from it. The full field reference is
 [docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](../../../docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md)
 — read it once for the `AbilitySpec`/`EffectSpec` whitelist (§4-§10); this
 skill doesn't repeat that table, it exists to cut the *mechanical* cost
 around it: finding the card's real text, discovering how much of it the
 parser already parses for free, finding a template to copy, and assembling
-the boilerplate.
+the boilerplate — including telling you the exact new file path.
 
 ```bash
 cd backend && source venv/bin/activate
@@ -75,25 +84,39 @@ it's close enough to copy.
 python $AUTHOR scaffold "Card Name"
 ```
 
-One paste-ready block: the factory function (docstring = real oracle text,
-parser-claimed clauses pre-filled via the same rendering as `reuse`, a
-`# TODO` + a stub `AbilitySpec("???", ...)` per unclaimed clause naming the
-exact raw text you still need to model), the `register(...)` call, and a
-matching test skeleton for `backend/tests/test_ability_catalogue.py` — the
-`ability_kind` assertion and the `obj.<list>` bind-check are filled in from
-the kinds actually detected, not left as a guess. Refuses to run (and prints
-the existing entry instead) if the card is already registered.
+One paste-ready, standalone module: the `save as: .../card_catalogue/<letter>/
+<slug>.py` path to create, its imports (`AbilitySpec`/`EffectSpec`, `register`
+from `card_registry.core`, `EventType` only if a rendered clause needs
+it), the factory function (docstring = real oracle text, parser-claimed
+clauses pre-filled via the same rendering as `reuse`, a `# TODO` + a stub
+`AbilitySpec("???", ...)` per unclaimed clause naming the exact raw text you
+still need to model), the `register(...)` call, and a matching test skeleton
+for `backend/tests/game/catalogue/test_catalogue.py` (bind-on-load pipeline
+tests; shared board-building helpers live in `backend/tests/support/
+catalogue.py`) — the `ability_kind` assertion and the `obj.<list>`
+bind-check are filled in from the kinds actually detected, not left as a
+guess. Refuses to run (and prints the existing entry instead) if the card is
+already registered.
 
 Fill in the TODOs using the guide's §5 (`EffectSpec` whitelist), §6 (static/
 layers), §7 (replacement), §8 (triggers, incl. the conditional-predicate
-escape hatch), §9 (costs) — then paste the whole block into
-`ability_catalogue.py` at a reasonable spot (alphabetical isn't enforced,
-just don't split a card's own entry from its `register()` call).
+escape hatch), §9 (costs) — then save the whole block as a new file at
+exactly the printed path (`similar`'s output already shows you the closest
+existing card's own file to copy a shape from, one directory over). A
+mechanically-identical *cycle* (several cards sharing one `AbilitySpec`/
+`EffectSpec` shape, differing only in a couple of params) is `families.
+register_family` instead of N near-identical factories — see any `Circle of
+Protection: <color>`/`Rune of Protection: <color>` file for the one-call-
+per-member pattern. A genuine cross-card *helper* (not just a shared
+template) belongs in `card_catalogue/_shared/<name>.py`, imported by each
+member — see `_shared/licid.py`; don't reach for this until ≥2 cards
+actually need the same non-trivial helper.
 
 ## 4. Validate against the real engine
 
-This skill only ever reads; it never touches `ability_catalogue.py` or
-`game/`. Once you've pasted the scaffold in, use the **game-engine** skill's
+This skill only ever reads; it never touches `card_catalogue/`,
+`card_registry/`, or `game/`. Once you've saved the new file, use the
+**game-engine** skill's
 `engine_bench.py` for everything runtime:
 
 ```bash
@@ -123,7 +146,9 @@ python -m pytest -q
       on a card's canonical name shows you every alias an existing entry
       already carries).
 - [ ] If this card closes a `BACKLOG.md` ticket: **delete** the ticket, don't
-      tick it, and append the narrative to `Done_Backend.md`.
+      tick it, and append the narrative to `Done_Backend.md`. If it closes only
+      part of one, the residue goes into the ticket's `workingOn.md` block, not
+      `BACKLOG.md`.
 - [ ] Commits only when asked; branch first if on `main`.
 
 ## Hard rules (from the guide, worth repeating)
@@ -137,7 +162,7 @@ python -m pytest -q
   that, don't retype the text by hand.
 - **Nothing derived from card text becomes code.** `EffectSpec.type` must
   already exist in `EffectRegistry`/`ReplacementRegistry` — the catalogue is
-  trusted *content*, never trusted *code*. A new type is a `game/effects.py`
+  trusted *content*, never trusted *code*. A new type is a `game/effects/`
   change (guide §15), not something a catalogue entry can freehand.
 - **A registered card gets the parser turned off entirely for it** — once
   you register a name, `specs_for` never falls back to `parse_oracle` for

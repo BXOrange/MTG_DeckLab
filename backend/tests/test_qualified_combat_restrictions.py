@@ -31,10 +31,10 @@ from __future__ import annotations
 import pytest
 
 from mtg_analyzer.game import combat, continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 
 
@@ -531,7 +531,7 @@ def test_target_creature_cant_block_this_turn():
     defender = state.player_by_id("p2")
     assert eng.can_block(defender, blocker, attacker) is True
 
-    from mtg_analyzer.game.effects import EffectRegistry
+    from mtg_analyzer.game.effects.core import EffectRegistry
 
     EffectRegistry.create("cant_block_this_turn", {}).apply(eng.rules, [blocker])
     assert blocker.temp_cant_block is True
@@ -555,7 +555,7 @@ def test_mass_cant_block_this_turn_honours_its_filter():
     flier = _put(state, _creature("Drake", keywords=["Flying"]), controller="p2")
     continuous.recompute(state)
 
-    from mtg_analyzer.game.effects import EffectRegistry
+    from mtg_analyzer.game.effects.core import EffectRegistry
 
     effect = EffectRegistry.create(
         "cant_block_this_turn", {"selector": "all_creatures", "filter": {"without_keyword": "flying"}}

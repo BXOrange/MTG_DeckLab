@@ -13,20 +13,20 @@ Engine infrastructure added this batch:
 * `EffectSpec.condition` key `did_all_bends_this_turn` (Avatar Aang's
   reflexive "then if you've done all four this turn, transform ~").
 
-Avatar Aang itself is hand-authored (`game/ability_catalogue/entries_008.py`)
+Avatar Aang itself is hand-authored (`game/card_registry/red_spells.py`)
 — a strict singleton whose reflexive transform clause the parser can't
 express.
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.game.effects import EffectRegistry, GameContext
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.game.effects.core import EffectRegistry, GameContext
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 
-from tests.test_game_engine import creature, make_engine, obj_on_battlefield
+from tests.support.game import creature, make_engine, obj_on_battlefield
 
 
 def _events(eng, kind):
@@ -223,7 +223,7 @@ def test_aang_opponent_bend_does_not_trigger():
 
 
 def test_aang_is_hand_authored():
-    from mtg_analyzer.game.ability_catalogue import specs_for
+    from mtg_analyzer.game.card_registry import specs_for
 
     specs = specs_for(_avatar_aang_card())
     assert specs, "Avatar Aang should be hand-authored"

@@ -14,7 +14,7 @@ New primitives, each proven here on the real card that needed it:
   boolean `has_no_maximum_hand_size`) — Jin-Gitaxias, Core Augur.
 * `ChooseObjectsEffect.player_selector="active_player"` — Sheoldred,
   Whispering One's "each opponent's upkeep, that player sacrifices…".
-* `ConniveEffect` (RULE 701.47) + `request_choose_objects`'s new
+* `ConniveEffect` (RULE 701.47) + `_request_choose_objects`'s new
   ``connive`` flag — Ledger Shredder.
 * `effect_binder`'s new ``spell_characteristic_equals_chosen_number``
   trigger predicate, reusing the shipped `ChooseNumberReplacement`
@@ -32,13 +32,13 @@ ability) reuses Wild Growth's shape verbatim.
 from __future__ import annotations
 
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 
 
 def _engine():
@@ -326,7 +326,7 @@ def test_talion_punishes_a_spell_matching_the_chosen_number():
     engine.rules.resolve_top_of_stack()  # opens the RULE 601.2b choose_number pick
     assert state.pending_choice is not None
     assert state.pending_choice["kind"] == "choose_number"
-    engine.rules.resolve_enter_choice("3")
+    engine.rules.resolve_choice("3")
 
     _fill_library(p1, 1, "p1")  # Talion's own controller draws on the payoff
     _fill_library(p2, 2, "p2")
@@ -352,7 +352,7 @@ def test_talion_ignores_a_spell_that_does_not_match_the_chosen_number():
 
     engine.rules.cast_spell(p1, talion)
     engine.rules.resolve_top_of_stack()
-    engine.rules.resolve_enter_choice("9")
+    engine.rules.resolve_choice("9")
 
     other = _hand(p2, _card("Three-Drop", "Creature — Bear", "{2}{G}", 3), "p2")
     p2.mana_pool.add("G", 1)
@@ -383,7 +383,7 @@ def test_crypt_ghasts_extort_drains_each_opponent_and_gains_that_much():
 
     assert state.pending_choice is not None
     assert state.pending_choice["kind"] == "pay_cost_then"
-    engine.rules.resolve_pay_cost_then_choice("pay")
+    engine.rules.resolve_choice("pay")
 
     assert p2.life == 19
     assert p1.life == 21

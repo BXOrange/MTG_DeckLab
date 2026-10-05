@@ -21,18 +21,18 @@ also unlock large non-Waterbend families:
 Reference: parser/oracle/catalogue/handlers.py (`_BASE_PT_UNTIL_EOT_RE`,
 `_CANT_BE_BLOCKED_TURN_RE`, `_SHUFFLE_ENCHANTED_INTO_LIBRARY_RE`),
 parser/oracle/segmenter.py (`_ADDITIONAL_COST_WATERBEND_RE`),
-game/costs.py (`ActivationCost.help_pay_kind`), game/effects.py
+game/costs.py (`ActivationCost.help_pay_kind`), game/effects/core.py
 (`GrantUntilEffect` X-substitution, `UnblockableEffect` self mode,
 `ShuffleSelfIntoLibraryEffect.subject`).
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue, build_effects
+from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.mana_cost import ManaCost
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.mana.mana_cost import ManaCost
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec
 
@@ -130,7 +130,7 @@ def test_additional_cost_paid_conditional_parses():
         "if this spell's additional cost was paid, you gain 3 life"
     )
     assert specs == [
-        EffectSpec("gain_life", {"amount": 3}, condition={"additional_cost_paid": True})
+        EffectSpec("gain_life", {"amount": 3}, condition={"kind": "flag", "flag": "additional_cost_paid"})
     ]
     # the "instead" amount-override shape is NOT this additive one — fails closed
     assert parse_effect_body(
@@ -152,7 +152,7 @@ def test_requiting_hex_end_to_end():
     gain = [
         e for s in res.effect_specs for e in s.effects if e.type == "gain_life"
     ]
-    assert gain and gain[0].condition == {"additional_cost_paid": True}
+    assert gain and gain[0].condition == {"kind": "flag", "flag": "additional_cost_paid"}
 
 
 # --- execute -------------------------------------------------------------------
@@ -315,7 +315,7 @@ def test_paying_optional_cost_folds_the_mana_and_sets_the_flag():
 
 
 def test_conditional_effect_gates_on_additional_cost_paid():
-    from mtg_analyzer.game.effects import ConditionalEffect, GainLifeEffect
+    from mtg_analyzer.game.effects.core import ConditionalEffect, GainLifeEffect
 
     eng = _engine()
     src = GameObject(_card("S", "Sorcery", ""), owner_id="p1", zone=Zone.STACK)

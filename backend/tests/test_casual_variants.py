@@ -9,11 +9,11 @@ import pytest
 
 from mtg_analyzer.game import variants
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models import game_format
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType
-from mtg_analyzer.models.game_format import get_format
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.decks import formats as game_format
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType
+from mtg_analyzer.models.decks.formats import get_format
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.variant_card_database import (
     card_for,
@@ -94,7 +94,7 @@ def test_a_planechase_game_starts_with_a_face_up_plane():
 
 
 def _plane_object(name, owner_id="p1", text="", type_line="Plane — Dominaria"):
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
 
     obj = GameObject(
         Card(id=name, name=name, type_line=type_line, layout="planar", oracle_text=text),
@@ -136,6 +136,16 @@ def test_the_planar_die_is_free_the_first_time_and_costs_x_after():
     assert eng.can_roll_planar_die(player) is True
 
 
+def test_a_roll_a_card_caused_counts_toward_the_next_special_action_cost():
+    """RULE 901.6b counts *rolls*, not special actions: the tally is read off the roll events."""
+    eng = make_engine("planechase")
+    player = eng.state.player_by_id("p1")
+    eng.state.active_player_index = 0
+    eng.rules.roll_planar_die(player)          # e.g. an effect that rolls it for free
+    assert eng.state.planar_die_rolls_this_turn == {"p1": 1}
+    assert eng.planar_die_cost(player).converted_mana_cost == 1
+
+
 def test_the_roll_tally_resets_each_turn():
     eng = make_engine("planechase")
     player = eng.state.player_by_id("p1")
@@ -175,14 +185,14 @@ def test_a_planes_ability_functions_from_the_command_zone():
         id="tp", name="Testplane", type_line="Plane — Dominaria", layout="planar",
         oracle_text="Whenever chaos ensues, you gain 3 life.",
     )
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
 
     plane = GameObject(plane_card, owner_id="p1", zone=Zone.COMMAND)
     bind_from_catalogue(plane)
     eng.state.planar_deck.append(plane)  # top of the deck = face up
     player = eng.state.player_by_id("p1")
     eng.state.fire_event(
-        __import__("mtg_analyzer.models.events", fromlist=["GameEvent"]).GameEvent(
+        __import__("mtg_analyzer.models.game.events", fromlist=["GameEvent"]).GameEvent(
             EventType.CHAOS_ENSUED, player_id="p1", controller_id="p1"
         )
     )
@@ -221,7 +231,7 @@ def test_setting_a_scheme_in_motion_fires_its_trigger():
         id="s", name="Testscheme", type_line="Scheme", layout="scheme",
         oracle_text="When you set this scheme in motion, you gain 5 life.",
     )
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
 
     scheme = GameObject(scheme_card, owner_id="p1", zone=Zone.COMMAND)
     bind_from_catalogue(scheme)
@@ -307,7 +317,7 @@ def test_an_avatars_hand_and_life_modifiers_apply(monkeypatch):
 def _named_avatar(name, owner_id):
     entry = default_variant_card_database().get(name)
     obj = GameObject(card_for(entry), owner_id=owner_id, zone=Zone.COMMAND)
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
 
     bind_from_catalogue(obj)
     return obj
@@ -322,7 +332,7 @@ def test_an_avatars_static_ability_applies_from_the_command_zone():
              oracle_text="Creatures you control get +1/+1."),
         owner_id="p1", zone=Zone.COMMAND,
     )
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
     from mtg_analyzer.game import continuous
 
     bind_from_catalogue(avatar)
@@ -378,10 +388,10 @@ def test_real_catalogue_cards_parse_without_crashing():
             )
 
 
-def test_a_phenomenon_planeswalks_the_table_straight_on(monkeypatch):
+def test_a_phenomenon_planeswalks_the_table_straight_on():
     """RULE 901.17/901.18: a phenomenon is encountered, then left at once."""
     eng = make_engine("planechase")
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
 
     phenomenon = GameObject(
         Card(id="ph", name="Testphenomenon", type_line="Phenomenon", layout="planar",
@@ -389,12 +399,16 @@ def test_a_phenomenon_planeswalks_the_table_straight_on(monkeypatch):
         owner_id="p1", zone=Zone.COMMAND,
     )
     bind_from_catalogue(phenomenon)
-    # Put the phenomenon directly under the top card, so one planeswalk lands
-    # on it and RULE 901.18 must carry the table off it again.
-    eng.state.planar_deck.insert(len(eng.state.planar_deck) - 1, phenomenon)
+    # Isolate the phenomenon from the random catalogue planes: an arriving
+    # plane can have its own choice/trigger and suspend resolution before
+    # the phenomenon's life gain. Two inert planes pin the actual behavior
+    # under test: encounter the phenomenon, then leave it immediately.
+    eng.state.planar_deck = [
+        _plane_object("Destination"), phenomenon, _plane_object("Departure"),
+    ]
     player = eng.state.player_by_id("p1")
     arrived = eng.rules.planeswalk(player)
-    assert arrived is not phenomenon
+    assert arrived.name == "Destination"
     assert not variants.is_phenomenon(arrived)
     eng.rules.put_triggers_on_stack()
     eng.resolve_until_stable()

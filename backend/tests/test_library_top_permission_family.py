@@ -15,7 +15,7 @@ revealed." no-op line. The engine-side execution of `grants_flash`/
 `test_top_library.py`; this file is the parser-recognition half.
 """
 
-from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.parser.oracle.catalogue.static_handlers import static_effect_specs
 from mtg_analyzer.parser.oracle.gate import MODELED, UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec

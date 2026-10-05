@@ -9,11 +9,11 @@ trigger_event`'s firing-event read.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import GameContext, PumpEffect
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import GameContext, PumpEffect
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle import MODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 
@@ -74,7 +74,7 @@ def test_amount_from_count_selector_sizes_the_whole_group_by_one_shared_count():
 
     PumpEffect(
         keywords=["trample"], selector="creatures_you_control",
-        amount_from_count_selector="creatures_you_control", source=source,
+        dynamic_amount={"kind": "count_selector", "selector": "creatures_you_control"}, source=source,
     ).apply(ctx)
     eng.recompute_continuous_effects()
 
@@ -107,7 +107,7 @@ def test_craterhoof_behemoth_end_to_end_pumps_the_whole_board():
     bind_from_catalogue(craterhoof)
     eng.state.add_to_battlefield(craterhoof)
 
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
     eng.state.fire_event(GameEvent(
         EventType.ENTERS_BATTLEFIELD, controller_id="p1", instance_id=craterhoof.instance_id,
         object=craterhoof.name, object_types=sorted(craterhoof.type_words),
@@ -127,16 +127,21 @@ def test_each_creature_you_control_distributive_group_grant():
     # "Each creature you control gains X until end of turn." is the same
     # group as "creatures you control", just worded per-creature
     # (Avacyn and Griselbrand, Moonveil Dragon) — PAR-29 residue widening.
+    # PAR-120: both now resolve to the identical structured selector (the
+    # leading "each " is stripped before `parse_count_phrase` sees it).
+    creatures_you_control = {
+        "zone": "battlefield", "of": "you", "filter": {"card_type": "creature"},
+    }
     (spec,) = parse_effect_body(
         "each creature you control gains indestructible until end of turn"
     )
     assert spec.type == "pump"
     assert spec.params == {
         "keywords": ["indestructible"],
-        "selector": "creatures_you_control",
+        "selector": creatures_you_control,
     }
     (spec2,) = parse_effect_body(
         "each creature you control gets +1/+1 until end of turn"
     )
-    assert spec2.params["selector"] == "creatures_you_control"
+    assert spec2.params["selector"] == creatures_you_control
     assert spec2.params["power"] == 1 and spec2.params["toughness"] == 1

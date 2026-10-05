@@ -6,7 +6,9 @@ contributes unclaimed clauses to the processing-list backlog and never binds
 any behaviour (same fail-closed posture as an ordinary UNMODELED card).
 """
 
-from mtg_analyzer.models.card import Card
+import pytest
+
+from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.parser.oracle import NEVER_SUPPORTED, UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.processing_list import coverage_report
 from mtg_analyzer.services import coverage_db as cov
@@ -37,6 +39,35 @@ def test_sticker_mention_is_case_insensitive():
     card = _card("Sticker Test Card 3", "STICKER sheet nonsense that would otherwise be unclaimed.")
     result = parse_oracle(card)
     assert result.coverage == NEVER_SUPPORTED
+
+
+@pytest.mark.parametrize("type_line", ["Stickers", "STICKERS", " stickers "])
+@pytest.mark.parametrize("text", ["{TK}{TK} — 1/4", ""])
+def test_sticker_sheet_is_never_supported_without_sticker_oracle_text(type_line, text):
+    card = Card(id="sheet", name="Ancestral Hot Dog Minotaur", type_line=type_line,
+                oracle_text=text)
+    result = parse_oracle(card)
+    assert result.coverage == NEVER_SUPPORTED
+    assert not result.modeled
+    assert result.specs == []
+    assert result.unclaimed == []
+    report = coverage_report([result])
+    assert report.never_supported == 1
+    assert report.processing_list == []
+
+
+def test_sticker_sheet_does_not_inflate_card_coverage_denominator():
+    from scripts.coverage_report import measure
+
+    sheet = Card(id="sheet", name="Ancestral Hot Dog Minotaur", type_line="Stickers",
+                 oracle_text="{TK}{TK} — 1/4")
+    vanilla = Card(id="bear", name="Bear", type_line="Creature", oracle_text="")
+    sticker_spell = _card("Sticker Spell", "Put a sticker on target creature.")
+    total, covered, never_supported, templates, _, _ = measure(
+        [sheet, vanilla, sticker_spell], None,
+    )
+    assert (total, covered, never_supported) == (2, 1, 2)
+    assert not templates
 
 
 def test_ordinary_unmodeled_card_is_unaffected():

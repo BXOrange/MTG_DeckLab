@@ -24,10 +24,10 @@ real card text to prove recognition, separately from full castability.
 
 import pytest
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import DrawCardEffect, GainLifeEffect, MillEffect, TriggeredAbility
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import DrawCardEffect, GainLifeEffect, MillEffect, TriggeredAbility
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.parser.oracle.gate import MODELED, parse_oracle
 from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec, SpecValidationError
@@ -217,7 +217,7 @@ def test_triggered_modal_accepts_any_trigger_segment_line_claims():
     assert r2.coverage == MODELED
     (spec2,) = r2.specs
     assert spec2.trigger["event"] == "SPELL_CAST"
-    assert spec2.trigger.get("spell_exclude_card_types") == ["creature"]
+    assert spec2.trigger.get("spell_filter") == {"without_card_type": "creature"}
 
 
 def test_triggered_modal_binds_one_ability_per_event_in_a_list():
@@ -481,7 +481,7 @@ def test_second_round_excludes_the_first_pick():
     source = _put(eng, creature())
     eng.rules.pending_triggers = [(_choose_two_etb_trigger(source), None)]
     eng.rules.put_triggers_on_stack()
-    eng.rules.resolve_trigger_mode_choice("1")  # pick "gain 3 life" first
+    eng.rules.resolve_choice("1")  # pick "gain 3 life" first
 
     assert not eng.state.stack  # still one more mode to pick
     choice = eng.state.pending_choice
@@ -502,8 +502,8 @@ def test_picking_two_modes_combines_effects_in_printed_order_not_pick_order():
     eng.rules.put_triggers_on_stack()
     # Pick mode 2 (mill) first, then mode 1 (gain life) — printed order is
     # 1 then 2, so effects must combine as gain-life-then-mill regardless.
-    eng.rules.resolve_trigger_mode_choice("2")
-    eng.rules.resolve_trigger_mode_choice("1")
+    eng.rules.resolve_choice("2")
+    eng.rules.resolve_choice("1")
 
     assert eng.state.pending_choice is None
     assert len(eng.state.stack) == 1
@@ -521,8 +521,8 @@ def test_missing_answer_during_accumulation_defaults_to_first_available():
 
     eng.rules.pending_triggers = [(_choose_two_etb_trigger(source), None)]
     eng.rules.put_triggers_on_stack()
-    eng.rules.resolve_trigger_mode_choice(None)  # defaults to mode 0 (draw)
-    eng.rules.resolve_trigger_mode_choice(None)  # defaults to first available: mode 1
+    eng.rules.resolve_choice(None)  # defaults to mode 0 (draw)
+    eng.rules.resolve_choice(None)  # defaults to first available: mode 1
 
     eng.resolve_until_stable()
     assert p1.life == life_before + 3  # mode 1 (gain 3 life) was included
@@ -531,7 +531,7 @@ def test_missing_answer_during_accumulation_defaults_to_first_available():
 def test_choose_one_or_both_still_works_after_choose_n_changes():
     # Regression guard: the existing choose-1-of-2 "or both" behaviour
     # (test_modal_spells.py) must be unaffected by generalizing to choose-N.
-    from mtg_analyzer.game.effects import DestroyEffect
+    from mtg_analyzer.game.effects.core import DestroyEffect
 
     ability = TriggeredAbility(
         trigger_event="ENTERS_BATTLEFIELD",
@@ -555,7 +555,7 @@ def test_choose_one_or_both_still_works_after_choose_n_changes():
     choice = eng.state.pending_choice
     assert {o["id"] for o in choice["options"]} == {"0", "1", "both"}
 
-    eng.rules.resolve_trigger_mode_choice("both")
+    eng.rules.resolve_choice("both")
     assert eng.state.pending_choice is None
     eng.resolve_until_stable()
     assert p1.life == life_before + 3

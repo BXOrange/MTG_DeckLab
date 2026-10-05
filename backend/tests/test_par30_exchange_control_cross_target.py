@@ -13,12 +13,12 @@ simplification the pre-existing different-controllers no-op already is).
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effects import ExchangeControlEffect, GameContext
+from mtg_analyzer.game.effects.core import ExchangeControlEffect, GameContext
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 
@@ -143,7 +143,8 @@ def test_real_exchange_control_residue_cards_modeled():
     expected = {
         "Role Reversal": {"target_kind": "permanent", "count": 2, "shares_type": "card"},
         "Shifting Loyalties": {"target_kind": "permanent", "count": 2, "shares_type": "card"},
-        "Legerdemain": {"first_target_kind": "permanent", "target_kind": "permanent",
+        # "target artifact or creature" — its own pool since PAR-128, not any permanent.
+        "Legerdemain": {"first_target_kind": "artifact_or_creature", "target_kind": "permanent",
                         "shares_type": "card"},
         "Daring Thief": {"first_target_kind": "nonland_permanent_you_control",
                          "target_kind": "permanent_you_dont_control", "shares_type": "card"},

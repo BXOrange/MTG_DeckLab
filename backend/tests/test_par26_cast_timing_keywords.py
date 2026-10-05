@@ -22,11 +22,11 @@ Covered here so far:
 from __future__ import annotations
 
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.mana_cost import ManaCost
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.mana.mana_cost import ManaCost
 
 
 def _card(name, cost="{2}{R}", keywords=None, type_line="Creature — Goblin",
@@ -283,6 +283,7 @@ def test_ninjutsu_swaps_an_unblocked_attacker_for_a_ninja():
     assert rat.zone == Zone.HAND and rat in p1.hand
     assert ninja.zone == Zone.BATTLEFIELD
     assert ninja.tapped and ninja.attacking
+    assert ninja.attacked_this_turn is False  # entered attacking, never declared
 
 
 def test_ninjutsu_refused_for_a_blocked_attacker():

@@ -20,7 +20,7 @@ need ordinary effect grammar; this batch closes a cohesive first slice:
 
 from __future__ import annotations
 
-from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
@@ -69,7 +69,7 @@ def test_clash_is_referent_transparent_in_connector_split():
     assert kinds == ["create_token", "clash", "pump"]
     assert specs[2].params.get("previous_subject") is True
     assert specs[2].params.get("keywords") == ["deathtouch"]
-    assert specs[2].condition == {"clash_won": True}
+    assert specs[2].condition == {"kind": "clash_won"}
 
 
 def test_pump_prev_singular_accepts_an_additional():
@@ -87,8 +87,10 @@ def test_destroy_all_opponents_enchantments():
     assert got == [__import__(
         "mtg_analyzer.parser.oracle.spec", fromlist=["EffectSpec"]
     ).EffectSpec("destroy", {"selector": "opponents_enchantments"})]
-    # a scope on a noun with no opponent-scoped selector fails closed
-    assert match_clause("destroy all lands your opponents control") is None
+    # a scope on a noun with no named opponent-scoped selector reads as a structured group
+    # (PAR-128 `DestroyEffect.group`) instead of failing closed
+    [land] = match_clause("destroy all lands your opponents control")
+    assert land.params == {"group": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "land"}}}
 
 
 def test_real_clash_cards_modeled():

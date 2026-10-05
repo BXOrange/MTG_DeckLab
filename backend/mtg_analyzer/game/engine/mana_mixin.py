@@ -19,15 +19,15 @@ import itertools
 from contextlib import contextmanager
 from typing import Any, Optional
 
-from ...models.card import Card
-from ...models.events import EventType, GameEvent
-from ...models.game_object import GameObject, Zone
-from ...models.game_state import GameState, StackItem
-from ...models.mana_cost import ManaCost
-from ...models.player import Player
+from ...models.cards.card import Card
+from ...models.game.events import EventType, GameEvent
+from ...models.game.game_object import GameObject, Zone
+from ...models.game.game_state import GameState, StackItem
+from ...models.mana.mana_cost import ManaCost
+from ...models.game.player import Player
 from .. import combat, condition_query, continuous, durations, face_down, variants
-from ...models import game_format
-from ...models.game_format import GameFormat, get_format
+from ...models.decks import formats as game_format
+from ...models.decks.formats import GameFormat, get_format
 from ..costs import (
     DISCARD_HAND,
     PAY_LIFE_X,
@@ -36,7 +36,7 @@ from ..costs import (
     ActivationCost,
     parse_activation_cost,
 )
-from ..effects import ActivatedAbility
+from ..effects.core import ActivatedAbility
 from ..mana_abilities import (
     hand_mana_abilities_for,
     is_snow_source_for,
@@ -83,6 +83,7 @@ class ManaMixin:
         tap_choices: Optional[list[Any]] = None,
         color_split: Optional[dict[str, int]] = None,
         sacrifice_choice: Optional[int] = None,
+        x: int = 0,
     ) -> dict[str, int]:
         """Activate one of a permanent's mana abilities (RULE 605) — the
         fast, no-stack path.
@@ -108,6 +109,8 @@ class ManaMixin:
         parameter existed. ``sacrifice_choice`` is the same cost choice
         `activate_ability` takes, for a "Sacrifice a creature: Add …"-shaped
         mana ability (Ashnod's Altar); ``None`` falls back to an auto-pick.
+        ``x`` is the announced X of an "Add X mana" ability (ENG-51 —
+        Springjack Pasture's "Sacrifice X Goats"); ignored by any other.
         Returns the mana added.
         """
         if source not in self.state.battlefield or source.controller_id != player.id:
@@ -124,6 +127,7 @@ class ManaMixin:
             raise ValueError(f"{source.name} has no mana ability #{ability_index}")
         ability = abilities[ability_index]
         cost = ability.cost
+        x = max(int(x or 0), 0) if ability.x_scaled else 0
         # RULE 602.5d, printed on a mana ability itself (Vivi Ornitier's
         # "Activate only during your turn and only once each turn.") — the
         # stack-based `can_activate`'s own checks
@@ -134,14 +138,14 @@ class ManaMixin:
         if cost.once_per_turn and ability_index in source.mana_abilities_activated_this_turn:
             raise ValueError(f"{source.name}'s mana ability has already been activated this turn")
         if not self._can_pay_activation_cost(
-            player, source, cost, x=0, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice,
+            player, source, cost, x=x, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice,
             is_mana_ability=True,
         ):
             raise ValueError(f"cannot pay {source.name}'s mana ability cost")
         if not ability.options:
             raise ValueError(f"{source.name}'s mana ability produces nothing")
         if ability.any_combination and color_split is not None:
-            total = sum(ability.options[0].values())
+            total = sum(ability.options[0].values()) * (x if ability.x_scaled else 1)
             # `ability.options` already carries only the printed colour
             # subset (one option per allowed colour — Vivi Ornitier's own
             # {U}/{R}, not full WUBRG), so the same list both offers the
@@ -153,11 +157,18 @@ class ManaMixin:
                 raise ValueError(f"invalid mana option {option_index} for {source.name}")
             produced = dict(ability.options[option_index])
         self._pay_activation_cost(
-            player, source, cost, x=0, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice,
+            player, source, cost, x=x, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice,
             is_mana_ability=True,
         )
+        if ability.x_scaled and not (ability.any_combination and color_split is not None):
+            # ENG-51: "Add X mana of any one color" — the chosen colour, X times.
+            produced = {color: amount * x for color, amount in produced.items()}
+            if ability.gain_life_x and x:
+                self.rules.gain_life(player, x)
         if cost.once_per_turn:
             source.mana_abilities_activated_this_turn.add(ability_index)
+        if cost.once_per_game:
+            source.mana_abilities_used_this_game.add(ability_index)  # RULE 702.177a
         if cost.exile_creature:
             # Food Chain (MEC-40): the amount depends on *which* creature
             # just paid this cost — unresolvable at `mana_abilities_for`'s
@@ -220,6 +231,8 @@ class ManaMixin:
             # RULE 728's own rider (Harold and Bob's granted ability) —
             # same "applied right alongside, no stack" treatment.
             self.rules.add_player_counters(player, ability.self_rad_counters, "rad", source=source)
+        for kind, amount in ability.source_counters.items():
+            self.rules.add_counters(source, amount, kind, source=source)
         self.state.record_stat(player.id, "mana", amount=sum(produced.values()))
         mana_potential.record_mana_produced(self, player, produced)
         # RULE 605.1: a "whenever ~ is tapped for mana" trigger (Price of
@@ -296,6 +309,11 @@ class ManaMixin:
             self.rules.add_player_counters(player, ability.self_rad_counters, "rad", source=source)
         self.state.record_stat(player.id, "mana", amount=sum(produced.values()))
         mana_potential.record_mana_produced(self, player, produced)
+        self.state.fire_event(GameEvent(
+            EventType.MANA_ABILITY_ACTIVATED, player_id=player.id,
+            controller_id=player.id, instance_id=source.instance_id,
+            object=source.name, produced=dict(produced),
+        ))
         return produced
     def auto_tap_for(
         self,

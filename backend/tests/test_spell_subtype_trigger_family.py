@@ -13,10 +13,10 @@ being the optional part.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle import MODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body, segment_line
 from mtg_analyzer.parser.oracle.spec import ParserProvenance
@@ -41,7 +41,7 @@ def test_cast_elf_spell_trigger_is_recognized_as_a_subtype_condition():
     assert seg.spec.trigger == {
         "event": "SPELL_CAST",
         "condition": {"subject": "you"},
-        "spell_subtype_any": ["elf"],
+        "spell_filter": {"subtype": "elf"},
     }
     assert seg.spec.optional is True  # a plain "you may <effect>" IS peeled
 
@@ -54,23 +54,37 @@ def test_cast_creature_spell_trigger_still_uses_the_main_type_path():
         allow_spell_effect=False, provenance=ParserProvenance(),
     )
     assert seg.claimed
-    assert seg.spec.trigger["spell_card_types"] == ["creature"]
-    assert "spell_subtype_any" not in seg.spec.trigger
+    assert seg.spec.trigger["spell_filter"] == {"card_type": "creature"}
 
 
 def test_cast_unrecognized_word_spell_trigger_stays_unclaimed():
-    # Not a real main type, not in the curated subtype whitelist — fails
-    # closed rather than guessing.
+    # Not a real main type, not in the curated subtype whitelist, and not
+    # one of the dedicated qualifier rows (color/{X}/mana-value/historic) —
+    # fails closed rather than guessing.
     seg = segment_line(
         "whenever you cast a sorcery spell, draw a card.",  # "sorcery" IS a main type actually
         allow_spell_effect=False, provenance=ParserProvenance(),
     )
     assert seg.claimed  # sanity: this one IS a real main type
     seg2 = segment_line(
-        "whenever you cast a historic spell, draw a card.",
+        "whenever you cast a frobnicated spell, draw a card.",
         allow_spell_effect=False, provenance=ParserProvenance(),
     )
     assert not seg2.claimed
+
+
+def test_cast_historic_spell_trigger_is_modeled():
+    # PAR-79 fifth increment: "historic" (RULE 700.13 — artifact/legendary/
+    # Saga) was one of this test's own former examples of a *deliberately*
+    # unrecognized word — `_CAST_SPELL_TRIGGER_HISTORIC_RE` now gives it a
+    # dedicated row (reaching `effect_binder`'s pre-existing
+    # `spell_is_historic` predicate, PAR-60), so it belongs here instead.
+    seg = segment_line(
+        "whenever you cast a historic spell, draw a card.",
+        allow_spell_effect=False, provenance=ParserProvenance(),
+    )
+    assert seg.claimed
+    assert seg.spec.trigger["spell_filter"] == {"any_of": [{"card_type": "artifact"}, {"legendary": True}, {"subtype": "saga"}]}
 
 
 def test_lys_alana_huntmaster_is_fully_modeled():
@@ -107,7 +121,7 @@ def test_leaf_crowned_visionary_is_fully_modeled_with_no_double_optional():
     assert seg.spec.trigger == {
         "event": "SPELL_CAST",
         "condition": {"subject": "you"},
-        "spell_subtype_any": ["elf"],
+        "spell_filter": {"subtype": "elf"},
     }
     (effect,) = seg.spec.effects
     assert effect.type == "pay_cost_then"

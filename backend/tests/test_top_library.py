@@ -5,9 +5,9 @@ its wiring into `GameEngine.can_play_land`/`play_land`/`can_cast`/
 view's ``top_library_visible`` flag.
 """
 
-from mtg_analyzer.game import ability_catalogue
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import TopLibraryPermissionEffect
+from mtg_analyzer.game import card_registry
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import TopLibraryPermissionEffect
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.top_library import (
     active_top_library_grants,
@@ -17,10 +17,10 @@ from mtg_analyzer.game.top_library import (
     may_play_land_from_top_of_library,
     top_library_life_payment_required,
 )
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.spec import EffectSpec
 from mtg_analyzer.services.game_session import GameSession
 
@@ -310,7 +310,7 @@ def test_oracle_of_mul_daya_specs_include_top_library_permission():
             "You may play lands from the top of your library."
         ),
     )
-    specs = ability_catalogue.specs_for(card)
+    specs = card_registry.specs_for(card)
     (static,) = [s for s in specs if s.ability_kind == "static"]
     (effect,) = static.effects
     assert effect.type == "top_library_permission"
@@ -330,7 +330,7 @@ def test_glarb_specs_include_mana_value_gated_cast_permission_and_surveil():
             "{T}: Surveil 2."
         ),
     )
-    specs = ability_catalogue.specs_for(card)
+    specs = card_registry.specs_for(card)
     static = next(s for s in specs if s.ability_kind == "static")
     assert static.effects[0].type == "top_library_permission"
     assert static.effects[0].params["min_mana_value"] == 4

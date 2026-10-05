@@ -2,7 +2,7 @@
 
 MEC-4 (Strive — not a RULE 702 keyword at all, no CR entry defines it):
 ``AbilitySpec.strive_cost`` rides on a spec the same "own oracle-text line"
-way ``conditional_flash``/``free_cast_condition`` do; `game/effect_binder.py`
+way ``conditional_flash``/``free_cast_condition`` do; `game/binding/core.py`
 parses it into a real `ManaCost` on ``obj.strive_cost``, and
 `GameEngine.effective_cast_cost` adds one copy per target beyond the first
 using the caster's actual chosen ``targets`` (RULE 601.2c precedes 601.2f).
@@ -44,13 +44,13 @@ that happens earlier in the same `begin_turn` call.
 from __future__ import annotations
 
 from mtg_analyzer.game import condition_query
-from mtg_analyzer.game.effect_binder import attach_to_object, bind_from_catalogue
+from mtg_analyzer.game.binding.core import attach_to_object, bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.mana_cost import ManaCost
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.mana.mana_cost import ManaCost
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import segment_line, ParserProvenance
 from mtg_analyzer.parser.oracle.spec import AbilitySpec, SpecValidationError
@@ -117,7 +117,7 @@ def test_embercleave_costs_less_per_attacking_creature_you_control():
         ),
     )
     # `_hand` already binds — Embercleave's cost-reduction static comes from
-    # the hand-authored catalogue entry (`game/ability_catalogue.py`).
+    # the hand-authored catalogue entry (`game/card_registry.py`).
     assert engine.effective_cast_cost(p1, embercleave).converted_mana_cost == 6
 
     a1 = _bf(state, _creature("Attacker1"))
@@ -180,7 +180,7 @@ def test_conditional_flash_targets_a_commander_engine_primitive():
         ),
     )
     # `_hand` already binds — Timely Ward's conditional_flash comes from
-    # the hand-authored catalogue entry (`game/ability_catalogue.py`).
+    # the hand-authored catalogue entry (`game/card_registry.py`).
     assert ward.conditional_flash == {"targets_a_commander": True}
 
     engine.state.current_step = "combat_damage"  # not a main phase, stack empty — instant speed needed
@@ -427,7 +427,7 @@ def test_taking_initiative_via_succession_fires_took_initiative_event():
     """RULE 726.4 says the active player *takes* the initiative — this must
     go through `RulesEngine.take_initiative` (which fires `TOOK_INITIATIVE`,
     RULE 726.2's third inherent trigger), not a bare field assignment."""
-    from mtg_analyzer.models.events import EventType
+    from mtg_analyzer.models.game.events import EventType
 
     engine, state = _engine("p1", "p2", "p3")
     engine.begin_turn()

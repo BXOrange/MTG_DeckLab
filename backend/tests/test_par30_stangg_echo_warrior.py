@@ -5,19 +5,18 @@ Closes the last item of `BACKLOG.md`'s "`create a token that's a copy of
 …` body singletons" bullet. Hand-authored (not parsed) because `normalize`
 folds the token name "Stangg Twin" → "~ Twin", and "for each Aura and
 Equipment attached to X, create a token that's a copy of it **attached to
-Stangg Twin**" is a bespoke copy-and-reattach shape with no other consumer
-(`effects.CopyAttachmentsOntoLastCreatedEffect`).
+Stangg Twin**" uses the generic attachment-list copy and attach operands.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game.ability_catalogue.core import specs_for
-from mtg_analyzer.game.effect_binder import bind_from_catalogue, build_effects
+from mtg_analyzer.game.card_registry.core import specs_for
+from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.services.card_lookup import card_by_name
 
 
@@ -41,7 +40,15 @@ def test_stangg_is_hand_authored():
     assert len(specs) == 1
     assert specs[0].ability_kind == "triggered"
     assert [e.type for e in specs[0].effects] == [
-        "create_token", "copy_attachments_onto_last_created", "create_delayed_trigger",
+        "create_token", "seq", "create_delayed_trigger",
+    ]
+    assert specs[0].effects[1].params["effects"] == [
+        {"type": "copy_permanent", "params": {
+            "target_kind": None, "referent": "attachments_each",
+        }},
+        {"type": "attach", "params": {
+            "mover": "created_after_first", "target_kind": "first_created",
+        }},
     ]
     assert specs[0].effects[2].params["capture"] == "created_objects"
 
@@ -51,6 +58,8 @@ def _engine_with_stangg():
     eng = GameEngine.new_game(
         [("p1", "A", []), ("p2", "B", [])], starting_life=20, starting_hand=0
     )
+    eng.state.current_phase = "combat"
+    eng.state.current_step = "declare_attackers"
     stangg = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
     stangg.controller_id = "p1"
     eng.state.add_to_battlefield(stangg)

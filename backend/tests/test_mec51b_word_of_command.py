@@ -4,7 +4,7 @@
 player until ~ finishes resolving. The player plays that card if able."
 
 `WordOfCommandEffect` opens a `word_of_command` pending choice addressed to
-the caster over the target's hand; `GameEngine.resolve_word_of_command_choice`
+the caster over the target's hand; `GameEngine._resume_word_of_command`
 then has the target play the pick — `play_land`, else `cast_without_paying`
 (the effect-driven free-cast primitive cascade/discover use). The RULE 720
 mana restriction and target selection are documented simplifications.
@@ -12,11 +12,11 @@ mana restriction and target selection are documented simplifications.
 
 from __future__ import annotations
 
-from mtg_analyzer.game import ability_catalogue as ac
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game import card_registry as ac
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 
 
 def _deck(n=20):

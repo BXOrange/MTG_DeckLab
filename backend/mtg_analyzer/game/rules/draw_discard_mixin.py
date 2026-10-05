@@ -18,25 +18,26 @@ engine is the toolbox that loop drives.
 
 from __future__ import annotations
 
+import functools
 import random
 import re
 from typing import Any, Callable, Optional, Union
 
-from ...models import card_query
-from ...models.card import Card
-from ...models.emblem import Emblem
-from ...models.events import EventType, GameEvent
-from ...models.game_object import GameObject, Zone
-from ...models.game_state import DelayedTrigger, GameState, StackItem
-from ...models.mana_cost import ManaCost
-from ...models.player import Player
+from ...models.cards import card_query
+from ...models.cards.card import Card
+from ...models.game.emblem import Emblem
+from ...models.game.events import EventType, GameEvent
+from ...models.game.game_object import GameObject, Zone
+from ...models.game.game_state import DelayedTrigger, GameState, StackItem
+from ...models.mana.mana_cost import ManaCost
+from ...models.game.player import Player
 from ...parser.oracle.catalogue.keywords import parse_keywords
 from ...parser.oracle.catalogue.saga import all_chapter_numbers
-from .. import ability_catalogue, combat, continuous, copy_mechanics, dungeons, face_down, variants
+from .. import card_registry, combat, continuous, copy_mechanics, dungeons, face_down, variants
 from ..combat import is_protected_from
 from ..costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from ..mana_abilities import restriction_predicate_for_cast
-from ..effects import (
+from ..effects.core import (
     _apply_effects_partitioned,
     AddCountersEffect,
     CompleteDungeonEffect,
@@ -73,6 +74,7 @@ from ..effects import (
     WinConditionEffect,
 )
 from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_targets
+from .. import continuations
 
 def _saga_final_chapter(card: Card) -> int:
     """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
@@ -174,6 +176,18 @@ def _dredge_value(obj: Any) -> Optional[int]:
     return n if n > 0 else None
 
 
+def _one_event(method):
+    """RULE 603.2c: every card one call discards is discarded at once (one
+    `EVENT_BATCH`) — a cost, a "discard your hand", the cleanup-step discard."""
+
+    @functools.wraps(method)
+    def wrapped(self, *args, **kwargs):
+        with self.state.simultaneous():
+            return method(self, *args, **kwargs)
+
+    return wrapped
+
+
 class DrawDiscardMixin:
     """Draw, mill, discard."""
 
@@ -197,7 +211,7 @@ class DrawDiscardMixin:
             # may" — offered here (the single-card path only; a multi-card
             # `draw()` is a documented simplification) as an interactive
             # `dredge` `pending_choice`. If it opens, the draw is deferred:
-            # `GameEngine.resolve_dredge_choice` either mills+returns the
+            # `GameEngine._resume_dredge` either mills+returns the
             # dredged card or falls back to `_single_draw`.
             if self._maybe_offer_dredge(player):
                 return
@@ -269,27 +283,26 @@ class DrawDiscardMixin:
                 # bumped below (see `_arm_miracle`).
                 if self.state.cards_drawn_this_turn.get(player.id, 0) == 0:
                     self._arm_miracle(player, drawn[0])
-                self.state.cards_drawn_this_turn[player.id] = (
-                    self.state.cards_drawn_this_turn.get(player.id, 0) + len(drawn)
-                )
-                self.state.cards_drawn_this_turn_ids.setdefault(player.id, []).extend(
-                    o.instance_id for o in drawn if getattr(o, "instance_id", None) is not None
-                )
                 self.state.record_stat(player.id, "draw", amount=len(drawn))
-                self.state.fire_event(
-                    GameEvent(
-                        EventType.DRAW, player_id=player.id, count=len(drawn),
-                        # MEC-42: this is the event trigger-collection
-                        # actually sees — `first_in_draw_step` was
-                        # previously only ever threaded into the *input*
-                        # event `apply_replacements` reads (MEC-32,
-                        # Notion Thief/Chains of Mephistopheles), never
-                        # forwarded here, so no trigger's own "except the
-                        # first ... draw step" condition (Orcish
-                        # Bowmasters-shaped) could ever actually read it.
-                        first_in_draw_step=first_in_draw_step,
-                    )
-                )
+                # RULE 121.2: drawing several cards is several individual draws.
+                # Snapshot the ordinal within this player's own draw step; an
+                # extra draw step starts a fresh range at its STEP_BEGIN event.
+                ordinal = None
+                if self.state.current_step == "draw" and self.state.active_player.id == player.id:
+                    ordinal = 0
+                    for prior in self.state.events_this_turn():
+                        if prior.type == EventType.STEP_BEGIN:
+                            break
+                        if (prior.type == EventType.DRAW and prior.get("player_id") == player.id
+                                and prior.get("draw_step_ordinal") is not None):
+                            ordinal += int(prior.get("count", 1))
+                for index, card in enumerate(drawn):
+                    self.state.fire_event(GameEvent(
+                        EventType.DRAW, player_id=player.id, count=1,
+                        instance_ids=[card.instance_id],
+                        first_in_draw_step=first_in_draw_step and index == 0,
+                        draw_step_ordinal=None if ordinal is None else ordinal + index + 1,
+                    ))
 
         self.apply_replacements(event, on_resolved=_finish)
     def _maybe_offer_dredge(self, player: Player) -> bool:
@@ -317,23 +330,20 @@ class DrawDiscardMixin:
             for o in candidates
         ]
         options.append({"id": "draw", "label": "Eine Karte ziehen"})
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "dredge",
             "player_id": player.id,
             "prompt": "Statt zu ziehen aufmahlen (Dredge)?",
             "options": options,
-        }
+        })
         return True
-    def resolve_dredge_choice(self, answer: Optional[Union[str, int]]) -> None:
+    @continuations.choice("dredge", answer=continuations.ANSWER_STR, rule="702.52")
+    def _resume_dredge(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a `dredge` `pending_choice` (RULE 702.52b): ``"draw"`` /
         ``None`` draws the deferred card normally; a card's instance id
         mills that card's N and, if it milled anything or not, returns the
         card from the graveyard to its owner's hand."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "dredge":
-            return
         player = self.state.player_by_id(choice["player_id"])
-        self.state.pending_choice = None
         if answer in (None, "draw", "decline"):
             self._single_draw(player)
             return
@@ -359,7 +369,29 @@ class DrawDiscardMixin:
             self._flag_commander_zone_choice(obj)  # RULE 903.9a (rare: a commander milled from the library)
             milled.append(obj)
         self.state.fire_event(GameEvent(EventType.MILL, player_id=player.id, count=count))
+        if milled:
+            # RULE 701.13 moves all cards from one mill instruction together.
+            # Preserve the moved-card snapshot before any triggered ability
+            # can return/exile one of them; batch triggers must see one event.
+            self.state.fire_event(GameEvent(
+                EventType.CARDS_MILLED,
+                player_id=player.id,
+                cards=[{
+                    "instance_id": obj.instance_id,
+                    "owner_id": obj.owner_id,
+                    "object_types": sorted(obj.type_words),
+                    "subtypes": obj.card.type_line.partition("—")[2].strip().lower().split(),
+                } for obj in milled],
+            ))
         for obj in milled:
+            self.state.fire_event(GameEvent(
+                EventType.MILLED_CARD,
+                player_id=player.id,
+                instance_id=obj.instance_id,
+                owner_id=obj.owner_id,
+                object_types=sorted(obj.type_words),
+                subtypes=obj.card.type_line.partition("—")[2].strip().lower().split(),
+            ))
             if not obj.is_land:
                 self.state.fire_event(
                     GameEvent(EventType.MILL_CARD, player_id=player.id, instance_id=obj.instance_id)
@@ -395,6 +427,40 @@ class DrawDiscardMixin:
         )
         return True
 
+    def _maybe_discard_to_battlefield(
+        self, player: Player, obj: GameObject, cause_controller_id: Optional[str],
+    ) -> bool:
+        """RULE 614.1 (MEC-102): "if a spell or ability an opponent controls
+        causes you to discard this card, put it onto the battlefield [with N
+        +1/+1 counters] instead of putting it into your graveyard." (Loxodon
+        Smiter/Obstinate Baloth/Nullhide Ferox/Dodecapod) — checked directly
+        against ``obj``'s own `GameObject.replacement_effects` rather than
+        through `RulesEngine._all_replacement_effects()` (battlefield-only),
+        since the card carrying this ability is, by definition, still in
+        hand right now — the same reason `_maybe_madness` above is its own
+        self-contained check rather than going through the general
+        replacement pipeline. See `effects/replacements.py`'s
+        `_discard_to_battlefield_replacement` for the actual zone move.
+
+        Returns ``True`` when it intercepted the move (the caller then skips
+        its own graveyard step, mirroring `_maybe_madness`'s own return
+        convention) — `DISCARD_CARD` still fires either way (RULE 614.1
+        changes *how* the discard happens, not *whether* it happened).
+        """
+        for effect in obj.replacement_effects:
+            if getattr(effect, "event_type", None) != EventType.WOULD_DISCARD:
+                continue
+            would_discard = GameEvent(
+                EventType.WOULD_DISCARD,
+                instance_id=obj.instance_id,
+                player_id=player.id,
+                cause_controller_id=cause_controller_id,
+            )
+            if effect.can_replace(would_discard, self.context):
+                effect.apply_replacement(would_discard, self.context)
+                return True
+        return False
+
     def _arm_miracle(self, player: Player, obj: GameObject) -> None:
         """RULE 702.94a-b: if ``obj`` (the first card ``player`` drew this
         turn) has Miracle, make it castable from hand for its miracle cost
@@ -409,31 +475,35 @@ class DrawDiscardMixin:
         obj.miracle_armed = True
         self.state.miracle_armed_ids.add(obj.instance_id)
 
-    def _note_discarded(self, player_id: str, n: int = 1) -> None:
-        """Bump `GameState.cards_discarded_this_turn` — called at every
-        `DISCARD_CARD` fire site so "for each card you've discarded this
-        turn" (Living Laser, Change of Fortune) counts every route."""
-        counts = self.state.cards_discarded_this_turn
-        counts[player_id] = counts.get(player_id, 0) + max(0, n)
-
-    def discard(self, player: Player, count: int = 1) -> None:
+    @_one_event
+    def discard(self, player: Player, count: int = 1, cause: Optional[GameObject] = None) -> None:
         """Non-interactive discard: cost payment (`GameEngine._pay_activation_
         cost`/`_pay_additional_cast_cost`, ward, RULE 514.3 cleanup) pays a
         cost or resolves an SBA in one synchronous call, so it can't pause
         for a chooser — see `discard_choice` for the interactive, effect-
-        resolution version looting-shaped effects use instead."""
+        resolution version looting-shaped effects use instead.
+
+        ``cause`` (MEC-101) is the spell/ability *responsible* for this
+        discard — an effect's own `GameEffect.source`, or an activation/cast
+        cost's own source object — stamped onto `DISCARD_CARD` as
+        ``cause_controller_id`` so "a spell or ability **an opponent
+        controls** causes you to discard `<X>`" (Pure Intentions, Guerrilla
+        Tactics, the whole "caused discard" cycle) can tell a hostile
+        discard apart from RULE 514.2's own hand-size cleanup or a card's
+        own cost paid by its own controller, neither of which passes one.
+        """
         discarded = 0
+        cause_controller_id = getattr(cause, "controller_id", None)
         for _ in range(count):
             if not player.hand:
                 break
             obj = player.hand.pop()  # auto-choose (no chooser in MVP)
             madness = self._maybe_madness(player, obj)  # RULE 702.35a
-            if not madness:
-                obj.zone = Zone.GRAVEYARD
-                player.graveyard.append(obj)
-                self._flag_commander_zone_choice(obj)  # RULE 903.9a
+            if not madness and not self._maybe_discard_to_battlefield(  # RULE 614.1 (MEC-102)
+                player, obj, cause_controller_id,
+            ):
+                self._move_to_graveyard(obj, cause="discard")
             discarded += 1
-            self._note_discarded(player.id)
             self.state.fire_event(
                 GameEvent(
                     EventType.DISCARD_CARD, player_id=player.id, instance_id=obj.instance_id,
@@ -445,6 +515,7 @@ class DrawDiscardMixin:
                     # so a "permanent card" RULE 603.1 group condition can
                     # tell an instant/sorcery discard apart from the rest.
                     object_types=_main_type_words(obj.card),
+                    cause_controller_id=cause_controller_id,
                 )
             )
         if discarded:
@@ -452,7 +523,10 @@ class DrawDiscardMixin:
                 GameEvent(EventType.DISCARD, player_id=player.id, count=discarded)
             )
 
-    def discard_random(self, player: Player, count: int = 1) -> None:
+    @_one_event
+    def discard_random(
+        self, player: Player, count: int = 1, cause: Optional[GameObject] = None,
+    ) -> None:
         """"…discards a card at random." (RULE 701.8d — Black Cat / Bottomless
         Pit / Hypnotic Specter family). Non-interactive like `discard`, but
         the card is chosen uniformly at random from ``player``'s hand rather
@@ -460,25 +534,29 @@ class DrawDiscardMixin:
         be a real rules difference — a chosen random card can be a bomb the
         player would never have pitched). Fires the same per-card
         `DISCARD_CARD` + aggregate `DISCARD` events and honours Madness
-        (RULE 702.35a) exactly as `discard` does.
+        (RULE 702.35a) exactly as `discard` does. ``cause`` — see `discard`'s
+        own docstring (MEC-101).
         """
         discarded = 0
+        cause_controller_id = getattr(cause, "controller_id", None)
         for _ in range(count):
             if not player.hand:
                 break
             obj = random.choice(player.hand)
             player.hand.remove(obj)
             madness = self._maybe_madness(player, obj)  # RULE 702.35a
-            if not madness:
+            if not madness and not self._maybe_discard_to_battlefield(  # RULE 614.1 (MEC-102)
+                player, obj, cause_controller_id,
+            ):
                 obj.zone = Zone.GRAVEYARD
                 player.graveyard.append(obj)
                 self._flag_commander_zone_choice(obj)  # RULE 903.9a
             discarded += 1
-            self._note_discarded(player.id)
             self.state.fire_event(
                 GameEvent(
                     EventType.DISCARD_CARD, player_id=player.id, instance_id=obj.instance_id,
                     object_types=_main_type_words(obj.card),
+                    cause_controller_id=cause_controller_id,
                 )
             )
         if discarded:
@@ -491,17 +569,22 @@ class DrawDiscardMixin:
         count: int,
         source: Optional[GameObject] = None,
         then_specs: Optional[list[dict]] = None,
+        optional: bool = False,
     ) -> None:
         """Interactive discard (RULE 701.8): ``player`` — the one discarding,
         not necessarily an effect's controller (Mind Rot targets an
         opponent) — picks which ``count`` cards leave their own hand,
-        through the same `request_choose_objects` chooser that replaced
+        through the same `_request_choose_objects` chooser that replaced
         "auto-pick the first candidate" for sacrifice/tap/bounce effects.
         Forced with no prompt when the hand has at most ``count`` cards left
         (a "discard your hand" effect, or `count` >= hand size) — nothing to
         choose between. Used by looting-shaped effects (`DiscardEffect`);
         cost payment still uses the plain, non-interactive `discard` (see
         its own docstring) since a cost is paid in one synchronous call.
+
+        ``optional`` makes ``count`` a ceiling rather than a quota — "discard
+        **up to** N cards" (Cathartic Pyre / Kinetic Augur / Daretti +2),
+        the RULE 601.2b "you may" over each pick.
 
         ``then_specs`` (MEC-43 round 4C, Syphon Mind's "You draw a card for
         each card discarded this way") are serialized `EffectSpec` dicts
@@ -511,10 +594,91 @@ class DrawDiscardMixin:
         (never for a would-be discard against an empty hand), the same
         count `DiscardEffect`'s own ``count`` already asks for.
         """
-        self.request_choose_objects(
-            player, list(player.hand), "discard", count=count,
+        self._request_choose_objects(
+            player, list(player.hand), "discard", count=count, optional=optional,
             prompt="Wähle eine Karte zum Abwerfen", source=source, then_specs=then_specs,
         )
+
+    @_one_event
+    def discard_matching(
+        self, player: Player, mana_value: Optional[int] = None,
+        cause: Optional[GameObject] = None,
+    ) -> None:
+        """Non-interactive "discards all cards with `<X>` mana value" (PAR-74
+        — Infernal Kirin: "target player reveals their hand and discards all
+        cards with that spell's mana value."). RULE 601.2c's "all" leaves
+        nothing to choose between, unlike `discard_choice`'s RULE 701.8 pick
+        — every matching card leaves, via the same non-interactive
+        `discard_specific` Channel/Cycling costs use, rather than opening a
+        chooser over a foregone conclusion. ``cause`` — see `discard`'s own
+        docstring (MEC-101).
+        """
+        if mana_value is None:
+            return
+        for obj in list(player.hand):
+            if obj.card.converted_mana_cost == mana_value:
+                self.discard_specific(obj, cause=cause)
+
+    def look_at_hand(
+        self, player: Player, owner: Player, source: Optional[GameObject] = None,
+    ) -> None:
+        """"Look at target player's hand." (Clairvoyance, Peek, Glasses of Urza.) Nothing moves: the
+        looking player is shown ``owner``'s hand — every card as an option, any click or "done"
+        acknowledges — through a pending choice, the one thing only its decider ever sees
+        (`game_session._redact`), so an opponent's hand stays hidden from everyone else (RULE 400.2).
+        An empty hand has nothing to look at, so nothing opens."""
+        if not owner.hand:
+            return
+        options = [
+            {"id": "ok", "label": obj.name, "instance_id": obj.instance_id, "card_id": obj.card.id}
+            for obj in owner.hand
+        ]
+        options.append({"id": "decline", "label": "Fertig"})
+        self.open_choice({
+            "kind": "look_hand",
+            "player_id": player.id,
+            "owner_id": owner.id,
+            "prompt": f"Hand von {owner.name}",
+            "source_name": source.name if source is not None else None,
+            "options": options,
+        })
+
+    @continuations.choice("look_hand", answer=continuations.ANSWER_STR, rule="400.2")
+    def _resume_look_hand(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        """Looking changes nothing; the answer only closes the window."""
+
+    def exile_hand_choice(
+        self,
+        player: Player,
+        count: int = 1,
+        source: Optional[GameObject] = None,
+        then_specs: Optional[list[dict]] = None,
+        optional: bool = False,
+        zone: str = "hand",
+    ) -> None:
+        """Interactive exile-from-hand (PAR-74 — Kyoki, Sanity's Eclipse:
+        "target opponent exiles a card from their hand."). The exile sibling
+        of `discard_choice` just above: ``player`` — not necessarily an
+        effect's controller — picks which ``count`` cards leave their own
+        hand, through the same `_request_choose_objects` chooser, whose
+        ``"exile"`` action already exists for the Gemstone Caverns opening-
+        hand pick (`offer_opening_hand_battlefield_choice`) and simply calls
+        `RulesEngine.exile` on whatever object is chosen, hand card or not.
+        ``zone="graveyard"`` is the same pick over the player's own graveyard
+        ("target player exiles a card from their graveyard" — Merrow
+        Bonegnawer, Scrabbling Claws).
+        """
+        graveyard = zone == "graveyard"
+        self._request_choose_objects(
+            player, list(player.graveyard if graveyard else player.hand), "exile", count=count,
+            optional=optional,
+            prompt=(
+                "Wähle eine Karte aus deinem Friedhof zum Exilieren" if graveyard
+                else "Wähle eine Karte aus deiner Hand zum Exilieren"
+            ),
+            source=source, then_specs=then_specs,
+        )
+
     def put_hand_cards_on_top(self, player: Player, count: int) -> None:
         """Put up to ``count`` cards from ``player``'s hand on top of their
         library, "in any order" (RULE 701 — Brainstorm's "then put two cards
@@ -557,21 +721,28 @@ class DrawDiscardMixin:
         player = self.state.player_by_id(obj.owner_id)
         player.remove_from_zone(obj, Zone.HAND)
         player.add_to_zone(obj, Zone.LIBRARY)  # top of deck is the list end
-    def discard_specific(self, obj: GameObject) -> None:
+    def discard_specific(self, obj: GameObject, cause: Optional[GameObject] = None) -> None:
         """Discard ``obj`` itself out of its owner's hand — Channel (RULE
         702.29)/Cycling (RULE 702.28)'s own "Discard this card" cost, unlike
         `discard` (a player-scoped count with no chooser, RULE 701.8's
-        general form)."""
+        general form). ``cause`` — see `discard`'s own docstring (MEC-101);
+        Channel/Cycling's own cost payment passes none (the card's own
+        controller pays their own cost, never "an opponent's spell or
+        ability"), but `discard_choice`'s interactive path threads its own
+        ``source`` through here so a *forced* interactive discard still
+        carries the causing ability."""
         player = self.state.player_by_id(obj.owner_id)
-        if not self._maybe_madness(player, obj):  # RULE 702.35a
+        cause_controller_id = getattr(cause, "controller_id", None)
+        if not self._maybe_madness(player, obj) and not self._maybe_discard_to_battlefield(
+            player, obj, cause_controller_id,  # RULE 614.1 (MEC-102)
+        ):
             player.remove_from_zone(obj, Zone.HAND)
-            player.add_to_zone(obj, Zone.GRAVEYARD)
-            self._flag_commander_zone_choice(obj)  # RULE 903.9a
-        self._note_discarded(player.id)
+            self._move_to_graveyard(obj, cause="discard")
         self.state.fire_event(
             GameEvent(
                 EventType.DISCARD_CARD, player_id=player.id, instance_id=obj.instance_id,
                 object_types=_main_type_words(obj.card),  # see `discard`'s own comment
+                cause_controller_id=cause_controller_id,
             )
         )
         self.state.fire_event(

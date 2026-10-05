@@ -6,8 +6,10 @@ Paths relative to `backend/mtg_analyzer/`. Use
 ## Pick the right shape first
 
 The engine has five ability shapes, all subclassing `GameEffect`
-(`game/effects.py`). Picking wrong is the most expensive mistake available
-here, because it is only obvious two hundred lines in.
+(`game/effects/core.py`, one of ~15 modules the former `effects.py` was split
+into by family — `game/effects/registry.py` is where concrete types get
+registered). Picking wrong is the most expensive mistake available here,
+because it is only obvious two hundred lines in.
 
 | Shape | Is it | RULE | Tell |
 | --- | --- | --- | --- |
@@ -38,19 +40,22 @@ which is why the bench's `inspect` prints each of them:
    directly: that's what makes an effect-caused draw run through the same
    replacement and trigger machinery as a draw-step draw.
 2. **`EffectRegistry.register("your_type", lambda p: YourEffect(...))`** —
-   bottom of `game/effects.py`. The whitelisted `type` string is the security
-   boundary: parsed card text never becomes code, it only names a registered
-   factory. An unregistered type raises on `create`, but a *misspelled* one in
-   a spec simply never binds.
-3. **`_SELECTOR_KEYS`** — any new selector param you pass through a static
-   spec. Not listed = silently dropped.
+   in `game/effects/registry.py` (the concrete-registration module; the
+   `EffectRegistry` class itself is in `core.py`). The whitelisted `type`
+   string is the security boundary: parsed card text never becomes code, it
+   only names a registered factory. An unregistered type raises on `create`,
+   but a *misspelled* one in a spec simply never binds.
+3. **`_SELECTOR_KEYS`** (in `game/effects/registry.py`) — any new selector
+   param you pass through a static spec. Not listed = silently dropped.
 4. **Targeting** — set `target_spec` (a `TargetSpec`) in `__init__` if the
    effect targets, so RULE 601.2c can refuse the cast when no legal target
    exists. Two independently-chosen targets in one clause go in
    `extra_target_specs`; `apply` then reads `targets[0]`, `targets[1]` in
    printed order.
 5. **A parser handler or a catalogue entry**, or no real card can reach it —
-   see the `extend-parser` skill, or hand-author in `game/ability_catalogue.py`.
+   see the `extend-parser` skill, or hand-author in `game/card_catalogue/`
+   (one file per card, under a lowercased-first-letter folder;
+   `game/card_registry/core.py` holds `register`/`specs_for`).
 
 ## Interactive effects
 
@@ -71,8 +76,10 @@ is deep-copied for undo/snapshots; a closure doesn't survive it.
 
 A trigger can only listen for an event the engine actually fires, carrying the
 data the condition needs (usually `instance_id`, often `controller_id`).
-`python $BENCH events --grep <word>` lists the vocabulary; `grep -n
-"EventType.<NAME>"` in `rules_engine.py`/`game_engine.py` shows who fires it.
+`python $BENCH events --grep <word>` lists the vocabulary; `grep -rn
+"EventType.<NAME>"` in `game/rules/*_mixin.py`/`game/engine/*_mixin.py` shows
+who fires it (`rules_engine.py`/`game_engine.py` themselves hold almost none
+of this any more — see CLAUDE.md's ENG-20/21 mixin split).
 
 If your mechanic needs a firing that doesn't exist, add it at the choke point
 every route passes through, not at the individual call sites. Precedents worth
@@ -137,4 +144,4 @@ general and is cheaper to reuse than to re-derive:
 - **a face swap that leaves the object the same permanent** — DFC transform and
   face-down (708) share it; the layer engine and combat need no special case
 - **command-zone data that isn't a permanent** — `Player.dungeon` (309),
-  `models/emblem.py` (114), the RULE 9 variant pools
+  `models/game/emblem.py` (114), the RULE 9 variant pools

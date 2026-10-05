@@ -2,7 +2,7 @@
 When/If you do, `<effect>`." optional-antecedent family.
 
 No new engine primitive: `PayCostThenEffect`/`RulesEngine.
-request_pay_cost_then` (RULE 118.3) already generalized mana/sacrifice/
+_request_pay_cost_then` (RULE 118.3) already generalized mana/sacrifice/
 discard/life payment behind one interactive "can you afford it, do you want
 to, then pay it" gate (Rhystic Study/Mana Vault/Wandering Archaic). The gap
 closed here is a parser one: `catalogue.handlers._pay_cost_then_general`
@@ -23,9 +23,9 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 
@@ -95,16 +95,24 @@ def test_abandon_attachments_is_fully_modeled_as_a_spell_effect():
     assert spell_effects[0].effects[0].type == "pay_cost_then"
 
 
-def test_dokuchi_silencer_targeted_followup_stays_unclaimed():
+def test_dokuchi_silencer_targeted_followup_is_a_reflexive_trigger():
     """"You may discard a card. When you do, destroy target creature or
-    planeswalker" — `pay_cost_then`'s branch effects resolve off-stack with
-    no target-gathering step, so a targeted follow-up must stay a fail-closed
-    gap rather than be half-modeled (docs/09). Guards against silently
-    widening `_pay_cost_then_general` to accept targets without also
-    teaching `PayCostThenEffect` to gather them.
+    planeswalker that player controls" — the targeted payoff rides
+    `pay_cost_then`'s ``then_trigger``, a RULE 603.12 reflexive trigger that
+    gathers its own target through the ordinary placement path (and carries
+    the outer DAMAGE event for "that player" — PAR-130, executed in
+    `tests/test_par130_that_player_target_scope.py`). What must never happen
+    is the payoff riding the off-stack ``effects`` branch, which has no
+    target-gathering step.
     """
     result = parse_oracle(_card("A-Dokuchi Silencer"))
-    assert result.coverage == "UNMODELED"
+    assert result.coverage == "MODELED"
+    (pay,) = [e for s in result.specs for e in s.effects if e.type == "pay_cost_then"]
+    assert not pay.params.get("effects")
+    assert pay.params["then_trigger"] == [{
+        "type": "destroy",
+        "params": {"target_kind": "creature_or_planeswalker_that_player_controls"},
+    }]
 
 
 def test_self_sacrifice_when_you_do_still_uses_the_plain_sequence_path():

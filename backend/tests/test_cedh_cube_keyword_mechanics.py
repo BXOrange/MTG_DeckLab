@@ -17,13 +17,13 @@ no behaviour, plus a *granted* Escape and the Pacts.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 
 
 def _engine():
@@ -224,7 +224,7 @@ def _pair_navigator(engine, state):
     state.fire_event(_etb(navigator))
     engine.rules.put_triggers_on_stack()
     while state.pending_choice and state.pending_choice["kind"] != "choose_objects":
-        engine.rules.resolve_trigger_target_choice("do")
+        engine.rules.resolve_choice("do")
     engine.resolve_until_stable()
     # RULE 702.94a: which creature to pair with is a real choice now.
     if state.pending_choice and state.pending_choice["kind"] == "choose_objects":
@@ -364,7 +364,7 @@ def test_mutating_fires_its_own_event_and_the_drakkis_trigger():
     engine.rules.put_triggers_on_stack()
     while state.pending_choice:
         options = [o for o in state.pending_choice["options"] if o["id"] != "decline"]
-        engine.rules.resolve_trigger_target_choice(options[0]["id"])
+        engine.rules.resolve_choice(options[0]["id"])
     engine.resolve_until_stable()
 
     assert any(o.name == "Bolt" for o in p1.hand)
@@ -515,7 +515,7 @@ def test_paying_a_pact_keeps_you_in_the_game():
 
     engine._fire_delayed_triggers("upkeep")
     engine.rules.resolve_top_of_stack()
-    engine.rules.resolve_pay_cost_then_choice("pay")
+    engine.rules.resolve_choice("pay")
 
     assert p1.has_lost is False
     assert p1.mana_pool.total() == 0
@@ -528,7 +528,7 @@ def test_declining_a_pact_loses_the_game():
 
     engine._fire_delayed_triggers("upkeep")
     engine.rules.resolve_top_of_stack()
-    engine.rules.resolve_pay_cost_then_choice("decline")
+    engine.rules.resolve_choice("decline")
 
     assert p1.has_lost is True
 
@@ -549,7 +549,7 @@ def test_being_unable_to_pay_a_pact_loses_without_asking():
 def _arm_pact(engine, state, p1):
     pact = _catalogue_obj("Pact of Negation", zone=Zone.HAND)
     p1.add_to_zone(pact, Zone.HAND)
-    from mtg_analyzer.game.effects import CreateDelayedTriggerEffect, GameContext
+    from mtg_analyzer.game.effects.core import CreateDelayedTriggerEffect, GameContext
 
     CreateDelayedTriggerEffect(
         step="upkeep",

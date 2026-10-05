@@ -7,18 +7,18 @@ block, activated abilities can't be activated — are enforced in `_can_attack`
 / `can_block` / `can_activate` via `combat.is_detained`.
 
 Reference: game/rules/misc_mixin.py (`detain`), game/combat.py
-(`is_detained`), game/effects.py (`DetainEffect`),
+(`is_detained`), game/effects/core.py (`DetainEffect`),
 parser/oracle/catalogue/handlers.py.
 """
 
 from __future__ import annotations
 
 from mtg_analyzer.game import combat
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec
@@ -160,7 +160,7 @@ def test_detain_effect_up_to_two_targets():
     src = GameObject(src_card, owner_id="p1", zone=Zone.STACK)
     src.controller_id = "p1"
 
-    from mtg_analyzer.game.effects import DetainEffect, GameContext
+    from mtg_analyzer.game.effects.core import DetainEffect, GameContext
     eff = DetainEffect(source=src, target_kind="creature_you_dont_control",
                        count=2, optional=True)
     eff.apply(GameContext(state, eng.rules), targets=[a, b])

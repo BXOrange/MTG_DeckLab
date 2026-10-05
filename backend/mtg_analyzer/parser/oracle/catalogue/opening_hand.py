@@ -143,7 +143,7 @@ class PregameSetupPermission:
     "if you do" consequence — never a payable cost that could make the
     player reconsider): ``None``/``"lose_life"`` (an amount off `RulesEngine
     .lose_life`) or ``"exile_hand_card"`` (a card the player chooses,
-    `RulesEngine.request_choose_objects`'s ``"exile"`` action — nothing
+    `RulesEngine._request_choose_objects`'s ``"exile"`` action — nothing
     happens if the hand is empty, same as any "if you do" with nothing left
     to do).
     """
@@ -160,7 +160,7 @@ def pregame_setup_permission(card: Any) -> Optional[PregameSetupPermission]:
     """``card``'s RULE 103.6 pregame setup permission, covering all three
     recognised shapes (plain/conditional-battlefield/graveyard) — or
     ``None`` if it has none. Single source of truth for `game/
-    ability_catalogue.pregame_setup_permission`, the same split every
+    card_registry.pregame_setup_permission`, the same split every
     other clause-shape module in this package uses.
     """
     text = getattr(card, "oracle_text", "") or ""

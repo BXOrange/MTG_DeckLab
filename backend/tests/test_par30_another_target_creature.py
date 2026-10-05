@@ -9,17 +9,25 @@ excluded. The engine's `other_creature_you_control` target kind
 (`targeting.py`) already does that exclusion + "you control" scoping + its
 German label; this batch just routes the printed phrase there and adds the
 kind to `_pump_target`'s pumpable-kind allowlist. The no-"you control"
-form ("another target creature") stays UNMODELED — its `other_creature`
-kind is not engine-wired.
+form ("another target creature") originally stayed UNMODELED (its
+``other_creature`` kind was never engine-wired). The Blight Curse batch
+(2026-09-07) added a bare ``(?:another|other) target creature`` → ``creature``
+row instead: RULE 109.5's "another" adds no distinct engine kind — the plain
+``creature`` pick already excludes the ability's own source (RULE 115.6),
+exactly like the "another target permanent" → ``permanent`` row. It's a
+documented precision loss for the rarer *two-target* shape (Consume Strength's
+"Another target creature gets -2/-2" — the two targets could be re-picked as
+the same creature, `distinct_from_others` isn't threaded through `pump`), the
+same RULE 115 simplification this file's own N-way rows already accept.
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.targeting import TargetSpec, legal_targets
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 
@@ -63,13 +71,16 @@ def test_two_keyword_another_target_you_control():
     assert specs[0].params["target_kind"] == "other_creature_you_control"
 
 
-def test_no_you_control_form_stays_unmodeled():
-    # "another target creature" (no "you control") — `other_creature` is not
-    # an engine-wired kind, so it must fail closed rather than emit a spec
-    # that resolves to nothing.
-    assert match_clause(
+def test_no_you_control_form_maps_to_bare_creature():
+    # "another target creature" (no "you control") now routes to the plain
+    # engine-wired ``creature`` kind (RULE 109.5 "another" == "not the
+    # source", which ``creature`` already excludes — RULE 115.6).
+    specs = match_clause(
         "another target creature gains deathtouch until end of turn"
-    ) is None
+    )
+    assert specs is not None
+    assert specs[0].type == "pump"
+    assert specs[0].params == {"keywords": ["deathtouch"], "target_kind": "creature"}
 
 
 def test_real_cards_modeled():

@@ -24,12 +24,12 @@ from __future__ import annotations
 import random
 from typing import TYPE_CHECKING, Any, Optional
 
-from ..models.game_object import GameObject, Zone
+from ..models.game.game_object import GameObject, Zone
 from ..services.variant_card_database import card_for, default_variant_card_database
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from ..models.game_state import GameState
-    from ..models.player import Player
+    from ..models.game.game_state import GameState
+    from ..models.game.player import Player
 
 #: RULE 901.6: the planar die's six faces — one chaos, one planeswalk, four
 #: blank. Rolled as a list so `RulesEngine.random_choice` can pick from it
@@ -49,7 +49,7 @@ def _objects_of_kind(
     kind: str, owner_id: str, count: Optional[int] = None, rng: Optional[random.Random] = None
 ) -> list[GameObject]:
     """``count`` freshly-built command-zone objects of one catalogue kind."""
-    from .effect_binder import bind_from_catalogue  # function-scoped: avoid a cycle
+    from .binding.core import bind_from_catalogue  # function-scoped: avoid a cycle
 
     entries = default_variant_card_database().of_kind(kind)
     if not entries:
@@ -134,7 +134,7 @@ def build_vanguard(owner_id: str, name: Optional[str] = None) -> Optional[GameOb
         if not entries:
             return None
         entry = random.choice(entries)
-    from .effect_binder import bind_from_catalogue  # function-scoped: avoid a cycle
+    from .binding.core import bind_from_catalogue  # function-scoped: avoid a cycle
 
     obj = GameObject(card_for(entry), owner_id=owner_id, zone=Zone.COMMAND)
     bind_from_catalogue(obj)

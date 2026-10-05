@@ -7,10 +7,10 @@ as a state-based action (RULE 704.5d), never to return (RULE 111.7-8). Exile
 and destruction both funnel through that SBA.
 """
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.services.token_database import synthesize_token_card
 
@@ -97,7 +97,7 @@ def test_create_token_offers_its_own_enter_as_copy_choice():
     pending = eng.state.pending_choice
     assert pending and pending["kind"] == "enter_as_copy"
     opt = next(o for o in pending["options"] if o["id"] != "decline")
-    eng.rules.resolve_enter_as_copy_choice(opt["id"])
+    eng.rules.resolve_choice(opt["id"])
 
     (token,) = [o for o in eng.state.battlefield if o.is_token]
     assert token.card.name == "Grave Titan"
@@ -115,7 +115,7 @@ def test_create_token_declining_enter_as_copy_enters_as_itself():
     eng.state.add_to_battlefield(original)
 
     eng.rules.create_token("p1", _clever_impersonator_card(), 1)
-    eng.rules.resolve_enter_as_copy_choice("decline")
+    eng.rules.resolve_choice("decline")
 
     (token,) = [o for o in eng.state.battlefield if o.is_token]
     assert token.card.name == "Clever Impersonator"
@@ -147,11 +147,11 @@ def test_create_multiple_tokens_with_enter_as_copy_resumes_the_batch():
     tokens = eng.rules.create_token("p1", _clever_impersonator_card(), 2)
     assert tokens == []
     assert eng.state.pending_choice["kind"] == "enter_as_copy"
-    eng.rules.resolve_enter_as_copy_choice("decline")
+    eng.rules.resolve_choice("decline")
     assert len([o for o in eng.state.battlefield if o.is_token]) == 1
 
     assert eng.state.pending_choice["kind"] == "enter_as_copy"  # the second token's own choice
-    eng.rules.resolve_enter_as_copy_choice("decline")
+    eng.rules.resolve_choice("decline")
 
     toks = [o for o in eng.state.battlefield if o.is_token]
     assert len(toks) == 2
@@ -278,11 +278,11 @@ def test_producible_tokens_synthesized_from_oracle_and_deduped():
 def test_producible_tokens_named_resolves_curated_art():
     # A bare *named* token resolves to the curated catalogue definition, which
     # carries real Scryfall art — so it's exactly what preloading needs.
-    from mtg_analyzer.game import ability_catalogue
+    from mtg_analyzer.game import card_registry
     from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec
     from mtg_analyzer.services.deck_tokens import producible_tokens
 
-    ability_catalogue.register(
+    card_registry.register(
         "Test Treasure Maker",
         lambda: [AbilitySpec(
             ability_kind="spell_effect",
@@ -296,4 +296,4 @@ def test_producible_tokens_named_resolves_curated_art():
         assert token.name == "Treasure"
         assert token.image_uri_small  # curated art present
     finally:
-        ability_catalogue._REGISTRY.pop("test treasure maker", None)
+        card_registry._REGISTRY.pop("test treasure maker", None)

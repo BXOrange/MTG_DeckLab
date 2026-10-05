@@ -2,22 +2,22 @@
 RULE 118.3's "unless" idiom applied to a draw rather than a
 sacrifice/counter: Rhystic Study, Mystic Remora, Esper Sentinel.
 
-These three were hand-authored (`game/ability_catalogue.py`) but had never
+These three were hand-authored (`game/card_registry.py`) but had never
 gained a committed pytest file — only an ad hoc scratchpad script during the
 batch that first shipped them. Written against the real cached cards (the
 same `tests/test_cube_batch_a1.py` house style) so a `TaxedDrawEffect`
 regression or an oracle-text drift on any of the three shows up here.
 
-Reference: mtg_analyzer/game/{effects,ability_catalogue}.py, RULE 118.3.
+Reference: mtg_analyzer/game/{effects,card_registry}.py, RULE 118.3.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 
 pytestmark = pytest.mark.skipif(
@@ -116,7 +116,7 @@ def test_rhystic_study_does_not_trigger_off_its_own_controllers_spell():
 
 def test_rhystic_study_auto_draws_when_the_opponent_cannot_pay():
     # No pending_choice opens — the "goldfish dummy has no mana" case, same
-    # idiom `counter_unless_pays`/`request_pay_cost_then` already use.
+    # idiom `counter_unless_pays`/`_request_pay_cost_then` already use.
     eng, p1, p2 = two_player_engine()
     battlefield(eng, "Rhystic Study", "p1")
     bolt = to_hand(eng, "Lightning Bolt", "p2")

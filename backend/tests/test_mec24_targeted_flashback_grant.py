@@ -29,7 +29,7 @@ Two pieces:
     word for Recoup, plus a matching `targeting._GRAVEYARD_TYPE_FILTERS`
     entry).
 
-Reference: mtg_analyzer/game/effects.py (`GrantFlashbackToTargetEffect`),
+Reference: mtg_analyzer/game/effects/core.py (`GrantFlashbackToTargetEffect`),
 mtg_analyzer/game/engine/{lands_mixin,casting_mixin}.py, mtg_analyzer/models/
 game_state.py (`temp_flashback_grants`), mtg_analyzer/parser/oracle/
 catalogue/handlers.py, mtg_analyzer/game/targeting.py, RULE 702.34.
@@ -37,11 +37,11 @@ catalogue/handlers.py, mtg_analyzer/game/targeting.py, RULE 702.34.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import GameContext, GrantFlashbackToTargetEffect
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import GameContext, GrantFlashbackToTargetEffect
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 
 

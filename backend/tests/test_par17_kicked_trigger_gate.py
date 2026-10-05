@@ -28,14 +28,14 @@ mtg_analyzer/game/{effects,rules/casting_mixin}.py.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import attach_to_object, bind_from_catalogue
-from mtg_analyzer.game.effects import ConditionalEffect, DealDamageEffect, GameContext
+from mtg_analyzer.game.binding.core import attach_to_object, bind_from_catalogue
+from mtg_analyzer.game.effects.core import ConditionalEffect, DealDamageEffect, GameContext
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.rules_engine import RulesEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec, SpecValidationError
 from mtg_analyzer.parser.oracle.gate import parse_oracle
@@ -55,27 +55,27 @@ def _engine():
 
 def test_this_spell_was_kicked_still_works():
     (spec,) = parse_effect_body("if this spell was kicked, you gain 3 life")
-    assert spec.type == "gain_life" and spec.condition == {"kicked": True}
+    assert spec.type == "gain_life" and spec.condition == {"kind": "kicked", "min": 1}
 
 
 def test_it_was_kicked_is_now_recognized():
     (spec,) = parse_effect_body("if it was kicked, you gain 3 life")
-    assert spec.type == "gain_life" and spec.condition == {"kicked": True}
+    assert spec.type == "gain_life" and spec.condition == {"kind": "kicked", "min": 1}
 
 
 def test_it_was_kicked_twice_maps_to_kicked_at_least_two():
     (spec,) = parse_effect_body("if it was kicked twice, you gain 3 life")
-    assert spec.type == "gain_life" and spec.condition == {"kicked_at_least": 2}
+    assert spec.type == "gain_life" and spec.condition == {"kind": "kicked", "min": 2}
 
 
 def test_this_spell_was_bargained_is_now_recognized():
     (spec,) = parse_effect_body("if this spell was bargained, you gain 3 life")
-    assert spec.type == "gain_life" and spec.condition == {"bargained": True}
+    assert spec.type == "gain_life" and spec.condition == {"kind": "flag", "flag": "bargained"}
 
 
 def test_it_was_bargained_is_recognized_too():
     (spec,) = parse_effect_body("if it was bargained, you gain 3 life")
-    assert spec.type == "gain_life" and spec.condition == {"bargained": True}
+    assert spec.type == "gain_life" and spec.condition == {"kind": "flag", "flag": "bargained"}
 
 
 def test_kicked_wrapper_still_fails_closed_on_an_unrecognized_inner_clause():
@@ -86,7 +86,7 @@ def test_x_inside_a_kicked_wrapper_is_rewritten_to_the_kicker_x_sentinel():
     (spec,) = parse_effect_body("if it was kicked, draw x cards")
     assert spec.type == "draw"
     assert spec.params == {"count": "kicker_x"}
-    assert spec.condition == {"kicked": True}
+    assert spec.condition == {"kind": "kicked", "min": 1}
 
 
 def test_x_inside_a_bargained_wrapper_is_not_rewritten():
@@ -134,7 +134,7 @@ def test_validate_rejects_zero_kicked_at_least():
 
 
 # ---------------------------------------------------------------------------
-# game/effects.py: ConditionalEffect's kicked_at_least gate
+# game/effects/core.py: ConditionalEffect's kicked_at_least gate
 # ---------------------------------------------------------------------------
 
 

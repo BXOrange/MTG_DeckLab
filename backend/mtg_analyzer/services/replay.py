@@ -31,13 +31,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional
 
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.phases import default_turn_sequence
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 
 if TYPE_CHECKING:
     from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
@@ -333,6 +333,8 @@ def build_replay_engine(
     engine = GameEngine(state)
     engine.resume_at(cursor_after(state.current_step))
     continuous.recompute(state)
+    # An assembled graveyard is where the position starts, not a card arriving there.
+    state.resync_graveyard_watch()
     return engine
 
 

@@ -31,11 +31,11 @@
 
 from __future__ import annotations
 
-from mtg_analyzer.game.ability_catalogue import is_registered
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.card_registry import is_registered
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 
 
 def make_engine(*player_ids):
@@ -199,7 +199,7 @@ def test_balthier_and_fran_grants_extra_combat_when_its_own_crewed_vehicle_attac
 
     assert eng.state.pending_choice is not None
     assert eng.state.pending_choice["kind"] == "pay_cost_then"
-    eng.rules.resolve_pay_cost_then_choice("pay")
+    eng.rules.resolve_choice("pay")
     eng.resolve_until_stable()
     assert eng.state.pending_extra_combats == [False]
 

@@ -1,25 +1,25 @@
 """PAR-29 — RULE 701.48 Learn (Strixhaven).
 
 `RulesEngine.learn(player)` opens an optional "discard a card, then draw a
-card" via the existing `request_choose_objects` chooser (`optional=True` +
+card" via the existing `_request_choose_objects` chooser (`optional=True` +
 `then_specs`). **Documented simplification:** RULE 701.48a's "reveal a
 Lesson card you own from outside the game" branch is dropped — this engine
 has no sideboard / outside-the-game zone with a Commander-legal use (the
-same call `ability_catalogue/entries_010.py` makes for Karn's -2).
+same call `card_registry/punishers.py` makes for Karn's -2).
 `effects.LearnEffect` is a bare "you"-subject effect; the parser handler
 `learn` matches the bare word.
 
-Reference: game/rules/misc_mixin.py (`learn`), game/effects.py
+Reference: game/rules/misc_mixin.py (`learn`), game/effects/core.py
 (`LearnEffect`), parser/oracle/catalogue/handlers.py (`_learn`).
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec

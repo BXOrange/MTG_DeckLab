@@ -41,7 +41,7 @@ from mtg_analyzer.api.schemas import (
     StartGoldfishRequest,
     StartReplayRequest,
 )
-from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.parser.deckliste_parser import parse_deck_sections
 from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.deck_tokens import producible_tokens
@@ -180,7 +180,7 @@ def list_formats() -> dict[str, object]:
     Multiplayer Setup table options — one endpoint, since a format is the
     same choice either way (`models/game_format.py`'s `FORMATS`).
     """
-    from mtg_analyzer.models.game_format import DEFAULT_FORMAT, FORMATS
+    from mtg_analyzer.models.decks.formats import DEFAULT_FORMAT, FORMATS
 
     return {
         "formats": [fmt.to_dict() for fmt in FORMATS.values()],

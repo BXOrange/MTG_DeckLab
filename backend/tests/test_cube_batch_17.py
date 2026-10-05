@@ -17,12 +17,12 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game import ability_catalogue as ac
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game import card_registry as ac
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import StackItem
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import StackItem
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 
@@ -144,7 +144,7 @@ def test_dualcaster_mage_copies_the_spell_it_targets():
     choice = state.pending_choice
     assert choice is not None and choice["kind"] == "trigger_target"
     bolt_option = next(o for o in choice["options"] if o.get("instance_id") == bolt.instance_id)
-    eng.rules.resolve_trigger_target_choice(bolt_option["id"])
+    eng.rules.resolve_choice(bolt_option["id"])
     eng.resolve_until_stable()
 
     # Copy (3) + original Bolt (3) both hit p2.

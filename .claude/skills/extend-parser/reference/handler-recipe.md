@@ -52,6 +52,50 @@ So: patterns are lowercase, use `~` for the source, and never need to handle
 Every builder returning `None` after a successful regex match is **correct and
 expected** for an unrecognised target phrase — that's the fail-closed path.
 
+## Decompose into atomic grammar units — don't enumerate phrase variants
+
+A template's wording usually varies along more than one axis at once — which
+subjects/types/colors it names, what count or magnitude qualifies it, what
+exception or duration applies. The wrong fix keys a new regex/whitelist row to
+the *one search phrase* that motivated it ("target goblin, orc, or pirate" as
+a literal three-word list, kept next to it "target merfolk" as another row,
+and so on for every new card printed). The right fix identifies which axis is
+actually varying and widens the **shared** primitive that every other handler
+already reads for that axis — `subgrammars.py`'s macros,
+`static_handlers.object_filter`'s N-way OR-split, a `catalogue/keywords.py`
+word table — so a future card recombining known axis values needs no new row
+at all.
+
+**The test:** if a different, not-yet-printed card recombined two already-
+known axis values in a way nobody has seen yet, would it already parse
+without a code change? If the answer is "not without a new row," the axis
+isn't factored out yet — fix the shared primitive, not the phrase.
+
+**A widened shared primitive picking up cards outside your own search phrase
+is a good sign, not scope creep.** It means the row you were about to add
+really was one card's coincidence of wording, not a genuine one-off — the fix
+belongs at the axis, and cards outside your ticket picking up coverage is the
+proof. Three real, paid-for instances: PAR-78 (v393) folded a closed,
+per-phrase source-colour word list into `static_handlers.object_filter`'s
+general OR-split; PAR-79 (v401) did the same for a subtype-target list, and
+the fix's own scope leak (two cards outside PAR-79's own search phrase) is
+the visible evidence. Both were caught as a **mid-batch correction**; a third
+(v408) was caught later still, auditing *already-shipped, already-tested*
+rows — two of PAR-79's own dedicated "attacking"/"legendary" target-filter
+regexes turned out to be exactly this shape once `object_filter` learned
+those two words itself, and were deleted as a strict subset of the general
+row. The check is worth running on old rows in a search-phrase ticket, not
+just the one you're about to add. See `PARSER_LONG_TAIL.md`'s "Lessons that
+keep recurring" for the full narrative.
+
+Don't over-apply this — a genuinely singleton card's bespoke wording, with no
+plausible sibling, is still exactly what `game/card_catalogue/`
+hand-authoring is for (see "When to stop parsing and hand-author" in
+`SKILL.md`). The rule targets *known, reused* axes (a filter vocabulary, a
+count/magnitude parameter, a duration) that are at risk of growing as a
+closed enumeration instead of staying an open parameter — it is not a mandate
+to speculatively generalize a clause nothing has printed a sibling of yet.
+
 ## The shape
 
 ```python
@@ -154,19 +198,25 @@ Rules specific to this pattern (each paid for by a real near-miss):
 
 ## A new effect *type* needs three registrations
 
-1. `game/effects.py` — a `GameEffect` subclass **and**
+`game/effects.py` is now the package `game/effects/` — a `GameEffect`
+hierarchy plus ~15 focused modules by effect family (`core.py` has the
+hierarchy + `EffectRegistry`; `registry.py` has the concrete registrations
+and `_SELECTOR_KEYS`; `composition.py` has `seq`/`if_else`/`for_each`/`bind`).
+
+1. `game/effects/registry.py` — a `GameEffect` subclass **and**
    `EffectRegistry.register("your_type", lambda p: ...)`. The registry is the
    security boundary: an unregistered type binds to nothing, silently.
-2. `game/effects.py`'s `_SELECTOR_KEYS` — any **new selector param** you pass
-   through, or it is silently dropped at bind time.
+2. `game/effects/registry.py`'s `_SELECTOR_KEYS` — any **new selector param**
+   you pass through, or it is silently dropped at bind time.
 3. `parser/oracle/spec.py` — `ALLOWED_ABILITY_KINDS` if the *ability kind* is
    new (rarely; effect types are not listed there). Magnitudes are clamped by
    `_clamp_params`; the sentinel string `"x"` passes through untouched.
 
-Before writing "needs a new primitive" anywhere, grep `game/effects.py`,
-`game/rules_engine.py` and `docs/implementation-state/Done_Backend.md` for an
-equivalently-shaped primitive built for a different card. Cite it or rule it
-out explicitly. `request_pay_cost_then`, `CreateDelayedTriggerEffect`,
+Before writing "needs a new primitive" anywhere, grep `game/effects/*.py`,
+`game/rules_engine.py`, `game/rules/*_mixin.py` and
+`docs/implementation-state/Done_Backend.md` for an equivalently-shaped
+primitive built for a different card. Cite it or rule it out explicitly.
+`request_pay_cost_then`, `CreateDelayedTriggerEffect`,
 `request_choose_objects`, `dig_until`, `request_name_card`,
 `GameState.deferred_effects` and `GameEffect.extra_target_specs` all already
 exist and are all general.

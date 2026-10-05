@@ -14,19 +14,19 @@ parametric_keyword_triggered_abilities` re-synthesizes the keyword's RULE
 702-text triggered ability (firebending's self-only ``ATTACKS`` add-{R}×N
 mana ability) off the *granted* N every recompute.
 
-Reference: game/effects.py (`PumpEffect`/`CreateTokenEffect`
+Reference: game/effects/core.py (`PumpEffect`/`CreateTokenEffect`
 ``parametric_keywords``), game/continuous.py (`_apply_layer_6_ability`),
-game/effect_binder.py (`parametric_keyword_triggered_abilities`),
+game/binding/core.py (`parametric_keyword_triggered_abilities`),
 parser/oracle/catalogue/handlers.py (`_split_keywords_with_parametric`).
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue, build_effects
+from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec
@@ -45,11 +45,13 @@ def test_pump_parametric_keyword_clause_parses():
 
 
 def test_group_pump_parametric_keyword_clause_parses():
+    # PAR-120: "creatures you control" now resolves to a structured
+    # selector, not the retired `_GROUP_SELECTORS` string.
     assert match_clause(
         "creatures you control gain firebending 1 until end of turn"
     ) == [EffectSpec("pump", {
         "parametric_keywords": [{"name": "firebending", "n": 1}],
-        "selector": "creatures_you_control",
+        "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
     })]
 
 

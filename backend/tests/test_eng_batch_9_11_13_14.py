@@ -33,14 +33,14 @@ reconfigured onto a different attacking creature.
 from __future__ import annotations
 
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.mana_cost import ManaCost
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.mana.mana_cost import ManaCost
+from mtg_analyzer.models.game.player import Player
 
 
 # ---------------------------------------------------------------------------
@@ -99,7 +99,7 @@ def test_power_threshold_selector_sees_same_pass_anthem():
         owner_id="p2", zone=Zone.BATTLEFIELD,
     )
     state.add_to_battlefield(anthem_source)
-    from mtg_analyzer.game.effects import StaticAbility
+    from mtg_analyzer.game.effects.core import StaticAbility
 
     anthem_source.static_effects.append(
         StaticAbility(
@@ -278,7 +278,7 @@ def test_sigardas_aid_attaches_the_entering_equipment_to_chosen_target():
     # The "you may" target choice: answer it with the creature.
     choice = state.pending_choice
     assert choice is not None and choice.get("kind") == "trigger_target"
-    eng.rules.resolve_trigger_target_choice(str(creature_obj.instance_id))
+    eng.rules.resolve_choice(str(creature_obj.instance_id))
     eng.resolve_until_stable()
 
     assert equip_obj.attached_to == creature_obj.instance_id

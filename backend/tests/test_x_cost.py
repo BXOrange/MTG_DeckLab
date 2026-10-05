@@ -4,12 +4,12 @@ cast/activate time, substituted into a resolving one-shot effect's
 (`game/rules_engine.py`'s `resolve_top_of_stack`).
 """
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import StackItem
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import StackItem
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.game.effects import DealDamageEffect, DrawCardEffect, TriggeredAbility
-from mtg_analyzer.models.events import EventType
+from mtg_analyzer.game.effects.core import DealDamageEffect, DrawCardEffect, TriggeredAbility
+from mtg_analyzer.models.game.events import EventType
 
 
 def make_engine(p1_cards, p2_cards=None, hand=0):

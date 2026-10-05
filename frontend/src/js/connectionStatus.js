@@ -32,7 +32,7 @@ export function subscribeConnectionStatus(listener) {
   return () => listeners.delete(listener);
 }
 
-/** Re-check now (e.g. right after the server address setting changes). */
+/** Re-check backend reachability now. */
 export async function refreshConnectionStatus() {
   setStatus('checking');
   const ok = await checkHealth();

@@ -22,7 +22,7 @@ import json
 from pathlib import Path
 from typing import Any, Optional, Union
 
-from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.cards.card import Card
 
 #: The committed variant-card catalogue that ships with the package.
 DEFAULT_VARIANT_CARDS_PATH = (

@@ -13,12 +13,12 @@
 from __future__ import annotations
 
 from mtg_analyzer.game import targeting
-from mtg_analyzer.game.effects import GameContext, PumpEffect, TapEffect
+from mtg_analyzer.game.effects.core import GameContext, PumpEffect, TapEffect
 from mtg_analyzer.game.rules_engine import RulesEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle import MODELED, parse_oracle
 
 

@@ -10,7 +10,7 @@ carries *no behaviour*. It is the contract the whole parser hangs off:
 * it is what gets cached/versioned and, above all, **validated** — it is
   the security boundary, so nothing derived from card text ever becomes
   code; an effect is named by a whitelisted string + a params dict,
-* the **back-end** (`game/effect_binder.py`) turns it into `GameEffect`
+* the **back-end** (`game/binding/core.py`) turns it into `GameEffect`
   objects via the `EffectRegistry`.
 
 This module is intentionally **pure** (no `game/` imports). It validates
@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 #: The kinds of ability an `AbilitySpec` can describe (docs/09 IR).
-#: Mirrors the effect hierarchy in game/effects.py plus "keyword".
+#: Mirrors the effect hierarchy in game/effects/core.py plus "keyword".
 ALLOWED_ABILITY_KINDS: frozenset[str] = frozenset(
     {"spell_effect", "triggered", "activated", "static", "replacement",
      "enter_replacement", "keyword"}
@@ -54,6 +54,10 @@ MAX_EFFECT_MAGNITUDE: int = 10_000
 #: Vitality/Hardened Scales/Fiery Emancipation).
 _CLAMPED_PARAM_KEYS: tuple[str, ...] = (
     "amount", "count", "x", "n", "generic", "plus", "multiplier",
+    # RULE 706 dice: a die's face count and the ignore-lowest/highest rider
+    # (`RollDieEffect` / `roll_dice_modifier`) — a garbled "roll a d10^9"
+    # must not make a results-table row unreachable or wedge the roll loop.
+    "sides", "ignore_lowest", "ignore_highest",
 )
 
 #: `EffectSpec.condition`'s whitelisted keys — see that field's docstring.
@@ -61,7 +65,7 @@ _CLAMPED_PARAM_KEYS: tuple[str, ...] = (
 #: target* rather than an announced-cost flag — "target player gets two
 #: rad counters. If that player is you, create a Treasure token." The
 #: Ghoul, Gunslinger-shaped) checks the ability's own resolved target
-#: (`game/effects.py`'s `ConditionalEffect._condition_holds`) against this
+#: (`game/effects/core.py`'s `ConditionalEffect._condition_holds`) against this
 #: effect's controller.
 #: ``"bargained"`` (RULE 701.x, Beseech the Mirror's "if this spell was
 #: bargained, …") is Kicker's own ``"kicked"`` gate for a different optional
@@ -79,15 +83,33 @@ _CLAMPED_PARAM_KEYS: tuple[str, ...] = (
 #: present instead of picking the first recognised one.
 _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
     {
-        "kicked", "kicked_at_least", "bargained", "target_is_controller",
+        "kicked", "kicked_at_least", "bargained", "gift_promised", "madness_cost_paid", "surge_cost_paid", "blitz_cost_paid", "teamwork_paid", "target_is_controller",
         "life_gained_this_turn_at_least", "opponent_lost_life_this_turn_at_least",
         "is_ring_bearer", "ring_tempted_at_least",
+        # ``ring_tempted_at_most`` is `ring_tempted_at_least`'s upper-bound
+        # mirror — "… <effect>. Otherwise, the Ring tempts you." (Frodo,
+        # Sauron's Bane) was an if/else over one threshold, written as two
+        # complementary conditionals because the IR had no "otherwise"
+        # branch. **ENG-37's `if_else` node retired that spelling**: Frodo
+        # now carries one node over one `ring_tempted` bound, so nothing
+        # produces this key any more. Kept because the upper bound is real
+        # vocabulary a future card may print on its own, and because of what
+        # it recorded — see below.
+        # It was **evaluated by `ConditionalEffect._condition_holds` but
+        # missing from this whitelist**, and went unnoticed because Frodo
+        # nests it: before ENG-37 made `validate()` recurse, a nested
+        # condition was never checked at all, so the same key would have
+        # been rejected at depth 0 and accepted one level down. Kept as a
+        # standing example of what the depth hole was hiding.
+        "ring_tempted_at_most",
         "controls_none_of_type", "source_x_paid_at_least",
         "creatures_died_this_turn_at_least", "graveyard_has_type", "target_is_player",
         "not_already_exerted", "is_first_combat_phase", "is_your_turn",
         "opponent_cast_color_this_turn", "no_creatures_on_battlefield",
-        "source_is_renowned", "shares_type_with_linked_exile", "source_was_cast",
-        "source_entered_untapped", "cast_outside_sorcery_speed",
+        "source_is_renowned", "source_is_suspected", "attached_is_suspected", "sacrificed_cost_was_suspected", "shares_type_with_linked_exile", "source_was_cast",
+        "source_was_cast_from_hand",  # PAR-120
+        "source_entered_untapped", "cast_outside_sorcery_speed", "cast_via_escape",
+        "cast_during_your_main_phase",  # PAR-120, Addendum
         "cards_in_graveyard_at_least", "entering_object_unique_name",
         # MEC-43 round 4C: Dark Petition's Spell mastery (a graveyard-count
         # gate narrowed to instant/sorcery cards) and Poison the Cup's
@@ -125,7 +147,8 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
         # can't block this turn." — the "any target" clause can land on a
         # non-creature). All bool except ``*_at_most``/``*_has_subtype``.
         "previous_target_has_subtype", "previous_target_is_equipped",
-        "previous_target_power_at_most", "previous_target_is_creature",
+        "previous_target_power_at_most", "previous_target_power_at_least",
+        "previous_target_is_creature",
         # PAR-30 Suspect one-off shapes / RULE 701.60c: "choose up to one
         # target creature. If it's suspected, exile it. Otherwise, suspect
         # it." (Agrus Kos, Spirit of Justice) — an if/else over the chosen
@@ -143,8 +166,90 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
         # (waterbend/earthbend/firebend/airbend) is in the ability
         # controller's `GameState.bends_this_turn` set. A bool.
         "did_all_bends_this_turn",
+        # Blight Curse batch — "draw a card **if you control that
+        # creature**. If you don't control it, …" (Auntie Ool, Cursewretch)
+        # — the firing `EventType.COUNTER`'s ``recipient_controller_id`` vs
+        # this ability's controller. A bool; ``False`` is the "if you don't
+        # control it" branch.
+        "counter_recipient_is_you",
     }
 )
+
+#: The `game/effects/composition.py` node types (ENG-37), which are the only
+#: effect types whose ``params`` may carry an `_validate_condition`-shaped
+#: ``condition``. Named here rather than imported because `parser/oracle/`
+#: must not import `game/` (docs/09); `tests/test_composition_nodes.py`
+#: asserts this stays equal to `isa`'s `COMPOSITION` classification.
+_COMPOSITION_EFFECT_TYPES: frozenset[str] = frozenset(
+    {"seq", "if_else", "optional", "for_each", "bind"}
+)
+
+#: Non-``kind`` keys a **structured** effect condition may carry, and the
+#: type each must have (ENG-36). The ``kind`` vocabulary itself lives in
+#: `game/effect_conditions.py` and `game/static_conditions.py`, which this
+#: package must not import (docs/09) — so the shape is checked here and the
+#: name there, exactly as a static's ``active_if`` has always been handled.
+#: ``conditions``/``condition`` are the ``all``/``not`` combinators' operands
+#: and recurse instead of matching a type here.
+_STRUCTURED_CONDITION_FIELDS: dict[str, type] = {
+    "of": str, "scope": str, "flag": str, "subtype": str, "card_type": str, "color": str,
+    "counter": str, "selector": (str, dict), "name": str, "keyword": str,
+    "op": str, "step": str,  # ``during_step`` (Misleading Signpost)
+    "min": int, "max": int, "amount": int, "min_power": int,
+    "colors": list, "types": list,
+}
+
+#: The literal placeholders for a spell's announced {X} (RULE 107.3) that may sit in
+#: a numeric amount field until the engine substitutes the paid value.
+X_SENTINELS: frozenset[str] = frozenset({"x", "-x"})
+
+#: The placeholder the parser stamps where a bare "it"/"that creature" under a RULE
+#: 603.1 group trigger means the object that fired it: as ``trigger_event_key`` beside
+#: ``target_kind: "trigger_subject"`` (or as an ``add_counters`` ``trigger_subject_key``).
+#: The parser cannot name the event field — the binder resolves it per event type.
+GROUP_SUBJECT_KEY_SENTINEL = "__group_subject__"
+
+#: PAR-120's structured count selector — ``{"zone", "of", "filter", "distinct"}`` —
+#: validated by shape only (the zone/scope/`distinct` vocabularies are named here
+#: because this package cannot import `game/`; `tests/test_par120_count_phrase.py`
+#: asserts they stay equal to `continuous`'s own).
+SELECTOR_ZONES: frozenset[str] = frozenset({"battlefield", "graveyard", "hand", "exile", "library"})
+SELECTOR_SCOPES: frozenset[str] = frozenset({"you", "opponents", "any", "chosen"})
+SELECTOR_DISTINCT: frozenset[str] = frozenset({"power", "toughness", "mana_value", "name", "card_type", "color"})
+SELECTOR_AGGREGATES: frozenset[str] = frozenset({"max", "sum"})
+SELECTOR_VALUES: frozenset[str] = frozenset({"mana_value", "power", "toughness", "counters", "mana_symbols"})
+
+#: Non-``kind`` keys an `effect_amounts` measurement spec may carry (the
+#: operands of an ENG-37 B5 `amount_compare`), and the type each must have.
+#: The ``kind`` vocabulary itself is `game/effect_amounts.py`'s (not
+#: importable here, docs/09); ``str`` fields are further shape-checked there.
+#: Per-effect amount parameters ENG-47 retired in favour of one operand (a `bind` over an
+#: `effect_amounts` measurement). The registry's factories read params with ``p.get``, so a spec
+#: that still carried one would silently resolve to the unmeasured default; validation refuses it
+#: instead. Each value says what replaces it.
+RETIRED_EFFECT_PARAMS: dict[str, str] = {
+    "amount_from_target_power": "bind{characteristic power of target}",
+    "amount_from_half_own_life": "bind{resource life, divide 2, round_up}",
+    "amount_from_half_target_life": "bind{resource life of target/previous_player, divide 2, round_up}",
+    "amount_from_damage_dealt_this_turn": "bind{damage_dealt_this_turn of target}",
+    "amount_from_source_power": "bind{characteristic power of source} over `taxed_draw.amount`",
+    "amount_from_created_object_mana_value": "bind{characteristic mana_value of created}",
+    "pt_from_count_selector": "bind{count_selector} into create_token power/toughness '$x'",
+    "amount_from_target_hand_size": "bind{resource hand_size of target} over add_mana.amount",
+    "amount_from_target_count_selector": "bind{count_selector of target} over add_mana.any_amount",
+    "amount_if_trigger_subject_subtype": "bind{if is_subtype ...} over add_counters.amount",
+    "amount_if_trigger_subject_subtype_value": "bind{if is_subtype ...} over add_counters.amount",
+    "count_if_additional_cost_paid": "bind{if additional_cost_paid} over the count",
+}
+
+_AMOUNT_SPEC_FIELDS: dict[str, type] = {
+    "of": str, "reference": str, "characteristic": str, "counter": str, "selector": (str, dict),
+    "tally": str, "scope": str, "resource": str, "field": str, "aggregate": str, "card_type": str,
+    "amount": int, "multiply": int, "divide": int, "plus": int, "minus": int,
+    "minimum": int, "maximum": int, "round_up": bool,
+    "condition": dict, "then": (int, dict), "otherwise": (int, dict),
+    "left": (int, dict), "right": (int, dict),
+}
 
 #: `AbilitySpec.conditional_flash`'s whitelisted keys — see that field's
 #: docstring. A deliberately separate whitelist from `_ALLOWED_CONDITION_KEYS`
@@ -207,12 +312,19 @@ ALLOWED_FREE_CAST_CONDITION_KEYS: frozenset[str] = frozenset(
         # land-type word rather than a plain boolean, unlike every other
         # key above.
         "control_land_type",
+        # "You may cast a legendary sorcery only if you control a legendary creature or
+        # planeswalker." (RULE 205.4d, Urza's Ruinous Blast) — a plain boolean gate.
+        "control_legendary_creature_or_planeswalker",
         # PAR-19: "If 3 or more creatures are attacking, you may pay `<cost>`
         # rather than pay this spell's mana cost." (Lethargy Trap/Arrow
         # Volley Trap-shaped RULE 702 "Trap" template) — the combat-count
         # sibling of ``opponent_spells_cast_this_turn_at_least``, same
         # int-threshold shape.
         "creatures_attacking_at_least",
+        # PAR-62/Raid: declaration history rather than a live battlefield
+        # count, so it remains true after combat ends.
+        "you_attacked_this_turn",
+        "another_spell_cast_this_turn",
     }
 )
 
@@ -228,7 +340,7 @@ ALLOWED_FREE_CAST_CONDITION_KEYS: frozenset[str] = frozenset(
 #: `ALLOWED_FREE_CAST_CONDITION_KEYS`-shaped — Force of Negation/Vigor's
 #: own "if it's not your turn" gate). At least one payment key is
 #: required; ``game/costs.py``'s `ActivationCost` is the actual charging
-#: engine (`game/effect_binder.py` builds one from this dict, mirroring
+#: engine (`game/binding/core.py` builds one from this dict, mirroring
 #: `additional_cost`'s own `parse_activation_cost` reuse).
 ALLOWED_ALT_COST_KEYS: frozenset[str] = frozenset(
     {
@@ -278,9 +390,17 @@ MANA_SOURCE_KINDS: frozenset[str] = frozenset({"treasure", "basic_land", "creatu
 #: an additional cost is recognized off a fixed template, not open cost text;
 #: `game/costs.py`'s `parse_activation_cost` still does the actual charging,
 #: fed this dict the same way it already accepts an `AbilitySpec.cost` dict.
+#: The single additional costs an "…or pay {N}" alternative (`additional_cost["or_mana"]`) may pair with the mana.
+_OR_MANA_COST_KEYS: frozenset[str] = frozenset(
+    {"sacrifice", "discard", "pay_life", "exile_from_graveyard", "reveal_from_hand", "tap_others"}
+)
 _ADDITIONAL_COST_SACRIFICE_TYPES: frozenset[str] = frozenset(
     {
         "creature", "artifact", "land", "artifact_or_creature",
+        # "sacrifice a creature or planeswalker / enchantment or pay {N}" (Silence the Echo, Betrayer's Bargain).
+        "creature_or_planeswalker", "creature_or_enchantment", "creature_or_land",
+        # "sacrifice a permanent" (Souls of the Lost).
+        "permanent",
         # "…sacrifice a green creature." (Natural Order, MEC-43) — the
         # same ``"<color>_creature"`` sentinel `_matches_sacrifice_type`
         # (`game/engine/activation_mixin.py`) already recognizes.
@@ -405,7 +525,7 @@ class AbilitySpec:
     #: (`game/rules_engine.py`'s `_place_triggers`/`resolve_trigger_mode_
     #: choice` — one mode picked per round, already-picked ones excluded
     #: from the next offer, mirroring the existing library-search
-    #: `_search_choice`/`resolve_search_choice` "pick up to N one at a time"
+    #: `_search_choice`/`_resume_search` "pick up to N one at a time"
     #: pattern, plus a "done" option once ``choose`` are picked when
     #: ``at_least``) — the same "choice made before the target/optional
     #: choice" ordering RULE 601.2c already uses for a spell's own mode.
@@ -424,7 +544,7 @@ class AbilitySpec:
     #: X, RULE 601.2b). May ride on a spec that otherwise carries no effects
     #: at all — the additional-cost line is its own oracle-text line,
     #: standalone from the spell's actual effect (see
-    #: `game/effect_binder.py`'s `attach_to_object`, which scans every spec
+    #: `game/binding/core.py`'s `attach_to_object`, which scans every spec
     #: for this field regardless of which one carries the "real" effects).
     additional_cost: Optional[dict[str, Any]] = None
     #: PAR-30 / RULE 601.2b: whether the ``additional_cost`` above is
@@ -450,8 +570,19 @@ class AbilitySpec:
     #: not whether a resolving effect applies. May ride on any spec
     #: regardless of ``ability_kind``, same "scan every spec, attach to the
     #: object regardless of which one carries the real effects" idiom
-    #: `additional_cost` uses (`game/effect_binder.py`'s `attach_to_object`).
+    #: `additional_cost` uses (`game/binding/core.py`'s `attach_to_object`).
     conditional_flash: Optional[dict[str, Any]] = None
+    #: PAR-35: a narrow spell-local casting window restriction. Unlike
+    #: ``conditional_flash`` this removes otherwise legal windows.
+    cast_timing_restriction: Optional[dict[str, Any]] = None
+    #: RULE 601.2: a condition that must hold to cast this spell at all,
+    #: distinct from `free_cast_condition`, which merely enables an
+    #: alternative cost.  Uses that field's closed condition vocabulary and
+    #: evaluator because both are checked immediately before casting.
+    cast_condition: Optional[dict[str, Any]] = None
+    #: PAR-35: mana surcharge paid only when this spell uses its own
+    #: conditional Flash permission outside a sorcery window.
+    flash_extra_cost: Optional[str] = None
     #: RULE 601.2f-adjacent: "If you control a commander, you may cast this
     #: spell without paying its mana cost." — a single-key dict from
     #: `ALLOWED_FREE_CAST_CONDITION_KEYS` (today just ``{"control_commander":
@@ -464,7 +595,7 @@ class AbilitySpec:
     #: RULE 118.9: "You may pay `<cost>` rather than pay this spell's mana
     #: cost." (Force of Will/Negation/Vigor, Daze — MEC-15) — see
     #: `ALLOWED_ALT_COST_KEYS`'s own docstring for the vocabulary. Hand-
-    #: authored only (`game/ability_catalogue.py`); no oracle-text grammar
+    #: authored only (`game/card_catalogue`); no oracle-text grammar
     #: recognizes this shape yet — real cards phrase the payment too
     #: variably for one fixed template. Same "may ride on any spec
     #: regardless of ``ability_kind``, own oracle-text line standalone from
@@ -489,7 +620,7 @@ class AbilitySpec:
     #: portion by *color*) — no real card needs both. Bound the same
     #: "dynamic, getattr-read" way (`GameObject.x_spend_color_restriction`),
     #: consulted by `GameEngine.effective_cast_cost`'s ``{X}``-resolution
-    #: branch (`models.mana_cost.ManaCost.with_x_colored`).
+    #: branch (`models.mana.mana_cost.ManaCost.with_x_colored`).
     cast_x_color_restriction: Optional[str] = None
     #: "Strive — This spell costs `<cost>` more to cast for each target
     #: beyond the first." (MEC-4) — not a RULE 702 keyword at all (no CR
@@ -498,7 +629,7 @@ class AbilitySpec:
     #: `keywords.py`'s numbered catalogue, same "own oracle-text line,
     #: standalone from the spell's actual effect" idiom `free_cast_condition`
     #: uses just above. The raw mana-cost string (e.g. ``"{2}{U}"``,
-    #: ``"{1}"``) — `game/effect_binder.py`'s `attach_to_object` parses it
+    #: ``"{1}"``) — `game/binding/core.py`'s `attach_to_object` parses it
     #: into a real `ManaCost` on `obj.strive_cost`; `GameEngine.
     #: effective_cast_cost` adds one copy of it per target *beyond the
     #: first* in the caster's actually-chosen ``targets`` (RULE 601.2c
@@ -510,18 +641,18 @@ class AbilitySpec:
     #: end of turn, you may cast that card." (Ragavan, Nimble Pilferer) —
     #: the damaged player varies per firing, which a bind-on-load
     #: `TriggeredAbility`'s one fixed effects list can't carry (see that
-    #: class's docstring, `game/effects.py`), so this rides as a plain
+    #: class's docstring, `game/effects/core.py`), so this rides as a plain
     #: marker dict (``{"count": N}``, ``N>=1``) stamped onto the
     #: `GameObject` at bind time instead of an ordinary effect —
     #: `RulesEngine._collect_impulsive_draw_triggers` reads it fresh off
     #: the event's own source every time a DAMAGE event fires, building the
     #: per-firing `ImpulsiveDrawEffect` the same way `_collect_inherent_
     #: triggers` already does for the Monarch/Initiative combat-damage
-    #: swap. Hand-authored only (`game/ability_catalogue.py`) — the
+    #: swap. Hand-authored only (`game/card_catalogue`) — the
     #: oracle-text parser front-end never produces this field. May ride on
     #: any spec regardless of ``ability_kind``, same "scan every spec,
     #: attach to the object" idiom `additional_cost`/`conditional_flash` use
-    #: (`game/effect_binder.py`'s `attach_to_object`).
+    #: (`game/binding/core.py`'s `attach_to_object`).
     impulsive_draw_on_combat_damage: Optional[dict[str, Any]] = None
     #: RULE 702.88b Rebound marker: "If you cast this spell from your hand,
     #: exile it as it resolves. At the beginning of your next upkeep, you
@@ -571,7 +702,7 @@ class AbilitySpec:
     #: >=1 of the granted ``kind``. ``{"kind": "rad"}`` (default) names
     #: which counter kind — every real card in this family grants "rad",
     #: kept as a key rather than hardcoded since the shape is otherwise
-    #: generic. Hand-authored only (`game/ability_catalogue.py`) — the
+    #: generic. Hand-authored only (`game/card_catalogue`) — the
     #: oracle-text parser front-end has no "that many"/branching grammar
     #: yet. `RulesEngine._collect_rad_counter_damage_triggers` reads it
     #: fresh off the DAMAGE event's own source, mirroring `_collect_
@@ -629,7 +760,7 @@ class AbilitySpec:
         for effect in self.effects:
             if not isinstance(effect, EffectSpec) or not effect.type:
                 raise SpecValidationError(f"malformed effect spec: {effect!r}")
-            self._clamp_params(effect.params)
+            self._clamp_params(effect.params, 0, effect.type)
             if effect.condition is not None:
                 self._validate_condition(effect.condition)
 
@@ -641,6 +772,9 @@ class AbilitySpec:
             and not self.free_cast_condition
             and not self.alt_cost
             and not self.conditional_flash
+            and not self.cast_timing_restriction
+            and not self.cast_condition
+            and not self.flash_extra_cost
             and not self.strive_cost
             and not self.cast_mana_source_restriction
             and not self.cast_x_color_restriction
@@ -657,6 +791,16 @@ class AbilitySpec:
 
         if self.conditional_flash is not None:
             self._validate_conditional_flash()
+
+        if self.cast_timing_restriction is not None:
+            self._validate_cast_timing_restriction()
+
+        if self.cast_condition is not None:
+            self._validate_cast_condition()
+
+        if self.flash_extra_cost is not None:
+            if not isinstance(self.flash_extra_cost, str) or not _STRIVE_COST_RE.fullmatch(self.flash_extra_cost):
+                raise SpecValidationError("'flash_extra_cost' must be a mana-symbol run")
 
         if self.free_cast_condition is not None:
             self._validate_free_cast_condition()
@@ -740,7 +884,7 @@ class AbilitySpec:
             for effect in option:
                 if not isinstance(effect, EffectSpec) or not effect.type:
                     raise SpecValidationError(f"malformed effect spec in mode: {effect!r}")
-                self._clamp_params(effect.params)
+                self._clamp_params(effect.params, 0, effect.type)
         descriptions = self.modes.get("descriptions")
         if descriptions is not None and (
             not isinstance(descriptions, list) or len(descriptions) != len(options)
@@ -826,9 +970,37 @@ class AbilitySpec:
                 raise SpecValidationError(
                     f"unsupported additional_cost sacrifice type {value!r}"
                 )
+        elif key == "or_mana":
+            # "<cost> or pay {N}" — one single-key additional cost plus the mana alternative (RULE 601.2b).
+            if not isinstance(value, dict) or set(value) != {"cost", "mana"}:
+                raise SpecValidationError("'additional_cost' or_mana must name cost and mana")
+            if not isinstance(value["mana"], str) or not value["mana"].startswith("{"):
+                raise SpecValidationError("'additional_cost' or_mana mana must be a mana cost")
+            inner = value["cost"]
+            if not isinstance(inner, dict) or len(inner) != 1 or next(iter(inner)) not in _OR_MANA_COST_KEYS:
+                raise SpecValidationError("'additional_cost' or_mana cost must be one of " + ", ".join(sorted(_OR_MANA_COST_KEYS)))
+            if "sacrifice" in inner and inner["sacrifice"] not in _ADDITIONAL_COST_SACRIFICE_TYPES:
+                raise SpecValidationError("unsupported or_mana sacrifice type")
+        elif key == "either":
+            # "<cost A> or <cost B>" with no mana half (RULE 601.2b) — two single-key branches from the or_mana vocabulary.
+            if not isinstance(value, list) or len(value) != 2:
+                raise SpecValidationError("'additional_cost' either must list exactly two branches")
+            for branch in value:
+                if not isinstance(branch, dict) or len(branch) != 1 or next(iter(branch)) not in _OR_MANA_COST_KEYS:
+                    raise SpecValidationError("'additional_cost' either branch must be one of " + ", ".join(sorted(_OR_MANA_COST_KEYS)))
+                if "sacrifice" in branch and branch["sacrifice"] not in _ADDITIONAL_COST_SACRIFICE_TYPES:
+                    raise SpecValidationError("unsupported either sacrifice type")
+        elif key == "sacrifice_or_mana":
+            if not isinstance(value, dict) or set(value) != {"sacrifice", "mana"}:
+                raise SpecValidationError("'additional_cost' sacrifice_or_mana must name sacrifice and mana")
+            if value["sacrifice"] not in _ADDITIONAL_COST_SACRIFICE_TYPES:
+                raise SpecValidationError("unsupported sacrifice_or_mana sacrifice type")
+            if not isinstance(value["mana"], str) or not value["mana"].startswith("{"):
+                raise SpecValidationError("'additional_cost' sacrifice_or_mana mana must be a mana cost")
         elif key == "discard":
-            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-                raise SpecValidationError("'additional_cost' discard count must be a positive int")
+            valid_int = isinstance(value, int) and not isinstance(value, bool) and value > 0
+            if value != "x" and not valid_int:
+                raise SpecValidationError("'additional_cost' discard count must be a positive int or 'x'")
         elif key == "pay_life":
             valid_int = isinstance(value, int) and not isinstance(value, bool) and value > 0
             if value != "x" and not valid_int:
@@ -844,9 +1016,10 @@ class AbilitySpec:
                     "'additional_cost' exile_from_graveyard must be a {count, type?} dict"
                 )
             cnt = value.get("count")
-            if isinstance(cnt, bool) or not isinstance(cnt, int) or cnt <= 0:
+            valid_int = isinstance(cnt, int) and not isinstance(cnt, bool) and cnt > 0
+            if cnt != "x" and not valid_int:
                 raise SpecValidationError(
-                    "'additional_cost' exile_from_graveyard count must be a positive int"
+                    "'additional_cost' exile_from_graveyard count must be a positive int or 'x'"
                 )
             gy_type = value.get("type")
             if gy_type is not None and (not isinstance(gy_type, str) or not gy_type.strip()):
@@ -899,6 +1072,10 @@ class AbilitySpec:
             # {M}" documented drop as `behold`/`blight`. A bare bool.
             if value is not True:
                 raise SpecValidationError("'additional_cost' forage must be True")
+        elif key == "collect_evidence":
+            valid = isinstance(value, int) and not isinstance(value, bool) and value > 0
+            if not valid:
+                raise SpecValidationError("'additional_cost' collect_evidence must be a positive int")
         else:
             raise SpecValidationError(f"unknown additional_cost kind {key!r}")
 
@@ -922,6 +1099,15 @@ class AbilitySpec:
             raise SpecValidationError(
                 "'controller_beholds_subtype' condition must be a non-empty string"
             )
+
+    def _validate_cast_timing_restriction(self) -> None:
+        """Validate PAR-35's deliberately closed combat-window restriction."""
+        if self.cast_timing_restriction not in (
+            {"step": "declare_attackers", "controller_attacked": True},
+            # "Cast this spell only during the declare blockers step on an opponent's turn." (Illusionist's Gambit)
+            {"step": "declare_blockers", "opponents_turn": True},
+        ):
+            raise SpecValidationError("unknown cast_timing_restriction")
 
     def _validate_impulsive_draw_on_combat_damage(self) -> None:
         """Structural check for an ``impulsive_draw_on_combat_damage`` marker."""
@@ -982,6 +1168,13 @@ class AbilitySpec:
         kind = spec.get("counter_kind", "+1/+1")
         if not isinstance(kind, str) or not kind:
             raise SpecValidationError("'counter_death_return' counter_kind must be a non-empty str")
+        # Optional booleans (Necroskitter / The Reaper, King No More):
+        # ``opponent`` — the dying creature is an opponent's, not this
+        # permanent's controller's; ``immediate`` — no "next end step"
+        # delay; ``optional`` — "you may"; ``once_per_turn`` — RULE 603.2.
+        for flag in ("opponent", "immediate", "optional", "once_per_turn"):
+            if flag in spec and not isinstance(spec[flag], bool):
+                raise SpecValidationError(f"'counter_death_return' {flag} must be a bool")
 
     def _validate_strive_cost(self) -> None:
         """Structural check for a ``strive_cost`` clause: a non-empty run of
@@ -1004,6 +1197,7 @@ class AbilitySpec:
             raise SpecValidationError("'control_commander' condition must be a bool")
         if key in (
             "not_your_turn", "your_turn", "opponent_controls_forest_and_you_control_island",
+            "you_attacked_this_turn", "control_legendary_creature_or_planeswalker",
         ) and not isinstance(value, bool):
             raise SpecValidationError(f"{key!r} condition must be a bool")
         if key == "opponent_spells_cast_this_turn_at_least" and (
@@ -1014,6 +1208,23 @@ class AbilitySpec:
             )
         if key == "control_land_type" and (not isinstance(value, str) or not value):
             raise SpecValidationError("'control_land_type' condition must be a non-empty str")
+        if key == "another_spell_cast_this_turn" and (
+            not isinstance(value, dict)
+            or set(value) not in ({"color"}, {"spell_type"})
+            or not isinstance(next(iter(value.values())), str)
+        ):
+            raise SpecValidationError("'another_spell_cast_this_turn' must name one color or spell_type")
+
+    def _validate_cast_condition(self) -> None:
+        """Structural check for a mandatory spell-casting condition."""
+        original = self.free_cast_condition
+        try:
+            self.free_cast_condition = self.cast_condition
+            self._validate_free_cast_condition()
+        except SpecValidationError as exc:
+            raise SpecValidationError(str(exc).replace("free_cast_condition", "cast_condition")) from exc
+        finally:
+            self.free_cast_condition = original
 
     def _validate_alt_cost(self) -> None:
         """Structural check for an ``alt_cost`` clause (RULE 118.9)."""
@@ -1106,9 +1317,26 @@ class AbilitySpec:
     @staticmethod
     def _validate_condition(condition: dict[str, Any]) -> None:
         """Structural check for an `EffectSpec.condition` (RULE 702.33b's
-        kicked-gate, and the target-based ``"target_is_controller"`` gate)."""
+        kicked-gate, and the target-based ``"target_is_controller"`` gate).
+
+        Two spellings are legal (ENG-36). The **flat** one below is what
+        every shipped spec uses and is whitelisted key by key, unchanged.
+        The **structured** one — ``{"kind": …, "of": …, "min": …}``, the
+        vocabulary `game/effect_conditions.py` evaluates — is checked
+        structurally here and gated on its ``kind`` at evaluation time, the
+        same division a static's ``active_if`` has always had: the parser
+        can't name the engine's condition vocabulary without importing
+        `game/` across the docs/09 boundary, and an unrecognized ``kind``
+        already fails closed (the gated effect simply never applies).
+        `tests/test_effect_conditions.py` pins the two sides together so a
+        kind this package emits can't drift out of that vocabulary
+        unnoticed.
+        """
         if not isinstance(condition, dict) or not condition:
             raise SpecValidationError(f"malformed effect condition: {condition!r}")
+        if "kind" in condition:
+            AbilitySpec._validate_structured_condition(condition)
+            return
         for key, value in condition.items():
             if key not in _ALLOWED_CONDITION_KEYS:
                 raise SpecValidationError(f"unknown effect condition key {key!r}")
@@ -1149,7 +1377,266 @@ class AbilitySpec:
                     )
 
     @staticmethod
-    def _clamp_params(params: dict[str, Any]) -> None:
+    def _validate_structured_condition(condition: dict[str, Any], _depth: int = 0) -> None:
+        """Shape-check a ``{"kind": …}`` condition — see `_validate_condition`.
+
+        Reuses `MAX_SPEC_DEPTH` for the combinator recursion for the same
+        reason `_clamp_nested` does: a self-referential structure must not be
+        able to make validation itself the denial of service.
+        """
+        if _depth > AbilitySpec.MAX_SPEC_DEPTH:
+            raise SpecValidationError("effect condition nested too deeply")
+        kind = condition.get("kind")
+        if not isinstance(kind, str) or not kind.strip():
+            raise SpecValidationError(f"structured condition needs a 'kind': {condition!r}")
+        for key, value in condition.items():
+            if key == "kind":
+                continue
+            if key in ("conditions", "condition"):
+                nested = value if key == "conditions" else [value]
+                if not isinstance(nested, list) or not nested:
+                    raise SpecValidationError(f"malformed {key!r} in condition {condition!r}")
+                for sub in nested:
+                    if not isinstance(sub, dict):
+                        raise SpecValidationError(f"malformed {key!r} in condition {condition!r}")
+                    AbilitySpec._validate_structured_condition(sub, _depth + 1)
+                continue
+            if key == "trigger":
+                # ENG-47 `event_this_turn`: a trigger-shaped dict evaluated by the
+                # binder over the turn's event log. Shape and depth only — the key
+                # vocabulary is `game/binding/core.py`'s, which this package cannot import.
+                if not isinstance(value, dict):
+                    raise SpecValidationError("'trigger' in an effect condition must be a dict")
+                AbilitySpec._validate_trigger_shape(value)
+                continue
+            if key in ("left", "right"):
+                # ENG-37 B5 `amount_compare` — an `effect_amounts` measurement
+                # spec, not a condition field. Same posture as ``condition``:
+                # the shape is checked here, the ``kind`` vocabulary lives in
+                # `game/effect_amounts.py` (which this package must not import).
+                if not isinstance(value, dict):
+                    raise SpecValidationError(f"{key!r} in an effect condition must be a dict")
+                AbilitySpec._validate_amount_spec(value, _depth + 1)
+                continue
+            expected = _STRUCTURED_CONDITION_FIELDS.get(key)
+            if expected is None:
+                raise SpecValidationError(f"unknown effect condition field {key!r}")
+            # ``bool`` is an ``int`` subclass; a flag where a count belongs is
+            # a spelling mistake, not a zero/one.
+            if key in ("min", "max") and value == "x":
+                continue  # the spell's announced X, bound at resolution (`effect_conditions._evaluate`)
+            if expected is int and (isinstance(value, bool) or not isinstance(value, int)):
+                raise SpecValidationError(f"{key!r} in an effect condition must be an int")
+            if expected is not int and not isinstance(value, expected):
+                raise SpecValidationError(
+                    f"{key!r} in an effect condition must be a {AbilitySpec._type_label(expected)}"
+                )
+            if key == "selector" and isinstance(value, dict):
+                AbilitySpec._validate_selector(value)
+
+    @staticmethod
+    def _type_label(expected: Any) -> str:
+        if isinstance(expected, tuple):
+            return " or ".join(t.__name__ for t in expected)
+        return expected.__name__
+
+    @staticmethod
+    def _validate_trigger_shape(trigger: dict[str, Any], _depth: int = 0) -> None:
+        """A trigger-shaped dict inside a condition: an ``event`` (a name or a list of
+        names) plus plain JSON values, nested no deeper than `MAX_SPEC_DEPTH`; ints are
+        clamped like any magnitude."""
+        if _depth > AbilitySpec.MAX_SPEC_DEPTH:
+            raise SpecValidationError("trigger dict nested too deeply")
+        if _depth == 0:
+            event = trigger.get("event")
+            names = event if isinstance(event, list) else [event]
+            if not names or not all(isinstance(n, str) and n for n in names):
+                raise SpecValidationError(f"a trigger dict needs an 'event' name: {trigger!r}")
+
+        def check(value: Any, depth: int) -> Any:
+            if depth > AbilitySpec.MAX_SPEC_DEPTH:
+                raise SpecValidationError("trigger dict nested too deeply")
+            if isinstance(value, bool) or value is None or isinstance(value, str):
+                return value
+            if isinstance(value, int):
+                return max(-MAX_EFFECT_MAGNITUDE, min(value, MAX_EFFECT_MAGNITUDE))
+            if isinstance(value, list):
+                return [check(v, depth + 1) for v in value]
+            if isinstance(value, dict):
+                for k in value:
+                    if not isinstance(k, str):
+                        raise SpecValidationError(f"trigger dict key must be a str: {k!r}")
+                return {k: check(v, depth + 1) for k, v in value.items()}
+            raise SpecValidationError(f"bad value in a trigger dict: {value!r}")
+
+        for key in list(trigger):
+            trigger[key] = check(trigger[key], _depth + 1)
+
+    @staticmethod
+    def _validate_selector(selector: dict[str, Any], _depth: int = 0) -> None:
+        """Shape-check a structured count selector (PAR-120) and clamp its numbers."""
+        if _depth > AbilitySpec.MAX_SPEC_DEPTH:
+            raise SpecValidationError("count selector nested too deeply")
+        if "terms" in selector:
+            if set(selector) - {"terms", "times", "plus"}:
+                raise SpecValidationError("unknown count expression field")
+            terms = selector["terms"]
+            if not isinstance(terms, list) or not terms:
+                raise SpecValidationError("count expression needs terms")
+            for term in terms:
+                if isinstance(term, dict):
+                    AbilitySpec._validate_selector(term, _depth + 1)
+                elif not isinstance(term, str):
+                    raise SpecValidationError("count expression term must be a selector")
+            for key in ("times", "plus"):
+                if key in selector:
+                    value = selector[key]
+                    if isinstance(value, bool) or not isinstance(value, int):
+                        raise SpecValidationError(f"count expression {key!r} must be an int")
+                    selector[key] = max(-MAX_EFFECT_MAGNITUDE, min(value, MAX_EFFECT_MAGNITUDE))
+            return
+        if "counters_on" in selector:
+            if selector["counters_on"] != "source" or set(selector) - {"counters_on", "kind"}:
+                raise SpecValidationError("bad counters-on-source selector")
+            if "kind" in selector and (not isinstance(selector["kind"], str) or not selector["kind"]):
+                raise SpecValidationError("counter kind must be a non-empty string")
+            return
+        for key, value in selector.items():
+            if key == "zone":
+                ok = isinstance(value, str) and value in SELECTOR_ZONES
+            elif key == "of":
+                ok = isinstance(value, str) and value in SELECTOR_SCOPES
+            elif key == "distinct":
+                ok = isinstance(value, str) and value in SELECTOR_DISTINCT
+            elif key == "aggregate":
+                ok = isinstance(value, str) and value in SELECTOR_AGGREGATES
+            elif key == "value":
+                ok = isinstance(value, str) and value in SELECTOR_VALUES
+            elif key == "counter_kind":
+                ok = isinstance(value, str) and bool(value)
+            elif key == "color":
+                ok = isinstance(value, str) and value in "WUBRG" and len(value) == 1
+            elif key == "filter":
+                ok = isinstance(value, dict)
+                if ok:
+                    AbilitySpec._validate_filter(value)
+            else:
+                raise SpecValidationError(f"unknown count selector field {key!r}")
+            if not ok:
+                raise SpecValidationError(f"bad {key!r} in a count selector: {value!r}")
+        if "aggregate" in selector and "value" not in selector:
+            raise SpecValidationError("aggregate count selector needs a value")
+        if (selector.get("value") == "mana_symbols") != ("color" in selector):
+            raise SpecValidationError("mana-symbol selector needs exactly one color")
+        if selector.get("value") == "mana_symbols" and selector.get("aggregate") != "sum":
+            raise SpecValidationError("mana-symbol selector must be a sum")
+
+    @staticmethod
+    def _validate_filter(filt: dict[str, Any], _depth: int = 0) -> None:
+        """A `combat.matches_object_filter` dict: scalar and list values, ``any_of``
+        entries that are filters themselves; numbers are clamped like any magnitude."""
+        if _depth > AbilitySpec.MAX_SPEC_DEPTH:
+            raise SpecValidationError("object filter nested too deeply")
+        for key, value in filt.items():
+            if not isinstance(key, str):
+                raise SpecValidationError(f"object filter key must be a str: {key!r}")
+            if key == "any_of":
+                if not isinstance(value, list) or not all(isinstance(v, dict) for v in value):
+                    raise SpecValidationError("'any_of' in an object filter must be a list of filters")
+                for sub in value:
+                    AbilitySpec._validate_filter(sub, _depth + 1)
+            elif isinstance(value, bool) or isinstance(value, str):
+                continue
+            elif isinstance(value, int):
+                filt[key] = max(-MAX_EFFECT_MAGNITUDE, min(value, MAX_EFFECT_MAGNITUDE))
+            elif isinstance(value, list) and all(isinstance(v, (str, int)) for v in value):
+                continue
+            else:
+                raise SpecValidationError(f"bad value for object filter key {key!r}: {value!r}")
+
+    @staticmethod
+    def _validate_amount_spec(spec: dict[str, Any], _depth: int = 0) -> None:
+        """Shape-check an `effect_amounts` measurement spec (an `amount_compare`
+        operand). Clamps its own magnitude fields the same way
+        `_clamp_params` clamps an effect's — a hostile ``multiply`` must not
+        reach the engine unbounded."""
+        if _depth > AbilitySpec.MAX_SPEC_DEPTH:
+            raise SpecValidationError("amount spec nested too deeply")
+        kind = spec.get("kind")
+        if not isinstance(kind, str) or not kind.strip():
+            raise SpecValidationError(f"amount spec needs a 'kind': {spec!r}")
+        for key, value in spec.items():
+            if key == "kind":
+                continue
+            expected = _AMOUNT_SPEC_FIELDS.get(key)
+            if expected is None:
+                raise SpecValidationError(f"unknown amount spec field {key!r}")
+            if key == "condition":
+                if not isinstance(value, dict):
+                    raise SpecValidationError("'condition' in an amount spec must be a dict")
+                AbilitySpec._validate_condition(value)
+                continue
+            if key in ("then", "otherwise", "left", "right"):
+                if isinstance(value, dict):
+                    AbilitySpec._validate_amount_spec(value, _depth + 1)
+                elif isinstance(value, bool) or not isinstance(value, int):
+                    raise SpecValidationError(f"{key!r} in an amount spec must be an int or an amount")
+                else:
+                    spec[key] = max(-MAX_EFFECT_MAGNITUDE, min(int(value), MAX_EFFECT_MAGNITUDE))
+                continue
+            if key == "selector":
+                if isinstance(value, dict):
+                    AbilitySpec._validate_selector(value)
+                    continue
+                if not isinstance(value, str):
+                    raise SpecValidationError("'selector' in an amount spec must be a str or a dict")
+                continue
+            if expected is bool and not isinstance(value, bool):
+                raise SpecValidationError(f"{key!r} in an amount spec must be a bool")
+            if expected is int and isinstance(value, str) and value in X_SENTINELS:
+                continue  # the announced {X} (RULE 107.3): substituted at cast
+            if expected is int and isinstance(value, str) and re.fullmatch(r"\$[a-z][a-z0-9_]{0,15}", value):
+                continue  # ENG-37 bind: substituted before this amount is evaluated
+            if expected is int and (isinstance(value, bool) or not isinstance(value, int)):
+                raise SpecValidationError(f"{key!r} in an amount spec must be an int")
+            if expected is str and not isinstance(value, str):
+                raise SpecValidationError(f"{key!r} in an amount spec must be a str")
+            if expected is int:
+                spec[key] = max(-MAX_EFFECT_MAGNITUDE, min(int(value), MAX_EFFECT_MAGNITUDE))
+
+    @staticmethod
+    def _clamp_params(
+        params: dict[str, Any], _depth: int = 0, _effect_type: Optional[str] = None
+    ) -> None:
+        # ENG-37: a composition node carries its gate in ``params`` rather
+        # than on the spec, because it *branches* on the condition instead of
+        # being gated by it. Same vocabulary, so the same check — otherwise
+        # `if_else` would be the one place a card-derived condition reached
+        # the engine unvalidated. Scoped by effect type, because ``condition``
+        # is **not** one vocabulary across all params: a `combat_restriction`
+        # static carries a combat-time condition of its own
+        # (`GameEngine._combat_condition_met`), which is exactly why
+        # `static_conditions.py` uses ``active_if`` for its own gate rather
+        # than sharing the key.
+        for retired, replacement in RETIRED_EFFECT_PARAMS.items():
+            if retired in params:
+                raise SpecValidationError(f"{retired!r} is retired: use {replacement}")
+        if _effect_type in _COMPOSITION_EFFECT_TYPES:
+            node_condition = params.get("condition")
+            if isinstance(node_condition, dict) and node_condition:
+                AbilitySpec._validate_condition(node_condition)
+        if _effect_type == "create_turn_trigger":
+            # PAR-124: the trigger a spell creates for the turn — the same trigger dict
+            # a triggered ability carries; its body clamps as nested effect specs below.
+            trigger = params.get("trigger")
+            if not isinstance(trigger, dict):
+                raise SpecValidationError("'create_turn_trigger' needs a 'trigger' dict")
+            AbilitySpec._validate_trigger_shape(trigger)
+        if _effect_type == "bind" and isinstance(params.get("amount"), dict):
+            # The measurement a ``bind`` substitutes into its body — the same shape
+            # an `amount_compare` operand has, so the same check (kind vocabulary
+            # in `game/effect_amounts.py`, shape and magnitude clamps here).
+            AbilitySpec._validate_amount_spec(params["amount"])
         for key in _CLAMPED_PARAM_KEYS:
             value = params.get(key)
             if isinstance(value, bool):  # bool is an int subclass — leave flags alone
@@ -1162,6 +1649,76 @@ class AbilitySpec:
         for entry in params.get("parametric_keywords") or []:
             if isinstance(entry, dict) and isinstance(entry.get("n"), int) and not isinstance(entry["n"], bool):
                 entry["n"] = max(0, min(entry["n"], MAX_EFFECT_MAGNITUDE))
+        # ENG-37: descend into nested effect specs. `validate()` used to walk
+        # only `self.effects`, i.e. depth 0 — so `MAX_EFFECT_MAGNITUDE` and
+        # the `condition` whitelist were **unenforced below the top level**,
+        # even though the engine has carried nested spec lists for a long
+        # time (`pay_cost_then`'s `on_pay_effect_specs`, `repeat_process`,
+        # `create_delayed_trigger`, `choose_objects`' `then_specs`, a modal
+        # option's own list, …). docs/09's security model says clamp params
+        # and whitelist conditions; a spec is only as safe as its deepest
+        # node, and "draw 10^9 cards" parked one level down inside a
+        # `then_specs` wedged a session exactly as well as at depth 0.
+        AbilitySpec._clamp_nested(params, _depth)
+
+    #: How deep a spec tree may nest before validation fails closed. Nesting
+    #: is structural (a "then" body, a modal option, ENG-37's composition
+    #: nodes), so real cards are only a few levels deep — Doomsday and the
+    #: modal-with-a-then families are the deepest shipped shapes at 3. The
+    #: cap exists so a hostile or malformed spec cannot make validation
+    #: itself the denial of service, the same reasoning behind
+    #: `MAX_EFFECT_MAGNITUDE`.
+    MAX_SPEC_DEPTH: int = 8
+
+    @staticmethod
+    def _clamp_nested(container: Any, depth: int) -> None:
+        """Recursively clamp/validate every nested effect spec in ``container``.
+
+        Structural, not name-keyed: nested spec lists are spelled a dozen
+        different ways across the effect factories (``then_specs``,
+        ``on_pay_effect_specs``, ``miss_effect_specs``, ``winner_specs``,
+        ``else_specs``, ``lose_effects``, ``per_vote_specs``, …), so keying
+        off the names would silently miss the next one — precisely the trap
+        `static_conditions.py`'s own docstring describes for selector params.
+        A node is recognised by *shape* instead: an `EffectSpec`, or the
+        ``{"type": ..., "params": {...}}`` dict form `enqueue_reflexive_
+        trigger` and the catalogue both use.
+        """
+        # ``depth`` counts **spell-out spec levels**, not walk steps: it only
+        # advances where one spec node's params contain another spec node, so
+        # the cap means what it says (a three-level card is at depth 3, not at
+        # whatever the intervening dicts and lists happen to add up to).
+        if depth > AbilitySpec.MAX_SPEC_DEPTH:
+            raise SpecValidationError(
+                f"effect spec nests deeper than {AbilitySpec.MAX_SPEC_DEPTH} "
+                f"levels; refusing to validate (fail-closed)"
+            )
+        if isinstance(container, EffectSpec):
+            AbilitySpec._clamp_params(container.params, depth + 1, container.type)
+            if container.condition is not None:
+                AbilitySpec._validate_condition(container.condition)
+            return
+        if isinstance(container, dict):
+            # An `EffectSpec.to_dict()`-shaped node: clamp its own params,
+            # then keep descending through them.
+            if isinstance(container.get("type"), str):
+                nested = container.get("params")
+                if isinstance(nested, dict):
+                    AbilitySpec._clamp_params(
+                        nested, depth + 1, str(container.get("type"))
+                    )
+                condition = container.get("condition")
+                if isinstance(condition, dict):
+                    AbilitySpec._validate_condition(condition)
+                return
+            for value in container.values():
+                if isinstance(value, (list, tuple, dict, EffectSpec)):
+                    AbilitySpec._clamp_nested(value, depth)
+            return
+        if isinstance(container, (list, tuple)):
+            for item in container:
+                if isinstance(item, (list, tuple, dict, EffectSpec)):
+                    AbilitySpec._clamp_nested(item, depth)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -1175,6 +1732,9 @@ class AbilitySpec:
             "additional_cost": self.additional_cost,
             "additional_cost_optional": self.additional_cost_optional,
             "conditional_flash": self.conditional_flash,
+            "cast_timing_restriction": self.cast_timing_restriction,
+            "cast_condition": self.cast_condition,
+            "flash_extra_cost": self.flash_extra_cost,
             "free_cast_condition": self.free_cast_condition,
             "optional": self.optional,
             "raw_text": self.raw_text,
@@ -1225,8 +1785,81 @@ class AbilitySpec:
             additional_cost=data.get("additional_cost"),
             additional_cost_optional=bool(data.get("additional_cost_optional", False)),
             conditional_flash=data.get("conditional_flash"),
+            cast_timing_restriction=data.get("cast_timing_restriction"),
+            cast_condition=data.get("cast_condition"),
+            flash_extra_cost=data.get("flash_extra_cost"),
             free_cast_condition=data.get("free_cast_condition"),
             optional=bool(data.get("optional", False)),
             raw_text=str(data.get("raw_text", "")),
             parser=ParserProvenance.from_dict(data.get("parser") or {}),
         )
+
+
+#: The effect types whose own ``effects`` list runs **only once the optional action has been accepted** — "you
+#: may …" (`optional`) and "you may pay/discard …, if you do, …" (`pay_cost_then`). An action-limit stamp placed
+#: first in that list is written only when the player actually does it.
+ACCEPT_GATED_EFFECTS: frozenset[str] = frozenset({"optional", "pay_cost_then"})
+
+
+def fold_action_limit(
+    effects: list[EffectSpec], marker: str, key: str
+) -> Optional[tuple[list[EffectSpec], bool]]:
+    """Fold a "Do this only once each turn." ``marker`` into its gate and stamp (PAR-135).
+
+    Returns ``(effects, found)`` — ``effects`` unchanged when there is no marker — or ``None`` when the marker
+    sits somewhere this can't place a stamp (fail closed: the caller refuses the card rather than dropping a
+    limit). Two placements are understood:
+
+    * a **top-level** marker ("…you may create a token. Do this only once each turn."): "this" is the action
+      the body offers. The stamp goes first in the body — or first inside the trailing ``optional`` /
+      ``pay_cost_then`` node when that is where the player decides (Legolas: "you may untap it") — so a declined
+      action isn't counted;
+    * a marker **inside** a ``pay_cost_then``/``optional`` node's own ``effects`` (Irreverent Gremlin: the
+      sentence trails the "if you do" body and the parser nests it): the stamp replaces it at the front of
+      that same list.
+
+    Either way the whole body becomes one ``seq`` gated by ``action_unused_this_turn`` — checked once, before
+    anything happens, and announcing the body's targets (RULE 601.2c) like any ``seq``.
+    """
+    stamp = EffectSpec("action_stamp", {"key": key}).to_dict()
+    top_marker = any(e.type == marker for e in effects)
+    body = [e for e in effects if e.type != marker]
+    folded: list[EffectSpec] = []
+    nested_found = False
+    for effect in body:
+        inner = effect.params.get("effects")
+        if effect.type in ACCEPT_GATED_EFFECTS and isinstance(inner, list) and any(
+            isinstance(x, dict) and x.get("type") == marker for x in inner
+        ):
+            rest = [x for x in inner if not (isinstance(x, dict) and x.get("type") == marker)]
+            effect = EffectSpec(effect.type, {**effect.params, "effects": [stamp, *rest]}, effect.condition)
+            nested_found = True
+        folded.append(effect)
+    if not top_marker and not nested_found:
+        if any(contains_marker(e, marker) for e in effects):
+            return None  # a marker somewhere this can't place a stamp
+        return effects, False
+    if top_marker:
+        if nested_found:
+            return None  # two markers for one body: ambiguous
+        last = folded[-1] if folded else None
+        if last is not None and last.type in ACCEPT_GATED_EFFECTS and isinstance(last.params.get("effects"), list):
+            folded[-1] = EffectSpec(
+                last.type, {**last.params, "effects": [stamp, *last.params["effects"]]}, last.condition,
+            )
+        else:
+            folded = [EffectSpec("action_stamp", {"key": key}), *folded]
+    if any(contains_marker(e, marker) for e in folded):
+        return None
+    gate = {"kind": "action_unused_this_turn", "key": key}
+    return [EffectSpec("seq", {"effects": [e.to_dict() for e in folded]}, condition=gate)], True
+
+
+def contains_marker(node: Any, marker: str) -> bool:
+    if isinstance(node, EffectSpec):
+        return node.type == marker or contains_marker(node.params, marker)
+    if isinstance(node, dict):
+        return node.get("type") == marker or any(contains_marker(v, marker) for v in node.values())
+    if isinstance(node, list):
+        return any(contains_marker(v, marker) for v in node)
+    return False

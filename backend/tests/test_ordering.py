@@ -1,10 +1,10 @@
 """Interactive ordering of simultaneous triggers (RULE 603.3b)."""
 
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.game.effects import DestroyEffect, TriggeredAbility
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.events import EventType
+from mtg_analyzer.game.effects.core import DestroyEffect, TriggeredAbility
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.events import EventType
 
 
 def make_engine():
@@ -60,7 +60,7 @@ def test_two_active_player_triggers_prompt_for_order():
     assert not eng.state.stack
 
     # Choose to place "B" first (bottom of stack → resolves last).
-    eng.rules.resolve_trigger_order_choice(1)
+    eng.rules.resolve_choice(1)
     assert eng.state.pending_choice is None
     descriptions = [item.description for item in eng.state.stack]
     assert descriptions == ["B", "A"]
@@ -111,7 +111,7 @@ def test_ordering_a_targeted_trigger_pauses_for_its_own_target():
 
     # Place the targeted trigger first — it must pause for its target
     # rather than going on the stack with no target at all.
-    eng.rules.resolve_trigger_order_choice(int(targeted_option["id"]))
+    eng.rules.resolve_choice(int(targeted_option["id"]))
     target_choice = eng.state.pending_choice
     assert target_choice is not None
     assert target_choice["kind"] == "trigger_target"
@@ -120,7 +120,7 @@ def test_ordering_a_targeted_trigger_pauses_for_its_own_target():
     victim_option = next(
         o for o in target_choice["options"] if o.get("instance_id") == victim.instance_id
     )
-    eng.rules.resolve_trigger_target_choice(victim_option["id"])
+    eng.rules.resolve_choice(victim_option["id"])
 
     # Both triggers are now placed, targeted one first (bottom of stack).
     assert eng.state.pending_choice is None
@@ -147,7 +147,7 @@ def test_ordering_an_optional_trigger_pauses_for_you_may():
         if o["label"] == "you may draw a card"
     )
 
-    eng.rules.resolve_trigger_order_choice(int(optional_option["id"]))
+    eng.rules.resolve_choice(int(optional_option["id"]))
     # No targeting effect at all (RULE 603.5) — still asks do/decline.
     may_choice = eng.state.pending_choice
     assert may_choice is not None
@@ -155,7 +155,7 @@ def test_ordering_an_optional_trigger_pauses_for_you_may():
     assert {o["id"] for o in may_choice["options"]} == {"do", "decline"}
     assert not eng.state.stack
 
-    eng.rules.resolve_trigger_target_choice("decline")
+    eng.rules.resolve_choice("decline")
     # Declined — only the plain trigger ends up on the stack.
     assert eng.state.pending_choice is None
     assert [i.description for i in eng.state.stack] == ["plain"]

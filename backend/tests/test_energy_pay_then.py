@@ -13,11 +13,11 @@ unclaimed.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle import parse_oracle
 from mtg_analyzer.parser.oracle.gate import MODELED
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
@@ -102,8 +102,8 @@ def _fire_attacks(eng, obj):
 
 
 def test_you_get_energy_effect_adds_energy_counters_to_controller():
-    from mtg_analyzer.game.effect_binder import build_effects
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.binding.core import build_effects
+    from mtg_analyzer.game.effects.core import GameContext
     from mtg_analyzer.parser.oracle.spec import EffectSpec
 
     eng = _engine()

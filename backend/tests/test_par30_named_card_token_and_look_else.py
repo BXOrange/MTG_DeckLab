@@ -17,10 +17,10 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game.effect_binder import build_effects
+from mtg_analyzer.game.binding.core import build_effects
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 from mtg_analyzer.parser.oracle.spec import EffectSpec
@@ -83,6 +83,8 @@ def _engine():
     eng = GameEngine.new_game(
         [("p1", "A", []), ("p2", "B", [])], starting_life=20, starting_hand=0
     )
+    eng.state.current_phase = "combat"
+    eng.state.current_step = "declare_attackers"
     src = GameObject(
         Card(id="j", name="The Joiner of Cats",
              type_line="Legendary Creature — Cat", is_creature=True,
@@ -145,7 +147,7 @@ def test_miss_branch_runs_when_player_declines():
     p1.library.append(cat)
     _run_look(eng, src)
     assert eng.state.pending_choice is not None  # a real choice opened
-    eng.rules.resolve_impulsive_look_choice(None)  # decline
+    eng.rules.resolve_choice(None)  # decline
     toks = [o for o in eng.state.battlefield if getattr(o, "is_token", False)]
     assert [t.name for t in toks] == ["Lurrus of the Dream-Den"]
 
@@ -162,7 +164,7 @@ def test_miss_branch_does_not_run_when_a_card_is_placed():
     cat.controller_id = "p1"
     p1.library.append(cat)
     _run_look(eng, src)
-    eng.rules.resolve_impulsive_look_choice(cat.instance_id)  # take the Cat
+    eng.rules.resolve_choice(cat.instance_id)  # take the Cat
     names = sorted(o.name for o in eng.state.battlefield if getattr(o, "is_token", False))
     assert "Lurrus of the Dream-Den" not in names
     assert cat in eng.state.battlefield and cat.attacking

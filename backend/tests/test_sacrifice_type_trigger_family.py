@@ -8,16 +8,16 @@ express (no filter). New pieces: `segmenter._SACRIFICE_TYPE_TRIGGER_RE` +
 `spell_card_types` already checks a cast spell's.
 
 Reference: mtg_analyzer/parser/oracle/segmenter.py, mtg_analyzer/game/
-effect_binder.py.
+binding/core.py.
 """
 
 from __future__ import annotations
 
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 
 

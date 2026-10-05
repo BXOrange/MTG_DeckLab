@@ -6,16 +6,16 @@ entries filtered a `STEP_BEGIN` event on ``{"step": "combat"}`` — but
 `GameEngine._step_body`/`turn_loop_mixin.py` stamps onto the event's own
 ``step`` field — so the filter could never match at all, silently.
 
-Reference: `game/ability_catalogue/entries_006.py` (Sam), `entries_007.py`
+Reference: `game/card_registry/enrage.py` (Sam), `tribal.py`
 (Ardenn), `game/phases.py`.
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 
 
 def _engine():
@@ -65,7 +65,7 @@ def test_sam_creates_a_food_token_at_the_beginning_of_combat():
     _sam(eng.state, controller=p1.id)
 
     eng.state.current_step = "begin_combat"
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
     eng.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="begin_combat", phase="combat"))
     placed = eng.rules.put_triggers_on_stack()
     assert placed == 1
@@ -83,7 +83,7 @@ def test_sam_does_not_fire_on_the_opponents_combat():
     _sam(eng.state, controller=p1.id)
 
     eng.state.current_step = "begin_combat"
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
     eng.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="begin_combat", phase="combat"))
     placed = eng.rules.put_triggers_on_stack()
     assert placed == 0
@@ -96,9 +96,7 @@ def test_ardenn_trigger_places_at_the_beginning_of_combat():
     _ardenn(eng.state, controller=p1.id)
 
     eng.state.current_step = "begin_combat"
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
     eng.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="begin_combat", phase="combat"))
     placed = eng.rules.put_triggers_on_stack()
     assert placed == 1
-
-

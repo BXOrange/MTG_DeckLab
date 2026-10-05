@@ -6,9 +6,9 @@ install's saved decks, not just cache-wide count:
 * **Untargeted mass "destroy/exile all X [with a numeric filter]" board
   wipes** (RULE 601.2c) — the `DestroyEffect`/`ExileEffect` ``selector``
   primitive already existed (hand-authored per card, e.g. Wrath of God in
-  `ability_catalogue.py`); only the general oracle-text recognition was
+  `card_registry.py`); only the general oracle-text recognition was
   missing (`catalogue/handlers.py`'s ``destroy_all``/``destroy_all_no_regen``/
-  ``exile_all``). Also widens `game/effects.py`'s `_MASS_DESTROY_SELECTORS`
+  ``exile_all``). Also widens `game/effects/core.py`'s `_MASS_DESTROY_SELECTORS`
   with ``"all_lands"``, the one selector real cards need that didn't exist.
 * **"[<Type> [and <type>]] spells you cast cost {N} less/more to cast."**
   (RULE 601.2f, Baral/Archmage of Runes/Bureau Headmaster-shaped) — the
@@ -42,13 +42,13 @@ effect_binder}.py.
 from __future__ import annotations
 
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import DestroyEffect, ExileEffect
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import DestroyEffect, ExileEffect
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import StackItem
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import StackItem
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.catalogue.static_handlers import static_effect_specs
 from mtg_analyzer.parser.oracle.gate import parse_oracle
@@ -201,10 +201,17 @@ def test_color_scoped_variant_parses():
     ]
 
 
-def test_subtype_scoped_variant_stays_unclaimed():
-    # Same reasoning for a creature-subtype qualifier (Banneret cycle,
-    # Bureau Headmaster's "Equipment spells…").
-    assert static_effect_specs("equipment spells you cast cost {1} less to cast") is None
+def test_subtype_scoped_variant_parses():
+    # PAR-60 wave 13: a curated creature/Aura/Equipment/Arcane subtype
+    # qualifier (Banneret/Warchief cycle, Bureau Headmaster's "Equipment
+    # spells…", Transcendent Envoy's "Aura spells…") now routes to
+    # ``spell_subtype`` (`continuous.cost_reduction_for` resolves it via
+    # `has_subtype`). Groupings that `has_subtype` can't check stay
+    # fail-closed.
+    assert static_effect_specs("equipment spells you cast cost {1} less to cast") == [
+        EffectSpec("cost_reduction", {"generic": 1, "increase": False, "spell_subtype": "equipment"})
+    ]
+    assert static_effect_specs("historic spells you cast cost {1} less to cast") is None
 
 
 def test_baral_full_card_is_modeled():
@@ -264,21 +271,32 @@ def test_cast_instant_or_sorcery_spell_trigger_full_card_is_modeled():
     assert spec.trigger == {
         "event": "SPELL_CAST",
         "condition": {"subject": "you"},
-        "spell_card_types": ["instant", "sorcery"],
+        "spell_filter": {"card_type_any": ["instant", "sorcery"]},
     }
     assert spec.effects[0].type == "draw"
 
 
-def test_cast_spell_trigger_with_a_subtype_stays_unclaimed():
-    # "wizard" is a creature subtype, not in `_SPELL_CAST_TYPE_WORDS` (only
-    # main card types — `GameObject.type_words` carries no subtypes) — fail
-    # closed rather than silently dropping it.
+def test_cast_spell_trigger_with_a_subtype_in_the_type_list_filters_by_subtype():
+    # PAR-104: the comma list ("an instant, sorcery, or Wizard spell") is one phrase, and "wizard" is read from the
+    # cast spell's own type line (`spell_filter`'s ``subtype``), not from the event's main-type snapshot — so it is
+    # claimed, and a non-Wizard creature spell does not trigger it.
     card = Card(
         id="Test Wizard Payoff", name="Test Wizard Payoff", type_line="Creature — Human",
         is_creature=True, power=1, toughness=1,
         oracle_text="Whenever you cast an instant, sorcery, or wizard spell, draw a card.",
     )
-    assert not parse_oracle(card).modeled
+    assert parse_oracle(card).modeled
+    for type_line, expected in (("Creature — Human Wizard", 1), ("Creature — Bear", 0)):
+        eng = _engine()
+        p1 = eng.state.player_by_id("p1")
+        _bf(eng.state, card)
+        spell = GameObject(
+            Card(id="Test Spell", name="Test Spell", type_line=type_line, is_creature=True, power=1, toughness=1),
+            owner_id="p1", zone=Zone.HAND,
+        )
+        p1.hand.append(spell)
+        eng.rules.cast_without_paying(p1, spell)
+        assert eng.rules.put_triggers_on_stack() == expected, type_line
 
 
 def test_cast_spell_trigger_executes_and_draws_a_card():
@@ -294,12 +312,15 @@ def test_cast_spell_trigger_executes_and_draws_a_card():
     p1.library.append(GameObject(_creature("Topdeck"), owner_id="p1", zone=Zone.LIBRARY))
     before = len(p1.hand)
 
-    state.fire_event(
-        GameEvent(
-            EventType.SPELL_CAST, player_id="p1", card_id="Test Bolt", spell="Test Bolt",
-            instance_id="fake-bolt", object_types=["instant"],
-        )
+    # A real cast: the composed ``spell_filter`` reads the spell object on
+    # the stack, not the event's type snapshot (PAR-131).
+    bolt = GameObject(
+        Card(id="Test Bolt", name="Test Bolt", type_line="Instant", is_instant=True),
+        owner_id="p1", zone=Zone.HAND,
     )
+    p1.hand.append(bolt)
+    before = len(p1.hand) - 1
+    eng.rules.cast_without_paying(p1, bolt)
     placed = eng.rules.put_triggers_on_stack()
     assert placed == 1
     eng.rules.resolve_top_of_stack()
@@ -371,7 +392,7 @@ def test_blood_artist_fires_when_a_different_creature_dies():
     choice = state.pending_choice
     assert choice["kind"] == "trigger_target"
     option = next(o for o in choice["options"] if o["id"] == p2.id)
-    eng.rules.resolve_trigger_target_choice(option["id"])
+    eng.rules.resolve_choice(option["id"])
     eng.rules.resolve_top_of_stack()
 
     assert p2.life == p2_life_before - 1

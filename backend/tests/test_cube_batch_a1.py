@@ -3,7 +3,7 @@
 Reference: CLAUDE.md's oracle-text-parser pipeline; docs/concepts/
 09_ORACLE_EFFECT_PARSER.md. This batch extended the **generic, reusable**
 handler layer (`parser/oracle/catalogue/handlers.py`/`subgrammars.py`,
-`game/effects.py`, `game/effect_binder.py`, `game/costs.py`,
+`game/effects/core.py`, `game/binding/core.py`, `game/costs.py`,
 `game/top_library.py`) to flip real cEDH-cube cards from `UNMODELED` to
 `MODELED`. Some plumbing (`parser/oracle/segmenter.py`'s trigger-wrapper
 vocabulary, `game/targeting.py`'s target-kind vocabulary,
@@ -26,15 +26,15 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import (
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import (
     ActivatedAbility,
     PumpEffect,
     TapEffect,
     TriggeredAbility,
     WinGameEffect,
 )
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 
@@ -167,18 +167,42 @@ def test_quirion_ranger_and_scryb_ranger_modeled():
 # ---------------------------------------------------------------------------
 
 
-def test_look_at_top_any_time_claimed_but_permission_clause_still_blocks():
-    """Elsha/Bolas's Citadel's "You may look at the top card of your
-    library any time." line is now claimed as a documented no-op
-    (`segmenter._LOOK_AT_TOP_ANY_TIME_RE`) — it no longer appears in
-    ``unclaimed`` — but each card's *actual* play/cast-from-top permission
-    clause has no parser-front-end recognition yet (only hand-authored per
-    card today), so the cards stay `UNMODELED` overall. See
-    docs/implementation-state/BACKLOG.md."""
-    for name in ("Elsha of the Infinite", "Bolas's Citadel"):
+def test_look_at_top_any_time_and_the_permission_clause_are_both_claimed():
+    """Was a negative pin: the "You may look at the top card of your library
+    any time." line was claimed as a documented no-op
+    (`segmenter._LOOK_AT_TOP_ANY_TIME_RE`) while each card's *actual*
+    play/cast-from-top permission clause had no parser recognition, leaving
+    both cards `UNMODELED`.
+
+    ENG-38: that gap closed — `top_library_permission` now reads the
+    permission clause too, so both cards are fully `MODELED` and the pin is
+    inverted to assert the parsed permissions rather than their absence.
+    """
+    expected = {
+        # "You may cast noncreature spells from the top of your library. If
+        # you cast a spell this way, you may cast it as though it had flash."
+        "Elsha of the Infinite": {
+            "look": True, "cast_spells": True,
+            "noncreature_only": True, "grants_flash": True,
+        },
+        # "You may play lands and cast spells from the top of your library.
+        # If you cast a spell this way, pay life equal to its mana value…"
+        "Bolas's Citadel": {
+            "look": True, "play_lands": True,
+            "cast_spells": True, "life_payment": True,
+        },
+    }
+    for name, params in expected.items():
         result = parse_oracle(_card(name))
-        assert not result.modeled
-        assert not any("look at the top card" in u for u in result.unclaimed), (name, result.unclaimed)
+        assert result.modeled, (name, result.unclaimed)
+        permissions = [
+            e.params for spec in result.specs for e in spec.effects
+            if e.type == "top_library_permission"
+        ]
+        # The standalone "look at the top card any time" line stays its own
+        # spec; the permission clause is the one carrying the real grant.
+        assert {"look": True} in permissions, (name, permissions)
+        assert params in permissions, (name, permissions)
 
 
 # ---------------------------------------------------------------------------
@@ -187,16 +211,11 @@ def test_look_at_top_any_time_claimed_but_permission_clause_still_blocks():
 
 
 def test_witherbloom_apprentice_modeled():
-    """Magecraft — Whenever you cast or copy an instant or sorcery spell,
-    <effect>." A dedicated whole-line recognizer (`segmenter._MAGECRAFT_RE`)
-    peels the "Magecraft — " ability-word label and binds a `SPELL_CAST`
-    trigger filtered to instant/sorcery via the existing `spell_subtype_any`
-    predicate; "or copy" is unreachable today (no spell-copy event bus
-    anywhere in the engine) — a cross-cutting gap, not a card-specific one."""
+    """Magecraft composes both event kinds with the instant/sorcery filter."""
     result = parse_oracle(_card("Witherbloom Apprentice"))
     assert result.modeled, result.unclaimed
     obj = _bound("Witherbloom Apprentice")
-    assert len(obj.triggered_abilities) == 1
+    assert {a.trigger_event for a in obj.triggered_abilities} == {"SPELL_CAST", "SPELL_COPIED"}
     ability = obj.triggered_abilities[0]
     assert isinstance(ability, TriggeredAbility)
     assert ability.trigger_event == "SPELL_CAST"
@@ -204,15 +223,18 @@ def test_witherbloom_apprentice_modeled():
 
 def test_professor_onyx_stays_unmodeled_unrelated_loyalty_abilities():
     """Magecraft itself parses fine (proven by Witherbloom Apprentice
-    above); Professor Onyx stays `UNMODELED` because its +1/-3/-8 loyalty
+    above); Professor Onyx stays `UNMODELED` because its -3/-8 loyalty
     abilities are each their own complex, unrelated, unmodeled mechanic —
-    see BACKLOG.md. Also proves the loyalty-ability bracket fix
-    (below) doesn't over-claim: these lines are now *recognized* as loyalty
-    abilities but still correctly fail on their own unparseable bodies."""
+    see BACKLOG.md (its +1 is the PAR-144 dig grammar's since v565, its −3 the batch-6 greatest-power edict row).
+    Also proves the loyalty-ability bracket fix (below) doesn't over-claim:
+    these lines are now *recognized* as loyalty abilities but still correctly
+    fail on their own unparseable bodies."""
     result = parse_oracle(_card("Professor Onyx"))
     assert not result.modeled
     assert not any("magecraft" in u for u in result.unclaimed)
-    assert any(u.startswith("+1:") for u in result.unclaimed)
+    assert not any(u.startswith("+1:") for u in result.unclaimed)
+    assert not any(u.startswith(("−3:", "-3:")) for u in result.unclaimed)   # the greatest-power edict row (batch 6)
+    assert any(u.startswith(("−8:", "-8:")) for u in result.unclaimed)
 
 
 # ---------------------------------------------------------------------------
@@ -256,16 +278,29 @@ def test_freed_from_the_real_modeled():
         assert effect._attached_mode is True
 
 
-def test_pemmins_aura_stays_unmodeled_inline_or_modal():
-    """Three of its four activated abilities (tap/untap/flying/shroud) now
-    model fine via the same `attached_permanent` mechanism; the fourth
-    ("gets +1/-1 or -1/+1") is an inline two-way modal choice with no
-    bulleted "Choose one —" header — the modal grammar doesn't recognize
-    that shape. See BACKLOG.md."""
+def test_pemmins_aura_inline_or_modal_is_two_abilities_sharing_a_cost():
+    """Was a negative pin: three of the four activated abilities modeled via
+    `attached_permanent`, but the fourth ("gets +1/-1 **or** -1/+1") is an
+    inline two-way modal with no bulleted "Choose one —" header, which the
+    modal grammar couldn't see.
+
+    ENG-38: `segmenter._inline_pt_modal_bodies` closed that — it splits the
+    compact form into two full pump clauses, emitted as two separately
+    activatable abilities sharing the one printed cost. That is faithful for
+    an *activated* ability, where RULE 602.2b picks the mode on activation
+    anyway: choosing which of the two to activate **is** the printed choice,
+    so no mode-selection machinery is needed. (It is tried only after the
+    ordinary parse has already failed, so it can never steal a line that had
+    a reading.)
+    """
     result = parse_oracle(_card("Pemmin's Aura"))
-    assert not result.modeled
-    assert len(result.unclaimed) == 1
-    assert "+1/-1 or -1/+1" in result.unclaimed[0]
+    assert result.modeled, result.unclaimed
+    pt_modes = {
+        (e.params.get("power"), e.params.get("toughness"), spec.cost["text"])
+        for spec in result.specs for e in spec.effects
+        if e.type == "pump" and e.params.get("power") is not None
+    }
+    assert pt_modes == {(1, -1, "{1}"), (-1, 1, "{1}")}, pt_modes
 
 
 # ---------------------------------------------------------------------------

@@ -21,22 +21,23 @@ from __future__ import annotations
 import re
 from typing import Any, Callable, Optional, Union
 
-from ...models import card_query
-from ...models.card import Card
-from ...models.emblem import Emblem
-from ...models.events import EventType, GameEvent
-from ...models.game_object import GameObject, Zone
-from ...models.game_state import DelayedTrigger, GameState, StackItem
-from ...models.mana_cost import ManaCost
-from ...models.player import Player
+from ...models.cards import card_query
+from ...models.cards.card import Card
+from ...models.game.emblem import Emblem
+from ...models.game.events import EventType, GameEvent
+from ...models.game.game_object import GameObject, Zone
+from ...models.game import turn_history
+from ...models.game.game_state import DelayedTrigger, GameState, StackItem, UncounterableGrant
+from ...models.mana.mana_cost import ManaCost
+from ...models.game.player import Player
 from ...parser.oracle.catalogue.keywords import parse_keywords
 from ...parser.oracle.catalogue.saga import all_chapter_numbers
-from .. import ability_catalogue, combat, continuous, copy_mechanics, dungeons, face_down, variants
+from .. import card_registry, combat, continuous, copy_mechanics, dungeons, face_down, variants
 from ..combat import is_protected_from
-from ..costs import DISCARD_HAND, ActivationCost, parse_activation_cost
+from ..costs import DISCARD_HAND, REMOVE_COUNTERS_ANY_KIND, ActivationCost, parse_activation_cost
 from ..mana_abilities import restriction_predicate_for_cast
 from .triggers_mixin import _has_suspend
-from ..effects import (
+from ..effects.core import (
     _apply_effects_partitioned,
     AddCountersEffect,
     CompleteDungeonEffect,
@@ -75,6 +76,113 @@ from ..effects import (
     WinConditionEffect,
 )
 from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_targets
+from .. import continuations
+
+#: ENG-48: the highest {X} a resolve-time "you may pay {X}" offers. Payment
+#: comes from the payer's mana pool only (`_can_pay_player_cost`), so the real
+#: bound is almost always the pool itself; this only stops the affordability
+#: scan (and the one-button-per-value prompt) from running away on a combo's
+#: effectively unbounded pool — 30 is past any X a fair game ever pays.
+PAY_COST_THEN_MAX_X = 30
+#: Turntimber Symbiosis: "If that card has mana value 3 or less, it enters with three additional +1/+1 counters
+#: on it." — the printed mana-value ceiling and the number of bonus counters.
+CHEAP_CREATURE_MAX_MANA_VALUE = 3
+CHEAP_CREATURE_BONUS_COUNTERS = 3
+
+#: ENG-48: the option-id prefix a `pay_cost_then` choice uses for "pay with
+#: X = n" (``"pay_x:3"``); a bare ``"pay"`` still answers, as the largest X.
+PAY_X_OPTION_PREFIX = "pay_x:"
+
+
+def _cost_with_x(cost: ActivationCost, x: int, x_color: Optional[str] = None) -> ActivationCost:
+    """``cost`` with its mana's ``{X}`` announced as ``x`` (RULE 107.3a). ``x_color`` is "pay any amount of
+    {R}" (Leyline Tyrant): the cost is then just ``x`` pips of that colour instead of ``x`` generic mana."""
+    from dataclasses import replace  # function-scoped: only this helper needs it
+
+    if x_color:
+        return replace(cost, mana=ManaCost.parse(f"{{{x_color.upper()}}}" * x if x else "{0}"))
+    return replace(cost, mana=cost.mana.with_x(x))
+
+
+#: RULE 205.2a's card types — the words `_card_type_words` keeps from an object's type words.
+_CARD_TYPE_WORDS = frozenset({
+    "artifact", "battle", "creature", "enchantment", "instant", "land", "planeswalker", "sorcery",
+    "conspiracy", "dungeon", "kindred", "phenomenon", "plane", "scheme", "vanguard",
+})
+
+
+def _card_type_words(obj: Any) -> set[str]:
+    """The RULE 205.2a card types of ``obj`` (lowercase), without supertypes/subtypes."""
+    return set(getattr(obj, "type_words", None) or ()) & _CARD_TYPE_WORDS
+
+
+def _distinct_card_type_assignment(type_sets: list[set[str]]) -> bool:
+    """Can every selected card represent a different card type (RULE 205.2b)?
+
+    Reassign earlier multi-type cards when necessary; an arbitrary initial
+    assignment must not hide a legal later pick.
+    """
+    assigned: dict[str, int] = {}
+
+    def augment(index: int, visited: set[str]) -> bool:
+        for card_type in sorted(type_sets[index]):
+            if card_type in visited:
+                continue
+            visited.add(card_type)
+            previous = assigned.get(card_type)
+            if previous is None or augment(previous, visited):
+                assigned[card_type] = index
+                return True
+        return False
+
+    return all(augment(index, set()) for index in range(len(type_sets)))
+
+
+def _that_many_value(then_that_many: Optional[dict], objs: list[Any]) -> int:
+    """What "that many" counts after a `choose_objects` pick: how many were picked, or — with
+    ``measure: "power"`` ("you gain X life and draw X cards, where X is that creature's power",
+    Disciple of Bolas) — their total power. Read from the objects *before* they are sacrificed,
+    since a card in the graveyard no longer has a battlefield power."""
+    if (then_that_many or {}).get("measure") == "power":
+        return sum(int(getattr(o, "power", 0) or 0) for o in objs)
+    if (then_that_many or {}).get("measure") == "mana_value":
+        # RULE 202.3 / 608.2h: capture the battlefield card face before
+        # sacrificing it, rather than reading a reset graveyard object.
+        def mana_value(obj):
+            if getattr(obj, "face_down", False):
+                return 0
+            if getattr(obj, "is_melded", False):
+                return sum(mana_value(part) for part in obj.melded_components)
+            card = getattr(obj, "card", None)
+            front = getattr(obj, "_front_card", None)
+            # RULE 202.3b: a genuine transforming back uses the front's
+            # cost. A copy of just that back has no two-face card metadata.
+            if (getattr(obj, "transformed", False) and front is not None
+                    and (front.back_name or front.back_type_line) and front.layout != "modal_dfc"):
+                card = front
+            return int(getattr(card, "converted_mana_cost", 0) or 0)
+        return sum(mana_value(obj) for obj in objs)
+    return len(objs)
+
+
+def _substitute_x_specs(specs: list[dict], x: Optional[int]) -> list[dict]:
+    """Serialized branch `EffectSpec` dicts with the ``"x"`` sentinel bound to
+    a resolve-time payment's announced X (ENG-48). ``x=None`` — the cost had
+    no {X} — leaves them untouched, so a branch whose "X" means the *spell's*
+    own announced X (`GameObject.x_paid`) still reads that at apply time."""
+    if x is None:
+        return specs
+    from ..effects.composition import _resolve_x  # function-scoped: effects↔rules cycle
+
+    return [{**d, "params": _resolve_x(dict(d.get("params") or {}), x)} for d in specs]
+
+
+def _substitute_x_modes(modes: dict[str, Any], x: int) -> dict[str, Any]:
+    """`_substitute_x_specs` over a reflexive modal payoff's option lists."""
+    if not modes.get("options"):
+        return modes
+    return {**modes, "options": [_substitute_x_specs(list(opt), x) for opt in modes["options"]]}
+
 
 def _saga_final_chapter(card: Card) -> int:
     """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
@@ -134,6 +242,11 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
         # payer's own choice of *type*, not "any permanent" (which would
         # wrongly also license sacrificing an enchantment/planeswalker).
         return obj.is_creature or obj.card.is_artifact or obj.is_land
+    if "_" in what:
+        # ENG-49/ENG-51: `costs.parse_activation_cost`'s permanent-phrase
+        # encoding — "an artifact or creature", "a nonland permanent" —
+        # read by the same matcher the activation cost path uses.
+        return continuous.matches_permanent_word(obj, what)
     return True  # unknown type word → any permanent, so the cost is payable
 
 
@@ -176,7 +289,7 @@ def _creature_type_options(state: GameState, controller_id: Optional[str]) -> li
 class MiscSystemsMixin:
     """Designations (goad/monarch/initiative/Ring), planeswalking, dungeons, wards/rampage/dethrone, countering a spell, generic interactive-payment primitives, tokens, Sagas/day-night."""
 
-    def request_pay_energy_then(
+    def _request_pay_energy_then(
         self, player: Player, amount: int, effect_specs: list[dict], source: Optional[GameObject]
     ) -> None:
         """Open the interactive "you may pay {E}×N. If you do, `<effect>`."
@@ -190,7 +303,7 @@ class MiscSystemsMixin:
             "source": source,
         }
         pips = "{E}" * int(amount)
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "pay_energy_then",
             "player_id": player.id,
             "prompt": f"{pips} bezahlen?",
@@ -198,15 +311,12 @@ class MiscSystemsMixin:
                 {"id": "pay", "label": f"{pips} bezahlen"},
                 {"id": "decline", "label": "Nicht bezahlen"},
             ],
-        }
-    def resolve_pay_energy_then_choice(self, answer: Optional[str]) -> None:
+        })
+    @continuations.choice("pay_energy_then", answer=continuations.ANSWER_STR, rule="122")
+    def _resume_pay_energy_then(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `pay_energy_then` choice. ``answer == "pay"``
         spends the energy and resolves the follow-up effects; anything else
         (``None``/``"decline"``) does neither."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "pay_energy_then":
-            raise ValueError("no pending pay-energy choice to resolve")
-        self.state.pending_choice = None
         pending = self._pending_pay_energy
         self._pending_pay_energy = None
         if pending is None or answer != "pay":
@@ -217,7 +327,7 @@ class MiscSystemsMixin:
             return  # energy changed since the offer — decline by default
         self.add_player_counters(player, -amount, "energy")
         self._apply_effect_specs(pending["effect_specs"], pending["source"])
-    def request_pay_cost_then(
+    def _request_pay_cost_then(
         self,
         player: Player,
         cost: "ActivationCost",
@@ -230,13 +340,14 @@ class MiscSystemsMixin:
         then_trigger_modes: Optional[dict[str, Any]] = None,
         then_trigger_event: Optional[GameEvent] = None,
         captured_previous: Optional[list[Any]] = None,
+        x_color: Optional[str] = None,
     ) -> None:
         """Open the interactive "you may pay ``cost``. If you do, `<effect>`."
         choice (RULE 118.3-style optional payment mid-resolution).
 
         The general form of the already-shipped, energy-only
-        `request_pay_energy_then` (Aether Chaser) and the *optional* mirror
-        of `request_sacrifice_unless_pay` — same `_can_pay_player_cost`/
+        `_request_pay_energy_then` (Aether Chaser) and the *optional* mirror
+        of `_request_sacrifice_unless_pay` — same `_can_pay_player_cost`/
         `_pay_player_cost` machinery all three share, so an arbitrary
         `ActivationCost` (mana, life, discard, sacrifice) works without a
         fourth parallel payment path. Covers Mana Vault's upkeep untap and
@@ -254,9 +365,9 @@ class MiscSystemsMixin:
         which the branch effects would otherwise never see, since they are
         built fresh at answer time rather than sitting on the stack item.
 
-        ``then_trigger_specs`` is RULE 603.11's "**When you do**, `<targeted
-        payoff>`." — instead of resolving off the stack like ``effect_specs``
-        (which can never choose a RULE 115 target), a paid cost enqueues
+        ``then_trigger_specs`` is RULE 603.12's "**When you do**, `<targeted
+        payoff>`." — instead of continuing the original resolution with
+        its announced targets like ``effect_specs``, a paid cost enqueues
         these as their own `TriggeredAbility` on `pending_triggers`, so the
         ordinary placement path gathers targets and it goes on the stack.
         ``then_trigger_event`` is the *outer* trigger's event, carried so a
@@ -267,16 +378,27 @@ class MiscSystemsMixin:
         card whose mana cost this ``cost`` was priced off) so the paid
         branch's `copy_permanent` ``referent="previous"`` still resolves
         against it once the choice is *answered* — same re-seed idiom
-        `resolve_villainous_choice` uses.
+        `_resume_villainous_choice` uses.
         """
         specs = [dict(d) for d in effect_specs]
         else_specs = [dict(d) for d in (else_effect_specs or [])]
         then_trigger = [dict(d) for d in (then_trigger_specs or [])]
         modal_trigger = dict(then_trigger_modes or {})
-        if not self._can_pay_player_cost(player, cost):
-            self._apply_effect_specs(else_specs, source, targets)
+        # ENG-48 / RULE 107.3a: "you may pay {X}" — the payer announces X as
+        # part of paying, so the offer is one option per affordable value.
+        x_max = self._max_payable_x(player, cost, source, x_color) if cost.mana.has_variable else None
+        if not self._can_pay_player_cost(player, cost, source):
+            saved = self.context.previous_targets
+            if captured_previous is not None:
+                self.context.previous_targets = list(captured_previous)
+            try:
+                self._apply_effect_specs(
+                    _substitute_x_specs(else_specs, None if x_max is None else 0), source, targets,
+                )
+            finally:
+                self.context.previous_targets = saved
             return
-        self._pending_pay_cost_then = {
+        self.state.pending_pay_cost_then = {
             "player_id": player.id,
             "cost": cost,
             "effect_specs": specs,
@@ -287,58 +409,123 @@ class MiscSystemsMixin:
             "then_trigger_modes": modal_trigger,
             "then_trigger_event": then_trigger_event,
             "captured_previous": list(captured_previous) if captured_previous else None,
+            "x_max": x_max,
+            "x_color": x_color,
+            # RULE 109.5: the "if you do" effects belong to whoever the body was run as.
+            "acting_player_id": self.context.acting_player_id or self.context.resolving_controller_id,
+            "revealed_card": self.context.revealed_card,
         }
         cost_label = cost.label()
-        self.state.pending_choice = {
+        # A free "you may …" (no cost to name, e.g. a Tempting offer) reads Ja/Nein, not " bezahlen".
+        if not cost_label:
+            pay_options = [{"id": "pay", "label": "Ja"}]
+        elif x_max is None:
+            pay_options = [{"id": "pay", "label": f"{cost_label} bezahlen"}]
+        else:
+            # Largest X first: it's almost always the reason to pay at all.
+            pay_options = [
+                {"id": f"{PAY_X_OPTION_PREFIX}{x}", "label": f"X = {x}: {cost_label} bezahlen", "x": x}
+                for x in range(x_max, -1, -1)
+            ]
+        self.open_choice({
             "kind": "pay_cost_then",
             "player_id": player.id,
             "prompt": prompt or f"{cost_label} bezahlen?",
-            "options": [
-                {"id": "pay", "label": f"{cost_label} bezahlen"},
-                {"id": "decline", "label": "Nicht bezahlen"},
-            ],
-        }
-    def resolve_pay_cost_then_choice(self, answer: Optional[str]) -> None:
+            "options": [*pay_options, {"id": "decline", "label": "Nein" if not cost_label else "Nicht bezahlen"}],
+        })
+
+    def _max_payable_x(
+        self, player: Player, cost: ActivationCost, source: Optional[GameObject] = None,
+        x_color: Optional[str] = None,
+    ) -> int:
+        """The largest X (up to `PAY_COST_THEN_MAX_X`) ``player`` can pay
+        ``cost`` with — 0 when only X = 0 is affordable. Affordability is
+        monotone in X, so the scan stops at the first miss."""
+        best = 0
+        for x in range(1, PAY_COST_THEN_MAX_X + 1):
+            if not self._can_pay_player_cost(player, _cost_with_x(cost, x, x_color), source):
+                break
+            best = x
+        return best
+
+    @staticmethod
+    def _pay_cost_then_x(answer: Optional[str], x_max: int) -> Optional[int]:
+        """The X a `pay_cost_then` answer announces, or ``None`` for a
+        malformed/out-of-range one (treated as declining). A bare ``"pay"``
+        means the largest X offered."""
+        if answer == "pay":
+            return x_max
+        if not answer or not answer.startswith(PAY_X_OPTION_PREFIX):
+            return None
+        try:
+            x = int(answer[len(PAY_X_OPTION_PREFIX):])
+        except ValueError:
+            return None
+        return x if 0 <= x <= x_max else None
+    @continuations.choice("pay_cost_then", answer=continuations.ANSWER_STR, rule="118.3")
+    def _resume_pay_cost_then(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `pay_cost_then` choice. ``answer == "pay"``
         charges the cost and resolves the "if you do" effects; anything else
         resolves the "if you don't" branch (usually empty)."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "pay_cost_then":
-            raise ValueError("no pending pay-cost-then choice to resolve")
-        self.state.pending_choice = None
-        pending = self._pending_pay_cost_then
-        self._pending_pay_cost_then = None
+        pending = self.state.pending_pay_cost_then
+        self.state.pending_pay_cost_then = None
         if pending is None:
             return
         player = self.state.player_by_id(pending["player_id"])
         targets = pending.get("targets") or None
-        if answer != "pay" or not self._can_pay_player_cost(player, pending["cost"]):
-            # Re-checked: the board can have changed since the offer was made.
-            self._apply_effect_specs(pending["else_effect_specs"], pending["source"], targets)
-        else:
-            self._pay_player_cost(player, pending["cost"])
-            captured = pending.get("captured_previous")
-            if captured:
-                # MEC-52: re-seed the RULE 608.2 "that card" referent for a
-                # `copy_permanent` ``referent="previous"`` in the paid
-                # branch (the resolution that opened this choice is gone).
+        captured = pending.get("captured_previous")
+        def apply_branch(specs: list[dict]) -> None:
+            outer_acting = self.context.acting_player_id
+            self.context.acting_player_id = pending.get("acting_player_id")
+            outer_revealed = self.context.revealed_card
+            self.context.revealed_card = pending.get("revealed_card")
+            try:
+                if not captured:
+                    self._apply_effect_specs(specs, pending["source"], targets)
+                    return
                 saved = list(self.context.previous_targets)
                 self.context.previous_targets = list(captured)
                 try:
-                    self._apply_effect_specs(pending["effect_specs"], pending["source"], targets)
+                    self._apply_effect_specs(specs, pending["source"], targets)
                 finally:
                     self.context.previous_targets = saved
-            else:
-                self._apply_effect_specs(pending["effect_specs"], pending["source"], targets)
+            finally:
+                self.context.acting_player_id = outer_acting
+                self.context.revealed_card = outer_revealed
+        cost = pending["cost"]
+        x_max = pending.get("x_max")
+        x: Optional[int] = None
+        if x_max is not None:
+            # ENG-48: the announced X prices the cost and is substituted into
+            # whichever branch runs (RULE 107.3a) — the declined branch sees 0.
+            x = self._pay_cost_then_x(answer, x_max)
+            paying = x is not None
+            if paying:
+                cost = _cost_with_x(cost, x, pending.get("x_color"))
+        else:
+            paying = answer == "pay"
+        if not paying or not self._can_pay_player_cost(player, cost, pending["source"]):
+            # Re-checked: the board can have changed since the offer was made.
+            apply_branch(_substitute_x_specs(pending["else_effect_specs"], None if x_max is None else 0))
+        else:
+            self._pay_player_cost(player, cost, pending["source"])
+            if x is not None:
+                pending = {
+                    **pending,
+                    "effect_specs": _substitute_x_specs(pending["effect_specs"], x),
+                    "then_trigger_specs": _substitute_x_specs(pending["then_trigger_specs"], x),
+                    "then_trigger_modes": _substitute_x_modes(pending["then_trigger_modes"], x),
+                }
+            apply_branch(pending["effect_specs"])
             self._enqueue_pay_cost_then_trigger(pending)
         # PAR-13: if this single-player choice is one leg of a mass
-        # `request_each_player_pay_or` sweep, move on to whoever's next —
+        # `_request_each_player_pay_or` sweep, move on to whoever's next —
         # a no-op for every ordinary (non-mass) `pay_cost_then` caller,
         # since that dict is only ever populated by the mass primitive.
         if self._pending_each_player_pay_or is not None:
             self._advance_each_player_pay_or()
 
-    def request_exile_source_then(
+    def _request_exile_source_then(
         self, player: Player, source: GameObject, then_trigger_specs: list[dict],
         prompt: Optional[str] = None,
     ) -> None:
@@ -354,7 +541,7 @@ class MiscSystemsMixin:
             "source": source,
             "then_trigger_specs": [dict(d) for d in then_trigger_specs],
         }
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "exile_source_then",
             "player_id": player.id,
             "prompt": prompt or f"{source.name} ins Exil schicken?",
@@ -362,12 +549,10 @@ class MiscSystemsMixin:
                 {"id": "exile", "label": "Ins Exil schicken"},
                 {"id": "decline", "label": "Nicht ins Exil schicken"},
             ],
-        }
+        })
 
-    def resolve_exile_source_then_choice(self, answer: Optional[str]) -> None:
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "exile_source_then":
-            raise ValueError("no pending exile-source-then choice to resolve")
+    @continuations.choice("exile_source_then", answer=continuations.ANSWER_STR, rule="118.3")
+    def _resume_exile_source_then(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         self.state.pending_choice = None
         pending = self._pending_exile_source_then
         self._pending_exile_source_then = None
@@ -406,7 +591,7 @@ class MiscSystemsMixin:
         """
         if not effect_specs and not modes:
             return
-        from ..effect_binder import build_effects  # function-scoped: effects↔binder cycle
+        from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
         from ...parser.oracle.spec import EffectSpec
 
         built = build_effects(
@@ -453,7 +638,7 @@ class MiscSystemsMixin:
             pending.get("then_trigger_specs") or [], pending.get("source"),
             pending.get("then_trigger_event"), pending.get("then_trigger_modes"),
         )
-    def request_pay_life_or_return_to_library(
+    def _request_pay_life_or_return_to_library(
         self, player: Player, objs: list[GameObject], amount: int = 4,
     ) -> None:
         """"For each of those cards, pay 4 life or put the card on top of
@@ -461,7 +646,7 @@ class MiscSystemsMixin:
         mandatory either/or decision (RULE 601.2h-style, not "may"),
         offered one card at a time (`_open_pay_life_or_return_choice`
         re-opens for the next until ``objs`` is exhausted), the same
-        "resolve one, re-open for the rest" shape `request_choose_objects`
+        "resolve one, re-open for the rest" shape `_request_choose_objects`
         uses for a multi-pick.
         """
         queue = [o.instance_id for o in objs if o is not None]
@@ -478,7 +663,7 @@ class MiscSystemsMixin:
             # nothing left to ask about this one; move on to the rest.
             self._continue_pay_life_or_return(player, queue[1:], amount)
             return
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "pay_life_or_return_to_library",
             "player_id": player.id,
             "instance_id": obj_id,
@@ -490,20 +675,22 @@ class MiscSystemsMixin:
                 {"id": "pay", "label": f"{amount} Leben zahlen"},
                 {"id": "return", "label": "Auf die Bibliothek zurücklegen"},
             ],
-        }
+        })
     def _continue_pay_life_or_return(
         self, player: Player, remaining: list[int], amount: int,
     ) -> None:
         if remaining:
             self._open_pay_life_or_return_choice(player, remaining, amount)
-    def resolve_pay_life_or_return_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice(
+        "pay_life_or_return_to_library",
+        answer=continuations.ANSWER_STR,
+        decline="return",
+        rule="118.3",
+    )
+    def _resume_pay_life_or_return_to_library(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `pay_life_or_return_to_library` choice.
         ``answer == "pay"`` pays the life; anything else (including a
         missing/invalid answer — a mandatory choice) puts the card back."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "pay_life_or_return_to_library":
-            raise ValueError("no pending pay-life-or-return choice to resolve")
-        self.state.pending_choice = None
         player = self.state.player_by_id(choice["player_id"])
         amount = choice["amount"]
         if answer == "pay":
@@ -515,7 +702,7 @@ class MiscSystemsMixin:
                 obj.zone = Zone.LIBRARY
                 player.library.append(obj)
         self._continue_pay_life_or_return(player, choice.get("remaining") or [], amount)
-    def request_each_player_pay_or(
+    def _request_each_player_pay_or(
         self,
         cost: "ActivationCost",
         effect_specs: list[dict[str, Any]],
@@ -531,7 +718,7 @@ class MiscSystemsMixin:
         anyone who doesn't (or can't) gets ``effect_specs`` applied to
         *them* — not the ability's controller, which is why ``targets``
         (not the effects' own untargeted-controller default) carries each
-        player through `request_pay_cost_then`.
+        player through `_request_pay_cost_then`.
 
         ``scope`` (MEC-43, Acererak the Archlich — "for each opponent,
         `<effect>` unless that player `<pays>`.") is ``"each_player"``
@@ -543,7 +730,7 @@ class MiscSystemsMixin:
         and each inner spec resolves against its own untargeted-controller
         default instead.
 
-        Built as a chain of ordinary single-player `request_pay_cost_then`
+        Built as a chain of ordinary single-player `_request_pay_cost_then`
         choices rather than a new chooser: each one either opens a real
         `pending_choice` (this method returns, and `resolve_pay_cost_then_
         choice` calls `_advance_each_player_pay_or` again once it's
@@ -571,7 +758,7 @@ class MiscSystemsMixin:
         }
         self._advance_each_player_pay_or()
     def _advance_each_player_pay_or(self) -> None:
-        """Ask the next still-pending player in a `request_each_player_pay_or`
+        """Ask the next still-pending player in a `_request_each_player_pay_or`
         sweep, or clear it once everyone has answered."""
         pending = self._pending_each_player_pay_or
         if pending is None:
@@ -586,15 +773,15 @@ class MiscSystemsMixin:
                 continue
             if player.has_lost:
                 continue
-            self.request_pay_cost_then(
+            self._request_pay_cost_then(
                 player, pending["cost"], [], pending["source"],
                 else_effect_specs=pending["effect_specs"],
                 targets=[player] if effect_targets == "decliner" else None,
             )
             if self.state.pending_choice is not None:
-                return  # a real choice opened — resumed via resolve_pay_cost_then_choice
+                return  # a real choice opened — resumed via _resume_pay_cost_then
         self._pending_each_player_pay_or = None
-    def request_all_players_decline_or(
+    def _request_all_players_decline_or(
         self,
         cost: "ActivationCost",
         effect_specs: list[dict[str, Any]],
@@ -610,7 +797,7 @@ class MiscSystemsMixin:
         ``effect_specs`` never resolves at all, since *someone* paid to
         stop it. Only once *every* player has declined (or can't pay —
         the same "don't stall on a choice nobody can act on" shortcut
-        `request_each_player_pay_or` takes) does ``effect_specs`` resolve,
+        `_request_each_player_pay_or` takes) does ``effect_specs`` resolve,
         applied *once*, to ``controller_id`` (the ability's own controller
         — "you" in the printed text, not whoever happened to decline
         last).
@@ -658,7 +845,7 @@ class MiscSystemsMixin:
             if player.has_lost or not self._can_pay_player_cost(player, cost):
                 continue
             cost_label = cost.label()
-            self.state.pending_choice = {
+            self.open_choice({
                 "kind": "all_decline_or",
                 "player_id": player.id,
                 "prompt": f"{cost_label} bezahlen, um dies zu verhindern?",
@@ -666,8 +853,8 @@ class MiscSystemsMixin:
                     {"id": "pay", "label": f"{cost_label} bezahlen"},
                     {"id": "decline", "label": "Nicht bezahlen"},
                 ],
-            }
-            return  # a real choice opened — resumed via resolve_all_decline_or_choice
+            })
+            return  # a real choice opened — resumed via _resume_all_decline_or
         # Every remaining player declined or couldn't pay — the sweep is over.
         self._pending_all_decline_or = None
         try:
@@ -675,17 +862,14 @@ class MiscSystemsMixin:
         except (KeyError, ValueError):
             return
         self._apply_effect_specs(pending["effect_specs"], pending["source"], targets=[controller])
-    def resolve_all_decline_or_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice("all_decline_or", answer=continuations.ANSWER_STR, rule="118.3")
+    def _resume_all_decline_or(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `all_decline_or` choice (`request_all_players_
         decline_or`). ``answer == "pay"`` charges that player and cancels
         the whole sweep — nothing else happens, since someone paid to stop
         it. Anything else (decline, or a re-check finding they no longer
         can pay — the board can have changed since the offer was made)
         moves on to the next player."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "all_decline_or":
-            raise ValueError("no pending all-decline-or choice to resolve")
-        self.state.pending_choice = None
         pending = self._pending_all_decline_or
         if pending is None:
             return
@@ -699,7 +883,7 @@ class MiscSystemsMixin:
                 self._pending_all_decline_or = None
                 return
         self._advance_all_decline_or()
-    def request_vote(
+    def _request_vote(
         self,
         source: Optional[GameObject],
         controller_id: str,
@@ -739,7 +923,7 @@ class MiscSystemsMixin:
 
         Built as a chain of ordinary single-player choices over the same
         `_apply_effect_specs` tail every "if you do" branch already uses,
-        the same way `request_all_players_decline_or` is.
+        the same way `_request_all_players_decline_or` is.
         """
         start = self.state.active_player_index
         n = len(self.state.players)
@@ -769,7 +953,7 @@ class MiscSystemsMixin:
         }
         self._advance_vote()
     def _advance_vote(self) -> None:
-        """Ask the next still-pending voter in a `request_vote` sweep; once
+        """Ask the next still-pending voter in a `_request_vote` sweep; once
         everyone has voted, tally and apply the outcome."""
         pending = self._pending_vote
         if pending is None:
@@ -792,15 +976,15 @@ class MiscSystemsMixin:
             # knows whose ballot they are filling in. A missing answer
             # defaults to option 0.
             decider_id, prompt_prefix = self._vote_decider(player)
-            self.state.pending_choice = {
+            self.open_choice({
                 "kind": "vote",
                 "player_id": decider_id,
                 "prompt": prompt_prefix + "Abstimmung: " + " / ".join(options),
                 "options": [
                     {"id": str(i), "label": opt} for i, opt in enumerate(options)
                 ],
-            }
-            return  # a real choice opened — resumed via resolve_vote_choice
+            })
+            return  # a real choice opened — resumed via _resume_vote
         self._tally_and_apply_vote()
     def _vote_decider(self, voter: Player) -> tuple[str, str]:
         """Who actually answers ``voter``'s ballot, and a prompt prefix.
@@ -817,14 +1001,11 @@ class MiscSystemsMixin:
             if forcer is not None and not forcer.has_lost:
                 return forced_id, f"Stimme für {voter.name} — "
         return voter.id, ""
-    def resolve_vote_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice("vote", answer=continuations.ANSWER_STR, rule="701.38")
+    def _resume_vote(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `vote` choice: record this player's vote for the
         chosen option index (a missing/unknown answer defaults to option 0,
         RULE 701.38b's "each player must choose"), then move on."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "vote":
-            raise ValueError("no pending vote choice to resolve")
-        self.state.pending_choice = None
         pending = self._pending_vote
         if pending is None:
             return
@@ -841,7 +1022,7 @@ class MiscSystemsMixin:
             pending["ballots"].append((voter_id, idx))
         self._advance_vote()
     def _tally_and_apply_vote(self) -> None:
-        """Resolve a finished `request_vote` sweep's outcome (majority
+        """Resolve a finished `_request_vote` sweep's outcome (majority
         branch, per-vote scaling, or per-winning-option) and clear it."""
         pending = self._pending_vote
         self._pending_vote = None
@@ -890,13 +1071,18 @@ class MiscSystemsMixin:
             scale = int(entry.get("scale", 1) or 1) * int(tally.get(opt, 0))
             if scale <= 0:
                 continue
-            scaled: list[dict] = []
-            for spec in entry.get("effects", []):
+            def scale_spec(spec: dict) -> dict:
+                """Scale quantitative leaves through a composite body."""
                 params = dict(spec.get("params") or {})
                 for key in ("count", "amount"):
                     if isinstance(params.get(key), int):
-                        params[key] = params[key] * scale
-                scaled.append({"type": spec["type"], "params": params})
+                        params[key] *= scale
+                for key in ("effects", "then", "else"):
+                    if isinstance(params.get(key), list):
+                        params[key] = [scale_spec(dict(child)) for child in params[key]]
+                return {"type": spec["type"], "params": params}
+
+            scaled = [scale_spec(dict(spec)) for spec in entry.get("effects", [])]
             self._apply_effect_specs(scaled, source, targets)
     def _advance_expropriate_gain_control(
         self, source: Optional[GameObject], controller_id: str, voter_ids: list[str]
@@ -925,7 +1111,7 @@ class MiscSystemsMixin:
             if not owned:
                 voter_ids = rest
                 continue
-            self.request_choose_objects(
+            self._request_choose_objects(
                 caster, owned, action="gain_control", count=1, source=source,
                 prompt="Dauerhaften Permanent übernehmen",
                 then_specs=[{
@@ -934,7 +1120,7 @@ class MiscSystemsMixin:
                 }],
             )
             return
-    def request_object_vote(
+    def _request_object_vote(
         self,
         source: Optional[GameObject],
         controller_id: str,
@@ -943,7 +1129,7 @@ class MiscSystemsMixin:
         prompt: str = "Abstimmung",
     ) -> None:
         """MEC-46 (RULE 701.38): the tally-over-objects sibling of
-        `request_vote`. "Starting with you, each player votes for `<one of
+        `_request_vote`. "Starting with you, each player votes for `<one of
         these objects>`. `<verb>` each `<object>` with the most votes or
         tied for most votes."
 
@@ -979,7 +1165,7 @@ class MiscSystemsMixin:
         }
         self._advance_object_vote()
     def _advance_object_vote(self) -> None:
-        """Ask the next still-pending voter in a `request_object_vote`
+        """Ask the next still-pending voter in a `_request_object_vote`
         sweep; once everyone has voted, tally and apply the outcome."""
         pending = self._pending_object_vote
         if pending is None:
@@ -1008,22 +1194,19 @@ class MiscSystemsMixin:
                 return
             pending["current_voter_id"] = player.id
             decider_id, prompt_prefix = self._vote_decider(player)
-            self.state.pending_choice = {
+            self.open_choice({
                 "kind": "vote_object",
                 "player_id": decider_id,
                 "prompt": prompt_prefix + pending["prompt_text"],
                 "options": options,
-            }
-            return  # resumed via resolve_object_vote_choice
+            })
+            return  # resumed via _resume_vote_object
         self._tally_and_apply_object_vote()
-    def resolve_object_vote_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice("vote_object", answer=continuations.ANSWER_STR, rule="701.38")
+    def _resume_vote_object(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `vote_object` choice: record this player's vote
         for the chosen candidate (a missing/unknown answer defaults to the
         first candidate, RULE 701.38b), then move on."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "vote_object":
-            raise ValueError("no pending object-vote choice to resolve")
-        self.state.pending_choice = None
         pending = self._pending_object_vote
         if pending is None:
             return
@@ -1038,7 +1221,7 @@ class MiscSystemsMixin:
             tally[iid] += 1
         self._advance_object_vote()
     def _tally_and_apply_object_vote(self) -> None:
-        """Resolve a finished `request_object_vote` sweep: apply ``outcome``
+        """Resolve a finished `_request_object_vote` sweep: apply ``outcome``
         to every candidate tied for most votes (RULE 701.38d)."""
         pending = self._pending_object_vote
         self._pending_object_vote = None
@@ -1058,7 +1241,7 @@ class MiscSystemsMixin:
                 self.exile(obj)
             elif outcome == "return_to_hand":
                 self.return_to_hand(obj)
-    def request_word_of_command(
+    def _request_word_of_command(
         self,
         controller: Player,
         target: Player,
@@ -1066,7 +1249,7 @@ class MiscSystemsMixin:
     ) -> None:
         """MEC-51b (Word of Command): open a `word_of_command`
         `pending_choice` addressed to ``controller``, listing every card in
-        ``target``'s hand. `GameEngine.resolve_word_of_command_choice` then
+        ``target``'s hand. `GameEngine._resume_word_of_command` then
         has ``target`` play the chosen card. No card in hand → nothing to
         choose, the effect fizzles (RULE 720-adjacent "if able")."""
         hand = list(target.hand)
@@ -1077,7 +1260,7 @@ class MiscSystemsMixin:
             "target_id": target.id,
             "chosen_instance_id": None,
         }
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "word_of_command",
             "player_id": controller.id,   # the *controller* picks
             "target_player_id": target.id,
@@ -1091,9 +1274,12 @@ class MiscSystemsMixin:
                  "instance_id": o.instance_id}
                 for o in hand
             ],
-        }
+        })
 
-    def resolve_word_of_command_choice(self, instance_id: Optional[int]) -> None:
+    @continuations.choice("word_of_command", answer=continuations.ANSWER_INT, rule="723")
+    def _resume_word_of_command(
+        self, choice: dict[str, Any], instance_id: Optional[int]
+    ) -> None:
         """MEC-51b: the Word of Command caster has picked ``instance_id``
         from the target's hand — now have the target *play* it "if able".
 
@@ -1107,7 +1293,6 @@ class MiscSystemsMixin:
         cast). Then the `word_of_command` window closes.
         """
         woc = self.state.word_of_command
-        self.state.pending_choice = None
         if woc is None:
             return
         try:
@@ -1132,7 +1317,7 @@ class MiscSystemsMixin:
                 pass  # "if able" — a play that can't be made simply doesn't
         self.state.word_of_command = None
 
-    def request_villainous_choice(
+    def _request_villainous_choice(
         self,
         source: Optional[GameObject],
         controller_id: str,
@@ -1153,7 +1338,7 @@ class MiscSystemsMixin:
         (the effect's own controller default, since those specs carry no
         target).
 
-        The `request_vote` sweep shape, minus the tally: each player
+        The `_request_vote` sweep shape, minus the tally: each player
         applies their own pick rather than everyone feeding one aggregate
         outcome. RULE 701.55b's "if one option is impossible, they must
         choose the other" is a **documented simplification** — both options
@@ -1205,7 +1390,7 @@ class MiscSystemsMixin:
         self._advance_villainous_choice()
     def _advance_villainous_choice(self) -> None:
         """Ask the next still-pending facing player in a
-        `request_villainous_choice` sweep, or clear it once done."""
+        `_request_villainous_choice` sweep, or clear it once done."""
         pending = self._pending_villainous
         if pending is None:
             return
@@ -1220,7 +1405,7 @@ class MiscSystemsMixin:
                 continue
             pending["current"] = rnd
             la, lb = rnd["labels"]
-            self.state.pending_choice = {
+            self.open_choice({
                 "kind": "villainous_choice",
                 "player_id": player.id,
                 "prompt": f"Schurkische Wahl: {la} / {lb}",
@@ -1228,17 +1413,14 @@ class MiscSystemsMixin:
                     {"id": "0", "label": la},
                     {"id": "1", "label": lb},
                 ],
-            }
-            return  # a real choice opened — resumed via resolve_villainous_choice
+            })
+            return  # a real choice opened — resumed via _resume_villainous_choice
         self._pending_villainous = None
-    def resolve_villainous_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice("villainous_choice", answer=continuations.ANSWER_STR, rule="701.55")
+    def _resume_villainous_choice(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `villainous_choice`: apply the chosen option's
         effects for that facing player (a missing/unknown answer defaults to
         option A, RULE 701.55b's "each player must choose"), then advance."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "villainous_choice":
-            raise ValueError("no pending villainous choice to resolve")
-        self.state.pending_choice = None
         pending = self._pending_villainous
         if pending is None:
             return
@@ -1273,24 +1455,73 @@ class MiscSystemsMixin:
     ) -> None:
         """Build and apply serialized `EffectSpec` dicts right now, off the
         stack — the shared tail of every "if you do / if you don't" branch
-        (`resolve_pay_cost_then_choice`, `resolve_pay_energy_then_choice`).
+        (`_resume_pay_cost_then`, `_resume_pay_energy_then`).
         Goes through `build_effects`, so the whitelist still gates every
         effect type (docs/09 security boundary)."""
         if not effect_specs:
             return
         from ...parser.oracle.spec import EffectSpec
-        from ..effect_binder import build_effects  # function-scoped: effects↔binder cycle
+        from ..binding.core import build_effects  # function-scoped: effects↔binder cycle
 
         built = build_effects(
             [
-                EffectSpec(type=d["type"], params=dict(d.get("params") or {}))
+                EffectSpec(type=d["type"], params=dict(d.get("params") or {}), condition=d.get("condition"))
                 for d in effect_specs
             ],
             source,
         )
         for effect in built:
             effect.apply(self.context, targets)
-    def request_choose_creature_type_grant(
+    def _attack_defender_specs(self, attacker_controller: Player) -> list[dict[str, Any]]:
+        """Who ``attacker_controller``'s creatures could attack: every other living player, planeswalkers
+        they don't control and battles protected by someone else (RULE 508.1a, 310.8b) — the defender
+        universe `GameEngine.legal_defenders_for` offers, mirrored here because `RulesEngine` does not
+        import the high-level engine."""
+        specs: list[dict[str, Any]] = [
+            {"kind": "player", "id": player.id, "label": player.name}
+            for player in self.state.living_players() if player.id != attacker_controller.id
+        ]
+        specs.extend(
+            {"kind": "planeswalker", "instance_id": o.instance_id, "label": o.name}
+            for o in self.state.battlefield
+            if o.controller_id != attacker_controller.id and o.is_planeswalker
+        )
+        specs.extend(
+            {"kind": "battle", "instance_id": o.instance_id, "label": o.name}
+            for o in self.state.battlefield
+            if o.is_battle and o.protector_id not in (None, attacker_controller.id)
+        )
+        return specs
+
+    def _request_reselect_attack(self, chooser: Player, attacker: GameObject, defenders: list[dict[str, Any]]) -> None:
+        """RULE 506.4/508.1b-adjacent "you may reselect which player or permanent target attacking
+        creature is attacking" (Misleading Signpost): open a defender pick for ``chooser`` — a player
+        or a planeswalker/battle the attacker's controller could have attacked — or keep the current one."""
+        options = []
+        for spec in defenders:
+            key = spec["id"] if spec.get("kind") == "player" else spec["instance_id"]
+            options.append({"id": f'{spec["kind"]}:{key}', "label": spec.get("label", str(key))})
+        options.append({"id": "decline", "label": "Angriffsziel beibehalten"})
+        self.open_choice({
+            "kind": "reselect_attack", "player_id": chooser.id, "attacker_id": attacker.instance_id,
+            "prompt": f"Neues Angriffsziel für {attacker.name} wählen?", "options": options,
+            "defenders": [dict(d) for d in defenders],
+        })
+
+    @continuations.choice("reselect_attack", answer=continuations.ANSWER_STR, rule="508.1b")
+    def _resume_reselect_attack(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        if answer in (None, "decline"):
+            return
+        attacker = self.state.find_object(choice["attacker_id"])
+        if attacker is None or not getattr(attacker, "attacking", False):
+            return  # RULE 608.2b: it left combat meanwhile
+        for spec in choice.get("defenders", []):
+            key = spec["id"] if spec.get("kind") == "player" else spec["instance_id"]
+            if answer == f'{spec["kind"]}:{key}':
+                attacker.combat_defender = dict(spec)
+                return
+
+    def _request_choose_creature_type_grant(
         self, player: Player, source: GameObject, then_specs: list[dict],
     ) -> None:
         """Open a **resolve-time** "choose a creature type" choice — RULE
@@ -1309,7 +1540,7 @@ class MiscSystemsMixin:
         opens `pending_choice` (RULE 608.2), and `GameEngine.
         resolve_until_stable`'s `resume_deferred_effects` resumes it —
         this method only needs to open the choice and, via
-        `resolve_choose_type_for_source_choice`, apply the tail.
+        `_resume_choose_type_for_source`, apply the tail.
         """
         options = _creature_type_options(self.state, player.id)
         if not options:
@@ -1319,38 +1550,53 @@ class MiscSystemsMixin:
             source.chosen_type = None
             self._apply_effect_specs(list(then_specs or []), source)
             return
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "choose_type_for_source",
             "player_id": player.id,
             "prompt": "Kreaturentyp wählen",
             "options": [{"id": t, "label": t} for t in options],
             "source_id": source.instance_id,
             "then_specs": [dict(spec) for spec in (then_specs or [])],
-        }
-    def request_choose_player(self, player: Player, source: GameObject) -> None:
+        })
+    def _request_choose_player(
+        self, player: Player, source: GameObject, opponents_only: bool = False,
+        then_specs: Optional[list[dict[str, Any]]] = None,
+    ) -> None:
         """"As this creature enters, choose a player." (Stuffy Doll) — a
         resolve-time choice, the player-choice sibling of `request_choose_
         creature_type_grant` (see its docstring for why this needs its
         own primitive rather than RULE 601.2b's own enter-time machinery:
         that pipeline only knows creature-type/colour/mode picks). Stashes
         the pick onto `GameObject.chosen_player_id`.
+
+        ``opponents_only`` is "choose an opponent" (Intellectual Offering): only the other players are offered,
+        and a lone opponent is taken without asking. ``then_specs`` are the effects that follow the pick and
+        read it back (the ``chosen_player`` referent), run once it is answered.
         """
         living = self.state.living_players()
+        if opponents_only:
+            living = [p for p in living if p.id != player.id]
         if not living:
             return
-        self.state.pending_choice = {
+        if opponents_only and len(living) == 1:
+            source.chosen_player_id = living[0].id
+            self._apply_effect_specs(list(then_specs or []), source)
+            return
+        self.open_choice({
             "kind": "choose_player_for_source",
             "player_id": player.id,
-            "prompt": "Spieler wählen",
+            "prompt": "Gegner wählen" if opponents_only else "Spieler wählen",
             "options": [{"id": p.id, "label": p.name} for p in living],
             "source_id": source.instance_id,
-        }
-    def resolve_choose_player_choice(self, answer: Optional[str]) -> None:
-        """Answer a `request_choose_player` choice."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "choose_player_for_source":
-            raise ValueError("no pending choose-player choice to resolve")
-        self.state.pending_choice = None
+            "then_specs": [dict(spec) for spec in (then_specs or [])],
+        })
+    @continuations.choice(
+        "choose_player_for_source",
+        answer=continuations.ANSWER_STR,
+        rule="601.2b",
+    )
+    def _resume_choose_player_for_source(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        """Answer a `_request_choose_player` choice."""
         options = choice["options"]
         valid_ids = {str(o["id"]) for o in options}
         chosen = str(answer) if answer is not None and str(answer) in valid_ids else (
@@ -1359,12 +1605,45 @@ class MiscSystemsMixin:
         source = self._object_by_instance_id(choice.get("source_id"))
         if source is not None:
             source.chosen_player_id = chosen
-    def resolve_choose_type_for_source_choice(self, answer: Optional[str]) -> None:
-        """Answer a `request_choose_creature_type_grant` choice."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "choose_type_for_source":
-            raise ValueError("no pending choose-type choice to resolve")
+        self._apply_effect_specs(list(choice.get("then_specs") or []), source)
+
+    def _request_slithermuse_opponent(self, player: Player, source: GameObject) -> None:
+        """Slithermuse's non-targeting ``choose an opponent`` resolution."""
+        opponents = [p for p in self.state.living_players() if p.id != player.id]
+        if not opponents:
+            return
+        self.open_choice({
+            "kind": "slithermuse_opponent", "player_id": player.id,
+            "prompt": "Gegner für Slithermuse wählen",
+            "options": [{"id": p.id, "label": p.name} for p in opponents],
+            "source_id": source.instance_id,
+        })
+
+    @continuations.choice(
+        "slithermuse_opponent",
+        answer=continuations.ANSWER_STR,
+        rule="601.2b",
+    )
+    def _resume_slithermuse_opponent(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         self.state.pending_choice = None
+        options = choice.get("options") or []
+        ids = {str(option["id"]) for option in options}
+        selected = str(answer) if answer is not None and str(answer) in ids else (
+            str(options[0]["id"]) if options else None
+        )
+        if selected is None:
+            return
+        chooser = self.state.player_by_id(choice["player_id"])
+        opponent = self.state.player_by_id(selected)
+        if chooser is not None and opponent is not None:
+            self.draw(chooser, max(0, len(opponent.hand) - len(chooser.hand)))
+    @continuations.choice(
+        "choose_type_for_source",
+        answer=continuations.ANSWER_STR,
+        rule="601.2b",
+    )
+    def _resume_choose_type_for_source(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        """Answer a `_request_choose_creature_type_grant` choice."""
         options = choice["options"]
         valid_ids = {str(o["id"]) for o in options}
         chosen = str(answer) if answer is not None and str(answer) in valid_ids else (
@@ -1374,7 +1653,7 @@ class MiscSystemsMixin:
         if source is not None:
             source.chosen_type = chosen
         self._apply_effect_specs(list(choice.get("then_specs") or []), source)
-    def request_sacrifice_unless_pay(
+    def _request_sacrifice_unless_pay(
         self, player: Player, cost: "ActivationCost", source: Optional[GameObject]
     ) -> None:
         """Open the interactive "sacrifice ``source`` unless you pay ``cost``"
@@ -1411,7 +1690,7 @@ class MiscSystemsMixin:
             "source": source,
         }
         cost_label = cost.label()
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "sacrifice_unless_pay",
             "player_id": player.id,
             "prompt": f"{cost_label} bezahlen, um {source.name} zu behalten?",
@@ -1419,15 +1698,16 @@ class MiscSystemsMixin:
                 {"id": "pay", "label": f"{cost_label} bezahlen"},
                 {"id": "decline", "label": f"{source.name} opfern"},
             ],
-        }
-    def resolve_sacrifice_unless_pay_choice(self, answer: Optional[str]) -> None:
+        })
+    @continuations.choice(
+        "sacrifice_unless_pay",
+        answer=continuations.ANSWER_STR,
+        rule="701.21",
+    )
+    def _resume_sacrifice_unless_pay(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `sacrifice_unless_pay` choice. ``answer == "pay"``
         charges the cost and keeps the permanent; anything else sacrifices
         it (RULE 701.17)."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "sacrifice_unless_pay":
-            raise ValueError("no pending sacrifice-unless-pay choice to resolve")
-        self.state.pending_choice = None
         pending = self._pending_sacrifice_unless_pay
         self._pending_sacrifice_unless_pay = None
         if pending is None:
@@ -1447,12 +1727,12 @@ class MiscSystemsMixin:
                 return
         if source is not None and source in self.state.battlefield:
             self.put_into_graveyard(source)
-    def request_destroy_unless_pay(
+    def _request_destroy_unless_pay(
         self, player: Player, cost: "ActivationCost", source: Optional[GameObject]
     ) -> None:
         """Open the interactive "destroy ``source`` unless you pay ``cost``"
         choice — RULE 701.16 destruction gated by an "unless" payment, the
-        real-destruction sibling of `request_sacrifice_unless_pay` above
+        real-destruction sibling of `_request_sacrifice_unless_pay` above
         (The Tabernacle at Pendrell Vale's granted upkeep trigger, "At the
         beginning of your upkeep, destroy this creature unless you pay
         {1}."). Deliberately a separate method rather than a shared "unless
@@ -1476,7 +1756,7 @@ class MiscSystemsMixin:
             "source": source,
         }
         cost_label = cost.label()
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "destroy_unless_pay",
             "player_id": player.id,
             "prompt": f"{cost_label} bezahlen, um {source.name} zu behalten?",
@@ -1484,15 +1764,12 @@ class MiscSystemsMixin:
                 {"id": "pay", "label": f"{cost_label} bezahlen"},
                 {"id": "decline", "label": f"{source.name} zerstören lassen"},
             ],
-        }
-    def resolve_destroy_unless_pay_choice(self, answer: Optional[str]) -> None:
+        })
+    @continuations.choice("destroy_unless_pay", answer=continuations.ANSWER_STR, rule="701.8")
+    def _resume_destroy_unless_pay(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `destroy_unless_pay` choice. ``answer == "pay"``
         charges the cost and keeps the permanent; anything else destroys it
-        (RULE 701.16, regenerable — see `request_destroy_unless_pay`)."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "destroy_unless_pay":
-            raise ValueError("no pending destroy-unless-pay choice to resolve")
-        self.state.pending_choice = None
+        (RULE 701.16, regenerable — see `_request_destroy_unless_pay`)."""
         pending = self._pending_destroy_unless_pay
         self._pending_destroy_unless_pay = None
         if pending is None:
@@ -1504,13 +1781,13 @@ class MiscSystemsMixin:
             player = None
         if answer == "pay" and player is not None:
             # Re-check: the board can have changed between the offer and the
-            # answer, same guard as `resolve_sacrifice_unless_pay_choice`.
+            # answer, same guard as `_resume_sacrifice_unless_pay`.
             if self._can_pay_player_cost(player, pending["cost"]):
                 self._pay_player_cost(player, pending["cost"])
                 return
         if source is not None and source in self.state.battlefield:
             self.destroy(source)
-    def request_tap_or_untap_choice(self, target: GameObject, source: Optional[GameObject] = None) -> None:
+    def _request_tap_or_untap_choice(self, target: GameObject, source: Optional[GameObject] = None) -> None:
         """"You may tap or untap target permanent." (Derevi, Empyrial
         Tactician — MEC-42) — a genuine two-way choice layered on top of
         RULE 115's own target (unlike `TapEffect`'s plain ``untap`` bool,
@@ -1518,7 +1795,7 @@ class MiscSystemsMixin:
         rather than reusing that effect's target-only optionality.
         """
         self._pending_tap_or_untap_target_id = target.instance_id
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "tap_or_untap",
             "player_id": getattr(source, "controller_id", None) or self.state.active_player.id,
             "prompt": f"{target.name} tappen oder enttappen?",
@@ -1527,14 +1804,11 @@ class MiscSystemsMixin:
                 {"id": "untap", "label": "Enttappen"},
                 {"id": "decline", "label": "Nichts tun"},
             ],
-        }
-    def resolve_tap_or_untap_choice(self, answer: Optional[str]) -> None:
+        })
+    @continuations.choice("tap_or_untap", answer=continuations.ANSWER_STR, rule="701.26")
+    def _resume_tap_or_untap(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `tap_or_untap` choice — ``"tap"``/``"untap"``
         do the obvious thing; anything else (a decline) does nothing."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "tap_or_untap":
-            raise ValueError("no pending tap-or-untap choice to resolve")
-        self.state.pending_choice = None
         target_id = self._pending_tap_or_untap_target_id
         self._pending_tap_or_untap_target_id = None
         if answer not in ("tap", "untap") or target_id is None:
@@ -1544,7 +1818,7 @@ class MiscSystemsMixin:
             self.set_tapped(target, tapped=(answer == "tap"))
     def offer_opening_hand_battlefield_choice(self, player: Player, obj: GameObject) -> None:
         """RULE 103.6: a card printing a pregame setup permission
-        (`game/ability_catalogue.pregame_setup_permission`) offers
+        (`game/card_registry.pregame_setup_permission`) offers
         ``player`` the choice for one such card still in their opening
         hand — RULE 103.6a's plain "you may begin the game with it on the
         battlefield." (the Leyline cycle), or one of the two conditional/
@@ -1559,7 +1833,7 @@ class MiscSystemsMixin:
         the same queued-`pending_choice` shape Vancouver's post-keep
         scry uses (`_open_next_vancouver_scry`).
         """
-        permission = ability_catalogue.pregame_setup_permission(obj.card)
+        permission = card_registry.pregame_setup_permission(obj.card)
         assert permission is not None  # game_session only queues qualifying cards
         self._pending_opening_hand_obj = obj
         if permission.destination == "battlefield":
@@ -1568,7 +1842,7 @@ class MiscSystemsMixin:
         else:
             prompt = f"{obj.name}: mit ihr im Friedhof statt in der Hand beginnen?"
             accept_label = "In den Friedhof legen"
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "opening_hand_battlefield",
             "player_id": player.id,
             "prompt": prompt,
@@ -1576,8 +1850,13 @@ class MiscSystemsMixin:
                 {"id": permission.destination, "label": accept_label},
                 {"id": "decline", "label": "In der Hand behalten"},
             ],
-        }
-    def resolve_opening_hand_battlefield_choice(self, answer: Optional[str]) -> None:
+        })
+    @continuations.choice(
+        "opening_hand_battlefield",
+        answer=continuations.ANSWER_STR,
+        rule="103.6",
+    )
+    def _resume_opening_hand_battlefield(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `opening_hand_battlefield` `pending_choice`
         (RULE 103.6). Accepting — ``answer`` equal to the permission's own
         `PregameSetupPermission.destination`, "battlefield" or "graveyard"
@@ -1595,15 +1874,11 @@ class MiscSystemsMixin:
         card is exiled is the player's choice (RULE 601.2c); nothing
         happens if the hand is already empty. Anything else (including the
         card having somehow already left hand) leaves it untouched."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "opening_hand_battlefield":
-            raise ValueError("no pending opening-hand-battlefield choice to resolve")
-        self.state.pending_choice = None
         obj = self._pending_opening_hand_obj
         self._pending_opening_hand_obj = None
         if obj is None:
             return
-        permission = ability_catalogue.pregame_setup_permission(obj.card)
+        permission = card_registry.pregame_setup_permission(obj.card)
         if permission is None or answer != permission.destination:
             return
         player = self.state.player_by_id(choice["player_id"])
@@ -1619,6 +1894,7 @@ class MiscSystemsMixin:
             self.state.fire_event(
                 GameEvent(
                     EventType.ENTERS_BATTLEFIELD,
+                    from_zone=Zone.HAND.value,
                     controller_id=player.id,
                     object=obj.name,
                     instance_id=obj.instance_id,
@@ -1630,7 +1906,7 @@ class MiscSystemsMixin:
         if permission.cost_kind == "lose_life":
             self.lose_life(player, permission.cost_amount, cause="cost")
         elif permission.cost_kind == "exile_hand_card":
-            self.request_choose_objects(
+            self._request_choose_objects(
                 player, list(player.hand), "exile", count=1,
                 prompt="Wähle eine Karte aus deiner Hand zum Exilieren",
             )
@@ -1640,6 +1916,8 @@ class MiscSystemsMixin:
         token_card: Card,
         count: int = 1,
         zone: Zone = Zone.BATTLEFIELD,
+        on_created: Optional[Callable[[list[GameObject]], None]] = None,
+        _creation_replacements_applied: bool = False,
     ) -> list[GameObject]:
         """Create ``count`` tokens under ``controller_id`` (RULE 111.5).
 
@@ -1658,6 +1936,10 @@ class MiscSystemsMixin:
         never really "created under a player's control" in the RULE 111.5
         sense either) isn't subject to token-doubling replacements below.
 
+        ``on_created`` continues a battlefield-token effect after creation
+        replacements finish, including an interactive RULE 616 order choice.
+        It runs before the next SBA pass (Empower Jace starts at zero loyalty).
+
         A battlefield-bound ``count`` is routed through `apply_replacements`
         first, so a "create twice that many instead" replacement (RULE
         616.1, e.g. Doubling Season/Parallel Lives) can rewrite it before any
@@ -1666,7 +1948,7 @@ class MiscSystemsMixin:
         zero-ambiguity case (where it still resolves and returns
         immediately, same as before) — if a RULE 616.1 choice opens instead,
         this returns an empty list right away and the actual tokens are
-        created later, once `resolve_replacement_order_choice` finishes the
+        created later, once `_resume_replacement_order` finishes the
         chain. A token's own `enter_as_copy_effects` choice (below) can pause
         the very same way, for the very same reason.
 
@@ -1676,13 +1958,13 @@ class MiscSystemsMixin:
         every real card with that ability in the pool is a cast permanent,
         never a token, so there's nothing to exercise it against yet.
         """
-        from ..effect_binder import bind_from_catalogue  # function-scoped: avoid cycle
+        from ..binding.core import bind_from_catalogue  # function-scoped: avoid cycle
 
         def _finish_entry(token: GameObject) -> None:
             token.summoning_sick = True  # RULE 302.6 applies to tokens too
             # RULE 614.1 — see the matching comment in
             # `_resolve_permanent_spell` above.
-            token.tapped = ability_catalogue.enters_tapped(
+            token.tapped = card_registry.enters_tapped(
                 token_card
             ) or continuous.enters_tapped_from_static(self.state, token)
             self._apply_entry_counters(token)  # a token was never cast, so X is 0
@@ -1691,6 +1973,7 @@ class MiscSystemsMixin:
             self.state.fire_event(
                 GameEvent(
                     EventType.ENTERS_BATTLEFIELD,
+                    from_zone=None,  # RULE 111.2: created, not moved from a zone
                     controller_id=controller_id,
                     card_id=token_card.id,
                     object=token.name,
@@ -1737,7 +2020,7 @@ class MiscSystemsMixin:
                     # copies" with a *second* legal target at creation time)
                     # still finishes this whole loop synchronously; a real
                     # choice instead stashes `_continuation` and resumes it
-                    # from `resolve_enter_as_copy_choice`, at which point the
+                    # from `_resume_enter_as_copy`, at which point the
                     # remaining tokens in this batch (if any) are built.
                     self._offer_enter_as_copy(token, _continuation)
                 else:
@@ -1746,7 +2029,7 @@ class MiscSystemsMixin:
             _next(max(0, final_count))
             return created
 
-        if zone != Zone.BATTLEFIELD or count <= 0:
+        if zone != Zone.BATTLEFIELD or count <= 0 or _creation_replacements_applied:
             return _build(count)
 
         event = GameEvent(
@@ -1765,69 +2048,137 @@ class MiscSystemsMixin:
             nonlocal result
             if resolved is None:
                 return
-            result = _build(resolved.get("amount", count))
+            substitute = resolved.get("token_definition")
+            if substitute:
+                # "If you would create a Fish token, create a 3/3 Shark instead." (Fisher's Talent): the
+                # substitute is made in the original's place, and is not itself replaced again here — the
+                # replacement chain (RULE 616.1) already ran before this point.
+                from ...services.token_database import synthesize_token_card
+                result = self.create_token(
+                    controller_id,
+                    synthesize_token_card(
+                        name=substitute.get("token_name", "Creature"), power=substitute.get("power", 1),
+                        toughness=substitute.get("toughness", 1), colors=substitute.get("colors", []),
+                        subtypes=substitute.get("subtypes", []), keywords=substitute.get("keywords", []),
+                    ),
+                    resolved.get("amount", count), _creation_replacements_applied=True,
+                )
+            else:
+                result = _build(resolved.get("amount", count))
+            for batch in resolved.get("additional_tokens", []):
+                from ...services.token_database import synthesize_token_card
+                definition = batch["definition"]
+                extra_card = synthesize_token_card(
+                    name=definition.get("token_name", "Creature"), power=definition.get("power", 1),
+                    toughness=definition.get("toughness", 1), colors=definition.get("colors", []),
+                    subtypes=definition.get("subtypes", []), keywords=definition.get("keywords", []),
+                )
+                result.extend(self.create_token(
+                    controller_id, extra_card, batch["amount"],
+                    _creation_replacements_applied=True,
+                ))
             # "The first time you create one or more tokens each turn, …"
             # (Mirrormind Crown) — same missing broadcast `add_counters`
             # had: `apply_replacements` only used this event to compute the
             # final amount, so nothing ever reached `_collect_triggers`.
             self.state.fire_event(resolved)
 
+            if on_created is not None:
+                on_created(result)
+
         self.apply_replacements(event, on_resolved=_finish)
         return result
     def put_onto_battlefield_attacking(
         self, obj: GameObject, defender: Optional[dict[str, Any]] = None
-    ) -> None:
+    ) -> bool:
         """RULE 508.4: an already-on-the-battlefield creature is put into
         combat *attacking* without having been declared — it doesn't tap for
         the attack (RULE 508.4) and summoning sickness doesn't stop it (it
         never "attacked"). RULE 508.4a: the effect's controller chooses which
         defender it attacks; with one obvious defender — the common
         two-player combat, or whatever the rest of this combat is already
-        attacking — that choice is auto-made here. Fires an `ATTACKS` event
-        so "whenever ~ attacks" / battalion-style triggers still see it.
+        attacking — that choice is auto-made here. It deliberately does
+        **not** fire `ATTACKS` or set ``attacked_this_turn``: RULE 508.3a says
+        neither "whenever [this creature] attacks" nor declaration-history
+        effects such as Boast see a creature put onto the battlefield
+        attacking.
 
         This is the shared primitive behind "create a … token that's tapped
         **and attacking**" and "put a card … onto the battlefield tapped
         **and attacking**" (RULE 508.4) — the ``tapped`` half is applied
-        separately by the caller.
+        separately by the caller. Returns whether the object actually joined
+        combat. A missing/invalid defender leaves the object on the battlefield
+        but not attacking (RULE 506.3b/c, 508.4a).
         """
-        if not obj.is_creature:
-            return
-        if defender is None:
-            # Attack whoever the rest of this combat is attacking, if that's
-            # unambiguous; otherwise the controller's sole/first opponent.
-            player_defenders = {
-                (o.combat_defender or {}).get("id")
-                for o in self.state.battlefield
-                if o is not obj and getattr(o, "attacking", False)
-                and (o.combat_defender or {}).get("kind") == "player"
-            }
-            opponents = [
-                p for p in self.state.living_players() if p.id != obj.controller_id
-            ]
-            target_id = player_defenders.pop() if len(player_defenders) == 1 else None
-            if target_id is None and opponents:
-                target_id = opponents[0].id
-            if target_id is not None:
-                try:
-                    dp = self.state.player_by_id(target_id)
-                except (KeyError, ValueError):
-                    dp = None
-                if dp is not None:
-                    defender = {"kind": "player", "id": dp.id, "label": dp.name}
-        obj.attacking = True
-        obj.attacked_this_turn = True
-        obj.combat_defender = defender
-        self.state.fire_event(
-            GameEvent(
-                EventType.ATTACKS,
-                attacker=obj.name,
-                player_id=obj.controller_id,
-                instance_id=obj.instance_id,
-                object_types=sorted(obj.type_words),
-                defending_player_id=(defender or {}).get("id"),
-            )
+        active = self.state.active_player
+        if (
+            not obj.is_creature
+            or obj.controller_id != active.id
+            or self.state.current_phase != "combat"
+        ):
+            return False
+
+        # `RulesEngine` deliberately does not import the high-level
+        # `GameEngine`, so mirror only the defender *universe* here (not its
+        # declaration restrictions): 508.4c says those restrictions do not
+        # apply to a creature entering attacking.
+        legal: list[dict[str, Any]] = [
+            {"kind": "player", "id": player.id, "label": player.name}
+            for player in self.state.living_players()
+            if player.id != active.id
+        ]
+        legal.extend(
+            {"kind": "planeswalker", "instance_id": permanent.instance_id,
+             "label": permanent.name}
+            for permanent in self.state.battlefield
+            if permanent.controller_id != active.id and permanent.is_planeswalker
         )
+        legal.extend(
+            {"kind": "battle", "instance_id": permanent.instance_id,
+             "label": permanent.name}
+            for permanent in self.state.battlefield
+            if permanent.is_battle and permanent.protector_id not in (None, active.id)
+        )
+
+        def _same_defender(left: dict[str, Any], right: dict[str, Any]) -> bool:
+            if left.get("kind") != right.get("kind"):
+                return False
+            key = "id" if left.get("kind") == "player" else "instance_id"
+            return left.get(key) == right.get(key)
+
+        if defender is not None:
+            candidate = dict(defender)
+            if not any(_same_defender(candidate, legal_defender) for legal_defender in legal):
+                return False
+        else:
+            # RULE 508.4 supplies a choice. The engine has no priority-time
+            # chooser for this primitive, so infer it only when the existing
+            # combat or the legal defender set makes it unambiguous; never
+            # silently pick the first opponent in multiplayer.
+            current = [
+                o.combat_defender
+                for o in self.state.battlefield
+                if o is not obj
+                and getattr(o, "attacking", False)
+                and o.combat_defender is not None
+                and any(
+                    _same_defender(o.combat_defender, legal_defender)
+                    for legal_defender in legal
+                )
+            ]
+            candidates = [
+                legal_defender for legal_defender in legal
+                if any(_same_defender(legal_defender, current_defender) for current_defender in current)
+            ]
+            if len(candidates) == 1:
+                candidate = dict(candidates[0])
+            elif len(legal) == 1:
+                candidate = dict(legal[0])
+            else:
+                return False
+        obj.attacking = True
+        obj.combat_defender = candidate
+        return True
     def advance_sagas(self, player: Player) -> None:
         """Add a lore counter to each Saga ``player`` controls (RULE 714.3c).
 
@@ -1851,187 +2202,70 @@ class MiscSystemsMixin:
                         chapter=obj.lore,
                     )
                 )
-    def _track_spell_cast(self, event: GameEvent) -> None:
-        """Tally `SPELL_CAST` toward RULE 731.2's "spells cast this turn"
-        count — both a paid `cast_spell` and a free `cast_without_paying`
-        fire that event, so subscribing here (rather than incrementing at
-        each call site) covers every cast path from one place. Also flips
-        PAR-10's `cast_instant_or_sorcery_this_turn` off the same event's
-        ``object_types`` — the front-end front for Hall of Oracles/Jin-
-        Gitaxias's activation condition and Haunting Figment/Leapfrog/
-        Piston-Fist Cyclops's "as long as" statics."""
-        if event.type != EventType.SPELL_CAST:
-            return
-        player_id = event.get("player_id")
-        if player_id is None:
-            return
-        counts = self.state.spells_cast_this_turn
-        counts[player_id] = counts.get(player_id, 0) + 1
-        object_types = event.get("object_types") or []
-        if "instant" in object_types or "sorcery" in object_types:
-            self.state.cast_instant_or_sorcery_this_turn[player_id] = True
-        if "creature" not in object_types:
-            nc_counts = self.state.noncreature_spells_cast_this_turn
-            nc_counts[player_id] = nc_counts.get(player_id, 0) + 1
-        if "artifact" not in object_types:
-            # Ethersworn Canonist (MEC-43) — the nonartifact-scoped sibling
-            # of the noncreature tally above.
-            na_counts = self.state.nonartifact_spells_cast_this_turn
-            na_counts[player_id] = na_counts.get(player_id, 0) + 1
-        # Veil of Summer-shaped "if an opponent has cast a blue or black
-        # spell this turn" — SPELL_CAST carries no ``colors`` of its own,
-        # so this reads the cast object's live colour off the stack it was
-        # just pushed onto (still findable by `instance_id`, the same
-        # object either way — RULE 400.7 doesn't apply mid-stack).
-        instance_id = event.get("instance_id")
-        if instance_id is not None:
-            obj = self.state.find_object(instance_id)
-            if obj is not None:
-                colors = self.state.spell_colors_cast_this_turn.setdefault(player_id, set())
-                colors.update(obj.colors)
-                # MEC-60 (Acolyte of Bahamut): "the first Dragon spell you
-                # cast each turn …" — read the cast object's *subtypes*
-                # (after the printed em dash), which ``object_types`` above
-                # never carries (main card types only).
-                subtypes = obj.card.type_line.partition("—")[2].strip().lower().split()
-                if subtypes:
-                    seen = self.state.creature_type_spells_cast_this_turn.setdefault(player_id, set())
-                    seen.update(subtypes)
-    def arm_spell_watcher(
+    def _note_crime(self, item: StackItem) -> None:
+        """RULE 700.13: fire `CRIME_COMMITTED` if ``item`` (a spell, or an activated or triggered
+        ability, just put on the stack) targets an opponent, a permanent an opponent controls, or a
+        spell, ability or card of an opponent's graveyard. "Opponent" is any other player."""
+        me = item.controller_id
+        for target in item.targets or []:
+            if isinstance(target, Player):
+                hostile = target.id != me
+            elif isinstance(target, StackItem):
+                hostile = target.controller_id != me
+            elif isinstance(target, GameObject):
+                if target.zone == Zone.GRAVEYARD:
+                    hostile = target.owner_id != me
+                else:  # battlefield, or a spell on the stack
+                    hostile = target.controller_id not in (None, me)
+            else:
+                continue
+            if hostile:
+                self.state.fire_event(GameEvent(EventType.CRIME_COMMITTED, player_id=me, controller_id=me))
+                return
+
+    def _grant_uncounterable(
         self,
         player: Player,
-        then_specs: list[dict],
-        source: Optional[GameObject],
-        max_mana_value: Optional[int] = None,
         card_types: Optional[list[str]] = None,
-        repeat: bool = False,
+        next_only: bool = False,
     ) -> None:
-        """"When you next cast an instant or sorcery spell with mana value
-        N or less this turn, `<effect>`." (Dual Strike) — see `GameState.
-        spell_watchers`'s docstring for why this is its own mechanism
-        rather than an ordinary triggered ability or RULE 603.7 delayed
-        trigger.
-
-        ``repeat=True`` (Veil of Summer's "**Spells you control** can't be
-        countered this turn" — every matching spell for the rest of the
-        turn, not just the next one) keeps the watcher armed after it
-        fires instead of consuming it — see `_check_spell_watchers`.
+        """"Spells you control can't be countered this turn." (Veil of Summer) / "Creature
+        spells you cast this turn can't be countered." (Domri) / "The next spell you cast
+        this turn can't be countered." (Mistrise Village) — see `UncounterableGrant`.
         """
-        self.state.spell_watchers.append({
-            "controller_id": player.id,
-            "max_mana_value": max_mana_value,
-            "card_types": list(card_types) if card_types else None,
-            "then_specs": [dict(spec) for spec in then_specs],
-            "source_id": source.instance_id if source is not None else None,
-            "expires_turn": self.state.internal_turn.number,
-            "repeat": repeat,
-        })
-
-    def _check_spell_watchers(self, event: GameEvent) -> None:
-        """`SPELL_CAST` subscriber running every matching entry in
-        `GameState.spell_watchers`, if any (`arm_spell_watcher`). Runs each
-        matched watcher's ``then_specs`` with the just-cast spell's own
-        stack item as ``targets[0]`` — `effects.CopySpellEffect.apply`
-        reads a plain ``targets[0]`` with no RULE 115 target selection of
-        its own, so this reuses it unmodified. A ``repeat`` watcher stays
-        armed after matching (Veil of Summer-shaped "for the rest of the
-        turn"); every other one is consumed on its first match, same as
-        before.
-        """
-        if event.type != EventType.SPELL_CAST or not self.state.spell_watchers:
-            return
         turn = self.state.internal_turn.number
-        player_id = event.get("player_id")
-        object_types = event.get("object_types") or []
-        instance_id = event.get("instance_id")
-        mana_value = event.get("mana_value")
-        remaining = []
-        matched = []
-        for watcher in self.state.spell_watchers:
-            if watcher["expires_turn"] != turn or watcher["controller_id"] != player_id:
-                remaining.append(watcher)
+        grants = [g for g in self.state.uncounterable_grants if g.turn == turn]
+        grants.append(UncounterableGrant(
+            player.id, turn, card_types, next_only,
+            casts_before=turn_history.spells_cast(self.state.events_this_turn())[player.id],
+        ))
+        self.state.uncounterable_grants = grants
+
+    def _covered_by_uncounterable_grant(self, obj: GameObject) -> bool:
+        """Is ``obj`` protected by a this-turn `UncounterableGrant` of its controller?"""
+        turn = self.state.internal_turn.number
+        types = getattr(obj, "type_words", None) or set()
+        for grant in self.state.uncounterable_grants:
+            if grant.turn != turn or grant.controller_id != obj.controller_id:
                 continue
-            if watcher["max_mana_value"] is not None and (mana_value or 0) > watcher["max_mana_value"]:
-                remaining.append(watcher)
+            if grant.card_types and not any(t in types for t in grant.card_types):
                 continue
-            if watcher["card_types"] and not any(t in object_types for t in watcher["card_types"]):
-                remaining.append(watcher)
+            if grant.next_only and obj.instance_id != self._next_cast_after(grant):
                 continue
-            matched.append(watcher)
-            if watcher.get("repeat"):
-                remaining.append(watcher)
-        self.state.spell_watchers = remaining
-        if not matched or instance_id is None:
-            return
-        item = self.state.find_object(instance_id)
-        if item is None:
-            return
-        for watcher in matched:
-            source = self._object_by_instance_id(watcher.get("source_id"))
-            self._apply_effect_specs(watcher["then_specs"], source, targets=[item])
-    def _track_creature_death(self, event: GameEvent) -> None:
-        """Tally `DIES` toward `GameState.creatures_died_this_turn` (RULE
-        700.4). Subscribed rather than incremented at `_move_to_graveyard`,
-        so every path a creature can die by is covered from one place — the
-        same reason `_track_spell_cast` above listens for `SPELL_CAST`.
+            return True
+        return False
 
-        `DIES` fires for *every* permanent type (an Aura/land dying is a real
-        dies-trigger too), so this narrows to creatures off the event's own
-        snapshotted ``object_types`` — the object is already out of the
-        battlefield by the time a subscriber runs (RULE 400.7), so its types
-        can't be re-read live. ``controller_id`` is what "died **under your
-        control**" asks about, not the owner."""
-        if event.type != EventType.DIES:
-            return
-        if "creature" not in (event.get("object_types") or []):
-            return
-        player_id = event.get("controller_id")
-        if player_id is None:
-            return
-        counts = self.state.creatures_died_this_turn
-        counts[player_id] = counts.get(player_id, 0) + 1
-
-    def _track_creature_card_to_graveyard(self, event: GameEvent) -> None:
-        """PAR-32: record a *creature card* entering a graveyard from
-        anywhere this turn (Cloakwood Hermit — `GameState.creature_card_to_
-        graveyard_this_turn`, keyed by the card's owner). Listens for
-        `DIES` (battlefield), `DISCARD_CARD` (hand) and `MILL_CARD`
-        (library); the card sits in its graveyard by the time each fires,
-        so `is_creature` is read live where the event doesn't snapshot it."""
-        if event.type == EventType.DIES:
-            if "creature" not in (event.get("object_types") or []):
-                return
-            obj = self.state.find_object(event.get("instance_id"))
-            owner_id = obj.owner_id if obj is not None else event.get("owner_id")
-        elif event.type in (EventType.DISCARD_CARD, EventType.MILL_CARD):
-            obj = self.state.find_object(event.get("instance_id"))
-            if obj is None or not getattr(obj, "is_creature", False):
-                return
-            owner_id = obj.owner_id
-        else:
-            return
-        if owner_id is not None:
-            self.state.creature_card_to_graveyard_this_turn.add(owner_id)
-
-    def _track_permanent_card_to_graveyard(self, event: GameEvent) -> None:
-        """RULE 702.175: remember a permanent card entering its graveyard."""
-        if event.type == EventType.DIES:
-            types = event.get("object_types") or []
-            owner_id = event.get("owner_id")
-        elif event.type in (EventType.DISCARD_CARD, EventType.MILL_CARD):
-            obj = self.state.find_object(event.get("instance_id"))
-            if obj is None:
-                return
-            types = obj.type_words
-            owner_id = obj.owner_id
-        else:
-            return
-        if owner_id is not None and any(
-            type_word in {"artifact", "battle", "creature", "enchantment", "land", "planeswalker"}
-            for type_word in types
-        ):
-            self.state.permanent_card_to_graveyard_this_turn.add(owner_id)
-
+    def _next_cast_after(self, grant: "UncounterableGrant") -> Optional[int]:
+        """The instance id of the first spell of ``grant``'s types its controller cast after
+        the grant resolved — derived from the turn's `SPELL_CAST` events (oldest first)."""
+        casts = [
+            e for e in reversed(list(self.state.events_this_turn()))
+            if e.type == EventType.SPELL_CAST and e.get("player_id") == grant.controller_id
+        ]
+        for event in casts[grant.casts_before:]:
+            if not grant.card_types or any(t in (event.get("object_types") or []) for t in grant.card_types):
+                return event.get("instance_id")
+        return None
     def apply_day_night_turn_check(self) -> None:
         """RULE 731.2: as the second part of the untap step, maybe flip
         day/night based on how many spells the *previous* turn's active
@@ -2137,12 +2371,13 @@ class MiscSystemsMixin:
         Returns the face rolled: ``"chaos"`` (901.13 — the face-up plane's
         chaos ability triggers), ``"planeswalk"`` (901.14 — planeswalk right
         away) or ``"blank"`` (nothing happens, which is four of the six
-        faces). Paying the {X} cost and counting the roll is the *special
-        action*'s job (`GameEngine.roll_planar_die`); this is the roll
-        itself, so a test — or a card that rolls the die for free — can use
-        it directly.
+        faces). Paying the {X} cost is the *special action*'s job
+        (`GameEngine.roll_planar_die`); this is the roll itself, so a test — or a card
+        that rolls the die for free — can use it directly. Every roll fires
+        `PLANAR_DIE_ROLLED`, which is what the next roll's {X} counts (RULE 901.6b).
         """
         face = self.random_choice(list(variants.PLANAR_DIE_FACES))
+        self.state.fire_event(GameEvent(EventType.PLANAR_DIE_ROLLED, player_id=player.id, face=face))
         if face == "chaos":
             self.trigger_chaos(player)
         elif face == "planeswalk":
@@ -2255,7 +2490,7 @@ class MiscSystemsMixin:
             self.move_venture_marker(player, rooms[0].name)
             return
         # RULE 701.49b: "if there are multiple arrows … they choose one".
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "venture_room",
             "player_id": player.id,
             "prompt": f"{dungeon.name}: welchen Raum betrittst du?",
@@ -2263,16 +2498,13 @@ class MiscSystemsMixin:
                 {"id": room.name, "label": f"{room.name} — {room.effect_text}"}
                 for room in rooms
             ],
-        }
-    def resolve_venture_room_choice(self, answer: Optional[str]) -> None:
+        })
+    @continuations.choice("venture_room", answer=continuations.ANSWER_STR, rule="701.49")
+    def _resume_venture_room(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending RULE 701.49b room choice. Mandatory (the marker
         has to move somewhere), so an unrecognized/missing answer takes the
         first arrow rather than staying put."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "venture_room":
-            raise ValueError("no pending venture-room choice to resolve")
         player = self.state.player_by_id(choice["player_id"])
-        self.state.pending_choice = None
         names = [opt["id"] for opt in choice["options"]]
         self.move_venture_marker(player, answer if answer in names else names[0])
     def _enter_new_dungeon(self, player: Player, dungeon_name: Optional[str] = None) -> None:
@@ -2294,20 +2526,17 @@ class MiscSystemsMixin:
         if len(pool) == 1:
             self._put_dungeon_into_command_zone(player, pool[0])
             return
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "choose_dungeon",
             "player_id": player.id,
             "prompt": "In welchen Dungeon begibst du dich?",
             "options": [{"id": d.name, "label": d.name} for d in pool],
-        }
-    def resolve_choose_dungeon_choice(self, answer: Optional[str]) -> None:
+        })
+    @continuations.choice("choose_dungeon", answer=continuations.ANSWER_STR, rule="309.2")
+    def _resume_choose_dungeon(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending RULE 309.2a dungeon choice — mandatory, so an
         unrecognized/missing answer takes the first offered dungeon."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "choose_dungeon":
-            raise ValueError("no pending dungeon choice to resolve")
         player = self.state.player_by_id(choice["player_id"])
-        self.state.pending_choice = None
         names = [opt["id"] for opt in choice["options"]]
         chosen = answer if answer in names else names[0]
         dungeon = dungeons.dungeon_by_name(chosen)
@@ -2412,10 +2641,10 @@ class MiscSystemsMixin:
         """Serialized `EffectSpec` dicts → live one-shot `GameEffect`s bound
         against ``source`` — the same lazily-imported binder path
         `create_emblem` uses for an emblem's quoted ability, and for the same
-        reason (a module-level import would cycle through `game/effects.py`).
+        reason (a module-level import would cycle through `game/effects/core.py`).
         """
         from ...parser.oracle.spec import EffectSpec
-        from ..effect_binder import BindError, build_effects
+        from ..binding.core import BindError, build_effects
 
         if not specs:
             return []
@@ -2486,18 +2715,42 @@ class MiscSystemsMixin:
             return False
         self.add_counters(obj, max(0, int(amount)), "+1/+1", source=obj)
         return True
+    def harness(self, obj: GameObject) -> bool:
+        """MEC-79 / RULE 701.64a: "Harness [this permanent]" — "if this
+        permanent isn't harnessed, it becomes harnessed."
+
+        `monstrosity`'s designation-flip half without the counters or the
+        amount: the Marvel Infinity Stones' ``{cost}, {T}: Harness ~`` ability.
+        Idempotent (701.64a's guard) and returns whether it actually flipped,
+        so a caller with follow-up behaviour can tell the no-op apart. Fires
+        `HARNESSED` only on the transition. 701.64b's "stays harnessed until it
+        leaves the battlefield" is `GameObject.reset_as_new_object` (RULE 400.7).
+        """
+        if obj.harnessed:
+            return False
+        obj.harnessed = True
+        self.state.fire_event(
+            GameEvent(
+                EventType.HARNESSED,
+                instance_id=obj.instance_id,
+                controller_id=obj.controller_id,
+                object=obj.name,
+                object_types=sorted(obj.type_words),
+            )
+        )
+        return True
     def recruit(self, player: Player) -> None:
         """"Recruit" (RULE 701.70a — Tales of Middle-earth): ``player`` draws
         a card, then discards a card; if the discarded card was a **nonland**
         card, they create a 1/1 white Human Soldier creature token.
 
         The "which card to discard" is a `recruit` `pending_choice`
-        (`resolve_recruit_choice`) whenever the hand has 2+ cards after the
+        (`_resume_recruit`) whenever the hand has 2+ cards after the
         draw; one card → discarded with no choice, an empty hand → the
         discard simply doesn't happen (RULE 701.70a is "discard a card", not
         "you may"). The nonland check + token are `_recruit_discard`.
         Deliberately its own small primitive rather than reusing
-        `request_choose_objects`'s ``connive`` machinery — the payoff is a
+        `_request_choose_objects`'s ``connive`` machinery — the payoff is a
         token, not a counter on a source, and this shape (draw, then a
         mandatory conditional discard) is the same `explore_bin`/`bolster`
         idiom the other PAR-29 keyword actions use.
@@ -2508,7 +2761,7 @@ class MiscSystemsMixin:
         if len(player.hand) == 1:
             self._recruit_discard(player, player.hand[0])
             return
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "recruit",
             "player_id": player.id,
             "prompt": "Rekrutieren: welche Karte abwerfen?",
@@ -2516,7 +2769,7 @@ class MiscSystemsMixin:
                 {"id": str(o.instance_id), "label": o.name, "instance_id": o.instance_id}
                 for o in player.hand
             ],
-        }
+        })
     def _recruit_discard(self, player: Player, card: GameObject) -> None:
         """The discard + conditional token half of `recruit` (RULE
         701.70a). ``is_land`` is read before the move — a card-type property
@@ -2532,14 +2785,11 @@ class MiscSystemsMixin:
                 subtypes=["Human", "Soldier"],
             )
             self.create_token(player.id, token, 1)
-    def resolve_recruit_choice(self, instance_id: Optional[int]) -> None:
+    @continuations.choice("recruit", answer=continuations.ANSWER_INT, rule="701.70")
+    def _resume_recruit(self, choice: dict[str, Any], instance_id: Optional[int]) -> None:
         """Answer a pending `recruit` discard choice. A missing/unknown answer
         defaults to the first card — RULE 701.70a's discard is mandatory."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "recruit":
-            raise ValueError("no pending recruit choice to resolve")
         player = self.state.player_by_id(choice["player_id"])
-        self.state.pending_choice = None
         offered = [opt["instance_id"] for opt in choice["options"]]
         chosen_id = instance_id if instance_id in offered else (offered[0] if offered else None)
         card = next(
@@ -2559,17 +2809,18 @@ class MiscSystemsMixin:
         **Documented simplification:** the "Lesson from outside the game"
         branch is dropped. This engine has no sideboard / outside-the-game
         zone with any Commander-legal use (the same call the `ability_
-        catalogue` already makes for Karn's -2, `entries_010.py`), so Learn
+        catalogue` already makes for Karn's -2,
+        `punishers.py`), so Learn
         collapses to its other, fully-modelable half: an optional
         discard-a-card-then-draw-a-card, driven straight through
-        `request_choose_objects`'s existing ``optional`` + ``then_specs``
+        `_request_choose_objects`'s existing ``optional`` + ``then_specs``
         machinery (a real discard fires the draw; a decline does nothing).
         An empty hand → nothing happens (nothing to discard, and the Lesson
         branch is gone).
         """
         if not player.hand:
             return
-        self.request_choose_objects(
+        self._request_choose_objects(
             player, list(player.hand), "discard", count=1, optional=True,
             prompt="Lernen — eine Karte abwerfen, dann eine Karte ziehen?",
             source=source,
@@ -2662,7 +2913,7 @@ class MiscSystemsMixin:
     ) -> None:
         """Register that ``player`` has performed a bending keyword action
         (RULE 701.6x — ``kind`` in `BEND_KINDS`): stamp `GameState.
-        bends_this_turn` and fire `EventType.BENT`.
+        bends_this_turn` (derived from) `EventType.BENT`, which this fires.
 
         Called from each bending primitive once its own procedure is
         complete — `earthbend` (after the land is animated + countered),
@@ -2675,7 +2926,6 @@ class MiscSystemsMixin:
         """
         if kind not in self.BEND_KINDS:
             return
-        self.state.bends_this_turn.setdefault(player.id, set()).add(kind)
         self.state.fire_event(GameEvent(
             EventType.BENT,
             player_id=player.id, controller_id=player.id,
@@ -2744,15 +2994,33 @@ class MiscSystemsMixin:
                     continue
                 if not _has_suspend(obj):
                     continue
-                obj.add_counters("time", -1)
-                if obj.counters.get("time", 0) <= 0:
-                    if getattr(obj.card, "is_creature", False):
-                        obj.granted_suspend_haste = True
-                    self.grant_free_cast_window_from_exile(obj)
+                self.remove_suspend_time_counter(obj)
             for obj in self.state.permanents_controlled_by(player.id):
                 if obj.counters.get("time", 0) > 0:
                     obj.add_counters("time", 1)
         self.check_state_based_actions()
+    def remove_suspend_time_counter(self, obj: GameObject) -> bool:
+        """RULE 702.62a: take one time counter off a suspended card in exile.
+
+        When that was the last one, the free-cast window opens (with RULE
+        702.62a's haste rider for a creature) and
+        `EventType.LAST_TIME_COUNTER_REMOVED` fires, so a card's own "When the
+        last time counter is removed from this card while it's exiled, …"
+        (Riftmarked Knight, Veiling Oddity) triggers alongside the cast. Shared
+        by the upkeep trigger (`SuspendUpkeepEffect`) and time travel above.
+        Returns whether the last counter came off.
+        """
+        obj.add_counters("time", -1)
+        if obj.counters.get("time", 0) > 0:
+            return False
+        if getattr(obj.card, "is_creature", False):
+            obj.granted_suspend_haste = True
+        self.grant_free_cast_window_from_exile(obj)
+        self.state.fire_event(GameEvent(
+            EventType.LAST_TIME_COUNTER_REMOVED,
+            instance_id=obj.instance_id, controller_id=obj.owner_id,
+        ))
+        return True
     def _endure_make_token(self, player: Player, amount: int) -> None:
         """The token half of `endure` (RULE 701.63a) — an N/N white Spirit
         creature token."""
@@ -2770,7 +3038,7 @@ class MiscSystemsMixin:
         N/N white Spirit creature token.
 
         A genuine modal choice (`endure` `pending_choice`,
-        `resolve_endure_choice`) — but only when the counters branch is
+        `_resume_endure`) — but only when the counters branch is
         actually possible: if ``permanent`` has left the battlefield or isn't
         a creature, only the token is available (RULE 608.2b), so it resolves
         without asking. Counters go on through `add_counters` so RULE 122.5
@@ -2794,7 +3062,7 @@ class MiscSystemsMixin:
         if not counters_possible:
             self._endure_make_token(player, amount)
             return
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "endure",
             "player_id": player.id,
             "amount": amount,
@@ -2804,15 +3072,17 @@ class MiscSystemsMixin:
                 {"id": "counters", "label": f"{amount} +1/+1-Marken auf {permanent.name}"},
                 {"id": "token", "label": f"{amount}/{amount} weißer Geist-Token"},
             ],
-        }
-    def resolve_endure_choice(self, to_token: bool = False) -> None:
+        })
+    @continuations.choice(
+        "endure",
+        answer=continuations.ANSWER_FLAG,
+        yes="token",
+        rule="701.63",
+    )
+    def _resume_endure(self, choice: dict[str, Any], to_token: bool = False) -> None:
         """Answer a pending `endure` choice. A missing/unknown answer defaults
         to the counters branch (the permanent is still there — RULE 701.63a
         has no "you may", one of the two must happen)."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "endure":
-            raise ValueError("no pending endure choice to resolve")
-        self.state.pending_choice = None
         player = self.state.player_by_id(choice["player_id"])
         amount = int(choice["amount"])
         perm = self._object_by_instance_id(choice.get("permanent_id"))
@@ -2915,7 +3185,12 @@ class MiscSystemsMixin:
         for obj in objs:
             if obj is not None:
                 obj.is_suspected = False
-    def clash(self, player: Optional[Player], with_opponent: bool = True) -> bool:
+    def clash(
+        self,
+        player: Optional[Player],
+        with_opponent: bool = True,
+        source: Optional[GameObject] = None,
+    ) -> bool:
         """RULE 701.30: ``player`` clashes — reveals the top card of their
         library — and, for "clash with an opponent" (``with_opponent``, RULE
         701.30b), one opponent reveals theirs too. Returns whether ``player``
@@ -2924,14 +3199,11 @@ class MiscSystemsMixin:
         you win, `<effect>`. / otherwise, `<effect>`." branch reads back via
         `effects.ClashEffect` → `GameContext.clash_won`.
 
-        **Documented simplification** — RULE 701.30a's "may then put that card
-        on the bottom of their library" is always declined here: every
-        revealed card stays on top. Modeling that optional bottoming means an
-        APNAP pair of interactive yes/no pauses (RULE 701.30c) for a keyword
-        action ~33 cache cards use, and it never changes *this* resolution's
-        win/lose outcome — only a later draw. Same accepted "an undecided
-        beneficial *may* is declined" convention `effects.CoinFlipEffect`
-        documents.
+        After revealing, each player who revealed a card chooses whether it
+        stays on top or goes on the bottom.  The choices are asked in APNAP
+        order and the selected cards move only after all answers, as RULE
+        701.30c requires.  `GameState.clash_revealed` makes both faces public
+        to every board view while that decision is in progress.
 
         With no opponent at all (a 1-player Goldfisch/Replay board) or every
         opponent's library empty, no *other* card is revealed, so ``player``
@@ -2947,6 +3219,9 @@ class MiscSystemsMixin:
             return False
         top = player.library[-1] if player.library else None
         my_mv = top.card.converted_mana_cost if top is not None else -1
+        revealed: list[tuple[Player, GameObject]] = []
+        if top is not None:
+            revealed.append((player, top))
         other_mvs: list[int] = []
         #: RULE 701.30b: which opponent this clash was "with" — recorded so a
         #: following "if you win, `<X> that player <does Y>`" / "otherwise,
@@ -2966,7 +3241,13 @@ class MiscSystemsMixin:
                 opp_top = opp.library[-1] if opp.library else None
                 if opp_top is not None:
                     other_mvs.append(opp_top.card.converted_mana_cost)
+                    revealed.append((opp, opp_top))
+                # RULE 701.30b is one opponent, not every opponent.  Choosing
+                # the first living one remains this engine's documented
+                # multiplayer simplification.
+                break
         won = top is not None and all(my_mv > mv for mv in other_mvs)
+        self.state.clash_revealed = [obj.instance_id for _, obj in revealed]
         self.state.fire_event(GameEvent(
             EventType.CLASHED, player_id=player.id, controller_id=player.id, won=won,
         ))
@@ -2974,7 +3255,77 @@ class MiscSystemsMixin:
             self.state.fire_event(GameEvent(
                 EventType.WON_CLASH, player_id=player.id, controller_id=player.id,
             ))
+        self._open_clash_choice(revealed, source=source)
         return won
+
+    def _open_clash_choice(
+        self,
+        revealed: list[tuple[Player, GameObject]],
+        *,
+        source: Optional[GameObject] = None,
+        queue: Optional[list[tuple[str, int]]] = None,
+        bottom: Optional[list[tuple[str, int]]] = None,
+    ) -> None:
+        """Open the next RULE 701.30c clash-placement decision in APNAP order.
+
+        The cards stay in their libraries throughout all choices; only the
+        final branch moves every elected card to its owner's library bottom.
+        This keeps the public reveal visible and avoids one player's decision
+        changing another player's "top card" midway through the action.
+        """
+        if queue is None:
+            by_player = {p.id: obj.instance_id for p, obj in revealed}
+            living = self.state.living_players()
+            start = next(
+                (i for i, p in enumerate(living) if p.id == self.state.active_player.id), 0
+            )
+            ordered = living[start:] + living[:start]
+            queue = [(p.id, by_player[p.id]) for p in ordered if p.id in by_player]
+        bottom = list(bottom or [])
+        if not queue:
+            for player_id, instance_id in bottom:
+                owner = self.state.player_by_id(player_id)
+                obj = self._object_by_instance_id(instance_id)
+                if obj is not None and obj in owner.library:
+                    owner.library.remove(obj)
+                    owner.library.insert(0, obj)
+            self.state.clash_revealed = []
+            return
+        player_id, instance_id = queue[0]
+        chooser = self.state.player_by_id(player_id)
+        card = self._object_by_instance_id(instance_id)
+        if card is None or card not in chooser.library:
+            self._open_clash_choice(revealed, source=source, queue=queue[1:], bottom=bottom)
+            return
+        self.open_choice({
+            "kind": "clash",
+            "player_id": chooser.id,
+            "instance_id": card.instance_id,
+            "queue": list(queue),
+            "bottom": bottom,
+            "source_name": source.name if source is not None else None,
+            "prompt": "Clash: Lege deine aufgedeckte Karte oben oder unten in deine Bibliothek?",
+            "options": [
+                {"id": "top", "label": "Oben lassen"},
+                {"id": "bottom", "label": "Unter die Bibliothek legen"},
+            ],
+        })
+
+    @continuations.choice("clash", answer=continuations.ANSWER_STR, rule="701.30")
+    def _resume_clash_choice(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        """Record one clash placement, then ask the next APNAP player."""
+        queue = [(str(pid), int(iid)) for pid, iid in choice.get("queue", [])]
+        bottom = [(str(pid), int(iid)) for pid, iid in choice.get("bottom", [])]
+        if not queue:
+            raise ValueError("clash choice has no queued card")
+        player_id, instance_id = queue[0]
+        if answer == "bottom":
+            bottom.append((player_id, instance_id))
+        elif answer not in ("top", None):
+            raise ValueError(f"{answer!r} is not a legal clash choice")
+        self._open_clash_choice(
+            [], queue=queue[1:], bottom=bottom,
+        )
 
     def become_monarch(self, player: Player) -> None:
         """RULE 725.3: ``player`` becomes the monarch; whoever held it
@@ -3008,6 +3359,15 @@ class MiscSystemsMixin:
         if player.has_city_blessing:
             return
         player.has_city_blessing = True
+    def get_enduring_story(self, player: Player) -> None:
+        """RULE 702.195a-b: ``player`` gets the enduring story designation —
+        Storied's own onetime per-player flag (PAR-51), the exact same
+        idempotent shape as `get_city_blessing` above (any number of
+        players may have it at once, and it lasts for the rest of the
+        game once granted)."""
+        if player.has_enduring_story:
+            return
+        player.has_enduring_story = True
     def take_initiative(self, player: Player) -> None:
         """RULE 726.3: ``player`` takes the initiative; whoever held it
         (possibly ``player`` themself) ceases to.
@@ -3023,7 +3383,7 @@ class MiscSystemsMixin:
                 EventType.TOOK_INITIATIVE, player_id=player.id, controller_id=player.id
             )
         )
-    #: The closed vocabulary `request_choose_objects` accepts, mapping each
+    #: The closed vocabulary `_request_choose_objects` accepts, mapping each
     #: action name to what it does to a chosen object. Deliberately small
     #: and data-only: the whole choice (candidates, action, how many are
     #: left) lives in `GameState.pending_choice`, so it survives the
@@ -3032,8 +3392,25 @@ class MiscSystemsMixin:
     #: than passing a continuation closure around.
     CHOOSE_OBJECT_ACTIONS = frozenset(
         {
-            "tap", "sacrifice", "return_to_hand", "return_from_graveyard", "soulbond_pair", "library_top", "discard",
+            "grant_perpetual_blitz",  # MEC-109: chosen hand card retains blitz.
+            "tap", "untap", "sacrifice", "suspect", "return_to_hand", "return_from_graveyard",
+            # RULE 702.26: "those permanents phase out" (Ripples of Potential).
+            "phase_out",
+            # PAR-143: an untargeted graveyard pick ("return a land card from your graveyard to the
+            # battlefield tapped / to your hand").
+            "return_from_graveyard_tapped", "return_from_graveyard_to_hand", "soulbond_pair", "library_top", "discard",
             "library_to_hand", "sacrifice_for_descendants_fury",
+            # A hand pick the owner puts into their own library (Painful/Agonizing Memories, Lost Hours).
+            "hand_to_library_top", "hand_to_library_third",
+            "turn_face_up",  # Zimone — RULE 708.8 by an effect
+            # RULE 702.110a/b: an exploit ability's optional sacrifice — a sacrifice that also fires `EXPLOITS`.
+            "exploit",
+            # Quandrix Command mode 4 ("target player shuffles up to three
+            # target cards from their graveyard into their library") — the
+            # pick moves from its owner's graveyard to its owner's library,
+            # which is then shuffled (RULE 701.20). A graveyard-zone pick,
+            # unlike the battlefield/hand actions around it.
+            "graveyard_to_library",
             # PAR-13 (Dungeon of the Mad Mage's "Mad Wizard's Lair" — "Draw
             # three cards and reveal them. You may cast one of them without
             # paying its mana cost."): a hand-zone pick, unlike every other
@@ -3047,6 +3424,7 @@ class MiscSystemsMixin:
             # another hand-zone pick, general enough for any future "exile a
             # card from your hand" cost/effect to reuse.
             "exile",
+            "exile_face_down_linked",  # RULE 702.75a Hideaway's selected library card
             # MEC-20 (the "Expertise" cycle): another hand-zone pick, but
             # unlike ``"cast_free"`` this only *arms* the pick's temporary
             # free-cast permission (`GameState.free_cast_instance_ids`)
@@ -3067,7 +3445,7 @@ class MiscSystemsMixin:
             # Protection/Rune of Protection): nothing happens to the chosen
             # permanent either — it opens a `prevent_damage_to_player`/
             # `_to_target`-shaped shield scoped to it, via the choice's own
-            # ``prevent_shield`` payload (`request_choose_objects`'s own
+            # ``prevent_shield`` payload (`_request_choose_objects`'s own
             # docstring).
             "remember_source",
             # MEC-30 (RULE 616.1c "that damage is dealt to `<X>` instead" —
@@ -3083,6 +3461,8 @@ class MiscSystemsMixin:
             # flipped and the branch resolved entirely inside
             # `_apply_chosen_object`.
             "remember_source_coinflip",
+            # Untargeted selection for a following effect (RULE 701.71).
+            "select_referent",
             # MEC-41 (Nissa, Steward of Elements' 0 ability — "Look at the
             # top card of your library. ... you may put that card onto the
             # battlefield."): a library-zone pick, unlike every other
@@ -3090,6 +3470,14 @@ class MiscSystemsMixin:
             # top card, you may put it onto the battlefield" template to
             # reuse rather than a one-off.
             "library_to_battlefield",
+            # Turntimber Symbiosis: "…onto the battlefield. If that card has mana value 3 or less, it enters with
+            # three additional +1/+1 counters on it." — `library_to_battlefield` plus `entry_bonus_counters`.
+            "library_to_battlefield_cheap_bonus",
+            # PAR-144: "put up to two land cards from among them onto the battlefield tapped".
+            "library_to_battlefield_tapped",
+            # PAR-137: "exile the top two cards … choose 1 of them. You may play that card this turn /
+            # until the end of your next turn" — the pick (already in exile) alone gets the permission.
+            "grant_temp_play_same_turn", "grant_temp_play_next_turn",
             # MEC-43 round 4D (Kodama of the East Tree — "you may put a
             # permanent card with equal or lesser mana value from your
             # hand onto the battlefield"): a hand-zone pick placed
@@ -3101,6 +3489,7 @@ class MiscSystemsMixin:
             # ``not_entered_via_self`` condition) can tell a card THIS
             # ability just placed apart from any other entering permanent.
             "hand_to_battlefield",
+            "zone_to_battlefield",
             # MEC-73: Sneak Attack / Incandescent Soulstoke's selected hand
             # creature enters with haste and a RULE 603.7 delayed sacrifice.
             "hand_to_battlefield_haste_sacrifice",
@@ -3111,6 +3500,8 @@ class MiscSystemsMixin:
             # reassignment, the same shape `GainControlBySourceEffect`
             # uses). Nothing else happens to it.
             "gain_control",
+            # Turf War: "gains control of one of those lands of their choice and untaps it."
+            "gain_control_and_untap",
             # PAR-30 (RULE 701.10i residue — Cultural Exchange): the same
             # bare `controller_id` reassignment as `"gain_control"`, but to
             # a specific *other* player named by `control_recipient_id`
@@ -3122,9 +3513,33 @@ class MiscSystemsMixin:
             # clears its own suspected designation. ``optional`` so declining
             # keeps the menace a suspected creature has.
             "remove_suspected",
+            # "Remove any number of counters from among permanents on the
+            # battlefield. You draw cards and lose life equal to the number
+            # of counters removed this way." (Eventide's Shadow) — each
+            # chosen permanent has *all* its counters removed (a documented
+            # permanent-granularity simplification of "any number of
+            # counters", the same RULE 122 precision `MoveCountersEffect`
+            # already accepts); the caller tallies the total via a
+            # cards-removed delta in its ``then_specs``.
+            "strip_all_counters",
+            # Immoral Bargain (PAR-60 round 4) — "Destroy X target nonland
+            # permanents", where X is only known after the additional-cost
+            # sacrifice is resolved: the destroy sibling of ``sacrifice``,
+            # applying `RulesEngine.destroy` (RULE 701.7, regeneration- and
+            # indestructible-respecting) to any battlefield permanent, not
+            # only the chooser's own.
+            "destroy",
+            # PAR-80 (Ivy Seer/Scent of Ivy — "reveal any number of green
+            # cards in your hand"): a hand-zone pick like "discard"/"exile"
+            # above, but nothing moves — RULE 701.20 reveal has no
+            # mechanical weight of its own (`RevealTopEffect`'s own
+            # docstring). Only accumulates each pick onto `GameObject.
+            # revealed_with_ids`, read back by a following clause via the
+            # ``"revealed_with_count"`` count_selector.
+            "reveal",
         }
     )
-    def request_choose_objects(
+    def _request_choose_objects(
         self,
         player: Player,
         candidates: list[GameObject],
@@ -3145,6 +3560,9 @@ class MiscSystemsMixin:
         rest_ids: Optional[list[int]] = None,
         rest_destination: Optional[str] = None,
         decline_leaves_untouched: bool = False,
+        total_mana_value_budget: Optional[int] = None,
+        then_that_many: Optional[dict] = None,
+        distinct_card_types: bool = False,
     ) -> None:
         """Open a "choose N of these objects" decision (RULE 601.2c-style).
 
@@ -3155,7 +3573,7 @@ class MiscSystemsMixin:
         Vault's and Thassa's Oracle's library reordering. Each of those used
         to auto-pick the first legal candidate.
 
-        Offered one object at a time (`resolve_choose_objects_choice`
+        Offered one object at a time (`_resume_choose_objects`
         re-opens until ``count`` are picked or the pool runs dry), exactly
         like a library search — same UI shape, same undo granularity.
         ``optional`` adds a decline option ("you **may** return…"); a
@@ -3234,10 +3652,25 @@ class MiscSystemsMixin:
         moves to ``player``, the chooser), this hands each pick to whichever
         player's id is carried here instead — the caster picks, but someone
         *else* receives.
+
+        ``then_that_many`` (MEC-103, RULE 603.12 — "sacrifice up to three
+        Zombies. When you sacrifice one or more Zombies this way, each
+        opponent sacrifices **that many** creatures") is ``{"effects": […],
+        "trigger": […]}``: serialized specs whose ``"x"`` sentinel is bound
+        to how many objects were actually picked (`_substitute_x_specs`).
+        ``effects`` resolve at once; ``trigger`` becomes the reflexive
+        trigger (`enqueue_reflexive_trigger`), so it may carry targets. Only
+        fires when something was picked, like ``then_specs``.
         """
         if action not in self.CHOOSE_OBJECT_ACTIONS:
             raise ValueError(f"unknown choose-objects action {action!r}")
         pool = [obj for obj in candidates if obj is not None]
+        if distinct_card_types:
+            pool = [obj for obj in pool if _card_type_words(obj)]
+        if total_mana_value_budget is not None:
+            pool = [obj for obj in pool if int(
+                getattr(obj.card, "converted_mana_cost", 0) or 0
+            ) <= int(total_mana_value_budget)]
         if not pool or count <= 0:
             # Nothing to choose ⇒ "you didn't choose" — run the else branch
             # (Traumatic Revelation's "If you don't, incubate 3." when the
@@ -3245,27 +3678,33 @@ class MiscSystemsMixin:
             if not pool and count > 0 and else_specs:
                 self._apply_effect_specs(list(else_specs), source)
             return
-        if len(pool) <= count and not optional:
+        if len(pool) <= count and not optional and (
+            not distinct_card_types or _distinct_card_type_assignment([_card_type_words(o) for o in pool])
+        ):
             # Forced: every candidate is taken anyway, so asking would be
             # theatre. (An *optional* one still asks — declining matters.)
             commander_taken = False
-            for obj in pool:
-                commander_taken = commander_taken or obj.is_commander
-                self._apply_chosen_object(
-                    player, obj, action, source, remember=remember,
-                    track_exiled_with=track_exiled_with, prevent_shield=prevent_shield,
-                    redirect_shield=redirect_shield, connive=connive,
-                    control_recipient_id=control_recipient_id,
-                )
+            that_many_value = _that_many_value(then_that_many, list(pool))
+            with self.state.simultaneous():  # RULE 603.2c: every forced pick is one event
+                for obj in pool:
+                    commander_taken = commander_taken or obj.is_commander
+                    self._apply_chosen_object(
+                        player, obj, action, source, remember=remember,
+                        track_exiled_with=track_exiled_with, prevent_shield=prevent_shield,
+                        redirect_shield=redirect_shield, connive=connive,
+                        control_recipient_id=control_recipient_id,
+                    )
             if rest_destination and rest_ids:
                 taken_ids = {o.instance_id for o in pool}
                 unpicked_rest = [iid for iid in rest_ids if iid not in taken_ids]
                 self._handle_rest_inspected(player, unpicked_rest, rest_destination)
             self._apply_choose_objects_tail(
-                source, then_specs, then_specs_if_commander, commander_taken
+                source, then_specs, then_specs_if_commander, commander_taken,
+                then_that_many, that_many_value,
+                chosen_ids=[obj.instance_id for obj in pool],
             )
             return
-        self.state.pending_choice = self._choose_objects_choice(
+        self.open_choice(self._choose_objects_choice(
             player, pool, action, count, optional, prompt,
             source_id=source.instance_id if source is not None else None,
             picked=[], then_specs=then_specs,
@@ -3276,18 +3715,45 @@ class MiscSystemsMixin:
             control_recipient_id=control_recipient_id,
             rest_ids=rest_ids, rest_destination=rest_destination,
             decline_leaves_untouched=decline_leaves_untouched,
-        )
+            total_mana_value_budget=total_mana_value_budget,
+            then_that_many=then_that_many,
+            distinct_card_types=distinct_card_types,
+        ))
     def _apply_choose_objects_tail(
         self,
         source: Optional[GameObject],
         then_specs: Optional[list[dict]],
         then_specs_if_commander: Optional[list[dict]],
         commander_taken: bool,
+        then_that_many: Optional[dict] = None,
+        picked_count: int = 0,
+        chosen_ids: Optional[list[int]] = None,
     ) -> None:
         """Apply a `choose_objects` decision's "if you do" follow-up."""
+        def capture(value):
+            if isinstance(value, dict):
+                if value == {"kind": "sacrificed_card_types"}:
+                    return list(getattr(source, "sacrificed_cost_card_types", []))
+                if value == {"kind": "chosen_instance_ids"}:
+                    return list(chosen_ids or [])
+                return {key: capture(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [capture(item) for item in value]
+            return value
+
+        # Preserve last-known types before subsequent opponents sacrifice.
+        then_specs = capture(then_specs)
         self._apply_effect_specs(list(then_specs or []), source)
         if commander_taken:
             self._apply_effect_specs(list(then_specs_if_commander or []), source)
+        if then_that_many and picked_count > 0:
+            # MEC-103: "that many" = how many were picked, bound like ENG-48's X.
+            self._apply_effect_specs(
+                _substitute_x_specs(list(then_that_many.get("effects") or []), picked_count), source,
+            )
+            self.enqueue_reflexive_trigger(
+                _substitute_x_specs(list(then_that_many.get("trigger") or []), picked_count), source,
+            )
     def _choose_objects_choice(
         self,
         player: Player,
@@ -3310,6 +3776,9 @@ class MiscSystemsMixin:
         rest_ids: Optional[list[int]] = None,
         rest_destination: Optional[str] = None,
         decline_leaves_untouched: bool = False,
+        total_mana_value_budget: Optional[int] = None,
+        then_that_many: Optional[dict] = None,
+        distinct_card_types: bool = False,
     ) -> dict[str, Any]:
         """Build the serializable `choose_objects` `pending_choice`."""
         options = [
@@ -3323,6 +3792,7 @@ class MiscSystemsMixin:
         label = prompt or "Wähle ein Objekt"
         return {
             "kind": "choose_objects",
+            "effect_controller_id": self.context.acting_player_id or self.context.resolving_controller_id,
             "player_id": player.id,
             "action": action,
             "source_id": source_id,
@@ -3340,13 +3810,13 @@ class MiscSystemsMixin:
             "else_specs": [dict(spec) for spec in (else_specs or [])],
             # MEC-30: the shield `_apply_chosen_object` opens once a source
             # is picked (``action="remember_source"`` only) — see
-            # `request_choose_objects`'s own docstring.
+            # `_request_choose_objects`'s own docstring.
             "prevent_shield": dict(prevent_shield) if prevent_shield else None,
             # MEC-30: `redirect_shield`'s own sibling — see
-            # `request_choose_objects`'s own docstring.
+            # `_request_choose_objects`'s own docstring.
             "redirect_shield": dict(redirect_shield) if redirect_shield else None,
             # PAR-30: `action="gain_control_for"`'s own recipient payload —
-            # see `request_choose_objects`'s own docstring.
+            # see `_request_choose_objects`'s own docstring.
             "control_recipient_id": control_recipient_id,
             "then_specs_if_commander": [
                 dict(spec) for spec in (then_specs_if_commander or [])
@@ -3356,42 +3826,59 @@ class MiscSystemsMixin:
             "commander_taken": False,
             # MEC-17: whether this pick should also be remembered onto
             # ``source`` (`GameObject.linked_exile_id`) — see
-            # `request_choose_objects`'s own docstring.
+            # `_request_choose_objects`'s own docstring.
             "remember": remember,
             # MEC-12: whether every ``"exile"`` pick should accumulate onto
             # ``source`` (`GameObject.exiled_with_ids`) — see
-            # `request_choose_objects`'s own docstring.
+            # `_request_choose_objects`'s own docstring.
             "track_exiled_with": track_exiled_with,
             # MEC-43 (RULE 701.47, connive): whether an ``action="discard"``
             # pick should also check the discarded card's own ``is_land``
             # and place a +1/+1 counter on ``source`` — see
-            # `request_choose_objects`'s own docstring.
+            # `_request_choose_objects`'s own docstring.
             "connive": connive,
             "rest_ids": list(rest_ids) if rest_ids else None,
             "rest_destination": rest_destination,
             "decline_leaves_untouched": decline_leaves_untouched,
+            "total_mana_value_budget": total_mana_value_budget,
+            "distinct_card_types": bool(distinct_card_types),
+            "then_that_many": dict(then_that_many) if then_that_many else None,
         }
-    def resolve_choose_objects_choice(self, instance_id: Optional[int]) -> None:
+    @continuations.choice("choose_objects", answer=continuations.ANSWER_INT, rule="601.2b")
+    def _resume_choose_objects(self, choice: dict[str, Any], instance_id: Optional[int]) -> None:
         """Answer a pending `choose_objects` decision: apply the action to
         the chosen object, then re-ask while picks remain (or stop on a
         decline — RULE 601.2c's "up to"/"may" shape)."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "choose_objects":
-            raise ValueError("no pending object choice to resolve")
         player = self.state.player_by_id(choice["player_id"])
         picked: list[int] = list(choice["picked"])
+        if instance_id is None and not choice.get("optional"):
+            self.state.pending_choice = choice
+            raise ValueError("This choice is mandatory")
         offered = {o["instance_id"] for o in choice["options"] if "instance_id" in o}
         if instance_id is not None:
             if instance_id not in offered:
+                # resolve_choice claims the continuation before dispatch;
+                # an invalid answer must leave this untouched choice open.
+                self.state.pending_choice = choice
                 raise ValueError(f"{instance_id} is not a legal choice")
             picked.append(instance_id)
         source = self._object_by_instance_id(choice.get("source_id"))
         declined = instance_id is None
         chosen = self._object_by_instance_id(instance_id) if instance_id is not None else None
+        picked_card_types = [set(types) for types in choice.get("picked_card_types", [])]
+        if chosen is not None and choice.get("distinct_card_types"):
+            picked_card_types.append(_card_type_words(chosen))
         # Applied as each pick is made rather than all at the end: tapping
         # or sacrificing one permanent can change what the remaining
         # candidates even are (RULE 608.2's "as the effect resolves").
         commander_taken = bool(choice.get("commander_taken"))
+        if int(choice.get("count") or 1) > 1:
+            # RULE 603.2c: the picks of one multi-pick choice are one event; the batch
+            # stays open until the choice completes (`release_batches` below).
+            self.state.hold_batches()
+        picked_measure = int(choice.get("picked_measure", 0) or 0)
+        if chosen is not None:
+            picked_measure += _that_many_value(choice.get("then_that_many"), [chosen])
         if chosen is not None and player is not None:
             commander_taken = commander_taken or chosen.is_commander
             self._apply_chosen_object(
@@ -3401,32 +3888,56 @@ class MiscSystemsMixin:
                 redirect_shield=choice.get("redirect_shield"),
                 connive=bool(choice.get("connive")),
                 control_recipient_id=choice.get("control_recipient_id"),
+                hideaway_incarnation=choice.get("hideaway_incarnation"),
             )
         remaining_pool = [
             obj
             for obj in self._choose_objects_pool(choice, picked)
             if obj is not None
         ]
+        budget = choice.get("total_mana_value_budget")
+        if budget is not None:
+            spent = sum(
+                int(getattr(getattr(self._object_by_instance_id(i), "card", None), "converted_mana_cost", 0) or 0)
+                for i in picked
+            )
+            remaining_pool = [
+                obj for obj in remaining_pool
+                if int(getattr(obj.card, "converted_mana_cost", 0) or 0) <= int(budget) - spent
+            ]
+        if choice.get("distinct_card_types"):
+            remaining_pool = [o for o in remaining_pool if _distinct_card_type_assignment(
+                picked_card_types + [_card_type_words(o)]
+            )]
         if declined or len(picked) >= choice["count"] or not remaining_pool:
             self.state.pending_choice = None
+            self.state.release_batches()
             if choice.get("rest_destination") and choice.get("rest_ids"):
                 if declined and choice.get("decline_leaves_untouched"):
                     pass
                 else:
                     unpicked_rest = [iid for iid in choice["rest_ids"] if iid not in picked]
                     self._handle_rest_inspected(player, unpicked_rest, choice["rest_destination"])
-            if picked:
-                # RULE 601.2c: "if you do, …" only fires when something was
-                # actually chosen — a declined optional choice does nothing.
-                self._apply_choose_objects_tail(
-                    source, choice.get("then_specs"),
-                    choice.get("then_specs_if_commander"), commander_taken,
-                )
-            elif choice.get("else_specs"):
-                # "If you don't, incubate 3." (Traumatic Revelation) — the
-                # declined-optional-choice branch `then_specs` deliberately
-                # skips.
-                self._apply_effect_specs(list(choice["else_specs"]), source)
+            outer_controller = self.context.resolving_controller_id
+            self.context.resolving_controller_id = choice.get("effect_controller_id")
+            try:
+                if picked:
+                    # RULE 601.2c: "if you do, …" only fires when something was
+                    # actually chosen — a declined optional choice does nothing.
+                    self._apply_choose_objects_tail(
+                        source, choice.get("then_specs"),
+                        choice.get("then_specs_if_commander"), commander_taken,
+                        choice.get("then_that_many"),
+                        picked_measure if (choice.get("then_that_many") or {}).get("measure") else len(picked),
+                        chosen_ids=picked,
+                    )
+                elif choice.get("else_specs"):
+                    # "If you don't, incubate 3." (Traumatic Revelation) — the
+                    # declined-optional-choice branch `then_specs` deliberately
+                    # skips.
+                    self._apply_effect_specs(list(choice["else_specs"]), source)
+            finally:
+                self.context.resolving_controller_id = outer_controller
             return
         next_choice = self._choose_objects_choice(
             player, remaining_pool, choice["action"], choice["count"],
@@ -3442,9 +3953,15 @@ class MiscSystemsMixin:
             rest_ids=choice.get("rest_ids"),
             rest_destination=choice.get("rest_destination"),
             decline_leaves_untouched=bool(choice.get("decline_leaves_untouched")),
+            total_mana_value_budget=choice.get("total_mana_value_budget"),
+            then_that_many=choice.get("then_that_many"),
+            distinct_card_types=bool(choice.get("distinct_card_types")),
         )
+        next_choice["effect_controller_id"] = choice.get("effect_controller_id")
         next_choice["commander_taken"] = commander_taken
-        self.state.pending_choice = next_choice
+        next_choice["picked_measure"] = picked_measure
+        next_choice["picked_card_types"] = [sorted(types) for types in picked_card_types]
+        self.open_choice(next_choice)
     def _choose_objects_pool(
         self, choice: dict[str, Any], picked: list[int]
     ) -> list[GameObject]:
@@ -3467,6 +3984,12 @@ class MiscSystemsMixin:
                 for obj in cards:
                     if obj.instance_id == instance_id:
                         return obj
+        # A spell mid-resolution is in no zone (popped off the stack, not yet routed to its graveyard): its
+        # suspended remainder (RULE 608.2) is where it still lives.
+        for frame in self.state.deferred_effects:
+            for candidate in (frame.get("source"), getattr(frame.get("stack_item"), "obj", None)):
+                if candidate is not None and getattr(candidate, "instance_id", None) == instance_id:
+                    return candidate
         return None
     def _apply_chosen_object(
         self,
@@ -3475,6 +3998,7 @@ class MiscSystemsMixin:
         action: str,
         source: Optional[GameObject],
         remember: bool = False,
+        hideaway_incarnation: Optional[int] = None,
         track_exiled_with: bool = False,
         prevent_shield: Optional[dict] = None,
         redirect_shield: Optional[dict] = None,
@@ -3484,13 +4008,75 @@ class MiscSystemsMixin:
         """Do the one thing a `choose_objects` action names to one pick."""
         if action == "tap":
             self.set_tapped(obj, True)
+        elif action == "phase_out":
+            obj.phased_out = True
+            for other in self.state.battlefield:
+                if other.attached_to == obj.instance_id:  # same detaching as `PhaseOutEffect`
+                    other.attached_to = None
+        elif action == "untap":
+            # "Untap up to three lands." (Frantic Search, Snap-shaped) — untargeted, so a pick, not a target.
+            self.set_tapped(obj, False)
+        elif action == "strip_all_counters":
+            # Eventide's Shadow: remove every counter from the pick, via the
+            # negative-`add_counters` idiom (`ProliferateEffect`/
+            # `RemoveCountersEffect`) so a "counter removed" consumer still
+            # sees it correctly.
+            for kind in list((obj.counters or {}).keys()):
+                amount = obj.counters.get(kind, 0)
+                if amount:
+                    self.add_counters(obj, -amount, kind)
         elif action == "sacrifice":
             # RULE 701.17a: non-destructive, so no regeneration shield saves it.
+            self.note_sacrificed(source, obj)
             self.put_into_graveyard(obj)
+        elif action == "exploit":
+            # RULE 702.110b: the creature exploits a creature when its controller sacrifices one as the exploit
+            # ability resolves. ``source`` is the exploiting creature; if the sacrifice did not happen (a
+            # replacement effect), nothing was exploited.
+            # A creature that sacrifices *itself* still exploits (it triggers off the battlefield, as a
+            # leaves-the-battlefield ability would), so the event fires before the sacrifice in that case.
+            exploited = GameEvent(
+                EventType.EXPLOITS,
+                instance_id=getattr(source, "instance_id", None),
+                controller_id=player.id,
+                related_ids=[obj.instance_id],
+            )
+            if source is obj:
+                self.state.fire_event(exploited)
+                self.put_into_graveyard(obj)
+            else:
+                self.put_into_graveyard(obj)
+                if source is not None and obj not in self.state.battlefield:
+                    self.state.fire_event(exploited)
+        elif action == "suspect":
+            self.suspect(obj)
+        elif action == "destroy":
+            # Immoral Bargain (PAR-60 round 4): RULE 701.7 "destroy" — honours
+            # regeneration and indestructible, unlike ``sacrifice`` above.
+            self.destroy(obj)
         elif action == "return_to_hand":
             self.return_to_hand(obj)
         elif action == "return_from_graveyard":
-            self.return_from_graveyard(obj, "battlefield")
+            self.return_from_graveyard(
+                obj, "battlefield", controller_id=control_recipient_id,
+            )
+        elif action == "return_from_graveyard_tapped":
+            self.return_from_graveyard(
+                obj, "battlefield_tapped", controller_id=control_recipient_id,
+            )
+        elif action == "return_from_graveyard_to_hand":
+            self.return_from_graveyard(obj, "hand")
+        elif action == "graveyard_to_library":
+            # Quandrix Command mode 4: move the pick from its owner's
+            # graveyard to its owner's library, then shuffle that library
+            # (RULE 701.20). ``player`` here is the spell's controller (the
+            # chooser), who need not own the card.
+            owner = self.state.player_by_id(obj.owner_id)
+            if owner is not None and obj in owner.graveyard:
+                owner.remove_from_zone(obj, Zone.GRAVEYARD)
+                obj.zone = Zone.LIBRARY
+                owner.add_to_zone(obj, Zone.LIBRARY)
+                self.shuffle_library(owner)
         elif action == "discard":
             # RULE 701.47 (connive, MEC-43 — Ledger Shredder): "if a
             # nonland card was discarded this way, put a +1/+1 counter on
@@ -3499,9 +4085,22 @@ class MiscSystemsMixin:
             # zone, but reading it off the still-in-hand object is the
             # more obviously-correct order.
             is_land = obj.is_land
-            self.discard_specific(obj)
+            self.discard_specific(obj, cause=source)
             if connive and not is_land and source is not None:
                 self.add_counters(source, 1, kind="+1/+1", source=source)
+        elif action in ("hand_to_library_top", "hand_to_library_third"):
+            # Painful Memories / Agonizing Memories / Lost Hours: the hand's owner puts the chosen card into their own
+            # library (RULE 401.7 for "third from the top"); ``player`` here is the chooser, who need not own it.
+            self.return_to_library(obj, "top", 3 if action == "hand_to_library_third" else 1)
+        elif action == "reveal":
+            # PAR-80 (Ivy Seer/Scent of Ivy): reveal has no mechanical
+            # weight of its own (`RevealTopEffect`'s own docstring) — the
+            # pick stays in hand. Only accumulates onto `source`'s own
+            # `GameObject.revealed_with_ids`, the reveal-choice sibling of
+            # MEC-21's ``track_exiled_with``/``exiled_with_ids``, for a
+            # following clause's ``"revealed_with_count"`` count_selector.
+            if source is not None:
+                source.revealed_with_ids.append(obj.instance_id)
         elif action == "remember_source" and prevent_shield is not None:
             # MEC-30 (RULE 615/616.1d "a source of your choice" — Circle of
             # Protection/Rune of Protection): the pick becomes a
@@ -3553,6 +4152,11 @@ class MiscSystemsMixin:
                 self.redirect_damage_from_source(
                     obj, recipient, redirect_shield.get("amount", "all"),
                 )
+        elif action == "grant_perpetual_blitz":
+            obj.perpetual_keywords.add("blitz")
+            obj.perpetual_effects.append({"source": source.name if source else "Blitz", "keywords": ["blitz"]})
+        elif action == "select_referent":
+            self.context.previous_targets = [obj]
         elif action == "remember_source_coinflip":
             # Desperate Gambit, MEC-30: "Choose a source you control and
             # flip a coin. If you win the flip, ... double .... If you
@@ -3563,8 +4167,20 @@ class MiscSystemsMixin:
                 self.grant_damage_multiplier_from_source(obj)
             else:
                 self.prevent_damage_from_source(obj, "all")
-        elif action == "exile":
+        elif action in ("exile", "exile_face_down_linked"):
             self.exile(obj)
+            if action == "exile_face_down_linked":
+                obj.face_down_in_exile = True
+                obj.face_down_exile_viewers = {player.id}
+                obj.hideaway_source_id = getattr(source, "instance_id", None)
+                event = self.context.trigger_event or {}
+                incarnation = (hideaway_incarnation if hideaway_incarnation is not None else
+                               event.get("hideaway_incarnation", getattr(source, "hideaway_incarnation", None)))
+                if source is not None and source.hideaway_incarnation == incarnation:
+                    source.hideaway_exile_ids.add(obj.instance_id)
+                    source.linked_exile_id = obj.instance_id
+                    if obj.instance_id not in source.linked_exile_ids:
+                        source.linked_exile_ids.append(obj.instance_id)
             # RULE 608.2's "it"/"that card" referent for a following clause
             # (MEC-52 — Back from the Brink prices "pay its mana cost" off
             # the just-exiled graveyard card), the same seeding
@@ -3581,7 +4197,7 @@ class MiscSystemsMixin:
                 # `remember`'s accumulating sibling, same field
                 # `ExileEffect(track_exiled_with=True)` uses.
                 source.exiled_with_ids.append(obj.instance_id)
-        elif action == "library_to_battlefield":
+        elif action in ("library_to_battlefield", "library_to_battlefield_tapped", "library_to_battlefield_cheap_bonus"):
             # MEC-41 (Nissa, Steward of Elements' 0 ability): the object is
             # still sitting in the library at this point (unlike every
             # other action above, which acts on a battlefield permanent or
@@ -3589,7 +4205,18 @@ class MiscSystemsMixin:
             # does the same library-pop-then-move split.
             if obj in player.library:
                 player.remove_from_zone(obj, Zone.LIBRARY)
-            self._put_searched_card(player, obj, "battlefield")
+            if action == "library_to_battlefield_cheap_bonus" and (
+                int(obj.card.converted_mana_cost or 0) <= CHEAP_CREATURE_MAX_MANA_VALUE
+            ):
+                obj.entry_bonus_counters["+1/+1"] = CHEAP_CREATURE_BONUS_COUNTERS  # "enters with" — see `_apply_entry_counters`
+            self._put_searched_card(
+                player, obj, "battlefield_tapped" if action.endswith("_tapped") else "battlefield",
+            )
+        elif action in ("grant_temp_play_same_turn", "grant_temp_play_next_turn"):
+            self._grant_temp_play_permission(
+                obj, player, source.name if source is not None else None,
+                action.endswith("_same_turn"), None,
+            )
         elif action == "library_to_hand":
             # MEC-72 (Eclipsed Flamekin): move the picked card from library to hand.
             self._remove_from_current_zone(player, obj)
@@ -3612,6 +4239,15 @@ class MiscSystemsMixin:
                 hit_destination="battlefield",
                 rest_destination="library_bottom_random",
             )
+        elif action == "zone_to_battlefield":
+            if obj.zone not in (Zone.HAND, Zone.COMMAND, Zone.GRAVEYARD, Zone.EXILE):
+                return
+            owner = self.state.player_by_id(obj.owner_id)
+            self._remove_from_current_zone(owner, obj)
+            obj.reset_as_new_object()
+            obj.controller_id = player.id
+            self._put_searched_card(player, obj, "battlefield")
+            self.context.previous_targets = [obj]
         elif action == "hand_to_battlefield":
             # MEC-43 round 4D (Kodama of the East Tree): the hand-zone
             # sibling of "library_to_battlefield" just above — the object
@@ -3659,6 +4295,8 @@ class MiscSystemsMixin:
                     description=label,
                 )
             )
+        elif action == "turn_face_up":
+            self.turn_face_up(obj)
         elif action == "choose_permanent" and source is not None:
             # MEC-26: Scheming Fence's own ETB pick — nothing happens to
             # ``obj`` itself, just a pointer stamped onto the source
@@ -3672,9 +4310,15 @@ class MiscSystemsMixin:
             if obj.controller_id != player.id:
                 obj.controller_id = player.id
                 continuous.recompute(self.state)
+        elif action == "gain_control_and_untap":
+            # Turf War: `gain_control`, then the land untaps (RULE 701.26b).
+            if obj.controller_id != player.id:
+                obj.controller_id = player.id
+                continuous.recompute(self.state)
+            self.set_tapped(obj, False)
         elif action == "gain_control_for" and control_recipient_id is not None:
             # PAR-30 (Cultural Exchange): control moves to a *third*
-            # player, not the chooser — see `request_choose_objects`'s own
+            # player, not the chooser — see `_request_choose_objects`'s own
             # docstring for ``control_recipient_id``.
             if obj.controller_id != control_recipient_id:
                 obj.controller_id = control_recipient_id
@@ -3738,7 +4382,7 @@ class MiscSystemsMixin:
         Finally fires `EventType.RING_TEMPTED` (for "whenever the Ring
         tempts you, `<effect>`" triggers) once ``ring_bearer_id`` is
         settled — immediately for the 0/1-candidate paths here, or from
-        `resolve_ring_bearer_choice` once the interactive pick resolves, so
+        `_resume_ring_bearer` once the interactive pick resolves, so
         a trigger reading "if you chose a creature other than ~" always
         sees the final bearer.
         """
@@ -3754,7 +4398,7 @@ class MiscSystemsMixin:
             player.ring_bearer_id = candidates[0].instance_id
             self.state.fire_event(GameEvent(EventType.RING_TEMPTED, player_id=player.id))
             return
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "ring_bearer",
             "player_id": player.id,
             "prompt": "Wähle eine Kreatur als deinen Ringträger (RULE 701.52a).",
@@ -3766,21 +4410,22 @@ class MiscSystemsMixin:
                 }
                 for obj in candidates
             ],
-        }
-    def resolve_ring_bearer_choice(self, instance_id: int) -> None:
+        })
+    @continuations.choice(
+        "ring_bearer",
+        answer=continuations.ANSWER_INT_REQUIRED,
+        rule="701.52",
+    )
+    def _resume_ring_bearer(self, choice: dict[str, Any], instance_id: int) -> None:
         """Answer a pending `ring_bearer` choice (RULE 701.52a).
 
         Not optional — the choice only ever opens when the player controls
         2+ creatures, and RULE 701.52a makes choosing mandatory then.
         """
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "ring_bearer":
-            raise ValueError("no pending Ring-bearer choice to resolve")
         allowed = {o["instance_id"] for o in choice["options"]}
         if instance_id not in allowed:
             raise ValueError(f"{instance_id} is not a legal Ring-bearer")
         player = self.state.player_by_id(choice["player_id"])
-        self.state.pending_choice = None
         if player is not None:
             player.ring_bearer_id = instance_id
             # `the_ring_tempts_you`'s own RING_TEMPTED firing is deferred to
@@ -3812,7 +4457,7 @@ class MiscSystemsMixin:
         Binding happens here — once, at resolve time — rather than at
         bind-on-load like every other ability, because an emblem has no
         permanent to bind *onto*: `effect_binder.bind_ability` is imported
-        lazily (it imports `game/effects.py`, which this module also feeds
+        lazily (it imports `game/effects/core.py`, which this module also feeds
         into, so a module-level import would cycle) and given a synthetic
         `Emblem` as its ``source`` instead of a `GameObject` (`models/
         emblem.py` — carries just enough, ``controller_id``/``timestamp``,
@@ -3820,7 +4465,7 @@ class MiscSystemsMixin:
         unchanged).
         """
         from ...parser.oracle.spec import AbilitySpec
-        from ..effect_binder import bind_ability
+        from ..binding.core import bind_ability
 
         self.state._timestamp_counter = getattr(self.state, "_timestamp_counter", 0) + 1
         emblem = Emblem(controller_id=player.id, timestamp=self.state._timestamp_counter)
@@ -3934,9 +4579,9 @@ class MiscSystemsMixin:
         if not optional and len(options) == 1:
             item.targets = [self._target_from_descriptor(options[0])]
             return
-        self.state.pending_choice = self._change_target_choice(
+        self.open_choice(self._change_target_choice(
             source.controller_id, item.stack_id, options, optional
-        )
+        ))
     def _target_from_descriptor(self, descriptor: dict[str, Any]) -> Any:
         """A `targeting.legal_targets` descriptor, resolved back to the
         live `GameObject`/`Player` it names."""
@@ -3973,18 +4618,15 @@ class MiscSystemsMixin:
             "prompt": "Neues Ziel wählen",
             "options": choice_options,
         }
-    def resolve_change_target_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice("change_target", answer=continuations.ANSWER_STR, rule="115.4")
+    def _resume_change_target(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `change_target` choice (RULE 115.4/601.2c).
 
         ``answer`` is the chosen new target's option id, same shape as
-        `resolve_trigger_target_choice`; a decline (only offered when
+        `_resume_trigger_target`; a decline (only offered when
         `ChangeTargetEffect.optional` was set) leaves the spell's existing
         target untouched.
         """
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "change_target":
-            raise ValueError("no pending change-target choice to resolve")
-        self.state.pending_choice = None
         if answer is None or answer == "decline":
             return
         item = next(
@@ -4024,7 +4666,7 @@ class MiscSystemsMixin:
         of the merged permanent and must not linger on the battlefield or in
         a graveyard as a second permanent.
         """
-        from ..effect_binder import bind_from_catalogue  # function-scoped: avoid cycle
+        from ..binding.core import bind_from_catalogue  # function-scoped: avoid cycle
 
         # Whichever card ends up *under* contributes only its abilities; the
         # one on top supplies the printed face the pile shows.
@@ -4147,12 +4789,18 @@ class MiscSystemsMixin:
         effects += list(getattr(obj, "static_effects", []) or [])
         if any(isinstance(e, CantBeCounteredEffect) for e in effects):
             return True
+        if self._covered_by_uncounterable_grant(obj):
+            return True
         is_creature = "creature" in (getattr(obj, "type_words", None) or set())
         is_enchantment = "enchantment" in (getattr(obj, "type_words", None) or set())
         for permanent in self.state.battlefield:
             for effect in getattr(permanent, "static_effects", None) or []:
                 if not isinstance(effect, GrantCantBeCounteredEffect):
                     continue
+                if effect.scope == "all_spells":
+                    # "Spells can't be countered." (Lier, Disciple of the Drowned) — every
+                    # spell, whoever controls it or the permanent.
+                    return True
                 if permanent.controller_id != obj.controller_id:
                     continue
                 if effect.scope == "creature_spells_you_control" and not is_creature:
@@ -4170,8 +4818,14 @@ class MiscSystemsMixin:
                         continue
                 return True
         return False
-    def counter_spell(self, target: Any, suspend_time_counters: Optional[int] = None) -> None:
+    def counter_spell(
+        self, target: Any, suspend_time_counters: Optional[int] = None, countered_by: Optional[str] = None,
+        exile_instead: bool = False,
+    ) -> None:
         """Remove a spell (a `StackItem` or its game object) from the stack.
+
+        ``exile_instead`` (Transcendent Dragon — "exile it instead of putting it into its owner's
+        graveyard") sends the countered card to exile rather than the graveyard.
 
         A countered spell goes to its owner's graveyard (RULE 701.5g) and
         never resolves. Unconditional — callers that must honour "can't be
@@ -4194,8 +4848,11 @@ class MiscSystemsMixin:
             return
         self.state.stack.remove(item)
         if item.obj is not None:
+            item.obj.blitz_cost_paid = False  # RULE 400.7: the countered spell is a new object.
             owner = self.state.player_by_id(item.obj.owner_id)
-            if suspend_time_counters:
+            if exile_instead:
+                owner.add_to_zone(item.obj, Zone.EXILE)
+            elif suspend_time_counters:
                 owner.add_to_zone(item.obj, Zone.EXILE)
                 if not _has_suspend(item.obj):
                     item.obj.granted_suspend = True
@@ -4206,6 +4863,10 @@ class MiscSystemsMixin:
         self.state.fire_event(
             GameEvent(EventType.SPELL_RESOLVED, spell=item.description, countered=True)
         )
+        self.state.fire_event(GameEvent(
+            EventType.SPELL_COUNTERED, player_id=countered_by, controller_id=countered_by, spell=item.description,
+            spell_controller_id=getattr(item.obj, "controller_id", None),
+        ))
     def bounce_spell_or_permanent(self, target: Any) -> None:
         """"Return target spell or nonland permanent … to its owner's
         hand." (Sink into Stupor-shaped) — the RULE 701.3-onto-the-stack
@@ -4298,15 +4959,20 @@ class MiscSystemsMixin:
         source: Optional[GameObject] = None,
         suspend_time_counters: Optional[int] = None,
         on_pay_effect_specs: Optional[list[dict]] = None,
+        tap_lands_empty_pool_if_unpaid: bool = False,
+        exile_instead: bool = False,
     ) -> None:
         """`CounterSpellEffect`'s resolve-time logic (RULE 118/601/701.5).
+
+        ``exile_instead`` only applies to the plain (no ``unless_pays``) counter — no printed card
+        combines the exile redirect with a payment.
 
         Refuses outright if ``target`` carries a "can't be countered" marker
         (RULE 118 — the spell stays on the stack, unaffected). With no
         ``unless_pays`` cost this is a plain `counter_spell`. Otherwise it's
         RULE 601's "Mana Leak" template: if the target's controller *can*
         pay ``unless_pays``, this opens an interactive `counter_unless_pays`
-        `pending_choice` for them (`resolve_counter_unless_pays_choice`
+        `pending_choice` for them (`_resume_counter_unless_pays`
         finishes it); a controller who genuinely cannot pay has no real
         decision, so the spell is simply countered without pausing — this is
         also what keeps a passive goldfish-dummy opponent (who never holds
@@ -4322,7 +4988,7 @@ class MiscSystemsMixin:
         ``on_pay_effect_specs`` (Assimilate Essence — "…unless its
         controller pays {4}. If they do, you incubate 2.") are serialized
         `EffectSpec` dicts applied *only* on the branch where the target's
-        controller pays, from `resolve_counter_unless_pays_choice` — stashed
+        controller pays, from `_resume_counter_unless_pays` — stashed
         alongside the other `_pending_counter_*` fields. Inert on every
         branch that ends in a `counter_spell` (they didn't pay).
         """
@@ -4332,8 +4998,12 @@ class MiscSystemsMixin:
         obj = item.obj
         if self._is_cant_be_countered(obj):
             return
+        countered_by = getattr(source, "controller_id", None)
         if not unless_pays:
-            self.counter_spell(target, suspend_time_counters=suspend_time_counters)
+            self.counter_spell(
+                target, suspend_time_counters=suspend_time_counters, countered_by=countered_by,
+                exile_instead=exile_instead,
+            )
             return
         cost = ManaCost.parse(unless_pays)
         if cost.has_variable:
@@ -4342,14 +5012,17 @@ class MiscSystemsMixin:
         if controller is None or not controller.mana_pool.can_pay(
             cost, life_available=controller.life
         ):
-            self.counter_spell(target, suspend_time_counters=suspend_time_counters)
+            self.counter_spell(target, suspend_time_counters=suspend_time_counters, countered_by=countered_by)
+            if tap_lands_empty_pool_if_unpaid and controller is not None:
+                self._tap_lands_and_empty_pool(controller)  # couldn't pay = "doesn't"
             return
+        self._pending_counter_tap_penalty = bool(tap_lands_empty_pool_if_unpaid)
         self._pending_counter_target = target
         self._pending_counter_cost = cost
         self._pending_counter_suspend = suspend_time_counters
         self._pending_counter_on_pay_specs = list(on_pay_effect_specs or [])
         self._pending_counter_on_pay_source = source
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "counter_unless_pays",
             "player_id": controller.id,
             "prompt": f"{obj.name}: {unless_pays} zahlen, um es vor dem Countern zu bewahren?",
@@ -4357,8 +5030,9 @@ class MiscSystemsMixin:
                 {"id": "pay", "label": f"{unless_pays} zahlen"},
                 {"id": "decline", "label": "Nicht zahlen"},
             ],
-        }
-    def resolve_counter_unless_pays_choice(self, answer: Optional[str]) -> None:
+        })
+    @continuations.choice("counter_unless_pays", answer=continuations.ANSWER_STR, rule="118.3")
+    def _resume_counter_unless_pays(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `counter_unless_pays` choice (RULE 601).
 
         ``answer == "pay"`` deducts the cost from the target spell's
@@ -4367,15 +5041,18 @@ class MiscSystemsMixin:
         Essence's "If they do, you incubate 2."); anything else (``None``/
         ``"decline"``) counters it and the on-pay effects never fire.
         """
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "counter_unless_pays":
-            raise ValueError("no pending counter-unless-pays choice to resolve")
-        self.state.pending_choice = None
         target = self._pending_counter_target
         cost = self._pending_counter_cost
         suspend_time_counters = getattr(self, "_pending_counter_suspend", None)
         on_pay_specs = list(getattr(self, "_pending_counter_on_pay_specs", None) or [])
         on_pay_source = getattr(self, "_pending_counter_on_pay_source", None)
+        tap_penalty = bool(getattr(self, "_pending_counter_tap_penalty", False))
+        self._pending_counter_tap_penalty = False
+        penalised = self._stack_item_for(target) if target is not None else None
+        penalised_player = (
+            self.state.player_by_id(penalised.obj.controller_id)
+            if penalised is not None and penalised.obj is not None else None
+        )
         self._pending_counter_target = None
         self._pending_counter_cost = None
         self._pending_counter_suspend = None
@@ -4393,7 +5070,22 @@ class MiscSystemsMixin:
             if on_pay_specs:
                 self._apply_effect_specs(on_pay_specs, on_pay_source)
             return
-        self.counter_spell(target, suspend_time_counters=suspend_time_counters)
+        self.counter_spell(
+            target, suspend_time_counters=suspend_time_counters,
+            countered_by=getattr(on_pay_source, "controller_id", None),
+        )
+        if tap_penalty and penalised_player is not None:
+            self._tap_lands_and_empty_pool(penalised_player)  # Power Sink: "if that player doesn't"
+    def _tap_lands_and_empty_pool(self, player: Player) -> None:
+        """"…they tap all lands with mana abilities they control and lose all unspent mana." (Power Sink)
+        Every untapped land ``player`` controls that has a mana ability is tapped (without producing mana —
+        it is a penalty, not a payment), then the mana pool is emptied (RULE 106.4)."""
+        from ..mana_abilities import mana_abilities_for  # function-scoped: mana_abilities imports the models
+
+        for permanent in list(self.state.permanents_controlled_by(player.id)):
+            if permanent.is_land and not permanent.tapped and mana_abilities_for(permanent, self.state):
+                self.set_tapped(permanent, True)
+        player.mana_pool.empty()
     def _fire_becomes_target_events(self, item: StackItem) -> None:
         """MEC-19: fire `EventType.BECOMES_TARGET` once per target of
         ``item`` — see that constant's own docstring for the full field
@@ -4421,6 +5113,10 @@ class MiscSystemsMixin:
                 target_controller_id=target_controller_id,
                 is_player=is_player,
                 controller_id=item.controller_id,
+                # The acting player — "…becomes the target of a spell an
+                # opponent controls, ~ deals 3 damage to **that player**"
+                # (Thunderbreak Regent): `event_player` reads ``player_id``.
+                player_id=item.controller_id,
                 item_kind=item.kind,
                 stack_id=item.stack_id,
             ))
@@ -4539,7 +5235,7 @@ class MiscSystemsMixin:
         self._pending_ward_caster_id = caster_id
         self._pending_ward_cost = cost
         cost_label = cost.label()
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "ward",
             "player_id": caster.id,
             "prompt": f"Ward {cost_label} — zahlen, um deinen Zauberspruch/deine Fähigkeit zu "
@@ -4548,8 +5244,10 @@ class MiscSystemsMixin:
                 {"id": "pay", "label": f"{cost_label} zahlen"},
                 {"id": "decline", "label": "Nicht zahlen"},
             ],
-        }
-    def _can_pay_player_cost(self, player: Player, cost: ActivationCost) -> bool:
+        })
+    def _can_pay_player_cost(
+        self, player: Player, cost: ActivationCost, source: Optional[GameObject] = None
+    ) -> bool:
         """Whether ``player`` can pay ``cost`` out of their own resources.
 
         The same per-component affordability checks
@@ -4599,7 +5297,29 @@ class MiscSystemsMixin:
             return False
         if cost.blight and not self.blight_possible(player):
             return False
+        if source is not None and self._source_counter_removal(source, cost) is False:
+            return False
         return True
+    def _source_counter_removal(
+        self, source: GameObject, cost: ActivationCost
+    ) -> Optional[tuple[str, int]]:
+        """The ``(kind, count)`` a "you may remove a `<kind>` counter from ~" payment takes off
+        ``source`` (PAR-140 — Biting-Palm Ninja, Kappa Tech-Wrecker), ``None`` when ``cost`` has no
+        such component, ``False`` when ``source`` doesn't carry enough. A fixed count only: the
+        X/any-number sentinels need an announcement `pay_cost_then` doesn't have, so they stay
+        unpayable here rather than guessed at. **Documented simplification:** "a counter" of no
+        named kind ("remove a counter from ~", Slumbering Walker) takes the source's first kind."""
+        if not cost.remove_counters or cost.remove_counters_from:
+            return None
+        kind, count = cost.remove_counters
+        if count <= 0:
+            return False
+        counters = {k: v for k, v in (source.counters or {}).items() if v and v > 0}
+        if kind == REMOVE_COUNTERS_ANY_KIND:
+            kind = next(iter(counters), "")
+        if counters.get(kind, 0) < count:
+            return False
+        return kind, count
     def _can_sacrifice_or_discard(self, player: Player) -> bool:
         """Whether ``player`` could pay a `sacrifice_or_discard` cost right
         now — a nonland permanent to sacrifice, or a card in hand."""
@@ -4608,7 +5328,9 @@ class MiscSystemsMixin:
             for obj in self.state.permanents_controlled_by(player.id)
         )
         return has_nonland or bool(player.hand)
-    def _pay_player_cost(self, player: Player, cost: ActivationCost) -> None:
+    def _pay_player_cost(
+        self, player: Player, cost: ActivationCost, source: Optional[GameObject] = None
+    ) -> None:
         """Charge ``player`` a cost's components — reuses the same per-kind
         payment primitives `GameEngine.activate_ability` charges an activated
         ability's cost with. The payment half of `_can_pay_player_cost`."""
@@ -4632,13 +5354,17 @@ class MiscSystemsMixin:
         if cost.blight:
             # RULE 701.68 — auto-pick (payment can't pause for a chooser).
             self.blight(player, cost.blight, interactive=False)
+        if source is not None:
+            removal = self._source_counter_removal(source, cost)
+            if removal:
+                self.add_counters(source, -removal[1], removal[0])
     def _pay_sacrifice_or_discard(self, player: Player) -> None:
         """Pay a `sacrifice_or_discard` cost component — the payer's own
         choice of *which* half (Tergrid's Lantern, MEC-43 round 4E). Forced
         (no prompt) when only one half is actually available, the same
-        "asking would be theatre" idiom `request_choose_objects` uses; with
+        "asking would be theatre" idiom `_request_choose_objects` uses; with
         both available, opens the small dedicated `sacrifice_or_discard`
-        choice below, then `resolve_sacrifice_or_discard_choice` dispatches
+        choice below, then `_resume_sacrifice_or_discard` dispatches
         into the existing interactive `sacrifice`/`discard_choice`
         machinery (each already its own "which one" chooser)."""
         can_sacrifice = any(
@@ -4647,7 +5373,7 @@ class MiscSystemsMixin:
         )
         can_discard = bool(player.hand)
         if can_sacrifice and can_discard:
-            self.state.pending_choice = {
+            self.open_choice({
                 "kind": "sacrifice_or_discard",
                 "player_id": player.id,
                 "prompt": "Eine bleibende Karte opfern oder eine Karte abwerfen?",
@@ -4655,22 +5381,23 @@ class MiscSystemsMixin:
                     {"id": "sacrifice", "label": "Bleibende Karte opfern"},
                     {"id": "discard", "label": "Karte abwerfen"},
                 ],
-            }
+            })
             return
         if can_sacrifice:
             self.sacrifice(player, "nonland", 1)
         elif can_discard:
             self.discard_choice(player, 1)
-    def resolve_sacrifice_or_discard_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice(
+        "sacrifice_or_discard",
+        answer=continuations.ANSWER_STR,
+        rule="701.21",
+    )
+    def _resume_sacrifice_or_discard(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `sacrifice_or_discard` choice — ``"sacrifice"``
         opens the interactive "which permanent" chooser, ``"discard"`` the
         interactive "which card" one; anything else re-checks both halves
         defensively (the board can have changed since the offer was made)
         rather than silently paying nothing."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "sacrifice_or_discard":
-            raise ValueError("no pending sacrifice-or-discard choice to resolve")
-        self.state.pending_choice = None
         player = self.state.player_by_id(choice["player_id"])
         if answer == "discard":
             self.discard_choice(player, 1)
@@ -4678,7 +5405,8 @@ class MiscSystemsMixin:
             self.sacrifice(player, "nonland", 1)
         else:
             self._pay_sacrifice_or_discard(player)
-    def resolve_ward_choice(self, answer: Optional[str]) -> None:
+    @continuations.choice("ward", answer=continuations.ANSWER_STR, rule="702.21")
+    def _resume_ward(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `ward` choice (RULE 702.21).
 
         ``answer == "pay"`` charges the *caster* the cost and leaves the
@@ -4688,10 +5416,6 @@ class MiscSystemsMixin:
         becomes the new top of the stack and resolves next through the
         ordinary stack loop — no extra bookkeeping needed here.
         """
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "ward":
-            raise ValueError("no pending ward choice to resolve")
-        self.state.pending_choice = None
         item = self._pending_ward_item
         cost = self._pending_ward_cost
         caster_id = self._pending_ward_caster_id
@@ -4864,7 +5588,7 @@ class MiscSystemsMixin:
     def choose_protector(self, obj: GameObject, player_id: Optional[str]) -> None:
         """Set ``obj``'s protector (RULE 310.8a), validated against its battle
         type. An unrecognized/missing ``player_id`` falls back to the first
-        eligible player — the same treatment `resolve_enter_choice` gives a
+        eligible player — the same treatment `_resume_choose_creature_type` gives a
         missing answer to a mandatory choice, so a battle is never left
         without one (which RULE 310.10 would then punish with a graveyard
         move)."""

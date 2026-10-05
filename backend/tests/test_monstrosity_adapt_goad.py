@@ -44,11 +44,11 @@ from __future__ import annotations
 import pytest
 
 from mtg_analyzer.game import combat, continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.catalogue.static_handlers import static_effect_specs
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
@@ -209,7 +209,7 @@ def test_monstrosity_x_uses_the_announced_x():
     specs = match_clause("monstrosity x")
     assert [(s.type, s.params) for s in specs] == [("monstrosity", {"amount": "x"})]
 
-    from mtg_analyzer.game.effects import EffectRegistry
+    from mtg_analyzer.game.effects.core import EffectRegistry
 
     effect = EffectRegistry.create("monstrosity", {"amount": "x"})
     eng = _engine()
@@ -395,7 +395,7 @@ def test_goaded_creature_attacking_a_third_player_is_fine():
 
 
 def test_goad_target_creature_parses_and_resolves():
-    from mtg_analyzer.game.effects import EffectRegistry
+    from mtg_analyzer.game.effects.core import EffectRegistry
 
     specs = match_clause("goad target creature")
     assert [(s.type, s.params) for s in specs] == [("goad", {"target_kind": "creature"})]
@@ -411,7 +411,7 @@ def test_goad_target_creature_parses_and_resolves():
 
 
 def test_goad_mass_form_hits_every_opposing_creature():
-    from mtg_analyzer.game.effects import EffectRegistry
+    from mtg_analyzer.game.effects.core import EffectRegistry
 
     specs = match_clause("goad all creatures your opponents control")
     assert specs and specs[0].type == "goad"

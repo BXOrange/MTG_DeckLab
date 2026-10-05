@@ -34,16 +34,16 @@ Bridges this repo's subsystems to the CR sections they implement
 | Combat & combat keywords | 506 Combat Phase, 507 Beginning of Combat Step, 508 Declare Attackers Step, 509 Declare Blockers Step, 510 Combat Damage Step, 511 End of Combat Step, 702 Keyword Abilities | `game/combat.py, game/game_engine.py (_step_combat_damage)` |
 | Casting spells / the stack | 601 Casting Spells, 608 Resolving Spells and Abilities, 112 Spells, 405 Stack | `game/rules_engine.py, services/game_session.py` |
 | Activated abilities & costs | 602 Activating Activated Abilities, 118 Costs, 606 Loyalty Abilities | `game/costs.py, game/game_engine.py (activate_ability)` |
-| Triggered abilities | 603 Handling Triggered Abilities | `game/effects.py, game/effect_binder.py` |
+| Triggered abilities | 603 Handling Triggered Abilities | `game/effects/core.py, game/binding/core.py` |
 | Static abilities / layers (P/T, anthems) | 604 Handling Static Abilities, 611 Continuous Effects, 613 Interaction of Continuous Effects | `game/continuous.py, models/game_object.py` |
-| Replacement & prevention effects | 614 Replacement Effects, 615 Prevention Effects, 616 Interaction of Replacement and/or Prevention Effects | `game/effects.py` |
+| Replacement & prevention effects | 614 Replacement Effects, 615 Prevention Effects, 616 Interaction of Replacement and/or Prevention Effects | `game/effects/core.py` |
 | Mana | 106 Mana, 107 Numbers and Symbols, 202 Mana Cost and Color, 605 Mana Abilities | `game/mana_abilities.py, models/mana_cost.py, models/mana_pool.py` |
 | Targeting | 115 Targets, 601 Casting Spells | `game/targeting.py` |
 | State-based actions | 704 State-Based Actions | `game/rules_engine.py (SBAs)` |
 | Damage / life | 119 Life, 120 Damage | `game/rules_engine.py` |
 | Counters | 122 Counters | `game/rules_engine.py` |
 | Zones | 400 General, 401 Library, 402 Hand, 403 Battlefield, 404 Graveyard, 405 Stack, 406 Exile | `models/game_state.py` |
-| Keyword actions & abilities | 701 Keyword Actions, 702 Keyword Abilities | `game/combat.py, game/effects.py` |
+| Keyword actions & abilities | 701 Keyword Actions, 702 Keyword Abilities | `game/combat.py, game/effects/core.py` |
 | Commander | 903 Commander | `services/game_session.py` |
 | Mulligan / starting the game | 103 Starting the Game | `game/game_engine.py` |
 

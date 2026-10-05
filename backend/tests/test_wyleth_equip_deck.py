@@ -1,5 +1,5 @@
 """End-to-end checks for the "Wyleth Equip" commander deck's hand-authored
-catalogue entries (`game/ability_catalogue.py`) and the engine primitives
+catalogue entries (`game/card_registry.py`) and the engine primitives
 they lean on (mass board wipes, the "combat damage to a player"/"equipped
 creature" trigger family, Living Weapon, Renown, per-count static buffs).
 
@@ -13,17 +13,13 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import (
-    DestroyEffect,
-    ExileGainLifeToControllerEffect,
-    TargetPlayerDrawLoseLifeEffect,
-    UnattachTapIndestructibleEffect,
-)
+from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
+from mtg_analyzer.game.effects.core import DestroyEffect, _apply_effects_partitioned
+from mtg_analyzer.parser.oracle.spec import EffectSpec
 from mtg_analyzer.game import continuous
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 
@@ -80,7 +76,7 @@ def test_wyleth_draws_a_card_per_attached_aura_and_equipment():
     eng.declare_attackers(state.active_player, [wyleth])
     eng.resolve_until_stable()
     if state.pending_choice and state.pending_choice.get("kind") == "search":
-        eng.rules.resolve_search_choice(None)  # decline Sword of the Animist's land tutor
+        eng.rules.resolve_choice(None)  # decline Sword of the Animist's land tutor
         eng.resolve_until_stable()
 
     assert len(state.active_player.hand) - before == 2
@@ -93,7 +89,15 @@ def test_akiri_second_ability_unattaches_taps_and_grants_indestructible():
     equip = _bound_battlefield_obj(state, _card("Colossus Hammer"))
     equip.attached_to = host.instance_id
 
-    UnattachTapIndestructibleEffect(target=equip).apply(eng.rules.context)
+    effect = build_effects([EffectSpec("optional", {"effects": [
+        {"type": "unattach", "params": {"target_kind": "attached_equipment_you_control"}},
+        {"type": "tap", "params": {"target_kind": None,
+         "target_operand": {"of": "previous_target", "as": "host"}}},
+        {"type": "pump", "params": {"keywords": ["indestructible"], "target_kind": None,
+         "target_operand": {"of": "previous_target", "as": "host"}}},
+    ]})], None)[0]
+    effect.apply(eng.rules.context, [equip])
+    eng.rules.resolve_choice("yes")
 
     assert equip.attached_to is None
     assert host.tapped is True
@@ -145,13 +149,26 @@ def test_relic_seeker_renown_fires_the_search_for_equipment():
     # opens the actual library-search choice.
     assert state.pending_choice is not None
     assert state.pending_choice.get("kind") == "trigger_target"
-    eng.rules.resolve_trigger_target_choice("do")
+    eng.rules.resolve_choice("do")
     eng.resolve_until_stable()
     assert state.pending_choice is not None
     assert state.pending_choice.get("kind") == "search"
 
 
 def test_swords_to_plowshares_exiles_and_gains_life_equal_to_power():
+    """ENG-37: now the composition the card reads as, not a welded effect.
+
+    Driven through `bind_from_catalogue`'s own specs rather than by
+    constructing a class, because the point of retiring
+    ``exile_gain_life_equal_power`` is that the two halves compose — the
+    amount is measured off the exiled creature (`effect_amounts`) and the
+    life is paid to *its* controller (`effect_operands`), neither of which
+    the IR could express before.
+    """
+    from mtg_analyzer.game.card_registry import specs_for
+    from mtg_analyzer.game.binding.core import build_effects
+    from mtg_analyzer.game.effects.core import _apply_effects_partitioned
+
     eng = _engine()
     state = eng.state
     titan = _bound_battlefield_obj(state, _card("Sun Titan"), controller="p2")
@@ -159,7 +176,10 @@ def test_swords_to_plowshares_exiles_and_gains_life_equal_to_power():
     power = titan.power
     life_before = state.player_by_id("p2").life
 
-    ExileGainLifeToControllerEffect(target=titan).apply(eng.rules.context)
+    spec = specs_for(_card("Swords to Plowshares"))[0]
+    _apply_effects_partitioned(
+        build_effects(spec.effects, None), eng.rules.context, [titan], None,
+    )
 
     assert titan not in state.battlefield
     assert state.player_by_id("p2").life == life_before + power
@@ -179,6 +199,9 @@ def test_wrath_of_god_destroys_every_creature_and_ignores_regeneration():
 
 
 def test_sign_in_blood_draws_and_loses_life_on_the_same_target():
+    # ENG-37 B4: the fused ``target_player_draw_lose_life`` retired to a
+    # `seq` of `draw` (carries the sole player target) + `lose_life`
+    # (``previous_subject`` — same player, no target of its own).
     eng = _engine()
     state = eng.state
     opponent = state.player_by_id("p2")
@@ -186,7 +209,15 @@ def test_sign_in_blood_draws_and_loses_life_on_the_same_target():
         opponent.library.append(GameObject(_card("Sun Titan"), owner_id="p2", zone=Zone.LIBRARY))
     before_hand, before_life = len(opponent.hand), opponent.life
 
-    TargetPlayerDrawLoseLifeEffect(draw_count=2, life_loss=2, target=opponent).apply(eng.rules.context)
+    effects = build_effects(
+        [EffectSpec("seq", {"effects": [
+            {"type": "draw", "params": {"count": 2, "target_kind": "player"}},
+            {"type": "lose_life", "params": {"amount": 2, "previous_subject": True}},
+        ]})],
+        None,
+    )
+    assert [ts.kind for e in effects for ts in e.target_specs] == ["player"]
+    _apply_effects_partitioned(effects, eng.rules.context, [opponent], None)
 
     assert len(opponent.hand) - before_hand == 2
     assert opponent.life == before_life - 2
@@ -255,7 +286,7 @@ def test_sunforger_unattaches_itself_and_free_casts_a_found_instant():
     assert choice is not None and choice["kind"] == "search"
     assert choice["destination"] == "cast_free"
     found = next(o for o in choice["options"] if o.get("instance_id"))
-    eng.rules.resolve_search_choice(found["instance_id"])
+    eng.rules.resolve_choice(found["instance_id"])
 
     assert any(
         getattr(item.obj, "name", None) == "Swords to Plowshares" for item in state.stack

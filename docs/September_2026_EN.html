@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeckLab — Project History September 2026</title>
+    <style>
+        :root {
+            --bg-main: #f5f5f5;
+            --bg-card: #ffffff;
+            --text-primary: #1a1a1a;
+            --text-secondary: #666;
+            --accent: #d4af37;
+            --border: #ddd;
+            --code-bg: #f8f8f8;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg-main: #1a1a1a;
+                --bg-card: #2d2d2d;
+                --text-primary: #e0e0e0;
+                --text-secondary: #999;
+                --accent: #ffd700;
+                --border: #444;
+                --code-bg: #1f1f1f;
+            }
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', sans-serif;
+            background-color: var(--bg-main);
+            color: var(--text-primary);
+            line-height: 1.7;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 50px;
+            border-bottom: 3px solid var(--accent);
+            padding-bottom: 30px;
+        }
+
+        header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            color: var(--accent);
+        }
+
+        header p {
+            color: var(--text-secondary);
+            font-size: 1.1em;
+        }
+
+        .snapshot-meta {
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.95em;
+            margin-bottom: 40px;
+        }
+
+        .toc {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 25px;
+            margin-bottom: 40px;
+        }
+
+        .toc h2 {
+            color: var(--accent);
+            margin-bottom: 15px;
+        }
+
+        .toc ol {
+            list-style-position: inside;
+            color: var(--text-secondary);
+        }
+
+        .toc li {
+            margin-bottom: 10px;
+        }
+
+        .toc a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        .toc a:hover {
+            text-decoration: underline;
+        }
+
+        section {
+            margin-bottom: 50px;
+        }
+
+        h2 {
+            font-size: 1.8em;
+            color: var(--accent);
+            margin: 40px 0 20px 0;
+            padding-bottom: 10px;
+            border-bottom: 2px solid var(--border);
+        }
+
+        h3 {
+            font-size: 1.3em;
+            color: var(--text-primary);
+            margin: 30px 0 15px 0;
+        }
+
+        h4 {
+            font-size: 1.1em;
+            color: var(--text-primary);
+            margin: 20px 0 10px 0;
+        }
+
+        p {
+            margin-bottom: 15px;
+            color: var(--text-primary);
+        }
+
+        strong {
+            color: var(--accent);
+        }
+
+        ul, ol {
+            margin-left: 25px;
+            margin-bottom: 15px;
+        }
+
+        li {
+            margin-bottom: 8px;
+            color: var(--text-primary);
+        }
+
+        code {
+            background-color: var(--code-bg);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+
+        .highlight-box {
+            background-color: var(--bg-card);
+            border-left: 4px solid var(--accent);
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin: 30px 0;
+        }
+
+        .stat-card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .stat-card .number {
+            font-size: 2em;
+            color: var(--accent);
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .stat-card .label {
+            color: var(--text-secondary);
+            font-size: 0.95em;
+        }
+
+        .checklist {
+            list-style: none;
+            margin: 20px 0;
+        }
+
+        .checklist li {
+            padding-left: 30px;
+            position: relative;
+            margin-bottom: 10px;
+        }
+
+        .checklist li:before {
+            content: '✅';
+            position: absolute;
+            left: 0;
+        }
+
+        .checklist li.unchecked:before {
+            content: '❌';
+        }
+
+        .lessons-container {
+            display: grid;
+            gap: 20px;
+            margin: 25px 0;
+        }
+
+        .lesson {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border);
+            border-left: 4px solid var(--accent);
+            padding: 20px;
+            border-radius: 4px;
+        }
+
+        .lesson h4 {
+            color: var(--accent);
+            margin-top: 0;
+        }
+
+        footer {
+            text-align: center;
+            color: var(--text-secondary);
+            padding-top: 40px;
+            border-top: 1px solid var(--border);
+            margin-top: 60px;
+            font-size: 0.9em;
+        }
+
+        .phase {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+
+        .phase h3 {
+            margin-top: 0;
+            color: var(--accent);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background-color: var(--bg-card);
+        }
+
+        th, td {
+            border: 1px solid var(--border);
+            padding: 12px;
+            text-align: left;
+        }
+
+        th {
+            background-color: var(--code-bg);
+            color: var(--accent);
+            font-weight: bold;
+        }
+
+        .tldr {
+            background: linear-gradient(135deg, rgba(212, 175, 55, 0.1) 0%, rgba(212, 175, 55, 0.05) 100%);
+            border: 2px solid var(--accent);
+            border-radius: 8px;
+            padding: 25px;
+            margin: 40px 0;
+            font-size: 1.05em;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px 15px;
+            }
+
+            header h1 {
+                font-size: 1.8em;
+            }
+
+            h2 {
+                font-size: 1.4em;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎴 DeckLab</h1>
+            <p>Project History</p>
+            <div class="snapshot-meta">Snapshot: September 2026</div>
+        </header>
+
+        <div class="toc">
+            <h2>Table of Contents</h2>
+            <ol>
+                <li><a href="#origin">Origin</a></li>
+                <li><a href="#phase1">Phase 1: Core Infrastructure</a></li>
+                <li><a href="#phase2">Phase 2: Game Engine Foundation</a></li>
+                <li><a href="#phase3">Phase 3: Parser Foundation</a></li>
+                <li><a href="#phase4">Phase 4: Complex Card Structures</a></li>
+                <li><a href="#phase5">Phase 5: Replay/Puzzle Mode & Board Construction</a></li>
+                <li><a href="#phase5b">Phase 5b: Multiplayer & Sessions</a></li>
+                <li><a href="#phase6a">Phase 6a: Static & Dynamic Deck Analysis</a></li>
+                <li><a href="#phase6b">Phase 6b: Parser Batches & ENG-37</a></li>
+                <li><a href="#phase7">Phase 7: Commander-Focused Sprint</a></li>
+                <li><a href="#phase8">Phase 8: Current Status</a></li>
+                <li><a href="#lessons">Critical Lessons</a></li>
+                <li><a href="#status">Where DeckLab Stands</a></li>
+            </ol>
+        </div>
+
+        <section id="origin">
+            <h2>Origin: "Can I Test My Deck in a Sandbox?"</h2>
+            <p>Magic: The Gathering is a game with over 30 years of rules, edge cases, and mechanics that don't fit in a human head. With over 30,000 different cards, there are infinite combinations.</p>
+            <p>The original question was simple: <strong>How do I test a Commander deck without playing against real opponents? How do I validate that a combo chain actually works the way I understand it?</strong></p>
+            <p>DeckLab began as an internal sandbox mode — called "goldfish" because you play your deck against a passive opponent who takes no actions.</p>
+        </section>
+
+        <section id="phase1">
+            <h2>Phase 1: Core Infrastructure (July–August 2026)</h2>
+            <p>The first commits show the classic bootstrapping sequence:</p>
+            <ul>
+                <li><strong>Frontend Layout & Deck Import</strong> – A clean German interface for entering decklist text</li>
+                <li><strong>Card Database</strong> – A local SQLite cache with Scryfall integration</li>
+                <li><strong>Deck Storage</strong> – Persist saved decks and retrieve them</li>
+                <li><strong>Basic Game Engine</strong> – The first gameplay loop attempts</li>
+            </ul>
+            <div class="highlight-box">
+                <h4>Key Insights:</h4>
+                <ul>
+                    <li><strong>Offline-first</strong>: The project should start without internet.</li>
+                    <li><strong>Separation of Concerns</strong>: Frontend (JavaScript, no build), Backend (Python FastAPI), clear API boundaries.</li>
+                    <li><strong>Decklist Parser</strong>: Available on both sides to avoid redundancy.</li>
+                </ul>
+            </div>
+        </section>
+
+        <section id="phase2">
+            <h2>Phase 2: Game Engine Foundation (July–August 2026)</h2>
+            <p>The real challenge began: <strong>implementing the Comprehensive Rules.</strong></p>
+            <p>The MTG rulebook is not just large—it's also tricky:</p>
+            <ul>
+                <li><strong>The Mana Pool</strong> — hybrid mana, Phyrexian mana, color restrictions (RULE 605)</li>
+                <li><strong>Combat</strong> — ~30 evasion keywords, blocking restrictions, complex damage assignment</li>
+                <li><strong>The Stack</strong> — a state machine with Priority (RULE 117), trigger limitations, resolution</li>
+                <li><strong>Permanents with State</strong> — Tap/Untap, counters, transformation (DFCs), levels</li>
+            </ul>
+            <div class="phase">
+                <h3>Breakthroughs from this phase:</h3>
+                <h4>1. Token Handling</h4>
+                <p>Cards can create tokens during play. These are GameObject instances, not real Cards. The token-database approach became standard.</p>
+
+                <h4>2. Layer System (RULE 613)</h4>
+                <p>A conceptual turning point. Effects resolve into 7 numbered layers—addition, subtraction, type changes, control transfers—in this exact order, always.</p>
+
+                <h4>3. Effect Binding</h4>
+                <p>A GameEffect is a typed object: <code>{"type": "deal_damage", "amount": 3, "recipient": "target"}</code>. An <code>AbilitySpec</code> is pure data—the security boundary between oracle text and code.</p>
+
+                <h4>4. Ability Catalogue</h4>
+                <p>Hand-write abilities for cards instead of parsing them. Later became the fallback for parser gaps.</p>
+            </div>
+        </section>
+
+        <section id="phase3">
+            <h2>Phase 3: Parser Foundation (August 2026)</h2>
+            <p>The parser is Magic's biggest problem. Oracle text is half-regulated, half prose. Syntax is not context-free.</p>
+            <div class="highlight-box">
+                <p>The parser was built in phases:</p>
+                <ol>
+                    <li><strong>normalize</strong>: Unify notation.</li>
+                    <li><strong>segmenter</strong>: Break text into sentences and clauses.</li>
+                    <li><strong>catalogue/handlers</strong>: Each effect type has a handler.</li>
+                    <li><strong>gate.parse_oracle</strong>: The main gate.</li>
+                </ol>
+            </div>
+            <p><strong>Critical Insights:</strong></p>
+            <ul>
+                <li><strong>Fail-closed is better than half-baked</strong>: Cards are only `MODELED` if every clause is recognized.</li>
+                <li><strong>Pattern matching is hard</strong>: Atomic pieces composed beats monolithic grammar.</li>
+                <li><strong>Metrics are critical</strong>: Measure coverage after each change.</li>
+            </ul>
+        </section>
+
+        <section id="phase4">
+            <h2>Phase 4: Complex Card Structures (August 2026)</h2>
+            <p>With a working parser and engine came difficult card types:</p>
+            <ul>
+                <li><strong>Double-Faced Cards (DFCs)</strong>: Two sides, transform mechanics</li>
+                <li><strong>Sagas</strong>: Special permanents with lore counters and chapter triggers (RULE 715)</li>
+                <li><strong>Adventures</strong>: Spell with two sides</li>
+                <li><strong>Replacement Effects</strong>: "If X happens, do Y instead."</li>
+            </ul>
+        </section>
+
+        <section id="phase5">
+            <h2>Phase 5: Replay/Puzzle Mode & Board Construction (August 2026)</h2>
+            <p>Before tackling multiplayer, came a different question: <strong>What if you want to test a specific board state without playing from turn 1?</strong></p>
+            <p>Replay/Puzzle mode is a completely different session type:</p>
+            <div class="phase">
+                <h4>Arbitrary Board Construction</h4>
+                <p>Instead of playing a legal deck from turn 1, construct any board state. Add creatures, artifacts, enchantments. Set life totals, mana pools, counters.</p>
+
+                <h4>Two-Player Setup</h4>
+                <p>1 player = pure puzzle. 2 players = with an opponent.</p>
+
+                <h4>Full Edit API</h4>
+                <p><code>edit_*</code> actions mutate state directly: add/remove/move objects+tokens, tap, flip, counters, life, poison, player counters, turn markers, phase.</p>
+
+                <h4>Save/Load as JSON</h4>
+                <p>Export a board state as a re-resolvable descriptor. Cards by name/id, tokens self-describing. Import back later to resume.</p>
+
+                <h4>Same Engine, Different Semantics</h4>
+                <p>Replay uses the exact same <code>GameSession</code>/<code>GameEngine</code> as goldfish, with <code>mode="replay"</code> and <code>require_setup=False</code>.</p>
+            </div>
+            <div class="highlight-box">
+                <p><strong>Why This Matters for Deck Testing:</strong> If you're testing whether a specific combo works starting from turn 5, you don't construct the whole board. Export a goldfish position, switch to Replay, modify, and verify.</p>
+            </div>
+        </section>
+
+        <section id="phase5b">
+            <h2>Phase 5b: Multiplayer & Sessions (August–September 2026)</h2>
+            <p>After goldfish and Replay worked, came the big question: <strong>What about real PvP?</strong></p>
+            <p>Multiplayer is not just "play with more players." It's a completely different category:</p>
+            <div class="phase">
+                <h4>Lobby</h4>
+                <p>Players join a table. Not authenticated, but with a <code>client_token</code> for session continuity.</p>
+
+                <h4>Presence & Reconnects</h4>
+                <p>A 90-second grace period if disconnected. Priority passes automatically.</p>
+
+                <h4>Priority (RULE 117)</h4>
+                <p>The real challenge. Stack pauses; active player has priority. Interactive and real-time.</p>
+
+                <h4>WebSockets</h4>
+                <p>Bidirectional board-update broadcasting per player.</p>
+
+                <h4>Bots</h4>
+                <p>"Solo gegen Bots" (UC5). A real multiplayer table with AI players.</p>
+            </div>
+            <div class="highlight-box">
+                <p><strong>Key Discovery:</strong> The engine doesn't need multiplayer logic. It only needs per-action actor IDs and per-view perspective filters.</p>
+            </div>
+        </section>
+
+        <section id="phase6a">
+            <h2>Phase 6a: Static & Dynamic Deck Analysis (August–September 2026)</h2>
+            <p>Deck analysis has two layers that together answer <strong>"Is this deck legal? Does it actually work?"</strong></p>
+
+            <div class="phase">
+                <h3>Static Analysis (immediate, no simulation)</h3>
+                <h4>Decklist Parsing</h4>
+                <p>Server-side text parser stripping foil markers, tag/set suffixes, validating structural commands.</p>
+
+                <h4>Commander Legality</h4>
+                <p>Real legality checking — color identity, ban list, RULE 903.3 legendary eligibility, all partnership families.</p>
+
+                <h4>Coverage Assessment</h4>
+                <p>Which cards are MODELED vs. UNMODELED. Per-deck cache (keyed on PARSER_VERSION + catalogue fingerprint).</p>
+
+                <h4>Mana Curve Analysis</h4>
+                <p>Per-color distribution, generic pips, color intensity.</p>
+            </div>
+
+            <div class="phase">
+                <h3>Dynamic Analysis (simulated)</h3>
+                <h4>Game Simulation</h4>
+                <p>Run N independent matches (default: 8) with shuffled random seeds, capturing opening hands and first few turns.</p>
+
+                <h4>Process Pool Parallelization</h4>
+                <p>Each match is CPU-bound, fanning across <code>ProcessPoolExecutor</code> for real speedup (~3x on 10-core box).</p>
+
+                <h4>Metrics Capture</h4>
+                <p>Opening-hand quality, first-turn land drop rate, turn-to-first-spell, actual mana curve validation. Structured data, not prose.</p>
+            </div>
+
+            <div class="highlight-box">
+                <p><strong>Key Insight:</strong> "My deck has 40% lands, good mana curve" means nothing if it never draws lands when it needs them. Simulated games answer real questions about actual playability.</p>
+            </div>
+        </section>
+
+        <section id="phase6b">
+            <h2>Phase 6b: Massive Parser Batches & ENG-37 (August–September 2026)</h2>
+            <p>Parallel to multiplayer and analysis engine development, came a silent architecture refactoring: <strong>ENG-37 — Fusion Retirement</strong></p>
+            <p>The problem: The oracle parser had "fusions" — specialized effect combinations. Hundreds of them made code unreadable.</p>
+            <div class="highlight-box">
+                <p><strong>The Insight:</strong> Write atomic primitives and compose them with a composition language.</p>
+            </div>
+            <p>A 6-week refactoring reduced the catalog to <code>seq</code>, <code>if_else</code>, <code>optional</code>, <code>for_each</code>, and <code>bind</code>. No more fusions. Code shrank 50%. Test coverage rose.</p>
+            <div class="lesson">
+                <h4>Lessons from ENG-37:</h4>
+                <ol>
+                    <li>Small, testable units beat monolithic solutions.</li>
+                    <li>Composition languages are cheaper than hundreds of classes.</li>
+                    <li>Measure before and after major refactorings.</li>
+                </ol>
+            </div>
+        </section>
+
+        <section id="phase7">
+            <h2>Phase 7: Commander-Focused Sprint + Analysis Refinement (September 2026)</h2>
+            <p>Focus shifted to <strong>Commander legality</strong> and real Commander decks.</p>
+            <p>With four features now available—Goldfish for linear play, <strong>Replay for targeted testing and board construction</strong>, Multiplayer for interactive games, and <strong>Dynamic Analysis for statistical deck evaluation</strong>—the testing surface became comprehensive.</p>
+            <div class="highlight-box">
+                <h4>Key Discoveries:</h4>
+                <ul>
+                    <li><strong>Replay Mode for Deckbuilding</strong>: Testing combo-heavy decks meant exporting a goldfish position, switching to Replay, and tweaking the board to verify edge cases.</li>
+                    <li><strong>Complex Mana Lands</strong>: Filter lands needed a new auto-tap engine with converter simulation.</li>
+                    <li><strong>Hand-Author-Card Skill</strong>: For one-card gaps, hand-writing is faster than parsing.</li>
+                    <li><strong>Coverage Measurements</strong>: Global coverage doesn't matter—deck coverage does.</li>
+                    <li><strong>Concurrent Sessions</strong>: Shared docs needed isolation via temporary git indices.</li>
+                    <li><strong>Half-Implementations Cost</strong>: Finish, hand-author, or defer. No pretty halves.</li>
+                </ul>
+            </div>
+        </section>
+
+        <section id="phase8">
+            <h2>Phase 8: Current Status (September 2026)</h2>
+
+            <h3>Coverage Status</h3>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="number">45.86%</div>
+                    <div class="label">Parser Coverage (global)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="number">15,963</div>
+                    <div class="label">MODELED Cards</div>
+                </div>
+                <div class="stat-card">
+                    <div class="number">48.2%</div>
+                    <div class="label">Commander-Legal Coverage</div>
+                </div>
+            </div>
+
+            <h3>Architecture Highlights</h3>
+            <div class="lesson">
+                <h4>1. Separation of Concerns</h4>
+                <p>Frontend (JS, no build), Backend (Python, FastAPI), Parser (isolated), Catalogue (fallback)</p>
+            </div>
+            <div class="lesson">
+                <h4>2. The Layer System</h4>
+                <p>RULE 613 layer engine is the backbone. 7 layers, strict order.</p>
+            </div>
+            <div class="lesson">
+                <h4>3. Priority Architecture</h4>
+                <p>Interactive Priority is opt-in. Solo = automatic. Multiplayer = player-controlled.</p>
+            </div>
+            <div class="lesson">
+                <h4>4. Offline-Safe Startup</h4>
+                <p>No internet required. No network calls except for new card data.</p>
+            </div>
+            <div class="lesson">
+                <h4>5. Test/Production Isolation</h4>
+                <p>Separate <code>backend/cache/test/</code> with automatic reseed.</p>
+            </div>
+
+            <h3>What Works</h3>
+            <ul class="checklist">
+                <li>RULE 613 layer engine (fully implemented)</li>
+                <li>Four major features (Goldfish solo, Replay/Puzzle, Multiplayer with bots, Deck Analysis)</li>
+                <li>Interactive Priority (RULE 117) for multiplayer</li>
+                <li>Board construction & editing (Replay mode with JSON save/load)</li>
+                <li>Static deck validation (legality, ban list, color identity, coverage assessment)</li>
+                <li>Dynamic deck analysis (simulated games, opening hand quality, mana curve validation)</li>
+                <li>45%+ parser coverage (zero regressions)</li>
+                <li>German interface</li>
+                <li>Offline-safe startup</li>
+                <li>Process pool parallelization & concurrent-session discipline</li>
+            </ul>
+
+            <h3>What's Not Implemented</h3>
+            <ul class="checklist unchecked">
+                <li>User accounts (authentication)</li>
+                <li>Elo / matchmaking</li>
+                <li>Streaming / spectate</li>
+                <li>Visual 3D cards</li>
+                <li>Stickers (intentional non-goal)</li>
+                <li>~50 card clusters with custom parser grammar</li>
+            </ul>
+        </section>
+
+        <section id="lessons">
+            <h2>Critical Lessons</h2>
+
+            <div class="lesson">
+                <h4>1. Metrics Lie</h4>
+                <p>A new parser rule looks like "+20 cards." But what matters: do <em>your</em> decks work? Solution: <code>parser_probe.py</code> AND <code>engine_bench.py</code>.</p>
+            </div>
+
+            <div class="lesson">
+                <h4>2. Half-Implementations Are Expensive</h4>
+                <p>A deferred primitive becomes a debt. That debt resurfaces 4 months later, deferred again.</p>
+                <p><strong>Discipline:</strong> Finish it, hand-author it, or move it to DEFERRED. No pretty halves.</p>
+            </div>
+
+            <div class="lesson">
+                <h4>3. Fail-Closed Is Better Than Half-Working</h4>
+                <p><code>UNMODELED</code> doesn't work. <code>MODELED</code> is guaranteed correct. Opposite of "mostly working."</p>
+            </div>
+
+            <div class="lesson">
+                <h4>4. Decompose, Don't Fuse</h4>
+                <p>5 composition primitives + combinatorics beats 100 specialized classes. Longer, yes. More maintainable, yes.</p>
+            </div>
+
+            <div class="lesson">
+                <h4>5. Isolation Is Critical</h4>
+                <p>Multiple sessions = own test cache, own config. <code>MTG_CACHE_DIR</code> env var + temp git index.</p>
+            </div>
+
+            <div class="lesson">
+                <h4>6. The Parser Is Unfinished and Always Will Be</h4>
+                <p>30,000 cards = cards with unique syntax. Escape valve (hand-author-card) is cheaper than parsing everything.</p>
+            </div>
+        </section>
+
+        <section id="status">
+            <h2>Where DeckLab Stands Today</h2>
+            <p>DeckLab is not a commercial service. It's a <strong>rules-accurate game engine for yourself</strong>, built on the conviction that true rules accuracy matters more than coverage.</p>
+
+            <div class="tldr">
+                <strong>TL;DR:</strong> From "I want to test a deck" to "I built a full MTG rules engine"—in 2.5 months. Detours (ENG-37), setbacks (parser coverage), surprising insights (fail-closed is gold, half-implementations are expensive). Today: it works. Not perfect, but right.
+            </div>
+
+            <h3>For the Future</h3>
+            <p>Next focus: <strong>the long tail.</strong> 15,000 unmodeled cards—but if only 100 are in your decks, coverage is irrelevant.</p>
+            <p>Tools exist: <code>scripts/commander_tail_report.py</code>, <code>scripts/deck_coverage.py</code>. Strategy: sort by "which cards are in real decks" and start there.</p>
+        </section>
+
+        <footer>
+            <p>DeckLab Project Documentation — September 2026 Snapshot</p>
+            <p>A journey from sandbox idea to a complete Magic: The Gathering rules engine</p>
+        </footer>
+    </div>
+</body>
+</html>

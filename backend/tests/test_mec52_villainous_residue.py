@@ -1,11 +1,11 @@
 """MEC-52 — the last three cards of PAR-29's keyword trail (PAR-30
 close-out), each blocking on a distinct engine primitive rather than oracle
-grammar, so hand-authored in `game/ability_catalogue/entries_016.py`.
+grammar, so hand-authored in `game/card_registry/special_mechanics.py`.
 
 - **Hunted by The Family** — `FaceVillainousChoiceEffect`
   ``subject="previous_target_controller"``: the RULE 115 targets are the
   creatures, each one's controller gets its own queued `villainous_choice`
-  (`request_villainous_choice(rounds=…)`) with that creature baked in as the
+  (`_request_villainous_choice(rounds=…)`) with that creature baked in as the
   RULE 608.2 referent, and the option bodies act on the *creature*.
 - **Ensnared by the Mara** — `dig_until` ``digger="facing"`` /
   ``caster="controller"`` (dig an opponent's library, *you* get the free
@@ -13,16 +13,16 @@ grammar, so hand-authored in `game/ability_catalogue/entries_016.py`.
   source.
 - **Back from the Brink** — `BackFromTheBrinkEffect` /
   `PayCostThenPreviousMvEffect`: a pick-then-price cost modeled as a
-  resolution-time flow, plus `request_pay_cost_then` ``captured_previous``.
+  resolution-time flow, plus `_request_pay_cost_then` ``captured_previous``.
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game import ability_catalogue as ac
-from mtg_analyzer.game.effect_binder import bind_from_catalogue, build_effects
+from mtg_analyzer.game import card_registry as ac
+from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.spec import EffectSpec
 
 
@@ -70,7 +70,7 @@ def test_request_villainous_choice_rounds_are_independent():
     b2 = _put_bf(st, _bear("P2Bear"), "p2")
     b3 = _put_bf(st, _bear("P3Bear"), "p3")
 
-    eng.rules.request_villainous_choice(
+    eng.rules._request_villainous_choice(
         source=src, controller_id="p1",
         rounds=[
             {"facing_id": "p2",
@@ -188,7 +188,7 @@ def test_ensnared_registered_shape():
     assert p["option_a"][0]["type"] == "dig_until"
     assert p["option_a"][0]["params"]["digger"] == "facing"
     assert p["option_a"][0]["params"]["caster"] == "controller"
-    assert p["option_b"][0]["type"] == "exile_top_then_damage_by_mv"
+    assert p["option_b"][0]["type"] == "seq"
 
 
 def _ensnared_effect(src):

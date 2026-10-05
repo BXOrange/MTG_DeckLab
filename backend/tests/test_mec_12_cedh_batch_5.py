@@ -18,7 +18,7 @@ New general primitives, each reusable past this pool:
   plural "destroy all Xs".
 * The tutor grammar's colour word ("a **green** creature card") now
   actually reaches `SearchLibraryEffect.criteria["color"]`
-  (`models.card_query` already had a `color` key nothing was populating --
+  (`models.cards.card_query` already had a `color` key nothing was populating --
   a "grep before building" miss from an earlier pass, not a new primitive)
   and gains a "with mana value X or less/greater" trailing qualifier,
   shared by both the plain and "library and/or graveyard" search families.
@@ -56,13 +56,13 @@ it yet.
 from __future__ import annotations
 
 from mtg_analyzer.config import DB_PATH
-from mtg_analyzer.game.ability_catalogue import is_registered
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.card_registry import is_registered
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase
 
@@ -166,7 +166,7 @@ def test_chord_of_calling_search_criteria_caps_mana_value_at_announced_x():
     assert choice is not None and choice["kind"] == "search"
     assert choice["criteria"]["max_mana_value"] == 2
 
-    from mtg_analyzer.models import card_query
+    from mtg_analyzer.models.cards import card_query
     matches = {o.card.name for o in p1.library if card_query.matches(o.card, choice["criteria"])}
     assert matches == {"Small Beast"}
 
@@ -193,7 +193,7 @@ def test_green_sun_zenith_is_modeled_and_shuffles_itself_into_library():
     # this test only cares about the trailing self-shuffle) so the parked
     # ShuffleSelfIntoLibraryEffect actually runs.
     assert state.pending_choice is not None and state.pending_choice["kind"] == "search"
-    engine.rules.resolve_search_choice(None)
+    engine.rules.resolve_choice(None)
     engine.resolve_until_stable()
 
     assert not any(o.name == "Green Sun's Zenith" for o in p1.graveyard)
@@ -230,7 +230,7 @@ def test_finale_of_devastation_is_registered_and_finds_from_graveyard_too():
 
 
 def test_finale_of_devastation_pumps_and_grants_haste_only_at_x_10_or_more():
-    from mtg_analyzer.game.effects import ConditionalEffect
+    from mtg_analyzer.game.effects.core import ConditionalEffect
 
     spell_card = _named("Finale of Devastation")
     bearer = GameObject(spell_card, owner_id="p1", zone=Zone.STACK)
@@ -270,7 +270,7 @@ def test_wishclaw_talisman_activation_searches_and_passes_control_to_opponent():
     assert engine.can_activate(p1, obj, ability)
     engine.activate_ability(p1, obj, ability_index=0)
     engine.resolve_until_stable()
-    engine.rules.resolve_search_choice(None)  # decline the tutor, only care about the rest
+    engine.rules.resolve_choice(None)  # decline the tutor, only care about the rest
     engine.resolve_until_stable()
 
     assert obj.counters.get("wish") == 2

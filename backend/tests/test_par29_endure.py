@@ -16,17 +16,17 @@ existing `pay_cost_then_general` wrapper (MEC-18), widened to pass
 ``self_subject=True`` into its recursive follow-up parse so "it endures N"
 resolves as the ability's own source.
 
-Reference: game/rules/misc_mixin.py (`endure` / `resolve_endure_choice`),
-game/effects.py (`EndureEffect`), parser/oracle/catalogue/handlers.py.
+Reference: game/rules/misc_mixin.py (`endure` / `_resume_endure`),
+game/effects/core.py (`EndureEffect`), parser/oracle/catalogue/handlers.py.
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec
@@ -157,7 +157,7 @@ def test_endure_no_choice_when_permanent_is_gone():
 def test_endure_dynamic_x_via_substitute_x():
     # Krumar Initiate-shaped: an activated ability's own announced {X}
     # rewrites `EndureEffect.amount` before `apply()` ever runs.
-    from mtg_analyzer.game.effects import EndureEffect
+    from mtg_analyzer.game.effects.core import EndureEffect
     from mtg_analyzer.game.rules_engine import RulesEngine
 
     eng, state, p1 = _engine()

@@ -9,12 +9,12 @@ many* tokens instead of one shared magnitude or a token's own stats).
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import CreateTokenEffect, GameContext
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import CreateTokenEffect, GameContext
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle import MODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 
@@ -69,7 +69,7 @@ def test_count_from_trigger_event_reads_the_firing_events_amount():
 
     effect = CreateTokenEffect(
         power=1, toughness=1, colors=["G"], subtypes=["Elf", "Warrior"],
-        count_from_trigger_event="amount", source=source,
+        count={"kind": "trigger_event", "field": "amount"}, source=source,
     )
     before = len(eng.state.battlefield)
     effect.apply(ctx)
@@ -89,7 +89,7 @@ def test_count_from_trigger_event_creates_nothing_at_zero_amount():
     ctx.trigger_event = GameEvent(EventType.DAMAGE, amount=0, is_player=True)
 
     effect = CreateTokenEffect(
-        power=1, toughness=1, subtypes=["Elf"], count_from_trigger_event="amount", source=source,
+        power=1, toughness=1, subtypes=["Elf"], count={"kind": "trigger_event", "field": "amount"}, source=source,
     )
     before = len(eng.state.battlefield)
     effect.apply(ctx)

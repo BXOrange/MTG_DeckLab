@@ -44,6 +44,25 @@ a solo blocker on 5. Two lessons fall out of one command — the ranking is an
 upper bound, and the residue ranking usually names the *next* handler, so
 taking two adjacent ones together is often worth several times either alone.
 
+**Before adding a row for one phrase, ask which half is missing.** `blocked`
+counts a clause as one unit, so a trigger head that fronts fifty bodies the
+parser already handles looks like fifty different gaps:
+
+```bash
+python $PROBE composition summary            # H-B+ = trigger head is the ONLY gap
+python $PROBE composition families           # ...by event family (cast / attack / enter…)
+python $PROBE composition heads --family cast --top 40
+python $PROBE composition mods               # which modifier axis ("if", "for each"…) repairs how many
+python $PROBE composition mods --axis other   # every failing sentence one axis would repair, with cards
+python $PROBE composition conds              # the leading-"if" conditions, by shape
+```
+
+A head that recurs with different bodies, or a modifier that repairs hundreds
+of sentences, is an *axis* — widen the shared primitive (see handler-recipe.md's
+"decompose into atomic grammar units"), don't add a row. Recorded 2026-09-21
+at PARSER_VERSION 447: 849 cards were blocked only by their trigger head, 0 by
+an activated-cost head, and connectives were not a lever (1 clause).
+
 If the ranked template is a **block wrapper** (`choose <n> —`, a Saga chapter,
 a Class level), it is usually a red herring: `gate.py` fail-closes the whole
 block when one mode body fails and appends *every* body to `unclaimed`. Run
@@ -124,26 +143,22 @@ python -m pytest -q                       # whole suite, fast, keep it green
       rows). Hand-authoring alone needs no bump.
 - [ ] **Authoritative measurement**: `python scripts/coverage_report.py --top 40`
       (ledger-backed — the probe is not a substitute for this).
-- [ ] **Sync the number in all three places**, they drift:
+- [ ] **Sync the number in four places**, they drift:
       `CLAUDE.md` ("Implementation state"), `docs/implementation-state/PARSER_LONG_TAIL.md`
-      ("Where coverage stands"), and `frontend/src/js/implementationStatusView.js`
-      (~line 364, `'Gesamtabdeckung Oracle-Parser (…)'`, German decimal comma).
-- [ ] **Backlog discipline**: closing a ticket = *deleting* it from
-      `BACKLOG.md` and appending the narrative to `Done_Backend.md`. No `[x]`,
-      no "shipped" note, no pointer left behind. If only part is done, keep
-      only the part that isn't.
-- [ ] **Sweep for what else your new primitive closes.** If this batch built a
-      new engine primitive, grep `BACKLOG.md` for other tickets that same
-      primitive would now close or narrow, and update them in this pass. This
-      repo has repeatedly built a primitive for card A and left card B's ticket
-      reading "blocked on a new primitive" for three more rounds.
-- [ ] A ticket deferred a **second** time must be hand-authored in
-      `game/ability_catalogue.py` as the sanctioned stopgap, or explicitly
-      promoted to next-up. It must not roll silently to a third deferral.
+      ("Where coverage stands"), and both
+      `frontend/src/js/locales/content/status.de.js`/`status.en.js`
+      (`'Gesamtabdeckung Oracle-Parser (…)'`/`'Total oracle-parser coverage (…)'`
+      — German decimal comma; moved out of `implementationStatusView.js` itself
+      at some point, so grep for the string rather than trusting a line number).
+- [ ] Handle ticket state and cross-ticket impact through the
+      **`ticket-management`** skill. For parser tickets that are deferred a
+      second time, this skill's sanctioned stopgap is hand-authoring in
+      `game/card_catalogue/` or explicitly promoting the ticket to next-up;
+      it must not roll silently to a third deferral.
 
 ## When to stop parsing and hand-author
 
-A genuinely singleton card is `game/ability_catalogue.py`'s job
+A genuinely singleton card is `game/card_catalogue/`'s job
 ([authoring guide](../../../docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md)),
 not the parser's — but only after `blocked` shows no nearby cluster. The
 opposite error is just as common: a "bespoke" card is often two clauses away

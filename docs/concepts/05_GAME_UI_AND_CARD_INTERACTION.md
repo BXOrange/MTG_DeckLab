@@ -1,776 +1,379 @@
 # DeckLab: Game UI & Card Interaction Model
 
----
-
-# CORE PRINCIPLE: Cards Are Interactive Objects, Not Static Display
-
-## The Problem with Traditional UI
-
-```
-Bad Approach:
-┌──────────────────────────────────┐
-│ Your Hand:                       │
-│ • Island                         │
-│ • Mountain                       │
-│ • Lightning Bolt                 │
-│ • Counterspell                   │
-└──────────────────────────────────┘
-
-Issue: How do I PLAY these cards? Just text names.
-```
-
-## The Solution: Card Objects with Actions
-
-```
-Good Approach:
-┌──────────────────────────────────────────────────┐
-│ Your Hand:                                       │
-│ ┌────────────┐ ┌────────────┐ ┌──────────────┐ │
-│ │ Island     │ │ Mountain   │ │ Lightning... │ │
-│ │ Land       │ │ Land       │ │ Instant      │ │
-│ │ Tap for U  │ │ Tap for R  │ │ Damage       │ │
-│ │ [Play ▼]   │ │ [Play ▼]   │ │ [CAST ▼]     │ │
-│ └────────────┘ └────────────┘ └──────────────┘ │
-└──────────────────────────────────────────────────┘
-
-Click on card → Show available actions
-```
+This document describes how the interactive game board actually works today:
+plain vanilla JavaScript rendering a server-authoritative game state, with
+every legal action computed by the rules engine and simply displayed by the
+client. It replaced an earlier version of this file that illustrated the same
+principles with invented React/JSX components (`CardInHand.jsx`,
+`TargetingPanel`, `useState`) — this project has no React, no JSX, and no
+build step at all; see [`03_ARCHITECTURE_AND_BUILDPLAN.md`](03_ARCHITECTURE_AND_BUILDPLAN.md)
+for the system-wide picture and the API/session doc (`04_SERVER_CLIENT_ARCHITECTURE.md`)
+for how a session's HTTP/WebSocket surface is shaped. What follows only
+covers the board itself: `frontend/src/js/gameBoardView.js` and the small
+set of modules around it.
 
 ---
 
-# PART 1: CARD DATA MODEL (Extended)
+# PART 1: CORE PRINCIPLE — CARDS ARE INTERACTIVE, ACTIONS ARE SERVER-DECIDED
 
-## Card with Action Methods
+A card in hand or on the battlefield is never rendered as inert text or a
+bare image with a generic "play" button guessing what's legal. Every frame,
+the client asks the server "what can this player actually do right now?"
+(`GameEngine.legal_actions` / `GameSession.view()`, `backend/mtg_analyzer/
+game/engine/legal_actions_mixin.py`, `services/game_session.py`) and renders
+*exactly* that answer — nothing is computed or guessed client-side. If a
+creature has no legal action this turn, it renders with no action buttons at
+all; if a spell needs a target it can't currently find, the server marks the
+offer `locked` with a human-readable reason and the client shows a disabled,
+padlocked button rather than letting the click reach the server just to
+bounce.
 
-```python
-class Card:
-    # Identity
-    id: str
-    name: str
-    mana_cost: dict[str, int]
-    type_line: str
-    oracle_text: str
-    
-    # What can I do with this card?
-    can_cast: bool                   # Can this be played as spell?
-    casting_cost: dict[str, int]     # Mana required
-    casting_timing: str              # "instant", "sorcery", "land", etc.
-    
-    activated_abilities: list[ActivatedAbility] = []
-    triggered_abilities: list[TriggeredAbility] = []
-    
-    # Properties
-    is_land: bool
-    is_creature: bool
-    is_instant: bool
-    is_sorcery: bool
-    power: Optional[int]
-    toughness: Optional[int]
-
-class ActivatedAbility:
-    """Ability that player can activate (has a cost)"""
-    id: str                          # Unique within card
-    name: str                         # e.g., "Tap for mana"
-    cost: str                         # "{T}" or "{2}{U}" or other
-    effect: str                       # "Add {U} to mana pool"
-    targeting_required: bool
-    targeting_type: str              # "single_creature", "player", etc.
-
-class TriggeredAbility:
-    """Ability that triggers automatically (no cost, just condition)"""
-    id: str
-    trigger_condition: str           # "when enters", "when casts", etc.
-    effect: str
-    targeting_required: bool
-```
+This is still the right framing the old doc had — cards are interactive
+objects, not static display — it just isn't implemented as a click-to-open
+component tree. In the real code, `frontend/src/js/gameBoardView.js`'s
+`objCard()` renders one card tile per `GameObject`, and `cardActionButtons()`
+turns that object's slice of `legal_actions` directly into one button per
+action, appended right underneath the tile — always visible when legal,
+never behind a click-to-reveal menu. A card with two legal actions (say,
+`play_land` and an activated ability) simply shows two buttons.
 
 ---
 
-# PART 2: CARD ACTIONS (What Can Player Do?)
+# PART 2: HOW LEGAL ACTIONS REACH THE CLIENT
 
-## Action Types per Card Type
+The engine's own timing rules (RULE 601/602/117, priority, stack) are the
+rules engine's job, not this document's — see `CLAUDE.md`'s "Implementation
+state" section and `04_SERVER_CLIENT_ARCHITECTURE.md` for that. What matters
+for the UI is the shape of what crosses the wire:
 
-### Land Card
-```
-Available Actions:
-├─ PLAY_LAND (if main phase, haven't played land, land in hand)
-│  └─ Effect: Add land to battlefield, put to graveyard next turn
-└─ ACTIVATED_ABILITIES
-   └─ TAP_FOR_MANA (if untapped, tapping cost met)
-      └─ Effect: Add color to mana pool
-```
+- `GameEngine.legal_actions(player)` walks hand/command/exile/battlefield
+  and returns a flat list of plain dicts, each `{"type": "cast_spell" | ...,
+  "instance_id": ..., ...}` plus whatever fields that action needs (a
+  `cast_spell` entry carries `requires_target`/`targets`/`has_x`/`max_x`/
+  `cost_label`/`locked`+`lock_reason`; `declare_blockers` carries
+  `legal_attackers`; `tap_for_mana` carries its color/amount `options`; …).
+  There is no separate client-side legality layer — a `_castable_now_or_
+  via_potential` check server-side decides whether an offer appears at all.
+- `GameSession.view(perspective=...)` (`services/game_session.py`) wraps the
+  serialized `GameState` with that player's own `legal_actions`, priority
+  info (`view.priority.player_id`/`interactive`/`timer_seconds`), the
+  `pending_choice` (if any), and — in multiplayer — redacts every zone RULE
+  400.2 says this perspective shouldn't see. Solo modes (goldfish, Replay,
+  Solo gegen Bots with no live opponent) call `view(None)`, which keeps the
+  full unredacted state since there's no one to hide it from.
 
-### Instant Card
-```
-Available Actions:
-├─ CAST_SPELL (any time player has priority)
-│  ├─ Cost: Pay mana
-│  ├─ Targeting: If spell has targets, select them
-│  └─ Effect: Spell goes on stack, resolves based on text
-└─ ACTIVATED_ABILITIES (if have any)
-   └─ e.g., some instants have activated abilities
-```
+A trimmed, real shape (fields drawn from `_cast_action`/`legal_actions`,
+not invented):
 
-### Sorcery Card
-```
-Available Actions:
-├─ CAST_SPELL (only during main phase, active player)
-│  ├─ Cost: Pay mana
-│  ├─ Targeting: If spell has targets, select them
-│  └─ Effect: Spell goes on stack
-└─ ACTIVATED_ABILITIES (if have any, rare)
-```
-
-### Creature Card
-```
-Available Actions:
-├─ CAST_SPELL (like sorcery, during main phase)
-│  ├─ Cost: Pay mana
-│  ├─ Targeting: Some creatures have casting targets
-│  └─ Effect: Spell goes on stack, resolves to battlefield
-├─ ATTACK (during combat phase, if creature on battlefield)
-│  └─ Effect: Declare as attacker
-└─ ACTIVATED_ABILITIES
-   └─ e.g., "{T}: Draw a card", "{2}{U}: Create token"
-```
-
-### Enchantment/Artifact Card
-```
-Available Actions:
-├─ CAST_SPELL (like sorcery)
-├─ ATTACK (if creature type AND first strike ability)
-└─ ACTIVATED_ABILITIES
-   └─ e.g., "{3}: Deal 1 damage"
-```
-
----
-
-# PART 3: SERVER-SIDE: Determine Available Actions
-
-## On Each GameState Update, Server Sends Legal Actions
-
-**Server Logic**:
-```python
-def get_legal_actions_for_player(game_state: GameState, player_id: str) -> list[Action]:
-    """What can this player do RIGHT NOW?"""
-    
-    actions = []
-    player = game_state.get_player(player_id)
-    
-    # 1. Can this player act? (Is it their turn? Do they have priority?)
-    if not can_player_act(game_state, player_id):
-        return [PassAction()]  # Only can pass
-    
-    # 2. What's the current phase?
-    phase = game_state.current_phase
-    
-    # 3. For each card in hand, check what's legal
-    for card in player.hand:
-        
-        # Can play land? (main phase, haven't played land yet, is land)
-        if phase in ["main1", "main2"] and card.is_land:
-            if not player.has_played_land_this_turn:
-                actions.append(PlayLandAction(card))
-        
-        # Can cast as spell? (mana available, timing legal, no spells on stack)
-        if can_cast_spell(card, game_state, player_id):
-            cast_action = CastSpellAction(card)
-            
-            # If spell has targets, need to get valid targets
-            if card.has_targets:
-                valid_targets = get_valid_targets(card, game_state, player_id)
-                cast_action.valid_targets = valid_targets
-            
-            actions.append(cast_action)
-        
-        # Can activate abilities? (has activated abilities, can pay cost)
-        for ability in card.activated_abilities:
-            if can_activate_ability(card, ability, game_state, player_id):
-                actions.append(ActivateAbilityAction(card, ability))
-    
-    # 4. Always can pass
-    actions.append(PassAction())
-    
-    return actions
-
-def can_cast_spell(card: Card, game_state: GameState, player_id: str) -> bool:
-    """Check RULE 601: Can this player cast this spell right now?"""
-    player = game_state.get_player(player_id)
-    
-    # Must have priority
-    if not game_state.player_has_priority(player_id):
-        return False
-    
-    # Check timing (instant, sorcery, etc.)
-    if card.is_instant:
-        # RULE 601.3a: Can cast instant any time
-        pass
-    elif card.is_sorcery or card.is_creature:
-        # RULE 601.2a: Can only cast during main phase
-        if game_state.current_phase not in ["main1", "main2"]:
-            return False
-        # Active player only
-        if not game_state.is_active_player(player_id):
-            return False
-        # No spells on stack (simplified: could be more complex)
-        if len(game_state.stack) > 0:
-            return False
-    
-    # Check mana cost
-    if not can_pay_mana(card.mana_cost, player.mana_pool):
-        return False
-    
-    return True
-
-def can_activate_ability(card: Card, ability: ActivatedAbility, game_state: GameState, player_id: str) -> bool:
-    """Check RULE 602: Can player activate this ability?"""
-    player = game_state.get_player(player_id)
-    
-    # Must have priority (unless it's a mana ability, special case)
-    if not is_mana_ability(ability):
-        if not game_state.player_has_priority(player_id):
-            return False
-    
-    # Must be able to pay cost
-    if not can_pay_ability_cost(ability.cost, player, card, game_state):
-        return False
-    
-    # Card must be on battlefield (activated abilities are for permanents)
-    if card not in player.battlefield:
-        return False
-    
-    return True
-```
-
-**Server Sends to Client**:
 ```json
 {
-  "type": "game_state_update",
-  "legal_actions": [
+  "type": "cast_spell",
+  "instance_id": 42,
+  "name": "Lightning Bolt",
+  "requires_target": true,
+  "targets": [
     {
-      "id": "action_1",
-      "type": "play_land",
-      "card_id": "card_island",
-      "card_name": "Island",
-      "description": "Play Island"
-    },
-    {
-      "id": "action_2",
-      "type": "cast_spell",
-      "card_id": "card_lightning_bolt",
-      "card_name": "Lightning Bolt",
-      "description": "Cast Lightning Bolt",
-      "targeting_required": true,
-      "valid_targets": ["player_2", "creature_1", "creature_2"],
-      "mana_cost": {"red": 1}
-    },
-    {
-      "id": "action_3",
-      "type": "activate_ability",
-      "card_id": "card_goblin_electromancer",
-      "card_name": "Goblin Electromancer",
-      "ability_name": "Shock ability",
-      "description": "{2}{R}: This creature deals 1 damage to target creature",
-      "targeting_required": true,
-      "valid_targets": ["creature_1", "creature_2", "creature_3"]
-    },
-    {
-      "id": "action_4",
-      "type": "pass",
-      "description": "Pass priority"
+      "label": "target creature or player",
+      "options": [
+        { "instance_id": 17, "name": "Grizzly Bears" },
+        { "player_id": "p2", "name": "Opponent" }
+      ]
     }
-  ]
+  ],
+  "cost_label": "{R}",
+  "locked": false
 }
 ```
 
----
-
-# PART 4: CLIENT-SIDE: Hand UI & Interaction
-
-## Hand Display Component
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│ YOUR HAND (7 cards)                                          │
-│                                                              │
-│ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐       │
-│ │  Island  │ │Mountain  │ │Lightning │ │Counter-  │ ...   │
-│ │          │ │          │ │  Bolt    │ │  spell   │       │
-│ │   Land   │ │   Land   │ │ Instant  │ │ Instant  │       │
-│ │          │ │          │ │          │ │          │       │
-│ │ Tap:⊗ U │ │ Tap:⊗ R │ │ Cost:⊗ R │ │Cost:⊗ UU │       │
-│ │   [▼]    │ │   [▼]    │ │  [▼]     │ │  [▼]     │       │
-│ └──────────┘ └──────────┘ └──────────┘ └──────────┘       │
-│     ↑             ↑             ↑            ↑              │
-│   Click         Click         Click        Click           │
-│   to see        to see        to see       to see          │
-│  options       options       options      options          │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
-```
-
-## Card Component (React Example)
-
-```jsx
-// CardInHand.jsx
-export const CardInHand = ({ card, legalActions, onCardClick }) => {
-  const [showMenu, setShowMenu] = useState(false);
-  
-  // Find all actions this card can do
-  const cardActions = legalActions.filter(
-    action => action.card_id === card.id
-  );
-  
-  const handleCardClick = () => {
-    if (cardActions.length === 0) {
-      // No valid actions for this card
-      alert(`${card.name}: No legal actions`);
-      return;
-    }
-    
-    if (cardActions.length === 1) {
-      // Only one action? Execute it immediately (e.g., pass)
-      onActionSelected(cardActions[0]);
-    } else {
-      // Multiple actions? Show menu
-      setShowMenu(!showMenu);
-    }
-  };
-  
-  const handleActionClick = (action) => {
-    if (action.targeting_required) {
-      // Need to select target first
-      onTargetingStarted(action);
-    } else {
-      // No targeting, execute immediately
-      onActionSelected(action);
-    }
-    setShowMenu(false);
-  };
-  
-  return (
-    <div className="card-in-hand">
-      <div
-        className={`card-display ${cardActions.length > 0 ? 'clickable' : 'disabled'}`}
-        onClick={handleCardClick}
-      >
-        <div className="card-name">{card.name}</div>
-        <div className="card-type">{card.type_line}</div>
-        <div className="card-cost">
-          {card.is_land ? `Tap: ${card.mana_produces}` : `Cost: ${formatManaCost(card.mana_cost)}`}
-        </div>
-        <div className="card-text">{card.oracle_text}</div>
-        <div className="card-stats">
-          {card.power ? `${card.power}/${card.toughness}` : ''}
-        </div>
-      </div>
-      
-      {/* Action Menu */}
-      {showMenu && (
-        <div className="action-menu">
-          {cardActions.map(action => (
-            <div
-              key={action.id}
-              className="action-option"
-              onClick={() => handleActionClick(action)}
-            >
-              <div className="action-name">
-                {getActionLabel(action)}
-              </div>
-              <div className="action-desc">
-                {action.description}
-              </div>
-              {action.targeting_required && (
-                <div className="action-hint">
-                  (Select target)
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
-function getActionLabel(action) {
-  switch (action.type) {
-    case 'play_land': return '🌲 Play Land';
-    case 'cast_spell': return '✨ Cast Spell';
-    case 'activate_ability': return '⚙️ Activate Ability';
-    default: return action.type;
-  }
-}
-
-function formatManaCost(cost) {
-  // Convert {W: 1, U: 1, B: 0, R: 1, G: 0, C: 2}
-  // to "1WUR2" or similar
-  const colors = ['W', 'U', 'B', 'R', 'G'];
-  let result = '';
-  if (cost.generic) result += cost.generic;
-  colors.forEach(c => {
-    for (let i = 0; i < (cost[c] || 0); i++) {
-      result += c;
-    }
-  });
-  return result || '0';
-}
-```
-
-## Hand Layout Considerations
-
-### Dense View (Show all cards at once)
-```
-Pros: See entire hand, quick scanning
-Cons: Cards small, details hard to read
-
-Width per card: ~80px
-Show: Name, Type, Mana Cost
-Action menu: Hover or click shows full card + actions
-```
-
-### Expanded View (Show one card at a time)
-```
-Pros: Large cards, clear details, easy to read
-Cons: Can't see full hand at once
-
-Default: Show first card large
-Controls: Left/Right to browse
-Hover tooltip: Show other card names for quick ref
-```
-
-### Recommended: Hybrid
-```
-┌──────────────────────────────────────────────────────────┐
-│ LEFT: Dense hand view (7 small cards)                    │
-│ RIGHT: Expanded card view (selected card)                │
-│                                                           │
-│ ┌─────────────────┐    ┌────────────────────────────┐   │
-│ │ I │ M │ L │ C │ L   │ Lightning Bolt              │   │
-│ │ S │ N │ B │ S │ S   │                            │   │
-│ │ L │ T │ O │ P │ P   │ Instant                    │   │
-│ │ A │ L │ L │ L │ L   │                            │   │
-│ │   │   │   │   │     │ Cost: 1R                   │   │
-│ │ 1 │ 2 │ 3 │ 4 │ 5   │                            │   │
-│ └─────────────────┘    │ Deal 3 damage to target    │   │
-│                         │ creature or player        │   │
-│                         │                            │   │
-│                         │ [CAST ▼]                   │   │
-│                         │                            │   │
-│                         │ ├─ Cast (red target)      │   │
-│                         │ ├─ Cast (player 2)        │   │
-│                         │ └─ Examine details        │   │
-│                         └────────────────────────────┘   │
-│                                                           │
-└──────────────────────────────────────────────────────────┘
-```
+The client never re-derives this — `gameBoardView.js` indexes `legal_actions`
+by `instance_id` once per render (`byInstance`, built in `render()`) and
+looks up a card's own slice when drawing its tile.
 
 ---
 
-# PART 5: TARGETING SYSTEM
+# PART 3: RENDERING THE BOARD
 
-## Targeting Flow
+`gameBoardView.js`'s `createGameBoardView()` is the real analog of the old
+doc's React components — one controller object holding the session's live
+`view`, wired into a DOM node via `mount(el)`. There is no virtual DOM: every
+state change (a fresh view from the server, a UI-only toggle like
+"three battlefield rows") calls `render()`, which rebuilds the whole board's
+`innerHTML` from template-literal strings and then calls `wire()` to attach
+event listeners to whatever now exists in the DOM. This is the same pattern
+every view in the app uses (`CLAUDE.md`: "Plain `render*(container)`
+functions... set `innerHTML` and wire listeners"), just larger, because the
+board is the single most stateful screen in the app.
 
-```
-User clicks card → Card menu → User clicks "Cast Spell"
-  ↓
-Targeting Required? (From legal_actions.targeting_required)
-  ├─ NO: Send action to server immediately
-  └─ YES: Enter targeting mode
-```
+Key rendering functions inside `gameBoardView.js`:
 
-## Targeting UI
+- `objCard(obj, imageCache, cardActions)` — one card/permanent tile: image
+  (falling back to name text), tapped/summoning-sick/targeted/attacking
+  state as CSS classes, badges for loyalty/lore/defense/counters/keywords,
+  and — via `cardActionButtons(cardActions)` — its own legal-action buttons
+  directly beneath it.
+- `handHtml(player, byInstance, pending, isOwn)` / `battlefieldHtml(...)` —
+  the zone-level layout; battlefield permanents are grouped into rows by
+  type (creatures / artifacts+enchantments / lands), a client-only layout
+  preference persisted via a cookie (`gf_board_rows`), not a rules concept.
+  An opponent's hand renders as face-down slots (`faceDownCardHtml()`)
+  unless the "Gegnerhand zeigen" debug toggle is on, or the server actually
+  sent revealed cards (RULE 400.2 stays server-enforced regardless of the
+  toggle).
+- `playerBoardHtml(...)` / `boardsHtml(...)` — one full board per player
+  (mana/life header, command/library/graveyard/exile column, battlefield +
+  hand), concatenated in turn order with this client's own seat drawn last
+  (nearest the "camera"); three or more live boards switch to a pod-grid
+  CSS layout above a width breakpoint.
+- `railStackHtml(s)` — the stack, always visible in the left rail rather
+  than an overlay, with recently-resolved entries lingering briefly as
+  greyed-out "ghosts" (`resolvedGhosts`) so it stays visible what just
+  happened even though solo sessions auto-drain the stack immediately.
 
-```
-┌────────────────────────────────────────────────────┐
-│ TARGETING MODE: Select target for Lightning Bolt   │
-│                                                    │
-│ Opponent's Board:                                  │
-│ ┌──────────────┐ ┌──────────────┐                │
-│ │ Creature A   │ │ Creature B   │                │
-│ │ (3/3)        │ │ (2/2)        │                │
-│ │ [SELECT ▼]   │ │ [SELECT ▼]   │                │
-│ └──────────────┘ └──────────────┘                │
-│                                                    │
-│ Or:                                                │
-│ ┌──────────────────────────────────────────────┐ │
-│ │ Opponent Player (20 life)                    │ │
-│ │ [SELECT PLAYER AS TARGET]                    │ │
-│ └──────────────────────────────────────────────┘ │
-│                                                    │
-│ Valid targets: 4 options                          │
-│ [Cancel]                                          │
-└────────────────────────────────────────────────────┘
-```
+Every action-producing element carries a `data-action='{"type":...}'`
+attribute holding the exact JSON to send; `wire()` attaches one delegated
+listener (`root.querySelectorAll('[data-action]')`) that parses it and calls
+`act(action)`. `act()` — and the busier `withBusy()` wrapper around it — is
+the single choke point every gameplay request goes through: it flips a
+`busy` flag, re-renders (disabling controls), sends the action through the
+mode's `transport` (see below), and re-renders again on the response. A
+past bug class here is worth knowing about: if anything inside a `render()`
+call throws (e.g. reading a field a stale view no longer has), `withBusy`'s
+`finally` never gets to flip `busy` back off correctly and the whole board
+can wedge with every control disabled — this happened for real (a `t` vs
+`tl` typo in a spell-type label) and is why `withBusy`'s error path was
+hardened; see the "Board lock" note in `Done_Frontend.md` if extending this
+pattern.
 
-## Targeting Component (React)
+Cards are also draggable: any tile with a playable action becomes
+`draggable="true"`, and dropping it on a highlighted valid target (a
+battlefield, another permanent, a player's banner) fires the same action
+`act()` would — `dragActionsForInstance`/`dragTargetsForActions`/
+`executeDroppedAction` reuse the identical `legal_actions` data the button
+path does, so drag-and-drop is a second input method for the same
+server-validated actions, not a separate permission system.
 
-```jsx
-export const TargetingPanel = ({ action, validTargets, onTargetSelected, onCancel }) => {
-  const [selectedTarget, setSelectedTarget] = useState(null);
-  
-  const handleTargetClick = (target) => {
-    setSelectedTarget(target);
-    // Highlight the target
-  };
-  
-  const handleConfirm = () => {
-    if (!selectedTarget) {
-      alert('Please select a target');
-      return;
-    }
-    onTargetSelected(action, selectedTarget);
-  };
-  
-  return (
-    <div className="targeting-panel">
-      <div className="targeting-prompt">
-        {action.description}: Select target
-      </div>
-      
-      <div className="targets-grid">
-        {validTargets.map(target => (
-          <div
-            key={target.id}
-            className={`target ${selectedTarget?.id === target.id ? 'selected' : ''}`}
-            onClick={() => handleTargetClick(target)}
-          >
-            <div className="target-name">{target.name}</div>
-            <div className="target-info">
-              {target.type === 'creature' && `${target.power}/${target.toughness}`}
-              {target.type === 'player' && `${target.life} life`}
-            </div>
-            <div className="target-checkmark">
-              {selectedTarget?.id === target.id && '✓'}
-            </div>
-          </div>
-        ))}
-      </div>
-      
-      <div className="targeting-buttons">
-        <button onClick={handleCancel}>Cancel</button>
-        <button onClick={handleConfirm} disabled={!selectedTarget}>
-          Confirm Target
-        </button>
-      </div>
-    </div>
-  );
-};
-```
+**Four modes drive one board.** `goldfishView.js`, `soloView.js`,
+`multiplayerView.js`, and `replayView.js`'s play mode each call
+`createGameBoardView({...})` and supply their own `transport` (how an
+action reaches the server) plus a few mode-specific toggles:
 
----
+- Goldfish/Replay use the default REST transport (`sendGameAction`/
+  `rewindGame` from `api.js`) and leave `allowRewind`/`allowFastForward` at
+  their default `true` — solo-practice affordances.
+- Multiplayer supplies its own `transport.sendAction`, which posts to
+  `POST /api/multiplayer/games/{id}/action` and deliberately returns no
+  `data` — the repaint instead comes from the pushed view on `/ws/lobby`
+  (`lobbySocket.js`), so every seat repaints from the one message the
+  server actually broadcast rather than one client painting its own HTTP
+  reply ahead of everyone else. It also sets `allowRewind`/
+  `allowFastForward` to `false` (one player can't unilaterally undo a
+  shared game, and fast-forwarding through steps would skip an opponent's
+  response windows) and supplies `seatStatus` so a dropped player's banner
+  can show as visibly absent.
+- `extraControls` (a function of `busy`, so it can disable buttons live)
+  lets each caller append its own toolbar buttons — goldfish's "Als Replay
+  speichern"/"Beenden", multiplayer's per-seat controls — without the
+  shared board needing to know about them.
 
-# PART 6: ABILITY ACTIVATION
+Card identification while hovering — a tooltip with the full card image,
+oracle text, and mana cost — is handled globally by
+`frontend/src/js/cardHoverDetail.js`: any element anywhere in the app with a
+`data-hover-card="<name>"` attribute gets this for free via one delegated
+`document`-level listener, no per-view wiring needed. The board's card
+tiles all carry this attribute; so does the card-cache/deck-import list
+view, which instead renders full card tiles directly with
+`frontend/src/js/cardTile.js` (mana-cost-to-emoji rendering, oracle-text
+formatting) — that module is shared infrastructure for "show a card
+properly," not itself part of the interactive board.
 
-## Activated Abilities on Permanents
-
-### During Game: Creature on Battlefield
-
-```
-┌────────────────────────────────────────┐
-│ GOBLIN ELECTROMANCER                   │
-│ (2/2 Creature, untapped)               │
-│                                         │
-│ Text:                                   │
-│ "Whenever you cast an instant or       │
-│  sorcery spell, Goblin Electromancer   │
-│  gets +1/+2 until end of turn."        │
-│                                         │
-│ Activated Ability:                      │
-│ "{T}: Deal 1 damage to target          │
-│  creature or player"                   │
-│                                         │
-│ [ABILITIES ▼]                          │
-│ ├─ {T}: Deal 1 damage                  │
-│ └─ (No other activated abilities)      │
-│                                         │
-│ [TAP/UNTAP]                            │
-└────────────────────────────────────────┘
-```
-
-### Activated Ability Flow
-
-```
-User clicks creature → Shows options → User clicks "{T}: Deal 1 damage"
-  ↓
-Targeting required? YES → Show targeting UI
-  ↓
-User selects target → Confirm
-  ↓
-Send to server: {
-  type: "activate_ability",
-  card_id: "goblin_electromancer",
-  ability_id: "shock_ability",
-  target: "player_2"
-}
-```
+User-facing labels (button text, badges, status messages) are pulled
+through `t()`/`tPlural()` from `frontend/src/js/i18n.js`, which resolves
+against `locales/en.js`/`locales/de.js` (English is the default; German is
+an opt-in switch on the Einstellungen tab that reloads the page) — MTG
+keyword names themselves (Flying, Trample, …) are never translated. This
+document doesn't re-derive the i18n mechanism; see the wiring in
+`i18n.js` if you need it.
 
 ---
 
-# PART 7: GAME ACTIONS PANEL (Non-Hand Actions)
+# PART 4: TARGETING UI
 
-## Actions Available Outside of Hand
+Targeting is a distinct UI mode, not inline within the action button click.
+When a `cast_spell`/`activate_ability` legal-action entry carries
+`requires_target: true`, its button doesn't call `act()` directly — it
+calls `prepareCastTargeting(action)`, which populates the module-level
+`castTargeting` state (`{ instanceId, requirements, reqIndex, targets, ... }`)
+and re-renders. While `castTargeting` is set, `render()` overlays
+`castTargetModalHtml()`: a modal listing every legal option for the current
+requirement as its own button (each carrying `data-hover-card` so the
+player can inspect it before picking), with a "✕ Abbrechen" escape hatch and
+a "∅ Kein Ziel" decline button for an optional requirement. Picking an
+option advances `reqIndex`; once every requirement in the spell/ability's
+`targets` list has an answer, the assembled action is sent through `act()`
+exactly like any other action.
 
-```
-┌──────────────────────────────────┐
-│ GAME ACTIONS                     │
-│                                  │
-│ Phase: Main Phase I              │
-│ Priority: You (Player 1)         │
-│ Mana Available: ⊗U ⊗R ⊗2         │
-│                                  │
-│ ┌────────────────────────────┐  │
-│ │ [Play Land]                │  │
-│ │ Play a land from hand      │  │
-│ └────────────────────────────┘  │
-│                                  │
-│ ┌────────────────────────────┐  │
-│ │ [PASS PRIORITY]            │  │
-│ │ End your priority window   │  │
-│ └────────────────────────────┘  │
-│                                  │
-│ [MULLIGAN] (only at game start)  │
-│                                  │
-└──────────────────────────────────┘
-```
+Multi-target requirements (`count > 1`/`count_max`) are expanded
+client-side into one modal round per pick (`expandMultiTargetRequirements`),
+reusing the same "pick one from a pool, one at a time" flow a cost choice
+like "tap two untapped Elves you control" (RULE 602.1) also uses — the
+picks are grouped back into per-requirement `target_groups` before sending,
+so a spell like Epic Confrontation (pump one creature, then fight it against
+another) can't have both halves land on the same permanent. `distinct_
+controllers` (RULE 109.5-adjacent "N target creatures controlled by
+different players") excludes already-picked controllers from later rounds
+the same way.
 
----
+Targeting also has a second input path: dragging a card whose action
+`requires_target` onto a highlighted valid target fires the same single-
+target action directly (`executeDroppedAction`), skipping the modal
+entirely when there's exactly one target to choose (a multi-target spell
+still opens the modal after the drop). Board overlays make legality visible
+at rest, not just mid-drag: any permanent currently the target of something
+on the stack gets a 🎯 badge and highlighted border (`updateTargetOverlays`,
+derived fresh from `state.stack[*].targets` every render), and two
+permanents each targeting the other (a mutual Fight, say) get a distinct
+"mutual target" border.
 
-# PART 8: COMPLETE CARD INTERACTION FLOW
-
-## End-to-End Example: Cast Lightning Bolt
-
-```
-STEP 1: Display Legal Actions
-Server → Client:
-{
-  "legal_actions": [
-    {
-      "id": "cast_lightning",
-      "type": "cast_spell",
-      "card_id": "card_lightning_bolt",
-      "description": "Cast Lightning Bolt",
-      "targeting_required": true,
-      "valid_targets": ["player_2", "creature_opponent_1"]
-    },
-    { "id": "pass_action", "type": "pass", "description": "Pass" }
-  ]
-}
-
-Client displays Lightning Bolt card with:
-  - Card image/name
-  - Mana cost: 1R
-  - Type: Instant
-  - Text: "Deal 3 damage..."
-  - Action button: "[CAST ▼]"
-
-STEP 2: Player Clicks Card
-Player clicks Lightning Bolt card
-Client shows action menu:
-  ├─ ✨ Cast Spell (requires target)
-  └─ 📋 View Details
-
-STEP 3: Player Selects Action
-Player clicks "✨ Cast Spell"
-Client knows targeting_required = true
-Enters targeting mode
-
-STEP 4: Player Selects Target
-Targeting panel shows:
-  ├─ [Player 2] (20 life)
-  └─ [Creature: Grizzly Bear] (2/2)
-
-Player clicks "Player 2"
-Client highlights selection
-Player clicks "Confirm"
-
-STEP 5: Send Action to Server
-Client → Server:
-{
-  "type": "player_action",
-  "action": {
-    "id": "cast_lightning",
-    "type": "cast_spell",
-    "card_id": "card_lightning_bolt",
-    "target": "player_2"
-  }
-}
-
-STEP 6: Server Validates & Executes
-Server:
-  ✓ Can cast Lightning Bolt right now? YES
-  ✓ Can pay 1R mana? YES
-  ✓ Is target valid? YES (player)
-  Execute: Deal 3 damage to Player 2
-
-STEP 7: Update Game State
-Server broadcasts:
-{
-  "type": "game_state_update",
-  "message": "Player 1 cast Lightning Bolt, dealing 3 damage to Player 2",
-  "game_state": {
-    "player_1": { ... },
-    "player_2": {
-      "life": 17,  # Changed from 20
-      ...
-    },
-    ...
-  },
-  "legal_actions": [
-    { "type": "pass", "description": "Pass" },
-    ...
-  ]
-}
-
-STEP 8: Update Client Display
-Both clients receive update:
-  ✓ Lightning Bolt disappears from Player 1's hand
-  ✓ Player 2's life: 20 → 17
-  ✓ Game log: "Player 1 cast Lightning Bolt..."
-  ✓ Update legal actions for next priority holder
-```
+Two other choice shapes reuse this same modal-overlay pattern rather than
+being a special case: **cost choices** (RULE 602.1 — "tap N untapped
+`<type>`s", "Sacrifice a `<type>`", a discard-as-additional-cost) open the
+identical picker UI with a different heading/glyph, since the player's own
+choice of *which* permanent pays is not a RULE 115 target; and **pending
+choices** the engine opens mid-resolution (search, scry/surveil, cascade,
+replacement-effect ordering, trigger ordering, …) render as their own modal
+(`pendingChoiceHtml`) — a `role="dialog" aria-modal="true"` overlay that
+dims the rest of the board (`.goldfish.choosing`), with a "push aside"
+escape hatch so a player can check the board before answering. `scry`/
+`surveil`/vote-style choices get inline card-face thumbnails instead of bare
+buttons; RULE 616.1 replacement-order and RULE 603.3b trigger-order choices
+get a drag-and-drop reorderable list instead of a plain option list.
 
 ---
 
-# PART 9: KEYBOARD SHORTCUTS (Optional)
+# PART 5: TURN-BASED ACTIONS AND PRIORITY — REAL, EASY-TO-GET-WRONG NUANCES
 
-```
-1-9: Select card 1-9 in hand
-C: Cast selected card
-A: Activate ability on selected card
-T: Attack with selected creature
-B: Block with selected creature
-ESC: Cancel targeting / close menu
-SPACE: Pass priority
-U: Undo (if allowed)
-```
+The board's controls change shape depending on whether the session plays
+RULE 117 priority out for real (`view.priority.interactive`, on only for
+multiplayer — see `CLAUDE.md`'s "RULE 117 priority" section for the full
+engine-side behavioural detail; this section only covers what the UI does
+with it):
+
+- **Off** (goldfish, Solo gegen Bots, Replay): the toolbar shows "Nächster
+  Schritt" (advance) and "Nächste Entscheidung" (fast-forward) buttons —
+  the session auto-drains the stack, so there's a literal "advance the
+  turn" action to press.
+- **On** (multiplayer): there is deliberately no such button
+  (`priorityControlsHtml`'s own comment: "a step ends when every player
+  passes in succession... so there is deliberately no 'advance the turn'
+  button to press"). Instead, **only the player currently holding priority
+  may act at all** — enforced server-side in `_dispatch`, not merely by
+  omitting buttons client-side — and the client's own gate,
+  `hasPriority()`, decides what to even offer: a "Passen" button
+  (`passButtonHtml`, relabeled "Stapel auflösen" while the stack is
+  non-empty) sits on *that player's own board banner*, right next to the
+  cards they're looking at, not in the rail.
+- A **per-priority countdown** (`railTimerHtml`/`autoPassArmed`, the left
+  rail's shrinking progress bar) runs whenever this client holds priority
+  on another player's turn, and on your own turn only in the passive
+  upkeep/draw/end steps or whenever there's something on the stack to
+  respond to — never during your own main phases/combat, where you're the
+  one acting (`reactTimerSuppressedHere`). Its length is a server setting
+  (`view.priority.timer_seconds`); any board interaction or its own
+  "interrupt" button cancels it for that window.
+- A window offering literally nothing but `pass_priority` is passed
+  through automatically and silently, no countdown shown — there is
+  nothing to interrupt (`skipEmptyArmed`).
+- A manual **"End the turn"** button (`endTurnButtonHtml`, next to
+  "Passen") is the deliberate opposite of that suppression: once armed, it
+  force-passes every priority window this client holds for the rest of the
+  current turn, regardless of what `legal_actions` offers — a speed-up for
+  a player with nothing left they want to do. It never touches a
+  `pending_choice` or a turn-based action, and self-disarms on the next
+  genuine board interaction or once the turn actually ends.
+- **Declare-blockers is the one action a non-priority-holder can still
+  take.** RULE 509.1a makes it a turn-based action the *defending* player
+  performs while the *attacker* still holds priority — the UI reflects this
+  literally: `blockerPanelHtml` renders whenever `legal_actions` contains a
+  `declare_blockers` offer, independent of `hasPriority()`. Blocks are
+  assembled locally (one `<select>` per attacker-eligible blocker, held in
+  `blockDraft`) and submitted as a single `declare_blockers` action with an
+  `assignments` array — never one request per blocker, because RULE
+  702.111b's menace family ("can't be blocked except by N or more
+  creatures") is only checkable against the whole assignment at once. An
+  **empty** `assignments` array is itself a complete, legal answer ("no
+  blocks") — `submitBlocks()` is not gated on `blockDraft.size` for exactly
+  this reason.
+- **Take-backs** (see `CLAUDE.md`'s own section) surface as a button on a
+  player's own banner, shown only when the table configured a budget and
+  some remains — a table-level convenience distinct from goldfish's
+  "Zurücknehmen"/rewind, which multiplayer disables outright.
+
+A player's in-progress selections (an unfinished block assignment, a
+mid-target cast) are mirrored to the server as a UI draft
+(`saveUiDraft`/`view.ui_draft`) purely so a genuine reconnect can rebuild
+the same modal instead of losing it — it's invalidated only when a real
+move actually happened (`move_log` growing), never by another player's
+socket merely reconnecting and rebroadcasting the same position.
 
 ---
 
-# PART 10: ACCESSIBILITY FEATURES
+# PART 6: WHAT SURVIVED FROM THE OLD PLAN, HONESTLY
 
-```
-For screen readers / keyboard-only players:
+A few ideas from the original doc turned out to still be true in spirit, and
+are worth naming as such rather than silently dropped:
 
-1. All cards have alt-text with full card details
-2. Tab navigation through hand → legal actions
-3. Enter to select action
-4. Arrow keys to select targets
-5. Color-not-required for targeting (symbols + text)
-6. Large font options
-7. High contrast mode
-```
+- **Dense vs. expanded hand/board density**: the old doc sketched a
+  dual-pane "small hand strip + one large expanded card" layout. That
+  specific design was never built. What *does* exist is a single, simpler
+  global density toggle — "Kompaktansicht" (`getCompactView()`/
+  `settings.js`, a cookie-backed preference set on the Profil tab per
+  `CLAUDE.md`'s board-comfort toggles) that shrinks card tiles and swaps
+  full P/T display for a compact badge (`gf-compact-pt`) across the whole
+  board, not per-hand.
+- **Modest accessibility, not the old doc's full list**: card images carry
+  real `alt` text, choice/target modals use `role="dialog" aria-modal="true"`,
+  and collapsible sections (zone lists, a "fold this opponent's board"
+  toggle) carry `aria-expanded`. There is no dedicated screen-reader mode,
+  keyboard-only navigation, high-contrast mode, or font-size control —
+  those were aspirational in the old doc and were never built; don't cite
+  them as present.
 
 ---
 
-# CONCLUSION
+# PART 7: WHAT CHANGED FROM THE OLD PLAN
 
-**Key Principles**:
-1. ✅ Each card is interactive (not static text)
-2. ✅ Legal actions determined server-side, displayed client-side
-3. ✅ Clicking card → menu of available actions
-4. ✅ Action → targeting UI (if required) → execute
-5. ✅ All validation server-side (client just displays)
-6. ✅ Clean, responsive UI (not cluttered)
+- **No React, no JSX, no virtual DOM.** `CardInHand`/`TargetingPanel` as
+  components never existed; the real board is one large `render*(container)`
+  controller (`createGameBoardView`) that rebuilds `innerHTML` from template
+  literals and re-wires listeners on every change, the same pattern every
+  other view in this buildless app uses.
+- **No keyboard shortcuts.** The old doc's "1-9 select card / C cast / T
+  attack / SPACE pass" scheme was never implemented — a repo-wide search
+  turns up no gameplay `keydown` handling anywhere in the board or any mode
+  view (Replay's card-search box has an Enter-to-search binding, unrelated
+  to gameplay). If this is wanted, it's new work, not a gap in an existing
+  feature.
+- **"Click card → menu of actions" became "every legal action for this
+  card is already a visible button underneath it."** There is no
+  intermediate menu step to open before seeing what's available — the
+  closest thing to a menu is the multi-defender "choose a defender"
+  submenu (`attackControlHtml`) for a creature with more than one legal
+  attack target.
+- **Targeting stayed a distinct UI mode, exactly as the old doc argued for**
+  — just implemented as a modal overlay (`castTargetModalHtml`) plus a
+  drag-and-drop alternative, driven by the server's own per-requirement
+  `options`, rather than a separate `TargetingPanel` component with its own
+  `useState`.
+- **The client validates nothing.** This was already the old doc's stated
+  principle and remains exactly true: every button, drag-and-drop drop, and
+  modal pick sends a plain action object and lets the server accept or
+  reject it (`act()`'s `res.ok` branch surfaces a rejection's reason as a
+  status message) — the client's only "validation" is not offering a
+  button the server didn't send in the first place.
 
-**This enables UC3 & UC4**: Goldfisch & Multiplayer both depend on being able to play cards easily.
+For what's actually open or recently closed on the frontend, see
+[`../implementation-state/BACKLOG.md`](../implementation-state/BACKLOG.md)
+(categories `VIS`/`PLR` cover most board/UI tickets) and
+[`Done_Frontend.md`](../implementation-state/Done_Frontend.md) rather than
+trusting this document to stay exhaustive — it describes the shape of the
+system, not its current punch list.

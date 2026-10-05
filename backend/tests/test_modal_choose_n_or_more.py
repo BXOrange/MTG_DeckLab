@@ -19,10 +19,10 @@ recognition, separately from full castability.
 
 import pytest
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import DrawCardEffect, GainLifeEffect, MillEffect, TriggeredAbility
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import DrawCardEffect, GainLifeEffect, MillEffect, TriggeredAbility
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.parser.oracle.gate import MODELED, parse_oracle
 from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec, SpecValidationError
@@ -351,7 +351,7 @@ def test_second_round_offers_done_once_minimum_of_one_is_met():
     source = _put(eng, creature())
     eng.rules.pending_triggers = [(_choose_one_or_more_etb_trigger(source), None)]
     eng.rules.put_triggers_on_stack()
-    eng.rules.resolve_trigger_mode_choice("1")  # pick "gain 3 life" first
+    eng.rules.resolve_choice("1")  # pick "gain 3 life" first
 
     choice = eng.state.pending_choice
     assert choice["kind"] == "trigger_mode"
@@ -368,8 +368,8 @@ def test_choosing_done_stops_and_combines_only_the_picked_modes():
 
     eng.rules.pending_triggers = [(_choose_one_or_more_etb_trigger(source), None)]
     eng.rules.put_triggers_on_stack()
-    eng.rules.resolve_trigger_mode_choice("1")  # gain 3 life
-    eng.rules.resolve_trigger_mode_choice("done")
+    eng.rules.resolve_choice("1")  # gain 3 life
+    eng.rules.resolve_choice("done")
 
     assert eng.state.pending_choice is None
     assert len(eng.state.stack) == 1
@@ -390,10 +390,10 @@ def test_never_choosing_done_runs_through_every_mode():
 
     eng.rules.pending_triggers = [(_choose_one_or_more_etb_trigger(source), None)]
     eng.rules.put_triggers_on_stack()
-    eng.rules.resolve_trigger_mode_choice("1")
-    eng.rules.resolve_trigger_mode_choice("2")
-    eng.rules.resolve_trigger_mode_choice("0")
-    eng.rules.resolve_trigger_mode_choice("3")  # last one — auto-finalizes
+    eng.rules.resolve_choice("1")
+    eng.rules.resolve_choice("2")
+    eng.rules.resolve_choice("0")
+    eng.rules.resolve_choice("3")  # last one — auto-finalizes
 
     assert eng.state.pending_choice is None
     eng.resolve_until_stable()
@@ -412,10 +412,10 @@ def test_done_is_deferred_until_a_two_mode_minimum_is_met():
     choice = eng.state.pending_choice
     assert "done" not in {o["id"] for o in choice["options"]}  # 0 picked, need 2
 
-    eng.rules.resolve_trigger_mode_choice("0")
+    eng.rules.resolve_choice("0")
     choice = eng.state.pending_choice
     assert "done" not in {o["id"] for o in choice["options"]}  # 1 picked, still need 2
 
-    eng.rules.resolve_trigger_mode_choice("1")
+    eng.rules.resolve_choice("1")
     choice = eng.state.pending_choice
     assert "done" in {o["id"] for o in choice["options"]}  # 2 picked — minimum met

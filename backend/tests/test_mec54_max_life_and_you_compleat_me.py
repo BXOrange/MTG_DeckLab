@@ -1,6 +1,6 @@
 """MEC-54 — "your maximum life total is N." — and its only driver,
 You Compleat Me (PAR-31's last emblem card, hand-authored in
-`ability_catalogue`).
+`card_registry`).
 
 - A permanent player-scoped cap on `Player.player_effects`
   (`RulesEngine._max_life_total` / `set_max_life_total`), honoured at
@@ -13,12 +13,12 @@ You Compleat Me (PAR-31's last emblem card, hand-authored in
 
 from __future__ import annotations
 
-from mtg_analyzer.game.ability_catalogue import specs_for
-from mtg_analyzer.game.effect_binder import attach_to_object
+from mtg_analyzer.game.card_registry import specs_for
+from mtg_analyzer.game.binding.core import attach_to_object
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 
 
 _YCM_TEXT = (

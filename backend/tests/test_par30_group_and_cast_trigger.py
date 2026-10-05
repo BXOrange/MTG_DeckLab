@@ -19,11 +19,11 @@
 from __future__ import annotations
 
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue, build_effects
-from mtg_analyzer.game.effects import GameContext
+from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
+from mtg_analyzer.game.effects.core import GameContext
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec
@@ -60,15 +60,22 @@ def test_those_creatures_pronoun_parses_like_they():
 
 
 def test_group_selector_with_a_counter_parses():
+    # PAR-120: this phrase turned out already reachable through the shared
+    # grammar (its own `has_counter` filter key) once `_group_selector`
+    # tried it first — proven equivalent to the old `creatures_you_control_
+    # with_a_counter` string on a real board (`test_par120_count_phrase.py`).
     assert match_clause(
         "each creature you control with a counter on it gains firebending 2 until end of turn"
     ) == [EffectSpec("pump", {
         "parametric_keywords": [{"name": "firebending", "n": 2}],
-        "selector": "creatures_you_control_with_a_counter",
+        "selector": {
+            "zone": "battlefield", "of": "you",
+            "filter": {"card_type": "creature", "has_counter": True},
+        },
     })]
 
 
-def test_cast_spell_during_opponents_turn_sets_not_controllers_turn():
+def test_cast_spell_during_opponents_turn_sets_controller_relative_phase():
     c = Card(id="bc", name="Brineborn Cutthroat", type_line="Creature — Merfolk Rogue",
              is_creature=True, power=2, toughness=1,
              oracle_text=("Whenever you cast a spell during an opponent's turn, "
@@ -77,13 +84,17 @@ def test_cast_spell_during_opponents_turn_sets_not_controllers_turn():
     assert r.coverage != UNMODELED, r.unclaimed
     trig = r.specs[0].trigger
     assert trig["event"] == "SPELL_CAST"
-    assert trig["not_controllers_turn"] is True
+    assert trig["phase_relation"] == "not_you"
 
 
-def test_cast_spell_during_your_turn_stays_unmodeled():
+def test_cast_spell_during_your_turn_is_modeled():
+    # PAR-119: the composed cast-trigger head reads "during your turn" as the
+    # event-agnostic controller-relative `phase_relation` gate.
     c = Card(id="x", name="X", type_line="Enchantment",
              oracle_text="Whenever you cast a spell during your turn, draw a card.")
-    assert parse_oracle(c).coverage == UNMODELED
+    r = parse_oracle(c)
+    assert r.coverage != UNMODELED, r.unclaimed
+    assert r.specs[0].trigger["phase_relation"] == "you"
 
 
 def test_real_cards_modeled():

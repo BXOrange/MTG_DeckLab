@@ -105,7 +105,17 @@ _ABILITY_WORD_RE = re.compile(
     # (Odyssey block) — the label carries no rules meaning of its own
     # (RULE 207.2c); the "as long as …" body it precedes is an ordinary
     # RULE 613.6 conditional static once the label is gone.
-    r"|threshold)\s*—\s*",
+    r"|threshold"
+    # RULE 702.194c: "Teamwork — `<ability>`." (Sol, Advocate Eternal) —
+    # same reasoning as every other row: the label is decorative (RULE
+    # 207.2c), the body behind it is an ordinary trigger/static once it's
+    # gone. Confirmed safe for this one row too (PAR-68): every cached
+    # "Teamwork —" line's body is a plain trigger the ability-word strip
+    # alone doesn't need to interpret.
+    r"|teamwork|corrupted|chroma|alliance"
+    # "Split — When ~ dies, …" (Ochre Jelly): decorative too; the dash keeps
+    # it apart from the keyword "split second".
+    r"|split)\s*—\s*",
     re.MULTILINE,
 )
 
@@ -154,11 +164,38 @@ def _strip_unregistered_keyword_labels(text: str, keywords: Optional[list[str]])
         slug = kw.lower().replace(" ", "_").replace("-", "_")
         if slug in KEYWORDS:
             continue
+        # A plain hyphen is only an ability-word separator when separated
+        # from its label by whitespace.  Scryfall also reports the spurious
+        # prefix ``Jump`` alongside the real ``Jump-start`` keyword; allowing
+        # ``Jump-`` here used to strip that prefix and leave a phantom
+        # unclaimed ``start`` line behind.
         pattern = re.compile(
-            r"^" + re.escape(kw.lower()) + r"\s*[—–-]\s*", re.MULTILINE
+            r"^" + re.escape(kw.lower()) + r"(?:\s+[—–-]|[—–])\s*", re.MULTILINE
         )
         text = pattern.sub("", text)
     return text
+
+
+#: MEC-79 / RULE 701.64b — the Marvel Infinity Stones print their ultimate
+#: ability behind an "``∞ —``" marker line, with reminder text "(Once
+#: harnessed, its ∞ ability is active.)". The marker *is* the rules device:
+#: an ``∞`` ability functions only while the permanent is harnessed. Every
+#: printed one is a phase-triggered ability, so rewrite the marker line into
+#: an ordinary phase trigger carrying a RULE 603.4 intervening-if — the
+#: segmenter's generic phase-trigger `active_if` path (backed by
+#: `static_conditions`' ``source_harnessed``) then covers it with no bespoke
+#: whole-line handler. Runs after lowercasing; the ``∞`` glyph and em/en/‐
+#: dash both survive `_fold_self_reference` untouched.
+_INFINITY_ABILITY_RE = re.compile(
+    r"^∞\s*[—–-]\s*(?P<lead>at the beginning of [^,\n]+,)\s*(?P<rest>.+)$",
+    re.MULTILINE,
+)
+
+
+def _rewrite_infinity_ability(text: str) -> str:
+    return _INFINITY_ABILITY_RE.sub(
+        lambda m: f"{m.group('lead')} if ~ is harnessed, {m.group('rest')}", text
+    )
 
 
 #: RULE 700.4 — "the term *dies* means 'is put into a graveyard from the
@@ -204,8 +241,12 @@ def _fold_dies_long_form(text: str) -> str:
 #: the middle of that quote instead of the sentence's real end. Runs after
 #: lowercasing, per-line since the duration only ever opens a line (never
 #: appears mid-sentence).
+#: A leading "Until end of turn, whenever …" is not a duration on an effect but the
+#: lifetime of a triggered ability the spell creates (RULE 603.7a, PAR-124) — folding it
+#: to the tail would turn it into an ordinary trigger, so it is left leading for
+#: `segmenter._TURN_TRIGGER_RE`.
 _LEADING_UNTIL_EOT_RE = re.compile(
-    r"^until end of turn, (?P<body>[^.\n]+)\.$", re.MULTILINE
+    r"^until end of turn, (?!(?:whenever|when) )(?P<body>[^.\n]+)\.$", re.MULTILINE
 )
 
 
@@ -267,25 +308,45 @@ _PREFIX_TYPE_BEFORE = re.compile(
     re.IGNORECASE,
 )
 _PREFIX_TYPE_AFTER = re.compile(
-    r"^\s+(?:creature|you control|token|cards?\b|spells?\b|until end of turn)",
+    r"^\s+(?:creature|you control|token|cards?\b|spells?\b|until end of turn|"
+    # A *different* comma-less "<word> the/of <rest>" title continuing right
+    # after the match (Tuktuk the Explorer creating "Tuktuk the **Returned**",
+    # a differently-named token) — by the time this runs, the card's own
+    # complete name was already folded to ``~`` by `_fold_self_name`'s main
+    # pass, so any surviving "<prefix> the/of …" here is always someone
+    # *else's* title, never a second mention of this card's own.
+    r"the \S|of \S)",
     re.IGNORECASE,
 )
 
 
 def _fold_given_name_prefix(text: str, name: str) -> str:
     """Fold a comma-less legendary's **given name** — the single word before
-    " of " in "Kaalia of the Vast" — to ``~`` where it's a genuine
-    self-reference. Context-gated (`_PREFIX_TYPE_BEFORE`/`_PREFIX_TYPE_AFTER`)
-    so a name that doubles as a creature type ("Cleric of Life's Bond" →
-    "another **Cleric** you control", "Knight of the New Coalition" → "a …
-    **Knight** creature token") keeps its type reading."""
+    " of " in "Kaalia of the Vast", or before " the " in "Fíli the
+    Pathfinder"/"Óin the Brave" (PAR-51's Hobbit-Dwarves cluster, self-
+    referring by first name same as any other comma-less title) — to ``~``
+    where it's a genuine self-reference. Context-gated
+    (`_PREFIX_TYPE_BEFORE`/`_PREFIX_TYPE_AFTER`) so a name that doubles as a
+    creature type ("Cleric of Life's Bond" → "another **Cleric** you
+    control", "Knight of the New Coalition" → "a … **Knight** creature
+    token") keeps its type reading, and matched **case-sensitively** against
+    the not-yet-lowercased text (unlike every other fold in this module) so
+    a common word that happens to share a name's spelling — "turn" inside
+    "until end of turn" for "Turn the Tide", "start" inside "Jump-start" for
+    "Start the TARDIS" — is left alone: a genuine self-reference is always
+    printed capitalized, a mid-sentence common word never is. " of " is
+    tried first (unchanged behaviour when a name has both, though no real
+    card does)."""
     first = name.split(",")[0].strip()
-    if " of " not in first:
+    if " of " in first:
+        prefix = first.split(" of ")[0].strip()
+    elif " the " in first:
+        prefix = first.split(" the ")[0].strip()
+    else:
         return text
-    prefix = first.split(" of ")[0].strip()
     if not prefix or " " in prefix:
         return text
-    pat = re.compile(r"\b" + re.escape(prefix) + r"\b", re.IGNORECASE)
+    pat = re.compile(r"\b" + re.escape(prefix) + r"\b")
 
     def _sub(m: "re.Match[str]") -> str:
         if _PREFIX_TYPE_BEFORE.search(text[: m.start()]):
@@ -294,8 +355,9 @@ def _fold_given_name_prefix(text: str, name: str) -> str:
             return m.group(0)
         return SELF
 
-    # Runs inside `_fold_self_name`, before `normalize` lowercases — so match
-    # case-insensitively against the printed-case text.
+    # Runs inside `_fold_self_name`, before `normalize` lowercases — `pat`
+    # relies on that printed case to stay case-sensitive (see the
+    # docstring's "turn"/"start" collision note).
     return pat.sub(_sub, text)
 
 
@@ -319,6 +381,7 @@ def normalize(text: str, name: Optional[str] = None, keywords: Optional[list[str
     text = _fold_self_reference(text)
     text = _strip_ability_words(text)
     text = _strip_unregistered_keyword_labels(text, keywords)
+    text = _rewrite_infinity_ability(text)
     text = _fold_dies_long_form(text)
     text = _fold_leading_until_end_of_turn(text)
     text = _NUMBER_WORD_RE.sub(lambda m: _NUMBER_WORDS[m.group(1).lower()], text)

@@ -205,6 +205,10 @@ DECKS_DB_PATH = DATA_DIR / "decks.db"
 #: Default on-disk location for player-uploaded token art / sleeves.
 PLAYER_ASSETS_DB_PATH = DATA_DIR / "player_assets.db"
 
+#: Persistent Commander Spellbook combo snapshot; separate from the
+#: disposable card cache so it can be refreshed and diffed in place.
+COMMANDER_SPELLBOOK_DB_PATH = DATA_DIR / "commander_spellbook.db"
+
 # -- Scryfall -------------------------------------------------------
 
 #: User-Agent sent to Scryfall — both api.scryfall.com and the
@@ -349,3 +353,8 @@ DYNAMIC_ANALYSIS_MATCH_WORKERS = _cfg_int(
 #: later point at a load balancer in front of several such processes —
 #: that's a config change here, not a code change.
 FRONTEND_ORIGIN = _cfg_str("MTG_FRONTEND_ORIGIN", "frontend", "origin", "http://127.0.0.1:8765")
+
+# Persistent local bug reports, outside versioned documentation.
+BUG_REPORT_DIR = _cfg_path(
+    "MTG_BUG_REPORT_DIR", "paths", "bug_report_dir", _BACKEND_ROOT.parent / "bug-reports"
+)

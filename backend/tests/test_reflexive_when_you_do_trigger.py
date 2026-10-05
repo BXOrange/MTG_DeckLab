@@ -17,11 +17,11 @@ ordinary placement path gathers its target and puts it on the stack.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue, build_effects
-from mtg_analyzer.game.effects import _apply_effects_partitioned
+from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
+from mtg_analyzer.game.effects.core import _apply_effects_partitioned
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec
@@ -113,7 +113,7 @@ def test_sample_collector_reflexive_counter_goes_on_the_stack_and_targets():
 
     # the pay-cost-then choice is open
     assert st.pending_choice is not None and st.pending_choice["kind"] == "pay_cost_then"
-    eng.rules.resolve_pay_cost_then_choice("pay")
+    eng.rules.resolve_choice("pay")
 
     # collect evidence 3 exiled from the graveyard
     assert sum(1 for c in p1.exile) >= 1
@@ -124,7 +124,7 @@ def test_sample_collector_reflexive_counter_goes_on_the_stack_and_targets():
     opts = {o["instance_id"] for o in choice["options"] if "instance_id" in o}
     assert ally.instance_id in opts and collector.instance_id in opts
 
-    eng.rules.resolve_trigger_target_choice(ally.instance_id)
+    eng.rules.resolve_choice(ally.instance_id)
     eng.resolve_until_stable()
     assert ally.counters.get("+1/+1") == 1
 
@@ -148,7 +148,7 @@ def test_no_reflexive_trigger_when_the_cost_is_declined():
 
     trig = next(s for s in parse_oracle(collector.card).specs if s.ability_kind == "triggered")
     _apply_effects_partitioned(build_effects(trig.effects, collector), eng.rules.context, None, None, source=collector)
-    eng.rules.resolve_pay_cost_then_choice(None)  # decline
+    eng.rules.resolve_choice(None)  # decline
     eng.resolve_until_stable()
 
     assert not st.pending_choice
@@ -158,8 +158,8 @@ def test_no_reflexive_trigger_when_the_cost_is_declined():
 
 def test_mana_cost_variant_surgespanner_bounce():
     # the primitive is not collect-evidence-specific: "you may pay {1}{U}.
-    # If you do, return target permanent to its owner's hand." is the same
-    # reflexive-trigger shape, and the widest real family it unlocks.
+    # If you do, return target permanent to its owner's hand." announces
+    # its target before payment; unlike "When you do", it is not reflexive.
     eng = _engine()
     st = eng.state
     p1, p2 = st.players
@@ -176,15 +176,18 @@ def test_mana_cost_variant_surgespanner_bounce():
     p1.mana_pool.add("U", 1)
     p1.mana_pool.add("C", 1)
 
-    trig = next(s for s in parse_oracle(src.card).specs if s.ability_kind == "triggered")
-    _apply_effects_partitioned(build_effects(trig.effects, src), eng.rules.context, None, None, source=src)
+    build_effects([EffectSpec("tap", {"target_kind": "creature"})], src)[0].apply(
+        eng.rules.context, [src],
+    )
+    eng.rules.put_triggers_on_stack()
+    assert st.pending_choice and st.pending_choice["kind"] == "trigger_target"
+    eng.rules.resolve_choice(victim.instance_id)
+    eng.resolve_until_stable()
     assert st.pending_choice and st.pending_choice["kind"] == "pay_cost_then"
-    eng.rules.resolve_pay_cost_then_choice("pay")
+    eng.rules.resolve_choice("pay")
     eng.resolve_until_stable()
 
-    assert st.pending_choice and st.pending_choice["kind"] == "trigger_target"
-    eng.rules.resolve_trigger_target_choice(victim.instance_id)
-    eng.resolve_until_stable()
+    assert st.pending_choice is None
     assert victim in p2.hand and victim not in st.battlefield
 
 
@@ -210,12 +213,12 @@ def test_warren_torchmaster_reflexive_haste_grant_resolves():
     trig = next(s for s in parse_oracle(torch.card).specs if s.ability_kind == "triggered")
     _apply_effects_partitioned(build_effects(trig.effects, torch), eng.rules.context, None, None, source=torch)
     assert st.pending_choice and st.pending_choice["kind"] == "pay_cost_then"
-    eng.rules.resolve_pay_cost_then_choice("pay")
+    eng.rules.resolve_choice("pay")
     eng.resolve_until_stable()
 
     # reflexive "target creature gains haste until end of turn"
     if st.pending_choice and st.pending_choice["kind"] == "trigger_target":
-        eng.rules.resolve_trigger_target_choice(goblin.instance_id)
+        eng.rules.resolve_choice(goblin.instance_id)
         eng.resolve_until_stable()
     eng.recompute_continuous_effects()
     assert "haste" in (goblin.granted_keywords or [])

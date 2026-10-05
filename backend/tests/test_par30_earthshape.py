@@ -1,6 +1,6 @@
 """PAR-30 — Earthshape, the last card of the Earthbend residue cluster.
 
-Hand-authored (`ability_catalogue`): "Earthbend 3. Then each creature you
+Hand-authored (`card_registry`): "Earthbend 3. Then each creature you
 control with power less than or equal to that land's power gains hexproof and
 indestructible until end of turn. You gain hexproof until end of turn."
 
@@ -14,12 +14,12 @@ deliberately unmodeled in this engine).
 
 from __future__ import annotations
 
-from mtg_analyzer.game.ability_catalogue import is_registered, specs_for
-from mtg_analyzer.game.effect_binder import build_effects
-from mtg_analyzer.game.effects import _apply_effects_partitioned
+from mtg_analyzer.game.card_registry import is_registered, specs_for
+from mtg_analyzer.game.binding.core import build_effects
+from mtg_analyzer.game.effects.core import _apply_effects_partitioned
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 
 _TEXT = (
     "Earthbend 3. Then each creature you control with power less than or equal "

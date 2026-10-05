@@ -16,10 +16,10 @@ New primitives:
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import build_effects
+from mtg_analyzer.game.binding.core import build_effects
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 from mtg_analyzer.parser.oracle.spec import EffectSpec
@@ -76,6 +76,8 @@ def _engine_with_ll():
     eng = GameEngine.new_game(
         [("p1", "A", []), ("p2", "B", [])], starting_life=20, starting_hand=0
     )
+    eng.state.current_phase = "combat"
+    eng.state.current_step = "declare_attackers"
     ll = GameObject(
         Card(id="ll", name="Living Laser",
              type_line="Legendary Artifact Creature — Equipment",
@@ -97,8 +99,8 @@ def test_discard_counter_tracks_and_resets():
         p1.hand.append(c)
     eng.rules.discard(p1, 3)
     assert eng.state.cards_discarded_this_turn["p1"] == 3
-    # a fresh turn for p1 zeroes it
-    eng.state.cards_discarded_this_turn["p1"] = 0
+    # a fresh turn zeroes it — nothing resets, the window moves
+    eng.state.internal_turn.number += 1
     assert eng.state.cards_discarded_this_turn["p1"] == 0
 
 

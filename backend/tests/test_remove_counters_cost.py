@@ -18,10 +18,10 @@ from mtg_analyzer.game.costs import (
     REMOVE_COUNTERS_X,
     parse_activation_cost,
 )
-from mtg_analyzer.game.effects import ActivatedAbility
+from mtg_analyzer.game.effects.core import ActivatedAbility
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 
 
 def make_engine(hand=0):

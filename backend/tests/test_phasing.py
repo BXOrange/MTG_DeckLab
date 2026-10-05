@@ -2,20 +2,20 @@
 needs: a single permanent phases out via an activated ability
 ("Astral Projection — {1}{W}: Equipped creature phases out") and phases
 back in at its controller's next untap step. No "phase out together"
-attachment-chain family is modeled (see `game/effects.py`'s
+attachment-chain family is modeled (see `game/effects/core.py`'s
 `PhaseOutEffect` docstring) — Robe of Stars' own Equipment stays on the
 battlefield, unattached, while the creature is gone.
 
 Engine side: `GameObject.phased_out`, `GameState.permanents`/
 `permanents_controlled_by` (the choke point everything else reads through),
-`game/effects.py`'s `PhaseOutEffect`, `GameEngine._step_untap`'s RULE
+`game/effects/core.py`'s `PhaseOutEffect`, `GameEngine._step_untap`'s RULE
 702.26a phase-in sweep.
 """
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.game import combat, continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.targeting import TargetSpec, legal_targets
 

@@ -6,7 +6,7 @@ recognises a bare "Spree" header followed by "+ <cost> — <body>" mode lines
 (distinct from an ordinary "Choose one/N/or more —" header — every mode
 prices *itself* rather than sharing one spell cost), the `AbilitySpec.modes
 ["mode_costs"]` IR (`parser/oracle/spec.py`), the binder that folds it onto
-each `obj.spell_modes[i]["cost"]` (`game/effect_binder.py`), and the
+each `obj.spell_modes[i]["cost"]` (`game/binding/core.py`), and the
 engine's own per-combination cost (`GameEngine._modal_extra_cost`, consulted
 by `effective_cast_cost`/`can_cast`/`_auto_tap_for_cast_if_needed` and
 surfaced by `_modal_cast_actions`/`_cast_action`). Escalate reuses the same
@@ -16,7 +16,7 @@ cost-bearing keyword table already claims "Escalate {N}" as a plain
 parametric keyword once its reminder text is stripped).
 
 Return the Favor (`Ojer cEDH`, MEC-31's own named card) is hand-authored in
-`ability_catalogue.py` — its "change the target…" mode is the parser's own
+`card_registry.py` — its "change the target…" mode is the parser's own
 already-built `change_target` handler output verbatim, but its "copy
 target… spell, activated ability, or triggered ability" mode needs a real
 targeted-ability-copy primitive this batch doesn't build (see that entry's
@@ -27,9 +27,9 @@ whole file uses.
 
 import pytest
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.spec import SpecValidationError
@@ -152,7 +152,7 @@ def test_ability_spec_mode_costs_requires_choose_one_or_more():
         ).validate()
 
 
-# -- Binder (effect_binder.py) ------------------------------------------------
+# -- Binder (binding/core.py) ------------------------------------------------
 
 
 def test_binder_attaches_per_mode_cost_from_mode_costs():
@@ -172,6 +172,12 @@ def test_legal_actions_offers_one_locked_or_unlocked_action_per_combination():
     eng = make_engine()
     p1 = _ready_main_phase(eng)
     bear = _put(eng, creature("Bear"), controller="p2")
+    # Mode 1 destroys "target artifact" (RULE 115.1c — artifacts only, not
+    # any permanent), so it needs a real artifact on the board to be
+    # target-legal; without one its lock reason would be "no valid target",
+    # masking the mana-affordability check this test is about.
+    _put(eng, Card(id="Sol Ring", name="Sol Ring", type_line="Artifact"),
+         controller="p2")
     obj = _in_hand(eng, spree_instant())
     bind_from_catalogue(obj)
     p1.mana_pool.add_many({"R": 3})  # {R}{R} base + {1} — exactly mode 0 alone
@@ -257,7 +263,7 @@ def test_escalate_charges_the_flat_cost_once_per_mode_beyond_the_first():
     assert p2.life == opp_life_before - 2
 
 
-# -- Hand-authored: Return the Favor (ability_catalogue.py) ------------------
+# -- Hand-authored: Return the Favor (card_registry.py) ------------------
 
 
 def _return_the_favor_card():

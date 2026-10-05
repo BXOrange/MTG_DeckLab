@@ -191,6 +191,42 @@ def split_modal_block(
     return bool(header and header.group("or_both")), bool(header and header.group("or_more")), repeatable, override, choose, bodies, next_i
 
 
+#: "As ~ enters, choose Khans or Dragons." — a named-option header (the Siege cycle, Struggle for
+#: Project Purity). Only a block whose bullets are printed "• <option> — <ability>" is a named
+#: choice; "choose odd or even" / "choose island or swamp" have no bullets and stay unclaimed.
+NAMED_CHOICE_HEADER_RE = re.compile(
+    r"^as (?:~|this [a-z]+) enters, choose (?P<a>[a-z][a-z' -]*?) or (?P<b>[a-z][a-z' -]*?)\.?$"
+)
+
+#: One named-choice bullet: "• khans — <ability line>".
+NAMED_CHOICE_LINE_RE = re.compile(r"^•\s*(?P<label>[a-z][a-z' -]*?)\s+—\s+(?P<body>.+)$")
+
+
+def split_named_choice_block(
+    lines: list[str], start: int
+) -> Optional[tuple[list[str], dict[str, str], int]]:
+    """If ``lines[start]`` is a named-choice header, collect its labelled bullets.
+
+    Returns ``(labels, {label: body}, next_index)``; ``None`` unless exactly the two named options
+    each have one bullet (a block that names an option it never describes is not this shape).
+    """
+    header = NAMED_CHOICE_HEADER_RE.match(lines[start].strip())
+    if header is None:
+        return None
+    labels = [header.group("a"), header.group("b")]
+    bodies: dict[str, str] = {}
+    i = start + 1
+    while i < len(lines):
+        bullet = NAMED_CHOICE_LINE_RE.match(lines[i].strip())
+        if bullet is None:
+            break
+        bodies[bullet.group("label")] = bullet.group("body").strip()
+        i += 1
+    if sorted(bodies) != sorted(labels):
+        return None
+    return labels, bodies, i
+
+
 def split_spree_block(
     lines: list[str], start: int
 ) -> Optional[tuple[list[str], list[str], int]]:

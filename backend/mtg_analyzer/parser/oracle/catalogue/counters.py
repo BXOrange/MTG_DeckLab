@@ -7,12 +7,12 @@ clause isn't resolved through the generic effect-handler table
 object's *actual* paid X (RULE 107.3c: 0 if it didn't enter by being cast
 for X) at the moment it enters the battlefield — not a value the binder can
 precompute onto a reusable spec. The engine resolves it directly through
-`game/ability_catalogue.entry_counters`, the same split `lands.py` uses for
+`game/card_registry.entry_counters`, the same split `lands.py` uses for
 tapped-entry.
 
 This module is the **single source of truth** for recognising these clauses;
 both the coverage gate (`gate.py`, claims the line without emitting a spec)
-and the engine-facing card-level API (`game/ability_catalogue.entry_counters`)
+and the engine-facing card-level API (`game/card_registry.entry_counters`)
 call into it, so the shapes the gate claims and the shapes the engine
 resolves can never drift apart.
 
@@ -35,13 +35,87 @@ _ENTERS = r"enters(?: the battlefield)?"
 _AMOUNT = r"(a|an|x|\d+)"
 #: The counter's kind: "+1/+1"/"-1/-1" (number words are already folded to
 #: digits by `normalize`), or a bare word like "ice"/"charge".
-_COUNTER_TYPE = r"(\+\d+/\+\d+|-\d+/-\d+|[a-z]+)"
+_COUNTER_TYPE = r"(\+\d+/\+\d+|-\d+/-\d+|first strike|double strike|[a-z]+)"
+
+#: RULE 122.1b keyword counters, spelled as the oracle text prints the kind
+#: (the layer engine's matching reader is `game/continuous.py`'s
+#: `KEYWORD_COUNTER_SLUGS`; a test pins the two lists together, since this
+#: module may not import `game/`). `decayed`/`exalted` are deliberately absent
+#: — see that constant's comment.
+KEYWORD_COUNTER_KINDS: tuple[str, ...] = (
+    "flying", "first strike", "double strike", "deathtouch", "haste", "hexproof",
+    "indestructible", "lifelink", "menace", "reach", "shadow", "trample", "vigilance",
+)
+
+#: One option of a "your choice of …" counter list: an optional amount ("a"/"an"
+#: = 1, a digit), the kind, and an optional trailing "counter(s)" word — the
+#: shared-noun list "a +1/+1, first strike, or trample counter" carries the
+#: word only on its last option.
+def counter_choice_item(kinds: str) -> str:
+    return rf"(?:(?:a|an|\d+) )?(?:\+1/\+1|{kinds})(?: counters?)?"
+
+
+def counter_choice_list(kinds: str) -> str:
+    """Regex fragment for ``<item>, <item>, or <item>`` / ``<item> or <item>``
+    (two or more options), as the named group ``items``."""
+    item = counter_choice_item(kinds)
+    return rf"(?P<items>{item}(?:, {item})*,? or {item})"
+
+
+_CHOICE_OPTION_RE = re.compile(r"(?:(?P<n>a|an|\d+) )?(?P<kind>\+1/\+1|[a-z]+(?: strike)?)(?: counters?)?$")
+
+
+def parse_counter_choice_items(items: str) -> Optional[list[dict[str, Any]]]:
+    """Split a `counter_choice_list` match into ``[{"kind", "count"}, …]``
+    (an amount-less option in a shared-noun list counts as 1), or ``None``
+    when any option doesn't read back cleanly."""
+    options: list[dict[str, Any]] = []
+    for part in re.split(r",? or |, ", items):
+        match = _CHOICE_OPTION_RE.match(part.strip())
+        if match is None:
+            return None
+        amount = match.group("n")
+        options.append({
+            "kind": match.group("kind"),
+            "count": int(amount) if amount and amount.isdigit() else 1,
+        })
+    return options if len(options) >= 2 else None
+
+
+#: "~ enters with your choice of a flying counter or a first strike counter on
+#: it." / "…with your choice of a +1/+1, first strike, or vigilance counter on
+#: it." (RULE 614.1 + 122.1b — the controller picks as it enters).
+ENTER_COUNTER_CHOICE_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} with your choice of "
+    + counter_choice_list("|".join(KEYWORD_COUNTER_KINDS)) + r" on it\.?$",
+    re.IGNORECASE,
+)
+
+#: "~ enters with a +1/+1 counter and a flying counter on it." — a fixed
+#: compound of two (or three) counters; `_ENTRY_COUNTERS_RE` only ever names
+#: one. Kinds are the +1/+1/-1/-1 shapes, a keyword counter, or a bare word.
+_ENTRY_COMPOUND_ITEM = rf"(?:a|an|\d+) (?:\+\d+/\+\d+|-\d+/-\d+|first strike|double strike|[a-z]+) counters?"
+_ENTRY_COUNTERS_COMPOUND_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} with (?P<items>{_ENTRY_COMPOUND_ITEM}(?:, {_ENTRY_COMPOUND_ITEM})*,? and {_ENTRY_COMPOUND_ITEM}) on it\.?$",
+    re.IGNORECASE,
+)
+_ENTRY_COMPOUND_PART_RE = re.compile(
+    r"(?P<n>a|an|\d+) (?P<kind>\+\d+/\+\d+|-\d+/-\d+|first strike|double strike|[a-z]+) counters?"
+)
 
 #: "~ enters with X +1/+1 counters on it." / "this creature enters with
 #: three ice counters on it." / "this artifact enters with a charge counter
 #: on it." — 20+ cards across Hydras, counters-matter artifacts/enchantments.
 _ENTRY_COUNTERS_RE = re.compile(
     rf"^{_SUBJECT} {_ENTERS} with {_AMOUNT} {_COUNTER_TYPE} counters? on it\.?$",
+    re.IGNORECASE,
+)
+_CAST_FROM_HAND_ENTRY_COUNTERS_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} with (a|an|\d+) {_COUNTER_TYPE} counters? on it if you cast it from your hand\.?$",
+    re.IGNORECASE,
+)
+_TAPPED_ENTRY_COUNTERS_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} tapped with {_AMOUNT} {_COUNTER_TYPE} counters? on it\.?$",
     re.IGNORECASE,
 )
 
@@ -99,6 +173,61 @@ _KICKED_SCALED_ENTRY_COUNTERS_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: MEC-84 (Revolt): "~ enters with N `<T>` counters on it **if a permanent
+#: left the battlefield under your control this turn**." (Narnam Renegade /
+#: Greenwheel Liberator / Lifecraft Cavalry / Night Market Aeronaut / Putrid
+#: Pals). The suffix sibling of `_KICKED_ENTRY_COUNTERS_RE`, gated on
+#: `GameState.permanents_left_battlefield_this_turn` at resolution (0 unless
+#: something left) instead of `kicker_count`.
+_REVOLT_ENTRY_COUNTERS_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} with {_FIXED_AMOUNT} {_COUNTER_TYPE} counters? on it "
+    rf"if an? permanent left the battlefield under your control this turn\.?$",
+    re.IGNORECASE,
+)
+
+#: PAR-64 / Raid: "~ enters with N counters on it if you attacked this
+#: turn."  This is the player-scoped RULE 508.1a declaration history (not
+#: Boast's source-only ``attacked_this_turn`` flag), read when the permanent
+#: enters just like the Revolt sibling above.
+_RAID_ENTRY_COUNTERS_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} with {_FIXED_AMOUNT} {_COUNTER_TYPE} counters? on it "
+    r"if you attacked this turn\.?$",
+    re.IGNORECASE,
+)
+
+#: PAR-95 / Adamant: this is an entry replacement, not a delayed spell
+#: effect, so the counter exists before the permanent enters.  ``colorless``
+#: is included because the same spent-mana family has a real colorless rider.
+_ADAMANT_ENTRY_COUNTERS_RE = re.compile(
+    rf"^if at least (?P<n>\d+) (?P<color>white|blue|black|red|green|colorless) mana was spent to cast "
+    rf"this spell, {_SUBJECT} {_ENTERS} with {_FIXED_AMOUNT} {_COUNTER_TYPE} counters? on it\.?$",
+    re.IGNORECASE,
+)
+_ADAMANT_MANA_KEYS: dict[str, str] = {
+    "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G", "colorless": "C",
+}
+
+# MEC-97: Hotheaded Giant's "unless you've cast another red spell this
+# turn" is still an entry replacement (RULE 614.12), so the test belongs at
+# the same pre-entry point as revolt/raid rather than becoming a late ETB
+# trigger.  The spell being cast is not counted here: its own cast was
+# recorded before it resolved, hence "another" requires at least two.
+_ANOTHER_COLOR_SPELL_ENTRY_COUNTERS_UNLESS_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} with {_FIXED_AMOUNT} {_COUNTER_TYPE} counters? on it "
+    r"unless you'?ve cast another (?P<color>white|blue|black|red|green) spell this turn\.?$",
+    re.IGNORECASE,
+)
+
+#: PAR-45: Canker Abomination's compound entry instruction, after the
+#: preceding "as ~ enters, choose an opponent" replacement has stamped
+#: ``chosen_player_id``.  The counter count is fixed at the same pre-entry
+#: moment, hence it belongs beside the other entry-counter conditions.
+_CHOSEN_OPPONENT_CREATURES_ENTRY_COUNTERS_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} with {_FIXED_AMOUNT} {_COUNTER_TYPE} counters? on it "
+    r"for each creature that player controls\.?$",
+    re.IGNORECASE,
+)
+
 #: RULE 702.43a **Sunburst**: "~ enters with a +1/+1 counter on it for each
 #: **color of mana spent to cast it**." (Chamber Sentry / Crystalline
 #: Crawler / Rancorous Archaic / Skyrider Elf / Etched Oracle). Scaled by
@@ -109,6 +238,34 @@ _KICKED_SCALED_ENTRY_COUNTERS_RE = re.compile(
 _SUNBURST_ENTRY_COUNTERS_RE = re.compile(
     rf"^{_SUBJECT} {_ENTERS} with {_FIXED_AMOUNT} {_COUNTER_TYPE} counters? on it "
     rf"for each color of mana spent to cast it\.?$",
+    re.IGNORECASE,
+)
+
+
+#: "~ enters with a number of +1/+1 counters on it equal to the amount of mana spent to cast it."
+#: (Kurbis, Harvest Celebrant) — one counter per mana of any kind spent (`GameObject.mana_spent_to_cast`),
+#: the all-colours-and-generic sibling of Sunburst's per-*colour* count above.
+_MANA_SPENT_ENTRY_COUNTERS_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} with a number of {_COUNTER_TYPE} counters on it "
+    rf"equal to the amount of mana spent to cast it\.?$",
+    re.IGNORECASE,
+)
+
+
+#: "As ~ enters, roll X d6. It enters with a number of +1/+1 counters on it equal to the total of those results."
+#: (Neverwinter Hydra) — X is the announced {X}; `RulesEngine._apply_entry_counters` rolls that many dice.
+_ROLL_X_DICE_ENTRY_COUNTERS_RE = re.compile(
+    rf"^as {_SUBJECT} enters, roll x d(?P<sides>\d+)\. it enters with a number of {_COUNTER_TYPE} counters on it "
+    rf"equal to the total of those results\.?$",
+    re.IGNORECASE,
+)
+
+
+#: "~ enters with a number of +1/+1 counters on it equal to the number of land cards in all graveyards."
+#: (Centaur Vinecrasher) — read live off the graveyards as it enters.
+_LAND_CARDS_IN_GRAVEYARDS_ENTRY_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} with a number of {_COUNTER_TYPE} counters on it "
+    rf"equal to the number of land cards in all graveyards\.?$",
     re.IGNORECASE,
 )
 
@@ -141,12 +298,25 @@ def entry_counters_condition(line: str) -> Optional[dict[str, Any]]:
       the other two kicked shapes use, and not the *spell's* own X the
       unconditional ``is_x`` shape above uses); 0 unless Kicker was paid.
 
+    - ``{"is_x": False, "count": N, "counter_type": T, "extra_counters":
+      [{"counter_type": T2, "count": N2}, …]}`` — a compound ("~ enters with
+      a +1/+1 counter and a flying counter on it"): the first counter plus
+      the rest, all placed unconditionally.
+
     Either kicked shape may also carry ``"grant_keyword": "vigilance"`` (RULE
     702.33b's "...and with `<keyword>`." tail) — a keyword granted under the
     exact same kicked gate as the counters (present at all once kicked, for
     either shape; the per-kick scaling only ever applies to the counter
     count, never to "how many times" a keyword is granted).
     """
+    match = _TAPPED_ENTRY_COUNTERS_RE.match(line)
+    if match is not None:
+        return {"is_x": False, "count": _fixed_count(match.group(1)),
+                "counter_type": match.group(2).lower()}
+    match = _CAST_FROM_HAND_ENTRY_COUNTERS_RE.match(line)
+    if match is not None:
+        return {"is_x": False, "count": _fixed_count(match.group(1)),
+                "counter_type": match.group(2).lower(), "cast_from_hand_gate": True}
     match = _KICKED_ENTRY_COUNTERS_RE.match(line)
     if match is not None:
         amount_raw = match.group(1).lower()
@@ -177,6 +347,67 @@ def entry_counters_condition(line: str) -> Optional[dict[str, Any]]:
             "is_x": False, "count": _fixed_count(match.group(1)),
             "counter_type": match.group(2).lower(), "colors_spent_scale": True,
         }
+    match = _LAND_CARDS_IN_GRAVEYARDS_ENTRY_RE.match(line)  # Centaur Vinecrasher
+    if match is not None:
+        return {
+            "is_x": False, "count": 1, "counter_type": match.group(1).lower(), "land_cards_in_graveyards": True,
+        }
+    match = _ROLL_X_DICE_ENTRY_COUNTERS_RE.match(line)  # Neverwinter Hydra
+    if match is not None:
+        return {
+            "is_x": False, "count": 1, "counter_type": match.group(2).lower(), "roll_x_dice_sides": int(match.group("sides")),
+        }
+    match = _MANA_SPENT_ENTRY_COUNTERS_RE.match(line)  # Kurbis
+    if match is not None:
+        return {
+            "is_x": False, "count": 1, "counter_type": match.group(1).lower(), "mana_spent_scale": True,
+        }
+    match = _REVOLT_ENTRY_COUNTERS_RE.match(line)  # MEC-84
+    if match is not None:
+        return {
+            "is_x": False, "count": _fixed_count(match.group(1)),
+            "counter_type": match.group(2).lower(), "revolt_gate": True,
+        }
+    match = _RAID_ENTRY_COUNTERS_RE.match(line)  # PAR-64 / Raid
+    if match is not None:
+        return {
+            "is_x": False, "count": _fixed_count(match.group(1)),
+            "counter_type": match.group(2).lower(), "raid_gate": True,
+        }
+    match = _ADAMANT_ENTRY_COUNTERS_RE.match(line)  # PAR-95 / Adamant
+    if match is not None:
+        return {
+            "is_x": False, "count": _fixed_count(match.group(3)),
+            "counter_type": match.group(4).lower(),
+            "mana_color_spent_gate": {
+                "color": _ADAMANT_MANA_KEYS[match.group("color").lower()],
+                "amount": int(match.group("n")),
+            },
+        }
+    match = _ANOTHER_COLOR_SPELL_ENTRY_COUNTERS_UNLESS_RE.match(line)  # MEC-97
+    if match is not None:
+        return {
+            "is_x": False, "count": _fixed_count(match.group(1)),
+            "counter_type": match.group(2).lower(),
+            "another_color_spell_unless": {
+                "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G",
+            }[match.group("color").lower()],
+        }
+    match = _CHOSEN_OPPONENT_CREATURES_ENTRY_COUNTERS_RE.match(line)  # PAR-45
+    if match is not None:
+        return {
+            "is_x": False, "count": _fixed_count(match.group(1)),
+            "counter_type": match.group(2).lower(), "chosen_opponent_creatures_scale": True,
+        }
+    match = _ENTRY_COUNTERS_COMPOUND_RE.match(line)
+    if match is not None:
+        parts = [
+            {"counter_type": p.group("kind").lower(), "count": _fixed_count(p.group("n"))}
+            for p in _ENTRY_COMPOUND_PART_RE.finditer(match.group("items"))
+        ]
+        first, rest = parts[0], parts[1:]
+        return {"is_x": False, "count": first["count"], "counter_type": first["counter_type"],
+                "extra_counters": rest}
     match = _ENTRY_COUNTERS_RE.match(line)
     if not match:
         return None
@@ -199,11 +430,23 @@ def entry_counters(card: Any) -> Optional[dict[str, Any]]:
     drift from the shapes the coverage gate (`gate.py`) claims.
     """
     text = getattr(card, "oracle_text", "") or ""
-    normalized = normalize(text, getattr(card, "name", None))
+    # Pass ``keywords`` so an unregistered ability-word label ("Revolt —",
+    # "Disappear —") is stripped exactly as the front-end pipeline strips it
+    # (MEC-84 — the first entry-counter shape gated behind an ability word).
+    normalized = normalize(
+        text, getattr(card, "name", None), getattr(card, "keywords", None)
+    )
     for line in normalized.split("\n"):
         line = line.strip()
         if not line:
             continue
+        # PAR-45: the opponent pick and this entry-counter replacement share
+        # one printed line (Canker Abomination).  The gate performs the same
+        # narrow split before binding the choice; expose the counter tail to
+        # this engine-facing recognizer too so the two paths cannot drift.
+        compound = re.fullmatch(r"as ~ enters, choose an opponent\.\s*(?P<tail>.+)", line, re.I)
+        if compound is not None:
+            line = compound.group("tail")
         condition = entry_counters_condition(line)
         if condition is not None:
             return condition

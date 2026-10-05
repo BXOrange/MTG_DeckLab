@@ -11,12 +11,12 @@ Reference: docs/implementation-state/Done_Backend.md "MEC-40" entry.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 
-from tests.test_game_engine import creature, make_engine
+from tests.support.game import creature, make_engine
 
 
 def _etb_event(obj):
@@ -108,6 +108,24 @@ def test_ajani_etb_creates_cat_warrior_token():
     assert any(o.card.name == "Cat Warrior" for o in eng.state.battlefield)
 
 
+def test_ajanis_chosen_only_triggers_for_enchantments_not_its_cat_token():
+    """Its Cat is a creature, so its own ETB cannot recursively trigger it."""
+    eng = make_engine([], hand=0)
+    chosen = _put(eng.state, _named("Ajani's Chosen"), controller="p1")
+    enchantment = _put(
+        eng.state,
+        Card(id="test-enchantment", name="Test Enchantment", type_line="Enchantment"),
+        controller="p1",
+    )
+
+    eng.state.fire_event(_etb_event(enchantment))
+    eng.resolve_until_stable()
+
+    cats = [obj for obj in eng.state.battlefield if obj.card.name == "Cat"]
+    assert len(cats) == 1
+    assert chosen in eng.state.battlefield
+
+
 def test_ajani_exiles_self_when_another_cat_dies():
     eng = make_engine([_named("Ajani, Nacatl Pariah")], hand=1)
     ajani = _put(eng.state, _named("Ajani, Nacatl Pariah"), controller="p1")
@@ -197,9 +215,10 @@ def test_domri_plus_one_produces_mana_and_protects_creature_spells_this_turn():
     p1.mana_pool.add_many({"G": 1, "C": 1})
     eng.cast_spell(p1, obj)
 
-    from mtg_analyzer.game.effects import CantBeCounteredEffect
-
-    assert any(isinstance(e, CantBeCounteredEffect) for e in obj.spell_effects)
+    assert eng.rules._is_cant_be_countered(obj)
+    instant = GameObject(Card(id="Bolt", name="Bolt", type_line="Instant", is_instant=True),
+                         owner_id="p1", zone=Zone.HAND)
+    assert not eng.rules._is_cant_be_countered(instant)   # Domri: creature spells only
 
 
 # ---------------------------------------------------------------------------
@@ -254,7 +273,7 @@ def test_eladamri_reveal_ability_puts_revealed_creature_onto_battlefield():
 
 
 def test_elesh_norn_doubles_own_etb_trigger():
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
 
     eng = make_engine([_named("Elesh Norn, Mother of Machines")], hand=1)
     p1 = eng.state.player_by_id("p1")
@@ -268,7 +287,7 @@ def test_elesh_norn_doubles_own_etb_trigger():
 
 
 def test_elesh_norn_suppresses_only_opponents_etb_triggers():
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
 
     eng = make_engine([_named("Elesh Norn, Mother of Machines")], [creature("Opp Bear")], hand=0)
     _put(eng.state, _named("Elesh Norn, Mother of Machines"), controller="p1")
@@ -352,7 +371,7 @@ def test_gandalf_flash_permission_is_scoped_to_legendary_and_artifact():
 
 
 def test_gandalf_doubles_trigger_for_legendary_or_artifact_entering_or_leaving():
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
 
     eng = make_engine([_named("Gandalf the White")], hand=0)
     _put(eng.state, _named("Gandalf the White"), controller="p1")
@@ -477,21 +496,34 @@ def test_kutzil_opponents_cant_cast_during_your_turn():
 
 
 def test_kutzil_draws_when_boosted_creature_deals_combat_damage():
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
 
     eng = make_engine([_named("Kutzil, Malamet Exemplar")], hand=1)
     p1 = eng.state.player_by_id("p1")
     p1.library.append(GameObject(_land("Deck Filler"), owner_id="p1", zone=Zone.LIBRARY))
     _put(eng.state, _named("Kutzil, Malamet Exemplar"), controller="p1")
 
+    # PAR-131: the contributors are real creatures, each read through the
+    # composed per-contributor ``power_gt_base`` filter.
+    plain = _put(eng.state, Card(id="Plain", name="Plain", type_line="Creature — Bear",
+                                 is_creature=True, power=2, toughness=2), controller="p1")
+    boosted = _put(eng.state, Card(id="Boosted", name="Boosted", type_line="Creature — Bear",
+                                   is_creature=True, power=2, toughness=2), controller="p1")
+    boosted.counters["+1/+1"] = 1
+    eng.recompute_continuous_effects()
+
+    def _hit(contributor):
+        eng.state.fire_event(GameEvent(
+            EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER,
+            player_id="p1", target_id="p2", amount=2, subtypes=[],
+            contributor_ids=[contributor.instance_id], contributor_amounts=[2],
+        ))
+        eng.resolve_until_stable()
+
     before = len(p1.library)
-    event = GameEvent(
-        EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER,
-        player_id="p1", target_id="p2", max_power=5, amount=5, subtypes=[],
-        contributor_is_commander=False, contributor_power_gt_base=True,
-    )
-    eng.state.fire_event(event)
-    eng.resolve_until_stable()
+    _hit(plain)  # power 2 = its base power: no draw
+    assert len(p1.library) == before
+    _hit(boosted)
     assert len(p1.library) == before - 1
 
 

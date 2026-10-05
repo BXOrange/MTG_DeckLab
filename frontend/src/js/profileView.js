@@ -107,15 +107,6 @@ export function renderProfileView(container) {
         </div>
       </div>
 
-      <div class="deck-section">
-        <h3>${t('profile.board.heading')}</h3>
-        <p class="hint">${t('profile.board.hint')}</p>
-        <label class="mp-inline-option">
-          <input type="checkbox" id="show-opponent-hand" />
-          ${t('profile.board.showOpponentHand')}
-        </label>
-      </div>
-
       <div class="deck-section player-assets-section">
         <h3>${t('profile.tokens.heading')}</h3>
         <p class="hint">${t('profile.tokens.hint')}</p>
@@ -156,8 +147,6 @@ export function renderProfileView(container) {
   const randomSeatingInput = container.querySelector('#profile-mp-random-seating');
   const randomStartInput = container.querySelector('#profile-mp-random-start');
   const favoritesEl = container.querySelector('#profile-favorite-decks');
-
-  const showOpponentHand = container.querySelector('#show-opponent-hand');
 
   const tokenImagesList = container.querySelector('#token-images-list');
   const tokenImageForm = container.querySelector('#token-image-form');
@@ -220,14 +209,6 @@ export function renderProfileView(container) {
   // (The per-priority countdown is a server setting now — always on, its
   // length set by the host per table / by `config.MULTIPLAYER_SPELL_TIMER`
   // — so there is no auto-pass checkbox here any more.)
-
-  showOpponentHand.checked = getSettings().showOpponentHand;
-
-  // Saved on change rather than behind the "Speichern" button: this only
-  // affects this browser's own play.
-  showOpponentHand.addEventListener('change', () => {
-    saveSettings({ showOpponentHand: showOpponentHand.checked });
-  });
 
   // --- Token images / sleeves -----------------------------------------
 

@@ -12,7 +12,7 @@ lookups — so these tests run in the ordinary suite rather than being gated
 behind `--full-cache` (see `tests/conftest.py`).
 
 Four cards (Acquired Mutation, Contaminated Drink, The Ghoul Gunslinger, The
-Wise Mothman) were *not* registered in `ability_catalogue.py` as of this
+Wise Mothman) were *not* registered in `card_registry.py` as of this
 batch — their new grammar is pure oracle-text parsing. The Ghoul, Gunslinger
 and Contaminated Drink end up fully `MODELED` (every line claimed) and so are
 also exercised end-to-end via `bind_from_catalogue`/`cast_spell`. Acquired
@@ -28,26 +28,26 @@ and the test below asserts that instead.
 The Wise Mothman's own mill-triggered second ability, listed below as
 UNMODELED-at-the-parser-level in this same batch, was subsequently closed
 out (`tests/test_mill_trigger_family.py`): it's now hand-authored directly
-in `ability_catalogue.py`'s `_the_wise_mothman` (registered), which is why
+in `card_registry.py`'s `_the_wise_mothman` (registered), which is why
 `parse_oracle` alone still correctly reports the card UNMODELED with the
 mill clause unclaimed below — `specs_for`'s registry always wins over the
 parser wholesale once a card is registered, so raw `parse_oracle` output
 no longer reflects what the live engine actually does for this card.
 
-The other 7 cards are hand-authored in `ability_catalogue.py` (each needed a
+The other 7 cards are hand-authored in `card_registry.py` (each needed a
 compound shape no oracle-text grammar could express) and are exercised
 end-to-end via `bind_from_catalogue`.
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import attach_to_object, bind_from_catalogue
-from mtg_analyzer.game.effects import AddPlayerCountersEffect, DrawCardEffect
+from mtg_analyzer.game.binding.core import attach_to_object, bind_from_catalogue
+from mtg_analyzer.game.effects.core import AddPlayerCountersEffect, DrawCardEffect
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import StackItem
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import StackItem
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 
 
@@ -272,7 +272,7 @@ def test_contaminated_drink_cast_end_to_end_draws_x_and_grants_half_rad_counters
 
     result = parse_oracle(_contaminated_drink_card())
     (spec,) = result.specs
-    from mtg_analyzer.game.effect_binder import build_effects
+    from mtg_analyzer.game.binding.core import build_effects
     spell = GameObject(_contaminated_drink_card(), owner_id="p1", zone=Zone.HAND)
     spell.spell_effects = build_effects(spec.effects, spell)
     p1.add_to_zone(spell, Zone.HAND)
@@ -321,7 +321,7 @@ def test_harold_and_bob_dies_returns_as_an_aura_attached_to_a_forest():
     assert choice["kind"] == "trigger_target"
     forest_option = next(o for o in choice["options"] if o["instance_id"] == forest.instance_id)
 
-    eng.rules.resolve_trigger_target_choice(forest_option["id"])
+    eng.rules.resolve_choice(forest_option["id"])
     assert eng.state.pending_choice is None
     eng.resolve_until_stable()
 
@@ -341,7 +341,7 @@ def test_harold_and_bobs_granted_mana_ability_produces_three_mana_and_two_rad_co
     eng.rules.put_triggers_on_stack()
     choice = eng.state.pending_choice
     forest_option = next(o for o in choice["options"] if o["instance_id"] == forest.instance_id)
-    eng.rules.resolve_trigger_target_choice(forest_option["id"])
+    eng.rules.resolve_choice(forest_option["id"])
     eng.resolve_until_stable()
 
     p1 = eng.state.player_by_id("p1")
@@ -681,7 +681,7 @@ def test_ghoul_gunslinger_own_death_grants_rad_counters_and_a_treasure_when_self
     p1 = eng.state.player_by_id("p1")
     p1_option = next(o for o in choice["options"] if o.get("id") == "p1" or o.get("instance_id") == "p1")
 
-    eng.rules.resolve_trigger_target_choice(p1_option["id"])
+    eng.rules.resolve_choice(p1_option["id"])
     eng.resolve_until_stable()
 
     assert p1.counters.get("rad", 0) == 2
@@ -699,7 +699,7 @@ def test_ghoul_gunslinger_targeting_an_opponent_grants_no_treasure():
     choice = eng.state.pending_choice
     p2_option = next(o for o in choice["options"] if o.get("id") == "p2" or o.get("instance_id") == "p2")
 
-    eng.rules.resolve_trigger_target_choice(p2_option["id"])
+    eng.rules.resolve_choice(p2_option["id"])
     eng.resolve_until_stable()
 
     p2 = eng.state.player_by_id("p2")
@@ -728,7 +728,7 @@ def test_ghoul_gunslinger_fires_for_another_nontoken_zombie_but_not_an_unrelated
 # `parse_oracle` output stays UNMODELED overall (its second ability's raw
 # oracle-text phrasing is still parser-unrecognized) — only the rad-counter
 # clause is under test at *this* level. The card is now separately
-# registered in `ability_catalogue.py` (`_the_wise_mothman`, reproducing
+# registered in `card_registry.py` (`_the_wise_mothman`, reproducing
 # this same first ability by hand plus a real mill-triggered second ability)
 # — see `tests/test_mill_trigger_family.py` for the live-engine behaviour,
 # which no longer goes through `parse_oracle` at all once registered.

@@ -1,11 +1,11 @@
 """MEC-74 — Dance of the Elements count-sensitive trigger package."""
 
-from mtg_analyzer.game.ability_catalogue import specs_for
-from mtg_analyzer.game.effect_binder import bind_from_catalogue, build_effects
+from mtg_analyzer.game.card_registry import specs_for
+from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 
 
 def _engine():

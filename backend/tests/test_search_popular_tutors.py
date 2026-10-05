@@ -4,7 +4,7 @@ most popular real "search your library" cards (tutors / ramp / fetch).
 This is the "überprüfe ob diese Funktionen umgesetzt werden können" check for
 the search feature. Each entry below is a real, high-play-rate card (EDHREC
 staples + Legacy/Modern tutors) reduced to the two axes the feature exposes:
-``criteria`` (what to look for — `models.card_query`) and ``destination``
+``criteria`` (what to look for — `models.cards.card_query`) and ``destination``
 (where the found card goes). The test drives each spec through the real
 engine and asserts the card lands in the right zone — so if the feature
 regresses, the affected cards are named.
@@ -15,10 +15,10 @@ boundary is documented rather than implied.
 
 import pytest
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.mana_cost import ManaCost
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.mana.mana_cost import ManaCost
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.game.effects import EffectRegistry
+from mtg_analyzer.game.effects.core import EffectRegistry
 
 
 # --- A representative library covering every criterion the specs use -------
@@ -131,7 +131,7 @@ def test_popular_card_is_expressible(label, criteria, destination, count, expect
         assert names == expected, f"{label}: eligible {names} != {expected}"
 
     chosen = choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(chosen)
+    eng.rules.resolve_choice(chosen)
     assert eng.state.pending_choice is None
     assert _zone_has(p1, eng.state, chosen, destination), (
         f"{label}: card did not reach {destination}"
@@ -141,7 +141,7 @@ def test_popular_card_is_expressible(label, criteria, destination, count, expect
 def test_buried_alive_puts_three_creatures_in_graveyard():
     """Buried Alive — search for up to three creature cards to the graveyard."""
     eng, p1 = new_engine()
-    eng.rules.request_search(p1, "Creature", "graveyard", count=3)
+    eng.rules._request_search(p1, "Creature", "graveyard", count=3)
     picked = []
     for _ in range(3):
         choice = eng.state.pending_choice
@@ -149,7 +149,7 @@ def test_buried_alive_puts_three_creatures_in_graveyard():
             break
         cid = choice["eligible"][0]["instance_id"]
         picked.append(cid)
-        eng.rules.resolve_search_choice(cid)
+        eng.rules.resolve_choice(cid)
     # Only two creatures exist, so it finishes after two picks.
     assert eng.state.pending_choice is None
     assert len(picked) == 2
@@ -167,14 +167,14 @@ def test_cultivate_split_destination_single_search():
     workaround a prior version of this test documented.
     """
     eng, p1 = new_engine()
-    eng.rules.request_search(
+    eng.rules._request_search(
         p1, {"basic": True}, "battlefield_tapped", count=2,
         destinations=["battlefield_tapped", "hand"],
     )
     first = eng.state.pending_choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(first)
+    eng.rules.resolve_choice(first)
     second = eng.state.pending_choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(second)
+    eng.rules.resolve_choice(second)
     assert eng.state.pending_choice is None
     assert eng.state.find_object(first).tapped
     assert any(o.instance_id == second for o in p1.hand)

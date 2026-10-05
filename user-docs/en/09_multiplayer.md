@@ -2,8 +2,8 @@
 
 **Multiplayer** lets two people play a real game against each other,
 through the same rules engine Goldfisch and Puzzle/Replay use. Both
-players run the app in their own browser, pointed at the same backend
-server (see chapter 6, "Einstellungen" / Settings — the server address).
+players open the same app URL in their own browser. The shared backend
+address is derived automatically from that URL.
 
 The sidebar group **Multiplayer** has two entries:
 
@@ -16,12 +16,14 @@ The sidebar group **Multiplayer** has two entries:
 ## Before you start
 
 Set your player name on the **Profil** (profile) tab. It's what the other
-players see in the lobby. It's just a label — there are no accounts and
-no passwords in this app — so if two people pick the same name, they're
-still two separate players.
+players see in the lobby. The app still has no accounts or passwords, but
+it does keep a hidden browser token to recognize this browser across
+reloads and reconnects. That means two browsers with the same display name
+can stay distinct players, while the same browser comes back to the same
+seat even after a disconnect.
 
 You also need at least one **legal** saved deck (chapter 2). The same
-rule as Goldfisch applies: an illegal deck can't be brought to a table.
+rule as Goldfish applies: an illegal deck can't be brought to a table.
 
 ## The lobby (Setup)
 
@@ -153,6 +155,14 @@ and a **🤖 Hinzufügen** (add) button:
   first legal target. It optimizes nothing; it's an opponent that applies
   pressure, not a good player.
 
+- **Smart Bot** — automatically detects archetype, colour identity and
+  commander synergies. Develops mana and win conditions, tutors missing combo
+  pieces, protects important creatures and responds with counters/removal.
+  Uses an existing local Commander Spellbook snapshot; Oracle + Demonic
+  Consultation has a supported winning sequence. Other combos are assembly
+  priorities; arbitrary combo execution is not guaranteed. Also available in
+  **Solo gegen Bots**.
+
 A bot then sits in the seat list like anyone else (marked 🤖). Two things
 the host does *for* it, since a bot has no screen of its own:
 
@@ -161,7 +171,7 @@ the host does *for* it, since a bot has no screen of its own:
 - **Remove it** — the **✕** in its row.
 
 Everything after that is the usual flow: **▶ Spiel starten**, and the bot
-keeps its opening hand and takes its turns by itself. Its whole turn
+makes its mulligan decisions and takes its turns by itself. Its whole turn
 arrives on your screen in one go, as soon as the turn comes back to you.
 A table with nothing but bots left at it is dropped — bots don't play on
 by themselves, and they can't invite anyone or start a game either.
@@ -203,6 +213,15 @@ for a shared game:
   eine Entscheidung"** (making a decision) instead of their options —
   those can reveal cards you're not allowed to see.
 
+### Table emotes
+
+Below the stack/trigger feed on the left, **Table chat** shows who plays a
+land, casts a spell or activates an ability, including mana abilities.
+Passing priority does not add a message. Use **👍, 👏, GG, 🤔 or ⏳** to
+react even when you do not have priority. There is no free-text input.
+Spectators can read the feed. The latest 200 entries remain available
+when reconnecting; restarting the game clears them.
+
 ### Priority
 
 Magic doesn't move a step at a time because somebody clicks "next" — it
@@ -233,21 +252,43 @@ exception is declaring blockers, which isn't taken with priority at all.
 ### Auto-pass
 
 Passing twice per step gets old fast in a game where nobody wants to
-respond, so there's a timer: while you hold priority, a countdown runs
-next to the badge and passes for you when it reaches **0**.
+respond, so the table includes a priority timer. While you hold priority,
+a countdown runs next to the badge and passes for you when it reaches
+**0**.
 
-- It's **on by default**, at **3 seconds**.
+- The timer is **always active by default** and is controlled by the
+  server setting **MULTIPLAYER_SPELL_TIMER_SECONDS** (default **20s**;
+  set to 0 to disable it).
 - **Any interaction with the board stops it** for that window — click,
   drag or tap anything and the number is struck through and the countdown
   is over. It can't pass out from under you while you're thinking.
-- By default it only runs **in your opponent's turns**, where you're
-  responding. Your own turn stays entirely under your control. You can
-  change that to "all turns" if you'd rather the game keep a fixed pace.
+- The timer is normally **for the windows where you are responding on
+  another player's turn**. Your own turn stays under your control.
 
-All three are set on the **Profil** tab, and the on/off switch and the
-number of seconds are also right there on the board so you can change
-them mid-game — usually the moment auto-pass has just cost you a
-response.
+#### Passing the turn faster
+
+Next to **Pass**, one button speeds things up on each kind of turn:
+
+- **Pass this turn** (key **Enter**) appears on an *opponent's* turn and
+  passes every priority window you hold until that turn ends.
+- **Skip to end step** (key **E**) appears on *your own* turn and passes up
+  to the end step, where you get priority again.
+
+Either one stops passing for you the moment an opponent puts a spell or
+ability on the stack, so you can still respond; once it resolves, passing
+carries on. Doing anything yourself, or pressing the button now labelled
+*… — cancel*, ends it. The other players see a small *⏩ passing this turn*
+badge on your banner. Bots accept it too when they have nothing they would do. **Space** passes priority once; the **Pass** button always says where passing leads (for example *To combat →*).
+
+The **Stops** panel in the left rail sets where you want to be asked: one
+column for your own turn, one for everyone else's. A step you un-tick is
+passed for you whenever the stack is empty (anything an opponent casts still
+reaches you). Both main phases always stay on during your own turn. Your
+choice is remembered in this browser. Solo against bots works the same way.
+
+The host can override the table timer. The profile tab still stores the
+browser's comfort toggles, and the board also exposes the same controls so
+you can cancel or adjust the current window if needed.
 
 ### Other board settings
 
@@ -357,16 +398,15 @@ watching, and there are no game controls at all. **Zuschauen beenden**
 Reloading the page, closing the laptop, or a flaky network doesn't cost
 you the game.
 
-**Your seat is held by your player name.** Come back with the same name
-in the Profil tab and you're put straight back into the same seat, with
-the game as you left it — the board is rebuilt from the server, so you
-can't end up out of sync. The app reconnects by itself, so usually this
-just happens.
+**Your seat is held by your player identity.** The app recognizes a
+browser by a hidden client token and by the saved profile name, so when
+you come back with the same name or the same browser it reconnects to the
+same seat and rebuilds the board from the server.
 
 While you're away:
 
-- The other players see **⚡ getrennt** (disconnected) on your board and a
-  note in the lobby, so they know why you've gone quiet.
+- The other players see **⚡ disconnected** on your board and a note in
+  the lobby, so they know why you've gone quiet.
 - **The server passes priority for you**, so the game doesn't freeze on
   somebody who isn't there. It only ever passes — it will never play
   anything for you.
@@ -377,8 +417,8 @@ The server also drops a connection that's holding the table up: if you
 hold priority and don't do anything at all for two minutes (by default),
 your connection is closed and the grace period above begins. This isn't
 about playing slowly — it's about a browser tab that died without telling
-anyone, which would otherwise stall the game forever. With auto-pass on
-you'll never hit it.
+anyone, which would otherwise stall the game forever. The priority timer
+keeps the table moving for you when you're away.
 
 Whoever runs the server can change both timers with environment
 variables: `MTG_MULTIPLAYER_IDLE_TIMEOUT` (seconds before an idle

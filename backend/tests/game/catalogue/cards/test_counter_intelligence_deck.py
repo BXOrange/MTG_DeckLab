@@ -1,0 +1,539 @@
+"""Hand-authored cards of the saved "Counter Intelligence" deck (PLAY-ALL Step 2)."""
+
+from __future__ import annotations
+
+import pytest
+
+from mtg_analyzer.config import DB_PATH
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.game_engine import GameEngine
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.services.card_database import CardDatabase
+from tests.support.catalogue import battlefield_object
+
+
+def _game(*deck_names):
+    cards = [CardDatabase(DB_PATH).get_card(name) for name in deck_names]
+    engine = GameEngine.new_game([("p1", "A", cards), ("p2", "B", [])], starting_hand=len(cards), starting_life=20)
+    for obj in engine.state.players[0].hand:
+        bind_from_catalogue(obj)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    p1 = engine.state.player_by_id("p1")
+    for i in range(5):
+        p1.library.append(GameObject(Card(id=f"L{i}", name=f"Lib {i}", type_line="Land"), owner_id="p1", zone=Zone.LIBRARY))
+    return engine, p1
+
+
+def _dispatch(artifacts):
+    engine, p1 = _game("Dispatch")
+    for i in range(artifacts):
+        battlefield_object(engine, "p1", f"Trinket {i}", "Artifact")
+    victim = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    p1.mana_pool.add_many({"W": 1})
+    engine.cast_spell(p1, p1.hand[0], targets=[victim])
+    engine.resolve_until_stable()
+    return engine, victim
+
+
+def test_dispatch_taps_and_with_metalcraft_exiles_the_creature():
+    engine, victim = _dispatch(artifacts=3)
+    assert victim.zone == Zone.EXILE
+
+    engine, victim = _dispatch(artifacts=2)
+    assert victim in engine.state.battlefield and victim.tapped  # tapped only, no metalcraft
+
+
+def test_soul_guide_lantern_exiles_only_opponents_graveyards():
+    engine, p1 = _game()
+    p2 = engine.state.player_by_id("p2")
+    lantern = battlefield_object(engine, "p1", "Soul-Guide Lantern", "Artifact")
+    bind_from_catalogue(lantern)
+    mine = GameObject(Card(id="m", name="Mine", type_line="Instant"), owner_id="p1", zone=Zone.GRAVEYARD)
+    theirs = GameObject(Card(id="t", name="Theirs", type_line="Instant"), owner_id="p2", zone=Zone.GRAVEYARD)
+    p1.graveyard.append(mine)
+    p2.graveyard.append(theirs)
+    ability = next(i for i, a in enumerate(lantern.activated_abilities) if a.cost.raw == "{T}, Sacrifice ~")
+    engine.activate_ability(p1, lantern, ability)
+    engine.resolve_until_stable()
+    assert theirs.zone == Zone.EXILE and not p2.graveyard
+    assert mine in p1.graveyard
+    assert lantern.zone != Zone.BATTLEFIELD  # sacrificed as a cost
+
+
+def test_threefold_thunderhulk_makes_gnomes_equal_to_power_on_enter_and_attack():
+    engine, p1 = _game("Threefold Thunderhulk")
+    hulk = p1.hand[0]
+    p1.mana_pool.add_many({"C": 8})
+    engine.cast_spell(p1, hulk)
+    engine.resolve_until_stable()
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert hulk.zone == Zone.BATTLEFIELD and hulk.counters.get("+1/+1") == 3
+
+    def gnomes():
+        return [o for o in engine.state.battlefield if o.name == "Gnome"]
+
+    assert len(gnomes()) == hulk.power
+    before = len(gnomes())
+    hulk.summoning_sick = False
+    engine.state.current_step = "declare_attackers"
+    engine.declare_attackers(p1, [{"attacker": hulk, "defender": engine.legal_defenders_for(p1)[0]}])
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert len(gnomes()) == before + hulk.power
+
+
+def test_darksteel_reactor_wins_when_the_twentieth_charge_counter_lands():
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+
+    engine, p1 = _game()
+    reactor = battlefield_object(engine, "p1", "Darksteel Reactor", "Artifact")
+    bind_from_catalogue(reactor)
+
+    def upkeep():
+        engine.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="upkeep", phase="beginning", player_id="p1"))
+        engine.rules.put_triggers_on_stack()
+        while engine.state.pending_choice:  # "you may" — accept
+            engine.resolve_pending_choice("do")
+        engine.resolve_until_stable()
+
+    reactor.counters["charge"] = 18
+    upkeep()
+    assert reactor.counters["charge"] == 19 and not engine.state.game_over
+    upkeep()
+    assert reactor.counters["charge"] == 20
+    assert engine.state.game_over and engine.state.winner_id == "p1"
+
+
+def test_deepglow_skate_doubles_every_counter_kind_on_each_chosen_permanent():
+    engine, p1 = _game("Deepglow Skate")
+    artifact = battlefield_object(engine, "p1", "Charged Thing", "Artifact")
+    bear = battlefield_object(engine, "p2", "Their Bear", "Creature — Bear", is_creature=True, power=1, toughness=1)
+    untouched = battlefield_object(engine, "p1", "Other Thing", "Artifact")
+    artifact.counters["charge"] = 2
+    bear.counters.update({"+1/+1": 3, "stun": 1})
+    untouched.counters["charge"] = 5
+    p1.mana_pool.add_many({"U": 5})
+    engine.cast_spell(p1, p1.hand[0])
+    engine.resolve_until_stable()
+    engine.rules.put_triggers_on_stack()
+    for object_id in (str(artifact.instance_id), str(bear.instance_id)):
+        assert engine.state.pending_choice["kind"] == "trigger_target_multi"
+        engine.resolve_pending_choice(object_id)
+    engine.resolve_pending_choice("stop")  # "any number": the player ends the list
+    engine.resolve_until_stable()
+    assert artifact.counters == {"charge": 4}
+    assert bear.counters == {"+1/+1": 6, "stun": 2}  # every kind, opposing permanents included
+    assert untouched.counters == {"charge": 5}  # not chosen
+
+
+def test_empowered_autogenerator_enters_tapped_and_adds_mana_equal_to_its_counters():
+    engine, p1 = _game("Empowered Autogenerator")
+    gen = p1.hand[0]
+    p1.mana_pool.add_many({"C": 4})
+    engine.cast_spell(p1, gen)
+    engine.resolve_until_stable()
+    assert gen.zone == Zone.BATTLEFIELD and gen.tapped  # enters tapped
+
+    def tap_for_mana():
+        gen.tapped = False
+        p1.mana_pool.set_amount("W", 0)
+        engine.activate_ability(p1, gen, 0)
+        engine.resolve_until_stable()
+        while engine.state.pending_choice:  # "any one color": every mana is the same chosen colour
+            engine.resolve_pending_choice("W")
+        return p1.mana_pool.to_dict()["W"]
+
+    assert tap_for_mana() == 1 and gen.counters["charge"] == 1
+    assert tap_for_mana() == 2 and gen.counters["charge"] == 2
+
+
+def test_cyberdrive_awakener_animates_noncreature_artifacts_until_end_of_turn():
+    engine, p1 = _game("Cyberdrive Awakener")
+    rock = battlefield_object(engine, "p1", "Mind Stone", "Artifact")
+    golem = battlefield_object(engine, "p1", "Golem", "Artifact Creature — Golem", is_creature=True, power=1, toughness=1)
+    theirs = battlefield_object(engine, "p2", "Their Rock", "Artifact")
+    awakener = p1.hand[0]
+    p1.mana_pool.add_many({"U": 1, "C": 5})
+    engine.cast_spell(p1, awakener)
+    engine.resolve_until_stable()
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    assert rock.is_creature and (rock.power, rock.toughness) == (4, 4)
+    assert not theirs.is_creature  # only artifacts *you* control
+    assert (golem.power, golem.toughness) == (1, 1)  # already a creature: not set to 4/4
+    assert "flying" in rock.granted_keywords and "flying" in golem.granted_keywords  # other artifact creatures
+    late = battlefield_object(engine, "p1", "Late Rock", "Artifact")
+    engine.recompute_continuous_effects()
+    assert not late.is_creature  # RULE 611.2c: the group was fixed on resolution
+
+    engine._step_cleanup()
+    engine.recompute_continuous_effects()
+    assert not rock.is_creature
+
+
+def _titan_entering(pick_ids):
+    engine, p1 = _game("Depthshaker Titan")
+    rock = battlefield_object(engine, "p1", "Mind Stone", "Artifact")
+    other = battlefield_object(engine, "p1", "Sol Ring", "Artifact")
+    theirs = battlefield_object(engine, "p2", "Their Rock", "Artifact")
+    p1.mana_pool.add_many({"R": 2, "C": 5})
+    engine.cast_spell(p1, p1.hand[0])
+    engine.resolve_until_stable()
+    engine.rules.put_triggers_on_stack()
+    options = {o["label"] for o in engine.state.pending_choice["options"]}
+    for name in pick_ids:
+        engine.resolve_pending_choice(str({"rock": rock, "other": other}[name].instance_id))
+    if engine.state.pending_choice:
+        engine.resolve_pending_choice("stop")
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    return engine, p1, rock, other, theirs, options
+
+
+def test_depthshaker_titan_animates_chosen_artifacts_and_sacrifices_them_at_end_step():
+    engine, p1, rock, other, theirs, options = _titan_entering(["rock"])
+    assert "Their Rock" not in options  # "you control"
+    assert rock.is_creature and (rock.power, rock.toughness) == (3, 3)
+    assert not other.is_creature  # not chosen
+    titan = next(o for o in engine.state.battlefield if o.name == "Depthshaker Titan")
+    assert {"trample", "haste"} <= set(rock.granted_keywords)  # the lord covers every artifact creature
+    assert {"trample", "haste"} <= set(titan.granted_keywords)
+
+    engine._fire_delayed_triggers("end")
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert rock.zone == Zone.GRAVEYARD and other.zone == Zone.BATTLEFIELD
+    assert titan.zone == Zone.BATTLEFIELD
+
+
+def test_depthshaker_titan_choosing_nothing_never_sacrifices_itself():
+    engine, p1, rock, other, theirs, options = _titan_entering([])
+    titan = next(o for o in engine.state.battlefield if o.name == "Depthshaker Titan")
+    engine._fire_delayed_triggers("end")
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert titan.zone == Zone.BATTLEFIELD and rock.zone == Zone.BATTLEFIELD
+
+
+@pytest.mark.parametrize("countered", [False, True])
+def test_emry_lets_you_cast_only_the_chosen_artifact_card_from_the_graveyard(countered):
+    engine, p1 = _game()
+    emry = battlefield_object(
+        engine, "p1", "Emry, Lurker of the Loch", "Legendary Creature — Merfolk Wizard",
+        is_creature=True, power=1, toughness=2,
+    )
+    bind_from_catalogue(emry)
+    emry.summoning_sick = False
+
+    def grave_card(name, type_line, **kw):
+        obj = GameObject(
+            Card(id=name, name=name, type_line=type_line, mana_cost_string="{1}", converted_mana_cost=1, **kw),
+            owner_id="p1", zone=Zone.GRAVEYARD,
+        )
+        p1.graveyard.append(obj)
+        return obj
+
+    rock = grave_card("Grave Rock", "Artifact")
+    other_rock = grave_card("Other Rock", "Artifact")
+    bear = grave_card("Grave Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+
+    from mtg_analyzer.game.targeting import TargetSpec, legal_targets
+
+    pool = legal_targets(engine.state, "p1", TargetSpec(kind="graveyard_artifact"), source=emry)
+    assert {o["name"] for o in pool} == {"Grave Rock", "Other Rock"}  # artifact cards only
+    engine.activate_ability(p1, emry, 0, targets=[rock])
+    engine.resolve_until_stable()
+
+    def castable(obj):
+        return any(
+            a.get("instance_id") == obj.instance_id and a.get("type") == "cast_spell"
+            for a in engine.legal_actions(p1)
+        )
+
+    p1.mana_pool.add_many({"C": 3})
+    assert castable(rock) and not castable(other_rock) and not castable(bear)
+    engine.rules.destroy(emry)
+    engine.cast_spell(p1, rock)
+    assert not rock.cast_via_flashback
+    if countered:
+        engine.rules.counter_spell(rock)
+        assert rock.zone == Zone.GRAVEYARD
+        assert not castable(rock)
+        return
+    engine.resolve_until_stable()
+    assert rock.zone == Zone.BATTLEFIELD
+
+
+def test_mycosynth_gardens_becomes_a_copy_of_a_nontoken_artifact_with_mana_value_x():
+    from mtg_analyzer.game.targeting import TargetSpec, legal_targets
+
+    engine, p1 = _game()
+    gardens = battlefield_object(engine, "p1", "The Mycosynth Gardens", "Land — Sphere", is_land=True)
+    bind_from_catalogue(gardens)
+    gardens.summoning_sick = False
+    three = battlefield_object(engine, "p1", "Three Rock", "Artifact", mana_cost_string="{3}", converted_mana_cost=3)
+    battlefield_object(engine, "p1", "Two Rock", "Artifact", mana_cost_string="{2}", converted_mana_cost=2)
+    battlefield_object(engine, "p2", "Their Three", "Artifact", mana_cost_string="{3}", converted_mana_cost=3)
+    token = battlefield_object(engine, "p1", "Gold", "Artifact — Gold", mana_cost_string="", converted_mana_cost=3)
+    token.is_token = True
+
+    gardens.x_paid = 3  # the announced X, as `activate_ability` stamps it
+    pool = legal_targets(engine.state, "p1", TargetSpec(kind="nontoken_artifact_you_control", exact_mana_value="x"), source=gardens)
+    assert {o["name"] for o in pool} == {"Three Rock"}  # MV 3, nontoken, yours
+
+    p1.mana_pool.add_many({"C": 3})
+    engine.activate_ability(p1, gardens, 0, targets=[three], x=3)
+    engine.resolve_until_stable()
+    engine.recompute_continuous_effects()
+    assert gardens.name == "Three Rock" and gardens.card.is_artifact and not gardens.is_land
+
+
+def _tekuthal_board():
+    engine, p1 = _game()
+    tek = battlefield_object(
+        engine, "p1", "Tekuthal, Inquiry Dominus", "Legendary Creature — Phyrexian Horror",
+        is_creature=True, power=3, toughness=4,
+    )
+    bind_from_catalogue(tek)
+    tek.summoning_sick = False
+    return engine, p1, tek
+
+
+def test_tekuthal_doubles_proliferate():
+    from mtg_analyzer.game.effects.core import GameContext
+    from mtg_analyzer.game.effects.counters_tokens import ProliferateEffect
+
+    engine, p1, tek = _tekuthal_board()
+    rock = battlefield_object(engine, "p1", "Charged Rock", "Artifact")
+    rock.counters["charge"] = 1
+
+    def proliferate():
+        ProliferateEffect(source=rock).apply(GameContext(engine.state, engine.rules))
+
+    proliferate()
+    assert rock.counters["charge"] == 3  # +1 twice, not once
+
+    engine.state.battlefield.remove(tek)  # Tekuthal gone: back to a single proliferate
+    proliferate()
+    assert rock.counters["charge"] == 4
+
+
+def test_tekuthal_pays_three_counters_from_others_only_for_an_indestructible_counter():
+    engine, p1, tek = _tekuthal_board()
+    rock = battlefield_object(engine, "p1", "Charged Rock", "Artifact")
+    bear = battlefield_object(engine, "p1", "Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    tek.counters["+1/+1"] = 5  # its own counters never pay for it
+    rock.counters["charge"] = 2
+    bear.counters["+1/+1"] = 1
+    p1.mana_pool.add_many({"C": 1, "U": 2})
+    engine.activate_ability(p1, tek, 0)
+    engine.resolve_until_stable()
+    assert tek.counters.get("indestructible") == 1
+    assert tek.counters["+1/+1"] == 5
+    assert rock.counters.get("charge", 0) + bear.counters.get("+1/+1", 0) == 0  # exactly 3 taken from the others
+
+
+def test_cloud_key_discounts_spells_of_the_chosen_type_only():
+    engine, p1 = _game("Cloud Key")
+    key = p1.hand[0]
+
+    def hand_card(name, type_line, **kw):
+        obj = GameObject(
+            Card(id=name, name=name, type_line=type_line, mana_cost_string="{3}", converted_mana_cost=3, **kw),
+            owner_id="p1", zone=Zone.HAND,
+        )
+        p1.hand.append(obj)
+        return obj
+
+    def cost(obj):
+        return engine.effective_cast_cost(p1, obj).converted_mana_cost
+
+    assert cost(hand_card("Early Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)) == 3
+
+    p1.mana_pool.add_many({"C": 3})
+    engine.cast_spell(p1, key)
+    engine.resolve_until_stable()  # resolving the Key opens its enter choice
+    while engine.state.pending_choice:  # "choose artifact, creature, enchantment, instant, or sorcery"
+        engine.resolve_pending_choice("creature")
+        engine.resolve_until_stable()
+    assert key.zone == Zone.BATTLEFIELD and key.chosen_mode == "creature"
+    assert cost(hand_card("Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)) == 2
+    assert cost(hand_card("Bolt", "Instant")) == 3  # not the chosen type
+
+
+def _refinery_board():
+    engine, p1 = _game()
+    refinery = battlefield_object(engine, "p1", "Moxite Refinery", "Artifact")
+    bind_from_catalogue(refinery)
+    bear = battlefield_object(engine, "p1", "Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    rock = battlefield_object(engine, "p1", "Charged Rock", "Artifact")
+    bear.counters["+1/+1"] = 3
+    p1.mana_pool.add_many({"C": 2})
+    return engine, p1, refinery, bear, rock
+
+
+def test_moxite_refinery_moves_x_counters_as_charge_counters_onto_an_artifact():
+    engine, p1, refinery, bear, rock = _refinery_board()
+    engine.activate_ability(p1, refinery, 0, targets=[rock], x=2)
+    engine.resolve_until_stable()
+    assert bear.counters["+1/+1"] == 1  # X = 2 removed from the creature
+    assert rock.counters == {"charge": 2}  # ... and X charge counters put on the artifact
+    assert refinery.tapped
+
+
+def test_moxite_refinery_second_mode_puts_plus_one_counters_on_a_creature():
+    engine, p1, refinery, bear, rock = _refinery_board()
+    rock.counters["charge"] = 4
+    other = battlefield_object(engine, "p1", "Other Bear", "Creature — Bear", is_creature=True, power=1, toughness=1)
+    engine.activate_ability(p1, refinery, 1, targets=[other], x=3)
+    engine.resolve_until_stable()
+    assert other.counters == {"+1/+1": 3}
+    assert bear.counters.get("+1/+1", 0) + rock.counters.get("charge", 0) == 4  # 3 of the 7 counters were paid
+
+
+def test_moxite_refinery_only_at_sorcery_speed():
+    import pytest
+
+    engine, p1, refinery, bear, rock = _refinery_board()
+    engine.state.current_step = "declare_attackers"
+    with pytest.raises(ValueError):
+        engine.activate_ability(p1, refinery, 0, targets=[rock], x=2)
+    assert not refinery.tapped and bear.counters["+1/+1"] == 3  # nothing was paid
+
+
+def test_patrolling_peacemaker_proliferates_when_an_opponent_commits_a_crime():
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+
+    engine, p1 = _game("Patrolling Peacemaker")
+    p1.mana_pool.add_many({"W": 1, "C": 2})
+    engine.cast_spell(p1, p1.hand[0])
+    engine.resolve_until_stable()
+    peacemaker = next(o for o in engine.state.battlefield if o.name == "Patrolling Peacemaker")
+    assert peacemaker.counters.get("+1/+1") == 2  # enters with two +1/+1 counters
+    rock = battlefield_object(engine, "p1", "Charged Rock", "Artifact")
+    rock.counters["charge"] = 1
+
+    def crime(by):
+        engine.state.fire_event(GameEvent(EventType.CRIME_COMMITTED, player_id=by, controller_id=by))
+        engine.rules.put_triggers_on_stack()
+        engine.resolve_until_stable()
+
+    crime("p1")  # my own crime: no trigger
+    assert rock.counters["charge"] == 1
+    crime("p2")  # an opponent's: proliferate
+    assert rock.counters["charge"] == 2 and peacemaker.counters["+1/+1"] == 3
+
+
+
+def test_lux_artillery_grants_sunburst_to_artifact_creature_spells_you_cast():
+    engine, p1 = _game("Lux Artillery")
+    artillery = p1.hand[0]
+    golem_card = GameObject(
+        Card(id="Golem", name="Test Golem", type_line="Artifact Creature — Golem", mana_cost_string="{W}{U}{1}",
+             converted_mana_cost=3, is_creature=True, power=1, toughness=1),
+        owner_id="p1", zone=Zone.HAND,
+    )
+    p1.hand.append(golem_card)
+    p1.mana_pool.add_many({"C": 4})
+    engine.cast_spell(p1, artillery)
+    engine.resolve_until_stable()
+    assert artillery.zone == Zone.BATTLEFIELD
+
+    p1.mana_pool.add_many({"W": 1, "U": 1, "C": 1})  # two colours + one colourless pay for the 3-mana Golem
+    engine.cast_spell(p1, golem_card)
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    assert golem_card.zone == Zone.BATTLEFIELD
+    assert golem_card.counters.get("+1/+1") == 2  # sunburst: one per colour of mana spent
+
+
+def _lux_end_step(counters):
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+
+    engine, p1 = _game("Lux Artillery")
+    artillery = p1.hand[0]
+    p1.mana_pool.add_many({"C": 4})
+    engine.cast_spell(p1, artillery)
+    engine.resolve_until_stable()
+    rock = battlefield_object(engine, "p1", "Charged Rock", "Artifact")
+    bear = battlefield_object(engine, "p1", "Bear", "Artifact Creature — Bear", is_creature=True, power=2, toughness=2)
+    rock.counters["charge"] = counters // 2
+    bear.counters["+1/+1"] = counters - counters // 2  # an artifact creature: counted once, not twice
+    enemy = engine.state.player_by_id("p2")
+    life = enemy.life
+    engine.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="end", phase="ending", player_id="p1"))
+    engine.rules.put_triggers_on_stack()
+    engine.resolve_until_stable()
+    return life - enemy.life
+
+
+def test_lux_artillery_deals_ten_to_each_opponent_only_with_thirty_counters():
+    assert _lux_end_step(30) == 10
+    assert _lux_end_step(29) == 0
+
+
+def _defense_board():
+    engine, p1 = _game()
+    defense = battlefield_object(engine, "p1", "Resourceful Defense", "Enchantment")
+    bind_from_catalogue(defense)
+    bear = battlefield_object(engine, "p1", "Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    keeper = battlefield_object(engine, "p1", "Keeper", "Artifact")
+    return engine, p1, defense, bear, keeper
+
+
+def test_resourceful_defense_moves_the_counters_of_a_leaving_permanent_onto_a_target():
+    engine, p1, defense, bear, keeper = _defense_board()
+    bear.counters.update({"+1/+1": 2, "stun": 1})
+    engine.rules.destroy(bear)
+    engine.rules.put_triggers_on_stack()
+    options = engine.state.pending_choice["options"]  # "target permanent you control": only the Keeper is left
+    assert [o["label"] for o in options] == ["Keeper"]
+    engine.resolve_pending_choice(str(keeper.instance_id))
+    engine.resolve_until_stable()
+    assert keeper.counters == {"+1/+1": 2, "stun": 1}
+
+
+def test_resourceful_defense_ignores_a_permanent_without_counters():
+    engine, p1, defense, bear, keeper = _defense_board()
+    engine.rules.destroy(bear)
+    engine.rules.put_triggers_on_stack()
+    assert not engine.state.stack  # the intervening "if it had counters" is not met
+    assert keeper.counters == {}
+
+
+def test_resourceful_defense_ability_moves_every_counter_between_two_permanents():
+    engine, p1, defense, bear, keeper = _defense_board()
+    bear.counters.update({"+1/+1": 3, "charge": 1})
+    p1.mana_pool.add_many({"W": 1, "C": 4})
+    engine.activate_ability(p1, defense, 0, targets=[bear, keeper])
+    engine.resolve_until_stable()
+    assert keeper.counters == {"+1/+1": 3, "charge": 1}
+    assert not any(bear.counters.values())
+
+
+def test_ripples_of_potential_proliferates_then_phases_out_the_chosen_permanents():
+    engine, p1 = _game("Ripples of Potential")
+    mine = battlefield_object(engine, "p1", "Charged Rock", "Artifact")
+    kept = battlefield_object(engine, "p1", "Kept Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
+    theirs = battlefield_object(engine, "p2", "Their Rock", "Artifact")
+    plain = battlefield_object(engine, "p1", "Plain Rock", "Artifact")
+    mine.counters["charge"] = 1
+    kept.counters["+1/+1"] = 1
+    theirs.counters["charge"] = 1
+    p1.mana_pool.add_many({"U": 1, "C": 1})
+    engine.cast_spell(p1, p1.hand[0])
+    engine.resolve_until_stable()
+    assert (mine.counters["charge"], kept.counters["+1/+1"], theirs.counters["charge"]) == (2, 2, 2)  # proliferate
+
+    choice = engine.state.pending_choice
+    assert choice["kind"] == "choose_objects"
+    offered = {o["label"] for o in choice["options"] if "instance_id" in o}  # the rest is the decline option
+    assert offered == {"Charged Rock", "Kept Bear"}  # mine, with a counter put on
+    engine.resolve_pending_choice(str(mine.instance_id))
+    engine.resolve_pending_choice(None)  # "any number": stop after one
+    engine.resolve_until_stable()
+    assert mine.phased_out and not kept.phased_out and not theirs.phased_out and not plain.phased_out

@@ -7,17 +7,17 @@ existing `add_counters` "up to N target creatures" multi-target spec —
 RULE 701.41c's self-exclusion falls out of `targeting`'s plain "creature"
 kind, which already excludes the ability's source.
 
-Reference: game/rules/mana_counters_mixin.py (`bolster`), game/effects.py
+Reference: game/rules/mana_counters_mixin.py (`bolster`), game/effects/core.py
 (`BolsterEffect`), parser/oracle/catalogue/handlers.py.
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec
@@ -39,7 +39,9 @@ def test_bolster_and_support_parse():
 def test_dynamic_amounts_parse():
     # RULE 701.39a/701.41 dynamic X — PAR-29's "Parser-shaped only" residue.
     assert match_clause("bolster x, where x is the number of tapped creatures you control") == [
-        EffectSpec("bolster", {"amount_from_count_selector": "tapped_creatures_you_control"})
+        EffectSpec("bolster", {"amount_from_count_selector": {
+            "zone": "battlefield", "of": "you", "filter": {"tapped": True, "card_type": "creature"},
+        }})
     ]
     assert match_clause("support x") == [
         EffectSpec("add_counters", {
@@ -206,10 +208,10 @@ def test_bolster_dynamic_amount_reads_a_live_board_count():
     b.tapped = True
     c.tapped = True
 
-    from mtg_analyzer.game.effects import BolsterEffect, GameContext
+    from mtg_analyzer.game.effects.core import BolsterEffect, GameContext
 
     ctx = GameContext(state, eng.rules)
-    BolsterEffect(source=a, amount_from_count_selector="tapped_creatures_you_control").apply(ctx)
+    BolsterEffect(source=a, amount={"kind": "count_selector", "selector": "tapped_creatures_you_control"}).apply(ctx)
 
     assert state.pending_choice is None
     assert a.plus_one_counters == 2  # 2 tapped creatures, least-toughness A gets both
@@ -221,10 +223,10 @@ def test_bolster_dynamic_amount_of_zero_is_a_no_op():
     a = _creature("A", 2)
     state.add_to_battlefield(a)
 
-    from mtg_analyzer.game.effects import BolsterEffect, GameContext
+    from mtg_analyzer.game.effects.core import BolsterEffect, GameContext
 
     ctx = GameContext(state, eng.rules)
-    BolsterEffect(source=a, amount_from_count_selector="tapped_creatures_you_control").apply(ctx)
+    BolsterEffect(source=a, amount={"kind": "count_selector", "selector": "tapped_creatures_you_control"}).apply(ctx)
 
     assert a.plus_one_counters == 0
     assert state.pending_choice is None
@@ -247,7 +249,7 @@ def test_support_x_reads_the_spells_own_announced_x():
     spell = GameObject(spell_card, owner_id="p1", zone=Zone.HAND)
     spell.x_paid = 2
 
-    from mtg_analyzer.game.effects import AddCountersEffect, GameContext
+    from mtg_analyzer.game.effects.core import AddCountersEffect, GameContext
     from mtg_analyzer.game.targeting import resolved_count
 
     effect = AddCountersEffect(

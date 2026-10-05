@@ -22,8 +22,8 @@ Reference: mtg_analyzer/services/game_session.py.
 
 from __future__ import annotations
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.services.game_session import GameSessionManager
 
 

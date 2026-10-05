@@ -1,0 +1,1 @@
+"""Structured narrative deck analysis."""

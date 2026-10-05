@@ -2,9 +2,8 @@
 
 Im **Multiplayer** spielen zwei Personen eine echte Partie gegeneinander —
 gegen dieselbe Regel-Engine, die auch Goldfisch und Puzzle/Replay
-antreibt. Beide öffnen die App in ihrem eigenen Browser und zeigen auf
-denselben Backend-Server (siehe Kapitel 6, **Einstellungen** —
-Server-Adresse).
+antreibt. Beide öffnen dieselbe App-Adresse in ihrem eigenen Browser. Die Verbindung
+zum gemeinsamen Backend wird automatisch aus dieser Adresse abgeleitet.
 
 Die Sidebar-Gruppe **Multiplayer** hat zwei Einträge:
 
@@ -17,9 +16,12 @@ Die Sidebar-Gruppe **Multiplayer** hat zwei Einträge:
 ## Vorbereitung
 
 Trage deinen Spielernamen im Tab **Profil** ein. Das ist der Name, den
-die anderen in der Lobby sehen. Er ist reine Beschriftung — die App hat
-keine Konten und keine Passwörter —, zwei Personen mit demselben Namen
-sind also trotzdem zwei verschiedene Spieler.
+die anderen in der Lobby sehen. Die App kennt zwar keine Konten oder
+Passwörter, aber sie merkt sich zusätzlich eine versteckte Browser-ID,
+um dich beim erneuten Laden oder bei einer Wiederverbindung wieder an
+denselben Sitz zu erinnern. Zwei Browser mit demselben Anzeigenamen
+können also trotzdem getrennte Spieler sein, während derselbe Browser
+sich genau an denselben Platz zurückholt.
 
 Außerdem brauchst du mindestens ein als **legal** gespeichertes Deck
 (Kapitel 2). Es gilt dieselbe Regel wie im Goldfisch-Modus: Ein nicht
@@ -158,6 +160,14 @@ Auswahl und der Schaltfläche **🤖 Hinzufügen**:
   optimiert nichts; er ist ein Gegner, der Druck macht, kein guter
   Spieler.
 
+- **Smart Bot** — erkennt Archetyp, Farbidentität und Commander-Synergien
+  automatisch. Entwickelt Mana und WinCons, sucht fehlende Combo-Teile,
+  schützt wichtige Kreaturen und reagiert mit Countern/Removal. Nutzt vorhandene
+  lokale Commander-Spellbook-Daten; Oracle + Demonic Consultation kann er als
+  konkrete Siegsequenz spielen. Andere Combos priorisiert er beim Aufbau;
+  beliebige Combo-Sequenzen sind nicht garantiert. Auch unter **Solo gegen Bots**
+  auswählbar.
+
 Ein Bot sitzt danach wie jeder andere in der Platzliste (mit 🤖 markiert).
 Zwei Dinge macht der Host für ihn, weil ein Bot keine eigene Ansicht hat:
 
@@ -165,8 +175,8 @@ Zwei Dinge macht der Host für ihn, weil ein Bot keine eigene Ansicht hat:
   Deck hat, gilt er als *bereit*.
 - **Ihn wieder entfernen** — mit dem **✕** in seiner Zeile.
 
-Danach läuft alles wie sonst: **▶ Spiel starten**, und der Bot behält
-seine Starthand und zieht seine Züge von selbst. Sein ganzer Zug erscheint
+Danach läuft alles wie sonst: **▶ Spiel starten**, und der Bot trifft
+seine Mulligan-Entscheidungen und zieht seine Züge von selbst. Sein ganzer Zug erscheint
 bei dir in einem Rutsch, sobald du am Zug bist. Ein Tisch, an dem nur
 noch Bots sitzen, wird aufgelöst — Bots spielen nicht allein weiter, und
 sie können auch niemanden einladen oder ein Spiel starten.
@@ -208,6 +218,15 @@ Unterschieden für eine gemeinsame Partie:
   gerade eine Entscheidung"** statt seiner Optionen — die könnten Karten
   verraten, die du nicht sehen darfst.
 
+### Tisch-Emotes
+
+Unter dem Stack-/Trigger-Feed links zeigt **Tischchat**, wer ein Land
+spielt, einen Zauber wirkt oder eine Fähigkeit aktiviert, einschließlich
+Manafähigkeiten. Passen erzeugt keine Nachricht. Mit **👍, 👏, GG, 🤔 oder
+⏳** kannst du auch ohne Priorität reagieren. Es gibt kein Freitextfeld.
+Beobachter können mitlesen. Die letzten 200 Einträge bleiben beim
+Wiederverbinden erhalten; ein Neustart der Partie leert den Feed.
+
 ### Priorität
 
 Magic geht nicht Schritt für Schritt weiter, weil jemand auf "weiter"
@@ -244,26 +263,43 @@ reagieren will. Deshalb gibt es einen Countdown: Solange du die Priorität
 hast, läuft neben dem Abzeichen eine Zeit herunter und passt bei **0**
 automatisch für dich.
 
-- **Standardmäßig an**, mit **3 Sekunden**.
+- Der Timer ist **standardmäßig immer aktiv** und wird durch die
+  Server-Einstellung **MULTIPLAYER_SPELL_TIMER_SECONDS** gesteuert
+  (Standard **20s**; `0` schaltet ihn aus).
 - **Jede Aktion auf dem Spielfeld stoppt ihn** für dieses Fenster — sobald
-  du irgendwo klickst, wird die Zahl durchgestrichen und der Countdown ist
-  vorbei. Er kann dir also nicht mitten im Überlegen dazwischenfunken.
-- Standardmäßig läuft er **nur in gegnerischen Zügen**, also dort, wo du
-  reagierst. Dein eigener Zug bleibt vollständig unter deiner Kontrolle.
-  Wer lieber ein durchgehend festes Tempo möchte, kann auf "alle Züge"
-  umstellen.
+du irgendwo klickst, wird die Zahl durchgestrichen und der Countdown ist
+vorbei. Er kann dir also nicht mitten im Überlegen dazwischenfunken.
+- Normalerweise läuft er in den **Fenstern, in denen du auf dem Zug eines
+  anderen reagierst**. Dein eigener Zug bleibt unter deiner Kontrolle,
+  aber mit **Pass this turn** kannst du das Tempo erhöhen (siehe unten).
 
-Alle drei Einstellungen stehen im Tab **Profil**; Ein/Aus und die
-Sekundenzahl findest du zusätzlich direkt am Spielfeld, damit du sie
-mitten in der Partie ändern kannst — meist genau in dem Moment, in dem der
-Auto-Pass dich gerade eine Reaktion gekostet hat.
+#### Den Zug schneller durchspielen
 
-### Was am Spielfeld sonst noch einstellbar ist
+Neben **Passen** gibt es je nach Zug einen Knopf, der das Tempo erhöht:
 
-- **Gegnerische Hand**: standardmäßig steht in der Handzone des Gegners
-  nur die *Anzahl* ("5 verdeckte Karten"). Die Karten selbst bekommt dein
-  Browser ohnehin nie zu sehen (Regel 400.2 – der Server schickt sie gar
-  nicht erst mit), die Kartenrücken kosteten nur Platz. Über das Häkchen
+- **Pass this turn** (Taste **Eingabe**) erscheint in einem *gegnerischen*
+  Zug und passt jedes Prioritätsfenster, das du bis zu dessen Ende hältst.
+- **Skip to end step** (Taste **E**) erscheint in *deinem eigenen* Zug und
+  passt bis zum Endschritt, in dem du wieder Priorität bekommst.
+
+Beides hört auf zu passen, sobald ein Gegner einen Zauber oder eine
+Fähigkeit auf den Stapel legt — du kannst also weiter reagieren; nach der
+Auflösung geht das Passen weiter. Eine eigene Aktion oder der Knopf *… —
+abbrechen* beendet es. Die anderen Spieler sehen ein kleines Abzeichen
+*⏩ passt diesen Zug* auf deinem Banner. Mit der **Leertaste** passt du
+einmal die Priorität; der Knopf **Passen** nennt immer, wohin das Passen führt (z. B. *Zum Kampf →*). Bots nehmen es ebenfalls an, wenn sie nichts vorhaben.
+
+Im Panel **Haltepunkte** in der linken Leiste legst du fest, wo du gefragt
+werden willst: eine Spalte für deinen Zug, eine für die Züge der anderen.
+Ein abgewählter Schritt wird bei leerem Stapel für dich gepasst (was ein
+Gegner wirkt, erreicht dich trotzdem). Beide Hauptphasen bleiben in deinem
+Zug immer aktiv. Deine Wahl wird im Browser gespeichert. Solo gegen Bots
+funktioniert genauso.
+
+Der Host kann den Tisch-Timer überschreiben. Im Profil bleiben die
+Browser-Komfort-Schalter erhalten, und das Board zeigt dieselben
+Steuerelemente direkt mitten im Spiel an, damit du ein laufendes Fenster
+bei Bedarf abbrechen oder anpassen kannst.
   **verdeckte Karten zeigen** an der Handzone (oder im Tab
   **Profil**) bekommst du sie zurück. Karten, die ein Effekt
   wirklich *aufdeckt*, werden immer angezeigt.

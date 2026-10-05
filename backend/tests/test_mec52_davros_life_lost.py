@@ -13,13 +13,14 @@ Feeds two new hooks:
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import build_effects
-from mtg_analyzer.game.effects import GameContext, _apply_effects_partitioned
+from mtg_analyzer.game.binding.core import build_effects
+from mtg_analyzer.game.effects.core import GameContext, _apply_effects_partitioned
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec
+from tests import turn_history_events as history
 
 
 def _engine(players=3):
@@ -93,7 +94,7 @@ def test_davros_is_modeled_with_condition_and_subject_filter():
     trig = next(s for s in res.specs if s.ability_kind == "triggered")
     ct, villain = trig.effects
     assert ct.type == "create_token"
-    assert ct.condition == {"opponent_lost_life_this_turn_at_least": 3}
+    assert ct.condition == {"kind": "opponent_lost_life_this_turn", "min": 3}
     assert villain.type == "face_villainous_choice"
     assert villain.params["subject"] == "each_opponent"
     assert villain.params["subject_min_life_lost"] == 3
@@ -110,7 +111,7 @@ def test_suffix_condition_does_not_leak_onto_a_later_then_clause():
         "more life this turn. then draw a card."
     )
     by_type = {s.type: s for s in specs}
-    assert by_type["create_token"].condition == {"opponent_lost_life_this_turn_at_least": 3}
+    assert by_type["create_token"].condition == {"kind": "opponent_lost_life_this_turn", "min": 3}
     assert by_type["draw"].condition is None
 
 
@@ -144,8 +145,8 @@ def test_conditional_token_only_when_an_opponent_is_past_the_threshold():
 def test_villainous_sweep_skips_opponents_who_did_not_lose_enough_life():
     eng, st = _engine(3)
     src = _src(st, "p1")
-    st.life_lost_this_turn["p2"] = 4   # past the threshold
-    st.life_lost_this_turn["p3"] = 1   # not
+    history.lose_life(st, "p2", 4)   # past the threshold
+    history.lose_life(st, "p3", 1)   # not
 
     effects = build_effects([EffectSpec("face_villainous_choice", {
         "subject": "each_opponent",
@@ -168,7 +169,7 @@ def test_villainous_sweep_is_empty_when_no_opponent_qualifies():
     eng, st = _engine(2)
     src = _src(st, "p1")
     # p2 lost only 2
-    st.life_lost_this_turn["p2"] = 2
+    history.lose_life(st, "p2", 2)
     effects = build_effects([EffectSpec("face_villainous_choice", {
         "subject": "each_opponent", "subject_min_life_lost": 3,
         "option_a": [{"type": "draw", "params": {"count": 1}}],

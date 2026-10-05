@@ -5,11 +5,18 @@ description: Work on the rules engine in backend/mtg_analyzer/game/ — implemen
 
 # Working in the rules engine
 
-Four files carry most of it and all four are large: `effects.py` (9.2k lines),
-`rules_engine.py` (7.6k), `ability_catalogue.py` (6.6k), `game_engine.py`
-(4.5k). Two costs dominate any change here — **finding the right place**, and
-**finding out what the engine currently does** — and `scripts/engine_bench.py`
-exists for both.
+Four areas carry most of it, and each is a package/mixin-composition rather
+than one file: `game/effects/` (~15 modules by effect family, ~29k lines
+combined), `game/card_registry/` (the registration mechanism —
+`register`/`register_family`/`specs_for`, ~small) + `game/card_catalogue/`
+(the ~990 hand-authored cards themselves, one file per card under a
+lowercased-first-letter folder, ~32k combined), `game/rules_engine.py` +
+`game/rules/*_mixin.py` (~18k combined),
+`game/game_engine.py` + `game/engine/*_mixin.py` (~9k combined). Two costs
+dominate any change here — **finding the right place**, and **finding out
+what the engine currently does** — and `scripts/engine_bench.py` exists for
+both, reading the live registries/globs rather than a hand-kept file list so
+it can't drift the way this paragraph would.
 
 ```bash
 cd backend && source venv/bin/activate
@@ -80,7 +87,7 @@ Reading the trace is the debugging method. The failure modes in order:
 | Symptom | Look at |
 | --- | --- |
 | `inspect` shows nothing bound | card is UNMODELED, or the spec `type` string is missing from `EffectRegistry` — the silent no-op |
-| bound, but no event on cast | the trigger condition never matched — `effect_binder._trigger_condition`, and check the engine actually fires an event carrying `instance_id` for that verb |
+| bound, but no event on cast | the trigger condition never matched — `game/binding/core.py`'s `_trigger_condition`, and check the engine actually fires an event carrying `instance_id` for that verb |
 | event fires, board unchanged | the effect resolved into nothing — a `legal_targets` branch returning `[]`, or a selector param dropped because it isn't in `_SELECTOR_KEYS` |
 | P/T or keywords wrong | layer order in `continuous.recompute`; read `static_trace`, which names the source and layer per modification |
 
@@ -94,9 +101,11 @@ Reading the trace is the debugging method. The failure modes in order:
 - **`models/` must not import `game/` at module load.** Where a model needs
   engine logic, use a function-scoped import; `combat.py`/`continuous.py`
   import models only under `TYPE_CHECKING`.
-- **A new effect type needs `EffectRegistry.register`** in `game/effects.py`,
-  and any new selector param needs adding to `_SELECTOR_KEYS` — otherwise it
-  is silently dropped at bind time and the effect quietly does less than the
+- **A new effect type needs `EffectRegistry.register`** in `game/effects/`
+  (the concrete registrations live in `registry.py`; the class hierarchy and
+  `EffectRegistry` itself are in `core.py`), and any new selector param needs
+  adding to `_SELECTOR_KEYS` in `game/effects/registry.py` — otherwise it is
+  silently dropped at bind time and the effect quietly does less than the
   card says.
 - **A new `pending_choice` kind needs `GameEngine.resolve_choice` to dispatch
   it.** That if/elif chain ends in a bare `else: resolve_search_choice(...)`,
@@ -130,7 +139,7 @@ Already general and frequently missed: `request_pay_cost_then`,
 `GameEffect.extra_target_specs`, `GameContext.trigger_event`,
 `TriggeredAbility.mana_ability`.
 
-Hand-authoring a genuinely singleton card in `game/ability_catalogue.py` is
+Hand-authoring a genuinely singleton card in `game/card_catalogue/` is
 the sanctioned escape valve, not a defeat — see
 [the authoring guide](../../../docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md).
 An item deferred a **second** time must be hand-authored in that same batch or
@@ -160,12 +169,8 @@ Details and worked patterns: **[reference/adding-a-mechanic.md](reference/adding
 
 ## Closing out
 
-- [ ] `BACKLOG.md`: **delete** the ticket, don't tick it. Append the narrative
-      — what shipped and *why it's built that way* — to the matching section
-      of `Done_Backend.md`. Keep only the part of a ticket that isn't done.
-- [ ] Sweep: grep `BACKLOG.md` for other tickets your new primitive closes or
-      narrows, and update them in the same pass. A primitive landing is
-      exactly when this repo has historically forgotten to look.
+- [ ] Handle ticket state, partial progress, closure and cross-ticket impact
+      through the **`ticket-management`** skill.
 - [ ] `frontend/src/js/implementationStatusView.js` — the user-facing
       Engine-Status tab. Keep it in sync when coverage changes.
 - [ ] `CLAUDE.md`'s "Implementation state" if the change alters the

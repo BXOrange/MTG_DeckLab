@@ -10,12 +10,12 @@ Reference: docs/implementation-state/BACKLOG.md, docs/implementation-state/Done_
 
 import pytest
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.mana_cost import ManaCost
-from mtg_analyzer.models.mana_pool import ManaPool
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.mana.mana_cost import ManaCost
+from mtg_analyzer.models.mana.mana_pool import ManaPool
 from mtg_analyzer.game.costs import parse_activation_cost
-from mtg_analyzer.game.effects import ActivatedAbility, DrawCardEffect
+from mtg_analyzer.game.effects.core import ActivatedAbility, DrawCardEffect
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.mana_abilities import (
     _parse_restriction,
@@ -605,7 +605,7 @@ def test_throne_second_ability_is_colour_locked_to_the_chosen_colour():
     eng.begin_turn()
     eng.state.current_step = "main1"
     p1 = eng.state.active_player
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
     throne = GameObject(_throne(), owner_id="p1", zone=Zone.BATTLEFIELD)
     throne.summoning_sick = False
     throne.chosen_color = "R"

@@ -36,12 +36,12 @@ from __future__ import annotations
 
 from mtg_analyzer.game import continuous
 from mtg_analyzer.game.combat import is_protected_from
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.rules_engine import RulesEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.catalogue.static_handlers import static_effect_specs
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 
@@ -400,7 +400,7 @@ def test_attached_subject_damage_trigger_fires_for_the_host():
     host = _bf(state, _creature("Bear"))
     bystander = _bf(state, _creature("Bystander"))
     # Deliberately *not* a real card name: the real Rogue's Gloves is
-    # hand-authored in `ability_catalogue.py` (as an optional "you may
+    # hand-authored in `card_registry.py` (as an optional "you may
     # draw"), which would exercise that entry rather than this batch's new
     # oracle-text recognition.
     gloves = _bf(

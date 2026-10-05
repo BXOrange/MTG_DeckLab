@@ -17,9 +17,9 @@ Reference: docs/implementation-state/Done_Backend.md "MEC-12" entries.
 from __future__ import annotations
 
 from mtg_analyzer.game import mana_abilities
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 
-from tests.test_game_engine import land, make_engine, obj_on_battlefield
+from tests.support.game import land, make_engine, obj_on_battlefield
 
 
 def _named(name):
@@ -96,7 +96,7 @@ def test_ashaya_makes_nontoken_creatures_you_control_forest_lands():
     eng = make_engine([_named("Ashaya, Soul of the Wild")], [], hand=0)
     ashaya = obj_on_battlefield(eng.state, eng, _named("Ashaya, Soul of the Wild"), controller="p1")
     bind_from_catalogue(ashaya)
-    from tests.test_game_engine import creature
+    from tests.support.game import creature
 
     bear = obj_on_battlefield(eng.state, eng, creature("Bear", cost="{1}{G}"), controller="p1")
     eng.recompute_continuous_effects()
@@ -108,8 +108,8 @@ def test_ashaya_makes_nontoken_creatures_you_control_forest_lands():
 
 
 def test_ashaya_does_not_affect_token_creatures():
-    from mtg_analyzer.models.card import Card
-    from mtg_analyzer.models.game_object import GameObject, Zone
+    from mtg_analyzer.models.cards.card import Card
+    from mtg_analyzer.models.game.game_object import GameObject, Zone
 
     eng = make_engine([_named("Ashaya, Soul of the Wild")], [], hand=0)
     ashaya = obj_on_battlefield(eng.state, eng, _named("Ashaya, Soul of the Wild"), controller="p1")

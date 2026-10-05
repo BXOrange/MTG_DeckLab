@@ -16,11 +16,11 @@ prohibited card simply stays where it was, per the real card's own ruling.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import ReturnFromGraveyardEffect
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import ReturnFromGraveyardEffect
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 
 
@@ -128,7 +128,7 @@ def test_cage_stops_a_creature_from_reanimation():
     eng.state.active_player.graveyard.append(victim)
 
     effect = ReturnFromGraveyardEffect(target=victim, destination="battlefield")
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
     context = GameContext(eng.state, eng.rules)
     effect.apply(context, targets=[victim])
 
@@ -142,7 +142,7 @@ def test_without_the_cage_reanimation_works():
     eng.state.active_player.graveyard.append(victim)
 
     effect = ReturnFromGraveyardEffect(target=victim, destination="battlefield")
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
     context = GameContext(eng.state, eng.rules)
     effect.apply(context, targets=[victim])
 
@@ -157,8 +157,8 @@ def test_cage_stops_a_tutored_creature_from_reaching_the_battlefield():
     eng.state.active_player.library.append(quarry)
     player = eng.state.active_player
 
-    eng.rules.request_search(player, criteria="Creature", destination="battlefield")
-    eng.rules.resolve_search_choice(quarry.instance_id)
+    eng.rules._request_search(player, criteria="Creature", destination="battlefield")
+    eng.rules.resolve_choice(quarry.instance_id)
 
     assert quarry in eng.state.active_player.library
     assert quarry not in eng.state.battlefield
@@ -177,7 +177,7 @@ def test_runestone_stops_a_noncreature_permanent_from_reanimation():
     effect = ReturnFromGraveyardEffect(
         target=victim, destination="battlefield", target_kind="graveyard_artifact",
     )
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
     context = GameContext(eng.state, eng.rules)
     effect.apply(context, targets=[victim])
 
@@ -197,7 +197,7 @@ def test_runestone_does_not_stop_a_land_from_reanimation():
     effect = ReturnFromGraveyardEffect(
         target=victim, destination="battlefield", target_kind="graveyard_land",
     )
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
     context = GameContext(eng.state, eng.rules)
     effect.apply(context, targets=[victim])
 

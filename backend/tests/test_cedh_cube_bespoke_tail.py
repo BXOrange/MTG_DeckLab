@@ -15,13 +15,13 @@ damage multiplier.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 
 
 def _engine():
@@ -82,7 +82,7 @@ def _catalogue_obj(name, controller="p1", zone=Zone.BATTLEFIELD):
 
 
 def test_an_effect_can_announce_two_requirements_of_different_kinds():
-    from mtg_analyzer.game.effects import AttachChosenEffect
+    from mtg_analyzer.game.effects.core import AttachChosenEffect
 
     effect = AttachChosenEffect()
     kinds = [spec.kind for spec in effect.target_specs]

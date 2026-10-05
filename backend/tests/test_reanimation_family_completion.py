@@ -1,5 +1,5 @@
 """Execute-level completion tests for the Regrowth/Reanimate/Deathrite-
-adjacent targeted graveyard-recursion family (`game/effects.py`'s
+adjacent targeted graveyard-recursion family (`game/effects/core.py`'s
 `ReturnFromGraveyardEffect`, RULE 701.3) — real cache cards spanning the
 family's main axes, to confirm each one actually *completes* (moves the
 right card to the right zone, with the right side effects), not just that
@@ -27,25 +27,29 @@ Two cards this same investigation turned up as genuinely unplayable today
 nothing at all) are deliberately *not* claimed as completing here — see
 the module-level TODO note below rather than silently omitting them.
 
-Real gaps found and left for a future session (not fixed here — this
-suite is verification, not new modeling):
-- **Persist** ("Return target nonlegendary creature card from your
-  graveyard to the battlefield **with a -1/-1 counter on it**.") — the
-  "with a counter" tail isn't part of `ReturnFromGraveyardEffect`'s
-  vocabulary and isn't hand-authored either.
+**Persist** ("Return target nonlegendary creature card from your graveyard
+to the battlefield **with a -1/-1 counter on it**.") — the "nonlegendary"
+supertype exclusion (`TargetSpec.exclude_legendary`) and the "with a -1/-1
+counter on it" enters-with rider (`ReturnFromGraveyardEffect.extra_
+counters`, placed via `context.add_counters` so a "whenever a -1/-1 counter
+is put on a creature" trigger still sees it) are both wired now; covered
+below.
+
+Real gap still left for a future session (not fixed here — this suite is
+verification, not new modeling):
 - **Exhume** ("**Each player** puts a creature card from their graveyard
   onto the battlefield.") — an untargeted, per-player mass effect, a
   different shape from this whole family (no RULE 115 target at all).
-Both are UNMODELED and unauthored today; `bind_from_catalogue` binds
-nothing for either, so nothing here exercises them.
+  UNMODELED and unauthored today; `bind_from_catalogue` binds nothing for
+  it, so nothing here exercises it.
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 
 
@@ -157,6 +161,111 @@ def test_zombify_completes_own_graveyard_to_battlefield():
 
 
 # ---------------------------------------------------------------------------
+# Persist — own graveyard, NONLEGENDARY creature only, to the battlefield,
+# entering WITH A -1/-1 COUNTER on it
+# ---------------------------------------------------------------------------
+
+
+def test_persist_is_fully_modeled():
+    card = _spell("Test Persist", "{1}{B}{G}", 3,
+                  "Return target nonlegendary creature card from your graveyard "
+                  "to the battlefield with a -1/-1 counter on it.")
+    result = parse_oracle(card)
+    assert result.modeled, result.unclaimed
+    effs = [e for s in result.specs for e in (s.effects or [])]
+    rfg = next(e for e in effs if e.type == "return_from_graveyard")
+    assert rfg.params.get("exclude_legendary") is True
+    assert rfg.params.get("extra_counters") == {"kind": "-1/-1", "count": 1}
+
+
+def test_persist_completes_with_counter_and_excludes_legendary():
+    eng = _engine()
+    p1 = eng.state.players[0]
+    dead_bear = GameObject(Card(id="Persist Bear", name="Persist Bear", type_line="Creature — Bear",
+                                is_creature=True, power=3, toughness=3),
+                           owner_id="p1", zone=Zone.GRAVEYARD)
+    legend = GameObject(Card(id="Persist Legend", name="Persist Legend",
+                             type_line="Legendary Creature — Avatar", is_creature=True,
+                             is_legendary=True, power=5, toughness=5),
+                        owner_id="p1", zone=Zone.GRAVEYARD)
+    p1.graveyard.extend([dead_bear, legend])
+
+    spell = _spell("Test Persist 2", "{1}{B}{G}", 3,
+                   "Return target nonlegendary creature card from your graveyard "
+                   "to the battlefield with a -1/-1 counter on it.")
+    obj = GameObject(spell, owner_id="p1", zone=Zone.HAND)
+    bind_from_catalogue(obj)
+    p1.hand.append(obj)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1.mana_pool.add_many({"B": 1, "G": 1, "C": 1})
+
+    # RULE 205.4a: the legendary creature card in the graveyard is NOT a
+    # legal target; the nonlegendary one is.
+    from mtg_analyzer.game.targeting import legal_targets
+    effect = next(e for e in obj.spell_effects if getattr(e, "target_spec", None) is not None)
+    offered = {d["instance_id"] for d in legal_targets(eng.state, "p1", effect.target_spec, source=obj)}
+    assert dead_bear.instance_id in offered
+    assert legend.instance_id not in offered
+
+    eng.cast_spell(p1, obj, targets=[dead_bear])
+    eng.resolve_until_stable()
+
+    assert dead_bear not in p1.graveyard
+    assert dead_bear in eng.state.battlefield
+    assert dead_bear.controller_id == "p1"
+    assert dead_bear.counters.get("-1/-1", 0) == 1
+    # 3/3 printed, one -1/-1 counter → 2/2 after the layer pass.
+    eng.recompute_continuous_effects()
+    assert (dead_bear.power, dead_bear.toughness) == (2, 2)
+
+
+# ---------------------------------------------------------------------------
+# Aberrant Return — ANY graveyard, creature only, enumerated 1/2/3 target
+# range, under YOUR control, each entering with a -1/-1 counter
+# ---------------------------------------------------------------------------
+
+
+def test_aberrant_return_is_fully_modeled():
+    card = _spell("Test Aberrant Return", "{3}{B}{G}", 5,
+                  "Put one, two, or three target creature cards from graveyards onto "
+                  "the battlefield under your control. Each of them enters with an "
+                  "additional -1/-1 counter on it.")
+    result = parse_oracle(card)
+    assert result.modeled, result.unclaimed
+    rfg = next(e for s in result.specs for e in (s.effects or []) if e.type == "return_from_graveyard")
+    assert rfg.params["count"] == 1 and rfg.params["count_max"] == 3
+    assert rfg.params["under_your_control"] is True
+    assert rfg.params["extra_counters"] == {"kind": "-1/-1", "count": 1}
+
+
+def test_aberrant_return_completes_from_opponent_graveyard_with_counters():
+    eng = _engine()
+    p1, p2 = eng.state.players[0], eng.state.players[1]
+    corpses = []
+    for i, owner in enumerate((p1, p2, p2)):
+        obj = GameObject(Card(id=f"Corpse{i}", name=f"Corpse{i}",
+                              type_line="Creature — Zombie", is_creature=True,
+                              power=3, toughness=3),
+                         owner_id=owner.id, zone=Zone.GRAVEYARD)
+        owner.graveyard.append(obj)
+        corpses.append(obj)
+
+    spell = _spell("Test Aberrant Return 2", "{3}{B}{G}", 5,
+                   "Put one, two, or three target creature cards from graveyards onto "
+                   "the battlefield under your control. Each of them enters with an "
+                   "additional -1/-1 counter on it.")
+    _bind_and_cast(eng, p1, spell, {"B": 1, "G": 1, "C": 3}, targets=corpses)
+
+    for obj in corpses:
+        assert obj in eng.state.battlefield
+        assert obj.controller_id == "p1"  # under YOUR control, even p2's cards
+        assert obj.counters.get("-1/-1", 0) == 1
+    eng.recompute_continuous_effects()
+    assert (corpses[0].power, corpses[0].toughness) == (2, 2)
+
+
+# ---------------------------------------------------------------------------
 # Trash for Treasure — own graveyard, artifact only, to the battlefield,
 # with its own additional cost (sacrifice an artifact)
 # ---------------------------------------------------------------------------
@@ -202,7 +311,7 @@ def test_trash_for_treasure_completes_with_its_additional_cost():
 
 
 def test_reanimate_is_hand_authored():
-    from mtg_analyzer.game.ability_catalogue import specs_for
+    from mtg_analyzer.game.card_registry import specs_for
 
     card = Card(id="Reanimate", name="Reanimate", type_line="Instant", is_instant=True,
                 mana_cost_string="{B}", converted_mana_cost=1,
@@ -266,24 +375,12 @@ def test_reanimate_from_an_opponents_graveyard_takes_control():
 # ---------------------------------------------------------------------------
 
 
-def test_persist_is_not_yet_modeled_or_authored():
-    from mtg_analyzer.game.ability_catalogue import specs_for
-
-    card = Card(id="Persist", name="Persist", type_line="Instant", is_instant=True,
-                mana_cost_string="{2}{B}", converted_mana_cost=3,
-                oracle_text="Return target nonlegendary creature card from your graveyard "
-                            "to the battlefield with a -1/-1 counter on it.")
-    result = parse_oracle(card)
-    assert not result.modeled
-    assert not specs_for(card)
-
-
-def test_exhume_is_not_yet_modeled_or_authored():
-    from mtg_analyzer.game.ability_catalogue import specs_for
+def test_exhume_is_hand_authored_because_the_parser_cannot_claim_it():
+    from mtg_analyzer.game.card_registry import specs_for
 
     card = Card(id="Exhume", name="Exhume", type_line="Sorcery", is_sorcery=True,
-                mana_cost_string="{B}", converted_mana_cost=1,
+                mana_cost_string="{1}{B}", converted_mana_cost=2,
                 oracle_text="Each player puts a creature card from their graveyard onto the battlefield.")
-    result = parse_oracle(card)
-    assert not result.modeled
-    assert not specs_for(card)
+    assert not parse_oracle(card).modeled  # the oracle-text parser still has no "each player puts … from their graveyard"
+    specs = specs_for(card)  # ... so it is hand-authored (`card_catalogue/e/exhume.py`: `each_player_pick`)
+    assert specs and specs[0].effects[0].params.get("each_player_pick") is True

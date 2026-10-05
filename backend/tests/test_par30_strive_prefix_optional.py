@@ -15,7 +15,7 @@ from __future__ import annotations
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import segment_line
 from mtg_analyzer.parser.oracle.spec import ParserProvenance
-from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.cards.card import Card
 
 
 def _seg(text):

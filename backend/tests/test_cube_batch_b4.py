@@ -19,12 +19,12 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game import ability_catalogue as ac
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game import card_registry as ac
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import StackItem
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import StackItem
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 
@@ -188,10 +188,12 @@ def test_swan_song_cannot_target_a_creature_spell():
     creature_spell = _push_spell(eng, p2, creat)
 
     swan = p1.hand[0]
-    # The bound spell effect's target_spec must exclude the creature spell.
-    effs = swan.spell_effects or []
-    eff = next(e for e in effs if hasattr(e, "target_spec") and e.target_spec is not None)
-    legal = targeting.legal_targets(state, "p1", eff.target_spec, source=swan)
+    # ENG-37 B3: the bound spell effect is now a `seq`; its announced target
+    # (the `counter` body's spell spec, restricted by ``card_types``) must
+    # still exclude the creature spell.
+    specs = [s for e in (swan.spell_effects or []) for s in e.target_specs]
+    (spec,) = specs
+    legal = targeting.legal_targets(state, "p1", spec, source=swan)
     assert creature_spell.instance_id not in {t["instance_id"] for t in legal}
 
 

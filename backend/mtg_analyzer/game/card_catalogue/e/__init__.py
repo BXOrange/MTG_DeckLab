@@ -1,0 +1,62 @@
+"""Hand-authored card entries whose name starts with 'e' (see game/card_registry for the registration mechanism: `register`/`register_family`/`specs_for`)."""
+from . import earth_s_mightiest_heroes  # noqa: F401
+from . import earthcraft  # noqa: F401
+from . import earthshape  # noqa: F401
+from . import eccentric_pestfinder  # noqa: F401
+from . import echoing_assault  # noqa: F401
+from . import eclipsed_flamekin  # noqa: F401
+from . import eidolon_of_countless_battles  # noqa: F401
+from . import eiganjo_dynastorian  # noqa: F401
+from . import eiganjo_seat_of_the_empire  # noqa: F401
+from . import eladamri_korvecdal  # noqa: F401
+from . import eldrazi_conscription  # noqa: F401
+from . import eldritch_evolution  # noqa: F401
+from . import electrodominance  # noqa: F401
+from . import elementalist_s_palette  # noqa: F401
+from . import elesh_norn_grand_cenobite  # noqa: F401
+from . import elesh_norn_mother_of_machines  # noqa: F401
+from . import elven_passage  # noqa: F401
+from . import elvish_guidance  # noqa: F401
+from . import elvish_harbinger  # noqa: F401
+from . import elvish_warmaster  # noqa: F401
+from . import embercleave  # noqa: F401
+from . import emeria_the_sky_ruin  # noqa: F401
+from . import emet_selch_of_the_third_seat  # noqa: F401
+from . import emiel_the_blessed  # noqa: F401
+from . import empowered_autogenerator  # noqa: F401
+from . import emrakul_the_promised_end  # noqa: F401
+from . import emry_lurker_of_the_loch  # noqa: F401
+from . import encroaching_wastes  # noqa: F401
+from . import endurance  # noqa: F401
+from . import enduring_vitality  # noqa: F401
+from . import enraging_licid  # noqa: F401
+from . import ensnared_by_the_mara  # noqa: F401
+from . import entrancing_melody  # noqa: F401
+from . import ephemerate  # noqa: F401
+from . import eriette_of_the_charmed_apple  # noqa: F401
+from . import esika_god_of_the_tree  # noqa: F401
+from . import esper_sentinel  # noqa: F401
+from . import essence_flux  # noqa: F401
+from . import etali_primal_conqueror  # noqa: F401
+from . import etali_primal_sickness  # noqa: F401
+from . import etali_primal_storm  # noqa: F401
+from . import ethersworn_canonist  # noqa: F401
+from . import eumidian_hatchery  # noqa: F401
+from . import eventide_s_shadow  # noqa: F401
+from . import evercoat_ursine  # noqa: F401
+from . import everlasting_torment  # noqa: F401
+from . import evolving_wilds  # noqa: F401
+from . import excava_the_risen_past  # noqa: F401
+from . import exhume  # noqa: F401
+from . import expansion_algorithm  # noqa: F401
+from . import expansion_explosion  # noqa: F401
+from . import experimental_confectioner  # noqa: F401
+from . import explorer_s_scope  # noqa: F401
+from . import expressive_iteration  # noqa: F401
+from . import eye_of_ugin  # noqa: F401
+from . import evendo_brushrazer
+from . import eumidian_wastewaker
+
+from . import exploration_broodship
+from . import ezuri_s_predation  # noqa: F401
+from . import eshki_temur_s_roar

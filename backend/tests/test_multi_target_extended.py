@@ -10,18 +10,18 @@ framing in `test_optional_targets.py`'s module docstring and its
 `test_up_to_2_targets_still_unclaimed_for_a_family_not_yet_generalized`.
 """
 
-from mtg_analyzer.game.effects import (
+from mtg_analyzer.game.effects.core import (
     AddCountersEffect,
     ReturnFromGraveyardEffect,
     ReturnToHandEffect,
     TapEffect,
 )
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.targeting import all_requirements_satisfiable, requirements_with_targets
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.mana_cost import ManaCost
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.mana.mana_cost import ManaCost
 from mtg_analyzer.parser.oracle.gate import MODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 
@@ -78,7 +78,8 @@ def test_untap_up_to_two_target_lands_recognized():
     # Snap-shaped: "Untap up to two target lands."
     (spec,) = parse_effect_body("untap up to 2 target lands")
     assert spec.type == "tap"
-    assert spec.params == {"target_kind": "permanent", "count": 2, "untap": True, "optional": True}
+    # PAR-128: the plural "target lands" row is the land pool, not "any permanent".
+    assert spec.params == {"target_kind": "land", "count": 2, "untap": True, "optional": True}
 
 
 def test_return_to_hand_multi_target_recognized():

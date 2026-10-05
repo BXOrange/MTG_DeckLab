@@ -14,12 +14,12 @@ nonland card among those N discards.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effects import ConniveEffect, GameContext
+from mtg_analyzer.game.effects.core import ConniveEffect, GameContext
 from mtg_analyzer.game.rules_engine import RulesEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 
 
 def _land(name):
@@ -97,7 +97,7 @@ def test_connive_zero_is_a_no_op_rule_701_50e():
     state.add_to_battlefield(source)
 
     ctx = GameContext(state, engine)
-    ConniveEffect(source=source, times_from_count_selector="attacking_creatures").apply(ctx)
+    ConniveEffect(source=source, times={"kind": "count_selector", "selector": "attacking_creatures"}).apply(ctx)
 
     assert len(p1.library) == 1  # nothing drawn
     assert source.counters.get("+1/+1", 0) == 0
@@ -118,7 +118,7 @@ def test_times_from_trigger_event_reads_the_firing_events_own_field():
 
     ctx = GameContext(state, engine)
     ctx.trigger_event = {"amount": 2}
-    ConniveEffect(source=source, times_from_trigger_event="amount").apply(ctx)
+    ConniveEffect(source=source, times={"kind": "trigger_event", "field": "amount"}).apply(ctx)
 
     assert not p1.library
     assert source.counters.get("+1/+1", 0) == 2
@@ -167,7 +167,7 @@ def test_multiple_subjects_sequence_one_at_a_time_via_deferred_effects():
     assert len(state.deferred_effects) == 1
 
     picked = state.pending_choice["options"][0]["instance_id"]
-    engine.resolve_choose_objects_choice(picked)
+    engine.resolve_choice(picked)
     assert state.pending_choice is None
     assert creature_a.counters.get("+1/+1", 0) == 1
     # Resuming a `choose_objects` choice alone doesn't drain
@@ -182,7 +182,7 @@ def test_multiple_subjects_sequence_one_at_a_time_via_deferred_effects():
     assert not p1.library
     assert state.pending_choice is not None
     picked2 = state.pending_choice["options"][0]["instance_id"]
-    engine.resolve_choose_objects_choice(picked2)
+    engine.resolve_choice(picked2)
     assert state.pending_choice is None
     assert creature_b.counters.get("+1/+1", 0) == 1
     assert len(p1.hand) == 1  # one card never got discarded, and that's correct

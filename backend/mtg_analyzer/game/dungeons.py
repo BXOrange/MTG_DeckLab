@@ -24,7 +24,7 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
-from ..models.dungeon import Dungeon, DungeonRoom
+from ..models.game.dungeon import Dungeon, DungeonRoom
 from ..parser.oracle.normalize import normalize
 from ..parser.oracle.segmenter import parse_effect_body
 from ..services.dungeon_database import default_dungeon_database

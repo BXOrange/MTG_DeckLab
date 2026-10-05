@@ -19,15 +19,16 @@ import itertools
 from contextlib import contextmanager
 from typing import Any, Optional
 
-from ...models.card import Card
-from ...models.events import EventType, GameEvent
-from ...models.game_object import GameObject, Zone
-from ...models.game_state import GameState, StackItem
-from ...models.mana_cost import ManaCost
-from ...models.player import Player
+from ...models.cards.card import Card
+from ...models.game.events import EventType, GameEvent
+from ...models.game.game_object import GameObject, Zone
+from ...models.game.game_state import GameState, StackItem
+from ...models.mana.mana_cost import ManaCost
+from ...models.mana.mana_pool import kept_mana_expiring_at
+from ...models.game.player import Player
 from .. import combat, condition_query, continuous, durations, face_down, variants
-from ...models import game_format
-from ...models.game_format import GameFormat, get_format
+from ...models.decks import formats as game_format
+from ...models.decks.formats import GameFormat, get_format
 from ..costs import (
     DISCARD_HAND,
     PAY_LIFE_X,
@@ -36,7 +37,7 @@ from ..costs import (
     ActivationCost,
     parse_activation_cost,
 )
-from ..effects import ActivatedAbility
+from ..effects.core import ActivatedAbility
 from ..mana_abilities import (
     hand_mana_abilities_for,
     mana_abilities_for,
@@ -105,9 +106,6 @@ class MiscMixin:
         if cost.symbols:
             life_spent = player.mana_pool.pay(cost, life_available=player.life)
             self.rules.lose_life(player, life_spent, cause="cost")
-        self.state.planar_die_rolls_this_turn[player.id] = (
-            self.state.planar_die_rolls_this_turn.get(player.id, 0) + 1
-        )
         face = self.rules.roll_planar_die(player)
         self.give_priority(player)  # RULE 117.3c, as for any other action
         return face
@@ -220,7 +218,7 @@ class MiscMixin:
             if step.gives_priority:
                 self.resolve_until_stable()
             for player in self.state.players:
-                player.mana_pool.empty()
+                continuous.empty_mana_pool(self.state, player, kept_mana_expiring_at(step.name))
             self.state.fire_event(GameEvent(EventType.STEP_END, step=step.name, phase=phase.name))
 
         self.state.fire_event(

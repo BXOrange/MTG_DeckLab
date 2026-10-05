@@ -27,16 +27,11 @@ liegen deine gespeicherten Decks und hochgeladenen Bilder — es gibt
 keine Trennung nach Benutzer über einen frei eingegebenen Spielernamen
 hinaus.
 
-Multiplayer (zwei menschliche Spieler gegeneinander) ist **noch nicht
-implementiert** — der Tab "Multiplayer" existiert, meldet dir aber,
-dass der Modus noch nicht verfügbar ist. Das ist kein Fehler, sondern
-eine dokumentierte Lücke.
-
-## Die App starten
-
-Im Hauptverzeichnis des Repositories:
-
-```code
+Multiplayer ist als echter Shared-Table-Modus umgesetzt: Du kannst
+Lobbys erstellen oder beitreten, Plätze und Mulligans einstellen,
+über echte Prioritätsfenster spielen und denselben Regel-Engine-Stack
+wie im Goldfisch und im Replay nutzen. Auch Bots können freie Plätze
+besetzen, und der Server hält deinen Sitz bei Verbindungsabbrüchen.
 ./start.sh
 ```
 
@@ -61,8 +56,9 @@ Die Seitenleiste links ist in Gruppen unterteilt:
   - **Goldfisch** — ein gespeichertes Deck solo gegen die Regel-Engine
     spielen
   - **Puzzle/Replay** — einen beliebigen Spielzustand bauen und spielen
-- **Multiplayer** — Platzhalter, noch nicht implementiert
-- **Einstellungen** — nur die Backend-Server-Adresse
+- **Multiplayer** — Lobby-Setup, echtes Shared-Table-Spiel, Bots,
+  Zuschauer-Modus und Wiederanbindung
+- **Einstellungen** — Verbindungsstatus, lokale Daten und LLM-Konfiguration
 - **Profil** — Spielername, Mehrspieler-Vorgaben, eigene Token-Bilder,
   Karten-Sleeves und Lieblingsdecks
 - **Information**

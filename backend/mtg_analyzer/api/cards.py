@@ -6,13 +6,17 @@ Reference: docs/implementation-state/Done_Backend.md "HTTP API foundation"
 
 from __future__ import annotations
 
+import logging
+import subprocess
+import sys
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from mtg_analyzer.api.dependencies import get_card_database, get_deck_database, get_lazy_card_loader
 from mtg_analyzer.api.schemas import CardResolveRequest
-from mtg_analyzer.game import ability_catalogue
+from mtg_analyzer.game import card_registry
 from mtg_analyzer.parser.deckliste_parser import parse_deck_sections
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase
@@ -20,18 +24,22 @@ from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
 
 router = APIRouter(prefix="/api/cards", tags=["cards"])
+logger = logging.getLogger(__name__)
+
+_CARD_POOL_UPDATE_TIMEOUT_SECONDS = 15 * 60
+_CARD_POOL_UPDATE_SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "update_card_pool.py"
 
 
 def coverage_for(card: Any) -> dict[str, object]:
     """A card's engine-coverage verdict (docs/09 "coverage is the roadmap").
 
-    A hand-authored `ability_catalogue` entry is trusted wholesale, same as
+    A hand-authored `card_registry` entry is trusted wholesale, same as
     `specs_for` treats it — `MODELED` with no unclaimed lines regardless of
     what the oracle parser alone would say. Otherwise this is exactly the
     verdict `specs_for` falls back to for binding, so "modeled" here means
     "the engine plays this card's abilities", not just "text parses".
     """
-    if ability_catalogue.is_registered(getattr(card, "name", "") or ""):
+    if card_registry.is_registered(getattr(card, "name", "") or ""):
         return {"modeled": True, "source": "catalogue", "unclaimed": []}
     result = parse_oracle(card)
     return {"modeled": result.modeled, "source": "oracle", "unclaimed": result.unclaimed}
@@ -146,3 +154,37 @@ def resolve_cards(
         "cards": {name: card.to_dict() for name, card in result.cards.items()},
         "notFound": result.not_found,
     }
+
+
+@router.post("/update")
+def update_card_pool(database: CardDatabase = Depends(get_card_database)) -> dict[str, object]:
+    """Refresh the full Scryfall Oracle card pool using the existing importer."""
+    try:
+        result = subprocess.run(
+            [sys.executable, str(_CARD_POOL_UPDATE_SCRIPT)],
+            cwd=_CARD_POOL_UPDATE_SCRIPT.parent.parent,
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=_CARD_POOL_UPDATE_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        logger.error("Full Scryfall card-pool update exceeded its time limit.")
+        raise HTTPException(
+            status_code=504,
+            detail="The Scryfall card-pool update timed out. Check the server log and retry.",
+        ) from exc
+
+    if result.returncode != 0:
+        logger.error(
+            "Full Scryfall card-pool update failed (exit %s): %s",
+            result.returncode,
+            (result.stderr or result.stdout)[-4000:],
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="The Scryfall card-pool update failed. Check the server log for details.",
+        )
+
+    logger.info("Full Scryfall card-pool update completed: %s", result.stdout[-1000:])
+    return {"updated": True, "cachedCardCount": database.count()}

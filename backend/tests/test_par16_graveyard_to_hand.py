@@ -7,7 +7,7 @@ battlefield[, tapped]." (`ReturnSelfFromGraveyardToBattlefieldEffect`).
 
 Two pieces:
 
-* `game/effects.py`'s `ReturnSelfFromGraveyardToHandEffect` +
+* `game/effects/core.py`'s `ReturnSelfFromGraveyardToHandEffect` +
   `catalogue.handlers._RETURN_SELF_FROM_GRAVEYARD_RE` (now a single regex
   with a named ``hand``/``tapped`` alternation covering both destinations).
 * RULE 113.6a: a triggered ability whose body is this effect implicitly
@@ -24,14 +24,14 @@ mtg_analyzer/parser/oracle/catalogue/handlers.py.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import (
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import (
     ReturnSelfFromGraveyardToBattlefieldEffect,
     ReturnSelfFromGraveyardToHandEffect,
 )
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 
@@ -214,7 +214,7 @@ def test_triggered_return_to_hand_does_not_fire_from_the_battlefield():
 
 
 def test_return_self_from_graveyard_to_hand_is_a_noop_once_it_left_the_graveyard():
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
 
     card = Card(id="Noop Test", name="Noop Test", type_line="Creature", is_creature=True)
     eng = _engine()

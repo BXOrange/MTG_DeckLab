@@ -13,6 +13,22 @@ class CardResolveRequest(BaseModel):
     names: list[str] = Field(default_factory=list)
 
 
+class ComboDeckCard(BaseModel):
+    """One resolved deck-list card used to match local Spellbook variants."""
+
+    name: str = Field(min_length=1)
+    quantity: int = Field(default=1, ge=1)
+    mana_value: float = Field(default=0, ge=0, alias="manaValue")
+
+
+class ComboAnalysisRequest(BaseModel):
+    """Deck cards for POST /api/combos/matches."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    cards: list[ComboDeckCard] = Field(default_factory=list)
+
+
 class SaveDeckRequest(BaseModel):
     """Request body for POST /api/decks/save.
 
@@ -115,7 +131,7 @@ class DynamicAnalysisRequest(BaseModel):
     commander_text: str = Field(default="", alias="commanderText")
     mainboard_text: str = Field(default="", alias="mainboardText")
     sideboard_text: str = Field(default="", alias="sideboardText")
-    bot_kind: str = Field(default="goldfish", alias="botKind")
+    bot_kind: str = Field(default="smart", alias="botKind")
     num_matches: int = Field(default=20, ge=1, le=200, alias="numMatches")
     max_turns: int = Field(default=10, ge=1, le=30, alias="maxTurns")
     starting_life: int = Field(default=40, alias="startingLife")
@@ -258,7 +274,7 @@ class MultiplayerBannerColorRequest(MultiplayerPlayerRequest):
 class MultiplayerBotRequest(MultiplayerPlayerRequest):
     """Request body for POST /api/multiplayer/games/{id}/bots (host only)."""
 
-    kind: str
+    kind: str = "smart"
     name: str = ""
 
 
@@ -315,8 +331,8 @@ class SoloOpponent(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    #: A `services/bots.py` `Bot.kind` (goldfish / greedy / mana_maximizer).
-    kind: str = "goldfish"
+    #: A `services/bots.py` `Bot.kind` (smart / goldfish / greedy / ai / mana_maximizer).
+    kind: str = "smart"
     #: The saved deck this bot plays — resolved and legality-gated exactly
     #: like the human's (`api/game.resolve_seat_deck`).
     deck_id: str = Field(alias="deckId")
@@ -338,6 +354,9 @@ class SoloStartRequest(BaseModel):
     mulligan_style: str = Field(default="london", alias="mulliganStyle")
     game_format: Optional[str] = Field(default=None, alias="gameFormat")
     starting_player: str = Field(default="you", alias="startingPlayer")
+    #: The human seat's display name (the Profil player name). Blank/omitted
+    #: falls back to `SOLO_DEFAULT_PLAYER_NAME`.
+    player_name: Optional[str] = Field(default=None, alias="playerName")
     #: The board's per-priority auto-pass countdown for this session, in
     #: seconds (0 = off). Omitted/`None` uses the server default
     #: (`config.MULTIPLAYER_SPELL_TIMER_SECONDS`).

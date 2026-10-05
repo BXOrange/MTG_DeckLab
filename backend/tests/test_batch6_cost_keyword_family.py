@@ -55,11 +55,11 @@ from __future__ import annotations
 import pytest
 
 from mtg_analyzer.game import combat
-from mtg_analyzer.game.effect_binder import attach_to_object
+from mtg_analyzer.game.binding.core import attach_to_object
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.mana_cost import ManaCost
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.mana.mana_cost import ManaCost
 from mtg_analyzer.parser.oracle import MODELED, UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.catalogue.counters import entry_counters_condition
 from mtg_analyzer.parser.oracle.catalogue.keywords import parse_keywords

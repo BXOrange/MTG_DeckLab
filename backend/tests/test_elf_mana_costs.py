@@ -8,8 +8,8 @@ verbatim from the card cache (`backend/cache/db/cards.db`).
 
 import pytest
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.game.game_engine import GameEngine
 
 
@@ -167,7 +167,7 @@ class TestDevotedDruid:
     Remedies instead of being free extra mana on its own)."""
 
     def test_untap_via_minus_one_minus_one_counter_then_dies_to_it(self):
-        from mtg_analyzer.game.effect_binder import bind_from_catalogue
+        from mtg_analyzer.game.binding.core import bind_from_catalogue
 
         eng = make_engine([elf("filler", "")])
         p1 = eng.state.active_player

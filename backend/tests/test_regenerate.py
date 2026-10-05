@@ -9,13 +9,13 @@ recognition through `parse_effect_body` directly, then an engine-level test
 driving the bound effect through a real `RulesEngine`/`GameEngine`.
 """
 
-from mtg_analyzer.game.effects import GameContext, RegenerateEffect
+from mtg_analyzer.game.effects.core import GameContext, RegenerateEffect
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.game.rules_engine import RulesEngine
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 
@@ -144,7 +144,7 @@ def test_multiple_activations_stack_independent_shields():
     bear.damage_marked = 2
     engine.check_state_based_actions()
     assert state.pending_choice is not None
-    engine.resolve_replacement_order_choice(0)
+    engine.resolve_choice(0)
 
     assert bear.zone == Zone.BATTLEFIELD
     assert len(bear.replacement_effects) == 1  # one shield consumed, one left
@@ -238,7 +238,7 @@ def test_unused_shield_expires_at_cleanup():
 def test_cleanup_does_not_sweep_a_cards_own_bind_time_replacement_effect():
     """Only the `regeneration_shield`-tagged kind is swept — a card's
     ordinary (permanent) replacement effect must survive cleanup."""
-    from mtg_analyzer.game.effects import ReplacementEffect
+    from mtg_analyzer.game.effects.core import ReplacementEffect
 
     engine = GameEngine.new_game(
         [("p1", "Alice", []), ("p2", "Bob", [])], starting_life=20, starting_hand=0,

@@ -9,8 +9,8 @@ players rather than contributors.
 | Folder | Answers | Contents |
 | --- | --- | --- |
 | [`requirements/`](requirements/) | *What is this app supposed to do?* | Use cases, actors, functional/non-functional requirements, the MVP cut. |
-| [`concepts/`](concepts/) | *How is it designed, and why?* | Architecture, the server/client split, the game/effect system, the UI/UX design, card graphics & caching, the oracle-text→effect parser design, and the [PlantUML architecture diagrams](concepts/12_ARCHITECTURE_DIAGRAMS.md). |
-| [`Reference/`](Reference/) | *How do I do a specific recurring task, or look something up?* | The card-cache export/import format, the card-catalogue authoring guide (hand-wiring a card's abilities), the Comprehensive Rules text itself, and `rules_wiki/` (a generated index mapping every `RULE <n>`/glossary term to its line in the CR source — see its own `README.md`). |
+| [`concepts/`](concepts/) | *How is it designed, and why?* | Architecture, the server/client split, the game/effect system, the UI/UX design, card graphics & caching, the oracle-text→effect parser design, the [PlantUML architecture diagrams](concepts/12_ARCHITECTURE_DIAGRAMS.md), and — on the parser's structure — the [granularity/composition review](concepts/13_ORACLE_PARSER_GRAMMAR_REVIEW.md) (evidence) plus the [atom/composition design](concepts/14_PARSER_GRAMMAR_DESIGN.md) (proposal, not implemented). |
+| [`Reference/`](Reference/) | *How do I do a specific recurring task, or look something up?* | The card-cache export/import format, the card-catalogue authoring guide (hand-wiring a card's abilities), the [Commander Spellbook integration reference](Reference/COMMANDER_SPELLBOOK.md), [Smart Bot policy and research](Reference/SMART_BOT.md), [LLM configuration, AI Bot and ANA-1](Reference/LLM_INTEGRATION.md), the Comprehensive Rules text itself, and `rules_wiki/` (a generated index mapping every `RULE <n>`/glossary term to its line in the CR source — see its own `README.md`). |
 | [`implementation-state/`](implementation-state/) | *What's actually built, right now?* | The dependency-ordered completion roadmap, `Done_Backend.md`/`Done_Frontend.md` (shipped work, with the "why"), and the original phased build guide. |
 
 ## Where "implementation state" actually lives
@@ -22,9 +22,13 @@ finest-grained/most current detail:
 
 - Granular **open** items: [`implementation-state/BACKLOG.md`](implementation-state/BACKLOG.md)
   — one categorized ticket list covering backend *and* frontend (ids
-  `ENG`/`PAR`/`MEC`/`PLR`/`VIS`/`DB`/`ANA`). Open scope only: closing
+  `ENG`/`PAR`/`MEC`/`PLR`/`VIS`/`DB`/`ANA`/`BUG`). Open scope only: closing
   a ticket means deleting it here and filing its narrative into the
   matching subsystem entry of the matching `Done_*.md` catalogue.
+- **In progress**: [`implementation-state/workingOn.md`](implementation-state/workingOn.md)
+  — working memory of the ticket being built right now (done / next step /
+  decisions), so a new session resumes instead of re-deriving the state.
+  Emptied back to its template when the ticket closes.
 - **Examples / calibration**: [`implementation-state/PARSER_LONG_TAIL.md`](implementation-state/PARSER_LONG_TAIL.md)
   — the standing strategy for the indefinite oracle-parser tail, the
   recurring lessons, and enumerated worked samples. Neither a backlog nor a

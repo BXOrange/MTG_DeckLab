@@ -1,27 +1,61 @@
-# DeckLab: Hand-Authoring Cards in the Ability Catalogue
+# DeckLab: Hand-Authoring Cards in the Card Catalogue
 
 Status: **current — describes the pipeline as implemented today**, not a
 design proposal. Read [09_ORACLE_EFFECT_PARSER.md](../concepts/09_ORACLE_EFFECT_PARSER.md)
 first for the IR/binder architecture this guide operates; this document is
-the practical "how do I add card X" companion to it, scoped to
-[`backend/mtg_analyzer/game/ability_catalogue.py`](../../backend/mtg_analyzer/game/ability_catalogue.py)
-(the **hand-authored** registry, not the oracle-text parser).
+the practical "how do I add card X" companion to it, scoped to the
+**hand-authored** side of the pipeline (not the oracle-text parser), split
+across two sibling packages:
+
+- [`backend/mtg_analyzer/game/card_registry/`](../../backend/mtg_analyzer/game/card_registry/)
+  — the *mechanism*: `core.py`'s `register`/`specs_for`/`registry_signature`
+  and the RULE 614.1-and-siblings oracle-derived helpers, `families.py`'s
+  `register_family` for a mechanically-identical cycle. You call into this
+  package; you don't add card content to it any more.
+- [`backend/mtg_analyzer/game/card_catalogue/`](../../backend/mtg_analyzer/game/card_catalogue/)
+  — the *content*: every hand-authored card, one file per card, in a folder
+  named after the lowercased first letter of its registered name (`a/`,
+  `b/`, … `z/`) — e.g. `c/circle_of_solace.py`. This is where you add a new
+  entry. `card_catalogue/_shared/` holds the rare helper genuinely reused by
+  several cards that don't fit `register_family`'s template (e.g. the
+  Tempest Licid cycle's `_shared/licid.py`).
+
+Claude Code users: this guide is the field reference the
+**`hand-author-card`** skill leans on for the mechanical steps (finding the
+card's text, checking parser coverage, finding a template entry to adapt,
+assembling the scaffold) — read this document for *what the fields mean*,
+reach for that skill to avoid doing the lookups by hand.
 
 ---
 
 ## 1. When to hand-author vs. when to let the parser do it
 
 The engine has two independent sources of a card's behaviour, and
-`ability_catalogue.specs_for(card)` merges them (registry wins, see §3):
+`card_registry.specs_for(card)` merges them (registry wins, see §3):
 
 1. **The oracle-text parser** (`parser/oracle/`, docs/09) — automatic,
    text → `AbilitySpec`, fail-closed (`MODELED`/`UNMODELED`). Zero authoring
    cost when it works.
-2. **This catalogue** (`ability_catalogue.py`) — a hand-written Python
-   function per card name, returning the same `AbilitySpec` IR directly.
+2. **This catalogue** (`game/card_catalogue/`) — a hand-written Python
+   function per card name, one file per card, returning the same
+   `AbilitySpec` IR directly.
 
 **Check the parser first.** Before hand-authoring, find out whether the card
-already resolves on its own:
+already resolves on its own, and — just as important — *why not* in rules
+terms, not just which clause string got rejected.
+
+The **`understand-card`** skill's `understand_card.py` is the fast path for
+this: `card "<name>"` prints the parser's per-clause verdict alongside the
+governing Comprehensive Rules for every keyword and clause (so you know which
+CR sections a hand-written `AbilitySpec` has to respect before you write one),
+and `check "<name>"` goes one step further — it also binds the card and flags
+whether a `MODELED` card's specs actually produced a bound ability, which is
+exactly the "is this genuinely a parser gap, or something else" question this
+section is about. Reach for one of those before reaching for the raw
+`parse_oracle` call below; they're the same information, already resolved
+against the rules and the binder.
+
+The equivalent by hand:
 
 ```python
 from mtg_analyzer.parser.oracle.gate import parse_oracle
@@ -58,7 +92,7 @@ that template, not just one.
 ## 2. The pipeline
 
 ```
-ability_catalogue.specs_for(card)   ──►  list[AbilitySpec]  (pure data)
+card_registry.specs_for(card)   ──►  list[AbilitySpec]  (pure data)
         │
         ▼
 effect_binder.bind_from_catalogue(obj)  ──►  attach_to_object(obj, specs)
@@ -86,7 +120,6 @@ def _my_card_effect() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("draw", {"count": 1})],
             trigger={"event": EventType.ENTERS_BATTLEFIELD},
-            raw_text="When ~ enters the battlefield, draw a card.",
         )
     ]
 
@@ -97,9 +130,13 @@ register("Elvish Visionary", _my_card_effect)
 Rules to follow (all enforced by existing tests, see §13):
 
 - **One factory function per distinct ability set**, one `register()` call
-  per card name it applies to (register the same factory under multiple
-  names for functionally-identical reprints — see `Evolving Wilds` /
-  `Terramorphic Expanse` at the bottom of the file).
+  per card name it applies to — multiple `register()` calls against the same
+  factory, all in the *same* file, for a functionally-identical reprint
+  (`card_catalogue/e/evolving_wilds.py` also registers "Terramorphic
+  Expanse") or a DFC's own combined "Front // Back" name alongside its plain
+  front-face name (`card_catalogue/e/eccentric_pestfinder.py` also registers
+  "Eccentric Pestfinder // Turn Stones") — never a second file duplicating
+  the same factory body under the other name.
 - **Return fresh objects every call.** The binder *mutates* specs when
   binding (stamping description, etc.) and the effects it builds carry a
   `source` back-reference to one specific `GameObject` — so two permanents
@@ -151,22 +188,21 @@ binder — don't spend time filling them in beyond documentation value:
 - **`target`** (e.g. `{"kind": "any"}`) — never read by `bind_ability`.
   Targeting is driven entirely by each *effect's own* `target_kind`
   parameter (§10). Existing hand-authored specs (see
-  `tests/test_effect_binder.py`'s Lightning Bolt example) still set it for
+  `tests/test_binding/core.py`'s Lightning Bolt example) still set it for
   a human reading the spec, purely as documentation.
 - **`optional`** — wired for `"triggered"` (`TriggeredAbility.optional`,
   "you may" triggers) but not consulted anywhere else yet.
 
-`raw_text` isn't cosmetic: it becomes the ability's `description` (shown in
-the UI's action list and static-ability panel) whenever the built effect
-doesn't already have one — always fill it in, in German to match the
-frontend's UI language (see CLAUDE.md "Frontend").
+Do not supply `raw_text` in hand-authored catalogue entries. The binder uses
+the bound card's canonical oracle text for descriptions. `raw_text` is
+reserved for parser provenance and must remain an exact source clause.
 
 ---
 
 ## 5. The `EffectSpec` whitelist
 
 `EffectSpec(type, params)` — `type` must be a name `EffectRegistry` knows
-(`game/effects.py`, bottom half). This is the full list today:
+(`game/effects/core.py`, bottom half). This is the full list today:
 
 | `type` | Key `params` | Notes |
 |---|---|---|
@@ -186,7 +222,7 @@ frontend's UI language (see CLAUDE.md "Frontend").
 | `create_token` | `count`, `token_name`, `power`, `toughness`, `colors`, `subtypes`, `keywords` | RULE 111; the token gets the RULE 704.5d lifecycle automatically |
 | `copy_permanent` | `count`, `target_kind` (default `"creature"`) | RULE 707 — creates a *new token* copy of the target |
 | `become_copy` | `target_kind` (default `"permanent"`), `add_types`, `add_subtypes` | RULE 706/707.2 — the ability's *own source* becomes a copy of the target (Clone/Phantasmal Image/Copy Artifact-style), instead of creating a token. `add_types`/`add_subtypes` cover a card's own "except it's a(n) X in addition to its other types" clause (`Card.as_copy` — types before the type line's em dash, subtypes after) |
-| `search` | `criteria` (or `type` shorthand), `destination` (`"hand"`/`"battlefield_tapped"`/…), `count`, `optional` (default `True`), `zones` (list, default `["library"]`; add `"graveyard"` for "library and/or graveyard" search), `destinations` (list, per-found-card override, positional against the picks — Cultivate/Kodama's Reach split destination), `exile_rest` (bool, default `False` — exile every remaining match in `zones` and skip the shuffle, Doomsday-shaped) | see the Evolving Wilds entry already in the file |
+| `search` | `criteria` (or `type` shorthand), `destination` (`"hand"`/`"battlefield_tapped"`/…), `count`, `optional` (default `True`), `zones` (list, default `["library"]`; add `"graveyard"` for "library and/or graveyard" search), `destinations` (list, per-found-card override, positional against the picks — Cultivate/Kodama's Reach split destination), `exile_rest` (bool, default `False` — exile every remaining match in `zones` and skip the shuffle, Doomsday-shaped) | see `card_catalogue/e/evolving_wilds.py` |
 | `shuffle` | *(none)* | |
 | `cascade` | `mana_value` | |
 | `discover` | `mana_value` (or `amount`) | |
@@ -247,7 +283,6 @@ Example — a Glorious Anthem–style effect:
 AbilitySpec(
     "static",
     [EffectSpec("anthem", {"affects": "creatures_you_control", "power": 1, "toughness": 1})],
-    raw_text="Creatures you control get +1/+1.",
 )
 ```
 
@@ -259,8 +294,8 @@ Fortify/Reconfigure permanent itself), not a controller-scoped set — this is
 "enchanted/equipped creature", "fortified land" (RULE 303.4/301.5). It
 naturally matches nothing while unattached, and nothing once the Aura/
 Equipment has itself left the battlefield. This is how you give an Aura or
-Equipment its own combat-relevant bonus — the seed catalogue's `Armadillo
-Cloak` entry (`ability_catalogue.py`) is exactly:
+Equipment its own combat-relevant bonus — `card_catalogue/a/armadillo_cloak.py`
+is exactly:
 
 ```python
 AbilitySpec(
@@ -269,7 +304,6 @@ AbilitySpec(
         EffectSpec("anthem", {"affects": "attached_permanent", "power": 2, "toughness": 2}),
         EffectSpec("grant_keyword", {"affects": "attached_permanent", "keywords": ["trample", "lifelink"]}),
     ],
-    raw_text="Enchanted creature gets +2/+2 and has trample and lifelink.",
 )
 ```
 
@@ -306,7 +340,6 @@ Only one factory is registered today:
 AbilitySpec(
     "replacement",
     [EffectSpec("prevent_damage", {"amount": "all", "to": "self"})],
-    raw_text="Prevent all damage that would be dealt to ~.",
 )
 ```
 
@@ -345,7 +378,7 @@ which needs no condition at all — the binder already scopes
 1. Bypass `AbilitySpec` for that one ability and construct the
    `TriggeredAbility` directly in a small helper, attaching it to
    `obj.triggered_abilities` yourself (look at how `bind_ability` builds one,
-   in `effect_binder.py`, and mirror it) — do this in a place that runs at
+   in `binding/core.py`, and mirror it) — do this in a place that runs at
    bind-on-load, e.g. by having your catalogue factory return the ability
    pre-attached is not supported (factories return `AbilitySpec`s only); the
    clean seam is a small dedicated bind hook, analogous to
@@ -404,7 +437,6 @@ AbilitySpec(
     "activated",
     [EffectSpec("draw", {"count": 1})],
     cost={"mana": "{2}", "taps_self": True},
-    raw_text="{2}, {T}: Draw a card.",
 )
 ```
 
@@ -442,6 +474,14 @@ because it's the smallest complete example. Verify with `parse_oracle`
 before spending an entry on a card the parser already covers.
 
 ```python
+# card_catalogue/e/elvish_visionary.py
+from __future__ import annotations
+
+from ....models.game.events import EventType
+from ....parser.oracle.spec import AbilitySpec, EffectSpec
+from ...card_registry.core import register
+
+
 def _elvish_visionary() -> list[AbilitySpec]:
     """When Elvish Visionary enters the battlefield, draw a card."""
     return [
@@ -449,7 +489,6 @@ def _elvish_visionary() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("draw", {"count": 1})],
             trigger={"event": EventType.ENTERS_BATTLEFIELD},
-            raw_text="Wenn Elfischer Seher ins Spiel kommt, ziehe eine Karte.",
         )
     ]
 
@@ -457,10 +496,11 @@ def _elvish_visionary() -> list[AbilitySpec]:
 register("Elvish Visionary", _elvish_visionary)
 ```
 
-`EventType` needs importing at the top of `ability_catalogue.py`
-(`from ..models.events import EventType`) if you introduce the first
-trigger-based entry — the file currently only has the Evolving Wilds
-activated ability, so that import isn't there yet.
+Each card gets its own standalone file with its own imports — there's no
+shared header to append to any more. Only import what the factory actually
+uses (`EventType` only if a trigger/condition needs it, `register` from
+`card_registry.core` always); `hand-author-card`'s `scaffold` command
+works this out for you and prints the exact file to create.
 
 A card with more than one ability returns more than one `AbilitySpec` in the
 list — `attach_to_object` iterates and files each independently, so a
@@ -473,13 +513,11 @@ def _my_lord() -> list[AbilitySpec]:
             "static",
             [EffectSpec("anthem", {"affects": "creatures_you_control", "power": 1, "toughness": 1,
                                     "subtype": "Goblin", "exclude_self": True})],
-            raw_text="Other Goblin creatures you control get +1/+1.",
         ),
         AbilitySpec(
             "activated",
             [EffectSpec("draw", {"count": 1})],
             cost={"mana": "{1}", "taps_self": True},
-            raw_text="{1}, {T}: Draw a card.",
         ),
     ]
 ```
@@ -490,7 +528,7 @@ def _my_lord() -> list[AbilitySpec]:
 
 - Nothing you write here executes card text as code. `EffectSpec.type` must
   already be a name in `EffectRegistry`/`ReplacementRegistry` — an unknown
-  type raises `BindError` rather than doing anything (`effect_binder.py`).
+  type raises `BindError` rather than doing anything (`binding/core.py`).
   This holds for hand-authored specs exactly as much as parser-derived ones;
   the catalogue is trusted *content* (you're asserting "this is what the
   card does"), never trusted *code*.
@@ -500,29 +538,38 @@ def _my_lord() -> list[AbilitySpec]:
   test value gets clamped.
 - If you ever need genuinely new behaviour (§6/§7/§15), add it as a new
   named factory in `EffectRegistry`/`ReplacementRegistry` — never special-
-  case a card name inside `game/effects.py` or `game/continuous.py`. The
+  case a card name inside `game/effects/core.py` or `game/continuous.py`. The
   whitelist-by-name discipline is what keeps the security boundary real.
 
 ---
 
 ## 13. Testing checklist
 
-Follow the pattern in `backend/tests/test_ability_catalogue.py` and
-`test_effect_binder.py`:
+Before writing a single test, run `understand_card.py check "<name>"`
+(**understand-card** skill) — it binds the card the same way a test would and
+prints a `PASS`/`GAP` verdict for exactly the failure modes items 1-3 below
+test for (specs not produced, binder populated nothing, a broken factory).
+Fixing what it flags first means the test you then write is confirming
+correct behaviour, not discovering the entry doesn't bind at all.
 
-1. `ability_catalogue.specs_for(card)` returns the specs you expect (right
+Follow the pattern in `backend/tests/game/catalogue/test_catalogue.py` and
+`backend/tests/game/binding/test_binding.py`:
+
+1. `card_registry.specs_for(card)` returns the specs you expect (right
    `ability_kind`, right count).
-2. `ability_catalogue.specs_for(card)` called **twice** returns
+2. `card_registry.specs_for(card)` called **twice** returns
    non-identical objects (`a is not b`) — catches the "shared mutable
    default" mistake (§3).
 3. `bind_from_catalogue(obj)` populates the right `GameObject` list
    (`obj.triggered_abilities`, `obj.activated_abilities`, …).
 4. An end-to-end test through a real `GameEngine`/`RulesEngine` (see
-   `TestLightningBoltEndToEnd` in `test_effect_binder.py`, or
-   `test_build_engine_binds_library_and_command` in
-   `test_ability_catalogue.py`) that actually plays the ability and asserts
-   the resulting game state (card drawn, life changed, token created, …) —
-   don't stop at "an object of the right class was constructed."
+   `TestLightningBoltEndToEnd` in `test_binding.py`, or
+   `test_build_engine_binds_library_and_command` in `test_catalogue.py`) that
+   actually plays the ability and asserts the resulting game state (card
+   drawn, life changed, token created, …) — don't stop at "an object of the
+   right class was constructed." The **game-engine** skill's `engine_bench.py
+   play "<name>"` is the fast way to see this happen before committing to the
+   test's assertions.
 5. Run `cd backend && python -m pytest -q` — keep the whole suite green,
    not just your new tests (per CLAUDE.md).
 
@@ -548,7 +595,7 @@ Follow the pattern in `backend/tests/test_ability_catalogue.py` and
 Everything above assumes the `EffectSpec`/replacement type you need already
 exists. If it doesn't (Fog-style "prevent all combat damage this turn", a
 layer 1 copy effect, a layer 3 text-changing effect), that
-is a `game/effects.py` change (a new `GameEffect` subclass +
+is a `game/effects/core.py` change (a new `GameEffect` subclass +
 `EffectRegistry.register`/`ReplacementRegistry.register` call), not
 something a catalogue entry alone can do — the catalogue can only compose
 *existing* whitelisted types. Add the new effect class next to its siblings

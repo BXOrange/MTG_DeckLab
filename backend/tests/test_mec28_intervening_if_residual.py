@@ -41,13 +41,14 @@ covers what closes them:
 
 from __future__ import annotations
 
-from mtg_analyzer.game.ability_catalogue import is_registered
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.card_registry import is_registered
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
+from tests.turn_history_events import begin_combat
 
 
 def make_engine(*player_ids):
@@ -264,7 +265,7 @@ def test_for_mirrodin_creates_and_attaches_a_boosted_rebel():
     eng = make_engine("p1", "p2")
     equipment = put(eng.state, for_mirrodin_card())
 
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
     eng.state.fire_event(GameEvent(
         EventType.ENTERS_BATTLEFIELD, controller_id="p1", instance_id=equipment.instance_id,
         object=equipment.name, object_types=sorted(equipment.type_words),
@@ -317,7 +318,7 @@ def test_raph_and_leo_untaps_up_to_two_chosen_attackers_and_grants_extra_combat(
     ally1 = put(eng.state, bear_card("Ally 1"))
     ally2 = put(eng.state, bear_card("Ally 2"))
     _to_declare_attackers(eng)
-    eng.state.combats_this_turn = 1
+    begin_combat(eng.state, 1)
 
     eng.declare_attackers(eng.state.active_player, [raph, ally1, ally2])
     eng.resolve_until_stable()
@@ -364,7 +365,7 @@ def test_raph_and_leo_stopping_at_one_still_grants_extra_combat():
     ally1 = put(eng.state, bear_card("Ally 1"))
     ally2 = put(eng.state, bear_card("Ally 2"))
     _to_declare_attackers(eng)
-    eng.state.combats_this_turn = 1
+    begin_combat(eng.state, 1)
 
     eng.declare_attackers(eng.state.active_player, [raph, ally1, ally2])
     eng.resolve_until_stable()

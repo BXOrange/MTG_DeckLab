@@ -27,13 +27,13 @@ rather than just checking the parser's coverage verdict:
 from __future__ import annotations
 
 from mtg_analyzer.game import combat
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.services.card_database import CardDatabase
 
@@ -92,7 +92,7 @@ def test_tergrid_reanimates_an_opponents_sacrificed_permanent_under_her_control(
 
     assert state.pending_choice is not None
     assert state.pending_choice["kind"] == "pay_cost_then"
-    engine.rules.resolve_pay_cost_then_choice("pay")
+    engine.rules.resolve_choice("pay")
     engine.resolve_until_stable()
 
     assert victim in state.battlefield
@@ -113,7 +113,7 @@ def test_tergrid_reanimates_an_opponents_discarded_permanent_card_but_not_a_spel
 
     assert state.pending_choice is not None
     assert state.pending_choice["kind"] == "pay_cost_then"
-    engine.rules.resolve_pay_cost_then_choice("pay")
+    engine.rules.resolve_choice("pay")
     engine.resolve_until_stable()
 
     assert permanent_card in state.battlefield
@@ -141,7 +141,7 @@ def test_tergrids_lantern_offers_a_sacrifice_or_discard_choice_and_forces_life_l
 
     assert state.pending_choice is not None
     assert state.pending_choice["kind"] == "pay_cost_then"
-    engine.rules.resolve_pay_cost_then_choice("pay")
+    engine.rules.resolve_choice("pay")
     engine.resolve_until_stable()
 
     assert state.pending_choice is not None

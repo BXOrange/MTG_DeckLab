@@ -4,16 +4,16 @@
 `life_gained_this_turn_at_least`/`is_ring_bearer` (same "wrap the rest, tag
 the condition" idiom, `segmenter._CONTROLS_NONE_OF_TYPE_CONDITION_RE`).
 
-Reference: mtg_analyzer/parser/oracle/segmenter.py, mtg_analyzer/game/effects.py.
+Reference: mtg_analyzer/parser/oracle/segmenter.py, mtg_analyzer/game/effects/core.py.
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 
 

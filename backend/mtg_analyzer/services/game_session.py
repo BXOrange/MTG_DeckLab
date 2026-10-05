@@ -41,17 +41,18 @@ import uuid
 from typing import Any, Callable, Optional
 
 from mtg_analyzer import config
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_format import get_format
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.mana_cost import ManaCost
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.decks.formats import get_format
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.mana.mana_cost import ManaCost
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.game import ability_catalogue, continuous, mana_potential
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game import card_registry, continuous, mana_potential
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.top_library import may_look_at_top_of_library
 from mtg_analyzer.services import replay
+from mtg_analyzer.services.table_feed import TableFeed
 
 #: How many undo snapshots to retain (older moves drop off the bottom).
 MAX_HISTORY = 100
@@ -87,6 +88,25 @@ REPLAY = "replay"
 #: (the opening hand is the hand), which is what a quick test game between two
 #: people usually wants.
 MULLIGAN_STYLES = ("london", "next7", "vancouver", "none")
+
+#: VIS-12: the one-shot priority yields a seat can arm. ``turn`` = "Pass this
+#: turn", on an opponent's turn (pass every window until that turn ends);
+#: ``end_step`` = "Skip to end step", on the seat's own turn (pass until the
+#: end step, then hold priority there). ``clear`` disarms.
+YIELD_MODES = ("turn", "end_step", "clear")
+
+#: VIS-12: the steps a seat can ask to be stopped at (RULE 117.3 — every step
+#: that gives priority except untap/cleanup, which give nobody any). A seat's
+#: stops are kept separately for its own turn and for everyone else's.
+STOP_STEPS = (
+    "upkeep", "draw", "main1", "begin_combat", "declare_attackers",
+    "declare_blockers", "combat_damage", "end_combat", "main2", "end",
+)
+
+#: Steps a seat cannot un-stop on its *own* turn: both main phases are where
+#: land plays, casts and ability activations happen, so a seat that skipped
+#: them could never act on its own turn at all.
+ALWAYS_STOP_OWN_TURN = ("main1", "main2")
 
 
 class GameActionError(Exception):
@@ -290,7 +310,9 @@ _FACE_DOWN_IN_EXILE_HIDDEN_FIELDS: dict[str, Any] = {
 
 def _redact_face_down_exile(state_dict: dict[str, Any], perspective: Optional[str]) -> None:
     """RULE 701.20a: scrub every `GameObject.face_down_in_exile` card's
-    identity out of ``state_dict``, for every player except its own owner.
+    identity out of ``state_dict`` except for permitted viewers. Hideaway
+    records those viewers under RULE 702.75a / 406.3; existing other face-down
+    exile paths retain their owner-based visibility.
 
     The frontend already renders a face-down-in-exile card as a card back
     (`gameBoardView.js`'s `resolveImageUrl`, checked ahead of everything
@@ -301,11 +323,12 @@ def _redact_face_down_exile(state_dict: dict[str, Any], perspective: Optional[st
     (RULE 708.5-adjacent). A multiplayer opponent is not that owner.
     """
     for player in state_dict.get("players", []):
-        if player.get("id") == perspective:
-            continue
         for obj in player.get("exile", []):
             if obj.get("face_down_in_exile"):
-                obj.update(_FACE_DOWN_IN_EXILE_HIDDEN_FIELDS)
+                allowed = (set(obj.get("face_down_exile_viewers") or [])
+                           if obj.get("hideaway_source_id") is not None else {player.get("id")})
+                if perspective is None or perspective not in allowed:
+                    obj.update(_FACE_DOWN_IN_EXILE_HIDDEN_FIELDS)
 
 
 def _redact_hidden_zones(
@@ -409,10 +432,24 @@ class GameSession:
         mulligan_style: str = "london",
         takebacks_per_player: int = 0,
         spell_timer_seconds: Optional[float] = None,
+        keep_history: bool = True,
     ) -> None:
         self.id = session_id or str(uuid.uuid4())
         self.mode = mode
         self.engine = engine
+        #: Whether every applied action deep-copies the whole `GameState`
+        #: into `_history` for `rewind`/`take_back` (ENG-39). On for every
+        #: session a human can see, because both are undo features. Off for
+        #: a *simulation* that only ever plays forward and reads metrics
+        #: (`services/dynamic_analysis.run_one_match`), where the snapshots
+        #: are pure waste — profiling one analysis run put **88% of its
+        #: total time** in `_snapshot` → `GameState.clone` → `deepcopy`,
+        #: which is what pushed `tests/services/test_dynamic_analysis.py`
+        #: past `pytest.ini`'s 20s per-test timeout and aborted the whole
+        #: suite run. `restart` still works (it holds its own single
+        #: `_initial` clone); `can_rewind` is simply always False, the same
+        #: answer it already gives once history is exhausted.
+        self._keep_history = keep_history
         #: RULE-free, table-agreed convenience (UC4 Setup): each seat may
         #: unilaterally undo its own last move this many times over the
         #: whole game, no matter who currently holds priority — unlike
@@ -461,6 +498,7 @@ class GameSession:
         self._history: list[tuple[str, GameState, int, Optional[str]]] = []
         #: Human-readable labels of applied actions, for the UI.
         self.move_log: list[str] = []
+        self.table_feed = TableFeed()
         #: PLR-6: opaque, non-committing UI scratch state — a not-yet-
         #: submitted targeting/block selection, mirrored here so a genuine
         #: reconnect (new tab, same player) can rebuild the modal instead of
@@ -521,17 +559,51 @@ class GameSession:
         self._pending_scries: list[str] = []
         #: RULE 103.6: every ``(player_id, instance_id)`` opening-hand card
         #: still owed its "begin the game somewhere else?" choice
-        #: (`game/ability_catalogue.pregame_setup_permission`), in turn
+        #: (`game/card_registry.pregame_setup_permission`), in turn
         #: order — same queued-one-at-a-time shape as `_pending_scries`,
         #: and resolved *before* it (RULE 103.6 precedes Vancouver's scry).
         self._pending_opening_hand: list[tuple[str, int]] = []
         #: Whether the first RULE 117 priority window is still owed because a
         #: setup-time choice (a Vancouver scry) was open when setup finished.
         self._priority_window_pending = False
+        #: VIS-12: per-seat one-shot yields, ``{player_id: {"mode", "turn"}}``
+        #: (``turn`` is `GameState.internal_turn.number` it was armed on, so a
+        #: yield can never bleed into a later turn). Session state, not game
+        #: state: a restore (take-back/rewind) drops them.
+        self._yields: dict[str, dict[str, Any]] = {}
+        #: VIS-12: per-seat standing stops, ``{player_id: {"own": [...],
+        #: "opponent": [...]}}``. A seat with no entry is stopped everywhere
+        #: (the pre-VIS-12 behaviour); see `_yield_wants_pass`.
+        self._stops: dict[str, dict[str, list[str]]] = {}
 
     # -- Snapshot / restore --------------------------------------------
 
+    def bug_report_context(self, action_count: int) -> dict:
+        """Export diagnostic positions without mutating the live game or undo history."""
+        from mtg_analyzer.services.replay import serialize_replay
+
+        history = self._history[-action_count:]
+        return {
+            "mode": self.mode,
+            "replay": serialize_replay(self.engine.state.clone()),
+            "state": self.engine.state.clone().to_dict(),
+            "step_cursor": self.engine.step_cursor,
+            "interactive_priority": self.interactive_priority,
+            "recent_actions": [
+                {
+                    "label": label, "actor_id": actor_id, "step_cursor": cursor,
+                    "replay_before": serialize_replay(state.clone()),
+                    "state_before": state.clone().to_dict(),
+                }
+                for label, state, cursor, actor_id in history
+            ],
+            "available_history_count": len(self._history),
+            "recent_move_log": self.move_log[-action_count:],
+        }
+
     def _snapshot(self, label: str, actor_id: Optional[str] = None) -> None:
+        if not self._keep_history:
+            return
         self._history.append((label, self.engine.state.clone(), self.engine.step_cursor, actor_id))
         if len(self._history) > MAX_HISTORY:
             self._history.pop(0)
@@ -553,6 +625,7 @@ class GameSession:
         self._pending_scries.clear()
         self._pending_opening_hand.clear()
         self._priority_window_pending = False
+        self._yields.clear()
 
     @property
     def can_rewind(self) -> bool:
@@ -569,7 +642,16 @@ class GameSession:
         self._restore(state, cursor)
         self._history.clear()
         self.move_log.clear()
+        self.table_feed.clear()
         self._mulligan_counts.clear()
+        for context in getattr(self, '_ai_bot_context', {}).values():
+            future = context.get('future')
+            if future:
+                future.cancel()
+        self._ai_bot_context = {}
+        self._bot_status = {}
+        self._smart_ability_uses = {}
+        self._smart_ability_positions = {}
         self._setup_pending = (
             {p.id for p in self.engine.state.players if not p.is_dummy}
             if self._require_setup
@@ -591,6 +673,7 @@ class GameSession:
                 self.move_log.pop()
         assert state is not None
         self._restore(state, cursor)
+        self.table_feed.trim_moves(len(self.move_log))
         return self.view()
 
     def take_back(self, player_id: str) -> dict[str, Any]:
@@ -628,6 +711,7 @@ class GameSession:
             if actor_id == player_id:
                 del self._history[-depth:]
                 del self.move_log[-depth:]
+                self.table_feed.trim_moves(len(self.move_log))
                 self._restore(state, cursor)
                 self.takebacks_remaining[player_id] -= 1
                 return self.view()
@@ -652,6 +736,20 @@ class GameSession:
         if not isinstance(action, dict) or "type" not in action:
             raise GameActionError("action must be a dict with a 'type'")
         actor = self._actor(actor_id)
+        if action["type"] == "emote":
+            # Table conversation is independent of priority and choices,
+            # and must not consume undo/history or invalidate a UI draft.
+            try:
+                self.table_feed.emote(actor, action.get("emote"), self.engine.state.turn_nr)
+            except ValueError as exc:
+                raise GameActionError(str(exc)) from exc
+            return self.view()
+        if action["type"] == "set_stops":
+            # A standing preference, like an emote: legal at any time, from
+            # any seat, and not a game action (no undo entry, no log line).
+            self._set_stops(actor, action)
+            self._auto_pass_followups()
+            return self.view()
         # "Next decision" is a fast-forward, but it must remain a sequence of
         # ordinary steps — each a real, separately snapshotted/logged
         # `advance_step` firing its own events — so the game evolves exactly
@@ -683,6 +781,7 @@ class GameSession:
             return self._apply_advance_to_decision()
         label = self._describe(action)
         self._snapshot(label, actor.id)
+        event_start = len(self.engine.state.event_log)
         try:
             self._dispatch(action, actor)
         except (ValueError, KeyError) as exc:
@@ -711,6 +810,10 @@ class GameSession:
             # can never step on `pass_priority`'s own real priority-passing.
             self._place_pending_triggers()
         self.move_log.append(label)
+        if self._keep_history:
+            self.table_feed.announce_events(
+                self.engine.state, self.engine.state.event_log[event_start:], len(self.move_log)
+            )
         # A real, committed action always supersedes whatever in-progress UI
         # selection led to it (PLR-6) — drop it rather than let a stale
         # targeting/block draft resurface on a later reconnect.
@@ -792,6 +895,8 @@ class GameSession:
         # rules-illegal — position can be constructed. Allowed at any time.
         if kind.startswith("edit_"):
             self._edit_dispatch(action)
+            # A card placed by hand didn't "arrive" in a graveyard (RULE 603.6c).
+            self.engine.state.resync_graveyard_watch()
             return
 
         # Setup phase (UC3: mulligan before the game proper starts): only
@@ -829,7 +934,19 @@ class GameSession:
 
         # While the engine is blocked on a choice (e.g. a library search),
         # only the choice may be answered.
-        if state.pending_choice and kind not in ("choose", "decline"):
+        resolution_play = bool(state.pending_choice and state.pending_choice.get("kind") == "play_during_resolution"
+                               and kind in ("cast_spell", "play_land"))
+        if state.pending_choice and state.pending_choice.get("kind") == "play_during_resolution":
+            owner_id = state.pending_choice["player_id"]
+            if actor is not None and actor.id != state.decider_for(owner_id):
+                raise GameActionError("this player is not answering the resolution choice")
+            if actor is None:
+                active = state.player_by_id(owner_id)
+        if resolution_play:
+            owner_id = state.pending_choice["player_id"]
+            if active.id != owner_id or (actor is not None and actor.id != state.decider_for(owner_id)):
+                raise GameActionError("this player is not answering the resolution choice")
+        if state.pending_choice and kind not in ("choose", "decline") and not resolution_play:
             raise GameActionError("a choice is pending — answer it first")
 
         # MEC-51 (RULE 720): a choice addressed to a player whose turn/combat
@@ -860,7 +977,8 @@ class GameSession:
         # choice (nobody holds priority while the game is blocked on one).
         if (
             self.interactive_priority
-            and kind not in ("declare_blockers", "choose", "decline")
+            and not resolution_play
+            and kind not in ("declare_blockers", "choose", "decline", "set_yield")
             and state.priority_player is not None
             and active is not state.priority_player
         ):
@@ -882,6 +1000,10 @@ class GameSession:
         handler = self._ACTION_HANDLERS.get(kind)
         if handler is None:
             raise GameActionError(f"unknown action type: {kind!r}")
+        if kind not in ("pass_priority", "set_yield", "declare_blockers"):
+            # VIS-12: acting for real means the seat is deciding again, not
+            # fast-forwarding — the same signal the board's countdown uses.
+            self._yields.pop(active.id, None)
         handler(self, action, active)
 
     def _dispatch_choose(self, action: dict[str, Any], active: Player) -> None:
@@ -912,12 +1034,45 @@ class GameSession:
         else:
             self.engine.pass_priority()
 
+    def _dispatch_set_yield(self, action: dict[str, Any], active: Player) -> None:
+        """VIS-12: arm or disarm this seat's one-shot yield.
+
+        ``turn`` ("Pass this turn") is for an *opponent's* turn: every window
+        this seat holds until that turn ends is passed for it. ``end_step``
+        ("Skip to end step") is for the seat's *own* turn: pass up to the end
+        step, then hold priority there. Only in a shared game (a solo session
+        has no priority windows to pass). Takes effect immediately:
+        `_auto_pass_followups` passes the window held right now, and every one
+        after it, until a reason to stop turns up (see `_yield_wants_pass`).
+        """
+        if not self.interactive_priority:
+            raise ValueError("yielding needs a shared game")
+        mode = action.get("mode")
+        if mode not in YIELD_MODES:
+            raise ValueError(f"unknown yield mode: {mode!r}")
+        if mode == "clear":
+            self._yields.pop(active.id, None)
+            return
+        state = self.engine.state
+        own_turn = active is state.active_player
+        if mode == "turn" and own_turn:
+            raise ValueError("you can only pass an opponent's turn")
+        if mode == "end_step" and not own_turn:
+            raise ValueError("you can only skip to the end step on your own turn")
+        if mode == "end_step" and state.current_step == "end":
+            raise ValueError("already in the end step")
+        self._yields[active.id] = {"mode": mode, "turn": state.internal_turn.number}
+        self._auto_pass_followups()
+
     def _dispatch_auto_turn(self, action: dict[str, Any], active: Player) -> None:
         self._auto_turn()
 
     def _dispatch_play_land(self, action: dict[str, Any], active: Player) -> None:
         face = action.get("face", "front")
-        self.engine.play_land(active, self._object(action), face=face)
+        if self.engine.state.resolution_play_choice is not None:
+            self.engine.play_resolution_card(active, self._object(action), face=face)
+        else:
+            self.engine.play_land(active, self._object(action), face=face)
 
     def _dispatch_set_skip_untap(self, action: dict[str, Any], active: Player) -> None:
         # RULE 502.1 "you may choose not to untap ~ during your untap
@@ -934,6 +1089,7 @@ class GameSession:
         self.engine.tap_for_mana(
             active, self._object(action), option_index, ability_index, tap_choices,
             color_split=color_split, sacrifice_choice=sacrifice_choice,
+            x=int(action.get("x", 0) or 0),
         )
 
     def _dispatch_activate_hand_mana(self, action: dict[str, Any], active: Player) -> None:
@@ -1009,10 +1165,14 @@ class GameSession:
         # `GameEngine._cast_action` stamps on that specific offer (a
         # *different* action entry from the plain mana-cost one, not a
         # toggle on it — see `_offer_cast`).
-        self.engine.cast_spell(
+        cast = (self.engine.play_resolution_card if self.engine.state.resolution_play_choice is not None
+                else self.engine.cast_spell)
+        cast(
             active, self._object(action), targets, x, face=face, mode=mode,
             kicked=kicked, kicker_x=kicker_x, target_groups=target_groups,
-            sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+            sacrifice_choice=sacrifice_choice,
+            graveyard_sacrifice_choice=self._resolve_sacrifice_choice(action.get("graveyard_sacrifice_choice")),
+            discard_choices=discard_choices,
             buyback=bool(action.get("buyback", False)),
             mutate=bool(action.get("mutate", False)),
             mutate_under=bool(action.get("mutate_under", False)),
@@ -1020,7 +1180,9 @@ class GameSession:
             entwine=bool(action.get("entwine", False)),
             free=bool(action.get("free", False)),
             alt_cost=bool(action.get("alt_cost", False)),
+            blitz=action.get("blitz"),
             evoke=bool(action.get("evoke", False)),
+            surge=bool(action.get("surge", False)),
             exile_discount=int(action.get("exile_discount", 0)),
             # PAR-23: RULE 702.51 Convoke / 702.66 Delve / 702.126 Improvise —
             # round-trips off the flag `_cast_action` stamps on the "cast
@@ -1034,6 +1196,10 @@ class GameSession:
             teamwork=bool(action.get("teamwork", False)),
             teamwork_choices=[int(value) for value in (action.get("teamwork_choices") or [])]
             if action.get("teamwork_choices") is not None else None,
+            # MEC-106: RULE 702.174a — the opponent a promised gift goes to,
+            # round-tripped off the `gift_opponent_id` `_cast_action` stamps on
+            # each per-opponent "cast + promise a gift" offer.
+            gift_opponent_id=action.get("gift_opponent_id"),
         )
 
     def _dispatch_roll_planar_die(self, action: dict[str, Any], active: Player) -> None:
@@ -1092,7 +1258,11 @@ class GameSession:
         # own defender). None → the engine auto-assigns / bare swing.
         defender = self._resolve_defender(action.get("defender"))
         declarations = [
-            {"attacker": self._object_by_id(i), "defender": defender}
+            {
+                "attacker": self._object_by_id(i),
+                "defender": defender,
+                "pay_attack_tax": bool(action.get("pay_attack_tax", True)),
+            }
             for i in (ids or [])
         ]
         self.engine.declare_attackers(active, declarations)
@@ -1162,6 +1332,7 @@ class GameSession:
         "declare_attackers": _dispatch_declare_attackers,
         "declare_blockers": _dispatch_declare_blockers,
         "ninjutsu": _dispatch_ninjutsu,
+        "set_yield": _dispatch_set_yield,
     }
 
     # -- Replay editing (mode == REPLAY) -------------------------
@@ -1529,7 +1700,7 @@ class GameSession:
             for p in state.players
             if not p.is_dummy
             for obj in list(p.hand)
-            if (permission := ability_catalogue.pregame_setup_permission(obj.card)) is not None
+            if (permission := card_registry.pregame_setup_permission(obj.card)) is not None
             if permission.condition != "not_starting_player" or p.id != starting_id
         ]
         self._open_next_opening_hand_choice()
@@ -1616,11 +1787,72 @@ class GameSession:
 
         resolved = self.engine.pass_priority(player)
         if resolved or not completes_round or not stack_was_empty:
-            self._auto_pass_turn_controllers()
+            self._auto_pass_followups()
             return
         # Everyone passed on an empty stack → the step ends.
         self._advance_to_priority_window()
+        self._auto_pass_followups()
+
+    def _auto_pass_followups(self) -> None:
+        """Server-side passes owed to whoever holds priority now: a RULE 720
+        turn controller's own seat, then a seat that yielded (VIS-12)."""
         self._auto_pass_turn_controllers()
+        self._auto_pass_yielding()
+
+    def _auto_pass_yielding(self) -> None:
+        """VIS-12: pass for the priority holder if it asked to skip this
+        window (a one-shot yield, or a step it has no stop at). Recurses
+        through `_pass_priority`, like `_auto_pass_turn_controllers`, so a
+        pass that completes the round still ends the step — and the next
+        window is examined in turn. Only ever a seat's own opt-in: with no
+        yield armed and no custom stops, nothing here fires."""
+        state = self.engine.state
+        holder = state.priority_player
+        if holder is None or not self._setup_complete or not self._yield_wants_pass(holder):
+            return
+        self._pass_priority(holder)
+
+    def _yield_wants_pass(self, player: Player) -> bool:
+        """Whether ``player``'s current priority window should be passed for
+        them. Never while a choice is pending or the game is over, and never
+        with another player's spell/ability on the stack — that is exactly the
+        response window a yield must not swallow."""
+        state = self.engine.state
+        if state.game_over or state.pending_choice:
+            return False
+        if any(item.controller_id != player.id for item in state.stack):
+            return False
+        is_own_turn = state.active_player is player
+        armed = self._yields.get(player.id)
+        if armed is not None and armed["turn"] != state.internal_turn.number:
+            del self._yields[player.id]  # the armed turn is over
+            armed = None
+        if armed is not None:
+            if armed["mode"] == "end_step" and state.current_step == "end":
+                del self._yields[player.id]  # arrived: hold priority here
+            else:
+                return True
+        stops = self._stops.get(player.id)
+        if stops is None:
+            return False
+        return state.current_step not in stops["own" if is_own_turn else "opponent"]
+
+    def _set_stops(self, player: Player, action: dict[str, Any]) -> None:
+        """VIS-12: replace ``player``'s standing stops. Unknown step names are
+        refused; the main phases stay on for the seat's own turn."""
+        if not self.interactive_priority:
+            raise GameActionError("stops need a shared game")
+        normalized: dict[str, list[str]] = {}
+        for side in ("own", "opponent"):
+            raw = action.get(side)
+            if not isinstance(raw, (list, tuple)):
+                raise GameActionError(f"stops need a {side!r} list")
+            unknown = [step for step in raw if step not in STOP_STEPS]
+            if unknown:
+                raise GameActionError(f"unknown step(s): {', '.join(map(str, unknown))}")
+            steps = set(raw) | (set(ALWAYS_STOP_OWN_TURN) if side == "own" else set())
+            normalized[side] = [step for step in STOP_STEPS if step in steps]
+        self._stops[player.id] = normalized
 
     def _auto_pass_turn_controllers(self) -> None:
         """MEC-51 (RULE 720): while a player controls the *active* player's
@@ -1921,6 +2153,10 @@ class GameSession:
             return actions
         pending = state.pending_choice
         if pending:
+            if pending.get("kind") == "play_during_resolution":
+                if perspective is None:
+                    seat = state.player_by_id(pending["player_id"])
+                return self.engine.resolution_play_actions(seat)
             # A choice is pending: the only legal actions are answering it —
             # one per option (a decline option maps to the `decline` action) —
             # and only for the player it's addressed to (`pending["player_id"]`).
@@ -1940,6 +2176,11 @@ class GameSession:
                             "instance_id": opt.get("instance_id"),
                         }
                     )
+            if pending.get('free_text'):
+                # Naming a card already accepts any text through the browser
+                # choice UI. Expose that parameterized action to bots too,
+                # rather than restricting them to convenience suggestions.
+                actions.append({'type': 'choose', 'free_text': True, 'option_id': 'Island'})
             return actions
         if self.interactive_priority and state.priority_player is not None:
             # RULE 117.1: only the player who *has* priority may act. A
@@ -2065,13 +2306,23 @@ class GameSession:
                 also_visible_hand_ids=reveal_hands,
                 choice_decider_id=choice_decider,
             )
+        actions = self.legal_actions(perspective)
+        pc = state_dict.get("pending_choice")
+        if pc and pc.get("kind") == "play_during_resolution":
+            state_dict["pending_choice"] = {**pc, "options": [
+                {"id": "decline" if action["type"] == "decline" else f"play-{index}",
+                 "label": action.get("mode_description") or action.get("name") or "Decline",
+                 "instance_id": action.get("instance_id"), "action": action}
+                for index, action in enumerate(actions)
+            ]}
         return {
             "session_id": self.id,
+            "bot_status": {k: dict(v) for k, v in getattr(self, "_bot_status", {}).items()},
             "mode": self.mode,
             "perspective": perspective,
             "acting_as": acting_as,
             "state": state_dict,
-            "legal_actions": self.legal_actions(perspective),
+            "legal_actions": actions,
             "pending_choice": state_dict.get("pending_choice"),
             # PLR-6: the caller's own in-progress, not-yet-submitted UI
             # selection (`set_ui_draft`) — never anyone else's, though
@@ -2088,6 +2339,7 @@ class GameSession:
             # the whole per-seat budget is shown, not just the caller's own.
             "takebacks_remaining": dict(self.takebacks_remaining),
             "move_log": list(self.move_log),
+            "table_messages": self.table_feed.view(),
             # VIS-5: which player made each `move_log` entry, so a shared
             # board can build a short "Bob hat X gespielt" feed instead of
             # making everyone read the anonymous "Verlauf" list. Aligned
@@ -2145,6 +2397,18 @@ class GameSession:
                 # the same client code covers solo modes too, though only an
                 # `interactive` one ever actually runs it.
                 "timer_seconds": self.spell_timer_seconds,
+                # VIS-12: every seat's armed yield and standing stops, public
+                # on purpose — the table sees who is passing the turn and
+                # where each player asked to be stopped.
+                "yields": {
+                    pid: y["mode"]
+                    for pid, y in self._yields.items()
+                    if y["turn"] == self.engine.state.internal_turn.number
+                },
+                "stops": {pid: dict(s) for pid, s in self._stops.items()},
+                # VIS-12: the next step anyone will get priority in, so the
+                # "Pass" button can say where passing leads.
+                "next_step": self.engine.next_priority_step(),
             },
             "setup": {
                 "complete": self._setup_complete,
@@ -2268,6 +2532,13 @@ class GameSessionManager:
             takebacks_per_player=takebacks_per_player,
             spell_timer_seconds=spell_timer_seconds,
         )
+        # Unordered own-deck knowledge, copied from setup inputs rather than
+        # read from live libraries. Bots never receive draw order or opponents' decks.
+        session._bot_decklists = {
+            str(seat['player_id']): {'cards': sorted(seat['library'], key=lambda card: card.id),
+                                    'commanders': sorted(seat.get('commanders') or [], key=lambda card: card.id)}
+            for seat in seats
+        }
         self._sessions[session.id] = session
         return session
 

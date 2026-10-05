@@ -216,6 +216,11 @@ _FOR_EACH_RE = re.compile(r"^(?P<base>.*?)\s+for each\s+(?P<subject>.+?)$", re.I
 _EQUAL_TO_POWER_RE = re.compile(
     r"^an amount of\s+(?P<base>.*?)\s+equal to\s+(?P<who>.+?)'s power$", re.IGNORECASE
 )
+#: "an amount of {G} equal to the greatest power among creatures you control" (Bighorner Rancher) —
+#: `_resolve_amount`'s ``greatest_power_control`` (Selvala's quantity) scaling a fixed base clause.
+_EQUAL_TO_GREATEST_POWER_RE = re.compile(
+    r"^an amount of\s+(?P<base>.*?)\s+equal to the greatest power among creatures you control$", re.IGNORECASE
+)
 #: "X mana of any one color, where X is the number of <subject>" (Wirewood
 #: Channeler) — captures the (still-variable) base clause and the subject
 #: separately, since the base itself needs `_parse_clause`'s any-colour path.
@@ -234,8 +239,17 @@ _WHERE_X_POWER_RE = re.compile(
 )
 _SUBJECT_CONTROL_RE = re.compile(r"^(?P<noun>.+?)\s+you control$", re.IGNORECASE)
 _SUBJECT_BATTLEFIELD_RE = re.compile(r"^(?P<noun>.+?)\s+on the battlefield$", re.IGNORECASE)
+#: "<kind> counters on this creature/artifact/…" — a P/T counter ("+1/+1") or (PAR-135) a named tracker kind
+#: ("art counter on ~", Famous Museum; "petal counters on this artifact", Lotus Blossom).
 _SUBJECT_COUNTER_RE = re.compile(
-    r"^(?P<kind>[+\-]?\d+/[+\-]?\d+) counters? on (?:this creature|~)$", re.IGNORECASE
+    r"^(?P<kind>[+\-]?\d+/[+\-]?\d+|[a-z]+) counters? on "
+    r"(?:this (?:creature|artifact|enchantment|land|permanent)|~)$",
+    re.IGNORECASE,
+)
+#: "Add {C}**, plus an additional {C} for each** art counter on ~." (Famous Museum) — the base amount *plus* a
+#: per-subject count, where `_FOR_EACH_RE` alone would scale the base by the count (zero counters → nothing).
+_PLUS_ADDITIONAL_FOR_EACH_RE = re.compile(
+    r"^(?P<base>.+?),\s*plus an additional\s+(?P<extra>.+?)\s+for each\s+(?P<subject>.+)$", re.IGNORECASE
 )
 
 # --- RULE 605.3a mana spend restrictions ("Spend this mana only ...") ----
@@ -279,7 +293,7 @@ _RESTRICTION_TYPE_RE = re.compile(
 #: Territory) — unlike `_RESTRICTION_TYPE_RE` above, the type isn't printed
 #: at all; it's whatever the land's own RULE 601.2b "as ~ enters, choose a
 #: creature type" ETB choice picked (`GameObject.chosen_type`, already
-#: modeled for the `enter_replacement` family — see `game/effect_binder.py`).
+#: modeled for the `enter_replacement` family — see `game/binding/core.py`).
 #: The restriction dict parsed here carries no ``types`` of its own; it's
 #: resolved into an ordinary ``type_spell`` restriction dynamically, at tap
 #: time, off the tapped land's *own* `chosen_type` (`GameEngine.
@@ -308,8 +322,10 @@ _CHOSEN_COLOR_ADD_RE = re.compile(
 #: (`GameObject.linked_exile_id`), the same "not printed at parse time"
 #: shape `_CHOSEN_COLOR_ADD_RE` is for an ETB colour choice — see
 #: `ManaAbility.color_selector`'s ``"imprinted_card_colors"`` kind.
+#: "…of any of the exiled **cards'** colors" (Pit of Offerings — several cards exiled by one
+#: ETB, `GameObject.linked_exile_ids`) is the same menu over every remembered card.
 _IMPRINTED_COLOR_ADD_RE = re.compile(
-    r"^(?:\d+|[a-z]+) mana of any of the exiled card'?s colou?rs$", re.IGNORECASE
+    r"^(?:\d+|[a-z]+) mana of any of the exiled cards?'?s? colou?rs$", re.IGNORECASE
 )
 #: "Choose a color. Add an amount of mana of that color equal to your
 #: devotion to that color." (Nykthos, Shrine to Nyx) — the choice and the
@@ -486,10 +502,23 @@ class ManaAbility:
     #: catalogue.py`); no oracle-text grammar recognizes this compound
     #: mana-ability-plus-rider shape yet.
     self_rad_counters: int = 0
+    #: RULE 605.3b: counters placed on the source resolve with mana production.
+    source_counters: dict[str, int] = field(default_factory=dict)
     min_level: Optional[int] = None
     max_level: Optional[int] = None
+    #: RULE 702.184 Station: a "N+ | {T}: Add …" tier ability works only while
+    #: its source has N or more charge counters (Evendo, Waking Haven). ENG-51
+    #: — until then the "12+ |" prefix was an unread cost fragment, and the
+    #: ability was usable at any charge.
+    min_charge: Optional[int] = None
     restriction: Optional[dict[str, Any]] = None
     any_combination: bool = False
+    #: ENG-51 (Springjack Pasture): "Add X mana of any one color" — each
+    #: option is scaled by the X announced when the ability is activated
+    #: (`GameEngine.tap_for_mana`'s ``x``); ``gain_life_x`` is its "You gain
+    #: X life." rider.
+    x_scaled: bool = False
+    gain_life_x: bool = False
     #: "Add N mana of the chosen color" (Throne of Eldraine, RULE 601.2b) —
     #: the colour isn't printed, it's the object's own "as ~ enters, choose a
     #: color" ETB pick (`GameObject.chosen_color`). ``"chosen_color"`` marks
@@ -517,12 +546,21 @@ class ManaAbility:
     color_selector: Optional[str] = None
 
 
-def _selector_from_subject(subject: str) -> Optional[dict[str, Any]]:
+def _fold_self_name(text: str, card_name: Optional[str]) -> str:
+    """``text`` with the card's own printed name (or its short form) as "~" — the mana grammar reads raw oracle
+    text, where a card names itself instead of saying "this artifact"."""
+    for form in sorted(_self_name_forms(card_name), key=len, reverse=True):
+        if form:
+            text = re.sub(re.escape(form), "~", text, flags=re.IGNORECASE)
+    return text
+
+
+def _selector_from_subject(subject: str, card_name: Optional[str] = None) -> Optional[dict[str, Any]]:
     """RULE 605.1a-adjacent "for each <subject>" → a count selector dict, or
     ``None`` for a subject shape outside the small recognised vocabulary
     (fail-soft: the caller then leaves the amount unscaled, same as before
     this grammar existed)."""
-    subject = subject.strip().rstrip(".")
+    subject = _fold_self_name(subject.strip().rstrip("."), card_name)
     m = _SUBJECT_COUNTER_RE.match(subject)
     if m is not None:
         return {"kind": "counters_on_self", "counter": m.group("kind").lower()}
@@ -537,8 +575,30 @@ def _selector_from_subject(subject: str) -> Optional[dict[str, Any]]:
     return None
 
 
+#: "Add X mana of any one color[. You gain X life.]" — ENG-51's announced-X
+#: mana ability shape (Springjack Pasture). Mirrored by the segmenter's
+#: `_MANA_ABILITY_X_SUPPORTED_RE` (the parser can't import `game/`).
+_ADD_X_ANY_ONE_COLOR_RE = re.compile(
+    r"add x mana (?:of any (?:one|1) colou?r|in any combination of colou?rs)\.?(?:\s*you gain x life\.?)?", re.IGNORECASE
+)
+#: A Station tier line, "12+ | {G}, {T}: Add {G}{G}." (RULE 702.184).
+_STATION_TIER_RE = re.compile(r"^(?P<n>\d+)\+\s*\|\s*(?P<body>.+)$")
+#: A planeswalker loyalty cost as printed ("+1", "−2", "0", "-X").
+_LOYALTY_COST_RE = re.compile(r"\s*[+\-−]?\s*(?:\d+|x)\s*", re.IGNORECASE)
+
+
+def _self_named_as_tilde(cost_text: str, card_name: Optional[str]) -> str:
+    """``cost_text`` with the card's own name (or its short form) as "~"."""
+    for form in sorted(_self_name_forms(card_name), key=len, reverse=True):
+        if form:
+            cost_text = re.sub(re.escape(form), "~", cost_text, flags=re.IGNORECASE)
+    return cost_text
+
+
 def _self_name_forms(card_name: Optional[str]) -> set:
     name = (card_name or "").strip()
+    if name.startswith("A-"):
+        name = name[len("A-"):]  # an Alchemy rebalance prints the original name
     forms = {name.lower()} if name else set()
     if "," in name:
         forms.add(name.split(",")[0].strip().lower())
@@ -561,9 +621,19 @@ def _peel_amount_selector(clause: str, card_name: Optional[str]) -> tuple[str, O
     shapes (including a "for each"/"equal to" subject this grammar doesn't
     recognise — fail-soft, not fail-closed: the base clause still parses to
     whatever fixed amount it names, exactly the pre-existing behaviour)."""
+    m = _PLUS_ADDITIONAL_FOR_EACH_RE.match(clause)
+    if m is not None:
+        # The extra mana must be the same single pip as the base ("{C}, plus an additional {C}"): the amount
+        # is then 1 + the count, which `resolve_options` reads off the selector's ``plus``.
+        base_options, extra_options = _dedupe(_parse_clause(m.group("base"))), _dedupe(_parse_clause(m.group("extra")))
+        selector = _selector_from_subject(m.group("subject"), card_name)
+        if selector is not None and base_options == extra_options and len(base_options) == 1 and (
+            sum(base_options[0].values()) == 1
+        ):
+            return m.group("base"), {**selector, "plus": 1}
     m = _WHERE_X_RE.match(clause)
     if m is not None:
-        selector = _selector_from_subject(m.group("subject"))
+        selector = _selector_from_subject(m.group("subject"), card_name)
         if selector is not None:
             return m.group("base"), selector
     m = _WHERE_X_POWER_RE.match(clause)
@@ -576,9 +646,12 @@ def _peel_amount_selector(clause: str, card_name: Optional[str]) -> tuple[str, O
         selector = _power_selector(m.group("who"), card_name)
         if selector is not None:
             return m.group("base"), selector
+    m = _EQUAL_TO_GREATEST_POWER_RE.match(clause)
+    if m is not None:
+        return m.group("base"), {"kind": "greatest_power_control"}
     m = _FOR_EACH_RE.match(clause)
     if m is not None:
-        selector = _selector_from_subject(m.group("subject"))
+        selector = _selector_from_subject(m.group("subject"), card_name)
         if selector is not None:
             return m.group("base"), selector
     return clause, None
@@ -670,6 +743,8 @@ def _parse_restriction(effect_text: str) -> Optional[dict[str, Any]]:
 
 def _restriction_allows_cast(restriction: dict[str, Any], obj: Any, has_x: bool) -> bool:
     kind = restriction.get("kind")
+    if kind == "spell":
+        return True
     if kind == "contains_x":
         return has_x
     card = getattr(obj, "card", obj)
@@ -784,6 +859,11 @@ def mana_options(card: Any) -> list[dict[str, int]]:
     return _dedupe(options)
 
 
+#: RULE 702.177a / Power-up: "Exhaust — " / "Power-up — " label fronting a mana
+#: ability (Activate only once).
+_ONCE_PER_GAME_LABEL_RE = re.compile(r"(?:exhaust|power-up)\s*[—-]\s*", re.IGNORECASE)
+
+
 def _parse_mana_ability_lines(
     text: str, name: Optional[str], want_hand_exile: bool = False
 ) -> list[ManaAbility]:
@@ -806,18 +886,36 @@ def _parse_mana_ability_lines(
     abilities: list[ManaAbility] = []
     for line in text.split("\n"):
         line = line.strip()
+        station = _STATION_TIER_RE.match(line)
+        if station is not None:
+            for ability in _parse_mana_ability_lines(station.group("body"), name, want_hand_exile):
+                ability.min_charge = int(station.group("n"))
+                abilities.append(ability)
+            continue
+        once = _ONCE_PER_GAME_LABEL_RE.match(line)
+        if once is not None:
+            # RULE 702.177a "Exhaust — <cost>: Add …" (Loot, the Pathfinder):
+            # the label is a once-per-game activation cap on the ability it
+            # fronts, not part of its cost.
+            for ability in _parse_mana_ability_lines(line[once.end():], name, want_hand_exile):
+                ability.cost.once_per_game = True
+                abilities.append(ability)
+            continue
         if '"' in line:
             # A granted-ability description quoted inside another line
             # ("Each creature you control with a counter on it has '{T}:
             # Add {G}.'", Rishkar) — that ability belongs to whatever it's
             # granted to, not this card itself (RULE 613.7f grants are
-            # hand-authored in `game/ability_catalogue.py`, not auto-parsed
+            # hand-authored in `game/card_catalogue`, not auto-parsed
             # here); skip so it doesn't get mis-attributed as this card's
             # own mana ability.
             continue
         cost_text, sep, effect_text = line.partition(":")
         if not sep:
             continue
+        # ENG-51: the cost grammar reads the source as "~" ("{T}, Exile Black
+        # Tulip" → "Exile ~"), the way the oracle normalizer spells it.
+        cost_text = _self_named_as_tilde(cost_text, name)
         effect_text = effect_text.strip()
         if _TARGET_RE.search(effect_text) or _TARGET_RE.search(cost_text):
             continue  # RULE 605.1a — a targeted ability is never a mana ability
@@ -909,6 +1007,21 @@ def _parse_mana_ability_lines(
                 restriction=_parse_restriction(effect_text),
             ))
             continue
+        if _ADD_X_ANY_ONE_COLOR_RE.fullmatch(effect_text.strip()):
+            # ENG-51: "{T}, Sacrifice X Goats: Add X mana of any one color.
+            # You gain X life." (Springjack Pasture) — X is announced on
+            # activation, sizing both the sacrifice and the mana.
+            cost = parse_activation_cost(cost_text)
+            if cost.exile_self_from_hand != want_hand_exile:
+                continue
+            abilities.append(ManaAbility(
+                cost=cost,
+                options=[{color: 1} for color in _ALL_COLORS],
+                x_scaled=True,
+                gain_life_x="gain x life" in effect_text.lower(),
+                any_combination="any combination" in effect_text.lower(),
+            ))
+            continue
         add_match = _ADD_CLAUSE_RE.search(effect_text)
         if add_match is None:
             continue
@@ -964,15 +1077,26 @@ def _parse_mana_ability_lines(
         if not options:
             continue
         damage_match = _SELF_DAMAGE_RE.search(effect_text)
+        counter_match = re.search(
+            r"put (?:a|an|one|1) ([a-z][a-z -]*|\+1/\+1|-1/-1) counter on (?:this (?:land|artifact|creature|permanent)|~)\.",
+            _fold_self_name(effect_text, name), re.IGNORECASE,
+        )
         abilities.append(ManaAbility(
             cost=cost,
             options=options,
             amount_selector=selector,
             self_damage=int(damage_match.group(1)) if damage_match else 0,
             self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
+            source_counters={counter_match.group(1).lower(): 1} if counter_match else {},
             restriction=_parse_restriction(effect_text),
         ))
-    return abilities
+    # ENG-51: a cost part the grammar can't read would never be charged, so
+    # the mana ability would be cheaper than printed — refuse it instead. A
+    # planeswalker's "+1: Add {R}{R}" line is a loyalty ability, read elsewhere.
+    return [
+        ability for ability in abilities
+        if not ability.cost.unrecognized or _LOYALTY_COST_RE.fullmatch(ability.cost.raw or "")
+    ]
 
 
 #: A Leveler tier header ("LEVEL 1-4"/"LEVEL 5+"), matched case-insensitively
@@ -1048,6 +1172,10 @@ def _leveler_tier_active(obj: Any, ability: ManaAbility) -> bool:
     Leveler tier (RULE 711.4c) — unconditionally ``True`` for a non-Leveler
     ability (``min_level``/``max_level`` both ``None``). Mirrors
     `game/continuous.py`'s identical static-effect gate."""
+    if ability.min_charge is not None:
+        charge = obj.counters.get("charge", 0) if hasattr(obj, "counters") else 0
+        if charge < ability.min_charge:
+            return False
     if ability.min_level is None and ability.max_level is None:
         return True
     n = obj.counters.get("level", 0) if hasattr(obj, "counters") else 0
@@ -1119,17 +1247,37 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
             amount_selector=None,
             self_damage=ability.self_damage,
             self_rad_counters=ability.self_rad_counters,
+            source_counters=dict(ability.source_counters),
             restriction=ability.restriction,
             any_combination=ability.any_combination,
             color_selector=ability.color_selector,
+            x_scaled=ability.x_scaled,
+            gain_life_x=ability.gain_life_x,
         )
         for ability in parse_mana_abilities(obj.card)
         if _leveler_tier_active(obj, ability)
     ]
+    # RULE 702.177a: a spent "Exhaust — …: Add …" offers nothing again. Its
+    # options are blanked rather than the entry dropped, so every later
+    # ability keeps the index `tap_for_mana` addresses it by.
+    used_once = getattr(obj, "mana_abilities_used_this_game", None)
+    if used_once:
+        for index, ability in enumerate(printed):
+            if ability.cost.once_per_game and index in used_once:
+                ability.options = []
     granted = [
         ManaAbility(cost=ActivationCost(taps_self=True), options=[dict(opt)])
         for opt in getattr(obj, "granted_mana_options", [])
     ]
+    granted.extend(
+        ManaAbility(
+            cost=parse_activation_cost(entry["cost"]) if entry.get("cost") else ActivationCost(taps_self=True),
+            options=[dict(option) for option in entry.get("options", [])],
+            restriction=entry.get("restriction"),
+            any_combination=bool(entry.get("any_combination", False)),
+        )
+        for entry in getattr(obj, "_granted_mana_abilities", [])
+    )
     upgrades = getattr(obj, "granted_mana_ability_upgrades", [])
     if upgrades:
         # MEC-25: an upgraded grant *replaces* a printed ability of the same
@@ -1145,7 +1293,7 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
             ManaAbility(cost=u["cost"], options=[dict(opt) for opt in u["options"]])
             for u in upgrades
         ]
-    return printed + granted + derived_basic
+    return printed + granted + list(getattr(obj, "_borrowed_mana_abilities", [])) + derived_basic
 
 
 def _cost_shape(cost: ActivationCost) -> ActivationCost:
@@ -1184,6 +1332,7 @@ def hand_mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaA
             amount_selector=None,
             self_damage=ability.self_damage,
             self_rad_counters=ability.self_rad_counters,
+            source_counters=dict(ability.source_counters),
             restriction=ability.restriction,
             any_combination=ability.any_combination,
         )
@@ -1303,17 +1452,17 @@ def resolve_options(ability: ManaAbility, obj: Any, state: Optional[Any] = None)
         # not a colour to choose from).
         if state is None:
             return []
-        imprinted_id = getattr(obj, "linked_exile_id", None)
-        if imprinted_id is None:
-            return []
-        imprinted = state.find_object(imprinted_id)
-        if imprinted is None:
-            return []
-        card = getattr(imprinted, "card", imprinted)
-        colors = set(getattr(card, "color_identity", None) or set()) & set(_ALL_COLORS)
-        if not colors:
-            return []
-        return [{color: 1} for color in colors]
+        imprinted_ids = list(getattr(obj, "linked_exile_ids", None) or [])
+        if getattr(obj, "linked_exile_id", None) is not None:
+            imprinted_ids.append(obj.linked_exile_id)
+        colors: set[str] = set()
+        for imprinted_id in set(imprinted_ids):
+            imprinted = state.find_object(imprinted_id)
+            if imprinted is None:
+                continue
+            card = getattr(imprinted, "card", imprinted)
+            colors |= set(getattr(card, "color_identity", None) or set()) & set(_ALL_COLORS)
+        return [{color: 1} for color in sorted(colors)]
     if ability.color_selector in (
         "colors_of_legendary_permanents_you_control",
         "colors_of_legendary_creatures_planeswalkers_you_control",
@@ -1387,7 +1536,7 @@ def resolve_options(ability: ManaAbility, obj: Any, state: Optional[Any] = None)
         return [{color: 1} for color in sorted(identity)]
     if ability.amount_selector is None:
         return [dict(opt) for opt in ability.options]
-    n = _resolve_amount(ability.amount_selector, obj, state)
+    n = _resolve_amount(ability.amount_selector, obj, state) + ability.amount_selector.get("plus", 0)
     return [{color: count * n for color, count in opt.items()} for opt in ability.options]
 
 

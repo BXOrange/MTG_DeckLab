@@ -39,12 +39,12 @@ from __future__ import annotations
 import pytest
 
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import attach_to_object, bind_from_catalogue
+from mtg_analyzer.game.binding.core import attach_to_object, bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 
 
@@ -134,15 +134,19 @@ def test_players_have_no_maximum_hand_size_is_modeled():
     assert static.effects[0].params == {"affects": "each_player"}
 
 
-def test_durational_no_max_hand_size_stays_unclaimed():
-    # Fail-closed: the resolve-time "for the rest of the game" variant is a
-    # different shape (not a standing permanent's static) and isn't claimed.
+def test_durational_no_max_hand_size_is_now_modeled():
+    # The resolve-time "for the rest of the game" variant (Spirit Water Revival)
+    # is a different shape from the standing permanent's static — a player-id
+    # flag (`GameState.no_max_hand_size_player_ids`,
+    # `NoMaxHandSizeRestOfGameEffect`/`no_max_hand_size_rest_of_game`), not the
+    # battlefield `no_max_hand_size` layer — now modeled through its own
+    # dedicated primitive rather than staying fail-closed.
     card = _permanent(
         "Choice of Fortunes Shaped", "You have no maximum hand size for the rest of the game.",
         type_line="Sorcery",
     )
     card.is_sorcery = True
-    assert parse_oracle(card).coverage == UNMODELED
+    assert parse_oracle(card).coverage != UNMODELED
 
 
 def test_may_choose_not_to_untap_is_modeled():

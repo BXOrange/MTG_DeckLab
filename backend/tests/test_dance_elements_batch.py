@@ -5,12 +5,12 @@ the disposable Scryfall cache, so they remain an end-to-end contract for the
 hand-authored cards in this saved Commander deck.
 """
 
-from mtg_analyzer.game.ability_catalogue import specs_for
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.card_registry import specs_for
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle import parse_oracle
 
 
@@ -142,7 +142,7 @@ def test_haunting_voyage_chooses_type_then_returns_up_to_two_or_all_if_foretold(
     assert elf_c in state.battlefield and goblin in p1.graveyard
 
 
-def test_horde_of_notions_casts_a_target_elemental_from_graveyard_for_free_then_exiles_it():
+def test_horde_of_notions_opens_a_free_cast_window_for_the_targeted_elemental():
     horde = Card(
         id="Horde of Notions", name="Horde of Notions", type_line="Legendary Creature — Elemental",
         mana_cost_string="{W}{U}{B}{R}{G}", converted_mana_cost=5, is_creature=True,
@@ -160,6 +160,10 @@ def test_horde_of_notions_casts_a_target_elemental_from_graveyard_for_free_then_
 
     engine.activate_ability(p1, horde_obj, 0, targets=[elemental])
     engine.resolve_until_stable()
+    assert elemental in p1.exile
+    assert elemental.instance_id in state.free_cast_instance_ids
+    engine.cast_spell(p1, elemental)
+    engine.resolve_until_stable()
     assert elemental in state.battlefield
 
     # Horde grants no Flashback-style redirect; later zone changes are normal.
@@ -175,6 +179,9 @@ def test_horde_of_notions_casts_a_target_elemental_from_graveyard_for_free_then_
     p1.add_to_zone(tribal, Zone.GRAVEYARD)
     p1.mana_pool.add_many({"W": 1, "U": 1, "B": 1, "R": 1, "G": 1})
     engine.activate_ability(p1, horde_obj, 0, targets=[tribal])
+    engine.resolve_until_stable()
+    assert tribal in p1.exile
+    engine.cast_spell(p1, tribal)
     engine.resolve_until_stable()
     assert tribal.was_cast and tribal in p1.graveyard
 
@@ -213,8 +220,15 @@ def test_foretell_exiles_face_down_then_casts_for_its_alt_cost_on_a_later_turn()
 def test_crib_swap_is_registered_with_a_full_spell_effect():
     (spec,) = specs_for(_crib_swap())
     assert spec.ability_kind == "spell_effect"
-    assert spec.effects[0].type == "exile_create_token"
-    assert spec.effects[0].params["keywords"] == ["changeling"]
+    # ENG-37 B3: retired `exile_create_token` -> a `seq` of `exile` then
+    # `create_token` for the exiled object's last-known controller.
+    node = spec.effects[0]
+    assert node.type == "seq"
+    body = node.params["effects"]
+    assert body[0]["type"] == "exile"
+    assert body[1]["type"] == "create_token"
+    assert body[1]["params"]["keywords"] == ["changeling"]
+    assert body[1]["params"]["creators"] == "previous_target_controller"
 
 
 def test_crib_swap_exiles_target_and_creates_changeling_for_its_controller():
@@ -516,7 +530,7 @@ def test_yarok_uses_the_shared_etb_trigger_doubler():
                 oracle_text="If a permanent entering the battlefield causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time.")
     (spec,) = specs_for(card)
     assert spec.effects[0].type == "trigger_doubler"
-    assert spec.effects[0].params["cause_filter"] == ["ENTERS_BATTLEFIELD"]
+    assert spec.effects[0].params["cause"]["event"] == "ENTERS_BATTLEFIELD"
 
 
 def test_reality_shift_exiles_then_manifests_for_the_exiled_creatures_controller():
@@ -827,3 +841,29 @@ def test_cavalier_of_thorns_etb_land_to_battlefield_and_rest_to_graveyard_and_di
     assert cav_obj.zone == Zone.EXILE
     assert p1.library[-1] == land2
     assert land2.zone == Zone.LIBRARY
+
+
+def test_cavalier_of_thorns_does_not_trigger_on_another_creature_entering():
+    cav_card = _cavalier_of_thorns()
+    engine = _engine([cav_card])
+    state = engine.state
+    p1 = state.active_player
+    cav_obj = p1.hand[0]
+    bind_from_catalogue(cav_obj)
+    state.add_to_battlefield(cav_obj)
+
+    other = GameObject(
+        Card(id="Other Creature", name="Other Creature", type_line="Creature — Beast", is_creature=True),
+        owner_id=p1.id,
+        zone=Zone.BATTLEFIELD,
+    )
+    state.add_to_battlefield(other)
+    state.fire_event(GameEvent(
+        EventType.ENTERS_BATTLEFIELD,
+        controller_id=p1.id,
+        instance_id=other.instance_id,
+        object=other.name,
+        object_types=["creature"],
+    ))
+
+    assert state.pending_choice is None

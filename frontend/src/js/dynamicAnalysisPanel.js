@@ -39,7 +39,7 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
   let botKinds = null;
   let numMatches = 20;
   let maxTurns = 10;
-  let botKind = 'goldfish';
+  let botKind = 'smart';
   let job = null; // {status, completed, total, result, error} | null
   let starting = false;
   let startError = '';

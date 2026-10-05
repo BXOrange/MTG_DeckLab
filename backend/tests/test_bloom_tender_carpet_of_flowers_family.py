@@ -13,11 +13,11 @@ genuinely different primitives, not one:
   from ever being a mana ability at all, so it's an ordinary stack-using
   triggered ability instead). `AddManaEffect.
   amount_from_target_count_selector`/`once_per_turn_ability`
-  (`game/effects.py`) plus `RulesEngine.add_mana_any_color`'s new
+  (`game/effects/core.py`) plus `RulesEngine.add_mana_any_color`'s new
   ``amount`` param (`game/rules/mana_counters_mixin.py`) and
   `GameObject.added_mana_with_ability_this_turn` (reset each untap step).
 
-Reference: mtg_analyzer/game/{effects,mana_abilities,ability_catalogue}.py,
+Reference: mtg_analyzer/game/{effects,mana_abilities,card_registry}.py,
 mtg_analyzer/game/rules/mana_counters_mixin.py,
 mtg_analyzer/game/engine/turn_loop_mixin.py.
 """
@@ -27,12 +27,12 @@ from __future__ import annotations
 import pytest
 
 from mtg_analyzer.game import mana_abilities
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.mana_cost import ManaCost
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.mana.mana_cost import ManaCost
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 
 pytestmark = pytest.mark.skipif(
@@ -213,20 +213,22 @@ def test_carpet_of_flowers_never_touches_its_own_controllers_islands():
 
 
 def test_carpet_of_flowers_is_registered_as_two_optional_targeted_triggers():
-    from mtg_analyzer.game import ability_catalogue
+    from mtg_analyzer.game import card_registry
 
-    assert ability_catalogue.is_registered("Carpet of Flowers")
-    specs = ability_catalogue.specs_for(_card("Carpet of Flowers"))
+    assert card_registry.is_registered("Carpet of Flowers")
+    specs = card_registry.specs_for(_card("Carpet of Flowers"))
     assert len(specs) == 2
     steps = {spec.trigger["filter"]["step"] for spec in specs}
     assert steps == {"main1", "main2"}
     for spec in specs:
         assert spec.optional is True
         assert spec.trigger["phase_relation"] == "you"
-        effect = spec.effects[0]
-        assert effect.type == "add_mana"
-        assert effect.params.get("target_kind") == "opponent"
-        assert effect.params.get("once_per_turn_ability") is True
-        assert effect.params.get("amount_from_target_count_selector") == (
-            "lands_you_control_of_type_island"
-        )
+        bind = spec.effects[0]
+        assert bind.type == "bind"
+        assert bind.params["amount"] == {
+            "kind": "count_selector", "selector": "lands_you_control_of_type_island", "of": "target",
+        }
+        (inner,) = bind.params["effects"]
+        assert inner["type"] == "add_mana"
+        assert inner["params"].get("target_kind") == "opponent"
+        assert inner["params"].get("once_per_turn_ability") is True

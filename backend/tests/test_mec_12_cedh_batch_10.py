@@ -75,12 +75,12 @@ passed (+14 new), 238 skipped, 0 regressions.
 from __future__ import annotations
 
 from mtg_analyzer.config import DB_PATH
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase
 
@@ -110,7 +110,7 @@ def _enter(engine: GameEngine, obj: GameObject, controller: str = "p1") -> None:
     its ETB trigger actually fires, then drain the stack — auto-answering
     a `trigger_target`/`trigger_target_multi` pending choice with its first
     option (every card this file exercises only ever has one legal target)."""
-    from mtg_analyzer.models.game_state import EventType, GameEvent
+    from mtg_analyzer.models.game.game_state import EventType, GameEvent
 
     engine.state.fire_event(
         GameEvent(EventType.ENTERS_BATTLEFIELD, instance_id=obj.instance_id, controller_id=controller)
@@ -120,9 +120,9 @@ def _enter(engine: GameEngine, obj: GameObject, controller: str = "p1") -> None:
         kind = engine.state.pending_choice.get("kind")
         options = engine.state.pending_choice.get("options") or []
         if kind == "trigger_target" and options:
-            engine.rules.resolve_trigger_target_choice(str(options[0]["id"]))
+            engine.rules.resolve_choice(str(options[0]["id"]))
         elif kind == "trigger_target_multi" and options:
-            engine.rules.resolve_trigger_target_multi_choice(str(options[0]["id"]))
+            engine.rules.resolve_choice(str(options[0]["id"]))
         else:
             break
         engine.resolve_until_stable()
@@ -377,7 +377,7 @@ def test_vodalian_illusionist_targets_either_player():
 
 
 def _push_enemy_spell(engine: GameEngine, state: GameState, controller: str = "p2") -> GameObject:
-    from mtg_analyzer.models.game_state import StackItem
+    from mtg_analyzer.models.game.game_state import StackItem
 
     obj = GameObject(
         Card(id="Enemy Bolt", name="Enemy Bolt", type_line="Instant"),
@@ -493,7 +493,7 @@ def test_plain_mana_alt_cost_is_charged_not_skipped():
     `_pay_alt_cast_cost` actually charge ``cost.mana`` instead of silently
     ignoring it (the gap `cast_without_paying` alone would have left)."""
     from mtg_analyzer.game.costs import ActivationCost
-    from mtg_analyzer.models.mana_cost import ManaCost
+    from mtg_analyzer.models.mana.mana_cost import ManaCost
 
     engine, state = _engine()
     spell = _to_hand(
@@ -525,7 +525,7 @@ def _advance_to(engine: GameEngine, step_name: str) -> None:
 
 def test_extra_combat_phase_effect_queues_a_request():
     engine, state = _engine()
-    from mtg_analyzer.game.effects import ExtraCombatPhaseEffect, GameContext
+    from mtg_analyzer.game.effects.core import ExtraCombatPhaseEffect, GameContext
 
     context = GameContext(state, engine.rules)
     ExtraCombatPhaseEffect().apply(context)

@@ -14,11 +14,11 @@ This covers the generic mechanism (`grant_mana_ability`/
 `GameState._granted_ability_cache`) via the two registered cards.
 """
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.mana_abilities import mana_options_for
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 
 
 def make_engine():

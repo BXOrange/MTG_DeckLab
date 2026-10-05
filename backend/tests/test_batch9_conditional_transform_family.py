@@ -35,11 +35,11 @@ mtg_analyzer/game/{effects,rules_engine,effect_binder}.py.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import EffectRegistry
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import EffectRegistry
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import MODELED, UNMODELED, parse_oracle
 
 
@@ -179,7 +179,7 @@ def test_legacy_werewolf_no_spells_cast_now_modeled():
     spec = result.specs[0]
     assert spec.trigger["event"] == "STEP_BEGIN"
     assert spec.effects[0].type == "transform"
-    assert spec.effects[0].condition == {"no_spells_cast_last_turn": True}
+    assert spec.effects[0].condition == {"kind": "spells_cast_last_turn", "max": 0}
 
 
 # ---------------------------------------------------------------------------

@@ -5,33 +5,40 @@ Kyoshi Warrior — a printed toughness with a live-count power).
 `static_handlers._PT_CDA_SINGLE_RE` emits a `pt_cda` spec with only
 `power_count` (or `toughness_count`) set — `continuous.recompute`'s 7a
 `pt_cda` pass already applies the two independently, so no engine change.
-Same `_PT_CDA_SELECTORS` whitelist as the "power **and** toughness" form.
+Same `_pt_cda_selector` resolution as the "power **and** toughness" form
+(PAR-120, PARSER_VERSION 466: the shared `count_phrase` grammar first,
+`_PT_CDA_SELECTORS`' one remaining special case — RULE 700.8's party
+count — as fallback).
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.static_handlers import static_effect_specs
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec
 
-from tests.test_game_engine import creature, make_engine, obj_on_battlefield
+from tests.support.game import creature, make_engine, obj_on_battlefield
 
 
 # --- parse -----------------------------------------------------------------
 
 
+_CREATURES_YOU_CONTROL = {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}
+_LANDS_YOU_CONTROL = {"zone": "battlefield", "of": "you", "filter": {"card_type": "land"}}
+
+
 def test_power_only_cda_parses():
     assert static_effect_specs("~'s power is equal to the number of creatures you control") == [
-        EffectSpec("pt_cda", {"affects": "self", "power_count": "creatures_you_control"})
+        EffectSpec("pt_cda", {"affects": "self", "power_count": _CREATURES_YOU_CONTROL})
     ]
 
 
 def test_toughness_only_cda_parses_for_a_whitelisted_selector():
     assert static_effect_specs("~'s toughness is equal to the number of lands you control") == [
-        EffectSpec("pt_cda", {"affects": "self", "toughness_count": "lands_you_control"})
+        EffectSpec("pt_cda", {"affects": "self", "toughness_count": _LANDS_YOU_CONTROL})
     ]
 
 
@@ -41,15 +48,27 @@ def test_power_and_toughness_form_still_sets_both():
     ) == [
         EffectSpec("pt_cda", {
             "affects": "self",
-            "power_count": "creatures_you_control",
-            "toughness_count": "creatures_you_control",
+            "power_count": _CREATURES_YOU_CONTROL,
+            "toughness_count": _CREATURES_YOU_CONTROL,
+        })
+    ]
+
+
+def test_a_basic_land_subtype_now_parses_via_the_shared_grammar():
+    # PAR-120: "forests you control" used to be a different, unwired
+    # selector — the shared noun-phrase grammar reaches it generically now.
+    assert static_effect_specs("~'s power is equal to the number of forests you control") == [
+        EffectSpec("pt_cda", {
+            "affects": "self",
+            "power_count": {"zone": "battlefield", "of": "you", "filter": {"subtype": "forest"}},
         })
     ]
 
 
 def test_unwhitelisted_quantity_fails_closed():
+    # Unknown nouns remain unclaimed even with an otherwise valid chosen-player scope.
     assert static_effect_specs(
-        "~'s power is equal to the number of forests you control"
+        "~'s power is equal to the number of tapped frobnicators the chosen player controls"
     ) is None
 
 

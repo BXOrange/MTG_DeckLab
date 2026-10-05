@@ -7,10 +7,10 @@ Reference: mtg_analyzer/parser/oracle/catalogue/handlers.py.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec
@@ -35,9 +35,10 @@ def test_investigate_n_times_parses():
 
 
 def test_investigate_x_times_stays_unclaimed():
-    # A dynamic count ("investigate x times, where x is …") — `COUNT` only
-    # ever resolves a literal int, fail-closed rather than guessing.
-    assert match_clause("investigate x times") is None
+    # A measured count ("investigate x times, where x is …") — fail-closed rather than guessing. A bare
+    # "investigate X times" is the spell's announced X (Disorder in the Court, batch 6).
+    assert match_clause("investigate x times, where x is the number of creatures you control") is None
+    assert match_clause("investigate for each creature you control") is None
 
 
 def test_fugitive_doctor_first_line_is_modeled():
@@ -68,7 +69,7 @@ def test_investigate_executes_and_creates_a_clue():
     obj.summoning_sick = False
     bind_from_catalogue(obj)
 
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
     state.add_to_battlefield(obj)
     state.fire_event(
         GameEvent(

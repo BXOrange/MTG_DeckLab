@@ -10,11 +10,11 @@ Reference: docs/concepts/09_ORACLE_EFFECT_PARSER.md, mtg_analyzer/game/costs.py.
 
 import pytest
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.mana_cost import ManaCost
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.mana.mana_cost import ManaCost
 from mtg_analyzer.game.costs import PAY_LIFE_X, parse_activation_cost
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.spec import AbilitySpec, SpecValidationError
@@ -159,14 +159,23 @@ class TestParserClaims:
         )
         assert not result.modeled
 
-    def test_sacrifice_a_permanent_unclaimed(self):
-        # "permanent"/"enchantment" aren't in the closed vocabulary the
-        # actual card pool needs — fail-closed rather than guessed.
+    def test_sacrifice_an_enchantment_unclaimed(self):
+        # "enchantment" isn't in the closed vocabulary the actual card pool
+        # needs — fail-closed rather than guessed.
+        result = self._parse(
+            "As an additional cost to cast this spell, sacrifice an enchantment.\n"
+            "Draw a card."
+        )
+        assert not result.modeled
+
+    def test_sacrifice_a_permanent_claimed(self):
+        # PAR-107…114 run 2: "a permanent" joined the vocabulary with Souls of the Lost's
+        # "discard a card or sacrifice a permanent" (`_matches_sacrifice_type` already read it).
         result = self._parse(
             "As an additional cost to cast this spell, sacrifice a permanent.\n"
             "Draw a card."
         )
-        assert not result.modeled
+        assert result.modeled
 
     def test_pay_mana_unclaimed(self):
         result = self._parse(
@@ -249,7 +258,7 @@ class TestAbilitySpecAdditionalCost:
             spec.validate()
 
     def test_rejects_unknown_sacrifice_type(self):
-        spec = AbilitySpec("spell_effect", effects=[], additional_cost={"sacrifice": "permanent"})
+        spec = AbilitySpec("spell_effect", effects=[], additional_cost={"sacrifice": "enchantment"})
         with pytest.raises(SpecValidationError):
             spec.validate()
 

@@ -9,8 +9,7 @@ fail-closes over otherwise-claimable bodies, a recurring effect-body template
 that wants one parser handler, a set-specific keyword mechanic, a genuine
 missing engine primitive, or a true one-of that only hand-authoring will close.
 That segmentation is the input to the PAR-*/MEC-* ticket pipeline in
-`docs/implementation-state/BACKLOG.md` (see
-`.claude/plans/*commander*` / `PARSER_LONG_TAIL.md`).
+`docs/implementation-state/BACKLOG.md` (method: `PARSER_LONG_TAIL.md`).
 
 Buckets (each UNMODELED Commander-legal card lands in exactly one, tested in
 this order):
@@ -21,8 +20,9 @@ this order):
      its own (`match_clause`). The card is one segmenter/wrapper fix or one
      sibling-clause ticket away; no ticket of its own.
   D  primitive-blocked — an unclaimed clause matches a known missing-engine-
-     primitive signature (the PAR-30 clusters + Licid + the damage-source
-     tracker). -> MEC-* (primitive + handler + PARSER_VERSION bump in one batch).
+     primitive signature. -> MEC-* (primitive + handler + PARSER_VERSION
+     bump in one batch). NOTE: these labels name the *gap*, not a ticket -
+     file a fresh MEC-* when starting one (see BACKLOG.md's MEC section).
   C  set-specific mechanic — an unclaimed clause names a keyword mechanic the
      `PARSER_LONG_TAIL.md` "Two tracks" table lists as Not done (Doctor's
      companion, Party, Rebel/Mercenary, Ki/Spirit-or-Arcane, ...). -> PAR-*,
@@ -51,7 +51,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mtg_analyzer.game.ability_catalogue import is_registered  # noqa: E402
+from mtg_analyzer.game.card_registry import is_registered  # noqa: E402
 from mtg_analyzer.parser.oracle import (  # noqa: E402
     NEVER_SUPPORTED,
     PARSER_VERSION,
@@ -90,50 +90,89 @@ _MODE_BODY_PREFIX_RE = re.compile(r"^(?:•\s+|\+\s+.*?\s+—\s+)")
 
 #: Known missing-engine-primitive signatures -> Bucket D (MEC-*). Matched
 #: case-insensitively against the RAW unclaimed clause (keeps `~`, `{2}`, digits).
-#: The PAR-30 clusters that BACKLOG.md already enumerates, plus the two new
-#: ones this plan adds (Licid, the per-turn damage-source tracker).
+#: Labels name the missing primitive, deliberately NOT a ticket id: the
+#: tickets these once pointed at (MEC-47/49, PAR-30) are closed and MEC-48 is
+#: parked in DEFERRED.md, so citing them here went stale. File a fresh MEC-*.
+#:
+#: **ENG-34 re-pointed these at the ISA** (`game/isa.py`). Where a row's gap
+#: is a missing *instruction* rather than a missing handler, its label now
+#: names that instruction and the CR rule defining it, so the routing here
+#: and the CR-versus-engine diff are the same ground truth rather than two
+#: independently-drifting prose lists. Rows whose gap is a residue of an
+#: instruction that *does* exist keep a descriptive label — naming an ISA
+#: instruction that is implemented would be misleading.
+#:
+#: The six `RULE 7xx` rows below are that diff: ISA instructions with no
+#: engine realisation at all, derived by `scripts/isa_report.py` rather than
+#: discovered card-by-card, which is what `14_` §7 means by a
+#: systematically-generated MEC backlog. The Attractions family (RULE
+#: 701.51/701.52/701.45) is deliberately **not** here — it is a permanent
+#: non-goal in DEFERRED.md, so those cards belong in bucket F's spirit, not
+#: in a bucket-D worklist.
 _PRIMITIVE_GAP_SIGNATURES: dict[str, re.Pattern[str]] = {
-    "Licid — creature becomes an Aura (MEC-47)":
+    # --- ENG-34's CR-versus-engine diff: no ISA instruction realised ------
+    "ISA gap: roll_die (RULE 706) — no dice subsystem at all":
+        re.compile(r"\broll(?:s|ed)? (?:a|one or more|\d+|two|three) (?:six|twenty|"
+                   r"\d+)?[- ]?sided (?:di[ce]|die)\b|\broll(?:s|ed)? a d\d+", re.I),
+    "ISA gap: fateseal (RULE 701.29)":
+        re.compile(r"\bfateseal(?:s|ed)?\b", re.I),
+    "ISA gap: meld (RULE 701.42)":
+        re.compile(r"\bmeld(?:s|ed)? (?:them|it)\b|\bmelds with\b", re.I),
+    "ISA gap: heal (RULE 701.69)":
+        re.compile(r"\bheal(?:s|ed)? \d+\b", re.I),
+    "ISA gap: harness (RULE 701.64)":
+        re.compile(r"\bharness(?:es|ed)?\b", re.I),
+    "ISA gap: triple (RULE 701.11) — only `double` exists":
+        re.compile(r"\btriple(?:s|d)? (?:that|the|its|your|target)\b", re.I),
+    "Licid — creature becomes an Aura":
         re.compile(r"loses this ability and becomes an aura enchantment", re.I),
-    "Specialize (Duskmourn) (MEC-48)":
+    "Specialize (Duskmourn) — parked, see DEFERRED.md":
         re.compile(r"\bspecial(?:ize|izes|ized)\b", re.I),
-    "damage-source-this-turn tracker (MEC-49)":
+    "damage-source-this-turn tracker":
         re.compile(r"dealt damage by ~ this turn\b", re.I),
-    "PAR-30: Waterbend residue":
+    "Waterbend residue":
         re.compile(r"\bwaterbend(?:s|ing)?\b", re.I),
-    "PAR-30: bending-verb trigger":
+    "bending-verb trigger":
         re.compile(r"whenever you (?:waterbend|earthbend|firebend|airbend)", re.I),
-    "PAR-30: Clash win-branch":
+    "Clash win-branch":
         re.compile(r"\bclash(?:es|ed)?\b", re.I),
-    "PAR-30: Suspect one-offs":
+    "Suspect one-offs":
         re.compile(r"\bsuspect(?:ed|s)?\b", re.I),
-    "PAR-30: Incubate primitives":
+    "Incubate primitives":
         re.compile(r"\bincubate[sd]?\b", re.I),
-    "PAR-30: Collect Evidence / Forage / Behold bodies":
+    "Collect Evidence / Forage / Behold bodies":
         re.compile(r"\bcollect evidence\b|\bforage[sd]?\b|\bbehold[s]?\b", re.I),
-    "PAR-30: Face a Villainous Choice residue":
+    "Face a Villainous Choice residue":
         re.compile(r"villainous choice|face a villainous", re.I),
-    "PAR-30: Exchange control / life totals":
+    "Exchange control / life totals":
         re.compile(r"\bexchange control of\b|exchange the control|exchange life totals|"
                    r"exchange (?:your |)life totals", re.I),
-    "PAR-30: tapped-and-attacking put-from-zone residue":
+    "tapped-and-attacking put-from-zone residue":
         re.compile(r"tapped and attacking", re.I),
 }
 
 #: Set-specific keyword mechanics the PARSER_LONG_TAIL.md "Two tracks" table
 #: lists as Not done -> Bucket C (PAR-*, deck-first). Value is (label, regex).
+#: NOTE: labels deliberately carry no ticket-id guess. A card landing in one
+#: of these buckets does not mean the named mechanic is unshipped — Party and
+#: Ki-counter/Spirit-or-Arcane both already have closed tickets, and the
+#: residue tagged here is a *different*, more general gap that happens to
+#: co-occur with the keyword. Ticket ids are assigned live in BACKLOG.md when
+#: a cluster's real cause is actually traced (`parser_probe.py card`); do not
+#: hardcode one here, it will drift the moment BACKLOG.md's numbering moves on
+#: (see BACKLOG.md's PAR-31…53 ticket-id note for the drift this caused once).
 _SET_SPECIFIC_SIGNATURES: dict[str, re.Pattern[str]] = {
-    "Doctor's companion (Doctor Who) (PAR-49)":
+    "Doctor's companion (Doctor Who)":
         re.compile(r"doctor's companion", re.I),
-    "Party (Zendikar Rising) (PAR-50)":
+    "Party (Zendikar Rising)":
         re.compile(r"\b(?:creature|creatures) in your party\b|\bfull party\b", re.I),
-    "Rebel / Mercenary recruiters (Mercadian Masques) (PAR-51)":
+    "Rebel / Mercenary recruiters (Mercadian Masques)":
         re.compile(r"\b(?:rebel|mercenary) permanent card\b", re.I),
-    "Ki counter / Spirit-or-Arcane (Kamigawa) (PAR-52)":
+    "Ki counter / Spirit-or-Arcane (Kamigawa)":
         re.compile(r"\bki counter\b|\bspirit or arcane spell\b", re.I),
-    "Prepared / 'enters prepared' (PAR-53)":
+    "Prepared / 'enters prepared'":
         re.compile(r"\benters prepared\b", re.I),
-    "'storied' (PAR-53 — investigate)":
+    "'storied' — investigate":
         re.compile(r"^storied\b|\bstoried\b", re.I),
     "Conspiracy draft-matters (non-goal candidate)":
         re.compile(r"draft this card face up|reveal the top card of your draft", re.I),

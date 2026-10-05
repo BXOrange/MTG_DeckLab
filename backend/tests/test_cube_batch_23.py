@@ -4,7 +4,7 @@ New core capability: `GameObject.temp_protections` (a set of qualities — a
 WUBRG colour letter or "colorless") that `combat.is_protected_from` reads
 alongside printed text, cleared at cleanup (RULE 514.2). The `grant_protection`
 effect opens an interactive "color of your choice" pick
-(`RulesEngine.grant_protection_choice` / `resolve_grant_protection_choice`).
+(`RulesEngine.grant_protection_choice` / `_resume_grant_protection_color`).
 
 Registers Mother of Runes and Giver of Runes (the latter with the "colorless"
 option; its "another" restriction is a documented drop).
@@ -14,13 +14,13 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game import ability_catalogue as ac
+from mtg_analyzer.game import card_registry as ac
 from mtg_analyzer.game import combat
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import GrantProtectionEffect
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import GrantProtectionEffect
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 
 
 def _engine() -> GameEngine:
@@ -93,7 +93,7 @@ def test_grant_protection_effect_opens_a_color_choice_and_applies_it():
     ids = {o["id"] for o in choice["options"]}
     assert "R" in ids and "colorless" not in ids
 
-    eng.rules.resolve_grant_protection_choice("R")
+    eng.rules.resolve_choice("R")
     assert eng.state.pending_choice is None
     assert "R" in creature.temp_protections
 

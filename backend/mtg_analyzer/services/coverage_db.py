@@ -55,7 +55,7 @@ DEFAULT_COVERAGE_DB_PATH = DATA_DIR / "coverage.db"
 
 #: Verdict a card gets in the ledger. MODELED/UNMODELED/NEVER_SUPPORTED come
 #: straight from the parser (`gate.ParseResult.coverage`, lowercased); AUTHORED
-#: means the card is hand-registered in `ability_catalogue` and therefore
+#: means the card is hand-registered in `card_registry` and therefore
 #: *behaves* even if the parser alone leaves it UNMODELED.
 MODELED = "modeled"
 UNMODELED = "unmodeled"
@@ -108,13 +108,13 @@ def content_hash(card: object, parser_version: str = PARSER_VERSION) -> str:
 
     The registration flag has to be part of the key because "covered" means
     parser-`MODELED` **or** hand-`AUTHORED` (`scripts/coverage_report.py`):
-    hand-authoring a card in `game/ability_catalogue.py` changes its coverage
+    hand-authoring a card in `game/card_catalogue` changes its coverage
     without touching a single field the parser reads, so keying on the parse
     signature alone would silently reuse a stale "uncovered" row forever — and
     the only workaround would be bumping `PARSER_VERSION` for a change the
     parser had no part in, invalidating all 34k rows to re-measure a handful.
     """
-    from ..game.ability_catalogue import is_registered  # function-scoped: import cycle
+    from ..game.card_registry import is_registered  # function-scoped: import cycle
 
     authored = "1" if is_registered(getattr(card, "name", "") or "") else "0"
     key = (parser_version, authored) + tuple(str(part) for part in _parse_cache_key(card))

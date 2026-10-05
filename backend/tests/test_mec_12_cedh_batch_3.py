@@ -18,7 +18,7 @@ This pass closed the highest deck-frequency remainder:
   word "add" — this phrasing doesn't, so the card scored UNMODELED despite
   playing correctly. A gate-classification fix, not a behavior change.
 * **RULE 118.7/601.2f cost-reduction generalization**
-  (`game/continuous.py`/`game/effects.py`/`parser/oracle/catalogue/
+  (`game/continuous.py`/`game/effects/core.py`/`parser/oracle/catalogue/
   static_handlers.py`): the engine already had `cost_reduction_for`/
   `self_cost_reduction_for`/`activation_cost_reduction_for` (Delve, Affinity,
   the Medallion cycle's own colour param, Power Artifact, Sam Loyal
@@ -32,7 +32,7 @@ This pass closed the highest deck-frequency remainder:
   (`_SPELL_COST_TAX_OPPONENTS_RE`)/activation group scope
   (`_ACTIVATION_COST_REDUCTION_TYPE_RE`), none of which any parser handler
   had ever claimed.
-* **Otawara, Soaring City** hand-authored (`game/ability_catalogue.py`),
+* **Otawara, Soaring City** hand-authored (`game/card_registry.py`),
   mirroring Eiganjo/Boseiju's existing Channel + per-legendary-creature
   `ActivationCost.dynamic_reduction` shape exactly — the only new piece is
   `targeting.py`'s `artifact_creature_enchantment_or_planeswalker` target
@@ -60,15 +60,16 @@ from __future__ import annotations
 
 from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.ability_catalogue import is_registered
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.card_registry import is_registered
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase
+from tests import turn_history_events as history
 
 
 def _named(name):
@@ -233,7 +234,7 @@ def test_emergence_zone_is_modeled_and_grants_flash_this_turn():
     engine.resolve_until_stable()
     # A "you may" grant offers a choice; answer "yes" if one is pending.
     if state.pending_choice is not None:
-        engine.rules.resolve_pay_cost_then_choice("pay")
+        engine.rules.resolve_choice("pay")
         engine.resolve_until_stable()
 
     assert state.temp_flash_until_turn.get("p1") == state.internal_turn.number
@@ -251,10 +252,10 @@ def test_mindbreak_trap_free_cast_condition_gates_on_opponent_spell_count():
     trap = GameObject(_named("Mindbreak Trap"), owner_id="p1", zone=Zone.HAND)
     condition = {"opponent_spells_cast_this_turn_at_least": 3}
 
-    state.spells_cast_this_turn["p2"] = 2
+    history.cast_spell(state, "p2", times=2)
     assert not free_cast_condition_holds(condition, trap, state)
 
-    state.spells_cast_this_turn["p2"] = 3
+    history.cast_spell(state, "p2")
     assert free_cast_condition_holds(condition, trap, state)
 
 
@@ -292,7 +293,7 @@ def test_smothering_tithe_offers_a_choice_and_no_treasure_when_paid():
     assert state.pending_choice is not None
     assert state.pending_choice["kind"] == "pay_cost_then"
 
-    engine.rules.resolve_pay_cost_then_choice("pay")
+    engine.rules.resolve_choice("pay")
     engine.resolve_until_stable()
 
     assert p2.mana_pool.pool.get("C", 0) == 0

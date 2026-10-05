@@ -1,6 +1,8 @@
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(__file__))
 
 # Isolate the test session's Scryfall card cache from the real, on-disk
@@ -80,3 +82,16 @@ def _ensure_test_cache_seeded() -> None:
 
 
 _ensure_test_cache_seeded()
+
+
+@pytest.hookimpl(hookwrapper=True, trylast=True)
+def pytest_runtest_teardown(item, nextitem):
+    """Restore process-wide configuration after configuration reload tests."""
+    yield
+    if item.path.name != "test_config_and_workers.py":
+        return
+
+    import importlib
+    import mtg_analyzer.config as config
+
+    importlib.reload(config)

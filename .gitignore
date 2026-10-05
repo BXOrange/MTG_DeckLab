@@ -12,3 +12,6 @@ backend/data/
 # Local wheel cache for offline installs (setup/install.py --download-wheels).
 # Platform/Python-version specific, so it's a cache, not a committed asset.
 setup/wheels/
+
+# Local bug reports contain game diagnostics and user descriptions.
+/bug-reports/

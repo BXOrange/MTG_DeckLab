@@ -8,7 +8,7 @@ stays the RULE 601.2c *minimum* everywhere it already meant "the" count —
 offer-time locking (`all_requirements_satisfiable`) and trigger-target
 gathering (`expand_counts`) both read it unchanged. ``count_max`` only
 changes two things: `TargetSpec.effective_count` (the real slicing cap
-`game/effects.py` uses instead of ``count`` — a range spec's ``count`` is
+`game/effects/core.py` uses instead of ``count`` — a range spec's ``count`` is
 too small a cap and would silently drop a legally-chosen second target) and
 how many rounds get offered (client-side `expandMultiTargetRequirements` for
 a spell/ability cast, `expand_counts` for a trigger's own target gathering).
@@ -24,13 +24,13 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game.effects import AddCountersEffect, DealDamageEffect, PumpEffect, TapEffect
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.effects.core import AddCountersEffect, DealDamageEffect, PumpEffect, TapEffect
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.targeting import TargetSpec, all_requirements_satisfiable, requirements_with_targets
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.mana_cost import ManaCost
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.mana.mana_cost import ManaCost
 from mtg_analyzer.parser.oracle.gate import MODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
@@ -363,7 +363,7 @@ def test_armament_corps_end_to_end():
     bind_from_catalogue(obj)
     eng.state.add_to_battlefield(obj)
 
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
 
     eng.state.fire_event(GameEvent(
         EventType.ENTERS_BATTLEFIELD, controller_id="p1", instance_id=obj.instance_id,

@@ -26,7 +26,7 @@ layer engine doesn't cover on its own:
    trigger-collection gate (`continuous.trigger_suppressed`,
    `RulesEngine._collect_triggers`).
 6. "[Nonbasic] <type> your opponents control enter tapped." — a board-wide
-   RULE 614.1 effect, distinct from `ability_catalogue.enters_tapped`
+   RULE 614.1 effect, distinct from `card_registry.enters_tapped`
    (`continuous.enters_tapped_from_static`, consulted by both
    `RulesEngine._resolve_permanent_spell`/token creation *and*
    `enter_land_tapped`, since a land normally enters via the separate
@@ -51,13 +51,13 @@ from __future__ import annotations
 import pytest
 
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import ActivatedAbility
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import ActivatedAbility
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.mana_abilities import mana_options_for
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 
@@ -222,18 +222,29 @@ def test_monolith_family_modeled_and_own_other_lines_unaffected():
     """Basalt/Grim Monolith flip to fully `MODELED`: the "doesn't untap"
     line is new coverage, and their own mana ability + "{N}: Untap this
     artifact." activated ability were already independently claimed. Mana
-    Vault stays `UNMODELED` for two unrelated, out-of-scope trigger clauses
-    (an optional pay-{4}-to-untap upkeep trigger and a "deals 1 damage to
-    you" draw-step trigger) — pinning exactly those two so a future fix's
-    regression shows up here too."""
+    Vault is now `MODELED` too, and this asserts each of its three clauses
+    rather than its unclaimed count.
+
+    The pin has now fired twice, which is the point of writing it by clause
+    instead of by number. ENG-38: the optional pay-{4}-to-untap upkeep trigger
+    became claimable (`pay_cost_then`), taking the count 2 → 1 — an assertion
+    that could only ever report "2 != 1". PAR-62: the generic RULE 603.4 gate
+    closed the last one, "at the beginning of your draw step, **if ~ is
+    tapped**, it deals 1 damage to you", whose condition now resolves through
+    the shared whitelist to `source_tapped`."""
     for name in ("Basalt Monolith", "Grim Monolith"):
         result = parse_oracle(_card(name))
         assert result.modeled, (name, result.unclaimed)
 
     mana_vault = parse_oracle(_card("Mana Vault"))
-    assert not mana_vault.modeled
-    assert not any("doesn't untap" in u for u in mana_vault.unclaimed)
-    assert len(mana_vault.unclaimed) == 2
+    assert mana_vault.modeled, mana_vault.unclaimed
+    effects = {e.type: e for spec in mana_vault.specs for e in spec.effects}
+    assert effects["no_untap"].params == {"affects": "self"}
+    assert effects["pay_cost_then"].params["cost"] == "pay {4}"
+    # The draw-step damage is gated, not unconditional — an ungated one would
+    # burn its controller every turn whether or not the artifact is tapped.
+    assert effects["damage"].params["amount"] == 1
+    assert effects["damage"].condition == {"kind": "source_tapped"}
 
 
 def test_basalt_monolith_stays_tapped_through_its_controllers_untap_step():

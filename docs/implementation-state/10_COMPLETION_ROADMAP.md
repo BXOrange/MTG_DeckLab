@@ -5,7 +5,7 @@ The single, dependency-ordered plan for finishing the implementation. It
 here is a ticket id in [`BACKLOG.md`](BACKLOG.md) — read that file for what
 the work actually is.
 
-Last re-evaluated against the code: **2026-07-27**.
+Last re-evaluated against the code: **2026-09-15**.
 
 ## Live sources this reconciles
 
@@ -23,7 +23,7 @@ Last re-evaluated against the code: **2026-07-27**.
 
 ## Where we are
 
-The **rules engine is built and green** (2472 backend tests, 238 skipped):
+The **rules engine is built and green** (>8000 backend tests):
 the full turn/stack/priority/SBA loop, London mulligan, targeting, the whole
 mana model (including RULE 605.3a spend restrictions and triggered mana
 abilities), the RULE 613 layer system, the complete RULE 508/509 combat
@@ -43,11 +43,11 @@ seat-filling bots that act only through the client surface.
 
 **The dominant remaining gap is unchanged and singular: card text does not
 yet fully become behaviour.** A spell or ability does something only if its
-card is hand-authored in `game/ability_catalogue.py` **or** the oracle-text
+card is hand-authored in `game/card_catalogue/` **or** the oracle-text
 parser recognizes every one of its clauses as `MODELED` (fail-closed —
-never half-resolved). That is **26.6% of the Oracle universe — 9,092 of
-34,208 cards, PARSER_VERSION 34**. Re-measure with
-`scripts/coverage_report.py` before trusting the figure.
+never half-resolved). That is **45.03% of the Oracle universe — 15,675 of
+34,811 cards, PARSER_VERSION 393** (Commander-legal: 15,056 / 31,830 = 47.3%).
+Re-measure with `scripts/coverage_report.py` before trusting the figure.
 
 Everything else open is narrow, additive, and independent of that: two card
 types, a set of named mechanics with no primitive yet, engine rough edges,
@@ -154,8 +154,8 @@ intuition, and bump `PARSER_VERSION` in the same session you add a handler.
 
 - **Deck analysis (UC2):** the static/heuristic half ships client-side
   (mana curve, types, land archetypes, Command Zone categories, a
-  Commander-Brackets heuristic). The LLM-backed narrative half is
-  [ANA-1] → [ANA-2] [ANA-3]. Use the latest Claude models.
+  Commander-Brackets heuristic). The ANA-1 backend ships with configurable Claude/compatible providers and caching;
+  [ANA-2] narrative UI and [ANA-3] cache-age presentation remain open.
 - **Auth & persistence:** [PLR-9] accounts (saved decks are unscoped until
   this exists) → [PLR-10] game history.
 - **Bot AI (UC5):** seats are filled and playing; what's open is judgment —
@@ -169,7 +169,7 @@ intuition, and bump `PARSER_VERSION` in the same session you add a handler.
 M1 (parser gaps → mechanics → tail)  ── standing; the ONLY path to "most decks playable"
 M6 residue ([PAR-13] card text → folds into M1's tail; [PLR-13] format switch → [PLR-14] teams)
 M5 residue ([PLR-8] bots in a pod)                              ── independent
-M7 ([ANA-1] → [ANA-2]/[ANA-3];  [PLR-9] → [PLR-10])              ── independent
+M7 ([ANA-2]/[ANA-3];  [PLR-9] → [PLR-10])              ── independent
 M2 / M3 / M4 ── closed, no open residue
 ```
 

@@ -3,7 +3,7 @@ number of other nonland permanents you control" ETB plus its mass
 leaves-battlefield return.
 
 New primitives: `ExileAnyNumberYouControlEffect` (a *selection*, not a RULE
-115 target, via `RulesEngine.request_choose_objects`'s chooser with its new
+115 target, via `RulesEngine._request_choose_objects`'s chooser with its new
 `track_exiled_with=True`) and `continuous.count_selector`'s new
 `exiled_with_count` kind (reading `GameObject.exiled_with_ids`'s own
 length). The leaves-battlefield half reuses `ReturnAllExiledWithEffect`
@@ -14,10 +14,10 @@ Reference: docs/implementation-state/Done_Backend.md "MEC-12" entries.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.models.game_object import Zone
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.models.game.game_object import Zone
 
-from tests.test_game_engine import creature, land, make_engine, obj_on_battlefield
+from tests.support.game import creature, land, make_engine, obj_on_battlefield
 
 
 def _named(name):

@@ -21,8 +21,8 @@ catalogue/handlers,catalogue/static_handlers}.py.
 from __future__ import annotations
 
 from mtg_analyzer.game import combat, continuous, durations, static_conditions
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import EffectRegistry
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import EffectRegistry
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.targeting import (
     TargetSpec,
@@ -30,9 +30,9 @@ from mtg_analyzer.game.targeting import (
     expand_counts,
     resolved_count,
 )
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.catalogue.static_handlers import (
     static_condition,
@@ -41,6 +41,7 @@ from mtg_analyzer.parser.oracle.catalogue.static_handlers import (
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import segment_line
 from mtg_analyzer.parser.oracle.spec import ParserProvenance
+from tests import turn_history_events as history
 
 
 def _creature(name, oracle_text="", power=2, toughness=2, keywords=None,
@@ -154,7 +155,7 @@ def test_drawn_cards_this_turn_condition():
     eng = _engine()
     condition = {"kind": "drawn_cards_at_least", "amount": 2}
     assert static_conditions.condition_holds(condition, eng.state, None, "p1") is False
-    eng.state.cards_drawn_this_turn["p1"] = 2
+    history.draw(eng.state, "p1", count=2)
     assert static_conditions.condition_holds(condition, eng.state, None, "p1") is True
     # Scoped to the named player, not to whoever drew most.
     assert static_conditions.condition_holds(condition, eng.state, None, "p2") is False
@@ -616,7 +617,7 @@ def test_created_referent_is_scoped_to_one_resolution():
     # `created_objects` must never leak between resolutions — a later,
     # unrelated "the tokens are goaded" would otherwise point at whatever the
     # last spell made.
-    from mtg_analyzer.game.effects import _apply_effects_partitioned
+    from mtg_analyzer.game.effects.core import _apply_effects_partitioned
 
     eng = _engine()
     src = _put(eng.state, _creature("Maker"))
@@ -692,7 +693,10 @@ def test_goaded_dies_trigger_only_fires_for_a_goaded_creature():
     eng.rules.goad(goaded, "p1")
 
     library = eng.state.player_by_id("p1").library
-    library.extend([_creature(f"Card{i}") for i in range(4)])
+    library.extend([
+        GameObject(_creature(f"Card{i}"), owner_id="p1", zone=Zone.LIBRARY)
+        for i in range(4)
+    ])
 
     before = len(eng.state.player_by_id("p1").hand)
     eng.rules.destroy(plain)
@@ -710,7 +714,8 @@ def test_goaded_damage_trigger_subject_is_recognised():
         "you draw a card."
     )
     assert segment.claimed
-    assert segment.spec.trigger["condition"]["goaded"] is True
+    assert segment.spec.trigger["condition"]["filter"]["goaded"] is True
+    assert segment.spec.trigger["condition"]["recipient_is_opponent"] is True
     assert segment.spec.trigger["filter"]["is_player"] is True
 
 

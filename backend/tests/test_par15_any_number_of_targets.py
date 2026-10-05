@@ -8,7 +8,7 @@ Two pieces:
   widened with a third alternative ("any number of ", alongside plain "N "
   and "up to N ") — capped at `_ANY_NUMBER_TARGET_CAP` (10), the same
   generous-fixed-cap convention the one pre-existing hand-authored example
-  (`ability_catalogue._fire_covenant`) already used, rather than a live
+  (`card_registry._fire_covenant`) already used, rather than a live
   `legal_targets` count: the existing "offer up to N, one at a time, stop
   early or when targets run out" round-gathering machinery
   (`RulesEngine._continue_trigger_multi_target`) already handles both
@@ -26,15 +26,15 @@ Two pieces:
   to reach it.
 
 Reference: mtg_analyzer/parser/oracle/catalogue/handlers.py,
-mtg_analyzer/game/effects.py (`DealDamageEffect`/`CantBlockEffect`).
+mtg_analyzer/game/effects/core.py (`DealDamageEffect`/`CantBlockEffect`).
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 
@@ -72,7 +72,8 @@ def test_any_number_of_is_recognized_by_cant_block():
 def test_any_number_of_is_recognized_by_exile():
     (spec,) = match_clause("exile any number of target artifacts")
     assert spec.type == "exile"
-    assert spec.params == {"target_kind": "permanent", "count": 10, "optional": True}
+    # PAR-128: the plural "target artifacts" row is the artifact pool, not "any permanent".
+    assert spec.params == {"target_kind": "artifact", "count": 10, "optional": True}
 
 
 def test_plain_up_to_n_still_works_after_the_widening():

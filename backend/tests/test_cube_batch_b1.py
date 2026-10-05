@@ -1,4 +1,4 @@
-"""cEDH staples cube — batch B1: hand-authored `ability_catalogue.py` entries
+"""cEDH staples cube — batch B1: hand-authored `card_registry.py` entries
 plus the small set of generic parser/engine extensions this batch found were
 cheap enough to build as reusable primitives instead of one-off catalogue
 entries.
@@ -30,7 +30,7 @@ additions, each proven here on the *real* card that motivated it:
    untap_cap_for_lands`) for Winter Orb's "players can't untap more than
    one land during their untap steps."
 
-Every other card below is a genuinely hand-authored `ability_catalogue.py`
+Every other card below is a genuinely hand-authored `card_registry.py`
 entry, several deliberately *partial* (documented drop of one sub-clause
 neither the parser nor the effect library has a primitive for yet — Mana
 Drain/Corpse Dance's delayed one-shot trigger, Eiganjo's activated-ability
@@ -42,12 +42,12 @@ from __future__ import annotations
 
 import pytest
 
-from mtg_analyzer.game import ability_catalogue as ac
+from mtg_analyzer.game import card_registry as ac
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 
@@ -103,7 +103,7 @@ def test_walking_ballista_fully_modeled():
 
 
 def test_walking_ballista_removes_a_counter_to_deal_damage():
-    from mtg_analyzer.game.effect_binder import bind_from_catalogue as bind
+    from mtg_analyzer.game.binding.core import bind_from_catalogue as bind
 
     ballista = _card("Walking Ballista")
     eng = _engine()
@@ -471,7 +471,7 @@ def test_phyrexian_metamorph_enters_as_a_copy_and_gains_artifact_type():
     # Interactive "enter as a copy" choice — answer it directly if opened.
     choice = state.pending_choice
     if choice is not None and choice.get("kind") == "enter_as_copy":
-        eng.rules.resolve_enter_as_copy_choice(str(bear_obj.instance_id))
+        eng.rules.resolve_choice(str(bear_obj.instance_id))
 
     resolved = next(o for o in state.battlefield if o.instance_id == meta_obj.instance_id)
     assert resolved.name == "MetaBear"
@@ -552,7 +552,7 @@ def test_grinding_station_may_untap_when_an_artifact_enters():
     # An optional "you may" trigger — resolve it if it opened a choice.
     choice = state.pending_choice
     if choice is not None and choice.get("kind") == "trigger_target":
-        eng.rules.resolve_trigger_target_choice("do")
+        eng.rules.resolve_choice("do")
         eng.resolve_until_stable()
 
     assert station_obj.tapped is False
@@ -624,7 +624,7 @@ def test_winds_of_abandon_exiles_and_opponent_searches_for_a_basic_land():
     assert victim_obj.zone == Zone.EXILE
     choice = state.pending_choice
     if choice is not None and choice.get("kind") == "search":
-        eng.rules.resolve_search_choice(p2_lib_obj.instance_id)
+        eng.rules.resolve_choice(p2_lib_obj.instance_id)
     assert p2_lib_obj.zone == Zone.BATTLEFIELD
     assert p2_lib_obj.tapped is True
 

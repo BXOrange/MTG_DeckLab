@@ -1,33 +1,21 @@
 # Backlog — open work, as tickets
 
-**The single list of open work, backend and frontend.** Replaces the former
-per-half `ToDo_Backend.md` / `ToDo_Frontend.md`, which no longer exist.
-
-Three kinds of document, kept strictly apart — put a new line in the right
-one:
+**The single list of open work, backend and frontend.** Put a new line in the right document:
 
 | Kind | Lives in | Rule |
 | --- | --- | --- |
-| **Open points** | this file | Only open scope. No history. |
-| **Worklogs** | [Done_Backend.md](Done_Backend.md), [Done_Frontend.md](Done_Frontend.md) | Append-only. What shipped and *why it was built that way*. |
-| **Examples** | [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md) | Calibration samples + strategy for the indefinite parser tail. |
+| **Open points** | this file | Only open scope. No history, no residue. |
+| **Worklogs** | [Done_Backend.md](Done_Backend.md), [Done_Frontend.md](Done_Frontend.md) | What shipped and *why it was built that way*. |
+| **Examples** | [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md) | Calibration samples + strategy for the parser tail. |
+| **Singleton queue** | [singletons.md](singletons.md) | One-off cards (confirmed via `parser_probe.py blocked` to share no cluster) — a queue for `hand-author-card`, never batched into a ticket; promote a pair that shares a shape. |
+| **Working memory** | [workingOn.md](workingOn.md) | Resumable state of the ticket in progress, incl. a partly done ticket's **residue**. Read first when resuming; delete the block on close. |
 
-**Closing a ticket = deleting it from this file** and appending its narrative
-to the matching `Done_*.md` section. Never leave a `[x]`, a "shipped" note,
-or a "moved to Done" pointer here — this file is read in full, often, so
-anything finished that stays costs every future read. If only part of a
-ticket is done, keep only the part that isn't.
-
-Ticket ids are stable; reuse a retired id only for the same subject.
-Plan-level sequencing lives in
-[10_COMPLETION_ROADMAP.md](10_COMPLETION_ROADMAP.md).
-
-**Parked tickets and permanent non-goals live in [DEFERRED.md](DEFERRED.md)**,
-not here — low-priority / large-and-unscheduled work, plus the "never to be
-built" guardrails (Stickers, Attractions, Vanguard avatars). Keeping them out
-of this file is deliberate: `BACKLOG.md` is read in full often, so it holds
-only work that's actually up for scheduling. Promote a parked ticket by moving
-its block back into the matching section here.
+**Closing a ticket = deleting it here** and filing its narrative in the matching `Done_*.md`
+section — no `[x]`, "shipped" note or "moved to Done" pointer. A partly done ticket keeps only its
+terse open point (id, title, one clause) here; residue goes in its `workingOn.md` block. Ticket ids
+are stable; reuse a retired id only for the same subject. Sequencing:
+[10_COMPLETION_ROADMAP.md](10_COMPLETION_ROADMAP.md). Parked tickets and permanent non-goals live in
+[DEFERRED.md](DEFERRED.md) (promote by moving the block back here).
 
 | Prefix | Category |
 | --- | --- |
@@ -38,227 +26,105 @@ its block back into the matching section here.
 | `VIS` | Visuals — frontend UI/UX |
 | `DB` | Database — card cache, saved decks, persistence, data freshness |
 | `ANA` | Deck analysis — UC2 (LLM + presentation) |
+| `BUG` | Bugs — a shipped behaviour that is wrong (a wrong-but-`MODELED` claim, a silently dropped clause); not missing coverage |
 
 ---
 
 ## ENG — Game engine
 
-> **(none open.)**
+- **ENG-52 · Target-kind resolver drops "other"/"another" and the planeswalker half of "player or planeswalker".**
+  `subgrammars.resolve_target_kind` reads "any other target" as plain `any` and "another target `<X>`" as `<X>`
+  (no `distinct_from_others`, RULE 115.3 / 109.5), and "target player or planeswalker" as `player` — so a second
+  target can repeat the first, and a planeswalker can never be chosen. Wrong but `MODELED` for every card already
+  claimed through those rows, and the reason the compound "N damage to X and M damage to Y" (Arc Trail, Boulder Dash, Hungry
+  Flames, Punish the Enemy, Cunning Strike) is refused. Scope: a `player_or_planeswalker` target kind
+  (`TARGET_FRAMES`, label, offer pool), `distinct_from_others` set by the parser for "any other target" /
+  "another target …" across multi-target spells, then lift the refusal in `segmenter._ELIDED_TARGET_LOSS_RE`.
+  **Frontend:** `gameBoardView.js` must offer planeswalkers alongside players for the new kind and keep dropping
+  already-picked objects from a `distinct_from_others` pool (check the replay/solo/multiplayer boards too).
 
 ## PAR — Parser
 
-- **PAR-12 · The indefinite long tail (methodology pointer, not a closeable
-  ticket).** Strategy, coverage, and worked examples live in
-  [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Two tracks: **basic
-  mechanics** (generic shapes, cache-wide yield) — easy big wins
-  **exhausted** as of 2026-08-28 — and **set-specific mechanics**
-  (a set/precon's signature keyword, worked deck-first against a saved
-  deck), now the primary track: audit a real deck's card list, don't
-  re-mine `rank`. Planechase/Archenemy plane/scheme card *bodies* fold in
-  here too (triggers already recognized, ~13/309 bodies done) — not a
-  separate ticket.
+- **PAR-12 · The indefinite long tail (methodology pointer, not closeable).** Strategy, coverage,
+  worked examples and the Commander-legal tail taxonomy (`scripts/commander_tail_report.py`) live in
+  [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Two tracks: **basic mechanics** (generic shapes,
+  cache-wide yield — re-run `rank` before trusting "exhausted"; Bucket B still finds clusters) and
+  **set-specific mechanics** (a set/precon's signature keyword, worked deck-first). Planechase/
+  Archenemy card bodies fold in here (~13/309 done).
 
-  > **Ticket-id note:** every number from `PAR-1` through `PAR-30` is
-  > already a real, shipped, cross-referenced ticket elsewhere in this
-  > codebase (grep before reusing one — `PAR-14`, for one, is RULE 603.2's
-  > once-per-turn trigger limiter, `Done_Backend.md`, nothing to do with
-  > keywords; `PAR-30` was `PAR-29`'s parser trail, closed PARSER_VERSION
-  > 216 — all 24 RULE 701 keyword actions have recognition + an engine
-  > primitive, and its last residue moved to `MEC-52`, closed). The first free
-  > parser ticket id is `PAR-54` (`PAR-31…PAR-53` are the Commander-legal
-  > tail clusters below).
+  > **Ids:** `PAR-1`…`PAR-149` are taken — grep `Done_Backend.md` before reusing one. First free:
+  > **`PAR-150`**; next free `MEC`: **`MEC-111`**; next free `ENG`: **`ENG-53`**; next free `VIS`: **`VIS-15`**. A new engine primitive found along the way files
+  > as its own `MEC-*` (`MEC-102` is MEC-101's follow-up).
+  >
+  > **Anti-proliferation:** a 2-6 card cluster is not automatically a ticket. Bundle independently
+  > verified small fixes into one "small verified residue batch" (PAR-92/98 pattern: one id, a
+  > sub-bullet per shape); a true one-off goes to [singletons.md](singletons.md). When a close-out
+  > surfaces residue, first sweep for an existing ticket, size each shape against the full cache,
+  > then batch. A batch stays here until a run starts it; then it gets a `workingOn.md` block.
 
-- **PAR-31…PAR-53 · Commander-legal tail — one PAR per recurring template
-  cluster.** Seeded from `scripts/commander_tail_report.py` (read-only,
-  segments every still-UNMODELED **Commander-legal** card by *cause* into
-  buckets A–F; A = wrapper/segmenter re-measure, B = recurring template, C =
-  set-specific mechanic, D = missing primitive → `MEC-*`, E = bespoke
-  hand-authoring tail → PAR-12). The `#` below is the tool's
-  Commander-legal SOLO upper bound at the run cited — **re-run the tool and
-  `parser_probe.py blocked '<regex>'` before starting a batch**, the real
-  SOLO count is always lower. Close each the normal way (delete the line,
-  narrate in `Done_Backend.md`, bump `PARSER_VERSION`, sync the three
-  coverage figures, sweep for siblings). Full method:
-  [`.claude/plans/analysiere-den-unmodelled-cardpool-und-crystalline-blanket.md`]
-  and `PARSER_LONG_TAIL.md`. Run cited: PARSER_VERSION 186, 2026-09-01. Every ticket shall be completed end to end without leaving residue before moving to the next ticket.
+- **PAR-118 · "Exile a card from your hand with N time counters on it, it gains suspend."** Alaundo
+  the Seer, The Eleventh Doctor, The Wedding of River Song (3 SOLO). Suspend is engine-complete
+  (`GameObject.granted_suspend`, `remove_suspend_time_counter`, `SuspendUpkeepEffect`); missing is the
+  optional hand-to-exile pick stamping `time` counters = mana value + the suspend grant, Wedding's
+  "target opponent does the same", and Alaundo's granted `LAST_TIME_COUNTER_REMOVED` trigger + per-owner
+  "remove a time counter from each other card" sweep.
+- **PAR-132 · Dependent target/body follow-up batch.** Distinct effect-body, trigger-head and
+  duration clusters exposed by PAR-130; calibrated clusters live in `PARSER_LONG_TAIL.md`.
+- **PAR-133 · Powerstone tokens.** "create a [tapped] Powerstone token" — a `data/tokens.json` entry
+  with its RULE 605.3a-restricted mana ability, then `_NAMED_TOKEN_WORDS` (25 solo cards).
+> PAR-99…105 counts confirmed at PV 413 (2026-09-16, vs the 56 saved decks in `deck_coverage.py`),
+> re-verified at PV 447 (2026-09-21). Re-run `parser_probe.py blocked` before starting.
 
-  Bucket B (recurring effect-body / static templates, `extend-parser` loop):
+- **PAR-109 · Residue of the static/activated-ability batch.** Brad Boimler's until-EOT counter replacement;
+  Worldknit's card-pool condition; "can't be regenerated" leftovers (Bone Shaman, Lim-Dûl's Cohort); Desolation of
+  Smaug's "spend only to cast Dragon spells"; Luxior's per-counter bonus; Atalya's modal `{X}, {T}` body.
 
-  - **PAR-33** — Aura/Equipment grants a *quoted* ability
-    (`enchanted/equipped creature has "…"`, `… gets +N/+N and has "…"`,
-    `enchanted land has "…"`) (~#21+9+9). The `<cost>: regenerate
-    enchanted creature` shape shipped at PARSER_VERSION 236
-    (`_REGENERATE_ATTACHED_RE` → `RegenerateEffect`'s existing
-    `attached_permanent` mode, +14 — Regeneration / Gaea's Embrace / Dark
-    Privilege / Serpent Skin).
-  - **PAR-34** — tribal / state lord. Done: `each creature you control
-    with a +1/+1 counter on it has <keyword>` (`_GROUP_COUNTER_GRANT_RE` +
-    `has_counter_kind` in `_SELECTOR_KEYS`, PARSER_VERSION 237, +18 — the
-    Abzan outlast cycle); the Odyssey **Threshold** phrasing ("Threshold —
-    As long as N or more cards **are in** your graveyard, …") now
-    normalises + parses (+1 real card so far — the rest of that cluster is
-    blocked on **quoted-ability** conditional bodies). Left: `all slivers
-    have "…"` (~#13 — a group-scoped **quoted-ability** grant, recursively
-    parsed) and the Threshold quoted-ability bodies (~#25 — same
-    quoted-ability-grant machinery, wrapped in the `active_if` gate).
-  - **PAR-35** — casting-timing restriction (`cast this spell only during
-    the declare attackers step and only if you've been attacked`,
-    conditional flash `as though it had flash if you pay <cost> more`, the
-    `… flash. if you cast it any time a sorcery couldn't …` templating)
-    (~#14+9+9).
-  - **PAR-36** — trigger-condition vocabulary. Done: `whenever ~ deals
-    damage, you gain that much life` (`gain_life_from_trigger_amount` +
-    `GainLifeEffect.amount_from_trigger_event`, PARSER_VERSION 231, +17);
-    `…discards a card at random` (`RulesEngine.discard_random` +
-    `DiscardEffect.random`, PARSER_VERSION 233, +23). Left: `whenever you
-    draw your second card each turn` (~#12 — shares with PAR-48),
-    `…discards **that many** cards` reading the DAMAGE amount (Dreamstealer
-    / Needle Specter — a `DiscardEffect.count_from_trigger_event`),
-    `whenever you cast a spell that targets ~` (~#8).
-  - **PAR-37** — modal `choose <n>. if you control a commander … choose
-    both instead` + `choose <n>. you may choose the same mode more than
-    once` (~#12+12; both currently reach Bucket A/B as wrapper headers —
-    confirm they are genuinely unrecognised first).
-  - **PAR-38** — residue only. The bare `skip your draw step` static and
-    the bare `~ deals <n> damage to you` body both shipped at
-    PARSER_VERSION 229 (`skip_step` oracle route; `damage_selector`'s
-    `"you" → "controller"`; +22 — `Done_Backend.md`). What's left: the
-    upkeep-damage **riders** — `~ deals <n> damage to you for each <X>`
-    (Black Market Tycoon — needs a count-selector) and `~ deals <n> damage
-    to you unless you pay <cost>` (Force of Nature / Minion of Tevesh Szat
-    — a self-scoped `unless you pay` branch); plus `skip your draw step
-    this turn` as a conditional "if you do" tail (Elfhame Sanctuary).
-  - **PAR-39** — old two-sentence O-Ring templating (`when ~ leaves the
-    battlefield, return the exiled card to the battlefield under its
-    owner's control`) (#12) — **reuse the PAR-30 Threaten/O-Ring cluster**.
-  - **PAR-41** — additional cost `{X}` / from graveyard. Done: `exile N
-    [<type>] cards from your graveyard` (`ActivationCost.exile_from_
-    graveyard_filter` + `_can_pay_/_pay_additional_cast_cost` wiring,
-    PARSER_VERSION 234, +9 — Cobbled Lancer / Skaab family). Left: `discard
-    x cards` and `exile x [creature] cards from your graveyard` — both need
-    an **X-scaled additional cost** (the `additional_cost` fields carry a
-    fixed int / the `pay_life` `"x"` sentinel, no general X-scaled
-    non-mana-cost path yet).
-  - **PAR-42** — conditional / dynamic enters-tapped & entry counters.
-    Done: `enters tapped unless a player has <n> or less life` (the
-    Innistrad slow-land life cycle — `lands.py`'s `unless_life` kind,
-    PARSER_VERSION 230, +10); `~ enters with a +1/+1 counter on it for
-    each color of mana spent to cast it` = **Sunburst** (`counters.py`'s
-    `_SUNBURST_ENTRY_COUNTERS_RE` + `colors_spent_scale` in
-    `_apply_entry_counters`, reading `GameObject.colors_spent_to_cast`,
-    PARSER_VERSION 238, +9); `enters tapped. as it enters, choose a color`
-    (the Thriving lands — PARSER_VERSION 267, +16 including the Gate cycle).
-    Left: `if it's neither day nor night, it becomes day as ~ enters` (#10).
-  - **PAR-43** — self CDA / `for each` P/T. The **single-characteristic
-    CDA** — `~'s power is equal to the number of <X>` — shipped at
-    PARSER_VERSION 235 (`_PT_CDA_SINGLE_RE` → a `pt_cda` spec with only
-    `power_count` / `toughness_count`; the layer-7a pass already applied
-    them independently; +12), for the same `_PT_CDA_SELECTORS` whitelist as
-    the "power and toughness" form. The `~ gets +N/+N for each <X>`
-    standing self-anthem form has its general handler
-    (`_SELF_ANTHEM_FOR_EACH_RE`, PARSER_VERSION 228, +14) but only for the
-    "for each <X>" quantities that already have a
-    `continuous.count_selector`; the remaining tail (~120 SOLO, ~40
-    distinct selectors — "Equipment you control" board-wide, "oil counter
-    on it", "aura attached to it", "experience counter you have",
-    per-subtype "other <type> you control", …) is one new
-    `count_selector` per phrase in `continuous.py`, plus the **Aura** form
-    (`enchanted creature gets +N/+N for each <X>` — `affects=
-    "attached_permanent"` instead of `"self"`). See `Done_Backend.md`.
-  - **PAR-44** — static permission / prohibition. The graveyard-land side is
-    now closed for the Muldrotha-shaped permanent-type permission: the shared
-    graveyard grant tracks one use for each permanent type, including a land
-    play, and resets at untap. The remaining `a deck can have any number of
-    cards named ~` #10 is a deckbuilding clause, claim-without-spec.
-  - **PAR-45** — ETB compound utility. Left: `as ~ enters, choose an
-    opponent` (#10). Closed: `target opponent loses <n> life and you gain
-    <n> life` (the Blood Artist / Zulaport drain family — `lose_life`'s
-    `who` alternation gained `target opponent` → `target_kind: "opponent"`,
-    PARSER_VERSION 232, +34; the "and you gain" clause rides the existing
-    `gain_life` row via the connector split). The `tap target creature and
-    put a stun counter on it` half closed at PARSER_VERSION 213
-    (`handlers.tap_and_stun` + RULE 122.1c stun-counter skip-untap in
-    `RulesEngine.set_tapped`; see `Done_Backend.md`.)
-  - **PAR-46** — cost reduction `for each creature card in your graveyard`
-    (#9) and the Party count-selector (see PAR-50).
-  - **PAR-47** — `<cost>,<cost>: put a charge counter on ~` + its
-    remove-a-charge-counter spend clause (#14).
-  - **PAR-48** — `whenever you draw your second card each turn, put a
-    +N/+N counter on ~` (#12; Marvel/Ravnica "second card" trigger — folds
-    into PAR-36's vocabulary work if taken together).
-  - **PAR-49** — `<cost>: ~ becomes the creature type of your choice until
-    end of turn` (#8).
-  - **PAR-50** — combat-damage-assignment statics (`you may have ~ assign
-    its combat damage as though it weren't blocked` #9, `each creature you
-    control assigns combat damage equal to its toughness rather than its
-    power` #6).
-  - **PAR-51** — `start` (#12) and `storied` (#9) — parse traces first;
-    `start` looks like a Jump-start/Aftermath split artefact, `storied`
-    like a LOTR one-off. Investigate before sizing.
+- **PAR-126 · "A spell or ability an opponent controls causes you to discard `<X>`" — self-subject
+  trigger family.** MEC-101 built the primitive (`DISCARD_CARD.cause_controller_id`,
+  `requires_opponent_caused_discard`, `triggers_mixin._collect_discarded_triggers`) and hand-authored
+  Pure Intentions. 12 SOLO cards remain (`blocked "causes you to discard"`), pure parser work: **(a)** a
+  bare self-subject passive "~ is discarded" has no recognition (`_TRIGGER_VERBS` has no passive row,
+  the self noun list has no "card"); **(b)** the "a spell or ability an opponent controls causes you to
+  discard `<referent>`" wrapper (subject is the causing spell) needs its own dispatch row emitting
+  `{"event": "DISCARD_CARD", "condition": {"subject": "self"|"you"}, "requires_opponent_caused_discard":
+  True}` (precedent `_DAMAGE_TRIGGER_RE`); **(c)** Pure Intentions' `create_turn_trigger` (RULE 603.7a)
+  needs generalizing to a parser row. Library of Leng / Nephalia Academy ("an effect causes you to
+  discard") are a broader, non-opponent-scoped condition — not this cluster.
+- **PAR-146 · `commander_tail_report.py` taxonomy re-validation.** Measured at PARSER_VERSION 584
+  (`PARSER_LONG_TAIL.md`, "Commander tail re-validation"): the `roll_die` row ("no dice subsystem at all",
+  43 cards) and the `tapped and attacking` row (59) name primitives that exist (`RollDieEffect`,
+  `create_token` `attacking`/`enter_attacking`); the Banding/Horsemanship rows describe shipped MEC-87/88;
+  the other Bucket D rows (damage-source tracker 9, exchange control 7, Villainous Choice 6, collect
+  evidence/forage/behold 5, suspect 3, incubate 2, clash 1, meld 1, triple 1, waterbend 1) are unchecked —
+  exchange control and meld look stale (`Done_Backend.md` Gilded Drake swap; CLAUDE.md lists meld as done).
+  Scope: check each remaining row with `parser_probe.py card`/`blocked`, fix or drop the stale ones, list
+  Stickers in Bucket F by type line, and split Bucket E (96% of the tail) by the trigger-
+  body / modifier axes `composition` reports instead of one rest bucket. Decision open: whether the report
+  should print each row's check status.
+- **PAR-147 · Dice grammar axes.** The engine exists (`RollDieEffect`, `roll_die`, `roll_dice_modifier`); 68
+  Commander-legal cards carry roll text, 38 with only roll clauses unclaimed. Axes, each a separate grammar
+  piece: a single die whose result is an amount/filter operand (21 cards, e.g. Bag of Devouring, Bag of
+  Tricks, Ebony Fly); d20 table rows `1—9 | …` (18, Aberrant Mind Sorcerer) — first check whether the IR can
+  express a table block; roll N dice and choose/ignore (10, the `Endeavor` cycle); "whenever you roll" /
+  "if you would roll" (12). Risk: "the result" must read the kept die after Krark's Other Thumb. Verify with
+  `engine_bench.py`, not parse verdicts.
+- **PAR-148 · "Tapped and attacking" residue (PAR-30 batches 179–191 shipped the common shapes).** 59
+  Commander-legal cards; the modifier alone blocks only 4 (Adeline, Flamerush Rider, Jet Rebel Leader, Leonin
+  Warleader). Axes: "whenever 1 or more `<X>` you control attack" head (13, General Kreat); named token plus
+  delayed sacrifice (Fire Navy Trebuchet, Boulder Jockey); "for each opponent … that player or a planeswalker
+  they control" defender (Adeline); reveal/look-until then put tapped and attacking (Hans Eriksson, Jet,
+  Raph & Mikey, Doors of Durin, Fireflux Squad); pay-then (Arni Metalbrow, Grim Reaper, Gut). Risk: a wrong
+  defender (RULE 508.4). Decision open: fold into PAR-132 or keep separate.
+- **PAR-149 · Bucket B candidates to validate before any handler.** Report counts at PARSER_VERSION 584, not yet
+  checked with `blocked`/`card`: "cast this spell only during combat / before blockers / the declare blockers
+  step" (15, three phrasings), "when enchanted creature/land dies, return that card …" (6 + 6), emblem with a
+  quoted ability (48 cards, only 5 SOLO — Dack Fayden, Liliana the Last Hope, Tezzeret Artifice Master,
+  A-Saheeli, The Capitoline Triad; the rest are blocked by other planeswalker abilities). Decision open: which
+  of these earn a handler; the emblem case is weak on SOLO yield.
 
-  Bucket C (set-specific mechanics, deck-first):
+## MEC — Game mechanic
 
-  - **PAR-52** — Ki counters / "Spirit or Arcane spell" cast trigger
-    (Kamigawa) (#51).
-  - **PAR-53** — Party (Zendikar Rising): `creatures in your party` /
-    `full party` count-selector + its cost-reduction form (#39; shares the
-    count-selector with PAR-46).
-  - Doctor's companion (Doctor Who) (#28), Rebel/Mercenary recruiter
-    tutor chains (Mercadian Masques) (#21), `enters prepared` (#23) —
-    file as PAR-54… when their batch comes up; not enumerated further here
-    to keep the list to the first wave.
-  - **Non-goal / lowest priority, no ticket:** Attractions (RULE 717,
-    #19 — permanent non-goal), Conspiracy draft-matters (#13), Banding
-    (#13), Horsemanship (#8) — dead pools / non-goals, documented, kept
-    out of the denominator with the sticker cards.
-
-  **Bucket A residue — modal *header* shapes** (bodies all claim; only the
-  header/engine support is missing). The triggered-modal wrapper half is
-  done — `_split_triggered_modal_block` recognises its trigger via
-  `segment_line` as of PARSER_VERSION 187 (Elder Gargaroth / Ojutai
-  Exemplars / Etherwrought Page / Cosmogrand Zenith / Ferocification / Appa,
-  +8 cache). What is left, ~26 Commander-legal cards in five shapes:
-
-  - **PAR-56 · Teamwork modal and rider grammar (RULE 702.194).** Route
-    `if this spell was cast using teamwork` modal overrides and ordinary
-    conditional riders to a `teamwork_paid` condition; the optional tapping
-    cost and cast-state marker are **MEC-67**. Seed cards: Go Nuts!, Widow's
-    Bite, HULK SMASH!, Atlantis Attacks, Murdock's Crusade.
-  - **PAR-58 · Reflexive modal trigger wrapper.** Parse `you may pay <cost>.
-    When you do, choose N —` as a `pay_cost_then` continuation whose payoff
-    is a modal triggered ability, retaining RULE 603.11 stack/target order;
-    the continuation plumbing is **MEC-69**. Seed cards: Voltstorm Angel,
-    Hylda of the Icy Crown, Gorbag of Minas Morgul, Vision Synthezoid
-    Avenger.
-  - **PAR-59 · Haunt-trigger modal wrapper (RULE 702.55).** Parse `when ~
-    enters or the creature it haunts dies, choose N —` and the standalone
-    `when the creature this card haunts dies` form. The haunt link/exile
-    mechanic and event are **MEC-70**. Seed cards: Orzhov Pontiff, Absolver
-    Thrull, Belfry Spirit, Blind Hunter, Exhumer Thrull, Graven Dominator.
-
-## MEC — Game mechanics
-
-- **MEC-76 · Dance — remaining card-resolution packages.**
-  Hand-author and execute the smaller, still distinct bodies after the shared
-  primitives above: **Return of the Wildspeaker** (non-Human greatest-power
-  modal draw/pump), **Mass of Mysteries** (temporary myriad grant),
-  **Slithermuse** (leave-battlefield opponent choice and hand-size delta
-  draw), and **Impulsivity** (graveyard instant/sorcery free cast plus a
-  one-spell graveyard-to-exile replacement). Each needs an end-to-end
-  contract; none may be marked covered solely by catalogue registration.
-
-- **MEC-69 · Modal reflexive continuations (RULE 603.11).** Extend the
-  existing `pay_cost_then` path so a successful optional payment can enqueue
-  a modal triggered payoff, then present its mode choice before its targets
-  and resolve it as an independent stack object. Must not collapse `When you
-  do` into an ordinary same-resolution effect.
-
-- **MEC-70 · Haunt (RULE 702.55).** Implement the death-triggered exile/link
-  to a chosen creature, retain the haunt relationship while that creature
-  remains on the battlefield, and emit the linked creature's death event for
-  the exiled card's haunt abilities. Cover the activated `exile ~ haunting
-  target creature` variant as well. PAR-59 owns the parser forms; unrelated
-  Haunt card bodies remain normal parser-tail work.
+**NONE** Nothing to Do!
 
 ## PLR — Player management
 
@@ -276,17 +142,10 @@ its block back into the matching section here.
 
 ## VIS — Visuals
 
-- **VIS-4 · Chat / emotes at the table.**
-- **VIS-8 · Keyboard shortcuts.** docs/05 PART 9.
+- **VIS-8 · Keyboard shortcuts.** docs/05 PART 9 (Space/Enter/E for pass and yield already exist).
 - **VIS-9 · Accessibility** — alt-text on cards, tab navigation,
   high-contrast mode. docs/05 PART 10.
 - **VIS-10 · Responsive/mobile layout** — only checked at desktop width.
-
-> No Node/npm on this machine, so there is no JS linter/formatter/typecheck
-> — but real-browser verification *is* available: Playwright (Python) lives
-> in `backend/venv` and drives a real Chromium against the static frontend
-> server plus a running backend. Use it for any non-trivial UI change
-> instead of reading code and replaying API calls by hand.
 
 ## DB — Database
 
@@ -298,13 +157,23 @@ its block back into the matching section here.
 
 ## ANA — Deck analysis
 
-- **ANA-1 · `POST /api/decks/{id}/analyze`.** Claude API integration, prompt
-  templates, structured output parsing, caching (docs/02 UC2, docs/04 Phase
-  6). `Deck.analysis_id` is reserved to link a saved deck to the result, but
-  no `Analysis` model/table exists — design it alongside the endpoint rather
-  than assuming the reserved field's shape is final.
 - **ANA-2 · Narrative analysis UI** — win conditions, archetype, synergies,
   cohesion score, issues. Sits alongside the existing static/Bracket
-  sub-tabs, not replacing them. Blocked on [ANA-1].
+  sub-tabs, not replacing them. ANA-1 backend contract is available (see
+  [LLM integration](../Reference/LLM_INTEGRATION.md)).
 - **ANA-3 · Cache indicator** ("Analysis from X ago") for that LLM result.
-  Blocked on [ANA-1].
+  The backend provides `created_at` and `cached`.
+
+## BUG — Bugs
+
+- **BUG-1 · An "Equip …" line is claimed as a keyword line and its text silently dropped.** The
+  segmenter reads any line starting with "Equip" as a keyword line (`keyword_line=True`), so "Equip
+  abilities you activate [that target X] cost {N} less to activate." and "Equip {N}. This ability costs
+  … less to activate …" emit no spec: Bureau Headmaster, Bladehold War-Whip, Cloud Planet's Champion,
+  Dwarven Mauler, Helitrooper, Plate Armor / A-Plate Armor and Warrior's Blades are `MODELED` without
+  their equip-cost discount. Fix: fail the line closed unless it is a bare equip cost, then give the
+  discount its own row (activation costs have no `targets` yet — see Kopala/Strong Back).
+- **BUG-2 · "target player draws N cards and loses N life" in a reflexive / exploit trigger.** The subject-less
+  "and loses …" now carries `previous_subject` (direct triggers and spells are right: Vault Plunderer, Bloodgift
+  Demon); check that Unscrupulous Contractor's reflexive trigger and Fell Stinger's exploit trigger make the
+  *targeted* player lose the life, not the controller.

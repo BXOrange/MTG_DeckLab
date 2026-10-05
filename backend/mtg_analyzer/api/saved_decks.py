@@ -16,8 +16,22 @@ from fastapi import APIRouter, Depends, HTTPException
 from mtg_analyzer.api.cards import coverage_for
 from mtg_analyzer.api.dependencies import get_deck_database, get_lazy_card_loader
 from mtg_analyzer.api.schemas import SaveDeckRequest
-from mtg_analyzer.models.deck import Deck
+from mtg_analyzer.game.card_registry import registry_signature
+from mtg_analyzer.models.decks.deck import Deck
 from mtg_analyzer.parser.deckliste_parser import parse_deck_sections
+from mtg_analyzer.parser.oracle import PARSER_VERSION
+
+
+def _coverage_cache_key() -> str:
+    """The version stamp `Deck.unmodeled_coverage` is cached under.
+
+    Folds the hand-`AUTHORED` catalogue's own state (`registry_signature`)
+    into `PARSER_VERSION` so registering a card — which never bumps
+    `PARSER_VERSION` — still invalidates every deck's stale "N cards not
+    modeled" count on the next read, rather than freezing it until the
+    decklist text changes.
+    """
+    return f"{PARSER_VERSION}+cat{registry_signature()}"
 from mtg_analyzer.services.archetype_database import default_archetype_database
 from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.deck_validation import apply_legality, compute_deck_identity
@@ -89,7 +103,12 @@ def save_deck(
         mainboard_text=request.mainboard_text,
         sideboard_text=request.sideboard_text,
         created_at=existing.created_at if existing else None,
-        analysis_id=existing.analysis_id if existing else None,
+        analysis_id=(
+            existing.analysis_id
+            if existing and not text_changed and (
+                request.archetypes is None or _clean_archetypes(request.archetypes) == existing.archetypes
+            ) else None
+        ),
         # Settable via this same endpoint (the saved-decks list re-saves the
         # full deck with a new sleeveId), but preserved across unrelated
         # edits (e.g. re-saving decklist text) when the caller omits it.
@@ -116,6 +135,9 @@ def save_deck(
         # above — see `Deck`'s own docstring for why these two exist.
         validation_result=None if validation_stale else (existing.validation_result if existing else None),
         unmodeled_coverage=None if text_changed else (existing.unmodeled_coverage if existing else None),
+        unmodeled_coverage_version=(
+            None if text_changed else (existing.unmodeled_coverage_version if existing else None)
+        ),
     )
     database.save_deck(deck)
     return deck.to_dict()
@@ -210,7 +232,10 @@ def get_deck_coverage(
     deck = database.get_deck(deck_id)
     if deck is None:
         raise HTTPException(status_code=404, detail=f'No saved deck with id "{deck_id}"')
-    if deck.unmodeled_coverage is not None:
+    if (
+        deck.unmodeled_coverage is not None
+        and deck.unmodeled_coverage_version == _coverage_cache_key()
+    ):
         return deck.unmodeled_coverage
     parsed = parse_deck_sections(deck.commander_text, deck.mainboard_text, deck.sideboard_text, deck.is_cube)
     resolved = loader.load_cards([e.name for e in parsed.all_cards])
@@ -234,6 +259,7 @@ def get_deck_coverage(
     # self-healing once resolution succeeds on a later view.
     if not resolved.not_found:
         deck.unmodeled_coverage = result
+        deck.unmodeled_coverage_version = _coverage_cache_key()
         database.save_deck(deck)
     return result
 

@@ -22,12 +22,12 @@ Wandering Archaic (`pay_cost_then` with an event-named payer and an
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 
 
 def _engine():
@@ -90,7 +90,7 @@ def test_gilded_drake_swaps_control_both_ways():
     engine.rules.put_triggers_on_stack()
     choice = state.pending_choice
     option = next(o for o in choice["options"] if o.get("instance_id") == theirs.instance_id)
-    engine.rules.resolve_trigger_target_choice(option["id"])
+    engine.rules.resolve_choice(option["id"])
     engine.rules.resolve_top_of_stack()
 
     assert drake.controller_id == "p2"
@@ -111,7 +111,7 @@ def test_the_exchange_survives_the_drake_leaving():
     option = next(
         o for o in state.pending_choice["options"] if o.get("instance_id") == theirs.instance_id
     )
-    engine.rules.resolve_trigger_target_choice(option["id"])
+    engine.rules.resolve_choice(option["id"])
     engine.rules.resolve_top_of_stack()
 
     engine.rules.destroy(drake)
@@ -299,7 +299,7 @@ def test_cloudstone_curio_bounces_a_permanent_sharing_a_type():
 
     state.fire_event(_etb(new_bear))
     engine.rules.put_triggers_on_stack()
-    engine.rules.resolve_trigger_target_choice("do")   # RULE 603.5's "you may"
+    engine.rules.resolve_choice("do")   # RULE 603.5's "you may"
     engine.rules.resolve_top_of_stack()
 
     # RULE 601.2c: *which* matching permanent to return is a real choice.
@@ -331,7 +331,7 @@ def test_cloudstone_curio_only_looks_at_shared_permanent_types():
 
     state.fire_event(_etb(new_bear))
     engine.rules.put_triggers_on_stack()
-    engine.rules.resolve_trigger_target_choice("do")
+    engine.rules.resolve_choice("do")
     engine.rules.resolve_top_of_stack()
 
     assert enchantment in state.battlefield  # shares no permanent type
@@ -373,7 +373,7 @@ def test_tooth_and_nail_puts_creatures_from_hand_onto_the_battlefield():
 
 
 def test_a_hand_pick_never_shuffles_the_library():
-    """`request_search` keys both its shuffle (RULE 701.19e) and its
+    """`_request_search` keys both its shuffle (RULE 701.19e) and its
     `LIBRARY_SEARCHED` event to the ``"library"`` zone, so reusing its
     machinery for a hand pick correctly does neither."""
     engine, state, p1, _ = _engine()
@@ -386,7 +386,7 @@ def test_a_hand_pick_never_shuffles_the_library():
     fatty = GameObject(_bear("Fatty"), owner_id="p1", zone=Zone.HAND)
     p1.add_to_zone(fatty, Zone.HAND)
 
-    from mtg_analyzer.game.effects import GameContext, PutFromHandOntoBattlefieldEffect
+    from mtg_analyzer.game.effects.core import GameContext, PutFromHandOntoBattlefieldEffect
 
     PutFromHandOntoBattlefieldEffect(criteria={"type": "Creature"}, count=1).apply(
         GameContext(state, engine.rules)
@@ -422,7 +422,7 @@ def test_wandering_archaic_taxes_the_opponent_who_cast_the_spell():
 
     # Resolved directly rather than through `resolve_pending_choice`, which
     # would also drain the stack before the copy could be observed.
-    engine.rules.resolve_pay_cost_then_choice("pay")
+    engine.rules.resolve_choice("pay")
     assert not [i for i in state.stack if i.obj is not None and getattr(i.obj, "is_copy", False)]
     assert p2.mana_pool.total() == 0  # the {2} was charged
 
@@ -439,7 +439,7 @@ def test_declining_wandering_archaics_tax_lets_you_copy_the_spell():
 
     engine.rules.put_triggers_on_stack()
     engine.rules.resolve_top_of_stack()
-    engine.rules.resolve_pay_cost_then_choice("decline")
+    engine.rules.resolve_choice("decline")
 
     copies = [i for i in state.stack if i.obj is not None and getattr(i.obj, "is_copy", False)]
     assert len(copies) == 1
@@ -460,7 +460,7 @@ def test_wandering_archaic_never_triggers_off_a_creature_spell():
 
 
 def _etb(obj):
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
 
     return GameEvent(
         EventType.ENTERS_BATTLEFIELD,

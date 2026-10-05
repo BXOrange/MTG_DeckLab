@@ -16,12 +16,12 @@ cost (that lives in `test_par30_champion_behold_exile.py`):
 
 from __future__ import annotations
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 
-from tests.test_game_engine import creature, make_engine, obj_on_battlefield
+from tests.support.game import creature, make_engine, obj_on_battlefield
 
 
 # --- RULE 122.1c: stun counters skip the next untap --------------------

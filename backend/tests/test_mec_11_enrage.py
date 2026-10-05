@@ -8,7 +8,7 @@ permanent **dealing** damage. Three small, general changes closed it:
 
 1. `normalize._ABILITY_WORD_RE` strips the "Enrage — " label (RULE 207.2c —
    no rules meaning of its own).
-2. `segmenter._DAMAGE_RECIPIENT_TRIGGER_RE` recognizes "whenever ~/a
+2. the composed recipient head (née `segmenter._DAMAGE_RECIPIENT_TRIGGER_RE`) recognizes "whenever ~/a
    `<type>` [you control]/enchanted-or-equipped `<type>` is dealt [combat]
    damage, …", marking its condition ``{"recipient": True}``.
 3. `effect_binder._subject_event_key`/`_build_group_ok` read that marker to
@@ -23,7 +23,7 @@ label.
 
 Eleven real Enrage cards remained UNMODELED after that (each blocked on its
 own *effect body*, not the trigger) and are hand-authored in
-`game/ability_catalogue.py`, closing the whole ~25-card Enrage population
+`game/card_registry.py`, closing the whole ~25-card Enrage population
 (one further "Enrage" hit, Borborygmos Enraged, doesn't actually have the
 ability — a name-only false positive, correctly left alone). Several needed
 a small, reusable new primitive rather than being purely bespoke — each
@@ -41,17 +41,18 @@ documented at its own definition:
 
 from __future__ import annotations
 
-from mtg_analyzer.game import ability_catalogue, combat, continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game import card_registry, combat, continuous
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.events import GameEvent
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.events import GameEvent
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.normalize import normalize
-from mtg_analyzer.parser.oracle.segmenter import _DAMAGE_RECIPIENT_TRIGGER_RE, segment_line, ParserProvenance
+from mtg_analyzer.parser.oracle.catalogue.object_trigger_head import parse_object_trigger_head
+from mtg_analyzer.parser.oracle.segmenter import segment_line, ParserProvenance
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +97,7 @@ def _answer_trigger_target(engine, state, label):
     (a permanent name or a player id) and resolve it."""
     pc = state.pending_choice
     option = next(o for o in pc["options"] if o.get("label") == label)
-    engine.rules.resolve_trigger_target_choice(option["id"])
+    engine.rules.resolve_choice(option["id"])
 
 
 # ---------------------------------------------------------------------------
@@ -115,35 +116,33 @@ def test_enrage_label_is_stripped():
 # ---------------------------------------------------------------------------
 
 
-def test_recipient_trigger_regex_self():
-    m = _DAMAGE_RECIPIENT_TRIGGER_RE.match("whenever ~ is dealt damage, draw a card.")
-    assert m is not None
-    assert m.group("self") == "~"
+# PAR-131: the recipient side is the composed object head's
+# `_parse_damage_recipient_head` (the legacy `_DAMAGE_RECIPIENT_TRIGGER_RE`
+# row is retired).
 
 
-def test_recipient_trigger_regex_group_you_control():
-    m = _DAMAGE_RECIPIENT_TRIGGER_RE.match(
-        "whenever a creature you control is dealt damage, put a +1/+1 counter on it."
-    )
-    assert m is not None
-    assert m.group("type") == "creature"
-    assert m.group("yours") == " you control"
+def test_recipient_head_self():
+    head = parse_object_trigger_head("~ is dealt damage")
+    assert head.event == "DAMAGE"
+    assert head.condition == {"subject": "self", "recipient": True}
 
 
-def test_recipient_trigger_regex_attached():
-    m = _DAMAGE_RECIPIENT_TRIGGER_RE.match(
-        "whenever enchanted creature is dealt damage, destroy it."
-    )
-    assert m is not None
-    assert m.group("attached") == "enchanted creature"
+def test_recipient_head_group_you_control():
+    head = parse_object_trigger_head("a creature you control is dealt damage")
+    assert head.condition == {
+        "subject": "group", "controller": "you", "other": False,
+        "filter": {"card_type": "creature"}, "recipient": True,
+    }
 
 
-def test_recipient_trigger_regex_combat_qualifier():
-    m = _DAMAGE_RECIPIENT_TRIGGER_RE.match(
-        "whenever ~ is dealt combat damage, you gain that much life."
-    )
-    assert m is not None
-    assert m.group("combat") == "combat "
+def test_recipient_head_attached():
+    head = parse_object_trigger_head("enchanted creature is dealt damage")
+    assert head.condition == {"subject": "attached_permanent", "recipient": True}
+
+
+def test_recipient_head_combat_qualifier():
+    head = parse_object_trigger_head("~ is dealt combat damage")
+    assert head.trigger == {"filter": {"combat": True}}
 
 
 def test_segment_line_self_recipient_produces_recipient_condition():
@@ -155,7 +154,7 @@ def test_segment_line_self_recipient_produces_recipient_condition():
 
 
 # ---------------------------------------------------------------------------
-# effect_binder.py: target_id/target_controller_id vs source_id/
+# binding/core.py: target_id/target_controller_id vs source_id/
 # source_controller_id
 # ---------------------------------------------------------------------------
 
@@ -166,8 +165,8 @@ def test_self_recipient_trigger_fires_only_for_the_object_actually_hit():
     bystander = _bf(state, _creature("Bystander", 2, 4))
     fired = []
     victim.triggered_abilities[:] = []  # no catalogue entry on a plain Bear
-    from mtg_analyzer.game.effects import TriggeredAbility, GainLifeEffect
-    from mtg_analyzer.game.effect_binder import _subject_condition
+    from mtg_analyzer.game.effects.core import TriggeredAbility, GainLifeEffect
+    from mtg_analyzer.game.binding.core import _subject_condition
 
     trigger = {"event": "DAMAGE", "condition": {"subject": "self", "recipient": True}}
     ability = TriggeredAbility(
@@ -196,9 +195,10 @@ def test_source_side_damage_trigger_is_unaffected_by_the_recipient_addition():
     p1, p2 = state.players
     dealer = _bf(state, _creature("Dealer", 2, 2))
     victim = _bf(state, _creature("Victim2", 2, 2), controller="p2")
-    seg = _segment("Whenever ~ deals damage to a creature, you gain 1 life.")
+    # Normalized (lower-case) text, as `normalize` hands it to the segmenter.
+    seg = _segment("whenever ~ deals damage to a creature, you gain 1 life.")
     assert seg.claimed and seg.spec is not None
-    from mtg_analyzer.game.effect_binder import attach_to_object
+    from mtg_analyzer.game.binding.core import attach_to_object
 
     attach_to_object(dealer, [seg.spec])
     engine.rules.deal_damage(victim, 3, source=dealer)
@@ -249,7 +249,7 @@ def test_add_counters_each_other_creature_you_control_excludes_source():
     engine, state = _engine("p1")
     source = _bf(state, _creature("Source", 3, 3))
     other = _bf(state, _creature("Other", 2, 2))
-    from mtg_analyzer.game.effects import AddCountersEffect, GameContext
+    from mtg_analyzer.game.effects.core import AddCountersEffect, GameContext
 
     effect = AddCountersEffect(selector="each_other_creature_you_control", source=source)
     effect.apply(GameContext(state, engine.rules))
@@ -261,7 +261,7 @@ def test_deal_damage_each_creature_and_planeswalker_hits_both_once_each():
     engine, state = _engine("p1", "p2")
     source = _bf(state, _creature("Bolter", 1, 1))
     victim = _bf(state, _creature("Victim3", 2, 5), controller="p2")
-    from mtg_analyzer.game.effects import DealDamageEffect, GameContext
+    from mtg_analyzer.game.effects.core import DealDamageEffect, GameContext
 
     effect = DealDamageEffect(amount=1, selector="each_creature_and_planeswalker", source=source)
     effect.apply(GameContext(state, engine.rules))
@@ -273,7 +273,7 @@ def test_damage_equal_to_counters_reads_source_plus_one_counters():
     source = _bf(state, _creature("Counters", 2, 6))
     source.plus_one_counters = 3
     victim = _bf(state, _creature("Victim4", 2, 8), controller="p2")
-    from mtg_analyzer.game.effects import DamageEqualToCountersEffect, GameContext
+    from mtg_analyzer.game.effects.core import DamageEqualToCountersEffect, GameContext
 
     effect = DamageEqualToCountersEffect(target=victim, target_kind=None, source=source)
     effect.apply(GameContext(state, engine.rules))
@@ -283,8 +283,8 @@ def test_damage_equal_to_counters_reads_source_plus_one_counters():
 def test_add_mana_amount_from_trigger_event():
     engine, state = _engine("p1")
     source = _bf(state, _creature("Manadin", 2, 2))
-    from mtg_analyzer.game.effects import AddManaEffect, GameContext
-    from mtg_analyzer.models.events import GameEvent
+    from mtg_analyzer.game.effects.core import AddManaEffect, GameContext
+    from mtg_analyzer.models.game.events import GameEvent
 
     context = GameContext(state, engine.rules)
     context.trigger_event = GameEvent("DAMAGE", amount=4, target_id=source.instance_id)
@@ -458,7 +458,7 @@ def test_vrondiss_creates_optional_dragon_spirit_token():
     pc = state.pending_choice
     assert pc is not None and pc["kind"] == "trigger_target"
     assert {o["id"] for o in pc["options"]} == {"do", "decline"}
-    engine.rules.resolve_trigger_target_choice("do")
+    engine.rules.resolve_choice("do")
     engine.resolve_until_stable()
     assert len(state.battlefield) == before + 1
     tokens = [o for o in state.battlefield if o.name == "Dragon Spirit"]
@@ -480,8 +480,8 @@ def test_every_hand_authored_enrage_card_binds_without_error():
         "Vrondiss, Rage of Ancients",
     ]
     for name in names:
-        assert ability_catalogue.is_registered(name), name
-        specs_a = ability_catalogue.specs_for(Card(id=name, name=name, type_line="Creature — Test"))
-        specs_b = ability_catalogue.specs_for(Card(id=name, name=name, type_line="Creature — Test"))
+        assert card_registry.is_registered(name), name
+        specs_a = card_registry.specs_for(Card(id=name, name=name, type_line="Creature — Test"))
+        specs_b = card_registry.specs_for(Card(id=name, name=name, type_line="Creature — Test"))
         assert specs_a is not specs_b
         assert specs_a[0] is not specs_b[0]

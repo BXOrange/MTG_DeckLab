@@ -4,7 +4,7 @@
     tapped, it and other creatures you control that share a creature
     type with it each get +2/+0 and gain undying until end of turn."
 
-Hand-authored (`ability_catalogue.entries_016._haunted_one`): a granted
+Hand-authored (`card_registry.special_mechanics._haunted_one`): a granted
 `TAPPED` trigger (already grantable-shaped, self-subject) whose
 `grant_effects` pump uses the new `PumpEffect` selector
 `self_and_shared_creature_type_you_control` — self plus every other
@@ -14,15 +14,15 @@ creature subtype, computed off the source's own live subtypes.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.game import ability_catalogue
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.game import card_registry
 
 
 def test_haunted_one_registered_with_tapped_trigger_and_selector():
-    specs = ability_catalogue.specs_for(
+    specs = card_registry.specs_for(
         Card(id="ho", name="Haunted One",
              type_line="Legendary Enchantment — Background"))
     assert specs is not None and len(specs) == 1

@@ -15,20 +15,20 @@
     Quicksilver's only lets **blue** mana substitute (`ManaPool._solve`'s
     matching single-color branch), and only for its own abilities.
 
-Reference: mtg_analyzer/game/effects.py (`GainActivatedAbilitiesOfTargetEffect`,
+Reference: mtg_analyzer/game/effects/core.py (`GainActivatedAbilitiesOfTargetEffect`,
 `grant_any_color_for_activation`), mtg_analyzer/game/continuous.py
 (`any_color_for_activation`, `_retarget_effect_source`),
 mtg_analyzer/models/mana_pool.py (`ManaPool._solve`),
-mtg_analyzer/game/ability_catalogue.py (Quicksilver Elemental),
+mtg_analyzer/game/card_registry.py (Quicksilver Elemental),
 RULE 113.7c/605.1a/613.7f.
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 
 
 def make_engine():
@@ -212,7 +212,7 @@ def test_wildcard_token_is_the_specific_color_not_the_unrestricted_form():
 
 
 def test_quicksilver_elemental_is_registered_with_both_pieces():
-    from mtg_analyzer.game.ability_catalogue import specs_for
+    from mtg_analyzer.game.card_registry import specs_for
 
     specs = specs_for(quicksilver_elemental())
     kinds = [(s.ability_kind, s.effects[0].type) for s in specs]

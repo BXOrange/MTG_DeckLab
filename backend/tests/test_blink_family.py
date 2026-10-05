@@ -9,10 +9,10 @@ Reference: docs/implementation-state/Done_Backend.md "MEC-12" entries.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.models.events import EventType, GameEvent
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.models.game.events import EventType, GameEvent
 
-from tests.test_game_engine import creature, make_engine, obj_on_battlefield
+from tests.support.game import creature, make_engine, obj_on_battlefield
 
 
 def _named(name):
@@ -94,7 +94,7 @@ def test_displacer_kitten_offers_up_to_one_nonland_permanent_on_noncreature_cast
     p1 = eng.state.active_player
     p1.mana_pool.add_many({"R": 1})
 
-    from mtg_analyzer.models.card import Card
+    from mtg_analyzer.models.cards.card import Card
 
     _catalogue_obj_on_battlefield(eng.state, "Displacer Kitten")
     sol_ring = Card(id="Sol Ring", name="Sol Ring", type_line="Artifact",

@@ -1,7 +1,7 @@
 """Tests for RULE 702.33b's "If this spell was kicked, <effect>." (Batch
 11's A.7 item) — a second, additional effect gated on `obj.kicker_count`,
 via the new `EffectSpec.condition` field (parallel to `AbilitySpec.modes`)
-and `game.effects.ConditionalEffect` (`game/effect_binder.py`'s
+and `game.effects.ConditionalEffect` (`game/binding/core.py`'s
 `build_effects` wraps any effect whose spec carries a `condition`).
 
 The additive "if kicked, <effect>." shape is modeled here (Vastwood
@@ -20,12 +20,12 @@ by its own dedicated handler row (`catalogue/handlers.py`'s
 
 import pytest
 
-from mtg_analyzer.game.effect_binder import attach_to_object
-from mtg_analyzer.game.effects import ConditionalEffect, DrawCardEffect, GainLifeEffect
+from mtg_analyzer.game.binding.core import attach_to_object
+from mtg_analyzer.game.effects.core import ConditionalEffect, DrawCardEffect, GainLifeEffect
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.mana_cost import ManaCost
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.mana.mana_cost import ManaCost
 from mtg_analyzer.parser.oracle import parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec, SpecValidationError
@@ -57,6 +57,9 @@ def test_condition_dict_round_trips_through_to_dict_from_dict():
     data = spec.to_dict()
     assert data["condition"] == {"kicked": True}
     restored = EffectSpec.from_dict(data)
+    # The flat spelling survives a round trip untouched: ENG-36 translates it
+    # at evaluation time, not on the spec, which is what keeps every shipped
+    # catalogue entry and stored spec working unchanged.
     assert restored.condition == {"kicked": True}
 
 
@@ -91,7 +94,7 @@ def test_validate_accepts_well_formed_kicked_condition():
 
 
 # ---------------------------------------------------------------------------
-# game/effects.py: ConditionalEffect
+# game/effects/core.py: ConditionalEffect
 # ---------------------------------------------------------------------------
 
 
@@ -101,10 +104,10 @@ def test_conditional_effect_fires_when_kicked():
     inner = GainLifeEffect(amount=3)
     wrapped = ConditionalEffect({"kicked": True}, inner, source=source)
 
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
     from mtg_analyzer.game.rules_engine import RulesEngine
-    from mtg_analyzer.models.game_state import GameState
-    from mtg_analyzer.models.player import Player
+    from mtg_analyzer.models.game.game_state import GameState
+    from mtg_analyzer.models.game.player import Player
 
     p1 = Player(id="p1", life=20)
     state = GameState(players=[p1])
@@ -121,10 +124,10 @@ def test_conditional_effect_does_not_fire_when_not_kicked():
     inner = GainLifeEffect(amount=3)
     wrapped = ConditionalEffect({"kicked": True}, inner, source=source)
 
-    from mtg_analyzer.game.effects import GameContext
+    from mtg_analyzer.game.effects.core import GameContext
     from mtg_analyzer.game.rules_engine import RulesEngine
-    from mtg_analyzer.models.game_state import GameState
-    from mtg_analyzer.models.player import Player
+    from mtg_analyzer.models.game.game_state import GameState
+    from mtg_analyzer.models.game.player import Player
 
     p1 = Player(id="p1", life=20)
     state = GameState(players=[p1])
@@ -136,7 +139,7 @@ def test_conditional_effect_does_not_fire_when_not_kicked():
 
 
 def test_conditional_effect_target_spec_passes_through():
-    from mtg_analyzer.game.effects import DestroyEffect
+    from mtg_analyzer.game.effects.core import DestroyEffect
 
     inner = DestroyEffect()
     wrapped = ConditionalEffect({"kicked": True}, inner)
@@ -150,7 +153,7 @@ def test_conditional_effect_target_spec_passes_through():
 
 def test_kicked_wrapper_tags_the_inner_effect_with_condition():
     (spec,) = parse_effect_body("if this spell was kicked, you gain 3 life")
-    assert spec.type == "gain_life" and spec.condition == {"kicked": True}
+    assert spec.type == "gain_life" and spec.condition == {"kind": "kicked", "min": 1}
 
 
 def test_kicked_wrapper_fails_closed_on_an_unrecognized_inner_clause():
@@ -167,7 +170,7 @@ def test_kicked_wrapper_combines_with_a_base_effect_via_period_connector():
     assert len(specs) == 2
     draw, gain = specs
     assert draw.type == "draw" and draw.condition is None
-    assert gain.type == "gain_life" and gain.condition == {"kicked": True}
+    assert gain.type == "gain_life" and gain.condition == {"kind": "kicked", "min": 1}
 
 
 def test_add_counters_each_creature_you_control_selector_is_recognized():
@@ -202,7 +205,7 @@ def test_vastwood_surge_shaped_card_is_fully_modeled():
     kinds = [(s.type, s.condition) for s in spell_effect.effects]
     assert kinds == [
         ("search", None),
-        ("add_counters", {"kicked": True}),
+        ("add_counters", {"kind": "kicked", "min": 1}),
     ]
 
 
@@ -242,7 +245,7 @@ def test_unkicked_vastwood_surge_skips_the_counters():
     p1.hand.append(obj)
 
     # Bypass the interactive library-search choice: no basics in the deck,
-    # so `request_search` resolves with nothing to find — only the kicked
+    # so `_request_search` resolves with nothing to find — only the kicked
     # gate matters here, not the search itself.
     eng.cast_spell(p1, obj, kicked=0)
     eng.resolve_until_stable()

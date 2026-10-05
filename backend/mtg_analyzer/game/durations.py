@@ -37,7 +37,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from . import static_conditions
 
 if TYPE_CHECKING:
-    from ..models.game_state import GameState
+    from ..models.game.game_state import GameState
 
 
 #: Every duration a floating static may carry.

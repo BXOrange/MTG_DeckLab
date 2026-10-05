@@ -23,12 +23,12 @@ Two halves:
   Multiplayer (**Setup** = lobby + game configuration, **Board** = the
   shared game, disabled until you're at a table), and
   an **"Engine-Status"** tab documenting engine coverage, plus two header icon
-  buttons: **"Einstellungen"** (`connectionSettingsView.js` — *only* the
-  backend server address + connection test now) and **"Profil"**
+  buttons: **"Einstellungen"** (`connectionSettingsView.js` — automatic backend connection, data updates and
+  optional server-wide LLM configuration) and **"Profil"**
   (`profileView.js` — everything player-facing: player name, multiplayer
   default settings, auto-pass / board-comfort toggles, player-uploaded token
   art + card-back sleeves, favorite decks). Anything about *who you are* /
-  *how you play* is Profil; anything about *reaching the server* is
+  *how you play* is Profil; anything about *reaching/configuring the server* is
   Einstellungen. UI language is **German**; MTG keyword names stay
   English ("Flying", "Trample").
 
@@ -45,6 +45,12 @@ by id/name and rebuilt from the cache; tokens carry a self-describing block).
 `GET /api/game/{id}/replay-export` works for a goldfish session too, so a
 goldfish position can be exported and re-opened in Replay. Frontend:
 `frontend/src/js/replayView.js`.
+
+**Solo bot updates** use one action per response: human POSTs return before
+bots answer; each subsequent GET applies at most one bot action. The Solo
+board polls once per second while `bot_action_pending` is true, including AI
+choices and bot blockers. Human priority is never passed server-side; the
+shared board's Multiplayer timers and empty-window handling apply unchanged.
 
 **Multiplayer** (UC4) is a real game of **two to four players** against the
 same engine, not a stub (`services/lobby.py`'s `MIN_SEATS`/`MAX_SEATS`;
@@ -66,6 +72,12 @@ an opponent's hand never leaves the process, `observer_view()` hides
 everyone's); **`/ws/lobby`** (`api/multiplayer_ws.py`) is presence *and*
 the push channel, sending each participant their own view rather than one
 shared payload; and **priority is played out for real** (below).
+The shared board's **table feed** (VIS-4, `services/table_feed.py`) appears
+below the stack/trigger feed: preset emotes only, plus engine-event
+announcements for land plays, casts and ability activations; no priority
+passes. `GameSession.view()` includes the latest 200 entries. Emotes do not
+advance gameplay; multiplayer broadcasts them without driving bots.
+Observers read the feed, undo trims action announcements, and restart clears it.
 A seat also carries one purely cosmetic thing, `Seat.banner_color`
 (`normalize_banner_color` — any subset of WUBRG, or grey for colourless,
 defaulting to the deck's colour identity when a deck is picked): the
@@ -159,15 +171,22 @@ length is a **server** setting, not a cookie:
 `config.MULTIPLAYER_SPELL_TIMER_SECONDS` (`MTG_MULTIPLAYER_SPELL_TIMER`,
 default 20s, 0 = off), per-table overridable by the host in Setup
 (`LobbyGame.spell_timer_seconds`, carried to the board on
-`view()["priority"]["timer_seconds"]`). A manual **"End the turn"** button
-next to "Passen" is the deliberate opposite of that suppression: click it
-and every priority window this client holds — main phases and combat
-included — auto-passes for the rest of the current turn regardless of what
-`legal_actions` offers (`endTurnActiveHere`), a speed-up for a player who's
-decided they have nothing left they want to do this turn. It self-disarms
-once that turn ends or on any real board interaction, and never touches a
-`pending_choice` or a turn-based action (declare attackers/blockers) —
-neither goes through `pass_priority`.
+`view()["priority"]["timer_seconds"]`). **"Pass this turn" / "Skip to end step"** (VIS-12) are the deliberate opposite
+of that suppression, and live on the **server**: `set_yield` arms a one-shot
+yield (`GameSession._yields`, shown to everyone as `view()["priority"]["yields"]`)
+and `_auto_pass_followups` (next to the RULE 720 controller auto-pass, so it
+works in Solo too) passes the seat's priority windows — for the rest of an
+*opponent's* turn (`turn`, "Pass this turn") or, on your own turn, up to the end
+step (`end_step`) — regardless of what `legal_actions` offers. It never
+passes with another player's spell/ability on the stack, never answers a
+`pending_choice`, is cancelled by any real action of that seat or a take-back, and
+needs no priority to arm/cancel. `set_stops` keeps a seat's standing **stops**
+(per step, own turn vs. opponents' turns; main phases locked on your own): a step
+without one is passed for that seat on an empty stack. Both are opt-in per seat —
+a seat with neither is passed for never, exactly as before. Board: yield buttons
+on your own banner, a Stops panel in the rail (saved in a cookie, re-sent per
+game), the board's "Pass" button names where passing leads ("To combat →",
+from `view()["priority"]["next_step"]` = `GameEngine.next_priority_step`), keys Space = pass, Enter = pass this turn (opponents' turns), E = skip to end step (your turn).
 
 **Bots (UC5, `services/bots.py`)** fill a seat at such a table — they are
 players, not a mode. The load-bearing rule is that a bot plays through the
@@ -181,7 +200,42 @@ fixes the *order* a seat handles things in (`decide`: pending choice →
 mulligan → RULE 509.1a declare-blockers, which the defender takes while the
 attacker holds priority → `play()` only if it holds priority) and
 subclasses override policy only — `GoldfishBot` (lands, else pass) and
-`GreedyBot` (everything, immediately, first legal target). Bots have no
+`GreedyBot` (everything, immediately, first legal target), `ManaMaximizerBot`
+(diagnostic mana ceiling), `SmartBot` (deck-aware heuristic opponent), and
+`AIBot` (configured LLM, with Smart fallback).
+`SmartBot` is the default in Solo, Multiplayer and dynamic analysis, including
+API requests that omit the bot kind; explicitly selected policies are preserved.
+Classes live individually in
+`services/bot_policies/`; `services/bots.py` reexports them and owns the registry
+and driver. `prepare(session)` attaches policy context before each fresh view.
+All bot policies accept offered opening-hand permissions (RULE 103.6), including
+Leylines and Gemstone Caverns, and complete their mandatory follow-up choices.
+Smart Bot ranks the pregame hand-card exile by card value and combo protection;
+AI Bot delegates pregame choices to this deterministic policy without an LLM call.
+Human pregame actions use the shared board's existing pending-choice dialog.
+AI requests run in bounded background workers and preserve priority while pending;
+solo view polling and the multiplayer watchdog collect completed decisions.
+Settings exposes Claude/Anthropic and compatible endpoints with automatically
+loaded model dropdowns and manual fallback; the same transport
+implements ANA-1 narrative analysis, structured validation and persistent caching.
+See [LLM integration](docs/Reference/LLM_INTEGRATION.md); ANA-2 narrative UI and
+ANA-3 cache-age presentation remain open.
+Smart Bot detects colour identity, archetype and commander themes from its
+own unordered setup deck list (`services/bot_strategy.py`), caches local
+Spellbook matches per session without downloading at game start, ranks visible
+combo progress/tutor choices, fixes mana colours, preserves combo pieces in
+combat and responds with counters/removal. Oracle + Demonic Consultation has
+an explicit engine-tested win sequence, including coherent UU+B mana planning
+and card naming through a parameterized `free_text` choice offer. Other combos
+are assembly priorities, not guaranteed executable winning lines. Repeatable
+abilities require visible progress and are capped at 64 uses per ability/turn;
+this memory survives lobby bot rebuilds and clears on restart. See
+[Smart Bot design and sources](docs/Reference/SMART_BOT.md). A bot accepts "Pass this turn" too (VIS-12): `Bot.decide` posts `set_yield` on
+an opponent's turn when its policy's `can_pass_turn` says every empty-stack window
+would be a pass (Goldfish/Greedy/Mana-Maximizer always; Smart unless its own Oracle
+trigger is up; AI only when the LLM has nothing to weigh) — the server still hands it
+priority for any opponent stack item, so counters/removal keep working, and Solo
+stops spending one bot tick per window. Bots have no
 loop of their own: `run_bots(session, bots)` is called after each human
 action, right after `lobby.start()` (so a bot keeps its opening hand before
 the humans see the mulligan screen), and once a second by the sweeper —
@@ -259,9 +313,14 @@ python backend/scripts/run_tests.py [pytest args...]  # resolves venv/venv_win i
 ```
 
 The backend FastAPI app is `mtg_analyzer.api.app:app`. There is **no JS build
-step** and no Node toolchain — edit `frontend/src/**` and reload. There is no
-JS test runner, so validate frontend changes by reasoning + reading; validate
-backend changes with pytest (the suite is fast, ~500+ tests, keep it green).
+step** or required Node runtime — edit `frontend/src/**` and reload. Optional
+frontend linting is available through the project-local environment created by
+`setup_dev.sh`; there is no JS test runner. Validate backend changes with
+pytest (the suite is fast, ~500+ tests, keep it green).
+
+For non-trivial frontend changes, use the real-browser verification available
+through Playwright in `backend/venv`, driving Chromium against the static
+frontend server and running backend, rather than relying only on API replay.
 
 **A browser only ever needs to reach the backend's port.** `setup/start.py`
 still runs two processes (backend `uvicorn`, frontend `no_cache_server.py`),
@@ -305,6 +364,19 @@ variant cards are committed JSON in `mtg_analyzer/data/`. Don't reintroduce
 an unconditional `pip install --upgrade pip` (it always queries PyPI);
 `backend/tests/test_setup_offline_start.py` pins this down.
 
+**A plain `pytest -q` skips a whole tier.** Tests that need the real ~35k-card
+cache (every `test_cube_batch_*` module, plus anything marked `full_cache`) are
+opt-in: `pytest --full-cache` or `MTG_FULL_CACHE_TESTS=1`
+(`tests/conftest.py`). They read an *isolated* cache — `backend/conftest.py`
+redirects `MTG_CACHE_DIR` to `backend/cache/test/` and seeds it itself, so they
+never touch the production `backend/cache/db/cards.db`, and **never export
+`MTG_CACHE_DIR` at the production cache to run tests**: that `setdefault` is
+the only thing standing between a test run and a wiped 35k-card cache. Run the
+tier before closing anything that changes engine or parser behaviour — an
+opt-in tier accumulates stale assertions at exactly the rate the rest of the
+codebase improves, and ENG-38 closed six of them at once (five were pins that
+had quietly stopped describing the engine, one was a live bug).
+
 **Stuck-test detection is automatic** (`backend/pytest.ini`, `pytest-timeout`):
 any single test running past 20s aborts with a `Timeout (>20.0s) from
 pytest-timeout.` traceback naming it, instead of hanging the run — no
@@ -317,7 +389,7 @@ the process group and reports the last test that had started.
 
 ## Claude Code skills
 
-Four project-scoped skills live in `.claude/skills/` and should be invoked
+Seven project-scoped skills live in `.claude/skills/` and should be invoked
 (not reimplemented ad hoc) for the work they cover:
 
 - **`extend-parser`** (`.claude/skills/extend-parser/SKILL.md`) — extending
@@ -335,7 +407,7 @@ Four project-scoped skills live in `.claude/skills/` and should be invoked
   and searches existing registries for a primitive before you build a new
   one).
 - **`hand-author-card`** (`.claude/skills/hand-author-card/SKILL.md`) —
-  hand-authoring a specific card's abilities into `game/ability_catalogue.py`
+  hand-authoring a specific card's abilities into `game/card_catalogue/`
   (a replacement effect, a triggered ability with a real conditional
   predicate, or any card the oracle-text parser can't fully claim) rather
   than a parser handler. Ships `author_card.py`: pulls the card's real
@@ -343,6 +415,11 @@ Four project-scoped skills live in `.claude/skills/` and should be invoked
   that part instead of re-deriving it), finds the closest-shaped existing
   catalogue entry to adapt, and assembles a paste-ready factory function +
   `register()` call + test skeleton in one command.
+- **`singleton-sweeper`** (`.claude/skills/singleton-sweeper/SKILL.md`) —
+  re-checks a queued parser singleton against unclaimed clauses across the
+  entire cached card pool, groups exact and fuzzy text neighbors, and promotes
+  confirmed shared shapes into one PAR ticket while removing related rows
+  from `singletons.md`.
 - **`inspect-db`** (`.claude/skills/inspect-db/SKILL.md`) — read-only
   lookups against the five SQLite stores (card cache, raw Scryfall data,
   parser-coverage ledger, saved decks, player assets). A short routing
@@ -350,6 +427,25 @@ Four project-scoped skills live in `.claude/skills/` and should be invoked
   (path, schema, gotchas), so a lookup only ever loads the one store that
   matters. Ships `query.py`, a read-only SQL runner that resolves each
   store's real on-disk path itself and refuses non-`SELECT` statements.
+- **`understand-card`** (`.claude/skills/understand-card/SKILL.md`) — the
+  read-and-explain step *before* the other four: what does a card do under
+  the Comprehensive Rules, and how far does the pipeline already get. Ships
+  `understand_card.py` (`card`/`clause`/`check`/`term`/`rulings`) — raw vs
+  `normalize`d text, per-clause `MODELED`/`UNMODELED` verdict, every keyword +
+  the RULE that defines it, a governing-rules roll-up from the glossary terms
+  in the text (the two-hop `rules_wiki` lookup done for you), a `check` that
+  cross-references parser coverage against what `bind_from_catalogue` actually
+  produces, and `rulings` — Scryfall's "Notes and Rules Information" fetched
+  once (project UA + rate limit) and cached under `<CACHE_DIR>/rulings/`, with
+  the `RULE <n>`s each ruling cites resolved to passages and any ruling that
+  looks like it explains an `UNCLAIMED` clause flagged. Reads only (bar that
+  one rulings fetch); hands off to `parser_probe.py` / `engine_bench.py` /
+  `author_card.py` for the work itself.
+- **`ticket-management`** (`.claude/skills/ticket-management/SKILL.md`) —
+  create, resume, refine, park, and close tickets while keeping
+  `BACKLOG.md`, `workingOn.md`, `DEFERRED.md`, and the topic-organized
+  `Done_*.md` worklogs consistent. Organizes ticket state; does not implement
+  the ticket unless asked.
 
 ## Architecture & data flow
 
@@ -382,8 +478,11 @@ Oracle-text → behaviour pipeline (docs/09):
 boundary) → **binder** (`game/effect_binder.py`) → live `GameEffect` objects via
 the `EffectRegistry` (`game/effects.py`). **Bind-on-load** is wired:
 `build_goldfish_engine` calls `bind_from_catalogue(obj)` for every object it
-creates, sourcing specs from `game/ability_catalogue.py` (a hand-authored,
-name-keyed registry — e.g. Evolving Wilds' fetch) **and** the oracle-text
+creates, sourcing specs from `game/ability_catalogue.py` — now split into
+`game/card_registry/` (`core.py`'s `register`/`specs_for` mechanism,
+`families.py`'s `register_family`) and its content sibling
+`game/card_catalogue/` (one hand-authored module per card, e.g. Evolving
+Wilds' fetch, alphabetically foldered — see below) **and** the oracle-text
 front-end. That front-end (`parser/oracle/`, docs/09 Phase 1) is `normalize` →
 `segmenter` → `catalogue/handlers` (effect families over shared
 `catalogue/subgrammars`) → `gate.parse_oracle`, which returns `AbilitySpec`s +
@@ -402,12 +501,91 @@ fully `MODELED` (never half-resolving). The front-end has **no `game/` imports**
 - `continuous.py` — the **RULE 613 layer engine**. `recompute(state)` re-derives
   every battlefield permanent's characteristics in layer order and stamps
   derived P/T, types, granted keywords + a per-object `static_trace`.
+  All-creature-type grants expand only the CR creature subtypes; entry triggers see
+  derived types. Base-P/T filters read layer-7b values before counters.
+  Squirreled Away is fully modeled (85/85); see the Deck/Cube Playability Batches
+  in `docs/implementation-state/Done_Backend.md` for reusable engine support.
+- `blitz.py` — Blitz payments, grants, discounts and delayed sacrifice (RULE 702.152).
 - `costs.py` — regex parser for **activated-ability costs** (`Cost: Effect`).
-- `ability_catalogue.py` — card→`AbilitySpec` registry (bind-on-load source),
-  now also falling back to the oracle-text parser (`parser/oracle/gate.parse_oracle`)
-  for unregistered `MODELED` cards + `enters_tapped` (RULE 614.1, oracle-derived).
+- `card_registry/` — card→`AbilitySpec` registry mechanism (bind-on-load
+  source, née `ability_catalogue/`): `core.py`'s `register`/`specs_for`
+  (also falling back to the oracle-text parser, `parser/oracle/gate.
+  parse_oracle`, for unregistered `MODELED` cards + `enters_tapped`, RULE
+  614.1, oracle-derived) and `families.py`'s `register_family` for a
+  mechanically-identical cycle. The actual card *content* — one
+  hand-authored module per card — lives next door in `card_catalogue/`
+  (see "Hand-authored card catalogue layout" below), not in this package;
+  the two names are deliberately parallel (registry = mechanism, catalogue
+  = content) after `ability_catalogue` stopped describing either half well
+  once card content moved out of it.
 - `targeting.py` — legal-target computation (RULE 115 / 601.2c).
 - `mana_abilities.py`, `models/mana_cost.py`, `models/mana_pool.py` — mana.
+
+### Hand-authored card catalogue layout (`game/card_catalogue/`)
+
+2026-09-16: with hand-authoring now the dominant way new individual cards
+get added (the parser front-end's marginal gains are mostly *generalizable*
+handlers, not one-off cards any more — see the "Oracle-text parser" summary
+below), the ~990 hand-authored card entries were pulled out of the former
+`ability_catalogue/`'s ~20 thematic modules (`black.py`, `graveyard.py`,
+`damage_prevention.py`, `special_mechanics.py` for everything that didn't
+fit a theme, …) into their own sibling package, **one file per card**, so a
+card's entry is a `git log`/`grep`-able unit instead of one factory buried
+among ~50-170 others in a themed file that had stopped meaning much once
+"does this fit `black.py`'s theme" became less useful than "which file is
+this card in". The old package was then renamed `card_registry/` (from
+`ability_catalogue/`) since "catalogue" no longer described a package
+holding zero cards — it's the registration *mechanism* `card_catalogue`
+calls into, not a catalogue of anything itself:
+
+- `game/card_catalogue/<letter>/<slug>.py` — `<letter>` is the card's
+  registered name's lowercased first letter (`a`/`b`/`c`/…; no `x` yet;
+  `misc`/`0-9` are reserved for a name that doesn't start with a letter,
+  not currently needed), `<slug>` is the name lowercased with runs of
+  non-alphanumerics collapsed to `_` (e.g. `c/circle_of_solace.py`, `t/
+  the_master_gallifreys_end.py`). Exactly one `def _card() -> list[
+  AbilitySpec]: ...` + `register("Card Name", _card)` pair per file — the
+  same shape every hand-authored entry has always had (see the authoring
+  guide), just no longer sharing a file with a hundred siblings.
+- `game/card_catalogue/_shared/` — the one carve-out: helpers genuinely
+  reused by **several** cards that don't fit `register_family`'s
+  single-`EffectSpec`-shape template (e.g. `_shared/licid.py`'s `_licid`
+  factory for the Tempest Licid cycle, MEC-47 — 13 cards, one shared
+  become-Aura/revert mechanism, each own file importing it). Not a letter
+  folder, not swept by `card_catalogue/__init__.py`'s import list; each
+  member imports it directly. Reach for this only once ≥2 cards need the
+  same non-trivial helper — a single card's own private constant/helper
+  stays inlined in that card's own file instead (unchanged from before).
+- A mechanically-identical **cycle** (Circle of Protection/Rune of
+  Protection, `families.register_family`) still gets one file per member —
+  `register_family` takes an `entries` list, so a single-entry list per
+  file is exactly as valid as one call registering the whole cycle; the
+  shared template's own doc comment is duplicated across every member's
+  file rather than centralized, since each file has to stand on its own.
+- `game/card_catalogue/__init__.py` explicitly imports every letter
+  subpackage (`from . import a, b, c, …`), and each letter's own
+  `__init__.py` explicitly imports every card module in it — mirroring
+  `card_registry/__init__.py`'s former per-module import list: stable
+  and grep-able rather than a directory scan. `card_registry/__init__.py`
+  pulls in `card_catalogue` itself (after `.core`'s `register` is bound,
+  so this isn't a circular import — `card_catalogue`'s own modules import
+  `register`/`register_family` straight from `card_registry.core`/
+  `.families`, never through the parent package) so every existing call
+  site that does `from .. import card_registry` to trigger registration
+  keeps working unchanged; nothing outside `card_registry/` needed to
+  change for the split, and the later rename was a mechanical identifier
+  swap across both packages plus every call site (no behavior change).
+  Verified byte-for-byte behavior-preserving at migration time:
+  `registry_signature()` unchanged, and every one of the ~990
+  factories' own `repr()`'d output diffed identical against the pre-move
+  code.
+- The **`hand-author-card`** skill/`author_card.py` targets this layout —
+  `scaffold` prints the exact `card_catalogue/<letter>/<slug>.py` path plus
+  the imports a new standalone file needs (not a snippet to paste into an
+  existing themed file), and `similar`/`check` search the whole
+  `card_catalogue/` tree. See
+  [11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md)
+  for the field-by-field how-to.
 
 ## Implementation state (summary)
 
@@ -421,6 +599,22 @@ version is the frontend **Engine-Status tab**
 (`frontend/src/js/implementationStatusView.js`) — keep it in sync when engine
 coverage changes. Search those for a mechanic's name rather than re-deriving
 its state from the code or duplicating detail here.
+
+**Deck analysis: Commander Spellbook combos.** The backend's local
+`CommanderSpellbookDatabase` (`services/commander_spellbook_database.py`)
+downloads Spellbook's compressed bulk snapshot only on first combo matching
+or explicit refresh, stores canonical variant/alias JSON plus indexed card
+uses and checksums in SQLite, and reports snapshot diffs. The static deck
+analysis lists exact-name fixed-use matches; template requirements are
+displayed but not verified. Only two-card matches with explicit infinite
+outputs and no template requirements affect the unofficial Bracket estimate.
+Its early/late split schedules the individual combo-card mana values across
+the deck's max-expected per-turn curve (no mana carries over; ramp payments
+are subtracted so they aren't spent twice) through turn 6; it assumes all
+pieces are available and is a project heuristic, not an official WotC numeric
+rule. See
+[docs/Reference/COMMANDER_SPELLBOOK.md](docs/Reference/COMMANDER_SPELLBOOK.md)
+for the upstream contract and limits.
 
 **The rules engine is broadly complete.** Implemented, in brief:
 
@@ -447,17 +641,24 @@ its state from the code or duplicating detail here.
   creation, copy, cascade/discover, proliferate, fight, board wipes, and
   most one-shot families the parser emits.
 - **Keyword actions** — every RULE 701 keyword action has an engine
-  primitive (PAR-29, closed).
+  primitive (PAR-29, closed); Empower Jace (MEC-110, RULE 701.71) creates
+  and empowers Jace planeswalker tokens with live loyalty abilities and
+  an untargeted choice among multiple tokens.
+- **Recent keyword/defined-term mechanics** — Gift (RULE 702.174: opponent
+  choice, resolution/ETB delivery, promised-gift branches and targets) and
+  Expend (RULE 700.14: per-turn spell-mana thresholds) are engine-backed and
+  parser-reachable.
 - **Designations & subsystems** — planeswalkers, commander damage + tax,
   Monarch, Initiative, The Ring, emblems, Speed, the Case solve machine,
   energy, poison/infect/wither/toxic; controlling another player's
   turn/combat (RULE 720 — Mindslaver/Emrakul family; `GameState.
   TurnControl` + `GameSession` decision routing).
-- **Card-type structures** — DFC transform + day/night/daybound; modal-DFC/
-  Adventure/Split-Fuse/Prepared casting; Sagas, Class/Leveler/Station
-  level-ups; battles (RULE 310); face-down permanents (morph/manifest/
-  disguise/cloak); dungeons + venturing (RULE 309); the RULE 9 casual
-  variants (Planechase/Archenemy/Vanguard).
+- **Card-type structures** — DFC transform + day/night/daybound; meld
+  (RULE 701.42 — exile the pair, one melded permanent, un-melds on leave);
+  modal-DFC/Adventure/Split-Fuse/Prepared casting; Sagas, Class/Leveler/
+  Station level-ups; battles (RULE 310); face-down permanents (morph/
+  manifest/disguise/cloak); dungeons + venturing (RULE 309); the RULE 9
+  casual variants (Planechase/Archenemy/Vanguard).
 
 **The oracle-text parser is the main ongoing effort.** Pipeline:
 `normalize` → `segmenter` → `catalogue/handlers` → `gate.parse_oracle`,
@@ -473,28 +674,36 @@ trail. The RULE 702 keyword catalogue (~195 rows,
 proof of engine behaviour; don't cite a keyword as implemented from the
 catalogue's mere existence.
 
-**Coverage: 40.3% (14,029 / 34,811) as of 2026-09-06, PARSER_VERSION 274**
-(parser-`MODELED` or hand-`AUTHORED`, measured against the full ~35k-card
-Oracle universe from `scripts/import_bulk.py`). Re-measure with
-`scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
-before trusting this number. The **Commander-legal** slice — the subset
-that matters for Goldfisch/Deck-Analyzer — is ~42.1% (13,387 / 31,830);
-measure it with `scripts/coverage_report.py --commander-legal-only`
-(records a separate `…-commander` snapshot row) and segment the
-still-UNMODELED remainder by *cause* (wrapper re-measure / recurring
-template → `PAR-*` / set-specific → `PAR-*` / missing primitive → `MEC-*` /
-bespoke hand-authoring tail) with the read-only
-`scripts/commander_tail_report.py`. The per-version changelog and the long-tail
-strategy (recurring lessons, worked samples) are in
-`docs/implementation-state/PARSER_LONG_TAIL.md`; open parser tickets are
-`PAR-*` in `BACKLOG.md`. **Stickers (RULE 123) are a permanent project
-non-goal** — the gate classifies any "sticker" card as `NEVER_SUPPORTED`, a
-verdict distinct from `UNMODELED` and kept out of both the covered count and
-the backlog ranking.
+Phase-trigger bodies can bind "that player" to the active player (PAR-100),
+including linked instructions and optional choices. The acting player is
+preserved across suspended effects. Additional draws accept fixed plural
+counts; Teferi's Puzzle Box uses hand-to-library ordering followed by a draw
+of the saved hand size, and Academy Loremaster uses a turn-scoped spell tax.
 
-**Notable open gaps** are tracked with exact scope in `BACKLOG.md`: a kicked
-spell's "if kicked, … instead" *override* conditional (the additional-effect
-shape is shipped); Doomsday's "exile up to five cards in a pile"; the oracle
+**Coverage: 58.1% (20,372 / 35,046) as of 2026-10-04, measured at
+PARSER_VERSION 604** (parser-`MODELED` or hand-`AUTHORED`, measured against
+the full ~35k-card Oracle universe from `scripts/import_bulk.py`, excluding
+Sticker Sheet inserts by type line under RULE 123.2). Re-measure
+with `scripts/coverage_report.py` (ledger-backed, `services/coverage_db.py`)
+before trusting this number. The last measured **Commander-legal** slice — the subset that
+matters for Goldfisch/Deck-Analyzer — was **60.9% (19,539 / 32,068)** at v593; measure
+it with `scripts/coverage_report.py --commander-legal-only` (records a
+separate `…-commander` snapshot row) and segment the still-UNMODELED
+remainder by *cause* (wrapper re-measure / recurring template → `PAR-*` /
+set-specific → `PAR-*` / missing primitive → `MEC-*` / bespoke hand-authoring
+tail) with the read-only `scripts/commander_tail_report.py`. A shipped
+handler's own narrative — what it does and why it was built that way —
+belongs in `Done_Backend.md` under the primitive's subsystem heading, not
+here; the long-tail strategy (recurring lessons, worked samples, known-open
+clusters) is in `docs/implementation-state/PARSER_LONG_TAIL.md`. Open parser
+tickets are `PAR-*` in `BACKLOG.md`. **Stickers (RULE 123) are a permanent
+project non-goal** — the gate classifies any "sticker" card as
+`NEVER_SUPPORTED`, a verdict distinct from `UNMODELED` and kept out of both
+the covered count and the backlog ranking.
+
+**Notable open gaps** are tracked with exact scope in `BACKLOG.md`:
+Doomsday's "exile up to five cards in a pile";
+the oracle
 coverage of the battle pool (the RULE 310 engine is done, ~12 of 39 cached
 battles MODELED); and assorted rough edges on already-shipped features.
 **PAR-30** — PAR-29's residual per-card effect-body grammar — is the current
@@ -502,20 +711,23 @@ parser push.
 
 Hand-authoring a card's abilities directly (rather than waiting on the
 oracle-effect front-end, or for a replacement-clause/conditional-trigger the
-front-end can't express yet) goes in `game/ability_catalogue.py` — see
+front-end can't express yet) goes in `game/card_catalogue/` — see
 [docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md)
 for the field-by-field how-to and the full `EffectSpec`/layer whitelist.
 
-Implementation state is three kinds of document, kept strictly apart —
-**open points**, **worklogs**, **examples** — all under
+Implementation state is five kinds of document, kept strictly apart —
+**open points**, **worklogs**, **examples**, **singleton queue**, **working
+memory** — all under
 `docs/implementation-state/`:
 
 | Kind | File | Rule |
 | --- | --- | --- |
-| Open points | `BACKLOG.md` | The *single* backlog, backend **and** frontend, as categorized tickets (`ENG` game engine, `PAR` parser, `MEC` game mechanics, `PLR` player management, `VIS` visuals, `DB` database, `ANA` deck analysis — the former `TYP` card-types category is retired, RULE 300–315 being complete). Open scope only — no history. **Up-for-scheduling work only**; parked/low-priority tickets and permanent non-goals move to `DEFERRED.md` so this file stays cheap to read in full. |
+| Open points | `BACKLOG.md` | The *single* backlog, backend **and** frontend, as categorized tickets (`ENG` game engine, `PAR` parser, `MEC` game mechanics, `PLR` player management, `VIS` visuals, `DB` database, `ANA` deck analysis, `BUG` bugs in shipped behaviour — the former `TYP` card-types category is retired, RULE 300–315 being complete). Open scope only — no history, and no *residue*: a partly done ticket stays here only as its terse open point (id, title, one-clause scope). **Up-for-scheduling work only**; parked/low-priority tickets and permanent non-goals move to `DEFERRED.md` so this file stays cheap to read in full. |
 | Parked / non-goals | `DEFERRED.md` | Low-priority or large-and-unscheduled tickets pulled out of `BACKLOG.md` (they keep their id + full write-up), plus the "never to be built" guardrails (Stickers, Attractions, Vanguard avatars). Same open-scope-only discipline. Promote by moving a block back into `BACKLOG.md`. |
 | Worklogs | `Done_Backend.md`, `Done_Frontend.md` | Catalogues, organized by game-mechanic/app-area (not chronologically) — what shipped and *why it was built that way*, one entry per feature/primitive under a subsystem heading. Entry headings are the stable, searchable unit now (not the whole file being append-only); closing a ticket means filing its narrative under the matching subsystem entry, merging into it if one already covers the same primitive, rather than appending at the end. |
 | Examples | `PARSER_LONG_TAIL.md` | Standing strategy + recurring lessons + enumerated worked samples for the indefinite parser tail. Neither backlog nor worklog. |
+| Singleton queue | `singletons.md` | Cards confirmed (via `parser_probe.py blocked`) to share their exact gap with no other cached card — real work, but not ticket-worthy on their own. A queue for `hand-author-card`, not a ticket; promote a row into a real ticket the moment a second card is found sharing its shape. |
+| Working memory | `workingOn.md` | The resumable state of the ticket **being built right now** — done / in progress / exact next step / decisions / baselines / known red tests, one block per ticket — including a **partly done ticket's residue** (exactly what is still open, and the next step), which lives here rather than in `BACKLOG.md` and keeps the block alive until the residue is done. **Read it first** when starting or resuming ticket work and continue from its *Next step* instead of re-deriving the state; **update it at every milestone** (sub-step built + tested, decision, before a long run or a commit) so a crash, an expired prompt cache or an update loses nothing. On closing the ticket delete its block — only the empty header/template stays (no ticket id, no log). |
 
 (The former `backend/ToDo_Backend.md` and `frontend/ToDo_Frontend.md` are
 gone — merged into `BACKLOG.md`.) The plan to finish is
@@ -532,6 +744,10 @@ files, and the original phased `IMPLEMENTATION_GUIDE.md`). See
 (how to *use* the app — deck import, Goldfisch, Replay/Puzzle, settings —
 not how it's built) lives separately in [`user-docs/`](user-docs/), in
 English and German.
+
+### Blitz (MEC-109)
+
+`backend/mtg_analyzer/game/blitz.py` implements RULE 702.152: alternative payments, Henzie grants/discounts, perpetual grants and the next-end-step sacrifice. Casting and legal-action mixins pass a zero-based `blitz` instance index through the session API. `backend/tests/test_blitz.py` covers the lifecycle and costs; Blitz does not inherently exile the creature.
 
 ## Conventions & gotchas
 
@@ -655,8 +871,16 @@ English and German.
   (a saved-deck/cube playability push) gets one short entry under `##
   Deck/Cube Playability Batches` instead, naming what closed and pointing
   at the primitive entries it used. Never leave a `[x]`, a "shipped" note,
-  or even a "moved to Done_*.md" pointer in `BACKLOG.md`; if only part of a
-  ticket is done, keep only the part that isn't. Finished detail left in the
+  or even a "moved to Done_*.md" pointer in `BACKLOG.md`. **If only part of
+  a ticket is done, its residue does not go into `BACKLOG.md`**: the backlog
+  keeps just the ticket's terse open point (id, title, one-clause scope, no
+  "residue" lists, no progress notes), and what is still open — the
+  remaining card clusters, blockers, the exact next step — goes into the
+  ticket's block in `docs/implementation-state/workingOn.md`, which stays
+  until that residue is done. A "small residue batch" ticket (the
+  anti-proliferation bundle `BACKLOG.md`'s preamble describes) is an
+  ordinary open point and stays in `BACKLOG.md` until a run starts it;
+  from then on the same rule applies. Finished detail or residue left in the
   backlog defeats the split and taxes every future read.
 - **No half-implementations — close the loop, don't let a deferred item
   silently roll over.** Every batch/session prioritizes by real
@@ -678,7 +902,7 @@ English and German.
   "grant an activated ability" (Umbral Mantle/Squirrel Nest) was deferred
   as needing a new primitive in Batch 3, confirmed again in Batch 7, and
   is *still* neither built nor hand-authored as the stopgap this repo's
-  own escape valve explicitly sanctions (`game/ability_catalogue.py` — see
+  own escape valve explicitly sanctions (`game/card_catalogue/` — see
   [docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md)),
   three rounds of deferral in. To prevent this: (1) before writing "needs a
   new primitive/mechanism" in a `BACKLOG.md` ticket, grep `game/effects.py`/
@@ -698,14 +922,17 @@ English and German.
 
 | Task | Start in |
 | --- | --- |
+| Playing a card during a resolving effect (RULE 608.2g) | `effects.GameContext.offer_play_during_resolution`, `GameEngine.play_resolution_card` / `resolution_play_actions`, and the matching `services/game_session.py` action/choice path; preserves targets, modes, additional costs and land-play limits without a turn-long grant |
 | Combat / keywords | `game/combat.py`, `game/game_engine.py` (`_step_combat_damage`) |
 | Static abilities / P/T / anthems | `game/continuous.py`, `models/game_object.py` |
-| "As long as …" conditions on a static (RULE 613.6) | `game/static_conditions.py` (the whitelist + evaluator), a static's `active_if` param, `parser/oracle/catalogue/static_handlers.py` (`_STATIC_CONDITION_RES`, `_conditional_static_specs`) |
+| "As long as …" conditions on a static (RULE 613.6) | `game/static_conditions.py` — the project's **single state-predicate vocabulary**, read by statics' `active_if`, trigger intervening-ifs, `binding/core.py`'s replacement gate and (via `game/effect_conditions.py`) resolving effects; includes `opponent_was_dealt_damage_this_turn` (damage per opponent, distinct from life loss); plus `parser/oracle/catalogue/static_handlers.py` (`_STATIC_CONDITION_RES`, `_conditional_static_specs`) |
 | "Until …" durations on a continuous effect (RULE 611) | `game/durations.py`, `GameState.floating_statics`, `effects.GrantUntilEffect` — note "until end of turn" stays on the `temp_*` path |
 | How many targets a spell/ability wants (RULE 115.1/601.2c) | `game/targeting.py` (`TargetSpec.count`/`count_max`/`count_selector`, `effective_count`, `resolved_count`, `expand_counts`/`collapse_groups`) |
-| A clause naming what a previous clause targeted or created | `effects.GameContext.previous_targets` / `created_objects` (both maintained by `_apply_effects_partitioned`) |
+| "Another target land" / "another target land you control" | `game/targeting.py` (`other_land` / `other_land_you_control` exclude the source; ordinary land kinds include it), `parser/oracle/catalogue/subgrammars.py` (`OTHER_TARGET_KINDS`) |
+| A clause naming what a previous clause targeted, created, or revealed | `effects.GameContext.previous_targets` / `created_objects` / `revealed_card` (all maintained by `_apply_effects_partitioned`; `revealed_card` is the `of: "revealed"` referent, set by `reveal_top`) |
+| "It" / "that creature" under a group trigger ("whenever a creature you control enters …", RULE 603.1) | `game/effects/composition.py`'s `TriggerSubjectReferentEffect` (`trigger_subject_referent`: seeds `previous_targets`, runs a body *against* the firing object, `acting="controller"` for "its controller …", `event_key="remembered"` inside a payment's "if you do"); the parser reaches it from `parser/oracle/catalogue/handlers.py`'s `match_clause` (group fallbacks, tried only after every row written for the group subject), `parser/oracle/catalogue/referent_condition.py` (conditions on "it") and `segmenter._referent_characteristic_specs` / `_hoist_referent_seed`; a bare `it` read as the *source* under a group trigger is wrong-but-MODELED — see the PAR-123 lesson in `PARSER_LONG_TAIL.md` |
 | Activated abilities / costs | `game/costs.py`, `game/game_engine.py` (`activate_ability`) |
-| Card abilities / fetch lands / enters-tapped | `game/ability_catalogue.py`, `effect_binder.bind_from_catalogue` |
+| Card abilities / fetch lands / enters-tapped | `game/card_catalogue/` (one file per card), `game/card_registry/` (the `register`/`specs_for` mechanism), `effect_binder.bind_from_catalogue` |
 | Hand-authoring a specific card's effects | `hand-author-card` skill, [docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md) |
 | Effects / triggers | `game/effects.py`, `game/effect_binder.py` |
 | Which trigger conditions the parser recognizes | `parser/oracle/segmenter.py` (`_TRIGGER_VERBS` object subjects, `_PHASE_STEP_WORDS`, `_PLAYER_TRIGGER_CONDITIONS` "whenever **you** scry/surveil", `_VARIANT_TRIGGER_CONDITIONS`) |
@@ -713,21 +940,64 @@ English and German.
 | Dungeons + venturing | `models/dungeon.py`, `game/dungeons.py`, `services/dungeon_database.py`, `rules_engine.venture_into_the_dungeon` |
 | Formats & casual variants (Planechase/Archenemy/Vanguard) | `models/game_format.py`, `game/variants.py`, `services/variant_card_database.py`, `game_engine.new_game(game_format=…)` |
 | "Play/cast from top of library" permission | `game/top_library.py`, `game/game_engine.py` (`can_play_land`/`can_cast`/`legal_actions`), `gameBoardView.js` (`libraryTopHtml`) |
+| Who an effect acts on / how much it measures (an operand naming a referent) | `backend/mtg_analyzer/game/effect_operands.py` (`{"of": …, "as": "controller"}`), `game/effect_amounts.py`; both resolve referents through `effect_conditions.subject_of` |
+| Combining effects: branching, "you may", "for each", "…equal to" | `backend/mtg_analyzer/game/effects/composition.py` (`seq`/`if_else`/`optional`/`for_each`/`bind`), `game/effect_amounts.py` (what `bind` measures) |
+| An "if `<predicate>`, `<effect>`" gate on a resolving effect (RULE 603.4/702.33b) | `backend/mtg_analyzer/game/effect_conditions.py` (referents + the `GameContext` predicates + the flat-key translator), `game/static_conditions.py` (every state predicate, shared with statics/triggers/replacements), `parser/oracle/segmenter.py`'s `_CONDITION_PREFIXES` |
+| A player choice: opening one, answering one, adding a new kind | `backend/mtg_analyzer/game/continuations.py` (the handler registry), `RulesEngine.open_choice`/`resolve_choice` |
+| What an effect type/engine method *is* (instruction/fusion/alias/…) | `backend/mtg_analyzer/game/isa.py`, `scripts/isa_report.py --registry` |
+| Which operations the corpus actually uses, and their argument frames | `scripts/isa_report.py --corpus` (re-derives `13_` §5.6b from the ledger) |
+| What a `TargetSpec.kind` decomposes into (types × scope × filters) | `game/targeting.py`'s `TARGET_FRAMES` |
 | On-disk paths / env-var config | `backend/mtg_analyzer/config.py` |
 | Goldfish UI | `frontend/src/js/goldfishView.js` |
 | Solo vs. bots (Multiplayer engine, no lobby) | `backend/mtg_analyzer/api/solo.py`, `frontend/src/js/soloView.js`; shared picker/mulligan/banner markup in `frontend/src/js/gameSetup.js` (also used by goldfish/multiplayer) |
 | Multiplayer (lobby, seats, shared board) | `backend/mtg_analyzer/services/lobby.py`, `api/multiplayer.py`, `api/multiplayer_ws.py`, `frontend/src/js/multiplayerView.js`, `lobbySocket.js`, `bannerColors.js` (seat banner colours) |
-| Bots filling a multiplayer seat (UC5) | `backend/mtg_analyzer/services/bots.py` (`Bot`/`GoldfishBot`/`GreedyBot`/`run_bots`), `services/lobby.py` (`Seat.bot_kind`, `add_bot`), `frontend/src/js/multiplayerView.js` (`addBotHtml`/`seatRowHtml`) |
+| Bots filling a multiplayer seat (UC5) | `backend/mtg_analyzer/services/bots.py` (registry/driver, compatible class exports; individual policies in `services/bot_policies/`, deck planning in `services/bot_strategy.py`), `services/lobby.py` (`Seat.bot_kind`, `add_bot`), `frontend/src/js/multiplayerView.js` (`addBotHtml`/`seatRowHtml`) |
 | Replay/Puzzle mode (build+save/load a board) | `backend/mtg_analyzer/services/replay.py`, `game_session.py` (`edit_*` actions), `frontend/src/js/replayView.js` |
 | Archidekt deck import proxy | `backend/mtg_analyzer/services/archidekt_client.py`, `api/import_external.py` (Moxfield was tried and reverted twice — Cloudflare-blocked; don't re-add it without checking that's changed) |
 | Refreshing the full Oracle card pool (new set) | `backend/scripts/update_card_pool.py` — re-downloads the Scryfall `oracle_cards` bulk dump, merges it into `RawCardStore`, reseeds the app cache, and prints a ban-list drift heads-up (`scripts/import_bulk.py` is first-load only; its default reuses an on-disk dump) |
+| Commander Spellbook combo snapshot, lazy matching, and Bracket signals | `backend/mtg_analyzer/services/commander_spellbook_database.py`, `api/combos.py`, `frontend/src/js/analyzeView.js`, `deckAnalysis.js`; full data contract, DB lifecycle, matching limits, and the narrow infinite-combo heuristic in [docs/Reference/COMMANDER_SPELLBOOK.md](docs/Reference/COMMANDER_SPELLBOOK.md) |
 | Applying a ban-list update | `backend/scripts/update_ban_lists.py` — rewrites a hand-maintained ban-list constant (`BAN_LIST_TARGETS`, just `services/commander_legality.py`'s `BANNED_COMMANDER_CARDS` today) straight from the raw store's live `legalities` data; no network of its own, run `update_card_pool.py` first. `--format <key>`/`--dry-run` |
 | Player-uploaded token art / card-back sleeves | `backend/mtg_analyzer/services/player_assets.py`, `api/player_assets.py`, `frontend/src/js/profileView.js` (upload UI + player name), `gameBoardView.js` (`resolveImageUrl`/`setAssets`) |
 | Default art for a vanilla ("1/1 white Soldier") token | `backend/mtg_analyzer/services/token_database.py` (`TokenArtLibrary`, keyed by exact name/power/toughness/colors — a token name is reprinted at multiple stat lines across sets), `data/token_art.json`, `scripts/build_token_art_library.py` (rebuild from a fresh Scryfall bulk dump); consumed by `synthesize_token_card` and `services/replay.py`'s `_token_card` |
 | Engine coverage doc (user-facing) | `frontend/src/js/implementationStatusView.js` |
+| Resuming a ticket someone (or a crashed session) was building | [docs/implementation-state/workingOn.md](docs/implementation-state/workingOn.md) — its block's *Next step*; update it as you go, delete the block on close |
 | What's still open (any area) | [docs/implementation-state/BACKLOG.md](docs/implementation-state/BACKLOG.md) — tickets by category; parked/low-priority + non-goals in [DEFERRED.md](docs/implementation-state/DEFERRED.md) |
 | Why shipped work looks the way it does | [Done_Backend.md](docs/implementation-state/Done_Backend.md) / [Done_Frontend.md](docs/implementation-state/Done_Frontend.md) |
 | Parser-tail strategy, lessons, worked samples | [docs/implementation-state/PARSER_LONG_TAIL.md](docs/implementation-state/PARSER_LONG_TAIL.md) |
 | Looking up a `RULE <n>` in the CR text | `docs/Reference/rules_wiki/` (rule#/term → source line; see its `README.md`) |
 | Full docs/ map (requirements/concepts/Reference/implementation-state) | [docs/README.md](docs/README.md) |
 | How to *use* the app (not build it) | [user-docs/](user-docs/) (English + German) |
+
+## Local bug reports
+
+The bug icon beside Settings opens a report dialog. `POST /api/bug-reports`
+saves gzip-compressed UTF-8 JSON (`.json.gz`, report version 2) in the Git-ignored **`bug-reports/`** directory at the repo
+root (override: `MTG_BUG_REPORT_DIR` or config.json `paths.bug_report_dir`).
+Reports include the description, originating view, session mode, current
+portable replay and diagnostic state, plus the last **12 actions** by default
+(user-selectable up to the retained history limit). Each retained action has
+its label, actor, step cursor, pre-action replay and diagnostic state. Reports
+outside a game have `game: null`. Files contain hidden game zones and are local
+user data; do not commit them or delete them without an explicit request.
+
+Report v2 stores card descriptors once (content-keyed variants preserve tokens,
+transforms and copies) and one chronological base position plus lossless deltas
+for subsequent pre-action positions and the current position. These are storage
+changes only; gameplay HTTP/WebSocket views are unchanged. Read both legacy v1
+JSON and v2 gzip reports with `services.bug_report_codec.load_report(path)`.
+To expand for inspection, run from the repo root:
+`PYTHONPATH=backend backend/venv/bin/python -m mtg_analyzer.services.bug_report_codec bug-reports/<id>.json.gz /tmp/mtg-report-expanded.json`
+(the destination must not already exist).
+
+When asked to analyze a bug report, inspect this folder (or its configured
+location), expand it with the codec and start with `description` and
+`game.recent_actions` in chronological order. Extract `game.replay` or an
+entry's `replay_before` into a temporary JSON file to import in Replay mode.
+Use `state`/`state_before` to inspect stack, pending choices and other diagnostic
+context. Portable Replay restores an editable board, not every runtime engine
+continuation; do not assume it faithfully reproduces a pending stack/choice.
+Action labels are descriptive, not executable action payloads. Reproduce the
+reported interaction, consult the Rules-Wiki when rules are involved, and add
+an appropriate regression test before fixing it. Keep investigation notes
+in temporary unversioned files; record only verified lasting conclusions in
+project documentation. Preserve the original report.

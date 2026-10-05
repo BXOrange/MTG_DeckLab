@@ -35,7 +35,7 @@ import json
 from pathlib import Path
 from typing import Optional, Union
 
-from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.cards.card import Card
 
 #: The committed token catalogue that ships with the package.
 DEFAULT_TOKENS_PATH = Path(__file__).resolve().parent.parent / "data" / "tokens.json"
@@ -164,6 +164,21 @@ def default_token_art_library() -> TokenArtLibrary:
     if _default_art_library is None:
         _default_art_library = TokenArtLibrary()
     return _default_art_library
+
+
+def jace_token_card() -> Card:
+    """RULE 701.71: nonlegendary blue Jace with zero starting loyalty."""
+    art = default_token_art_library().find("Jace", None, None, ["U"])
+    return Card(
+        id=art["id"] if art else "token:empower-jace",
+        name="Jace", type_line="Token Planeswalker — Jace",
+        color_identity={"U"}, loyalty=0,
+        oracle_text="−1: Surveil 1.\n−3: Draw a card.",
+        image_uri_small=art["image_uri_small"] if art else "",
+        image_uri_normal=art["image_uri_normal"] if art else "",
+        image_uri_large=art["image_uri_large"] if art else "",
+        image_uri_png=art["image_uri_png"] if art else "",
+    )
 
 
 def synthesize_token_card(

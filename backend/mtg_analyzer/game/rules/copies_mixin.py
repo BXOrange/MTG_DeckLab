@@ -21,21 +21,21 @@ from __future__ import annotations
 import re
 from typing import Any, Callable, Optional, Union
 
-from ...models import card_query
-from ...models.card import Card
-from ...models.emblem import Emblem
-from ...models.events import EventType, GameEvent
-from ...models.game_object import GameObject, Zone
-from ...models.game_state import DelayedTrigger, GameState, StackItem
-from ...models.mana_cost import ManaCost
-from ...models.player import Player
+from ...models.cards import card_query
+from ...models.cards.card import Card
+from ...models.game.emblem import Emblem
+from ...models.game.events import EventType, GameEvent
+from ...models.game.game_object import GameObject, Zone
+from ...models.game.game_state import DelayedTrigger, GameState, StackItem
+from ...models.mana.mana_cost import ManaCost
+from ...models.game.player import Player
 from ...parser.oracle.catalogue.keywords import parse_keywords
 from ...parser.oracle.catalogue.saga import all_chapter_numbers
-from .. import ability_catalogue, combat, continuous, copy_mechanics, dungeons, face_down, variants
+from .. import card_registry, combat, continuous, copy_mechanics, dungeons, face_down, variants
 from ..combat import is_protected_from
 from ..costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from ..mana_abilities import restriction_predicate_for_cast
-from ..effects import (
+from ..effects.core import (
     _apply_effects_partitioned,
     AddCountersEffect,
     CompleteDungeonEffect,
@@ -71,6 +71,7 @@ from ..effects import (
     WinConditionEffect,
 )
 from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_targets
+from .. import continuations
 
 def _saga_final_chapter(card: Card) -> int:
     """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
@@ -156,6 +157,7 @@ class CopiesMixin:
         set_power: Optional[int] = None,
         set_toughness: Optional[int] = None,
         set_colors: Optional[list[str]] = None,
+        add_colors: Optional[list[str]] = None,
     ) -> list[GameObject]:
         """Create ``count`` token copies of ``source`` (RULE 707.2 / 111.5).
 
@@ -167,19 +169,28 @@ class CopiesMixin:
 
         ``add_types``/``add_subtypes``/``not_legendary`` are a copy effect's
         own "except it's a(n) X in addition to its other types"/"except it
-        isn't legendary" clause (RULE 706.10 — Copy Artifact/Rite of
+        isn't legendary" clause (RULE 707.10 — Copy Artifact/Rite of
         Replication/Multiversal Recruitment-shaped), the same `Card.as_copy`
         modifiers `copy_mechanics.become_copy` already applies for the
         enters-as-a-copy replacement shape.
         """
         copiable = getattr(source, "_front_card", source.card)
+        if add_colors:
+            # "…in addition to its other colors" (PAR-135): the copiable colours plus these, expressed
+            # through `Card.as_copy`'s replace-only ``set_colors`` so the card model needs no change.
+            set_colors = sorted({*(set_colors if set_colors is not None else copiable.color_identity), *add_colors})
         if (add_types or add_subtypes or not_legendary or set_power is not None
                 or set_toughness is not None or set_colors is not None):
             copiable = copiable.as_copy(
                 add_types=add_types, add_subtypes=add_subtypes, not_legendary=not_legendary,
                 set_power=set_power, set_toughness=set_toughness, set_colors=set_colors,
             )
-        return self.create_token(controller_id, copiable, count)
+        tokens = self.create_token(controller_id, copiable, count)
+        # MEC-98: a copy carries the original's perpetual changes (Alchemy).
+        for token in tokens:
+            token.copy_perpetual_from(source)
+        return tokens
+
     def _apply_populate_enter_state(
         self, tokens: list[GameObject], enter_state: Optional[dict]
     ) -> None:
@@ -212,7 +223,7 @@ class CopiesMixin:
         ``enter_state`` (``{"tapped": bool, "attacking": bool}``) is a
         trailing "That token enters tapped and attacking" rider — applied to
         the copy here in the degenerate paths, carried on the
-        ``pending_choice`` for the interactive one (`resolve_populate_choice`).
+        ``pending_choice`` for the interactive one (`_resume_populate`).
         """
         tokens = [
             obj
@@ -227,7 +238,7 @@ class CopiesMixin:
             made = self.copy_permanent(player.id, tokens[0])
             self._apply_populate_enter_state(made, enter_state)
             return made
-        self.state.pending_choice = {
+        self.open_choice({
             "kind": "populate",
             "player_id": player.id,
             "prompt": "Bevölkern: welches Kreaturen-Token wird kopiert?",
@@ -236,18 +247,15 @@ class CopiesMixin:
                 for obj in tokens
             ],
             **({"enter_state": dict(enter_state)} if enter_state else {}),
-        }
+        })
         return []
-    def resolve_populate_choice(self, instance_id: Optional[int]) -> None:
+    @continuations.choice("populate", answer=continuations.ANSWER_INT, rule="701.36")
+    def _resume_populate(self, choice: dict[str, Any], instance_id: Optional[int]) -> None:
         """Answer a pending `populate` choice: create a token copy of the
         chosen creature token. A missing/unrecognized answer defaults to the
         first offered token — populate is mandatory once you control one
         (RULE 701.36a has no "you may")."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "populate":
-            raise ValueError("no pending populate choice to resolve")
         player = self.state.player_by_id(choice["player_id"])
-        self.state.pending_choice = None
         offered = [opt["instance_id"] for opt in choice["options"]]
         chosen_id = instance_id if instance_id in offered else (offered[0] if offered else None)
         chosen = self._object_by_instance_id(chosen_id) if chosen_id is not None else None
@@ -255,6 +263,21 @@ class CopiesMixin:
             made = self.copy_permanent(player.id, chosen)
             self._apply_populate_enter_state(made, choice.get("enter_state"))
         self.check_state_based_actions()
+    def _fire_spell_copied(self, item: StackItem) -> None:
+        """RULE 707.10: copying triggers Magecraft, but never cast/storm history."""
+        obj = item.obj
+        if obj is None:
+            return
+        self.state.fire_event(GameEvent(
+            EventType.SPELL_COPIED, player_id=item.controller_id,
+            instance_id=obj.instance_id, stack_id=item.stack_id,
+            object_types=sorted(obj.type_words), card_id=obj.card.id, spell=obj.name,
+            mana_value=obj.card.converted_mana_cost, x_paid=item.x,
+            target_instance_ids=[getattr(target, "instance_id", None)
+                                 for target in item.targets or []
+                                 if getattr(target, "instance_id", None) is not None],
+        ))
+
     def copy_spell(
         self,
         target: Any,
@@ -283,12 +306,14 @@ class CopiesMixin:
         704.5d stranded-token SBA the moment the resolve path routes it off
         the stack).
         """
-        from ..effect_binder import bind_from_catalogue  # function-scoped: avoid cycle
+        from ..binding.core import bind_from_catalogue  # function-scoped: avoid cycle
 
         item = self._stack_item_for(target)
         if item is None or item.obj is None:
             return []
-        copiable = getattr(item.obj, "_front_card", item.obj.card)
+        # RULE 707.10 / 715.3c: copy the spell's characteristics on the stack,
+        # including an Adventure half rather than the card's creature face.
+        copiable = item.obj.card
         copies: list[StackItem] = []
         for _ in range(count):
             copy_obj = GameObject(
@@ -297,6 +322,8 @@ class CopiesMixin:
             copy_obj.is_token = True
             copy_obj.is_copy = True
             copy_obj.x_paid = item.x
+            # RULE 707.10: copying a spell copies alternative-cost decisions.
+            copy_obj.blitz_cost_paid = item.obj.blitz_cost_paid
             bind_from_catalogue(copy_obj)
             copy_item = StackItem(
                 kind="spell",
@@ -309,27 +336,64 @@ class CopiesMixin:
                 target_groups=item.target_groups if new_targets is None else None,
             )
             self.state.stack.append(copy_item)
+            self._fire_spell_copied(copy_item)
             copies.append(copy_item)
         return copies
+    def conjure_duplicate_into_hand(
+        self, target: Any, controller_id: str,
+    ) -> Optional[GameObject]:
+        """"Conjure a duplicate of that spell into your hand." (Spellchain
+        Scatter, PAR-124) — the hand-zone sibling of `copy_spell` above: a
+        real, castable copy of a spell's own card, sitting in a hand rather
+        than resolving off the stack. RULE 707's "a copy of a card" mechanic
+        never actually distinguishes *where* the copy ends up (a token
+        permanent, a stack item, or — this project's first instance — a hand
+        card); only the destination zone differs from every other copy
+        primitive here.
+        """
+        item = self._stack_item_for(target)
+        if item is None or item.obj is None:
+            return None
+        from ..binding.core import bind_from_catalogue  # function-scoped: avoid cycle
+
+        copiable = getattr(item.obj, "_front_card", item.obj.card)
+        copy_obj = GameObject(copiable.as_copy(), owner_id=controller_id, zone=Zone.HAND)
+        copy_obj.is_token = True
+        copy_obj.is_copy = True
+        # RULE 704.5d exempts a token only while it stays a permanent; this
+        # one is deliberately created off the battlefield and meant to
+        # persist there (`GameObject.conjured_into_hand`, see its own
+        # docstring) — without this, `_remove_stranded_tokens` would reap it
+        # the instant the next SBA pass ran, before it could ever be cast or
+        # discarded.
+        copy_obj.conjured_into_hand = True
+        copy_obj.copy_perpetual_from(item.obj)  # MEC-98: a duplicate keeps perpetual changes
+        bind_from_catalogue(copy_obj)
+        player = self.state.player_by_id(controller_id)
+        if player is None:
+            return None
+        player.hand.append(copy_obj)
+        return copy_obj
+
     def copy_ability(
         self, target: Any, controller_id: str, new_targets: Optional[list[Any]] = None,
     ) -> Optional[StackItem]:
         """Put a copy of the activated ability ``target`` onto the stack
-        (RULE 706.10 — Rings of Brighthearth's "copy that ability").
+        (RULE 707.10 — Rings of Brighthearth's "copy that ability").
 
         The ability-item sibling of `copy_spell` above. An ability
         `StackItem` has no `GameObject` of its own to clone (`.obj` is
-        ``None`` — RULE 706.10/ENG-26's `StackItem.stack_id` identity
+        ``None`` — RULE 707.10/ENG-26's `StackItem.stack_id` identity
         exists for exactly this), and its `ActivatedAbility` effect object
         (`.effects[0]`, bound once at bind-on-load to the permanent whose
         ability this is) is a stateless wrapper around its own ``effects``/
         ``source`` — nothing about it is per-activation, so the copy safely
         *reuses* the original's `effects` list rather than needing a fresh
         rebuild the way a spell copy's freshly-bound `spell_effects` does.
-        Controlled by ``controller_id`` (RULE 706.10, the copier — always
+        Controlled by ``controller_id`` (RULE 707.10, the copier — always
         this same player for Rings, since it only copies abilities *you*
         activate). Keeps the original's targets by default (RULE 707.10c,
-        extended to abilities by RULE 706.10); ``new_targets`` overrides
+        extended to abilities by RULE 707.10); ``new_targets`` overrides
         that for "you may choose new targets for the copy". Pushed above
         the original so it resolves first (RULE 608.2 — LIFO).
         """
@@ -345,6 +409,9 @@ class CopiesMixin:
             targets=list(item.targets) if new_targets is None else list(new_targets),
             x=item.x,
             target_groups=item.target_groups if new_targets is None else None,
+            # A copy of "this ability" counts toward its resolutions too
+            # (Ashling the Pilgrim's ruling: Rings of Brighthearth's copy counts).
+            ability_key=item.ability_key,
         )
         self.state.stack.append(copy_item)
         return copy_item
@@ -370,9 +437,9 @@ class CopiesMixin:
         what makes the copy actually reanimate something instead of
         finding no target at all and quietly doing nothing.
         """
-        from ..effect_binder import bind_from_catalogue  # function-scoped: avoid cycle
+        from ..binding.core import bind_from_catalogue  # function-scoped: avoid cycle
 
-        copiable = getattr(obj, "_front_card", obj.card)
+        copiable = obj.card
         copy_obj = GameObject(copiable.as_copy(), owner_id=controller_id, zone=Zone.STACK)
         copy_obj.is_token = True
         copy_obj.is_copy = True
@@ -386,6 +453,7 @@ class CopiesMixin:
             targets=list(targets or []),
         )
         self.state.stack.append(copy_item)
+        self._fire_spell_copied(copy_item)
         return copy_item
     def make_prepared(self, obj: GameObject) -> None:
         """``obj`` becomes prepared (RULE 722.3a — a preparation card's
@@ -417,20 +485,26 @@ class CopiesMixin:
         target: GameObject,
         add_types: Optional[list[str]] = None,
         add_subtypes: Optional[list[str]] = None,
+        add_keywords: Optional[list[str]] = None,
+        not_legendary: bool = False,
     ) -> None:
-        """``obj`` itself becomes a copy of ``target`` (RULE 706/707.2).
+        """``obj`` itself becomes a copy of ``target`` (RULE 707.2).
 
         Delegates to `copy_mechanics.become_copy` — moved there so
         `game/continuous.py`'s layer-1 conditional-copy pass can call the
         same mutate/rebind logic without importing this module (which would
-        be circular)."""
-        copy_mechanics.become_copy(obj, target, add_types, add_subtypes)
+        be circular). ``add_keywords``/``not_legendary`` are the copy's own "except …" clause (PAR-142)."""
+        copy_mechanics.become_copy(
+            obj, target, add_types, add_subtypes, add_keywords=add_keywords, not_legendary=not_legendary,
+        )
     def become_copy_until_end_of_turn(
         self,
         obj: GameObject,
         target: GameObject,
         add_types: Optional[list[str]] = None,
         add_subtypes: Optional[list[str]] = None,
+        add_keywords: Optional[list[str]] = None,
+        not_legendary: bool = False,
     ) -> None:
         """``obj`` becomes a copy of ``target`` until end of turn (Cursed
         Mirror-style: "{T}: ~ becomes a copy of target creature until end of
@@ -442,7 +516,9 @@ class CopiesMixin:
         already-copied state."""
         if obj._copy_until_eot_base is None:
             obj._copy_until_eot_base = copy_mechanics.snapshot_face(obj)
-        copy_mechanics.become_copy(obj, target, add_types, add_subtypes)
+        copy_mechanics.become_copy(
+            obj, target, add_types, add_subtypes, add_keywords=add_keywords, not_legendary=not_legendary,
+        )
     def set_copy_target(self, obj: GameObject, target: GameObject) -> None:
         """Choose/change the target a layer-1 conditional-copy static ability
         copies (Vesuvan Shapeshifter's "you may have it be a copy of another
@@ -473,7 +549,7 @@ class CopiesMixin:
         rebound from ``card`` rather than left pointing at the old face's.
         Unlike `become_copy` this doesn't touch counters/zone/control — it's
         a face choice, not a copy effect."""
-        from ..effect_binder import bind_from_catalogue  # function-scoped: avoid a cycle
+        from ..binding.core import bind_from_catalogue  # function-scoped: avoid a cycle
 
         obj.card = card
         obj.spell_effects = []
@@ -496,7 +572,7 @@ class CopiesMixin:
         RULE 702.145, would never update). Returns whether it flipped — a
         no-op (``False``) for a card with no back face, same as
         `GameObject.transform`."""
-        from ..effect_binder import bind_from_catalogue  # function-scoped: avoid a cycle
+        from ..binding.core import bind_from_catalogue  # function-scoped: avoid a cycle
 
         if not obj.transform():
             return False
@@ -524,6 +600,78 @@ class CopiesMixin:
                 )
             )
         return True
+    def meld(
+        self, obj_a: GameObject, obj_b: GameObject, result_name: str
+    ) -> Optional[GameObject]:
+        """RULE 701.42a: meld the two cards ``obj_a``/``obj_b`` — exile them
+        and return a *single* new permanent, the meld pair's back-face
+        ``result_name`` card, under ``obj_a``'s controller's control.
+
+        RULE 701.42b/701.42c: only two real meld cards can be melded — a
+        token, or a partner this engine can't resolve to a cached card, or
+        an already-melded object, aborts the whole thing with **nothing
+        exiled** (a deliberate strengthening of 701.42c's "they stay in
+        their current zone": since the only caller is a self-checking
+        trigger, refusing before the exile is simpler and reaches the same
+        board state). Returns the melded permanent, or ``None`` if it
+        couldn't happen.
+        """
+        from ...services.card_lookup import card_by_name  # function-scoped: cache access
+
+        if obj_a is None or obj_b is None or obj_a is obj_b:
+            return None
+        if any(getattr(o, "is_token", False) or getattr(o, "is_melded", False)
+               for o in (obj_a, obj_b)):
+            return None
+        result_card = card_by_name(result_name)
+        if result_card is None:
+            return None  # offline/empty cache — RULE 608.2b "do as much as possible"
+
+        controller = self.state.player_by_id(obj_a.controller_id)
+        # RULE 701.42a "exile them" — a real zone visit so LEAVES_BATTLEFIELD /
+        # EXILE fire for each front face, then lift both out of exile into the
+        # melded permanent's limbo (`zone = None`, held on `melded_components`).
+        components: list[GameObject] = []
+        for comp in (obj_a, obj_b):
+            self._detach_attachments_from(comp)
+            self.exile(comp)
+            owner = self.state.player_by_id(comp.owner_id)
+            owner.remove_from_zone(comp, Zone.EXILE)
+            comp.reset_as_new_object()
+            comp.zone = None
+            components.append(comp)
+
+        melded = GameObject(result_card, owner_id=controller.id, zone=Zone.BATTLEFIELD)
+        melded.controller_id = controller.id
+        melded.is_melded = True
+        melded.melded_components = components
+        self._put_searched_card(controller, melded, "battlefield")
+        self.state.fire_event(GameEvent(
+            EventType.MELDED,
+            object=melded.name,
+            instance_id=melded.instance_id,
+            controller_id=melded.controller_id,
+            object_types=sorted(melded.type_words),
+        ))
+        return melded
+    def _split_melded_after_move(self, obj: GameObject, zone: Zone) -> None:
+        """RULE 712.19: a melded permanent that has just left the battlefield
+        for ``zone`` separates back into its two component cards, which move
+        to that same zone. Called at the tail of every battlefield-exit
+        primitive (`_move_to_graveyard`/`exile`/`return_to_hand`/
+        `return_to_library`/`shuffle_into_library`) right after the melded
+        object was placed — a no-op for anything not `is_melded`.
+        """
+        if not getattr(obj, "is_melded", False) or not obj.melded_components:
+            return
+        components = obj.melded_components
+        obj.is_melded = False
+        obj.melded_components = []
+        owner = self.state.player_by_id(obj.owner_id)
+        owner.remove_from_zone(obj, zone)
+        for comp in components:
+            comp.reset_as_new_object()
+            self.state.player_by_id(comp.owner_id).add_to_zone(comp, zone)
     def turn_face_down(self, obj: GameObject, kind: str) -> None:
         """Turn ``obj`` face down as ``kind`` (RULE 708.2 — ``"morph"``/
         ``"disguise"``/``"manifest"``/``"cloak"``, see `game/face_down.py`).
@@ -554,6 +702,12 @@ class CopiesMixin:
         abilities don't trigger — the permanent has been on the battlefield
         all along — so the only event fired is `EventType.TURNED_FACE_UP`.
         """
+        # RULE 701.40g/701.58g: an instant or sorcery is revealed and stays
+        # face down, and nothing triggers.
+        hidden = obj.face_down and (obj._face_up_snapshot or {}).get("card")
+        if hidden is not None and (getattr(hidden, "is_instant", False)
+                                   or getattr(hidden, "is_sorcery", False)):
+            return False
         if not obj.turn_face_up():
             return False
         if megamorph:
@@ -596,42 +750,44 @@ class CopiesMixin:
             self._put_searched_card(player, obj, "battlefield")
             made.append(obj)
         return made
-    def request_manifest_dread(self, player: Player) -> None:
+    def _request_manifest_dread(self, player: Player) -> list[GameObject]:
         """"Manifest dread": look at the top two cards of ``player``'s
         library, manifest one face down and put the other into the graveyard.
 
-        Its own `pending_choice` kind rather than a `request_choose_objects`
+        Its own `pending_choice` kind rather than a `_request_choose_objects`
         call, because the generic chooser only ever *acts on the picks* — it
         has no notion of "and the ones you didn't pick go somewhere else",
         which is the entire second half of this keyword action. Degenerate
         libraries resolve without asking: one card left is manifested with no
         choice to make, an empty one does nothing (RULE 701.40f).
+
+        Returns what it manifested *now* (the one-card library); an answered choice hands the permanent to a
+        suspended "then attach ~ to that creature" itself (`_resume_manifest_dread`).
         """
         looked = player.library[-2:]
         if not looked:
-            return
+            return []
         if len(looked) == 1:
-            self.manifest(player, 1)
-            return
-        self.state.pending_choice = {
+            return self.manifest(player, 1)
+        self.open_choice({
             "kind": "manifest_dread",
             "player_id": player.id,
+            # RULE 608.2: where the rest of the resolving effect list parks if this choice suspends it
+            # (`_apply_effects_partitioned` inserts it at the depth it saw before the effect ran).
+            "deferred_depth": len(self.state.deferred_effects),
             "prompt": "Manifest dread: welche Karte wird verdeckt gespielt?",
             "options": [
                 {"id": str(obj.instance_id), "label": obj.name, "instance_id": obj.instance_id}
                 for obj in reversed(looked)  # top card first
             ],
-        }
-    def resolve_manifest_dread_choice(self, instance_id: Optional[int]) -> None:
+        })
+    @continuations.choice("manifest_dread", answer=continuations.ANSWER_INT, rule="701.62")
+    def _resume_manifest_dread(self, choice: dict[str, Any], instance_id: Optional[int]) -> None:
         """Answer a pending manifest-dread choice: manifest the chosen card,
         mill the other. A missing/unrecognized answer defaults to the top
         card — the choice is mandatory (RULE 701.40a's "put one … and the
         other …"), so declining can't mean "neither"."""
-        choice = self.state.pending_choice
-        if not choice or choice.get("kind") != "manifest_dread":
-            raise ValueError("no pending manifest-dread choice to resolve")
         player = self.state.player_by_id(choice["player_id"])
-        self.state.pending_choice = None
         offered = [opt["instance_id"] for opt in choice["options"]]
         chosen_id = instance_id if instance_id in offered else offered[0]
         chosen = self._object_by_instance_id(chosen_id)
@@ -645,6 +801,13 @@ class CopiesMixin:
             if other is not None and other in player.library:
                 player.remove_from_zone(other, Zone.LIBRARY)
                 player.add_to_zone(other, Zone.GRAVEYARD)
+        # "…manifest dread, then attach ~ to that creature": the clause after the pause reads the manifested
+        # permanent as `created_objects`, which the suspended remainder carried before it existed.
+        depth = choice.get("deferred_depth")
+        if chosen is not None and depth is not None and len(self.state.deferred_effects) > depth:
+            frame = self.state.deferred_effects[depth]
+            if frame.get("kind") != self.DEFERRED_ITERATION:
+                frame["created_objects"] = list(frame.get("created_objects") or []) + [chosen]
         self.check_state_based_actions()
     def exile_return_transformed(self, obj: GameObject) -> bool:
         """"Exile ~, then return it to the battlefield transformed under its

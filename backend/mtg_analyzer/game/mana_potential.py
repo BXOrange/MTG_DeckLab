@@ -90,11 +90,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from ..models.mana_cost import ManaCost
-from ..models.mana_pool import MANA_TYPES, ManaPool
-from ..models.player import Player
+from ..models.mana.mana_cost import ManaCost
+from ..models.mana.mana_pool import MANA_TYPES, ManaPool
+from ..models.game.player import Player
 from . import continuous
-from .costs import DISCARD_HAND, PAY_LIFE_X, REMOVE_COUNTERS_ANY, REMOVE_COUNTERS_X
+from .costs import DISCARD_HAND, REMOVE_COUNTERS_ANY, REMOVE_COUNTERS_X
 from .mana_abilities import ManaAbility, hand_mana_abilities_for, mana_abilities_for, mana_source_kind_for
 
 #: The six mana types WUBRGC potential is tracked/displayed in, matching
@@ -162,7 +162,16 @@ def _auto_tappable_candidates(engine: Any, player: Player) -> list[_Candidate]:
     return [
         c for c in _all_candidates(engine, player)
         if c.kind != "hand" and not c.ability.cost.sacrifice
+        and not _spends_more_than_a_tap(c.ability.cost)
     ]
+
+
+def _spends_more_than_a_tap(cost: Any) -> bool:
+    """ENG-51's resource-consuming mana-ability costs, kept out of auto-tap
+    for the same reason a sacrifice is: milling (Deranged Assistant),
+    exiling a hand card (Cadaverous Bloom), exerting (Arena of Glory) or
+    sacrificing a counted group is a decision, not bookkeeping."""
+    return bool(cost.mill or cost.exile_hand_cards or cost.exert_self or cost.sacrifice_count)
 
 
 def _is_net_positive_converter(ability: ManaAbility) -> bool:
@@ -315,7 +324,9 @@ def _non_mana_cost_payable(
     # here is a documented simplification, not a regression.
     if cost.loyalty is not None or cost.discard_self or cost.put_hand_card_on_library:
         return False
-    if cost.pay_life == PAY_LIFE_X:
+    if cost.pay_life < 0:
+        # `PAY_LIFE_X` and the other payment-time sentinels (half life,
+        # commander colors) aren't a number this static check can subtract.
         return False
     if cost.remove_counters and cost.remove_counters[1] in (REMOVE_COUNTERS_X, REMOVE_COUNTERS_ANY):
         return False

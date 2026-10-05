@@ -5,7 +5,7 @@ MEC-44 (docs/implementation-state/BACKLOG.md): the reusable replacement for
 the one-off diagnosis script MEC-43's "make every cEDH deck playable" ticket
 kept hand-rolling. "Covered" means exactly what `coverage_report.py`'s own
 `measure()` means: the oracle parser returns MODELED, **or** the card is
-hand-registered in `game/ability_catalogue.py` (AUTHORED) — checked via
+hand-registered in `game/card_catalogue` (AUTHORED) — checked via
 `is_registered(card.name)`, the *canonical* `Card.name`, not whatever text a
 decklist happens to print. That distinction is the bug this script exists to
 stop repeating: a double-faced card's decklist line is usually just its front
@@ -27,7 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mtg_analyzer.game.ability_catalogue import is_registered  # noqa: E402
+from mtg_analyzer.game.card_registry import is_registered  # noqa: E402
 from mtg_analyzer.parser.deckliste_parser import parse_deck_sections  # noqa: E402
 from mtg_analyzer.parser.oracle import parse_oracle  # noqa: E402
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH  # noqa: E402

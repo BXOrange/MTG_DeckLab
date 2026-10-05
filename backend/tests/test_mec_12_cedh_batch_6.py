@@ -29,7 +29,7 @@ items were at exactly that point, so this pass closes every one of them:
   templates -- only `exile`'s own regex opts into the wider alternation
   (`_MULTI_TARGET_ALT_WITH_SPELL`), caught by a real regression test this
   pass had to fix (`test_multi_target.py`'s own "stays unclaimed" case).
-* **Eye of Ugin** -- two independent gaps: `models.card_query`'s `color`
+* **Eye of Ugin** -- two independent gaps: `models.cards.card_query`'s `color`
   key gained a `"colorless"` special case (empty colour identity, not a
   membership check -- kept local to the search vocabulary rather than
   widened into the shared WUBRG-only `resolve_color_word`, since "target
@@ -68,13 +68,13 @@ isolation).
 from __future__ import annotations
 
 from mtg_analyzer.config import DB_PATH
-from mtg_analyzer.game.ability_catalogue import is_registered
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.card_registry import is_registered
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase
 
@@ -134,7 +134,7 @@ def test_mox_diamond_discards_a_land_to_enter():
     engine.cast_spell(p1, spell, targets=None)
     engine.resolve_until_stable()
     assert state.pending_choice is not None and state.pending_choice["kind"] == "enter_or_graveyard"
-    engine.rules.resolve_enter_or_graveyard_choice(str(land.instance_id))
+    engine.rules.resolve_choice(str(land.instance_id))
     engine.resolve_until_stable()
 
     assert any(o.name == "Mox Diamond" for o in state.battlefield)
@@ -153,7 +153,7 @@ def test_mox_diamond_declined_goes_to_graveyard_never_a_permanent():
 
     engine.cast_spell(p1, spell, targets=None)
     engine.resolve_until_stable()
-    engine.rules.resolve_enter_or_graveyard_choice("decline")
+    engine.rules.resolve_choice("decline")
     engine.resolve_until_stable()
 
     assert not any(o.name == "Mox Diamond" for o in state.battlefield)
@@ -225,7 +225,7 @@ def test_eye_of_ugin_cost_reduction_needs_colorless_and_eldrazi_together():
 
 
 def test_eye_of_ugin_search_finds_only_colorless_creatures():
-    from mtg_analyzer.models import card_query
+    from mtg_analyzer.models.cards import card_query
 
     engine, state = _engine()
     land = _bf(state, _named("Eye of Ugin"), controller="p1")
@@ -277,7 +277,7 @@ def test_stonehewer_giant_is_modeled_and_search_attaches_to_a_creature():
     engine.resolve_until_stable()
     choice = state.pending_choice
     equip_id = next(e["instance_id"] for e in choice["eligible"] if e["name"] == "SomeEquip")
-    engine.rules.resolve_search_choice(equip_id)
+    engine.rules.resolve_choice(equip_id)
     engine.resolve_until_stable()
 
     equip_obj = next(o for o in state.battlefield if o.name == "SomeEquip")
@@ -325,7 +325,7 @@ def test_tainted_pact_continuing_can_hit_a_duplicate_and_gain_nothing():
     engine.cast_spell(p1, spell, targets=None)
     engine.resolve_until_stable()
     assert state.pending_choice is not None and state.pending_choice["kind"] == "tainted_pact"
-    engine.rules.resolve_tainted_pact_choice("continue")
+    engine.rules.resolve_choice("continue")
     engine.resolve_until_stable()
 
     assert p1.hand == []
@@ -356,7 +356,7 @@ def test_transmute_artifact_cheap_find_enters_free():
     choice = state.pending_choice
     assert choice["kind"] == "transmute_search"
     found_id = next(o["instance_id"] for o in choice["options"] if o.get("label") == "Cheap2")
-    engine.rules.resolve_transmute_search_choice(str(found_id))
+    engine.rules.resolve_choice(str(found_id))
     engine.resolve_until_stable()
 
     assert any(o.name == "Cheap2" for o in state.battlefield)
@@ -381,11 +381,11 @@ def test_transmute_artifact_pricier_find_needs_the_difference_paid():
     engine.cast_spell(p1, spell, targets=None)
     engine.resolve_until_stable()
     found_id = next(o["instance_id"] for o in state.pending_choice["options"] if o.get("label") == "Pricey6")
-    engine.rules.resolve_transmute_search_choice(str(found_id))
+    engine.rules.resolve_choice(str(found_id))
     engine.resolve_until_stable()
 
     assert state.pending_choice["kind"] == "transmute_pay_x"
-    engine.rules.resolve_transmute_pay_x_choice("decline")
+    engine.rules.resolve_choice("decline")
     engine.resolve_until_stable()
 
     assert not any(o.name == "Pricey6" for o in state.battlefield)

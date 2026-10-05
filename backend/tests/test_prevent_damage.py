@@ -18,18 +18,18 @@ tests for both real cards via `bind_from_catalogue`.
 from __future__ import annotations
 
 from mtg_analyzer.game.costs import parse_activation_cost
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import (
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import (
     GameContext,
     GainLifeEffect,
     PreventAllCombatDamageEffect,
     PreventDamageEffect,
 )
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.game.rules_engine import RulesEngine
 
 
@@ -121,9 +121,9 @@ def test_multiple_activations_stack_independent_shields():
     rules.prevent_damage_to_player(p1, 1)
     rules.deal_damage(p1, 5)
     assert state.pending_choice is not None
-    rules.resolve_replacement_order_choice(0)
+    rules.resolve_choice(0)
     if state.pending_choice is not None:
-        rules.resolve_replacement_order_choice(0)
+        rules.resolve_choice(0)
     assert p1.life == 17  # 2 points prevented (one from each shield), 3 dealt
 
 
@@ -155,8 +155,8 @@ def test_unused_capped_shield_expires_at_cleanup_even_with_remaining_balance():
 
 
 def test_cleanup_does_not_sweep_other_player_effects():
-    from mtg_analyzer.game.effects import ReplacementEffect
-    from mtg_analyzer.models.events import EventType
+    from mtg_analyzer.game.effects.core import ReplacementEffect
+    from mtg_analyzer.models.game.events import EventType
 
     eng = GameEngine.new_game(
         [("p1", "Alice", []), ("p2", "Bob", [])], starting_life=20, starting_hand=0

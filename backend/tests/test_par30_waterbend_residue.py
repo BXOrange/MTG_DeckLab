@@ -15,13 +15,13 @@ Shared parser/engine wins the residue cards were blocked on:
 
 from __future__ import annotations
 
-from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 
-from tests.test_game_engine import creature, make_engine, obj_on_battlefield
+from tests.support.game import creature, make_engine, obj_on_battlefield
 
 
 def _card(name, type_line, text, mc="{1}{U}", **kw):

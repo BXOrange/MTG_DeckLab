@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 from mtg_analyzer.config import CACHE_DIR, DB_PATH
-from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.services.schema_version import reconcile_schema
 
 _log = logging.getLogger(__name__)
@@ -69,7 +69,7 @@ CREATE INDEX IF NOT EXISTS idx_cards_flavor_name ON cards (flavor_name COLLATE N
 #: (docs/08) if a parsing fix needs to reach already-cached cards.
 _SCHEMA_SOURCE_FILES = [
     Path(__file__),  # this file: table schema + how the blob is stored
-    Path(__file__).resolve().parent.parent / "models" / "card.py",
+    Path(__file__).resolve().parent.parent / "models" / "cards" / "card.py",
 ]
 
 

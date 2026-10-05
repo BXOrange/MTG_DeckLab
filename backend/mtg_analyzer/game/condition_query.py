@@ -3,7 +3,7 @@ permission — RULE 702.8b's "you may cast this spell as though it had flash
 if <condition>" and RULE 606.3's "you may activate this permanent's loyalty
 abilities any time you could cast an instant if <condition>" (The Wandering
 Emperor-shaped). Bound onto ``obj.conditional_flash`` by
-`game/effect_binder.py`'s `attach_to_object` from `AbilitySpec.
+`game/binding/core.py`'s `attach_to_object` from `AbilitySpec.
 conditional_flash` (`parser/oracle/spec.py`'s ``ALLOWED_CAST_CONDITION_KEYS``
 whitelist — a deliberately separate one from `EffectSpec.condition`'s, which
 gates whether an already-resolving *effect* applies rather than a cast/
@@ -19,8 +19,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
-    from ..models.game_object import GameObject
-    from ..models.game_state import GameState
+    from ..models.game.game_object import GameObject
+    from ..models.game.game_state import GameState
 
 
 def conditional_flash_holds(
@@ -157,6 +157,17 @@ def free_cast_condition_holds(condition: dict[str, Any], obj: "GameObject", stat
             )
             if bool(value) != (you_have_island and opp_has_forest):
                 return False
+        elif key == "control_legendary_creature_or_planeswalker":
+            # RULE 205.4d: "You may cast a legendary sorcery only if you control a legendary creature
+            # or planeswalker." (Urza's Ruinous Blast) — read live off the battlefield, like the
+            # sibling `control_commander` gate above.
+            has_legend = any(
+                o.controller_id == controller_id and getattr(o, "is_legendary", False)
+                and (o.is_creature or o.is_planeswalker)
+                for o in state.battlefield
+            )
+            if bool(value) != has_legend:
+                return False
         elif key == "control_land_type":
             # "If you control a Swamp, you may pay 4 life rather than pay
             # this spell's mana cost." (RULE 118.9, Snuff Out) — the
@@ -194,6 +205,25 @@ def free_cast_condition_holds(condition: dict[str, Any], obj: "GameObject", stat
             battlefield = getattr(state, "battlefield", [])
             attacking = sum(1 for o in battlefield if getattr(o, "attacking", False))
             if attacking < threshold:
+                return False
+        elif key == "you_attacked_this_turn":
+            # Raid (RULE 508.1a): this cannot be inferred from a live
+            # `.attacking` scan because the alternative cost can be cast
+            # after combat. It is set only for a declaration, not when RULE
+            # 508.4 puts a creature onto the battlefield attacking.
+            attacked = getattr(state, "players_attacked_this_turn", None) or set()
+            if bool(value) != (controller_id in attacked):
+                return False
+        elif key == "another_spell_cast_this_turn":
+            if not isinstance(value, dict) or set(value) not in ({"color"}, {"spell_type"}):
+                return False
+            if "color" in value:
+                counts = getattr(state, "spell_color_cast_counts_this_turn", {}) or {}
+                count = (counts.get(controller_id, {}) or {}).get(str(value["color"]).upper(), 0)
+            else:
+                counts = getattr(state, "spell_type_cast_counts_this_turn", {}) or {}
+                count = (counts.get(controller_id, {}) or {}).get(str(value["spell_type"]).lower(), 0)
+            if int(count) < 1:
                 return False
         else:
             return False

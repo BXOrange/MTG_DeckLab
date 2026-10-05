@@ -17,13 +17,13 @@ the execute-level half.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import attach_to_object
-from mtg_analyzer.game.effects import GameContext
+from mtg_analyzer.game.binding.core import attach_to_object
+from mtg_analyzer.game.effects.core import GameContext
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec
 
 
@@ -63,7 +63,7 @@ def test_self_target_mode_swaps_and_requires_a_real_target():
     state.add_to_battlefield(mine)
     state.add_to_battlefield(theirs)
 
-    from mtg_analyzer.game.effects import ExchangeControlEffect
+    from mtg_analyzer.game.effects.core import ExchangeControlEffect
 
     ctx = GameContext(state, engine.rules)
     ExchangeControlEffect(target_kind="nonland_permanent", source=mine).apply(ctx, targets=[theirs])
@@ -75,7 +75,7 @@ def test_self_target_mode_swaps_and_requires_a_real_target():
 def test_self_target_mode_is_mandatory_unlike_gilded_drakes_up_to_one():
     # Avarice Totem prints no "up to one" — a real target is required to
     # even activate, unlike Gilded Drake's `optional=True`.
-    from mtg_analyzer.game.effects import ExchangeControlEffect
+    from mtg_analyzer.game.effects.core import ExchangeControlEffect
 
     spec = ExchangeControlEffect(target_kind="nonland_permanent").target_spec
     assert spec.optional is False
@@ -94,7 +94,7 @@ def test_two_explicit_targets_mode_swaps_regardless_of_kind_symmetry():
     state.add_to_battlefield(mine)
     state.add_to_battlefield(theirs)
 
-    from mtg_analyzer.game.effects import ExchangeControlEffect
+    from mtg_analyzer.game.effects.core import ExchangeControlEffect
 
     ctx = GameContext(state, engine.rules)
     effect = ExchangeControlEffect(
@@ -118,7 +118,7 @@ def test_multi_count_mode_swaps_two_same_kind_targets():
     state.add_to_battlefield(a)
     state.add_to_battlefield(b)
 
-    from mtg_analyzer.game.effects import ExchangeControlEffect
+    from mtg_analyzer.game.effects.core import ExchangeControlEffect
 
     ctx = GameContext(state, engine.rules)
     effect = ExchangeControlEffect(target_kind="land", count=2)
@@ -140,7 +140,7 @@ def test_multi_count_mode_no_ops_if_both_targets_end_up_same_controller():
     state.add_to_battlefield(a)
     state.add_to_battlefield(b)
 
-    from mtg_analyzer.game.effects import ExchangeControlEffect
+    from mtg_analyzer.game.effects.core import ExchangeControlEffect
 
     ctx = GameContext(state, engine.rules)
     ExchangeControlEffect(target_kind="land", count=2).apply(ctx, targets=[a, b])
@@ -179,7 +179,7 @@ def test_life_totals_self_target_mode_swaps_life():
     source = _permanent("Magus", "p1", type_line="Creature")
     state.add_to_battlefield(source)
 
-    from mtg_analyzer.game.effects import ExchangeLifeTotalsEffect
+    from mtg_analyzer.game.effects.core import ExchangeLifeTotalsEffect
 
     ctx = GameContext(state, engine.rules)
     ExchangeLifeTotalsEffect(source=source, target_kind="player").apply(ctx, targets=[p2])
@@ -193,7 +193,7 @@ def test_life_totals_two_target_mode_still_works():
     engine, state, p1, p2 = _rules()
     p1.life, p2.life = 20, 7
 
-    from mtg_analyzer.game.effects import ExchangeLifeTotalsEffect
+    from mtg_analyzer.game.effects.core import ExchangeLifeTotalsEffect
 
     ctx = GameContext(state, engine.rules)
     ExchangeLifeTotalsEffect().apply(ctx, targets=[p1, p2])

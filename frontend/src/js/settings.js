@@ -1,13 +1,9 @@
-// User-configurable connection settings (backend server address, player
-// name), persisted in a cookie so they survive a reload without needing
-// an account/backend of their own. api.js and gameSocket.js read the
-// server address through getServerUrl() instead of a fixed constant, so
-// changing it here (see connectionSettingsView.js) takes effect
-// immediately for the next request/connection, no reload needed.
+// Client preferences persist in cookies. API and WebSocket clients derive
+// their backend address from the page origin (with development/deployment
+// defaults below); an old server-address cookie no longer overrides it.
 
 import { getCookie, setCookie } from './cookies.js';
 
-const SERVER_URL_COOKIE = 'mtg_server_url';
 const PLAYER_NAME_COOKIE = 'mtg_player_name';
 const CLIENT_TOKEN_COOKIE = 'mtg_client_token';
 //: The player's preferred per-priority auto-pass countdown, in seconds
@@ -19,6 +15,11 @@ const CLIENT_TOKEN_COOKIE = 'mtg_client_token';
 const PASS_TIMER_SECONDS_COOKIE = 'mtg_auto_pass_seconds';
 const BOT_SPEED_MS_COOKIE = 'mtg_bot_speed_ms';
 const SHOW_OPPONENT_HAND_COOKIE = 'mtg_show_opponent_hand';
+const COMPACT_VIEW_COOKIE = 'mtg_compact_view';
+//: VIS-12: the player's standing priority stops (`{own: [...], opponent:
+//: [...]}` step names), re-sent to the server once per game — the server
+//: keeps them per game, this is only so they needn't be set again each time.
+const PRIORITY_STOPS_COOKIE = 'mtg_priority_stops';
 //: PLR-13 + "Player Settings" defaults for a *newly created* multiplayer
 //: table (Profil tab) — applied once, right after `POST /api/multiplayer/games`
 //: (see multiplayerView.js's createGame), not read by the engine itself.
@@ -64,7 +65,7 @@ const FRONTEND_DEV_PORT = 8765;
 
 //: Same override convention as the rest of the frontend (see api.js) — set
 //: window.MTG_API_BASE_URL before app.js loads (e.g. in index.html) to
-//: change the out-of-the-box default without a cookie. Absent that, default
+//: change the deployment default. Absent that, default
 //: to the page's own origin: the backend now reverse-proxies the frontend
 //: (api/frontend_proxy.py), so browser and backend are always same-origin
 //: through that path — local or over the LAN, whatever host/port the page
@@ -84,7 +85,7 @@ function normalizeServerUrl(url) {
 }
 
 export function getServerUrl() {
-  return normalizeServerUrl(getCookie(SERVER_URL_COOKIE));
+  return normalizeServerUrl(DEFAULT_SERVER_URL);
 }
 
 export function getPlayerName() {
@@ -136,12 +137,32 @@ export function getShowOpponentHand() {
   return getCookie(SHOW_OPPONENT_HAND_COOKIE) === '1';
 }
 
+export function getCompactView() {
+  return getCookie(COMPACT_VIEW_COOKIE) === '1';
+}
+
 /** VIS-7: the configured delay (ms) between staggered move-feed reveals. */
 export function getBotSpeedMs() {
   const raw = getCookie(BOT_SPEED_MS_COOKIE);
   if (raw === null) return DEFAULT_BOT_SPEED_MS;
   const value = Number(raw);
   return BOT_SPEED_MS_OPTIONS.includes(value) ? value : DEFAULT_BOT_SPEED_MS;
+}
+
+/** VIS-12: the saved standing stops, or null when none were ever set. */
+export function getStopsPref() {
+  try {
+    const parsed = JSON.parse(getCookie(PRIORITY_STOPS_COOKIE) || 'null');
+    return Array.isArray(parsed?.own) && Array.isArray(parsed?.opponent)
+      ? { own: parsed.own, opponent: parsed.opponent }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setStopsPref(stops) {
+  setCookie(PRIORITY_STOPS_COOKIE, JSON.stringify({ own: stops.own, opponent: stops.opponent }), COOKIE_MAX_AGE_DAYS);
 }
 
 //: Seats a newly created table opens with, absent a saved preference —
@@ -176,11 +197,11 @@ export function getMpDefaultRandomStartingPlayer() {
 
 export function getSettings() {
   return {
-    serverUrl: getServerUrl(),
     playerName: getPlayerName(),
     clientToken: getClientToken(),
     passTimerSeconds: getPassTimerSeconds(),
     showOpponentHand: getShowOpponentHand(),
+    compactView: getCompactView(),
     botSpeedMs: getBotSpeedMs(),
     mpDefaultFormat: getMpDefaultFormat(),
     mpDefaultMulliganStyle: getMpDefaultMulliganStyle(),
@@ -192,8 +213,9 @@ export function getSettings() {
 }
 
 /**
- * @param {{serverUrl?: string, playerName?: string,
+ * @param {{playerName?: string,
  *          passTimerSeconds?: number, showOpponentHand?: boolean,
+ *          compactView?: boolean,
  *          botSpeedMs?: number,
  *          mpDefaultFormat?: string, mpDefaultMulliganStyle?: string,
  *          mpDefaultSeats?: number, mpDefaultTakebacks?: number,
@@ -201,9 +223,6 @@ export function getSettings() {
  *          mpDefaultRandomStartingPlayer?: boolean}} patch
  */
 export function saveSettings(patch) {
-  if (patch.serverUrl !== undefined) {
-    setCookie(SERVER_URL_COOKIE, normalizeServerUrl(patch.serverUrl), COOKIE_MAX_AGE_DAYS);
-  }
   if (patch.playerName !== undefined) {
     setCookie(PLAYER_NAME_COOKIE, patch.playerName.trim(), COOKIE_MAX_AGE_DAYS);
   }
@@ -217,6 +236,9 @@ export function saveSettings(patch) {
   }
   if (patch.showOpponentHand !== undefined) {
     setCookie(SHOW_OPPONENT_HAND_COOKIE, patch.showOpponentHand ? '1' : '0', COOKIE_MAX_AGE_DAYS);
+  }
+  if (patch.compactView !== undefined) {
+    setCookie(COMPACT_VIEW_COOKIE, patch.compactView ? '1' : '0', COOKIE_MAX_AGE_DAYS);
   }
   if (patch.botSpeedMs !== undefined) {
     const speed = BOT_SPEED_MS_OPTIONS.includes(Number(patch.botSpeedMs))

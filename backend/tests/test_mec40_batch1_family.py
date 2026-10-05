@@ -9,10 +9,10 @@ Reference: docs/implementation-state/Done_Backend.md "MEC-40" entry.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 
-from tests.test_game_engine import creature, make_engine
+from tests.support.game import creature, make_engine
 
 
 def _named(name):
@@ -91,7 +91,7 @@ def test_abrupt_decay_cannot_target_an_expensive_permanent():
 def test_culling_ritual_destroys_cheap_nonland_permanents_and_spares_lands_and_expensive():
     eng = make_engine([_named("Culling Ritual")], hand=1)
     p1 = eng.state.player_by_id("p1")
-    from mtg_analyzer.models.card import Card
+    from mtg_analyzer.models.cards.card import Card
 
     cheap_one = _put(eng.state, creature("Cheap One", cost="{1}", power=1, toughness=1), controller="p1")
     cheap_two = _put(eng.state, creature("Cheap Two", cost="{G}", power=1, toughness=1), controller="p1")
@@ -187,7 +187,7 @@ def test_ranger_captain_sacrifice_shuts_off_opponent_noncreature_casting():
     p2 = eng.state.player_by_id("p2")
     ranger = _put(eng.state, _named("Ranger-Captain of Eos"), controller="p1")
 
-    from mtg_analyzer.models.card import Card
+    from mtg_analyzer.models.cards.card import Card
 
     bolt = Card(id="Lightning Bolt", name="Lightning Bolt", type_line="Instant", is_instant=True,
                 mana_cost_string="{R}", converted_mana_cost=1,
@@ -217,7 +217,7 @@ def test_ranger_captain_sacrifice_shuts_off_opponent_noncreature_casting():
 
 
 def test_vexing_shusher_static_makes_itself_uncounterable():
-    from mtg_analyzer.game.effects import CantBeCounteredEffect
+    from mtg_analyzer.game.effects.core import CantBeCounteredEffect
 
     eng = make_engine([_named("Vexing Shusher")], hand=1)
     obj = eng.state.player_by_id("p1").hand[0]
@@ -231,7 +231,7 @@ def test_vexing_shusher_ability_marks_target_spell_uncounterable():
     p2 = eng.state.player_by_id("p2")
     shusher = _put(eng.state, _named("Vexing Shusher"), controller="p1")
 
-    from mtg_analyzer.models.card import Card
+    from mtg_analyzer.models.cards.card import Card
 
     ritual = Card(id="Dark Ritual", name="Dark Ritual", type_line="Instant", is_instant=True,
                   mana_cost_string="{B}", converted_mana_cost=1, oracle_text="Add {B}{B}{B}.")
@@ -247,7 +247,7 @@ def test_vexing_shusher_ability_marks_target_spell_uncounterable():
     eng.activate_ability(p1, shusher, ability_index=0, targets=[ritual_obj])
     eng.resolve_until_stable()
 
-    from mtg_analyzer.game.effects import CantBeCounteredEffect
+    from mtg_analyzer.game.effects.core import CantBeCounteredEffect
 
     assert any(isinstance(e, CantBeCounteredEffect) for e in ritual_obj.spell_effects)
 

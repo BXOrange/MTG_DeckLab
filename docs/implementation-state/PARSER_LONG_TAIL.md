@@ -8,1353 +8,337 @@ actually behaves.
 
 Tracked in the backlog as a single standing entry, `PAR-12`.
 
+**What does not belong here.** This file used to carry a per-`PARSER_VERSION`
+changelog — ~1,500 lines of "v*N* shipped *X*, +*M* cards". That is a worklog,
+and it lived here in duplicate: of the 426 distinct code identifiers it named,
+399 were already documented in `Done_Backend.md`, usually in more depth and
+filed under the subsystem the primitive belongs to. It was removed on
+2026-09-09; **git history has it** if you need a specific version's wording.
+The rules that replace it:
+
+- **What shipped, and why it was built that way** → `Done_Backend.md`, under
+  the subsystem heading for the primitive (extend the existing entry, don't
+  append a new one).
+- **What is still open** → `BACKLOG.md` if it is schedulable, or the
+  *Known-open clusters* section below if it is long-tail residue.
+- **Method, recurring lessons, worked samples** → here.
+
 ## Where coverage stands
 
-Measured by `scripts/coverage_report.py` (ledger-backed via
-`services/coverage_db.py`), against the full ~35k-card Oracle universe:
-
-**40.3% covered — 14,029 / 34,811 — as of 2026-09-06, PARSER_VERSION 274.**
-(v273, MEC-73: recognizes the full subtype-filtered "put from hand, gain
-haste, sacrifice at the next end step" sequence and routes it to the
-interactive `cheat_creature_from_hand` primitive; Incandescent Soulstoke is
-fully modeled. The local coverage cache does not contain that card, so this
-parser reachability fix does not change the measured aggregate.)
-(215 + a hand-authored batch = PAR-30, **Waterbend (RULE 701.67) residue —
-closed**. v215's three parser wins: "Whenever you / an opponent draws
-their **second** card each turn, …" (`segmenter._DRAW_CARD_TRIGGER_NTH_RE`
-→ the engine's existing `is_nth_draw_this_turn` predicate; ~+35, closes
-The Unagi of Kyoshi Island); "[another] target permanent you control" →
-the `permanent_you_control` target kind (closes North Pole Patrol); "up to
-one **other** target nonland permanent" → a new `_TARGET_ROWS` row (closes
-Invasion Submersible's ETB); and the **waterbend {X}** mandatory
-additional cost (`{"waterbend": "x"}` + `legal_actions` `has_x`/`max_x`).
-Then a hand-authored batch over six new engine primitives closed the
-bodies — Crashing Wave, Foggy Swamp Visions, Waterbender's Restoration,
-Waterbending Lesson, Water Tribe Rallier, Ruinous Waterbending, Spirit
-Water Revival (see `Done_Backend.md`). The one card left, **Secret of
-Bloodbending** ("control target opponent during their next combat phase /
-turn"), is deferred to **MEC-51 · Control another player's turn** — the
-general Mindslaver primitive, a real standalone engine feature. +45 (v215)
-+7 (hand-authored), 0 regressed.)
-(214 = PAR-30, **Firebending (RULE ~702.189) grants residue — closed**: the
-last open sub-bullet of PAR-29's parser trail, the "whenever you waterbend,
-earthbend, firebend, or airbend" bending-verb trigger (Avatar Aang, a strict
-singleton — hand-authored). Reusable half: `EventType.BENT` +
-`RulesEngine.record_bend` + `GameState.bends_this_turn`, fired from all four
-bending primitives — `earthbend`, the waterbend additional-cast-cost payment
-(RULE 701.67c), airbend (a new `ExileEffect.bend_kind` param — the only
-parser-visible change, `_airbend` now emits it), and a second `ATTACKS`
-trigger carrying `RecordBendEffect` on every Firebending creature. Plus an
-`EffectSpec.condition` key `did_all_bends_this_turn` for the reflexive
-"transform" clause. +1 (Avatar Aang, hand-authored), 0 regressed. See
-`Done_Backend.md` "Firebending".)
-(213 = PAR-30, **Collect Evidence / Forage / Blight activated-body residue
-— closed**: the Lorwyn "Champion" cycle's mandatory `behold_exile`
-additional cast cost + a "return the exiled card to its owner's hand"
-`ReturnLinkedExileEffect(destination=…)` branch; a trigger-subject-sourced
-"it deals damage equal to its power to each opponent"; a "tap [up to one]
-target creature and put a stun counter on it" handler with RULE 122.1c
-stun-counter skip-untap now enforced in `RulesEngine.set_tapped`;
-`conditional_flash={"controller_beholds_subtype": …}` (Molten Exhale); an
-optional `behold_two_shared_type` additional cost (Celestial Reunion); a
-`type_change` ``legendary`` param + `source_has_subtype` condition key
-(Tenth District Hero). Plus eight hand-authored / engine cards — Champion
-of the Weird / Path, Tenth District Hero, Elven Passage, Incinerator of the
-Guilty, Memory Vampire (with a `cast_without_paying` control-transfer fix),
-Conspiracy Unraveler (`granted_alt_cast_cost` — a board-wide RULE 118.9 alt
-cost the engine's `alt_cost=True` cast path now scans for), Celestial
-Reunion. See `Done_Backend.md` "Collect Evidence (RULE 701.59)".)
-(212 = PAR-30, RULE 701.10 exchange-control residue — **closed**. The
-twelve remaining bespoke singletons, all hand-authored — no parser
-recognition needed, each shape appears on exactly one card. New engine
-primitives: `TriggeredAbility.controller_from_trigger_event` (a trigger's
-chooser can differ from the ability's own controller — Confusion in the
-Ranks) + `ExchangeControlEffect(first_target_kind="trigger_subject")`;
-`permanent_you_neither_own_nor_control` target kind (Conjured Currency); a
-`nonlegendary` filter + `ActivationCost.not_during_combat` (Djinn of
-Infinite Deceits); `destroy_auras_if_exchanged` (Gauntlets of Chaos) /
-`draw_if_neither_controlled` (Modify Memory) after-effect riders;
-`ExchangeLifeTotalsEffect.life_difference_at_most` (Psychic Transfer);
-`TripleExchangeEffect` + `capture="target_player"` (Mirror Mirror's
-delayed triple swap); `JuxtaposeEffect` / `CulturalExchangeEffect` (two
-selection rounds each, both with a documented simplification);
-`ExchangeControlSpellEffect` (RULE 701.10i, exchanging a permanent for a
-spell still on the stack — Perplexing Chimera's reflexive "you may" pause,
-Sudden Substitution's two independent targets) + `RulesEngine.enqueue_
-reflexive_trigger` + `ExchangeControlThenCopyTokenEffect` (Arteeoh, Dread
-Scavenger). Also fixed a real `Card.as_copy` bug found by execute-testing
-Arteeoh: `add_types` naming "creature" never flipped `is_creature`, so a
-`set_power`/`set_toughness` override tripped `Card.__init__`'s own
-invariant. +12, 0 regressed. See `Done_Backend.md`.)
-(211 = PAR-30, RULE 701.10 exchange-control residue — the cross-target
-legality predicates. `ExchangeControlEffect` gains resolve-time
-`shares_type` ("…that share[s] a card/permanent type with it" — Daring
-Thief, Legerdemain, Role Reversal, Shifting Loyalties) and
-`second_not_greater` (`"mana_value"` — Puca's Mischief; `"power"` —
-Spawnbroker) checks, one more branch on the existing `exchangeable` no-op
-gate — no `legal_targets`/client change, the same documented
-simplification the different-controllers no-op already is. Parser: an
-optional `_EXCHANGE_XTARGET_TAIL` on the two-explicit / multi handlers, a
-dedicated Spawnbroker row, new `subgrammars` rows "target nonland
-permanent you control" / "another target permanent",
-`_EXCHANGE_CONTROL_TARGET_KINDS` widened for the controller-scoped
-permanent kinds. +10 (6 exchange cards + 4 "untap another target
-permanent" bonus), 0 regressed. See `Done_Backend.md`.)
-(210 = PAR-30, Suspect (RULE 701.60) one-off shapes — the four
-primitive-blocked singletons the PAR-29 keyword trail left. New
-`EffectSpec.condition` key `previous_target_is_suspected` (Agrus Kos,
-Spirit of Justice — "if it's suspected, exile it. otherwise, suspect it."
-as two complementary condition-gated specs, read off the effect's own
-resolved target); `RemoveSuspectedEffect` gains `previous_subject` /
-`attached` / `optional` subject shapes (Deadly Complication's "you may
-have it become no longer suspected." routed through
-`request_choose_objects`, action `"remove_suspected"`); a `subgrammars`
-target row for "up to one **other** target creature you control" +
-`_batch_attack_group_filter` / `_any_attacking_matches` `is_suspected`
-(Clandestine Meddler). Airtight Alibi hand-authored — ETB untap +
-hexproof-EOT + un-suspect on the Aura host, plus a static +2/+2 and a
-`cant_become_suspected` `grant_keyword` slug `RulesEngine.suspect`
-honours (the only card printing that prohibition). +4, 0 regressed. See
-`Done_Backend.md`.)
-(209 = MEC-50, Clash (RULE 701.30) win/otherwise-branch residue — the six
-primitive-blocked singletons the v147–v154 grammar left. `GameContext.
-clashed_opponent` is the shared "that player" referent; new
-`RepeatProcessEffect` (Hoarder's Greed), `MillEffect` prev-spell-controller
-selector (Broken Ambitions), `ReturnToHandEffect` clash-win library
-override (Whirlpool Whelm), `GainControlAttachedEffect` (Captivating
-Glance), `DiscardEffect.previous_subject` (Pulling Teeth, + the
-"whenever ~ deals damage to a player, that player discards" bonus
-family), `SkipNextUntapEffect` clashed-opponent scope (Pollen Lullaby).
-+34, 0 regressed. See `Done_Backend.md`.)
-(208 = Collect Evidence / Forage / Blight residue, sub-cluster (d): "As an additional cost to cast this spell, forage [or pay {M}]." (Feed the Cycle) → `additional_cost={"forage": True}`, the "or pay {M}" alternative dropped as behold/blight already do. +1, 0 regressed. Conspiracy Unraveler still needs a battlefield-granted alternative-cost-for-all-your-spells cast primitive.)
-(207 = Collect Evidence / Forage / Blight residue, sub-cluster (b): the
-exotic `{cost}, collect evidence N: <body>` / `{T}, Blight N: <body>`
-activated abilities. `_COST_LOOKS_REAL` gains the three keyword-action
-cost fragments (they never let the line reach the activated handler);
-unblocked bodies — "Exile enchanted creature." (`ExileEffect`
-``attached_permanent`` mode, + an Aura family), "discard a card. If you
-do, `<effect>`" (Gristle Glutton loot), "each opponent loses N life
-unless they discard/sacrifice" (`each_player_pay_or` scope + OR cost,
-Polygraph Orb). +13, 0 regressed. Hedge Whisperer hand-authored
-(`GrantUntilEffect.extra_statics`). See `Done_Backend.md`.)
-(206 = Collect Evidence / Forage / Blight residue, sub-cluster (a): the
-reflexive *targeted* "When you do, `<payoff>`." after an optional
-keyword-action cost (RULE 603.11). A paid `pay_cost_then` now enqueues the
-payoff as its own `TriggeredAbility` (`then_trigger` param), so it goes on
-the stack with real RULE 115 target selection instead of resolving
-off-stack. Generalises far past Collect Evidence — Surgespanner, Teneb,
-Bearer of Silence, plus Sample Collector / Curious Forager / Warren
-Torchmaster. +43, 0 regressed. See `Done_Backend.md`.)
-(205 = Incubate residue closed — the plain "incubate N" cards blocked on
-unrelated grammar: reflexive "…unless its controller pays {N}. If they do,
-`<effect>`" on a counter + "battle" spell type (Assimilate Essence, Don't
-Make a Sound); "if it's a creature, it can't block this turn" damage-rider
-gated on the previous target (Searing Barb); "whenever you cast a spell
-that targets one or more permanents" cast-trigger filter (Tiller of
-Flesh). +4, 0 regressed. Phyrexian Incubator / Progenitor Exarch /
-Traumatic Revelation hand-authored — see `Done_Backend.md`.)
-(187 = Bucket-A cleanup, Commander-legal tail — `_split_triggered_modal_
-block` recognises its trigger wrapper via `segment_line` and carries the
-whole trigger dict through, instead of the narrow `_trigger_event`/
-`_trigger_condition` pair; a modal block driven by "attacks or blocks",
-"whenever you cast a noncreature spell", "at the beginning of your upkeep/
-combat", "your second spell each turn", … now parses. +8, 0 regressed —
-Elder Gargaroth, Ojutai Exemplars, Etherwrought Page, Cosmogrand Zenith,
-Ferocification, Appa. Residue is header-shape work — repeatable-mode
-Confluences, "if kicked … instead", "that hasn't been chosen this turn",
-haunt/reflexive wrappers — see `BACKLOG.md` "Bucket A residue".)
-
-**Commander-legal slice: ~42.0% — 13,382 / 31,830 (PARSER_VERSION 265).**
-This is the subset the product actually plays; `coverage_report.py
---commander-legal-only` measures it and records a separate `<v>-commander`
-snapshot row, and `scripts/commander_tail_report.py` (read-only) segments
-the ~19k still-UNMODELED Commander-legal cards by *cause* — wrapper
-re-measure (A), recurring template → `PAR-*` (B), set-specific → `PAR-*`
-(C), missing engine primitive → `MEC-*` (D), bespoke hand-authoring tail →
-PAR-12 (E). First wave of derived tickets: `PAR-31…PAR-53`, `MEC-47…MEC-49`
-in `BACKLOG.md`. Goal is literal 100% of that slice (minus the RULE 123
-sticker non-goal); expect E to stay several thousand one-card entries after
-every generalisable cluster is closed.
-(109 = PAR-29's RULE 701.60 Suspect designation, +8. 110 = PAR-29's RULE
-701.35 Detain designation, +10. 111 = PAR-29's "Blight N" standalone form,
-+1 — the cost forms are a separate build, tracked in BACKLOG. 112 = PAR-29's
-RULE 701.63 Endure, +7. 113 = PAR-29's RULE 701.70 Recruit, +5. 114 = PAR-29's
-"Parser-shaped only" residue batch — Connive targeting/previous-subject/
-dynamic-X, standalone double/triple power-and-toughness, general exchange
-control/exchange life totals, Populate/Endure "X times"/"endures X" riding
-the plain `"x"` sentinel, Bolster/Support dynamic amounts, and a suspected-
-creature target filter, +28. 115 = PAR-29's RULE 701.30 Clash — the
-`RulesEngine.clash` primitive, `effects.ClashEffect`, the `clash_won`
-`ConditionalEffect` key, and `EventType.CLASHED`/`WON_CLASH` — plus "clash
-with an opponent" / "if you win …/otherwise …" / "whenever you clash"
-handlers, +9. The other ~24 cache clash cards stay UNMODELED on ordinary
-effect-grammar residue in their win branches — "return ~ to hand", "those
-creatures gain …", "that player …", "repeat this process" — not on clash.
-116 = PAR-29's RULE 701.53 "incubate N" — a parser handler only, emitting
-the `create_token` + `extra_counters` spec Glissa, Herald of Predation's
-hand-authored entry already used (the Incubator DFC token and its "{2}:
-Transform" bind off the token name via `ability_catalogue/entries_008.py`),
-+13. Dynamic "incubate X, where X is `<count>`" stays open — needs
-`create_token`'s `extra_counters` to accept a count-selector/`"x"` sentinel;
-"incubate N twice" / "incubate N that many times" likewise.
-117 = PAR-29's RULE 701.48 Learn — `RulesEngine.learn` opens an optional
-discard-then-draw via the existing `request_choose_objects` chooser
-(`optional` + `then_specs`); the "reveal a Lesson from outside the game"
-branch is a **documented simplification** (dropped — no sideboard, same as
-`ability_catalogue/entries_010.py` for Karn's -2). Bare-word handler,
-+15.
-118 = PAR-29's RULE 701.59 Collect Evidence — a real new
-`ActivationCost.collect_evidence` field (a total-mana-value threshold, the
-MV-sum sibling of Escape's `exile_from_graveyard` card count), charged by
-`RulesEngine.collect_evidence` (auto-picks highest-MV-first — documented
-simplification) wherever a cost is paid: `{cost}, collect evidence N:`
-activated abilities, `pay_cost_then` ("you may collect evidence N. if you
-do, …"), and a bare "you may collect evidence N". `EventType.
-COLLECTED_EVIDENCE` + a "whenever you collect evidence" trigger. +3 — most
-of the ~9 remaining SOLO cards block on their *effect bodies* (an exotic
-land-animation / edict / class-up activated body, a *targeted* "if you do"
-payoff `pay_cost_then` can't resolve off-stack, a "rather than pay the mana
-cost" alt-cast), not on the cost primitive.
-119 = PAR-29's RULE 701.61 Forage — the same cost-family build as 118:
-`ActivationCost.forage` (bool — "exile three graveyard cards or sacrifice
-a Food"), `RulesEngine.forage` auto-picking between the two halves (Food
-first, documented simplification), `EventType.FORAGED`,
-`effects.ForageEffect`, `pay_cost_then` / bare / "whenever you forage"
-handlers. +3 (Bushy Bodyguard, Corpseberry Cultivator, Treetop Sentries);
-Curious Forager's *targeted* "when you do" payoff and Feed the Cycle's
-"forage or pay {B}" alt additional cast cost stay open.
-120 = PAR-29's RULE 701.4 Behold — `ActivationCost.behold` + `RulesEngine.
-behold` (reveal a matching permanent/hand card, fire `EventType.BEHELD`),
-wired into `_pay_additional_cast_cost` as a never-blocking additional cast
-cost ("or pay {N}" alt dropped, documented). Also ungated the "as an
-additional cost to cast this spell," segmenter wrapper from instants/
-sorceries — real creature spells carry additional costs. +9.
-121 = PAR-29's RULE 701.68 Blight *cost* forms — `ActivationCost.blight` +
-`RulesEngine.blight(interactive=False)` (auto-pick highest-toughness),
-activated-cost + `_can/_pay_player_cost` + never-blocking additional-cast-
-cost wiring, plus `_PAY_COST_THEN_OR_ELSE_RE` → `PayCostThenEffect.
-else_effects` for "you may `<cost>`. if you don't, `<effect>`". Fixed the
-silent-drop-of-"Blight N"-from-a-cost-string bug. +8.
-122 = PAR-29's RULE 701.66 Earthbend — `RulesEngine.earthbend` parks two
-`rest_of_game` floating statics on the target land you control (layer-4
-`type_change` to a 0/0 creature still a land, layer-6 `grant_keyword`
-haste) then `add_counters` N +1/+1; `effects.EarthbendEffect`. Literal
-`earthbend N` only; the "return it tapped on death/exile" reminder clause
-is a documented simplification. +9.
-123 = PAR-29's RULE 701.65 Airbend — "airbend [up to N] target `<X>`" =
-exile it, its owner may cast it from exile for a fixed {2}. Reuses
-`ExileEffect.grant_owner_play_permission` (→ `GameState.exile_cast_
-condition`) plus a new `owner_play_permission_cost` → `GameState.exile_
-cast_cost_override`, a fixed alt cost `GameEngine.effective_cast_cost`
-substitutes like Flashback/Escape's graveyard cost. Targeted forms only —
-"airbend that creature" (trigger-subject pronoun) and "…creature or spell"
-(exile off the stack) stay open. +3.
-124 = PAR-29's RULE 701.38 Vote — the APNAP voting subsystem:
-`RulesEngine.request_vote`/`_advance_vote`/`resolve_vote_choice`/`_tally_
-and_apply_vote` (a `vote` `pending_choice` per living player, the same
-sweep shape as `request_all_players_decline_or`), `effects.VoteEffect`,
-`GameState._pending_vote`. Two outcome shapes parsed: **majority**
-("if `<A>` gets more votes, `<X>`. if `<B>` … or tied, `<Y>`.") and
-**per-vote scaling** ("`<body>` for each `<A>` vote"), each outcome body
-recursively `parse_effect_body`'d. 2-option only; 3+-option (Council
-Guardian), "vote for a permanent/card" (Council's Judgment), a carried
-per-player subject across "and" (Capital Punishment — fail-closed), and
-untargetable-off-stack outcome bodies all stay open. +5.
-125 = PAR-29 residue: "each creature you control gains/gets `<X>` until end
-of turn" — the distributive-singular phrasing of the existing "creatures
-you control gain …" group grant (`_GROUP` / `_GROUP_SELECTORS`), +1
-(Moonveil Dragon).
-126 = PAR-29's RULE 701.55 Face a Villainous Choice — `RulesEngine.
-request_villainous_choice` (the `request_vote` APNAP sweep minus the
-tally, each facing player applies their own pick), `effects.FaceVillainous
-ChoiceEffect`, `GameState._pending_villainous`. `handlers._face_villainous
-_choice` mini-parses the two options (a "they/that player `<verb>`" clause
-retried as "target player `<verb>`" so it binds to `targets=[facing]`; a
-bare edict maps to a player-less `sacrifice`). Only cards whose *both*
-options parse: +2 (Damocles Base, The Dalek Emperor). The rest — "cast a
-spell without paying", "put a permanent from hand", "create a copy of that
-card", "exile until …", conditional/previous subjects — are PAR-30. Also
-fixed a latent bug: "**you** create a … token **with `<kw>`**" was
-mis-tagged `creators="each_player"` (the `who` group captured "you").
-127 = PAR-29's RULE 701.56 Time Travel — `RulesEngine.time_travel(player,
-times)`, `effects.TimeTravelEffect`, a bare "time travel" handler.
-Documented simplification (no per-object add/remove choice): remove one
-time counter from each suspended card the player owns (opening the RULE
-702.62a free-cast window if it empties), add one to each Vanishing-style
-permanent they control. "time travel, then time travel" = two of them.
-+3 (All of History All at Once, Time Beetle, Wibbly-wobbly Timey-wimey).
-128–132 = the ENG-31/33/32 engine-trail (parametric keyword grants;
-villainous/vote option bodies + the reanimator-token exile→copy connector;
-Waterbend bodies) — see `Done_Backend.md`.
-133 = PAR-30's "incubate X, where X is `<count>`" — `CreateTokenEffect.
-extra_counters` gained `count_from_count_selector` (a live `continuous.
-count_selector` read — lands you control, and a new
-`creature_cards_in_your_graveyard` selector) and `count_from_trigger_event`
-("that spell's mana value"); "incubate X twice" = `create_token` `count=2`.
-"…where X is its power" / "…that many times" stay UNMODELED. +3 (Glistening
-Dawn, Blight Titan, Chrome Host Seedshark).
-134 = PAR-30's Earthbend residue: "earthbend X, where X is [twice] the
-number of `<count>`" (`EarthbendEffect.amount_from_count_selector` +
-`amount_multiplier`) and the "earthbend N, then untap **that land**"
-pronoun tail — `earthbend` now announces a land referent to
-`_announces_creature_target`, and a new `previous_subject`-only
-`_TAP_PREVIOUS_SUBJECT_RE` claims "tap/untap that land|permanent|artifact|
-creature", which also caught ~8 unrelated "…target creature. Untap that
-creature." cards. "…where X is that creature's power" stays UNMODELED. +12.
-135 = PAR-30 — three small grammar widenings: (a) "those creatures" / "each
-of those creatures" as the RULE 115 previous-target-group pronoun alongside
-"they"; (b) "each creature you control **with a counter on it**" group
-selector (Iroh, Dragon of the West — ENG-31 firebending grant over a
-group); (c) an optional "during an opponent's turn" qualifier on
-`_CAST_SPELL_TRIGGER_PLAIN_RE` → the trigger's `not_controllers_turn` gate
-(Fire Nation Occupation + the "flash matters" cluster — Brineborn
-Cutthroat, Dream Spoilers, Glen Elendra Pranksters, …). +11. Fire Nation
-Cadets ("~ has firebending N as long as there's a lesson card in your
-graveyard") still needs a self-keyword-grant static shape + that
-condition.)
-
-136 = PAR-30 — the threaten / "it gains haste" restatement tail. (a) a
-singular-pronoun previous-subject pump family — "it [also] gets +N/+N [and
-gains `<kw>`] until end of turn" / "it [also] gains `<kw>` until end of
-turn" (`_PUMP_PREV_SINGULAR_*_RE`, `previous_subject_only`), the singular
-sibling of `_PUMP_PREVIOUS_TARGETS_*` ("those creatures"). (b) the
-connector-split loop now *propagates* the previous-subject referent through
-a clause that itself consumed the pronoun ("untap that creature." → "it
-gains haste."), so a threaten card's third-and-later restatement sentence
-still resolves. (c) `_GAIN_CONTROL_HASTE_TAIL_RE` also accepts "untap that
-permanent" and a ", and" join. +50 — mostly the broad "put a +1/+1 counter
-on / deal N damage to / untap target creature. it gains `<kw>` until end of
-turn" shape (Snakeskin Veil, Gerrard's Command, Rile, Eutropia the
-Twice-Favored, …) plus threaten (Malevolent Whispers) and clash "if you
-win, that creature gets …" (Fistful of Force) payoffs. The narrower "it
-gains **haste** until end of turn" threaten tail proper (63 SOLO) mostly
-still blocks on antecedent widening — `_gain_control_eot` rejecting a
-qualified target ("an opponent controls with power 2 or less", "with mana
-value ≤ the number of Vampires"), an "if you do," wrapper, or "create a
-Blood token" not parsing — left open.
-
-137 = PAR-30 — the "[Then] sacrifice / exile `<it / that creature / that
-token / them / those tokens>` at the beginning of [the/your] next end step"
-trailing clause, the single biggest RULE 701-trail sub-cluster (~100 SOLO
-by substring, ~21 that are genuinely SOLO). One **ungated**
-`_DELAYED_SAC_EXILE_TAIL_RE` handler → `create_delayed_trigger` (RULE
-603.7, `step="end"`, `scope="any"`, inner `sacrifice_specific` /
-`exile_specific`) with a new engine `capture="previous_or_self"`:
-`CreateDelayedTriggerEffect.apply` bakes in `context.previous_targets` (the
-earlier clause's RULE 115 target) → `created_objects` (RULE 608.2, a
-just-made token / reanimated card) → `[self.source]` (a bare self-subject
-"sacrifice it" with nothing before it — Brackwater Elemental / Deathknell
-Kami). Ungated because the capture no-ops cleanly on an empty referent
-chain and a create-token antecedent never sets the segmenter's
-`previous_subject` flag. +21 (Tidal Wave, Akoum Stonewaker, Dawn of the
-Dead, In Thrall to the Pit's kicked-gated form, Footsteps of the Goryo,
-Feral Lightning, Thatcher Revolt, …), 0 regressed — the rest of the ~100
-stay blocked on their *own* other clauses (populate / conjure / "tapped
-and attacking" / kicked riders).
-
-138 = PAR-30 — threaten-effect antecedent widening. `_gain_control_eot`
-gained "`(?:another )?target`", a bare "target artifact" kind, and an
-optional "with power N or less/greater" filter (threaded to
-`GainControlUntilEndOfTurnEffect.creature_filter` → `TargetSpec`). A new
-whole-clause `_GAIN_CONTROL_EOT_PER_OPPONENT_RE` ("for each opponent, gain
-control of up to 1 target creature that player controls until end of turn.
-untap those creatures. they gain haste until end of turn.") reaches the
-`count_selector="opponents"` requirement shape `_goad_per_opponent`
-already uses — and `GainControlUntilEndOfTurnEffect.apply` now iterates
-*every* chosen target rather than `targets[0]`, so the list a
-`count_selector` yields is all taken. +6 (Enthralling Victor, Metallic
-Mastery, Mass Mutiny, Molten Primordial, Smelt-Ward Ignus, Wrangle), 0
-regressed. Still open in the threaten cluster: the targeted-opponent mass
-form ("gain control of all creatures target opponent controls …" —
-Broadcast Takeover / Call for Aid), the richer haste clause ("until end of
-turn, it gains haste and `<X>`" — Furnace Reins / Loki's Scepter / Flayer
-of Loyalties), and after-tails (Goatnap's "if that creature is a Goat",
-Awaken the Sleeper's "if it's equipped", Bloody Betrayal's "create a Blood
-token" — that last blocked only on Blood tokens not parsing at all).
-
-139 = PAR-30 — the pre-daybound Innistrad **werewolf** day/night check
-(RULE 603.4 intervening-if). "At the beginning of each upkeep, if no
-spells were cast last turn, transform ~." (front → werewolf) and its
-mirror "…if a player cast 2 or more spells last turn, transform ~."
-(back → human). Two `parse_effect_body` leading-if handlers
-(`_WEREWOLF_NO_SPELLS_CONDITION_RE` / `_WEREWOLF_TWO_SPELLS_CONDITION_RE`)
-→ `ConditionalEffect`'s new `no_spells_cast_last_turn` /
-`two_or_more_spells_cast_last_turn` keys, each reading
-`GameState._last_turn_spell_count` — the previous turn's active player's
-final cast count, captured at turn rotation, the exact field
-`RulesEngine.apply_day_night_turn_check` (RULE 731.2a/2b) already uses for
-the daybound/nightbound successor mechanic; the condition never holds on
-turn 1 (`_last_turn_player_id is None`), matching that check's own turn-1
-no-op. Whitelisted in `spec._ALLOWED_CONDITION_KEYS`. +27 — the whole DFC
-werewolf cycle (Reckless Waif, Kruin Outlaw, Mayor of Avabruck, Mondronen
-Shaman, Village Messenger, Call of the Full Moon's Aura form, …), 0
-regressed. The legacy "deliberately deferred" negative test in
-`test_batch9_conditional_transform_family.py` flipped to a positive one.
-
-140 = PAR-30 — the **O-Ring / Banisher Priest / Fiend Hunter** family,
-modern one-sentence templating: "exile `<TARGET>` [an opponent controls]
-until ~ leaves the battlefield." (~47 SOLO). The engine halves both
-pre-existed — `ExileEffect(remember=True)` stamps `GameObject.
-linked_exile_id`, `ReturnLinkedExileEffect` reads it back (MEC-21 /
-MEC-30 / Skyclave Apparition) — the gap was purely parser recognition,
-and specifically that one clause maps to *two* abilities. `handlers.
-_exile_until_leaves` emits the exile spec with a new `until_source_leaves`
-param; `segmenter.segment_line`, right after building the primary
-triggered `AbilitySpec`, checks for that param and appends a companion
-`LEAVES_BATTLEFIELD` → `return_linked_exile` `AbilitySpec` via
-`Segment.extra_specs`. Target-kind maps "an opponent controls" onto the
-`_you_dont_control` kinds ("target artifact or creature an opponent
-controls" → `permanent_you_dont_control`, "…defending player controls"
-stays a bare kind). +42 (Banisher Priest, Banishing Light, Cast Out,
-Conclave Tribunal, Glass Casket, Fairgrounds Warden, Detention Chariot,
-Chained to the Rocks, …), 0 regressed. Verified end-to-end: Banisher
-Priest's ETB exiles the opponent's creature and putting the Priest in the
-graveyard returns it. Still open: the **old two-sentence** O-Ring
-templating (Oblivion Ring itself — "exile another target nonland
-permanent." + a separate "When ~ leaves the battlefield, return the
-exiled card…"), the multi-event trigger forms ("enters or transforms
-into ~" — Brutal Cathar; "enters and at the beginning of your first main
-phase" — Crack in Time), and per-card after-tails (Driftgloom Coyote's
-"if that creature had power 2 or less…", Food Coma's "create a Food
-token").
-
-141 = PAR-30 — a one-word regex widen: `_BECOMES_TARGET_TRIGGER_RE` had
-only ever matched "**Whenever** ~ becomes the target of a spell or
-ability, …", but the ~19-card Innistrad/Zendikar **Illusion cycle**
-(Phantasmal Bear, Frost Walker, Skulking Ghost, Gossamer Phantasm,
-Illusionary Servant, Phantom Beast, Skulking Fugitive/Knight, Tar Pit
-Warrior, …) prints "**When** ~ becomes the target of a spell or ability,
-sacrifice it." — semantically interchangeable here (a self-sacrifice
-fires identically off the first event either way). `when(?:ever)?`. The
-engine side — `EventType.BECOMES_TARGET` (MEC-19's "targets finalized"
-choke point in `RulesEngine.check_ward`) driving a `{"subject": "self"}`
-`SacrificeSelfEffect` — was untouched. +21, 0 regressed; verified
-end-to-end (Lightning Bolt at a Phantasmal Bear sacrifices it). Still
-open: the "sacrifice it **unless you discard a land card**" variant
-(Cursed Monstrosity) and the quoted-grant forms (Crystalline Nautilus,
-Dismiss into Dream, Boneshard Slasher, Makeshift Mannequin).
-
-142 = PAR-30 — **Earthbend residue, card 1 of 3.** "Earthbend N. **When you
-do,** `<effect>`." (Earth Rumble). "earthbend N" is a mandatory keyword
-action (no "may"), so RULE 603.3's "when you do" sub-trigger is a certainty
-and the two sentences collapse to one plain `[earthbend N, <effect>]`
-sequence with no interactive branch — the same certain-antecedent rationale
-`_SACRIFICE_THEN_WHEN_YOU_DO_RE` uses. `_EARTHBEND_THEN_WHEN_YOU_DO_RE` in
-`segmenter`, narrow enough (before-clause must be exactly `earthbend \d+`)
-that it can never claim the genuine optional "you may `<action>`. When you
-do, …" family. The `<effect>` half ("up to 1 target creature you control
-fights target creature an opponent controls") already parsed via the
-connector-split loop — only the literal "When you do," between the two
-sentences was blocking. +1, 0 regressed.
-
-143 = PAR-30 — **Earthbend residue, card 2 of 3.** "Whenever a **nonland**
-creature you control dies, earthbend X, where X is **that creature's
-power**." (Beifong's Bounty Hunters). Two small pieces: (a) `_GROUP_SUBJECT_
-RE` gained an optional `nonland` qualifier → `condition["nonland"]` →
-`effect_binder._build_group_ok`'s new `want_nonland`, a negated main-type
-check against the DIES event's snapshotted `object_types` (RULE 400.7 — the
-object is gone by the time the trigger check runs), the same shape
-`nontoken` already uses; (b) `_EARTHBEND_THAT_CREATURES_POWER_RE` →
-`EarthbendEffect.amount_from_trigger_event="power"`, reading the DIES
-event's last-known-power snapshot — which `damage_death_mixin` now stamps on
-DIES (`power=obj.power`), mirroring the identical stamp LEAVES_BATTLEFIELD
-already carried for `LoseLifeEffect.amount_from_trigger_event`. Deliberately
-anchored on the literal "that creature's power" so it only claims the
-dying-subject read; "its power" / "that creature's toughness" stay
-UNMODELED. +1, 0 regressed; verified end-to-end (a 5/5 dying earthbends the
-land by 5; a plain land dying doesn't fire the trigger).
-
-The Earthbend residue cluster's **last card, Earthshape**, is hand-authored
-(`ability_catalogue/entries_016.py`, no PARSER_VERSION bump) rather than
-parsed: the "power <= **that land's power**" threshold is a read of the
-just-earthbent land's power that no general handler warrants building for
-one Avatar-set singleton. Two documented simplifications — "that land's
-power" is modeled as the literal earthbend amount (3; a freshly-animated
-land is 0/0 + three +1/+1 counters = 3/3), carried by
-`PumpEffect.creature_filter`'s `max_power`, which this pass also taught to
-narrow the `selector`-group branch (not only the targeted one); and "You
-gain hexproof until end of turn" is dropped (player-level hexproof is
-deliberately unmodeled, same call as Veil of Summer in the Kinnan/M-K
-batch). **Earthbend residue is now closed** — its BACKLOG bullet deleted.
-
-144 = PAR-30 — **Airbend residue.** `_AIRBEND_RE` only handled "airbend [up
-to N] target creature/nonland permanent"; real Avatar cards print a fuller
-qualifier set. Widened to "[up to N / exactly N / any number of] [other /
-another] target `<X>` [you control]" → the right source-scoping/-excluding
-`ExileEffect` `target_kind` (`creature_you_control` /
-`other_creature_you_control` / `nonland_permanent_you_control`). New
-`_AIRBEND_TRIGGER_SUBJECT_RE` ("airbend that creature / it") →
-`target_kind="trigger_subject"` (MEC-38 — reads the firing event's own
-`instance_id`), for **Monk Gyatso**'s "you may airbend that creature" on a
-group BECOMES_TARGET trigger. One real engine gap fixed along the way:
-`ExileEffect`'s `trigger_subject` branch did the exile but skipped every
-post-exile rider (owner-play-permission, free-cast window, import tax) —
-extracted into a shared `_post_exile` helper both branches call. +2 SOLO
-(Monk Gyatso, Airbender's Reversal); the airbend *clause* also stops
-blocking Aang Airbending Master / Aang the Last Airbender / Appa Loyal Sky
-Bison / Appa Steadfast Guardian (each still UNMODELED on its *own* other
-clauses — experience-counter triggers, lesson-spell triggers, a modal
-choose, cast-from-exile — separate PAR-30 items). 0 regressed.
-
-145 = PAR-30 — **Airbend residue, cluster closed.** "airbend up to one
-other target creature **or spell**" (Aang, Swift Savior). `_AIRBEND_RE`
-gained an `or spell` tail → `target_kind="spell_or_creature"` (the MEC-43
-Unsubstantiate targeting union — a `nonland permanent … or spell` shape
-fails closed, no real card prints it) + a new `ExileEffect.spell_or_
-permanent` flag: a chosen target that is a live spell on the stack is
-pulled off it via `RulesEngine.move_spell_off_stack(item, "exile")` (RULE
-400.1 — it never resolves) instead of `context.exile`, then the same
-`_post_exile` recast-permission riders apply. Mirrors `ReturnToHandEffect`'s
-own `spell_or_permanent` (Unsubstantiate's own "still on the stack" bounce).
-+1; verified end-to-end (a Lightning Bolt on the stack is exiled off it with
-a {2} recast override; the same effect still exiles a battlefield creature).
-**The PAR-30 Airbend residue cluster is now closed** — its BACKLOG bullet
-deleted.
-
-146 = PAR-30 — the **"Create a token …. It gains haste until end of turn."
-tail.** Three small pieces: (a) `segmenter._announces_creature_target` now
-returns True for a `create_token`/`copy_permanent`/`become_copy` spec, so
-the connector-split loop offers "it" to the next clause;
-`PumpEffect.previous_subject` falls back to `GameContext.created_objects`
-when `previous_targets` is empty (a create clause has no RULE 115 target).
-(b) The connector-split loop seeds its pronoun chain from the caller's
-`previous_subject`/`previous_selector` — a two-sentence wrapper
-(`_EXILE_THEN_COPY_SENTENCE_RE`, `_with_after_tail`) passes
-`previous_subject=True` for a span it knows opens with a referent ("create a
-token that's a copy of that card. It gains haste …"), and the *first*
-sub-part must inherit it rather than restart from nothing. (c)
-`_DELAYED_SAC_EXILE_TAIL_RE` gained a `destroy` verb → a new
-`destroy_specific` effect (the destroy sibling of `sacrifice_specific`/
-`exile_specific`; goes through `RulesEngine.destroy`, so a shield/
-indestructible can still save it — Old Hob, Alleycat Blues' "Destroy it at
-the beginning of the next end step"). +9 (Harried Dronesmith, God-Pharaoh's
-Gift, Séance, Mordor on the March, Mardu Charm, Mardu Monument, Mogg Cannon,
-Rebellion of the Flamekin, Salt Road Skirmish), 0 regressed; verified
-end-to-end (Harried Dronesmith's ETB Thopter gains haste via
-`created_objects`). Residue not on "it gains haste": Molten Duplication
-(needs `{TARGET}` "artifact or creature **you control**" scoping — a shared
-macro), Old Hob's *other* ability ("target attacking creature **token**"
-filter), Artistic Process (a modal `choose 1 —` option body).
-
-147 = PAR-30 — **Clash (RULE 701.30) win-branch residue, batch 1** of an
-ongoing section (~23 cards, each win-branch body its own effect grammar).
-Five small pieces: (a) "you clash and win" joins "you win a clash" as a
-`WON_CLASH` trigger phrasing (Sylvan Echoes). (b) `_FREE_CAST_FROM_HAND_RE`
-accepts "…spell **from your hand** with mana value N or less…" word order,
-not only the Expertise-cycle "…with mana value N or less from your hand…"
-(Marvo, Deep Operative). (c) `return_self_to_hand` accepts "return **this
-card** to its owner's hand" (Ringskipper — a "when ~ dies" clash-win body,
-source in the graveyard; scoped to that handler, not the shared
-`_SELF_SUBJECT` macro). (d) the connector-split loop treats a bare `clash`
-spec as a **referent-transparent interstitial** — it neither targets nor
-creates, so "create 2 tokens. clash with an opponent. if you win, **those
-creatures** gain deathtouch …" (Gilt-Leaf Ambush) carries its pronoun chain
-across the clash sentence instead of having it cleared. (e)
-`_PUMP_PREV_SINGULAR_PT_RE` accepts "gets **an additional** +N/+N" (Fistful
-of Force). +5 (Sylvan Echoes, Marvo, Ringskipper, Gilt-Leaf Ambush, Fistful
-of Force), 0 regressed. Still open in the section — each on a distinct
-win-branch body: self-bounce cards blocked on their *first* clause (Titan's
-Revenge's "~ deals X damage to any target", Redeem the Lost's "protection
-from the color of your choice", Recross the Paths' reveal-until-land);
-"that player discards N" (Pulling Teeth), "you gain life equal to that
-creature's toughness" (Weed Strangle), "~ deals N damage to that creature's
-controller" (Lash Out), "~ deals N damage to each creature blocking it"
-(Fire Juggler), "repeat this process" (Hoarder's Greed), "destroy all
-enchantments your opponents control" (Spring Cleaning), "untap all Forests
-you control" (Woodland Guidance), "gain control of enchanted creature"
-(Captivating Glance), "doesn't untap during … next untap step" (Entangling
-Trap, Pollen Lullaby), and more.
-
-148 = PAR-30 — **"{X}-scaled damage" handler + Clash batch 2.** The bigger
-half is a general win: `_damage_x` claims "~ deals **x** damage to
-`<target>`" (digit-free, so it never competes with the `NUMBER`-based
-`damage` row) and emits `EffectSpec("damage", {"amount": "x"})` — the `"x"`
-sentinel `RulesEngine._substitute_x` already rewrites off the spell/
-ability's announced {X} at resolution. No handler for it existed at all.
-**+20 classic X-burn cards** (Blaze, Devil's Play, Fanning the Flames,
-Volcanic Geyser, Cinder Elemental, Heat Ray, Pain Kami, Goblin Dynamo,
-Knollspine Invocation, Latulla, Flameblast Dragon, Arcbound Javelineer,
-Ballista Squad, …) **plus Titan's Revenge** (a clash card that was blocked
-on its pre-clash "~ deals X damage to any target" clause). Verified
-end-to-end: `_substitute_x` sets `amount=4`, a 3/3 dies, a player loses 5
-to X=5. Also `_DESTROY_ALL_RE` gained an optional " your opponents control"
-scope → new `opponents_enchantments`/`opponents_artifacts` selectors in
-`_mass_selector_objects` (a scope on any other noun fails closed) — Spring
-Cleaning's clash win-branch. +21 total, 0 regressed.
-
-149 = PAR-30 — **"doesn't untap during its controller's next untap step"**,
-another big general family (~95 SOLO) that a clash card (Entangling Trap)
-sits inside. New `SkipNextUntapEffect` (`skip_next_untap`) sets
-`GameObject.skip_next_untap` — RULE 702.19b's *own* one-time flag, already
-consumed and cleared in `GameEngine._step_untap` (built for exert), so no
-engine plumbing beyond the effect itself. A pure rider — it taps nothing —
-so "Tap X. It doesn't untap …" is the ordinary two-clause `[tap,
-skip_next_untap{previous_subject}]` sequence, "it" off `previous_targets`.
-Three subject shapes (`target <perm>` / `it`·`that <perm>` prev-subject /
-`~` self). **Also a standalone fix:** `_tap`'s allowed target kinds never
-included the controller-scoped creature kinds, so "tap target creature **an
-opponent controls**" (Chillbringer, Berg Strider, half the tempo family)
-didn't parse at all — widened to `creature_you_control` /
-`creature_you_dont_control` / `other_creature_you_control`. **+51** — the
-whole tap-and-freeze tempo family (Frost Lynx, Frost Titan, Frost Trickster,
-Dungeon Geists, Nebelgast Herald, Niblis of Frost, Kor Hookmaster, Kor
-Entanglers, Barl's Cage, Chandra's Revolution, Hands of Binding, Blustersquall,
-Ojutai's Breath, …) plus Entangling Trap. 0 regressed; verified end-to-end
-(the flag survives to the untap step, which skips the creature and clears
-it). A stale negative test in `test_mec19_becomes_target_family.py` (Frost
-Titan asserted UNMODELED) flipped to positive.
-
-150 = PAR-30 — "gains **protection from the color of your choice** until end
-of turn" (RULE 702.16 — Gods Willing / Emerge Unscathed / Feat of
-Resistance / **Redeem the Lost** [a clash card], ~27 SOLO). The engine
-primitive is Mother of Runes' `GrantProtectionEffect` /
-`RulesEngine.grant_protection_choice` (the interactive `grant_protection_
-color` pick → `temp_protections`, cleared at cleanup) — only this exact
-phrasing's parser recognition was missing. `GrantProtectionEffect` gained
-a self (`target_kind=None`, "~ gains …" — Jareth/Cartel Aristocrat) and a
-`previous_subject` mode ("put a +1/+1 counter on target creature you
-control. **it** gains …" — Feat of Resistance). +17 (the Sejiri Shelter/
-Sejiri Steppe/Shelter/Stave Off cycle, Center Soul, Emerge Unscathed,
-Blessed Breath, Moonlit Strider, the Master-cycle Thornscape/Stormscape,
-…), 0 regressed; verified end-to-end (the color pick lands in
-`temp_protections`).
-
-151 = PAR-30 — "**reveal cards from the top of your library until you
-reveal a `<type>` card. put that card `<onto the battlefield / into your
-hand>` and the rest `<bottom / graveyard / shuffle>`**" (~64 SOLU;
-**Recross the Paths** is a clash card). Engine primitive is
-`RulesEngine.dig_until` / `effects.DigUntilEffect` — the generalized
-cascade dig, predicate + both destinations parameterized — so only the
-"reveal until a *type* predicate" recognition was missing. `_REVEAL_UNTIL_
-TYPE_RE` + a `_DIG_UNTIL_REST_RES` `re.search` over the many "put all other
-cards revealed this way …" / ", then shuffle …" tail spellings (rather
-than a row per phrasing). Predicates: a land / basic land / creature /
-artifact / enchantment / nonland / nonartifact-nonland card. **Fails
-closed** on "onto the battlefield **tapped**" (Clifftop Lookout —
-`dig_until` has no tapped-entry mode; a land entering tapped vs untapped is
-a real difference). **Documented simplification**: "in any order" → the
-engine's only bottoming mode, a *random* order. +9 (Recross the Paths, Atla
-Palani, Foster, Evolutionary Leap, Madcap Experiment, Audacious Reshapers,
-Spinner of Souls, The Regalia, Vivien Nature's Avenger, Yuna's Whistle),
-0 regressed; verified end-to-end (dig past two nonlands, Forest onto the
-battlefield, the rest bottomed).
-
-152 = PAR-30 — "**you gain life equal to `<its / that creature's>` `<power /
-toughness>`**" (~36 SOLO — Bottle Golems / Angelic Chorus / **Weed
-Strangle** [a clash card] / Brightmare / Tribute to Hunger / Consuming
-Vapors / …). The creature isn't a RULE 115 target of the gain-life effect
-itself, so a new `GainLifeEffect.amount_from_subject` string (`"<who>_
-<char>"`) names the object + characteristic. Three gated parser rows, one
-per pronoun subject: "its" on a bare-`~` trigger → ``self_*``
-(`self_subject_only`); "its" on a group trigger ("a creature you control
-enters" — the firing creature) → ``trigger_subject_*``
-(`group_subject_only`); "that creature's" after another clause →
-``previous_subject_*`` (`previous_subject_only`, RULE 608.2h last-known
-info — the creature is usually gone by then). The ungated bare "you gain
-life equal to its power" fails closed. +14, 0 regressed; verified
-end-to-end (self power → +3; a destroyed creature's last-known toughness →
-+5).
-
-153 = PAR-30 — "**~ [also] deals N damage to that creature's controller**"
-(~22 SOLO — Consign to the Pit / Blur of Blades / Burn the Impure
-[previous-subject: "Destroy target creature. …"] · Battle Strain / Dingus
-Staff / Gimli [group/trigger: "Whenever a creature blocks/dies, …"] ·
-**Lash Out** [a clash card]). New `DealDamageEffect.recipient_subject`
-string (`"<who>_controller"`) — derives the recipient *player* from
-`GameContext.previous_targets` (RULE 608.2h last-known controller, since
-the creature is usually gone) or the firing event's own
-``instance_id``/``controller_id`` payload. No RULE 115 target of its own,
-so `target_spec` is `None` and `apply` short-circuits to a direct
-`deal_damage(player, …)`. Two gated parser rows (`previous_subject_only` /
-`group_subject_only`); "~ **also** deals" handled too (Blooming Blast).
-+10, 0 regressed; verified end-to-end (both subject modes hit the right
-opponent for the right amount).
-
-154 = PAR-30 — two small clash win-branch bodies; **the general-family
-seam in the clash residue is worked out** now. "untap all `<basic land
-subtype>` you control" (Woodland Guidance) → a new
-`continuous.group_selector_objects` ``lands_you_control_of_type_<x>``
-branch (the land sibling of the existing ``creatures_you_control_of_type_
-<x>``) + a one-line `_is_valid_tap_selector` whitelist widen. "~ deals N
-damage to each creature blocking it" (Fire Juggler, 4 cards) → a new
-`DealDamageEffect` ``each_creature_blocking_source`` selector — every
-battlefield creature whose `GameObject.blocking` names this ability's own
-source (read live, combat still in progress). +2, 0 regressed; verified
-end-to-end. The last ~7 clash cards (Hoarder's Greed "repeat this
-process", Captivating Glance "gain control of enchanted creature", Broken
-Ambitions "that spell's controller mills 4", Whirlpool Whelm "put that
-creature on top of its owner's library instead", Pulling Teeth /
-Pollen Lullaby "that player" cross-branch referent) are genuine singletons
-— hand-author candidates, no shared grammar left.
-
-155 = PAR-30 — the Kicker-shaped **optional additional cast cost**
-primitive (RULE 601.2b), the `<who>`-flag half of the Waterbend residue's
-biggest cohesive cluster. "as an additional cost to cast this spell, **you
-may** `<waterbend {N}/blight N/behold X/sacrifice …>`." →
-`AbilitySpec.additional_cost_optional`, a second `pay_additional` cast
-variant `game/engine/legal_actions_mixin._offer_cast` offers alongside the
-plain one (the same "alongside, never in place of" shape as evoke/
-help_pay), with `GameObject.additional_cost_paid` recording whether it was
-taken. "**if this spell's additional cost was paid**, `<effect>`." →
-`EffectSpec.condition`'s new ``"additional_cost_paid"`` key
-(`ConditionalEffect`, the generic sibling of ``"bargained"`` — additive
-"if paid, extra effect" only; the "…, `<effect>` instead" override shape
-stays unclaimed). Threaded `pay_additional` through `can_cast` /
-`effective_cast_cost` / `cast_spell` / `_cast_current_face` /
-`_auto_tap_for_cast_if_needed` / `_pay_additional_cast_cost` /
-`GameSession._dispatch_cast_spell`. +1 (Requiting Hex); the per-card bodies
-(Ruinous Waterbending, Spirit Water Revival, Katara Seeking Revenge) were
-each their own effect-body grammar — all since closed (Katara v158, the
-rest in the v215 hand-authored batch); Secret of Bloodbending deferred to
-MEC-51. 0 regressed.
-
-156 = PAR-30 — "**as long as there's a `<subtype>` card in your
-graveyard**" (the Avatar: TLA "Lesson" cards), a `static_conditions.py`
-`active_if` gate that crossed the Waterbend/Firebend residue. New
-`subtype_in_graveyard` kind (a live type-line scan of the controller's
-graveyard, `+ subtype + min`; `_STATIC_CONDITION_RES` row) plus its
-trigger intervening-if sibling "**if there's a `<subtype>` card in your
-graveyard, `<effect>`**" → `ConditionalEffect`'s already-built (but never
-parser-wired) `graveyard_has_type` key
-(`segmenter._GRAVEYARD_HAS_SUBTYPE_CONDITION_RE`). +6 — Aang A Lot to
-Learn, First-Time Flyer, Platypus-Bear, Walltop Sentries (Lesson), plus
-Murasa Behemoth ("land card in your graveyard") and Dawnhand Eulogist
-("Elf card in your graveyard"). Fire Nation Cadets still blocked on the
-"~ has firebending N" self parametric-keyword grant. 0 regressed.
-
-157 = PAR-30 — the **self** parametric-keyword grant static ("~ has
-firebending N [as long as `<cond>`]", Fire Nation Cadets), closing the
-last lesson-card residue card. ENG-31 shipped the group/pump/token
-parametric grants but not the self one; `static_handlers._SELF_GRANT_RE`'s
-keyword capture widened to accept a trailing digit and routed through
-`_split_keywords_with_parametric` — but only when `_flag_keywords` fails
-first, so the ordinary landwalk/flag self-grant path is byte-identical.
-Emits `grant_keyword {affects: "self", parametric_keywords: [...]}`, which
-`continuous._apply_layer_6_ability`'s existing ENG-31 branch already
-applies (and re-synthesizes firebending's ATTACKS add-{R}×N mana ability
-off). +1, 0 regressed.
-
-158 = PAR-30 — Katara, Seeking Revenge's two remaining clauses, both
-riding primitives from the last three versions. "**~ gets +P/+T for each
-`<subtype>` card in your graveyard**" → a self `anthem` scaled by
-`continuous.count_selector`'s new `<subtype>_cards_in_your_graveyard`
-prefix (a live type-line scan, the sibling of v156's
-`subtype_in_graveyard`); the explicit `creature_cards_in_your_graveyard`
-row stays its own `Card.is_creature` check. "**`<effect>` unless `<its>`
-additional cost was paid**" → the negative, *suffix* form of v155's
-`additional_cost_paid` `EffectSpec.condition`, checked *after* the
-connector split so it binds to only its own clause ("draw a card, then
-discard a card unless her additional cost was paid" → the draw stays
-unconditional). +7 — Katara plus every "gets +X/+X for each `<type>` card
-in your graveyard" beater the count-selector unlocked (Knight of the
-Reliquary, Fiend Artisan, Liliana's Elite, Salvage Slasher, Wight of the
-Reliquary, Madame Hydra Reanimated). 0 regressed.
-
-159 = PAR-30 — the "**`<consequence>` unless you pay `<cost>`**" family
-(62 cards / 56 SOLO cache-wide). (a) `_UNLESS_COST` — the closed cost
-vocabulary `_SACRIFICE_UNLESS_PAY_RE` / `_DESTROY_UNLESS_PAY_RE` share —
-gains "discard N cards" (a plain count `parse_activation_cost` /
-`_pay_player_cost` already honour); "discard a `<type>` card" (silently
-free) and "at random" stay excluded. (b) New `_TAP_UNLESS_PAY_RE` /
-`_EXILE_UNLESS_PAY_RE` — the tap/exile consequence siblings — modeled with
-no new effect at all: `pay_cost_then` with an empty pay-branch and the
-tap/exile spec in `else_effects` (paying costs the resource, declining
-taps/exiles the source). Registered before `tap_self`/`exile_self` so the
-"unless" half isn't dropped. +8 — Carnophage, Sangrophage, Heavyweight
-Demolisher, Electrozoa, Apocalypse Demon, Demonlord of Ashmouth,
-Morgul-Knife Wound (granted form), Avatar of Discord. 0 regressed. Still
-open in this family: the "discard N cards **unless you discard a `<type>`
-card**" body (Alpharael) and follow-up "if ~ is destroyed this way …"
-clauses (Cosmic Horror).
-
-160 = PAR-30 — Incubate dynamic amount "…where X is **its power**"
-(`_INCUBATE_X_RE` / `_incubate_x`). A "when ~ dies" trigger; the dying
-creature's own last-known power is already snapshotted on the DIES event
-(`damage_death_mixin`, RULE 400.7), so no engine change — reuses
-`CreateTokenEffect.extra_counters`' existing `count_from_trigger_event`
-key, the same firing-event idiom `EarthbendEffect` uses for "earthbend X,
-where X is that creature's power" (v143). +2 — Bloated Processor, Furnace
-Gremlin. 0 regressed. Still open in the Incubate residue: "incubate N
-**that many times**" (Phyrexian Incubator — a search-count repeat),
-"where X is its **mana value**" of a just-exiled permanent read by *its
-controller* (Excise the Imperfect), "X is the number of creatures
-**exiled this way**" (Sunfall) — each a distinct unbuilt primitive.
-
-161 = PAR-30 — the shared `TARGET` macro (`catalogue/subgrammars.py`
-`_TARGET_ROWS`) gains a **"another target creature you control"** row
-(RULE 109.5 — the ability's own source is excluded). The engine's
-`other_creature_you_control` kind (`targeting.py`) already did the
-exclusion, the "you control" scoping and its German label; the row just
-routes the printed phrase there, and `_pump_target` adds the kind to its
-pumpable-kind allowlist. Reaches every `TARGET`-embedding handler (pump,
-damage, counters, …), not just the pump family that motivated it. +31 —
-mostly ETB / combat-trigger creatures granting a keyword until end of
-turn (Heavenly Qilin, Duke Ulder Ravengard, Selfless Savior, Void
-Grafter, Blooming Stinger, …). 0 regressed. The no-"you control" form
-("another target creature" — Arwen, Mortal Queen) stays UNMODELED: its
-`other_creature` kind is not engine-wired.
-
-162 = PAR-30 — the Incubate **dynamic-amount** residue, finished. Two
-shapes: (a) "Its controller incubates X, where X is **its mana value**"
-(Excise the Imperfect) — `CreateTokenEffect.creators` gained
-`"previous_target_controller"` (creator = whoever last controlled the
-just-exiled `previous_targets[0]`, RULE 608.2h) and `extra_counters` a
-`count_from_subject` reading a `"<who>_<char>"` string through a new
-shared `_characteristic_of_subject` helper (factored out of
-`GainLifeEffect._from_subject`, `char` now covers `mana_value`); the
-plain `_exile` handler also learned the real `nonland_permanent` kind
-(bonus: Anguished Unmaking, Utter End). (b) "…where X is the number of
-creatures **exiled this way**" (Sunfall) — new
-`GameContext.objects_exiled_this_way` accumulator, the exact sibling of
-`permanents_destroyed_this_way`, bumped by `context.exile` and read via
-`extra_counters`' new `count_from_context` key. +4, 0 regressed. Still
-UNMODELED (each its own primitive, not dynamic-amount grammar):
-"incubate N that many times" (Phyrexian Incubator — a search-result
-count across a `pending_choice` suspension) and "incubate N X times"
-reading a source's `x_paid` (Progenitor Exarch).
-
-163 = PAR-30 (Vote residue, one point per loop) — self-excluding mass
-destroy. New `all_other_creatures` / `other_creatures_you_control`
-selectors (`effects._mass_selector_objects`, RULE 400's "other");
-`_DESTROY_ALL_OTHER_RE` claims "destroy all other creatures[ you
-control]" / "…all creatures other than ~" / "…except [for] ~" + an
-optional "can't be regenerated" tail. +1 (Novablast Wurm); also closes
-the "destroy all creatures other than ~" branch of Magister of Worth's
-vote body (card still blocked on its other branch).
-
-204 = PAR-30 (Threaten / O-Ring trailing items, bullet fully closed) — the
-last two singletons. **Call for Aid**: the two anti-abuse riders on the
-mass gain-control body — "you can't sacrifice those creatures this turn"
-(`GainControlUntilEndOfTurnEffect.mark_no_sacrifice` → `GameObject.cant_be_
-sacrificed_this_turn`, checked at every sacrifice candidate site, cleared
-at cleanup) and "you can't attack that player this turn" (new
-`PreventAttackingPlayerThisTurnEffect` → `GameState.no_attack_pairs_this_
-turn`, enforced in `GameEngine._can_attack` against the assigned defender).
-**Shackles of Treachery**: `_DAMAGE_TRIGGER_RE` now accepts a bare "deals
-damage" (whole "to <recipient>" clause optional; empty filter = any damage
-instance), plus a new `equipment_attached_to_source` target kind +
-`_destroy_equipment_attached_to_it` handler for the granted quoted
-trigger's "destroy target Equipment attached to it". +2.
-
-203 = PAR-30 (Threaten / O-Ring trailing items) — three of the five. **"When
-you cast this spell, `<effect>`."** (RULE 601.2i) —
-`_CAST_THIS_SPELL_TRIGGER_RE` → `trigger={"event": "SPELL_CAST",
-"condition": {"subject": "self"}}`, body `self_subject`; the engine side
-was already MEC-43 (`_collect_self_cast_triggers` +
-`TriggeredAbility.functions_from_stack`). +15 (Flayer of Loyalties, the
-Emerge/Emrakul-brood cycle, Artisan of Kozilek, Decimator of the
-Provinces, World Breaker, Desolation Twin …). **"enters or transforms into
-~"** (Brutal Cathar) — new `EventType.TRANSFORMED` fired by
-`RulesEngine.transform_permanent` after the flip + rebind;
-`_SELF_MULTI_EVENT_RE` accepts "transforms into ~" as a verb slot → the
-existing event-list shape. +5 (Huntmaster of the Fells, Ulrich of the
-Krallenhorde, Ashling Rekindled, Brigid Clachan's Heart). **"when ~ enters
-and at the beginning of your first main phase"** (Crack in Time) —
-`_ENTERS_AND_MAIN_PHASE_RE` → self `ENTERS_BATTLEFIELD` + controller-scoped
-`STEP_BEGIN` (`{"step":"main1"}`, `phase_relation="you"`) + O-Ring
-LEAVES_BATTLEFIELD return. +1.
-
-202 = PAR-30 (Threaten / O-Ring residue, closed) — the *old two-sentence*
-Oblivion Ring templating: `_return_exiled_card` claims a standalone
-"return the exiled card[s] to the battlefield under its/their owner's
-control." LTB line (→ `return_linked_exile`), `_exile` gains an "exile
-**another** target `<X>`" ETB row, and `gate.parse_oracle` stamps
-`remember=True` onto every plain `exile` effect on any card that also
-carries a `return_linked_exile` (so `linked_exile_id` is populated).
-+10 — Oblivion Ring itself, Journey to Nowhere, Faceless Butcher, Fiend
-Hunter, Petravark, Petradon, Slithery Stalker, The Princess Takes Flight,
-Eldrazi Displacer, Driftgloom Coyote (its "if that creature had power N
-or less, put a +1/+1 counter on ~" after-tail via the new
-`previous_target_power_at_most` `ConditionalEffect` key).
-
-201 = PAR-30 (Threaten residue) — the two card-specific conditional
-after-tails on a threaten clause: "if that creature is a `<subtype>`, it
-also gets +N/+M until end of turn" (Goatnap) and "if it's equipped, you
-may destroy all Equipment attached to that creature" (Awaken the
-Sleeper), each a `ConditionalEffect` on new `previous_target_*` keys
-(`_has_subtype` / `_is_equipped`) reading `GameContext.previous_targets`;
-the destroy runs over a new `equipment_attached_to_previous` mass
-selector (the "you may" isn't an interactive choice — documented
-simplification). +2 (+ Kaseto Orochi Archmage bycatch).
-
-200 = PAR-30 (Threaten residue) — leading "until end of turn, it …"
-rich restatements: "it gains haste and '`<quoted ability>`'" (Furnace
-Reins — `grant_until(previous_subject=True)` over
-`_quoted_ability_grant_effects`), "it becomes a `<subtype>` in addition
-to its other types and gains haste" (Loki's Scepter — `type_change`
-add-subtype), "it has base power and toughness N/N and gains `<kws>`"
-(`pt_set` + residual `pump`); `_DAMAGE_TRIGGER_RE` also accepts "…to a
-player or battle" (RULE 310). Plus the opponent-scoped mass threaten
-(`_GAIN_CONTROL_MASS_EOT_RE`): `selector="opponents_artifacts"`
-(Broadcast Takeover — the mass path now passes `source` to
-`_mass_selector_objects`) or `GainControlUntilEndOfTurnEffect.
-mass_of_target_player` (one RULE 115 opponent target, then all their
-creatures/artifacts). +5 (incl. Beamtown Beatstick / Archpriest of
-Shadows bycatch).
-
-199 = PAR-30 (Threaten residue) — `_GAIN_CONTROL_HASTE_TAIL_RE`'s
-restatement tail now recurses whatever the "it/they gains … haste …
-until end of turn" sentence says beyond bare haste through
-`parse_effect_body(previous_subject=True)`, so the shipped
-`pump(previous_subject=True)` claims "untap it. it gains trample and
-haste until end of turn" (Traitorous Blood) / "…haste and myriad…"
-(Firbolg Flutist) with no second RULE 115 target. +2.
-
-198 = PAR-30 "create a token that's a copy of `<named card>`" body
-singletons — **Sin, Spira's Punishment**. New self-contained
-`RandomGraveyardExileCopyLoopEffect` / `random_graveyard_exile_copy_loop`
-— "exile a permanent card from your graveyard at random, then create a
-tapped token that's a copy of that card. if the exiled card is a land
-card, repeat this process." (RULE 706 `RulesEngine.random_choice` over
-the graveyard's permanent cards + RULE 707.2 `create_token` off the
-exiled card, looped while each exiled card is a land; `MAX_ITER` hard
-stop). The "enters or attacks" trigger already parsed
-(`_SELF_MULTI_EVENT_RE`). +1.
-
-197 = PAR-30 "create a token that's a copy of `<named card>`" body
-singletons — **Living Laser**. New `GameState.cards_discarded_this_turn`
-(bumped at every `DISCARD_CARD` fire site via `RulesEngine.
-_note_discarded` — the plain `discard`, `discard_specific`, and the Pitch
-additional-cost discard; reset for the incoming active player in
-`begin_turn`, exactly like `cards_drawn_this_turn`) +
-`continuous.count_selector("cards_discarded_this_turn")` +
-`CopyPermanentEffect.count_selector` (overrides `count`, resolved off
-live state at `apply`). `_COPY_SELF_FOR_EACH_RE` handler: "for each card
-you've discarded this turn, create a token that's a copy of ~[, except
-the token isn't legendary]" → `copy_permanent` with `target_kind=None` /
-`referent="source"` + the selector. The trailing "the tokens enter
-tapped and attacking" (`_CREATED_ENTERS_ATTACKING_RE`) and "exile the
-tokens at the beginning of the next end step" (`_DELAYED_SAC_EXILE_TAIL_
-RE`) already parsed. The `cards_discarded_this_turn` selector also opens
-Change of Fortune / Astonishing Spider-Man territory (still blocked on
-their own "when you do" reflexive shapes). +1.
-
-196 = PAR-30 "create a token that's a copy of `<named card>`" body
-singletons — **The Vast Scrier**. `request_search` /
-`PutFromHandOntoBattlefieldEffect` gain `then_specs_if_none`: "if you
-don't put a card onto the battlefield this way, `<body>`." (`scry 2`)
-runs `<body>` when the from-hand pick places nothing — declined in
-`resolve_search_choice`, or nothing eligible in `request_search` (both
-paths carry the serialized specs + a `then_source_id` on the search
-`pending_choice`). `_PUT_FROM_HAND_RE` also consumes the reminder
-sentence "if it has any 'whenever ~ attacks' triggers, those trigger"
-as a no-op — `put_onto_battlefield_attacking` already re-fires ATTACKS
-for the placed creature. +1.
-
-195 = PAR-30 "create a token that's a copy of `<named card>`" body
-singletons — **The Joiner of Cats**. New `create_token_copy_of_named` spec
-/ `CreateNamedCardTokenEffect`: the token's copiable values come from a
-real card resolved by name from the cache (`services.card_lookup.
-card_by_name` — a `game/`-safe singleton, deliberately *not* in
-`card_database.py` whose bytes are hashed into the cache schema
-fingerprint). `_CREATE_NAMED_CARD_TOKEN_RE` + `_NAMED_CARD_SHAPE_RE` only
-fire on a proper-noun name (" of "/","/"'"/word-internal hyphen), never
-"enchanted creature"/"chosen permanent". Plus `impulsive_look` gains
-`miss_effect_specs` — the `_LOOK_TOP_PUT_ATTACKING_RE` "if you don't put a
-card onto the battlefield this way, `<body>`." else-branch, run in
-`resolve_impulsive_look_choice` (declined) / `request_impulsive_look`
-(nothing eligible) via `_apply_effect_specs`, source kept off
-`state.pending_choice` on `_pending_impulsive_look` (same split
-`_pending_name_card` uses). +1.
-
-194 = `normalize` folds a comma-less legendary's **given name** — the
-single word before " of " in "Kaalia of the Vast" → `~` — where it's a
-genuine self-reference. `_fold_given_name_prefix` is context-gated
-(`_PREFIX_TYPE_BEFORE`/`_PREFIX_TYPE_AFTER`) so a name that also reads as a
-creature type or keyword keeps that meaning: "another **Cleric** you
-control" (tribal filter), "a … **Knight** creature token" (token subtype),
-"gains **fear** until end of turn" (keyword) all stay unfolded. Only a
-single-word pre-" of " span folds, so "Ghost Council of Orzhova" is
-untouched. +5 (Kaalia of the Vast, Karlov of the Ghost Council, Beregond
-of the Guard, Braulios of Pheres Band, Sorin of House Markov).
-
-193 = PAR-30 "Tapped and attacking" trail — closes the **Winota, Joiner of
-Forces / A-Winota** family and the RULE 508.3a batch-attack trigger. Two
-pieces: (a) the `look_top` "…onto the battlefield tapped and attacking."
-mid-clause **"It gains <keyword> until end of turn."** interpose —
-`_LOOK_TOP_PUT_ATTACKING_RE` grew an optional group validated against
-`_LOOK_TOP_HIT_GRANT_KEYWORDS` (fail-closed), threaded as
-`hit_grant_keywords` through `impulsive_look` → `ImpulsiveLookEffect` →
-`request_impulsive_look` → `resolve_impulsive_look_choice`, which adds
-`temp_keywords` to the placed card (RULE 514.2). (b) "whenever **one or
-more** [<filter>] creatures you control attack[ a player], …" →
-`_BATCH_ATTACK_TRIGGER_RE` maps onto the existing once-per-combat
-`EventType.PLAYER_ATTACKED` aggregate with an optional `group_filter`
-(`_batch_attack_group_filter`: bare, a negated creature subtype, or a
-main type — "modified"/"suspected" fail closed) that
-`effect_binder._any_attacking_matches` checks against the live attacking
-group; plus a negated-creature-subtype ("non-Human") option on
-`_GROUP_SUBJECT_RE` → `_build_group_ok`'s new `excluded_subtypes`. +4
-(Winota, A-Winota, Dollmaker's Shop, Requiem Angel).
-
-192 = PAR-30 "Tapped and attacking" trail — the qualified attack trigger
-"whenever ~ attacks **a player who controls N or more lands**" (Owlbear
-Cub). New `_ATTACKS_DEFENDER_LANDS_RE` keeps it a `{"subject": "self"}`
-ATTACKS trigger carrying a `defender_controls_lands_at_least` key, gated
-in `effect_binder._trigger_condition` off the ATTACKS event's
-`defending_player_id` (the same "gate an ordinary event on a live state
-read rather than a state-trigger subsystem" idiom as `controls_none_of_
-type`). +1.
-
-191 = PAR-30 "Tapped and attacking" trail — `_DELAYED_SAC_EXILE_TAIL_RE`
-gained a **"return `<it / that creature>` to (your | its owner's) hand"**
-verb alongside sacrifice/exile/destroy → `create_delayed_trigger` with a
-new `return_specific_to_hand` inner (`ReturnSpecificToHandEffect`, the
-same `.objects` bake-in via `capture="previous_or_self"` the sacrifice
-sibling uses). A loan bounced end of turn / at end of combat — broader
-than the tapped-and-attacking seam it was found on: +8 (Alora, Merry
-Thief; the "when ~ attacks or blocks, return it … at end of combat"
-Phantom Whelp / Windscouter / Quicksilver Behemoth / Wall of Junk cycle;
-The Locust God; Dragon Mask), 0 regressed. Ilharg and Zara stay blocked
-on their own other clauses.
-
-190 = PAR-30 "Tapped and attacking" — put-from-hand card filters.
-"with lesser power" (Shadowfax, Lord of Horses) →
-`PutFromHandOntoBattlefieldEffect.power_less_than_source`, a `max_power`
-cap vs the effect's source computed at `apply` time (no source power →
-`max_power = -1`, fail closed). "with mana value X or less … where X is
-the number of attacking creatures you control" (Kinscaer Sentry) →
-`max_mana_value_selector`, folded into `criteria["max_mana_value"]` via
-`continuous.count_selector` at `apply`; the bare "mana value X or less"
-with no "where X is …" fails closed. Fixed "mana value N or less" also
-accepted. +2 (Shadowfax, Kinscaer Sentry), 0 regressed.
-
-189 = PAR-30 "Tapped and attacking" — `_CREATED_ENTERS_ATTACKING_RE`
-gained two more "before" shapes. (1) A **bare token-name** subject:
-"create Ragavan, …. **Ragavan** enters tapped and attacking." (Kari Zev)
-— the name only binds a spec whose ``token_name`` matches it, so a
-non-matching name fails closed. (2) A **`populate`** before: "populate.
-**That token** enters tapped and attacking." (Ghired, Conclave Exile) —
-`PopulateEffect` gained ``tapped``/``attacking``, threaded to
-`RulesEngine.populate(enter_state=…)` and applied to the copy in the
-degenerate 0/1-token paths, carried on the `pending_choice` for the
-interactive 2+-token one. +2 (Kari Zev, Ghired), 0 regressed.
-
-188 = **38.2%.** PAR-30 "Tapped and attacking" — the per-opponent
-distributive "**for each opponent**, [you] create a … token[ that's
-tapped and attacking that opponent]" (Endless Foot Assault, Stampede
-Surfer). New `CreateTokenEffect.per_opponent`: the effect's controller
-makes one token per opponent, and with `attacking` each token is put into
-combat against a *distinct* opponent (RULE 508.4a's defender choice made
-per token, not by the shared auto-pick — verified in a 3-player game).
-Parser: a leading `for each opponent,` group on the inline `create_token`
-row; also generalises to the non-attacking "for each opponent, create …"
-count (those cards stay blocked on other clauses — villain subtype, vote
-bodies). +2, 0 regressed.
-
-186 = **38.1%.** `_NAMED_COUNTER_KINDS` — the "put a `<kind>` counter on
-X" whitelist — widened from {spore, burden, quest} with 26 more pure
-card-text-driven counter kinds (charge, oil, storage, ki, verse, page,
-plan, soul, fuse, depletion, flood, bounty, brick, study, plague, doom,
-growth, point, infection, hatchling, pressure, slime, tide, ice, flame,
-hour). Each was checked to have *no* reader anywhere in `game/`, so the
-generic free-string `AddCountersEffect.kind` path models it completely.
-Deliberately still a fail-closed frozenset, not a bare `[a-z-]+`: RULE
-122.1e **keyword counters** (flying / indestructible / menace / …) have no
-layer-engine reader, the **subsystem** counters (age / time / level /
-loyalty / lore / rad / energy) are keyed off by name, and **stun / shield**
-carry a replacement — all four would half-model if they slipped through.
-+53, 0 regressed (charge-counter storage lands, mana batteries, Coretapper,
-Firemind's Research, Long-Range Sensor — closing the counter-body gap left
-by ITER 24's "you attack a player" trigger recognition).
-`tests/test_par30_named_counter_kinds_widened.py`.
-
-185 = "tapped and attacking **that player / that opponent**" trailing
-defender ref (RULE 508.1). The put-from-hand (`_PUT_FROM_HAND_RE`),
-look-top (`_LOOK_TOP_PUT_ATTACKING_RE`), inline-create-token
-(`_TOKEN_TAPPED_ATTACKING`) and "the token enters …"
-(`_CREATED_ENTERS_ATTACKING_RE`) routes gained an optional trailing "that
-player"/"that opponent" — the named defender is the one the source is
-already attacking, which `RulesEngine.put_onto_battlefield_attacking`
-derives from the other attackers, so it's consumed, not re-modeled.
-Alongside it `_SELF_SUBJECT_RE` and the `PLAYER_ATTACKED` row accept "~
-attacks a player / an opponent" and "you attack a player" (the defender
-kind refines nothing the bare event doesn't already carry). +1 (Soaring
-Lightbringer), 0 regressed. Still open on this seam: Kaalia of the Vast
-(normalize doesn't fold the legendary short name "Kaalia" → `~`), Owlbear
-Cub / The Vast Scrier (qualified triggers + multi-clause bodies), the
-per-opponent distributive "for each opponent, create … attacking that
-player" (Endless Foot Assault, Stampede Surfer).
-
-184 = **38.0% crossed.** "Return it to the battlefield [tapped] under its
-owner's / your control[ with a +1/+1 counter on it]." (RULE 400.7
-self-recursion, the "it"-pronoun continuation of a dies trigger or an
-exile-then-return blink chain). New `_RETURN_SELF_TO_BATTLEFIELD_RE`
-reaches the pre-existing `ReturnSelfToBattlefieldEffect` (gained
-`under_your_control` / `extra_counters`) from two real shapes: a granted
-DIES-trigger continuation via `_quoted_ability_grant_effects` (Feign
-Death, Undying Malice — the "target creature gains '…'" quoted-grant
-wrapper already existed; only the *inner* trigger body was unrecognised)
-and a plain "exile ~, then return it to the battlefield under its owner's
-control" blink chain (Flicker of Fate, Aethergeode Miner, Changing
-Loyalty, Flickering Spirit, Fungal Fortitude, Planar Incision). +8, 0
-regressed. Still open: Demonic Gifts' compound "gets +2/+0 **and** gains
-'…'" wrapper (a different outer shape `_GRANT_QUOTED_ABILITY_UNTIL_EOT_RE`
-doesn't match), a "face down" / "flipped" / "transformed" destination
-variant (Ashcloud Phoenix, Homura, Loyal Cathar), and riders after the
-return ("…and you create a treasure token", "then create a … token
-attached to it", a following "It deals 1 damage…" sentence).
-
-183 = Strive (MEC-4) recognition, one-line fix.
-`normalize._strip_unregistered_keyword_labels` removes the "Strive —"
-label before the segmenter runs (Scryfall lists "Strive" in the card's
-`keywords` array but it is not a registered RULE 701/702 keyword), so
-`_STRIVE_LINE_RE` never matched the stripped "This spell costs {cost}
-more to cast for each target beyond the first." — its "Strive —" prefix
-is now optional. The engine half (`AbilitySpec.strive_cost` →
-`obj.strive_cost` → `effective_cast_cost` adds the cost per target beyond
-the first) was already complete and tested. +9 — Aerial Formation,
-Ajani's Presence, Blinding Flare, Colossal Heroics, Consign to Dust,
-Cruel Feeding, Desperate Stand, Kiora's Dismissal, Rouse the Mob. A good
-reminder to check the *normalized* clause, not the printed one, when a
-handler "should" match.
-
-182 = PAR-30 — the `reduce_if_targets` criteria vocabulary widened.
-`_targets_reduction_criteria` now parses the phrase word by word: a bare
-subtype or "X or Y" pair ("a spider", "a mount or vehicle you control"), a
-"you control" / "you don't control" scope, "…token", "…with `<keyword>`",
-"legendary …", and the "a `<x>` spell" stack-target forms (Mystical
-Dispute, Out of Air). `continuous._obj_matches_target_criteria` grew
-`legendary` / `is_token` / `controller` handling (via a threaded
-`caster_id`), leaving the rest to `combat.matches_object_filter`. +10 —
-Grow Extra Arms, Mystical Dispute, Out of Air, Price of Fame, Run Over,
-Savage Stomp, Swampsnare Trap, This Town Ain't Big Enough, Hunter's Mark,
-Mascot Interception. 0 regressed. Still open: a mana-value cap
-(reanimation-spell targets — No One Left Behind, Revoke Demise) and a
-"…with a +1/+1 counter on it" clause (Titanic Brawl).
-
-181 = "This spell costs {N} less to cast **if it targets a `<criteria>`**."
-(RULE 601.2f — Ajani's Response, Knockout Blow, Depower, Fantastic Bounce,
-Luminous Rebuke, …; 28 SOLO cache-wide). A discount gated on the spell's
-own *chosen target* rather than on board state, so `_SELF_COST_REDUCTION_
-IF_RE`'s handler emits `cost_reduction` with a `reduce_if_targets`
-criteria dict (tried before the board-condition `active_if` path). Engine:
-`continuous.self_cost_reduction_for` gained a `targets` parameter — the
-caster's already-chosen targets (RULE 601.2c precedes 601.2f); the
-discount applies only when one matches (`_obj_matches_target_criteria` →
-`combat.matches_object_filter`, which grew a `tapped` key). `_adjust_cost`
-/ `effective_cast_cost` thread it through; `targets is None` (every
-offer-time / can-cast caller) treats the discount as available so
-affordability isn't understated, the same best-case treatment `help_pay`
-/ kicker get. Recognised criteria: a card type (creature / permanent /
-artifact / enchantment / land) plus an optional tapped / attacking /
-blocking / colour qualifier. +15, 0 regressed. Still open: a *spell*
-target ("a blue spell" — Mystical Dispute), a mana-value cap, "a creature
-token", "you don't control", a subtype, "a legendary creature".
-
-180 = "When you control no `<basic land type>`, sacrifice ~." (RULE 603.8
-state trigger — Bog Serpent, Sea Serpent, Dandân, Island Fish Jasconius,
-the original colour-gated creature cycle; 11 SOLO). Not a RULE 701
-keyword-action body, but the same "residual trigger grammar" shape PAR-30
-keeps turning up. `_CONTROL_NONE_SACRIFICE_RE` emits a
-`LEAVES_BATTLEFIELD` trigger; the state check is `effect_binder`'s new
-`controls_none_of_type` predicate — a live scan of the controller's
-battlefield for that printed land subtype, **excluding the just-left
-permanent** (RULE 603.6a: LEAVES_BATTLEFIELD fires while the leaving
-object is still on the battlefield). Same "gate an ordinary event on a
-state read rather than build a state-trigger subsystem" rationale as
-`source_counters_at_least`. The ETB edge (playing the creature while you
-already control none) is a documented simplification. +11, 0 regressed.
-
-179 = PAR-30 — "tapped and attacking" cluster, batch 3, and a
-higher-yield bycatch. `_DELAYED_SAC_EXILE_TAIL_RE` gained an **"at end of
-combat"** timing (→ `create_delayed_trigger` step `"end_combat"`, which
-`_fire_delayed_triggers` already fires) and "the token[s]" as a subject —
-that tail rides on every "tapped and attacking" token card *and* on
-Crumbling Colossus / the whole Basilisk morph cycle / Ohran Viper, which
-is where most of the +18 came from. New `_CREATED_ENTERS_ATTACKING_RE`
-segmenter idiom ("Create a token. The token[s] enter[s] tapped and
-attacking." stamps `tapped`/`attacking` onto the preceding `create_token`
-/ `copy_permanent`, the `_NO_REGEN_SENTENCE_RE` idiom); new
-`_LOOK_TOP_PUT_ATTACKING_RE` → `impulsive_look` with
-`hit_destination="battlefield_attacking"`; `CopyPermanentEffect` gained
-`tapped`/`attacking`. +18 — Geist of Saint Traft, Crumbling Colossus,
-Serpentine / Stone-Tongue / Lowland Basilisk, Ohran Viper, Fog Elemental,
-Geist / Invocation of Saint Traft, &c. 0 regressed. Still open in the
-cluster: a bare-name token subject ("Ragavan enters …" — Kari Zev),
-`populate` as the created-thing (Ghired), and the multi-clause Stangg /
-Living Laser bodies.
-
-178 = PAR-30 — **"put a `<filter>` creature card from your hand onto the
-battlefield [tapped and attacking]"** (RULE 508.4, the put-from-zone half
-of v177's cluster). `_put_from_hand` gained a creature-subtype filter
-("Soldier creature card" → `{"type": "soldier"}`, "Angel, Demon, or Dragon
-creature card" → an OR list) and a colour filter ("blue or red creature
-card" → `{"color": [...]}` — nothing's type line contains "blue"), plus
-an optional "…tapped and attacking" tail. Derived qualities with no clean
-`card_query` key ("historic", "multicolored") fail closed.
-`PutFromHandOntoBattlefieldEffect.attacking` routes through a new
-`"battlefield_attacking"` search destination (enters tapped, then
-`put_onto_battlefield_attacking`). +7 — Preeminent Captain, Goblin Lackey,
-Warren Instigator, Mindwrack Liege, Didgeridoo, Dramatic Entrance,
-Firebrand Ranger. 0 regressed. Still open: the *library* "look at the top
-N … put one onto the battlefield tapped and attacking" shape (Winota,
-Arthur, Jet), a trailing "that opponent" defender ref (Kaalia), and
-mana-value-cap filters (Shadowfax, Kinscaer Sentry).
-
-177 = PAR-30 — **"create a … creature token that's / are tapped and
-attacking"** (RULE 508.4 — Captain's Claws, Hanweir Garrison, Hero of
-Bladehold, the "whenever ~ attacks, make a token" family). New
-`RulesEngine.put_onto_battlefield_attacking` primitive: sets the attack
-flags, auto-assigns RULE 508.4a's defender (the rest of the combat's
-target if unambiguous, else the sole/first opponent), fires an `ATTACKS`
-event; the token isn't *declared* so it never taps for the attack and
-summoning sickness is irrelevant. `CreateTokenEffect.attacking` calls it
-per made token; the ``tapped`` half stays the caller's job. Parser: a
-shared `_TOKEN_TAPPED_ATTACKING` optional suffix on the plain inline-token
-row, the "that many" row and the "create x … where x is" row. +10, 0
-regressed. Still open in the cluster: "put a card … onto the battlefield
-tapped and attacking" (Winota, Arthur — a different effect class), "the
-token enters tapped and attacking" as its own sentence, and the
-copy-token variant ("create a tapped and attacking token that's a copy of
-…" — Calamity, Altaïr).
-
-176 = PAR-30 — RULE 615.6 **"the damage can't be prevented"**. Two
-shapes: a rider on one damage instance (`_DAMAGE_TARGET_TWO_COLOR_RE`
-gained an optional "…the/that damage can't be prevented" tail →
-`DealDamageEffect.unpreventable`, which flips `GameState.damage_prevention_
-disabled` for the span of that one `apply()` only — Combust); and the
-standalone turn-scoped clause (new `_DISABLE_DAMAGE_PREVENTION_RE` →
-`disable_damage_prevention`, the effect that already existed for
-hand-authored Insult // Injury but had no oracle-text route). +6 — Combust,
-Flaring Pain, Impractical Joke, Unstable Footing, Pyrewood Gearhulk,
-A-Ready to Rumble. 0 regressed. Closes the colour-list cluster tail.
-
-175 = PAR-30 — a **combat-state** tail on the destroy-colour-adjective
-target. `_DESTROY_COLOR_ADJ_RE` gained an optional "…that's attacking or
-blocking / attacking / blocking" group → a `creature_filter` boolean;
-`combat.matches_object_filter` gained `blocking` / `attacking_or_blocking`
-keys (the siblings of the pre-existing `attacking`, checked via
-`blocking_attacker_ids`). +1 — Surge of Righteousness. 0 regressed.
-Gideon's Defeat also uses "that's attacking or blocking" but stays
-UNMODELED on its "if it was a Gideon planeswalker" conditional tail.
-
-174 = PAR-30 — the colour-list target reaches the **graveyard** zone, and
-"it gains `<kw>` until your next turn" on a **previous-clause subject**.
-`_color_word_list` is the N-colour generalization of `_two_color_letters`
-(≥3 colours: "red, white, or black"); `_EXILE_FROM_GRAVEYARD_RE` gained an
-optional `(?P<colors>…)` group → `exile` spec's `colors` → the
-`ExileEffect` `TargetSpec.colors` already threaded at v170. `targeting.
-legal_targets`' graveyard-card branch gained the `_color_ok` call every
-battlefield branch already had. New `grant_until_previous` handler
-(`_GRANT_UNTIL_PREVIOUS_RE`, `previous_subject_only`) — "It gains haste
-until your next turn." binding "it" to the just-created token copy, the
-`_lockdown` / `_return_to_hand_previous` idiom. +2 — Offspring's Revenge
-(exile RWB graveyard creature → 1/1 copy token → haste), Bond of Revival.
-0 regressed.
-
-172-173 = PAR-30 v172 (colour-list `TapEffect.colors` + `_TAP_TWO_COLOR_
-RE` → Tidebinder Mage; compound `_RETURN_SELF_AND_TWO_COLOR_RE` → Snow
-Hound, +2) landed folded into the MEC-46 v173 commit (the two batches
-were interleaved across `effects.py`/`handlers.py`/`gate.py`); MEC-46
-itself is the RULE 701.38 vote-outcome-body primitives (see
-`Done_Backend.md` "Vote"), +6.
-
-171 = PAR-30 — the colour-list target extended to bounce / put-on-
-library / graveyard-recursion. `ReturnToHandEffect` /
-`ReturnToLibraryEffect` / `ReturnFromGraveyardEffect` each gained a
-`colors` param → `TargetSpec.colors`; three dedicated
-`_RETURN_*_TWO_COLOR_RE` handlers (Escape Routes, Hunting Drake, Crypt
-Angel). Also plugged a latent gap: the `creature_you_control` /
-`land_you_control` / `other_creature_you_control` branch of
-`legal_targets` never applied `_color_ok` — added, a no-op unless
-`colors`/`color` is set. +3, 0 regressed. Still open in the cluster:
-Combust (needs a per-instance "damage can't be prevented" flag), Snow
-Hound (compound "return ~ and target …"), Tidebinder Mage (the
-"doesn't untap …" tail), Surge of Righteousness ("that's attacking or
-blocking" + "you gain 2 life"), Offspring's Revenge's 3-colour list.
-
-170 = PAR-30 — the same colour-list target extended to removal:
-`_DESTROY_COLOR_ADJ_RE` widened to a "`<c1>` or `<c2>`" adjective + an
-optional "with `<kw>`" tail (Deathmark, Wallop); new
-`_EXILE_TARGET_TWO_COLOR_RE`/handler (Celestial Purge). `DestroyEffect` /
-`ExileEffect` gained a `colors` param threaded into their `TargetSpec`,
-mirroring `DestroyEffect.color`'s single-letter form. Same-colour-twice
-rejected. +3, 0 regressed. Still open in the cluster: damage tails
-(Combust "the damage can't be prevented"), return-from-graveyard (Crypt
-Angel, Dreams of the Dead), bounce (Escape Routes, Snow Hound),
-put-on-library (Hunting Drake), tap (Tidebinder Mage), and
-Offspring's Revenge's 3-colour list.
-
-169 = PAR-30 (villainous-choice / reanimator-token residue) — a
-colour-list creature target on the pump family. "target `<c1>` or
-`<c2>` creature gets +N/+M / gains `<kw>` until end of turn" — the
-Weaver cycle (Hate/Rage/Sky/Might/Spirit Weaver, Sootstoke Kindler,
-Wilderness Hypnotist). `PumpEffect` gained a `colors` param threaded
-into its `TargetSpec`; `TargetSpec.colors` + `targeting._color_ok` were
-already wired into `legal_targets`, just never reached from a pump. New
-`_PUMP_TARGET_TWO_COLOR_RE`/handler, the `_DAMAGE_TARGET_TWO_COLOR_RE`
-sibling (the shared `TARGET` macro carries no colour slot). +7, 0
-regressed. (Offspring's Revenge — the reanimator-token card with the
-same "red, white, or black" filter — stays UNMODELED on its 3-colour
-list + its own copy/haste tail.)
-
-168 = PAR-30 (reanimator-token residue) — "return [up to] X target
-`<type>` cards from [scope] graveyard to your hand / the battlefield"
-(Death Denied, Entreat the Dead, Wildest Dreams; narrows Wake the Dead /
-Shattered Crypt / Champion of Stray Souls). The count is the spell's own
-announced {X}, read at target-gathering time via `TargetSpec.
-count_selector="source_x_paid"` — the March of Swirling Mist / Change of
-Plans idiom. `ReturnFromGraveyardEffect` gained a `count_selector` param
-threaded into its `TargetSpec` plus a multi-target apply branch that
-takes every pick the targeting layer offered (its printed
-`effective_count` stays 1). New `_RETURN_FROM_GRAVEYARD_X_RE` / handler,
-tried before the numeric-N plural handler. +3, 0 regressed.
-
-167 = PAR-30 (Vote residue) — "planeswalk" / "chaos ensues" outcome
-bodies. Two new no-param effect types (`effects.PlaneswalkEffect` /
-`ChaosEnsuesEffect`) wrapping `RulesEngine.planeswalk` (RULE 901.10) and
-the new `RulesEngine.trigger_chaos` (RULE 901.13, factored out of
-`roll_planar_die`, now a genuine no-op with no active plane). Closes Path
-of the Animist / Path of the Enigma through `_vote_majority`'s body
-parse. Fullmatch-only: "planeswalk to <plane>" (Seek Bolas's Counsel),
-"you may planeswalk" (TARDIS) stay UNMODELED. +2, 0 regressed.
-
-166 = PAR-30 (Vote residue) — plain "take an extra turn after this one"
-effect-body handler, wired to the pre-existing `take_extra_turn` effect
-type (`effects.TakeExtraTurnEffect` / `GameState.extra_turns`), which
-nothing in the parser emitted before. Closes the modelable half of Plea
-for Power's vote outcome plus a wide temporal spill (Time Walk, Temporal
-Manipulation/Mastery/Trespass, Capture of Jingzhou, Part the Waterveil,
-Alrund's Epiphany, Timestream Navigator, Time Sieve, Teferi Timebender,
-…) — +13. `_vote_per_vote` fail-closes on a `take_extra_turn` body (no
-int `count`/`amount` to scale by the tally — Expropriate). Riders that
-stay their own tickets: "skip the untap step of that turn" (Savor the
-Moment), "…you lose the game" (Last Chance), "…for each coin that comes
-up heads" (Ral Zarek). 0 regressed.
-
-165 = PAR-30 (Vote residue) — `_vote_per_vote` now carries a leading
-"each player / each opponent" subject off segment 0 onto a subject-less
-later segment it's split from by a bare "and" (Capital Punishment: "each
-opponent sacrifices … for each death vote **and** discards a card for
-each taxes vote" — the discards clause is still each opponent's). "you"
-stays fine as its own segment subject; a later segment naming a
-*different* scoped subject still fails closed. +1.
-
-164 = PAR-30 (Vote residue) — Living Death mass graveyard recursion.
-`ReturnFromGraveyardEffect.players` ("you" / "each_player") — a mass,
-untargeted return over every matching graveyard card, run through the
-existing `_apply_one` (ETB prohibition, owner control, riders);
-`_MASS_RETURN_GRAVEYARD_RE` claims "[each player returns / you return]
-all/each creature card[s] from [their/your] graveyard to the
-battlefield/hand". `_vote_majority`'s "a targeted branch can't resolve
-off-stack" guard narrowed to spare a `players`-scoped (untargeted)
-branch. +2 (Empty the Catacombs; Magister of Worth — both vote branches
-now modeled, combined with v163's destroy branch). Still open in this
-cluster: riders on the returned cards (Pyrrhic Revival's -1/-1 counter,
-Storm of Souls' "each is a 1/1 Spirit"), and "…that weren't put there
-this way" (Bringer of the Last Gift).
+**57.9% covered — 20,287 / 35,046 — as of 2026-10-03, PARSER_VERSION 592** (PAR-145 excludes 49 Sticker Sheets by type line, including the previously MODELED empty-text Secret Lair "Sticker sheet"; Commander denominator −48. v585 +9: Surge as an engine mechanic, 3 parsed cards, plus 6 hand-authored Goblins-deck cards; PAR-107…114 run 3 below: PAR-107…114 run 3, +84 over v581 (v582 +35, v583 +49: the hybrid "if {w} was spent" cycle, "you may have target creature get", "creatures target player controls get", "skips their next untap step / draw step / combat phase", "N damage to any target and M damage to you"): "that attacking player" bodies run as the acting player (the Curses, Jolene, Ellie, Everett), "a card that has an adventure", two mass hits in one sentence, converge, "lose X life" and the "lose life equal to …" family it unlocked; run 2, +59 over v577 (v578 +31, v579 +7, v580 +2, v581 +19: one-row singletons, "if its mana value was N or less" after a pick, mass "exile all … until ~ leaves"; v580 "whenever a player attacks": "add X mana in any combination of colors", "add {R} or {G}", "that much" under an attack-count head): either/or additional cast costs, "look at target player's hand and choose X cards", "during turns other than yours", the Visions flashback discount, three mass-damage riders; PAR-107…114 residue batches +221 over v576: Nth-from-top, the sacrificed-creature amount axis, "where x is the greatest …", `or_mana` additional costs, kept mana, edicts by mana value, Wild Growth triggers, plural blink, "…destroyed this way" tallies; PAR-104 +34 over v573's PAR-111 +27; batch 6, +111 over v570, 1 dropped on purpose (Secluded Starforge's "tap X" cost was read as 1) — the Siege named-choice block, Enduring cycle, "twice X", dig with an announced X, the wheel, "equal to the greatest `<stat>` among …", damage "to target `<X>` equal to the number of …", distribute-counters ranges, plus five wrong-but-MODELED claims corrected (see the Done_Backend entry). Earlier: PAR-105 + batch 5, +84 over v569, 0 regressed — criteria-based cast-from-the-top and cast-from-your-graveyard permissions with a once-each-turn limiter and a condition gate, and "put a counter on each [other] `<group>`". Earlier: batch 4 token copy, +31 over v568, 0 regressed — counted/tapped copy heads, "target token" and the "you control" target slot, "that creature" after a chosen one, the bare "It gains haste." tail, and the copy-not-original referent fix. Earlier: PAR-102 closed, +46 over v567, 0 regressed — a pump that also grants: quoted abilities, "your choice of `<keyword>`", "when that creature dies this turn", "for as long as ~ remains tapped", granted toxic. Earlier: PAR-139 closed + PAR-109 batch, +131 over v566, 0 regressed — group qualifier tail ("creatures you control with `<qualifier>`"), plural-subtype group pump, counter replacements "plus 1 of each kind", untap-during-each-untap-step, activate-as-though-haste, X-colour lock on activated abilities, granted land mana abilities with spend restrictions, prevention riders. Earlier: PAR-136/137/138/139 batch, +99 over v565, 0 regressed — flicker with a delayed return, impulse-draw variants, the "counters are put on" trigger head, entry counters for the others, prevented-amount riders, plus three general parser fixes (sentence windows, mid-body "where x is", list commas in a trigger condition). Earlier: PAR-144 dig family, +115, 0 regressed — one grammar over count / kind / destination / rest (`catalogue/dig.py`); the card pool also grew since v564, so the denominator moved. Earlier: PAR-135 + PAR-121: +82, 0 regressed — the named-counter kind became an open axis, plus action limits, power-only doubling, additive colours, Equipment targets; 4 wrong-but-MODELED families corrected on the way. PAR-134 + PAR-129, two wrong-but-MODELED fixes: +2 covered, −24 honestly UNMODELED — a count that fell because it got more honest. MEC-105 adds temporary layer-6 keyword loss and its gain/loss, P/T/loss, group-subject, previous-subject, and attached-static parser forms: +32 since v553, 0 regressed. MEC-106/MEC-107 at v553 added Gift/Expend and related residue: +23 since v552. PAR-123 at v552 generalized a group trigger's firing-object referent: +154 since v551, 0 regressed.)
+Commander-legal slice (the one the product actually plays): **60.3% —
+19,349 / 32,068** (measure with `--commander-legal-only`).
+
+### PAR-124 closes completely: player-events, X-tokens, a targeted delayed trigger, a hand-zone duplicate, an optional-attach composition — and the controller-binding bug the targeted variant first exposed (PARSER_VERSION 463)
+
+- **What:** the last seven cards of PAR-124's own scope, each its own small distinct primitive —
+  see `Done_Backend.md`'s full write-up. +40, 0 regressed.
+- **Lesson — a "no residue" instruction is itself useful triage pressure.** Several of these
+  (Bubbling Muck/High Tide's `TAPPED_FOR_MANA` recipient, False Cure's `event_player` selector,
+  Spellchain Scatter's hand-zone copy) turned out to need *no new primitive at all* once actually
+  investigated — only a missing parser recognizer over an already-shipped engine mechanism. The
+  ticket's own prior write-up had guessed several of these needed real new engine work; checking
+  each one directly (rather than trusting the earlier guess) found four of six were pure
+  recognition gaps. Re-verify a "needs a new primitive" claim before believing it, every time —
+  this project's own recurring lesson, applied once more.
+- **Lesson — a targeted variant of a group-subject mechanism needs its own referent design, not a
+  copy-paste of the group one.** `CreateTurnTriggerEffect.target_kind`'s first cut rebuilt the
+  ability with the *chosen target* as its whole `source`, reasoning that "self"-referential effect
+  bodies would then naturally resolve against it — true for Graceful Reprieve's own "return that
+  card," which is precisely why it shipped looking correct. But an ability's `source` is silently
+  overloaded in this codebase to mean two different things whenever they happen to coincide: "the
+  object RULE 603.1's condition is about" and "whose controller 'you' means." For every ability
+  before this one they're the same object (a permanent's own ability). The instant a *target*
+  becomes the condition's subject while the ability's controller stays the caster, the two split —
+  and nothing catches this at the parse level, since both readings produce a perfectly well-formed
+  spec. It only ever surfaces at runtime, and only for a body that reads an untargeted "you" while
+  under a targeted condition — exactly the reason this project's own testing discipline insists on
+  a real `GameEngine` run over an *adversarial* board (here: target an opponent's own creature)
+  before trusting a parse verdict, not just the card the ticket happened to be written against.
+- **Lesson — `OptionalEffect.target_specs`'s own docstring already answered the "can an optional
+  wrapper have a target" question before Magitek Scythe asked it.** `_may_effect_then`'s
+  target-rejecting design (built for a genuinely different shape — a mid-resolution "you may" with
+  no RULE 115 target at all) reads, at a skim, like "an optional composition can't have a target."
+  It was never a general rule; it was that *specific* composition's own scope. The actual answer
+  — `seq`/`optional`/`bind` can all announce targets, `if_else`/`for_each` can't, because RULE
+  601.2c only needs to know the body runs at all, not which branch or how many times — was already
+  written down. Reading the primitive's own docstring before concluding a shape is unsupported
+  would have skipped a chunk of this investigation.
+
+### PAR-124 residue, second batch: "must be blocked this turn if able", animate-land/flash/tap-selector, a group-subject copy (PARSER_VERSION 462)
+
+- **What:** five shapes all reuse the identical `"must_be_blocked"` flag-keyword grant (a bare
+  clause, a pump-clause "and must be blocked…" tail, a `previous_subject` pronoun tail, and a
+  group-subject pronoun tail) — no new engine code, only the missing parser rows; the animate-land
+  family gained a `you control`/`creature_or_land` target-kind axis plus a missing "dinosaur"
+  qualifier word; `GrantFlashUntilEndOfTurnEffect` gained a `card_types` filter for "cast `<type>`
+  spells this turn as though they had flash"; `continuous.group_selector_objects` gained a
+  colour-scoped `creatures_you_control_of_color_<letter>` branch for "untap all white creatures you
+  control"; and `CopyPermanentEffect.referent="trigger_event"` (already built for Ashling, the
+  Limitless) just needed a group-subject-gated parser row for "create a token that's a copy of
+  **that creature**." +23, 0 regressed.
+- **Lesson — a diagnosed-composed-head guard can reject a correct answer, not just a wrong one.**
+  `segmenter._group_it_would_hit_source` exists to catch a group-subject body whose effect has
+  `target_kind: None` and would therefore silently act on the ability's own *source* instead of the
+  trigger subject. It has no way to tell that apart from an effect that has *already* been
+  correctly retargeted through a different mechanism (`referent="trigger_event"` rather than
+  `target_kind`) — so widening `copy_permanent`'s own group-subject reach tripped the very guard
+  meant to prevent this class of bug, on a case where the bug didn't exist. Fixed with a narrow,
+  named exemption rather than loosening the guard's general shape. Any future group-subject
+  widening on an effect that resolves its referent through something *other* than `target_kind`
+  should check this guard first, the same way this one should have been checked before, not after,
+  writing the new row.
+- **Lesson — "it's still a `<land>`" reminder sentences aren't a small detail, they're a trap for
+  the generic connector-split.** The generic `previous_subject` pipeline (split on ".", parse each
+  part, thread the pronoun forward) can't claim a pure-reminder sentence on its own — nothing
+  builds an `EffectSpec` for "it's still a land" alone — so a three-sentence body (animate clause,
+  reminder, tail) fails the *whole* thing closed the moment the reminder sits between the clause
+  that creates the referent and the clause that needs it. Every animate-land row that might have a
+  reminder sentence in the middle has to fold a trailing pronoun tail into its *own* regex instead
+  of trusting the generic split — the same reasoning the already-shipped `_ANIMATE_SELF_LEADING_
+  EOT_RE` had already worked out for its self-form sibling, just not yet generalized to the target
+  form until this batch needed it.
+
+### PAR-124 residue: "copy that spell X times", and a delayed trigger's own group pronoun (PARSER_VERSION 461)
+
+- **What:** "copy that spell X times"/"an additional time" (Storm King's Thunder, Howl of the
+  Horde's Raid-gated second ability) widens the existing `_COPY_THAT_SPELL_RE` count suffix; the
+  "X" sentinel needed `_substitute_x` to reach one level deeper than before — into a
+  `CreateTurnTriggerEffect`'s own `inner_specs` (raw `{"type","params"}` dicts, not yet built into
+  real effects at the point this spell's own announced X is known). Separately, `create_delayed_
+  trigger`'s `capture` never had a `trigger_subject` mode — every group-subject "it"/"that
+  creature" `_stamp_group_pronoun` (PAR-123) already retargets for `tap`/`return_to_hand`/`exile`
+  had a real hole for a *delayed* tail: "whenever a Minotaur attacks this turn, it gets +2/+0 …
+  Destroy **that creature** at end of combat." (Consuming Rage) was silently destroying the
+  ability's own source, since `previous_or_self`'s fallback chain has nothing upstream to fall
+  back *to* under a group subject. +4 (Storm King's Thunder, Howl of the Horde, Consuming Rage,
+  and — found executing Consuming Rage's fix — Rienne, Angel of Rebirth, whose own "…dies, return
+  it to its owner's hand at the beginning of the next end step" hit the identical capture bug),
+  0 regressed.
+- **A second, real bug the fix surfaced, not just the parse gap:** `ReturnSpecificToHandEffect`
+  (Ilharg/Zara/Alora's battlefield-loan bounce) was unconditionally battlefield-only — correct for
+  *that* family (RULE 400.7: a permanent that left some other way before the delayed return fires
+  is a new object, gone for good), but wrong for Rienne, where the delayed trigger's own firing
+  event *is* the move to the graveyard, so "it" names the very card sitting there. A single shared
+  zone-check would have gotten one of the two families wrong; `ReturnSpecificToHandEffect` gained
+  an `allow_graveyard` flag `CreateDelayedTriggerEffect` sets only when the captured referent's
+  origin was a `DIES` event — a capture-mode-scoped fix, not a blanket "return from anywhere"
+  widening. Verified by execute test both ways: Ilharg-shaped tests (`test_par30_delayed_return_
+  to_hand_tail.py`) untouched, Rienne pulls the destroyed creature out of the graveyard exactly at
+  the next end step and not before (`test_par123_group_pronoun.py`).
+- **Lesson:** a "such-and-such capture falls back to the source" gap, once found for one effect
+  type, is worth checking against every *other* effect type the same pronoun-retargeting axis
+  reaches — `create_delayed_trigger` had been sitting right next to the already-fixed `tap`/
+  `return_to_hand`/`exile` trio (PAR-123) the whole time. Two long-standing pinned "fails closed"
+  tests (`test_par119_object_trigger_head.py`) had to flip from asserting `modeled is False` to
+  `True` once this landed — a reminder that a negative test pinning a *known* gap needs revisiting
+  the moment the ticket that names it closes, not left to bit-rot as a stale regression guard.
+
+### PAR-119 at v455–456: attack / block / player-event heads, and what executing them found
+
+- **What:** attack batches over a new `ATTACKERS_DECLARED`, "isn't blocked", "attacks while
+  `<state>`", the block relation over `related_ids`, player events as one actor × verb × tail
+  grammar, "A or B" as two triggers, the group "it gets +N/+N" pump, the next-cast copy spells. +139 (16,896 → 17,035).
+- **Lessons worth keeping:** (1) *the same words, two objects*: "it"/"that creature" under a
+  group trigger, "that creature" under a block relation, and "~" all reach the binder as one
+  untargeted spec that acts on the source — only the parser sees which was printed, so it must
+  stamp the reading (`trigger_subject`, `trigger_related`) rather than let the binder guess.
+  (2) *A shared word can be a shared connective, not a per-row one*: "Otherwise" was a row of the
+  leading-gate table hard-wired to a clash — seven cards claimed it wrongly for months. When a
+  word appears in a gate table, ask what every card using the word would need, not just the card
+  that put it there. (3) *An "or" between two heads is only two triggers when nothing trails it*:
+  "…or cast a spell from anywhere other than your hand" qualifies both verbs. (4) A shared event
+  cannot answer a question that depends on one listener's own filter ("that many") — refuse the
+  body. (5) A leading-if gate has to be decided once (`if_else`) when an earlier effect changes
+  what it reads.
+
+### PAR-119: composed object-event head (PARSER_VERSION 450)
+
+- **What:** One noun-phrase grammar (`catalogue/characteristic_phrase.py`, subtypes
+  from the generated `subtype_vocabulary.py`) × the verbs enters / dies / attacks /
+  blocks / leaves, "deals [combat|noncombat] damage [to …]", "sacrifices / discards
+  `<object>`" (`catalogue/object_trigger_head.py`), plus "X and whenever Y" split into
+  two triggers. +146 cards (16,333 → 16,479), 0 regressed.
+- **Lessons worth keeping:** a parse verdict is not proof — *executing* the newly claimed
+  cards' bodies found four wrong-but-MODELED shapes (an event missing the `player_id` an
+  `event_player` body reads, a bare "it" that acts on the source under a group subject, a
+  `previous_target` referent used for "on it", a "for each" that dropped its printed
+  multiplier). For any new head, list every (event, referent) pair the newly claimed bodies
+  use and check that event's payload carries it. Heads that still need a new engine event
+  (crank, exploit, saddle, expend, commit a crime, unlock a door) are not composition work.
+
+### PAR-119 pilot: composed cast-trigger head (PARSER_VERSION 449)
+
+- **What:** `parser_probe.py composition` showed 849 cards blocked *only* by
+  their trigger head (the body parsed alone), 138 distinct cast heads among
+  them. One composed row now builds a `SPELL_CAST` head from shared word tables
+  instead of one regex + dispatch block per adjective combination; +86 cards
+  (16,247 → 16,333), 0 regressed. Recorded gaps left on the axis (subtype words
+  closed at v450 by the generated vocabulary): ordinals
+  ("your first spell each turn"), "or copies" (no copy event).
+- **Verification:** `tests/test_par119_cast_trigger_grammar.py` (grammar,
+  fail-closed cases, real cards, and execute tests that fire real `SPELL_CAST`
+  events); five stale "stays unclaimed" pins were updated to the new truth.
+
+### PAR-98: Small verified residue batch #2 (PARSER_VERSION 448)
+
+- **What:** The fourteen-shape residue batch closed: +63 cards over PAR-97
+  (16,184 → 16,247), each shape with an execute-level test. The last pass
+  added Meanders Guide's RULE 603.12 reflexive trigger, the "except by
+  creatures with haste" family, "When you sacrifice a Clue", the suspend
+  last-time-counter trigger and a noncreature-spell activation gate. Alora,
+  Cheerful Scout/Thief (Alchemy `perpetually`, an engine non-goal) and four
+  other single cards went to [singletons.md](singletons.md).
+- **Verification:** `tests/test_par98_residue_batch.py`; full cache is
+  16,247 / 34,811 (46.7%) and Commander-legal coverage is 15,609 / 31,830
+  (49.0%).
+
+### PAR-97: Mill graveyard-entry batches (PARSER_VERSION 447)
+
+- **What:** `CARDS_MILLED` preserves the actual moved cards and their type
+  information per milling instruction; `MILLED_CARD` covers the singular
+  counterpart. Batch triggers therefore fire exactly once while singular
+  card triggers still fire per card. Eight former SOLO cards are modeled.
+- **Verification:** `tests/test_par97_mill_batch_triggers.py`; full cache is
+  16,184 / 34,811 (46.5%) and Commander-legal coverage is 15,548 / 31,830
+  (48.8%).
+
+### PAR-96: Total-mana cast-trigger riders (PARSER_VERSION 446)
+
+- **What:** Reusable cast-trigger decomposition now makes an additive rider
+  an independently gated ability and makes an `instead` rider mutually
+  exclusive with its low-mana branch. Tellah's two additive thresholds also
+  retain its damage amount from the `SPELL_CAST` event. Ten former SOLO
+  cards are modeled. Phoenix of Iteration remains deliberately unmodeled:
+  its Alchemy `perpetually` modification is an engine non-goal, not a
+  total-mana-rider gap.
+- **Verification:** `tests/test_par96_mana_spent_riders.py`; full-cache
+  coverage is 16,176 / 34,811 (46.5%) and Commander-legal coverage is
+  15,540 / 31,830 (48.8%).
+
+### PAR-95: Adamant per-mana-type riders (PARSER_VERSION 445)
+
+- **What:** Cast payment now records exact WUBRG and colorless quantities.
+  Closed Adamant parsing covers additive spell riders, entry counters,
+  amount overrides, a preserved first target after a fight, and Sundering
+  Stroke's divided-damage replacement.
+- **Verification:** `tests/test_par95_adamant.py`; 14 former SOLO cards are
+  modeled. The two remaining probe hits have independent unclaimed clauses.
+
+### PAR-94: Specialize conditional discount — increment (PARSER_VERSION 444)
+
+- **What:** A closed Specialize rider now preserves its conditional dynamic
+  reduction in keyword data and the binder applies it to the generated
+  Specialize activation.
+- **Verification:** `tests/test_par94_activation_cost_reductions.py`; fresh
+  full-cache `--no-db` measurement.
+
+### PAR-94: Conditional cost gates — increment (PARSER_VERSION 443)
+
+- **What:** Existing conditions now recognize legendary-creature control and
+  instant/sorcery graveyard thresholds for activation-cost reductions.
+- **Verification:** `tests/test_par94_activation_cost_reductions.py`.
+
+### PAR-94: Conditional graveyard-mana-value discount — increment (PARSER_VERSION 442)
+
+- **What:** A flat activation discount can now carry a live
+  `active_if` threshold; Sewer Crocodile's five distinct mana values in the
+  controller's graveyard are counted once per mana value.
+- **Verification:** `tests/test_par94_activation_cost_reductions.py`.
+
+### PAR-94: Per-unit activation-cost reductions — increment (PARSER_VERSION 441)
+
+- **What:** Trailing "this ability costs {N} less to activate for each …"
+  clauses now populate `ActivationCost.dynamic_reduction` through a closed,
+  live-selector vocabulary, including counters, card zones, basic land types,
+  subtypes, modified creatures, and power-qualified opposing creatures.
+- **Verification:** `tests/test_par94_activation_cost_reductions.py`; the
+  residual broad-probe hits are separate X, surcharge, conditional, or
+  independently unmodeled effect-body shapes.
+
+### PAR-92: Small verified residue batch (PARSER_VERSION 440)
+
+- **What:** The five independently verified shapes are modeled: second-spell
+  cast discounts, domain reductions for basic land types, self
+  graveyard-to-library replacements, Triple Threat's commander-damage
+  multiplier, and attack-triggered Meld.
+- **Verification:** `tests/test_par92_cost_reductions.py` and
+  `tests/test_par92_residue_batch.py`; all ticket clauses are claimed by the
+  cache probe.
+
+### PAR-91: Optional collect-evidence conditional riders (PARSER_VERSION 439)
+
+- **What:** Optional collect-evidence cast costs now feed the existing
+  cast-state condition into self cost reductions; Lamplight Phoenix's
+  exile/evidence/reflexive tapped return resolves atomically.
+- **Verification:** `tests/test_par91_collect_evidence_conditions.py`.
+
+### PAR-90: Suspected-state resolve-time referents (PARSER_VERSION 438)
+
+- **What:** Conditions now distinguish a source, attached Aura host, and
+  activation-cost sacrifice's suspected flag. Frantic Scapegoat's optional
+  non-target choice uses the general pending chooser, then clears its source
+  only after a creature was chosen.
+- **Verification:** `tests/test_par90_suspected_referents.py`; the suspected
+  probe has no remaining SOLO blockers.
+
+### PAR-89: Named-counter entry cycles (PARSER_VERSION 437)
+
+- **What:** Tapped charge/depletion lands now receive their counters as well
+  as entering tapped; hand-cast divinity-counter Myojin gates read cast zone.
+- **Verification:** `tests/test_par89_entry_counter_cycles.py`; no ticket
+  clause remains in the cache probe.
+
+### PAR-88: Graveyard land-play permission (PARSER_VERSION 435)
+
+- **What:** "You may play lands from your graveyard" binds a land-only
+  `GraveyardCastPermissionEffect`, distinct from Muldrotha's per-type grant.
+- **Verification:** `tests/test_par88_graveyard_land_permission.py` covers
+  parser output and playing a graveyard land end to end; all five SOLO cards
+  model.
+
+### PAR-87: Sacrifice-or-mana additional cost (PARSER_VERSION 434)
+
+- **What:** "Sacrifice a creature or pay {M}" represents both mandatory
+  RULE 601.2b alternatives: the normal cast pays the fallback mana, while a
+  second cast action pays by sacrificing a selected creature instead.
+- **Verification:** `tests/test_par87_sacrifice_or_mana_cast_cost.py` covers
+  the parser plus both payment branches; all five exact cache cards model.
+
+### PAR-86: Targeted graveyard-card shuffle (PARSER_VERSION 433)
+
+- **What:** The target-player wording for shuffling up to N targeted cards
+  from that player's graveyard into their library now reaches the existing
+  Quandrix Command shuffle primitive. The target determines the graveyard and
+  library; resolution selects up to the stated number of cards.
+- **Verification:** `tests/test_par86_target_graveyard_shuffle.py` covers the
+  emitted spec, rejects the self-graveyard near miss, and parses Dwell on the
+  Past. Five cards newly model; Witness the Future remains open only for its
+  independent following library look-and-reorder clause.
+
+Measure with `scripts/coverage_report.py` (ledger-backed via
+`services/coverage_db.py`), against the full ~35k-card Oracle universe;
+add `--commander-legal-only` for the Commander slice, which records its own
+`<v>-commander` snapshot row. `scripts/commander_tail_report.py` (read-only)
+then segments the still-UNMODELED Commander-legal cards by *cause* — wrapper
+re-measure (A), recurring template → `PAR-*` (B), set-specific → `PAR-*` (C),
+missing engine primitive → `MEC-*` (D), bespoke hand-authoring tail →
+PAR-12 (E).
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status
 tab; after any change here, sync all three.
+
+Goal is literal 100% of the Commander-legal slice (minus the RULE 123 sticker
+non-goal); expect bucket E to stay several thousand one-card entries after
+every generalisable cluster is closed.
 
 **Bump `PARSER_VERSION` (`parser/oracle/gate.py`) in the same session you add
 a handler.** The ledger is keyed on content-hash **+ version**, so measuring
 twice within one batch (bump, measure, add more handlers, measure again)
 silently reuses the first run's rows. Either bump again or delete that
 version's rows. Hand-authoring alone needs no bump — `content_hash` folds in
-`ability_catalogue.is_registered`.
+`card_registry.is_registered`.
 
 ## How the tail gets closed
 
@@ -1364,7 +348,7 @@ The remaining ~25k templates are, by construction, not generic. This is an
 1. **Narrow parser extensions** for singleton shapes that still generalize a
    little — a slightly different targeting scope, a compound filter.
    Preferred: each still pays off across a small cluster.
-2. **Hand-authoring** genuinely unique cards in `game/ability_catalogue.py`
+2. **Hand-authoring** genuinely unique cards in `game/card_catalogue/`
    ([authoring guide](../Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md)),
    only after confirming no near-miss handler would unlock a cluster.
 
@@ -1377,6 +361,99 @@ A few items are deliberate non-goals — the legacy pre-2021 werewolf
 template, silver-border/acorn/un-set cards — excluded from the denominator or
 accepted as permanently unmodeled. Stickers and Attractions are project
 non-goals tracked in [BACKLOG.md](BACKLOG.md) under MEC.
+
+## The Commander-legal tail sweep (PAR-31…PAR-53)
+
+The Commander-legal slice (`--commander-legal-only`) is the one the product
+actually plays, so it gets its own dedicated sweep on top of the two tracks
+below — not a third, separate program, just a different **starting point**
+into the same indefinite tail: `scripts/commander_tail_report.py`
+(read-only) segments every still-UNMODELED Commander-legal card by *cause*
+into six buckets:
+
+- **A** — block-wrapper / segmenter re-measure (no ticket; usually a red
+  herring — see "A ranked template that is a block *wrapper*…" under
+  *Lessons that keep recurring* below before trusting one)
+- **B** — recurring template → the *basic mechanics* track below
+- **C** — set-specific mechanic → the *set-specific mechanics* track below,
+  worked deck-first
+- **D** — missing engine primitive → its own real `MEC-*` ticket in
+  [BACKLOG.md](BACKLOG.md) — a primitive is schedulable, closeable work
+  with an end state, unlike the sweep itself, so it doesn't live here
+- **E** — bespoke hand-authoring tail → this document's own indefinite
+  program, same as every other singleton (PAR-12)
+- **F** — never-supported, out of the denominator (Stickers)
+
+**Discipline:** re-run the tool and `parser_probe.py blocked '<regex>'`
+before starting a batch — any `#` count quoted below is stale the moment
+it's read; the tool's own live output is the only trustworthy count. Finish
+a batch end to end without leaving residue before starting the next one
+(narrate in `Done_Backend.md`, bump `PARSER_VERSION`, sync the three
+coverage figures — a batch that turns out fully hand-authored needs no
+version bump). When a batch lands a genuinely new engine primitive, sweep
+`BACKLOG.md` for any *other* ticket that primitive also closes or narrows —
+a primitive landing is exactly the moment this project has historically
+forgotten to look (`CLAUDE.md`'s own no-half-implementations rule).
+
+**Ticket-id bookkeeping:** `PAR-31` through `PAR-53` were this cluster's own
+reserved id block; every one of them that shipped is closed and narrated in
+`Done_Backend.md`. Bucket C's own three-line placeholder ("file from the
+next free id … when their batch comes up") was later resolved into real
+tickets — `PAR-69` through `PAR-72`, filed and closed 2026-09-14 — rather
+than reusing the `PAR-31…PAR-53` block itself. The first free parser
+ticket id past this whole history is **`PAR-73`** (checked 2026-09-15).
+
+**Status (2026-09-15):** PAR-67/PAR-68 (the last two dedicated Bucket-B
+tickets before this pass) closed 2026-09-14. The same day, a fresh sweep
+of `commander_tail_report.py`'s Bucket B/C/D histograms (`--min-cluster 5`)
+traced and verified a further 19 PAR tickets (PAR-74…92) and 8 MEC tickets
+(MEC-89…96) — filed in `BACKLOG.md`, not narrated here per this file's own
+"what does not belong here" rule. Two of the report's own bucket-D labels
+turned out stale on inspection (a dice subsystem and meld both already
+existed; MEC-90/PAR-92 respectively) — another instance of the "needs a
+new primitive" trap below. PAR-79 (the sweep's biggest single cluster, 105
+SOLO) got its first increment the same day (v387, +24) — its own residual
+~81 cards are, on inspection, several distinct smaller shapes rather than
+one dominant remaining template, itself a small worked example of the
+"ticket estimates are wrong in both directions" lesson below (the raw
+regex-match count overstated how much *one* handler would close, but the
+gap didn't vanish either — it fragmented). Bucket C (set-specific,
+deck-first) was resolved into five tickets the same day, traced
+card-by-card with `commander_tail_report.py` + `parser_probe.py
+card`/`blocked` rather than taken at the report's own loose keyword-match
+counts — two of its five raw clusters turned out to be residue from
+*already-closed* tickets (Party, Ki-counter/Spirit-or-Arcane) whose real
+remaining gap was a generic primitive, not the named set mechanic. PAR-69
+through PAR-72 all closed 2026-09-14 (`Done_Backend.md`'s "Keyword
+Catalogue" and "Oracle-Text Parser Front-End" entries); the other three —
+`MEC-86` (Prepared), `MEC-87` (Horsemanship), `MEC-88` (Banding), each
+needing a genuine new engine primitive before a parser handler could mean
+anything — closed 2026-09-15 (`Done_Backend.md`'s "Prepared cards",
+"Horsemanship" and "Banding" entries; also reflected in the Two Tracks
+table below). Attractions (RULE 717) and Conspiracy draft-matters were the
+two Bucket-C items resolved as permanent non-goals instead, moved to
+[DEFERRED.md](DEFERRED.md)'s "Permanent non-goals" section 2026-09-14.
+
+Residue traced and deliberately left [PAR-12] bespoke tail rather than
+promoted to its own ticket: PAR-71's own "that spell's mana value" pairing
+on `lose_life`/`add_counters` (Imp's Mischief, Draining Whelk — no card
+needed it); PAR-72's own two-step hand-reveal-then-choose primitive
+(Acquisitions Expert, where the *hand's owner* rather than the caster picks
+which cards get revealed); and the Horsemanship/Banding batch's own five
+residual cards — `Nature's Blessing` (an "instruction A, or `<creature>`
+gains X instead" alternative-effect body), `Tolaria` (a new "activate only
+during any upkeep step" RULE 602.5d timing-restriction marker, threading
+through five engine files for one card), `Urza's Avenger` (a modal "your
+choice of `<kw1>`, `<kw2>`, …" keyword-choice grant with no existing
+interactive-choice primitive), `Wall of Caltrops` (a board-state
+conditional trigger counting blockers by creature type), and `The Girl in
+the Fireplace` (the Horsemanship-flavoured sibling of the ~60-card "create
+a *named* token, then a follow-up sentence grants it a quoted ability"
+family `Master of the Hunt` was hand-authored around rather than built as
+shared grammar). `Oddric, Lunar Marquis`'s own 11-ability "the same is
+true for changeling, devoid, fear, flanking, horsemanship, ingest,
+intimidate, landwalk, shroud, tantrum, wither, …" cluster is shared
+residue between the Horsemanship and Banding batches.
 
 ## Two tracks: basic mechanics vs. set-specific mechanics
 
@@ -1392,7 +469,12 @@ rules, not one:
   cache-wide yield (`parser_probe.py rank`/`blocked`) — a fix here keeps
   paying off on sets not yet printed, so the biggest SOLO count wins
   regardless of which deck happens to need it today. This is the default
-  track and where most of this document's worked examples live.
+  track and where most of this document's worked examples live. The
+  raw-cache `rank`-driven pass was exhausted 2026-08-28, but re-entering
+  through `commander_tail_report.py`'s own Bucket B histogram found a
+  second wave of real wins the same day 2026-09-15 swept through
+  (PAR-78/PAR-79 alone are 65- and 105-card clusters, see `BACKLOG.md`) —
+  don't copy "exhausted" forward without re-running the tool.
 - **Set-specific mechanics** — a RULE 702 keyword *ability* or *action*
   that a design team built for, and largely confined to, **one expansion or
   Commander-precon product line** (it may get one or two nostalgia reprints
@@ -1426,8 +508,8 @@ rules, not one:
   | Learn (Lessons) | 701.50 | Dominaria / Strixhaven | **Partially done** (checked 2026-08-05) — bare "Learn." is a 7-card SOLO cluster; the Lesson-sideboard-zone infrastructure itself (RULE 701.50a "look at your sideboard") isn't built, so a full deck with real Lessons stays out of scope regardless |
   | Investigate | 701.19a | Shadows over Innistrad (**reused across many later sets** — belongs on the *basic* track, listed here only as the worked example that motivated this split) | **Done** (2026-08-05) — a `create_token` alias onto the already-shipped Clue token, 87+ cards in one row; this is the case study for "keyword action, but basic not set-specific" — check *reuse breadth* before filing something here |
   | Station | 702.184a / 721 | Edge of Eternities | **Done** (2026-08-27) — a third "striated text box" grammar alongside Leveler/Class (`catalogue/station.py`), the reminder-line activated ability bound structurally off Scryfall's own `keywords: ["Station"]` entry (`effect_binder._station_activated_ability`); see `Done_Backend.md`'s Station entry |
-  | Horsemanship | 702.31 | Portal (Portal-only, no reprints since) | **Not done** (checked 2026-08-27, RULE 702 keyword audit) — bare keyword, `combat.can_block` never checks it; lowest priority of this whole table, essentially a dead card pool |
-  | Banding | 702.22 | Alpha/old-border era | **Not done** (checked 2026-08-27) — bare keyword, 0 `game/` hits; nostalgia-only, no modern reprints |
+  | Horsemanship | 702.31 | Portal (Portal-only, no reprints since) | **Done** (MEC-87, 2026-09-15) — `combat.has_horsemanship` wired into `can_block`; +30 cards via five parser handlers. See `Done_Backend.md`'s "Horsemanship" entry |
+  | Banding | 702.22 | Alpha/old-border era | **Done** (MEC-88, 2026-09-15) — `combat.has_banding` + RULE 702.22j's damage-assignment reroute; +9 cards (parser + one hand-authored singleton). RULE 702.22c's interactive attacking-band declaration stays unbuilt (no MODELED card exercises it) and five residual cards remain, each blocked by an unrelated template gap — see `Done_Backend.md`'s "Banding" entry and this file's own Commander-legal tail sweep section above |
   | For Mirrodin! | 702.90-adjacent | New Phyrexia | **Recognition fixed** (PARSER_VERSION 101, PAR-28) — the trailing-`!` keyword line is now claimed (`_KEYWORD_TOKEN_RE`); no engine behaviour (Living Weapon-style germ token) yet |
   | Max Speed / Start Your Engines! | RULE 702.178 / 702.179 | Aetherdrift | **Done** (PARSER_VERSION 101, PAR-28) — full Speed subsystem: `Player.speed`, the Start-Your-Engines! SBA, the RULE 702.179d life-loss inherent trigger, `your_speed_is_max` static gate. See `Done_Backend.md`'s "Keyword — [ability] families" entry |
   | Job Select / Tiered / Increment / Paradigm / Teamwork / Sneak | various | Final Fantasy | **Not done** (checked 2026-08-27) — recognized-but-inert; Sneak's name also collides with an unrelated hand-authored effect, worth disambiguating before building. (**Power-up** was in this row — now **done**, PAR-28) |
@@ -1462,9 +544,203 @@ rules, not one:
   above were. Don't copy a status onto this list without running the
   check yourself.
 
+## Known-open clusters
+
+### Commander tail re-validation at PARSER_VERSION 584 (2026-10-02)
+
+Measured with `scripts/commander_tail_report.py --min-cluster 5 --samples 3 --top-b 40` (Commander-legal
+32,116: 19,340 covered, 12,729 UNMODELED, 47 never-supported) plus `parser_probe.py card`/`blocked`/
+`composition` and `inspect-db` raw-store lookups. That measurement produced follow-ups PAR-145…PAR-149,
+MEC-110 and VIS-11. Empower Jace subsequently shipped at PARSER_VERSION 593 (+18 covered cards; see
+the MEC-110 entry in `Done_Backend.md` and VIS-11 in `Done_Frontend.md`).
+**Bucket labels are hypotheses, not causes** — two of the D labels were
+already stale, and the biggest B cluster was not a grammar cluster at all.
+
+| Bucket | Cards | Check status | Finding |
+| --- | --- | --- | --- |
+| E bespoke | 12,241 | unchecked | A residue bucket; only the composition probe was run (below). |
+| B recurring | 301 | partly validated | `<cost> — <n>/<n>` (48, rank 1) is the Unfinity Sticker Sheets, not grammar. Empower Jace validated (34 cards, 19 SOLO). Emblem validated and weak (48 cards, 5 SOLO). The rest unchecked. |
+| D primitive-blocked | 138 | partly validated, two labels stale | `roll_die` (43) and `tapped-and-attacking put-from-zone` (59) are stale; the other rows unchecked. |
+| C set-specific | 39 | unchecked | 31 are non-goals already in DEFERRED.md (Attractions 18, Conspiracy 13). Banding/Horsemanship rows describe mechanics MEC-87/88 already shipped (section "Two tracks"). |
+| A wrapper | 10 | unchecked | Too small to matter. |
+
+**Stickers.** All 48 `sunf` cards have type line "Stickers"; `gate._mentions_stickers` only reads oracle text.
+
+**Dice.** `RollDieEffect`, the `roll_die` registry entry and the `roll_dice_modifier` replacement exist, so "no dice
+subsystem at all" is false. 68 Commander-legal cards carry roll text (38 with only roll clauses unclaimed). Axes (a
+card can carry several): single die plus its result used as an amount/filter 21; d20 table rows (`1—9 | …`) 18;
+roll N dice, choose/ignore 10; roll trigger or replacement 12; plain roll plus body 16. Whether the IR can express a
+table block is unchecked.
+
+**Tapped and attacking.** The engine has `create_token` (`tapped`/`attacking`/`per_opponent`) and `enter_attacking`
+on put/copy effects, and PAR-30 batches 179–191 already shipped the common shapes, so this is residue. 59 cards.
+Removing the modifier from the clause and re-segmenting claims it for only 4 (Adeline, Flamerush Rider, Jet Rebel
+Leader, Leonin Warleader) — a crude test, so "other blocker" for the other 55 is an upper bound. Orthogonal tags
+over the 59: self-attack head 32, zone pick (graveyard/hand/exile) 25, group-attack head 13, for-each/that-many 13,
+copy 13, delayed sacrifice/exile of the token 10, pay-then ("if you do") 9, reveal/dig-until 5, named token 2.
+
+| Card | Steps | Relations | Representation | Real blocker |
+| --- | --- | --- | --- | --- |
+| Fire Navy Trebuchet | "whenever you attack" → create named 2/1 token tapped and attacking | token named X | plain token is claimed | named token |
+| General Kreat | "whenever 1 or more goblins you control attack" → token tapped and attacking | group subject | body claimed | group-attack head |
+| Adeline | "whenever you attack" → for each opponent a token tapped and attacking | defender = that player or a planeswalker they control | head and body claim separately | modifier plus defender relation |
+| Aberrant Mind Sorcerer | ETB with ability-word prefix → choose target → roll d20 → table rows | roll result selects the row | `roll_die` exists | ability-word head and table block |
+| Bag of Tricks | `{4}{G},{T}`: roll d8 → reveal until creature with MV = result → rest on the bottom, random order | result feeds the dig filter | dig grammar and `roll_die` exist separately | result as an amount operand in the dig filter |
+
+**Trigger bodies (Bucket E).** `composition summary`: of 6,400 unclaimed trigger clauses 5,127 have a parsed head and
+a missing body (4,087 cards where that is the only gap); `composition mods` — leading "if" 1,326 sentences / 471
+repaired / 446 SOLO cards; "for each" 234 / 124 / 84; "where X is" 695 / 86 / 71. These are the probe's own forms,
+not a step/relation analysis.
+
+### PAR-132 calibration: dependent bodies around an already-complete target scope
+
+PAR-130 completed the `that player controls` scope itself: event, per-player and prior-target
+antecedents now reach trigger, spell and activated-ability targeting. The cards still blocked in
+that search are separate body/referent families, bundled as PAR-132 rather than left as false
+PAR-130 residue:
+
+- a `choose [up to] one target …, then` announcement followed by a chosen-object body (Decoy
+  Gambit, Mega Flare, Shellshock, Disorienting Choice, Guff Rewrites History, Vaevictis Asmadi,
+  Kitesail Larcenist);
+- follow-ups over the selected set or objects affected "this way" (Elminster's Simulacrum,
+  Hideous Taskmaster, Riptide Gearhulk, Luminate Primordial, Juvenile Mist Dragon, Olinda,
+  Sontaran General, Sylvan Primordial, King Solomon's Frogs, Unexplained Absence, Demonic Junker,
+  Battle at the Helvault);
+- prior-target group bodies beyond the now-shipped two-target controller validation (Alpha Brawl,
+  Deputy of Detention, Legions to Ashes; Down for Repairs additionally names an Attraction);
+- missing trigger heads around otherwise-supported bodies: beginning of combat on each opponent's
+  turn, a Dragon becoming a target, damage thresholds, defending-player combat damage, and damage
+  from an instant or sorcery spell;
+- sequence-local `that much` operands outside a firing event, the quoted-grant wrapper on Commando
+  Raid, and finite/permanent-control durations tied to the source remaining on the battlefield
+  (Sower of Temptation, Master Thief, Dragonlord Silumgar, Mind Flayer, Possession Engine, Giant's
+  Grasp, Rangers of Ithilien).
+
+Each row must be re-sized before implementation; this list records shared shapes and examples, not
+a promise that every named card has no second blocker.
+
+Long-tail residue that no open ticket names — salvaged when the per-version
+changelog was removed, because most of it had been filed under `PAR-30`,
+`PAR-60`, `MEC-77` and the Clash/Airbend bullets, **all since closed**. None of
+it is schedulable as written; it is sizing material for the next pass, in the
+same spirit as the worked examples below.
+
+**Verified against the v298 ledger on 2026-09-09** — every row below is a card
+that is `unmodeled` *today*, and the blocker quoted is its **actual** remaining
+unclaimed clause, not the description its original batch wrote. That check
+mattered: of the 61 cards the changelog listed as open, **25 were already
+`MODELED`** and eight whole clusters had closed underneath their own notes —
+the threaten/gain-control family (Broadcast Takeover, Call for Aid, Furnace
+Reins, Loki's Scepter, Flayer of Loyalties, Goatnap, Awaken the Sleeper), the
+O-Ring two-sentence templating (Oblivion Ring itself, Crack in Time, Driftgloom
+Coyote, Food Coma, Brutal Cathar), dynamic Incubate (Excise the Imperfect,
+Sunfall), colour-filtered targeting (Combust, Snow Hound, Tidebinder Mage,
+Offspring's Revenge), `normalize`'s legendary short names (Kaalia of the Vast,
+Owlbear Cub, The Vast Scrier), "tapped and attacking" (Winota, Kari Zev),
+majority/permanent vote ballots (Council Guardian, Council's Judgment), and the
+RULE 508.1g attack-tax opt-out (built in v288). Two more entries named a
+blocker that had been fixed while the card stayed unmodeled on something
+unrelated. **Re-run this check before sizing anything below** — that is this
+document's own standing rule, and it has now caught itself.
+
+| Cluster | Still open | Cards |
+| --- | --- | --- |
+| Becomes-target self-sacrifice | "sacrifice it **unless you discard a land card**"; the quoted-ability grant forms (`… has "when ~ becomes the target of a spell or ability, …"`) | Cursed Monstrosity · Crystalline Nautilus, Dismiss into Dream, Boneshard Slasher, Makeshift Mannequin |
+| Quoted-ability grant until EOT | the compound "gets +2/+0 **and** gains '…'" wrapper | Demonic Gifts |
+| Return-to-battlefield destination | "return it to the battlefield **face down**", and its flipped/transformed siblings | Ashcloud Phoenix, Homura Human Ascendant, Loyal Cathar |
+| Mass graveyard return, riders | riders on the returned cards (an extra counter, "each of them is a 1/1 Spirit"); "…that weren't put there this way" | Pyrrhic Revival · Storm of Souls · Bringer of the Last Gift |
+| Distribute counters + tail | "distribute N +1/+1 counters among 1, 2, or 3 target creatures, **then** …" and the post-distribute "each of those creatures" tail | Biogenic Upgrade, Court of Garenbrig |
+| Counter doubling, union target | "double the number of **each kind of** counter on target **artifact, creature, or land**" | Vorel of the Hull Clade |
+| Land destruction, search tails | the "…each player searches…" / "…that land's controller searches…" follow-up after the destroy | Field of Ruin, Demolition Field, Magmatic Hellkite |
+| Loses-all-abilities + base P/T | "loses all abilities and becomes a `<colour>` `<type>` with base power and toughness N/N"; the front-loaded "until end of turn, … has base P/T … and gains `<kw>`" form | Turn to Frog, Snakeform, Ovinize · Creeperhulk |
+| Cost reduction gated on the target | "this spell costs {N} less to cast **if it targets** a creature (card) with mana value N or less / with a +1/+1 counter on it" | No One Left Behind, Revoke Demise, Titanic Brawl |
+| Un-limited batch-death triggers | "whenever **1 or more** other creatures [you control] die, …" with no "only once each turn" limiter to collapse the per-object firing into the right net | Great Fierce Bee, Vengeful Townsfolk |
+| Halved, rounded X | "you gain **half X** life and draw **half X** cards. round down each time" | Hydroid Krasis |
+| "destroy ~ unless you pay" follow-up | "**if ~ is destroyed this way**, …" | Cosmic Horror |
+| Random modal + emblem body | "choose 1 **at random** —", plus an emblem whose own body is unclaimed; "you may planeswalk" (only the bare "planeswalk" fullmatch exists) | Seek Bolas's Counsel · Start the TARDIS |
+| Threaten after-tail | "…**create a Blood token**" after the gain-control / untap / haste sequence | Bloody Betrayal |
+| Saddle referent | "whenever ~ attacks **while saddled**, choose a nonlegendary creature that saddled it this turn" | Calamity, Galloping Inferno |
+| Compound attack-trigger conditions | "whenever ~ attacks, **if** a nonland permanent left the battlefield this turn **or** a spell was warped this turn, …" | Alpharael, Stonechosen |
+| Misc singletons | "another target creature" (the `other_creature` kind is not engine-wired); "**if it was a Gideon planeswalker**" conditional tail | Arwen, Mortal Queen · Gideon's Defeat |
+| Unread activation-cost fragments (ENG-51 residue, v500) | an activated line whose cost `catalogue/cost_text.scan_cost_text` doesn't read completely stays unclaimed: three-colour sacrifices ("a red creature, a green creature, and a white creature"), "of the chosen type", "untap N tapped creatures you control", "exile 1 or more …", "sacrifice ~ and a creature you control", "discard a card with mana value X", an Aura/Equipment "attached to ~"; plus Un-set and Alchemy one-offs | the Herald cycle · Doom Cannon · Halo Fountain · Corpseweft · Great Hall of Starnheim · Knollspine Invocation · Faunsbane Troll |
+
 ## Lessons that keep recurring
 
 Each was paid for once; re-reading them is cheaper than re-learning them.
+
+- **A row that reads a pronoun as the source is *wrong-but-MODELED* the moment a trigger's subject is
+  a group — audit the covered set, not just the unclaimed one (PAR-123, v552).** `_SELF_SUBJECT`
+  folds "it" in with "~", `_pay_cost_then_general` parsed its branch with `self_subject=True`, and a
+  keyword grant after a "~" sentence stamped the firing object: each *claimed* a group-trigger clause
+  and acted on the wrong permanent (Fearless Fledgling flew the land, "you may pay {1}. If you do, it
+  gets +1/+1" pumped the Enchantment). No failing test and no unclaimed clause points at one. What
+  found them: (1) instrument `parse_effect_body` for group-flag failures to list the *unclaimed*
+  ones by verb, (2) scan every **modeled** card whose group-trigger body has a bare pronoun and no
+  referent evidence in its specs (`__group_subject__` / `previous_subject` / `remembered` / a
+  `trigger_subject_referent`), (3) the completion test — a clause whose "target creature" spelling
+  parses must parse in its group form. Fix the mechanism once (a generic seed + a targeted-spelling
+  wrapper), not one row per verb; and expect stale pins: three tests recorded the gap as "still
+  unmodeled".
+- **A fallback that generalizes a whole grammar must leave the specific rows first — and its
+  wrappers must not sit outside a body that runs later.** The group fallback is tried only after
+  every row declined, and it refuses any body whose effect runs after the trigger's event window
+  closed (a payment's "if you do", a "you may", a delayed trigger): those read the *remembered*
+  object instead. A wrapper hiding a second target would also have announced none.
+
+- **`commander_tail_report.py`'s Bucket-D "missing primitive" label is a
+  heuristic, not proof — grep `game/` before filing a `MEC-*` ticket.** The
+  2026-09-15 sweep found several Bucket-D flags where the primitive already
+  existed and only parser recognition was missing: RULE 613.4d's
+  `pt_switch` layer static, the `unblockable`/`temp_unblockable` grant, and
+  the "all"-amount `prevent_damage_shield` — each filed as a `PAR-*` ticket
+  instead of the `MEC-*` the report suggested. Bucket D caught two of its
+  own labels the same way on closer inspection ("no dice subsystem at
+  all", "ISA gap: meld" — a dice subsystem and meld had both already
+  shipped, `MEC-75`/`MEC-77`), narrowing what the sweep actually needed to
+  file down to `MEC-90`'s missing amount-referent and a small meld-trigger
+  widening folded into `PAR-92`.
+- **Decompose into atomic grammar units — don't enumerate phrase variants.**
+  Now a standing rule, not just a lesson — see the extend-parser skill's
+  `reference/handler-recipe.md` for the full writeup and the test to apply
+  before adding a row. The short version: a template usually varies along
+  more than one axis (subject/type/color, count, exception, duration); the
+  fix belongs at the axis, in a shared primitive
+  (`subgrammars.py`, `static_handlers.object_filter`, a
+  `catalogue/keywords.py` word table), not as a regex/whitelist row keyed to
+  the one search phrase or card that motivated it. This was learned the hard
+  way, as a **mid-batch correction**, twice: PAR-78 (v393) started a closed
+  per-phrase source-colour word list, then replaced it with a fix to
+  `static_handlers.object_filter`'s general OR-split instead; PAR-79 (v401)
+  did the identical thing for a subtype-target list, and the fix's own scope
+  leak — it also covered two cards outside PAR-79's own search phrase — was
+  the tell that the row it almost became was never really a one-off. Neither
+  correction was caught at design time; both were only visible once the
+  closed list was already growing. A third instance (v408) wasn't even
+  mid-batch — it was a standing-code audit, prompted by a question about why
+  PAR-79 kept needing new increments at all: two of its own already-shipped
+  rows (`_CANT_BE_BLOCKED_TURN_OTHER_ATTACKER_RE`/`_LEGENDARY_RE`, each
+  correctly built and tested in its own increment) turned out to be exactly
+  the enumerate-phrase-variants shape this lesson warns about, once
+  `object_filter` learned to strip a leading "attacking"/"legendary" flag
+  word itself — at which point both rows were a strict subset of the general
+  filter row and deleted, +0/+0 coverage (a code-quality fix, not a new
+  handler). The generalizable tell doesn't only show up while writing a
+  batch; it's worth asking of *already-shipped* rows in a search-phrase
+  ticket too, not just new ones.
+- **"Still open" notes written inside a shipped batch's narrative go stale
+  silently, and nothing points at them once the batch's ticket closes.** The
+  removed per-version changelog ended most entries with a residue list ("still
+  open in this cluster: …"). Those lists were the only record that those gaps
+  existed — but they were filed *under the version that closed something else*,
+  so when `PAR-30`, `PAR-60` and `MEC-77` closed, the residue kept no home and
+  nobody re-checked it. Auditing the 61 cards named that way on 2026-09-09
+  found **25 already `MODELED`**, eight clusters wholly closed, and two entries
+  whose named blocker had been fixed while the card stayed unmodeled on
+  something unrelated. This is `CLAUDE.md`'s no-half-implementations rule seen
+  from a third angle: not a deferred item rolling over, but a *recorded gap
+  losing its owner*. Residue belongs in a place someone re-reads (`BACKLOG.md`,
+  or this file's *Known-open clusters*), never as a trailing sentence on a
+  worklog entry.
 
 - **A ranked template that is a block *wrapper* (modal, Saga, Class level) is
   usually a red herring.** `gate.py` fail-closes the whole block when any one

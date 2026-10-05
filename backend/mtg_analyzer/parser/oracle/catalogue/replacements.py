@@ -1,7 +1,7 @@
 """Replacement-clause recognition (RULE 614/616) — a permanent's standing
 
 "if X would Y, Z instead" sentence, docs/09's Phase 1 "static-shaped"
-family. The binder side (`game/effects.py`'s `ReplacementRegistry`) has
+family. The binder side (`game/effects/core.py`'s `ReplacementRegistry`) has
 long supported `prevent_damage`/`double_damage`/`additional_damage`/
 `double_counters`/`double_tokens`; this module supplies the *recognition*
 half for all five — the ones with a single, fixed real-card
@@ -19,7 +19,7 @@ itself a standing permanent ability) and aren't covered here — nor is the
 Protection and ~25 siblings): a *choice* isn't a plain replacement clause,
 and the family's real per-card variety (ETB-chosen colours/artists,
 sacrifice costs, "if damage is prevented this way" riders) is hand-authored
-in `game/ability_catalogue.py` instead (MEC-30's own documented choice,
+in `game/card_catalogue` instead (MEC-30's own documented choice,
 not a gap — see that batch's `Done_Backend.md` entry).
 
 RULE 616.1's full "if X would Y, Z instead" grammar has many more real
@@ -36,17 +36,35 @@ import re
 from typing import Optional
 
 from ..spec import EffectSpec
+from .subgrammars import COLOR_LETTERS
 
-#: Colour words → their WUBRG symbol (`additional_damage`'s single-colour filter).
-_COLOR_WORDS: dict[str, str] = {
-    "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G",
-}
+#: Colour words → their WUBRG symbol (`additional_damage`'s single-colour
+#: filter). PAR-63: this module imported *nothing* from `subgrammars` before —
+#: the first cross-module reuse `14_` S5 asks for.
+_COLOR_WORDS = COLOR_LETTERS
 
 #: Doubling Season's/Anointed Procession's token-doubling line — identical
 #: phrasing on every real card that prints it.
 _DOUBLE_TOKENS_RE = re.compile(
     r"if an effect would create 1 or more tokens under your control, "
     r"it creates twice that many of those tokens instead",
+    re.IGNORECASE,
+)
+#: PAR-104: "If 1 or more tokens would be created under your control, those tokens plus a Mutagen token are
+#: created instead." (Donatello, the Brains; Peregrin Took's Food is the hand-authored original) — one extra
+#: named token alongside every creation (`additional_named_token`). The names are `handlers._NAMED_TOKEN_WORDS`'
+#: closed set: a name outside it would synthesize a blank token.
+_ADDITIONAL_NAMED_TOKEN_RE = re.compile(
+    r"if 1 or more tokens would be created under your control, those tokens plus an? (?:additional )?"
+    r"(?P<name>treasure|clue|food|blood|mutagen) token are created instead",
+    re.IGNORECASE,
+)
+#: "If you would create 1 or more [Treasure] tokens, instead create those tokens plus an additional
+#: Treasure token." (Xorn, Jolene, Tippy-Toe Terrific Partner) — the same extra named token, but only
+#: alongside a creation of the *named* kind (``only_token``) or, with no kind, of any token.
+_ADDITIONAL_NAMED_TOKEN_INSTEAD_RE = re.compile(
+    r"if you would create 1 or more (?P<only>treasure |clue |food |blood )?tokens, "
+    r"instead create those tokens plus an? additional (?P<name>treasure|clue|food|blood|mutagen) token",
     re.IGNORECASE,
 )
 #: Doubling Season's counter-doubling line ("a permanent you control" —
@@ -148,6 +166,43 @@ _GAIN_LIFE_DOUBLE_RE = re.compile(
 #: for any permanent) or multiplicative "twice that many" (Branching
 #: Evolution/Corpsejack Menace). The recipient noun in the tail
 #: ("it"/"that creature"/"that permanent") is along for the ride.
+#: PAR-109: "If 1 or more counters would be put on an artifact or creature you control, that many plus 1 of each
+#: of those kinds of counters are put on that permanent instead." (Winding Constrictor), "If you would put 1 or
+#: more counters on a permanent you control, put that many plus 1 of each of those kinds of counters on that
+#: permanent instead." (Doc Samson), and Winding Constrictor's player half "If you would get 1 or more counters,
+#: you get that many plus 1 of each of those kinds of counters instead." — `double_counters` with ``plus`` and no
+#: ``kind`` (every kind is raised by one, RULE 616.1).
+_COUNTERS_PLUS_ONE_OF_EACH_RE = re.compile(
+    r"if (?:1 or more counters would be put on (?P<who>a permanent you control|a permanent your team controls|"
+    r"an artifact or creature you control), "
+    r"that many plus 1 of each of those kinds of counters are put on that permanent instead"
+    r"|(?P<doc>you would put 1 or more counters on a permanent you control, put that many plus 1 of each of those "
+    r"kinds of counters on that permanent instead)"
+    r"|(?P<get>you would get 1 or more counters, you get that many plus 1 of each of those kinds of counters instead)"
+    r"|(?P<laezel>you would put 1 or more counters on a creature or planeswalker you control or on yourself, put "
+    r"that many plus 1 of each of those kinds of counters on that permanent or player instead))",
+    re.IGNORECASE,
+)
+
+
+def _counters_plus_one_of_each_spec(m: "re.Match[str]") -> EffectSpec:
+    if m.group("get"):
+        return EffectSpec("double_counters", {"plus": 1, "recipient": "you_player"})
+    if m.group("laezel"):
+        return EffectSpec("double_counters", {
+            "plus": 1, "recipient": "creature_planeswalker_or_you", "your_effects_only": True,
+        })
+    if m.group("doc"):
+        return EffectSpec("double_counters", {
+            "plus": 1, "recipient": "permanent_you_control", "your_effects_only": True,
+        })
+    who = m.group("who").lower()
+    return EffectSpec("double_counters", {
+        "plus": 1,
+        "recipient": "artifact_or_creature_you_control" if who.startswith("an artifact") else "permanent_you_control",
+    })
+
+
 _COUNTERS_YOU_CONTROL_PLUS_RE = re.compile(
     r"if 1 or more \+1/\+1 counters would be put on a (?P<who>creature|permanent) you control, "
     r"that many plus (?P<n>\d+) \+1/\+1 counters are put on (?:it|that (?:creature|permanent)) instead",
@@ -253,6 +308,33 @@ _STANDING_PREVENT_COUNT_RE = re.compile(
 #: with the new ``remove_self_counter`` kind (`RulesEngine.
 #: apply_prevent_rider`); these creatures are printed 0/0, so once the last
 #: counter goes the RULE 704.5g SBA finishes them.
+#: RULE 706.3-adjacent advantage / disadvantage — "If you would roll one or
+#: more dice, instead roll that many dice plus one and ignore the lowest
+#: roll." (Pixie Guide, Barbarian Class level 1, Wilhelt-adjacent) and its
+#: "ignore the highest roll" disadvantage mirror. The "Grant an Advantage —"
+#: / "Grant a Disadvantage —" ability-word label (RULE 207.2c, no rules
+#: meaning) is stripped here since the segmenter's permanent-static fallback
+#: doesn't peel it. Engine side: `_roll_dice_modifier_replacement` rewrites
+#: the pre-roll `ROLL_DICE` event's ``count``/``ignore_lowest``/
+#: ``ignore_highest``.
+_ROLL_DICE_MODIFIER_RE = re.compile(
+    r"(?:grant (?:an advantage|a disadvantage) [—–-] )?"
+    r"if you would roll 1 or more dice, instead roll that many dice "
+    r"plus (?P<plus>1|one|\d+) and ignore the (?P<extreme>lowest|highest) roll",
+    re.IGNORECASE,
+)
+
+#: RULE 701.69a + Wolverine, Fierce Fighter: "If damage would be dealt to ~,
+#: instead that damage is dealt, but all other damage already dealt to
+#: (it|him|her|them) is healed." A replacement that leaves the damage
+#: unchanged and, as a side effect, heals ~'s previously-marked damage —
+#: `_heal_others_on_damage_replacement` (`heal_others_on_damage`).
+_HEAL_OTHERS_ON_DAMAGE_RE = re.compile(
+    r"if damage would be dealt to ~, instead that damage is dealt, "
+    r"but all other damage already dealt to (?:it|him|her|them) is healed",
+    re.IGNORECASE,
+)
+
 _PHANTOM_PREVENT_RE = re.compile(
     r"if damage would be dealt to ~, prevent that damage\.\s*"
     r"remove a (?P<counter>\+1/\+1|-1/-1) counter from ~\.?",
@@ -265,10 +347,26 @@ def _prevent_recipient_params(recipient: str) -> Optional[dict]:
     own ``to``/``recipient_filter`` params, or ``None`` if unrecognized."""
     if recipient == "you":
         return {"to": "controller"}
-    if recipient == "equipped creature":
+    if recipient in ("equipped creature", "enchanted creature"):
         return {"to": "attached_permanent"}
+    if recipient in ("~", "this creature", "this permanent"):
+        return {"to": "self"}
+    if recipient == "creatures":
+        return {"to": "all_creatures"}
+    if recipient == "creatures you control":
+        return {"to": "creatures_you_control"}
+    if recipient == "attacking creatures you control":
+        return {"to": "creatures_you_control", "recipient_filter": {"attacking": True}}
+    if recipient == "creature tokens you control":
+        return {"to": "creatures_you_control", "recipient_filter": {"token": True}}
     if recipient == "a planeswalker you control":
         return {"to": "controlled_permanent", "recipient_filter": {"card_type": "planeswalker"}}
+    if recipient == "another creature you control":
+        # PAR-139 (Vigor): any *other* creature — a card type, not the subtype word the rows below read.
+        return {
+            "to": "controlled_permanent",
+            "recipient_filter": {"card_type": "creature", "exclude_self": True},
+        }
     if recipient.startswith("a ") and recipient.endswith(" creature you control"):
         subtype = recipient[len("a "):-len(" creature you control")]
         return {"to": "controlled_permanent", "recipient_filter": {"subtype": subtype}}
@@ -279,6 +377,91 @@ def _prevent_recipient_params(recipient: str) -> Optional[dict]:
             "recipient_filter": {"subtype": subtype, "exclude_self": True},
         }
     return None
+
+
+#: PAR-139: "If [noncombat|combat] damage would be dealt to `<recipient>`, prevent that damage. `<rider keyed on
+#: the amount prevented>`" — Phyrexian Hydra / Stormwild Capridor ("Put a -1/-1 [+1/+1] counter on ~ for each 1
+#: damage prevented this way"), Vigor ("… on that creature …"), Purity ("You gain life equal to the damage
+#: prevented this way"). A standing `prevent_damage` shield whose ``rider`` (`apply_prevent_rider`) reads the
+#: prevented amount; "combat" narrows by the DAMAGE event's own flag (``source_filter["combat"]``).
+_COUNTER_KIND = r"[+\-]\d+/[+\-]\d+"
+_PREVENT_THEN_RIDER_RE = re.compile(
+    r"if (?:(?P<combat>noncombat |combat )?damage would be dealt to "
+    r"(?P<recipient>~|you|another creature you control|equipped creature)"
+    r"(?: while it has an? (?P<while_kind>" + _COUNTER_KIND + r") counter on it)?"
+    # Ironscale Hydra: the damage source is "a creature", the recipient the permanent itself.
+    r"|a creature would deal (?P<creature_combat>combat) damage to (?P<recipient2>~)"
+    # Panther Habit: the host named as the one dealt damage.
+    r"|(?P<recipient3>equipped creature) would be dealt damage)"
+    r", prevent that damage(?:\.\s*|,? and )"
+    r"(?:put an? (?P<kind>" + _COUNTER_KIND + r") counter on (?P<on>~|that creature) for each 1 damage prevented this way"
+    r"|(?P<life>you gain life equal to the damage prevented this way)"
+    r"|put that many (?P<many_kind>" + _COUNTER_KIND + r") counters on (?:it|~|him)"
+    r"|put an? (?P<one_kind>" + _COUNTER_KIND + r") counter on ~"
+    r"|remove (?P<rm_n>an?|that many) (?P<rm_kind>" + _COUNTER_KIND + r") counters? from (?:it|~)"
+    r"|mill (?P<mill_twice>twice )?that many cards"
+    r"|(?P<exile_top>exile that many cards from the top of your library)"
+    # Phyrexian Vindicator: a reflexive trigger sized by the amount prevented.
+    r"|(?P<reflexive>when damage is prevented this way, ~ deals that much damage to any other target))",
+    re.IGNORECASE,
+)
+
+
+def _prevent_then_rider_spec(m: "re.Match[str]") -> Optional[EffectSpec]:
+    recipient_text = (m.group("recipient") or m.group("recipient2") or m.group("recipient3")).lower()
+    params = _prevent_recipient_params(recipient_text)
+    if params is None:
+        return None
+    on = (m.group("on") or "").lower()
+    rider: dict
+    if m.group("life"):
+        rider = {"kind": "gain_life", "recipient": "you"}
+    elif m.group("kind"):
+        if on == "~":
+            rider = {"kind": "add_scaled_counters", "on": "self", "counter": m.group("kind")}
+        elif recipient_text == "another creature you control":
+            rider = {"kind": "add_scaled_counters", "on": "recipient", "counter": m.group("kind")}
+        else:
+            return None  # "that creature" only names the recipient of a "another creature" shield
+    elif m.group("many_kind"):
+        # "put that many +1/+1 counters on it": the shield's own permanent for "~", the host for "equipped".
+        if recipient_text == "~":
+            rider = {"kind": "add_scaled_counters", "on": "self", "counter": m.group("many_kind")}
+        elif recipient_text == "equipped creature":
+            rider = {"kind": "add_scaled_counters", "on": "recipient", "counter": m.group("many_kind")}
+        else:
+            return None
+    elif m.group("one_kind"):
+        if recipient_text != "~":
+            return None
+        rider = {"kind": "add_self_counter", "counter": m.group("one_kind")}
+    elif m.group("rm_kind"):
+        if recipient_text != "~":
+            return None
+        rider = {"kind": "remove_self_counter", "counter": m.group("rm_kind"),
+                 **({"scaled": True} if m.group("rm_n").lower() == "that many" else {"count": 1})}
+    elif m.group("mill_twice") is not None or re.search(r"\bmill\b", m.group(0), re.IGNORECASE):
+        # "your library" is the shield's controller's, whoever the damage was headed for.
+        rider = {"kind": "mill", "recipient": "you", "factor": 2 if m.group("mill_twice") else 1}
+    elif m.group("exile_top"):
+        rider = {"kind": "exile_top_of_library_scaled", "recipient": "you"}
+    elif m.group("reflexive"):
+        if recipient_text != "~":
+            return None
+        rider = {"kind": "reflexive_damage"}
+    else:
+        return None
+    spec_params = {**params, "amount": "all", "rider": rider}
+    source_filter: dict = {}
+    if m.group("combat"):
+        source_filter["combat"] = m.group("combat").strip().lower() == "combat"
+    if m.group("creature_combat"):
+        source_filter.update({"combat": True, "is_creature": True})
+    if source_filter:
+        spec_params["source_filter"] = source_filter
+    if m.group("while_kind"):
+        spec_params["requires_counter"] = m.group("while_kind")
+    return EffectSpec("prevent_damage", spec_params)
 
 
 def _standing_prevent_spec(m: "re.Match[str]") -> Optional[EffectSpec]:
@@ -297,6 +480,65 @@ def _standing_prevent_spec(m: "re.Match[str]") -> Optional[EffectSpec]:
         params["amount"] = {"all_but": int(amount[len("all but "):])}
     else:
         params["amount"] = int(amount)
+    return EffectSpec("prevent_damage", params)
+
+
+#: PAR-78: the *imperative* sentence shape — "Prevent all damage that
+#: would be dealt to `<recipient>`[ by `<source filter>`]." (Cho-Manno,
+#: Revolutionary/Argothian Pixies/Bubble Matrix/Inner Sanctum/…) — a bare
+#: permanent's own un-triggered "Prevent all damage…" line is a standing
+#: replacement effect (RULE 613), not a one-shot resolve-time grant (see
+#: `catalogue.handlers`'s own one-shot ``"prevent_damage_shield"`` family,
+#: which only ever fires through a trigger/activated-cost/spell-effect
+#: wrapper — `segmenter.segment_line`'s ``allow_spell_effect`` gate leaves
+#: a bare permanent imperative unclaimed for that family on purpose).
+#: `ReplacementRegistry`'s existing ``"prevent_damage"`` factory (Sphere/
+#: absorb/Shield of the Realm family, MEC-30) already has everything this
+#: needs; only the recognition was missing. A plural-noun ``by <filter>``
+#: vocabulary distinct from `_PREVENT_QUALIFIER_MAP`'s singular ``if <X>
+#: would deal damage…`` qualifier (different real-card grammar, same
+#: underlying ``source_filter`` shape).
+_PREVENT_ALL_SOURCE_FILTER_PHRASES: dict[str, dict] = {
+    "creatures": {"is_creature": True},
+    "artifact creatures": {"is_creature": True, "card_type": "artifact"},
+    "artifact sources": {"card_type": "artifact"},
+    "sources you control": {"controller": "you"},
+    "sources you don'?t control": {"controller": "opponent"},
+    "creatures with first strike": {"is_creature": True, "keyword": "first_strike"},
+    "deserts": {"subtype": "desert"},
+    "enchanted creatures": {"is_creature": True, "enchanted": True},
+}
+_PREVENT_ALL_SOURCE_FILTER_ALT = "|".join(
+    sorted(_PREVENT_ALL_SOURCE_FILTER_PHRASES, key=len, reverse=True)
+)
+_PREVENT_ALL_RECIPIENT_ALT = (
+    r"~|this creature|this permanent|you|enchanted creature|"
+    r"attacking creatures you control|creature tokens you control|"
+    r"creatures you control|creatures"
+)
+_PREVENT_ALL_DAMAGE_RE = re.compile(
+    rf"prevent all damage that would be dealt to (?P<recipient>{_PREVENT_ALL_RECIPIENT_ALT})"
+    rf"(?: by (?P<filter>{_PREVENT_ALL_SOURCE_FILTER_ALT}))?",
+    re.IGNORECASE,
+)
+
+
+def _prevent_all_damage_standing_spec(m: "re.Match[str]") -> Optional[EffectSpec]:
+    recipient_params = _prevent_recipient_params(m.group("recipient").lower())
+    if recipient_params is None:
+        return None
+    params: dict = dict(recipient_params)
+    params["amount"] = "all"
+    filt = m.group("filter")
+    if filt:
+        text = filt.strip().lower()
+        source_filter = next(
+            (dict(v) for k, v in _PREVENT_ALL_SOURCE_FILTER_PHRASES.items() if re.fullmatch(k, text)),
+            None,
+        )
+        if source_filter is None:
+            return None
+        params["source_filter"] = source_filter
     return EffectSpec("prevent_damage", params)
 
 
@@ -326,6 +568,17 @@ def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     if _DOUBLE_TOKENS_RE.fullmatch(text):
         return [EffectSpec("double_tokens", {})]
+
+    m = _ADDITIONAL_NAMED_TOKEN_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("additional_named_token", {"token_name": m.group("name").capitalize()})]
+
+    m = _ADDITIONAL_NAMED_TOKEN_INSTEAD_RE.fullmatch(text)
+    if m is not None:
+        params = {"token_name": m.group("name").capitalize()}
+        if m.group("only"):
+            params["only_token"] = m.group("only").strip().capitalize()
+        return [EffectSpec("additional_named_token", params)]
 
     if _DOUBLE_COUNTERS_RE.fullmatch(text):
         return [EffectSpec("double_counters", {})]
@@ -361,6 +614,10 @@ def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
         if spec is not None:
             return [spec]
 
+    m = _COUNTERS_PLUS_ONE_OF_EACH_RE.fullmatch(text)
+    if m is not None:
+        return [_counters_plus_one_of_each_spec(m)]
+
     m = _GAIN_LIFE_PLUS_RE.fullmatch(text)
     if m is not None:
         return [EffectSpec("gain_life_replacement", {"plus": int(m.group("n"))})]
@@ -384,6 +641,16 @@ def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
     if m is not None:
         return [EffectSpec("die_to_exile", {"subject": _DIE_SUBJECT_MAP[m.group("subject").lower()]})]
 
+    if _HEAL_OTHERS_ON_DAMAGE_RE.fullmatch(text):
+        return [EffectSpec("heal_others_on_damage", {})]
+
+    m = _ROLL_DICE_MODIFIER_RE.fullmatch(text)
+    if m is not None:
+        plus_raw = m.group("plus").lower()
+        plus = 1 if plus_raw == "one" else int(plus_raw)
+        extreme = "ignore_lowest" if m.group("extreme").lower() == "lowest" else "ignore_highest"
+        return [EffectSpec("roll_dice_modifier", {"plus": plus, extreme: 1})]
+
     m = _PHANTOM_PREVENT_RE.fullmatch(text)
     if m is not None:
         return [EffectSpec("prevent_damage", {
@@ -391,6 +658,12 @@ def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
             "amount": "all",
             "rider": {"kind": "remove_self_counter", "counter": m.group("counter"), "count": 1},
         })]
+
+    m = _PREVENT_THEN_RIDER_RE.fullmatch(text)
+    if m is not None:
+        spec = _prevent_then_rider_spec(m)
+        if spec is not None:
+            return [spec]
 
     m = _STANDING_PREVENT_COUNT_RE.fullmatch(text)
     if m is not None:
@@ -401,6 +674,12 @@ def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
     m = _STANDING_PREVENT_RE.fullmatch(text)
     if m is not None:
         spec = _standing_prevent_spec(m)
+        if spec is not None:
+            return [spec]
+
+    m = _PREVENT_ALL_DAMAGE_RE.fullmatch(text)
+    if m is not None:
+        spec = _prevent_all_damage_standing_spec(m)
         if spec is not None:
             return [spec]
 

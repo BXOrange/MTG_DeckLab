@@ -14,7 +14,7 @@ holds the *rules* that read and change it:
                     (docs/02 R4.*)
 """
 
-from .effects import (
+from .effects.core import (
     ActivatedAbility,
     CounterSpellEffect,
     DealDamageEffect,

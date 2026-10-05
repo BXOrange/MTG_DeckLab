@@ -142,7 +142,7 @@ const ILLEGAL_REASON_LABELS = {
  * `card.coverage` (only present on `GET /api/cards` — the Karten-Cache
  * listing, see `api/cards.py`'s `_coverage_for`) tells whether the rules
  * engine actually binds this card's abilities: a hand-authored
- * `ability_catalogue` entry or a fully `MODELED` oracle-parser verdict, vs.
+ * `card_catalogue` entry or a fully `MODELED` oracle-parser verdict, vs.
  * a card where only its keywords are recognized and everything else (its
  * spell/trigger/static effects) is inert. See CLAUDE.md's oracle-text
  * pipeline section and `parser/oracle/gate.py`.

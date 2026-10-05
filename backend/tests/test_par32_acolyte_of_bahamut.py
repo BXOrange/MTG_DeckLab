@@ -4,7 +4,7 @@ reduction:
     Commander creatures you own have "The first Dragon spell you cast
     each turn costs {2} less to cast."
 
-Hand-authored (`ability_catalogue.entries_016._acolyte_of_bahamut`): a
+Hand-authored (`card_registry.special_mechanics._acolyte_of_bahamut`): a
 granted `cost_reduction` static (MEC-55's `grant_static_ability`
 `static_specs`, already-existing `spell_subtype`/`active_if` params) gated
 by a new `static_conditions` kind `first_subtype_spell_this_turn`, reading
@@ -15,17 +15,17 @@ a new `GameState.creature_type_spells_cast_this_turn` tracker populated by
 from __future__ import annotations
 
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import StackItem
-from mtg_analyzer.game import ability_catalogue
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import StackItem
+from mtg_analyzer.game import card_registry
 
 
 def test_acolyte_of_bahamut_registered_with_gated_cost_reduction():
-    specs = ability_catalogue.specs_for(
+    specs = card_registry.specs_for(
         Card(id="ab", name="Acolyte of Bahamut",
              type_line="Legendary Enchantment — Background"))
     assert specs is not None and len(specs) == 1
@@ -119,7 +119,7 @@ def test_second_dragon_spell_this_turn_gets_no_discount():
     # real choke point every cast path funnels SPELL_CAST through).
     st.fire_event(GameEvent(
         EventType.SPELL_CAST, player_id="p1", instance_id=first_dragon.instance_id,
-        object_types=sorted(first_dragon.type_words),
+        object_types=sorted(first_dragon.type_words), subtypes=["dragon"],
     ))
     assert "dragon" in st.creature_type_spells_cast_this_turn.get("p1", set())
 
@@ -145,7 +145,7 @@ def test_tracker_resets_next_turn():
     st.stack.append(item)
     st.fire_event(GameEvent(
         EventType.SPELL_CAST, player_id="p1", instance_id=first_dragon.instance_id,
-        object_types=sorted(first_dragon.type_words),
+        object_types=sorted(first_dragon.type_words), subtypes=["dragon"],
     ))
     st.stack.remove(item)
 

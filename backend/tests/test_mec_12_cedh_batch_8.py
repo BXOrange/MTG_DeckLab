@@ -55,12 +55,12 @@ confirmed passing in isolation both before and after this batch).
 from __future__ import annotations
 
 from mtg_analyzer.config import DB_PATH
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase
 
@@ -141,7 +141,7 @@ def test_auriok_salvagers_is_modeled():
 
 def test_auriok_salvagers_activated_ability_offers_only_cheap_artifacts():
     from mtg_analyzer.game import targeting
-    from mtg_analyzer.models.game_object import Zone as _Zone
+    from mtg_analyzer.models.game.game_object import Zone as _Zone
 
     engine, state = _engine()
     salvagers = _bf(state, _named("Auriok Salvagers"), controller="p1")
@@ -201,7 +201,31 @@ def test_assassins_trophy_destroys_and_offers_search_to_the_victims_controller()
     assert state.pending_choice["kind"] == "search"
     assert state.pending_choice["player_id"] == "p2"  # the victim's controller, not the caster
 
-    engine.rules.resolve_search_choice(basic.instance_id)
+    engine.rules.resolve_choice(basic.instance_id)
+    assert state.pending_choice is None
+
+
+def test_ghost_quarter_destroys_and_offers_search_to_land_controller():
+    engine, state = _engine()
+    p1 = state.player_by_id("p1")
+    p2 = state.player_by_id("p2")
+    ghost_quarter = _bf(state, _named("Ghost Quarter"), controller="p1")
+    victim = _bf(state, _land("VictimLand", "Island"), controller="p2")
+    basic = GameObject(_land("GhostQuarterBasic"), owner_id="p2", zone=Zone.LIBRARY)
+    p2.library.append(basic)
+    _reach_main(engine)
+
+    engine.activate_ability(p1, ghost_quarter, 0, targets=[victim])
+    engine.resolve_until_stable()
+
+    assert victim not in state.battlefield
+    assert state.pending_choice is not None
+    assert state.pending_choice["kind"] == "search"
+    assert state.pending_choice["player_id"] == "p2"
+    assert any(option["instance_id"] == basic.instance_id for option in state.pending_choice["options"])
+
+    engine.rules.resolve_choice(basic.instance_id)
+    assert basic in state.battlefield
     assert state.pending_choice is None
     assert any(
         o.instance_id == basic.instance_id and o.controller_id == "p2" for o in state.battlefield

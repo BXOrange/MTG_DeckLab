@@ -29,23 +29,23 @@ of any color to activate those abilities", which turned out to need no
 third param either: MEC-23's `self_only` already covers it, since neither
 card prints any *other* activated ability of its own.
 
-Reference: mtg_analyzer/game/effects.py (`ChoosePermanentEffect`,
+Reference: mtg_analyzer/game/effects/core.py (`ChoosePermanentEffect`,
 `grant_borrowed_activated_ability`'s ``source_mode``/``exclude_loyalty``),
 mtg_analyzer/game/continuous.py (`_apply_borrowed_activated_abilities`,
 `group_selector_objects`'s ``"chosen_permanent"``),
-mtg_analyzer/game/rules/misc_mixin.py (`request_choose_objects`'s
+mtg_analyzer/game/rules/misc_mixin.py (`_request_choose_objects`'s
 ``"choose_permanent"`` action), mtg_analyzer/models/game_object.py
-(`chosen_permanent_id`), mtg_analyzer/game/ability_catalogue.py (Drana and
+(`chosen_permanent_id`), mtg_analyzer/game/card_registry.py (Drana and
 Linvala, Scheming Fence), RULE 113.7c/605.1a/606.5c/613.7f.
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.events import EventType, GameEvent
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.events import EventType, GameEvent
 
 
 def make_engine():
@@ -187,7 +187,7 @@ def test_wildcard_mana_pays_a_borrowed_red_cost_off_drana():
 
 
 def test_drana_and_linvala_is_registered_with_all_three_statics():
-    from mtg_analyzer.game.ability_catalogue import specs_for
+    from mtg_analyzer.game.card_registry import specs_for
 
     specs = specs_for(drana_and_linvala())
     kinds = [(s.ability_kind, s.effects[0].type) for s in specs]
@@ -228,7 +228,7 @@ def test_declining_the_choice_leaves_nothing_borrowed_or_prohibited():
     eng.rules.put_triggers_on_stack()
     eng.rules.resolve_top_of_stack()
 
-    eng.rules.resolve_choose_objects_choice(None)  # decline
+    eng.rules.resolve_choice(None)  # decline
     eng.recompute_continuous_effects()
 
     assert fence.chosen_permanent_id is None
@@ -246,7 +246,7 @@ def test_choosing_a_permanent_grants_its_abilities_and_prohibits_the_original():
     eng.rules.put_triggers_on_stack()
     eng.rules.resolve_top_of_stack()
 
-    eng.rules.resolve_choose_objects_choice(target.instance_id)
+    eng.rules.resolve_choice(target.instance_id)
     eng.recompute_continuous_effects()
 
     assert fence.chosen_permanent_id == target.instance_id
@@ -266,7 +266,7 @@ def test_loyalty_abilities_are_excluded_from_the_borrowed_set():
     eng.rules.put_triggers_on_stack()
     eng.rules.resolve_top_of_stack()
 
-    eng.rules.resolve_choose_objects_choice(walker.instance_id)
+    eng.rules.resolve_choice(walker.instance_id)
     eng.recompute_continuous_effects()
 
     assert fence.chosen_permanent_id == walker.instance_id
@@ -282,7 +282,7 @@ def test_wildcard_mana_pays_a_borrowed_red_cost_off_fence():
     fire_etb(eng.state, fence)
     eng.rules.put_triggers_on_stack()
     eng.rules.resolve_top_of_stack()
-    eng.rules.resolve_choose_objects_choice(target.instance_id)
+    eng.rules.resolve_choice(target.instance_id)
     eng.recompute_continuous_effects()
 
     p1 = eng.state.player_by_id("p1")
@@ -298,7 +298,7 @@ def test_choosing_itself_is_a_harmless_no_op():
     eng.rules.put_triggers_on_stack()
     eng.rules.resolve_top_of_stack()
 
-    eng.rules.resolve_choose_objects_choice(fence.instance_id)
+    eng.rules.resolve_choice(fence.instance_id)
     eng.recompute_continuous_effects()
 
     assert fence.chosen_permanent_id == fence.instance_id
@@ -306,7 +306,7 @@ def test_choosing_itself_is_a_harmless_no_op():
 
 
 def test_scheming_fence_is_registered_with_all_four_pieces():
-    from mtg_analyzer.game.ability_catalogue import specs_for
+    from mtg_analyzer.game.card_registry import specs_for
 
     specs = specs_for(scheming_fence())
     kinds = [(s.ability_kind, s.effects[0].type) for s in specs]

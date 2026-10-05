@@ -7,12 +7,12 @@ Reference: docs/implementation-state/Done_Backend.md "MEC-41" entry.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.targeting import TargetSpec, legal_targets
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 
-from tests.test_game_engine import make_engine
+from tests.support.game import make_engine
 
 
 def _named(name):
@@ -105,7 +105,9 @@ def test_autumns_veil_prevents_own_spells_from_being_countered():
     eng = make_engine([_named("Autumn's Veil"), _named("Lightning Bolt")], hand=2)
     p1 = eng.state.player_by_id("p1")
     _cast(eng, p1, {"G": 1}, name="Autumn's Veil")
-    assert eng.state.spell_watchers  # armed, repeat=True
+    assert eng.state.uncounterable_grants  # a this-turn rule, not a watcher
+    bolt = p1.hand[0]
+    assert eng.rules._is_cant_be_countered(bolt)
 
 
 # ---------------------------------------------------------------------------
@@ -207,6 +209,49 @@ def test_counterbalance_does_not_counter_mismatched_mana_value():
 
 
 # ---------------------------------------------------------------------------
+# Powerbalance — Counterbalance's free-cast sibling (ENG-37 B5)
+# ---------------------------------------------------------------------------
+
+
+def test_powerbalance_offers_a_free_cast_on_matching_mana_value():
+    eng = make_engine([_named("Powerbalance")], [_named("Lightning Bolt")], hand=1)
+    p1 = eng.state.player_by_id("p1")
+    p2 = eng.state.player_by_id("p2")
+    _put(eng.state, _named("Powerbalance"), controller="p1")
+    top = _to_library(eng.state, _named("Llanowar Elves"))  # mana value 1 — matches Bolt
+
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    bolt = p2.hand[0]
+    bind_from_catalogue(bolt)
+    p2.mana_pool.add_many({"R": 1})
+    eng.cast_spell(p2, bolt)
+    eng.resolve_until_stable()
+
+    choice = eng.state.pending_choice
+    assert choice is not None and choice["action"] == "cast_free"
+    assert top in p1.library  # the reveal itself never moves the card
+
+
+def test_powerbalance_no_free_cast_on_mismatched_mana_value():
+    eng = make_engine([_named("Powerbalance")], [_named("Lightning Bolt")], hand=1)
+    p1 = eng.state.player_by_id("p1")
+    p2 = eng.state.player_by_id("p2")
+    _put(eng.state, _named("Powerbalance"), controller="p1")
+    _to_library(eng.state, _named("Rampant Growth"))  # mana value 2, doesn't match Bolt's 1
+
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    bolt = p2.hand[0]
+    bind_from_catalogue(bolt)
+    p2.mana_pool.add_many({"R": 1})
+    eng.cast_spell(p2, bolt)
+    eng.resolve_until_stable()
+
+    assert eng.state.pending_choice is None
+
+
+# ---------------------------------------------------------------------------
 # Lazotep Quarry
 # ---------------------------------------------------------------------------
 
@@ -273,10 +318,12 @@ def test_nissa_zero_ability_offers_land_for_battlefield():
     eng.state.current_step = "main1"
     eng.activate_ability(p1, pw, ability_index=1)
     eng.resolve_until_stable()
+    # ENG-37 B5: the 0 ability is now `seq(reveal_top, if_else(... then
+    # optional(put_revealed_card{battlefield})))` — a "you may" yes/no.
     choice = eng.state.pending_choice
-    assert choice is not None and choice["kind"] == "choose_objects"
-    assert choice["action"] == "library_to_battlefield"
-    eng.resolve_pending_choice(str(forest.instance_id))
+    assert choice is not None and choice["kind"] == "composite_optional"
+    eng.rules.resolve_choice("yes")
+    eng.resolve_until_stable()
     assert forest.zone == Zone.BATTLEFIELD
 
 

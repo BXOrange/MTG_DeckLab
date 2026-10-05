@@ -2,24 +2,51 @@
 
 Two header icon buttons split the old single settings screen in two:
 
-- **Einstellungen** (settings) — *only* how this browser reaches the
-  backend server.
+- **Einstellungen** (settings) — server connection, local data and
+  optional LLM configuration.
 - **Profil** (profile) — everything about *you*: your player name, your
   multiplayer preferences, and any custom art you've uploaded.
 
 The rule of thumb: *reaching the server* is Einstellungen, *who you are
 and how you play* is Profil.
 
-## Einstellungen: server address
+## Settings: server connection
 
-- **Server-Adresse** (server address) — where the backend lives (e.g.
-  `http://localhost:8000`).
+Under **Settings → Board**, set **Bot speed** to **Instant**, **Normal** or
+**Slow**. It controls the delay between displayed bot actions, is saved locally
+and applies immediately to all game views.
 
-Click **Speichern** (save) to store it. It's kept in a **browser
-cookie**, not on the server, so it only applies on this browser/
-device; a different browser or computer starts from defaults again.
-**Verbindung testen** (test connection) re-checks reachability on
-demand; the same status also shows live in the page header.
+The app automatically uses the address where you opened it. There is no
+server-address field or saved address override; old address cookies are
+ignored. **Verbindung testen** (test connection) re-checks reachability.
+The same status appears in the page header.
+
+## Einstellungen: refreshing local data
+
+Under **Lokale Daten** (local data), you can manually refresh the full
+Scryfall card pool and the Commander Spellbook combo database. Otherwise
+the combo database is downloaded only when the first static deck
+analysis needs it. Both data sets are stored server-side in SQLite; the
+combo update reports how many variants were added, changed, or removed.
+
+## Settings: LLM and AI Bot
+
+Under **LLM**, enable Claude/Anthropic or a compatible server. Enter the API
+base URL (including `/v1`) and an API key when required. The model dropdown
+automatically loads available models, including after provider, URL or key
+changes. **Reload models** refreshes it. If your server has no model-list
+endpoint, select manual model-ID entry. Save before testing the connection. A blank key field
+keeps the existing key for the same endpoint; changing provider/URL removes
+it unless a new key is entered; the clear option removes it. Keys are stored on the
+server and never sent back to the browser.
+
+These settings apply to everyone using this server. Select **AI Bot** in
+Solo or Multiplayer. It receives its own deck, offered legal actions and
+visible game state; opponents' hands and library orders stay hidden. That
+context is sent to your provider; testing the connection also issues an LLM
+request. Providers may charge for usage. Timeout and per-turn request budget
+bound its work. Missing configuration or errors fall back to Smart Bot.
+Solo shows when the LLM is thinking.
 
 ## Profil: player name
 
@@ -89,3 +116,11 @@ rather than something you'll see change much today.
 Under **Lieblingsdecks** (favorite decks) you can star a subset of your
 saved decks. Starred decks are listed first in the deck pickers in the
 Goldfisch mode and the multiplayer lobby.
+
+## Bug reports
+
+Click the bug icon beside Settings to describe a problem. During a game, the
+report includes the current Replay and the last 12 actions by default; you can
+change that number. Compressed JSON reports (`.json.gz`) are saved on the backend in the local,
+unversioned `bug-reports/` folder. A report outside a game contains only the
+description and view context. The dialog confirms the saved filename.

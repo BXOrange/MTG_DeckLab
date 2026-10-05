@@ -12,13 +12,14 @@ effect through a real `RulesEngine`/`GameEngine` — mirroring
 `test_effect_families.py`'s and `test_game_engine.py`'s fixture patterns.
 """
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
-from mtg_analyzer.game.effect_binder import attach_to_object, bind_from_catalogue
-from mtg_analyzer.game.effects import EffectRegistry
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
+from mtg_analyzer.game.card_registry import specs_for
+from mtg_analyzer.game.binding.core import attach_to_object, bind_from_catalogue
+from mtg_analyzer.game.effects.core import EffectRegistry
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.rules_engine import RulesEngine
 from mtg_analyzer.game.targeting import ALLOWED_TARGET_KINDS, requirements_with_targets
@@ -153,13 +154,31 @@ def test_return_from_graveyard_recognizes_any_and_opponent_scope():
 
 
 def test_return_from_graveyard_fails_closed_on_an_unrecognized_shape():
-    # A qualifier this batch doesn't model (mana value, "nonlegendary", …)
-    # correctly stays unclaimed rather than guessed at.
+    # A qualifier this batch doesn't model (exact mana value rather than
+    # "or less", an unmodeled tribal restriction, …) correctly stays
+    # unclaimed rather than guessed at.
     assert parse_effect_body(
         "return target creature card with mana value 2 from your graveyard to the battlefield"
     ) is None
     assert parse_effect_body(
-        "return target nonlegendary creature card from your graveyard to the battlefield"
+        "return target creature card you don't own from your graveyard to the battlefield"
+    ) is None
+
+
+def test_return_from_graveyard_nonlegendary_and_enters_with_counter():
+    # Persist — "nonlegendary" supertype exclusion + "with a -1/-1 counter
+    # on it" enters-with rider (both wired for the Blight Curse batch).
+    specs = parse_effect_body(
+        "return target nonlegendary creature card from your graveyard "
+        "to the battlefield with a -1/-1 counter on it"
+    )
+    assert specs and specs[0].type == "return_from_graveyard"
+    assert specs[0].params["exclude_legendary"] is True
+    assert specs[0].params["extra_counters"] == {"kind": "-1/-1", "count": 1}
+    # The rider is meaningless returning to hand → still fails closed there.
+    assert parse_effect_body(
+        "return target nonlegendary creature card from your graveyard "
+        "to your hand with a -1/-1 counter on it"
     ) is None
 
 
@@ -306,10 +325,10 @@ def test_add_mana_handler_recognizes_any_color():
     any_color = parse_effect_body("add 1 mana of any color")[0]
     assert any_color.type == "add_mana"
     assert any_color.params == {"colors": ["any"]}
-    # Deliberately narrow: a multi-mana "any color" clause is always
-    # templated "any *one* color" instead — a different, unclaimed shape.
+    # A multi-mana clause is templated "any *one* color" — one colour pick for all of it (PAR-107…114's
+    # `any_amount`); the bare "add 2 mana of any color" stays unclaimed.
     assert parse_effect_body("add 2 mana of any color") is None
-    assert parse_effect_body("add 2 mana of any one color") is None
+    assert parse_effect_body("add 2 mana of any one color")[0].params == {"colors": ["any"], "any_amount": 2}
 
 
 def test_gate_claims_a_bare_add_any_color_spell_as_modeled():
@@ -416,7 +435,7 @@ def test_bounce_land_etb_trigger_offers_only_the_controllers_own_lands():
     assert bounce.instance_id in ids
 
     option = next(o for o in choice["options"] if o["instance_id"] == my_other_land.instance_id)
-    engine.resolve_trigger_target_choice(option["id"])
+    engine.resolve_choice(option["id"])
     engine.resolve_top_of_stack()
 
     assert my_other_land in p1.hand
@@ -545,6 +564,55 @@ def test_exile_target_graveyard_end_to_end_empties_only_the_targeted_players_gra
     assert p2_card in p2.graveyard  # untouched
 
 
+def test_exile_target_graveyard_card_type_filters_to_creatures_only():
+    engine, state, p1, p2 = _rules()
+    bear = GameObject(_bear("GY Bear"), owner_id="p2", zone=Zone.GRAVEYARD)
+    land = GameObject(_land("GY Island"), owner_id="p2", zone=Zone.GRAVEYARD)
+    p2.add_to_zone(bear, Zone.GRAVEYARD)
+    p2.add_to_zone(land, Zone.GRAVEYARD)
+
+    spell = _spell(
+        "Test Creature Exile", "Exile all creature cards from target player's graveyard.",
+        [EffectSpec("exile_target_graveyard",
+                    {"target_kind": "player", "card_type": "creature"})],
+        target={"kind": "player"},
+    )
+    p1.hand.append(spell)
+    engine.cast_spell(p1, spell, targets=[p2])
+    engine.resolve_top_of_stack()
+
+    assert bear.zone == Zone.EXILE
+    assert land in p2.graveyard  # non-creature card untouched
+
+
+def test_crypt_incursion_end_to_end_exiles_creatures_and_gains_three_life_each():
+    # ENG-37 B3: the retired `exile_graveyard_creatures_gain_life` is now a
+    # `seq` of `exile_target_graveyard` (card_type=creature) + a `bind`
+    # measuring `objects_exiled_this_way` x3 into `gain_life`.
+    engine, state, p1, p2 = _rules()
+    for i in range(3):
+        p2.add_to_zone(GameObject(_bear(f"Corpse {i}"), owner_id="p2", zone=Zone.GRAVEYARD),
+                       Zone.GRAVEYARD)
+    keep = GameObject(_land("Buried Island"), owner_id="p2", zone=Zone.GRAVEYARD)
+    p2.add_to_zone(keep, Zone.GRAVEYARD)
+
+    (spec,) = specs_for(Card(id="Crypt Incursion", name="Crypt Incursion",
+                             type_line="Instant", is_instant=True))
+    spell = _spell("Crypt Incursion", "Exile all creature cards from target player's "
+                   "graveyard. You gain 3 life for each card exiled this way.",
+                   spec.effects, target={"kind": "player"})
+    p1.hand.append(spell)
+    life_before = p1.life
+
+    engine.cast_spell(p1, spell, targets=[p2])
+    engine.resolve_top_of_stack()
+
+    assert all(o.zone == Zone.EXILE for o in list(p2.graveyard) if o.card.is_creature) \
+        and not [o for o in p2.graveyard if o.card.is_creature]
+    assert keep in p2.graveyard  # the land stays
+    assert p1.life == life_before + 9  # 3 creatures x 3 life
+
+
 def test_return_from_graveyard_transformed_via_registry():
     # RulesEngine.return_from_graveyard(transformed=True) — the Bruce
     # Banner-shaped "return this card to the battlefield transformed"
@@ -611,7 +679,7 @@ def test_return_from_graveyard_transformed_dies_trigger_end_to_end():
 
 
 def test_lose_life_effect_selectors_hit_the_right_players():
-    from mtg_analyzer.game.effects import GameContext, LoseLifeEffect
+    from mtg_analyzer.game.effects.core import GameContext, LoseLifeEffect
 
     engine, state, p1, p2 = _rules()
     ctx = GameContext(state, engine)
@@ -672,7 +740,7 @@ def test_deathrite_shaman_end_to_end_from_real_oracle_text():
     assert dead_land.zone == Zone.EXILE
     choice = state.pending_choice
     assert choice["kind"] == "add_mana_any_color"
-    engine.rules.resolve_add_mana_any_color_choice("G")
+    engine.rules.resolve_choice("G")
     assert p1.mana_pool.pool["G"] == 1
 
     deathrite.tapped = False  # simulate untapping for the next ability in this test
@@ -716,7 +784,7 @@ def test_unrestricted_tutor_moves_the_chosen_card_to_hand_and_shuffles():
 
     choice = state.pending_choice
     assert choice["kind"] == "search"
-    engine.resolve_search_choice(wanted.instance_id)
+    engine.resolve_choice(wanted.instance_id)
 
     assert wanted in p1.hand
     assert state.pending_choice is None
@@ -743,7 +811,7 @@ def test_basic_land_fetch_activated_ability_recognized_by_the_oracle_parser():
     choice = state.pending_choice
     assert choice["kind"] == "search"
     opt = choice["eligible"][0]
-    engine.resolve_search_choice(opt["instance_id"])
+    engine.resolve_choice(opt["instance_id"])
 
     fetched = next(o for o in state.battlefield if o.name == "Plains")
     assert fetched.tapped is True
@@ -784,7 +852,7 @@ def test_add_mana_any_color_opens_an_interactive_choice():
     assert choice["player_id"] == "p1"
     assert {opt["id"] for opt in choice["options"]} == {"W", "U", "B", "R", "G"}
 
-    engine.resolve_add_mana_any_color_choice("R")
+    engine.resolve_choice("R")
 
     assert state.pending_choice is None
     assert p1.mana_pool.pool["R"] == 1
@@ -798,7 +866,7 @@ def test_add_mana_any_color_missing_answer_defaults_to_white():
 
     engine.cast_spell(p1, spell)
     engine.resolve_top_of_stack()
-    engine.resolve_add_mana_any_color_choice(None)
+    engine.resolve_choice(None)
 
     assert p1.mana_pool.pool["W"] == 1
 
@@ -832,7 +900,7 @@ def test_etb_self_attach_only_offers_the_controllers_own_creatures_and_attaches(
     assert opp_bear.instance_id not in ids  # controller-restricted
 
     option = next(o for o in choice["options"] if o["instance_id"] == my_bear.instance_id)
-    engine.resolve_trigger_target_choice(option["id"])
+    engine.resolve_choice(option["id"])
     engine.resolve_top_of_stack()
 
     assert equip.attached_to == my_bear.instance_id

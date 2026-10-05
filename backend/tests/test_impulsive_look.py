@@ -3,14 +3,14 @@ rest into Y" (Grisly Salvage/Commune with the Gods-shaped) — distinct from
 `SearchLibraryEffect` (whole-library search) and `top_library.py`'s standing
 "look at/play from the top" permission (never moves a card).
 
-Engine side: `game/effects.py`'s `ImpulsiveLookEffect` +
-`RulesEngine.request_impulsive_look`/`resolve_impulsive_look_choice`
+Engine side: `game/effects/core.py`'s `ImpulsiveLookEffect` +
+`RulesEngine._request_impulsive_look`/`_resume_impulsive_look`
 (`game/rules_engine.py`).
 """
 
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.game.effects import ImpulsiveLookEffect
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.game.effects.core import ImpulsiveLookEffect
 from mtg_analyzer.game.game_engine import GameEngine
 
 
@@ -44,7 +44,7 @@ def test_peels_exactly_n_and_offers_only_the_matching_ones():
     ]
     _stock_library(eng, p1, top4)  # Island is on top
 
-    eng.rules.request_impulsive_look(p1, 4, {"type": ["Land", "Creature"]})
+    eng.rules._request_impulsive_look(p1, 4, {"type": ["Land", "Creature"]})
 
     choice = eng.state.pending_choice
     assert choice["kind"] == "impulsive_look"
@@ -59,7 +59,7 @@ def test_stops_early_if_the_library_runs_out():
     p1 = eng.state.active_player
     _stock_library(eng, p1, [_card("Forest", "Basic Land — Forest", is_land=True)])
 
-    eng.rules.request_impulsive_look(p1, 4, {"type": ["Land"]})
+    eng.rules._request_impulsive_look(p1, 4, {"type": ["Land"]})
 
     choice = eng.state.pending_choice
     assert len(choice["peeled"]) == 1
@@ -74,7 +74,7 @@ def test_no_eligible_card_skips_the_choice_and_routes_everything_to_miss():
         _card("Shock", "Instant", is_instant=True),
     ])
 
-    eng.rules.request_impulsive_look(p1, 2, {"type": ["Land"]}, miss_destination="graveyard")
+    eng.rules._request_impulsive_look(p1, 2, {"type": ["Land"]}, miss_destination="graveyard")
 
     assert eng.state.pending_choice is None
     assert len(p1.exile) == 0
@@ -92,10 +92,10 @@ def test_taking_the_hit_routes_pick_to_hand_and_rest_to_graveyard():
     ]
     _stock_library(eng, p1, top4)
 
-    eng.rules.request_impulsive_look(p1, 4, {"type": ["Land", "Creature"]})
+    eng.rules._request_impulsive_look(p1, 4, {"type": ["Land", "Creature"]})
     forest_id = next(e["instance_id"] for e in eng.state.pending_choice["eligible"] if e["name"] == "Forest")
 
-    eng.rules.resolve_impulsive_look_choice(forest_id)
+    eng.rules.resolve_choice(forest_id)
 
     assert eng.state.pending_choice is None
     assert [o.name for o in p1.hand] == ["Forest"]
@@ -114,8 +114,8 @@ def test_declining_routes_everything_to_miss_destination():
     ]
     _stock_library(eng, p1, top4)
 
-    eng.rules.request_impulsive_look(p1, 4, {"type": ["Land", "Creature"]})
-    eng.rules.resolve_impulsive_look_choice(None)
+    eng.rules._request_impulsive_look(p1, 4, {"type": ["Land", "Creature"]})
+    eng.rules.resolve_choice(None)
 
     assert eng.state.pending_choice is None
     assert len(p1.hand) == 0
@@ -130,10 +130,10 @@ def test_rejects_an_instance_id_that_was_not_offered():
         _card("Bolt", "Instant", is_instant=True),
         _card("Forest", "Basic Land — Forest", is_land=True),
     ])
-    eng.rules.request_impulsive_look(p1, 2, {"type": ["Land"]})
+    eng.rules._request_impulsive_look(p1, 2, {"type": ["Land"]})
     bolt_id = next(o.instance_id for o in p1.exile if o.name == "Bolt")
     try:
-        eng.rules.resolve_impulsive_look_choice(bolt_id)
+        eng.rules.resolve_choice(bolt_id)
         assert False, "expected a ValueError"
     except ValueError:
         pass
@@ -172,7 +172,7 @@ def test_cast_a_grisly_salvage_like_spell():
     choice = eng.state.pending_choice
     assert choice["kind"] == "impulsive_look"
     bear_id = next(e["instance_id"] for e in choice["eligible"] if e["name"] == "Bear")
-    eng.rules.resolve_impulsive_look_choice(bear_id)
+    eng.rules.resolve_choice(bear_id)
 
     assert [o.name for o in p1.hand] == ["Bear"]
     # The spell itself joins the graveyard too, same as any resolved sorcery.

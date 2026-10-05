@@ -28,12 +28,12 @@ of which needed a new *targeting* primitive:
   top two cards of your library. You may play them." — also closes
   Bonehoard Dracosaur/Painter's Studio's own duration variants.
 * A new one-shot `DrawRevealCastOneFreeEffect` + `RulesEngine.
-  request_choose_objects`'s new `"cast_free"` action (a hand-zone pick,
+  _request_choose_objects`'s new `"cast_free"` action (a hand-zone pick,
   unlike every existing action) for Mad Wizard's Lair's "Draw three cards
   and reveal them. You may cast one of them without paying its mana cost."
 * A new mass-interactive primitive, `RulesEngine.
-  request_each_player_pay_or` (RULE 101.4 APNAP, chained off the existing
-  single-player `request_pay_cost_then`) for Veils of Fear/Sandfall Cell's
+  _request_each_player_pay_or` (RULE 101.4 APNAP, chained off the existing
+  single-player `_request_pay_cost_then`) for Veils of Fear/Sandfall Cell's
   "Each player loses N life unless they `<pay cost>`." — Sandfall Cell's
   own "sacrifice a creature, artifact, or land of their choice" cost also
   needed a new compound `ActivationCost.sacrifice` value
@@ -54,8 +54,8 @@ never this ticket's own scope to close — CLAUDE.md already frames it as
 "PAR-12 work with a known card list", re-confirmed rather than newly
 regressed.
 
-Reference: mtg_analyzer/game/dungeons.py, mtg_analyzer/game/effects.py,
-mtg_analyzer/game/rules/misc_mixin.py (`request_each_player_pay_or`),
+Reference: mtg_analyzer/game/dungeons.py, mtg_analyzer/game/effects/core.py,
+mtg_analyzer/game/rules/misc_mixin.py (`_request_each_player_pay_or`),
 mtg_analyzer/game/costs.py, mtg_analyzer/services/token_database.py,
 mtg_analyzer/parser/oracle/catalogue/handlers.py.
 """
@@ -63,10 +63,10 @@ mtg_analyzer/parser/oracle/catalogue/handlers.py.
 from __future__ import annotations
 
 from mtg_analyzer.game.dungeons import all_dungeons, room_effect_specs
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import HANDLERS, match_clause
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.normalize import normalize
@@ -149,11 +149,16 @@ def test_pump_until_your_next_turn_is_recognized():
 
 
 def test_pump_until_group_phrasing_your_opponents_control():
+    # PAR-120: "creatures your opponents control" now reaches the shared
+    # grammar's structured selector; "you don't control" below stays the
+    # retired named string (the grammar has no negation reading).
     (spec,) = match_clause(
         "creatures your opponents control get -3/-0 until your next turn"
     )
     assert spec.params["target_kind"] is None
-    assert spec.params["static"]["params"]["affects"] == "creatures_opponents_control"
+    assert spec.params["static"]["params"]["affects"] == {
+        "zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"},
+    }
 
 
 def test_pump_until_group_phrasing_you_dont_control():

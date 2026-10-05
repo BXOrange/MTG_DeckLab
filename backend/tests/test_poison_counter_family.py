@@ -11,14 +11,14 @@ count, unlike every other group-pump shape's one shared magnitude).
 from __future__ import annotations
 
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import GameContext, PumpEffect
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import GameContext, PumpEffect
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.rules_engine import RulesEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle import MODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 
@@ -78,7 +78,7 @@ def test_infectious_bite_is_fully_modeled():
 
 
 def test_add_player_counters_each_opponent_poison():
-    from mtg_analyzer.game.effects import AddPlayerCountersEffect
+    from mtg_analyzer.game.effects.core import AddPlayerCountersEffect
 
     engine, state, p1, p2 = _rules()
     source = _bf(state, Card(id="Src", name="Src", type_line="Creature", is_creature=True,

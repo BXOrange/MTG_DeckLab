@@ -1,0 +1,44 @@
+"""Hand-authored card entries whose name starts with 'l' (see game/card_registry for the registration mechanism: `register`/`register_family`/`specs_for`)."""
+from . import laelia_the_blade_reforged  # noqa: F401
+from . import lamentation  # noqa: F401
+from . import land_tax  # noqa: F401
+from . import last_march_of_the_ents  # noqa: F401
+from . import lasting_tarfire  # noqa: F401
+from . import lattice_library  # noqa: F401
+from . import lava_coil  # noqa: F401
+from . import lavinia_azorius_renegade  # noqa: F401
+from . import lazotep_quarry  # noqa: F401
+from . import leadership_vacuum  # noqa: F401
+from . import ledger_shredder  # noqa: F401
+from . import leeching_licid  # noqa: F401
+from . import legolas_s_quick_reflexes  # noqa: F401
+from . import legion_loyalist  # noqa: F401
+from . import leitmotif_composer  # noqa: F401
+from . import lembas  # noqa: F401
+from . import leonin_arbiter  # noqa: F401
+from . import leonin_relic_warder  # noqa: F401
+from . import leveler  # noqa: F401
+from . import leyline_of_the_void  # noqa: F401
+from . import leyline_tyrant  # noqa: F401
+from . import lier_disciple_of_the_drowned  # noqa: F401
+from . import liliana_dreadhorde_general  # noqa: F401
+from . import lily_bowen_raging_grandma  # noqa: F401
+from . import lim_d_l_s_vault  # noqa: F401
+from . import lion_sash  # noqa: F401
+from . import liquimetal_torque  # noqa: F401
+from . import lithomantic_barrage  # noqa: F401
+from . import llawan_cephalid_empress  # noqa: F401
+from . import loamcrafter_faun  # noqa: F401
+from . import lobelia_defender_of_bag_end  # noqa: F401
+from . import loot_exuberant_explorer  # noqa: F401
+from . import lore_drakkis  # noqa: F401
+from . import lorehold_archivist  # noqa: F401
+from . import lorehold_charm  # noqa: F401
+from . import lotus_field  # noqa: F401
+from . import loxodon_smiter  # noqa: F401
+from . import lukka_coppercoat_outcast  # noqa: F401
+from . import lurrus_of_the_dream_den  # noqa: F401
+from . import lux_artillery  # noqa: F401
+from . import living_death
+from . import lord_of_the_accursed
+from . import lost_monarch_of_ifnir

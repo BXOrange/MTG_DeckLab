@@ -13,7 +13,7 @@ from mtg_analyzer.api.dependencies import (
     get_game_session_manager,
     get_lazy_card_loader,
 )
-from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.game_session import GameSessionManager
 from mtg_analyzer.services.lazy_card_loader import LoadCardsResult

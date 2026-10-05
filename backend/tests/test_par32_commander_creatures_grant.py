@@ -13,12 +13,13 @@ trigger is collected).
 from __future__ import annotations
 
 from mtg_analyzer.game import continuous  # noqa: F401  (kept for parity with sibling tests)
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.static_handlers import static_effect_specs
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
+from tests import turn_history_events as history
 
 
 # --- parse -----------------------------------------------------------
@@ -253,7 +254,7 @@ def test_guild_artisan_lowest_life_gate_end_to_end():
     st.add_to_battlefield(cmd)
     eng.recompute_continuous_effects()
 
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
 
     def _attack(defender_id):
         before = sum(1 for o in st.battlefield
@@ -299,7 +300,7 @@ def test_cast_from_exile_regrant_carries_the_gate():
     assert specs is not None and len(specs) == 1
     p = specs[0].params
     assert p["trigger_event"] == "SPELL_CAST"
-    assert p["spell_from_exile"] is True
+    assert p["spell_cast_from"] == ["exile"]  # PAR-131: the composed cast-zone key
     assert p["grant_effects"][0]["params"]["amount_from_trigger_event"] == "mana_value"
 
 
@@ -329,14 +330,16 @@ def test_passionate_archaeologist_regrant_fires_on_cast_from_exile():
     granted = cmd._granted_triggered_abilities
     assert len(granted) == 1 and granted[0].trigger_event == "SPELL_CAST"
 
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
     # from a hand cast → the "from exile" gate rejects it
     st.fire_event(GameEvent(EventType.SPELL_CAST, player_id="p1", instance_id=1,
-                            spell="X", mana_value=2, from_exile=False, from_hand=True))
+                            spell="X", mana_value=2, from_exile=False, from_hand=True,
+                            from_zone="hand"))
     assert eng.rules.put_triggers_on_stack() == 0
     # from exile → it fires
     st.fire_event(GameEvent(EventType.SPELL_CAST, player_id="p1", instance_id=2,
-                            spell="Y", mana_value=3, from_exile=True, from_hand=False))
+                            spell="Y", mana_value=3, from_exile=True, from_hand=False,
+                            from_zone="exile"))
     assert eng.rules.put_triggers_on_stack() == 1
 
 
@@ -367,13 +370,15 @@ def test_feywild_visitor_nontoken_batch_combat_damage():
     assert specs is not None and len(specs) == 1
     p = specs[0].params
     assert p["trigger_event"] == "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"
-    assert p["filter"] == {"contributor_any_nontoken": True}
+    # PAR-131: the composed batch head — a group filter on the contributors.
+    assert p["contributors"] == {"min": 1}
+    assert p["group_condition"]["filter"] == {"card_type": "creature", "nontoken": True}
     # the bare form has no such filter
     bare = static_effect_specs(
         'commander creatures you own have "whenever 1 or more creatures you '
         'control deal combat damage to a player, draw a card."'
     )
-    assert bare is not None and "filter" not in bare[0].params
+    assert bare is not None and "nontoken" not in bare[0].params["group_condition"]["filter"]
 
 
 # --- slice 6: end-step intervening-if conditions (new per-turn trackers) ---
@@ -407,7 +412,7 @@ def test_you_dealt_damage_this_turn_condition_evaluates():
     st = eng.state
     cond = {"kind": "you_dealt_damage_this_turn_at_least", "amount": 5}
     assert static_conditions.condition_holds(cond, st, None, "p1") is False
-    st.damage_dealt_by_this_turn["p1"] = 6
+    history.damage(st, source_id=1, source_controller_id="p1", target_id="p2", amount=6)
     assert static_conditions.condition_holds(cond, st, None, "p1") is True
     assert static_conditions.condition_holds(cond, st, None, "p2") is False
 
@@ -420,7 +425,7 @@ def test_creature_card_to_graveyard_condition_evaluates():
     st = eng.state
     cond = {"kind": "creature_card_to_graveyard_this_turn"}
     assert static_conditions.condition_holds(cond, st, None, "p1") is False
-    st.creature_card_to_graveyard_this_turn.add("p1")
+    history.discard(st, "p1")  # a creature card discarded
     assert static_conditions.condition_holds(cond, st, None, "p1") is True
 
 
@@ -479,7 +484,7 @@ def test_folk_hero_shares_type_predicate_end_to_end():
     granted = cmd._granted_triggered_abilities
     assert len(granted) == 1
 
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
     # a Wizard spell (shares "Wizard" with Cmdr) → fires
     wiz = GameObject(Card(id="w", name="W", type_line="Creature — Wizard",
                           is_creature=True), owner_id="p1", zone=Zone.STACK)
@@ -523,7 +528,7 @@ def test_become_copy_eot_vs_permanent_by_wording():
 
 
 def test_become_copy_permanent_effect_binds_and_mutates():
-    from mtg_analyzer.game.effects import EffectRegistry
+    from mtg_analyzer.game.effects.core import EffectRegistry
     eng = GameEngine.new_game(
         [("p1", "A", []), ("p2", "B", [])], starting_life=20, starting_hand=0
     )

@@ -11,16 +11,16 @@ see `ChangeTargetEffect`'s own docstring). The "spell or ability" union
 riding the same `StackItem.stack_id` identity that primitive added.
 
 Reference: mtg_analyzer/game/{effects,targeting}.py,
-mtg_analyzer/game/rules/misc_mixin.py, mtg_analyzer/game/ability_catalogue.py.
+mtg_analyzer/game/rules/misc_mixin.py, mtg_analyzer/game/card_registry.py.
 """
 
-from mtg_analyzer.game import ability_catalogue, targeting
-from mtg_analyzer.game.effects import ChangeTargetEffect, DealDamageEffect
+from mtg_analyzer.game import card_registry, targeting
+from mtg_analyzer.game.effects.core import ChangeTargetEffect, DealDamageEffect
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import StackItem
-from mtg_analyzer.models.mana_cost import ManaCost
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import StackItem
+from mtg_analyzer.models.mana.mana_cost import ManaCost
 
 # ---------------------------------------------------------------------------
 # Card factories + fixtures (mirrors tests/test_counter_family.py's style)
@@ -201,7 +201,7 @@ def test_resolve_change_target_choice_retargets_the_spell():
     choice = eng.state.pending_choice
     pick = next(o for o in choice["options"] if o["label"] == "Third Bear")
     assert pick is not None
-    eng.rules.resolve_change_target_choice(pick["id"])
+    eng.rules.resolve_choice(pick["id"])
     assert eng.state.pending_choice is None
     item = eng.rules._stack_item_for(victim)
     assert item.targets == [third]
@@ -217,7 +217,7 @@ def test_resolve_change_target_choice_decline_leaves_the_target_unchanged():
     )
     swat = GameObject(instant("Deflecting Swat"), owner_id="p1", zone=Zone.STACK)
     eng.rules.change_target(victim, optional=True, source=swat)
-    eng.rules.resolve_change_target_choice("decline")
+    eng.rules.resolve_choice("decline")
     assert eng.state.pending_choice is None
     item = eng.rules._stack_item_for(victim)
     assert item.targets == [bear]
@@ -250,17 +250,17 @@ def test_resolve_pending_choice_dispatches_change_target_and_bolt_resolves_on_th
 
 
 # ---------------------------------------------------------------------------
-# Hand-authored cards (game/ability_catalogue.py)
+# Hand-authored cards (game/card_registry.py)
 # ---------------------------------------------------------------------------
 
 
 def test_misdirection_and_deflecting_swat_are_registered():
-    assert ability_catalogue.is_registered("Misdirection")
-    assert ability_catalogue.is_registered("Deflecting Swat")
+    assert card_registry.is_registered("Misdirection")
+    assert card_registry.is_registered("Deflecting Swat")
 
 
 def test_misdirection_spec_is_mandatory_single_target_change():
-    specs = ability_catalogue.specs_for(instant("Misdirection"))
+    specs = card_registry.specs_for(instant("Misdirection"))
     assert len(specs) == 1
     effect_spec = specs[0].effects[0]
     assert effect_spec.type == "change_target"
@@ -269,7 +269,7 @@ def test_misdirection_spec_is_mandatory_single_target_change():
 
 
 def test_deflecting_swat_spec_is_optional_spell_or_ability():
-    specs = ability_catalogue.specs_for(instant("Deflecting Swat"))
+    specs = card_registry.specs_for(instant("Deflecting Swat"))
     assert len(specs) == 1
     effect_spec = specs[0].effects[0]
     assert effect_spec.type == "change_target"

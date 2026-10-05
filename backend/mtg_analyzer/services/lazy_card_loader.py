@@ -10,7 +10,7 @@ import re
 import threading
 from dataclasses import dataclass, field
 
-from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.services.card_database import CardDatabase
 from mtg_analyzer.services.scryfall_client import (
     ScryfallIntegration,

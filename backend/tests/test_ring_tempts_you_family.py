@@ -15,7 +15,7 @@ Two pieces:
   before this, so no card using this template could ever have been
   modeled regardless of what else was fixed. New `EventType.RING_TEMPTED`,
   fired once the Ring-bearer choice is settled (immediately for the
-  0/1-candidate paths, deferred to `resolve_ring_bearer_choice` for the
+  0/1-candidate paths, deferred to `_resume_ring_bearer` for the
   interactive 2+-candidate path, so a trigger reading "if you chose a
   creature other than ~" always sees the final bearer).
 
@@ -28,11 +28,11 @@ effect_binder,parser/oracle/{segmenter,catalogue/handlers}}.py.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec
@@ -107,7 +107,7 @@ def test_ring_bearer_draws_and_discards_after_second_temptation_and_attack():
     eng.resolve_until_stable()
     assert state.pending_choice is not None
     assert state.pending_choice["kind"] == "choose_objects"
-    eng.rules.resolve_choose_objects_choice(p1.hand[0].instance_id)
+    eng.rules.resolve_choice(p1.hand[0].instance_id)
     eng.resolve_until_stable()
 
     assert p1.ring_level == 2
@@ -174,7 +174,7 @@ def test_ring_tempted_trigger_waits_for_the_interactive_bearer_choice():
     # bearer is actually settled.
     assert eng.rules.put_triggers_on_stack() == 0
 
-    eng.rules.resolve_ring_bearer_choice(other.instance_id)
+    eng.rules.resolve_choice(other.instance_id)
     assert p1.ring_bearer_id == other.instance_id
     placed = eng.rules.put_triggers_on_stack()
     assert placed == 1

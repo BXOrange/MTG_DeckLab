@@ -4,7 +4,7 @@
    mid-clause **"It gains <keyword> until end of turn."** interpose
    (Winota, Joiner of Forces / A-Winota) — `impulsive_look` carries
    `hit_grant_keywords`, applied as `temp_keywords` on the placed card in
-   `resolve_impulsive_look_choice` (RULE 514.2).
+   `_resume_impulsive_look` (RULE 514.2).
 
 2. The RULE 508.3a **batch attack trigger** "whenever one or more
    [<filter>] creatures you control attack[ a player], …" → a single
@@ -16,11 +16,11 @@
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_ability
+from mtg_analyzer.game.binding.core import bind_ability
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import GameEvent, EventType
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import GameEvent, EventType
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec, ParserProvenance
 from mtg_analyzer.parser.oracle.segmenter import segment_line
@@ -241,6 +241,8 @@ def test_impulsive_look_grants_temp_keyword_to_placed_card():
         [("p1", "A", []), ("p2", "B", [])], starting_life=20, starting_hand=0
     )
     st = eng.state
+    st.current_phase = "combat"
+    st.current_step = "declare_attackers"
     p1 = st.player_by_id("p1")
     human = GameObject(
         Card(id="h", name="Soldier", type_line="Creature — Human Soldier",
@@ -250,11 +252,11 @@ def test_impulsive_look_grants_temp_keyword_to_placed_card():
     human.controller_id = "p1"
     p1.library.append(human)  # top of library
 
-    eng.rules.request_impulsive_look(
+    eng.rules._request_impulsive_look(
         p1, 1, {"type": "creature"}, "battlefield_attacking",
         "library_bottom_random", True, hit_grant_keywords=["indestructible"],
     )
-    eng.rules.resolve_impulsive_look_choice(human.instance_id)
+    eng.rules.resolve_choice(human.instance_id)
 
     assert human in st.battlefield
     assert human.attacking is True

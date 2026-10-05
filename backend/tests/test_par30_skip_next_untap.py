@@ -14,8 +14,8 @@ kinds so "tap target creature **an opponent controls**" parses at all.
 from __future__ import annotations
 
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
@@ -82,7 +82,7 @@ def test_skip_next_untap_end_to_end():
     src = GameObject(Card(id="FR", name="Frost", type_line="Instant", is_instant=True),
                      owner_id="p2", zone=Zone.STACK)
     src.controller_id = "p2"
-    from mtg_analyzer.game.effect_binder import build_effects
+    from mtg_analyzer.game.binding.core import build_effects
     eff = build_effects([EffectSpec("skip_next_untap", {"target_kind": "creature"})], src)[0]
     eff.apply(eng.rules.context, [bear])
     assert bear.skip_next_untap is True

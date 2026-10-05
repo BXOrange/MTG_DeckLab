@@ -10,21 +10,22 @@ outcome on `GameContext.clash_won`; the "if you win, `<effect>`. otherwise,
 "whenever you clash" / "whenever you win a clash" ride `EventType.CLASHED` /
 `WON_CLASH`.
 
-**Documented simplification**: RULE 701.30a's optional "put that card on the
-bottom" is always declined — see `RulesEngine.clash`.
+RULE 701.30c's public reveal and optional top/bottom decisions are surfaced
+as serial `pending_choice` prompts in APNAP order; the cards move only once
+all clashing players have answered.
 
-Reference: game/rules/misc_mixin.py (`clash`), game/effects.py
+Reference: game/rules/misc_mixin.py (`clash`), game/effects/core.py
 (`ClashEffect`, `ConditionalEffect._condition_holds`),
 parser/oracle/segmenter.py, parser/oracle/catalogue/handlers.py.
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
@@ -47,7 +48,7 @@ def test_if_you_win_branch_attaches_clash_won_condition():
     )
     assert [s.type for s in specs] == ["clash", "add_counters"]
     assert specs[0].condition is None
-    assert specs[1].condition == {"clash_won": True}
+    assert specs[1].condition == {"kind": "clash_won"}
 
 
 def test_if_you_win_and_otherwise_branches():
@@ -56,14 +57,14 @@ def test_if_you_win_and_otherwise_branches():
     )
     # clash, then the two mutually-exclusive branches in printed order.
     assert [s.type for s in specs] == ["clash", "draw", "lose_life"]
-    assert specs[1].condition == {"clash_won": True}
-    assert specs[2].condition == {"clash_won": False}
+    assert specs[1].condition == {"kind": "clash_won"}
+    assert specs[2].condition == {"kind": "not", "condition": {"kind": "clash_won"}}
 
 
 def test_if_you_won_past_tense_also_recognised():
     specs = parse_effect_body("if you won, draw a card")
     assert [s.type for s in specs] == ["draw"]
-    assert specs[0].condition == {"clash_won": True}
+    assert specs[0].condition == {"kind": "clash_won"}
 
 
 def test_bare_otherwise_with_unmodeled_effect_fails_closed():
@@ -150,12 +151,42 @@ def test_clash_with_empty_own_library_cannot_win():
     assert eng.rules.clash(state.player_by_id("p1")) is False
 
 
-def test_clash_does_not_bottom_the_revealed_card():
+def test_clash_reveals_cards_publicly_and_moves_selected_cards_after_both_choices():
     eng, state = _engine()
     mine = _top(state, "p1", _card("Mine", 4))
+    theirs = _top(state, "p2", _card("Theirs", 1))
+    eng.rules.clash(state.player_by_id("p1"))
+    assert state.pending_choice["kind"] == "clash"
+    assert state.pending_choice["player_id"] == "p1"  # active player first (APNAP)
+    assert {o["name"] for o in state.to_dict()["clash_revealed"]} == {"Mine", "Theirs"}
+
+    eng.resolve_pending_choice("bottom")
+    # The choice is recorded but no card moves until every clashing player
+    # has decided (RULE 701.30c).
+    assert state.player_by_id("p1").library[-1] is mine
+    assert state.pending_choice["player_id"] == "p2"
+    eng.resolve_pending_choice("top")
+
+    assert state.pending_choice is None
+    assert state.clash_revealed == []
+    assert state.player_by_id("p1").library[0] is mine
+    assert state.player_by_id("p2").library[-1] is theirs
+
+
+def test_clash_reveals_remain_public_while_the_other_player_is_deciding():
+    """The multiplayer view may hide the choice, never the public reveal."""
+    from mtg_analyzer.services.game_session import _redact_hidden_zones
+
+    eng, state = _engine()
+    _top(state, "p1", _card("Mine", 4))
     _top(state, "p2", _card("Theirs", 1))
     eng.rules.clash(state.player_by_id("p1"))
-    assert state.player_by_id("p1").library[-1] is mine  # still on top
+
+    opponent_view = state.to_dict()
+    _redact_hidden_zones(opponent_view, "p2")
+    assert opponent_view["pending_choice"] is None
+    assert opponent_view["waiting_on_choice"]["player_id"] == "p1"
+    assert {o["name"] for o in opponent_view["clash_revealed"]} == {"Mine", "Theirs"}
 
 
 def _etb(eng, state, card, controller="p1"):
@@ -188,6 +219,10 @@ def test_clash_effect_end_to_end_grants_counter_on_win():
     obj = _etb(eng, state, card)
     assert eng.rules.put_triggers_on_stack() == 1
     eng.rules.resolve_top_of_stack()
+    assert state.pending_choice["kind"] == "clash"
+    eng.resolve_pending_choice("top")
+    assert state.pending_choice["kind"] == "clash"
+    eng.resolve_pending_choice("top")
 
     assert obj.counters.get("+1/+1", 0) == 1
 
@@ -208,5 +243,7 @@ def test_clash_effect_end_to_end_no_counter_on_loss():
     obj = _etb(eng, state, card)
     assert eng.rules.put_triggers_on_stack() == 1
     eng.rules.resolve_top_of_stack()
+    eng.resolve_pending_choice("top")
+    eng.resolve_pending_choice("top")
 
     assert obj.counters.get("+1/+1", 0) == 0

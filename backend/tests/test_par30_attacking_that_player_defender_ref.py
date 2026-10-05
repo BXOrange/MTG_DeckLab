@@ -15,11 +15,11 @@ nothing the bare event doesn't already carry.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue, build_effects
-from mtg_analyzer.game.effects import GameContext
+from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
+from mtg_analyzer.game.effects.core import GameContext
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec
@@ -124,6 +124,8 @@ def test_self_attacks_an_opponent_is_attacks_trigger():
 
 def test_created_token_enters_attacking_via_auto_defender():
     eng, state = _engine()
+    state.current_phase = "combat"
+    state.current_step = "declare_attackers"
     src = GameObject(
         Card(id="s", name="Src", type_line="Creature — Soldier",
              is_creature=True, power=2, toughness=2),

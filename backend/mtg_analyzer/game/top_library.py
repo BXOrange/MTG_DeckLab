@@ -3,7 +3,7 @@
 RULE 701 has no native "play from the top of your library" provision — every
 real card (Oracle of Mul Daya, Glarb, Calamity's Augur, Future Sight-shaped)
 grants it as its own static ability (`TopLibraryPermissionEffect`,
-`game/effects.py`), bound onto the granting permanent's own
+`game/effects/core.py`), bound onto the granting permanent's own
 ``obj.static_effects`` like any other ``static`` ability. This module reads
 those grants live off the battlefield — mirroring `game/mana_abilities.py`'s
 "scan on demand" shape rather than a cached/recomputed derived field, since
@@ -19,15 +19,16 @@ each pass instead of tracking "effects that used to apply".
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
-from .effects import TopLibraryPermissionEffect
+from ..models.cards import card_query
+from .effects.core import TopLibraryPermissionEffect
 
 if TYPE_CHECKING:
-    from ..models.card import Card
-    from ..models.game_object import GameObject
-    from ..models.game_state import GameState
-    from ..models.player import Player
+    from ..models.cards.card import Card
+    from ..models.game.game_object import GameObject
+    from ..models.game.game_state import GameState
+    from ..models.game.player import Player
 
 
 def active_top_library_grants(player: "Player", state: "GameState") -> list[TopLibraryPermissionEffect]:
@@ -46,6 +47,11 @@ def active_top_library_grants(player: "Player", state: "GameState") -> list[TopL
                 continue
             if effect.requires_attached and getattr(obj, "attached_to", None) is None:
                 continue
+            if effect.active_if is not None:
+                from . import static_conditions  # function-scoped: static_conditions imports effects' siblings
+
+                if not static_conditions.condition_holds(effect.active_if, state, obj, player.id):
+                    continue
             grants.append(effect)
     return grants
 
@@ -61,15 +67,50 @@ def may_look_at_top_of_library(player: "Player", state: "GameState") -> bool:
     return bool(active_top_library_grants(player, state))
 
 
-def may_play_land_from_top_of_library(player: "Player", state: "GameState") -> bool:
-    return any(g.play_lands for g in active_top_library_grants(player, state))
+def _grant_spent_for_turn(grant: TopLibraryPermissionEffect) -> bool:
+    """A "once each turn" grant whose single use this turn is already taken (counted on the granting
+    permanent, `GameObject.top_library_uses_this_turn`, reset at its controller's untap step)."""
+    return bool(grant.once_each_turn and getattr(grant.source, "top_library_uses_this_turn", 0) >= 1)
+
+
+def _grant_permits_land(grant: TopLibraryPermissionEffect, card: "Optional[Card]") -> bool:
+    if not grant.play_lands or _grant_spent_for_turn(grant):
+        return False
+    if card is None or not grant.land_criteria:
+        return True
+    return card_query.matches(card, grant.land_criteria)
+
+
+def may_play_land_from_top_of_library(
+    player: "Player", state: "GameState", card: "Optional[Card]" = None,
+) -> bool:
+    """Whether a land may be played off the top of the library — ``card`` (the top card) is checked
+    against a grant's own land filter ("historic lands", "snow lands"); ``None`` asks only whether
+    any grant offers land plays at all."""
+    return any(_grant_permits_land(g, card) for g in active_top_library_grants(player, state))
+
+
+def record_top_library_use(
+    player: "Player", state: "GameState", card: "Card", *, land: bool = False,
+) -> None:
+    """Spend the "once each turn" use of the first grant that permitted playing/casting ``card`` from the
+    top (called by the cast / land-play paths while the card is still the top card's identity)."""
+    for grant in active_top_library_grants(player, state):
+        if not grant.once_each_turn or grant.source is None:
+            continue
+        permits = _grant_permits_land(grant, card) if land else _grant_permits_cast(grant, card)
+        if permits:
+            grant.source.top_library_uses_this_turn = getattr(grant.source, "top_library_uses_this_turn", 0) + 1
+            return
 
 
 def _grant_permits_cast(grant: TopLibraryPermissionEffect, card: "Card") -> bool:
     """Whether a single ``grant`` — already known active — permits casting
     ``card`` from the top: the shared ``cast_spells``/``min_mana_value``/
     ``noncreature_only`` gate every consumer below checks identically."""
-    if not grant.cast_spells:
+    if not grant.cast_spells or _grant_spent_for_turn(grant):
+        return False
+    if grant.spell_criteria and not card_query.matches(card, grant.spell_criteria):
         return False
     if grant.min_mana_value is not None and card.converted_mana_cost < grant.min_mana_value:
         return False

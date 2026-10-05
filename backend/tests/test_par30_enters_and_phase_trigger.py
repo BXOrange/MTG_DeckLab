@@ -13,7 +13,7 @@ from __future__ import annotations
 from mtg_analyzer.parser.oracle.segmenter import segment_line
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.spec import ParserProvenance
-from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.cards.card import Card
 
 _PROV = ParserProvenance(version="test", source="rule:oracle", confidence=1.0)
 

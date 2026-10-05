@@ -66,11 +66,11 @@ mtg_analyzer/game/{effect_binder,effects,continuous,rules_engine}.py.
 from __future__ import annotations
 
 from mtg_analyzer.game import continuous
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import GameState
-from mtg_analyzer.models.player import Player
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import GameState
+from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.game.rules_engine import RulesEngine
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 
@@ -308,17 +308,18 @@ def test_quoted_phase_trigger_grant_is_modeled():
     assert result.unclaimed == []
 
 
-def test_quoted_unscoped_phase_trigger_grant_stays_unclaimed():
-    # Fail-closed: "at the beginning of *each* upkeep" carries no
-    # `phase_relation`, so a regranted copy would have no way to say whose
-    # upkeep it means — only the "your"/"each opponent's" forms are claimed.
+def test_quoted_unscoped_phase_trigger_grant_is_modeled():
+    # Each-end-step has no controller relation, but it is still a valid
+    # subject-less STEP_BEGIN trigger: every granted host fires once.
     card = _aura(
         "Cement Boots",
         'Equipped creature gets +3/+3 and has "at the beginning of each end '
         'step, tap ~."\nEquip {2}',
         type_line="Artifact — Equipment",
     )
-    assert parse_oracle(card).coverage == UNMODELED
+    result = parse_oracle(card)
+    assert result.coverage != UNMODELED
+    assert result.unclaimed == []
 
 
 # -- execute-side (bind → engine) --------------------------------------------
@@ -376,7 +377,7 @@ def test_quoted_attack_trigger_grant_fires_when_the_host_attacks():
 
     assert len(host._granted_triggered_abilities) == 1
 
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
 
     state.fire_event(
         GameEvent(
@@ -410,7 +411,7 @@ def test_quoted_trigger_grant_does_not_fire_for_a_different_permanent():
     p1.library.append(GameObject(_creature("Library Bear"), owner_id="p1", zone=Zone.LIBRARY))
     continuous.recompute(state)
 
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
 
     state.fire_event(
         GameEvent(
@@ -516,7 +517,7 @@ def test_granted_any_color_mana_ability_fans_out_to_one_option_per_colour():
 
 
 def _upkeep(state, engine):
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
 
     state.fire_event(GameEvent(EventType.STEP_BEGIN, step="upkeep", phase="beginning"))
     return engine.put_triggers_on_stack()
@@ -572,3 +573,24 @@ def test_granted_upkeep_trigger_fires_once_per_affected_permanent():
 
     state.active_player_index = 0
     assert _upkeep(state, engine) == 2
+
+
+def test_verdant_embrace_unscoped_upkeep_grant_fires_on_each_upkeep():
+    engine, state, _, _ = _rules()
+    host = _bf(state, _creature("Bear"), controller="p1")
+    aura = _bf(
+        state,
+        _aura(
+            "Verdant Embrace",
+            'Enchant creature\nEnchanted creature gets +3/+3 and has '
+            '"At the beginning of each upkeep, create a 1/1 green Saproling creature token."',
+        ),
+        controller="p1",
+    )
+    aura.attached_to = host.instance_id
+    continuous.recompute(state)
+
+    # Unlike "your upkeep", each-upkeep has no controller relation, but the
+    # granted ability still belongs to this one host and fires exactly once.
+    assert len(host._granted_triggered_abilities) == 1
+    assert _upkeep(state, engine) == 1

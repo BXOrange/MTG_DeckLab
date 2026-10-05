@@ -10,13 +10,14 @@ Reference: docs/implementation-state/Done_Backend.md "MEC-42" entry.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.models.game_state import StackItem
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
+from mtg_analyzer.models.game.game_state import StackItem
 
-from tests.test_game_engine import make_engine
+from tests.support.game import make_engine
+from tests import turn_history_events as history
 
 
 def _named(name):
@@ -202,7 +203,7 @@ def test_derevi_etb_offers_tap_or_untap_choice():
 
     choice = state.pending_choice
     assert choice is not None and choice.get("kind") == "tap_or_untap"
-    eng.rules.resolve_tap_or_untap_choice("untap")
+    eng.rules.resolve_choice("untap")
     assert other.tapped is False
 
 
@@ -246,7 +247,7 @@ def test_march_of_swirling_mist_exile_discount_reduces_generic_cost():
     discounted_cost = eng.effective_cast_cost(p1, march, x=2, exile_discount=2)
 
     def _x_amount(cost):
-        from mtg_analyzer.models.mana_cost import VARIABLE
+        from mtg_analyzer.models.mana.mana_cost import VARIABLE
 
         return sum(s.amount for s in cost.symbols if s.kind == VARIABLE)
 
@@ -341,7 +342,7 @@ def test_praetors_grasp_searches_target_opponents_library_and_grants_standing_ca
     assert choice.get("player_id") == "p1"  # the CASTER answers
     assert choice.get("library_owner_id") == "p2"
     picked = state.pending_choice["eligible"][0]["instance_id"]
-    eng.rules.resolve_search_choice(picked)
+    eng.rules.resolve_choice(picked)
 
     obj = state.find_object(picked)
     assert obj.zone == Zone.EXILE
@@ -448,7 +449,7 @@ def test_touch_the_spirit_realm_etb_exile_returns_when_it_leaves():
     _fire_etb(state, touch)
     eng.resolve_until_stable()
     if state.pending_choice:
-        eng.rules.resolve_trigger_target_choice(str(target.instance_id))
+        eng.rules.resolve_choice(str(target.instance_id))
         eng.resolve_until_stable()
 
     assert target.zone == Zone.EXILE
@@ -495,15 +496,15 @@ def test_tymna_postcombat_main_offers_pay_life_draw_x():
     p1.life = 30
 
     eng.begin_turn()
-    state.combat_damage_to_players_this_turn[attacker.instance_id] = {p2.id}
+    history.damage(state, source_id=attacker.instance_id, source_controller_id="p1", target_id=p2.id, combat=True)
     state.current_step = "main2"
-    from mtg_analyzer.models.events import EventType, GameEvent
+    from mtg_analyzer.models.game.events import EventType, GameEvent
     state.fire_event(GameEvent(EventType.STEP_BEGIN, step="main2", player_id="p1"))
     eng.resolve_until_stable()
 
     choice = state.pending_choice
     assert choice is not None and choice.get("kind") == "pay_cost_then"
-    eng.rules.resolve_pay_cost_then_choice("pay")
+    eng.rules.resolve_choice("pay")
     eng.resolve_until_stable()
 
     assert p1.life == 29

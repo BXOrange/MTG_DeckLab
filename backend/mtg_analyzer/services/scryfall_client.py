@@ -14,7 +14,7 @@ from typing import Any, Optional
 import httpx2 as httpx
 
 from mtg_analyzer.config import SCRYFALL_MIN_REQUEST_INTERVAL_SECONDS, USER_AGENT
-from mtg_analyzer.models.card import VALID_COLORS, Card
+from mtg_analyzer.models.cards.card import VALID_COLORS, Card
 from mtg_analyzer.parser.oracle.normalize import strip_reminder_text
 
 _BASE_URL = "https://api.scryfall.com"

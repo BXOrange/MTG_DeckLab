@@ -7,17 +7,17 @@ a +1/+1 counter on a source) with a `recruit` "which card to discard"
 `pending_choice`. `effects.RecruitEffect` is a bare "you"-subject effect.
 
 Reference: game/rules/misc_mixin.py (`recruit` / `_recruit_discard` /
-`resolve_recruit_choice`), game/effects.py (`RecruitEffect`),
+`_resume_recruit`), game/effects/core.py (`RecruitEffect`),
 parser/oracle/catalogue/handlers.py.
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec

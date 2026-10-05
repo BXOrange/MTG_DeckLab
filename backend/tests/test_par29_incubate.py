@@ -2,7 +2,7 @@
 
 "Incubate N" creates an Incubator token — a power/toughness-less colourless
 artifact token — with N +1/+1 counters on it. No new engine primitive: the
-`Incubator` catalogue entry (`ability_catalogue/entries_008.py`) binds
+`Incubator` catalogue entry (`card_registry/red_spells.py`) binds
 "{2}: Transform this token" (→ a 0/0 Phyrexian artifact creature, whose
 counters then make it N/N) onto every token so named, and `create_token`'s
 `extra_counters` places the counters. The parser handler `incubate` emits
@@ -10,18 +10,18 @@ the same `create_token` spec Glissa, Herald of Predation's hand-authored
 entry already uses.
 
 Reference: parser/oracle/catalogue/handlers.py (`_incubate`),
-game/ability_catalogue/entries_008.py (`_incubator_token`),
-game/effects.py (`CreateTokenEffect.extra_counters`).
+game/card_registry/red_spells.py (`_incubator_token`),
+game/effects/core.py (`CreateTokenEffect.extra_counters`).
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import CreateTokenEffect, GameContext
+from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.effects.core import CreateTokenEffect, GameContext
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec

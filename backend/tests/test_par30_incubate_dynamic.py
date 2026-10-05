@@ -34,18 +34,18 @@ The parser still (by design) can't claim two shapes — "incubate N **that
 many times**" (Phyrexian Incubator) and "incubate N **X times**"
 (Progenitor Exarch) — but both cards, plus Traumatic Revelation's
 "if you don't, incubate 3" else-branch, are now **hand-authored** in
-`ability_catalogue/entries_016.py`; see
+`card_registry/special_mechanics.py`; see
 `tests/test_incubate_residue_authored.py` for their end-to-end coverage.
 """
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue, build_effects
-from mtg_analyzer.game.effects import GameContext
-from mtg_analyzer.models.events import EventType, GameEvent
+from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
+from mtg_analyzer.game.effects.core import GameContext
+from mtg_analyzer.models.game.events import EventType, GameEvent
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec
 
@@ -294,7 +294,7 @@ def test_excise_the_imperfect_incubates_for_the_victims_controller_and_mv():
                      owner_id="p1", zone=Zone.STACK)
     src.controller_id = "p1"
 
-    from mtg_analyzer.game.effects import _apply_effects_partitioned
+    from mtg_analyzer.game.effects.core import _apply_effects_partitioned
     effects = build_effects([
         EffectSpec("exile", {"target_kind": "nonland_permanent"}),
         EffectSpec("create_token", {
@@ -327,7 +327,7 @@ def test_sunfall_incubates_for_the_number_of_creatures_it_exiled():
                      owner_id="p1", zone=Zone.STACK)
     src.controller_id = "p1"
 
-    from mtg_analyzer.game.effects import _apply_effects_partitioned
+    from mtg_analyzer.game.effects.core import _apply_effects_partitioned
     effects = build_effects([
         EffectSpec("exile", {"selector": "all_creatures"}),
         EffectSpec("create_token", {
@@ -353,7 +353,7 @@ def test_objects_exiled_this_way_resets_between_resolutions():
                      owner_id="p1", zone=Zone.STACK)
     src.controller_id = "p1"
 
-    from mtg_analyzer.game.effects import _apply_effects_partitioned
+    from mtg_analyzer.game.effects.core import _apply_effects_partitioned
     for _ in range(2):
         c = GameObject(Card(id="ZZ", name="Z", type_line="Creature — Bear",
                             is_creature=True, power=1, toughness=1),

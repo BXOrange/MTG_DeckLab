@@ -22,11 +22,11 @@ reached the activated-ability handler. Adding them unblocked the bodies:
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effect_binder import bind_from_catalogue, build_effects
-from mtg_analyzer.game.effects import GameContext
+from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
+from mtg_analyzer.game.effects.core import GameContext
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
@@ -58,7 +58,7 @@ def test_keyword_action_activated_bodies_now_modeled():
 
 
 def test_hedge_whisperer_is_hand_authored():
-    from mtg_analyzer.game.ability_catalogue import is_registered, specs_for
+    from mtg_analyzer.game.card_registry import is_registered, specs_for
     card = _db().get_card("Hedge Whisperer")
     assert card is not None and is_registered("Hedge Whisperer")
     kinds = sorted(s.ability_kind for s in specs_for(card))
@@ -138,7 +138,7 @@ def test_gristle_glutton_discard_then_draw_sequence():
         while st.pending_choice and st.pending_choice["kind"] == "choose_objects" and guard < 5:
             guard += 1
             cid = st.pending_choice["options"][0]["instance_id"]
-            eng.rules.resolve_choose_objects_choice(cid)
+            eng.rules.resolve_choice(cid)
     # discarded one (→ graveyard), drew the known top card
     assert any(o.name == "Top" for o in p1.hand)
     assert len(p1.graveyard) == 1
@@ -158,7 +158,7 @@ def test_hedge_whisperer_animates_a_land_while_it_stays_tapped():
     land.controller_id = "p1"
     st.add_to_battlefield(land)
 
-    from mtg_analyzer.game.ability_catalogue import specs_for
+    from mtg_analyzer.game.card_registry import specs_for
     act = next(s for s in specs_for(src.card) if s.ability_kind == "activated")
     build_effects(act.effects, src)[0].apply(GameContext(st, eng.rules), [land])
     eng.recompute_continuous_effects()
@@ -191,7 +191,7 @@ def test_each_opponent_pay_or_loses_life_when_declined():
         guard += 1
         k = st.pending_choice["kind"]
         if k == "pay_cost_then":
-            eng.rules.resolve_pay_cost_then_choice(None)
+            eng.rules.resolve_choice(None)
         else:
             break
     eng.resolve_until_stable()

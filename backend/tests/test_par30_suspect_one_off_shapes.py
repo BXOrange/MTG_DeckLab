@@ -11,7 +11,7 @@ primitive-blocked singletons the PAR-29 keyword trail left behind.
   (`_batch_attack_group_filter` / `_any_attacking_matches` ``is_suspected``).
 - **Deadly Complication** — `RemoveSuspectedEffect` gains a
   ``previous_subject`` / ``optional`` shape for "you may have it become no
-  longer suspected." (routed through `request_choose_objects`).
+  longer suspected." (routed through `_request_choose_objects`).
 - **Airtight Alibi** — hand-authored: ETB untap + hexproof-EOT + un-suspect
   on the Aura host, plus a static +2/+2 and a ``cant_become_suspected``
   ``grant_keyword`` slug `RulesEngine.suspect` honours.
@@ -20,12 +20,12 @@ primitive-blocked singletons the PAR-29 keyword trail left behind.
 from __future__ import annotations
 
 from mtg_analyzer.game import combat
-from mtg_analyzer.game.effect_binder import bind_from_catalogue, build_effects
-from mtg_analyzer.game.effects import GameContext, _apply_effects_partitioned
+from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects
+from mtg_analyzer.game.effects.core import GameContext, _apply_effects_partitioned
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.models.card import Card
-from mtg_analyzer.models.events import EventType, GameEvent
-from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.cards.card import Card
+from mtg_analyzer.models.game.events import EventType, GameEvent
+from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec
@@ -74,7 +74,7 @@ def test_all_four_covered():
         r = parse_oracle(db.get_card(name))
         assert r.coverage != UNMODELED, (name, r.unclaimed)
     # Airtight Alibi is hand-authored, not parser-MODELED.
-    from mtg_analyzer.game.ability_catalogue import specs_for
+    from mtg_analyzer.game.card_registry import specs_for
     assert specs_for(db.get_card("Airtight Alibi"))
 
 
@@ -198,7 +198,7 @@ def test_deadly_complication_mode2_counter_then_optional_unsuspect_taken():
     guard = 0
     while state.pending_choice and guard < 4:
         guard += 1
-        eng.rules.resolve_choose_objects_choice(
+        eng.rules.resolve_choice(
             state.pending_choice["options"][0]["instance_id"]
         )
     assert target.plus_one_counters == 1
@@ -217,7 +217,7 @@ def test_deadly_complication_mode2_optional_unsuspect_declined():
     guard = 0
     while state.pending_choice and guard < 4:
         guard += 1
-        eng.rules.resolve_choose_objects_choice(None)   # decline
+        eng.rules.resolve_choice(None)   # decline
     assert target.plus_one_counters == 1
     assert target.is_suspected is True         # declined → menace kept
 
