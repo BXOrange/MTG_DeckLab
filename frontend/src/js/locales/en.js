@@ -347,9 +347,10 @@ export default {
 
   // --- Dynamic analysis panel (dynamicAnalysisPanel.js) --------
   'dyn.simulation': 'Simulation',
-  'dyn.intro': 'Plays the deck through {matches}× against a bot (up to {turns} turns) and analyzes the actual course — mean ± standard deviation across all games. Runs in the background and can take a few seconds to a few minutes depending on the number of games.',
+  'dyn.intro': 'Plays the deck {matches}× with the selected bot against passive opponents (up to {turns} turns) and analyzes the actual course — mean ± standard deviation across all games. Runs in the background and can take a few seconds to a few minutes depending on the number of games.',
   'dyn.numMatches': 'Number of games',
   'dyn.maxTurns': 'Max. turns per game',
+  'dyn.opponents': 'Passive opponents',
   'dyn.bot': 'Bot',
   'dyn.waitingWorker': 'Waiting for a free worker …',
   'dyn.running': 'Simulation running …',
@@ -360,7 +361,7 @@ export default {
   'dyn.progressRunning': '{done} / {total} games …',
   'dyn.progressDone': '{total} games completed',
   'dyn.commanderTurnLabel': '{name}: turn in play',
-  'dyn.matchesEvaluated': '{run} of {requested} games evaluated (bot: {bot}).',
+  'dyn.matchesEvaluated': '{run} of {requested} games evaluated (bot: {bot}; passive opponents: {opponents}).',
   'dyn.tutors': 'Library searches',
   'dyn.tutorsHint': 'Tutors + fetches, per game',
   'dyn.mulligans': 'Mulligans per game (avg ± std. dev.)',

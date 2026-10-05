@@ -372,7 +372,7 @@ class TurnLoopMixin:
         as part of the step; the caller injects any player actions before
         the next advance.
         """
-        if self.state.game_over:
+        if self.state.game_over or self.state.pending_choice:
             return None
         # RULE 500.4-adjacent: drain any "additional combat phase" request an
         # effect queued since the last advance (`ExtraCombatPhaseEffect`) —
@@ -396,6 +396,11 @@ class TurnLoopMixin:
             self.state.end_turn_requested = False
             self._step_cleanup()
             self._cursor = len(self._turn_steps)
+            if self.state.pending_choice:
+                self.state.current_phase = "ending"
+                self.state.current_step = "cleanup"
+                self.state.priority_player_index = None
+                return ("ending", "cleanup")
         if self.state.current_step == "declare_attackers":
             self._enforce_attacks_if_able()
             self._enforce_goad_requirements()
@@ -784,10 +789,14 @@ class TurnLoopMixin:
         # sibling of that boolean exemption, applied to the flat
         # `MAX_HAND_SIZE` before the excess comparison.
         if not continuous.has_no_maximum_hand_size(self.state, active):
-            effective_max = MAX_HAND_SIZE + continuous.hand_size_modifier_for(self.state, active)
+            effective_max = max(0, MAX_HAND_SIZE + continuous.hand_size_modifier_for(self.state, active))
             excess = len(active.hand) - effective_max
             if excess > 0:
-                self.rules.discard(active, excess)
+                self.rules.discard_choice(active, excess)
+                if self.state.pending_choice:
+                    self.state.cleanup_discard_pending = True
+                    return
+        self.state.cleanup_discard_pending = False
         # RULE 514.2: remove marked damage and end "until end of turn" effects
         # (pump P/T bonuses, temporary keyword grants, and a "becomes a copy
         # of target creature until end of turn" activation — Cursed Mirror).
@@ -1142,10 +1151,13 @@ class TurnLoopMixin:
         here and not there.
         """
         immediate_play = self.state.resolution_play_waiting
+        cleanup_discard = self.state.cleanup_discard_pending
         self.rules.resolve_choice(answer)
         if immediate_play:
             self._finish_resolution_play()
             return
+        if cleanup_discard and not self.state.pending_choice:
+            self._step_cleanup()
         self.resolve_until_stable()
     def set_skip_untap(self, player: Player, obj: GameObject, value: bool) -> None:
         """Toggle RULE 502.1's "you may choose not to untap ~ during your

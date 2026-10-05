@@ -340,9 +340,10 @@ export default {
 
   // --- Dynamic analysis panel (dynamicAnalysisPanel.js) --------
   'dyn.simulation': 'Simulation',
-  'dyn.intro': 'Spielt das Deck {matches}× gegen einen Bot durch (bis zu {turns} Züge) und wertet den tatsächlichen Verlauf aus – Mittelwert ± Standardabweichung über alle Partien. Läuft im Hintergrund und kann je nach Partienzahl einige Sekunden bis wenige Minuten dauern.',
+  'dyn.intro': 'Spielt das Deck {matches}× mit dem gewählten Bot gegen passive Gegenspieler durch (bis zu {turns} Züge) und wertet den tatsächlichen Verlauf aus – Mittelwert ± Standardabweichung über alle Partien. Läuft im Hintergrund und kann je nach Partienzahl einige Sekunden bis wenige Minuten dauern.',
   'dyn.numMatches': 'Anzahl Partien',
   'dyn.maxTurns': 'Max. Züge pro Partie',
+  'dyn.opponents': 'Passive Gegenspieler',
   'dyn.bot': 'Bot',
   'dyn.waitingWorker': 'Wartet auf freien Worker …',
   'dyn.running': 'Simulation läuft …',
@@ -353,7 +354,7 @@ export default {
   'dyn.progressRunning': '{done} / {total} Partien …',
   'dyn.progressDone': '{total} Partien abgeschlossen',
   'dyn.commanderTurnLabel': '{name}: Zug im Spiel',
-  'dyn.matchesEvaluated': '{run} von {requested} Partien ausgewertet (Bot: {bot}).',
+  'dyn.matchesEvaluated': '{run} von {requested} Partien ausgewertet (Bot: {bot}; passive Gegenspieler: {opponents}).',
   'dyn.tutors': 'Bibliothekssuchen',
   'dyn.tutorsHint': 'Tutoren + Fetches, pro Partie',
   'dyn.mulligans': 'Mulligans pro Partie (⌀ ± Standardabweichung)',

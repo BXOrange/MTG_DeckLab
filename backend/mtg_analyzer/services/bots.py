@@ -117,10 +117,8 @@ def create_bot(kind: str, player_id: str, name: str = "") -> Bot:
 def bots_for_game(game: "LobbyGame") -> dict[str, Bot]:
     """Every bot seated at ``game``, in seat (turn) order.
 
-    Built fresh each call rather than cached: a bot holds no game state
-    (its whole policy is a function of the view it is handed), and the one
-    thing it *does* remember — which offers blew up on it — is meant to
-    last a single `run_bots` call, not the game.
+    Built fresh each call. AI request/rejection context and Smart policy
+    memory live on the session so rebuilding a policy preserves them.
     """
     bots: dict[str, Bot] = {}
     for seat in game.seats:
@@ -172,29 +170,31 @@ def _one_bot_action(session: GameSession, bots: dict[str, Bot]) -> bool:
         actions = session.legal_actions(perspective=bot.player_id)
         if not actions:
             continue
-        bot.prepare(session)
-        view = session.view(perspective=bot.player_id)
-        action = bot.decide(view, actions)
-        if action is None and bot.waiting:
-            continue  # background LLM decision; preserve this priority window
-        if action is None:
-            # RULE 117.3: holding priority with nothing to do means passing.
-            if not bot.has_priority(view) or not view["setup"]["complete"]:
-                continue
-            action = {"type": "pass_priority"}
-        try:
-            session.apply_action(action, actor_id=bot.player_id)
-        except GameActionError as exc:
-            # The bot picked something it couldn't actually complete. Don't
-            # let it retry that offer, and don't let one bad choice wedge
-            # the table — passing is always legal.
-            logger.info("bot %s failed action %s: %s", bot.name, action.get("type"), exc)
-            bot.note_failure(action)
-            if not bot.has_priority(view):
-                continue
+        for attempt in range(4):
+            bot.prepare(session)
+            view = session.view(perspective=bot.player_id)
+            actions = session.legal_actions(perspective=bot.player_id)
+            action = bot.decide(view, actions)
+            if action is None and bot.waiting:
+                break  # background decision, including a correction; keep priority
+            if action is None:
+                if not bot.has_priority(view) or not view["setup"]["complete"]:
+                    break
+                action = {"type": "pass_priority"}
             try:
-                session.apply_action({"type": "pass_priority"}, actor_id=bot.player_id)
-            except GameActionError:
-                continue
-        return True
+                session.apply_action(action, actor_id=bot.player_id)
+            except GameActionError as exc:
+                logger.info("bot %s failed action %s: %s", bot.name, action.get("type"), exc)
+                bot.note_failure(action, str(exc))
+                if attempt < 3:
+                    continue  # re-read the rolled-back view and choose again
+                # Broken policies must not retry forever. Mandatory choices
+                # cannot be skipped by passing; leave those to the next tick.
+                if not bot.has_priority(view):
+                    break
+                try:
+                    session.apply_action({"type": "pass_priority"}, actor_id=bot.player_id)
+                except GameActionError:
+                    break
+            return True
     return False

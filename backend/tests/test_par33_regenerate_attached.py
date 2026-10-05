@@ -1111,7 +1111,10 @@ def test_unquenchable_fury_quoted_attack_damage_reads_defenders_live_hand():
     aura.attached_to = attacker.instance_id
     attacker.combat_defender = {"kind": "player", "id": "p2"}
     defender = state.player_by_id("p2")
-    defender.hand.extend([object(), object(), object()])
+    defender.hand.extend([
+        GameObject(Card(id=f"hand-{i}", name=f"Hand {i}", type_line="Instant"),
+                   owner_id=defender.id, zone=Zone.HAND) for i in range(3)
+    ])
     from mtg_analyzer.game.effects.registry import EffectRegistry
     effect = EffectRegistry.create("damage", damage["params"])
     effect.source = aura

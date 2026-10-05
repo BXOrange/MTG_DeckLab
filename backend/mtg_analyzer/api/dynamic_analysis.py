@@ -79,6 +79,7 @@ def start_dynamic_analysis(
         library,
         commanders,
         bot_kind=request.bot_kind,
+        opponent_count=request.opponent_count,
         num_matches=request.num_matches,
         max_turns=request.max_turns,
         starting_life=request.starting_life,

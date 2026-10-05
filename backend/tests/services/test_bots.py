@@ -82,6 +82,10 @@ def drive(session, bots, human_ids=(), limit=400):
             return
         if run_bots(session, bots):
             continue
+        choice = session.engine.state.pending_choice
+        if choice and choice["player_id"] in human_ids:
+            session.apply_action({"type": "choose", "option_id": choice["options"][0]["id"]}, actor_id=choice["player_id"])
+            continue
         holder = session.engine.state.priority_player
         if holder is None or holder.id not in human_ids:
             return
@@ -93,6 +97,10 @@ def run_to_turn(session, bots, turn, human_ids=(), limit=4000):
         if session.engine.state.game_over or session.engine.state.internal_turn.number >= turn:
             return
         if run_bots(session, bots, max_actions=20):
+            continue
+        choice = session.engine.state.pending_choice
+        if choice and choice["player_id"] in human_ids:
+            session.apply_action({"type": "choose", "option_id": choice["options"][0]["id"]}, actor_id=choice["player_id"])
             continue
         holder = session.engine.state.priority_player
         if holder is None:
@@ -802,3 +810,44 @@ class TestPassThisTurn:
         state.priority_passed.clear()
         session.apply_action({"type": "pass_priority"}, actor_id="ann")
         assert state.priority_player.id == "bob"
+
+
+@pytest.mark.parametrize('kind', ['goldfish', 'greedy', 'smart', 'mana_maximizer'])
+def test_rejection_feedback_survives_policy_rebuild_and_clears_on_restart(kind):
+    from mtg_analyzer.services.bots import create_bot
+    session = make_game()
+    keep(session, 'ann', 'bob')
+    policy = create_bot(kind, 'ann')
+    policy.prepare(session)
+    rejected = {'type':'choose', 'option_id':'bad'}
+    policy.note_failure(rejected, 'Auswahl nicht erlaubt')
+    rebuilt = create_bot(kind, 'ann')
+    rebuilt.prepare(session)
+    assert rebuilt.action_feedback == [{'action':rejected, 'reason':'Auswahl nicht erlaubt'}]
+    assert rebuilt._signature(rejected) in rebuilt._failed
+    assert rebuilt._signature({'type':'choose', 'option_id':'other'}) not in rebuilt._failed
+    session.restart()
+    rebuilt.prepare(session)
+    assert rebuilt.action_feedback == []
+    assert not rebuilt._failed
+
+
+@pytest.mark.parametrize('kind', ['goldfish', 'greedy', 'smart', 'mana_maximizer'])
+def test_each_deterministic_policy_selects_another_rejected_choice(kind):
+    from mtg_analyzer.services.bots import create_bot
+    policy = create_bot(kind, 'ann')
+    view = {'setup': {'complete':True}, 'pending_choice': {'kind':'search'},
+            'state': {'players':[], 'battlefield':[]}}
+    offers = [{'type':'choose', 'option_id':'bad'}, {'type':'choose', 'option_id':'good'}]
+    policy.note_failure(offers[0], 'Auswahl nicht erlaubt')
+    assert policy.decide(view, offers) == offers[1]
+
+
+def test_rejected_block_declaration_is_replaced_by_no_blocks():
+    from mtg_analyzer.services.bots import GreedyBot
+    policy = GreedyBot('bob')
+    policy.note_failure({'type':'declare_blockers', 'assignments':[{'blocker':1,'attacker':2}]},
+                        'Blocker-Zuordnung nicht erlaubt')
+    view = {'setup':{'complete':True}, 'state':{'priority_player_id':'ann'}}
+    assert policy.decide(view, [{'type':'declare_blockers', 'instance_id':1}]) == {
+        'type':'declare_blockers', 'assignments':[]}

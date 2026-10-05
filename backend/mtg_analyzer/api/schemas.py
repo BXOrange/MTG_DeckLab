@@ -146,6 +146,7 @@ class DynamicAnalysisRequest(BaseModel):
     commander_text: str = Field(default="", alias="commanderText")
     mainboard_text: str = Field(default="", alias="mainboardText")
     sideboard_text: str = Field(default="", alias="sideboardText")
+    opponent_count: int = Field(default=1, ge=1, le=3, alias="opponentCount")
     bot_kind: str = Field(default="smart", alias="botKind")
     num_matches: int = Field(default=20, ge=1, le=200, alias="numMatches")
     max_turns: int = Field(default=10, ge=1, le=30, alias="maxTurns")

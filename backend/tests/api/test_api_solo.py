@@ -211,7 +211,10 @@ def _session_id(view):
 def _next_view(client, view):
     """One human pass or one bot tick, as the board does."""
     sid = _session_id(view)
-    if any(a['type'] == 'pass_priority' for a in view['legal_actions']):
+    choice = next((a for a in view['legal_actions'] if a['type'] == 'choose'), None)
+    if choice:
+        response = client.post(f'/api/solo/{sid}/action', json=choice)
+    elif any(a['type'] == 'pass_priority' for a in view['legal_actions']):
         response = client.post(f'/api/solo/{sid}/action', json={'type': 'pass_priority'})
     else:
         response = client.get(f'/api/solo/{sid}')

@@ -482,6 +482,10 @@ class ActivationMixin:
         assume_mana_available: bool = False,
         is_mana_ability: bool = False,
     ) -> bool:
+        if cost.activation_condition and not static_conditions.condition_holds(
+            cost.activation_condition, self.state, source=source, controller_id=player.id,
+        ):
+            return False
         # {T} needs an untapped source; {Q} a tapped one. Either symbol also
         # needs a non-summoning-sick source unless it has haste (RULE 302.6,
         # 602.5e, 702.10b) — the same rule the mana-tap path enforces.

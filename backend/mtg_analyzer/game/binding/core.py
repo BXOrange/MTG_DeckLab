@@ -659,8 +659,10 @@ def _subject_condition(
 
     if subject == "attached_permanent":
 
-        def _attached_ok(event: Any, context: Any, src=source, key=event_key) -> bool:
-            host_id = getattr(src, "attached_to", None)
+        def _attached_ok(event: Any, context: Any, src=source, iid=instance_id, key=event_key) -> bool:
+            state = getattr(context, "state", None)
+            live_source = state.find_object(iid) if state is not None else src
+            host_id = getattr(live_source, "attached_to", None)
             if host_id is None:
                 return False
             event_instance = event.get(key)
@@ -676,7 +678,9 @@ def _subject_condition(
                 return False
             if event_instance == iid:
                 return True
-            return event_instance == getattr(src, "attached_to", None)
+            state = getattr(context, "state", None)
+            live_source = state.find_object(iid) if state is not None else src
+            return event_instance == getattr(live_source, "attached_to", None)
 
         return _self_or_attached_ok
 
@@ -3103,6 +3107,8 @@ def bind_ability(
                     captured = firing_event.copy_with(
                         matching_count=len(matched),
                         matching_ids=[m.get("instance_id") for m in matched],
+                        matching_opponents=len({m.get("target_id") for m in matched
+                                                if m.get("is_player")}),
                     )
                     captured.turn = firing_event.turn
                     return captured

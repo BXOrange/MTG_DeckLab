@@ -5413,9 +5413,23 @@ textarea {
   border: 1px solid var(--border);
 }
 
-.gf-observer-note,
-.gf-waiting-choice {
+.gf-observer-note {
   margin: 0 0 0.6rem;
+}
+
+/* Other seats' decisions float above the board without blocking inspection. */
+.gf-modal-overlay.gf-waiting-choice {
+  pointer-events: none;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.gf-waiting-choice .gf-modal {
+  pointer-events: auto;
+}
+
+.gf-waiting-choice .gf-modal-head {
+  margin-bottom: 0;
 }
 
 /* MEC-51 / RULE 720 — "you control that player's turn/combat" banner. */

@@ -66,6 +66,18 @@ It cannot mutate game state or bypass rules. Omitted parameters use deterministi
 completion. This helps assemble included win conditions; it is not an exhaustive
 combo solver and inherits the engine's supported card behavior.
 
+Engine-rejected actions are returned in `action_feedback` with their rejection
+reason. The driver requests another selection using the rolled-back client view
+before passing; an asynchronous correction preserves priority. The AI may correct
+parameters of the same offer. Feedback survives policy rebuilds, clears when the
+visible position changes, and is bounded to three rejections before excluding
+failed offers. All deterministic policies retain position-scoped rejection memory
+across policy rebuilds and exclude failed offers immediately, including individual
+choice options and rejected attackers. Rejected blocks fall back to declaring no
+blocks. Smart fallback excludes failed offers immediately; the existing
+per-turn LLM budget still applies. Deterministic policies also retry with another
+offer, with a four-attempt driver limit per invocation.
+
 Two worker threads, at most four queued/running jobs, a bounded prompt and a
 per-seat/per-turn call budget limit work. Workers receive copied redacted data,
 not the engine/session. While a request is pending the driver preserves priority.

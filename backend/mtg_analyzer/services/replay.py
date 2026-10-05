@@ -70,6 +70,7 @@ def _serialize_object(obj: GameObject) -> dict[str, Any]:
     entry to re-resolve from)."""
     front = getattr(obj, "_front_card", obj.card)
     inst: dict[str, Any] = {
+        "instance_id": obj.instance_id,
         "card_id": front.id,
         "name": front.name,
         "tapped": obj.tapped,
@@ -283,6 +284,14 @@ def build_replay_engine(
     cursor directly instead of dealing an opening hand and beginning turn 1."""
     cards_by_name = _resolve_names(descriptor, loader)
 
+    restored_ids: dict[int, int] = {}
+    restored_objects: list[GameObject] = []
+
+    def remember(inst: dict[str, Any], obj: GameObject) -> None:
+        if inst.get("instance_id") is not None:
+            restored_ids[int(inst["instance_id"])] = obj.instance_id
+        restored_objects.append(obj)
+
     players: list[Player] = []
     for pd in descriptor.get("players", []):
         player = Player(
@@ -300,6 +309,7 @@ def build_replay_engine(
             for inst in (pd.get("zones") or {}).get(name, []):
                 obj = build_object(inst, owner_id=player.id, cards_by_name=cards_by_name)
                 if obj is not None:
+                    remember(inst, obj)
                     player.add_to_zone(obj, Zone(name))
         players.append(player)
 
@@ -315,7 +325,14 @@ def build_replay_engine(
             controller_id=inst.get("controller_id"),
         )
         if obj is not None:
+            remember(inst, obj)
             state.add_to_battlefield(obj)
+
+    # Runtime IDs are regenerated. Remap references only after every object
+    # exists; player-targeting Auras keep their string player IDs.
+    for obj in restored_objects:
+        if isinstance(obj.attached_to, int) and obj.attached_to in restored_ids:
+            obj.attached_to = restored_ids[obj.attached_to]
 
     internal_turn = descriptor.get("internal_turn") or {}
     state.internal_turn.number = int(internal_turn.get("number", 1) or 1)

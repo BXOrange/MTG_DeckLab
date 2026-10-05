@@ -232,6 +232,11 @@ The World Shaper regression checks the counter immediately after activation.
 - **Files:** `game/mana_abilities.py`, `game/effects/core.py`, `models/game_object.py`, `game/ability_catalogue.py`
 - **Why:** Sizing first found the ticket's own framing wrong for both cards — Bloom Tender has no player choice, and Carpet of Flowers can't be a mana ability at all per R…
 
+### Mox Opal: conditional mana activation
+
+- Mana abilities now parse “Activate only if …” through the shared activation-condition vocabulary. Both available production options and cost validation check the condition against the current controller's board, so manual activation, legal actions and auto-tap potential respect Metalcraft. Unrecognized conditions fail closed.
+- Mox Opal counts itself; opponents' artifacts do not count. Losing control of the third artifact immediately disables production. Covered by `tests/test_mox_opal_mana_condition.py`.
+
 ### User-reported bug: qualified "any color" mana clauses ignored board state (Mana System)
 
 - **What:** `game/mana_abilities.py`'s `_parse_clause` matched the bare substring "any color" before checking any qualifying condition after it, so every *qualified* clause…
@@ -3261,6 +3266,27 @@ of their reminder text or catalogue entry.
 - **Files:** `models/emblem.py`, `game/rules_engine.py`.
 
 ## Game Engine / Turn Loop & Actions
+
+### Ophidian Eye: stale attachment predicates after rollback
+
+- Attachment trigger predicates previously captured an Aura/Equipment object directly. `GameState.clone()` deep-copies objects but retains callback functions, so after rollback the callback could still read an old Aura with no attachment while the live Aura was correctly attached. Predicates for attached and self-or-attached subjects now look up their source by instance ID in the current context state.
+- Regression coverage reproduces the missing Ophidian Eye trigger after both direct state cloning and the real failed-action rollback path (`tests/test_ophidian_eye_trigger.py`).
+
+### Replay attachment round-trip
+
+- Exported object descriptors now include their original `instance_id`. Import rebuilds every object, then remaps numeric Aura/Equipment attachment references to the new IDs. Player-targeting Auras retain their player IDs. Legacy exports without object IDs cannot recover their original attachment mapping. Covered by `tests/test_replay.py`, including duplicate creature names and Ophidian Eye triggering after import.
+
+### Malcolm: noncombat Pirate damage, including Kediss
+
+- Malcolm's previous combat-only approximation now also handles noncombat damage. The existing combat contributor path remains; a `DAMAGE` batch handles noncombat damage and captures the number of distinct opponents hit by controlled Pirates. `DealDamageEffect` groups one instruction's recipients into a simultaneous batch.
+- Regression coverage includes multiple Pirates hitting the same opponent, Kediss preserving the commander's damage source, and both commanders attacking with Ophidian Eye on Kediss: three Treasures and three optional draws against three opponents (`tests/test_malcolm_noncombat_damage.py`).
+
+
+### Cleanup discard selection (RULE 514.1)
+
+- End-of-turn hand-size enforcement now uses the existing discard chooser instead of automatically removing the last hand cards. Cleanup waits for every required pick before clearing damage and effects that last until end of turn. The suspension survives undo through `GameState.cleanup_discard_pending`.
+- Goldfish decision advancement and shared-game priority advancement stop for the choice; shared games continue to the next priority window after the final pick. Maximum hand sizes below zero are treated as zero.
+- Regression coverage: `tests/services/test_game_session.py` and `tests/test_batch8_permission_statics_family.py`.
 
 ### Extra turns (RULE 500.7)
 

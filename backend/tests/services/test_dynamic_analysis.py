@@ -634,3 +634,66 @@ class TestDynamicAnalysisApi:
         client = TestClient(app)
         response = client.get("/api/analysis/dynamic/does-not-exist")
         assert response.status_code == 404
+
+
+class TestPassiveOpponentCount:
+    def test_three_independent_opponents_and_unchanged_turn_samples(self):
+        from mtg_analyzer.services.game_session import build_goldfish_engine
+
+        engine = build_goldfish_engine(_library(), with_dummy=True, dummy_count=3)
+        opponents = engine.state.players[1:]
+        assert [p.id for p in opponents] == ["goldfish", "goldfish-2", "goldfish-3"]
+        for opponent in opponents:
+            assert opponent.is_dummy
+            assert len(opponent.hand) == 7
+            assert all(obj.owner_id == opponent.id for obj in opponent.hand + opponent.library)
+        result = run_one_match(
+            _library(), None, bot=GoldfishBot("p1"), opponent_count=3, max_turns=3,
+        )
+        assert set(result.per_turn) == {1, 2, 3}
+        assert result.per_turn[3]["card_advantage"] == 0
+
+    def test_worker_receives_opponent_count(self, monkeypatch):
+        import mtg_analyzer.services.dynamic_analysis as module
+
+        original = module.run_one_match
+        counts = []
+
+        def observe(*args, **kwargs):
+            counts.append(kwargs["opponent_count"])
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(module, "run_one_match", observe)
+        monkeypatch.setattr(module, "_match_worker_count", lambda _: 2)
+        monkeypatch.setattr(module, "_run_matches_pooled", lambda libraries, payload, *args: [
+            module._run_one_match_worker({**payload, "library": library}) for library in libraries
+        ])
+        result = run_dynamic_analysis(
+            _library(), None, bot_kind="goldfish", opponent_count=3, num_matches=2, max_turns=2,
+        )
+        assert counts == [3, 3]
+        assert result.to_dict()["opponentCount"] == 3
+        assert result.matches_run == 2
+
+    def test_api_passes_count_and_rejects_out_of_bounds(self):
+        _setup()
+        try:
+            client = TestClient(app)
+            for count in (0, 4):
+                response = client.post("/api/analysis/dynamic", json={**LEGAL_DECK, "opponentCount": count})
+                assert response.status_code == 422
+            response = client.post("/api/analysis/dynamic", json={
+                **LEGAL_DECK, "opponentCount": 3, "botKind": "goldfish", "numMatches": 1, "maxTurns": 2,
+            })
+            assert response.status_code == 200
+            deadline = time.time() + 10
+            while time.time() < deadline:
+                job = client.get(f'/api/analysis/dynamic/{response.json()["jobId"]}').json()
+                if job["status"] not in ("queued", "running"):
+                    break
+                time.sleep(0.02)
+            assert job["status"] == "done"
+            assert job["result"]["opponentCount"] == 3
+            assert job["result"]["perTurn"][1]["mana_potential"]["n"] == 1
+        finally:
+            _teardown()

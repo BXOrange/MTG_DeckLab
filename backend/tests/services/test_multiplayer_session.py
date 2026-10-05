@@ -70,6 +70,10 @@ def advance_until(session, *, step=None, turn=None, limit=200):
             turn is None or state.internal_turn.number == turn
         ):
             return
+        if state.pending_choice:
+            choice = state.pending_choice
+            session.apply_action({"type": "choose", "option_id": choice["options"][0]["id"]}, actor_id=choice["player_id"])
+            continue
         holder = state.priority_player
         assert holder is not None, f"nobody holds priority at {state.current_step!r}"
         session.apply_action({"type": "pass_priority"}, actor_id=holder.id)
@@ -655,7 +659,11 @@ class TestRoundNumber:
         for _ in range(60):
             if session.engine.state.internal_turn.number >= 4:
                 break
-            session.apply_action({"type": "advance_step"})
+            choice = session.engine.state.pending_choice
+            if choice:
+                session.apply_action({"type": "choose", "option_id": choice["options"][0]["id"]})
+            else:
+                session.apply_action({"type": "advance_step"})
         state = session.engine.state
         assert state.internal_turn.number == 4
         assert state.turn_nr == state.internal_turn.number

@@ -80,7 +80,7 @@ from dataclasses import dataclass, field, replace as dataclass_replace
 from typing import Any, Callable, Iterable, Optional
 
 from ..parser.oracle.catalogue.levels import LEVEL_TIER_RE
-from . import continuous
+from . import continuous, static_conditions
 from .costs import ActivationCost, parse_activation_cost
 
 #: Colours the five basic lands produce, by their basic land *type*.
@@ -675,10 +675,23 @@ _MANA_ACTIVATION_LIMIT_RE = re.compile(
 
 
 def _apply_mana_activation_limit(cost: ActivationCost, effect_text: str) -> None:
-    """Stamp `ActivationCost.only_during_your_turn`/``once_per_turn`` from a
-    `_MANA_ACTIVATION_LIMIT_RE` match in ``effect_text``, if any — a no-op
-    (fail-soft) when neither restriction is printed. Mutates ``cost`` in
-    place since every call site already holds a freshly built one."""
+    """Read timing/frequency limits and board conditions from a mana rider.
+
+    Uses the ordinary activated-ability condition vocabulary. Unknown board
+    conditions fail closed instead of granting an unconditional ability.
+    Mutates the freshly parsed cost in place.
+    """
+    condition_match = re.search(
+        r"activate (?:this ability )?only if ([^.]+)\.", effect_text, re.IGNORECASE,
+    )
+    if condition_match:
+        from ..parser.oracle.catalogue.handlers import _activation_condition_dict
+
+        condition_text = condition_match.group(1).lower()
+        cost.activation_condition = _activation_condition_dict(condition_text)
+        if cost.activation_condition is None:
+            # Never silently offer an unconditional version of a gated ability.
+            cost.unrecognized = condition_match.group(0)
     m = _MANA_ACTIVATION_LIMIT_RE.search(effect_text)
     if m is None:
         return
@@ -1400,6 +1413,13 @@ def resolve_options(ability: ManaAbility, obj: Any, state: Optional[Any] = None)
     no ``state`` (a bare `Card`/`GameObject` query, no battlefield to read)
     this conservatively answers nothing rather than guessing.
     """
+    if ability.cost.activation_condition and (
+        state is None or not static_conditions.condition_holds(
+            ability.cost.activation_condition, state, source=obj,
+            controller_id=getattr(obj, "controller_id", None),
+        )
+    ):
+        return []
     if ability.color_selector == "chosen_color":
         chosen = getattr(obj, "chosen_color", None)
         if not chosen:

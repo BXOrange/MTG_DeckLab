@@ -213,3 +213,43 @@ class TestNextStep:
         assert dict(seen)["end_combat"] == "main2"
         # Past the end step only cleanup remains (no priority): next is a new turn.
         assert dict(seen)["end"] == "next_turn"
+
+
+def test_skip_to_end_step_stops_for_ophidian_eye_optional_combat_draw():
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
+    from mtg_analyzer.models.game.game_object import GameObject, Zone
+
+    session = playing()
+    engine = session.engine
+    state = engine.state
+    host = GameObject(Card(id="Host", name="Host", type_line="Creature", is_creature=True,
+                           power=2, toughness=2), owner_id="ann", zone=Zone.BATTLEFIELD)
+    host.summoning_sick = False
+    state.add_to_battlefield(host)
+    eye = GameObject(Card(id="Ophidian Eye", name="Ophidian Eye", type_line="Enchantment — Aura",
+                          oracle_text="Flash\nEnchant creature\nWhenever enchanted creature deals damage to an opponent, you may draw a card."),
+                     owner_id="ann", zone=Zone.BATTLEFIELD)
+    bind_from_catalogue(eye)
+    state.add_to_battlefield(eye)
+    assert engine.rules.attach_to_target(eye, host)
+    for _ in range(30):
+        if state.current_step == "declare_attackers":
+            break
+        act(session, "pass_priority", state.priority_player.id)
+    act(session, "attack", "ann", instance_ids=[host.instance_id])
+    act(session, "set_yield", "ann", mode="end_step")
+    for _ in range(30):
+        if state.pending_choice:
+            break
+        if state.current_step == "declare_blockers" and "bob" not in state.declared_blockers_this_combat:
+            act(session, "declare_blockers", "bob", assignments=[])
+        else:
+            act(session, "pass_priority", state.priority_player.id)
+    choice = state.pending_choice
+    assert choice and choice["player_id"] == "ann"
+    assert state.current_step == "combat_damage"
+    assert session.view(perspective="ann")["state"]["pending_choice"]
+    assert not session._yield_wants_pass(state.player_by_id("ann"))
+    before = len(state.player_by_id("ann").hand)
+    act(session, "choose", "ann", option_id="do")
+    assert len(state.player_by_id("ann").hand) == before + 1

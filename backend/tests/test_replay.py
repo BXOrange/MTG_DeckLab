@@ -392,3 +392,29 @@ class TestReplayApi:
         reloaded = client.post("/api/game/replay", json={"replay": exported}).json()
         assert _battlefield(reloaded)[0]["name"] == "Grizzly Bears"
         assert _battlefield(reloaded)[0]["tapped"] is True
+
+
+def test_export_import_remaps_aura_host_and_preserves_ophidian_eye_trigger():
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
+    from mtg_analyzer.models.game.game_object import GameObject, Zone
+
+    eye_card = Card(id="Eye", name="Ophidian Eye", type_line="Enchantment — Aura",
+                    oracle_text="Enchant creature\nWhenever enchanted creature deals damage to an opponent, you may draw a card.")
+    loader = _FakeLoader({"Grizzly Bears": _bears(), "Forest": _forest(), "Ophidian Eye": eye_card})
+    engine = build_replay_engine(blank_replay(2), loader)
+    hosts = [GameObject(_bears(), owner_id="p1", zone=Zone.BATTLEFIELD) for _ in range(2)]
+    eye = GameObject(eye_card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    bind_from_catalogue(eye)
+    # Aura first ensures restoring links cannot depend on build order.
+    for obj in [eye, *hosts]:
+        engine.state.add_to_battlefield(obj)
+    assert engine.rules.attach_to_target(eye, hosts[1])
+    descriptor = serialize_replay(engine.state)
+    restored = build_replay_engine(descriptor, loader)
+    restored_eye, wrong_host, right_host = restored.state.battlefield
+    assert right_host.instance_id != hosts[1].instance_id
+    assert restored_eye.attached_to == right_host.instance_id
+    assert restored_eye.attached_to != wrong_host.instance_id
+    restored.rules.deal_damage(restored.state.players[1], 1, source=right_host)
+    restored.resolve_until_stable()
+    assert restored.state.pending_choice["player_id"] == "p1"

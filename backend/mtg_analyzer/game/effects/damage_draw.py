@@ -411,6 +411,10 @@ class DealDamageEffect(GameEffect):
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        with context.state.simultaneous():
+            self._apply_with_dealer(context, targets)
+
+    def _apply_with_dealer(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.dealer_event_key is None:
             self._apply_from(context, targets)
             return

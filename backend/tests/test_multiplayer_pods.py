@@ -69,6 +69,10 @@ def advance_until(session, *, step=None, turn=None, limit=400):
             turn is None or state.internal_turn.number == turn
         ):
             return
+        if state.pending_choice:
+            choice = state.pending_choice
+            session.apply_action({"type": "choose", "option_id": choice["options"][0]["id"]}, actor_id=choice["player_id"])
+            continue
         holder = state.priority_player
         if holder is None or state.game_over:
             raise AssertionError("nobody holds priority and the target step never came")

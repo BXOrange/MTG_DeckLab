@@ -520,6 +520,9 @@ class GameState:
         #: it off so the human draws on turn 1 instead ("on the draw").
         self.skip_first_draw: bool = True
 
+        # RULE 514.1: suspend cleanup until the active player has discarded.
+        self.cleanup_discard_pending: bool = False
+
         #: Ids of players who have left the game (conceded — RULE 104.3a)
         #: but whose objects are still on the board. Concession normally
         #: happens at sorcery speed, and yanking a board away mid-turn is
@@ -1379,6 +1382,7 @@ class GameState:
     BATCHED_EVENT_TYPES: frozenset[str] = frozenset({
         EventType.ENTERS_BATTLEFIELD, EventType.LEAVES_BATTLEFIELD, EventType.DIES,
         EventType.DISCARD_CARD, EventType.PUT_INTO_GRAVEYARD, EventType.SACRIFICE,
+        EventType.DAMAGE,
     })
 
     @contextmanager

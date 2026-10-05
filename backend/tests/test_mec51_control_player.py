@@ -213,7 +213,10 @@ def test_controller_passes_priority_as_the_controlled_seat():
     for _ in range(60):
         if st.internal_turn.number > start_turn:
             break
-        session.apply_action({"type": "pass_priority"}, actor_id="ann")
+        if st.pending_choice:
+            session.apply_action({"type": "choose", "option_id": st.pending_choice["options"][0]["id"]}, actor_id="ann")
+        else:
+            session.apply_action({"type": "pass_priority"}, actor_id="ann")
     assert st.internal_turn.number > start_turn
 
     # Bob cannot act on his own controlled turn.

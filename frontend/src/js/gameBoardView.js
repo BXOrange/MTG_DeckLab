@@ -216,6 +216,7 @@ export function createGameBoardView(opts = {}) {
   // the same way; same "push aside" escape hatch, e.g. to check the
   // graveyard or a permanent's text before answering.
   let choiceAside = false;
+  let waitingChoiceAside = false;
   // VIS-14: the same push-aside for the RULE 115 target-picker modal
   // (`castTargetModalHtml`) — while true the board is live and the legal
   // targets are clickable right on it (`wirePickTargets`).
@@ -915,7 +916,10 @@ export function createGameBoardView(opts = {}) {
   /** Begin driving `sessionId`, rendering `initialView` immediately. */
   function start(sid, initialView) {
     const isNewSession = sid !== sessionId;
-    if (isNewSession) chatError = '';
+    if (isNewSession) {
+      chatError = '';
+      waitingChoiceAside = false;
+    }
     sessionId = sid;
     stopped = false;
     applyView(initialView);
@@ -1228,6 +1232,7 @@ export function createGameBoardView(opts = {}) {
     setLatestByInstance(byInstance);
     const stackNonEmpty = s.stack.length > 0;
     if (!pending) choiceAside = false;
+    if (!s.waiting_on_choice) waitingChoiceAside = false;
     if (!castTargeting) castTargetAside = false;
     updateTargetOverlays(s);
     updateAbilitySourceOverlays(s, pending);
@@ -1538,7 +1543,17 @@ export function createGameBoardView(opts = {}) {
     if (!waiting) return '';
     const who = playerName(waiting.decider_id || waiting.player_id);
     const what = waiting.prompt ? ` (${escapeHtml(waiting.prompt)})` : '';
-    return `<p class="server-status pending gf-waiting-choice">⏳ ${escapeHtml(who)} trifft gerade eine Entscheidung${what} …</p>`;
+    const asideLabel = waitingChoiceAside ? t('bd.choice.asideShow') : t('bd.choice.asidePush');
+    return `
+      <div class="gf-modal-overlay gf-waiting-choice${waitingChoiceAside ? ' aside' : ''}">
+        <div class="gf-modal" role="dialog" aria-label="${escapeAttr(who)}">
+          <div class="gf-modal-head">
+            <span class="gf-modal-icon">⏳</span>
+            <div role="status"><h4>${escapeHtml(who)} trifft gerade eine Entscheidung${what} …</h4></div>
+            <button type="button" class="gf-modal-aside" data-waiting-choice-aside title="${escapeAttr(t('bd.choice.asideTitle'))}">${asideLabel}</button>
+          </div>
+        </div>
+      </div>`;
   }
 
   // MEC-51 / RULE 720: "Du kontrollierst den Zug von X" (Mindslaver, Sorin
@@ -2465,6 +2480,10 @@ export function createGameBoardView(opts = {}) {
     // Push a pending-choice popup aside (or bring it back).
     root.querySelector('[data-choice-aside]')?.addEventListener('click', () => {
       choiceAside = !choiceAside;
+      render();
+    });
+    root.querySelector('[data-waiting-choice-aside]')?.addEventListener('click', () => {
+      waitingChoiceAside = !waitingChoiceAside;
       render();
     });
 

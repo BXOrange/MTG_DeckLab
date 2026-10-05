@@ -135,13 +135,14 @@ _DUMMY_FILLER = Card(id="goldfish-filler", name="Goldfisch-Karte", type_line="Ca
 _DUMMY_LIBRARY_SIZE = 60
 
 
-def _build_dummy_player(starting_life: int, starting_hand: int) -> Player:
+def _build_dummy_player(starting_life: int, starting_hand: int, player_id: str = "goldfish") -> Player:
     """A passive "goldfish" opponent (UC3): a valid target for combat and for
     damage/discard/draw effects, with life and stats tracked, but one that
     never takes a turn or an action of its own."""
-    dummy = Player(id="goldfish", name="Goldfisch", life=starting_life, is_dummy=True)
+    name = "Goldfisch" if player_id == "goldfish" else f"Goldfisch {player_id.rsplit('-', 1)[-1]}"
+    dummy = Player(id=player_id, name=name, life=starting_life, is_dummy=True)
     for _ in range(_DUMMY_LIBRARY_SIZE):
-        dummy.library.append(GameObject(_DUMMY_FILLER, owner_id="goldfish", zone=Zone.LIBRARY))
+        dummy.library.append(GameObject(_DUMMY_FILLER, owner_id=player_id, zone=Zone.LIBRARY))
     dummy.draw(starting_hand)  # a hand to discard from; hidden in the UI
     return dummy
 
@@ -155,6 +156,7 @@ def build_goldfish_engine(
     with_dummy: bool = False,
     game_format: Optional[str] = None,
     dummy_starting_life: Optional[int] = None,
+    dummy_count: int = 1,
 ) -> GameEngine:
     """Build a goldfish `GameEngine` and deal an opening hand (UC3).
 
@@ -166,7 +168,8 @@ def build_goldfish_engine(
 
     With ``with_dummy`` a passive "Goldfisch" opponent is added (see
     `_build_dummy_player`) so attacks and discard/draw/damage effects have a
-    target and both players' stats are tracked; the turn loop skips its turn.
+    target and all players' stats are tracked; the turn loop skips dummy turns.
+    ``dummy_count`` selects one to three independent passive opponents.
     Off by default so the low-level builder stays a pure solo engine for
     tests that assert single-player behavior; `GameSessionManager.create_goldfish`
     turns it on for real games.
@@ -209,7 +212,11 @@ def build_goldfish_engine(
     players = [player]
     if with_dummy:
         dummy_life = dummy_starting_life if dummy_starting_life is not None else starting_life
-        players.append(_build_dummy_player(dummy_life, starting_hand))
+        if not 1 <= dummy_count <= 3:
+            raise ValueError("dummy_count must be between 1 and 3")
+        for index in range(dummy_count):
+            dummy_id = "goldfish" if index == 0 else f"goldfish-{index + 1}"
+            players.append(_build_dummy_player(dummy_life, starting_hand, dummy_id))
 
     state = GameState(players=players)
     engine = GameEngine(state)
@@ -649,6 +656,7 @@ class GameSession:
             if future:
                 future.cancel()
         self._ai_bot_context = {}
+        self._bot_failure_context = {}
         self._bot_status = {}
         self._smart_ability_uses = {}
         self._smart_ability_positions = {}
@@ -1753,6 +1761,10 @@ class GameSession:
             self._open_next_vancouver_scry()
         if self.engine.state.pending_choice or self._pending_scries:
             return
+        if (self.interactive_priority and self.engine.state.current_step == "cleanup"
+                and self.engine.state.priority_player is None):
+            self._advance_to_priority_window()
+            return
         if self._priority_window_pending:
             self._priority_window_pending = False
             self._advance_to_priority_window()
@@ -1910,7 +1922,8 @@ class GameSession:
         for _ in range(_MAX_DECISION_ADVANCE_STEPS):
             if self.engine.advance_step() is None:
                 return  # game over
-            if self.engine.state.game_over or self.engine.state.priority_player is not None:
+            if (self.engine.state.game_over or self.engine.state.pending_choice
+                    or self.engine.state.priority_player is not None):
                 return
 
     def _apply_advance_to_decision(self) -> dict[str, Any]:

@@ -182,6 +182,7 @@ def run_one_match(
     commanders: Optional[list[Card]],
     *,
     bot: Bot,
+    opponent_count: int = 1,
     starting_life: int = 40,
     starting_hand: int = 7,
     game_format: Optional[str] = None,
@@ -204,6 +205,7 @@ def run_one_match(
         starting_life=starting_life,
         starting_hand=starting_hand,
         with_dummy=True,
+        dummy_count=opponent_count,
         game_format=game_format,
         dummy_starting_life=DUMMY_ANALYSIS_LIFE,
     )
@@ -294,15 +296,15 @@ def run_one_match(
             for rec in state.stats["timeline"]
             if rec["player_id"] == "p1" and rec["kind"] == "draw" and rec["turn"] <= turn
         )
-        # RULE 103.7a: the starting player skips their very first draw, so a
-        # perfectly ordinary solo game has drawn (turn - 1) cards by turn N,
-        # not `turn` — using that as the baseline means 0 reads as "exactly
-        # on curve" rather than every normal game sitting at a constant -1.
+        # RULE 103.8a/c: only two-player games skip the first draw.
+        # Passive opponents count as seats, so multiplayer starts drawing
+        # on turn one. Measure additional draws against that baseline.
+        normal_draws = max(0, turn - 1) if opponent_count == 1 else turn
         per_turn[turn] = {
             "mana_potential": float(mana_potential.max_potential_total(engine, player)),
             "lands_drawn": float(total_lands - lands_remaining),
             "cards_drawn": float(cards_drawn),
-            "card_advantage": float(cards_drawn - max(0, turn - 1)),
+            "card_advantage": float(cards_drawn - normal_draws),
         }
 
     aborted_infinite_mana = False
@@ -333,6 +335,7 @@ def run_one_match(
                 name = action.get("name")
                 if name in favorite_names and favorite_castable_turn.get(name) is None:
                     favorite_castable_turn[name] = state.turn_nr
+        bot.prepare(session)
         view = session.view()
         action = bot.decide(view, actions)
         if action is None:
@@ -341,17 +344,14 @@ def run_one_match(
             session.apply_action(action)
             if action.get("type") == "mulligan":
                 mulligans_taken += 1
-        except GameActionError:
-            # Mirrors `run_bots`'s "one bad offer shouldn't wedge the whole
-            # run": note the failure so the bot doesn't retry the exact same
-            # offer, then just fast-forward past it.
+        except GameActionError as exc:
+            # Feed the reason back and select again without advancing past
+            # a rejected action. The run's action budget bounds retries.
             if action.get("type") == "advance_to_decision":
                 break
-            bot.note_failure(action)
-            try:
-                session.apply_action({"type": "advance_to_decision"})
-            except GameActionError:
-                break
+            bot.note_failure(action, str(exc))
+            actions_used += 1
+            continue  # choose another action in the unchanged position
         actions_used += 1
         record_assembled_combos()
         maybe_sample()
@@ -471,6 +471,7 @@ class DynamicAnalysisResult:
     any_combo_stats: dict[str, Any] = field(default_factory=dict)
     mulligans_taken: dict[str, float] = field(default_factory=dict)
     mulligan_distribution: dict[str, int] = field(default_factory=dict)
+    opponent_count: int = 1
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -478,6 +479,7 @@ class DynamicAnalysisResult:
             "matchesRun": self.matches_run,
             "maxTurns": self.max_turns,
             "botKind": self.bot_kind,
+            "opponentCount": self.opponent_count,
             "perTurn": self.per_turn,
             "tutorsResolved": self.tutors_resolved,
             "commanderTurns": self.commander_turns,
@@ -529,6 +531,7 @@ def _run_one_match_worker(payload: dict[str, Any]) -> MatchResult:
         payload["library"],
         payload["commanders"],
         bot=bot,
+        opponent_count=payload["opponent_count"],
         starting_life=payload["starting_life"],
         starting_hand=payload["starting_hand"],
         game_format=payload["game_format"],
@@ -587,6 +590,7 @@ def run_dynamic_analysis(
     bot_kind: str,
     num_matches: int,
     max_turns: int,
+    opponent_count: int = 1,
     starting_life: int = 40,
     starting_hand: int = 7,
     game_format: Optional[str] = None,
@@ -612,6 +616,8 @@ def run_dynamic_analysis(
     whole batch, mirroring `services/bots.py`'s `run_bots` "one bad action
     doesn't wedge the table" philosophy.
     """
+    if not 1 <= opponent_count <= 3:
+        raise ValueError("opponent_count must be between 1 and 3")
     num_matches = max(1, min(MAX_NUM_MATCHES, int(num_matches)))
     max_turns = max(1, min(MAX_MAX_TURNS, int(max_turns)))
     if bot_kind not in BOT_TYPES:
@@ -685,6 +691,7 @@ def run_dynamic_analysis(
         shuffled_libraries.append(shuffled)
     payload_base: dict[str, Any] = {
         "bot_kind": bot_kind,
+        "opponent_count": opponent_count,
         "commanders": commanders,
         "starting_life": starting_life,
         "starting_hand": starting_hand,
@@ -726,6 +733,7 @@ def run_dynamic_analysis(
                     shuffled,
                     commanders,
                     bot=bot,
+                    opponent_count=opponent_count,
                     starting_life=starting_life,
                     starting_hand=starting_hand,
                     game_format=game_format,
@@ -781,6 +789,7 @@ def run_dynamic_analysis(
         matches_run=matches_run,
         max_turns=max_turns,
         bot_kind=bot_kind,
+        opponent_count=opponent_count,
         per_turn=per_turn,
         tutors_resolved=_mean_stddev(tutor_values),
         commander_turns=commander_turns,
@@ -887,6 +896,7 @@ class DynamicAnalysisJobs:
         bot_kind: str,
         num_matches: int,
         max_turns: int,
+        opponent_count: int = 1,
         starting_life: int = 40,
         starting_hand: int = 7,
         game_format: Optional[str] = None,
@@ -910,6 +920,7 @@ class DynamicAnalysisJobs:
                     library,
                     commanders,
                     bot_kind=bot_kind,
+                    opponent_count=opponent_count,
                     num_matches=num_matches,
                     max_turns=max_turns,
                     starting_life=starting_life,

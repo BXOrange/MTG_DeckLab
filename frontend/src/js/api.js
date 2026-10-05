@@ -535,7 +535,7 @@ export async function endSolo(sessionId) {
  * drives the matches and how many to run.
  * @param {{deckId?: string, commanderText?: string, mainboardText?: string,
  *          sideboardText?: string, botKind: string, numMatches: number,
- *          maxTurns: number, favoriteCards?: string[],
+ *          maxTurns: number, opponentCount?: number, favoriteCards?: string[],
  *          combos?: {id: string, uses: {name: string, quantity: number}[]}[]}} payload
  *   `favoriteCards` falls back to the saved deck's own `favoriteCards` when
  *   `deckId` is given and this is omitted (`api/dynamic_analysis.py`).

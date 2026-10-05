@@ -25,6 +25,7 @@ class SmartBot(GreedyBot):
         self._ability_positions = set()
 
     def prepare(self, session) -> None:
+        super().prepare(session)
         from mtg_analyzer.services.bot_strategy import build_strategy
         profiles = getattr(session, '_bot_strategies', {})
         if self.player_id not in profiles:

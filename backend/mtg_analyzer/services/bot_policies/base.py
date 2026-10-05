@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import random
+import hashlib
+import json
 from typing import Any, Optional
 
 
@@ -35,6 +37,7 @@ class Bot:
         #: 702.111b menace, a cast whose targets it picked badly) gives up
         #: on that offer instead of retrying it until the action cap.
         self._failed: set[tuple] = set()
+        self.action_feedback: list[dict[str, Any]] = []
         #: MEC-46: a RULE 701.38 vote has no "safe default" the way a "you
         #: may" prompt does — every option is a real, deliberate choice.
         #: A bot with no evaluation picks one at random, but seeded off its
@@ -43,6 +46,18 @@ class Bot:
 
     def prepare(self, session) -> None:
         """Attach policy-owned session context before reading a fresh view."""
+        view = session.view(perspective=self.player_id)
+        position = json.dumps({'state': view['state'], 'setup': view['setup'],
+                               'priority': view.get('priority'),
+                               'actions': view.get('legal_actions')}, sort_keys=True)
+        key = hashlib.sha256(position.encode()).hexdigest()
+        contexts = getattr(session, '_bot_failure_context', {})
+        memory = contexts.setdefault(self.player_id, {})
+        if memory.get('position') != key:
+            memory.update(position=key, failed=set(), feedback=[])
+        self._failed = memory['failed']
+        self.action_feedback = memory['feedback']
+        session._bot_failure_context = contexts
 
     waiting = False
 
@@ -50,6 +65,8 @@ class Bot:
 
     def decide(self, view: dict[str, Any], actions: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
         """The next action this bot wants to take, or None for "nothing"."""
+        failed_blocks = ('declare_blockers',) in self._failed and any(
+            a['type'] == 'declare_blockers' for a in actions)
         actions = [a for a in actions if self._signature(a) not in self._failed]
         # A pending choice blocks everything else (`GameSession._dispatch`),
         # so it has to be answered before anything is even considered.
@@ -68,6 +85,8 @@ class Bot:
             assignments = self.blocks(view, offers)
             if assignments:
                 return {"type": "declare_blockers", "assignments": assignments}
+        if failed_blocks:
+            return {"type": "declare_blockers", "assignments": []}
         if not self.has_priority(view):
             return None
         # VIS-12: a bot accepts "Pass this turn" exactly as a human can arm
@@ -312,7 +331,13 @@ class Bot:
             action.get("instance_id"),
             action.get("ability_index"),
             str(action.get("mode")),
+            action.get("option_id"),
         )
 
-    def note_failure(self, action: dict[str, Any]) -> None:
+    def note_failure(self, action: dict[str, Any], reason: str = "") -> None:
+        self.action_feedback.append({"action": dict(action), "reason": reason})
+        self.action_feedback[:] = self.action_feedback[-3:]
         self._failed.add(self._signature(action))
+        if action['type'] == 'attack':
+            for instance_id in action.get('instance_ids', []):
+                self._failed.add(self._signature({'type': 'attack', 'instance_id': instance_id}))

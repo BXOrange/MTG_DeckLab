@@ -175,3 +175,64 @@ def test_manual_display_actions_do_not_spend_llm_budget_on_a_forced_pass():
     assert not policy.waiting
     assert not policy.client.payloads
     assert not policy.context.get('future')
+
+
+def test_rejected_action_reason_reaches_next_request_and_survives_rebuild():
+    client = Client()
+    b = bot(client)
+    session = make_game()
+    b.prepare(session)
+    v = view(hand=[obj(1, 'Forest')])
+    b.decide(v, actions())
+    b.context['future'].result(timeout=5)
+    rejected = b.decide(v, actions())
+    b.note_failure(rejected, 'Dieses Land kann jetzt nicht gespielt werden.')
+    rebuilt = bot(client)
+    rebuilt.prepare(session)
+    assert rebuilt.decide(v, actions()) is None
+    assert rebuilt.waiting
+    rebuilt.context['future'].result(timeout=5)
+    assert client.payloads[-1]['action_feedback'] == [
+        {'action': rejected, 'reason': 'Dieses Land kann jetzt nicht gespielt werden.'}]
+    assert actions()[0] in client.payloads[-1]['offers']
+    rebuilt.decide(v, actions())
+    # A new position must not retain stale rejection messages.
+    rebuilt.decide(view(hand=[obj(2, 'Forest')]), [{'type':'play_land','instance_id':2}, actions()[1]])
+    assert rebuilt.action_feedback == []
+
+
+def test_driver_retries_rejected_action_without_passing(monkeypatch):
+    from mtg_analyzer.services.bots import Bot
+    from mtg_analyzer.services.game_session import GameActionError
+    session = make_game()
+    keep(session, 'ann', 'bob')
+    class CorrectingBot(Bot):
+        def decide(self, view, actions):
+            if not self.action_feedback:
+                return {'type':'play_land', 'instance_id':-1}
+            assert self.action_feedback[-1]['reason'] == 'Karte nicht verfügbar'
+            return {'type':'toggle_tapped', 'instance_id':123}
+    applied = []
+    def apply(action, actor_id):
+        applied.append(action)
+        if len(applied) == 1:
+            raise GameActionError('Karte nicht verfügbar')
+    monkeypatch.setattr(session, 'apply_action', apply)
+    assert _one_bot_action(session, {'ann':CorrectingBot('ann')})
+    assert [a['type'] for a in applied] == ['play_land', 'toggle_tapped']
+
+
+def test_repeated_rejections_are_bounded_and_reset_for_new_position():
+    b = bot()
+    v = view(hand=[obj(1, 'Forest')])
+    b.decide(v, actions())
+    b.context['future'].result(timeout=5)
+    b.decide(v, actions())
+    for _ in range(3):
+        b.note_failure(actions()[0], 'Nicht erlaubt')
+    assert b.decide(v, actions()) in (None, {'type':'pass_priority'})
+    assert not b.waiting
+    assert len(b.client.payloads) == 1
+    b.decide(view(hand=[obj(2, 'Forest')]), [{'type':'play_land','instance_id':2}, actions()[1]])
+    b.context['future'].result(timeout=5)
+    assert b.client.payloads[-1]['action_feedback'] == []

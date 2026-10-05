@@ -42,6 +42,9 @@ player counters, commander damage, turn/phase). Save/load is JSON export/import
 of a **re-resolvable descriptor** (`services/replay.py`: `serialize_replay`
 / `build_replay_engine` — the models have no `from_dict`, so cards are stored
 by id/name and rebuilt from the cache; tokens carry a self-describing block).
+Replay descriptors carry exported `instance_id` values so Aura/Equipment
+attachments are remapped to rebuilt object IDs after import. Legacy exports
+without these IDs cannot reliably reconstruct numeric attachment references.
 `GET /api/game/{id}/replay-export` works for a goldfish session too, so a
 goldfish position can be exported and re-opened in Replay. Frontend:
 `frontend/src/js/replayView.js`.
@@ -115,6 +118,22 @@ declare-blockers, a turn-based action the *defending* player takes while
 the attacker still holds priority (and "declares no blocks" is itself a
 complete, submittable answer — an empty `assignments` list — not a state
 the UI can just fail to reach).
+
+**Aura/Equipment trigger predicates** resolve their source by instance ID
+from the current state. Snapshot callbacks retain Python closures, so reading
+a captured GameObject directly can silently use pre-rollback attachment data
+after an action error or take-back (`tests/test_ophidian_eye_trigger.py`).
+
+**Malcolm / Kediss damage:** Malcolm counts both combat and noncombat Pirate
+damage. Noncombat damage instructions emit a `DAMAGE` batch; the trigger
+counts distinct opponents, so Kediss copying Malcolm's damage yields Treasures
+for the other opponents as well. See `tests/test_malcolm_noncombat_damage.py`.
+
+**Cleanup discards** (RULE 514.1) use the shared pending-choice card picker.
+The active player selects excess hand cards before damage and temporary effects
+are cleared; shared-game advancement pauses and resumes after the last pick.
+Other seats see `waiting_on_choice` as a centered, non-blocking popup with the
+current prompt and the shared push-aside/show controls; it takes no layout space.
 
 **Take-backs** (`GameSession.take_back`) are a table-configured, RULE-free
 undo convenience — not `rewind`, which is a solo-practice, whole-history
@@ -205,6 +224,10 @@ subclasses override policy only — `GoldfishBot` (lands, else pass) and
 `AIBot` (configured LLM, with Smart fallback).
 `SmartBot` is the default in Solo, Multiplayer and dynamic analysis, including
 API requests that omit the bot kind; explicitly selected policies are preserved.
+Dynamic analysis offers 1–3 passive opponents (`opponentCount`, default 1),
+with independent hidden hands/libraries and no turns of their own. The selected
+count is preserved in background/process workers and reported in results;
+card-advantage baselines account for the first draw in multiplayer games.
 Classes live individually in
 `services/bot_policies/`; `services/bots.py` reexports them and owns the registry
 and driver. `prepare(session)` attaches policy context before each fresh view.
@@ -215,6 +238,13 @@ AI Bot delegates pregame choices to this deterministic policy without an LLM cal
 Human pregame actions use the shared board's existing pending-choice dialog.
 AI requests run in bounded background workers and preserve priority while pending;
 solo view polling and the multiplayer watchdog collect completed decisions.
+All bot policies retain position-scoped rejection feedback across policy rebuilds
+and try another selection before passing. Rejected blocks can be replaced by an
+empty block declaration; choice failures exclude only the rejected option.
+AI requests carry
+the rejected action and engine reason, retaining feedback across policy rebuilds
+only for the same visible position. Three rejections bound correction attempts;
+the Smart fallback excludes rejected offers and existing LLM call budgets apply.
 Settings exposes Claude/Anthropic and compatible endpoints with automatically
 loaded model dropdowns and manual fallback; the same transport
 implements ANA-1 narrative analysis, structured validation and persistent caching.
@@ -947,6 +977,7 @@ English and German.
 | What an effect type/engine method *is* (instruction/fusion/alias/…) | `backend/mtg_analyzer/game/isa.py`, `scripts/isa_report.py --registry` |
 | Which operations the corpus actually uses, and their argument frames | `scripts/isa_report.py --corpus` (re-derives `13_` §5.6b from the ledger) |
 | What a `TargetSpec.kind` decomposes into (types × scope × filters) | `game/targeting.py`'s `TARGET_FRAMES` |
+| Mana abilities with “Activate only if …” (Mox Opal / Metalcraft) | `game/mana_abilities.py` parses the shared activation condition and gates production options; `engine/activation_mixin.py` rechecks it during cost validation, including mana abilities and auto-tap |
 | On-disk paths / env-var config | `backend/mtg_analyzer/config.py` |
 | Goldfish UI | `frontend/src/js/goldfishView.js` |
 | Solo vs. bots (Multiplayer engine, no lobby) | `backend/mtg_analyzer/api/solo.py`, `frontend/src/js/soloView.js`; shared picker/mulligan/banner markup in `frontend/src/js/gameSetup.js` (also used by goldfish/multiplayer) |

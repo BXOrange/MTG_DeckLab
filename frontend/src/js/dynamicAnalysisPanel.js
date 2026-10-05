@@ -40,6 +40,7 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve, 
   let numMatches = 20;
   let maxTurns = 10;
   let botKind = 'smart';
+  let opponentCount = 1;
   let job = null; // {status, completed, total, result, error} | null
   let starting = false;
   let startError = '';
@@ -92,6 +93,11 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve, 
         <label>${t('dyn.bot')}
           <select id="sim-bot-kind" ${disabled ? 'disabled' : ''}>${options}</select>
         </label>
+        <label>${t('dyn.opponents')}
+          <select id="sim-opponent-count" ${disabled ? 'disabled' : ''}>
+            ${[1, 2, 3].map((count) => `<option value="${count}" ${count === opponentCount ? 'selected' : ''}>${count}</option>`).join('')}
+          </select>
+        </label>
         <button type="submit" class="primary" ${disabled ? 'disabled' : ''}>
           ${waitingForCombos ? t('dyn.combosLoading') : job && job.status === 'queued' ? t('dyn.waitingWorker') : inProgress ? t('dyn.running') : t('dyn.start')}
         </button>
@@ -141,7 +147,7 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve, 
       .join('');
     const aborted = result.matchesAbortedInfiniteMana || 0;
     return `
-      <p class="hint">${escapeHtml(t('dyn.matchesEvaluated', { run: result.matchesRun, requested: result.matchesRequested, bot: botLabel(result.botKind) }))}</p>
+      <p class="hint">${escapeHtml(t('dyn.matchesEvaluated', { run: result.matchesRun, requested: result.matchesRequested, bot: botLabel(result.botKind), opponents: result.opponentCount || 1 }))}</p>
       ${aborted > 0 ? infiniteManaWarningHtml(aborted, result.matchesRun, result.infiniteManaTurn) : ''}
       <div class="analyze-stat-grid">
         <div class="analyze-stat-tile">
@@ -408,6 +414,7 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve, 
     const res = await startDynamicAnalysis({
       ...deckSource,
       botKind,
+      opponentCount,
       numMatches,
       maxTurns,
       combos: combos.map(({ id, uses }) => ({
@@ -430,10 +437,14 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve, 
   }
 
   function wire() {
+    root.querySelector('#sim-opponent-count')?.addEventListener('change', (e) => {
+      opponentCount = Number(e.target.value) || 1;
+    });
     root.querySelector('.analyze-sim-form')?.addEventListener('submit', (e) => {
       e.preventDefault();
       numMatches = Math.min(200, Math.max(1, Number(root.querySelector('#sim-num-matches')?.value) || numMatches));
       maxTurns = Math.min(30, Math.max(1, Number(root.querySelector('#sim-max-turns')?.value) || maxTurns));
+      opponentCount = Number(root.querySelector('#sim-opponent-count')?.value) || 1;
       botKind = root.querySelector('#sim-bot-kind')?.value || botKind;
       start();
     });

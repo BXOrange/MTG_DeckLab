@@ -295,6 +295,9 @@ def test_without_the_static_cleanup_discards_down_to_seven():
         _in_hand(p1, Card(id=f"Filler {i}", name=f"Filler {i}", type_line="Instant", is_instant=True))
 
     engine._step_cleanup()
+    assert len(p1.hand) == 10
+    while state.pending_choice:
+        engine.resolve_pending_choice(state.pending_choice["options"][0]["id"])
     assert len(p1.hand) == 7
 
 

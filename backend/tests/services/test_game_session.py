@@ -65,7 +65,10 @@ def advance_until(session, *, turn=None, step=None, limit=80):
         st = session.engine.state
         if (turn is None or st.internal_turn.number == turn) and (step is None or st.current_step == step):
             return
-        session.apply_action({"type": "advance_step"})
+        if st.pending_choice:
+            session.apply_action({"type": "choose", "option_id": st.pending_choice["options"][0]["id"]})
+        else:
+            session.apply_action({"type": "advance_step"})
     raise AssertionError(f"never reached turn={turn} step={step}")
 
 
@@ -1036,3 +1039,57 @@ class TestGameFormatThreading:
         )
         assert session.engine.state.format_name == "commander"
         assert session.engine.state.archenemy_id is None
+
+
+@pytest.mark.parametrize("interactive", [False, True])
+def test_cleanup_waits_for_chosen_discards(interactive):
+    from mtg_analyzer.models.game.game_object import GameObject, Zone
+
+    engine = build_goldfish_engine([land()] * 30, with_dummy=True)
+    session = GameSession(engine, require_setup=False, mode="multiplayer" if interactive else "goldfish")
+    player = engine.state.active_player
+    while len(player.hand) < 9:
+        player.add_to_zone(GameObject(land(f"Card {len(player.hand)}"), owner_id=player.id, zone=Zone.HAND), Zone.HAND)
+    marker = GameObject(bear(), owner_id=player.id, zone=Zone.BATTLEFIELD)
+    engine.state.add_to_battlefield(marker)
+    marker.damage_marked = 1
+    engine._step_cleanup()
+    engine.state.current_step = "cleanup"
+    engine.state.priority_player_index = None
+    assert len(player.hand) == 9
+    assert marker.damage_marked == 1
+    first, second = player.hand[:2]
+    session.apply_action({"type": "choose", "instance_id": first.instance_id}, actor_id=player.id)
+    assert first in player.graveyard
+    assert engine.state.pending_choice is not None
+    assert marker.damage_marked == 1
+    session.apply_action({"type": "choose", "instance_id": second.instance_id}, actor_id=player.id)
+    assert second in player.graveyard
+    assert len(player.hand) == 7
+    assert marker.damage_marked == 0
+    assert engine.state.pending_choice is None
+    assert not engine.state.cleanup_discard_pending
+    if interactive:
+        assert engine.state.priority_player is not None
+
+
+def test_next_decision_stops_for_cleanup_discard_and_can_rewind_choice():
+    session = make_session()
+    advance_until(session, step="end")
+    state = session.engine.state
+    player = state.active_player
+    assert len(player.hand) == 8
+    session.apply_action({"type": "advance_to_decision"})
+    assert state.current_step == "cleanup"
+    assert state.pending_choice["action"] == "discard"
+    chosen = player.hand[0].instance_id
+    session.apply_action({"type": "choose", "instance_id": chosen})
+    assert len(player.hand) == 7
+    session.rewind(1)
+    restored = session.engine.state
+    assert restored.cleanup_discard_pending
+    assert restored.pending_choice["action"] == "discard"
+    assert len(restored.active_player.hand) == 8
+    session.apply_action({"type": "choose", "instance_id": chosen})
+    session.apply_action({"type": "advance_to_decision"})
+    assert session.engine.state.internal_turn.number == 2
