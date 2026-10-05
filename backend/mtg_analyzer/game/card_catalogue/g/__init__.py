@@ -64,3 +64,5 @@ from . import gourmands_talent
 from . import garruk_cursed_huntsman
 from . import grime_gorger
 from . import gadrak_the_crown_scourge
+from . import gempalm_polluter
+from . import gate_to_the_afterlife

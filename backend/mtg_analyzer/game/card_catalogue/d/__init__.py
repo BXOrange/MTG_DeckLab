@@ -73,3 +73,4 @@ from . import dwynen_gilt_leaf_daen  # noqa: F401
 from . import deathbringer_regent
 from . import dragon_egg
 from . import deceptive_frostkite
+from . import dread_summons

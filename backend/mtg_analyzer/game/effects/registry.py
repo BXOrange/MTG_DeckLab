@@ -2667,6 +2667,8 @@ EffectRegistry.register(
         set_name=p.get("set_name"),
         until_end_of_turn=bool(p.get("until_end_of_turn", False)),
         creature_filter=p.get("creature_filter"),
+        token_add_subtypes=p.get("token_add_subtypes"),
+        token_set_colors=p.get("token_set_colors"),
     ),
 )
 EffectRegistry.register(
@@ -2997,7 +2999,7 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "amass",  # RULE 701.48 "Amass <Type> N" (Orcish Bowmasters, MEC-42)
-    lambda p: AmassEffect(subtype=p.get("subtype", "Zombies"), count=int(p.get("count", 1))),
+    lambda p: AmassEffect(subtype=p.get("subtype", "Zombies"), count=p.get("count", 1)),
 )
 EffectRegistry.register("empower_jace", lambda p: EmpowerJaceEffect(count=p.get("count", 1)))
 EffectRegistry.register(

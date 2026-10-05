@@ -2506,11 +2506,14 @@ class CastingResolutionMixin:
                 if effect.until_end_of_turn and obj._copy_until_eot_base is None:
                     # Cursed Mirror: reverted at cleanup (RULE 514.2), see `become_copy_until_end_of_turn`.
                     obj._copy_until_eot_base = copy_mechanics.snapshot_face(obj)
+                as_token = obj.is_token and bool(effect.token_add_subtypes or effect.token_set_colors)
                 copy_mechanics.become_copy(
-                    obj, target, effect.add_types, effect.add_subtypes,
+                    obj, target, effect.add_types,
+                    effect.add_subtypes + (effect.token_add_subtypes if as_token else []),
                     only_types=effect.only_types,
                     add_keywords=effect.add_keywords + conditional_keywords,
                     not_legendary=getattr(effect, "not_legendary", False),
+                    set_colors=effect.token_set_colors if as_token else None,
                 )
                 if effect.set_name:
                     # "…except his name is ~." — after binding (which is keyed by the copied name).

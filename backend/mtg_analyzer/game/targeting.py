@@ -90,6 +90,8 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     # identical reasoning for the search-criteria sibling of this filter).
     "rebel_permanent": lambda o: "rebel" in o.card.type_line.lower(),
     "mercenary_permanent": lambda o: "mercenary" in o.card.type_line.lower(),
+    # "target Zombie card from your graveyard" (Unholy Grotto, Rot Hulk) — a creature subtype on the printed type line.
+    "zombie_card": lambda o: "zombie" in o.card.type_line.lower(),
 }
 #: Every ``{prefix}_{suffix}`` combination — the full graveyard-target kind
 #: vocabulary (docs/09's Regrowth/Reanimate/Deathrite Shaman/Virtue of
@@ -404,6 +406,7 @@ _GRAVEYARD_TYPE_LABELS: dict[str, str] = {
     "nonland_permanent": "Karte eines nichtländlichen bleibenden Kartentyps",
     "rebel_permanent": "Rebellenkarte",
     "mercenary_permanent": "Söldnerkarte",
+    "zombie_card": "Zombiekarte",
 }
 #: German "whose graveyard" phrase per `_GRAVEYARD_SCOPE_PREFIXES` scope.
 _GRAVEYARD_SCOPE_LABELS: dict[str, str] = {

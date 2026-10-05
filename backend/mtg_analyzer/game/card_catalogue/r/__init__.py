@@ -75,3 +75,4 @@ from . import ripples_of_undeath
 
 from . import rain_of_riches  # noqa: F401
 from . import reflections_of_littjara
+from . import rot_hulk

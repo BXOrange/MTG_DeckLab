@@ -2004,6 +2004,10 @@ def count_selector(
         # `creatures_died_this_turn` tally across every player, minus tokens (the DIES event's own
         # ``is_token`` snapshot).
         return sum(state.nontoken_creatures_died_this_turn.values())
+    if selector == "creatures_you_controlled_died_this_turn":
+        # "…the number of creatures that died under your control this turn" (Priest of the Crossing) — the
+        # controller's own entry of the per-controller DIES tally (`creatures_died_this_turn` sums them all).
+        return int(state.creatures_died_this_turn.get(controller_id, 0))
     if selector == "creatures_attacked_this_turn":
         # RULE 508.1a/508.4: a creature put onto the battlefield attacking
         # did not attack. Count each declared attacker's object once even if

@@ -287,6 +287,9 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # subject's own entry in `GameState.combat_damage_to_players_this_turn` (event-derived,
         # keyed by the stable `instance_id`, so it still answers once the creature has died).
         "dealt_combat_damage_to_player_this_turn",
+        # "…if a player was dealt combat damage by a Zombie this turn" (Lost Monarch of Ifnir) — any creature of
+        # ``subtype`` among `combat_damage_to_players_this_turn`'s dealers (found in any zone: it may have died).
+        "subtype_dealt_combat_damage_to_player_this_turn",  # + ``subtype``
         # "…if you control the creature with the greatest power or tied for the greatest power" (Thickest
         # in the Thicket) — the controller's best creature power is at least every creature's.
         "controls_greatest_power_creature",
@@ -772,6 +775,19 @@ def condition_holds(
         if instance_id is None:
             return False
         return bool(state.combat_damage_to_players_this_turn.get(instance_id))
+    if kind == "subtype_dealt_combat_damage_to_player_this_turn":
+        from .continuous import derived_subtype_words  # function-scoped: continuous imports this module
+
+        wanted = str(condition.get("subtype") or "").lower()
+        if not wanted:
+            return False
+        for instance_id in state.combat_damage_to_players_this_turn:
+            dealer = state.find_object(instance_id)
+            if dealer is None:
+                continue
+            if wanted in {w.lower() for w in derived_subtype_words(dealer)} or wanted in dealer.card.type_line.lower():
+                return True
+        return False
     if kind == "is_you":
         if subject is None or controller_id is None:
             return False

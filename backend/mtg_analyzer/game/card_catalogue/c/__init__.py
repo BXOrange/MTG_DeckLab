@@ -107,3 +107,6 @@ from . import chatterfang_squirrel_general
 
 from . import cache_grab
 from . import coiling_rebirth
+from . import commence_the_endgame
+from . import champion_of_wits
+from . import corpse_augur

@@ -3890,7 +3890,9 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 # 605: MEC-109 — complete Blitz costs, restricted graveyard casts and grants.
 # 607: PLAY-ALL — "counter target activated or triggered ability" as its own clause (Sublime Epiphany's mode).
 # 608: PLAY-ALL — "reveal or control" lands (Temple of the Dragon Queen, Fortified Beachhead): `reveal_types` + `or_control`.
-PARSER_VERSION = "608"
+# 609: PLAY-ALL — the `moved_count` amount's ``card_type`` field ("for each creature card put into a graveyard this way").
+# 610: PLAY-ALL — the `greater_of` amount (``left``/``right``): "A or B, whichever is greater".
+PARSER_VERSION = "610"
 
 
 def parser_source_hash() -> str:

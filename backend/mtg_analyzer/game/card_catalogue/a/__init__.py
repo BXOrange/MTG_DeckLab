@@ -66,3 +66,4 @@ from . import aven_mindcensor  # noqa: F401
 from . import avenger_of_zendikar  # noqa: F401
 from . import awakening_zone  # noqa: F401
 from . import awe_strike  # noqa: F401
+from . import accursed_duneyard

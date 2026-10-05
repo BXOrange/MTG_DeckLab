@@ -151,6 +151,11 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         # The total characteristic of cards a preceding zone-change moved:
         # "the total mana value of cards milled/exiled this way".
         "moved_sum",  # + ``characteristic`` (usually mana_value)
+        # How many cards a preceding zone-change moved, optionally only those of one card type —
+        # "for each creature card put into a graveyard this way" (Dread Summons).
+        "moved_count",  # + optional ``card_type``
+        # The larger of two measurements — ``left`` / ``right`` are themselves amounts.
+        "greater_of",
         # RULE 706.3a: this resolution's most recent `RollDieEffect` total
         # (`GameContext.die_result`) — "…where X is the result." (Growth
         # Spurt, PAR-80). MEC-90's own missing half of the dice subsystem.
@@ -229,6 +234,14 @@ def _base(
         value = amount.get("amount", 0)
         return int(value) if isinstance(value, int) and not isinstance(value, bool) else 0
 
+    if kind == "greater_of":
+        # "…the number of Zombies you control or the number of Zombie cards in your graveyard, whichever is
+        # greater" (Prophet of the Scarab) — the larger of two measurements.
+        return max(
+            amount_of(amount.get("left"), context, source, targets),
+            amount_of(amount.get("right"), context, source, targets),
+        )
+
     if kind == "if":
         holds = effect_conditions.condition_holds(amount.get("condition"), context, source, targets)
         return amount_of(amount.get("then") if holds else amount.get("otherwise"), context, source, targets)
@@ -305,6 +318,13 @@ def _base(
             else:
                 total += int(getattr(obj, characteristic, 0) or 0)
         return total
+
+    if kind == "moved_count":
+        wanted = str(amount.get("card_type") or "").lower()
+        return sum(
+            1 for obj in getattr(context, "moved_objects", []) or []
+            if not wanted or wanted in {w.lower() for w in obj.type_words}
+        )
 
     if kind == "die_result":
         result = getattr(context, "die_result", None)

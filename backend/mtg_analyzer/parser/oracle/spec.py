@@ -244,10 +244,11 @@ RETIRED_EFFECT_PARAMS: dict[str, str] = {
 
 _AMOUNT_SPEC_FIELDS: dict[str, type] = {
     "of": str, "reference": str, "characteristic": str, "counter": str, "selector": (str, dict),
-    "tally": str, "scope": str, "resource": str, "field": str, "aggregate": str,
+    "tally": str, "scope": str, "resource": str, "field": str, "aggregate": str, "card_type": str,
     "amount": int, "multiply": int, "divide": int, "plus": int, "minus": int,
     "minimum": int, "maximum": int, "round_up": bool,
     "condition": dict, "then": (int, dict), "otherwise": (int, dict),
+    "left": (int, dict), "right": (int, dict),
 }
 
 #: `AbilitySpec.conditional_flash`'s whitelisted keys — see that field's
@@ -1575,7 +1576,7 @@ class AbilitySpec:
                     raise SpecValidationError("'condition' in an amount spec must be a dict")
                 AbilitySpec._validate_condition(value)
                 continue
-            if key in ("then", "otherwise"):
+            if key in ("then", "otherwise", "left", "right"):
                 if isinstance(value, dict):
                     AbilitySpec._validate_amount_spec(value, _depth + 1)
                 elif isinstance(value, bool) or not isinstance(value, int):

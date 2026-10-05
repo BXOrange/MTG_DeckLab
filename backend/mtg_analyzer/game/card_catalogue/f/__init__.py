@@ -53,3 +53,4 @@ from . import furygale_flocking  # noqa: F401
 from . import fable_of_the_mirror_breaker
 
 from . import first_responder
+from . import forgotten_creation

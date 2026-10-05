@@ -483,16 +483,22 @@ class AmassEffect(GameEffect):
     nothing here differentiates otherwise-identical Army tokens.
     """
 
-    def __init__(self, subtype: str = "Zombies", count: int = 1, source: Optional["GameObject"] = None) -> None:
+    def __init__(self, subtype: str = "Zombies", count: Any = 1, source: Optional["GameObject"] = None) -> None:
         super().__init__(source)
         self.subtype = str(subtype)
-        self.count = max(0, int(count))
+        # Stored raw, coerced at `apply` (a `bind`-measured "amass X" — Commence the Endgame — still reads as
+        # the ``"$n"`` sentinel when `target_specs` builds the composed effect once to enumerate targets).
+        self.count = count
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ...services.token_database import synthesize_token_card  # avoid a services↔effects cycle
 
         player = _controller_of(self.source, context)
-        if player is None or self.count <= 0:
+        try:
+            count = max(0, int(self.count))
+        except (TypeError, ValueError):
+            return
+        if player is None or count <= 0:
             return
         army = next(
             (
@@ -511,7 +517,7 @@ class AmassEffect(GameEffect):
             context.created_objects.extend(made)
             army = made[0] if made else None
         if army is not None:
-            context.add_counters(army, self.count, "+1/+1", source=self.source)
+            context.add_counters(army, count, "+1/+1", source=self.source)
 
 
 class PayLifeEqualToOpponentsCombatDamagedDrawThatManyEffect(GameEffect):
@@ -3819,9 +3825,16 @@ class EnterAsCopyReplacement(GameEffect):
         set_name: Optional[str] = None,
         until_end_of_turn: bool = False,
         creature_filter: Optional[dict[str, Any]] = None,
+        token_add_subtypes: Optional[list[str]] = None,
+        token_set_colors: Optional[list[str]] = None,
     ) -> None:
         super().__init__(None)
         self.target_kind = target_kind
+        #: "…except if this creature was embalmed, the token … is white, and it's a Zombie in addition to its other
+        #: types" (Vizier of Many Faces) — applied only when the entering object is a token (an Embalm token is the
+        #: only way such a card becomes one; any other token copy of it gets the same, a documented simplification).
+        self.token_add_subtypes = list(token_add_subtypes or [])
+        self.token_set_colors = list(token_set_colors) if token_set_colors else None
         #: "…a copy of a creature you control **with power 4 or greater**" (Deceptive Frostkite) — the
         #: `TargetSpec.creature_filter` narrowing the copy's legal choices (`_offer_enter_as_copy`).
         self.creature_filter = dict(creature_filter) if creature_filter else None
