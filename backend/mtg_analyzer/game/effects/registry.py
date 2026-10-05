@@ -87,6 +87,7 @@ EffectRegistry.register(
     lambda p: DrawCardEffect(
         count=p.get("count", 1), player=p.get("player"), count_selector=p.get("count_selector"),
         target_kind=p.get("target_kind"), selector=p.get("selector"),
+        target_count=int(p.get("target_count", 1) or 1), target_optional=bool(p.get("target_optional", False)),
     ),
 )
 EffectRegistry.register(
@@ -1153,7 +1154,7 @@ EffectRegistry.register(
     # turn; no `target_spec` of its own (it reads `targets[0]`, the same
     # "no target_spec, sees the shared list" idiom `ConditionalEffect` uses).
     "prevent_attacking_player_this_turn",
-    lambda p: PreventAttackingPlayerThisTurnEffect(),
+    lambda p: PreventAttackingPlayerThisTurnEffect(reversed=bool(p.get("reversed", False))),
 )
 EffectRegistry.register(
     "return_linked_exile",
@@ -1352,7 +1353,10 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    "_request_choose_player", lambda p: RequestChoosePlayerEffect()  # Stuffy Doll
+    "_request_choose_player",  # Stuffy Doll; ``opponents_only``/``then_effects``: Intellectual Offering
+    lambda p: RequestChoosePlayerEffect(
+        opponents_only=bool(p.get("opponents_only", False)), then_effects=p.get("then_effects"),
+    ),
 )
 EffectRegistry.register("slithermuse", lambda p: SlithermuseEffect())
 EffectRegistry.register("haunt", lambda p: HauntEffect())
@@ -1398,7 +1402,10 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register("peek_top_land_battlefield_tapped", lambda p: PeekTopLandBattlefieldTappedEffect())
-EffectRegistry.register("peek_top_land_or_hand", lambda p: PeekTopLandOrHandEffect())
+EffectRegistry.register(
+    "peek_top_land_or_hand",  # Risen Reef; ``reveal_then``: Fisher's Talent's "you may reveal it if it's a land"
+    lambda p: PeekTopLandOrHandEffect(reveal_then=p.get("reveal_then")),
+)
 EffectRegistry.register(
     # "Target player puts a +1/+1 counter on each creature they control."
     # (Shadrix Silverquill's third mode, PAR-60)
@@ -2501,6 +2508,7 @@ EffectRegistry.register(
         colors=p.get("colors"),
         target_operand=p.get("target_operand"),
         selector_player=p.get("selector_player"),
+        remove_from_combat=bool(p.get("remove_from_combat", False)),
     ),
 )
 EffectRegistry.register(
@@ -3413,6 +3421,7 @@ EffectRegistry.register(
         "pt_set",
         affects=p.get("affects", "all_creatures"),
         params={"power": p.get("power", 0), "toughness": p.get("toughness", 0),
+                "power_count": p.get("power_count"), "toughness_count": p.get("toughness_count"),
                 **_selectors(p)},
     ),
 )
@@ -4713,6 +4722,7 @@ EffectRegistry.register(
             # controller check entirely when set.
             "any_player": bool(p.get("any_player", False)),
             "grants_flash": bool(p.get("grants_flash", False)),
+            "from_hand": bool(p.get("from_hand", False)),
             **_selectors(p),
         },
     ),

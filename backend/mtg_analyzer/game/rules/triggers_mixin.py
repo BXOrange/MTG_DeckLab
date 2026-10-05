@@ -1597,11 +1597,14 @@ class TriggerCollectionMixin:
         if not spans:
             return set()
         start, _ = cls._span_bounds(spans, idx)
+        # A player has no instance id: it is picked (and excluded) by its player id (RULE 601.2c — "any number
+        # of target opponents" can't name the same opponent twice).
         return {
-            getattr(obj, "instance_id", None)
+            getattr(obj, "instance_id", None) if getattr(obj, "instance_id", None) is not None
+            else getattr(obj, "id", None)
             for group in groups[start:idx]
             for obj in group
-            if getattr(obj, "instance_id", None) is not None
+            if getattr(obj, "instance_id", None) is not None or getattr(obj, "id", None) is not None
         }
     def _continue_trigger_multi_target(
         self,
@@ -1645,7 +1648,10 @@ class TriggerCollectionMixin:
         # different rule and stays `distinct_from_others`' job.
         picked = self._span_picks(groups, spans, idx)
         if picked:
-            options = [o for o in options if o.get("instance_id") not in picked]
+            options = [
+                o for o in options
+                if o.get("instance_id", o.get("player_id")) not in picked
+            ]
         if not options:
             # A `per_player` round (PAR-130) whose player controls nothing
             # legal is skipped: no target is chosen for that player.

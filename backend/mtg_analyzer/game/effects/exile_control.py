@@ -1369,12 +1369,22 @@ class PreventAttackingPlayerThisTurnEffect(GameEffect):
     `GameState.no_attack_pairs_this_turn`, swept at cleanup.
     """
 
-    def __init__(self, source: Optional["GameObject"] = None) -> None:
+    def __init__(self, source: Optional["GameObject"] = None, reversed: bool = False) -> None:
         super().__init__(source)
         self.target_spec = None
+        #: "**They** can't attack you or planeswalkers you control that combat." (Illusionist's Gambit) — the
+        #: other direction: the *active player* (whose attackers were just taken out of combat) may not attack
+        #: this ability's controller, with no target named.
+        self.reversed = bool(reversed)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         controller = _controller_of(self.source, context)
+        if self.reversed:
+            active = context.state.active_player
+            if controller is None or active is None or active.id == controller.id:
+                return
+            context.state.no_attack_pairs_this_turn.add((active.id, controller.id))
+            return
         target = (targets or [None])[0]
         them_id = getattr(target, "id", None)
         if controller is None or them_id is None:
@@ -1417,6 +1427,15 @@ class GainControlBySourceEffect(GameEffect):
         if controller is None:
             return
         players = context.state.players
+        if self.recipient == "event_player":
+            # "…that player draws three cards and gains control of ~." (Coveted Jewel) — the player the firing
+            # event names (the unblocked attacker's controller), whoever that opponent is.
+            new_controller_id = (context.trigger_event or {}).get("player_id")
+            if new_controller_id is None or new_controller_id == self.source.controller_id:
+                return
+            self.source.controller_id = new_controller_id
+            context.recompute()
+            return
         if self.recipient == "activator":
             # "Gain control of ~." on an ability only an opponent may
             # activate (Oft-Nabbed Goat, RULE 602.2b) — control moves to
@@ -2922,14 +2941,29 @@ class PeekTopLandBattlefieldTappedEffect(GameEffect):
 
 class PeekTopLandOrHandEffect(GameEffect):
     """Look at the top card; optionally put a land from it onto the
-    battlefield tapped, otherwise put that card into hand (Risen Reef)."""
+    battlefield tapped, otherwise put that card into hand (Risen Reef).
+
+    With ``reveal_then`` it is instead "look at the top card; you may reveal it if it's a land card" (Fisher's
+    Talent): only a land can be revealed, and the given effect specs run if it was."""
+
+    def __init__(
+        self, reveal_then: Optional[list[dict[str, Any]]] = None, source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.reveal_then = [dict(spec) for spec in reveal_then] if reveal_then is not None else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
-        if player is not None:
+        if player is None:
+            return
+        if self.reveal_then is not None:
             context.engine.peek_top_land_battlefield_tapped(
-                player, source=self.source, otherwise_hand=True,
+                player, source=self.source, reveal_then=self.reveal_then,
             )
+            return
+        context.engine.peek_top_land_battlefield_tapped(
+            player, source=self.source, otherwise_hand=True,
+        )
 
 
 class ReturnCreaturesByPowerParityEffect(GameEffect):

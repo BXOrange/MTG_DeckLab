@@ -16,6 +16,7 @@ from . import peer_into_the_abyss  # noqa: F401
 from . import pemmin_s_aura  # noqa: F401
 from . import penance  # noqa: F401
 from . import pentagram_of_the_ages  # noqa: F401
+from . import perch_protection  # noqa: F401
 from . import peregrin_took  # noqa: F401
 from . import perplexing_chimera  # noqa: F401
 from . import perplexing_test  # noqa: F401

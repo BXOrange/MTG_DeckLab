@@ -274,6 +274,13 @@ class SearchLibraryEffect(GameEffect):
                 # effect with no legal target left.
                 return
             player = target
+        elif isinstance(self.player, (str, dict)):
+            # A player operand (`effect_operands`): "each opponent may search …" run per opponent as the acting
+            # player (``"controller"``), or the spell's own controller from inside such a body (Tempt with
+            # Discovery's "search your library" for each opponent who did).
+            player = self._operand_player(context, targets, self.player)
+            if player is None:
+                return
         else:
             player = self.player or context.active_player
         chooser = _controller_of(self.source, context) if self.player_from_target else None

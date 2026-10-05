@@ -416,7 +416,10 @@ class MiscSystemsMixin:
             "revealed_card": self.context.revealed_card,
         }
         cost_label = cost.label()
-        if x_max is None:
+        # A free "you may …" (no cost to name, e.g. a Tempting offer) reads Ja/Nein, not " bezahlen".
+        if not cost_label:
+            pay_options = [{"id": "pay", "label": "Ja"}]
+        elif x_max is None:
             pay_options = [{"id": "pay", "label": f"{cost_label} bezahlen"}]
         else:
             # Largest X first: it's almost always the reason to pay at all.
@@ -428,7 +431,7 @@ class MiscSystemsMixin:
             "kind": "pay_cost_then",
             "player_id": player.id,
             "prompt": prompt or f"{cost_label} bezahlen?",
-            "options": [*pay_options, {"id": "decline", "label": "Nicht bezahlen"}],
+            "options": [*pay_options, {"id": "decline", "label": "Nein" if not cost_label else "Nicht bezahlen"}],
         })
 
     def _max_payable_x(
@@ -1555,23 +1558,37 @@ class MiscSystemsMixin:
             "source_id": source.instance_id,
             "then_specs": [dict(spec) for spec in (then_specs or [])],
         })
-    def _request_choose_player(self, player: Player, source: GameObject) -> None:
+    def _request_choose_player(
+        self, player: Player, source: GameObject, opponents_only: bool = False,
+        then_specs: Optional[list[dict[str, Any]]] = None,
+    ) -> None:
         """"As this creature enters, choose a player." (Stuffy Doll) — a
         resolve-time choice, the player-choice sibling of `request_choose_
         creature_type_grant` (see its docstring for why this needs its
         own primitive rather than RULE 601.2b's own enter-time machinery:
         that pipeline only knows creature-type/colour/mode picks). Stashes
         the pick onto `GameObject.chosen_player_id`.
+
+        ``opponents_only`` is "choose an opponent" (Intellectual Offering): only the other players are offered,
+        and a lone opponent is taken without asking. ``then_specs`` are the effects that follow the pick and
+        read it back (the ``chosen_player`` referent), run once it is answered.
         """
         living = self.state.living_players()
+        if opponents_only:
+            living = [p for p in living if p.id != player.id]
         if not living:
+            return
+        if opponents_only and len(living) == 1:
+            source.chosen_player_id = living[0].id
+            self._apply_effect_specs(list(then_specs or []), source)
             return
         self.open_choice({
             "kind": "choose_player_for_source",
             "player_id": player.id,
-            "prompt": "Spieler wählen",
+            "prompt": "Gegner wählen" if opponents_only else "Spieler wählen",
             "options": [{"id": p.id, "label": p.name} for p in living],
             "source_id": source.instance_id,
+            "then_specs": [dict(spec) for spec in (then_specs or [])],
         })
     @continuations.choice(
         "choose_player_for_source",
@@ -1588,6 +1605,7 @@ class MiscSystemsMixin:
         source = self._object_by_instance_id(choice.get("source_id"))
         if source is not None:
             source.chosen_player_id = chosen
+        self._apply_effect_specs(list(choice.get("then_specs") or []), source)
 
     def _request_slithermuse_opponent(self, player: Player, source: GameObject) -> None:
         """Slithermuse's non-targeting ``choose an opponent`` resolution."""
@@ -2030,7 +2048,23 @@ class MiscSystemsMixin:
             nonlocal result
             if resolved is None:
                 return
-            result = _build(resolved.get("amount", count))
+            substitute = resolved.get("token_definition")
+            if substitute:
+                # "If you would create a Fish token, create a 3/3 Shark instead." (Fisher's Talent): the
+                # substitute is made in the original's place, and is not itself replaced again here — the
+                # replacement chain (RULE 616.1) already ran before this point.
+                from ...services.token_database import synthesize_token_card
+                result = self.create_token(
+                    controller_id,
+                    synthesize_token_card(
+                        name=substitute.get("token_name", "Creature"), power=substitute.get("power", 1),
+                        toughness=substitute.get("toughness", 1), colors=substitute.get("colors", []),
+                        subtypes=substitute.get("subtypes", []), keywords=substitute.get("keywords", []),
+                    ),
+                    resolved.get("amount", count), _creation_replacements_applied=True,
+                )
+            else:
+                result = _build(resolved.get("amount", count))
             for batch in resolved.get("additional_tokens", []):
                 from ...services.token_database import synthesize_token_card
                 definition = batch["definition"]
@@ -3950,6 +3984,12 @@ class MiscSystemsMixin:
                 for obj in cards:
                     if obj.instance_id == instance_id:
                         return obj
+        # A spell mid-resolution is in no zone (popped off the stack, not yet routed to its graveyard): its
+        # suspended remainder (RULE 608.2) is where it still lives.
+        for frame in self.state.deferred_effects:
+            for candidate in (frame.get("source"), getattr(frame.get("stack_item"), "obj", None)):
+                if candidate is not None and getattr(candidate, "instance_id", None) == instance_id:
+                    return candidate
         return None
     def _apply_chosen_object(
         self,

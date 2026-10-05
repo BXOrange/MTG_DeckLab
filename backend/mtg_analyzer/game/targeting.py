@@ -769,7 +769,7 @@ def spell_target_specs(obj: GameObject) -> list[TargetSpec]:
         quality = str(enchant.get("quality", "")).strip().lower()
         specs.append(
             TargetSpec(
-                kind="player" if quality == "player" else "permanent",
+                kind="player" if quality == "player" else "opponent" if quality == "opponent" else "permanent",
                 description="zu verzauberndes Ziel",
                 polarity=_aura_enchant_polarity(obj),
             )

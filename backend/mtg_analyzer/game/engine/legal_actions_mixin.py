@@ -720,7 +720,7 @@ class LegalActionsMixin:
         card = self._face_card(obj, face)
         if (
             getattr(obj, "free_cast_condition", None) is not None
-            or (card is not None and continuous.has_standing_free_cast_permission(self.state, player, card))
+            or (card is not None and continuous.has_standing_free_cast_permission(self.state, player, card, obj))
         ) and self.can_cast(player, obj, face=face, free=True):
             return True
         if (
@@ -874,7 +874,7 @@ class LegalActionsMixin:
         card = self._face_card(obj)
         if (
             getattr(obj, "free_cast_condition", None) is not None
-            or (card is not None and continuous.has_standing_free_cast_permission(self.state, player, card))
+            or (card is not None and continuous.has_standing_free_cast_permission(self.state, player, card, obj))
         ) and self.can_cast(player, obj, free=True):
             actions.append(self._cast_action(player, obj, free=True))
         # RULE 702.94b (PAR-26): a Miracle card's `alt_cast_cost` (its

@@ -299,14 +299,26 @@ class CreateEmblemEffect(GameEffect):
 
 class RequestChoosePlayerEffect(GameEffect):
     """"As this creature enters, choose a player." (Stuffy Doll) — opens
-    `RulesEngine._request_choose_player`.
+    `RulesEngine._request_choose_player`. ``opponents_only`` is "choose an opponent", ``then_effects`` the
+    clauses that follow the pick and read it back through the ``chosen_player`` referent (Intellectual
+    Offering's "You and that player each draw three cards").
     """
+
+    def __init__(
+        self, opponents_only: bool = False, then_effects: Optional[list[dict[str, Any]]] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.opponents_only = bool(opponents_only)
+        self.then_effects = [dict(spec) for spec in (then_effects or [])]
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is None or self.source is None:
             return
-        context.engine._request_choose_player(player, self.source)
+        context.engine._request_choose_player(
+            player, self.source, opponents_only=self.opponents_only, then_specs=self.then_effects,
+        )
 
 
 class SlithermuseEffect(GameEffect):

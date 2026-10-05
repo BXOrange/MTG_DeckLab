@@ -98,6 +98,9 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         "counters_removed_as_cost",  # + ``of``
         # "…this way" (see `THIS_WAY_TALLIES`).
         "this_way",  # + ``tally``
+        # How many targets the resolving ability's targeting effect(s) chose — "…then put a counter for each
+        # opponent drawn for this way" (Communal Brewing: one card per chosen opponent).
+        "targets_count",
         # The number of players a `for_each`-style player scope covers, which
         # is what "equal to the number of opponents you have" measures.
         "player_count",  # + ``scope`` ("each_player"/"each_opponent")
@@ -258,6 +261,9 @@ def _base(
                 selector if isinstance(selector, dict) else str(selector), source=reference,
             ) or 0
         )
+
+    if kind == "targets_count":
+        return len([t for t in (targets or []) if t is not None])
 
     if kind == "player_count":
         return len(_players(context, controller_id, str(amount.get("scope", "each_player"))))
@@ -495,6 +501,10 @@ def amount_of(
     minus = amount.get("minus")
     if isinstance(minus, int) and not isinstance(minus, bool):
         value -= minus
+    elif isinstance(minus, dict):
+        # "…equal to the number of cards in defending player's hand **minus** the number of cards in your hand"
+        # (Mr. Foxglove) — the subtrahend is itself a measured amount.
+        value -= amount_of(minus, context, source, targets)
     minimum = amount.get("minimum")
     if isinstance(minimum, int) and not isinstance(minimum, bool):
         value = max(value, minimum)

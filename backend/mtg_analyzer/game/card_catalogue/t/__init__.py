@@ -5,6 +5,7 @@ from . import tale_of_katara_and_toph  # noqa: F401
 from . import talion_the_kindly_lord  # noqa: F401
 from . import talon_gates_of_madara  # noqa: F401
 from . import tam_mindful_first_year  # noqa: F401
+from . import tamiyo_field_researcher  # noqa: F401
 from . import tanazir_quandrix  # noqa: F401
 from . import tangle_wire  # noqa: F401
 from . import tangleweave_armor  # noqa: F401
@@ -17,10 +18,13 @@ from . import teferi_s_protection  # noqa: F401
 from . import teferi_s_time_twist  # noqa: F401
 from . import teferi_time_raveler  # noqa: F401
 from . import tekuthal_inquiry_dominus  # noqa: F401
+from . import tempt_with_bunnies  # noqa: F401
+from . import tempt_with_discovery  # noqa: F401
 from . import tempting_licid  # noqa: F401
 from . import temur_sabertooth  # noqa: F401
 from . import tenacious_dead  # noqa: F401
 from . import tenth_district_hero  # noqa: F401
+from . import tenuous_truce  # noqa: F401
 from . import tergrid_god_of_fright  # noqa: F401
 from . import tergrid_s_lantern  # noqa: F401
 from . import teshar_ancestor_s_apostle  # noqa: F401
@@ -78,10 +82,12 @@ from . import tree_of_perdition  # noqa: F401
 from . import treebeard_gracious_host  # noqa: F401
 from . import trickbind  # noqa: F401
 from . import trinisphere  # noqa: F401
+from . import triskaidekaphile  # noqa: F401
 from . import trystan_callous_cultivator  # noqa: F401
 from . import turn_inside_out  # noqa: F401
 from . import turf_war  # noqa: F401
 from . import turntimber_symbiosis  # noqa: F401
+from . import twenty_toed_toad  # noqa: F401
 from . import twinflame  # noqa: F401
 from . import twitching_doll  # noqa: F401
 from . import tymna_the_weaver  # noqa: F401

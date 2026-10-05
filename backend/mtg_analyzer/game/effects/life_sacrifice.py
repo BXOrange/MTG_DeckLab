@@ -1606,6 +1606,11 @@ class AddPlayerCountersEffect(GameEffect):
                 context.add_player_counters(p, amount, self.kind, source=self.source)
             return
         player = self.player
+        if isinstance(player, (str, dict)):
+            # A player operand ("that player" — `{"of": "event_player"}`): no referent means nobody gets them.
+            player = self._operand_player(context, targets, player)
+            if player is None:
+                return
         if player is None and self.target_spec is not None:
             player = targets[0] if targets else None
         if player is None and self.selector == "defending_player":

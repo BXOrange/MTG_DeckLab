@@ -28,6 +28,7 @@ from . import seasoned_tactician  # noqa: F401
 from . import secret_of_bloodbending  # noqa: F401
 from . import seedborn_muse  # noqa: F401
 from . import selfless_safewright  # noqa: F401
+from . import selvala_explorer_returned  # noqa: F401
 from . import selvala_heart_of_the_wilds  # noqa: F401
 from . import sensei_s_divining_top  # noqa: F401
 from . import serah_farron  # noqa: F401

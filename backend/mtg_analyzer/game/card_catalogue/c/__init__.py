@@ -51,6 +51,7 @@ from . import cloud_key  # noqa: F401
 from . import cloudstone_curio  # noqa: F401
 from . import coat_of_arms  # noqa: F401
 from . import coercive_recruiter  # noqa: F401
+from . import coiling_oracle  # noqa: F401
 from . import colossus_hammer  # noqa: F401
 from . import combat_calligrapher  # noqa: F401
 from . import combat_celebrant  # noqa: F401
@@ -58,6 +59,7 @@ from . import command_beacon  # noqa: F401
 from . import commandeer  # noqa: F401
 from . import commander_s_insight  # noqa: F401
 from . import commander_s_plate  # noqa: F401
+from . import communal_brewing  # noqa: F401
 from . import confusion_in_the_ranks  # noqa: F401
 from . import conjured_currency  # noqa: F401
 from . import conqueror_s_flail  # noqa: F401
@@ -75,6 +77,7 @@ from . import copy_enchantment  # noqa: F401
 from . import corpse_dance  # noqa: F401
 from . import corrupting_licid  # noqa: F401
 from . import counterbalance  # noqa: F401
+from . import coveted_jewel  # noqa: F401
 from . import crashing_wave  # noqa: F401
 from . import cream_of_the_crop  # noqa: F401
 from . import creative_technique  # noqa: F401

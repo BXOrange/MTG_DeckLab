@@ -2,6 +2,7 @@
 from . import icy_blast  # noqa: F401
 from . import ifnir_deadlands  # noqa: F401
 from . import ikra_shidiqi_the_usurper  # noqa: F401
+from . import illusionist_s_gambit  # noqa: F401
 from . import immolation_shaman  # noqa: F401
 from . import immoral_bargain  # noqa: F401
 from . import imodane_the_pyrohammer  # noqa: F401
@@ -19,6 +20,7 @@ from . import inkshield  # noqa: F401
 from . import inspired_skypainter  # noqa: F401
 from . import inspiring_call  # noqa: F401
 from . import insult_injury  # noqa: F401
+from . import intellectual_offering  # noqa: F401
 from . import intermediate_chirography  # noqa: F401
 from . import intervention_pact  # noqa: F401
 from . import intuition  # noqa: F401

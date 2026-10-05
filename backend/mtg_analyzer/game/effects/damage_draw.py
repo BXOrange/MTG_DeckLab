@@ -848,6 +848,8 @@ class DrawCardEffect(GameEffect):
         count_selector: Optional[str] = None,
         target_kind: Optional[str] = None,
         selector: Optional[str] = None,
+        target_count: int = 1,
+        target_optional: bool = False,
     ) -> None:
         super().__init__(source)
         #: How many cards: a number, or an `effect_amounts` operand measured at resolution
@@ -863,10 +865,20 @@ class DrawCardEffect(GameEffect):
         # "Target player draws N cards" (Sign in Blood-shaped) — a genuine
         # RULE 115 target, unlike the untargeted default (most draw effects
         # just draw for their own controller).
-        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+        # ``target_count``/``target_optional`` widen it to "any number of target opponents each draw a card"
+        # (Communal Brewing — RULE 115.1a's "up to N"): every chosen player draws.
+        self.target_spec = (
+            TargetSpec(kind=target_kind, optional=bool(target_optional), count=max(1, int(target_count)))
+            if target_kind is not None else None
+        )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         count = self._measured(self.count, context, targets)
+        if self.target_spec is not None and (self.target_spec.count > 1 or self.target_spec.optional):
+            for chosen in list(targets or [])[: self.target_spec.count]:
+                if getattr(chosen, "instance_id", None) is None and getattr(chosen, "id", None) is not None:
+                    context.draw(chosen, count)
+            return
         if self.selector == "event_player":
             # "…you and the controller of those creatures each draw a card." (Nelly Borca,
             # MEC-104) — the player the firing event names (``player_id``: the combat-damage
@@ -906,7 +918,17 @@ class DrawCardEffect(GameEffect):
         # card.", or a delayed trigger that inherited its arming
         # resolution's own targets) would silently get handed to
         # `RulesEngine.draw` as if it were a chosen player.
-        player = self._resolve_target_or_controller(context, targets, explicit=self.player)
+        explicit = self.player
+        if isinstance(explicit, int) and not isinstance(explicit, bool):
+            # A granted trigger's body naming its grantor (`continuous.GRANTOR_SENTINEL`, resolved to an object id):
+            # "…whenever either of those creatures deals combat damage, **you** draw a card" (Tamiyo, Field
+            # Researcher) — the grantor's controller, not the creature's.
+            grantor = context.state.find_object(explicit)
+            try:
+                explicit = context.state.player_by_id(getattr(grantor, "controller_id", None))
+            except (KeyError, ValueError):
+                return
+        player = self._resolve_target_or_controller(context, targets, explicit=explicit)
 
         count = self._resolve_amount_override(
             count,
@@ -1095,11 +1117,17 @@ class SylvanLibraryEffect(GameEffect):
 
 
 def _reveal_whose_player(
-    whose: str, source: Optional["GameObject"], context: GameContext
+    whose: str, source: Optional["GameObject"], context: GameContext,
+    targets: Optional[list[Any]] = None,
 ) -> Optional["Player"]:
     """The player a `reveal_top` / `put_revealed_card` clause acts on."""
     if whose == "defending_player":
         return _defending_player_of(source, context)
+    if whose == "target":
+        # "Each player reveals the top card of **their** library" (Selvala) — the `for_each` item handed to the
+        # body as its target, whoever it is (not the ability's controller).
+        item = targets[0] if targets else None
+        return item if item is not None and getattr(item, "instance_id", None) is None else None
     return _controller_of(source, context)
 
 
@@ -1122,7 +1150,7 @@ class RevealTopEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         context.revealed_card = None
-        player = _reveal_whose_player(self.whose, self.source, context)
+        player = _reveal_whose_player(self.whose, self.source, context, targets)
         if player is None or not player.library:
             return
         context.revealed_card = player.library[-1]

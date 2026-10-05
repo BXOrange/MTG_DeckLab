@@ -672,6 +672,8 @@ class CastingMixin:
         if restriction is not None:
             if self.state.current_step != restriction.get("step"):
                 return False
+            if restriction.get("opponents_turn") and self.state.active_player is player:
+                return False
             if restriction.get("controller_attacked") and not any(
                 self._defending_player(attacker.combat_defender) is player
                 for attacker in self.state.battlefield
@@ -734,7 +736,7 @@ class CastingMixin:
         # own docstring for why this is gated on ``free`` rather than
         # joining `has_standing_flash_permission` unconditionally above).
         has_aluren_free_cast_flash = free and continuous.standing_free_cast_grants_flash(
-            self.state, player, card
+            self.state, player, card, obj
         )
         # Etali, Primal Storm/Primal Conqueror (RULE 601.3b analogue):
         # "timing permissions based on a card's type are ignored" for a
@@ -863,7 +865,7 @@ class CastingMixin:
                 and condition_query.free_cast_condition_holds(free_cast_condition, obj, self.state)
             )
             if not condition_ok and not continuous.has_standing_free_cast_permission(
-                self.state, player, card
+                self.state, player, card, obj
             ):
                 return False
         elif alt_cost:

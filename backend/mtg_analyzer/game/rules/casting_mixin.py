@@ -1194,7 +1194,10 @@ class CastingResolutionMixin:
             quality = str(((obj.parametric_keywords or {}).get("enchant") or {}).get(
                 "quality", ""
             )).strip().lower()
-            return kind == "enchant" and quality == "player" and not target.has_lost
+            # "Enchant opponent" (Tenuous Truce) narrows the same player host to someone other than the Aura's
+            # controller.
+            player_ok = quality == "player" or (quality == "opponent" and target.id != obj.controller_id)
+            return kind == "enchant" and player_ok and not target.has_lost
         if target not in self.state.permanents():
             return False  # RULE 702.26c: can't attach to a phased-out permanent
         if target.is_battle:

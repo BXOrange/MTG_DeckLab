@@ -29,6 +29,7 @@ from . import bloatfly_swarm  # noqa: F401
 from . import bloodchief_ascension  # noqa: F401
 from . import bloodforged_battle_axe  # noqa: F401
 from . import bloodghast  # noqa: F401
+from . import bloodroot_apothecary  # noqa: F401
 from . import blossoming_bogbeast  # noqa: F401
 from . import blowfly_infestation  # noqa: F401
 from . import bone_mask  # noqa: F401

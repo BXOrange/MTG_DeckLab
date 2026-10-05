@@ -3190,6 +3190,12 @@ def _apply_layer_7_pt(
     for ability in _in_layer(abilities, "pt_set"):
         power = ability.params.get("power", 0)
         toughness = ability.params.get("toughness", 0)
+        # "…have base power and toughness X/X, where X is the number of cards in your hand" (Jolrael): a
+        # `count_selector` read live on every pass, so it follows the count as it changes.
+        if ability.params.get("power_count"):
+            power = _count_selector(state, ability, ability.params["power_count"])
+        if ability.params.get("toughness_count"):
+            toughness = _count_selector(state, ability, ability.params["toughness_count"])
         for obj in affected_objects(state, ability):
             if obj.instance_id in base:
                 new_p = base[obj.instance_id][0] if power is None else power
@@ -5079,7 +5085,7 @@ def extra_etb_counters_for(state: "GameState", obj: "GameObject") -> dict[str, i
         kind = str(ability.params.get("kind", "+1/+1"))
         selector = ability.params.get("count_selector")
         if selector:
-            amount = count_selector(state, controller_id, str(selector), source)
+            amount = count_selector(state, controller_id, selector if isinstance(selector, dict) else str(selector), source)
         elif ability.params.get("count_mana_value_minus") is not None:
             amount = max(0, mana_value - int(ability.params["count_mana_value_minus"]))
         else:
@@ -5353,7 +5359,7 @@ def has_standing_flash_permission(state: "GameState", player: "Player", card: An
 
 
 def _active_free_cast_permission(
-    state: "GameState", player: "Player", card: Any
+    state: "GameState", player: "Player", card: Any, obj: Any = None
 ) -> Optional[StaticAbility]:
     """The first active ``"free_cast_permission"`` static (Aluren-shaped:
     "Any player may cast creature spells with mana value N or less without
@@ -5381,6 +5387,10 @@ def _active_free_cast_permission(
             continue
         if ability.params.get("creature_only") and not getattr(card, "is_creature", False):
             continue
+        # "You may cast spells **from your hand** without paying their mana costs" (Tamiyo, Field Researcher's
+        # emblem): the permission covers a spell cast from the hand only, read off the card object being cast.
+        if ability.params.get("from_hand") and getattr(getattr(obj, "zone", None), "value", None) != "hand":
+            continue
         max_mv = ability.params.get("max_mana_value")
         if max_mv is not None and getattr(card, "converted_mana_cost", 0) > max_mv:
             continue
@@ -5392,7 +5402,9 @@ def _active_free_cast_permission(
     return None
 
 
-def has_standing_free_cast_permission(state: "GameState", player: "Player", card: Any) -> bool:
+def has_standing_free_cast_permission(
+    state: "GameState", player: "Player", card: Any, obj: Any = None,
+) -> bool:
     """Whether ``player`` may cast ``card`` right now without paying its
     mana cost, via a standing "Any player may cast `<filter>` spells
     without paying their mana costs …" grant (Aluren) — consulted by
@@ -5403,10 +5415,12 @@ def has_standing_free_cast_permission(state: "GameState", player: "Player", card
     permission to check — only a condition already bound onto the specific
     object being cast.
     """
-    return _active_free_cast_permission(state, player, card) is not None
+    return _active_free_cast_permission(state, player, card, obj) is not None
 
 
-def standing_free_cast_grants_flash(state: "GameState", player: "Player", card: Any) -> bool:
+def standing_free_cast_grants_flash(
+    state: "GameState", player: "Player", card: Any, obj: Any = None,
+) -> bool:
     """Whether the standing free-cast permission covering ``card`` (if any)
     also grants flash timing for *that same cast* (Aluren's own trailing
     "and as though they had flash").
@@ -5417,7 +5431,7 @@ def standing_free_cast_grants_flash(state: "GameState", player: "Player", card: 
     blanket "this creature always has flash" grant: paying the card's real
     mana cost at sorcery speed is still just an ordinary cast, unaffected.
     """
-    ability = _active_free_cast_permission(state, player, card)
+    ability = _active_free_cast_permission(state, player, card, obj)
     return ability is not None and bool(ability.params.get("grants_flash"))
 
 

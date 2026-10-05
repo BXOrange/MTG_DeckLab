@@ -147,9 +147,15 @@ class TapEffect(GameEffect):
         count_selector: Optional[str] = None,
         target_operand: Any = None,
         selector_player: Optional[str] = None,
+        remove_from_combat: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "Remove all attacking creatures from combat and untap them." (Illusionist's Gambit) — a mass
+        #: ``selector`` group that is also taken out of combat (RULE 506.4): it stops attacking and the
+        #: blocks around it are undone. The group is left on `GameContext.previous_targets` so a following
+        #: clause can say "each of those creatures" even though they no longer match the selector.
+        self.remove_from_combat = bool(remove_from_combat)
         #: PAR-128: "tap all creatures **target opponent controls**" (Tempest
         #: Caller) / "tap all lands target player controls" (Gulf Squid) — a
         #: mass ``selector`` scoped to a RULE 115 *player* target
@@ -159,7 +165,7 @@ class TapEffect(GameEffect):
         #: controls" (Nature's Will) name the player off the ability's own context, the way
         #: `DealDamageEffect.group_player` does; "target player/opponent" is a RULE 115 target.
         self.selector_player = (
-            selector_player if selector_player in ("player", "opponent", "defending", "event_player") else None
+            selector_player if selector_player in ("player", "opponent", "defending", "event_player", "chosen") else None
         )
         #: "Tap up to **X** target creatures" (Crashing Wave) — a
         #: `TargetSpec.count_selector` (``"source_x_paid"``), resolved at
@@ -230,6 +236,22 @@ class TapEffect(GameEffect):
         # an opponent's would-be blocker or attacker).
         return "beneficial" if self.untap else "harmful"
 
+    @staticmethod
+    def _remove_from_combat(context: GameContext, obj: "GameObject") -> None:
+        """RULE 506.4: ``obj`` leaves combat — no longer attacking, nobody blocked by or blocking it."""
+        for other in context.state.battlefield:
+            if getattr(other, "blocking", None) == obj.instance_id:
+                other.blocking = None
+            if obj.instance_id in (getattr(other, "additional_blocking", None) or []):
+                other.additional_blocking = [i for i in other.additional_blocking if i != obj.instance_id]
+            if obj.instance_id in (getattr(other, "blocked_by", None) or []):
+                other.blocked_by = [i for i in other.blocked_by if i != obj.instance_id]
+        obj.attacking = False
+        obj.combat_defender = None
+        obj.blocking = None
+        obj.additional_blocking = []
+        obj.blocked_by = []
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.target_operand is not None:
             from ..effect_operands import object_for
@@ -252,6 +274,11 @@ class TapEffect(GameEffect):
                     chosen = _defending_player_of(self.source, context)
                 elif self.selector_player == "event_player":
                     chosen = _event_player(context, key="target_id")
+                elif self.selector_player == "chosen":
+                    # "…all nonland permanents that player controls" after "choose an opponent".
+                    from .. import effect_conditions  # function-scoped: effects↔conditions cycle
+
+                    chosen = effect_conditions.subject_of("chosen_player", context, self.source, targets)
                 else:
                     chosen = targets[0] if targets else self.target
                 if chosen is None or getattr(chosen, "id", None) is None:
@@ -281,7 +308,11 @@ class TapEffect(GameEffect):
                     )
                 ]
             for obj in group:
+                if self.remove_from_combat:
+                    self._remove_from_combat(context, obj)
                 context.set_tapped(obj, tapped=not self.untap)
+            if self.remove_from_combat:
+                context.previous_targets = list(group)
             if self.selector_player is not None and self.selector != "previous_selector":
                 # The core's default (the bare selector) would replay this for the ability's
                 # controller; "those creatures" are the chosen player's.

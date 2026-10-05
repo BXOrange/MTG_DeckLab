@@ -1851,6 +1851,50 @@ def _trigger_condition(
 
         predicates.append(_defender_is_enchanted_ok)
 
+    # "When you attack enchanted opponent or a planeswalker they control or when they attack you or a planeswalker
+    # you control" (Tenuous Truce) — an `ATTACKERS_DECLARED` declaration between this Aura's controller and the
+    # player it is attached to, in either direction (``defended_player_ids`` counts planeswalker controllers).
+    if trigger.get("attack_between_controller_and_enchanted"):
+        def _attack_between_ok(event: Any, context: Any, src=source) -> bool:
+            host = getattr(src, "attached_to", None)
+            mine = getattr(src, "controller_id", None)
+            if host is None or mine is None:
+                return False
+            attacker = event.get("player_id")
+            defended = event.get("defended_player_ids") or ()
+            return (attacker == mine and host in defended) or (attacker == host and mine in defended)
+
+        predicates.append(_attack_between_ok)
+
+    # "Whenever one or more creatures an opponent controls attack you and aren't blocked" (Coveted Jewel): an
+    # `ATTACKER_UNBLOCKED` fires per attacker, so only the *first* unblocked attacker of each attacking player
+    # that is aimed at this ability's controller counts — the "one or more" is a single trigger.
+    if trigger.get("first_unblocked_attacker_at_you"):
+        def _first_unblocked_at_you_ok(event: Any, context: Any, src=source) -> bool:
+            state = getattr(context, "state", None)
+            mine = getattr(src, "controller_id", None)
+            iid = event.get("instance_id")
+            if state is None or mine is None or iid is None:
+                return False
+
+            def aimed_at_me(o: Any) -> bool:
+                spec = getattr(o, "combat_defender", None) or {}
+                return (
+                    getattr(o, "attacking", False) and not getattr(o, "blocked_by", None)
+                    and spec.get("kind") == "player" and spec.get("id") == mine
+                )
+
+            attacker = state.find_object(iid)
+            if attacker is None or attacker.controller_id == mine or not aimed_at_me(attacker):
+                return False
+            first = next(
+                (o for o in state.battlefield
+                 if o.controller_id == attacker.controller_id and aimed_at_me(o)), None,
+            )
+            return first is attacker
+
+        predicates.append(_first_unblocked_at_you_ok)
+
     # "Whenever a player attacks one of your opponents, …" (Combat
     # Calligrapher, Breena the Demagogue, PAR-60) — the `PLAYER_ATTACKED`
     # aggregate's ``defending_player_id`` must be someone *other* than this
@@ -2396,6 +2440,16 @@ def _trigger_condition(
             return is_yours if rel == "you" else not is_yours
 
         predicates.append(_phase_relation_ok)
+    elif phase_relation == "enchanted_player":
+        # "At the beginning of enchanted opponent's end step" (Tenuous Truce): the Aura is attached to a
+        # *player* (``attached_to`` holds the player id), whose turn it must be.
+        def _phase_relation_enchanted_player_ok(event: Any, context: Any, src=source) -> bool:
+            state = getattr(context, "state", None)
+            active = getattr(state, "active_player", None) if state is not None else None
+            host = getattr(src, "attached_to", None)
+            return active is not None and host is not None and active.id == host
+
+        predicates.append(_phase_relation_enchanted_player_ok)
     elif phase_relation == "attached_permanent":
         # "At the beginning of the upkeep of enchanted creature's
         # controller, …" (MEC-43 round 4F — Dance of the Dead) — unlike

@@ -477,6 +477,7 @@ class SearchMixin:
     def peek_top_land_battlefield_tapped(
         self, player: Player, source: Optional[GameObject] = None,
         otherwise_hand: bool = False,
+        reveal_then: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         """"Look at the top card of your library. If it's a land card, you
         may put it onto the battlefield tapped." (Explorer's Scope) — RULE
@@ -497,6 +498,26 @@ class SearchMixin:
         top = player.library[-1]
         source_name = source.name if source is not None else None
         prefix = f"{source_name}: " if source_name else ""
+        if reveal_then is not None:
+            # "Look at the top card of your library. You may reveal it if it's a land card. <effects> if you
+            # revealed it this way." (Fisher's Talent) — a land is offered to be revealed (and the effects then
+            # run); anything else is only shown to its owner.
+            if top.card.is_land:
+                options = [
+                    {"id": "reveal", "label": "Aufdecken", "instance_id": top.instance_id},
+                    {"id": "decline", "label": "Nicht aufdecken"},
+                ]
+                prompt = f'{prefix}„{top.card.name}“ aufdecken?'
+            else:
+                options = [{"id": "ok", "label": "OK", "instance_id": top.instance_id}]
+                prompt = f'{prefix}Oberste Karte: „{top.card.name}“ (kein Land).'
+            self.open_choice({
+                "kind": "peek_top_land", "player_id": player.id, "prompt": prompt,
+                "source_name": source_name, "card_id": top.instance_id, "options": options,
+                "source_id": getattr(source, "instance_id", None),
+                "then_specs": [dict(spec) for spec in reveal_then],
+            })
+            return
         if top.card.is_land:
             options = [
                 {"id": "put", "label": "Getappt ins Spiel legen", "instance_id": top.instance_id},
@@ -539,6 +560,16 @@ class SearchMixin:
         elif answer == "hand":
             player.remove_from_zone(top, top.zone)
             player.add_to_zone(top, Zone.HAND)
+        elif answer == "reveal":
+            # RULE 701.20: revealing shows the card to everyone (the card stays on top of the library), then
+            # the effects that depend on having revealed it run.
+            self.state.fire_event(GameEvent(
+                EventType.REVEAL, player_id=player.id, object=top.name, instance_id=top.instance_id,
+                from_zone=Zone.LIBRARY.value,
+            ))
+            self._apply_effect_specs(
+                list(choice.get("then_specs") or []), self._object_by_instance_id(choice.get("source_id")),
+            )
     def _look_top_choice(
         self,
         player: Player,

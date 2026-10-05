@@ -116,7 +116,8 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 EFFECT_SUBJECTS: frozenset[str] = frozenset(
     {"target", "previous_target", "previous_player", "previous_subject", "created", "remembered",
      "chosen", "entering", "trigger_subject", "self", "event_player", "counter_recipient", "revealed",
-     "attacked_player", "first_drawn_this_turn"}
+     "attacked_player", "first_drawn_this_turn", "chosen_player",
+     "enchanted_player"}
 )
 
 #: Every referent a condition may name here, static-resolved ones included.
@@ -234,6 +235,14 @@ def subject_of(
     """
     if of in ("source", "self", "", None):
         return source
+    if of == "enchanted_player":
+        # "…you and that player each draw a card" (Tenuous Truce) — the player a Curse-style Aura is attached to
+        # (``GameObject.attached_to`` holds the player id).
+        return _player_by_id(context, getattr(source, "attached_to", None))
+    if of == "chosen_player":
+        # "Choose an opponent. You and **that player** each draw three cards." — the player a
+        # `_request_choose_player` clause stamped on the source (`GameObject.chosen_player_id`).
+        return _player_by_id(context, getattr(source, "chosen_player_id", None))
     if of == "event_player":
         # The player the firing event itself names (whoever cast the spell / drew the card).
         event = getattr(context, "trigger_event", None) or {}

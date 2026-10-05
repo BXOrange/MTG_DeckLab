@@ -243,16 +243,27 @@ class CombatMixin:
             key = (obj.controller_id, spec["id"])
             counts[key] = counts.get(key, 0) + 1
         declared: dict[str, list[int]] = {}
+        #: The players each declaration *defends against* — a player attacked, or the controller of an attacked
+        #: planeswalker (RULE 508.1b): "when you attack enchanted opponent or a planeswalker they control".
+        defended: dict[str, list[str]] = {}
         for obj in self.state.battlefield:
             if obj.attacking and obj.controller_id is not None:
                 declared.setdefault(obj.controller_id, []).append(obj.instance_id)
+                spec = obj.combat_defender or {}
+                if spec.get("kind") == "player":
+                    defended.setdefault(obj.controller_id, []).append(spec["id"])
+                elif spec.get("kind") == "planeswalker":
+                    walker = self.state.find_object(spec.get("instance_id"))
+                    if walker is not None and walker.controller_id is not None:
+                        defended.setdefault(obj.controller_id, []).append(walker.controller_id)
         for attacker_id, ids in declared.items():
             # The players this declaration attacks (RULE 508.1), for "whenever a player attacks
             # one or more of your opponents" — a planeswalker or battle is not a player.
             defender_ids = list(dict.fromkeys(d for (a, d) in counts if a == attacker_id))
             self.state.fire_event(
                 GameEvent(EventType.ATTACKERS_DECLARED, player_id=attacker_id,
-                          attacker_ids=list(ids), count=len(ids), defending_player_ids=defender_ids)
+                          attacker_ids=list(ids), count=len(ids), defending_player_ids=defender_ids,
+                          defended_player_ids=list(dict.fromkeys(defended.get(attacker_id, []))))
             )
         for (attacker_id, defender_id), count in counts.items():
             self.state.fire_event(

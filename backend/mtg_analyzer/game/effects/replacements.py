@@ -1066,6 +1066,39 @@ def _create_one_of_each_named_token_replacement(params: dict[str, Any]) -> Repla
     return effect
 
 
+def _substitute_token_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """"If you would create a Fish token, create a 3/3 blue Shark creature token instead." (Fisher's Talent) —
+    a creation of the token named ``from_token`` under this effect's controller becomes a creation of ``to``
+    (a token definition: ``token_name``/``power``/``toughness``/``colors``/``subtypes``/``keywords``) instead,
+    the same amount. ``min_level`` gates it on the source Class's level (RULE 716, ``counters["class_level"]``).
+    Replacements chain (RULE 616.1): the event now names the substitute, so a second effect that replaces *that*
+    token (Shark → Octopus) applies to it in turn.
+    """
+    from_token = str(params.get("from_token", ""))
+    to = dict(params.get("to") or {})
+    min_level = int(params.get("min_level", 0) or 0)
+    effect = ReplacementEffect(
+        event_type=EventType.CREATE_TOKENS,
+        replacement_fn=lambda e, c: e,
+        description=str(params.get("description", "")),
+    )
+
+    def _applies(event: GameEvent, _context: GameContext) -> bool:
+        src = effect.source
+        if src is None or event.get("controller_id") != src.controller_id:
+            return False
+        if min_level and int((getattr(src, "counters", None) or {}).get("class_level", 1) or 1) < min_level:
+            return False
+        return bool(to) and event.get("token_name") == from_token
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        return event.copy_with(token_name=to.get("token_name", from_token), token_definition=dict(to))
+
+    effect.replacement_fn = replace
+    effect.condition = _applies  # RULE 616.1e — see _prevent_damage_replacement
+    return effect
+
+
 def _additional_named_token_replacement(params: dict[str, Any]) -> ReplacementEffect:
     """"If one or more tokens would be created under your control, those
     tokens plus an additional Food token are created instead." (Peregrin
@@ -1375,6 +1408,7 @@ ReplacementRegistry.register("double_tokens", _double_tokens_replacement)
 ReplacementRegistry.register("additional_creature_tokens", _additional_creature_tokens_replacement)
 ReplacementRegistry.register("create_one_of_each_named_token", _create_one_of_each_named_token_replacement)
 ReplacementRegistry.register("additional_named_token", _additional_named_token_replacement)
+ReplacementRegistry.register("substitute_token", _substitute_token_replacement)
 ReplacementRegistry.register("win_instead_of_empty_draw", _win_instead_of_empty_draw_replacement)
 ReplacementRegistry.register("split_multi_draw", _split_multi_draw_replacement)
 ReplacementRegistry.register("steal_non_first_draw", _steal_non_first_draw_replacement)

@@ -24,6 +24,7 @@ from . import finale_of_devastation  # noqa: F401
 from . import fire_covenant  # noqa: F401
 from . import fireblast  # noqa: F401
 from . import firemane_commando  # noqa: F401
+from . import fisher_s_talent  # noqa: F401
 from . import flamescroll_celebrant  # noqa: F401
 from . import flanking_licid  # noqa: F401
 from . import flare_of_duplication  # noqa: F401
