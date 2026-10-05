@@ -23,3 +23,4 @@ from . import oversimplify  # noqa: F401
 from . import overwhelming_stampede  # noqa: F401
 from . import owlin_spiralmancer  # noqa: F401
 from . import ozolith_the_shattered_spire  # noqa: F401
+from . import opportunistic_dragon

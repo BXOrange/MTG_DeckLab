@@ -82,11 +82,20 @@ class CombatMixin:
         lost.
         """
         return [obj for obj in self.state.battlefield if obj.attacking]
+    def _record_last_combat(self) -> None:
+        """Remember, for each of the active player's permanents, whom it attacked in the combat that is
+        ending (none if it did not attack) — "an opponent that ~ didn't attack during your last combat"
+        (Territorial Hellkite). Called as a real combat ends, before `_clear_combat` drops the assignments."""
+        active = self.state.active_player
+        for obj in self.state.permanents_controlled_by(active.id):
+            defender = self._defending_player(obj.combat_defender) if obj.attacking else None
+            obj.last_combat_attacked_ids = {defender.id} if defender is not None else set()
     def _clear_combat(self) -> None:
         """End combat: no creature is attacking or blocking (RULE 511.3)."""
         for obj in self.state.battlefield:
             obj.attacking = False
             obj.combat_defender = None
+            obj.must_attack_player_id = None  # a combat-scoped requirement (RULE 511.3)
             obj.blocking = None
             obj.additional_blocking = []
             obj.blocked_by = []
@@ -110,7 +119,7 @@ class CombatMixin:
         active = self.state.active_player
         for obj in self.state.permanents_controlled_by(active.id):
             if (
-                (combat.has(obj, "attacks_if_able") or combat.is_goaded(obj))
+                (combat.has(obj, "attacks_if_able") or combat.is_goaded(obj) or obj.must_attack_player_id)
                 and not obj.attacking
                 and self._can_attack(active, obj)
             ):
@@ -121,6 +130,27 @@ class CombatMixin:
                 # `_enforce_goad_requirements`, since that can only be judged
                 # once the whole attack is declared.
                 raise ValueError(f"{obj.name} attacks each combat if able")
+    def _enforce_must_attack_player(self) -> None:
+        """"~ attacks that player this combat if able" (Territorial Hellkite): an attacker bound to a named
+        defender (`GameObject.must_attack_player_id`) that was declared against someone else violates the
+        requirement whenever it could legally have attacked the named player. Judged once the attack is
+        declared, like goad's second half (`_enforce_goad_requirements`)."""
+        active = self.state.active_player
+        for obj in self.state.battlefield:
+            wanted = obj.must_attack_player_id
+            if not wanted or not obj.attacking or obj.controller_id != active.id:
+                continue
+            attacked = self._defending_player(obj.combat_defender)
+            if attacked is not None and attacked.id == wanted:
+                continue
+            if any(
+                (defender := self._defending_player(spec)) is not None and defender.id == wanted
+                and self._attack_conditions_ok(obj, active, defender)
+                and (not combat.has_defender(obj) or self._defender_attack_permission(
+                    obj, active, defender, spec.get("kind", "player")))
+                for spec in self.legal_defenders_for(active)
+            ):
+                raise ValueError(f"{obj.name} must attack {self.state.player_by_id(wanted).name} if able")
     def _enforce_goad_requirements(self) -> None:
         """RULE 701.15b's second half: a goaded creature "attacks a player
         other than the controller of the [goading] permanent, spell, or

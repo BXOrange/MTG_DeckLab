@@ -237,6 +237,7 @@ class ReturnToHandEffect(GameEffect):
         group_player: Optional[str] = None,
         count_selector: Optional[str] = None,
         exact_mana_value: Optional[Union[int, str]] = None,
+        max_mana_value: Optional[Union[int, str]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -294,6 +295,9 @@ class ReturnToHandEffect(GameEffect):
                 count_selector=count_selector,
                 # "Return target creature with mana value X" (Stolen by the Fae) — `TargetSpec.exact_mana_value`.
                 exact_mana_value=exact_mana_value,
+                # "…with mana value less than or equal to that spell's mana value" (Hammerhead Tyrant) —
+                # a ceiling, or a `legal_targets` sentinel such as ``"trigger_spell_mana_value"``.
+                max_mana_value=max_mana_value,
                 # "target **Human** you control" (Kogla, the Titan Ape,
                 # MEC-43) — the same `TargetSpec.creature_filter` narrowing
                 # `BlinkEffect`/`CounterUntapGrantKeywordEffect` already

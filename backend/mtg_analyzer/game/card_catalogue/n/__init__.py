@@ -37,3 +37,4 @@ from . import nurturing_licid  # noqa: F401
 from . import nyxbloom_ancient  # noqa: F401
 
 from . import nested_shambler
+from . import nesting_dragon

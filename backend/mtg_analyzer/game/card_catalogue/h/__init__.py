@@ -45,3 +45,5 @@ from . import hydroid_krasis  # noqa: F401
 from . import hazels_brewmaster
 
 from . import hazel_of_the_rootbloom
+from . import hammerhead_tyrant
+from . import hellkite_courser

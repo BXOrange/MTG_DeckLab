@@ -180,6 +180,14 @@ def creatures_died(events: Events) -> "defaultdict[str, int]":
                   where=lambda e: "creature" in (e.get("object_types") or []))
 
 
+def nontoken_creatures_died(events: Events) -> "defaultdict[str, int]":
+    """Nontoken creatures that died (RULE 700.4), per controller — Gadrak, the Crown-Scourge's count."""
+    return _tally(
+        events, EventType.DIES, "controller_id",
+        where=lambda e: "creature" in (e.get("object_types") or []) and not e.get("is_token"),
+    )
+
+
 def modified_creatures_died(events: Events) -> "defaultdict[str, int]":
     """Documented simplification (Intermediate Chirography): "modified" means it had one or
     more counters, read off the DIES event's snapshotted ``counters`` (RULE 400.7)."""

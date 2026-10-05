@@ -3889,7 +3889,8 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 # 606: PAR-128 — separate source-excluded land targets from ordinary land targets.
 # 605: MEC-109 — complete Blitz costs, restricted graveyard casts and grants.
 # 607: PLAY-ALL — "counter target activated or triggered ability" as its own clause (Sublime Epiphany's mode).
-PARSER_VERSION = "607"
+# 608: PLAY-ALL — "reveal or control" lands (Temple of the Dragon Queen, Fortified Beachhead): `reveal_types` + `or_control`.
+PARSER_VERSION = "608"
 
 
 def parser_source_hash() -> str:

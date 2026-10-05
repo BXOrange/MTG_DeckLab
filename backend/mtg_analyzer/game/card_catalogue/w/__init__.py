@@ -34,3 +34,4 @@ from . import wrath_of_god  # noqa: F401
 from . import wrenn_s_resolve  # noqa: F401
 from . import wyleth_soul_of_steel  # noqa: F401
 from . import weathered_sentinels
+from . import whirlwing_stormbrood

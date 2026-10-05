@@ -3818,9 +3818,13 @@ class EnterAsCopyReplacement(GameEffect):
         not_legendary: bool = False,
         set_name: Optional[str] = None,
         until_end_of_turn: bool = False,
+        creature_filter: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(None)
         self.target_kind = target_kind
+        #: "…a copy of a creature you control **with power 4 or greater**" (Deceptive Frostkite) — the
+        #: `TargetSpec.creature_filter` narrowing the copy's legal choices (`_offer_enter_as_copy`).
+        self.creature_filter = dict(creature_filter) if creature_filter else None
         #: "…you may have it become a copy of … until end of turn" (Cursed Mirror) — the copy is made as
         #: it enters but reverted by `GameEngine._step_cleanup` (RULE 514.2) via `GameObject._copy_until_eot_base`,
         #: exactly like the activated `become_copy_until_eot`; applied in `_resume_enter_as_copy`.
@@ -4068,9 +4072,13 @@ class _BecomeCopyBase(GameEffect):
         not_legendary: bool = False,
         keep_own_abilities: bool = False,
         exact_mana_value: Optional[Any] = None,
+        set_name: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "…except its name is ~" (Sarkhan, Soul Aflame) — the copy keeps this name; applied after the copied
+        #: card's abilities are bound, since binding is keyed by the copied name (as `EnterAsCopyReplacement`).
+        self.set_name = str(set_name) if set_name else None
         # ``exact_mana_value`` ("with mana value X", The Mycosynth Gardens): an int or the "x" sentinel.
         self.target_spec = TargetSpec(kind=target_kind, exact_mana_value=exact_mana_value)
         self.add_types = list(add_types or [])
@@ -4090,6 +4098,12 @@ class _BecomeCopyBase(GameEffect):
             obj, target, self.add_types or None, self.add_subtypes or None,
             add_keywords=self.add_keywords or None, not_legendary=self.not_legendary,
         )
+        if self.set_name:
+            import copy as _copy  # function-scoped: rename a shallow copy, never the shared printed `Card`
+
+            renamed = _copy.copy(obj.card)
+            renamed.name = self.set_name
+            obj.card = obj._front_card = renamed
         if own is not None:
             obj.triggered_abilities.extend(own[0])
             obj.static_effects.extend(own[1])

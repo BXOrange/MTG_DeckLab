@@ -581,7 +581,11 @@ class CastingResolutionMixin:
             has_match = any(
                 any(t in c.card.type_line.lower() for t in types) for c in player.hand
             )
-            if has_match:
+            # "…unless you revealed a Dragon card this way or you control a Dragon" (Temple of the
+            # Dragon Queen): controlling one skips the question — any permanent, not only a land.
+            if condition.get("or_control") and self._controls_permanent_of_types(obj, types):
+                obj.tapped = False
+            elif has_match:
                 self._pending_land_choice_obj = obj
                 self.open_choice(self._land_tapped_reveal_choice(obj))
         else:
@@ -594,6 +598,14 @@ class CastingResolutionMixin:
             # a shock land's pending pay-life choice already defaults tapped
             # above, so this only ever adds a tap, never removes the choice.
             obj.tapped = continuous.enters_tapped_from_static(self.state, obj)
+    def _controls_permanent_of_types(self, obj: GameObject, types: list[str]) -> bool:
+        """Whether ``obj``'s controller controls a permanent whose type line names one of ``types``
+        (derived subtypes included — a changeling counts as a Dragon)."""
+        return any(
+            o is not obj and o.controller_id == obj.controller_id
+            and any(t in o.card.type_line.lower() or continuous.has_subtype(o, t) for t in types)
+            for o in self.state.battlefield
+        )
     def predict_land_tapped(self, obj: GameObject, card: Optional[Card] = None) -> Optional[bool]:
         """Read-only preview of `enter_land_tapped`'s RULE 614.1 outcome for
         ``obj`` as it currently sits — before it's actually played, and
@@ -663,6 +675,10 @@ class CastingResolutionMixin:
             )
         elif kind == "unless_turn_at_most":
             tapped = not (self.state.turn_nr <= condition["count"])
+        elif kind == "reveal_types" and condition.get("or_control") and self._controls_permanent_of_types(
+            obj, condition["types"]
+        ):
+            tapped = False
         elif kind in ("pay_life", "optional_bonus_rad", "reveal_types"):
             return None
         else:
@@ -756,6 +772,12 @@ class CastingResolutionMixin:
         self._pending_land_choice_obj = None
         if obj is not None and answer == "reveal":
             obj.tapped = False
+    @staticmethod
+    def _is_omen_card(card: Card) -> bool:
+        """Whether ``card`` (the front face) is an Omen card (RULE 720): the cache stores it with the
+        Adventure layout, its inset half's type line being "<Instant|Sorcery> — Omen" (RULE 205.3k)."""
+        return card.is_adventure and "omen" in (card.back_type_line or "").lower().partition("—")[2]
+
     def is_permanent_spell(self, card: Card) -> bool:
         """A spell that becomes a permanent on resolution (RULE 608.3)."""
         return not (card.is_instant or card.is_sorcery)
@@ -2041,8 +2063,13 @@ class CastingResolutionMixin:
             snapshot = obj.adventure_snapshot
             obj.adventure_snapshot = None
             self.restore_face(obj, snapshot)
-            self.exile(obj)
-            obj.adventure_castable = True
+            if self._is_omen_card(obj.card):
+                # RULE 720.3d: an Omen spell is shuffled into its owner's library as it resolves,
+                # instead of going to the graveyard (an Adventure is exiled and castable instead).
+                self.shuffle_into_library(obj)
+            else:
+                self.exile(obj)
+                obj.adventure_castable = True
         elif obj.buyback_paid:
             # RULE 702.27a: Buyback's additional cost was paid at cast
             # time — return the card to its owner's hand instead of the
@@ -2412,7 +2439,9 @@ class CastingResolutionMixin:
         """
         effect = obj.enter_as_copy_effects[0]
         max_mana_value = obj.mana_spent_to_cast if effect.max_mana_value_from_mana_spent else None
-        spec = TargetSpec(kind=effect.target_kind, max_mana_value=max_mana_value)
+        spec = TargetSpec(
+            kind=effect.target_kind, max_mana_value=max_mana_value, creature_filter=effect.creature_filter,
+        )
         options = legal_targets(self.state, obj.controller_id, spec, source=obj)
         if not options:
             continuation()

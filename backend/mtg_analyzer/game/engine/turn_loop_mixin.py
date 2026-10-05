@@ -399,6 +399,7 @@ class TurnLoopMixin:
         if self.state.current_step == "declare_attackers":
             self._enforce_attacks_if_able()
             self._enforce_goad_requirements()
+            self._enforce_must_attack_player()
             self._enforce_attack_alone_restrictions()
             self._fire_player_attacked_events()
             self._fire_attacks_alone_event()
@@ -764,6 +765,7 @@ class TurnLoopMixin:
         self._deal_combat_damage_step(first_strike_step=False)
         self.rules.check_state_based_actions()
     def _step_end_combat(self) -> None:
+        self._record_last_combat()  # before the assignments go: "didn't attack during your last combat"
         # RULE 511.3: creatures are removed from combat as it ends.
         self._clear_combat()
         # …and RULE 611's combat-scoped continuous effects end with it

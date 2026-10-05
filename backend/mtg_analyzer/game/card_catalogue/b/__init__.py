@@ -55,3 +55,4 @@ from . import breach_the_multiverse
 from . import braids_arisen_nightmare
 
 from . import bellowing_mauler
+from . import broodcaller_scourge

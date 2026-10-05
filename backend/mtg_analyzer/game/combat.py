@@ -238,6 +238,10 @@ def protections_of(card: "Card") -> frozenset[str]:
 # invalidate on a copy/rewind).
 
 
+#: The granted flag keywords that are restrictions placed *on* a permanent rather than abilities it has.
+_EFFECT_RESTRICTION_FLAGS: frozenset[str] = frozenset({"cant_attack", "cant_block"})
+
+
 def _obj_keywords(obj: "GameObject") -> frozenset[str]:
     # Three sources, unioned: the card's recognized keywords, the flag keywords
     # the parser catalogue bound onto the object (`intrinsic_keywords`, RULE
@@ -253,7 +257,10 @@ def _obj_keywords(obj: "GameObject") -> frozenset[str]:
     # would layer back on in real rules, but no cube card stacks a grant over
     # Humility, so the simple "all gone" answer is correct here.
     if getattr(obj, "loses_all_abilities", False):
-        return frozenset()
+        # "…it loses all abilities, and it can't attack or block" (Opportunistic Dragon): the restriction
+        # is a rules effect, not an ability the object has, so a *granted* flag outlives the ability loss
+        # (RULE 613.7f — it is a Pacifism's effect, not text the creature loses). Its own printed ones go.
+        return frozenset(getattr(obj, "granted_keywords", set()) or set()) & _EFFECT_RESTRICTION_FLAGS
     return (
         (keywords_of(obj.card) - frozenset(getattr(obj, "suppressed_keywords", None) or ()))
         | frozenset(getattr(obj, "intrinsic_keywords", set()) or set())

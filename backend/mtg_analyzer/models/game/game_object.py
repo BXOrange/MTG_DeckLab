@@ -1092,6 +1092,14 @@ class GameObject:
         #: creature … is goaded") is re-derived every recompute into
         #: `_goaded_by_static` instead, since it must vanish with its source.
         self.goaded_by: set[str] = set()
+        #: Territorial Hellkite: the player this creature "attacks … this combat if able"
+        #: (`ForceAttackUnattackedOpponentEffect`), a requirement like goad's but naming the defender.
+        #: Set at the beginning of combat, dropped as that combat ends (RULE 511.3).
+        self.must_attack_player_id: Optional[str] = None
+        #: The players this creature attacked in its controller's most recent combat (empty if it did not
+        #: attack in it) — what "an opponent that ~ didn't attack during your last combat" reads. Recorded
+        #: as each of that player's combats ends (`CombatMixin._record_last_combat`).
+        self.last_combat_attacked_ids: set[str] = set()
         #: The same designation with **no** expiry — "The tokens are goaded
         #: for the rest of the game." (Rendmaw, Jon Irenicus). RULE 701.15a's
         #: "until your next turn" is the printed default that `goaded_by`
@@ -1535,6 +1543,8 @@ class GameObject:
         #: still not the *object* (400.7: what comes back is a new one).
         self.goaded_by = set()
         self.goaded_permanently = set()
+        self.must_attack_player_id = None
+        self.last_combat_attacked_ids = set()
         #: RULE 601.2b/400.7: a new object hasn't made its "as it enters,
         #: choose a creature type/color" pick yet either.
         self.chosen_type = None

@@ -1616,11 +1616,16 @@ class PutFromHandOntoBattlefieldEffect(GameEffect):
         miss_effect_specs: Optional[list[dict]] = None,
         zones: Optional[list[str]] = None,
         source: Optional["GameObject"] = None,
+        max_mana_value_from_trigger: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.criteria = criteria
         self.count = count
         self.tapped = tapped
+        #: "…a permanent card with mana value less than or equal to **that damage**…" (Broodcaller Scourge) —
+        #: the firing event's field (``"matching_amount"``: the combat damage its matched Dragons dealt)
+        #: that caps the pick's mana value, read at `apply` time.
+        self.max_mana_value_from_trigger = max_mana_value_from_trigger
         #: "…from your hand **or graveyard**…" (Dread Tiller) — the pool to
         #: pick from, defaulting to hand only (`_request_search` already
         #: takes a multi-zone list). Every other caller stays hand-only.
@@ -1662,6 +1667,11 @@ class PutFromHandOntoBattlefieldEffect(GameEffect):
         else:
             destination = "battlefield"
         criteria = self.criteria
+        if self.max_mana_value_from_trigger:
+            raw = (getattr(context, "trigger_event", None) or {}).get(self.max_mana_value_from_trigger)
+            criteria = dict(criteria) if isinstance(criteria, dict) else {}
+            # No such field on the event → nothing is affordable (fail closed), not an uncapped pick.
+            criteria["max_mana_value"] = int(raw) if isinstance(raw, int) and not isinstance(raw, bool) else -1
         if self.max_mana_value_selector or self.power_less_than_source:
             from .. import continuous  # function-scoped: avoid an import cycle
 

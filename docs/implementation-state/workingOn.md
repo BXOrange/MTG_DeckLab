@@ -50,15 +50,15 @@ Block template (copy below the line, fill in):
 - **Started / last update:** 2026-10-01 / 2026-10-05
 - **Goal:** Bring every non-cube saved deck to N/N in `scripts/deck_coverage.py`; Commander Cube last and optional.
 - **Done:** Step 0 (War Room and alternate-name resolution) and Step 1 handler batches completed. General parser results are documented in `Done_Backend.md`. Completed deck coverage: Goblins 39/39, yshtola 97/97, Hydranten 81/81, Raggadragga 84/84, Kodama 75/75, Wick Snail Boom 84/84, Counter Intelligence 94/94, Oops! All Night's Whispers 99/99, World Shaper 87/87; SpongeBob's last recorded missing card (Gogo) is authored. Individual card implementations and their limitations live in `game/card_catalogue/` and `tests/game/catalogue/cards/test_*_deck.py`, not in the Done catalogue.
-- **In progress:** none — Family Matters and Peace Offering finished (all four Bloomburrow decks N/N). Files uncommitted since Peace Offering.
-- **Next step:** Tarkir: Temur Roar (15 missing; the Bloomburrow decks are all done): run `scripts/deck_coverage.py --uncovered`, prefer cards shared with other open decks, hand-author or extend the parser, test, then the full suite.
+- **In progress:** none — Tarkir: Temur Roar finished (89/89, the 15 cards incl. the Omen/reveal-or-control/forced-defender primitives; shared results in `Done_Backend.md` "Omen, reveal-or-control lands, …"). Files uncommitted since Peace Offering.
+- **Next step:** Eternal Might (Aetherdrift, 17 missing; tied with Wretched Ranks 17): run `scripts/deck_coverage.py --uncovered "<deck name>"`, prefer cards shared with other open decks (the other Tarkir decks share Omens/Dragons with Temur Roar), hand-author or extend the parser, test, then the full suite (default tier + `--full-cache` tier, both green after Temur Roar).
 - **Decisions:** Prioritize shared parser axes, then decks by marginal cost. Reuse existing primitives before adding new ones. Hand-author isolated gaps; Alchemy is a permanent non-goal. Coverage N/N means MODELED or AUTHORED, not proof that every printed ability is rules-exact.
-- **Baselines:** PARSER_VERSION 607; full-cache coverage 20,372/35,046 (58.1%), measured 2026-10-04 at v604 (not re-measured). Latest full-cache pytest: 11,331 passed (default tier after the Animated Army batch: 11,214 passed, 335 skipped). Saved decklists are available on this PC; remaining counts below have been remeasured.
+- **Baselines:** PARSER_VERSION 608; full-cache coverage 20,372/35,046 (58.1%), measured 2026-10-04 at v604 (not re-measured). Latest default-tier pytest after Temur Roar: 11,421 passed, 335 skipped (3 red tests fixed: ISA classification of the two new effect types, PARSER_VERSION.lock). Saved decklists are available on this PC; remaining counts below have been remeasured.
 - **Known failures:** None in the latest full backend suite. The phenomenon regression now uses inert departure/destination planes to isolate the encounter trigger from random catalogue effects. Frontend lint remains unverified because Node/npm is unavailable; the changed choice renderer passed V8 syntax/render checks.
 
 ### Residue · cards and remaining deck order
 
-- **Deck order by missing cards, ascending (remeasured 2026-10-05 after Peace Offering with `scripts/deck_coverage.py`; 430 card slots):** Temur Roar 15; Eternal Might 17; Wretched Ranks 17; Calling All Angels 18; Jump Scare! 18; Mardu Surge 18; Sultai Arisen 18; Abzan Armor 19; Death Toll 20; Living Energy 20; Miracle Worker 20; Scions & Spellcraft 20; Shorikai Vehicles 21; Endless Punishment 22; Hope to the last 25; Revival Trance 27; Counter Blitz 28; Multiverse Reforged 28; Turtle Power! 28; Limit Break 31; then Commander Cube (209, optional).
+- **Deck order by missing cards, ascending (remeasured 2026-10-05 after Peace Offering with `scripts/deck_coverage.py`; 415 card slots after Temur Roar):** Eternal Might 17; Wretched Ranks 17; Calling All Angels 18; Jump Scare! 18; Mardu Surge 18; Sultai Arisen 18; Abzan Armor 19; Death Toll 20; Living Energy 20; Miracle Worker 20; Scions & Spellcraft 20; Shorikai Vehicles 21; Endless Punishment 22; Hope to the last 25; Revival Trance 27; Counter Blitz 28; Multiverse Reforged 28; Turtle Power! 28; Limit Break 31; then Commander Cube (209, optional).
 - **Batching hint:** the Foundations/Bloomburrow/Tarkir/Aetherdrift/Final Fantasy precons overlap heavily; before each deck, run `--uncovered` and prefer cards shared with other open decks and shared parser axes. Remeasure before ordering further batches.
 
 ### Residue · known correctness gaps
@@ -72,6 +72,7 @@ Coverage completion does not close these recorded limitations; confirm them agai
 - **Wick Snail Boom:** Chameleon's Mayhem is not supported.
 - **SpongeBob:** The Prismatic Bridge back face is not authored (cache limitation); Gogo's copied abilities retain targets.
 - **World Shaper:** Moraug untaps when its landfall trigger resolves rather than at the start of the additional combat.
+- **Temur Roar:** Reflections of Littjara's copy keeps the original's targets (no new-target choice, the `CopySpellEffect` simplification); Territorial Hellkite's forced defender is enforced when the attack is declared (the engine raises) but not offered by `legal_actions`/bots; Sarkhan, Soul Aflame's "you may" is the generic do/decline trigger prompt.
 
 ### Residue · follow-ups outside individual card coverage
 

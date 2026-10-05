@@ -663,6 +663,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "return_shared_type_permanent": "move_object",
     "exile_instead_of_leaving": "create_continuous_effect",
     "return_specific_to_battlefield": "move_object",
+    "return_specific_to_command_zone": "move_object",
     "return_specific_to_hand": "move_object",
     "return_to_hand": "move_object",
     "return_commanders_to_command_zone": "move_object",
@@ -743,6 +744,9 @@ _ALIAS_TYPES: dict[str, str] = {
     "transform_named_tokens": "transform",
     "type_change": "create_continuous_effect",
     "unblockable": "create_continuous_effect",
+    # Territorial Hellkite: a random-opponent pick that becomes a combat requirement (or, with no candidate, a
+    # tap) — the requirement is the continuous effect, in goad's family.
+    "force_attack_unattacked_opponent": "create_continuous_effect",
 }
 
 #: FUSION — type name -> (the instructions it welds, the operator that

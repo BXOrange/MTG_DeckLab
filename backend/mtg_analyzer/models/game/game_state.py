@@ -1643,6 +1643,11 @@ class GameState:
         return turn_history.creatures_died(self.events_this_turn())
 
     @property
+    def nontoken_creatures_died_this_turn(self) -> dict[str, int]:
+        """Nontoken creatures that died under each player's control this turn (RULE 700.4)."""
+        return turn_history.nontoken_creatures_died(self.events_this_turn())
+
+    @property
     def modified_creatures_died_this_turn(self) -> dict[str, int]:
         return turn_history.modified_creatures_died(self.events_this_turn())
 

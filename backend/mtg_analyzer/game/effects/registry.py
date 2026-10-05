@@ -1437,6 +1437,7 @@ EffectRegistry.register(
         group=p.get("group"), group_player=p.get("group_player"),
         count_selector=p.get("count_selector"),
         exact_mana_value=p.get("exact_mana_value"),
+        max_mana_value=p.get("max_mana_value"),
     ),
 )
 EffectRegistry.register(
@@ -1910,6 +1911,18 @@ EffectRegistry.register(
     lambda p: ReturnSpecificToHandEffect(objects=[]),
 )
 EffectRegistry.register(
+    # "Choose an opponent at random that ~ didn't attack during your last combat. ~ attacks that player this
+    # combat if able. If you can't choose an opponent this way, tap ~." (Territorial Hellkite)
+    "force_attack_unattacked_opponent",
+    lambda p: ForceAttackUnattackedOpponentEffect(),
+)
+EffectRegistry.register(
+    # "Return it to the command zone at the beginning of the next end step." (Hellkite Courser) — the
+    # command-zone sibling of `return_specific_to_hand`, same empty-default/`capture` idiom.
+    "return_specific_to_command_zone",
+    lambda p: ReturnSpecificToCommandZoneEffect(objects=[]),
+)
+EffectRegistry.register(
     # "If that creature would leave the battlefield, exile it instead of putting it anywhere else." (PAR-139)
     "exile_instead_of_leaving", lambda p: ExileInsteadOfLeavingEffect(),
 )
@@ -2168,6 +2181,7 @@ EffectRegistry.register(
         power_less_than_source=bool(p.get("power_less_than_source", False)),
         miss_effect_specs=p.get("miss_effect_specs"),
         zones=p.get("zones"),
+        max_mana_value_from_trigger=p.get("max_mana_value_from_trigger"),
     ),
 )
 EffectRegistry.register(
@@ -2652,6 +2666,7 @@ EffectRegistry.register(
         not_legendary=bool(p.get("not_legendary", False)),
         set_name=p.get("set_name"),
         until_end_of_turn=bool(p.get("until_end_of_turn", False)),
+        creature_filter=p.get("creature_filter"),
     ),
 )
 EffectRegistry.register(
@@ -2705,6 +2720,7 @@ EffectRegistry.register(
         add_types=p.get("add_types"), add_subtypes=p.get("add_subtypes"), add_keywords=p.get("add_keywords"),
         not_legendary=bool(p.get("not_legendary", False)),
         keep_own_abilities=bool(p.get("keep_own_abilities", False)),
+        set_name=p.get("set_name"),
     ),
 )
 EffectRegistry.register(
@@ -2718,6 +2734,7 @@ EffectRegistry.register(
         add_types=p.get("add_types"), add_subtypes=p.get("add_subtypes"), add_keywords=p.get("add_keywords"),
         not_legendary=bool(p.get("not_legendary", False)),
         keep_own_abilities=bool(p.get("keep_own_abilities", False)),
+        set_name=p.get("set_name"),
     ),
 )
 EffectRegistry.register(

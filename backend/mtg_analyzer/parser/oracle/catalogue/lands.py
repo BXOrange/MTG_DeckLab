@@ -138,6 +138,16 @@ _REVEAL_TYPES_RE = re.compile(
     rf"if you don'?t, {_SUBJECT} enters tapped\.?$",
     re.IGNORECASE,
 )
+#: Tarkir/Brothers' War's "reveal or control" lands (Temple of the Dragon Queen,
+#: Fortified Beachhead): the reveal land's interactive choice *plus* a board
+#: check that skips it — "As ~ enters, you may reveal a Dragon card from your
+#: hand. ~ enters tapped unless you revealed a Dragon card this way or you
+#: control a Dragon." The one type repeats across all three mentions.
+_REVEAL_OR_CONTROL_RE = re.compile(
+    rf"^as {_SUBJECT} {_ENTERS}, you may reveal an? (.+?) card from your hand\. "
+    rf"{_SUBJECT} enters tapped unless you revealed an? \1 card this way or you control an? \1\.?$",
+    re.IGNORECASE,
+)
 
 
 def _split_types_clause(clause: str) -> list[str]:
@@ -188,7 +198,9 @@ def tap_clause_condition(line: str) -> Optional[dict[str, Any]]:
     - ``{"kind": "reveal_types", "types": [...]}`` — the "reveal land" cycle:
       the controller may reveal a card of one of these types from hand to
       keep it untapped, a genuine interactive choice (like ``pay_life``),
-      not a deterministic board check (like ``unless_types``).
+      not a deterministic board check (like ``unless_types``). With
+      ``"or_control": True`` (Temple of the Dragon Queen) controlling a
+      permanent of one of the types also keeps it untapped, with no choice.
     """
     if _ALWAYS_THEN_ENTER_CHOICE_RE.match(line):
         return {"kind": "always"}
@@ -243,6 +255,11 @@ def tap_clause_condition(line: str) -> Optional[dict[str, Any]]:
         types = _split_types_clause(match.group(1))
         if types:
             return {"kind": "reveal_types", "types": types}
+    match = _REVEAL_OR_CONTROL_RE.match(line)
+    if match:
+        types = _split_types_clause(match.group(1))
+        if types:
+            return {"kind": "reveal_types", "types": types, "or_control": True}
     if _ALWAYS_RE.match(line) or _TAPPED_WITH_COUNTERS_RE.match(line):
         return {"kind": "always"}
     return None

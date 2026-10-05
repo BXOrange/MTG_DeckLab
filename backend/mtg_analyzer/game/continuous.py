@@ -1999,6 +1999,11 @@ def count_selector(
         # "sum across every player" shape `total_rad_counters_among_players`
         # just above uses.
         return sum(state.creatures_died_this_turn.values())
+    if selector == "nontoken_creatures_died_this_turn":
+        # Gadrak, the Crown-Scourge: "…for each nontoken creature that died this turn" — the
+        # `creatures_died_this_turn` tally across every player, minus tokens (the DIES event's own
+        # ``is_token`` snapshot).
+        return sum(state.nontoken_creatures_died_this_turn.values())
     if selector == "creatures_attacked_this_turn":
         # RULE 508.1a/508.4: a creature put onto the battlefield attacking
         # did not attack. Count each declared attacker's object once even if
@@ -5312,6 +5317,12 @@ def player_ignores_legend_rule(state: "GameState", player: "Player") -> bool:
     return False
 
 
+def _printed_subtype_words(card: Any) -> set[str]:
+    """Lowercase subtypes after the em dash of ``card``'s printed type line (empty if none)."""
+    _, _, subtypes = (getattr(card, "type_line", "") or "").partition("—")
+    return {w for w in subtypes.lower().split() if w}
+
+
 def has_standing_flash_permission(state: "GameState", player: "Player", card: Any) -> bool:
     """Whether ``player`` may cast ``card`` at instant speed right now via a
     standing "You may cast spells as though they had flash." grant (High
@@ -5347,6 +5358,9 @@ def has_standing_flash_permission(state: "GameState", player: "Player", card: An
                 # "You may cast **sorcery** spells as though they had
                 # flash." (Teferi, Time Raveler's own +1, MEC-42).
                 or ("sorcery" in words and bool(getattr(card, "is_sorcery", False)))
+                # "You may cast sorcery spells and **Dragon** spells as though they had flash."
+                # (Whirlwing Stormbrood) — any other word is a subtype of the card's printed type line.
+                or bool(words & _printed_subtype_words(card))
             )
             if not matches:
                 continue

@@ -2534,6 +2534,64 @@ class ReturnSpecificToHandEffect(GameEffect):
                 context.engine.return_to_hand(obj)
 
 
+class ForceAttackUnattackedOpponentEffect(GameEffect):
+    """"Choose an opponent at random that ~ didn't attack during your last combat. ~ attacks that player this
+    combat if able. If you can't choose an opponent this way, tap ~." (Territorial Hellkite)
+
+    The candidates are the controller's living opponents minus the ones the source attacked in its
+    controller's previous combat (`GameObject.last_combat_attacked_ids`, recorded as each combat ends). The
+    pick uses the game-state-seeded `RulesEngine.random_choice` so it reproduces across an undo. The chosen
+    player becomes the source's `must_attack_player_id`, enforced as the attack is declared
+    (`CombatMixin._enforce_must_attack_player`) and dropped when combat ends; with no candidate the source
+    is tapped instead.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        source = self.source
+        controller = _controller_of(source, context)
+        if source is None or controller is None:
+            return
+        candidates = [
+            p for p in context.state.living_players()
+            if p.id != controller.id and p.id not in source.last_combat_attacked_ids
+        ]
+        if not candidates:
+            context.engine.set_tapped(source, True)
+            return
+        source.must_attack_player_id = context.engine.random_choice(candidates).id
+
+
+class ReturnSpecificToCommandZoneEffect(GameEffect):
+    """Return the exact commanders baked into this effect from the battlefield to the command zone (RULE 903.9 /
+    400.7) — the delayed half of "Return it to the command zone at the beginning of the next end step" (Hellkite
+    Courser). The command-zone sibling of `ReturnSpecificToHandEffect`, same "empty default, populated by
+    `CreateDelayedTriggerEffect`'s ``capture``" idiom. Anything that already left the battlefield is skipped
+    (RULE 400.7: a different object by now). Fires `LEAVES_BATTLEFIELD` (``to_zone="command"``, RULE 603.6c)
+    before the move, then returns the card, reset as a new object, to its owner's command zone.
+    """
+
+    def __init__(self, objects: list["GameObject"], source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.objects = objects
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        for obj in list(self.objects):
+            if obj not in context.state.battlefield:
+                continue
+            context.fire_event(
+                GameEvent(
+                    EventType.LEAVES_BATTLEFIELD, to_zone="command", object=obj.name,
+                    owner_id=obj.owner_id, controller_id=obj.controller_id,
+                    instance_id=obj.instance_id, object_types=sorted(obj.type_words),
+                    counters=dict(obj.counters), power=obj.power, toughness=obj.toughness,
+                )
+            )
+            context.state.remove_from_battlefield(obj)
+            obj.reset_as_new_object()
+            context.state.player_by_id(obj.owner_id).add_to_zone(obj, Zone.COMMAND)
+        context.recompute()
+
+
 class ReturnSpecificToBattlefieldEffect(GameEffect):
     """Return the exact exiled cards baked into this effect to the battlefield under their owners'
     control (RULE 400.7 / 603.7) — the delayed half of "Exile target creature. Return that card to

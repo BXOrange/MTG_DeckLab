@@ -203,6 +203,9 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         "enchantment_you_dont_control",
         "artifact_or_enchantment_you_dont_control",
         "artifact_or_creature_you_dont_control",
+        # "choose target Human or artifact an opponent controls" (Opportunistic Dragon) — a creature-subtype
+        # word unioned with the artifact type, scoped to an opponent's permanents.
+        "human_or_artifact_you_dont_control",
         # PAR-104: the three-type union scoped to an opponent ("exile target artifact, creature, or enchantment an
         # opponent controls" — Trapped in the Screen, Banishment-shaped), composed by the same target grammar.
         "artifact_creature_or_enchantment_you_dont_control",
@@ -679,6 +682,8 @@ class TargetSpec:
                 "Artefakt oder Verzauberung, das du nicht kontrollierst",
             "artifact_or_creature_you_dont_control":
                 "Artefakt oder Kreatur, das du nicht kontrollierst",
+            "human_or_artifact_you_dont_control":
+                "Mensch oder Artefakt, das du nicht kontrollierst",
             "artifact_creature_or_enchantment_you_dont_control":
                 "Artefakt, Kreatur oder Verzauberung, das du nicht kontrollierst",
             "artifact_or_enchantment": "Artefakt oder Verzauberung",
@@ -1155,6 +1160,7 @@ _FRAME_TYPE_PREDICATES: dict[str, Any] = {
     # land sibling of `creature_or_enchantment` just above.
     "creature_or_land": lambda o: o.is_creature or o.is_land,
     "creature_or_vehicle": lambda o: o.is_creature or "vehicle" in o.card.type_line.lower(),
+    "human_or_artifact": lambda o: bool(o.card.is_artifact) or (o.is_creature and _fp_subtype(o, "human")),
     "artifact_creature_or_land": lambda o: o.is_creature or o.is_land or o.card.is_artifact,
     "creature_or_planeswalker": lambda o: o.is_creature or o.is_planeswalker,
     "creature_planeswalker_or_battle": lambda o: (
@@ -1281,6 +1287,8 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
         "artifact_or_enchantment", SCOPE_NOT_YOU, exclude_source=False),
     "artifact_or_creature_you_dont_control": TargetFrame(
         "artifact_or_creature", SCOPE_NOT_YOU, exclude_source=False),
+    "human_or_artifact_you_dont_control": TargetFrame(
+        "human_or_artifact", SCOPE_NOT_YOU, exclude_source=False),
     "artifact_creature_or_enchantment_you_dont_control": TargetFrame(
         "artifact_creature_or_enchantment", SCOPE_NOT_YOU, exclude_source=False,
         apply_max_mana_value=True, apply_creature_filter=True, creature_filter_creatures_only=True),
@@ -1669,6 +1677,10 @@ def _legal_targets_for(
         # dealt to that player." (Venerable Warsinger, PAR-60) — the firing
         # DAMAGE event's own ``amount``.
         spec = replace(spec, max_mana_value=int((trigger_event or {}).get("amount", 0) or 0))
+    if spec.max_mana_value == "trigger_spell_mana_value":
+        # "…with mana value less than or equal to that spell's mana value." (Hammerhead Tyrant) — the
+        # firing SPELL_CAST event's own ``mana_value``, as a ceiling (`exact_mana_value`'s sibling).
+        spec = replace(spec, max_mana_value=int((trigger_event or {}).get("mana_value", 0) or 0))
     if spec.exact_mana_value == "trigger_subject_mana_value":
         # "…up to one target creature you don't control with the same mana value." (PAR-123, Boxing
         # Ring) — "the same" as the object that fired this group trigger: the event's own subject,
