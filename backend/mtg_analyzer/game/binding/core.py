@@ -1935,6 +1935,45 @@ def _trigger_condition(
 
         predicates.append(_nth_spell_ok)
 
+    # "Whenever you cast your **first instant or sorcery spell each turn**, …" (Baral and Kari Zev) —
+    # the per-type sibling of ``is_nth_spell_cast_this_turn`` above, over `GameState.
+    # spell_type_cast_counts_this_turn`'s ``instant_or_sorcery`` tally for the casting player.
+    nth_instant_or_sorcery = trigger.get("is_nth_instant_or_sorcery_cast_this_turn")
+    if nth_instant_or_sorcery is not None:
+        n_ios = int(nth_instant_or_sorcery)
+
+        def _nth_instant_or_sorcery_ok(event: Any, context: Any, n=n_ios) -> bool:
+            counts = context.state.spell_type_cast_counts_this_turn.get(event.get("player_id"), {})
+            return counts.get("instant_or_sorcery", 0) == n
+
+        predicates.append(_nth_instant_or_sorcery_ok)
+
+    # "Whenever you tap a permanent for {C}, add an additional {C}." (Forsaken Monument) — the mana the
+    # tap actually produced (`TAPPED_FOR_MANA.produced`) includes the named type.
+    produced_type = trigger.get("mana_produced_includes")
+    if produced_type is not None:
+        def _mana_produced_ok(event: Any, context: Any, kind=str(produced_type).upper()) -> bool:
+            return (event.get("produced") or {}).get(kind, 0) > 0
+
+        predicates.append(_mana_produced_ok)
+
+    # "Whenever an opponent casts a noncreature spell with mana value less than this creature's power, …" (Pollywog
+    # Prodigy) — the cast spell's mana value against the ability source's *current* derived power.
+    if trigger.get("spell_mana_value_less_than_source_power"):
+        def _mv_below_power(event: Any, context: Any, src=source) -> bool:
+            return int(event.get("mana_value", 0) or 0) < int(getattr(src, "power", 0) or 0)
+
+        predicates.append(_mv_below_power)
+
+    # "Whenever you cast a spell, if mana from a Treasure was spent to cast it, …" (Alchemist's Talent) — the
+    # cast event's per-source payment tally (`SPELL_CAST.mana_spent_by_source`, the Rain of Riches record).
+    mana_source_kind = trigger.get("spell_mana_source_kind")
+    if mana_source_kind is not None:
+        def _spell_mana_source_ok(event: Any, context: Any, kind=str(mana_source_kind)) -> bool:
+            return (event.get("mana_spent_by_source") or {}).get(kind, 0) > 0
+
+        predicates.append(_spell_mana_source_ok)
+
     # "Whenever a player casts a spell, if no mana was spent to cast it,
     # counter that spell." (Vexing Bauble) — RULE 601.2h's "free spell" hate,
     # off `SPELL_CAST`'s own ``mana_spent`` (`GameObject.mana_spent_to_cast`,
@@ -3266,7 +3305,9 @@ def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
 #: unrecognised one (a rare tribal "Affinity for Dwarves") synthesizes
 #: nothing, leaving the keyword recognised-but-inert rather than wrong
 #: (fail-closed, PAR-23).
-_AFFINITY_SELECTORS: dict[str, str] = {
+_AFFINITY_SELECTORS: dict[str, "str | dict[str, Any]"] = {
+    # "Affinity for tokens" (Junk Winder) — a structured selector over the tokens you control.
+    "token": {"zone": "battlefield", "of": "you", "filter": {"token": True}},
     "artifact": "artifacts_you_control",
     "creature": "creatures_you_control",
     "land": "lands_you_control",
@@ -3842,6 +3883,77 @@ def _kw_gift(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
     ]
 
 
+def _kw_offspring(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    """RULE 702.175 Offspring — "When this creature enters, if its offspring cost was paid, create a 1/1
+    token that's a copy of it." The optional additional cost rides the Kicker announcement path
+    (`GameEngine._kicker_cost` falls back to the offspring cost, `GameObject.kicker_count` records that
+    it was paid); the intervening "if" (RULE 603.4) reads that record. The token was never cast, so its
+    own `kicker_count` is 0 and it does not make a token of its own.
+    """
+    from ..effects.core import CopyPermanentEffect
+
+    return [
+        TriggeredAbility(
+            trigger_event=EventType.ENTERS_BATTLEFIELD,
+            effects=[CopyPermanentEffect(
+                target_kind=None, referent="source", set_power=1, set_toughness=1, source=obj,
+            )],
+            condition=lambda event, context, src=obj: (
+                event.get("instance_id") == src.instance_id and (src.kicker_count or 0) > 0
+            ),
+            source=obj,
+            description=_ability_description(obj, spec) or "Offspring",
+        )
+    ]
+
+
+def _kw_ravenous(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    """RULE 702.156 Ravenous — "This permanent enters with X +1/+1 counters on it. If X is 5 or more, draw a card when
+    it enters." The counters are put on at entry (`RulesEngine._apply_entry_counters`, off the announced X); this is the
+    draw. The intervening "if" (RULE 603.4) reads the paid X stamped on the object at cast time."""
+    from ..effects.core import DrawCardEffect
+
+    return [
+        TriggeredAbility(
+            trigger_event=EventType.ENTERS_BATTLEFIELD,
+            effects=[DrawCardEffect(count=1, source=obj)],
+            condition=lambda event, context, src=obj: (
+                event.get("instance_id") == src.instance_id and (src.x_paid or 0) >= RAVENOUS_DRAW_THRESHOLD
+            ),
+            source=obj,
+            description=_ability_description(obj, spec) or "Ravenous",
+        )
+    ]
+
+
+#: RULE 702.156a: Ravenous draws a card when it enters with X of at least this.
+RAVENOUS_DRAW_THRESHOLD = 5
+
+
+def _kw_evolve(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    """RULE 702.100 Evolve — "Whenever a creature you control enters, if that creature has greater power or toughness
+    than this creature, put a +1/+1 counter on this creature." The intervening "if" (RULE 603.4) compares the entering
+    creature's derived power/toughness against this one's, at trigger time (`_collect_triggers` already recomputed the
+    entrant). **Documented simplification:** it is not re-checked on resolution."""
+    from ..effects.core import AddCountersEffect
+
+    def _greater(event: Any, context: Any, src=obj) -> bool:
+        entrant = context.state.find_object(event.get("instance_id")) if getattr(context, "state", None) else None
+        if entrant is None or entrant is src or not entrant.is_creature or entrant.controller_id != src.controller_id:
+            return False
+        return (entrant.power or 0) > (src.power or 0) or (entrant.toughness or 0) > (src.toughness or 0)
+
+    return [
+        TriggeredAbility(
+            trigger_event=EventType.ENTERS_BATTLEFIELD,
+            effects=[AddCountersEffect(kind="+1/+1", count=1, target_kind=None, source=obj)],
+            condition=_greater,
+            source=obj,
+            description=_ability_description(obj, spec) or "Evolve",
+        )
+    ]
+
+
 def _kw_prowess(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
     """RULE 702.108a Prowess — "Whenever you cast a noncreature spell, this
     creature gets +1/+1 until end of turn." Parser-recognized as a flag
@@ -4075,6 +4187,9 @@ _KEYWORD_TRIGGERED_BUILDERS: dict[str, Callable[[Any, AbilitySpec, Any], list[Tr
     "bushido": _kw_bushido,
     "prowess": _kw_prowess,
     "gift": _kw_gift,
+    "ravenous": _kw_ravenous,
+    "evolve": _kw_evolve,
+    "offspring": _kw_offspring,
     "exalted": _kw_exalted,
     "battle_cry": _kw_battle_cry,
     "mentor": _kw_mentor,
@@ -4448,7 +4563,10 @@ def bind_from_catalogue(obj: Any) -> None:
     card with no known specs. Import is function-local to avoid an import cycle
     (`card_registry` builds specs, this module binds them)."""
     from ..card_registry import specs_for
+    from ..card_registry.core import suppressed_keywords_for
 
     specs = specs_for(getattr(obj, "card", None))
+    # A keyword Scryfall lists only conditionally (Goddric's celebration flying) is not the card's own.
+    obj.suppressed_keywords = set(suppressed_keywords_for(getattr(obj, "card", None)))
     if specs:
         attach_to_object(obj, specs)

@@ -739,6 +739,7 @@ class GameContext:
         permission_player: Optional["Player"] = None,
         same_turn_only: bool = False,
         grant: bool = True,
+        mana_wildcard: Optional[str] = None,
     ) -> list[Any]:
         # MEC-58: returns the exiled objects (rather than discarding them,
         # as before) so a caller — `ImpulsiveDrawEffect.apply` — can seed
@@ -747,6 +748,7 @@ class GameContext:
         return self.engine.exile_with_play_permission(
             player, count, source_name=source_name,
             permission_player=permission_player, same_turn_only=same_turn_only, grant=grant,
+            mana_wildcard=mana_wildcard,
         )
 
     def shuffle_library(self, player: "Player") -> None:
@@ -758,8 +760,13 @@ class GameContext:
     def cascade(self, player: "Player", max_mana_value: int) -> None:
         self.engine._request_cascade(player, max_mana_value)
 
-    def discover(self, player: "Player", max_mana_value: int) -> None:
-        self.engine._request_discover(player, max_mana_value)
+    def discover(
+        self, player: "Player", max_mana_value: int, cast_limit: Optional[int] = None,
+        treasures_below: Optional[int] = None, source: Optional["GameObject"] = None,
+    ) -> None:
+        self.engine._request_discover(
+            player, max_mana_value, cast_limit=cast_limit, treasures_below=treasures_below, source=source,
+        )
 
     def counter(
         self,
@@ -769,11 +776,13 @@ class GameContext:
         suspend_instead: Optional[int] = None,
         on_pay_effect_specs: Optional[list[dict]] = None,
         tap_lands_empty_pool_if_unpaid: bool = False,
+        exile_instead: bool = False,
     ) -> None:
         self.engine.counter_unless_pays(
             target, unless_pays, source, suspend_time_counters=suspend_instead,
             on_pay_effect_specs=on_pay_effect_specs,
             tap_lands_empty_pool_if_unpaid=tap_lands_empty_pool_if_unpaid,
+            exile_instead=exile_instead,
         )
 
     def counter_ability(self, target: Any) -> None:

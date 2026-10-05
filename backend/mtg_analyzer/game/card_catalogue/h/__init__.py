@@ -9,7 +9,9 @@ from . import harsh_mentor  # noqa: F401
 from . import hateful_eidolon  # noqa: F401
 from . import haunted_one  # noqa: F401
 from . import haunting_voyage  # noqa: F401
+from . import haven_of_the_spirit_dragon  # noqa: F401
 from . import haywire_mite  # noqa: F401
+from . import hazoret_s_monument  # noqa: F401
 from . import heat_shimmer  # noqa: F401
 from . import hedge_whisperer  # noqa: F401
 from . import hedron_field_purists  # noqa: F401
@@ -21,8 +23,10 @@ from . import helm_of_obedience  # noqa: F401
 from . import helm_of_the_host  # noqa: F401
 from . import herald_of_amity  # noqa: F401
 from . import herald_of_secret_streams  # noqa: F401
+from . import herald_s_horn  # noqa: F401
 from . import hermit_druid  # noqa: F401
 from . import high_perfect_morcant  # noqa: F401
+from . import hit_the_mother_lode  # noqa: F401
 from . import hoarding_broodlord  # noqa: F401
 from . import hofri_ghostforge  # noqa: F401
 from . import homeward_path  # noqa: F401

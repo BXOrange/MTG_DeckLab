@@ -2301,7 +2301,13 @@ class SearchMixin:
             if obj is not None:
                 self.cast_without_paying(player, obj)
         self._bottom_remaining(player, choice["exiled"])
-    def _request_discover(self, player: Player, max_mana_value: int) -> None:
+    #: A mana-value bound no real card reaches, for a dig that has no cap on what it exiles ("until you exile a nonland card").
+    UNBOUNDED_MANA_VALUE = 1_000_000
+
+    def _request_discover(
+        self, player: Player, max_mana_value: int, cast_limit: Optional[int] = None,
+        treasures_below: Optional[int] = None, source: Optional[GameObject] = None,
+    ) -> None:
         """Discover N (RULE 702.164): exile from the top until a nonland spell
         with mana value ≤ N; its controller either casts it for free **or**
         puts it into their hand (never nothing). The rest go to the bottom.
@@ -2315,7 +2321,16 @@ class SearchMixin:
         if matched is None:
             self._bottom_exiled(player, exiled)
             return
+        if cast_limit is not None and matched.card.converted_mana_cost > cast_limit:
+            # "You may cast it without paying its mana cost if that spell's mana value is 8 or less. If you
+            # don't, put that card into your hand." (Breaching Dragonstorm) — a too-big hit can only be taken.
+            player.remove_from_zone(matched, Zone.EXILE)
+            player.add_to_zone(matched, Zone.HAND)
+            self._bottom_remaining(player, [o.instance_id for o in exiled])
+            return
         self.open_choice({
+            "treasures_below": treasures_below,
+            "source_id": getattr(source, "instance_id", None),
             "kind": "discover",
             "player_id": player.id,
             "optional": False,  # you must cast it or take it — never nothing
@@ -2349,6 +2364,13 @@ class SearchMixin:
                 player.add_to_zone(matched, Zone.HAND)
             else:
                 self.cast_without_paying(player, matched)
+            # "If the discovered card's mana value is less than 10, create a number of tapped Treasure tokens
+            # equal to the difference." (Hit the Mother Lode)
+            below = choice.get("treasures_below")
+            if below is not None and matched.card.converted_mana_cost < below:
+                self._apply_effect_specs([{"type": "create_token", "params": {
+                    "token_name": "Treasure", "tapped": True, "count": below - matched.card.converted_mana_cost,
+                }}], self.state.find_object(choice.get("source_id")))
         self._bottom_remaining(player, choice["exiled"])
     def _exile_top_until(
         self, player: Player, criteria: Any, exclude_lands: bool
@@ -2893,9 +2915,11 @@ class SearchMixin:
             )
             return
         player.remove_from_zone(obj, Zone.EXILE)
-        if destination == "battlefield":
+        if destination in ("battlefield", "battlefield_tapped"):
             obj.zone = Zone.BATTLEFIELD
             self.state.add_to_battlefield(obj)
+            if destination == "battlefield_tapped":
+                obj.tapped = True  # "put that card onto the battlefield tapped" (Clifftop Lookout)
             # RULE 603.6a: an entry is an event — without it "whenever a creature enters"
             # never fired for a card a dig put onto the battlefield.
             self.state.fire_event(GameEvent(

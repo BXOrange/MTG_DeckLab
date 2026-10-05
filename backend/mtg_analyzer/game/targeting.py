@@ -885,6 +885,7 @@ def _creature_matches_filter(
     filt: dict[str, Any],
     reference: Optional[GameObject] = None,
     state: Optional[GameState] = None,
+    trigger_event: Optional[Any] = None,
 ) -> bool:
     """Whether ``obj`` satisfies a `TargetSpec.creature_filter` (see its
     docstring for the key vocabulary).
@@ -916,12 +917,19 @@ def _creature_matches_filter(
             or defender.get("kind") != "player" or defender.get("id") != reference.controller_id
         ):
             return False
+    # "…choose target nontoken creature that's attacking that player." (Echoing Assault) — attacking the player the
+    # firing `PLAYER_ATTACKED`/attack event names (`defending_player_id`).
+    if filt.get("attacking_trigger_defender"):
+        defender = getattr(obj, "combat_defender", None) or {}
+        wanted = (trigger_event or {}).get("defending_player_id") if trigger_event else None
+        if wanted is None or not obj.attacking or defender.get("kind") != "player" or defender.get("id") != wanted:
+            return False
     if filt.get("max_power_from_source_x"):
         if reference is None or (obj.power or 0) > int(getattr(reference, "x_paid", 0) or 0):
             return False
     combat_filter = {
         key: value for key, value in filt.items()
-        if key not in {"attacking", "attacking_you", "max_power_from_source_x"}
+        if key not in {"attacking", "attacking_you", "attacking_trigger_defender", "max_power_from_source_x"}
     }
     return combat.matches_object_filter(obj, combat_filter, reference=reference, state=state)
 
@@ -967,6 +975,10 @@ def _spell_matches_filter(obj: GameObject, spell_filter: dict[str, Any]) -> bool
             return False
     mana_value = spell_filter.get("mana_value")
     if mana_value is not None and obj.card.converted_mana_cost != mana_value:
+        return False
+    # "…spell with mana value 4 or less" (Expansion // Explosion).
+    max_mana_value = spell_filter.get("max_mana_value")
+    if max_mana_value is not None and obj.card.converted_mana_cost > max_mana_value:
         return False
     return True
 
@@ -1885,7 +1897,7 @@ def _legal_targets_for(
             and _color_ok(spec, o.colors)
             # PAR-135: "any target that isn't a Dinosaur" — the identity filter reads the creature; a
             # player/planeswalker/battle is none of those things and stays legal.
-            and (not spec.creature_filter or _creature_matches_filter(o, spec.creature_filter, source, state))
+            and (not spec.creature_filter or _creature_matches_filter(o, spec.creature_filter, source, state, trigger_event))
         ]
         other_permanents = [
             {"instance_id": o.instance_id, "name": o.name}
@@ -1918,7 +1930,7 @@ def _legal_targets_for(
             and (spec.exact_mana_value is None or o.card.converted_mana_cost == spec.exact_mana_value)
             and (
                 not spec.creature_filter
-                or _creature_matches_filter(o, spec.creature_filter, source, state)
+                or _creature_matches_filter(o, spec.creature_filter, source, state, trigger_event)
             )
         ]
     if kind == "creature_source_is_blocking":
@@ -2034,7 +2046,7 @@ def _legal_targets_for(
             and (spec.exact_mana_value is None or o.card.converted_mana_cost == spec.exact_mana_value)
             # "return target creature card with power 2 or less from your graveyard" (Alesha,
             # PAR-143) — the same filter vocabulary a battlefield creature target reads.
-            and (not spec.creature_filter or _creature_matches_filter(o, spec.creature_filter, source, state))
+            and (not spec.creature_filter or _creature_matches_filter(o, spec.creature_filter, source, state, trigger_event))
             # "exile target red, white, or black creature card from your
             # graveyard" (Offspring's Revenge) — the same `_color_ok` colour
             # narrowing the battlefield-object branches apply (RULE 105).

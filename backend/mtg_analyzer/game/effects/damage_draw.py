@@ -44,7 +44,7 @@ class PreventCombatDamageDealtEffect(GameEffect):
 #: PAR-128: RULE 109.5's "each other creature" — every creature but this
 #: effect's own source. Kept off `_DAMAGE_SELECTORS`, which `library.py`'s
 #: power-damage effect shares and does not iterate.
-_DAMAGE_OTHER_SELECTORS: frozenset[str] = frozenset({"each_other_creature"})
+_DAMAGE_OTHER_SELECTORS: frozenset[str] = frozenset({"each_other_creature", "attacked_object"})
 
 
 class DealDamageEffect(GameEffect):
@@ -72,6 +72,7 @@ class DealDamageEffect(GameEffect):
         group_player: Optional[str] = None,
         group_and_players: Optional[str] = None,
         divided: bool = False,
+        distinct_from_others: bool = False,
         double_at: Optional[int] = None,
         amount_if_kicked: Optional[int] = None,
         amount_if_teamwork: Optional[int] = None,
@@ -287,6 +288,9 @@ class DealDamageEffect(GameEffect):
                 # (PAR-40), the same `TargetSpec.creature_filter` narrowing
                 # `destroy`/`exile` already carry.
                 creature_filter=creature_filter,
+                # "…and 3 damage to each of up to two **other** targets." (Drakuseth) — RULE 109.5: never a
+                # target an earlier requirement of the same ability already chose.
+                distinct_from_others=bool(distinct_from_others),
             )
 
     @property
@@ -534,7 +538,9 @@ class DealDamageEffect(GameEffect):
         """Split the pool across ``targets`` (RULE 601.2d) — see ``divided``."""
         if not targets:
             return
-        total = self.amount if isinstance(self.amount, int) else 0
+        # The pool is the resolved amount, so a computed X (Monstrous Onslaught's greatest power) divides too.
+        total = self._amount_for(targets[0], context)
+        total = total if isinstance(total, int) else 0
         if self.double_at is not None and total >= self.double_at:
             total *= 2  # RULE 107.3: "deals twice X … instead"
         if self.division is not None and len(self.division) == len(targets):
@@ -601,6 +607,17 @@ class DealDamageEffect(GameEffect):
                     if self.group_and_players == "each_opponent" and player.id == getattr(self.source, "controller_id", None):
                         continue
                     context.deal_damage(player, amount, self.source)
+            return
+        if self.selector == "attacked_object":
+            # "…deals X damage to the player or planeswalker it's attacking." (Myr Battlesphere) — the
+            # thing this attacker was declared against (`combat_defender`), a player or a permanent.
+            spec = getattr(self.source, "combat_defender", None) or {}
+            if spec.get("kind") == "player":
+                victim = context.state.player_by_id(spec.get("id"))
+            else:
+                victim = context.state.find_object(spec.get("id")) if spec.get("id") is not None else None
+            if victim is not None:
+                context.deal_damage(victim, amount, self.source)
             return
         if self.selector == "defending_player":
             # Simian Sling's "it deals 1 damage to defending player" — the
@@ -2043,6 +2060,16 @@ def _mass_selector_objects(
                 if "aura" in (o.card.type_line or "").lower() and o.attached_to is not None
             }
             result = [o for o in result if (o.instance_id in aura_hosts) == want]
+        # "…each nonland permanent with mana value X whose controller was dealt combat damage by this creature
+        # this turn." (Steel Hellkite) — the event-derived per-source victim set
+        # (`GameState.combat_damage_to_players_this_turn`), keyed by this effect's own source.
+        if filt.get("controller_dealt_combat_damage_by_source"):
+            victims = context.state.combat_damage_to_players_this_turn.get(getattr(source, "instance_id", None), set())
+            result = [o for o in result if o.controller_id in victims]
+        # "Return all attacking creatures to their owner's hand." (Aetherize) — RULE 508.1k's attacking status.
+        if filt.get("attacking") is not None:
+            want = bool(filt["attacking"])
+            result = [o for o in result if bool(getattr(o, "attacking", False)) == want]
         subtype = filt.get("subtype")
         if subtype:
             # "exile all Nightmares." (MEC-43 round 2, Chainer, Dementia

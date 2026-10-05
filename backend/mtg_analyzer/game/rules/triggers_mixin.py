@@ -276,6 +276,7 @@ class TriggerCollectionMixin:
         self._collect_inherent_triggers(event)
         self._collect_self_cast_triggers(event)
         self._collect_storm_triggers(event)
+        self._collect_demonstrate_triggers(event)
         self._collect_granted_cascade_triggers(event)
         self._collect_impulsive_draw_triggers(event)
         self._collect_rad_counter_damage_triggers(event)
@@ -1173,6 +1174,28 @@ class TriggerCollectionMixin:
                 source=obj, controller_id=obj.controller_id, description=f"{obj.name}: Storm",
             )
             self._queue_firing(ability, event, obj, capture=False)
+
+    def _collect_demonstrate_triggers(self, event: GameEvent) -> None:
+        """RULE 702.144a: "When you cast this spell, you may copy it. If you do, choose an opponent to
+        also copy it." The trigger belongs to the spell (like Storm's), so it survives anything
+        happening to other permanents before it resolves; the "you may" is an ``optional`` node.
+        """
+        if event.type != EventType.SPELL_CAST:
+            return
+        obj = self.state.find_object(event.get("instance_id"))
+        if obj is None or obj.zone != Zone.STACK or not combat.has(obj, "demonstrate"):
+            return
+        from ..effects.composition import OptionalEffect
+
+        ability = TriggeredAbility(
+            EventType.SPELL_CAST,
+            [OptionalEffect(
+                effects=[{"type": "demonstrate_copy", "params": {}}],
+                prompt="Demonstrate: Zauberspruch kopieren?", source=obj,
+            )],
+            source=obj, controller_id=obj.controller_id, description=f"{obj.name}: Demonstrate",
+        )
+        self._queue_firing(ability, event, obj, capture=False)
 
     def _collect_granted_cascade_triggers(self, event: GameEvent) -> None:
         if event.type != EventType.SPELL_CAST:

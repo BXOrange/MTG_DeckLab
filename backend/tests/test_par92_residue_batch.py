@@ -25,7 +25,9 @@ def test_self_graveyard_shuffle_replacement_parses_ticket_cycle():
 
 def test_self_graveyard_shuffle_replacement_redirects_destroy():
     engine = _engine()
-    obj = GameObject(_db().get_card("Blightsteel Colossus"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    # Legacy Weapon rather than Blightsteel Colossus: the Colossus is indestructible (RULE 702.12b),
+    # so a destroy effect leaves it on the battlefield and never reaches the replacement.
+    obj = GameObject(_db().get_card("Legacy Weapon"), owner_id="p1", zone=Zone.BATTLEFIELD)
     obj.controller_id = "p1"
     bind_from_catalogue(obj)
     engine.state.add_to_battlefield(obj)

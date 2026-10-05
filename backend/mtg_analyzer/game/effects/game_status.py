@@ -1022,6 +1022,9 @@ class ActionStampEffect(GameEffect):
 #: sees — and can double — each hit individually, exactly as printed).
 _DAMAGE_SELECTORS: frozenset[str] = frozenset(
     {"each_creature", "each_player", "each_opponent", "each_creature_and_player",
+     # "Target creature you control deals damage equal to its power to each other creature and each
+     # opponent." (Chandra's Ignition) — read by `DamageEqualToPowerEffect` only, relative to the dealer.
+     "each_other_creature_and_opponent",
      # "~ deals N damage to each creature **your opponents control**."
      # (Village Pillagers) — opponents' creatures only, no players (unlike
      # ``each_opponent_and_their_creatures``).

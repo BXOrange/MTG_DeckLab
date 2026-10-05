@@ -35,9 +35,14 @@ class CounterSpellEffect(GameEffect):
         unless_pays_extra_selector: Optional[str] = None,
         target_kind: str = "spell",
         tap_lands_empty_pool_if_unpaid: bool = False,
+        exile_then_cast_free: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "…If that spell is countered this way, exile it instead of putting it into its owner's
+        #: graveyard, then you may cast it without paying its mana cost." (Transcendent Dragon) —
+        #: the offer goes through RULE 608.2g's resolution play (the cascade route).
+        self.exile_then_cast_free = bool(exile_then_cast_free)
         self.unless_pays = unless_pays
         #: "…If that player doesn't, they tap all lands with mana abilities they control and lose all unspent
         #: mana." (Power Sink) — the spell's controller's penalty on every branch where the ``unless_pays`` cost
@@ -126,11 +131,17 @@ class CounterSpellEffect(GameEffect):
             # stack item is an ability, which has no card to put anywhere (RULE 701.5b).
             context.counter_ability(target)
         elif target is not None:
+            countered_obj = getattr(context.engine._stack_item_for(target), "obj", None)
             context.counter(
                 target, unless_pays=unless_pays, source=self.source,
                 suspend_instead=self.suspend_instead, on_pay_effect_specs=on_pay,
                 tap_lands_empty_pool_if_unpaid=self.tap_lands_empty_pool_if_unpaid,
+                exile_instead=self.exile_then_cast_free,
             )
+            if self.exile_then_cast_free and countered_obj is not None and countered_obj.zone == Zone.EXILE:
+                caster = _controller_of(self.source, context)
+                if caster is not None:
+                    context.engine._request_resolution_play(caster, [countered_obj], only_spells=True)
 
 
 class CounterAbilityEffect(GameEffect):
@@ -216,9 +227,13 @@ class CopySpellEffect(GameEffect):
         spell_from_trigger_event: Optional[str] = None,
         controller_from_trigger_event: Optional[str] = None,
         count_selector: Optional[str] = None,
+        max_mana_value: Optional[int] = None,
     ) -> None:
         super().__init__(source)
         self.count = count
+        #: "Copy target instant or sorcery spell with mana value 4 or less." (Expansion // Explosion)
+        #: — the spell target's mana-value ceiling, folded into ``target_spec.spell_filter``.
+        self.max_mana_value = max_mana_value
         #: "…copy it for each time you've cast your commander from the
         #: command zone this game." (Thunderclap Drake, PAR-60) — the copy
         #: count read live from a `continuous.count_selector` at resolution
@@ -229,6 +244,8 @@ class CopySpellEffect(GameEffect):
         spell_filter: dict[str, Any] = {}
         if card_types:
             spell_filter["card_types"] = list(card_types)
+        if max_mana_value is not None:
+            spell_filter["max_mana_value"] = int(max_mana_value)
         # "Copy any number of target instant and/or sorcery spells." (Display
         # of Power) — ``target_count`` > 1 offers several *distinct* spell
         # targets (each getting ``count`` copies), the RULE 601.2c "any
@@ -285,6 +302,31 @@ class CopySpellEffect(GameEffect):
         from ..continuous import count_selector as _count_selector  # avoid import cycle
 
         return _count_selector(context.state, controller_id, self.count_selector, source=self.source)
+
+
+class DemonstrateCopyEffect(GameEffect):
+    """The body of RULE 702.144a's Demonstrate: "…you may copy it. If you do, choose an opponent
+    to also copy it." Run behind an ``optional`` wrapper (`RulesEngine._collect_demonstrate_triggers`),
+    so by now the controller has said yes; the source is the demonstrating spell itself.
+
+    The controller's copy and the chosen opponent's copy are both made by `RulesEngine.copy_spell`.
+    **Documented simplifications:** the opponent is auto-picked as the next living opponent in
+    seating order (there is no player chooser yet — the same convention `GainControlBySourceEffect`
+    documents), and "players may choose new targets for their copies" keeps the original targets.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        spell = self.source
+        controller = _controller_of(spell, context)
+        if spell is None or controller is None:
+            return
+        players = context.state.living_players()
+        if controller not in players:
+            return
+        context.copy_spell(spell, controller.id, 1)
+        after = players[players.index(controller) + 1:] + players[:players.index(controller)]
+        if after:
+            context.copy_spell(spell, after[0].id, 1)
 
 
 class ConjureDuplicateIntoHandEffect(GameEffect):

@@ -94,10 +94,13 @@ CHEAP_CREATURE_BONUS_COUNTERS = 3
 PAY_X_OPTION_PREFIX = "pay_x:"
 
 
-def _cost_with_x(cost: ActivationCost, x: int) -> ActivationCost:
-    """``cost`` with its mana's ``{X}`` announced as ``x`` (RULE 107.3a)."""
+def _cost_with_x(cost: ActivationCost, x: int, x_color: Optional[str] = None) -> ActivationCost:
+    """``cost`` with its mana's ``{X}`` announced as ``x`` (RULE 107.3a). ``x_color`` is "pay any amount of
+    {R}" (Leyline Tyrant): the cost is then just ``x`` pips of that colour instead of ``x`` generic mana."""
     from dataclasses import replace  # function-scoped: only this helper needs it
 
+    if x_color:
+        return replace(cost, mana=ManaCost.parse(f"{{{x_color.upper()}}}" * x if x else "{0}"))
     return replace(cost, mana=cost.mana.with_x(x))
 
 
@@ -337,6 +340,7 @@ class MiscSystemsMixin:
         then_trigger_modes: Optional[dict[str, Any]] = None,
         then_trigger_event: Optional[GameEvent] = None,
         captured_previous: Optional[list[Any]] = None,
+        x_color: Optional[str] = None,
     ) -> None:
         """Open the interactive "you may pay ``cost``. If you do, `<effect>`."
         choice (RULE 118.3-style optional payment mid-resolution).
@@ -382,7 +386,7 @@ class MiscSystemsMixin:
         modal_trigger = dict(then_trigger_modes or {})
         # ENG-48 / RULE 107.3a: "you may pay {X}" — the payer announces X as
         # part of paying, so the offer is one option per affordable value.
-        x_max = self._max_payable_x(player, cost, source) if cost.mana.has_variable else None
+        x_max = self._max_payable_x(player, cost, source, x_color) if cost.mana.has_variable else None
         if not self._can_pay_player_cost(player, cost, source):
             saved = self.context.previous_targets
             if captured_previous is not None:
@@ -406,6 +410,7 @@ class MiscSystemsMixin:
             "then_trigger_event": then_trigger_event,
             "captured_previous": list(captured_previous) if captured_previous else None,
             "x_max": x_max,
+            "x_color": x_color,
             # RULE 109.5: the "if you do" effects belong to whoever the body was run as.
             "acting_player_id": self.context.acting_player_id or self.context.resolving_controller_id,
             "revealed_card": self.context.revealed_card,
@@ -427,14 +432,15 @@ class MiscSystemsMixin:
         })
 
     def _max_payable_x(
-        self, player: Player, cost: ActivationCost, source: Optional[GameObject] = None
+        self, player: Player, cost: ActivationCost, source: Optional[GameObject] = None,
+        x_color: Optional[str] = None,
     ) -> int:
         """The largest X (up to `PAY_COST_THEN_MAX_X`) ``player`` can pay
         ``cost`` with — 0 when only X = 0 is affordable. Affordability is
         monotone in X, so the scan stops at the first miss."""
         best = 0
         for x in range(1, PAY_COST_THEN_MAX_X + 1):
-            if not self._can_pay_player_cost(player, _cost_with_x(cost, x), source):
+            if not self._can_pay_player_cost(player, _cost_with_x(cost, x, x_color), source):
                 break
             best = x
         return best
@@ -492,7 +498,7 @@ class MiscSystemsMixin:
             x = self._pay_cost_then_x(answer, x_max)
             paying = x is not None
             if paying:
-                cost = _cost_with_x(cost, x)
+                cost = _cost_with_x(cost, x, pending.get("x_color"))
         else:
             paying = answer == "pay"
         if not paying or not self._can_pay_player_cost(player, cost, pending["source"]):
@@ -1463,6 +1469,55 @@ class MiscSystemsMixin:
         )
         for effect in built:
             effect.apply(self.context, targets)
+    def _attack_defender_specs(self, attacker_controller: Player) -> list[dict[str, Any]]:
+        """Who ``attacker_controller``'s creatures could attack: every other living player, planeswalkers
+        they don't control and battles protected by someone else (RULE 508.1a, 310.8b) — the defender
+        universe `GameEngine.legal_defenders_for` offers, mirrored here because `RulesEngine` does not
+        import the high-level engine."""
+        specs: list[dict[str, Any]] = [
+            {"kind": "player", "id": player.id, "label": player.name}
+            for player in self.state.living_players() if player.id != attacker_controller.id
+        ]
+        specs.extend(
+            {"kind": "planeswalker", "instance_id": o.instance_id, "label": o.name}
+            for o in self.state.battlefield
+            if o.controller_id != attacker_controller.id and o.is_planeswalker
+        )
+        specs.extend(
+            {"kind": "battle", "instance_id": o.instance_id, "label": o.name}
+            for o in self.state.battlefield
+            if o.is_battle and o.protector_id not in (None, attacker_controller.id)
+        )
+        return specs
+
+    def _request_reselect_attack(self, chooser: Player, attacker: GameObject, defenders: list[dict[str, Any]]) -> None:
+        """RULE 506.4/508.1b-adjacent "you may reselect which player or permanent target attacking
+        creature is attacking" (Misleading Signpost): open a defender pick for ``chooser`` — a player
+        or a planeswalker/battle the attacker's controller could have attacked — or keep the current one."""
+        options = []
+        for spec in defenders:
+            key = spec["id"] if spec.get("kind") == "player" else spec["instance_id"]
+            options.append({"id": f'{spec["kind"]}:{key}', "label": spec.get("label", str(key))})
+        options.append({"id": "decline", "label": "Angriffsziel beibehalten"})
+        self.open_choice({
+            "kind": "reselect_attack", "player_id": chooser.id, "attacker_id": attacker.instance_id,
+            "prompt": f"Neues Angriffsziel für {attacker.name} wählen?", "options": options,
+            "defenders": [dict(d) for d in defenders],
+        })
+
+    @continuations.choice("reselect_attack", answer=continuations.ANSWER_STR, rule="508.1b")
+    def _resume_reselect_attack(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        if answer in (None, "decline"):
+            return
+        attacker = self.state.find_object(choice["attacker_id"])
+        if attacker is None or not getattr(attacker, "attacking", False):
+            return  # RULE 608.2b: it left combat meanwhile
+        for spec in choice.get("defenders", []):
+            key = spec["id"] if spec.get("kind") == "player" else spec["instance_id"]
+            if answer == f'{spec["kind"]}:{key}':
+                attacker.combat_defender = dict(spec)
+                return
+
     def _request_choose_creature_type_grant(
         self, player: Player, source: GameObject, then_specs: list[dict],
     ) -> None:
@@ -3411,6 +3466,8 @@ class MiscSystemsMixin:
             # reassignment, the same shape `GainControlBySourceEffect`
             # uses). Nothing else happens to it.
             "gain_control",
+            # Turf War: "gains control of one of those lands of their choice and untaps it."
+            "gain_control_and_untap",
             # PAR-30 (RULE 701.10i residue — Cultural Exchange): the same
             # bare `controller_id` reassignment as `"gain_control"`, but to
             # a specific *other* player named by `control_recipient_id`
@@ -4213,6 +4270,12 @@ class MiscSystemsMixin:
             if obj.controller_id != player.id:
                 obj.controller_id = player.id
                 continuous.recompute(self.state)
+        elif action == "gain_control_and_untap":
+            # Turf War: `gain_control`, then the land untaps (RULE 701.26b).
+            if obj.controller_id != player.id:
+                obj.controller_id = player.id
+                continuous.recompute(self.state)
+            self.set_tapped(obj, False)
         elif action == "gain_control_for" and control_recipient_id is not None:
             # PAR-30 (Cultural Exchange): control moves to a *third*
             # player, not the chooser — see `_request_choose_objects`'s own
@@ -4694,6 +4757,10 @@ class MiscSystemsMixin:
             for effect in getattr(permanent, "static_effects", None) or []:
                 if not isinstance(effect, GrantCantBeCounteredEffect):
                     continue
+                if effect.scope == "all_spells":
+                    # "Spells can't be countered." (Lier, Disciple of the Drowned) — every
+                    # spell, whoever controls it or the permanent.
+                    return True
                 if permanent.controller_id != obj.controller_id:
                     continue
                 if effect.scope == "creature_spells_you_control" and not is_creature:
@@ -4713,8 +4780,12 @@ class MiscSystemsMixin:
         return False
     def counter_spell(
         self, target: Any, suspend_time_counters: Optional[int] = None, countered_by: Optional[str] = None,
+        exile_instead: bool = False,
     ) -> None:
         """Remove a spell (a `StackItem` or its game object) from the stack.
+
+        ``exile_instead`` (Transcendent Dragon — "exile it instead of putting it into its owner's
+        graveyard") sends the countered card to exile rather than the graveyard.
 
         A countered spell goes to its owner's graveyard (RULE 701.5g) and
         never resolves. Unconditional — callers that must honour "can't be
@@ -4739,7 +4810,9 @@ class MiscSystemsMixin:
         if item.obj is not None:
             item.obj.blitz_cost_paid = False  # RULE 400.7: the countered spell is a new object.
             owner = self.state.player_by_id(item.obj.owner_id)
-            if suspend_time_counters:
+            if exile_instead:
+                owner.add_to_zone(item.obj, Zone.EXILE)
+            elif suspend_time_counters:
                 owner.add_to_zone(item.obj, Zone.EXILE)
                 if not _has_suspend(item.obj):
                     item.obj.granted_suspend = True
@@ -4847,8 +4920,12 @@ class MiscSystemsMixin:
         suspend_time_counters: Optional[int] = None,
         on_pay_effect_specs: Optional[list[dict]] = None,
         tap_lands_empty_pool_if_unpaid: bool = False,
+        exile_instead: bool = False,
     ) -> None:
         """`CounterSpellEffect`'s resolve-time logic (RULE 118/601/701.5).
+
+        ``exile_instead`` only applies to the plain (no ``unless_pays``) counter — no printed card
+        combines the exile redirect with a payment.
 
         Refuses outright if ``target`` carries a "can't be countered" marker
         (RULE 118 — the spell stays on the stack, unaffected). With no
@@ -4883,7 +4960,10 @@ class MiscSystemsMixin:
             return
         countered_by = getattr(source, "controller_id", None)
         if not unless_pays:
-            self.counter_spell(target, suspend_time_counters=suspend_time_counters, countered_by=countered_by)
+            self.counter_spell(
+                target, suspend_time_counters=suspend_time_counters, countered_by=countered_by,
+                exile_instead=exile_instead,
+            )
             return
         cost = ManaCost.parse(unless_pays)
         if cost.has_variable:

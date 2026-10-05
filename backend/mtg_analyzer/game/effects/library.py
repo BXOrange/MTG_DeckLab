@@ -377,8 +377,16 @@ class ImpulsiveDrawEffect(GameEffect):
         same_turn_only: bool = False,
         source: Optional["GameObject"] = None,
         choose_one: bool = False,
+        each_player: bool = False,
+        mana_wildcard: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: "Exile the top card of **each player's** library. You may play those cards this turn,
+        #: and you may spend mana as though it were mana of any color to cast those spells."
+        #: (Mezzio Mugger) — one exile per living player, all playable by this effect's controller.
+        self.each_player = each_player
+        #: RULE 605.1a mana-spend permission on the exiled cards (see `GameState.mana_wildcard_permission`).
+        self.mana_wildcard = mana_wildcard
         #: PAR-137: "choose 1 of them. You may play that card" / "you may play 1 of those cards" —
         #: only the player's pick keeps the play permission (the other exiled cards stay exiled).
         self.choose_one = choose_one
@@ -412,11 +420,15 @@ class ImpulsiveDrawEffect(GameEffect):
         count = self._measured(self.count, context, targets)
         if count <= 0:
             return
-        exiled = context.exile_with_play_permission(
-            player, count, source_name=source_name,
-            permission_player=permission_player, same_turn_only=self.same_turn_only,
-            grant=not self.choose_one,
-        )
+        # One exile per library; every permission is held by the effect's controller.
+        libraries = list(context.state.living_players()) if self.each_player else [player]
+        exiled = []
+        for library_owner in libraries:
+            exiled.extend(context.exile_with_play_permission(
+                library_owner, count, source_name=source_name,
+                permission_player=permission_player, same_turn_only=self.same_turn_only,
+                grant=not self.choose_one, mana_wildcard=self.mana_wildcard,
+            ))
         if self.choose_one and exiled:
             context.engine._request_choose_objects(
                 permission_player, exiled,
@@ -627,8 +639,16 @@ class DiscoverEffect(GameEffect):
         mana_value: Any = 0,
         player: Any = None,
         source: Optional["GameObject"] = None,
+        cast_limit: Optional[int] = None,
+        treasures_below: Optional[int] = None,
     ) -> None:
         super().__init__(source)
+        #: "…You may cast it without paying its mana cost if that spell's mana value is N or less. If you don't, put
+        #: that card into your hand." (Breaching Dragonstorm): a hit above ``cast_limit`` can only go to the hand.
+        self.cast_limit = cast_limit
+        #: "If the discovered card's mana value is less than N, create that many tapped Treasure tokens equal to the
+        #: difference." (Hit the Mother Lode)
+        self.treasures_below = treasures_below
         #: The discover cap: a number or an `effect_amounts` operand ("Discover X, where X is that
         #: spell's mana value" — Monstrous Vortex's cast trigger, Hurl into History's countered spell).
         self.mana_value = mana_value
@@ -636,7 +656,10 @@ class DiscoverEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = self.player or context.active_player
-        context.discover(player, self._measured(self.mana_value, context, targets))
+        context.discover(
+            player, self._measured(self.mana_value, context, targets),
+            cast_limit=self.cast_limit, treasures_below=self.treasures_below, source=self.source,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1783,6 +1806,12 @@ class DigUntilEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.digger == "facing":
             player = targets[0] if targets else None
+        elif self.digger == "previous_target_controller":
+            # "…its controller exiles cards from the top of their library until they exile a nonland
+            # card, then they may cast it" (Transforming Flourish) — the controller of the permanent
+            # an earlier clause of this resolution destroyed (last-known: it already left the board).
+            previous = context.previous_targets[0] if context.previous_targets else None
+            player = context.state.player_by_id(getattr(previous, "controller_id", None))
         else:
             player = _controller_of(self.source, context)
         if player is None or not hasattr(player, "library"):
@@ -2596,6 +2625,92 @@ def _implicit_fight_subject(
     return previous[index] if len(previous) > index else None
 
 
+class ReselectAttackEffect(GameEffect):
+    """"You may reselect which player or permanent target attacking creature is attacking. (It can't
+    attack its controller or their permanents.)" (Misleading Signpost) — RULE 506.3-adjacent.
+
+    The target is any attacking creature; the ability's controller is offered every defender its own
+    controller could have attacked (`GameEngine.legal_defenders_for`: opposing players, their
+    planeswalkers and protected battles, `RulesEngine._attack_defender_specs`) or to keep the current one, through the `reselect_attack`
+    choice. With a single possible defender there is nothing to choose and nothing is asked.
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind="creature", creature_filter={"attacking": True})
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        attacker = targets[0] if targets else None
+        chooser = _controller_of(self.source, context)
+        if attacker is None or chooser is None or not getattr(attacker, "attacking", False):
+            return
+        owner = context.state.player_by_id(attacker.controller_id)
+        defenders = context.engine._attack_defender_specs(owner) if owner is not None else []
+        if len(defenders) < 2:
+            return
+        context.engine._request_reselect_attack(chooser, attacker, defenders)
+
+
+class FightEachOpposingCreatureEffect(GameEffect):
+    """"For each creature your opponents control, create a 4/4 green Phyrexian Beast creature token. Each
+    of those tokens fights a different one of those creatures." (Ezuri's Predation)
+
+    The opposing creatures are snapshotted first (RULE 608.2c), one token is made per creature, and
+    the *i*-th token fights the *i*-th creature. **Documented simplification:** which token fights
+    which creature is fixed in battlefield order rather than chosen by the controller (every token is
+    identical, so only the damage dealt to each creature is affected, and it is the same for each).
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        controller = _controller_of(self.source, context)
+        if controller is None:
+            return
+        victims = [
+            o for o in context.state.permanents() if o.is_creature and o.controller_id != controller.id
+        ]
+        if not victims:
+            return
+        card = CreateTokenEffect(
+            token_name="Phyrexian Beast", power=4, toughness=4, colors=["G"], subtypes=["Phyrexian", "Beast"],
+            source=self.source,
+        )
+        before = len(context.created_objects)
+        card.count = len(victims)
+        card.apply(context, None)
+        tokens = list(context.created_objects[before:])
+        for token, victim in zip(tokens, victims):
+            FightEffect._fight(context, token, victim)
+
+
+class DrawPerDamageDealtToSourceEffect(GameEffect):
+    """"When ~ leaves the battlefield, each player draws cards equal to the amount of damage dealt to ~
+    this turn by sources they controlled." (Grothama, All-Devouring)
+
+    Read from this turn's DAMAGE events (`EventType.DAMAGE` targeting the source's ``instance_id``,
+    summed per ``source_controller_id``) rather than a mutable tally, so it still answers once the
+    source has left. Damage is counted whether or not it was combat damage and whatever the source was
+    (a permanent, a spell); players with nothing dealt draw nothing.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        source = self.source
+        if source is None:
+            return
+        per_player: dict[str, int] = {}
+        for event in context.state.events_this_turn():
+            if event.type != EventType.DAMAGE or event.get("is_player"):
+                continue
+            if event.get("target_id") != source.instance_id:
+                continue
+            controller_id = event.get("source_controller_id")
+            if controller_id is not None:
+                per_player[controller_id] = per_player.get(controller_id, 0) + int(event.get("amount") or 0)
+        for player in context.state.living_players():
+            amount = per_player.get(player.id, 0)
+            if amount > 0:
+                context.draw(player, amount)
+
+
 class FightEffect(GameEffect):
     """RULE 701.14 — "Target creature you control fights target creature you
     don't control." (Prey Upon), "~ fights up to one target creature you don't
@@ -2640,15 +2755,19 @@ class FightEffect(GameEffect):
         distinct: bool = False,
         source: Optional["GameObject"] = None,
         other_exact_mana_value: Optional[Union[int, str]] = None,
+        other_instance_id: Optional[int] = None,
     ) -> None:
         super().__init__(source)
         self.fighter_kind = fighter_kind
         self.other_kind = other_kind
         self.distinct = distinct
+        #: A fixed opponent in the fight — "…you may have it fight Grothama" (a granted ability whose
+        #: granting permanent is the other fighter): no RULE 115 target, the object is pinned by id.
+        self.other_instance_id = other_instance_id if isinstance(other_instance_id, int) else None
         specs: list[TargetSpec] = []
         if fighter_kind not in _IMPLICIT_FIGHT_SUBJECTS:
             specs.append(TargetSpec(kind=fighter_kind, optional=fighter_optional))
-        if other_kind not in _IMPLICIT_FIGHT_SUBJECTS:
+        if other_kind not in _IMPLICIT_FIGHT_SUBJECTS and self.other_instance_id is None:
             # ``other_exact_mana_value``: "…target creature you don't control **with the same mana
             # value**" (Boxing Ring) — `TargetSpec.exact_mana_value`'s ``trigger_subject_mana_value``.
             specs.append(TargetSpec(
@@ -2666,7 +2785,9 @@ class FightEffect(GameEffect):
             fighter = _implicit_fight_subject(self.fighter_kind, self, context)
         else:
             fighter = next(chosen, None)
-        if self.other_kind in _IMPLICIT_FIGHT_SUBJECTS:
+        if self.other_instance_id is not None:
+            other = context.state.find_object(self.other_instance_id)
+        elif self.other_kind in _IMPLICIT_FIGHT_SUBJECTS:
             other = _implicit_fight_subject(self.other_kind, self, context)
         else:
             other = next(chosen, None)
@@ -2685,6 +2806,12 @@ class FightEffect(GameEffect):
             # earlier clause's pick as its own and have the creature fight
             # itself. No printed card means that.
             return
+        self._fight(context, fighter, other)
+
+    @staticmethod
+    def _fight(context: GameContext, fighter: Any, other: Any) -> None:
+        """RULE 701.14a: both deal damage equal to their power to each other (the powers snapshotted first),
+        then each fires `FIGHTS`. Shared with effects that pair creatures themselves (Ezuri's Predation)."""
         fighter_power = fighter.power or 0
         other_power = other.power or 0
         context.deal_damage(other, fighter_power, fighter)
@@ -2833,6 +2960,11 @@ class DamageEqualToPowerEffect(GameEffect):
         if self.selector == "each_creature":
             return [obj for obj in context.state.permanents() if obj.is_creature]
         controller_id = getattr(dealer, "controller_id", None)
+        if self.selector == "each_other_creature_and_opponent":
+            return [
+                *(obj for obj in context.state.permanents() if obj.is_creature and obj is not dealer),
+                *(p for p in context.state.living_players() if p.id != controller_id),
+            ]
         return [
             player
             for player in context.state.living_players()

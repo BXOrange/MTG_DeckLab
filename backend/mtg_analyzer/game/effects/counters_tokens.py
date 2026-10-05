@@ -3041,6 +3041,31 @@ _TOKEN_COUNT_CONTEXT_ACCUMULATORS: frozenset[str] = frozenset({
 })
 
 
+class AttackedCurseGoldEffect(GameEffect):
+    """"Whenever enchanted player is attacked, create a Gold token. Each opponent attacking that
+    player does the same." (Curse of Opulence)
+
+    Fired by `EventType.PLAYER_ATTACKED`, which is one event per *(attacking player, defending
+    player)* group; the Curse is a single trigger per combat, so its controller gets their Gold
+    only once per turn (``curse_gold_turn`` on the Curse), while every attacking opponent — one
+    event each — gets their own. A controller attacking their own Curse's player is not "an
+    opponent", so they get no second token.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None:
+            return
+        turn = context.state.internal_turn.number
+        if getattr(self.source, "curse_gold_turn", None) != turn:
+            self.source.curse_gold_turn = turn
+            CreateTokenEffect(token_name="Gold", source=self.source).apply(context, None)
+        attacker_id = (context.trigger_event or {}).get("attacking_player_id")
+        if attacker_id is not None and attacker_id != self.source.controller_id:
+            CreateTokenEffect(
+                token_name="Gold", creators="trigger_attacking_player", source=self.source,
+            ).apply(context, None)
+
+
 class CreateTokenEffect(GameEffect):
     """Create one or more token permanents (RULE 111.5 / 701.6).
 
@@ -3074,7 +3099,7 @@ class CreateTokenEffect(GameEffect):
     _CREATORS = frozenset(
         {
             "you", "each_player", "each_opponent", "previous_target_controller", "target",
-            "trigger_subject_controller",
+            "trigger_subject_controller", "trigger_attacking_player",
         }
     )
 
@@ -3316,6 +3341,11 @@ class CreateTokenEffect(GameEffect):
             subject = effect_conditions.subject_of("entering", context, self.source, targets)
             owner = getattr(subject, "controller_id", None)
             creator_ids = [owner] if owner is not None else []
+        elif self.creators == "trigger_attacking_player":
+            # "…each opponent attacking that player does the same." (Curse of Opulence) — the
+            # attacking player the firing `PLAYER_ATTACKED` event names.
+            attacker_id = (context.trigger_event or {}).get("attacking_player_id")
+            creator_ids = [attacker_id] if attacker_id is not None else []
         elif self.creators == "target":
             # "Target player creates a Treasure token." (Prismari Command) —
             # the chosen player, from this effect's own RULE 115 target.
@@ -3730,17 +3760,23 @@ class CopyPermanentEffect(GameEffect):
             for kind, n in self.enter_counters.items():
                 for obj in made:
                     obj.counters[kind] = obj.counters.get(kind, 0) + n
-            self._apply_enter_state(context, made)
+            self._apply_enter_state(context, made, copied=target)
 
-    def _apply_enter_state(self, context: GameContext, made: list[Any]) -> None:
+    def _apply_enter_state(self, context: GameContext, made: list[Any], copied: Any = None) -> None:
         """RULE 508.4: a "tapped and attacking" token copy — tap it as it's
-        made, then put it into the current combat."""
+        made, then put it into the current combat. It attacks the same player/planeswalker as the creature it copies
+        when that one is attacking ("…enters tapped and attacking that player", Echoing Assault), so a table with
+        several opponents never leaves the defender ambiguous."""
         if self.enter_tapped:
             for obj in made:
                 obj.tapped = True
         if self.enter_attacking:
+            defender = getattr(copied, "combat_defender", None) if getattr(copied, "attacking", False) else None
             for obj in made:
-                context.engine.put_onto_battlefield_attacking(obj)
+                if defender:
+                    context.engine.put_onto_battlefield_attacking(obj, defender=dict(defender))
+                else:
+                    context.engine.put_onto_battlefield_attacking(obj)
 
 
 class EnterAsCopyReplacement(GameEffect):

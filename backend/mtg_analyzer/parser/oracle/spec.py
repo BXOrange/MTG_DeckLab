@@ -194,7 +194,7 @@ _COMPOSITION_EFFECT_TYPES: frozenset[str] = frozenset(
 _STRUCTURED_CONDITION_FIELDS: dict[str, type] = {
     "of": str, "scope": str, "flag": str, "subtype": str, "card_type": str, "color": str,
     "counter": str, "selector": (str, dict), "name": str, "keyword": str,
-    "op": str,
+    "op": str, "step": str,  # ``during_step`` (Misleading Signpost)
     "min": int, "max": int, "amount": int, "min_power": int,
     "colors": list, "types": list,
 }

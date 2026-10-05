@@ -362,3 +362,77 @@ def test_mitotic_slime_and_each_large_ooze_create_their_own_descendants():
     engine.rules.destroy(small[0])
     engine.resolve_until_stable()
     assert len([o for o in engine.state.battlefield if o.is_token and o.name == "Ooze"]) == 3
+
+
+# --- Wave of Rats / Mezzio Mugger / Turf War (Blitz batch) -----------------------------------
+
+@pytest.mark.parametrize("dealt_combat_damage", [False, True])
+def test_wave_of_rats_returns_only_after_combat_damage_to_a_player(dealt_combat_damage):
+    engine = _game()
+    p1, p2 = engine.state.players
+    rats = _card(engine, "Wave of Rats")
+    if dealt_combat_damage:
+        engine.rules.deal_damage(p2, 2, source=rats, combat=True)
+    engine.rules.destroy(rats)
+    engine.resolve_until_stable()
+    if dealt_combat_damage:
+        assert rats in engine.state.battlefield and rats not in p1.graveyard
+    else:
+        assert rats in p1.graveyard and rats not in engine.state.battlefield
+
+
+def test_wave_of_rats_noncombat_damage_does_not_count():
+    engine = _game()
+    p1, p2 = engine.state.players
+    rats = _card(engine, "Wave of Rats")
+    engine.rules.deal_damage(p2, 2, source=rats, combat=False)
+    engine.rules.destroy(rats)
+    engine.resolve_until_stable()
+    assert rats in p1.graveyard
+
+
+def test_mezzio_mugger_exiles_each_players_top_card_playable_with_any_color():
+    engine = _game()
+    p1, p2 = engine.state.players
+    mugger = _card(engine, "Mezzio Mugger")
+    mine = _zone_card(engine, "Mine", "Sorcery", "p1", Zone.LIBRARY)
+    theirs = _zone_card(engine, "Theirs", "Land", "p2", Zone.LIBRARY)
+    mugger.summoning_sick = False
+    engine.state.current_step = "declare_attackers"
+    engine.declare_attackers(engine.state.active_player, [mugger])
+    engine.resolve_until_stable()
+    assert mine in p1.exile and theirs in p2.exile
+    for card in (mine, theirs):
+        assert engine.state.temp_play_permission_player[card.instance_id] == "p1"
+        assert engine.state.mana_wildcard_permission[card.instance_id] == "color"
+
+
+def test_turf_war_contested_lands_change_hands_on_combat_damage_and_untap():
+    engine = _game()
+    p1, p2 = engine.state.players
+    war = _card(engine, "Turf War")
+    contested = battlefield_object(engine, "p2", "Contested Land", "Land", is_land=True)
+    plain = battlefield_object(engine, "p2", "Plain Land", "Land", is_land=True)
+    contested.counters["contested"] = 1
+    contested.tapped = True
+    attacker = battlefield_object(engine, "p1", "Attacker", "Creature", is_creature=True, power=2, toughness=2)
+    engine.rules.deal_damage(p2, 2, source=attacker, combat=True)
+    engine.resolve_until_stable()
+    pending = engine.state.pending_choice
+    if pending:  # a single candidate may resolve without a prompt
+        engine.resolve_pending_choice(str(contested.instance_id))
+        engine.resolve_until_stable()
+    assert contested.controller_id == "p1" and not contested.tapped
+    assert plain.controller_id == "p2"
+    assert war in engine.state.battlefield
+
+
+def test_turf_war_does_nothing_without_a_contested_land():
+    engine = _game()
+    p1, p2 = engine.state.players
+    _card(engine, "Turf War")
+    land = battlefield_object(engine, "p2", "Plain Land", "Land", is_land=True)
+    attacker = battlefield_object(engine, "p1", "Attacker", "Creature", is_creature=True, power=2, toughness=2)
+    engine.rules.deal_damage(p2, 2, source=attacker, combat=True)
+    engine.resolve_until_stable()
+    assert land.controller_id == "p2" and not engine.state.pending_choice

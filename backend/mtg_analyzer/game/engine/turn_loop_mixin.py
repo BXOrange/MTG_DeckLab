@@ -453,7 +453,7 @@ class TurnLoopMixin:
 
         # RULE 500.4: unused mana empties as the step ends — except mana an effect lets you keep (`ManaPool.kept`).
         for player in self.state.players:
-            player.mana_pool.empty(expire=kept_mana_expiring_at(step.name))
+            continuous.empty_mana_pool(self.state, player, kept_mana_expiring_at(step.name))
         self.state.fire_event(GameEvent(EventType.STEP_END, step=step.name, phase=phase.name))
     def insert_additional_combat_phase(self, main_phase_too: bool = False) -> None:
         """RULE 500.4-adjacent "after this combat phase, there is an

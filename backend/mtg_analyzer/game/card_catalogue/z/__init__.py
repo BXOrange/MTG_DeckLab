@@ -4,4 +4,5 @@ from . import zimone_all_questioning  # noqa: F401
 from . import zimone_infinite_analyst  # noqa: F401
 from . import zimone_quandrix_prodigy  # noqa: F401
 from . import zimone_s_hypothesis  # noqa: F401
+from . import zinnia_valley_s_voice  # noqa: F401
 from . import zo_zu_the_punisher  # noqa: F401

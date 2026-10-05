@@ -108,6 +108,12 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
         return obj.card.is_planeswalker
     if what == "battle":
         return obj.card.is_battle
+    if what.startswith("subtype:"):
+        # "…tap X untapped Myr you control" (Myr Battlesphere) — a creature subtype word, derived (layer 4).
+        return continuous.has_subtype(obj, what.partition(":")[2])
+    if what == "colored":
+        # "Each player sacrifices all permanents they control that are one or more colors." (All Is Dust)
+        return bool(obj.colors)
     if what == "nonland":
         # "…sacrifice a nonland permanent of their choice or discard a
         # card." (Tergrid's Lantern, MEC-43 round 4E) — the negated-type
@@ -522,6 +528,10 @@ class DamageDeathMixin:
         ahead of the regeneration opt-out because "can't be regenerated" says nothing about a
         shield counter, which isn't regeneration.
         """
+        if combat.has_indestructible(obj):
+            # RULE 702.12b: an indestructible permanent can't be destroyed — no shield or
+            # regeneration is spent either, since nothing is replaced.
+            return
         if by_effect and obj.counters.get("shield", 0) > 0:
             self.add_counters(obj, -1, "shield")
             return
@@ -650,6 +660,8 @@ class DamageDeathMixin:
             # "You can't sacrifice those creatures this turn." (Call for Aid)
             and not obj.cant_be_sacrificed_this_turn
         ]
+        if count == "all":
+            count = len(candidates)  # "sacrifices all permanents they control that …": nothing to choose
         if isinstance(count, str) and count.startswith(ALL_BUT_PREFIX):
             # "all_but_one" (Liliana) and "all_but_6" (Planetary Annihilation: "chooses six lands … then
             # sacrifices the rest") — keep the named number, sacrifice the others.

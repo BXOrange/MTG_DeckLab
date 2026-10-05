@@ -378,6 +378,12 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     "create_delayed_trigger": "create_delayed_trigger",
     "create_turn_trigger": "create_delayed_trigger",
     "create_token": "create",
+    "exile_top_play_then_burn": "exile",  # Dragonhawk: exile X, play them, burn for what stays exiled
+    "behold_then": "behold",  # RULE 701.4: behold, then the "if you do" payoff
+    "fight_each_opposing_creature": "fight",  # Ezuri's Predation: a Beast per opposing creature, each fights one
+    "reselect_attack": "set_status",  # Misleading Signpost: sets which defender an attacking creature attacks (RULE 506.3)
+    "draw_per_damage_dealt_to_source": "draw",  # Grothama: each player draws per damage they dealt to it
+    "attacked_curse_gold": "create",  # Curse of Opulence: Gold for the controller and the attacker
     "damage": "deal_damage",
     "destroy": "destroy",
     "detain": "detain",
@@ -482,6 +488,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "copy_imprinted_card": "copy_object",
     "copy_permanent": "copy_object",
     "copy_spell": "copy_object",
+    "demonstrate_copy": "copy_object",  # RULE 702.144a Demonstrate body
     "copy_self_spell": "copy_object",
     "conjure_duplicate_into_hand": "copy_object",
     "create_emblem": "create",
@@ -557,8 +564,10 @@ _ALIAS_TYPES: dict[str, str] = {
     "exile_triggering_discard_may_play_this_turn": "exile",
     "exile_until_duplicate_name": "exile",
     "free_cast_from_hand": "cast",
+    "look_top_cast_free": "cast",  # Velomachus Lorehold: look at top N, cast one free
     "gain_control_attached": "gain_control",
     "gain_control_by_source": "gain_control",
+    "take_contested_land": "gain_control",  # Turf War: chosen contested land, control + untap
     "gain_control_of_all_commanders": "gain_control",
     "gain_control_of_spell": "gain_control",
     "gain_control_until_eot": "gain_control",
@@ -574,6 +583,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "grant_die_to_exile_this_turn": "create_continuous_effect",
     "grant_escape": "create_continuous_effect",
     "grant_evoke": "create_continuous_effect",
+    "grant_offspring": "create_continuous_effect",
     "choose_perpetual_blitz": "create_continuous_effect",
     "grant_flash_until_eot": "create_continuous_effect",
     "grant_flashback_to_target": "create_continuous_effect",
@@ -862,7 +872,8 @@ _STATIC_TYPES: frozenset[str] = frozenset({
     # `self_cost_reduction_for`. `EffectRegistry.register` builds a
     # `StaticAbility` for it.
     "exile_discount_cost",
-    "extra_land_drop", "extra_land_play", "flash_permission",
+    "extra_land_drop", "extra_land_play", "flash_permission", "retain_mana",
+    "enters_with_counters_count",
     "free_cast_permission", "goaded", "grant_any_color_for_activation",
     "grant_graveyard_to_library_replacement",
     "grant_protection_static", "grant_search_limited_to_top_n",

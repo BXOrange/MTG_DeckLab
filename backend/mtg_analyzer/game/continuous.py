@@ -1437,6 +1437,7 @@ def count_selector(
         in_scope = {
             "permanents": lambda o: True,
             "creatures": lambda o: o.is_creature,
+            "artifacts": lambda o: bool(o.card.is_artifact),
         }.get(scope_name)
         if metric is None or in_scope is None:
             return 0
@@ -1585,6 +1586,14 @@ def count_selector(
         # count; before that step it's simply 0, same as any other
         # `self_cost_reduction_for` count read at cast time.
         return sum(1 for o in bf if o.is_creature and o.attacking and o.controller_id == controller_id)
+    if selector == "creatures_attacking_you":
+        # "…where X is the number of creatures attacking you." (Arachnogenesis) — attackers whose declared
+        # defender is this player (planeswalkers/battles they protect don't count: RULE 506.2 "attacking you").
+        return sum(
+            1 for o in bf
+            if o.is_creature and o.attacking
+            and (o.combat_defender or {}).get("kind") == "player" and (o.combat_defender or {}).get("id") == controller_id
+        )
     if selector == "attacking_creatures":
         # The unscoped sibling — "for each attacking creature" with no "you
         # control" (Ancient Stone Idol/Static Snare/Stone Idol Trap) — every
@@ -2542,6 +2551,20 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
                 add_subtypes.append(chosen)
         power, toughness = ability.params.get("power"), ability.params.get("toughness")
         pt_selector = ability.params.get("pt_selector")
+        if ability.params.get("from_linked_exile"):
+            # "As long as a card exiled with this creature is a creature card, this creature has the power,
+            # toughness, and creature types of the last creature card exiled with it." (Duplicant) — read off
+            # the source's own Imprint link (`linked_exile_id`) fresh every pass; no creature card there, no effect.
+            linked = state.find_object(getattr(ability.source, "linked_exile_id", None))
+            if (
+                linked is None or getattr(getattr(linked, "zone", None), "value", None) != "exile"
+                or not linked.card.is_creature
+            ):
+                continue
+            power, toughness = linked.card.power, linked.card.toughness
+            if not (isinstance(power, int) and isinstance(toughness, int)):
+                power = toughness = None
+            add_subtypes += linked.card.type_line.partition("—")[2].split()
         for obj in affected_objects(state, ability):
             if pt_selector == "mana_value":
                 obj_power = obj_toughness = getattr(obj.card, "converted_mana_cost", 0) or 0
@@ -2638,7 +2661,12 @@ def _apply_layer_5_color(state: "GameState", abilities: list) -> None:
             _trace(obj, 5, _source_name(ability), "becomes " + ", ".join(colors))
 
 
-def _build_grant_effect(spec: dict, obj: Optional["GameObject"] = None) -> Any:
+#: A ``grant_effects`` param value naming the *granting* permanent ("…you may have it fight Grothama") —
+#: replaced by that permanent's instance id as the granted effect is built.
+GRANTOR_SENTINEL = "$grantor"
+
+
+def _build_grant_effect(spec: dict, obj: Optional["GameObject"] = None, grantor: Optional["GameObject"] = None) -> Any:
     """One entry of a `grant_triggered_ability`/`grant_activated_ability`'s
     ``grant_effects`` list → a real `GameEffect`.
 
@@ -2668,7 +2696,10 @@ def _build_grant_effect(spec: dict, obj: Optional["GameObject"] = None) -> Any:
     instead of ``self.source`` — this was a latent, previously-unreachable
     gap, not a regression.
     """
-    effect = EffectRegistry.create(spec["type"], dict(spec.get("params", {})))
+    params = dict(spec.get("params", {}))
+    if grantor is not None:
+        params = {k: (grantor.instance_id if v == GRANTOR_SENTINEL else v) for k, v in params.items()}
+    effect = EffectRegistry.create(spec["type"], params)
     if obj is not None:
         effect.source = obj
     condition = spec.get("condition")
@@ -2867,7 +2898,7 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                     granted = TriggeredAbility(
                         trigger_event=trigger_event,
                         effects=[
-                            _build_grant_effect(spec, obj)
+                            _build_grant_effect(spec, obj, grantor=ability.source)
                             for spec in ability.params.get("grant_effects", [])
                         ],
                         condition=cond,
@@ -3679,6 +3710,13 @@ def cost_reduction_for(
             spell_type = getattr(ability.source, "chosen_mode", None) or "none_chosen"
         if spell_type and (obj is None or not _spell_type_matches(obj, spell_type)):
             continue
+        # "Creature spells you cast with power 4 or greater cost {2} less to cast." (Goreclaw) — the
+        # spell's printed power (RULE 208: a spell off the battlefield has only its printed value).
+        spell_min_power = ability.params.get("spell_min_power")
+        if spell_min_power is not None:
+            printed = getattr(getattr(obj, "card", None), "power", None)
+            if not isinstance(printed, int) or printed < int(spell_min_power):
+                continue
         # "Spells you cast from anywhere other than your hand cost {N} less."
         # (Advanced Reconstruction level 3, PAR-60) — the spell's own
         # cast-origin flags; ``obj is None`` (offer-time probe) leaves the
@@ -3741,6 +3779,10 @@ def cost_reduction_for(
         # every other cost-reduction filter here already composes the same
         # way.
         spell_subtype = ability.params.get("spell_subtype")
+        if ability.params.get("spell_subtype_from_source"):
+            # "Creature spells you cast of the chosen type cost {1} less to cast." (Herald's Horn) — the type
+            # picked as the source entered (`GameObject.chosen_type`); nothing chosen discounts nothing.
+            spell_subtype = getattr(ability.source, "chosen_type", None) or "none_chosen"
         if spell_subtype and (obj is None or not has_subtype(obj, str(spell_subtype))):
             continue
         # "Legendary spells you cast cost {1} less to cast." (Kethis, the Hidden Hand) — RULE 205.4.
@@ -5285,6 +5327,10 @@ def has_standing_flash_permission(state: "GameState", player: "Player", card: An
             continue
         if ability.params.get("creature_only") and not getattr(card, "is_creature", False):
             continue
+        # "You may cast **green** creature spells as though they had flash." (Yeva, Nature's Herald)
+        color = ability.params.get("color")
+        if color and str(color).upper() not in (getattr(card, "color_identity", None) or set()):
+            continue
         type_filter = ability.params.get("type_filter")
         if type_filter:
             words = {str(w).lower() for w in type_filter}
@@ -5437,6 +5483,27 @@ def granted_evoke_cost_for(state: "GameState", obj: Any) -> Optional["ManaCost"]
             if str(subtype).lower() not in sub:
                 continue
         return ManaCost.parse(str(cost))
+    return None
+
+
+def granted_offspring_cost_for(state: "GameState", obj: Any) -> Optional["ManaCost"]:
+    """RULE 702.175: the Offspring cost a standing battlefield static grants ``obj`` (a creature card being
+    cast) — "Creature spells you cast gain offspring {2} as you cast them." (Zinnia, Valley's Voice). The
+    offspring sibling of `granted_evoke_cost_for`; ``None`` when no static applies or ``obj`` isn't a creature.
+    """
+    from ..models.mana.mana_cost import ManaCost  # local: avoid a continuous<->models import cycle
+
+    card = getattr(obj, "card", None)
+    if card is None or not getattr(card, "is_creature", False):
+        return None
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "grant_offspring":
+            continue
+        if getattr(ability.source, "controller_id", None) != getattr(obj, "controller_id", None):
+            continue
+        cost = ability.params.get("cost")
+        if cost:
+            return ManaCost.parse(str(cost))
     return None
 
 
@@ -5749,8 +5816,31 @@ _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
      "mana_multiplier", "mana_type_override", "skip_step", "search_redirect",
      "cost_restriction", "life_gain_prohibition",
      "damage_prevention_prohibition", "global_wither", "attack_tax", "player_hexproof",
-     "mana_wildcard"}
+     "mana_wildcard", "retain_mana", "entry_counters_self"}
 )
+
+
+def empty_mana_pool(state: "GameState", player: "Player", expire: tuple[str, ...] = ()) -> None:
+    """RULE 500.4: empty ``player``'s pool as a step or phase ends — except mana of a colour a standing
+    ``retain_mana`` static they control lets them keep ("You don't lose unspent red mana as steps and
+    phases end.", Leyline Tyrant; ``colors`` absent means every colour, Omnath-shaped). Unrestricted
+    pool mana only; restricted lots empty as ever."""
+    colors: Optional[set[str]] = set()
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "retain_mana" or getattr(ability.source, "controller_id", None) != player.id:
+            continue
+        listed = ability.params.get("colors")
+        if not listed:
+            colors = None  # every colour
+            break
+        colors.update(str(c).upper() for c in listed)
+    pool = player.mana_pool
+    keep = {
+        c: n for c, n in pool.pool.items() if n and (colors is None or c.upper() in colors)
+    } if colors != set() else {}
+    pool.empty(expire=expire)
+    for color, amount in keep.items():
+        pool.add(color, amount)
 
 
 #: A `combat_restriction` entry → the one-line description the board's
@@ -6119,6 +6209,12 @@ def granted_cast_keyword_instances(state, obj, event, keyword):
                 return False
             if (ability.affects == "instant_sorcery_spells_you_cast"
                     and not {"instant", "sorcery"}.intersection(cast.get("object_types", []))):
+                return False
+            # "Enchantment spells you cast from your hand have cascade." (Wildsear, Scouring Maw)
+            card_types = ability.params.get("card_types")
+            if card_types and not {str(t).lower() for t in card_types}.intersection(cast.get("object_types", [])):
+                return False
+            if ability.params.get("from_hand") and not cast.get("from_hand"):
                 return False
             kind = ability.params.get("mana_source_kind")
             return kind is None or cast.get("mana_spent_by_source", {}).get(kind, 0) > 0

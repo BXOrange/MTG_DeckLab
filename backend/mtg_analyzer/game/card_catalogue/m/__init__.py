@@ -32,6 +32,7 @@ from . import master_of_the_hunt  # noqa: F401
 from . import masterwork_of_ingenuity  # noqa: F401
 from . import mathemagics  # noqa: F401
 from . import mayhem_devil  # noqa: F401
+from . import mazemind_tome  # noqa: F401
 from . import mazirek_kraul_death_priest  # noqa: F401
 from . import meek_attack  # noqa: F401
 from . import memory_vampire  # noqa: F401
@@ -39,6 +40,7 @@ from . import mercenaries  # noqa: F401
 from . import merchant_of_venom  # noqa: F401
 from . import meriadoc_brandybuck  # noqa: F401
 from . import merry_warden_of_isengard  # noqa: F401
+from . import mezzio_mugger  # noqa: F401
 from . import mesmeric_orb  # noqa: F401
 from . import midnight_banshee  # noqa: F401
 from . import mikaeus_the_unhallowed  # noqa: F401
@@ -51,11 +53,13 @@ from . import mirrormade  # noqa: F401
 from . import mirrormind_crown  # noqa: F401
 from . import mirrorwing_dragon  # noqa: F401
 from . import misdirection  # noqa: F401
+from . import misleading_signpost  # noqa: F401
 from . import mistveil_plains  # noqa: F401
 from . import mizzix_s_mastery  # noqa: F401
 from . import mnemonic_betrayal  # noqa: F401
 from . import mockingbird  # noqa: F401
 from . import modify_memory  # noqa: F401
+from . import monstrous_onslaught  # noqa: F401
 from . import moon_blessed_cleric  # noqa: F401
 from . import moonsilver_key  # noqa: F401
 from . import moraug_fury_of_akoum  # noqa: F401
@@ -68,8 +72,10 @@ from . import moxite_refinery  # noqa: F401
 from . import muddle_the_ever_changing  # noqa: F401
 from . import muldrotha_the_gravetide  # noqa: F401
 from . import multani_yavimaya_s_avatar  # noqa: F401
+from . import murmuration  # noqa: F401
 from . import mutiny  # noqa: F401
 from . import mycoloth  # noqa: F401
+from . import myr_battlesphere  # noqa: F401
 from . import mystic_remora  # noqa: F401
 from . import mystic_sanctuary  # noqa: F401
 

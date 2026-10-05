@@ -442,6 +442,8 @@ class LegalActionsMixin:
                 kicker_param = (getattr(obj, "parametric_keywords", None) or {}).get("kicker") or {}
                 action["has_kicker"] = True
                 action["kicker_cost"] = kicker_cost.raw
+                if "kicker" not in (getattr(obj, "parametric_keywords", None) or {}):
+                    action["kicker_keyword"] = "offspring"  # the UI titles the field by it
                 action["kicker_multi"] = bool(kicker_param.get("multi"))
                 action["max_kicker"] = self.max_affordable_kicker(player, obj)
                 if kicker_cost.has_variable:

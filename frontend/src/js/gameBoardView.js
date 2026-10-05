@@ -3358,7 +3358,8 @@ export function createGameBoardView(opts = {}) {
   // should opt into rather than pay by default.
   function kickerFieldHtml(a) {
     if (!a.has_kicker) return '';
-    const title = a.kicker_cost ? `Kicker ${a.kicker_cost}` : 'Kicker';
+    const label = a.kicker_keyword === 'offspring' ? 'Offspring' : 'Kicker';
+    const title = a.kicker_cost ? `${label} ${a.kicker_cost}` : label;
     const field = `<input type="number" min="0" max="${a.max_kicker}" value="0" title="${escapeAttr(title)}" data-kicker-input="${kickerKey(a.instance_id, a.face)}" />`;
     return field + kickerXFieldHtml(a);
   }
@@ -3409,7 +3410,7 @@ export function createGameBoardView(opts = {}) {
           : '';
         const suffix = [
           a.has_x ? 'X' : null,
-          a.has_kicker ? 'Kicker' : null,
+          a.has_kicker ? (a.kicker_keyword === 'offspring' ? 'Offspring' : 'Kicker') : null,
           a.pay_additional ? a.additional_cost_label || 'Zusatzkosten' : null,
           a.bargained ? 'Bargain' : null,
           a.gift_opponent_id ? t('bd.cast.giftSuffix', { name: a.gift_opponent_name || a.gift_opponent_id }) : null,

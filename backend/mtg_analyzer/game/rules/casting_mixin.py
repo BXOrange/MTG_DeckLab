@@ -314,6 +314,20 @@ class CastingResolutionMixin:
             if param and int(param.get("n", 0) or 0) > 0:
                 obj.add_counters(kind, int(param["n"]))
 
+        # RULE 702.156a Ravenous: "enters with X +1/+1 counters on it" (X is the announced {X}).
+        if "ravenous" in (getattr(obj, "intrinsic_keywords", None) or ()) and x_paid > 0:
+            obj.add_counters("+1/+1", x_paid)
+        # "…enters with a number of +1/+1 counters equal to 1 plus the number of other creatures you control." (Boss's
+        # Chauffeur) — a self static counted as the permanent enters (it is not on the battlefield yet, so "other" is free).
+        for ability in getattr(obj, "static_effects", None) or ():
+            if getattr(ability, "layer", None) != "entry_counters_self":
+                continue
+            amount = int(ability.params.get("base", 0)) + continuous.count_selector(
+                self.state, obj.controller_id, str(ability.params.get("count_selector", "")), source=obj,
+            )
+            if amount > 0:
+                obj.add_counters(str(ability.params.get("kind", "+1/+1")), amount)
+
         if obj.entry_bonus_creature_counters:
             if obj.is_creature:
                 for kind, amount in obj.entry_bonus_creature_counters.items():

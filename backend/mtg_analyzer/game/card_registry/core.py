@@ -53,9 +53,23 @@ from ...parser.oracle.spec import AbilitySpec, EffectSpec
 _REGISTRY: dict[str, Callable[[], list[AbilitySpec]]] = {}
 
 
-def register(name: str, factory: Callable[[], list[AbilitySpec]]) -> None:
-    """Register a card's ability specs under its (case-insensitive) name."""
-    _REGISTRY[name.strip().lower()] = factory
+#: Keywords a registered card must *not* get from Scryfall's ``keywords`` array: that array lists a keyword the card only
+#: has conditionally ("Celebration — … Goddric is a Dragon with … flying"), which the fold-in would otherwise grant always.
+_SUPPRESSED_KEYWORDS: dict[str, frozenset[str]] = {}
+
+
+def register(
+    name: str, factory: Callable[[], list[AbilitySpec]], suppress_keywords: tuple[str, ...] = (),
+) -> None:
+    """Register a card's ability specs under its (case-insensitive) name.
+
+    ``suppress_keywords`` names keyword slugs the card's own authored specs grant (conditionally) and the keyword
+    catalogue's fold-in must therefore skip for this card.
+    """
+    key = name.strip().lower()
+    _REGISTRY[key] = factory
+    if suppress_keywords:
+        _SUPPRESSED_KEYWORDS[key] = frozenset(suppress_keywords)
 
 
 def registry_signature() -> str:
@@ -95,6 +109,11 @@ def is_registered(name: str) -> bool:
     return "//" in lowered and lowered.split("//")[0].strip() in _REGISTRY
 
 
+def suppressed_keywords_for(card: Any) -> frozenset[str]:
+    """The keyword slugs ``card``'s registration says Scryfall's ``keywords`` array must not grant (see ``register``)."""
+    return _SUPPRESSED_KEYWORDS.get((getattr(card, "name", "") or "").strip().lower(), frozenset())
+
+
 def specs_for(card: Any) -> list[AbilitySpec]:
     """The `AbilitySpec`s a card contributes, or ``[]`` if none are known.
 
@@ -126,8 +145,9 @@ def specs_for(card: Any) -> list[AbilitySpec]:
         for s in specs
         if s.ability_kind == "keyword" and s.keyword
     }
+    suppressed = _SUPPRESSED_KEYWORDS.get(name, frozenset()) if registered else frozenset()
     for kw_spec in parse_keywords(card):
-        if kw_spec.keyword and kw_spec.keyword.get("name") in authored:
+        if kw_spec.keyword and (kw_spec.keyword.get("name") in authored or kw_spec.keyword.get("name") in suppressed):
             continue
         specs.append(kw_spec)
 

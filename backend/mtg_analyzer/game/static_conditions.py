@@ -231,6 +231,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # anyway, but the state itself must stay correct regardless).
         "cast_instant_or_sorcery_this_turn",
         "cast_noncreature_spell_this_turn",
+        "cast_spell_this_turn",  # "As long as you've cast a spell this turn" (Fortune Teller's Talent)
         "control_legendary_subtype",
         # PAR-32 phase-trigger intervening-ifs (Cloakwood Hermit / Dragon
         # Cultist) — new per-turn `GameState` trackers.
@@ -282,6 +283,24 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "mana_value",  # + ``min``/``max`` — printed mana value (RULE 202.3)
         "has_keyword",  # + ``keyword`` (a lowercase slug), granted or intrinsic
         "entered_this_turn",  # RULE 400.7 — the subject came to the battlefield this turn
+        # "…if it dealt combat damage to a player this turn" (Wave of Rats, RULE 603.4) — the
+        # subject's own entry in `GameState.combat_damage_to_players_this_turn` (event-derived,
+        # keyed by the stable `instance_id`, so it still answers once the creature has died).
+        "dealt_combat_damage_to_player_this_turn",
+        # "…if you control the creature with the greatest power or tied for the greatest power" (Thickest
+        # in the Thicket) — the controller's best creature power is at least every creature's.
+        "controls_greatest_power_creature",
+        # "…if you control the artifact with the greatest mana value or tied for the greatest mana value"
+        # (Padeem, Consul of Innovation) — the artifact-mana-value sibling.
+        "controls_greatest_mana_value_artifact",
+        # "…unless that player is the monarch" (Fall from Favor) — the ``of`` subject's *controller* is
+        # the monarch (RULE 724), unlike ``is_monarch``, which asks about the static's own controller.
+        "controlled_by_monarch",
+        # Celebration (Goddric, Cloaked Reveler): "as long as two or more nonland permanents entered the battlefield
+        # under your control this turn" — event-derived, + ``min`` (default 2).
+        "nonland_permanents_entered_this_turn",
+        # "…enters during the declare attackers step" (Misleading Signpost) — RULE 500's current step.
+        "during_step",  # + ``step``
         # "if that player is you" / "…if you control that creature" — the
         # subject (a player, or a player resolved off a firing event) against
         # the ability's own controller.
@@ -721,6 +740,38 @@ def condition_holds(
     if kind == "entered_this_turn":
         entered = getattr(subject, "turn_entered", None)
         return entered is not None and entered == state.internal_turn.number
+    if kind == "controls_greatest_power_creature":
+        creatures = [o for o in state.permanents() if o.is_creature]
+        mine = [o for o in creatures if o.controller_id == controller_id]
+        if not mine:
+            return False
+        return max(o.power or 0 for o in mine) >= max(o.power or 0 for o in creatures)
+    if kind == "during_step":
+        return getattr(state, "current_step", "") == str(condition.get("step", ""))
+    if kind == "nonland_permanents_entered_this_turn":
+        from ..models.game.events import EventType  # function-scoped: models must not import game at load
+
+        entered = sum(
+            1 for e in state.events_this_turn()
+            if e.type == EventType.ENTERS_BATTLEFIELD and e.get("controller_id") == controller_id
+            and "land" not in (e.get("object_types") or [])
+        )
+        return entered >= int(condition.get("min", 2))
+    if kind == "controlled_by_monarch":
+        owner_id = getattr(subject, "controller_id", None)
+        return owner_id is not None and getattr(state, "monarch_id", None) == owner_id
+    if kind == "controls_greatest_mana_value_artifact":
+        artifacts = [o for o in state.permanents() if o.card.is_artifact]
+        mine = [o for o in artifacts if o.controller_id == controller_id]
+        if not mine:
+            return False
+        value = lambda o: int(getattr(o.card, "converted_mana_cost", 0) or 0)  # noqa: E731
+        return max(map(value, mine)) >= max(map(value, artifacts))
+    if kind == "dealt_combat_damage_to_player_this_turn":
+        instance_id = getattr(subject, "instance_id", None)
+        if instance_id is None:
+            return False
+        return bool(state.combat_damage_to_players_this_turn.get(instance_id))
     if kind == "is_you":
         if subject is None or controller_id is None:
             return False
@@ -1003,6 +1054,8 @@ def condition_holds(
     if kind == "cast_instant_or_sorcery_this_turn":
         cast = getattr(state, "cast_instant_or_sorcery_this_turn", None) or {}
         return bool(cast.get(controller_id, False))
+    if kind == "cast_spell_this_turn":
+        return bool((getattr(state, "spells_cast_this_turn", None) or {}).get(controller_id, 0))
     if kind == "cast_noncreature_spell_this_turn":
         cast = getattr(state, "noncreature_spells_cast_this_turn", None) or {}
         return int(cast.get(controller_id, 0) or 0) > 0

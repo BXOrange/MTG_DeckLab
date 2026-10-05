@@ -3,6 +3,7 @@ from . import fabled_passage  # noqa: F401
 from . import faebloom_trick  # noqa: F401
 from . import faeburrow_elder  # noqa: F401
 from . import faerie_mastermind  # noqa: F401
+from . import fall_from_favor  # noqa: F401
 from . import fallen_ideal  # noqa: F401
 from . import fandaniel_telophoroi_ascian  # noqa: F401
 from . import farewell  # noqa: F401
@@ -38,6 +39,8 @@ from . import force_of_will  # noqa: F401
 from . import forging_the_tyrite_sword  # noqa: F401
 from . import forgotten_ancient  # noqa: F401
 from . import formidable_speaker  # noqa: F401
+from . import forsaken_monument  # noqa: F401
+from . import fortune_teller_s_talent  # noqa: F401
 from . import forum_filibuster  # noqa: F401
 from . import fractal_harness  # noqa: F401
 from . import frantic_firebolt  # noqa: F401

@@ -1029,17 +1029,22 @@ class CastingMixin:
         if not param or not param.get("cost"):
             return None
         return ManaCost.parse(str(param["cost"]))
-    @staticmethod
-    def _kicker_cost(obj: GameObject) -> Optional["ManaCost"]:
+    def _kicker_cost(self, obj: GameObject) -> Optional["ManaCost"]:
         """RULE 702.33: ``obj``'s Kicker cost as a `ManaCost`, or ``None`` if
         it carries no Kicker/Multikicker keyword (or one with no parsed
         cost). Multikicker shares this same ``kicker`` param shape — see
         `effect_binder.attach_keyword` — distinguished only by its ``multi``
         flag, which callers check separately.
         """
-        param = (getattr(obj, "parametric_keywords", None) or {}).get("kicker")
+        keywords = getattr(obj, "parametric_keywords", None) or {}
+        param = keywords.get("kicker")
         if not param or not param.get("cost"):
-            return None
+            # RULE 702.175a Offspring is likewise an optional additional cost paid at most once, so it
+            # shares Kicker's announcement (`kicked`) and its record (`GameObject.kicker_count`).
+            param = keywords.get("offspring")
+        if not param or not param.get("cost"):
+            # …or a standing grant ("Creature spells you cast gain offspring {2} as you cast them.").
+            return continuous.granted_offspring_cost_for(self.state, obj)
         return ManaCost.parse(str(param["cost"]))
     @staticmethod
     def _kicker_x_distinct_colors(obj: GameObject) -> bool:
@@ -2191,6 +2196,14 @@ class CastingMixin:
             # resolve-time effect that reads "if this spell was kicked" (a
             # follow-up, not yet parsed) has something to consult.
             obj.kicker_count = kicked
+            if kicked and "offspring" not in (getattr(obj, "parametric_keywords", None) or {}):
+                # RULE 702.175a: Offspring granted by a standing static ("Creature spells you cast gain
+                # offspring {2} as you cast them.") has no printed keyword to have bound its ETB trigger, so
+                # bind it onto the spell now that its offspring cost was paid.
+                if continuous.granted_offspring_cost_for(self.state, obj) is not None:
+                    from ..binding.core import parametric_keyword_triggered_abilities
+
+                    obj.triggered_abilities.extend(parametric_keyword_triggered_abilities(obj, "offspring", None))
             # RULE 702.33b/PAR-7: record Kicker's own announced {X}, when it
             # has one — consulted by `_apply_entry_counters`'s
             # ``kicked_x_scale`` shape (Emblazoned Golem's "it enters with X

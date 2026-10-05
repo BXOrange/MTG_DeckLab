@@ -846,9 +846,17 @@ class FreeCastFromHandEffect(GameEffect):
         mana_value_from_trigger: bool = False,
         permanent_only: bool = False,
         else_effects: Optional[list[dict[str, Any]]] = None,
+        shares_type_with_trigger: bool = False,
+        strictly_less_than_trigger: bool = False,
     ) -> None:
         super().__init__(source)
         self.criteria = dict(criteria or {})
+        #: "…a spell **with lesser mana value that shares a card type with it**…" (Baral and Kari Zev) —
+        #: "it" is the spell whose cast fired this ability: the offered card must share one of its card
+        #: types (`continuous.card_types_of`) and, with ``strictly_less_than_trigger``, have a strictly
+        #: lower mana value (the cap from ``mana_value_from_trigger`` is otherwise inclusive, Kellan).
+        self.shares_type_with_trigger = bool(shares_type_with_trigger)
+        self.strictly_less_than_trigger = bool(strictly_less_than_trigger)
         #: "…a permanent spell with mana value **equal to or less than that spell's**…" (Kellan, the Kid) — the cap
         #: is the mana value of the spell whose cast triggered this ability (`trigger_event["mana_value"]`).
         self.mana_value_from_trigger = bool(mana_value_from_trigger)
@@ -870,10 +878,10 @@ class FreeCastFromHandEffect(GameEffect):
         player = _controller_of(source, context)
         if player is None:
             return
+        from .. import continuous  # function-scoped: avoid the continuous<->effects import cycle
+
         max_mv: Any = None
         if self.max_mana_value_selector:
-            from .. import continuous  # function-scoped: avoid the continuous<->effects import cycle
-
             max_mv = continuous.count_selector(
                 context.state, player.id, self.max_mana_value_selector, source=source
             )
@@ -891,12 +899,19 @@ class FreeCastFromHandEffect(GameEffect):
         )
         if capped and not isinstance(max_mv, int):
             return
+        if self.strictly_less_than_trigger and isinstance(max_mv, int):
+            max_mv -= 1
+        shared_types: Optional[set[str]] = None
+        if self.shares_type_with_trigger:
+            event_types = (getattr(context, "trigger_event", None) or {}).get("object_types") or []
+            shared_types = {str(t).lower() for t in event_types}
         candidates = [
             obj for obj in player.hand
             if not obj.card.is_land
             and (not self.noncreature_only or not obj.card.is_creature)
             and (not self.permanent_only or not (obj.card.is_instant or obj.card.is_sorcery))
             and (not isinstance(max_mv, int) or (obj.card.converted_mana_cost or 0) <= max_mv)
+            and (shared_types is None or bool(continuous.card_types_of(obj) & shared_types))
         ]
         context.engine._request_choose_objects(
             player, candidates, "grant_free_cast", count=1, optional=True,
@@ -1422,6 +1437,38 @@ class GainControlBySourceEffect(GameEffect):
         context.recompute()
 
 
+class ContestedLandControlEffect(GameEffect):
+    """"…that creature's controller gains control of one of those lands of their choice and
+    untaps it." (Turf War) — read off the firing combat-damage event: the damaged player's
+    lands carrying a ``contested`` counter are the candidates, and the *dealing creature's
+    controller* chooses one (`_request_choose_objects`, ``gain_control_and_untap``).
+
+    The "if that player controls one or more lands with contested counters" intervening-if
+    (RULE 603.4) is checked here at resolution only; a trigger whose damaged player has no such
+    land is still put on the stack and then does nothing — the only observable difference from a
+    trigger-level gate is that stack entry.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        event = context.trigger_event
+        if event is None:
+            return
+        victim_id = event.get("target_id")
+        taker = context.state.player_by_id(event.get("source_controller_id"))
+        if taker is None:
+            return
+        lands = [
+            obj for obj in context.state.permanents()
+            if obj.controller_id == victim_id and obj.is_land and (obj.counters or {}).get("contested", 0) > 0
+        ]
+        if not lands:
+            return
+        context.engine._request_choose_objects(
+            taker, lands, "gain_control_and_untap", count=1, optional=False,
+            prompt="Land mit Contested-Marke übernehmen", source=self.source,
+        )
+
+
 class OwnerDrawOthersLosePerDyingCounterEffect(GameEffect):
     """"When ~ dies, if it had one or more -1/-1 counters on it, its owner
     draws that many cards and each other player loses that much life."
@@ -1534,6 +1581,94 @@ class MayBeholdThenUntapLinkedEffect(GameEffect):
             return
         if context.engine.behold(player, self.quality, source=self.source):
             context.engine.set_tapped(land, False)
+
+
+class BeholdThenEffect(GameEffect):
+    """"You may behold a(n) `<type>`. If you do, `<effects>`." (Sarkhan, Dragon Ascendant) — RULE 701.4a.
+
+    **Documented simplification**, shared with `MayBeholdThenUntapLinkedEffect`: the "you may" is taken
+    whenever the controller *can* behold (reveals a matching permanent or hand card at no cost), and the
+    payoff is then applied.
+    """
+
+    def __init__(
+        self, quality: str = "Dragon", effects: Optional[list[dict[str, Any]]] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.quality = quality
+        self.inner_specs = list(effects or [])
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None or not context.engine.behold(player, self.quality, source=self.source):
+            return
+        context.engine._apply_effect_specs(self.inner_specs, self.source)
+
+
+class StillExiledDamageEffect(GameEffect):
+    """The delayed half of Dragonhawk, Fate's Tempest: "At the beginning of your next end step, Dragonhawk deals 2
+    damage to each opponent for each of those cards that are still exiled." ``instance_ids`` are the exiled cards;
+    plain data, so it survives `GameState.clone` like `ReturnRemainingExiledEffect`."""
+
+    def __init__(self, instance_ids: list[int], amount: int = 2, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.instance_ids = list(instance_ids)
+        self.amount = int(amount)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ...models.game.game_object import Zone
+
+        remaining = 0
+        for iid in self.instance_ids:
+            obj = context.state.find_object(iid)
+            if obj is not None and obj.zone == Zone.EXILE:
+                remaining += 1
+        if remaining <= 0 or self.source is None:
+            return
+        for player in context.state.living_players():
+            if player.id != self.source.controller_id:
+                context.deal_damage(player, self.amount * remaining, self.source)
+
+
+class ExileTopPlayThenBurnEffect(GameEffect):
+    """"Exile the top X cards of your library, where X is `<a count>`. You may play those cards until your next end
+    step. At the beginning of your next end step, `<source>` deals N damage to each opponent for each of those cards
+    that are still exiled." (Dragonhawk, Fate's Tempest)
+
+    ``count_selector`` is an `effect_amounts`-free structured selector (`continuous.count_selector` dict form). The
+    window is the rest of this turn — on your own turn "your next end step" is this turn's — and the damage is a
+    RULE 603.7 delayed trigger on that end step. **Documented simplification:** an entry or attack on another
+    player's turn is not a case any real board produces for this card.
+    """
+
+    def __init__(
+        self, count_selector: Optional[dict[str, Any]] = None, amount: int = 2, source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.count_selector = dict(count_selector or {})
+        self.amount = int(amount)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from .. import continuous  # function-scoped: continuous imports effects' siblings
+        from ...models.game.game_state import DelayedTrigger
+
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        count = continuous.count_selector(context.state, player.id, self.count_selector, source=self.source)
+        if count <= 0:
+            return
+        exiled = context.exile_with_play_permission(
+            player, count, source_name=getattr(self.source, "name", None), same_turn_only=True,
+        )
+        if not exiled:
+            return
+        context.state.delayed_triggers.append(DelayedTrigger(
+            controller_id=player.id, step="end", scope="controller",
+            effects=[StillExiledDamageEffect([o.instance_id for o in exiled], self.amount, source=self.source)],
+            description=f"{getattr(self.source, 'name', '')}: Schaden für jede noch exilierte Karte",
+        ))
 
 
 class CollectEvidenceXThenBoardDamageEffect(GameEffect):
@@ -2338,6 +2473,73 @@ class ExileTopFromEachPlayerCastFreeEffect(GameEffect):
                 continue
             card.controller_id = player.id
             context.engine.grant_free_cast_window_from_exile(card, ignore_timing=True)
+
+
+class LookTopCastFreeEffect(GameEffect):
+    """"Look at the top N cards of your library. You may cast a `<kind>` spell with mana value
+    less than or equal to `<source>`'s power from among them without paying its mana cost. Put
+    the rest on the bottom of your library in a random order." (Velomachus Lorehold)
+
+    The looked-at cards are exiled so the cast goes through the ordinary RULE 608.2g
+    resolution-play path (`RulesEngine._request_resolution_play`, the cascade route), which keeps
+    targets, modes and additional costs; every card that is not cast then goes to the bottom
+    (``bottom_remaining``). **Documented simplification:** the cards leave the library zone for
+    the duration of the choice instead of being cast from it. ``criteria`` is a
+    `card_query` dict; ``max_mana_value_from="source_power"`` bounds mana value by the
+    source's current power (inclusive).
+    """
+
+    def __init__(
+        self, count: int = 7, criteria: Optional[dict[str, Any]] = None,
+        max_mana_value_from: Optional[str] = None, source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.count = int(count)
+        self.criteria = dict(criteria) if criteria else None
+        self.max_mana_value_from = max_mana_value_from
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ...models.cards import card_query
+        from ...models.game.events import EventType, GameEvent
+        from ...models.game.game_object import Zone
+
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        exiled = []
+        for _ in range(max(0, self.count)):
+            if not player.library:
+                break
+            obj = player.library.pop()
+            obj.zone = Zone.EXILE
+            player.exile.append(obj)
+            exiled.append(obj)
+            context.state.fire_event(
+                GameEvent(EventType.EXILE, player_id=player.id, object=obj.name, from_zone="library")
+            )
+        if not exiled:
+            return
+        limit = None
+        if self.max_mana_value_from == "source_power":
+            limit = max(0, int(getattr(self.source, "power", 0) or 0))
+        candidates = [
+            o for o in exiled
+            if not o.card.is_land and card_query.matches(o.card, self.criteria)
+            and (limit is None or o.card.converted_mana_cost <= limit)
+        ]
+        rest_ids = [o.instance_id for o in exiled]
+        if not candidates:
+            context.engine._bottom_remaining(player, rest_ids)
+            return
+        context.engine._request_resolution_play(
+            player, candidates, only_spells=True,
+            # `play_resolution_card` demands a *strictly* lesser value, so "≤ power" is "< power + 1".
+            max_mana_value=None if limit is None else limit + 1,
+            bottom_remaining=rest_ids,
+        )
+        choice = context.state.pending_choice
+        if choice is not None and choice.get("kind") == "play_during_resolution":
+            choice["prompt"] = "Instant oder Sorcery kostenlos wirken?"
 
 
 class GrantDieToExileThisTurnEffect(GameEffect):

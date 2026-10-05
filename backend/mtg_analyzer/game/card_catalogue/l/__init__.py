@@ -19,6 +19,8 @@ from . import leonin_arbiter  # noqa: F401
 from . import leonin_relic_warder  # noqa: F401
 from . import leveler  # noqa: F401
 from . import leyline_of_the_void  # noqa: F401
+from . import leyline_tyrant  # noqa: F401
+from . import lier_disciple_of_the_drowned  # noqa: F401
 from . import liliana_dreadhorde_general  # noqa: F401
 from . import lily_bowen_raging_grandma  # noqa: F401
 from . import lim_d_l_s_vault  # noqa: F401
@@ -28,6 +30,7 @@ from . import lithomantic_barrage  # noqa: F401
 from . import llawan_cephalid_empress  # noqa: F401
 from . import loamcrafter_faun  # noqa: F401
 from . import lobelia_defender_of_bag_end  # noqa: F401
+from . import loot_exuberant_explorer  # noqa: F401
 from . import lore_drakkis  # noqa: F401
 from . import lorehold_archivist  # noqa: F401
 from . import lorehold_charm  # noqa: F401

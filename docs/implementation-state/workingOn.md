@@ -47,19 +47,19 @@ Block template (copy below the line, fill in):
 
 ## PLAY-ALL · Make every saved deck playable
 
-- **Started / last update:** 2026-10-01 / 2026-10-04
+- **Started / last update:** 2026-10-01 / 2026-10-05
 - **Goal:** Bring every non-cube saved deck to N/N in `scripts/deck_coverage.py`; Commander Cube last and optional.
 - **Done:** Step 0 (War Room and alternate-name resolution) and Step 1 handler batches completed. General parser results are documented in `Done_Backend.md`. Completed deck coverage: Goblins 39/39, yshtola 97/97, Hydranten 81/81, Raggadragga 84/84, Kodama 75/75, Wick Snail Boom 84/84, Counter Intelligence 94/94, Oops! All Night's Whispers 99/99, World Shaper 87/87; SpongeBob's last recorded missing card (Gogo) is authored. Individual card implementations and their limitations live in `game/card_catalogue/` and `tests/game/catalogue/cards/test_*_deck.py`, not in the Done catalogue.
-- **In progress:** Riveteer Rampage 83/88. Rain of Riches is authored with real Treasure-payment, spell-owned cascade, X, turn-reset and face-legality tests in `tests/test_rain_of_riches.py`. The full backend suite passes. Shared cascade now uses the immediate-play path for normal targets/modes/costs and deferred bottoming of uncast exile cards.
-- **Next step:** Complete The Beamtown Bullies next, then Turf War and MEC-109 (Blitz) for Henzie / Mezzio Mugger / Wave of Rats. Use the explicitly authorized Claude-Code skills and keep the recorded correctness/parser/integration residue in scope.
+- **In progress:** none — Family Matters finished (90/90, committed). Start the next deck of the order list below.
+- **Next step:** Wretched Ranks (17 missing): run `scripts/deck_coverage.py --uncovered`, prefer cards shared with other open decks, hand-author or extend the parser, test, then the full suite.
 - **Decisions:** Prioritize shared parser axes, then decks by marginal cost. Reuse existing primitives before adding new ones. Hand-author isolated gaps; Alchemy is a permanent non-goal. Coverage N/N means MODELED or AUTHORED, not proof that every printed ability is rules-exact.
-- **Baselines:** PARSER_VERSION 604; full-cache coverage 20,372/35,046 (58.1%), measured 2026-10-04. Latest full-cache pytest: 11,331 passed. Saved decklists are available on this PC; remaining counts below have been remeasured.
+- **Baselines:** PARSER_VERSION 607; full-cache coverage 20,372/35,046 (58.1%), measured 2026-10-04 at v604 (not re-measured). Latest full-cache pytest: 11,331 passed (default tier after the Animated Army batch: 11,214 passed, 335 skipped). Saved decklists are available on this PC; remaining counts below have been remeasured.
 - **Known failures:** None in the latest full backend suite. The phenomenon regression now uses inert departure/destination planes to isolate the encounter trigger from random catalogue effects. Frontend lint remains unverified because Node/npm is unavailable; the changed choice renderer passed V8 syntax/render checks.
 
 ### Residue · cards and remaining deck order
 
-- **Then, remaining missing-card counts:** Riveteer Rampage 5; Miracle Worker 20; Jump Scare! 20; Death Toll 21; Shorikai Vehicles 22; Endless Punishment 23; Hope to the last 25; Turtle Power! 28; then Commander Cube.
-- **Other decks from the original plan, not subsequently accounted for:** Jeskai Striker; Family Matters; Animated Army; Abzan Armor; Eternal Might; Sultai Arisen; Mardu Surge; Scions & Spellcraft; Peace Offering; Living Energy; Temur Roar; Revival Trance; Counter Blitz; Limit Break. Also include Wretched Ranks; Tramplesaurus Rex; Reign of Dragons; Keen Engineering; Calling All Angels; Multiverse Reforged. Remeasure with `scripts/deck_coverage.py --uncovered` before ordering further batches.
+- **Deck order by missing cards, ascending (remeasured 2026-10-05 with `scripts/deck_coverage.py --uncovered`; ≈550 card slots, ≈350–450 unique):** Wretched Ranks 17; Eternal Might 17; Sultai Arisen 18; Calling All Angels 19; Peace Offering 19; Mardu Surge 19; Abzan Armor 19; Miracle Worker 20; Jump Scare! 20; Living Energy 21; Death Toll 21; Shorikai Vehicles 22; Temur Roar 23; Endless Punishment 23; Scions & Spellcraft 24; Hope to the last 25; Revival Trance 27; Multiverse Reforged 28; Counter Blitz 28; Turtle Power! 28; Limit Break 33; then Commander Cube (217, optional).
+- **Batching hint:** the Foundations/Bloomburrow/Tarkir/Aetherdrift/Final Fantasy precons overlap heavily; before each deck, run `--uncovered` and prefer cards shared with other open decks and shared parser axes. Remeasure before ordering further batches.
 
 ### Residue · known correctness gaps
 

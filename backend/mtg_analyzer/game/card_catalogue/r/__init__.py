@@ -12,6 +12,7 @@ from . import ranger_captain_of_eos  # noqa: F401
 from . import rapacious_guest  # noqa: F401
 from . import raph_leo_sibling_rivals  # noqa: F401
 from . import raphael_ninja_destroyer  # noqa: F401
+from . import rapid_augmenter  # noqa: F401
 from . import rapid_hybridization  # noqa: F401
 from . import reality_scramble  # noqa: F401
 from . import reality_shift  # noqa: F401
@@ -35,6 +36,7 @@ from . import return_of_the_wildspeaker  # noqa: F401
 from . import return_the_favor  # noqa: F401
 from . import reverse_damage  # noqa: F401
 from . import revitalizing_repast  # noqa: F401
+from . import rhonas_s_monument  # noqa: F401
 from . import rhystic_circle  # noqa: F401
 from . import rhystic_study  # noqa: F401
 from . import ribtruss_roaster  # noqa: F401

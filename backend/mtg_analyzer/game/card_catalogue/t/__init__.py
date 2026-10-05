@@ -7,6 +7,7 @@ from . import talon_gates_of_madara  # noqa: F401
 from . import tam_mindful_first_year  # noqa: F401
 from . import tanazir_quandrix  # noqa: F401
 from . import tangle_wire  # noqa: F401
+from . import tangleweave_armor  # noqa: F401
 from . import tataru_taru  # noqa: F401
 from . import tavern_brawler  # noqa: F401
 from . import tear_asunder  # noqa: F401
@@ -23,10 +24,12 @@ from . import tenth_district_hero  # noqa: F401
 from . import tergrid_god_of_fright  # noqa: F401
 from . import tergrid_s_lantern  # noqa: F401
 from . import teshar_ancestor_s_apostle  # noqa: F401
+from . import tetsuko_umezawa_fugitive  # noqa: F401
 from . import tevesh_szat_doom_of_fools  # noqa: F401
 from . import tezzeret_the_seeker  # noqa: F401
 from . import thassa_s_oracle  # noqa: F401
 from . import the_battle_of_bywater  # noqa: F401
+from . import the_elder_dragon_war  # noqa: F401
 from . import the_goose_mother  # noqa: F401
 from . import the_jolly_balloon_man  # noqa: F401
 from . import the_master_gallifrey_s_end  # noqa: F401
@@ -35,11 +38,13 @@ from . import the_one_ring  # noqa: F401
 from . import the_reaper_king_no_more  # noqa: F401
 from . import the_wandering_emperor  # noqa: F401
 from . import the_wise_mothman  # noqa: F401
+from . import thickest_in_the_thicket  # noqa: F401
 from . import thought_lash  # noqa: F401
 from . import thrasios_triton_hero  # noqa: F401
 from . import threefold_thunderhulk  # noqa: F401
 from . import throne_of_the_god_pharaoh  # noqa: F401
 from . import thunderclap_drake  # noqa: F401
+from . import thundermane_dragon  # noqa: F401
 from . import tibalt_s_trickery  # noqa: F401
 from . import tifa_martial_artist  # noqa: F401
 from . import time_wipe  # noqa: F401
@@ -61,6 +66,8 @@ from . import torch_the_witness  # noqa: F401
 from . import touch_the_spirit_realm  # noqa: F401
 from . import toxic_deluge  # noqa: F401
 from . import tragic_arrogance  # noqa: F401
+from . import transcendent_dragon  # noqa: F401
+from . import transforming_flourish  # noqa: F401
 from . import transmogrify  # noqa: F401
 from . import transmogrifying_licid  # noqa: F401
 from . import transmute_artifact  # noqa: F401
@@ -73,6 +80,7 @@ from . import trickbind  # noqa: F401
 from . import trinisphere  # noqa: F401
 from . import trystan_callous_cultivator  # noqa: F401
 from . import turn_inside_out  # noqa: F401
+from . import turf_war  # noqa: F401
 from . import turntimber_symbiosis  # noqa: F401
 from . import twinflame  # noqa: F401
 from . import twitching_doll  # noqa: F401

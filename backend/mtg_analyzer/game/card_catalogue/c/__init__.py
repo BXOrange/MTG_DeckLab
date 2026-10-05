@@ -23,6 +23,7 @@ from . import chains_of_mephistopheles  # noqa: F401
 from . import chalice_of_the_void  # noqa: F401
 from . import chameleon_master_of_disguise  # noqa: F401
 from . import champion_of_the_weird  # noqa: F401
+from . import chandra_s_ignition  # noqa: F401
 from . import chandra_s_incinerator  # noqa: F401
 from . import chaos_warp  # noqa: F401
 from . import charm_peddler  # noqa: F401
@@ -45,6 +46,7 @@ from . import city_on_fire  # noqa: F401
 from . import citywide_bust  # noqa: F401
 from . import claim_jumper  # noqa: F401
 from . import clever_impersonator  # noqa: F401
+from . import clifftop_lookout  # noqa: F401
 from . import cloud_key  # noqa: F401
 from . import cloudstone_curio  # noqa: F401
 from . import coat_of_arms  # noqa: F401
@@ -85,8 +87,10 @@ from . import crystal_shard  # noqa: F401
 from . import culling_ritual  # noqa: F401
 from . import cultural_exchange  # noqa: F401
 from . import currency_converter  # noqa: F401
+from . import curse_of_opulence  # noqa: F401
 from . import curse_of_the_swine  # noqa: F401
 from . import cursed_mirror  # noqa: F401
+from . import cut_a_deal  # noqa: F401
 from . import cyberdrive_awakener  # noqa: F401
 from . import cyclonic_rift  # noqa: F401
 

@@ -3,6 +3,7 @@ from . import earth_s_mightiest_heroes  # noqa: F401
 from . import earthcraft  # noqa: F401
 from . import earthshape  # noqa: F401
 from . import eccentric_pestfinder  # noqa: F401
+from . import echoing_assault  # noqa: F401
 from . import eclipsed_flamekin  # noqa: F401
 from . import eidolon_of_countless_battles  # noqa: F401
 from . import eiganjo_dynastorian  # noqa: F401
@@ -42,11 +43,13 @@ from . import etali_primal_storm  # noqa: F401
 from . import ethersworn_canonist  # noqa: F401
 from . import eumidian_hatchery  # noqa: F401
 from . import eventide_s_shadow  # noqa: F401
+from . import evercoat_ursine  # noqa: F401
 from . import everlasting_torment  # noqa: F401
 from . import evolving_wilds  # noqa: F401
 from . import excava_the_risen_past  # noqa: F401
 from . import exhume  # noqa: F401
 from . import expansion_algorithm  # noqa: F401
+from . import expansion_explosion  # noqa: F401
 from . import experimental_confectioner  # noqa: F401
 from . import explorer_s_scope  # noqa: F401
 from . import expressive_iteration  # noqa: F401
@@ -55,3 +58,4 @@ from . import evendo_brushrazer
 from . import eumidian_wastewaker
 
 from . import exploration_broodship
+from . import ezuri_s_predation  # noqa: F401

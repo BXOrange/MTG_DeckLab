@@ -218,7 +218,7 @@ class MiscMixin:
             if step.gives_priority:
                 self.resolve_until_stable()
             for player in self.state.players:
-                player.mana_pool.empty(expire=kept_mana_expiring_at(step.name))
+                continuous.empty_mana_pool(self.state, player, kept_mana_expiring_at(step.name))
             self.state.fire_event(GameEvent(EventType.STEP_END, step=step.name, phase=phase.name))
 
         self.state.fire_event(

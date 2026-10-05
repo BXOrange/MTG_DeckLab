@@ -15,6 +15,7 @@ from . import daze  # noqa: F401
 from . import dazzling_reflection  # noqa: F401
 from . import deadeye_navigator  # noqa: F401
 from . import deadly_brew  # noqa: F401
+from . import decimate  # noqa: F401
 from . import deepglow_skate  # noqa: F401
 from . import depthshaker_titan  # noqa: F401
 from . import deekah_fractal_theorist  # noqa: F401
@@ -56,13 +57,16 @@ from . import doomsday  # noqa: F401
 from . import doomsday_excruciator  # noqa: F401
 from . import doubling_season  # noqa: F401
 from . import dragon_s_prey  # noqa: F401
+from . import dragonhawk_fate_s_tempest  # noqa: F401
 from . import drain_life  # noqa: F401
+from . import drakuseth_maw_of_flames  # noqa: F401
 from . import dramatic_reversal  # noqa: F401
 from . import drana_and_linvala  # noqa: F401
 from . import dress_down  # noqa: F401
 from . import drumbellower  # noqa: F401
 from . import dualcaster_mage  # noqa: F401
 from . import dungeon_delver  # noqa: F401
+from . import duplicant  # noqa: F401
 from . import dusk_urchins  # noqa: F401
 from . import dwynen_gilt_leaf_daen  # noqa: F401
 

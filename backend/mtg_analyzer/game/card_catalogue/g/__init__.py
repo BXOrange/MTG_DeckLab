@@ -37,10 +37,13 @@ from . import goblin_matron  # noqa: F401
 from . import goblin_rabblemaster  # noqa: F401
 from . import goblin_recruiter  # noqa: F401
 from . import god_eternal_bontu  # noqa: F401
+from . import goddric_cloaked_reveler  # noqa: F401
 from . import gogo_master_of_mimicry  # noqa: F401
 from . import goldspan_dragon  # noqa: F401
 from . import gollum_obsessed_stalker  # noqa: F401
+from . import goreclaw_terror_of_qal_sisma  # noqa: F401
 from . import gorma_the_gullet  # noqa: F401
+from . import graaz_unstoppable_juggernaut  # noqa: F401
 from . import grafted_exoskeleton  # noqa: F401
 from . import gratuitous_violence  # noqa: F401
 from . import grave_venerations  # noqa: F401
@@ -48,6 +51,7 @@ from . import greater_realm_of_preservation  # noqa: F401
 from . import greenwarden_of_murasa  # noqa: F401
 from . import grim_hireling  # noqa: F401
 from . import grinding_station  # noqa: F401
+from . import grothama_all_devouring  # noqa: F401
 from . import groundskeeper  # noqa: F401
 from . import guardian_of_faith  # noqa: F401
 from . import guardian_project  # noqa: F401

@@ -3888,7 +3888,8 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 # 596: instant/sorcery storm grants (Prismari and Ral's emblem).
 # 606: PAR-128 — separate source-excluded land targets from ordinary land targets.
 # 605: MEC-109 — complete Blitz costs, restricted graveyard casts and grants.
-PARSER_VERSION = "606"
+# 607: PLAY-ALL — "counter target activated or triggered ability" as its own clause (Sublime Epiphany's mode).
+PARSER_VERSION = "607"
 
 
 def parser_source_hash() -> str:

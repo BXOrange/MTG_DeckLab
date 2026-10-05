@@ -872,8 +872,11 @@ class PayCostThenEffect(GameEffect):
         remember_trigger_stack_id: bool = False,
         then_trigger: Optional[list[dict[str, Any]]] = None,
         then_trigger_modes: Optional[dict[str, Any]] = None,
+        x_color: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: "…you may pay **any amount of {R}**." (Leyline Tyrant) — a ``{X}`` cost whose X is paid in this colour.
+        self.x_color = x_color
         self.cost_data = cost
         self.inner_specs = list(effects or [])
         self.else_specs = list(else_effects or [])
@@ -1048,6 +1051,7 @@ class PayCostThenEffect(GameEffect):
                     if self.prompt and context.revealed_card is not None else self.prompt),
             then_trigger_specs=self.then_trigger_specs or None,
             then_trigger_modes=self.then_trigger_modes or None,
+            x_color=self.x_color,
             # The outer trigger's own event, so a "When you do" payoff that
             # names it ("that player", "defending player's graveyard") can
             # read it back off its own `StackItem.trigger_event`.

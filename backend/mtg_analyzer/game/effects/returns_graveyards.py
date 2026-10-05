@@ -11,7 +11,7 @@ install(globals())
 class PlayHideawayCardEffect(GameEffect):
     """RULE 607.2a / 608.2g: play a captured linked exile card now."""
 
-    def __init__(self, condition: dict[str, Any], source=None) -> None:
+    def __init__(self, condition: Optional[dict[str, Any]] = None, source=None) -> None:
         super().__init__(source)
         self.condition = condition
 
@@ -19,14 +19,25 @@ class PlayHideawayCardEffect(GameEffect):
         from ..static_conditions import condition_holds
 
         controller_id = context.resolving_controller_id or getattr(self.source, "controller_id", None)
-        if controller_id is None or not condition_holds(self.condition, context.state, self.source, controller_id):
+        if controller_id is None or (
+            self.condition and not condition_holds(self.condition, context.state, self.source, controller_id)
+        ):
             return
         event = context.trigger_event
         ids = event.get("hideaway_exile_ids", []) if event is not None else []
-        cards = [context.state.find_object(iid) for iid in ids]
-        cards = [obj for obj in cards if obj is not None and obj.zone == Zone.EXILE
-                 and obj.hideaway_source_id == event.get("source_id")
-                 and obj.hideaway_incarnation == event.get("hideaway_card_incarnations", {}).get(str(obj.instance_id))]
+        if ids:
+            cards = [context.state.find_object(iid) for iid in ids]
+            cards = [obj for obj in cards if obj is not None and obj.zone == Zone.EXILE
+                     and obj.hideaway_source_id == event.get("source_id")
+                     and obj.hideaway_incarnation == event.get("hideaway_card_incarnations", {}).get(str(obj.instance_id))]
+        else:
+            # A *triggered* ability ("Whenever ~ deals combat damage to a player, … you may play one of the
+            # exiled cards", Evercoat Ursine) has no activation event carrying the links: read them off
+            # the source, which is still the object that exiled them (RULE 607.2a).
+            source = self.source
+            cards = [context.state.find_object(iid) for iid in sorted(getattr(source, "hideaway_exile_ids", None) or ())]
+            cards = [obj for obj in cards if obj is not None and obj.zone == Zone.EXILE
+                     and obj.hideaway_source_id == getattr(source, "instance_id", None)]
         # RULE 607.3: "the exiled card" acts on each linked card when a
         # copied Hideaway trigger exiled several, with a separate play choice.
         context.offer_play_during_resolution(context.state.player_by_id(controller_id), cards, repeat=True)
@@ -225,6 +236,7 @@ class ReturnToHandEffect(GameEffect):
         group: Optional[dict[str, Any]] = None,
         group_player: Optional[str] = None,
         count_selector: Optional[str] = None,
+        exact_mana_value: Optional[Union[int, str]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -280,6 +292,8 @@ class ReturnToHandEffect(GameEffect):
                 kind=target_kind, optional=optional, count=count, count_max=count_max,
                 distinct_controllers=distinct_controllers, colors=self.colors,
                 count_selector=count_selector,
+                # "Return target creature with mana value X" (Stolen by the Fae) — `TargetSpec.exact_mana_value`.
+                exact_mana_value=exact_mana_value,
                 # "target **Human** you control" (Kogla, the Titan Ape,
                 # MEC-43) — the same `TargetSpec.creature_filter` narrowing
                 # `BlinkEffect`/`CounterUntapGrantKeywordEffect` already
@@ -1900,7 +1914,7 @@ class InspectTopChooseEffect(GameEffect):
         if self.max_picks_if_teamwork is not None and bool(getattr(self.source, "teamwork_paid", False)):
             max_picks = self.max_picks_if_teamwork
         count = self._measured(self.count, context, targets)
-        criteria = self._resolved_criteria()
+        criteria = self._resolved_criteria(context)
         context.engine.inspect_top_n_choose(
             player,
             count=count,
@@ -1917,7 +1931,7 @@ class InspectTopChooseEffect(GameEffect):
             distinct_card_types=self.distinct_card_types,
         )
 
-    def _resolved_criteria(self) -> Optional[dict[str, Any]]:
+    def _resolved_criteria(self, context: Optional[GameContext] = None) -> Optional[dict[str, Any]]:
         """``criteria`` with any mana-value bound `_substitute_x` did not reach bound to the
         source's own announced X — a triggered ability ("when you cast this spell, reveal the
         top X cards … mana value X or less", Genesis Hydra) never had an X of its own."""
@@ -1927,6 +1941,20 @@ class InspectTopChooseEffect(GameEffect):
         for key in ("max_mana_value", "min_mana_value"):
             if resolved.get(key) in ("x", "source_x_paid"):
                 resolved[key] = int(getattr(self.source, "x_paid", 0) or 0)
+            elif resolved.get(key) == "lands_you_control" and context is not None:
+                # "…a creature card with mana value less than or equal to the number of lands you control"
+                # (Loot, Exuberant Explorer) — counted as the ability resolves.
+                from .. import continuous  # function-scoped: continuous imports effects' siblings
+
+                resolved[key] = continuous.count_selector(
+                    context.state, getattr(self.source, "controller_id", None), "lands_you_control",
+                )
+        # "…a creature card of the chosen type" (Herald's Horn) — the type picked as the source entered.
+        chosen = getattr(self.source, "chosen_type", None) or "none_chosen"
+        if resolved.get("type") == "chosen_type":
+            resolved["type"] = chosen
+        if "all_types" in resolved:
+            resolved["all_types"] = [chosen if t == "chosen_type" else t for t in resolved["all_types"]]
         return resolved
 
 

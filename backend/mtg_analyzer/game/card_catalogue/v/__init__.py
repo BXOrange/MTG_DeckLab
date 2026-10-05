@@ -8,6 +8,7 @@ from . import vanishing_verse  # noqa: F401
 from . import vanquisher_s_banner  # noqa: F401
 from . import vault_12_the_necropolis  # noqa: F401
 from . import veil_of_summer  # noqa: F401
+from . import velomachus_lorehold  # noqa: F401
 from . import venerable_warsinger  # noqa: F401
 from . import venser_the_sojourner  # noqa: F401
 from . import vernal_sovereign  # noqa: F401

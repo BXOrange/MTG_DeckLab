@@ -1,9 +1,11 @@
 """Hand-authored card entries whose name starts with 'p' (see game/card_registry for the registration mechanism: `register`/`register_family`/`specs_for`)."""
 from . import pact_of_negation  # noqa: F401
+from . import padeem_consul_of_innovation  # noqa: F401
 from . import painful_truths  # noqa: F401
 from . import paradigm_shift  # noqa: F401
 from . import parallax_wave  # noqa: F401
 from . import parallel_lives  # noqa: F401
+from . import parapet_thrasher  # noqa: F401
 from . import parasitic_impetus  # noqa: F401
 from . import path_to_exile  # noqa: F401
 from . import pathbreaker_ibex  # noqa: F401
@@ -31,6 +33,7 @@ from . import plargg_and_nassari  # noqa: F401
 from . import play_with_fire  # noqa: F401
 from . import plumb_the_forbidden  # noqa: F401
 from . import poison_the_cup  # noqa: F401
+from . import pollywog_prodigy  # noqa: F401
 from . import polymorph  # noqa: F401
 from . import polyraptor  # noqa: F401
 from . import ponder  # noqa: F401
@@ -52,12 +55,15 @@ from . import prize_pig  # noqa: F401
 from . import professor_onyx  # noqa: F401
 from . import progenitor_exarch  # noqa: F401
 from . import promise_of_loyalty  # noqa: F401
+from . import prosperous_bandit  # noqa: F401
 from . import protean_hulk  # noqa: F401
 from . import protective_sphere  # noqa: F401
 from . import psychic_transfer  # noqa: F401
 from . import puca_s_covenant  # noqa: F401
+from . import pugnacious_hammerskull  # noqa: F401
 from . import puppeteer_clique  # noqa: F401
 from . import pure_intentions  # noqa: F401
+from . import pyreswipe_hawk  # noqa: F401
 from . import pyrohemia  # noqa: F401
 
 from . import plaguecrafter

@@ -10,6 +10,7 @@ from . import ad_nauseam  # noqa: F401
 from . import adaptive_training_post  # noqa: F401
 from . import advanced_reconstruction  # noqa: F401
 from . import aetherflux_reservoir  # noqa: F401
+from . import aetherize  # noqa: F401
 from . import agatha_s_soul_cauldron  # noqa: F401
 from . import agent_maria_hill  # noqa: F401
 from . import agent_of_treachery  # noqa: F401
@@ -20,6 +21,8 @@ from . import ajani_steadfast  # noqa: F401
 from . import akiri_fearless_voyager  # noqa: F401
 from . import akroma_s_memorial  # noqa: F401
 from . import alchemist_s_retrieval  # noqa: F401
+from . import alchemist_s_talent  # noqa: F401
+from . import all_is_dust  # noqa: F401
 from . import allosaurus_shepherd  # noqa: F401
 from . import alms_collector  # noqa: F401
 from . import altar_of_dementia  # noqa: F401
@@ -36,6 +39,7 @@ from . import animate_dead  # noqa: F401
 from . import animist_s_awakening  # noqa: F401
 from . import ao_the_dawn_sky  # noqa: F401
 from . import aphotic_wisps  # noqa: F401
+from . import arachnogenesis  # noqa: F401
 from . import arcane_denial  # noqa: F401
 from . import arcane_lighthouse  # noqa: F401
 from . import archaeomancer_s_map  # noqa: F401
