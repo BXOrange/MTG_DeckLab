@@ -46,6 +46,7 @@ from . import shield_broker  # noqa: F401
 from . import shielded_by_faith  # noqa: F401
 from . import shieldmage_advocate  # noqa: F401
 from . import shifting_woodland  # noqa: F401
+from . import shigeki_jukai_visionary  # noqa: F401
 from . import shiko_and_narset_unified  # noqa: F401
 from . import shimmer_myr  # noqa: F401
 from . import shire_shirriff  # noqa: F401
@@ -96,6 +97,7 @@ from . import stangg_echo_warrior  # noqa: F401
 from . import steal_enchantment  # noqa: F401
 from . import steel_hellkite  # noqa: F401
 from . import stensian_sanguinist  # noqa: F401
+from . import steward_of_the_harvest  # noqa: F401
 from . import stifle  # noqa: F401
 from . import stitch_together  # noqa: F401
 from . import stinging_licid  # noqa: F401
@@ -148,3 +150,4 @@ from . import spinerock_knoll
 from . import stormbreath_dragon
 from . import sarkhan_soul_aflame
 from . import selvala_s_stampede
+from . import syphon_flesh

@@ -267,3 +267,40 @@ For what's actually left to build, use
 none exists any more, because the project no longer fits a linear
 "finish layer N before starting layer N+1" shape: the parser tail, engine
 mechanics, and frontend polish now proceed in parallel, ticket by ticket.
+
+---
+
+# PART 6: THE GUIDING PRINCIPLE — THE RULES ARE THE SPECIFICATION
+
+(Carried over from the original July 2026 "rules-driven" plan, the only part of
+it that survived unchanged.)
+
+The Comprehensive Rules are not guidelines; they deterministically define card
+types, when spells and abilities may be used, how the stack resolves and in
+what order events happen. So the engine is a *specification-implementation*
+problem, not a design problem: don't invent a priority scheme or an ordering
+heuristic — find the rule, code it, cite it.
+
+In practice:
+
+- **Cite the rule where you implement it** (`RULE 603.3b`) and write tests that
+  name the rule they pin down. The actual CR text is looked up in
+  [`../Reference/rules_wiki/`](../Reference/rules_wiki/) — never from memory.
+- **New cards extend data, not the engine.** A card is an `AbilitySpec` (parsed
+  or hand-authored) bound to whitelisted effects; supporting a new card should
+  not require touching the turn loop, stack or combat code. When it does, a
+  general primitive is missing — build that, not a one-off.
+- **Validate against the rulebook, not against "does the design work".** When
+  engine behaviour and a rule disagree, the rule wins.
+- **Test pyramid:** unit tests per effect/primitive, integration tests through
+  `GameEngine`/`GameSession` (stack, triggers, priority), and whole-game runs
+  with bots; plus an opt-in tier against the full card cache.
+
+**Rule numbers are easy to get wrong.** The original plan cited several that
+don't match the CR, and the same slips recur: RULE 504 is the *draw step* (mana
+abilities are 605, paying costs 601.2h); RULE 607 is *linked abilities*
+(simultaneous-trigger ordering is 603.3b, in APNAP order); RULE 109 is objects
+and 110 permanents (card types are 300–315, players 102–103); RULE 116 is
+special actions (countering is 701.6); RULE 702.19 is trample. Part 5 above
+still lists "RULE 601/608/504/117/603/607" for the original plan's scope — read
+504 and 607 there as the plan's mistakes, not as the mana and trigger rules.

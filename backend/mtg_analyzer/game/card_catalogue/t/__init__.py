@@ -9,6 +9,7 @@ from . import tamiyo_field_researcher  # noqa: F401
 from . import tanazir_quandrix  # noqa: F401
 from . import tangle_wire  # noqa: F401
 from . import tangleweave_armor  # noqa: F401
+from . import tasigur_the_golden_fang  # noqa: F401
 from . import tataru_taru  # noqa: F401
 from . import tavern_brawler  # noqa: F401
 from . import tear_asunder  # noqa: F401

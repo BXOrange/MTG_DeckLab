@@ -3399,6 +3399,8 @@ class MiscSystemsMixin:
             # PAR-143: an untargeted graveyard pick ("return a land card from your graveyard to the
             # battlefield tapped / to your hand").
             "return_from_graveyard_tapped", "return_from_graveyard_to_hand", "soulbond_pair", "library_top", "discard",
+            # Diviner of Mist: an untargeted graveyard instant/sorcery pick that is exiled into a free-cast window.
+            "free_cast_exile",
             "library_to_hand", "sacrifice_for_descendants_fury",
             # A hand pick the owner puts into their own library (Painful/Agonizing Memories, Lost Hours).
             "hand_to_library_top", "hand_to_library_third",
@@ -3743,7 +3745,16 @@ class MiscSystemsMixin:
 
         # Preserve last-known types before subsequent opponents sacrifice.
         then_specs = capture(then_specs)
-        self._apply_effect_specs(list(then_specs or []), source)
+        # "…it's a black Zombie in addition to its other types" — the picked objects are the follow-up's "it"
+        # (`GameContext.previous_targets`), exactly as a targeted clause's targets would be.
+        outer_previous = getattr(self.context, "previous_targets", [])
+        picked_objects = [o for o in (self.state.find_object(i) for i in chosen_ids or []) if o is not None]
+        if picked_objects:
+            self.context.previous_targets = picked_objects
+        try:
+            self._apply_effect_specs(list(then_specs or []), source)
+        finally:
+            self.context.previous_targets = outer_previous
         if commander_taken:
             self._apply_effect_specs(list(then_specs_if_commander or []), source)
         if then_that_many and picked_count > 0:
@@ -4066,6 +4077,12 @@ class MiscSystemsMixin:
             )
         elif action == "return_from_graveyard_to_hand":
             self.return_from_graveyard(obj, "hand")
+        elif action == "free_cast_exile":
+            # "…If that spell would be put into your graveyard, exile it instead." — the same exile-then-window
+            # route `CastGraveyardInstantSorceryFreeExileEffect`'s targeted form takes (RULE 614.1 rider).
+            obj.exile_after_free_cast = True
+            self.exile(obj)
+            self.grant_free_cast_window_from_exile(obj, caster=player)
         elif action == "graveyard_to_library":
             # Quandrix Command mode 4: move the pick from its owner's
             # graveyard to its owner's library, then shuffle that library

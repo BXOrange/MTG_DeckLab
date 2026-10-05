@@ -559,6 +559,10 @@ class ActivationMixin:
             player, source, cost.sacrifice, chosen_id=sacrifice_choice
         ) is None:
             return False
+        if cost.sacrifice_also and self._sacrifice_pair(
+            player, source, cost, chosen_id=sacrifice_choice
+        ) is None:
+            return False  # Jarad: "a Swamp and a Forest" must be two different permanents
         if cost.exile_creature and self._exile_creature_candidate(
             player, chosen_id=sacrifice_choice
         ) is None:
@@ -912,6 +916,21 @@ class ActivationMixin:
         if chosen_id is not None:
             return next((o for o in candidates if o.instance_id == chosen_id), None)
         return candidates[0] if candidates else None
+    def _sacrifice_pair(
+        self, player: Player, source: GameObject, cost: "ActivationCost", chosen_id: Optional[int] = None,
+    ) -> Optional[tuple[GameObject, GameObject]]:
+        """Two *distinct* permanents paying "Sacrifice a `<A>` and a `<B>`" (``cost.sacrifice`` and
+        ``cost.sacrifice_also``, RULE 701.17), or ``None``. A permanent of both types (a Swamp Forest) can pay
+        either half but never both, so every first pick is tried against a second one."""
+        pool = [o for o in self.state.permanents_controlled_by(player.id) if not o.cant_be_sacrificed_this_turn]
+        firsts = [o for o in pool if self._matches_sacrifice_type(o, cost.sacrifice)
+                  and (chosen_id is None or o.instance_id == chosen_id)]
+        for first in firsts:
+            second = next((o for o in pool if o is not first and self._matches_sacrifice_type(o, cost.sacrifice_also)), None)
+            if second is not None:
+                return first, second
+        return None
+
     def _exile_creature_candidate(
         self, player: Player, chosen_id: Optional[int] = None,
     ) -> Optional[GameObject]:
@@ -1321,6 +1340,12 @@ class ActivationMixin:
             victim = self._sacrifice_candidate(
                 player, source, cost.sacrifice, chosen_id=sacrifice_choice
             )
+            if cost.sacrifice_also:
+                pair = self._sacrifice_pair(player, source, cost, chosen_id=sacrifice_choice)
+                if pair is not None:
+                    victim = pair[0]
+                    # RULE 701.17a: the second permanent of "a Swamp and a Forest" is sacrificed with the first.
+                    self.rules.put_into_graveyard(pair[1])
             if victim is not None:
                 # RULE 701.16c: sacrifice isn't destruction — see the
                 # matching comment in `_pay_additional_cast_cost`.

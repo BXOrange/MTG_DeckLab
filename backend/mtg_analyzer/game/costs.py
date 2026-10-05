@@ -144,6 +144,9 @@ class ActivationCost:
     taps_self: bool = False
     untaps_self: bool = False
     sacrifice: Optional[str] = None
+    #: "Sacrifice a Swamp and a Forest" (Jarad, Golgari Lich Lord): the *second*, distinct permanent word charged
+    #: alongside ``sacrifice`` (never the same object). The engine picks it (the cost UI offers the first only).
+    sacrifice_also: Optional[str] = None
     #: PAR-87 / RULE 601.2b: mutually exclusive "sacrifice a creature or
     #: pay {M}" additional cost. The mana branch is selected by default.
     sacrifice_or_mana: bool = False
@@ -667,6 +670,9 @@ class ActivationCost:
             else:
                 phrase = _permanent_phrase(self.sacrifice)
                 what = f"an{phrase[len('other'):]}" if phrase.startswith("other ") else f"a {phrase}"
+            if self.sacrifice_also:
+                also = _permanent_phrase(self.sacrifice_also)
+                what = f"{what} and a {also}"
             parts.append(f"Sacrifice {what}")
         if self.exile_creature:
             parts.append("Exile a creature you control")
@@ -765,6 +771,7 @@ class ActivationCost:
             "taps_self": self.taps_self,
             "untaps_self": self.untaps_self,
             "sacrifice": self.sacrifice,
+            "sacrifice_also": self.sacrifice_also,
             "pay_life": self.pay_life,
             "pay_energy": self.pay_energy,
             "discard": self.discard,
@@ -847,6 +854,8 @@ def parse_activation_cost(
         parsed.untaps_self = bool(cost["untaps_self"])
     if cost.get("sacrifice"):
         parsed.sacrifice = str(cost["sacrifice"])
+    if cost.get("sacrifice_also"):
+        parsed.sacrifice_also = str(cost["sacrifice_also"])
     if cost.get("sacrifice_or_mana"):
         choice = cost["sacrifice_or_mana"]
         parsed.sacrifice = str(choice["sacrifice"])
@@ -1053,6 +1062,11 @@ def _parse_text(text: str) -> ActivationCost:
         # the generic single-type sacrifice, which would otherwise only see
         # "a creature" and drop the rest of the list.
         cost.sacrifice = "creature_artifact_or_land"
+    pair = hits.get("sacrifice_pair")
+    if pair:
+        # "Sacrifice a Swamp and a Forest" — two distinct permanents, one of each subtype word.
+        cost.sacrifice = _permanent_word(None, None, None, pair.group("first").lower())
+        cost.sacrifice_also = _permanent_word(None, None, None, pair.group("second").lower())
     sac = hits.get("sacrifice")
     if sac:
         whole = sac.group("whole").lower()

@@ -566,6 +566,8 @@ class CastingMixin:
         # active`'s own docstring for why that needs no exemption here).
         if continuous.split_second_active(self.state):
             return False
+        if player.id in self.state.no_more_spells_this_turn:
+            return False  # Conduit of Worlds: "you can't cast additional spells this turn"
         if help_pay and self._help_pay_keyword(obj) is None:
             # RULE 702.51/702.66/702.126 (PAR-23): the "cast using Convoke/
             # Delve/Improvise" offer is illegal for a spell that has none of
@@ -941,6 +943,10 @@ class CastingMixin:
             if self._graveyard_sacrifice_payment(player, obj, grant, graveyard_sacrifice_choice,
                                                    sacrifice_choice, pay_additional) is None:
                 return False
+        if grant is not None and grant.exile_graveyard_cards and (
+            len([o for o in player.graveyard if o is not obj]) < grant.exile_graveyard_cards
+        ):
+            return False  # Kotis: not enough *other* cards in the graveyard to exile as the cost
         if not self._can_pay_cast_life_tax(player, obj, targets):
             return False
         return self._can_pay_additional_cast_cost(
@@ -1795,6 +1801,8 @@ class CastingMixin:
                 self.rules.exile(res)  # RULE 702.66: "Each card you exile … pays for {1}."
             else:
                 self.rules.set_tapped(res, True)  # RULE 702.51c/702.126b
+                if self._help_pay_keyword(obj) == "convoke":
+                    obj.convoked_by_ids.append(res.instance_id)  # "each creature that convoked this spell"
             cost = cost.reduce_generic(1)
         return cost
 
@@ -2030,6 +2038,12 @@ class CastingMixin:
                 ) if graveyard_grant is not None and graveyard_grant.sacrifice_type else None
             )
             graveyard_victim = None
+            # Kotis-shaped: the other graveyard cards exiled as this permission's additional cost (RULE 601.2h),
+            # taken before the spell itself leaves the graveyard.
+            graveyard_exile_victims = (
+                [o for o in player.graveyard if o is not obj][:graveyard_grant.exile_graveyard_cards]
+                if graveyard_grant is not None and graveyard_grant.exile_graveyard_cards else []
+            )
             if graveyard_payment is not None:
                 printed_victim, graveyard_victim = graveyard_payment
                 if printed_victim is not None:
@@ -2172,6 +2186,8 @@ class CastingMixin:
                     # RULE 601.2h: this mandatory permission cost is independent
                     # of the spell's own optional/mandatory additional costs.
                     self.rules.put_into_graveyard(graveyard_victim)
+                for exiled_card in graveyard_exile_victims:
+                    self.rules.exile(exiled_card)
             # RULE 601.2b (PAR-30): record whether the additional cost was
             # paid — a *mandatory* one always (it was), an *optional* "you
             # may <…>" one only when the caller chose the `pay_additional`
@@ -2252,6 +2268,10 @@ class CastingMixin:
             # this same turn clears it.
             obj.cast_via_escape = graveyard_keyword == "escape"
             self.state.temp_graveyard_cast_permissions.pop(obj.instance_id, None)
+            if obj.instance_id in self.state.cast_lock_instance_ids:
+                # "If you do, you can't cast additional spells this turn." (Conduit of Worlds)
+                self.state.cast_lock_instance_ids.discard(obj.instance_id)
+                self.state.no_more_spells_this_turn.add(player.id)
             # RULE 702.74a: record an Evoke cast — consulted right after
             # `_resolve_permanent_spell` adds the object to the battlefield
             # to sacrifice it (a *consequence* of entering, not a

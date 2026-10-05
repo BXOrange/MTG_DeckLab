@@ -48,6 +48,12 @@ concern here, this is a solo simulation) state:
   library search, so this is "library searches", a superset of "tutors" in
   the strict sense — also counts fetch lands) and the first
   `EventType.ENTERS_BATTLEFIELD` of an ``is_commander`` object.
+* **combo assembly turn** — the first turn each matched Spellbook combo's
+  required card quantities are simultaneously present on the simulated
+  player's battlefield. This tracks board assembly only, not whether its
+  template requirements were met or whether the combo was executed.
+* **mulligans taken** — counted from successful setup actions, including
+  the Smart Bot's existing land-count heuristic (up to two mulligans).
 
 Mana *produced* per turn is already tracked (`GameSession.analysis()`'s
 `mana_per_turn`) and is read back from there rather than re-derived.
@@ -151,6 +157,8 @@ class MatchResult:
     per_turn: dict[int, dict[str, float]]
     tutors_resolved: int
     commander_turns: dict[str, int]
+    mulligans_taken: int = 0
+    combo_turns: dict[str, int] = field(default_factory=dict)
     #: Whether this match was cut short by `INFINITE_MANA_THRESHOLD` — the
     #: `per_turn`/`tutors_resolved`/`commander_turns` collected up to that
     #: point are still real data and stay in the aggregate; only the turns
@@ -179,6 +187,7 @@ def run_one_match(
     game_format: Optional[str] = None,
     max_turns: int = 10,
     favorite_card_names: Optional[set[str]] = None,
+    combo_specs: Optional[list[dict[str, Any]]] = None,
 ) -> MatchResult:
     """Play one solo goldfish game to completion (or `max_turns`), with
     `bot` driving the only real seat (id ``"p1"`` — `build_goldfish_engine`
@@ -212,6 +221,7 @@ def run_one_match(
     favorite_names = favorite_card_names or set()
 
     tutors_resolved = 0
+    mulligans_taken = 0
     commander_turns: dict[str, int] = {}
     #: Per favorite card: first turn seen in the sampled hand / first turn
     #: actually cast / first turn a legal (unlocked) cast action for it
@@ -220,6 +230,28 @@ def run_one_match(
     favorite_drawn_turn: dict[str, Optional[int]] = {name: None for name in favorite_names}
     favorite_cast_turn: dict[str, Optional[int]] = {name: None for name in favorite_names}
     favorite_castable_turn: dict[str, Optional[int]] = {name: None for name in favorite_names}
+    combo_requirements: dict[str, dict[str, int]] = {}
+    for combo in combo_specs or []:
+        combo_id = combo["id"]
+        requirements: dict[str, int] = {}
+        for use in combo["uses"]:
+            name = " ".join(use["name"].split()).casefold()
+            requirements[name] = requirements.get(name, 0) + use["quantity"]
+        combo_requirements[combo_id] = requirements
+    combo_turns: dict[str, int] = {}
+
+    def record_assembled_combos() -> None:
+        if len(combo_turns) == len(combo_requirements):
+            return
+        battlefield_counts: dict[str, int] = {}
+        for obj in state.permanents_controlled_by("p1"):
+            name = " ".join(obj.name.split()).casefold()
+            battlefield_counts[name] = battlefield_counts.get(name, 0) + 1
+        for combo_id, requirements in combo_requirements.items():
+            if combo_id in combo_turns:
+                continue
+            if all(battlefield_counts.get(name, 0) >= quantity for name, quantity in requirements.items()):
+                combo_turns[combo_id] = state.turn_nr
 
     def on_event(event: GameEvent) -> None:
         nonlocal tutors_resolved
@@ -241,6 +273,7 @@ def run_one_match(
                 favorite_cast_turn[name] = state.turn_nr
 
     state.subscribe(on_event)
+    record_assembled_combos()
 
     per_turn: dict[int, dict[str, float]] = {}
     sampled_turns: set[int] = set()
@@ -306,6 +339,8 @@ def run_one_match(
             action = {"type": "advance_to_decision"}
         try:
             session.apply_action(action)
+            if action.get("type") == "mulligan":
+                mulligans_taken += 1
         except GameActionError:
             # Mirrors `run_bots`'s "one bad offer shouldn't wedge the whole
             # run": note the failure so the bot doesn't retry the exact same
@@ -318,6 +353,7 @@ def run_one_match(
             except GameActionError:
                 break
         actions_used += 1
+        record_assembled_combos()
         maybe_sample()
         # `mana_produced_this_turn` resets every `begin_turn` (models/
         # game_state.py), so this sum is genuinely "this turn's" production
@@ -357,6 +393,8 @@ def run_one_match(
         per_turn=per_turn,
         tutors_resolved=tutors_resolved,
         commander_turns=commander_turns,
+        mulligans_taken=mulligans_taken,
+        combo_turns=combo_turns,
         aborted_infinite_mana=aborted_infinite_mana,
         aborted_turn=aborted_turn,
         favorite_cards=favorite_result,
@@ -429,6 +467,10 @@ class DynamicAnalysisResult:
     #: Keyed by card name — see `FavoriteCardStats`. Empty unless the
     #: caller passed favorite card names in.
     favorite_cards: dict[str, FavoriteCardStats] = field(default_factory=dict)
+    combo_stats: list[dict[str, Any]] = field(default_factory=list)
+    any_combo_stats: dict[str, Any] = field(default_factory=dict)
+    mulligans_taken: dict[str, float] = field(default_factory=dict)
+    mulligan_distribution: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -442,6 +484,10 @@ class DynamicAnalysisResult:
             "matchesAbortedInfiniteMana": self.matches_aborted_infinite_mana,
             "infiniteManaTurn": self.infinite_mana_turn,
             "favoriteCards": {name: stats.to_dict() for name, stats in self.favorite_cards.items()},
+            "comboStats": self.combo_stats,
+            "anyComboStats": self.any_combo_stats,
+            "mulligansTaken": self.mulligans_taken,
+            "mulliganDistribution": self.mulligan_distribution,
         }
 
 
@@ -488,6 +534,7 @@ def _run_one_match_worker(payload: dict[str, Any]) -> MatchResult:
         game_format=payload["game_format"],
         max_turns=payload["max_turns"],
         favorite_card_names=payload["favorite_card_names"],
+        combo_specs=payload["combo_specs"],
     )
 
 
@@ -545,6 +592,7 @@ def run_dynamic_analysis(
     game_format: Optional[str] = None,
     on_progress: Optional[Callable[[int, int], None]] = None,
     favorite_card_names: Optional[set[str]] = None,
+    combo_specs: Optional[list[dict[str, Any]]] = None,
 ) -> DynamicAnalysisResult:
     """Run `num_matches` independent `run_one_match` calls (a fresh library
     shuffle each time) and aggregate every metric into mean/stddev.
@@ -579,6 +627,13 @@ def run_dynamic_analysis(
     favorite_cast_count: dict[str, int] = {name: 0 for name in favorite_names}
     favorite_cast_turn_values: dict[str, list[float]] = {name: [] for name in favorite_names}
     favorite_castable_never_cast_count: dict[str, int] = {name: 0 for name in favorite_names}
+    combos = combo_specs or []
+    combo_turn_values: dict[str, list[float]] = {
+        combo["id"]: [] for combo in combos
+    }
+    any_combo_turn_values: list[float] = []
+    mulligan_values: list[float] = []
+    mulligan_distribution: dict[str, int] = {}
 
     matches_run = 0
     matches_aborted_infinite_mana = 0
@@ -590,6 +645,10 @@ def run_dynamic_analysis(
         it's safe to feed matches back in whatever order they complete."""
         nonlocal matches_run, matches_aborted_infinite_mana
         matches_run += 1
+        mulligan_count = result.mulligans_taken
+        mulligan_values.append(float(mulligan_count))
+        count_key = str(mulligan_count)
+        mulligan_distribution[count_key] = mulligan_distribution.get(count_key, 0) + 1
         if result.aborted_infinite_mana:
             matches_aborted_infinite_mana += 1
             if result.aborted_turn is not None:
@@ -611,6 +670,10 @@ def run_dynamic_analysis(
                 favorite_cast_turn_values[name].append(float(card_result["cast_turn"]))
             elif card_result["castable_turn"] is not None:
                 favorite_castable_never_cast_count[name] += 1
+        for combo_id, turn in result.combo_turns.items():
+            combo_turn_values[combo_id].append(float(turn))
+        if result.combo_turns:
+            any_combo_turn_values.append(float(min(result.combo_turns.values())))
 
     # Shuffle every match's library up front, off the process-global RNG,
     # so the set of games played is fixed before any scheduling decision —
@@ -628,6 +691,7 @@ def run_dynamic_analysis(
         "game_format": game_format,
         "max_turns": max_turns,
         "favorite_card_names": favorite_names,
+        "combo_specs": combos,
     }
 
     worker_count = _match_worker_count(num_matches)
@@ -667,6 +731,7 @@ def run_dynamic_analysis(
                     game_format=game_format,
                     max_turns=max_turns,
                     favorite_card_names=favorite_names,
+                    combo_specs=combos,
                 )
             except Exception:  # pragma: no cover - defensive, see docstring
                 logger.exception("dynamic analysis: match %d/%d failed, skipping", i + 1, num_matches)
@@ -697,6 +762,19 @@ def run_dynamic_analysis(
         )
         for name in favorite_names
     }
+    combo_stats = [
+        {
+            "id": combo["id"],
+            "uses": combo["uses"],
+            "assembledFraction": len(combo_turn_values[combo["id"]]) / denominator,
+            "assembledTurn": _mean_stddev(combo_turn_values[combo["id"]]),
+        }
+        for combo in combos
+    ]
+    any_combo_stats = {
+        "assembledFraction": len(any_combo_turn_values) / denominator,
+        "assembledTurn": _mean_stddev(any_combo_turn_values),
+    }
 
     return DynamicAnalysisResult(
         matches_requested=num_matches,
@@ -709,6 +787,10 @@ def run_dynamic_analysis(
         matches_aborted_infinite_mana=matches_aborted_infinite_mana,
         infinite_mana_turn=_mean_stddev(infinite_mana_turn_values),
         favorite_cards=favorite_cards,
+        combo_stats=combo_stats,
+        any_combo_stats=any_combo_stats,
+        mulligans_taken=_mean_stddev(mulligan_values),
+        mulligan_distribution=mulligan_distribution,
     )
 
 
@@ -809,6 +891,7 @@ class DynamicAnalysisJobs:
         starting_hand: int = 7,
         game_format: Optional[str] = None,
         favorite_card_names: Optional[set[str]] = None,
+        combo_specs: Optional[list[dict[str, Any]]] = None,
     ) -> str:
         total = max(1, min(MAX_NUM_MATCHES, int(num_matches)))
         job = DynamicAnalysisJob(id=str(uuid.uuid4()), total=total)
@@ -834,6 +917,7 @@ class DynamicAnalysisJobs:
                     game_format=game_format,
                     on_progress=on_progress,
                     favorite_card_names=favorite_card_names,
+                    combo_specs=combo_specs,
                 )
                 job.result = result.to_dict()
                 job.status = "done"

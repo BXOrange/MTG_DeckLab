@@ -1475,9 +1475,13 @@ class ConniveEffect(GameEffect):
         count_selector: Optional[str] = None,
         times: Any = 1,
         creature_filter: Optional[dict] = None,
+        convoked: bool = False,
     ) -> None:
         super().__init__(source)
         self.previous_subject = bool(previous_subject)
+        #: "Each creature that convoked this spell connives" (Lethal Scheme, RULE 702.51c): the subjects are
+        #: the still-on-battlefield creatures recorded in the source spell's `convoked_by_ids`.
+        self.convoked = bool(convoked)
         #: How many times to connive: a number or an `effect_amounts` operand ("connive X, where X
         #: is the number of …", "that many").
         self.times = times if isinstance(times, dict) else max(1, int(times))
@@ -1514,6 +1518,9 @@ class ConniveEffect(GameEffect):
             return
         if self.target_spec is not None:
             subjects = list(targets or [])
+        elif self.convoked:
+            ids = set(getattr(self.source, "convoked_by_ids", None) or [])
+            subjects = [o for o in context.state.battlefield if o.instance_id in ids]
         elif self.previous_subject:
             subjects = [
                 obj for obj in context.previous_targets

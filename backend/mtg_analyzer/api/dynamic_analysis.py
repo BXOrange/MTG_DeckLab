@@ -85,6 +85,16 @@ def start_dynamic_analysis(
         starting_hand=request.starting_hand,
         game_format=request.game_format,
         favorite_card_names=set(favorite_cards),
+        combo_specs=[
+            {
+                "id": combo.id,
+                "uses": [
+                    {"name": use.name, "quantity": use.quantity}
+                    for use in combo.uses
+                ],
+            }
+            for combo in request.combos
+        ],
     )
     return {"jobId": job_id}
 

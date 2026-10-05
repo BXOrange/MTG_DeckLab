@@ -11,6 +11,7 @@ from . import adaptive_training_post  # noqa: F401
 from . import advanced_reconstruction  # noqa: F401
 from . import aetherflux_reservoir  # noqa: F401
 from . import aetherize  # noqa: F401
+from . import afterlife_from_the_loam  # noqa: F401
 from . import agatha_s_soul_cauldron  # noqa: F401
 from . import agent_maria_hill  # noqa: F401
 from . import agent_of_treachery  # noqa: F401
@@ -28,6 +29,7 @@ from . import alms_collector  # noqa: F401
 from . import altar_of_dementia  # noqa: F401
 from . import altered_ego  # noqa: F401
 from . import aluren  # noqa: F401
+from . import amphin_mutineer  # noqa: F401
 from . import amulet_of_vigor  # noqa: F401
 from . import an_offer_you_can_t_refuse  # noqa: F401
 from . import ancient_animus  # noqa: F401
@@ -67,3 +69,4 @@ from . import avenger_of_zendikar  # noqa: F401
 from . import awakening_zone  # noqa: F401
 from . import awe_strike  # noqa: F401
 from . import accursed_duneyard
+from . import army_of_the_damned

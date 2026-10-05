@@ -342,6 +342,9 @@ class GameContext:
         # no-op) counts, mirroring `lose_life`'s before/after check above.
         if was_on_battlefield and target not in self.state.battlefield:
             self.permanents_destroyed_this_way += 1
+            # "…a creature card put into a graveyard this way" (Necromantic Selection): what this resolution
+            # destroyed is one of the "moved this way" pools a later clause may read.
+            self.moved_objects.append(target)
 
     def regenerate(self, target: "GameObject") -> None:
         self.engine.regenerate(target)

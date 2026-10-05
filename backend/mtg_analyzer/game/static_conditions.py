@@ -180,6 +180,9 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # Archaeomancer's Map, Claim Jumper, PAR-60) — true when any one
         # opponent's land count exceeds the controller's.
         "opponent_controls_more_lands",
+        # "…if an opponent controls four or more nonbasic lands" (Razorlash Transmogrant) — some one opponent's
+        # permanents matching a `combat.matches_object_filter` ``filter`` number at least ``min`` (default 1).
+        "opponent_controls_at_least",
         # PAR-120: the general form — some one opponent's count of a structured
         # ``selector`` exceeds the controller's ("an opponent controls more
         # creatures than you"). `opponent_controls_more_lands` is its special case.
@@ -280,7 +283,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # PAR-123: the rest of what a group trigger's "it" is asked about — "if its toughness is
         # 4 or greater", "…mana value is 3 or less", "if it has flying", "if it entered this turn".
         "toughness",  # + ``min``/``max`` — the subject's *derived* toughness
-        "mana_value",  # + ``min``/``max`` — printed mana value (RULE 202.3)
+        "mana_value",  # + ``min``/``max``/``max_selector`` (a live count) — printed mana value (RULE 202.3)
         "has_keyword",  # + ``keyword`` (a lowercase slug), granted or intrinsic
         "entered_this_turn",  # RULE 400.7 — the subject came to the battlefield this turn
         # "…if it dealt combat damage to a player this turn" (Wave of Rats, RULE 603.4) — the
@@ -733,6 +736,13 @@ def condition_holds(
         card = getattr(subject, "card", None)
         if card is None:
             return False
+        if condition.get("max_selector") is not None:
+            # "…if that card's mana value is less than or equal to the number of experience counters you have"
+            # (Meren of Clan Nel Toth): the upper bound is a live count selector, not a constant.
+            from . import continuous  # local: continuous imports this module
+
+            condition = {**condition, "max": continuous.count_selector(
+                state, controller_id, condition["max_selector"], source)}
         return _within(int(getattr(card, "converted_mana_cost", 0) or 0), condition)
     if kind == "has_keyword":
         if subject is None or not hasattr(subject, "instance_id"):
@@ -1131,6 +1141,15 @@ def condition_holds(
         if active is None:
             return False
         return len(getattr(active, "hand", [])) <= int(condition.get("amount", 0))
+    if kind == "opponent_controls_at_least":
+        from .combat import matches_object_filter  # function-scoped: combat imports models lazily
+
+        need = int(condition.get("min", 1) or 1)
+        return any(
+            sum(1 for o in state.permanents_controlled_by(p.id)
+                if matches_object_filter(o, condition.get("filter"), state=state)) >= need
+            for p in state.living_players() if p.id != controller_id
+        )
     if kind == "opponent_controls_more_lands":
         from .continuous import count_selector
         mine = count_selector(state, controller_id, "lands_you_control")

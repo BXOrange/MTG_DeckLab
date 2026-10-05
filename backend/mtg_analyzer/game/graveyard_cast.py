@@ -94,6 +94,8 @@ def graveyard_cast_grant_for(
         return None
     # Prefer an unrestricted route when several permissions overlap.
     for effect in sorted(active_graveyard_cast_grants(player, state), key=lambda e: bool(e.sacrifice_type)):
+        if effect.lands_only:
+            continue  # "You may play lands from your graveyard." (Conduit of Worlds/Szarel) grants no spell casting.
         if effect.sacrifice_type:
             from .engine.activation_mixin import ActivationMixin
 

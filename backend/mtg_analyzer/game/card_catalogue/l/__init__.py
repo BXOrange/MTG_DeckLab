@@ -17,6 +17,7 @@ from . import leitmotif_composer  # noqa: F401
 from . import lembas  # noqa: F401
 from . import leonin_arbiter  # noqa: F401
 from . import leonin_relic_warder  # noqa: F401
+from . import lethal_scheme  # noqa: F401
 from . import leveler  # noqa: F401
 from . import leyline_of_the_void  # noqa: F401
 from . import leyline_tyrant  # noqa: F401
@@ -42,3 +43,4 @@ from . import lux_artillery  # noqa: F401
 from . import living_death
 from . import lord_of_the_accursed
 from . import lost_monarch_of_ifnir
+from . import lord_of_the_undead

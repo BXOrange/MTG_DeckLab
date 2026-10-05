@@ -6,6 +6,7 @@ from . import water_wings  # noqa: F401
 from . import waterbender_s_restoration  # noqa: F401
 from . import waterbending_lesson  # noqa: F401
 from . import wave_of_rats  # noqa: F401
+from . import welcome_the_dead  # noqa: F401
 from . import welcome_to_the_fold  # noqa: F401
 from . import wheel_of_fortune  # noqa: F401
 from . import wheel_of_misfortune  # noqa: F401
@@ -36,3 +37,4 @@ from . import wyleth_soul_of_steel  # noqa: F401
 from . import weathered_sentinels
 from . import whirlwing_stormbrood
 from . import wizened_mentor
+from . import witch_s_cottage

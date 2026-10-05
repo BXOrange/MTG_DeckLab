@@ -38,6 +38,7 @@ from . import meek_attack  # noqa: F401
 from . import memory_vampire  # noqa: F401
 from . import mercenaries  # noqa: F401
 from . import merchant_of_venom  # noqa: F401
+from . import meren_of_clan_nel_toth  # noqa: F401
 from . import meriadoc_brandybuck  # noqa: F401
 from . import merry_warden_of_isengard  # noqa: F401
 from . import mezzio_mugger  # noqa: F401
@@ -84,3 +85,4 @@ from . import maelstrom_pulse
 
 from . import maskwood_nexus
 from . import mosswort_bridge
+from . import mutilate

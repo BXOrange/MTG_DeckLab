@@ -1,4 +1,5 @@
 """Hand-authored card entries whose name starts with 'o' (see game/card_registry for the registration mechanism: `register`/`register_family`/`specs_for`)."""
+from . import ob_nixilis_the_fallen  # noqa: F401
 from . import obstinate_baloth  # noqa: F401
 from . import octomancer  # noqa: F401
 from . import of_herbs_and_stewed_rabbit  # noqa: F401
@@ -25,3 +26,4 @@ from . import owlin_spiralmancer  # noqa: F401
 from . import ozolith_the_shattered_spire  # noqa: F401
 from . import opportunistic_dragon
 from . import on_wings_of_gold
+from . import oversold_cemetery

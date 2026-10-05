@@ -323,7 +323,7 @@ class CastingResolutionMixin:
             if getattr(ability, "layer", None) != "entry_counters_self":
                 continue
             amount = int(ability.params.get("base", 0)) + continuous.count_selector(
-                self.state, obj.controller_id, str(ability.params.get("count_selector", "")), source=obj,
+                self.state, obj.controller_id, ability.params.get("count_selector", ""), source=obj,
             )
             if amount > 0:
                 obj.add_counters(str(ability.params.get("kind", "+1/+1")), amount)
@@ -920,6 +920,7 @@ class CastingResolutionMixin:
         # ``from_hand`` key.
         from_hand = obj.zone == Zone.HAND
         cast_from_zone = obj.zone.value
+        obj.cast_from_zone = cast_from_zone
         obj.cast_from_exile = obj.zone == Zone.EXILE
         # RULE 702.35a: the only way to cast a madness-exiled card from exile is for its madness cost.
         obj.madness_cost_paid = bool(getattr(obj, "madness_exiled", False)) and obj.cast_from_exile
@@ -1064,6 +1065,7 @@ class CastingResolutionMixin:
             targets = [t for group in target_groups for t in group]
         from_hand = obj.zone == Zone.HAND
         cast_from_zone = obj.zone.value
+        obj.cast_from_zone = cast_from_zone
         obj.cast_from_exile = obj.zone == Zone.EXILE
         obj.madness_cost_paid = bool(getattr(obj, "madness_exiled", False)) and obj.cast_from_exile
         obj.was_cast = True
@@ -2212,6 +2214,7 @@ class CastingResolutionMixin:
                 GameEvent(
                     EventType.ENTERS_BATTLEFIELD,
                     from_zone=Zone.STACK.value,
+                    cast_from_zone=obj.cast_from_zone,
                     controller_id=obj.controller_id,
                     card_id=obj.card.id,
                     object=obj.name,
