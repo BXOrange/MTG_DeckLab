@@ -465,36 +465,58 @@ def test_become_copy_with_no_legal_target_enters_as_itself_without_pausing():
     assert impersonator.card.name == "Clever Impersonator"
 
 
-def test_cursed_mirror_end_to_end_via_registered_catalogue_entry():
-    # Cursed Mirror's "{T}: ~ becomes a copy of target creature until end of
-    # turn", fully bound from the catalogue — a third copy mechanism (see
-    # `test_become_copy_*` for the permanent ETB one, and
-    # `test_continuous.py`'s conditional-copy tests for the continuous one),
-    # reverted automatically at cleanup (RULE 514.2).
-    eng = make_engine([], hand=0)
+def test_cursed_mirror_copies_only_on_entering_until_end_of_turn():
+    # Real text: "As this artifact enters, you may have it become a copy of any
+    # creature on the battlefield until end of turn, except it has haste."
+    # The copy is an enter replacement (RULE 614.1c) reverted at cleanup
+    # (RULE 514.2) — tapping it never copies anything.
+    mirror_card = Card(id="CM", name="Cursed Mirror", type_line="Artifact",
+                       mana_cost_string="{2}{R}", converted_mana_cost=3,
+                       oracle_text="{T}: Add {R}.\nAs this artifact enters, you may have it become a copy of any "
+                                   "creature on the battlefield until end of turn, except it has haste.")
+    eng = make_engine([mirror_card], hand=1)
     eng.begin_turn()
     eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"R": 1, "C": 2})
 
-    target = obj_on_battlefield(eng.state, eng, creature(
-        name="Grave Titan", cost="{4}{B}{B}", power=6, toughness=6,
-    ))
-    mirror = obj_on_battlefield(eng.state, eng, Card(
-        id="CM", name="Cursed Mirror", type_line="Artifact"))
+    obj_on_battlefield(eng.state, eng, creature(name="Grave Titan", cost="{4}{B}{B}", power=6, toughness=6))
+    mirror = p1.hand[0]
     bind_from_catalogue(mirror)
+    assert not mirror.activated_abilities  # no "{T}: become a copy" ability any more
+    eng.cast_spell(p1, mirror)
+    eng.resolve_until_stable()
 
-    [ability] = mirror.activated_abilities
-    ability.apply(eng.rules.context, targets=[target])
+    assert eng.state.pending_choice["kind"] == "enter_as_copy"
+    titan_id = next(o["id"] for o in eng.state.pending_choice["options"] if o["label"] == "Grave Titan")
+    eng.resolve_pending_choice(titan_id)
     eng.recompute_continuous_effects()
+    assert mirror in eng.state.battlefield
     assert mirror.card.name == "Grave Titan"
     assert (mirror.power, mirror.toughness) == (6, 6)
+    assert "haste" in {k.lower() for k in mirror.granted_keywords} | {k.lower() for k in mirror.intrinsic_keywords}
 
     eng._step_cleanup()
     assert mirror.card.name == "Cursed Mirror"
+    assert mirror._copy_until_eot_base is None
 
-    # Activating again next turn copies again (a fresh snapshot each time).
-    ability.apply(eng.rules.context, targets=[target])
-    eng.recompute_continuous_effects()
-    assert mirror.card.name == "Grave Titan"
+
+def test_cursed_mirror_declined_stays_a_mirror():
+    mirror_card = Card(id="CM", name="Cursed Mirror", type_line="Artifact",
+                       mana_cost_string="{2}{R}", converted_mana_cost=3)
+    eng = make_engine([mirror_card], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"R": 1, "C": 2})
+    obj_on_battlefield(eng.state, eng, creature(name="Grave Titan", cost="{4}{B}{B}", power=6, toughness=6))
+    mirror = p1.hand[0]
+    bind_from_catalogue(mirror)
+    eng.cast_spell(p1, mirror)
+    eng.resolve_until_stable()
+    eng.resolve_pending_choice("decline")
+    assert mirror in eng.state.battlefield and mirror.card.name == "Cursed Mirror"
+    assert mirror._copy_until_eot_base is None
 
 
 def test_enchant_creature_oracle_text_follows_aura_logic():

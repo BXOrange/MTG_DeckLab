@@ -330,6 +330,7 @@ export function createSoloView() {
         opponents: rows,
         gameFormat: selectedFormat,
         startingPlayer,
+        playerName: getPlayerName(),
         spellTimerSeconds,
       });
       if (res.ok) {

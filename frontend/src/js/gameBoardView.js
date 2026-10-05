@@ -875,10 +875,12 @@ export function createGameBoardView(opts = {}) {
       const card = message.card_name || t('bd.chat.faceDownSpell');
       const text = message.kind === 'emote' ? message.text
         : t(`bd.chat.${message.action}`, { card }) + (message.ability_text ? ` ${message.ability_text}` : '');
-      return `<li class="gf-chat-message ${message.kind === 'emote' ? 'is-chat' : 'is-announcement'}" data-message-id="${escapeAttr(message.id)}">
-        <span class="gf-chat-author">${escapeHtml(message.author)}</span>
-        <span>${escapeHtml(text)}</span>
-      </li>`;
+      // No whitespace between tags: .gf-chat-message is white-space: pre-wrap, so
+      // template-literal indentation would render as leading space.
+      return `<li class="gf-chat-message ${message.kind === 'emote' ? 'is-chat' : 'is-announcement'}" data-message-id="${escapeAttr(message.id)}">`
+        + `<span class="gf-chat-author">${escapeHtml(message.author)}</span>`
+        + `<span>${escapeHtml(text)}</span>`
+        + '</li>';
     }).join('');
     return `<section class="gf-chat" aria-label="${escapeAttr(t('bd.chat.heading'))}">
       <h4>${escapeHtml(t('bd.chat.heading'))}</h4>

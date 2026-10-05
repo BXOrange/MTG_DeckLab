@@ -431,8 +431,10 @@ def test_vesuvan_shapeshifter_specs_shape():
 
 
 def test_cursed_mirror_specs_shape():
+    # The copy is an "as ~ enters" replacement, not a {T} ability.
     card = Card(id="CM", name="Cursed Mirror", type_line="Artifact")
     [spec] = card_registry.specs_for(card)
-    assert spec.ability_kind == "activated"
-    assert spec.cost["taps_self"] is True
-    assert spec.effects[0].type == "become_copy_until_eot"
+    assert spec.ability_kind == "enter_replacement"
+    assert spec.effects[0].type == "enter_as_copy"
+    assert spec.effects[0].params["until_end_of_turn"] is True
+    assert spec.effects[0].params["add_keywords"] == ["Haste"]

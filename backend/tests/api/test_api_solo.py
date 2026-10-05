@@ -16,7 +16,7 @@ from mtg_analyzer.api.dependencies import (
     get_game_session_manager,
     get_lazy_card_loader,
 )
-from mtg_analyzer.api.solo import SOLO_HUMAN_ID
+from mtg_analyzer.api.solo import SOLO_DEFAULT_PLAYER_NAME, SOLO_HUMAN_ID
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.decks.deck import Deck
 from mtg_analyzer.services.deck_database import DeckDatabase
@@ -112,6 +112,17 @@ def test_start_returns_the_human_view_in_setup_with_the_bot_seated(env):
     assert view["setup"] and not view["setup"]["complete"]
     ids = [p["id"] for p in view["state"]["players"]]
     assert SOLO_HUMAN_ID in ids and len(ids) == 2
+
+
+def test_human_seat_is_named_after_the_profil_player_name(env):
+    client, decks = env["client"], env["decks"]
+    deck = _legal_deck(decks)
+    view = _start(client, deck.id, playerName="  Alice ").json()
+    assert _player(view, SOLO_HUMAN_ID)["name"] == "Alice"
+    # No (or blank) name falls back to the default label.
+    for kw in ({}, {"playerName": "   "}):
+        view = _start(client, deck.id, **kw).json()
+        assert _player(view, SOLO_HUMAN_ID)["name"] == SOLO_DEFAULT_PLAYER_NAME
 
 
 def test_start_carries_the_configurable_pass_timer_into_the_view(env):

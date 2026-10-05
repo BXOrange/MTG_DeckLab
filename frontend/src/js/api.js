@@ -493,7 +493,7 @@ export async function fetchGameFormats() {
  * Start a solo game.
  * @param {{deckId: string, opponents: Array<{kind: string, deckId: string}>,
  *   gameFormat?: string, mulliganStyle?: string,
- *   startingPlayer?: "you"|"random"}} payload
+ *   startingPlayer?: "you"|"random", playerName?: string}} payload
  */
 export async function startSolo(payload) {
   return gameRequest('POST', '/api/solo/start', payload);

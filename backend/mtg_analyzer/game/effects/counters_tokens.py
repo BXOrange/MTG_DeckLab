@@ -3817,9 +3817,14 @@ class EnterAsCopyReplacement(GameEffect):
         max_mana_value_from_mana_spent: bool = False,
         not_legendary: bool = False,
         set_name: Optional[str] = None,
+        until_end_of_turn: bool = False,
     ) -> None:
         super().__init__(None)
         self.target_kind = target_kind
+        #: "…you may have it become a copy of … until end of turn" (Cursed Mirror) — the copy is made as
+        #: it enters but reverted by `GameEngine._step_cleanup` (RULE 514.2) via `GameObject._copy_until_eot_base`,
+        #: exactly like the activated `become_copy_until_eot`; applied in `_resume_enter_as_copy`.
+        self.until_end_of_turn = bool(until_end_of_turn)
         #: "…except it isn't legendary" (Auton Soldier, PAR-142) — `Card.as_copy`'s ``not_legendary``.
         self.not_legendary = bool(not_legendary)
         #: "…except his name is ~." (Chameleon, Master of Disguise) — the copy keeps this name. Applied by

@@ -2474,6 +2474,9 @@ class CastingResolutionMixin:
                     kw for kw in effect.add_keywords_if_target_lacks
                     if kw.split()[0].lower() not in target_keyword_names
                 ]
+                if effect.until_end_of_turn and obj._copy_until_eot_base is None:
+                    # Cursed Mirror: reverted at cleanup (RULE 514.2), see `become_copy_until_end_of_turn`.
+                    obj._copy_until_eot_base = copy_mechanics.snapshot_face(obj)
                 copy_mechanics.become_copy(
                     obj, target, effect.add_types, effect.add_subtypes,
                     only_types=effect.only_types,

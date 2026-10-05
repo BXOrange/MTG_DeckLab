@@ -52,6 +52,9 @@ router = APIRouter(prefix="/api/solo", tags=["solo"])
 #: nothing mistakes it for a lobby-issued one.
 SOLO_HUMAN_ID = "solo:you"
 
+#: Display name of the human seat when the client sends no Profil player name.
+SOLO_DEFAULT_PLAYER_NAME = "Du"
+
 #: Solo seats 1 human + 1..MAX_BOTS bots (the engine itself is N-player;
 #: this matches Multiplayer's readable ceiling of four seats).
 MAX_BOTS = 3
@@ -75,7 +78,8 @@ def start(
             raise HTTPException(400, f'Unknown bot kind "{opp.kind}"')
 
     # (player_id, deck_id, bot_kind or None, display name) — human first.
-    plan: list[tuple[str, str, Any, str]] = [(SOLO_HUMAN_ID, request.deck_id, None, "Du")]
+    human_name = (request.player_name or "").strip() or SOLO_DEFAULT_PLAYER_NAME
+    plan: list[tuple[str, str, Any, str]] = [(SOLO_HUMAN_ID, request.deck_id, None, human_name)]
     for i, opp in enumerate(opponents, start=1):
         plan.append(
             (f"{BOT_ID_PREFIX}{i}", opp.deck_id, opp.kind, f"{BOT_TYPES[opp.kind].label} {i}")

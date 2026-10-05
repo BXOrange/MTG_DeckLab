@@ -2651,6 +2651,7 @@ EffectRegistry.register(
         max_mana_value_from_mana_spent=bool(p.get("max_mana_value_from_mana_spent", False)),
         not_legendary=bool(p.get("not_legendary", False)),
         set_name=p.get("set_name"),
+        until_end_of_turn=bool(p.get("until_end_of_turn", False)),
     ),
 )
 EffectRegistry.register(

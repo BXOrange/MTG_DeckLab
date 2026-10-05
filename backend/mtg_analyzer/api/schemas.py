@@ -354,6 +354,9 @@ class SoloStartRequest(BaseModel):
     mulligan_style: str = Field(default="london", alias="mulliganStyle")
     game_format: Optional[str] = Field(default=None, alias="gameFormat")
     starting_player: str = Field(default="you", alias="startingPlayer")
+    #: The human seat's display name (the Profil player name). Blank/omitted
+    #: falls back to `SOLO_DEFAULT_PLAYER_NAME`.
+    player_name: Optional[str] = Field(default=None, alias="playerName")
     #: The board's per-priority auto-pass countdown for this session, in
     #: seconds (0 = off). Omitted/`None` uses the server default
     #: (`config.MULTIPLAYER_SPELL_TIMER_SECONDS`).
