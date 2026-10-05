@@ -4304,6 +4304,48 @@ textarea {
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
 }
 
+/* VIS-13: who controls a target candidate, beside its name in the picker.
+   Tinted in the controller's seat banner colour when they picked one. */
+.gf-target-ctrl {
+  display: inline-block;
+  margin-left: 0.5em;
+  padding: 0 0.45em;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  background: var(--banner-bg, var(--panel-alt));
+  vertical-align: baseline;
+}
+
+.gf-target-ctrl--mine {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Same near-white-on-colour rule as the board title bars above. */
+.gf-target-ctrl.gf-banner-tinted {
+  color: #f6f3ea;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+}
+
+/* VIS-14: with the target popup pushed aside, every legal target on the
+   board is outlined and clickable. */
+.gf-pick-target {
+  cursor: pointer;
+  outline: 3px solid var(--accent);
+  outline-offset: 1px;
+  animation: gf-pick-pulse 1.2s ease-in-out infinite;
+}
+
+.gf-pick-target:hover {
+  outline-color: var(--text);
+}
+
+@keyframes gf-pick-pulse {
+  50% { outline-offset: 3px; }
+}
+
 /* Target-picker modal: a cancel row under the offered targets. */
 .gf-modal-foot {
   margin-top: 0.8rem;

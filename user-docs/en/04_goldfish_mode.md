@@ -89,6 +89,12 @@ first). Click **Priorität abgeben (Stack auflösen)** ("pass priority
 **⤡ Zur Seite schieben** (push aside) first if you want to act on the
 board underneath (e.g. cast an instant in response) before passing.
 
+## Choosing targets
+
+Each candidate in the target popup shows which player controls it. Push
+the popup aside to pick on the board instead: every legal target is
+outlined and a click on it answers the popup.
+
 ## Choices the game asks you to make
 
 Effects like a tutor search, Cascade, or Discover open a popup with

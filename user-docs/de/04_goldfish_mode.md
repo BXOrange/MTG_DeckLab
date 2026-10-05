@@ -94,6 +94,12 @@ oder schiebe das Panel zunächst mit **⤡ Zur Seite schieben** beiseite,
 wenn du auf dem Spielfeld darunter reagieren möchtest (z. B. einen
 Spontanzauber als Antwort wirken), bevor du die Priorität abgibst.
 
+## Ziele wählen
+
+Jeder Kandidat im Ziel-Pop-up zeigt, welcher Spieler ihn kontrolliert.
+Schiebe das Pop-up beiseite, um direkt auf dem Spielfeld zu wählen:
+alle legalen Ziele sind umrandet, ein Klick darauf beantwortet das Pop-up.
+
 ## Entscheidungen, die das Spiel von dir verlangt
 
 Effekte wie eine Tutor-Suche, Cascade oder Discover öffnen ein Pop-up

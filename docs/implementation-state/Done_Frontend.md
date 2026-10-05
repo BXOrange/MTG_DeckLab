@@ -233,6 +233,12 @@ repointed there.
 - **What:** `castTargetHtml`/`castTargetModalHtml` turn any `cast_spell`/`activate_ability` with `requires_target` into a modal that walks each target requirement in turn (multi-target support), offering "∅ Kein Ziel" when optional. One mechanism covers spell targeting, Aura-attach targeting, and Equip/Fortify/Reconfigure — no separate "equip control" was built.
 - **Files:** `gameBoardView.js`
 
+### Target controller tag and click-on-board picking (VIS-13, VIS-14)
+
+- **What:** Every target candidate in the cast/activate picker and in the `trigger_target` choice popup carries a chip with the controlling player's name (banner colour, "(you)" for your own seat), so same-named permanents on different boards are distinguishable. The target picker gained the same **push aside** toggle pending choices already had; while it is pushed aside the board stays live, each legal candidate (battlefield/hand/exile card, stack entry, or a player's title bar) is outlined, and clicking it answers the popup exactly like its button (`pickablesForBoard`/`wirePickTargets`). The `trigger_target` choice reuses its existing aside toggle for the same board picking.
+- **Files:** `gameBoardView.js`, `main.css`, `locales/{en,de}.js`
+- **Why:** The controller is looked up from the view (`targetControllerId`: battlefield controller, stack item controller, else zone owner) because the server's target descriptors only carry `controller_id` for some target kinds. Graveyard candidates are a text list with no card element, and cost choices (tap/sacrifice/discard) are not RULE 115 targets, so both stay popup-only.
+
 ### Per-requirement target groups (MEC-10)
 
 - **What:** Each expanded targeting round now remembers which requirement it belongs to, so a cast/activate with 2+ *different* targeting clauses ("pump target creature... it fights target creature you don't control") sends per-requirement `target_groups` instead of one flat list that could conflate them; the server derives the partition itself when unambiguous, but only the client can express a declined "up to one" slot.

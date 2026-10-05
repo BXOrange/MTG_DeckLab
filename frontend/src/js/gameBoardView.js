@@ -88,6 +88,14 @@ const CHOICE_ICONS = {
   word_of_command: '🗣️',
 };
 
+// VIS-13: the player-state zones whose cards have no controller, so a target
+// candidate found there is tagged with its owner instead.
+const TARGET_OWNER_ZONES = ['graveyard', 'exile', 'hand', 'command'];
+// Pending-choice kinds that are RULE 115 target selections (an ability's
+// target, picked from the generic choice popup) — the ones whose candidates
+// can also be clicked on the board once the popup is pushed aside (VIS-14).
+const TARGET_CHOICE_KINDS = new Set(['trigger_target', 'trigger_target_multi']);
+
 /**
  * @param {object} [opts]
  * @param {(view: object) => void} [opts.onViewChange] Called with every fresh
@@ -208,6 +216,10 @@ export function createGameBoardView(opts = {}) {
   // the same way; same "push aside" escape hatch, e.g. to check the
   // graveyard or a permanent's text before answering.
   let choiceAside = false;
+  // VIS-14: the same push-aside for the RULE 115 target-picker modal
+  // (`castTargetModalHtml`) — while true the board is live and the legal
+  // targets are clickable right on it (`wirePickTargets`).
+  let castTargetAside = false;
   // Attacking creatures whose "choose a defender" submenu is open (2+ legal
   // defenders, RULE 508.1a).
   const attackMenuOpen = new Set();
@@ -1214,11 +1226,12 @@ export function createGameBoardView(opts = {}) {
     setLatestByInstance(byInstance);
     const stackNonEmpty = s.stack.length > 0;
     if (!pending) choiceAside = false;
+    if (!castTargeting) castTargetAside = false;
     updateTargetOverlays(s);
     updateAbilitySourceOverlays(s, pending);
 
     root.innerHTML = `
-      <div class="goldfish${compactView ? ' compact-view' : ''}${(pending && !choiceAside) || castTargeting ? ' choosing' : ''}" style="--gf-scale: ${(getBoardScale() / 100).toFixed(2)}">
+      <div class="goldfish${compactView ? ' compact-view' : ''}${(pending && !choiceAside) || (castTargeting && !castTargetAside) ? ' choosing' : ''}${pickablesForBoard().length ? ' picking-target' : ''}" style="--gf-scale: ${(getBoardScale() / 100).toFixed(2)}">
         <aside class="gf-rail">
           <div class="gf-rail-turn">
             <span class="gf-turn" title="${escapeAttr(t('bd.turn.rule500', { n: s.internal_turn.number }))}">${escapeHtml(t('bd.turn.label', { n: s.turn_nr }))}</span>
@@ -1821,6 +1834,117 @@ export function createGameBoardView(opts = {}) {
     return p ? p.name : id;
   }
 
+  // VIS-13: which player controls a target candidate. A permanent's
+  // controller (RULE 108.4) is on the battlefield; a spell/ability on the
+  // stack carries its own controller; a card in a hand/graveyard/exile
+  // zone has no controller, so its owner stands in. Players are their own
+  // candidates and need no tag. The server only puts `controller_id` on some
+  // descriptors, so the view is the one source that covers every kind.
+  function targetControllerId(o) {
+    if (!o || o.player_id != null || o.instance_id == null) return null;
+    if (o.controller_id != null) return o.controller_id;
+    const s = view.state;
+    if (!s) return null;
+    const onBattlefield = (s.battlefield || []).find((x) => x.instance_id === o.instance_id);
+    if (onBattlefield) return onBattlefield.controller_id;
+    const onStack = (s.stack || []).find(
+      (it) => (it.object?.instance_id ?? it.source?.instance_id) === o.instance_id,
+    );
+    if (onStack) return onStack.controller_id ?? null;
+    for (const pl of s.players || []) {
+      for (const zone of TARGET_OWNER_ZONES) {
+        if ((pl[zone] || []).some((x) => x.instance_id === o.instance_id)) return pl.id;
+      }
+    }
+    return null;
+  }
+
+  // The controller tag shown beside a target candidate: the player's name in
+  // their banner colour, "(you)" for the viewer's own seat.
+  function targetControllerChipHtml(o) {
+    const id = targetControllerId(o);
+    if (id == null) return '';
+    const mine = view.perspective != null && id === view.perspective;
+    const label = mine ? t('bd.target.controllerMine', { name: playerName(id) }) : playerName(id);
+    const css = bannerStyle(seatStatus(id)?.banner_color);
+    return `<span class="gf-target-ctrl${mine ? ' gf-target-ctrl--mine' : ''}${css ? ' gf-banner-tinted' : ''}"${css ? ` style="${escapeAttr(css)}"` : ''} title="${escapeAttr(t('bd.target.controllerTitle', { name: playerName(id) }))}">${escapeHtml(label)}</span>`;
+  }
+
+  // The candidates of the current RULE 115 target round, after the
+  // per-round exclusions (same permanent twice, same controller twice).
+  function castTargetOptions() {
+    if (!castTargeting) return [];
+    const req = castTargeting.requirements[castTargeting.reqIndex] || {};
+    let options = req.options || [];
+    if (castTargeting.excludePicked || req.distinct_from_others) {
+      // A "tap N untapped <type>s you control" cost (RULE 602.1): the same
+      // permanent can't pay two of the N picks. `distinct_from_others` is
+      // RULE 109.5's "**another** target creature" (Pit Fight, Ulvenwald
+      // Tracker) — same exclusion, but across *requirements*: whatever the
+      // other half of the clause already chose is off this round's pool.
+      const pickedIds = new Set(castTargeting.targets.map((t) => t.instance_id));
+      options = options.filter((o) => !pickedIds.has(o.instance_id));
+    }
+    if (castTargeting.excludeControllers) {
+      // Run Away Together/Protector of the Wastes-shaped "controlled by
+      // different players": once one round has picked a permanent, no
+      // later round may pick another one sharing that controller.
+      const pickedControllers = new Set((castTargeting.pickedControllers || []).filter((c) => c != null));
+      options = options.filter((o) => !pickedControllers.has(o.controller_id));
+    }
+    return options;
+  }
+
+  // One RULE 115 pick, whether it came from the popup button or a click on
+  // the board (VIS-14). `target === null` is the "no target" decline.
+  function pickCastTarget({ instance_id: iid, target, controller_id: controllerId }) {
+    if (!castTargeting || castTargeting.instanceId !== iid) return;
+    if (target !== null) {
+      castTargeting.targets.push(target);
+      // …and into this round's own requirement group, so a declined
+      // "up to one" leaves an *empty* group rather than shifting every
+      // later pick one slot up (see `expandMultiTargetRequirements`).
+      const owner = castTargeting.owners?.[castTargeting.reqIndex];
+      if (owner != null) castTargeting.groups?.[owner]?.push(target);
+      // Tracked separately from `target` (the wire-format pick sent to
+      // the server) purely for `excludeControllers`'s client-side
+      // per-round filtering — see `castTargetOptions`.
+      (castTargeting.pickedControllers ||= []).push(controllerId ?? null);
+    }
+    castTargeting.reqIndex += 1;
+    finishCastIfReady();
+  }
+
+  // VIS-14: what can be clicked on the board right now because the target
+  // popup is pushed aside — `{instanceId | playerId, activate}` per legal
+  // candidate. Covers both target UIs: the cast/activate picker and the
+  // `trigger_target` pending choice. Cost choices (tap/sacrifice/discard)
+  // are not targets and stay popup-only.
+  function pickablesForBoard() {
+    const out = [];
+    if (castTargeting && castTargetAside && !castTargeting.isTapChoice
+        && !castTargeting.isSacrificeChoice && !castTargeting.isDiscardChoice) {
+      for (const o of castTargetOptions()) {
+        const payload = { instance_id: castTargeting.instanceId, target: targetOptionPayload(o), controller_id: o.controller_id ?? null };
+        out.push({ instanceId: o.instance_id, playerId: o.player_id, activate: () => pickCastTarget(payload) });
+      }
+    }
+    const pending = view?.state?.pending_choice;
+    if (pending && choiceAside && TARGET_CHOICE_KINDS.has(pending.kind)) {
+      const players = new Set((view.state.players || []).map((pl) => pl.id));
+      for (const opt of pending.options || []) {
+        if (opt.id === 'decline' || opt.id === 'do') continue;
+        const action = opt.action || { type: 'choose', option_id: opt.id, instance_id: opt.instance_id, name: opt.label };
+        out.push({
+          instanceId: opt.instance_id,
+          playerId: opt.instance_id == null && players.has(opt.id) ? opt.id : undefined,
+          activate: () => act(action),
+        });
+      }
+    }
+    return out;
+  }
+
   // A pending choice is rendered as a modal popup for the deciding player:
   // the board behind it is dimmed/locked (`.goldfish.choosing`) so the only
   // thing to do is answer. Each server-provided option becomes one button —
@@ -1883,7 +2007,10 @@ export function createGameBoardView(opts = {}) {
         }
         const action = JSON.stringify(opt.action || { type: 'choose', option_id: opt.id, instance_id: opt.instance_id, name: opt.label });
         const hover = opt.instance_id != null ? ` data-hover-card="${escapeHtml(opt.label || '')}"` : '';
-        return `<button type="button"${hover} data-action='${escapeAttr(action)}'>${escapeHtml(opt.label || opt.id)}</button>`;
+        // VIS-13: a RULE 115 target offered through the generic choice popup
+        // (`trigger_target`) says who controls each candidate.
+        const chip = TARGET_CHOICE_KINDS.has(pending.kind) ? targetControllerChipHtml(opt) : '';
+        return `<button type="button"${hover} data-action='${escapeAttr(action)}'>${escapeHtml(opt.label || opt.id)}${chip}</button>`;
       })
       .join('');
 
@@ -2420,25 +2547,15 @@ export function createGameBoardView(opts = {}) {
     });
 
     root.querySelectorAll('[data-cast-target-pick]').forEach((el) => {
-      el.addEventListener('click', () => {
-        const { instance_id: iid, target, controller_id: controllerId } = JSON.parse(el.dataset.castTargetPick);
-        if (!castTargeting || castTargeting.instanceId !== iid) return;
-        if (target !== null) {
-          castTargeting.targets.push(target);
-          // …and into this round's own requirement group, so a declined
-          // "up to one" leaves an *empty* group rather than shifting every
-          // later pick one slot up (see `expandMultiTargetRequirements`).
-          const owner = castTargeting.owners?.[castTargeting.reqIndex];
-          if (owner != null) castTargeting.groups?.[owner]?.push(target);
-          // Tracked separately from `target` (the wire-format pick sent to
-          // the server) purely for `excludeControllers`'s client-side
-          // per-round filtering — see `castTargetModalHtml`.
-          (castTargeting.pickedControllers ||= []).push(controllerId ?? null);
-        }
-        castTargeting.reqIndex += 1;
-        finishCastIfReady();
-      });
+      el.addEventListener('click', () => pickCastTarget(JSON.parse(el.dataset.castTargetPick)));
     });
+
+    // VIS-14: push the target popup aside / bring it back.
+    root.querySelector('[data-cast-target-aside]')?.addEventListener('click', () => {
+      castTargetAside = !castTargetAside;
+      render();
+    });
+    wirePickTargets();
 
     root.querySelectorAll('[data-cast-target-cancel]').forEach((el) => {
       el.addEventListener('click', () => {
@@ -2643,6 +2760,34 @@ export function createGameBoardView(opts = {}) {
     );
   }
 
+  // VIS-14: with a target popup pushed aside, mark every legal candidate on
+  // the board and make a click on it answer the popup. A permanent is its
+  // card face (hand/battlefield/exile — or its stack entry in the rail), a
+  // player is the title bar of their board (or the goldfish opponent strip).
+  // A candidate with no element on the board (a graveyard list entry) simply
+  // stays answerable from the popup.
+  function wirePickTargets() {
+    for (const pick of pickablesForBoard()) {
+      let el = null;
+      if (pick.instanceId != null) {
+        const id = CSS.escape(String(pick.instanceId));
+        el = root.querySelector(`[data-instance-id="${id}"] > .card`)
+          || root.querySelector(`[data-stack-instance-id="${id}"] > .card`);
+      } else if (pick.playerId != null) {
+        const id = CSS.escape(String(pick.playerId));
+        el = root.querySelector(`.gf-player-board[data-player-id="${id}"] > .gf-player-board-head`)
+          || root.querySelector(`.gf-opponent[data-player-id="${id}"]`);
+      }
+      if (!el) continue;
+      el.classList.add('gf-pick-target');
+      el.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        pick.activate();
+      }, true);
+    }
+  }
+
   function finishCastIfReady() {
     if (!castTargeting) return;
     if (castTargeting.reqIndex >= castTargeting.requirements.length) {
@@ -2797,7 +2942,7 @@ export function createGameBoardView(opts = {}) {
       ? `<button type="button" class="gf-stack-source-link" data-hover-card="${escapeHtml(visual.name)}" title="Quelle: ${escapeHtml(visual.name)}">🔗</button>`
       : '';
     return `
-      <div class="gf-card-slot gf-stack-item${isTop ? ' is-top' : ''}${opts.ghost ? ' gf-rail-stack-ghost' : ''}">
+      <div class="gf-card-slot gf-stack-item${isTop ? ' is-top' : ''}${opts.ghost ? ' gf-rail-stack-ghost' : ''}"${!opts.ghost && visual?.instance_id != null ? ` data-stack-instance-id="${escapeAttr(visual.instance_id)}"` : ''}>
         <span class="gf-stack-badge gf-stack-badge--${badge.cls}">${badge.icon} ${escapeHtml(badge.label)}</span>
         <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(displayName)}" title="${escapeHtml(displayName)}">
           ${inner}
@@ -3739,23 +3884,7 @@ export function createGameBoardView(opts = {}) {
     const total = castTargeting.requirements.length;
     const idx = castTargeting.reqIndex;
     const req = castTargeting.requirements[idx] || {};
-    let options = req.options || [];
-    if (castTargeting.excludePicked || req.distinct_from_others) {
-      // A "tap N untapped <type>s you control" cost (RULE 602.1): the same
-      // permanent can't pay two of the N picks. `distinct_from_others` is
-      // RULE 109.5's "**another** target creature" (Pit Fight, Ulvenwald
-      // Tracker) — same exclusion, but across *requirements*: whatever the
-      // other half of the clause already chose is off this round's pool.
-      const pickedIds = new Set(castTargeting.targets.map((t) => t.instance_id));
-      options = options.filter((o) => !pickedIds.has(o.instance_id));
-    }
-    if (castTargeting.excludeControllers) {
-      // Run Away Together/Protector of the Wastes-shaped "controlled by
-      // different players": once one round has picked a permanent, no
-      // later round may pick another one sharing that controller.
-      const pickedControllers = new Set((castTargeting.pickedControllers || []).filter((c) => c != null));
-      options = options.filter((o) => !pickedControllers.has(o.controller_id));
-    }
+    const options = castTargetOptions();
     // A cost *choice* (RULE 602.1: tap N / sacrifice / discard for a cost),
     // not a RULE 115 target — different heading and glyph from "Ziel wählen".
     const isDiscardChoice = castTargeting.isDiscardChoice;
@@ -3766,7 +3895,9 @@ export function createGameBoardView(opts = {}) {
         instance_id: iid, target: targetOptionPayload(o), controller_id: o.controller_id ?? null,
       });
       const hover = o.instance_id != null ? ` data-hover-card="${escapeHtml(o.name || '')}"` : '';
-      return `<button type="button"${hover} data-cast-target-pick='${escapeAttr(payload)}'>${modalGlyph} ${escapeHtml(o.name)}</button>`;
+      // VIS-13: who controls this candidate, so two same-named permanents
+      // on different boards can be told apart.
+      return `<button type="button"${hover} data-cast-target-pick='${escapeAttr(payload)}'>${modalGlyph} ${escapeHtml(o.name)}${targetControllerChipHtml(o)}</button>`;
     });
     if (req.optional) {
       const skip = JSON.stringify({ instance_id: iid, target: null });
@@ -3774,15 +3905,24 @@ export function createGameBoardView(opts = {}) {
     }
     const heading = isCostChoice ? t('bd.cast.payCosts') : t('bd.cast.chooseTarget');
     const progress = total > 1 ? t('bd.cast.progress', { i: idx + 1, total }) : (isCostChoice ? t('bd.cast.select') : t('bd.cast.chooseTarget'));
+    // VIS-14: only a real target round can be answered by clicking the
+    // board; a cost choice (tap/sacrifice/discard) keeps the popup-only flow.
+    const asideOffered = !isCostChoice;
+    const aside = asideOffered && castTargetAside;
+    const asideButton = asideOffered
+      ? `<button type="button" class="gf-modal-aside" data-cast-target-aside title="${escapeAttr(t('bd.cast.asideTitle'))}">${aside ? t('bd.choice.asideShow') : t('bd.choice.asidePush')}</button>`
+      : '';
     return `
-      <div class="gf-modal-overlay">
+      <div class="gf-modal-overlay${aside ? ' aside' : ''}">
         <div class="gf-modal gf-target-modal" role="dialog" aria-modal="true">
           <div class="gf-modal-head">
             <span class="gf-modal-icon">${modalGlyph}</span>
             <div>
               <h4>${heading}: ${escapeHtml(req.label || '')}</h4>
               <p class="gf-modal-who">${escapeHtml(progress)}</p>
+              ${aside ? `<p class="gf-modal-source">${escapeHtml(t('bd.cast.asideHint'))}</p>` : ''}
             </div>
+            ${asideButton}
           </div>
           <div class="gf-choice-options">${buttons.join('')}</div>
           <div class="gf-modal-foot">
