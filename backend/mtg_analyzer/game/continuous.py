@@ -1297,6 +1297,12 @@ def count_selector(
         if controller_id is None:
             return 0
         return state.cards_discarded_this_turn.get(controller_id, 0)
+    if selector == "cards_put_into_graveyard_from_hand_or_library_this_turn":
+        # "…the number of cards that were put into your graveyard from your hand or library this turn."
+        # (Welcome the Dead) — `GameState`'s PUT_INTO_GRAVEYARD arrivals read through `turn_history`.
+        if controller_id is None:
+            return 0
+        return state.cards_put_into_graveyard_from_hand_or_library_this_turn.get(controller_id, 0)
     if selector == "nontoken_creatures_you_entered_this_turn":
         # "…equal to the number of nontoken creatures you had enter the
         # battlefield under your control this turn." (Gyome, Master Chef,

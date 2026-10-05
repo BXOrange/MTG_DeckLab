@@ -585,9 +585,27 @@ class ReturnFromGraveyardEffect(GameEffect):
         previous_pool: bool = False,
         controller_target_kind: Optional[str] = None,
         controller_target_active: bool = False,
+        chooser: Optional[str] = None,
+        previous_subject: bool = False,
+        moved_pool: bool = False,
+        then_effects: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "Put **those cards** onto the battlefield under your control." (Afterlife from the Loam) — the cards an
+        #: earlier clause chose (`GameContext.previous_targets`) that are still in a graveyard; no target of its own.
+        self.previous_subject = bool(previous_subject)
+        #: "…return a creature card put into a graveyard **this way** to the battlefield" (Necromantic Selection) —
+        #: with ``pick``, the choice is limited to the cards the earlier clauses of this resolution moved
+        #: (`GameContext.moved_objects`, which `destroy` feeds).
+        self.moved_pool = bool(moved_pool)
+        #: Serialized effects run after a ``pick`` is made, with the picked card as their `previous_targets`
+        #: referent ("it's a black Zombie in addition to its other colors and types").
+        self.then_effects = [dict(spec) for spec in (then_effects or [])]
+        #: ``"chosen_player"`` — "return a nonland card **of an opponent's choice** from your graveyard to your
+        #: hand" (Tasigur): the pick is made by the player an earlier `_request_choose_player` clause stamped on the
+        #: source (`GameObject.chosen_player_id`), not by this effect's controller. Only meaningful with ``pick``.
+        self.chooser = chooser if chooser == "chosen_player" else None
         self.controller_target_spec = (
             TargetSpec(kind=controller_target_kind, active_player_only=controller_target_active)
             if controller_target_kind is not None else None
@@ -719,7 +737,9 @@ class ReturnFromGraveyardEffect(GameEffect):
         #: RULE 115 target — a spell must not need a legal one to be cast — but still describes the pool
         #: through the same spec, kept privately for `legal_targets`.
         self._pool_spec = spec
-        self.target_spec = None if (self.pick or self.each_player_pick or self.players is not None) else spec
+        self.target_spec = None if (
+            self.pick or self.each_player_pick or self.players is not None or self.previous_subject
+        ) else spec
 
     @property
     def target_specs(self) -> list[TargetSpec]:
@@ -832,6 +852,8 @@ class ReturnFromGraveyardEffect(GameEffect):
         if self.previous_pool:
             ids &= {obj.instance_id for obj in context.previous_targets
                     if getattr(obj, "instance_id", None) is not None}
+        if self.moved_pool:
+            ids &= {obj.instance_id for obj in context.moved_objects}
         candidates = [
             o for owner in context.state.living_players() for o in owner.graveyard
             if o.instance_id in ids
@@ -842,10 +864,15 @@ class ReturnFromGraveyardEffect(GameEffect):
             action = "return_from_graveyard_to_hand"
         else:
             action = "return_from_graveyard_tapped" if self.tapped else "return_from_graveyard"
+        chooser = player
+        if self.chooser == "chosen_player":
+            chosen_id = getattr(self.source, "chosen_player_id", None)
+            chooser = next((p for p in context.state.living_players() if p.id == chosen_id), player)
         context.engine._request_choose_objects(
-            player, candidates, action, count=1, optional=self.optional,
+            chooser, candidates, action, count=1, optional=self.optional,
             prompt="Karte aus dem Friedhof zurückbringen", source=self.source,
             control_recipient_id=player.id if self.under_your_control else None,
+            then_specs=self.then_effects or None,
         )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -919,6 +946,12 @@ class ReturnFromGraveyardEffect(GameEffect):
                     cards = [o for o in list(player.graveyard) if graveyard_card_matches(kind, o)]
                     for card in cards:
                         self._apply_one(context, card)
+            return
+        if self.previous_subject:
+            with context.state.simultaneous():
+                for obj in list(context.previous_targets):
+                    if getattr(obj, "zone", None) == Zone.GRAVEYARD:
+                        self._apply_one(context, obj)
             return
         if self.pick:
             self._request_pick(context)
@@ -1080,6 +1113,7 @@ class RevealUntilMatchingEffect(GameEffect):
         hit_destination: str = "battlefield",
         rest_destination: str = "library_bottom_random",
         tapped: bool = False,
+        scope: Optional[str] = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
@@ -1088,17 +1122,24 @@ class RevealUntilMatchingEffect(GameEffect):
         self.hit_destination = hit_destination
         self.rest_destination = rest_destination
         self.tapped = bool(tapped)
+        #: ``"each_opponent"`` — "each opponent reveals cards from the top of their library until …" (Consuming
+        #: Aberration): every opponent reveals from their *own* library. ``None`` is the controller's.
+        self.scope = scope
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is None:
             return
+        revealers = [player]
+        if self.scope == "each_opponent":
+            revealers = [p for p in context.state.players if p.id != player.id and not p.has_lost]
         count = self.count if isinstance(self.count, int) else 0
-        context.engine.reveal_until_matching(
-            player, self.criteria, count=count,
-            hit_destination=self.hit_destination,
-            rest_destination=self.rest_destination, tapped=self.tapped,
-        )
+        for revealer in revealers:
+            context.engine.reveal_until_matching(
+                revealer, self.criteria, count=count,
+                hit_destination=self.hit_destination,
+                rest_destination=self.rest_destination, tapped=self.tapped,
+            )
 
 
 class ExpressiveIterationEffect(GameEffect):

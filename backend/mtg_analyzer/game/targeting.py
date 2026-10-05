@@ -41,6 +41,9 @@ _GRAVEYARD_SCOPE_PREFIXES: dict[str, str] = {
     "graveyard": "own",
     "any_graveyard": "any",
     "opponent_graveyard": "opponent",
+    # "choose up to one target creature card in **that player's** graveyard" (Afterlife from the Loam) — the player
+    # a `per_player` round is scoped to (`TargetSpec.scoped_player_id`).
+    "that_player_graveyard": "that_player",
 }
 #: A graveyard-card target's card-*type* filter, by kind suffix — the same
 #: characteristics `_spell_matches_filter` checks for a "spell" target, just
@@ -92,6 +95,14 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     "mercenary_permanent": lambda o: "mercenary" in o.card.type_line.lower(),
     # "target Zombie card from your graveyard" (Unholy Grotto, Rot Hulk) — a creature subtype on the printed type line.
     "zombie_card": lambda o: "zombie" in o.card.type_line.lower(),
+    # "return a creature or land card from your graveyard to your hand" (Grapple with the Past).
+    "creature_or_land": lambda o: o.is_creature or o.is_land,
+    # "return a nonland card of an opponent's choice from your graveyard to your hand" (Tasigur, the Golden Fang).
+    "nonland_card": lambda o: not o.is_land,
+    # "return X target nonlegendary cards from your graveyard to your hand" (Shigeki, Jukai Visionary).
+    "nonlegendary_card": lambda o: "legendary" not in o.card.type_line.lower(),
+    # "put target non-Dragon creature card from a graveyard onto the battlefield" (Junji, the Midnight Sky).
+    "non_dragon_creature": lambda o: o.is_creature and "dragon" not in o.card.type_line.lower(),
 }
 #: Every ``{prefix}_{suffix}`` combination — the full graveyard-target kind
 #: vocabulary (docs/09's Regrowth/Reanimate/Deathrite Shaman/Virtue of
@@ -407,12 +418,17 @@ _GRAVEYARD_TYPE_LABELS: dict[str, str] = {
     "rebel_permanent": "Rebellenkarte",
     "mercenary_permanent": "Söldnerkarte",
     "zombie_card": "Zombiekarte",
+    "creature_or_land": "Kreaturen- oder Landkarte",
+    "nonland_card": "Nichtlandkarte",
+    "nonlegendary_card": "nicht legendäre Karte",
+    "non_dragon_creature": "Nicht-Drache-Kreaturenkarte",
 }
 #: German "whose graveyard" phrase per `_GRAVEYARD_SCOPE_PREFIXES` scope.
 _GRAVEYARD_SCOPE_LABELS: dict[str, str] = {
     "own": "in deinem Friedhof",
     "any": "in einem Friedhof",
     "opponent": "im Friedhof eines Gegners",
+    "that_player": "im Friedhof dieses Spielers",
 }
 
 
@@ -2046,6 +2062,8 @@ def _legal_targets_for(
                 graveyards = []
         elif scope == "opponent":
             graveyards = [p.graveyard for p in state.living_players() if p.id != controller_id]
+        elif scope == "that_player":
+            graveyards = [p.graveyard for p in state.living_players() if p.id == spec.scoped_player_id]
         else:  # "any": every player's graveyard, including the controller's own
             graveyards = [p.graveyard for p in state.living_players()]
         return [

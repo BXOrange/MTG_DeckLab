@@ -7,6 +7,7 @@ from . import narset_s_reversal  # noqa: F401
 from . import natural_order  # noqa: F401
 from . import nature_s_claim  # noqa: F401
 from . import necromancy  # noqa: F401
+from . import necromantic_selection  # noqa: F401
 from . import necropotence  # noqa: F401
 from . import necroskitter  # noqa: F401
 from . import necrotic_ooze  # noqa: F401

@@ -48,6 +48,7 @@ from . import dismantling_wave  # noqa: F401
 from . import dispatch  # noqa: F401
 from . import display_of_power  # noqa: F401
 from . import distant_melody  # noqa: F401
+from . import diviner_of_mist  # noqa: F401
 from . import djinn_of_infinite_deceits  # noqa: F401
 from . import dockside_extortionist  # noqa: F401
 from . import dodecapod  # noqa: F401

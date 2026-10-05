@@ -366,16 +366,40 @@ class HauntLinkedDeathEffect(GameEffect):
 
 
 class CastGraveyardInstantSorceryFreeExileEffect(GameEffect):
-    """Impulsivity's targeted free-cast window plus exile rider."""
+    """Impulsivity's targeted free-cast window plus exile rider.
 
-    def __init__(self, source: Optional["GameObject"] = None) -> None:
+    ``pick=True`` is the untargeted sibling ("you may cast an instant or sorcery spell from your graveyard with mana
+    value 4 or less without paying its mana cost. If that spell would be put into your graveyard, exile it instead.",
+    Diviner of Mist): the controller chooses on resolution among their own graveyard's instant/sorcery cards
+    (``max_mana_value`` caps them) and the pick takes the same exile-then-free-cast-window route as the targeted form.
+    """
+
+    def __init__(
+        self, source: Optional["GameObject"] = None, pick: bool = False, max_mana_value: Optional[int] = None,
+    ) -> None:
         super().__init__(source)
-        self.target_spec = TargetSpec(kind="any_graveyard_instant_or_sorcery")
+        self.pick = bool(pick)
+        self.max_mana_value = None if max_mana_value is None else int(max_mana_value)
+        self.target_spec = None if self.pick else TargetSpec(kind="any_graveyard_instant_or_sorcery")
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        target = (targets or [None])[0]
         player = _controller_of(self.source, context)
-        if player is None or target is None or target.zone != Zone.GRAVEYARD:
+        if player is None:
+            return
+        if self.pick:
+            candidates = [
+                o for o in player.graveyard
+                if (o.card.is_instant or o.card.is_sorcery)
+                and (self.max_mana_value is None or o.card.converted_mana_cost <= self.max_mana_value)
+            ]
+            if candidates:
+                context.engine._request_choose_objects(
+                    player, candidates, "free_cast_exile", count=1, optional=True,
+                    prompt="Zauber aus dem Friedhof kostenlos wirken", source=self.source,
+                )
+            return
+        target = (targets or [None])[0]
+        if target is None or target.zone != Zone.GRAVEYARD:
             return
         # The player, not the engine, chooses whether to cast and supplies
         # every RULE 115 target through the ordinary cast flow. Moving the
@@ -672,8 +696,14 @@ class GraveyardCastPermissionEffect(GameEffect):
         active_if: Optional[dict[str, Any]] = None,
         plays_lands: bool = False,
         sacrifice_type: Optional[str] = None,
+        exile_graveyard_cards: int = 0,
     ) -> None:
         super().__init__(source)
+        #: "…by exiling three other cards from your graveyard in addition to paying its other costs." (Kotis,
+        #: Sibsig Champion) — an additional cost of casting through this grant: the other cards in the caster's
+        #: graveyard it takes (RULE 601.2h). Documented simplification: the engine picks the cards (the oldest
+        #: ones in the graveyard) rather than asking.
+        self.exile_graveyard_cards = int(exile_graveyard_cards or 0)
         #: "…you may **play** this card from your graveyard" (Kethis, the Hidden Hand): the grant also
         #: covers land cards matching ``spell_criteria`` (`graveyard_cast.graveyard_land_play_grant_for`).
         self.sacrifice_type = sacrifice_type
@@ -822,11 +852,15 @@ class GrantFlashbackToTargetEffect(GameEffect):
         cost: Optional[str] = None,
         target_kind: str = "graveyard_instant_or_sorcery",
         as_permission: bool = False,
+        lock_casting: bool = False,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.cost = cost
         self.as_permission = as_permission
+        #: With ``as_permission``: casting the chosen card also bars its caster from casting any further spells this
+        #: turn ("If you do, you can't cast additional spells this turn." — Conduit of Worlds).
+        self.lock_casting = bool(lock_casting)
         self.target_spec = TargetSpec(kind=target_kind, count=1)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -835,6 +869,8 @@ class GrantFlashbackToTargetEffect(GameEffect):
             return
         if self.as_permission:
             context.state.temp_graveyard_cast_permissions[target.instance_id] = self.source.controller_id
+            if self.lock_casting:
+                context.state.cast_lock_instance_ids.add(target.instance_id)
             return
         cost = self.cost or getattr(target.card, "mana_cost_string", None) or "{0}"
         context.state.temp_flashback_grants[target.instance_id] = str(cost)

@@ -3092,6 +3092,11 @@ class SearchMixin:
             elif hit_destination == "hand":
                 obj.zone = Zone.HAND
                 player.add_to_zone(obj, Zone.HAND)
+            elif hit_destination == "graveyard":
+                # "…then puts those cards into their graveyard" (Consuming Aberration) — the PUT_INTO_GRAVEYARD
+                # arrival event is detected by `GameState.announce_graveyard_arrivals`.
+                obj.zone = Zone.GRAVEYARD
+                player.graveyard.append(obj)
 
         rest = [o for o in revealed if o not in hits]
         if rest and rest_destination == "library_bottom_random":

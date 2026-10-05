@@ -1,6 +1,7 @@
 """Damage, card draw, reveal, discard, and shared target helpers."""
 from __future__ import annotations
 
+import copy
 import random
 
 from .core import GameEffect
@@ -1416,13 +1417,48 @@ class DiscardEffect(GameEffect):
                 player, count, source=self.source, then_specs=self._then_specs()
             )
 
+    #: Players still to answer, by id — runtime state of a resumed continuation (see `_discard_each_in_order`),
+    #: never set from an `EffectSpec` (the same idiom as `ConniveEffect._remaining_queue`).
+    _remaining_players: Optional[list[str]] = None
+
+    def _discard_each_in_order(self, context: GameContext, players: list[Any]) -> None:
+        """Each of ``players`` discards, one interactive choice at a time (RULE 608.2).
+
+        The game state holds exactly one `pending_choice`, so looping every player's chooser in one `apply()`
+        would overwrite an earlier player's unanswered prompt with the next one's (Junji's "each opponent
+        discards two cards" in a 3+ player game silently skipped all but the last). The first prompt that opens
+        parks the remaining players on `GameState.deferred_effects` as a resumed copy of this effect.
+        """
+        state = context.state
+        for i, player in enumerate(players):
+            before = getattr(state, "pending_choice", None)
+            self._discard_from(context, player)
+            opened = getattr(state, "pending_choice", None)
+            if opened is not None and opened is not before and i + 1 < len(players):
+                remainder = copy.copy(self)
+                remainder._remaining_players = [p.id for p in players[i + 1:]]
+                state.deferred_effects.append({
+                    "effects": [remainder],
+                    "targets": None,
+                    "target_groups": None,
+                    "group_index": 0,
+                    "source": self.source,
+                    "previous_targets": list(getattr(context, "previous_targets", [])),
+                    "created_objects": list(getattr(context, "created_objects", [])),
+                })
+                return
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self._remaining_players is not None:
+            self._discard_each_in_order(
+                context, [context.state.player_by_id(pid) for pid in self._remaining_players])
+            return
         if self.scope:
             controller = _controller_of(self.source, context)
-            for other in context.state.living_players():
-                if self.scope == "each_opponent" and other is controller:
-                    continue
-                self._discard_from(context, other)
+            self._discard_each_in_order(context, [
+                other for other in context.state.living_players()
+                if not (self.scope == "each_opponent" and other is controller)
+            ])
             return
         # A ``{"of": …, "as": "controller"}`` referent ("destroy target
         # creature. its controller discards a card." — PAR-115) resolves

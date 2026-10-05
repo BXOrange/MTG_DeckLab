@@ -54,6 +54,16 @@ def cards_discarded(events: Events) -> "defaultdict[str, int]":
     return _tally(events, EventType.DISCARD_CARD, "player_id")
 
 
+#: Zones whose cards "put into your graveyard from your hand or library" counts (Welcome the Dead).
+HAND_OR_LIBRARY = frozenset({"hand", "library"})
+
+
+def cards_put_into_graveyard_from_hand_or_library(events: Events) -> "defaultdict[str, int]":
+    """Cards that reached each player's graveyard from their hand or library this turn (discards, mills)."""
+    return _tally(events, EventType.PUT_INTO_GRAVEYARD, "owner_id",
+                  where=lambda e: e.get("from_zone") in HAND_OR_LIBRARY)
+
+
 def cards_drawn(events: Events) -> "defaultdict[str, int]":
     return _tally(events, EventType.DRAW, "player_id", weight="count")
 

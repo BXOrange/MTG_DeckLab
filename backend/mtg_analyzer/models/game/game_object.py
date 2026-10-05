@@ -412,6 +412,13 @@ class GameObject:
         #: the beginning of the next end step" delayed trigger right after
         #: it enters, then clears this flag (same shape as `cast_via_evoke`).
         self.cast_via_dash: bool = False
+        #: RULE 702.51c — instance ids of the creatures tapped to pay this spell's Convoke ("each creature that
+        #: convoked this spell …", Lethal Scheme). Stamped by `_consume_cast_help`; reset as a new object.
+        self.convoked_by_ids: list = []
+        #: RULE 601.2a — the zone this object was cast from ("graveyard", "hand", …); ``None`` if never cast.
+        #: Stamped at cast time and carried on its `ENTERS_BATTLEFIELD` event as ``cast_from_zone`` ("…or was cast
+        #: from a graveyard", Kotis, Sibsig Champion).
+        self.cast_from_zone: Optional[str] = None
         #: RULE 702.35 (PAR-26): whether this card has Madness — set at
         #: bind alongside `alt_cast_cost` (the madness cost). `draw_discard_
         #: mixin._maybe_madness` reads it to exile the card on discard
@@ -1470,6 +1477,8 @@ class GameObject:
         self.blitz_cost_paid = False
         self.cast_via_evoke = False
         self.cast_via_dash = False
+        self.convoked_by_ids = []
+        self.cast_from_zone = None
         self.granted_suspend_haste = False
         self.rebound_pending = False
         self.commander_zone_choice_pending = False

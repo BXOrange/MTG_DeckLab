@@ -720,6 +720,11 @@ class GameState:
         self.temp_flashback_grants: dict[int, str] = {}
         #: Single-card normal-cost graveyard permissions, cleared on casting and cleanup.
         self.temp_graveyard_cast_permissions: dict[int, str] = {}
+        #: Cards whose graveyard cast permission (above) also forbids their caster any further spells that turn
+        #: ("If you do, you can't cast additional spells this turn." — Conduit of Worlds), and the players whose
+        #: casting that has locked. Both cleared at cleanup.
+        self.cast_lock_instance_ids: set[int] = set()
+        self.no_more_spells_this_turn: set[str] = set()
 
         #: Delayed triggered abilities (RULE 603.7) a resolving spell/ability
         #: has set up to fire at a *future* step ("at the beginning of your
@@ -1575,6 +1580,12 @@ class GameState:
     @property
     def cards_discarded_this_turn(self) -> dict[str, int]:
         return turn_history.cards_discarded(self.events_this_turn())
+
+    @property
+    def cards_put_into_graveyard_from_hand_or_library_this_turn(self) -> dict[str, int]:
+        """Cards each player put into their graveyard from hand or library this turn (Welcome the Dead)."""
+        self.announce_graveyard_arrivals()  # the arrival events are detected lazily — flush before reading
+        return turn_history.cards_put_into_graveyard_from_hand_or_library(self.events_this_turn())
 
     @property
     def cards_drawn_this_turn(self) -> dict[str, int]:

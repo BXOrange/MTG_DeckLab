@@ -74,6 +74,12 @@ _SACRIFICE_RE = re.compile(
     r"(?:\s+token\b)?",
     re.IGNORECASE,
 )
+#: "Sacrifice a Swamp and a Forest" (Jarad, Golgari Lich Lord) — two *different* permanents, one of each named type
+#: (`ActivationCost.sacrifice` plus `sacrifice_also`). Tried before `_SACRIFICE_RE`, which would read only the first.
+_SACRIFICE_PAIR_RE = re.compile(
+    r"sacrifice\s+an?\s+(?P<first>[a-z]+)\s+and\s+an?\s+(?P<second>[a-z]+)\b(?:\s+tokens?)?",
+    re.IGNORECASE,
+)
 #: ENG-49: "Sacrifice N `<type>s`" / "Sacrifice X `<type>s`" (Keldon Arsonist's
 #: "Sacrifice two lands", Copper-Leaf Angel's "Sacrifice X lands") — the
 #: count-bearing sibling of `_SACRIFICE_RE`. Only a single type word that ends
@@ -396,7 +402,8 @@ def scan_cost_text(cost_text: str) -> CostScan:
         take("ward_x_selector", _WARD_X_SELECTOR_RE)
     take("exile_creature", _EXILE_CREATURE_RE)
     if not take("sacrifice_creature_artifact_or_land", _SACRIFICE_CREATURE_ARTIFACT_OR_LAND_RE):
-        take("sacrifice", _SACRIFICE_RE)
+        if not take("sacrifice_pair", _SACRIFICE_PAIR_RE):
+            take("sacrifice", _SACRIFICE_RE)
     take("sacrifice_count", _SACRIFICE_COUNT_RE)
     take("pay_life", _PAY_LIFE_RE)
     take("pay_half_life", _PAY_HALF_LIFE_RE)

@@ -1505,6 +1505,15 @@ def _trigger_condition(
 
         predicates.append(_not_from_zone_ok)
 
+    # "…entered from a graveyard or was cast from a graveyard" (Kotis, Sibsig Champion) — an enters event whose
+    # origin zone, or the zone its spell was cast from, is this one.
+    from_or_cast_from = trigger.get("from_zone_or_cast_from")
+    if from_or_cast_from:
+        def _from_or_cast_from_ok(event: Any, context: Any, zone=str(from_or_cast_from)) -> bool:
+            return event.get("from_zone") == zone or event.get("cast_from_zone") == zone
+
+        predicates.append(_from_or_cast_from_ok)
+
     # "…is put into exile from the battlefield" (Psychomancer) — LEAVES_BATTLEFIELD's
     # ``to_zone`` is exactly this zone.
     to_zone = trigger.get("to_zone")

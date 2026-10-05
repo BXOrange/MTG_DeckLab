@@ -60,6 +60,7 @@ from . import commandeer  # noqa: F401
 from . import commander_s_insight  # noqa: F401
 from . import commander_s_plate  # noqa: F401
 from . import communal_brewing  # noqa: F401
+from . import conduit_of_worlds  # noqa: F401
 from . import confusion_in_the_ranks  # noqa: F401
 from . import conjured_currency  # noqa: F401
 from . import conqueror_s_flail  # noqa: F401
@@ -67,6 +68,7 @@ from . import conspicuous_snoop  # noqa: F401
 from . import conspiracy_theorist  # noqa: F401
 from . import conspiracy_unraveler  # noqa: F401
 from . import consulate_surveillance  # noqa: F401
+from . import consuming_aberration  # noqa: F401
 from . import containment_construct  # noqa: F401
 from . import containment_priest  # noqa: F401
 from . import contamination  # noqa: F401

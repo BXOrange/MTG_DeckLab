@@ -991,6 +991,8 @@ class TurnLoopMixin:
         if self.state.temp_flashback_grants:
             self.state.temp_flashback_grants = {}
         self.state.temp_graveyard_cast_permissions.clear()
+        self.state.cast_lock_instance_ids.clear()
+        self.state.no_more_spells_this_turn.clear()
     def resolve_until_stable(self) -> None:
         """Resolve triggers + the stack until empty, stable, or blocked.
 

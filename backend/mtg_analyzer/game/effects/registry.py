@@ -132,6 +132,7 @@ EffectRegistry.register(
         hit_destination=p.get("hit_destination", "battlefield"),
         rest_destination=p.get("rest_destination", "library_bottom_random"),
         tapped=bool(p.get("tapped", False)),
+        scope=p.get("scope"),
     ),
 )
 EffectRegistry.register(
@@ -1284,6 +1285,7 @@ EffectRegistry.register(
     lambda p: GrantFlashbackToTargetEffect(
         cost=p.get("cost"), target_kind=p.get("target_kind", "graveyard_instant_or_sorcery"),
         as_permission=bool(p.get("as_permission", False)),
+        lock_casting=bool(p.get("lock_casting", False)),
     ),
 )
 EffectRegistry.register(
@@ -1367,7 +1369,9 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "cast_graveyard_instant_sorcery_free_exile",
-    lambda p: CastGraveyardInstantSorceryFreeExileEffect(),
+    lambda p: CastGraveyardInstantSorceryFreeExileEffect(
+        pick=bool(p.get("pick", False)), max_mana_value=p.get("max_mana_value"),
+    ),
 )
 EffectRegistry.register(
     "deal_damage_to_chosen_player", lambda p: DealDamageToChosenPlayerEffect()  # Stuffy Doll
@@ -1537,6 +1541,10 @@ EffectRegistry.register(
         colors=p.get("colors"),
         extra_counters=p.get("extra_counters"),
         exclude_legendary=bool(p.get("exclude_legendary", False)),
+        chooser=p.get("chooser"),
+        previous_subject=bool(p.get("previous_subject", False)),
+        moved_pool=bool(p.get("moved_pool", False)),
+        then_effects=p.get("then_effects"),
         positional_top_creature=bool(p.get("positional_top_creature", False)),
         unless_flag=p.get("unless_flag"),
         attacking=bool(p.get("attacking", False)),
@@ -2268,6 +2276,7 @@ EffectRegistry.register(
         count_selector=p.get("count_selector"),
         times=int(p.get("times", 1) or 1),
         creature_filter=p.get("creature_filter"),
+        convoked=bool(p.get("convoked", False)),
     ),
 )
 EffectRegistry.register(
@@ -2948,6 +2957,7 @@ EffectRegistry.register(
         spell_criteria=p.get("spell_criteria"),
         active_if=_top_library_gate(p),
         sacrifice_type=p.get("sacrifice_type"),
+        exile_graveyard_cards=int(p.get("exile_graveyard_cards", 0) or 0),
         instant_sorcery_only=bool(p.get("instant_sorcery_only", False)),  # Lier: standing flashback
     ),
 )
