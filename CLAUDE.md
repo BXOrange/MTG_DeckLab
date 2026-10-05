@@ -46,6 +46,12 @@ by id/name and rebuilt from the cache; tokens carry a self-describing block).
 goldfish position can be exported and re-opened in Replay. Frontend:
 `frontend/src/js/replayView.js`.
 
+**Solo bot updates** use one action per response: human POSTs return before
+bots answer; each subsequent GET applies at most one bot action. The Solo
+board polls once per second while `bot_action_pending` is true, including AI
+choices and bot blockers. Human priority is never passed server-side; the
+shared board's Multiplayer timers and empty-window handling apply unchanged.
+
 **Multiplayer** (UC4) is a real game of **two to four players** against the
 same engine, not a stub (`services/lobby.py`'s `MIN_SEATS`/`MAX_SEATS`;
 four is where the board UI stops being readable, not a rules limit — the
@@ -66,6 +72,12 @@ an opponent's hand never leaves the process, `observer_view()` hides
 everyone's); **`/ws/lobby`** (`api/multiplayer_ws.py`) is presence *and*
 the push channel, sending each participant their own view rather than one
 shared payload; and **priority is played out for real** (below).
+The shared board's **table feed** (VIS-4, `services/table_feed.py`) appears
+below the stack/trigger feed: preset emotes only, plus engine-event
+announcements for land plays, casts and ability activations; no priority
+passes. `GameSession.view()` includes the latest 200 entries. Emotes do not
+advance gameplay; multiplayer broadcasts them without driving bots.
+Observers read the feed, undo trims action announcements, and restart clears it.
 A seat also carries one purely cosmetic thing, `Seat.banner_color`
 (`normalize_banner_color` — any subset of WUBRG, or grey for colourless,
 defaulting to the deck's colour identity when a deck is picked): the
@@ -189,6 +201,11 @@ API requests that omit the bot kind; explicitly selected policies are preserved.
 Classes live individually in
 `services/bot_policies/`; `services/bots.py` reexports them and owns the registry
 and driver. `prepare(session)` attaches policy context before each fresh view.
+All bot policies accept offered opening-hand permissions (RULE 103.6), including
+Leylines and Gemstone Caverns, and complete their mandatory follow-up choices.
+Smart Bot ranks the pregame hand-card exile by card value and combo protection;
+AI Bot delegates pregame choices to this deterministic policy without an LLM call.
+Human pregame actions use the shared board's existing pending-choice dialog.
 AI requests run in bounded background workers and preserve priority while pending;
 solo view polling and the multiplayer watchdog collect completed decisions.
 Settings exposes Claude/Anthropic and compatible endpoints with automatically
@@ -942,7 +959,7 @@ English and German.
 ## Local bug reports
 
 The bug icon beside Settings opens a report dialog. `POST /api/bug-reports`
-saves UTF-8 JSON in the Git-ignored **`bug-reports/`** directory at the repo
+saves gzip-compressed UTF-8 JSON (`.json.gz`, report version 2) in the Git-ignored **`bug-reports/`** directory at the repo
 root (override: `MTG_BUG_REPORT_DIR` or config.json `paths.bug_report_dir`).
 Reports include the description, originating view, session mode, current
 portable replay and diagnostic state, plus the last **12 actions** by default
@@ -951,8 +968,17 @@ its label, actor, step cursor, pre-action replay and diagnostic state. Reports
 outside a game have `game: null`. Files contain hidden game zones and are local
 user data; do not commit them or delete them without an explicit request.
 
+Report v2 stores card descriptors once (content-keyed variants preserve tokens,
+transforms and copies) and one chronological base position plus lossless deltas
+for subsequent pre-action positions and the current position. These are storage
+changes only; gameplay HTTP/WebSocket views are unchanged. Read both legacy v1
+JSON and v2 gzip reports with `services.bug_report_codec.load_report(path)`.
+To expand for inspection, run from the repo root:
+`PYTHONPATH=backend backend/venv/bin/python -m mtg_analyzer.services.bug_report_codec bug-reports/<id>.json.gz /tmp/mtg-report-expanded.json`
+(the destination must not already exist).
+
 When asked to analyze a bug report, inspect this folder (or its configured
-location), read the relevant JSON and start with `description` and
+location), expand it with the codec and start with `description` and
 `game.recent_actions` in chronological order. Extract `game.replay` or an
 entry's `replay_before` into a temporary JSON file to import in Replay mode.
 Use `state`/`state_before` to inspect stack, pending choices and other diagnostic

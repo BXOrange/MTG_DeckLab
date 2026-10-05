@@ -113,13 +113,16 @@ class Bot:
         bot has no way to leverage, while the command zone is always
         freely recastable. So this always takes ``"command"`` rather than
         declining, the one choice kind here with a genuine default
-        judgement call (every other kind's "decline" really is the safe,
-        no-opinion answer).
+        judgement call. Opening-hand permissions (RULE 103.6) likewise
+        prefer the offered destination over declining, so bots actually
+        use their pregame cards and answer any mandatory follow-up cost.
         """
         kind = (view.get("pending_choice") or {}).get("kind")
         if kind in ("vote", "vote_object") and answers:
             return self._vote_rng.choice(answers)
-        if kind in ("search", "commander_zone"):
+        # RULE 103.6: use offered opening-hand permissions, including
+        # Gemstone Caverns and its mandatory follow-up hand-card exile.
+        if kind in ("search", "commander_zone", "opening_hand_battlefield"):
             hit = next((a for a in answers if a["type"] == "choose"), None)
             if hit is not None:
                 return hit
@@ -278,4 +281,3 @@ class Bot:
 
     def note_failure(self, action: dict[str, Any]) -> None:
         self._failed.add(self._signature(action))
-

@@ -12,6 +12,10 @@ and how you play* is Profil.
 
 ## Settings: server connection
 
+Under **Settings → Board**, set **Bot speed** to **Instant**, **Normal** or
+**Slow**. It controls the delay between displayed bot actions, is saved locally
+and applies immediately to all game views.
+
 The app automatically uses the address where you opened it. There is no
 server-address field or saved address override; old address cookies are
 ignored. **Verbindung testen** (test connection) re-checks reachability.
@@ -117,6 +121,6 @@ Goldfisch mode and the multiplayer lobby.
 
 Click the bug icon beside Settings to describe a problem. During a game, the
 report includes the current Replay and the last 12 actions by default; you can
-change that number. JSON reports are saved on the backend in the local,
+change that number. Compressed JSON reports (`.json.gz`) are saved on the backend in the local,
 unversioned `bug-reports/` folder. A report outside a game contains only the
 description and view context. The dialog confirms the saved filename.

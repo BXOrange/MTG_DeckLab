@@ -213,6 +213,15 @@ for a shared game:
   eine Entscheidung"** (making a decision) instead of their options —
   those can reveal cards you're not allowed to see.
 
+### Table emotes
+
+Below the stack/trigger feed on the left, **Table chat** shows who plays a
+land, casts a spell or activates an ability, including mana abilities.
+Passing priority does not add a message. Use **👍, 👏, GG, 🤔 or ⏳** to
+react even when you do not have priority. There is no free-text input.
+Spectators can read the feed. The latest 200 entries remain available
+when reconnecting; restarting the game clears them.
+
 ### Priority
 
 Magic doesn't move a step at a time because somebody clicks "next" — it

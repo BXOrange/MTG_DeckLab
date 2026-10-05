@@ -499,7 +499,7 @@ export async function startSolo(payload) {
   return gameRequest('POST', '/api/solo/start', payload);
 }
 
-/** Apply one action (from `legal_actions`) as the human; the bots answer. */
+/** Apply one human action; bot answers arrive separately through view polls. */
 export async function sendSoloAction(sessionId, action) {
   return gameRequest('POST', `/api/solo/${encodeURIComponent(sessionId)}/action`, action);
 }

@@ -2184,6 +2184,9 @@ textarea {
    overlaid stack popup, so player interactions on the stage are never
    covered any more. */
 .goldfish {
+  /* Header: 44px logo + 4/3rem padding + 1px border; main: 3rem padding.
+     Divide by board zoom so the rail still fills the visible height. */
+  --gf-rail-height: calc((100dvh - 45px - 13rem / 3) / var(--gf-scale, 1));
   display: flex;
   flex-direction: row;
   align-items: flex-start;
@@ -2200,7 +2203,8 @@ textarea {
   position: sticky;
   top: 0;
   align-self: flex-start;
-  max-height: calc(100vh - 4.5rem);
+  height: var(--gf-rail-height);
+  max-height: var(--gf-rail-height);
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -2219,6 +2223,18 @@ textarea {
   flex-direction: column;
   gap: 0.6rem;
 }
+
+.gf-rail > * { flex-shrink: 0; }
+.gf-chat { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 6rem; min-width: 0; border-top: 1px solid var(--border); padding-top: 0.5rem; }
+.gf-chat h4 { margin: 0 0 0.4rem; font-size: 0.9rem; }
+.gf-chat-messages { flex: 1 1 auto; min-height: 0; list-style: none; margin: 0; padding: 0; overflow-y: auto; font-size: 0.78rem; }
+.gf-chat-message { padding: 0.35rem 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; white-space: pre-wrap; }
+.gf-chat-author { font-weight: 700; margin-right: 0.3rem; }
+.gf-chat-message.is-announcement { opacity: 0.8; }
+.gf-chat-emotes { display: flex; gap: 0.3rem; margin-top: 0.3rem; }
+.gf-chat-emotes button { flex: 1; padding: 0.3rem; font-size: 0.8rem; }
+.gf-chat-error { font-size: 0.75rem; color: var(--danger, #f99); }
+@media (max-width: 1199px) { .gf-chat { flex: 1 1 100%; } }
 
 .gf-rail-turn {
   display: flex;
@@ -2260,6 +2276,7 @@ textarea {
     flex: 1 1 auto;
     width: 100%;
     position: static;
+    height: auto;
     max-height: none;
     flex-direction: row;
     flex-wrap: wrap;
@@ -2270,6 +2287,7 @@ textarea {
   .gf-rail-stack {
     flex: 1 1 12rem;
   }
+  .gf-chat-messages { flex: none; height: 15rem; }
   .gf-rail-controls {
     flex: 1 1 100%;
     flex-direction: row;
@@ -2309,11 +2327,14 @@ textarea {
     width: auto;
     position: sticky;
     top: 0;
-    max-height: calc(100vh - 4.5rem);
+    height: var(--gf-rail-height);
+    max-height: var(--gf-rail-height);
     flex-direction: column;
     flex-wrap: nowrap;
     align-items: stretch;
   }
+  .gf-chat { flex: 1 1 auto; }
+  .gf-chat-messages { flex: 1 1 auto; height: auto; }
   .gf-rail-turn,
   .gf-rail-timer,
   .gf-rail-stack {
@@ -5435,7 +5456,7 @@ textarea {
   font-weight: 600;
 }
 
-/* The bot-speed control still uses this class in the rail's control block. */
+/* Legacy inline rail-control styling. */
 .gf-autopass {
   display: inline-flex;
   align-items: center;

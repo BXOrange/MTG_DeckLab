@@ -164,7 +164,9 @@ class SmartBot(GreedyBot):
             return max(choices, key=score)
         pending = view.get('pending_choice') or {}
         sacrifice = kind == 'choose_objects' and pending.get('action') == 'sacrifice'
-        if ('discard' in kind or kind == 'sacrifice' or sacrifice) and choices:
+        pregame_exile = (kind == 'choose_objects' and pending.get('action') == 'exile'
+                         and not view['state'].get('current_step'))
+        if ('discard' in kind or kind == 'sacrifice' or sacrifice or pregame_exile) and choices:
             objects = [a for a in choices if a.get('instance_id') is not None]
             if objects:
                 return min(objects, key=lambda a: self._card_value(view, a) +
@@ -414,4 +416,3 @@ class SmartBot(GreedyBot):
                     blocked.add(candidate['instance_id'])
                     break
         return assignments
-

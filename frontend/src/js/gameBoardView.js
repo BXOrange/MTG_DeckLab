@@ -26,10 +26,12 @@ import {
   getShowOpponentHand,
   getCompactView,
   saveSettings,
-  BOT_SPEED_MS_OPTIONS,
 } from './settings.js';
 import { t, tPlural } from './i18n.js';
 import { setHeaderMessage } from './headerMessage.js';
+
+const TABLE_EMOTES = ['👍', '👏', 'GG', '🤔', '⏳']; // Server-approved table reactions.
+const CHAT_BOTTOM_THRESHOLD_PX = 24; // Keep reading position unless near the newest message.
 
 const PHASE_LABELS = {
   beginning: t('bd.phase.beginning'),
@@ -541,8 +543,11 @@ export function createGameBoardView(opts = {}) {
   // ghosts from the same view (almost always a bot's whole batched turn —
   // see `run_bots`/`_after_move` in api/multiplayer.py, which answer a bot
   // to completion before ever broadcasting) — 0 reproduces the old
-  // "all at once" behaviour. Adjustable live via `botSpeedControlHtml`.
+  // "all at once" behaviour. Adjustable live in Settings.
   let botSpeedMs = getBotSpeedMs();
+  window.addEventListener('bot-speed-changed', () => {
+    botSpeedMs = getBotSpeedMs();
+  });
   // Guards a staggered ghost-reveal callback from firing into a board
   // that has since been torn down (`stop()`) — a `setTimeout` outlives the
   // view switch that scheduled it.
@@ -871,9 +876,53 @@ export function createGameBoardView(opts = {}) {
     root = el;
   }
 
+  let chatSending = false;
+  let chatError = '';
+
+  function chatPanelHtml() {
+    const messages = (view.table_messages || []).map((message) => {
+      const card = message.card_name || t('bd.chat.faceDownSpell');
+      const text = message.kind === 'emote' ? message.text
+        : t(`bd.chat.${message.action}`, { card }) + (message.ability_text ? ` ${message.ability_text}` : '');
+      return `<li class="gf-chat-message ${message.kind === 'emote' ? 'is-chat' : 'is-announcement'}" data-message-id="${escapeAttr(message.id)}">
+        <span class="gf-chat-author">${escapeHtml(message.author)}</span>
+        <span>${escapeHtml(text)}</span>
+      </li>`;
+    }).join('');
+    return `<section class="gf-chat" aria-label="${escapeAttr(t('bd.chat.heading'))}">
+      <h4>${escapeHtml(t('bd.chat.heading'))}</h4>
+      <ol class="gf-chat-messages" role="log" aria-live="polite" aria-relevant="additions" tabindex="0">
+        ${messages || `<li class="hint">${escapeHtml(t('bd.chat.empty'))}</li>`}
+      </ol>
+      ${view.observer ? '' : `<div class="gf-chat-emotes">${TABLE_EMOTES.map((text, index) => `<button type="button" data-chat-emote="${escapeAttr(text)}" title="${escapeAttr(t(`bd.chat.emote${index}`))}" aria-label="${escapeAttr(t(`bd.chat.emote${index}`))}" ${chatSending ? 'disabled' : ''}>${escapeHtml(text)}</button>`).join('')}</div>`}
+      ${chatError ? `<p class="gf-chat-error" role="alert">${escapeHtml(chatError)}</p>` : ''}
+    </section>`;
+  }
+
+  async function sendChat(emote) {
+    if (!sessionId || chatSending || !TABLE_EMOTES.includes(emote)) return;
+    chatSending = true;
+    chatError = '';
+    render();
+    try {
+      const action = { type: 'emote', emote };
+      const res = transport.sendAction ? await transport.sendAction(action)
+        : await sendGameAction(sessionId, action);
+      if (res.ok) {
+        if (res.data) applyView(res.data);
+      } else {
+        chatError = t('bd.chat.failed');
+      }
+    } finally {
+      chatSending = false;
+      render();
+    }
+  }
+
   /** Begin driving `sessionId`, rendering `initialView` immediately. */
   function start(sid, initialView) {
     const isNewSession = sid !== sessionId;
+    if (isNewSession) chatError = '';
     sessionId = sid;
     stopped = false;
     applyView(initialView);
@@ -1156,6 +1205,9 @@ export function createGameBoardView(opts = {}) {
 
   function render() {
     if (!root || !view) return;
+    const previousChat = root.querySelector('.gf-chat-messages');
+    const chatAtBottom = !previousChat || previousChat.scrollHeight - previousChat.scrollTop - previousChat.clientHeight <= CHAT_BOTTOM_THRESHOLD_PX;
+    const chatScrollTop = previousChat?.scrollTop || 0;
     const s = view.state;
     // Keep the countdown length (a server setting) current before anything
     // reads it — `railTimerHtml`/`autoPassArmed` both do, and `render()`
@@ -1200,6 +1252,8 @@ export function createGameBoardView(opts = {}) {
 
           ${railStackHtml(s)}
 
+          ${chatPanelHtml()}
+
           ${controlsHtml(stackNonEmpty, pending, gameOver)}
         </aside>
 
@@ -1226,6 +1280,8 @@ export function createGameBoardView(opts = {}) {
       </div>
     `;
     wire();
+    const chatList = root.querySelector('.gf-chat-messages');
+    if (chatList) chatList.scrollTop = chatAtBottom ? chatList.scrollHeight : chatScrollTop;
     syncAutoPass();
     // A repaint mid-countdown rebuilds the bar at its inline default; catch
     // it up to the live remaining value straight away so it doesn't flash
@@ -1423,7 +1479,6 @@ export function createGameBoardView(opts = {}) {
       <div class="gf-controls gf-rail-controls gf-priority-controls">
         ${zonesSideButtonHtml()}
         ${extra}
-        ${gameOver ? '' : botSpeedControlHtml()}
       </div>`;
   }
 
@@ -1458,27 +1513,6 @@ export function createGameBoardView(opts = {}) {
     return `<span class="gf-priority-badge${isMe ? ' gf-priority-mine' : ''}" title="${escapeAttr(title)}">⚡</span>`;
   }
 
-  // VIS-7: a bot's whole turn arrives as one pushed view (`run_bots` answers
-  // it to completion before the single broadcast), so without this its
-  // casts would all ghost into the rail stack at once. Lets a player
-  // watching a bot opponent choose how spread out those ghost reveals
-  // should be — 0 keeps the old instant behaviour.
-  const BOT_SPEED_LABELS = { 0: t('bd.botSpeed.instant'), 900: t('bd.botSpeed.normal'), 2000: t('bd.botSpeed.slow') };
-
-  function botSpeedControlHtml() {
-    const options = BOT_SPEED_MS_OPTIONS.map(
-      (ms) => `<option value="${ms}" ${ms === botSpeedMs ? 'selected' : ''}>${BOT_SPEED_LABELS[ms] || `${ms} ms`}</option>`
-    ).join('');
-    return `
-      <label class="gf-autopass" title="${escapeAttr(t('bd.botSpeed.title'))}">
-        ${t('bd.botSpeed.label')}
-        <select id="gf-bot-speed">${options}</select>
-      </label>`;
-  }
-
-  // Someone else is answering a choice this client may not see (its options
-  // can name cards in a hidden zone, so the server strips them and sends
-  // this marker instead — `services/game_session.py`'s `_redact_hidden_zones`).
   function waitingOnChoiceHtml(s) {
     const waiting = s.waiting_on_choice;
     if (!waiting) return '';
@@ -2079,6 +2113,9 @@ export function createGameBoardView(opts = {}) {
 
   function wire() {
     wireEffectPopovers();
+    root.querySelectorAll('[data-chat-emote]').forEach((button) => {
+      button.addEventListener('click', () => sendChat(button.dataset.chatEmote));
+    });
     root.querySelector('#gf-advance')?.addEventListener('click', () => act({ type: 'advance_step' }));
     root.querySelector('#gf-next-decision')?.addEventListener('click', () => act({ type: 'advance_to_decision' }));
     root.querySelector('#gf-rewind')?.addEventListener('click', rewind);
@@ -2105,10 +2142,6 @@ export function createGameBoardView(opts = {}) {
     // the table configured a budget and this client has some left).
     root.querySelector('[data-banner-takeback]')?.addEventListener('click', () => {
       if (transport.takeBack) transport.takeBack();
-    });
-    root.querySelector('#gf-bot-speed')?.addEventListener('change', (e) => {
-      const saved = saveSettings({ botSpeedMs: e.target.value });
-      botSpeedMs = saved.botSpeedMs;
     });
     // Fold an opponent's board away at a table of 3+ (see `collapsedBoards`).
     root.querySelectorAll('[data-fold-board]').forEach((el) => {

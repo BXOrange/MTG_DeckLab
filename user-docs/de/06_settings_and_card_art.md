@@ -13,6 +13,11 @@ und wie du spielst* ist Profil.
 
 ## Einstellungen: Server-Verbindung
 
+Unter **Einstellungen → Spielbrett** lässt sich das **Bot-Tempo** auf
+**Sofort**, **Normal** oder **Langsam** setzen. Es bestimmt den Abstand zwischen
+angezeigten Bot-Aktionen, wird lokal gespeichert und gilt direkt für alle
+Spielansichten.
+
 Die Anwendung verwendet automatisch die Adresse, unter der du sie geöffnet
 hast. Ein Server-Adressfeld und das Speichern dieser Adresse sind nicht mehr
 nötig; frühere Adress-Cookies werden ignoriert. **Verbindung testen** prüft
@@ -121,6 +126,7 @@ Deck-Auswahl im Goldfisch-Modus und in der Mehrspieler-Lobby zuerst.
 Das Käfer-Symbol neben Einstellungen öffnet den Fehlerbericht. Beschreibe das
 Problem und das erwartete Verhalten. Im Spiel enthält der Bericht den aktuellen
 Replay und standardmäßig die letzten 12 Aktionen; die Anzahl ist anpassbar.
-Der Server speichert JSON-Dateien im lokalen, unversionierten Ordner
+Der Server speichert komprimierte JSON-Dateien (`.json.gz`) im lokalen,
+unversionierten Ordner
 `bug-reports/`. Außerhalb eines Spiels werden Beschreibung und Ansicht ohne
 Replay gespeichert. Der Dialog bestätigt den gespeicherten Dateinamen.

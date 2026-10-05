@@ -74,6 +74,9 @@ class EventType:
     #: was activated) and ``controller_id`` = the activating player, the same
     #: RULE 603.1 ``"group"`` subject convention `TAPPED_FOR_MANA` uses.
     ACTIVATED_ABILITY = "ACTIVATED_ABILITY"
+    # Hand mana abilities resolve without a stack item (RULE 605.3b).
+    # Separate from ACTIVATED_ABILITY, whose triggers exclude mana abilities.
+    MANA_ABILITY_ACTIVATED = "MANA_ABILITY_ACTIVATED"
 
     # Object/zone movement.
     DRAW = "DRAW"

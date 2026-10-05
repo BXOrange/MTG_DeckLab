@@ -1,5 +1,6 @@
 """Persist local bug reports with server-owned replay diagnostics."""
 from datetime import datetime, timezone
+import gzip
 import json
 import logging
 from uuid import uuid4
@@ -9,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from mtg_analyzer import config
 from mtg_analyzer.api.dependencies import get_game_session_manager
+from mtg_analyzer.services.bug_report_codec import encode_report
 from mtg_analyzer.services.game_session import GameSessionManager, MAX_HISTORY
 
 # Twelve moves usually cover the triggering interaction without a large report.
@@ -53,11 +55,12 @@ def create_bug_report(
         "view": request.view, "session_id": request.session_id,
         "requested_action_count": request.action_count, "game": context,
     }
-    filename = f"{report_id}.json"
+    report = encode_report(report)
+    filename = f"{report_id}.json.gz"
     try:
         config.BUG_REPORT_DIR.mkdir(parents=True, exist_ok=True)
-        with (config.BUG_REPORT_DIR / filename).open("x", encoding="utf-8") as handle:
-            json.dump(report, handle, ensure_ascii=False, indent=2)
+        with gzip.open(config.BUG_REPORT_DIR / filename, "xt", encoding="utf-8") as handle:
+            json.dump(report, handle, ensure_ascii=False, separators=(",", ":"))
             handle.write("\n")
     except OSError:
         logging.getLogger(__name__).exception("Could not save bug report")

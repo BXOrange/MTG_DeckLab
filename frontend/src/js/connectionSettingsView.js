@@ -6,7 +6,7 @@
 // the choice in a cookie and reloads the page so the whole app is in one
 // language.
 
-import { getSettings, saveSettings } from './settings.js';
+import { getSettings, saveSettings, BOT_SPEED_MS_OPTIONS } from './settings.js';
 import {
   getComboDatabaseStatus,
   getLLMSettings,
@@ -74,6 +74,11 @@ export function renderConnectionSettingsView(container) {
 
       <div class="deck-section">
         <h3>${t('settings.board.heading')}</h3>
+        <label for="settings-bot-speed">${t('bd.botSpeed.label')}</label>
+        <select id="settings-bot-speed">
+          ${BOT_SPEED_MS_OPTIONS.map((ms) => `<option value="${ms}">${t(ms === 0 ? 'bd.botSpeed.instant' : ms === 900 ? 'bd.botSpeed.normal' : 'bd.botSpeed.slow')}</option>`).join('')}
+        </select>
+        <p class="hint">${t('settings.board.botSpeedHint')}</p>
         <p class="hint">${t('settings.board.hint')}</p>
         <label class="mp-inline-option">
           <input type="checkbox" id="show-opponent-hand" />
@@ -121,6 +126,12 @@ export function renderConnectionSettingsView(container) {
   const themeSelect = container.querySelector('#theme-select');
   const showOpponentHand = container.querySelector('#show-opponent-hand');
   const compactView = container.querySelector('#compact-view');
+  const botSpeed = container.querySelector('#settings-bot-speed');
+  botSpeed.value = String(getSettings().botSpeedMs);
+  botSpeed.addEventListener('change', () => {
+    botSpeed.value = String(saveSettings({ botSpeedMs: botSpeed.value }).botSpeedMs);
+    window.dispatchEvent(new Event('bot-speed-changed'));
+  });
   const updateCardsBtn = container.querySelector('#update-card-pool-btn');
   const updateCombosBtn = container.querySelector('#update-combo-database-btn');
   const updateCardsStatus = container.querySelector('#update-card-pool-status');

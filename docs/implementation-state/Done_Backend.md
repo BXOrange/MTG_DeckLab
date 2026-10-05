@@ -3388,6 +3388,12 @@ of their reminder text or catalogue entry.
 
 ## Multiplayer
 
+### Session table feed (VIS-4)
+
+- **What:** `TableFeed` retains the latest 200 emotes and public action announcements in session views, including reconnects. Emotes use a fixed server-validated allowlist and canonical seat identity, leave game state/history unchanged and broadcast without driving bots. Announcements derive from accepted engine events, including automatic mana payments and free casts during resolution, while preserving face-down identities. Hand mana abilities emit a separate event because they resolve without the stack (RULE 605.3b). Undo removes announcements for undone moves while retaining emotes; restart clears the feed.
+- **Files:** `services/table_feed.py`, `services/game_session.py`, `api/multiplayer.py`, `models/game/events.py`, `game/engine/mana_mixin.py`.
+- **Validation:** Service/API regressions cover emote validation, shared views, observer restrictions, undo, concealed spells and mana/free-cast announcements; full-cache backend suite and Chromium board interaction passed.
+
 ### MEC-51: Control another player's turn / combat (RULE 720, PARSER_VERSION 224)
 
 - **What:** "You control target opponent during that player's next turn." (Mindslaver, Sorin Markov's −7, Emrakul the Promised End's cast trigger, Worst Fears) and "…during…
@@ -3521,6 +3527,7 @@ of their reminder text or catalogue entry.
 
 ### Bot base class — fixed decision order, policy hooks
 
+- Opening-hand permissions (RULE 103.6) are accepted by every bot policy. Gemstone Caverns' mandatory hand-card exile completes through legal choice offers; Smart/AI preserve higher-value cards and combo pieces. AI handles pregame choices without an LLM call. Regression coverage exercises all five policies through Solo polling and verifies human choices remain visible and unanswered by bots.
 - **What:** `Bot.decide()` fixes the order a seat must handle things in (pending choice, then setup/mulligan, then RULE 509.1a declare-blockers, then `play()` only if holdi…
 - **Files:** `services/bots.py`
 

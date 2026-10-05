@@ -76,6 +76,16 @@ def test_library_contents_never_count_as_combo_progress():
     assert b._combo_value(v, 'Outlet') == baseline
 
 
+def test_pregame_exile_preserves_combo_piece_over_unrelated_card():
+    b = bot()
+    v = view(hand=[obj(1, 'Outlet'), obj(2, 'Bear')])
+    v['state']['current_step'] = ''
+    v['pending_choice'] = {'kind': 'choose_objects', 'action': 'exile'}
+    answers = [{'type': 'choose', 'option_id': str(i), 'instance_id': i}
+               for i in (1, 2)]
+    assert b.answer_choice(v, answers)['instance_id'] == 2
+
+
 def test_land_selection_fixes_colours_needed_in_hand():
     b = SmartBot('ann')
     forest = spell('Forest', types='Basic Land — Forest', identity={'G'})

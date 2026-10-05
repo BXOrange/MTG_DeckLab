@@ -8,7 +8,7 @@
 // the interactive board (once a hand is kept) is the shared
 // gameBoardView.js — the same one Goldfisch, Replay and Multiplayer use —
 // given a multiplayer-style transport (every action is the human seat's,
-// and the bots have already answered by the time the reply comes back).
+// and each subsequent poll returns one bot action).
 
 import {
   startSolo,
@@ -53,6 +53,9 @@ import {
 import { t } from './i18n.js';
 
 const MAX_OPPONENTS = 3;
+// One bot move per second keeps each position visible, matching the
+// multiplayer watchdog cadence. Human priority uses the board's timers.
+const BOT_POLL_INTERVAL_MS = 1000;
 
 /**
  * Persistent "Solo gegen Bots" controller. Its session survives across
@@ -96,16 +99,22 @@ export function createSoloView() {
   //: from (and saved back to) the client-side preference cookie.
   let spellTimerSeconds = getPassTimerSeconds();
 
+  let boardActionBusy = false;
+  let soloActionPending = false;
+  let botPollRequest = null;
   const board = createGameBoardView({
-    // Solo speaks the same shape Multiplayer's transport does: the POST
-    // reply already carries the position *after* the bots have answered, so
-    // (unlike Multiplayer, which waits for a socket push) we hand that view
-    // straight back for the board to repaint from.
+    // Paint the human action first, then each bot action in a separate poll.
     transport: {
       sendAction: async (action) => {
         if (!sessionId) return { ok: false, status: 0, data: null };
-        const res = await sendSoloAction(sessionId, action);
-        return { ok: res.ok, status: res.status, data: res.ok ? res.data : null, detail: res.data };
+        soloActionPending = true;
+        try {
+          if (botPollRequest) await botPollRequest;
+          return await sendSoloAction(sessionId, action);
+        } finally {
+          soloActionPending = false;
+          scheduleBotPoll();
+        }
       },
     },
     // Interactive priority → "Passen", not "Zug weiter"; one shared
@@ -113,13 +122,14 @@ export function createSoloView() {
     allowRewind: false,
     allowFastForward: false,
     onViewChange: (v) => {
-      if (v) { view = v; scheduleAIPoll(); }
+      if (v) { view = v; scheduleBotPoll(); }
     },
     // `boardBusy` is the board's own "an action is in flight" flag — use it
     // for the disabled state (our own `busy` only tracks the pre-game
     // screens, and the board doesn't re-render when it flips back). Re-entry
     // into restart/export/concede is guarded inside those handlers instead.
     extraControls: (boardBusy) => {
+      boardActionBusy = boardBusy;
       const controls = [
         { id: 'restart', label: t('play.restart'), disabled: boardBusy || busy, onClick: restart },
         {
@@ -163,18 +173,19 @@ export function createSoloView() {
     },
   });
 
-  let aiPollTimer = null;
-  let aiPolling = false;
-  function scheduleAIPoll() {
-    clearTimeout(aiPollTimer);
-    if (!sessionId || view?.state?.game_over || !Object.values(view?.bot_status || {}).some((s) => s.status === 'thinking')) return;
-    aiPollTimer = setTimeout(async () => {
-      if (aiPolling || busy) { scheduleAIPoll(); return; }
+  let botPollTimer = null;
+  let botPolling = false;
+  function scheduleBotPoll() {
+    clearTimeout(botPollTimer);
+    if (!sessionId || view?.state?.game_over || !view?.bot_action_pending) return;
+    botPollTimer = setTimeout(async () => {
+      if (botPolling || busy || boardActionBusy || soloActionPending) { scheduleBotPoll(); return; }
       const currentId = sessionId;
       const requestedView = view;
-      aiPolling = true;
+      botPolling = true;
       try {
-        const result = await getSoloView(currentId);
+        botPollRequest = getSoloView(currentId);
+        const result = await botPollRequest;
         if (result.ok && currentId === sessionId && view === requestedView) {
           view = result.data;
           if (phase === 'mulligan') applyView(result.data);
@@ -182,10 +193,11 @@ export function createSoloView() {
           render();
         }
       } finally {
-        aiPolling = false;
-        scheduleAIPoll();
+        botPolling = false;
+        botPollRequest = null;
+        scheduleBotPoll();
       }
-    }, 1000);
+    }, BOT_POLL_INTERVAL_MS);
   }
 
   function mount(el) {
@@ -457,7 +469,7 @@ export function createSoloView() {
       } else if (res.status === 404) {
         setStatus(t('play.sessionExpired'), 'warning');
         sessionId = null;
-    clearTimeout(aiPollTimer);
+        clearTimeout(botPollTimer);
         view = null;
         phase = 'pick';
       } else {
@@ -522,7 +534,7 @@ export function createSoloView() {
     summary = view ? { analysis: view.analysis, state: view.state } : null;
     board.stop();
     sessionId = null;
-    clearTimeout(aiPollTimer);
+    clearTimeout(botPollTimer);
     view = null;
     phase = summary ? 'summary' : 'pick';
     setStatus('', '');
@@ -533,7 +545,7 @@ export function createSoloView() {
   function applyView(data) {
     sessionId = data.session_id;
     view = data;
-    scheduleAIPoll();
+    scheduleBotPoll();
     const setupDone = data.setup ? data.setup.complete : true;
     if (!setupDone) {
       phase = 'mulligan';
@@ -552,6 +564,7 @@ export function createSoloView() {
     setStatus(pendingText, 'pending');
     render();
     try {
+      if (botPollRequest) await botPollRequest;
       await fn();
     } finally {
       busy = false;
@@ -778,7 +791,7 @@ export function createSoloView() {
     root.querySelector('#solo-summary-new')?.addEventListener('click', () => {
       const id = sessionId;
       sessionId = null;
-    clearTimeout(aiPollTimer);
+      clearTimeout(botPollTimer);
       view = null;
       summary = null;
       phase = 'pick';

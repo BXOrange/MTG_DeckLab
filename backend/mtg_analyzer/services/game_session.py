@@ -52,6 +52,7 @@ from mtg_analyzer.game import card_registry, continuous, mana_potential
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.top_library import may_look_at_top_of_library
 from mtg_analyzer.services import replay
+from mtg_analyzer.services.table_feed import TableFeed
 
 #: How many undo snapshots to retain (older moves drop off the bottom).
 MAX_HISTORY = 100
@@ -478,6 +479,7 @@ class GameSession:
         self._history: list[tuple[str, GameState, int, Optional[str]]] = []
         #: Human-readable labels of applied actions, for the UI.
         self.move_log: list[str] = []
+        self.table_feed = TableFeed()
         #: PLR-6: opaque, non-committing UI scratch state — a not-yet-
         #: submitted targeting/block selection, mirrored here so a genuine
         #: reconnect (new tab, same player) can rebuild the modal instead of
@@ -611,6 +613,7 @@ class GameSession:
         self._restore(state, cursor)
         self._history.clear()
         self.move_log.clear()
+        self.table_feed.clear()
         self._mulligan_counts.clear()
         for context in getattr(self, '_ai_bot_context', {}).values():
             future = context.get('future')
@@ -641,6 +644,7 @@ class GameSession:
                 self.move_log.pop()
         assert state is not None
         self._restore(state, cursor)
+        self.table_feed.trim_moves(len(self.move_log))
         return self.view()
 
     def take_back(self, player_id: str) -> dict[str, Any]:
@@ -678,6 +682,7 @@ class GameSession:
             if actor_id == player_id:
                 del self._history[-depth:]
                 del self.move_log[-depth:]
+                self.table_feed.trim_moves(len(self.move_log))
                 self._restore(state, cursor)
                 self.takebacks_remaining[player_id] -= 1
                 return self.view()
@@ -702,6 +707,14 @@ class GameSession:
         if not isinstance(action, dict) or "type" not in action:
             raise GameActionError("action must be a dict with a 'type'")
         actor = self._actor(actor_id)
+        if action["type"] == "emote":
+            # Table conversation is independent of priority and choices,
+            # and must not consume undo/history or invalidate a UI draft.
+            try:
+                self.table_feed.emote(actor, action.get("emote"), self.engine.state.turn_nr)
+            except ValueError as exc:
+                raise GameActionError(str(exc)) from exc
+            return self.view()
         # "Next decision" is a fast-forward, but it must remain a sequence of
         # ordinary steps — each a real, separately snapshotted/logged
         # `advance_step` firing its own events — so the game evolves exactly
@@ -733,6 +746,7 @@ class GameSession:
             return self._apply_advance_to_decision()
         label = self._describe(action)
         self._snapshot(label, actor.id)
+        event_start = len(self.engine.state.event_log)
         try:
             self._dispatch(action, actor)
         except (ValueError, KeyError) as exc:
@@ -761,6 +775,10 @@ class GameSession:
             # can never step on `pass_priority`'s own real priority-passing.
             self._place_pending_triggers()
         self.move_log.append(label)
+        if self._keep_history:
+            self.table_feed.announce_events(
+                self.engine.state, self.engine.state.event_log[event_start:], len(self.move_log)
+            )
         # A real, committed action always supersedes whatever in-progress UI
         # selection led to it (PLR-6) — drop it rather than let a stale
         # targeting/block draft resurface on a later reconnect.
@@ -2190,6 +2208,7 @@ class GameSession:
             # the whole per-seat budget is shown, not just the caller's own.
             "takebacks_remaining": dict(self.takebacks_remaining),
             "move_log": list(self.move_log),
+            "table_messages": self.table_feed.view(),
             # VIS-5: which player made each `move_log` entry, so a shared
             # board can build a short "Bob hat X gespielt" feed instead of
             # making everyone read the anonymous "Verlauf" list. Aligned

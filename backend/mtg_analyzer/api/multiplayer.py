@@ -408,6 +408,10 @@ async def apply_action(
         session.apply_action(request.action, actor_id=request.player_id)
     except GameActionError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if request.action.get("type") == "emote":
+        # A conversation update must not drive bot moves or advance priority.
+        await lobby_connections.broadcast_game(game, session)
+        return {"game": game.to_dict(), "view": session.view(perspective=request.player_id)}
     return await _after_move(lobby, game, session, request.player_id)
 
 

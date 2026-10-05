@@ -142,7 +142,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## VIS — Visuals
 
-- **VIS-4 · Chat / emotes at the table.**
 - **VIS-8 · Keyboard shortcuts.** docs/05 PART 9.
 - **VIS-9 · Accessibility** — alt-text on cards, tab navigation,
   high-contrast mode. docs/05 PART 10.

@@ -2,8 +2,8 @@
 
 The Multiplayer engine without the lobby: one human seat (`SOLO_HUMAN_ID`),
 1-3 `services/bots.py` bots, plain REST. These exercise the whole loop —
-start → mulligan → play, with the bots answering synchronously after every
-human action (`_advance_solo_bots`) — plus the RULE 400.2 redaction that a
+start → mulligan → play, with one bot action per view poll and every human
+priority window preserved — plus the RULE 400.2 redaction that a
 solo-but-still-multiplayer session applies to the bot seats' hands.
 """
 
@@ -197,6 +197,17 @@ def _session_id(view):
     return view["session_id"]
 
 
+def _next_view(client, view):
+    """One human pass or one bot tick, as the board does."""
+    sid = _session_id(view)
+    if any(a['type'] == 'pass_priority' for a in view['legal_actions']):
+        response = client.post(f'/api/solo/{sid}/action', json={'type': 'pass_priority'})
+    else:
+        response = client.get(f'/api/solo/{sid}')
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
 def test_keep_hand_completes_setup_and_hands_the_human_priority(env):
     client, decks = env["client"], env["decks"]
     deck = _legal_deck(decks)
@@ -217,11 +228,11 @@ def test_passing_through_the_turn_lets_the_bot_play_a_land(env):
     deck = _legal_deck(decks)
     view = _start(client, deck.id).json()
     sid = _session_id(view)
-    client.post(f"/api/solo/{sid}/action", json={"type": "keep_hand", "bottom_instance_ids": []})
+    view = client.post(f"/api/solo/{sid}/action", json={"type": "keep_hand", "bottom_instance_ids": []}).json()
     bot_id = _bot_ids(view)[0]
 
     for _ in range(80):
-        view = client.post(f"/api/solo/{sid}/action", json={"type": "pass_priority"}).json()
+        view = _next_view(client, view)
         if view.get("state", {}).get("game_over"):
             break
         if _controls(view, bot_id, is_land=True):
@@ -233,49 +244,49 @@ def test_passing_through_the_turn_lets_the_bot_play_a_land(env):
     )
 
 
-def test_advance_solo_bots_terminates_on_a_bot_only_stretch(env):
-    """`_advance_solo_bots` must never spin: after the human passes on their
-    own turn with nothing on the stack, the bot takes a whole turn and the
-    request still returns (the human gets priority back, or the game ends)."""
+@pytest.mark.parametrize('bot_count', [1, 3])
+def test_each_request_returns_after_one_action(env, bot_count):
+    """Human actions and bot ticks each expose their own resulting position."""
     client, decks = env["client"], env["decks"]
     deck = _legal_deck(decks)
-    view = _start(client, deck.id).json()
+    view = _start(client, deck.id, opponents=[{'kind': 'goldfish', 'deckId': deck.id}] * bot_count).json()
     sid = _session_id(view)
-    client.post(f"/api/solo/{sid}/action", json={"type": "keep_hand", "bottom_instance_ids": []})
+    view = client.post(f"/api/solo/{sid}/action", json={"type": "keep_hand", "bottom_instance_ids": []}).json()
     start_turn = view["state"]["internal_turn"]["number"]
-    for _ in range(40):
-        view = client.post(f"/api/solo/{sid}/action", json={"type": "pass_priority"}).json()
+    for _ in range(80):
+        previous_count = len(view['move_log'])
+        view = _next_view(client, view)
+        assert len(view['move_log']) == previous_count + 1
+        if not view['legal_actions'] and not view['state']['game_over']:
+            assert view['bot_action_pending']
     assert view["state"]["internal_turn"]["number"] > start_turn  # the game moved on
-    assert view["legal_actions"] or view["state"]["game_over"]
 
 
-def test_the_human_is_never_handed_an_empty_priority_window_on_the_bots_turn(env):
-    """A bot's turn is auto-passed for the human server-side: the view only
-    comes back when the human has something to do (its own turn, a block, a
-    real option) — never just to click "pass" through the opponent's upkeep,
-    draw, combat and so on, which read as the table hanging (PLR-14)."""
+def test_bot_turn_preserves_human_pass_only_windows(env):
+    """Solo has the same human priority windows as a shared table."""
     client, decks = env["client"], env["decks"]
     deck = _legal_deck(decks)
     view = _start(client, deck.id).json()
     sid = _session_id(view)
-    client.post(f"/api/solo/{sid}/action", json={"type": "keep_hand", "bottom_instance_ids": []})
+    view = client.post(f"/api/solo/{sid}/action", json={"type": "keep_hand", "bottom_instance_ids": []}).json()
 
     saw_own_turn_again = False
-    for _ in range(60):
-        view = client.post(f"/api/solo/{sid}/action", json={"type": "pass_priority"}).json()
+    saw_pass_only_window = False
+    for _ in range(80):
+        view = _next_view(client, view)
         state = view["state"]
         if state["game_over"]:
             break
-        # Every view handed back is one the human genuinely has to act on.
         if state["active_player_id"] != SOLO_HUMAN_ID:
-            only_pass = {a["type"] for a in view["legal_actions"]} <= {"pass_priority"}
-            assert not only_pass, (
-                f"handed an empty pass-only window on the bot's turn: "
-                f"{state['internal_turn']['number']}/{state['current_step']}"
-            )
+            if {a['type'] for a in view['legal_actions']} == {'pass_priority'}:
+                saw_pass_only_window = True
+                polled = client.get(f'/api/solo/{sid}').json()
+                assert polled['move_log'] == view['move_log']
+                assert polled['state']['priority_player_id'] == SOLO_HUMAN_ID
         elif state["internal_turn"]["number"] > 1:
             saw_own_turn_again = True
     assert saw_own_turn_again  # the loop really did cross a bot turn
+    assert saw_pass_only_window
 
 
 # -- concede / restart / lifecycle ------------------------------------------

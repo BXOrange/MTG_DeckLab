@@ -333,6 +333,12 @@ repointed there.
 
 ## Multiplayer Board & Shared-Game UX
 
+### Table emotes and action announcements (VIS-4)
+
+- **What:** The shared board shows a table feed below the stack/trigger feed in the left rail. Players send only preset emotes (👍, 👏, GG, 🤔, ⏳), without a free-text input or a priority requirement. Public land plays, spell casts and ability activations are announced with player names; priority passes are omitted. Observers can read the feed. New messages follow the scroll position only when the reader is already near the bottom.
+- **Files:** `gameBoardView.js`, `soloView.js`, `locales/en.js`, `locales/de.js`, `main.css`.
+- **Layout:** On desktop and landscape tablets the left rail fills the available viewport height, accounting for board zoom. The message feed expands into remaining space; short viewports keep controls reachable through scrolling. Narrow screens retain the horizontal layout above the board. Verified in Chromium at desktop/tablet widths and 75–150% board zoom.
+
 ### Redacted opponent hands + observer mode
 
 - **What:** An opponent's hand renders as a count (or card backs, togglable) since the server never sends its contents (RULE 400.2); "👁️ Zuschauen" opens a no-controls, no-hands observer board.

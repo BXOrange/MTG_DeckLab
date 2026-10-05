@@ -309,6 +309,11 @@ class ManaMixin:
             self.rules.add_player_counters(player, ability.self_rad_counters, "rad", source=source)
         self.state.record_stat(player.id, "mana", amount=sum(produced.values()))
         mana_potential.record_mana_produced(self, player, produced)
+        self.state.fire_event(GameEvent(
+            EventType.MANA_ABILITY_ACTIVATED, player_id=player.id,
+            controller_id=player.id, instance_id=source.instance_id,
+            object=source.name, produced=dict(produced),
+        ))
         return produced
     def auto_tap_for(
         self,

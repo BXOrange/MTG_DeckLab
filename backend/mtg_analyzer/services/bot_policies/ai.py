@@ -93,7 +93,8 @@ class AIBot(SmartBot):
         if not actions:
             return None
         # Avoid spending API calls on setup and forced single-option moves.
-        if not view['setup']['complete'] or len(actions) == 1 and actions[0]['type'] in ('pass_priority', 'decline', 'keep_hand'):
+        pregame_choice = bool(view.get('pending_choice')) and not view['state'].get('current_step')
+        if not view['setup']['complete'] or pregame_choice or len(actions) == 1 and actions[0]['type'] in ('pass_priority', 'decline', 'keep_hand'):
             self.status.update(status='idle', message='')
             return super().decide(view, actions)
         try:

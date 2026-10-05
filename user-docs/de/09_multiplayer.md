@@ -218,6 +218,15 @@ Unterschieden für eine gemeinsame Partie:
   gerade eine Entscheidung"** statt seiner Optionen — die könnten Karten
   verraten, die du nicht sehen darfst.
 
+### Tisch-Emotes
+
+Unter dem Stack-/Trigger-Feed links zeigt **Tischchat**, wer ein Land
+spielt, einen Zauber wirkt oder eine Fähigkeit aktiviert, einschließlich
+Manafähigkeiten. Passen erzeugt keine Nachricht. Mit **👍, 👏, GG, 🤔 oder
+⏳** kannst du auch ohne Priorität reagieren. Es gibt kein Freitextfeld.
+Beobachter können mitlesen. Die letzten 200 Einträge bleiben beim
+Wiederverbinden erhalten; ein Neustart der Partie leert den Feed.
+
 ### Priorität
 
 Magic geht nicht Schritt für Schritt weiter, weil jemand auf "weiter"
